@@ -60,11 +60,11 @@ end
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
 -- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
 -- channelMask, trackPriority, playerPriority, and the optional channel-side
--- controls (trackPanOffset 0, panRange 127, fader 0, sweepPitch 0,
--- sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/2=pan,
--- depth 0, range 1, speed 16, delay 0}). Sample voices carry no source
--- sample rate: playback derives from the DS sound clock and the calculated
--- timer.
+-- controls (userPitch 0, trackPanOffset 0, panRange 127, fader 0,
+-- sweepPitch 0, sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/
+-- 2=pan, depth 0, range 1, speed 16, delay 0}). Sample voices carry no
+-- source sample rate: playback derives from the DS sound clock and the
+-- calculated timer.
 local function spec(overrides)
   local s = {
     generator = { kind = "sample", sample = AudioFixture.key(1) },
@@ -308,6 +308,32 @@ function T.update_voice_retunes_the_key_at_the_next_control_step()
   Assert.equal(leftAt(second, CONTROL), 320, "the retune leaves the step-3 register untouched")
   Assert.equal(leftAt(second, CONTROL + 1), 664, "attack step 4 continues from the retuned voice")
   Assert.equal(leftAt(second, 750), 1040, "the attack continues toward the sustain register")
+end
+
+-- updateVoice userPitch reaches a live held voice at the next control step
+-- through the same pitch path as the key retune: userPitch 768 is the
+-- 12-semitone step that lands timer 256 from the 512 base timer (the timer
+-- the key-72 retune uses), so the read rate doubles from the boundary
+-- frame's own advance on while the sample position continues -- never
+-- restarting the wave or the envelope. The boundary frame's own read hears
+-- the new pitch; the frame before it still reads at the old rate.
+function T.update_voice_user_pitch_changes_a_held_voice_at_the_next_control_step()
+  local mixer = newMixer()
+  local handle = mixer:noteOn(spec({
+    pcm = WAVE16,
+    baseTimer = 512,
+    loop = { startFrame = 0, endFrame = 16 },
+    pan = 0,
+  })) --[[@as { channel: integer, generation: integer }]]
+  local first = mixer:render(CONTROL)
+  mixer:updateVoice(handle, { userPitch = 768 })
+  local second = mixer:render(300)
+  Assert.equal(leftAt(first, CONTROL), 1000, "userPitch 0 holds the base-timer read rate (sample 10)")
+  Assert.equal(leftAt(second, CONTROL - 1), 400, "the frame before the boundary still reads at the old rate")
+  Assert.equal(leftAt(second, CONTROL), 500, "the boundary frame's own read hears the new pitch")
+  Assert.equal(leftAt(second, CONTROL + 1), 600, "userPitch 768 reads at the doubled rate from the next frame")
+  Assert.equal(leftAt(second, CONTROL + 2), 700, "userPitch 768 reads at the doubled rate from the next frame")
+  Assert.equal(leftAt(second, CONTROL + 3), 900, "userPitch 768 reads at the doubled rate from the next frame")
 end
 
 -- updateVoice velocity reaches the volume dB sum at the next control step

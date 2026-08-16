@@ -18,7 +18,8 @@
 --     (phase += 192 per output frame, one step when it reaches the output
 --     rate): every 250 frames at 48 kHz, the 170/171 alternation at 32768
 --     Hz. The noteOn itself is the note's first control step.
---   * Pitch is the integer domain (key - originalKey)*0x40 through
+--   * Pitch is the integer domain (key - originalKey)*0x40 + userPitch
+--     (the note's user pitch, default 0) + sweep + pitch LFO through
 --     SND_CalcTimer (BIOS pitch table); square timers are masked with
 --     0xFFFC and square/noise use the 8006 base timer. The host phase
 --     increment is the DS sample clock/(timer*outputRate) for every
@@ -255,6 +256,9 @@ local function newVoice(spec)
     generator = generator,
     midiKey = spec.key,
     rootMidiKey = spec.originalKey,
+    -- The user pitch (TrackUpdateChannel: the player scales pitchBend by
+    -- bendRange<<6 then >>7; the mixer never derives it from a key).
+    userPitch = spec.userPitch or 0,
     velocity = spec.velocity,
     envAttenuation = ENV_START,
     envStatus = "attack",
@@ -338,10 +342,14 @@ local function applyPending(voice)
   if pending.sweepCounter ~= nil then
     voice.sweepCounter = pending.sweepCounter
   end
-  -- The tie partials: key retunes the pitch path, velocity re-enters the
-  -- dB sum; both leave the envelope and the release/attack status alone.
+  -- The tie partials: key retunes the pitch path, userPitch offsets it,
+  -- velocity re-enters the dB sum; all leave the envelope and the
+  -- release/attack status alone.
   if pending.key ~= nil then
     voice.midiKey = pending.key
+  end
+  if pending.userPitch ~= nil then
+    voice.userPitch = pending.userPitch
   end
   if pending.velocity ~= nil then
     voice.velocity = pending.velocity
@@ -419,7 +427,7 @@ local function syncRegisters(voice)
     voice.dead = true
     return false
   end
-  local pitch = (voice.midiKey - voice.rootMidiKey) * 0x40
+  local pitch = (voice.midiKey - voice.rootMidiKey) * 0x40 + voice.userPitch
   if lfo ~= 0 and param.target == 0 then
     pitch = pitch + lfo
   end
@@ -612,9 +620,9 @@ end
 -- applied at the next control step -- also while the voice is releasing,
 -- because the current inputs decide the release's death moment. The `key`
 -- partial retunes the voice through the note's pitch path (the
--- timer/ratio recompute) without touching the envelope or the
--- release/attack status; `velocity` updates the velocity in the volume dB
--- sum. A stale handle is harmless.
+-- timer/ratio recompute) and `userPitch` offsets it, both without
+-- touching the envelope or the release/attack status; `velocity` updates
+-- the velocity in the volume dB sum. A stale handle is harmless.
 ---@param handle { channel: integer, generation: integer }
 ---@param partial table
 function VoiceMixer:updateVoice(handle, partial)
@@ -638,13 +646,6 @@ function VoiceMixer:isVoiceAlive(handle)
   local voice = self._channels[handle.channel]
   return voice ~= nil and voice.generation == handle.generation and not voice.dead
 end
-
--- No-op: the mixer does not suspend voices (player pause releases channels
--- instead). Kept because the sequence player's transport pause still calls
--- it per voice; the call is removed with the player-side pause rework.
----@param handle { channel: integer, generation: integer }
----@param suspended boolean
-function VoiceMixer:suspendVoice(handle, suspended) end
 
 -- Renders `frames` output frames of interleaved stereo int16 PCM (2*frames
 -- entries) appended to `out` after its current end, so a caller-owned

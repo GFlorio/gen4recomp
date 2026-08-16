@@ -58,9 +58,9 @@ local FORBIDDEN_INSTRUCTION_FIELDS = {
 -- The actual runtime playback vocabulary: the ops the player executor
 -- handles with real behavior (or nop), mirroring the executor's branches --
 -- deliberately not AudioSequence.OPS, so "the validator says it is closed"
--- is never treated as proof the runtime can play it. Comparison ops are
--- present because the current executor still implements conditional
--- gating; they leave this list when the conditional state does.
+-- is never treated as proof the runtime can play it. Comparison ops and
+-- conditional instructions are compile-time rejections, so the runtime has
+-- no comparison vocabulary.
 local SUPPORTED_RUNTIME_OPS = {
   note = true,
   wait = true,
@@ -76,12 +76,6 @@ local SUPPORTED_RUNTIME_OPS = {
   divvar = true,
   shiftvar = true,
   randomvar = true,
-  cmp_eq = true,
-  cmp_ge = true,
-  cmp_gt = true,
-  cmp_le = true,
-  cmp_lt = true,
-  cmp_ne = true,
   pan = true,
   volume = true,
   master_volume = true,

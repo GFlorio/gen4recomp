@@ -74,11 +74,11 @@ end
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
 -- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
 -- channelMask, trackPriority, playerPriority, and the optional channel-side
--- controls (trackPanOffset 0, panRange 127, fader 0, sweepPitch 0,
--- sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/2=pan,
--- depth 0, range 1, speed 16, delay 0}). Sample voices carry no source
--- sample rate: playback derives from the DS sound clock and the calculated
--- timer.
+-- controls (userPitch 0, trackPanOffset 0, panRange 127, fader 0,
+-- sweepPitch 0, sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/
+-- 2=pan, depth 0, range 1, speed 16, delay 0}). Sample voices carry no
+-- source sample rate: playback derives from the DS sound clock and the
+-- calculated timer.
 local function spec(overrides)
   local s = {
     generator = { kind = "sample", sample = AudioFixture.key(1) },
@@ -343,6 +343,31 @@ function T.sample_voices_pitch_through_the_calculated_timer()
   local sharp = renderAt(61, 16012)
   Assert.equal(leftAt(sharp, 16012), 300, "one semitone up reads the third sample at frame 16012 (timer 7556)")
   Assert.equal(leftAt(unity, 16012), 200, "unity is still at the second sample")
+end
+
+-- The note spec carries the user pitch (TrackInit bend 0 -> userPitch 0,
+-- TrackUpdateChannel: userPitch = pitchBend*(bendRange<<6)>>7) folded into
+-- the same integer pitch path as the key difference, so userPitch 64 lands
+-- the one-semitone timer 7556 and userPitch -768 the octave-down timer
+-- 16012 through SND_CalcTimer; a spec without the field renders exactly
+-- like userPitch 0.
+function T.user_pitch_offsets_the_timer_at_note_on()
+  local DS_RATE = 16756991
+  local function renderAt(userPitch, frames)
+    local mixer = newMixer(DS_RATE)
+    mixer:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, userPitch = userPitch, pan = 0 }))
+    return mixer:render(frames)
+  end
+  local bent = renderAt(64, 15200)
+  Assert.equal(leftAt(bent, 7600), 200, "userPitch 64 lands the one-semitone timer 7556 (sample 2)")
+  Assert.equal(leftAt(bent, 15200), 300, "userPitch 64 reads sample 3 where the key-61 timer still reads sample 2")
+  local down = renderAt(-768, 32200)
+  Assert.equal(leftAt(down, 10000), 100, "userPitch -768 lands the octave-down timer 16012 (sample 1)")
+  Assert.equal(leftAt(down, 20000), 200, "userPitch -768 reads sample 2 at frame 20000")
+  Assert.equal(leftAt(down, 32200), 300, "userPitch -768 reads sample 3 at frame 32200")
+  local absent = newMixer(DS_RATE)
+  absent:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, pan = 0 }))
+  Assert.deepEqual(absent:render(24018), renderAt(0, 24018), "userPitch defaults to 0 when absent")
 end
 
 -- PSG runs only on channels 8..13 and noise only on 14..15, both with the

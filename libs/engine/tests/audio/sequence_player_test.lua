@@ -1,40 +1,59 @@
 -- SequencePlayer contract: the g4 sequence-IR interpreter on the NNS timing
--- and state model (SND_seq.c TrackStepTicks/TrackPlayNote/TrackInit). The
--- tick clock is unchanged: a quarter
--- note is 48 ticks, tempo is BPM (1..240, default 120), and ticks come from an
--- exact integer accumulator (tempo*48 per output frame, one tick per
--- sampleRate*60 units) -- the GBATEK/ARM7 SND_TIMER_RATE relationship the
--- mixer's control cadence (one step per outputRate/192 frames) also derives
--- from. A track processes commands while `wait == 0` and not note-finish
--- waiting (WAIT 0 continues in the same pass); a note under note-wait gates
--- the track for its duration, and a zero-length note becomes a note-FINISH
--- wait that holds the track until the note's voice completes its release --
--- never a one-tick wait. Tracks own a polyphonic voice collection of
--- {channel, generation} handles (never a single channel): notes overlap when
--- note-wait is cleared, each voice rings its own channel length, and a stolen
--- handle's note-off is harmless. State: wait ticks, note-finish wait,
--- note-wait (default true), tie, mute, program, priority (default 64),
--- volume, expression, pan offset (the raw trackPanOffset, default 0),
--- transpose, bend, bend range, nullable envelope overrides (applied to a
--- note only when set), the comparison flag, call/loop stacks, and variables.
--- The player drives the mixer's new-model spec only: trackVolume +
--- playerVolume (never folded), trackPriority + playerPriority, the raw
--- trackPanOffset, the instrument pan, bend folded into `key` (the mixer has
--- no bend field), and {channel, generation} handles with per-Main
--- updateVoice pushes of the current track values. Players process ascending
--- player number and tracks ascending track number over the fixed NNS domains
--- (16 players x 16 tracks), so contested allocation is deterministic. Random
--- operands draw from an injected per-instance RNG (production must not
--- reseed per play); variables live in the 16-local/16-global SDK domain.
--- Rendering is per-frame with instance-carried state, so chunk sizes never
--- change the result.
-
--- Every exact PCM vector below is derived from the landed VoiceMixer driven
--- with the mandated player spec (the mixer suite pins the underlying NNS
--- math): a note rings at full gain through its duration ticks plus the
--- 250-frame release lag (the control period at 48 kHz), then 250 frames at
--- the release register 0x306 gain (mantissa 6 over the divider shift 4 =
--- 6/2048), then silence -- the noteOff itself never kills the voice.
+-- and state model (SND_seq.c TrackStepTicks/TrackPlayNote/TrackInit/
+-- TrackUpdateChannel). The tick clock is unchanged: a quarter note is 48
+-- ticks, tempo is BPM (1..240, default 120), and ticks come from an exact
+-- integer accumulator (tempo*48 per output frame, one tick per sampleRate*60
+-- units) -- the GBATEK/ARM7 SND_TIMER_RATE relationship. A track processes
+-- commands while `wait == 0` and not note-finish waiting (WAIT 0 continues
+-- in the same pass); a note under note-wait gates the track for its
+-- duration, and a zero-length note becomes a note-FINISH wait that holds the
+-- track until its live channel handles are gone -- never a one-tick wait and
+-- never a synthesized release. The player does not predict mixer death: the
+-- mixer owns voice liveness (`isVoiceAlive`) and the sequencer prunes dead
+-- handles from its collections and observes liveness for finish waits.
+--
+-- Track state follows the SDK: wait ticks, the note-finish hold, note-wait
+-- (default true), a polyphonic voice collection of {handle, length} pairs,
+-- tie, mute, program, priority (default 64), volume/expression 127, the raw
+-- pan offset (default 0), transpose, the signed bend (default 0 -- bend 0
+-- is no bend, never a centered-at-64 convention), bend range 2, the mod
+-- snapshot (target 0, depth 0, range 1, speed 16, delay 0), sweepPitch 0,
+-- portamentoKey 60, portamentoTime 0, the portamento flag, nullable
+-- envelope stage overrides, and the call/loop stacks.
+--
+-- Note semantics follow TrackPlayNote: the transposed key is clamped to the
+-- MIDI domain (0..127) BEFORE the bank leaf is selected, so key-split and
+-- drum-set selection use the transposed key; positive finite note lengths
+-- are decremented toward release while zero-length and tied channel starts
+-- are indefinite and are never released by the duration counter. Pitch bend
+-- is user pitch, not a key change: the spec carries `userPitch`
+-- (pitchBend * (bendRange << 6) >> 7, the SDK integer shift) and held
+-- voices receive userPitch updates in place. The tie command always
+-- releases and frees the track's current voices even when the flag value is
+-- unchanged; a tied note reuses the live head voice (key/velocity update,
+-- no noteOn/noteOff). The sweep/portamento commands wire the TrackPlayNote
+-- channel state (the track sweep plus the portamento contribution, the
+-- sweep length from portamentoTime, autoSweep) and update portamentoKey to
+-- the note's MIDI key after the note.
+--
+-- The player queues control changes (track values, fader, LFO parameters,
+-- user pitch) to its live voices as events rather than maintaining its own
+-- rounded control clock; the mixer owns the 192 Hz sound-control cadence.
+-- Pause releases the player's voices with release override 127 and frees
+-- the handles; the timeline freezes and resume never resurrects old voices.
+-- Random amount operands resolve through the player's RNG in the SDK u16
+-- draw domain (SND_CalcRandom: state = state*1664525 + 1013904223 mod 2^32,
+-- draw = state >> 16, initial state 0x12345678; TrackParseValue scales
+-- min + ((draw * (max - min + 1)) >> 16)); production creates the RNG once
+-- and never reseeds per play.
+--
+-- The suite asserts events and state through a recording mixer (noteOn/
+-- noteOff/updateVoice/isVoiceAlive order, handles, tick boundaries, pause
+-- releases, sequence replacement); the exact PCM/register hardware math is
+-- pinned in the VoiceMixer suite. The mixer's {channel, generation} handles
+-- are opaque to the player: the stub mixer models the persistent-generation
+-- contract. Players process ascending player number and tracks ascending
+-- track number over the fixed NNS domains (16 players x 16 tracks).
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -44,24 +63,12 @@ local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
 local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
-local bit = require("bit")
 
 local T = {}
 
 local SAMPLE_RATE = 48000
 local WAVE_A = { 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000 }
 local WAVE_B = { 10000, 9000, 8000, 7000 }
-local WAVE_C = { 500, 1000, 1500, 2000, 2500, 3000 }
-
--- The expected-PCM model (release cadence) is shared with the game-sound
--- suite; see tests/support/AudioPattern.lua.
-local AudioPattern = require("tests.support.AudioPattern")
-local waveAt = AudioPattern.waveAt
-local segment = AudioPattern.segment
-local noteSegment = AudioPattern.noteSegment
-local sumSegments = AudioPattern.sumSegments
-local sumSegmentsSaturating = AudioPattern.sumSegmentsSaturating
-local slice = AudioPattern.slice
 
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
@@ -124,6 +131,7 @@ end
 local function buildBundle(sequences, opts)
   opts = opts or {}
   local keyA, keyB, keyC = AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3)
+  local WAVE_C = { 500, 1000, 1500, 2000, 2500, 3000 }
   local bundle = AudioFixture.bundle()
   local indexSequences, indexPlayers, sequenceBySymbol = {}, {}, {}
   for id, sequence in pairs(sequences) do
@@ -155,18 +163,9 @@ local function buildBundle(sequences, opts)
     [keyC] = AudioFixture.pcm16le(WAVE_C),
   }
   bundle.sampleMetadata = {
-    [keyA] = AudioFixture.sampleMetadata(
-      keyA,
-      { frames = 8, sampleRate = SAMPLE_RATE, loop = { startFrame = 0, endFrame = 8 } }
-    ),
-    [keyB] = AudioFixture.sampleMetadata(
-      keyB,
-      { frames = 4, sampleRate = SAMPLE_RATE, loop = { startFrame = 0, endFrame = 4 } }
-    ),
-    [keyC] = AudioFixture.sampleMetadata(
-      keyC,
-      { frames = 6, sampleRate = SAMPLE_RATE, loop = { startFrame = 0, endFrame = 6 } }
-    ),
+    [keyA] = AudioFixture.sampleMetadata(keyA, { frames = 8, loop = { startFrame = 0, endFrame = 8 } }),
+    [keyB] = AudioFixture.sampleMetadata(keyB, { frames = 4, loop = { startFrame = 0, endFrame = 4 } }),
+    [keyC] = AudioFixture.sampleMetadata(keyC, { frames = 6, loop = { startFrame = 0, endFrame = 6 } }),
   }
   return bundle
 end
@@ -188,31 +187,48 @@ local function play(player, provider)
   player:play(provider:sequence(0), provider:bank(12))
 end
 
--- A deterministic [0,1) source for the injected-RNG tests.
-local function seededRng(seed)
-  local state = seed
+-- An injected RNG in the SDK u16 draw domain: returns the raw 16-bit
+-- SND_CalcRandom values of a test-fixed sequence, in order.
+local function u16Draws(draws)
+  local index = 0
   return function()
-    state = (state * 1103515245 + 12345) % 4294967296
-    return state / 4294967296
+    index = index + 1
+    return draws[index]
   end
 end
 
--- A recording mixer implementing the new-model contract: noteOn returns a
--- {channel, generation} handle, noteOff/updateVoice take handles, and every
--- call is logged for assertions.
+-- A recording mixer implementing the semantic contract the player drives:
+-- noteOn returns a persistent-generation {channel, generation} handle,
+-- noteOff/updateVoice/isVoiceAlive take handles, `kill` simulates the mixer
+-- removing a voice (a stolen or naturally dead channel) so the player's
+-- liveness-based pruning and finish waits are observable. Every call is
+-- logged for assertions.
 local function stubMixer()
-  local log = { noteOns = {}, noteOffs = {}, updates = {}, renders = {} }
+  local log = { noteOns = {}, noteHandles = {}, noteOffs = {}, updates = {}, renders = {} }
+  local generation = 0
+  local alive = {}
   local mixer = {
     log = log,
     noteOn = function(_, spec)
+      local gen = generation
+      generation = generation + 1
+      local handle = { channel = 3, generation = gen }
       log.noteOns[#log.noteOns + 1] = spec
-      return { channel = 3, generation = 0 }
+      log.noteHandles[#log.noteHandles + 1] = handle
+      alive[gen] = true
+      return handle
     end,
-    noteOff = function(_, handle)
-      log.noteOffs[#log.noteOffs + 1] = handle
+    noteOff = function(_, handle, releaseOverride)
+      log.noteOffs[#log.noteOffs + 1] = { handle = handle, releaseOverride = releaseOverride }
     end,
     updateVoice = function(_, handle, partial)
       log.updates[#log.updates + 1] = { handle = handle, partial = partial }
+    end,
+    isVoiceAlive = function(_, handle)
+      return alive[handle.generation] == true
+    end,
+    kill = function(_, handle)
+      alive[handle.generation] = false
     end,
     renderInto = function(_, out, frames)
       log.renders[#log.renders + 1] = frames
@@ -224,76 +240,37 @@ local function stubMixer()
   return mixer
 end
 
--- The left channel of the first `frames` frames.
-local function left(pcm, frames)
-  local out = {}
-  for i = 1, frames do
-    out[i] = pcm[i * 2 - 1]
-  end
-  return out
-end
-
-local function zeros(frames)
-  local out = {}
-  for i = 1, frames do
-    out[i] = 0
-  end
-  return out
-end
-
-local function samePcm(a, b)
-  if #a ~= #b then
-    return false
-  end
-  for i = 1, #a do
-    if a[i] ~= b[i] then
-      return false
-    end
-  end
-  return true
-end
-
--- The square voice's full-gain sample at `frame` (duty 0.5, key ratio).
-local function squareAt(ratio, startFrame)
-  return function(frame)
-    local phase = math.floor((frame - startFrame) * ratio) % 8
-    return phase < 4 and -32767 or 32767
-  end
-end
-
--- The exact NNS pitch ratios the mixer derives from SND_CalcTimer
--- (VoiceMixer voiceRatio): a sample voice reads at sampleRate*baseTimer/
--- (calcTimer(baseTimer, (key-originalKey)*64)*sampleRate), a square at
--- DS_SAMPLE_CLOCK/((calcTimer(8006, (key-60)*64) & 0xFFFC)*sampleRate).
-local DS_SAMPLE_CLOCK = 16756991
-local function sampleRatio(key, originalKey)
-  local timer = NnsSoundMath.calcTimer(8006, (key - originalKey) * 64)
-  return SAMPLE_RATE * 8006 / (timer * SAMPLE_RATE)
-end
-local function squareRatio(key)
-  local timer = bit.band(NnsSoundMath.calcTimer(8006, (key - 60) * 64), 0xFFFC)
-  return DS_SAMPLE_CLOCK / (timer * SAMPLE_RATE)
+-- The generator a recorded noteOn carries; convenient for ordering and
+-- instrument-selection assertions.
+local function generatorOf(spec)
+  return spec.generator
 end
 
 function T.plays_a_note_and_ends_the_sequence()
-  local player, provider =
-    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } }) })
+  local mixer = stubMixer()
+  local player, provider = engine(
+    { [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } }) },
+    {
+      mixer = mixer,
+    }
+  )
   local before = player:render(8)
   for i = 1, 16 do
     Assert.equal(before[i], 0, "nothing plays before play()")
   end
   play(player, provider)
   Assert.isTrue(player:isPlaying())
-  local pcm = player:render(1100)
+  player:render(500)
   Assert.deepEqual(
-    left(pcm, 1100),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1100) }, 1100),
-    "a 1-tick note at tempo 120 rings 750 frames at full gain, then the 250-frame release tail"
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "the 1-tick note releases at its own tick boundary"
   )
   Assert.isFalse(player:isPlaying(), "the end terminates the sequence")
 end
 
 function T.a_note_occupies_the_track_for_its_whole_duration()
+  local mixer = stubMixer()
   local program = {
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 2 },
@@ -301,17 +278,23 @@ function T.a_note_occupies_the_track_for_its_whole_duration()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(2000)
+  Assert.equal(#mixer.log.noteOns, 1, "the first note starts at play")
+  player:render(500)
+  Assert.equal(#mixer.log.noteOns, 1, "the note's gate holds the track for its whole duration")
+  player:render(500)
+  Assert.equal(#mixer.log.noteOns, 2, "the second note starts only when the first's gate opens")
   Assert.deepEqual(
-    left(pcm, 2000),
-    sumSegments({ noteSegment(WAVE_A, 1, 2, 1, 2000), noteSegment(WAVE_B, 1, 1, 1001, 2000) }, 2000),
-    "the note's gate holds the track for its whole duration; the second note starts only when the first's gate opens"
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "the first voice releases at its own tick boundary, before the second starts"
   )
+  Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(2), "the second note plays program 1")
 end
 
 function T.waits_gate_the_next_instruction()
+  local mixer = stubMixer()
   local program = {
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
@@ -319,43 +302,47 @@ function T.waits_gate_the_next_instruction()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(2000)
-  Assert.deepEqual(
-    left(pcm, 2000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 2000), noteSegment(WAVE_A, 1, 1, 1501, 2000) }, 2000)
-  )
+  player:render(1000)
+  Assert.equal(#mixer.log.noteOns, 1, "the wait holds the second note until it expires")
+  Assert.equal(#mixer.log.noteOffs, 1, "the first note rings its own length; the wait does not release it")
+  player:render(500)
+  Assert.equal(#mixer.log.noteOns, 2, "the second note starts when the wait expires")
+  player:render(500)
+  Assert.isFalse(player:isPlaying())
 end
 
 function T.tempo_is_bpm_with_48_ticks_per_quarter_note()
-  local function noteLength(tempo)
+  local function noteOffAt(tempo)
+    local mixer = stubMixer()
     local player, provider = engine({
       [0] = seq({
         { op = "tempo", amount = tempo },
         { op = "note", key = 60, velocity = 127, duration = 1 },
         { op = "end" },
       }),
-    })
+    }, { mixer = mixer })
     play(player, provider)
-    local frames = left(player:render(3000), 3000)
-    local length = 0
-    for frame = 1, 3000 do
-      if frames[frame] ~= 0 then
-        length = length + 1
-      end
-    end
-    return length
+    player:render(249)
+    local first = #mixer.log.noteOffs
+    player:render(1)
+    local boundary = #mixer.log.noteOffs
+    player:render(250)
+    local rest = #mixer.log.noteOffs
+    return first, boundary, rest
   end
-  Assert.equal(
-    noteLength(120),
-    1000,
-    "GBATEK: 48 ticks per quarter note; at 120 BPM one tick is 500 frames, plus the release lag and tail"
-  )
-  Assert.equal(noteLength(240), 750, "double tempo halves the tick; the release lag and tail stay frame-based")
+  local first, boundary = noteOffAt(240)
+  Assert.equal(first, 0, "at 240 BPM one tick is 250 frames; the note still rings before it")
+  Assert.equal(boundary, 1, "the 1-tick note releases exactly at the tick boundary")
+  local slowFirst, slowBoundary, slowRest = noteOffAt(120)
+  Assert.equal(slowFirst, 0, "at 120 BPM one tick is 500 frames")
+  Assert.equal(slowBoundary, 0, "the note survives frame 250")
+  Assert.equal(slowRest, 1, "the note releases at frame 500 (48 ticks per quarter note)")
 end
 
 function T.program_changes_select_other_instruments()
+  local mixer = stubMixer()
   local program = {
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
@@ -363,29 +350,26 @@ function T.program_changes_select_other_instruments()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(1000)
-  Assert.deepEqual(
-    left(pcm, 1000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1000), noteSegment(WAVE_B, 1, 1, 501, 1000) }, 1000)
-  )
+  player:render(500)
+  Assert.equal(#mixer.log.noteOns, 2, "the second program selects the other instrument")
+  Assert.equal(generatorOf(mixer.log.noteOns[1]).sample, AudioFixture.key(1))
+  Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(2))
 end
 
 function T.jump_loops_back_to_its_target()
+  local mixer = stubMixer()
   local program = {
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "jump", target = 2 },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(1000)
-  Assert.deepEqual(
-    left(pcm, 1000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1000), noteSegment(WAVE_A, 1, 1, 501, 1000) }, 1000),
-    "the jump retriggers the note at every tick; the ringing note overlaps its retrigger"
-  )
+  player:render(1000)
+  Assert.equal(#mixer.log.noteOns, 3, "the jump retriggers the note at every tick")
+  Assert.equal(#mixer.log.noteOffs, 2, "each ringing voice is released at its own tick")
   Assert.isTrue(player:isPlaying(), "an open loop keeps playing")
 end
 
@@ -399,31 +383,26 @@ function T.top_level_returns_are_no_ops_and_the_program_tail_ends_the_track()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(midProgram) })
+  local midMixer = stubMixer()
+  local player, provider = engine({ [0] = seq(midProgram) }, { mixer = midMixer })
   play(player, provider)
-  local pcm = player:render(1000)
-  Assert.deepEqual(
-    left(pcm, 1000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1000), noteSegment(WAVE_A, 1, 1, 501, 1000) }, 1000),
-    "a top-level return falls through to the next instruction like the SDK"
-  )
+  player:render(1000)
+  Assert.equal(#midMixer.log.noteOns, 2, "a top-level return falls through to the next instruction like the SDK")
 
   local trailing = {
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "return" },
   }
-  local tailPlayer, tailProvider = engine({ [0] = seq(trailing) })
+  local tailMixer = stubMixer()
+  local tailPlayer, tailProvider = engine({ [0] = seq(trailing) }, { mixer = tailMixer })
   play(tailPlayer, tailProvider)
-  local tailPcm = tailPlayer:render(1000)
-  Assert.deepEqual(
-    left(tailPcm, 1000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1000) }, 1000),
-    "a trailing top-level return falls past the program tail and ends the track"
-  )
+  tailPlayer:render(1000)
+  Assert.equal(#tailMixer.log.noteOns, 1, "a trailing top-level return falls past the program tail")
   Assert.isFalse(tailPlayer:isPlaying())
 end
 
 function T.call_and_return_execute_a_subprogram()
+  local mixer = stubMixer()
   local program = {
     { op = "call", target = 4 },
     { op = "wait", duration = 1 },
@@ -432,18 +411,15 @@ function T.call_and_return_execute_a_subprogram()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "return" },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(1000)
-  Assert.deepEqual(
-    left(pcm, 1000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1000) }, 1000),
-    "the call returns to the instruction after it"
-  )
+  player:render(1000)
+  Assert.equal(#mixer.log.noteOns, 1, "the call returns to the instruction after it")
   Assert.isFalse(player:isPlaying())
 end
 
 function T.open_track_plays_a_second_voice_in_parallel()
+  local mixer = stubMixer()
   local program = {
     { op = "open_track", track = 1, target = 5 },
     { op = "program", program = 0 },
@@ -453,157 +429,152 @@ function T.open_track_plays_a_second_voice_in_parallel()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(500)
-  local expected = {}
-  for i = 1, 500 do
-    expected[i] = WAVE_A[(i - 1) % 8 + 1] + WAVE_B[(i - 1) % 4 + 1]
-  end
-  Assert.deepEqual(left(pcm, 500), expected, "both tracks sound from the first frame")
+  Assert.equal(#mixer.log.noteOns, 1, "the main track notes at play")
+  player:render(500)
+  Assert.equal(#mixer.log.noteOns, 2, "the opened track notes on the first render pass")
+  Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(2))
   Assert.isFalse(player:isPlaying(), "the sequence ends when every track ends")
 end
 
-function T.pitch_bend_and_transpose_shift_the_pitch_ratio()
-  local function renderFor(prefix, frames)
-    local player, provider = engine({ [0] = seq(prefix) })
+-- The volume/expression commands ride the note spec as the SDK fields; the
+-- dB-domain register conversion they feed is VoiceMixer contract (the
+-- player never folds them together).
+function T.volume_and_expression_ride_the_note_spec()
+  local function specFor(prefix)
+    local mixer = stubMixer()
+    local player, provider = engine({ [0] = seq(prefix) }, { mixer = mixer })
     play(player, provider)
-    return left(player:render(frames), frames)
+    player:render(100)
+    return mixer.log.noteOns[1]
   end
-  local function patternAt(ratio, frames)
-    local out = {}
-    for i = 1, frames do
-      out[i] = WAVE_A[math.floor((i - 1) * ratio) % 8 + 1]
-    end
-    return out
-  end
-  local bend = renderFor({
-    { op = "pitch_bend_range", amount = 48 },
-    { op = "pitch_bend", amount = 96 },
-    { op = "note", key = 60, velocity = 127, duration = 2 },
-    { op = "end" },
-  }, 1000)
-  Assert.deepEqual(bend, patternAt(2, 1000), "bend 96 at range 48 is +12 semitones: ratio 2")
-  local transpose = renderFor({
-    { op = "transpose", amount = -12 },
-    { op = "note", key = 60, velocity = 127, duration = 2 },
-    { op = "end" },
-  }, 1000)
-  Assert.deepEqual(transpose, patternAt(0.5, 1000), "transpose -12 is an octave down: ratio 0.5")
-end
-
--- The NNS volume path: velocity, track volume, expression and player volume
--- all enter the channel dB sum through SNDi_DecibelSquareTable
--- (SND_seq.c TrackUpdateChannel), converted by SND_CalcChannelVolume into the
--- register the mixer suite pins (expression/volume 64 -> register 0x141,
--- 100 -> register 0x4F). The player never folds these together.
-function T.volume_and_expression_use_the_nns_decibel_domain()
-  local function renderFor(prefix)
-    local player, provider = engine({ [0] = seq(prefix) })
-    play(player, provider)
-    return left(player:render(500), 500)
-  end
-  local expression = renderFor({
+  local expression = specFor({
     { op = "expression", amount = 64 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   })
-  Assert.equal(expression[1], 254, "expression 64 is register 0x141 (65/256), not a linear fold")
-  local volume = renderFor({
+  Assert.equal(expression.expression, 64, "the expression command sets the note's expression field")
+  local volume = specFor({
     { op = "volume", amount = 64 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   })
-  Assert.equal(volume[1], 254, "volume 64 is the same decibel point as expression 64")
-  local louder = renderFor({
-    { op = "expression", amount = 100 },
-    { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "end" },
-  })
-  Assert.equal(louder[1], 617, "expression 100 is register 0x4F (79/128)")
-  local silent = renderFor({
+  Assert.equal(volume.trackVolume, 64, "the volume command sets the track volume field")
+  local silent = specFor({
     { op = "expression", amount = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   })
-  Assert.equal(silent[1], 0, "expression 0 is silence")
+  Assert.equal(silent.expression, 0, "expression 0 is passed through as zero")
 end
 
-function T.pan_moves_notes_across_the_stereo_field()
-  local bank = AudioFixture.bank(12, "BANK_TEST", { AudioFixture.key(1) }, {
-    [0] = { kind = "direct", voice = voice(AudioFixture.key(1), { pan = 64 }) },
-  })
-  local function renderFor(pan)
+-- Transpose is the SDK s8 (0x80 lowers to -128, 0xFF to -1): the note key
+-- plus transpose is clamped to the MIDI domain 0..127, and the clamped key
+-- drives the bank leaf selection (SND_seq.c TrackStepTicks midiKey +
+-- TrackPlayNote SND_ReadInstData), never the raw source key.
+function T.transpose_shifts_the_note_key_by_signed_semitones()
+  local function noteFor(transpose, key, program)
+    local mixer = stubMixer()
     local player, provider = engine({
       [0] = seq({
-        { op = "pan", amount = pan },
-        { op = "note", key = 60, velocity = 127, duration = 1 },
+        { op = "program", program = program },
+        { op = "transpose", amount = transpose },
+        { op = "note", key = key, velocity = 127, duration = 1 },
         { op = "end" },
       }),
-    }, { bank = bank })
+    }, { mixer = mixer })
     play(player, provider)
-    return player:render(500)
+    player:render(100)
+    return mixer.log.noteOns[1]
   end
-  local leftOnly = renderFor(0)
-  local expectedLeft = {}
-  for i = 1, 500 do
-    expectedLeft[i] = WAVE_A[(i - 1) % 8 + 1]
-  end
-  Assert.deepEqual(left(leftOnly, 500), expectedLeft, "track pan 0 pushes a center voice fully left")
-  local rightOnly = renderFor(127)
-  for i = 1, 500 do
-    Assert.equal(rightOnly[i * 2 - 1], 0, "track pan 127 pushes a center voice fully right")
-    Assert.equal(rightOnly[i * 2], WAVE_A[(i - 1) % 8 + 1])
-  end
-  local center = renderFor(64)
-  for i = 1, 500 do
-    Assert.equal(center[i * 2 - 1], center[i * 2], "track pan 64 keeps the voice centered")
-    Assert.isTrue(center[i * 2 - 1] > 0)
-  end
+  local down = noteFor(-128, 60, 2)
+  Assert.equal(down.key, 0, "key 60 + transpose -128 clamps to midi key 0")
+  Assert.equal(generatorOf(down).sample, AudioFixture.key(1), "midi key 0 selects the low key-split range")
+  local up = noteFor(127, 60, 2)
+  Assert.equal(up.key, 127, "key 60 + transpose 127 clamps to midi key 127")
+  Assert.equal(generatorOf(up).sample, AudioFixture.key(2), "midi key 127 selects the high key-split range")
+  local edge = noteFor(-1, 0, 2)
+  Assert.equal(edge.key, 0, "key 0 + transpose -1 clamps to midi key 0")
+  Assert.equal(generatorOf(edge).sample, AudioFixture.key(1))
 end
 
--- Random operands draw from the injected per-instance RNG: the same seed
--- reproduces a play, different seeds diverge (production must not reseed
--- every sequence to a constant -- that is what makes random SSEQs repeat).
-function T.random_operands_draw_from_the_injected_rng()
-  local program = {
-    { op = "pan", amount = { kind = "random", min = 0, max = 127 } },
-    { op = "note", key = 60, velocity = 127, duration = 1 },
-    { op = "end" },
-  }
-  local a, providerA = engine({ [0] = seq(program) }, { rng = seededRng(1) })
-  play(a, providerA)
-  local seedA = a:render(500)
-  local b, providerB = engine({ [0] = seq(program) }, { rng = seededRng(1) })
-  play(b, providerB)
-  local seedA2 = b:render(500)
-  Assert.isTrue(samePcm(seedA, seedA2), "the same injected seed reproduces the play")
-  local c, providerC = engine({ [0] = seq(program) }, { rng = seededRng(2) })
-  play(c, providerC)
-  local seedB = c:render(500)
-  Assert.isFalse(samePcm(seedA, seedB), "a different seed resolves the random operand differently")
+-- Random operands resolve through the default SDK RNG (SND_CalcRandom:
+-- state = state*1664525 + 1013904223 mod 2^32, initial state 0x12345678,
+-- draw = the high 16 bits of state) with the TrackParseValue integer
+-- scaling min + ((draw * (max - min + 1)) >> 16). The player creates the
+-- RNG once at construction and never reseeds per play, so consecutive
+-- plays draw consecutive SDK values. Known vectors (computed from the SDK
+-- formula): draws 0x7543, 0xCD30, 0x25DB for the pan range 0..127 map to
+-- pan 58, 102, 18 (offsets -6, 38, -46).
+function T.random_operands_draw_from_the_default_sdk_rng_without_reseeding()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "pan", amount = { kind = "random", min = 0, max = 127 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(10)
+  Assert.equal(
+    mixer.log.noteOns[1].trackPanOffset,
+    -6,
+    "the first SDK draw 0x7543 = 30019 scales (30019*128)>>16 = 58 -> offset -6"
+  )
+  play(player, provider)
+  Assert.equal(
+    mixer.log.noteOns[2].trackPanOffset,
+    38,
+    "the second draw 0xCD30 = 52528 scales to pan 102, and the state persisted across plays"
+  )
+  play(player, provider)
+  Assert.equal(mixer.log.noteOns[3].trackPanOffset, -46, "the third draw 0x25DB = 9691 scales to pan 18")
+end
+
+-- The injected RNG is in the same u16 draw domain as the production RNG (a
+-- function returning the raw 16-bit draw), and the operand scales the draw
+-- with the SDK integer arithmetic -- never a 0..1 float.
+function T.random_operands_scale_the_u16_draw_with_sdk_integer_arithmetic()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "pan", amount = { kind = "random", min = 0, max = 127 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer, rng = u16Draws({ 0x0000, 0x8000, 0xFFFF, 0x4000 }) })
+  play(player, provider)
+  player:render(10)
+  Assert.equal(mixer.log.noteOns[1].trackPanOffset, -64, "draw 0x0000 scales to pan 0")
+  play(player, provider)
+  Assert.equal(mixer.log.noteOns[2].trackPanOffset, 0, "draw 0x8000 = 32768 scales (32768*128)>>16 = 64")
+  play(player, provider)
+  Assert.equal(mixer.log.noteOns[3].trackPanOffset, 63, "draw 0xFFFF = 65535 scales to pan 127")
+  play(player, provider)
+  Assert.equal(mixer.log.noteOns[4].trackPanOffset, -32, "draw 0x4000 = 16384 scales to pan 32")
 end
 
 function T.the_player_initial_volume_passes_through_as_player_volume()
-  local function renderWith(initialVolume)
+  local function playerVolume(initialVolume)
+    local mixer = stubMixer()
     local player, provider = engine({
       [0] = seq(
         { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } },
         { initialVolume = initialVolume }
       ),
-    })
+    }, { mixer = mixer })
     play(player, provider)
-    return left(player:render(500), 500)
+    player:render(100)
+    return mixer.log.noteOns[1].playerVolume
   end
-  Assert.equal(renderWith(127)[1], 1000, "player volume 127 is unity")
-  Assert.equal(
-    renderWith(64)[1],
-    254,
-    "the player volume is passed separately (register 0x141), never folded into the track volume"
-  )
+  Assert.equal(playerVolume(127), 127, "the player volume passes through, never folded into the track volume")
+  Assert.equal(playerVolume(64), 64)
 end
 
 function T.playing_on_the_same_player_replaces_the_sequence()
+  local mixer = stubMixer()
   local first =
     { { op = "program", program = 0 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }
   local second =
@@ -611,37 +582,20 @@ function T.playing_on_the_same_player_replaces_the_sequence()
   local player, provider = engine({
     [0] = seq(first),
     [1] = seq(second, { id = 1, symbol = "SEQ_TEST_B", playerId = 1 }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local firstRender = player:render(600)
-  local expectedA = {}
-  for i = 1, 600 do
-    expectedA[i] = WAVE_A[(i - 1) % 8 + 1]
-  end
-  Assert.deepEqual(left(firstRender, 600), expectedA)
+  Assert.equal(generatorOf(mixer.log.noteOns[1]).sample, AudioFixture.key(1))
   player:play(provider:sequence(1), provider:bank(12))
-  local secondRender = player:render(600)
-  local expected = sumSegments({
-    segment(waveAt(WAVE_A, 1, 1), 2, 1, 1200, 600),
-    segment(waveAt(WAVE_B, 1, 601), 2, 601, 1200),
-  }, 1200)
   Assert.deepEqual(
-    left(secondRender, 600),
-    slice(expected, 601, 1200),
-    "the replacement releases the previous note: it rings out (full gain to the next control step, then the tail) while the new sequence's note plays"
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "the replacement releases the previous sequence's voices"
   )
-  local tailExpected = {}
-  for i = 401, 600 do
-    tailExpected[i - 400] = WAVE_B[(600 + i - 1) % 4 + 1]
-  end
-  Assert.deepEqual(
-    slice(left(secondRender, 600), 401, 600),
-    tailExpected,
-    "after the old voice's ring-out no wave A sample survives"
-  )
+  Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(2))
 end
 
 function T.sequences_on_different_players_mix()
+  local mixer = stubMixer()
   local programA =
     { { op = "program", program = 0 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }
   local programB =
@@ -649,47 +603,39 @@ function T.sequences_on_different_players_mix()
   local player, provider = engine({
     [0] = seq(programA, { playerId = 1 }),
     [1] = seq(programB, { id = 1, symbol = "SEQ_TEST_B", playerId = 2 }),
-  })
+  }, { mixer = mixer })
   player:play(provider:sequence(0), provider:bank(12))
   player:play(provider:sequence(1), provider:bank(12))
-  local pcm = player:render(1000)
-  local expected = {}
-  for i = 1, 1000 do
-    expected[i] = WAVE_A[(i - 1) % 8 + 1] + WAVE_B[(i - 1) % 4 + 1]
-  end
-  Assert.deepEqual(left(pcm, 1000), expected, "two players mix like two hardware players")
+  Assert.equal(#mixer.log.noteOns, 2, "two players mix like two hardware players")
+  player:render(1000)
+  Assert.equal(#mixer.log.noteOffs, 2, "both players' voices release at their own tick")
   Assert.isFalse(player:isPlaying())
 end
 
 function T.stop_releases_all_voices()
-  local player, provider =
-    engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }) })
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }),
+  }, { mixer = mixer })
   play(player, provider)
-  local first = player:render(200)
-  Assert.equal(left(first, 200)[1], 1000)
+  player:render(200)
   player:stop()
   Assert.isFalse(player:isPlaying())
-  local after = player:render(400)
-  local expected = sumSegments({ segment(waveAt(WAVE_A, 1, 1), 1, 1, 600, 200) }, 600)
-  local sliced = {}
-  for i = 201, 600 do
-    sliced[#sliced + 1] = expected[i]
-  end
   Assert.deepEqual(
-    left(after, 400),
-    sliced,
-    "stop releases the voice; it rings at full gain to the next control step, then the release tail"
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "stop releases every active voice"
   )
+  player:render(400)
+  Assert.equal(#mixer.log.noteOns, 1, "no new notes issue after stop")
 end
 
--- The batched render contract: the player asks the mixer for spans that end
--- at the next event boundary (a control-push frame, a sequence tick, the
--- buffer end) instead of one frame at a time. A 1000-frame render of a held
--- note has four control pushes (frames 250/500/750/1000), so it must cost at
--- most one mixer call per span -- five calls -- never one call per frame.
--- The mixer-side timing (pushes delivered before the control-step frame,
--- noteOffs after their tick's frame) is pinned by the exact-PCM vectors
--- elsewhere in this suite.
+-- The batched render contract: the player asks the mixer for spans that
+-- end at the next event boundary (a control event, a sequence tick, the
+-- buffer end) instead of one frame at a time. The mixer call count must
+-- stay far below one per frame over a 1000-frame render (the exact
+-- partition is implementation-owned; the upper bound is the performance
+-- contract).
 function T.the_player_renders_mixer_spans_until_event_boundaries()
   local mixer = stubMixer()
   local player, provider = engine({
@@ -706,10 +652,7 @@ function T.the_player_renders_mixer_spans_until_event_boundaries()
     total = total + frames
   end
   Assert.equal(total, 1000, "the mixer spans partition the requested window exactly")
-  Assert.isTrue(
-    #mixer.log.renders <= 5,
-    "one span per control push (4 pushes in 1000 frames) plus the closing span, never one call per frame"
-  )
+  Assert.isTrue(#mixer.log.renders <= 5, "one span per event boundary at most, never one call per frame")
 end
 
 function T.render_is_deterministic_and_chunk_independent()
@@ -754,26 +697,27 @@ end
 function T.playing_an_unknown_instrument_is_silent()
   -- A program the bank does not define is a silent note: the NNS
   -- SND_ReadInstData failure path skips the note, and the real corpus
-  -- references placeholder/unused instruments (48 sequences) that the DS
-  -- plays as silence, never as a fault.
+  -- references placeholder/unused instruments that the DS plays as silence,
+  -- never as a fault. The silent note still gates the track.
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "program", program = 9 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(600)
-  Assert.deepEqual(left(pcm, 600), zeros(600), "a missing instrument is a silent note")
+  player:render(600)
+  Assert.equal(#mixer.log.noteOns, 0, "a missing instrument is a silent note")
   Assert.isFalse(player:isPlaying())
 end
 
 -- Malformed programs fail loudly at the authoritative asset boundary: an
--- unknown op or an illegally shaped amount operand is rejected by the closed
--- sequence validator when the provider loads the asset, never accepted into
--- the player. A structurally valid runaway loop still fails the player's
--- host safety budget.
+-- unknown op or an illegally shaped amount operand is rejected by the
+-- closed sequence validator when the provider loads the asset, never
+-- accepted into the player. A structurally valid runaway loop still fails
+-- the player's host safety budget.
 function T.unsupported_ops_amounts_and_runaway_loops_fail_loudly()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     local player, provider = engine({
@@ -798,26 +742,22 @@ function T.unsupported_ops_amounts_and_runaway_loops_fail_loudly()
 end
 
 function T.key_split_instruments_select_by_note_key()
+  local mixer = stubMixer()
   local program = {
     { op = "program", program = 2 },
     { op = "note", key = 30, velocity = 127, duration = 1 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(1000)
-  Assert.deepEqual(
-    left(pcm, 1000),
-    sumSegments({
-      noteSegment(WAVE_A, sampleRatio(30, 60), 1, 1, 1000),
-      noteSegment(WAVE_B, sampleRatio(60, 60), 1, 501, 1000),
-    }, 1000),
-    "key 30 hits the low range, key 60 the high range; each note renders at the exact NNS-calculated ratio"
-  )
+  player:render(1000)
+  Assert.equal(generatorOf(mixer.log.noteOns[1]).sample, AudioFixture.key(1), "key 30 hits the low range")
+  Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(2), "key 60 hits the high range")
 end
 
 function T.drum_set_voices_select_by_key_and_out_of_range_is_silent()
+  local mixer = stubMixer()
   local program = {
     { op = "program", program = 3 },
     { op = "note", key = 35, velocity = 127, duration = 1 },
@@ -825,17 +765,16 @@ function T.drum_set_voices_select_by_key_and_out_of_range_is_silent()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(1500)
+  player:render(1500)
   Assert.deepEqual(
-    left(pcm, 1500),
-    sumSegmentsSaturating({
-      noteSegment(WAVE_A, sampleRatio(35, 60), 1, 1, 1500),
-      segment(squareAt(squareRatio(36), 501), 1, 501, 1500),
-    }, 1500),
-    "drum 35 plays the sample voice at its exact NNS ratio, drum 36 the square, key 60 is out of range and silent"
+    mixer.log.noteOns[1].generator,
+    { kind = "sample", sample = AudioFixture.key(1) },
+    "drum 35 plays the sample voice"
   )
+  Assert.deepEqual(mixer.log.noteOns[2].generator, { kind = "square", duty = 3 }, "drum 36 plays the square")
+  Assert.equal(#mixer.log.noteOns, 2, "key 60 is out of the drum range and silent")
 end
 
 -- The transposed, clamped MIDI key drives instrument leaf selection (the
@@ -889,20 +828,18 @@ function T.transpose_moves_drum_selection_across_the_boundary()
 end
 
 function T.loop_begin_and_loop_end_repeat_the_body()
+  local mixer = stubMixer()
   local program = {
     { op = "loop_begin", count = 2 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "loop_end" },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) })
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(2000)
-  Assert.deepEqual(
-    left(pcm, 2000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 2000), noteSegment(WAVE_A, 1, 1, 501, 2000) }, 2000),
-    "count 2 runs the body twice (the SDK decrements at loop_end and exits at zero), then falls through"
-  )
+  player:render(1000)
+  Assert.equal(#mixer.log.noteOns, 2, "count 2 runs the body twice (the SDK decrements at loop_end and exits at zero)")
+  Assert.equal(#mixer.log.noteOffs, 2, "each iteration's voice rings its own length")
   Assert.isFalse(player:isPlaying())
 end
 
@@ -910,25 +847,17 @@ end
 -- count-0 loop rings until the sequence is stopped (the real
 -- SEQ_GS_P_SAFARI_ROAD map music).
 function T.loop_begin_count_zero_loops_forever()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "loop_begin", count = 0 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "loop_end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(2000)
-  Assert.deepEqual(
-    left(pcm, 2000),
-    sumSegments({
-      noteSegment(WAVE_A, 1, 1, 1, 2000),
-      noteSegment(WAVE_A, 1, 1, 501, 2000),
-      noteSegment(WAVE_A, 1, 1, 1001, 2000),
-      noteSegment(WAVE_A, 1, 1, 1501, 2000),
-    }, 2000),
-    "count 0 re-enters the body forever, retriggering over the ringing note"
-  )
+  player:render(2000)
+  Assert.equal(#mixer.log.noteOns, 5, "count 0 re-enters the body on every tick")
   Assert.isTrue(player:isPlaying(), "a count-0 loop never ends on its own")
 end
 
@@ -936,23 +865,25 @@ end
 -- real corpus contains tracks whose loop code is dead bytes, so an
 -- unmatched loop_end must fall through without faulting.
 function T.unmatched_loop_end_is_a_no_op()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "loop_end" },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(1000)
-  Assert.deepEqual(left(pcm, 1000), sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 1000) }, 1000))
+  player:render(1000)
+  Assert.equal(#mixer.log.noteOns, 1, "the unmatched loop_end falls through")
   Assert.isFalse(player:isPlaying())
 end
 
 -- WAIT 0 must not delay execution to the next tick: the SDK command loop
 -- continues while `wait == 0 && !note_finish_wait`, so the next command runs
--- in the same processing pass.
+-- in the same processing pass as the gate that released it.
 function T.wait_zero_runs_the_next_command_in_the_same_pass()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "note", key = 60, velocity = 127, duration = 1 },
@@ -960,28 +891,23 @@ function T.wait_zero_runs_the_next_command_in_the_same_pass()
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(2000)
-  Assert.deepEqual(
-    left(pcm, 2000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 2000), noteSegment(WAVE_A, 1, 1, 501, 2000) }, 2000),
+  player:render(500)
+  Assert.equal(
+    #mixer.log.noteOns,
+    2,
     "the second note starts in the same pass as the WAIT 0 executes, at the first tick"
   )
 end
 
--- A zero-length note under note-wait is a note-FINISH wait (SND_seq.c
--- TrackPlayNote: wait = length; if length == 0 -> note_finish_wait): the
--- track holds until the note's voice completes its release -- with a long
--- release that is many ticks, materially different from a one-tick wait. The
--- release override (release 126 -> 7 control steps) makes the finish
--- observable: the marker note must not start at the one-tick boundary.
 -- A silent zero-length note (an instrument the bank does not define has no
--- release to wait for) still gates the track with a zero-length wait: the
--- gate releases at the first tick and the following note sounds from the
--- frame after that tick. The finish-wait countdown of zero clears after one
--- frame, so it must never delay the release fetch to a later span boundary.
+-- channel to wait for) still sets the note-finish wait; with no live
+-- handles the wait clears at the FIRST tick (the SDK TrackStepTicks
+-- note_finish_wait check runs per tick, never one frame early), and the
+-- following note starts on the frame after that tick.
 function T.silent_zero_length_notes_release_their_gate_at_the_first_tick()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "program", program = 9 },
@@ -990,44 +916,46 @@ function T.silent_zero_length_notes_release_their_gate_at_the_first_tick()
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = left(player:render(1000), 1000)
-  for frame = 1, 500 do
-    Assert.equal(pcm[frame], 0, "the silent note sounds nothing through the first tick")
-  end
-  Assert.equal(pcm[501], WAVE_A[1], "the marker note starts at the frame after the first tick")
-  Assert.equal(pcm[502], WAVE_A[2], "the marker note continues its wave")
+  player:render(500)
+  Assert.equal(#mixer.log.noteOns, 0, "the silent note sounds nothing and the marker has not started")
+  player:render(1)
+  Assert.equal(#mixer.log.noteOns, 1, "the marker note starts on the frame after the first tick")
+  Assert.equal(generatorOf(mixer.log.noteOns[1]).sample, AudioFixture.key(1))
 end
 
-function T.zero_length_notes_wait_for_the_note_to_finish()
+-- A zero-length note under note-wait is a note-FINISH wait (SND_seq.c
+-- TrackPlayNote): the channel starts with an indefinite length (it is never
+-- released merely because a sequence tick elapsed) and the track holds
+-- until the mixer reports its live handles gone. The recording mixer's
+-- kill() models the mixer removing the voice (stolen or naturally dead);
+-- the marker note must not start until that happens.
+function T.zero_length_notes_wait_for_real_handle_liveness()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
-      { op = "release", amount = 126 },
       { op = "program", program = 0 },
       { op = "note", key = 60, velocity = 127, duration = 0 },
       { op = "program", program = 1 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = left(player:render(6000), 6000)
-  local onset = nil
-  for frame = 501, 6000 do
-    if pcm[frame] >= 9000 then
-      onset = frame
-      break
-    end
-  end
-  Assert.notNil(onset, "the marker note eventually plays: the finish wait does not hang the track")
-  Assert.isTrue(
-    onset >= 1500,
-    "the marker note starts only after the zero-length note's release completes (release 126 spans ~7 control steps)"
+  local handle = mixer.log.noteHandles[1]
+  Assert.equal(#mixer.log.noteOns, 1, "the zero-length note starts one voice")
+  player:render(500)
+  Assert.equal(
+    #mixer.log.noteOffs,
+    0,
+    "a zero-length note's voice is indefinite: one elapsed tick must never release it"
   )
-  Assert.isTrue(onset <= 6000, "the marker note starts inside the render window")
-  Assert.isTrue(pcm[onset] >= 10000 and pcm[onset] <= 10008, "the marker note begins its own wave at full gain")
-  Assert.isFalse(player:isPlaying(), "the sequence completes once the marker note rings out")
+  Assert.equal(#mixer.log.noteOns, 1, "the marker note is still held while the voice lives")
+  mixer:kill(handle)
+  player:render(500)
+  Assert.equal(#mixer.log.noteOns, 2, "the finish wait observes the dead handle and releases the track")
+  Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(2))
 end
 
 -- The NNS track polyphony: with note-wait cleared, overlapping notes all
@@ -1035,6 +963,7 @@ end
 -- voice collection is a list of {channel, generation} handles -- never a
 -- single channel.
 function T.overlapping_notes_form_a_polyphonic_voice_collection()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "note_wait", amount = 0 },
@@ -1042,14 +971,14 @@ function T.overlapping_notes_form_a_polyphonic_voice_collection()
       { op = "note", key = 60, velocity = 127, duration = 2 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(2000)
-  Assert.deepEqual(
-    left(pcm, 2000),
-    sumSegments({ noteSegment(WAVE_A, 1, 1, 1, 2000), noteSegment(WAVE_A, 1, 2, 1, 2000) }, 2000),
-    "the second note overlaps the first instead of replacing it; both ring their own lengths"
-  )
+  Assert.equal(#mixer.log.noteOns, 2, "both notes allocate in the first pass")
+  player:render(1000)
+  Assert.deepEqual(mixer.log.noteOffs, {
+    { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
+    { handle = { channel = 3, generation = 1 }, releaseOverride = nil },
+  }, "each voice rings its own length and releases at its own tick")
 end
 
 -- The per-voice length bookkeeping: each {channel, generation} handle in the
@@ -1071,60 +1000,101 @@ function T.the_track_keeps_polyphonic_voice_handles_and_releases_them_individual
   player:render(500)
   Assert.deepEqual(
     mixer.log.noteOffs,
-    { { channel = 3, generation = 0 } },
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
     "the first voice's length expires at its own tick"
   )
   player:render(500)
+  Assert.deepEqual(mixer.log.noteOffs, {
+    { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
+    { handle = { channel = 3, generation = 1 }, releaseOverride = nil },
+  }, "the second voice's length expires on its own later tick")
+end
+
+-- The mixer owns voice liveness: the track's collection is pruned by
+-- `mixer:isVoiceAlive` (a stolen or naturally dead handle leaves the
+-- collection), so a later release (a tie command) touches only the live
+-- voices and never issues a stale noteOff.
+function T.dead_handles_are_pruned_by_mixer_liveness()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 4 },
+      { op = "note", key = 61, velocity = 127, duration = 4 },
+      { op = "wait", duration = 2 },
+      { op = "tie", amount = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  Assert.equal(#mixer.log.noteOns, 2, "two voices ring in parallel")
+  player:render(500)
+  mixer:kill(mixer.log.noteHandles[1])
+  player:render(500)
   Assert.deepEqual(
     mixer.log.noteOffs,
-    { { channel = 3, generation = 0 }, { channel = 3, generation = 0 } },
-    "the second voice's length expires on its own later tick"
+    { { handle = { channel = 3, generation = 1 }, releaseOverride = nil } },
+    "the tie releases only the live voice; the dead handle was pruned by liveness"
   )
 end
 
--- The NNS tie: the tie command itself releases the track's active voices
--- (SND_seq.c 0xC8 TrackReleaseChannels + TrackFreeChannels); a tied note
--- reuses the active voice instead of allocating (its key/velocity change
--- in place, the envelope never restarts), so no noteOn and no noteOff fires
--- for it; an untied note allocates normally.
-function T.tie_releases_existing_voices_and_tied_notes_do_not_reallocate()
+-- The NNS tie (SND_seq.c 0xC8 TrackReleaseChannels + TrackFreeChannels):
+-- the tie command itself always releases and frees the track's current
+-- voices, even when the new flag equals the previous flag. A repeated
+-- same-value `tie 1` still releases whatever is ringing.
+function T.repeated_tie_one_still_releases_current_voices()
   local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "note_wait", amount = 0 },
       { op = "note", key = 60, velocity = 127, duration = 2 },
-      { op = "wait", duration = 1 },
       { op = "tie", amount = 1 },
-      { op = "note", key = 61, velocity = 127, duration = 2 },
-      { op = "wait", duration = 1 },
-      { op = "note", key = 62, velocity = 127, duration = 2 },
-      { op = "wait", duration = 1 },
-      { op = "tie", amount = 0 },
-      { op = "wait", duration = 1 },
-      { op = "note", key = 63, velocity = 127, duration = 2 },
+      { op = "note", key = 60, velocity = 127, duration = 2 },
+      { op = "tie", amount = 1 },
       { op = "end" },
     }),
   }, { mixer = mixer })
   play(player, provider)
-  Assert.equal(#mixer.log.noteOns, 1, "the first note allocates")
-  player:render(600)
+  Assert.equal(#mixer.log.noteOns, 2, "the first tie frees the old voice and the next note starts a new one")
+  Assert.deepEqual(mixer.log.noteOffs, {
+    { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
+    { handle = { channel = 3, generation = 1 }, releaseOverride = nil },
+  }, "both ties release: the flag was already true for the second, and it still frees the current voice")
+end
+
+-- A tied channel starts with an indefinite length (TrackPlayNote), so it
+-- survives past any supplied note duration; a later tied note over the live
+-- head voice reuses it in place (key/velocity update, no noteOn, no
+-- noteOff), and clearing the tie releases the reused voice.
+function T.tied_voices_survive_their_duration_and_reuse_the_live_head()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "tie", amount = 1 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "note", key = 61, velocity = 127, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "tie", amount = 0 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  Assert.equal(#mixer.log.noteOns, 1, "the tied note starts one voice")
+  player:render(500)
+  Assert.equal(#mixer.log.noteOffs, 0, "a tied voice is indefinite: it survives past its supplied one-tick duration")
+  Assert.equal(#mixer.log.noteOns, 1, "the tied re-note reuses the live head: no new allocation")
+  Assert.equal(#mixer.log.updates, 1, "the tied re-note updates the live head in place instead of restarting it")
+  Assert.deepEqual(mixer.log.updates[1].handle, { channel = 3, generation = 0 })
+  Assert.equal(mixer.log.updates[1].partial.key, 61, "the reuse updates the voice's key")
+  Assert.equal(mixer.log.updates[1].partial.velocity, 127, "the reuse updates the voice's velocity")
+  player:render(500)
   Assert.deepEqual(
     mixer.log.noteOffs,
-    { { channel = 3, generation = 0 } },
-    "the tie command releases the track's existing voice"
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "clearing tie releases and frees the reused tied voice"
   )
-  Assert.equal(#mixer.log.noteOns, 2, "the tied note after the release allocates normally")
-  player:render(600)
-  Assert.equal(#mixer.log.noteOns, 2, "a tied note over an active voice allocates nothing")
-  Assert.equal(#mixer.log.noteOffs, 1, "a tied note does not release the reused voice either")
-  player:render(600)
-  Assert.deepEqual(
-    mixer.log.noteOffs,
-    { { channel = 3, generation = 0 }, { channel = 3, generation = 0 } },
-    "clearing tie releases the reused voice before the next allocation"
-  )
-  player:render(600)
-  Assert.equal(#mixer.log.noteOns, 3, "the untied note after tie-off allocates normally")
 end
 
 -- Mute modes (SND_seq.c TrackMute): mode 1 mutes future notes without
@@ -1155,7 +1125,7 @@ function T.mute_modes_suppress_notes_and_clean_up_voices()
   player:render(600)
   Assert.deepEqual(
     mixer.log.noteOffs,
-    { { channel = 3, generation = 0 } },
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
     "mute mode 2 releases the track's playing voices"
   )
   player:render(600)
@@ -1208,47 +1178,14 @@ function T.envelope_overrides_apply_only_when_set_and_persist()
   )
 end
 
--- Every comparison command drives the track comparison flag; a conditional
--- instruction runs only while it holds (the 0xA2 prefix mechanism of the
--- frozen vocabulary). Table-driven over the six operators.
-function T.every_comparison_operator_drives_conditional_execution()
-  local cases = {
-    { op = "cmp_eq", trueAmount = 5, falseAmount = 4 },
-    { op = "cmp_ne", trueAmount = 4, falseAmount = 5 },
-    { op = "cmp_gt", trueAmount = 4, falseAmount = 5 },
-    { op = "cmp_ge", trueAmount = 5, falseAmount = 6 },
-    { op = "cmp_lt", trueAmount = 6, falseAmount = 5 },
-    { op = "cmp_le", trueAmount = 5, falseAmount = 4 },
-  }
-  for _, case in ipairs(cases) do
-    local function run(amount)
-      local mixer = stubMixer()
-      local player, provider = engine({
-        [0] = seq({
-          { op = "setvar", var = 0, amount = 5 },
-          { [case.op] = true, op = case.op, var = 0, amount = amount },
-          { conditional = true, op = "note", key = 60, velocity = 127, duration = 1 },
-          { op = "end" },
-        }),
-      }, { mixer = mixer })
-      play(player, provider)
-      player:render(100)
-      return #mixer.log.noteOns
-    end
-    Assert.equal(run(case.trueAmount), 1, case.op .. " true: the conditional note runs")
-    Assert.equal(run(case.falseAmount), 0, case.op .. " false: the conditional note is skipped")
-  end
-end
-
--- The voice spec is the migrated mixer contract: trackVolume + playerVolume
+-- The voice spec is the semantic mixer contract: trackVolume + playerVolume
 -- (never folded), trackPriority + playerPriority, the raw trackPanOffset,
--- the instrument pan, bend folded into `key` (the mixer has no bend field),
--- and a {channel, generation} handle back. The track-state commands now have
--- real semantics, so the spec also always carries the TrackPlayNote sweep
--- fields (sweepPitch, sweepLength, autoSweep) and the TrackUpdateChannel lfo
--- snapshot with the TrackInit defaults. The old folded fields must not
--- survive.
-function T.note_spec_carries_the_migrated_mixer_fields()
+-- the instrument pan, the clamped transposed key, the TrackInit defaults
+-- (bend 0 -> userPitch 0), the TrackPlayNote sweep fields, the
+-- TrackUpdateChannel lfo snapshot, and a {channel, generation} handle
+-- back. The derived sample metadata has no source sample rate, and the spec
+-- does not carry one either.
+function T.note_spec_carries_the_semantic_mixer_contract()
   local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq(
@@ -1261,11 +1198,13 @@ function T.note_spec_carries_the_migrated_mixer_fields()
   Assert.equal(#mixer.log.noteOns, 1, "one note, one voice command")
   local spec = mixer.log.noteOns[1]
   Assert.deepEqual(spec.generator, { kind = "sample", sample = AudioFixture.key(1) })
-  Assert.equal(spec.sampleRate, SAMPLE_RATE)
   Assert.deepEqual(spec.pcm, WAVE_A, "the mixer receives the provider-decoded PCM array")
   Assert.deepEqual(spec.loop, { startFrame = 0, endFrame = 8 })
   Assert.equal(spec.loopEnabled, true, "the mixer receives the wave's loop flag")
-  Assert.equal(spec.key, 64)
+  Assert.equal(spec.baseTimer, 8006, "the mixer receives the wave's DS base timer")
+  Assert.isNil(spec.sampleRate, "the voice spec carries no source sample rate (playback is the DS clock path)")
+  Assert.equal(spec.key, 64, "the note key is the midi key (no bend fold)")
+  Assert.equal(spec.userPitch, 0, "bend 0 is no bend: the TrackInit user pitch")
   Assert.equal(spec.originalKey, 60)
   Assert.equal(spec.velocity, 96)
   Assert.equal(spec.trackVolume, 127, "the track volume passes through unfettered")
@@ -1279,7 +1218,7 @@ function T.note_spec_carries_the_migrated_mixer_fields()
   Assert.equal(spec.playerPriority, 16)
   Assert.isNil(spec.volume, "the old folded volume field is gone")
   Assert.isNil(spec.channelPriority, "the old channelPriority field is gone")
-  Assert.isNil(spec.bend, "bend folds into key; the mixer has no bend field")
+  Assert.isNil(spec.bend, "bend is userPitch; the mixer spec has no bend field")
   Assert.deepEqual(
     spec.lfo,
     { target = 0, depth = 0, range = 1, speed = 16, delay = 0 },
@@ -1290,7 +1229,7 @@ function T.note_spec_carries_the_migrated_mixer_fields()
   Assert.equal(spec.autoSweep, false, "portamentoTime 0 disables the autoSweep advance (TrackPlayNote)")
   Assert.deepEqual(
     mixer.log.noteOffs,
-    { { channel = 3, generation = 0 } },
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
     "the note releases the {channel, generation} handle the mixer returned"
   )
 end
@@ -1344,36 +1283,85 @@ function T.pan_commands_pass_the_raw_track_pan_offset()
   end
 end
 
--- Pitch bend folds into the note key (bend - 64) * bendRange / 128 semitones;
--- the mixer contract has no bend field. Transpose adds raw semitones.
-function T.bend_folds_into_key_and_transpose_adds_semitones()
+-- Pitch bend is signed s8 (0 = no bend) and rides the spec as user pitch
+-- (SND_seq.c TrackUpdateChannel: userPitch = pitchBend * (bendRange << 6)
+-- >> 7, an arithmetic shift), never as a key change and never centered at
+-- 64. The odd-product cases pin the floor semantics of the signed shift
+-- (bend 67 at range 3 folds (67*192)>>7 = 100, bend -67 folds
+-- (-67*192)>>7 = -101).
+function T.pitch_bend_is_signed_user_pitch_not_a_key_fold()
+  local mixer = stubMixer()
+  local program = {
+    { op = "note_wait", amount = 0 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "pitch_bend_range", amount = 2 },
+    { op = "pitch_bend", amount = 1 },
+    { op = "note", key = 61, velocity = 127, duration = 1 },
+    { op = "pitch_bend", amount = 0 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "pitch_bend", amount = -64 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "pitch_bend", amount = 127 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "pitch_bend", amount = -128 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "pitch_bend_range", amount = 3 },
+    { op = "pitch_bend", amount = 67 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "pitch_bend", amount = 61 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "pitch_bend", amount = -67 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "end" },
+  }
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
+  play(player, provider)
+  player:render(100)
+  local specs = mixer.log.noteOns
+  Assert.equal(#specs, 9, "the bend commands gate nothing")
+  Assert.equal(specs[1].key, 60, "bend defaults to 0: the key is the note key")
+  Assert.equal(specs[1].userPitch, 0, "bend 0 is no bend")
+  Assert.equal(specs[2].key, 61, "bend never changes the midi key")
+  Assert.equal(specs[2].userPitch, 1, "bend 1 at range 2: (1*128)>>7 = 1")
+  Assert.equal(specs[3].userPitch, 0, "pitch_bend 0 produces exactly no bend")
+  Assert.equal(specs[4].userPitch, -64, "bend -64 at range 2: (-64*128)>>7 = -64")
+  Assert.equal(specs[5].userPitch, 127, "bend 127 at range 2: (127*128)>>7 = 127")
+  Assert.equal(specs[6].userPitch, -128, "bend 0x80 lowered to -128: (-128*128)>>7 = -128")
+  Assert.equal(specs[7].key, 60, "bend never moves the key across the odd-product rows either")
+  Assert.equal(specs[7].userPitch, 100, "bend 67 at range 3: (67*192)>>7 = 100")
+  Assert.equal(specs[8].userPitch, 91, "bend 61 at range 3: (61*192)>>7 = 91")
+  Assert.equal(specs[9].userPitch, -101, "bend -67 at range 3: the arithmetic shift floors (-67*192)>>7 = -101")
+end
+
+-- Pitch bend reaches an already-active held voice as a userPitch update --
+-- never as a MIDI-key replacement (SND_seq.c TrackUpdateChannel per main).
+function T.held_voices_receive_pitch_bend_updates_in_place()
   local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "note_wait", amount = 0 },
-      { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "transpose", amount = -12 },
-      { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "pitch_bend_range", amount = 48 },
-      { op = "pitch_bend", amount = 96 },
-      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "note", key = 60, velocity = 127, duration = 4 },
+      { op = "pitch_bend_range", amount = 2 },
+      { op = "pitch_bend", amount = 64 },
       { op = "end" },
     }),
   }, { mixer = mixer })
   play(player, provider)
+  Assert.equal(mixer.log.noteOns[1].userPitch, 0, "the note starts at the unbent pitch")
   player:render(100)
-  Assert.equal(mixer.log.noteOns[1].key, 60, "no bend, no transpose: the key is the note key")
-  Assert.equal(mixer.log.noteOns[2].key, 48, "transpose -12 shifts the key an octave down")
-  Assert.equal(mixer.log.noteOns[3].key, 60, "bend 96 at range 48 is +12 semitones over the transposed key")
-  Assert.isNil(mixer.log.noteOns[3].bend, "the mixer spec carries no bend field")
-  Assert.equal(mixer.log.noteOns[3].trackVolume, 127, "the folded-key spec still carries the migrated fields")
+  Assert.isTrue(#mixer.log.updates > 0, "the bend change is queued to the active voice")
+  local push = mixer.log.updates[1]
+  Assert.deepEqual(push.handle, { channel = 3, generation = 0 }, "the update targets the active voice's handle")
+  Assert.equal(push.partial.userPitch, 64, "the bend reaches the held voice as user pitch (64*128>>7 = 64)")
+  Assert.isNil(push.partial.key, "the update changes pitch without replacing the voice's midi key")
 end
 
--- Per-Main updateVoice pushes: at the player's main cadence the current
--- track values are pushed to every active voice's {channel, generation}
--- handle, so volume/expression/pan commands become audible at the next
--- mixer control step instead of only at the next note.
-function T.track_value_changes_push_update_voice_per_main()
+-- The player queues control changes (volume, pan, expression, fader, LFO,
+-- user pitch) to its live voices as events; it has no independently rounded
+-- control clock of its own -- the mixer owns the 192 Hz cadence -- so a
+-- value change becomes audible at the next mixer control step without
+-- waiting for a player-side period boundary.
+function T.track_value_changes_reach_active_voices_promptly()
   local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
@@ -1386,27 +1374,27 @@ function T.track_value_changes_push_update_voice_per_main()
     }),
   }, { mixer = mixer })
   play(player, provider)
-  player:render(600)
-  Assert.isTrue(#mixer.log.updates > 0, "the player pushes updateVoice at its main cadence")
-  local pushes = {}
+  player:render(100)
+  Assert.isTrue(#mixer.log.updates > 0, "the changed values reach the active voice within the first control period")
+  local push
   for _, update in ipairs(mixer.log.updates) do
     if
       update.partial.trackVolume == 60
       and update.partial.expression == 80
       and update.partial.trackPanOffset == -24
     then
-      pushes[#pushes + 1] = update
+      push = update
     end
   end
-  Assert.isTrue(#pushes > 0, "the push carries the current track volume, expression and raw pan offset")
-  Assert.deepEqual(pushes[1].handle, { channel = 3, generation = 0 }, "the push targets the active voice's handle")
-  Assert.equal(pushes[1].partial.playerVolume, 127, "the push carries the player volume too")
+  Assert.notNil(push, "the push carries the current track volume, expression and raw pan offset")
+  Assert.deepEqual(push.handle, { channel = 3, generation = 0 }, "the push targets the active voice's handle")
+  Assert.equal(push.partial.playerVolume, 127, "the push carries the player volume too")
 end
 
 -- Deterministic scheduling: the player processes players ascending and each
 -- player's tracks ascending over the fixed NNS domains (16 players x 16
--- tracks per player). A contested allocation (one free channel) therefore
--- always goes to the highest-numbered track of a player.
+-- tracks per player). Within every processing pass the lower track numbers
+-- issue their noteOn first.
 function T.contested_allocation_follows_ascending_track_order()
   local bank = AudioFixture.bank(12, "BANK_TEST", {
     AudioFixture.key(1),
@@ -1433,28 +1421,31 @@ function T.contested_allocation_follows_ascending_track_order()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "jump", target = 12 },
   }
+  local mixer = stubMixer()
   local player, provider = engine({ [0] = seq(program, { symbol = "SEQ_CONTEST" }) }, {
     bank = bank,
     channelMask = 0x0010,
+    mixer = mixer,
   })
   play(player, provider)
-  local pcm = left(player:render(1000), 1000)
-  for frame = 501, 1000 do
+  player:render(1000)
+  Assert.equal(#mixer.log.noteOns, 6, "each tick notes tracks 0, 9 and 15 once (the sub-tracks open gated)")
+  Assert.equal(mixer.log.noteOns[1].channelMask, 0x0010, "the sequence's player channel mask rides the note specs")
+  for i = 1, 6 do
+    local expected = ({ AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3) })[((i - 1) % 3) + 1]
     Assert.equal(
-      pcm[frame],
-      WAVE_C[(frame - 501) % 6 + 1],
-      "the highest-numbered contested track (15) wins the single allocatable channel"
+      generatorOf(mixer.log.noteOns[i]).sample,
+      expected,
+      "every pass notes tracks 0, 9, 15 in ascending track order"
     )
   end
 end
 
 -- Deterministic scheduling across players: different play orders must not
--- change who wins a contested allocation. The NNS player domain is fixed, so
--- iteration is ascending player number, never Lua table order. The settle is
--- observable from the first tick (frame 500): play() runs each entry program
--- immediately in call order, so the pre-tick window holds whichever voice was
--- played last, but at the first tick every track retriggers and the ascending
--- player order hands the single channel to the highest-numbered player (15).
+-- change the per-tick processing order, which is ascending player number
+-- over the fixed NNS domain, never Lua table order. Only the initial play()
+-- pass follows the call order; from the first tick on every pass is
+-- identical.
 function T.contested_allocation_is_identical_across_player_play_orders()
   local bank = AudioFixture.bank(12, "BANK_TEST", {
     AudioFixture.key(1),
@@ -1477,40 +1468,43 @@ function T.contested_allocation_is_identical_across_player_play_orders()
       [2] = programFor(2, 13),
       [3] = programFor(3, 15),
     }
+    local mixer = stubMixer()
     local provider = AudioAssetProvider.new(AudioFixture.readyCache(buildBundle(sequences, {
       bank = bank,
       channelMask = 0x0010,
     })))
     local player = SequencePlayer.new({
       sampleRate = SAMPLE_RATE,
-      mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE }),
+      mixer = mixer,
       provider = provider,
     })
     for _, index in ipairs(order) do
       player:play(provider:sequence(index), provider:bank(12))
     end
-    return player:render(1000)
+    player:render(1000)
+    return mixer
   end
   local forward = run({ 0, 1, 2, 3 })
   local backward = run({ 3, 2, 1, 0 })
-  Assert.isTrue(
-    samePcm(slice(left(forward, 1000), 501, 1000), slice(left(backward, 1000), 501, 1000)),
-    "play order never changes the contested allocation winner from the first tick on"
-  )
-  local settled = {}
-  for i = 501, 1000 do
-    settled[i] = WAVE_B[(i - 501) % 4 + 1]
+  Assert.equal(#forward.log.noteOns, 12, "the four initial noteOns plus one per player per tick (two ticks)")
+  Assert.equal(#backward.log.noteOns, 12)
+  for i = 9, 12 do
+    local expected = ({ AudioFixture.key(1), AudioFixture.key(2) })[((i - 9) % 2) + 1]
+    Assert.equal(
+      generatorOf(forward.log.noteOns[i]).sample,
+      generatorOf(backward.log.noteOns[i]).sample,
+      "from the first tick on, the per-pass player order is identical regardless of play order"
+    )
+    Assert.equal(
+      generatorOf(forward.log.noteOns[i]).sample,
+      expected,
+      "the ascending player order hands the pass to players 1, 7, 13, 15"
+    )
   end
-  Assert.deepEqual(
-    slice(left(forward, 1000), 501, 1000),
-    slice(settled, 501, 1000),
-    "the ascending player order hands the single channel to player 15"
-  )
-  Assert.isTrue(samePcm(forward, run({ 0, 1, 2, 3 })), "repeated runs render identically")
 end
 
 -- The full NNS track domain: all 16 tracks of a player run, and every note
--- carries the migrated spec.
+-- carries the semantic spec.
 function T.all_sixteen_tracks_play_in_parallel()
   local mixer = stubMixer()
   local main = {}
@@ -1535,8 +1529,9 @@ end
 
 -- The per-player queries GameSound builds its wait and stop semantics on:
 -- a player is playing while any of its tracks run, and stopping one player
--- releases exactly that player's voices (its released voice rings its tail).
+-- releases exactly that player's voices.
 function T.stop_player_releases_only_that_player()
+  local mixer = stubMixer()
   local bgm = seq({
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
@@ -1550,7 +1545,7 @@ function T.stop_player_releases_only_that_player()
       playerId = 2,
     }
   )
-  local player, provider = engine({ [0] = bgm, [1] = effect })
+  local player, provider = engine({ [0] = bgm, [1] = effect }, { mixer = mixer })
   player:play(provider:sequence(0), provider:bank(12))
   player:play(provider:sequence(1), provider:bank(12))
   player:render(200)
@@ -1559,16 +1554,12 @@ function T.stop_player_releases_only_that_player()
   player:stopPlayer(2)
   Assert.isFalse(player:isPlayerPlaying(2), "the stopped player reports free")
   Assert.isTrue(player:isPlayerPlaying(1), "the other player keeps running")
-  local pcm = player:render(300)
-  local expected = sumSegments({
-    segment(waveAt(WAVE_A, 1, 1), 1, 1, 500, 500),
-    segment(waveAt(WAVE_B, 1, 1), 1, 1, 500, 200),
-  }, 500)
   Assert.deepEqual(
-    left(pcm, 300),
-    slice(expected, 201, 500),
-    "only the stopped player's voice rings its release tail; the bgm is untouched"
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 1 }, releaseOverride = nil } },
+    "only the stopped player's voice is released"
   )
+  player:render(300)
   Assert.isTrue(player:isPlaying())
 end
 
@@ -1591,6 +1582,7 @@ end
 -- waits. The note's own length bounds its ring independently of gates (the
 -- NNS channel length).
 function T.wait_gates_the_track_while_the_note_rings_its_own_length()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "note_wait", amount = 0 },
@@ -1600,95 +1592,16 @@ function T.wait_gates_the_track_while_the_note_rings_its_own_length()
       { op = "wait", duration = 1 },
       { op = "end" },
     }),
-  })
-  play(player, provider)
-  local pcm = player:render(2000)
-  Assert.deepEqual(
-    left(pcm, 2000),
-    sumSegments({ noteSegment(WAVE_A, 1, 2, 1, 2000) }, 2000),
-    "a note whose gating is cleared rings exactly its own duration; the waits gate without releasing it"
-  )
-  Assert.isFalse(player:isPlaying(), "end terminates the track")
-end
-
--- The bend fold is the SDK integer domain (SND_seq.c TrackUpdateChannel:
--- pitch = pitchBend * (bendRange << 6) >> 7, with pitchBend = bend - 64 in
--- the project IR), so the folded pitch units are floor((bend-64)*bendRange/2)
--- and the key carries them as exact dyadic semitones (pitchUnits/64). The
--- mixer's (key - originalKey) * 0x40 then yields the SDK integer again --
--- the odd-product case the old fractional fold (bend-64)*bendRange/128
--- semitones got wrong: bend 67 at range 3 folds floor(3*3/2) = 4 pitch
--- units (+1/16 semitone), bend 61 at range 3 folds floor(-3*3/2) = -5 (the
--- signed shift floors: -4.5 folds to -5, not the truncation -4).
-function T.bend_folds_floor_pitch_units_for_odd_products()
-  local mixer = stubMixer()
-  local player, provider = engine({
-    [0] = seq({
-      { op = "note_wait", amount = 0 },
-      { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "pitch_bend_range", amount = 3 },
-      { op = "pitch_bend", amount = 67 },
-      { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "pitch_bend", amount = 61 },
-      { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "end" },
-    }),
   }, { mixer = mixer })
   play(player, provider)
-  player:render(100)
-  Assert.equal(mixer.log.noteOns[1].key, 60, "no bend: the key is the note key")
-  Assert.equal(
-    mixer.log.noteOns[2].key,
-    60 + 4 / 64,
-    "bend 67 at range 3 folds floor(3*3/2) = 4 pitch units = +1/16 semitone"
-  )
-  Assert.equal(
-    mixer.log.noteOns[3].key,
-    60 - 5 / 64,
-    "bend 61 at range 3 folds floor(-3*3/2) = -5 pitch units = -5/64 semitone (the shift floors, it does not truncate toward zero)"
-  )
-end
-
--- The odd-product fold through the real mixer (vectors verified by driving
--- the landed mixer directly): pitch +4 is calcTimer(8006, 4) = 7977, pitch
--- -5 is calcTimer(8006, -5) = 8042, and the rendered PCM is the exact
--- NNS-calculated ratio over the note's window. The old unfractioned fold
--- never renders at all: pitch 4.5 is a fractional PITCH_TABLE index.
-function T.bend_odd_products_render_the_sdk_integer_pitch()
-  local function renderFor(prefix)
-    local player, provider = engine({ [0] = seq(prefix) })
-    play(player, provider)
-    return left(player:render(1000), 1000)
-  end
-  local function patternAt(ratio, frames)
-    local out = {}
-    for i = 1, frames do
-      out[i] = WAVE_A[math.floor((i - 1) * ratio) % 8 + 1]
-    end
-    return out
-  end
-  local up = renderFor({
-    { op = "pitch_bend_range", amount = 3 },
-    { op = "pitch_bend", amount = 67 },
-    { op = "note", key = 60, velocity = 127, duration = 2 },
-    { op = "end" },
-  })
+  player:render(1000)
   Assert.deepEqual(
-    up,
-    patternAt(sampleRatio(60 + 4 / 64, 60), 1000),
-    "bend 67 at range 3 renders the +4 pitch-unit timer (calcTimer(8006, 4) = 7977)"
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "a note whose gating is cleared rings exactly its own duration; the waits gate without releasing it"
   )
-  local down = renderFor({
-    { op = "pitch_bend_range", amount = 3 },
-    { op = "pitch_bend", amount = 61 },
-    { op = "note", key = 60, velocity = 127, duration = 2 },
-    { op = "end" },
-  })
-  Assert.deepEqual(
-    down,
-    patternAt(sampleRatio(60 - 5 / 64, 60), 1000),
-    "bend 61 at range 3 renders the -5 pitch-unit timer (calcTimer(8006, -5) = 8042)"
-  )
+  player:render(500)
+  Assert.isFalse(player:isPlaying(), "end terminates the track")
 end
 
 -- The sweep/portamento commands wire the TrackPlayNote channel state into
@@ -1698,7 +1611,9 @@ end
 -- pitch units; portamentoTime 0 carries the note length as sweepLength with
 -- autoSweep false, a nonzero time carries
 -- portamentoTime^2 * |sweepPitch| >> 11 with autoSweep true; 0xCE
--- portamento 0 clears the flag and the contribution.
+-- portamento 0 clears the flag and the contribution. After each note the
+-- track's portamentoKey is updated to the note's MIDI key, so the next
+-- portamento contribution slides from the just-played pitch.
 function T.sweep_and_portamento_commands_wire_the_note_sweep_spec()
   local mixer = stubMixer()
   local player, provider = engine({
@@ -1717,13 +1632,14 @@ function T.sweep_and_portamento_commands_wire_the_note_sweep_spec()
       { op = "transpose", amount = -12 },
       { op = "portamento_key", amount = 64 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "note", key = 61, velocity = 127, duration = 1 },
       { op = "end" },
     }),
   }, { mixer = mixer })
   play(player, provider)
   player:render(100)
   local specs = mixer.log.noteOns
-  Assert.equal(#specs, 6, "the commands gate nothing: every note allocates in the first pass")
+  Assert.equal(#specs, 7, "the commands gate nothing: every note allocates in the first pass")
   Assert.deepEqual(
     { sweepPitch = specs[1].sweepPitch, sweepLength = specs[1].sweepLength, autoSweep = specs[1].autoSweep },
     { sweepPitch = 0, sweepLength = 1, autoSweep = false },
@@ -1741,26 +1657,30 @@ function T.sweep_and_portamento_commands_wire_the_note_sweep_spec()
   )
   Assert.deepEqual(
     { sweepPitch = specs[4].sweepPitch, sweepLength = specs[4].sweepLength, autoSweep = specs[4].autoSweep },
-    { sweepPitch = 156, sweepLength = 4, autoSweep = true },
-    "portamento_time 8 carries the SDK sweep length (8^2 * |156| >> 11 = 4) and keeps autoSweep"
+    { sweepPitch = -100, sweepLength = 3, autoSweep = true },
+    "the previous note updated portamentoKey to midi key 60, so this note adds no contribution (8^2*100>>11 = 3)"
   )
   Assert.deepEqual(
     { sweepPitch = specs[5].sweepPitch, sweepLength = specs[5].sweepLength, autoSweep = specs[5].autoSweep },
     { sweepPitch = -100, sweepLength = 3, autoSweep = true },
-    "portamento 0 clears the flag: the note carries only the track sweep (8^2 * 100 >> 11 = 3)"
+    "portamento 0 clears the flag: the note carries only the track sweep"
   )
   Assert.deepEqual(
     { sweepPitch = specs[6].sweepPitch, sweepLength = specs[6].sweepLength, autoSweep = specs[6].autoSweep },
     { sweepPitch = -100 + (52 - 48) * 64, sweepLength = 4, autoSweep = true },
     "portamento_key stores amount + transpose (52); the note's midiKey is 48, so the contribution is still 256"
   )
+  Assert.deepEqual(
+    { sweepPitch = specs[7].sweepPitch, sweepLength = specs[7].sweepLength, autoSweep = specs[7].autoSweep },
+    { sweepPitch = -100 + (48 - 49) * 64, sweepLength = 5, autoSweep = true },
+    "portamentoKey was updated to the previous note's midi key 48; the key-61 note slides down (8^2*164>>11 = 5)"
+  )
 end
 
 -- The mod commands wire the TrackUpdateChannel lfo snapshot (SND_seq.c
 -- 0xCA-0xCD, 0xE0) into the next noteOn's spec with the TrackInit defaults
 -- (SND_InitLfoParam) when unset. The commands gate nothing and release
--- nothing: both notes allocate in the first pass and each voice rings its
--- own length.
+-- nothing.
 function T.mod_commands_wire_the_note_lfo_spec()
   local mixer = stubMixer()
   local player, provider = engine({
@@ -1792,21 +1712,47 @@ function T.mod_commands_wire_the_note_lfo_spec()
   player:render(500)
   Assert.deepEqual(
     mixer.log.noteOffs,
-    { { channel = 3, generation = 0 } },
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
     "the first voice's own length expires at its tick"
   )
   player:render(500)
-  Assert.deepEqual(
-    mixer.log.noteOffs,
-    { { channel = 3, generation = 0 }, { channel = 3, generation = 0 } },
-    "the second voice rings its own longer length"
-  )
+  Assert.deepEqual(mixer.log.noteOffs, {
+    { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
+    { handle = { channel = 3, generation = 1 }, releaseOverride = nil },
+  }, "the second voice rings its own longer length")
   Assert.isFalse(player:isPlaying(), "the sequence ends after the notes ring out")
+end
+
+-- Modulation commands change active voice behavior: the changed LFO
+-- parameters are queued to the ringing voice's handle so the mixer's LFO
+-- applies them at its control steps -- the player does not advance LFOs
+-- itself.
+function T.modulation_commands_update_active_voices()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 4 },
+      { op = "mod_depth", amount = 64 },
+      { op = "mod_speed", amount = 8 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(100)
+  Assert.isTrue(#mixer.log.updates > 0, "the LFO change reaches the active voice")
+  Assert.deepEqual(mixer.log.updates[1].handle, { channel = 3, generation = 0 })
+  Assert.deepEqual(
+    mixer.log.updates[1].partial.lfo,
+    { target = 0, depth = 64, range = 1, speed = 8, delay = 0 },
+    "the queued partial carries the updated LFO parameters"
+  )
 end
 
 -- 0xB0 `setvar` writes player variables and variable amount operands read
 -- them back (the real 0x81-variable program references in the corpus).
 function T.setvar_and_variable_amounts_resolve_from_player_variables()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "setvar", var = 0, amount = 1 },
@@ -1814,21 +1760,19 @@ function T.setvar_and_variable_amounts_resolve_from_player_variables()
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
-  local pcm = player:render(1000)
-  Assert.deepEqual(
-    left(pcm, 1000),
-    sumSegments({ noteSegment(WAVE_B, 1, 1, 1, 1000) }, 1000),
-    "the variable amount selects the program the variable names"
-  )
+  player:render(100)
+  Assert.equal(generatorOf(mixer.log.noteOns[1]).sample, AudioFixture.key(2), "the variable amount selects the program")
 end
 
--- The variable-domain arithmetic (SND_seq.c var commands): every store wraps
--- to s16, division by zero skips, the quotient truncates toward zero (a
--- negative divisor included), a negative shift moves right, and randomvar
--- draws 0..|par| with the par's sign. Table-driven: each case pins the
--- resulting variable with a conditional note through cmp_eq.
+-- The variable-domain arithmetic (SND_seq.c var commands): every store
+-- wraps to s16, division by zero skips, the quotient truncates toward zero
+-- (a negative divisor included), a negative shift moves right, signed s16
+-- operands (0xFFFF lowers to -1) take part in the same arithmetic, and
+-- randomvar draws the SDK u16 value and scales (random * (abs(par)+1)) >> 16
+-- with the par's sign. The resulting variable is observed through a pan
+-- amount operand (the note spec's trackPanOffset is var - 64).
 function T.variable_arithmetic_wraps_and_truncates_like_the_sdk()
   local cases = {
     { op = "addvar", init = 30000, amount = 30000, expected = -5536, rng = nil, label = "addvar wraps to s16" },
@@ -1869,13 +1813,24 @@ function T.variable_arithmetic_wraps_and_truncates_like_the_sdk()
       rng = nil,
       label = "a negative shift moves right (arithmetic)",
     },
-    { op = "randomvar", init = 0, amount = 10, expected = 2, rng = seededRng(1), label = "randomvar draws 0..|par|" },
+    { op = "addvar", init = 5, amount = -1, expected = 4, rng = nil, label = "0xFFFF adds as -1 (s16 operand)" },
+    { op = "mulvar", init = 5, amount = -1, expected = -5, rng = nil, label = "0xFFFF multiplies as -1" },
+    { op = "divvar", init = 15, amount = -1, expected = -15, rng = nil, label = "0xFFFF divides as -1" },
+    { op = "shiftvar", init = 4, amount = -1, expected = 2, rng = nil, label = "0xFFFF is a negative (right) shift" },
+    {
+      op = "randomvar",
+      init = 0,
+      amount = 10,
+      expected = 5,
+      rng = u16Draws({ 30019 }),
+      label = "randomvar scales the u16 draw (30019*11)>>16 = 5",
+    },
     {
       op = "randomvar",
       init = 0,
       amount = -10,
-      expected = -2,
-      rng = seededRng(1),
+      expected = -5,
+      rng = u16Draws({ 30019 }),
       label = "randomvar negates the draw for a negative par",
     },
   }
@@ -1884,102 +1839,120 @@ function T.variable_arithmetic_wraps_and_truncates_like_the_sdk()
     local player, provider = engine({
       [0] = seq({
         { op = "setvar", var = 0, amount = case.init },
-        { [case.op] = true, op = case.op, var = 0, amount = case.amount },
-        { op = "cmp_eq", var = 0, amount = case.expected },
-        { conditional = true, op = "note", key = 60, velocity = 127, duration = 1 },
+        { op = case.op, var = 0, amount = case.amount },
+        { op = "pan", amount = { kind = "variable", var = 0 } },
+        { op = "note", key = 60, velocity = 127, duration = 1 },
         { op = "end" },
       }),
     }, { mixer = mixer, rng = case.rng })
     play(player, provider)
     player:render(100)
-    Assert.equal(#mixer.log.noteOns, 1, case.op .. ": " .. case.label)
+    Assert.equal(mixer.log.noteOns[1].trackPanOffset, case.expected - 64, case.op .. ": " .. case.label)
   end
 end
 
 -- The transport pause (the NNS SND_PlayerPause the HGSS PlayFanfare path
--- uses): pausePlayer freezes the player's tick timeline and suspends its
--- voices -- silent, sample position frozen, no control-step pushes --
--- and resumePlayer continues the timeline exactly where it froze, so the
--- note's gate expiry and retrigger land on the original tick schedule and
--- the sample phase continues in place.
-function T.pause_freezes_the_timeline_and_resume_continues_in_place()
+-- uses): pausePlayer marks the timeline paused and releases the player's
+-- current channel handles with release override 127, freeing them from the
+-- tracks. While paused the timeline does not advance and no notes issue;
+-- resumePlayer only unpauses the timeline and never resurrects the released
+-- voices.
+function T.pause_releases_channels_with_an_override_and_resume_does_not_resurrect()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "program", program = 0 },
-      { op = "note", key = 60, velocity = 127, duration = 1 },
-      { op = "jump", target = 2 },
+      { op = "note", key = 60, velocity = 127, duration = 8 },
+      { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
   player:render(200)
   player:pausePlayer(1)
-  local held = left(player:render(600), 600)
-  Assert.deepEqual(held, zeros(600), "a paused player contributes nothing")
-  player:resumePlayer(1)
-  -- The gate froze 300 frames short of its original expiry at frame 500, so
-  -- it expires at frame 1100 and the retriggered note starts at 1101.
-  local resumed = sumSegments({
-    segment(waveAt(WAVE_A, 1, 801, 200), 1, 801, 1400, 1100),
-    segment(waveAt(WAVE_A, 1, 1101), 1, 1101, 1400),
-  }, 1400)
   Assert.deepEqual(
-    left(player:render(600), 600),
-    slice(resumed, 801, 1400),
-    "the resumed player continues on its original tick timeline"
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = 127 } },
+    "pause releases the player's channels with the forced release override"
   )
+  player:render(6000)
+  Assert.equal(#mixer.log.noteOns, 1, "no notes issue while paused")
+  Assert.equal(#mixer.log.noteOffs, 1, "no voice expires while the timeline is frozen")
+  player:resumePlayer(1)
+  player:render(4000)
+  Assert.equal(
+    #mixer.log.updates,
+    0,
+    "resume does not resurrect the released voice: its handle is gone from the tracks"
+  )
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = 127 } },
+    "the frozen gate expires without re-releasing anything"
+  )
+  Assert.isFalse(player:isPlaying(), "the sequence ran out its frozen timeline after resume")
 end
 
 -- Pause and resume follow the NNS player-state guard: pausing an unknown
 -- player or an already-paused player, and resuming an unknown or unpaused
--- player, are no-ops -- a fanfare without a BGM must never fault.
-function T.pause_and_resume_are_no_ops_outside_the_play_state()
+-- player, are no-ops -- a fanfare without a BGM must never fault and a
+-- double pause must not release twice.
+function T.pause_and_resume_guards_are_no_ops()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "program", program = 0 },
       { op = "note", key = 60, velocity = 127, duration = 8 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   player:pausePlayer(3)
   player:resumePlayer(3)
   play(player, provider)
+  player:render(200)
   player:pausePlayer(1)
   player:pausePlayer(1)
-  Assert.deepEqual(left(player:render(100), 100), zeros(100), "the double pause leaves the player suspended")
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = 127 } },
+    "the double pause releases exactly once"
+  )
   player:resumePlayer(1)
   player:resumePlayer(1)
-  local pcm = left(player:render(200), 200)
-  Assert.isTrue(pcm[1] ~= 0 and pcm[200] ~= 0, "the resume restores the voice")
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = 127 } },
+    "resume (once or twice) never releases again"
+  )
+  player:render(4000)
+  Assert.isFalse(player:isPlaying())
 end
 
--- A new sequence on a paused player replaces the suspended one: the
--- replacement releases the suspended voices and they ring out -- a released
--- voice is never left suspended where no render can ever free it.
-function T.playing_on_a_paused_player_releases_the_suspended_voices()
+-- A new sequence on a paused player replaces the released one: the paused
+-- instance's handles were already freed, so the replacement releases
+-- nothing extra and the fresh sequence starts cleanly.
+function T.playing_on_a_paused_player_releases_and_replaces()
+  local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
       { op = "program", program = 0 },
       { op = "note", key = 60, velocity = 127, duration = 8 },
       { op = "end" },
     }),
-  })
+  }, { mixer = mixer })
   play(player, provider)
   player:render(200)
   player:pausePlayer(1)
   player:play(provider:sequence(0), provider:bank(12))
-  local expected = sumSegments({
-    segment(waveAt(WAVE_A, 1, 201), 1, 201, 1000, 200),
-    segment(waveAt(WAVE_A, 1, 201), 8, 201, 1000),
-  }, 1000)
+  Assert.equal(#mixer.log.noteOns, 2, "the replacement starts its fresh sequence")
   Assert.deepEqual(
-    left(player:render(800), 800),
-    slice(expected, 201, 1000),
-    "the replaced voice rings its release tail under the fresh note"
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = 127 } },
+    "the pause release was the only release: the freed paused instance adds none"
   )
 end
 
 -- The per-player fader (the GameSound fade hook): setFader stores the
--- volume-domain level and the control-step push delivers its dB-domain
+-- volume-domain level and the queued update delivers its dB-domain
 -- attenuation to the player's voices.
 function T.the_player_fader_reaches_the_update_voice_push_in_the_db_domain()
   local mixer = stubMixer()
@@ -1999,13 +1972,8 @@ function T.the_player_fader_reaches_the_update_voice_push_in_the_db_domain()
       push = update
     end
   end
-  Assert.notNil(push, "the player pushes a fader at its control cadence")
+  Assert.notNil(push, "the player queues a fader update to its active voice")
   Assert.equal(push.partial.fader, NnsSoundMath.decibelSquare(42), "the level reaches the mixer in the dB domain")
 end
 
--- 0xBD `cmp_ne` sets the track comparison and a conditional instruction
--- executes only while it holds (the 0xA2 prefix mechanism of the frozen
--- vocabulary; no conditional instruction occurs in the real corpus). All six
--- comparison operators drive the same flag in
--- every_comparison_operator_drives_conditional_execution.
 return { tests = T }
