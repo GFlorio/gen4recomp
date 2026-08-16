@@ -26,6 +26,18 @@ local function harness()
   return AcceptanceHarness.new({ versions = { "heartgold" } })
 end
 
+-- Every start-menu unlock flag: a fresh boot leaves them all unset, so the
+-- zero-action composition is the precondition of the no-op scenario.
+local UNLOCK_FLAGS = {
+  FieldScriptSymbols.flagsByName.FLAG_GOT_POKEDEX,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_STARTER,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_BAG,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_POKEGEAR,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_SAVE_BUTTON,
+  FieldScriptSymbols.flagsByName.FLAG_GOT_OPTIONS_BUTTON,
+}
+
 -- The production composition: a fresh field boot with no descriptor options;
 -- the real unlock flag makes the production Trainer Card interactive.
 local function bootGame()
@@ -120,6 +132,75 @@ function T.tests.runtime_disposal_in_every_application_phase_releases_once()
       error(err, 0)
     end
     game:close()
+  end
+end
+
+-- The zero-action production composition: with no unlock flag set the
+-- runtime's start-menu composition returns no interactive actions, so the
+-- menu edge opens nothing -- the host stays closed with no menu surface, no
+-- modal input lifetime, and no error -- and the field keeps simulating;
+-- unlocking the trainer card makes the same edge open the real menu. The
+-- nil-factory no-op itself is the FieldApplicationHost/FieldSession unit
+-- contract; this test proves the production flag -> policy -> nil menu
+-- composition path.
+function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_field_continues()
+  local game = harness():boot({
+    versionId = "heartgold",
+    map = "MAP_NEW_BARK",
+    save = "fresh",
+  })
+  local ok, err = xpcall(function()
+    local runtime = game.runtime
+    local world = runtime.scripts.worldState
+
+    -- The fixture precondition: a fresh boot seeds only scenario object
+    -- flags, so every menu unlock flag starts unset.
+    for _, flag in ipairs(UNLOCK_FLAGS) do
+      Assert.equal(world:isFlagSet(flag), false, "the fresh boot must leave every menu unlock flag unset")
+    end
+
+    -- Zero interactive destinations: the menu edge is a no-op. The host
+    -- stays closed and presents no menu surface, no UI lifetime is acquired,
+    -- the save gate stays open, and no failure is recorded.
+    pressMenuEdge(game)
+    local status = runtime.applicationHost:status()
+    Assert.equal(status.menu, nil, "a zero-action menu press must not present a menu surface")
+    Assert.equal(runtime.errorText, nil, "a zero-action menu press must not fail the runtime")
+    Assert.equal(runtime.input.uiActive, false, "a zero-action menu press must not acquire the modal input lifetime")
+    Assert.equal(
+      FieldSave.canCapture(runtime.session),
+      true,
+      "a zero-action menu press must leave the field capturable"
+    )
+
+    -- The field continues normally: the world keeps simulating and the
+    -- player can still move.
+    local before = game:snapshot()
+    game:move("west")
+    game:advanceUntil("the no-op walk completes", function(snapshot)
+      return snapshot.player.motion == "idle"
+    end, 24)
+    Assert.equal(
+      game:snapshot().player.fieldX,
+      before.player.fieldX - 1,
+      "the field simulation must continue after the zero-action menu press"
+    )
+
+    -- The same open edge composes the real menu once a destination becomes
+    -- interactive: unlocking the trainer card makes the next press open it.
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
+    pressMenuEdge(game)
+    advanceToPhase(game, "menu", 16)
+    local actions = runtime.applicationHost:status().menu.actions
+    Assert.equal(#actions, 1, "the unlocked trainer card must be the only interactive destination")
+    Assert.equal(actions[1].id, "vanilla.trainer_card", "the unlocked destination must be the trainer card")
+    pressMenuEdge(game)
+    advanceToPhase(game, "closed", 16)
+    Assert.equal(FieldSave.canCapture(runtime.session), true, "closing the menu must restore the capturable boundary")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
   end
 end
 
