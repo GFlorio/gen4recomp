@@ -912,9 +912,9 @@ Schema.CONSTRUCTORS = {
         notes = "Generated/advanced imported-HGSS form; spec={sourceAppearance={game,type,map}}.",
       },
       {
-        signature = "S.signpostCommand(command)",
+        signature = "S.signpostCommand(spec)",
         canonical = "op=signpost_command",
-        notes = "Generated/advanced; command is one of the semantic strings (nop/show/wipe_out/wipe_in/hide).",
+        notes = "Generated/advanced; spec={command}; command is one of the semantic strings (nop/show/wipe_out/wipe_in/hide).",
       },
       {
         signature = "S.waitSignpostAction(spec)",

@@ -3,8 +3,8 @@
 -- opens the presentation in-handler (style routing, SHOW, and the instant or
 -- typed print through the injected signpost host — the same
 -- ScriptSignpostHost / FieldSignpostController primitives the imported
--- operations use, no second state machine), so creation only records the
--- waiting marker. The poll reads only the fixed-tick input edges: a
+-- operations use, no second state machine), so creation records no state at
+-- all. The poll reads only the fixed-tick input edges: a
 -- directional edge closes the window and turns the player (the source
 -- interruption for a live typed print, the dismissal otherwise); an A/B
 -- edge before the live typed print is done is the printer's speed-up, never
@@ -24,7 +24,7 @@ SignTask.version = 1
 ---@return table state
 function SignTask.create(spec)
   assert(spec.node, "sign task requires its graph node")
-  return { waiting = true }
+  return {}
 end
 
 ---@param state table
@@ -66,12 +66,8 @@ end
 ---@param state table
 ---@return Errors.Error|nil
 function SignTask.validate(state)
-  if type(state) ~= "table" or state.waiting ~= true then
-    return Errors.new(
-      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "sign state must hold the waiting marker",
-      { state = state }
-    )
+  if type(state) ~= "table" then
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "sign state must be a table", { state = state })
   end
   return nil
 end

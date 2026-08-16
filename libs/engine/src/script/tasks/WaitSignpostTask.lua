@@ -21,7 +21,7 @@ WaitSignpostTask.version = 1
 ---@return table state
 function WaitSignpostTask.create(spec)
   assert(spec.node, "wait signpost requires its graph node")
-  return { waiting = true }
+  return {}
 end
 
 ---@param state table
@@ -56,12 +56,8 @@ end
 ---@param state table
 ---@return Errors.Error|nil
 function WaitSignpostTask.validate(state)
-  if type(state) ~= "table" or state.waiting ~= true then
-    return Errors.new(
-      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "wait_signpost state must hold the waiting marker",
-      { state = state }
-    )
+  if type(state) ~= "table" then
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "wait_signpost state must be a table", { state = state })
   end
   return nil
 end

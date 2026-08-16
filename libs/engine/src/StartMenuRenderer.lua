@@ -2,16 +2,17 @@
 -- StartMenuLayout: the generated menu background (the icon art is baked into
 -- the compiled PNG) and the animated cursor frame over the presented action
 -- slot. The generated field-UI manifest's `startMenu` section is the single
--- geometry authority: the background rect, the logical slot rects, the icon
--- mapping, and the cursor frames with their durations. Runtime code
+-- geometry authority: the background rect, the logical slot rects, and the
+-- cursor frames with their durations. Runtime code
 -- addresses slots by the manifest's own slot ids and never repeats source
 -- coordinates. The cursor animation state is the controller's fixed-tick
 -- concern; this renderer consumes only the frame index from the
 -- presentation snapshot, so render refresh rate cannot change the animation
--- speed, and a missing cursor (an empty menu with no selection) is a valid
--- state that draws the background and stops. Drawing consumes the same
--- StartMenuLayout placement record hit testing maps through (hostToLogical):
--- the surface draws under translate(frame origin) + scale(placement scale)
+-- speed. An open menu always has a selection, so the presentation requires
+-- the cursor slot and frame index; the nil presentation is the closed-menu
+-- no-op. Drawing and hit testing consume the same StartMenuLayout placement
+-- record (hostToLogical): the surface draws under translate(frame origin) +
+-- scale(placement scale)
 -- in canonical coordinates, so rendering and hit testing share one record
 -- with no second set of scaled rectangles. The surface is not a generic
 -- list menu: only the two generated images are drawn, at identity tint, with
@@ -39,7 +40,9 @@ StartMenuRenderer.__index = StartMenuRenderer
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
 -- class (Start Menu PNGs); opts.manifest: the already-validated generated
 -- field-UI manifest the runtime loaded once (FieldRuntime.uiManifest);
--- opts.graphics: injectable LÖVE graphics namespace.
+-- opts.graphics: injectable LÖVE graphics namespace so tests can record draw
+-- calls; LÖVE itself remains an allowed presentation-layer dependency (the
+-- PNG bytes still enter through love.filesystem.newFileData).
 
 ---@param opts { cacheFs: CacheFs, manifest: table, graphics?: love.Graphics? }
 ---@return StartMenuRenderer
@@ -161,7 +164,7 @@ end
 -- has no images. Restores canvas, shader, scissor, blend, depth, wireframe,
 -- cull, and color afterwards so the HUD and host overlays draw normally.
 
----@param presentation { cursorSlotId: integer?, cursorFrameIndex: integer? }?
+---@param presentation { cursorSlotId: integer, cursorFrameIndex: integer }?
 ---@param placement StartMenuLayout.Placement
 function StartMenuRenderer:draw(presentation, placement)
   if not presentation or not self._backgroundImage then
@@ -175,32 +178,31 @@ function StartMenuRenderer:draw(presentation, placement)
   FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in canonical coordinates under the placement record's
     -- transform: translate(frame origin) + scale(record scale). The manifest
-    -- rects are canonical, so nothing is scaled twice. A missing cursor is a
-    -- valid empty-menu state: the background is drawn and drawing stops.
+    -- rects are canonical, so nothing is scaled twice. An open menu always
+    -- has a selection, so the presentation's cursor slot and frame are
+    -- validated before anything reaches the graphics namespace.
     lg.translate(placement.frame.x, placement.frame.y)
     lg.scale(placement.scale, placement.scale)
     lg.setColor(1, 1, 1, 1)
+    assert(
+      type(presentation.cursorSlotId) == "number" and presentation.cursorSlotId % 1 == 0,
+      "the start menu cursor requires a slot id"
+    )
+    local slot = assert(
+      self.menu.slots[presentation.cursorSlotId],
+      "cursor slot " .. tostring(presentation.cursorSlotId) .. " is outside the generated slot set"
+    )
+    assert(
+      type(presentation.cursorFrameIndex) == "number" and presentation.cursorFrameIndex % 1 == 0,
+      "the start menu cursor requires a frame index"
+    )
+    local frame = assert(
+      self.menu.cursor.frames[presentation.cursorFrameIndex + 1],
+      "cursor frame " .. tostring(presentation.cursorFrameIndex) .. " is outside the generated frame set"
+    )
     lg.draw(assert(self._backgroundImage), assert(self._backgroundQuad), self.menu.background.x, self.menu.background.y)
-    if presentation.cursorSlotId ~= nil then
-      assert(
-        type(presentation.cursorSlotId) == "number" and presentation.cursorSlotId % 1 == 0,
-        "the start menu cursor requires a slot id"
-      )
-      local slot = assert(
-        self.menu.slots[presentation.cursorSlotId],
-        "cursor slot " .. tostring(presentation.cursorSlotId) .. " is outside the generated slot set"
-      )
-      assert(
-        type(presentation.cursorFrameIndex) == "number" and presentation.cursorFrameIndex % 1 == 0,
-        "the start menu cursor requires a frame index"
-      )
-      local frame = assert(
-        self.menu.cursor.frames[presentation.cursorFrameIndex + 1],
-        "cursor frame " .. tostring(presentation.cursorFrameIndex) .. " is outside the generated frame set"
-      )
-      local x, y = self:_cursorPosition(slot, frame)
-      lg.draw(assert(self._cursorImage), assert(self._cursorQuads[presentation.cursorFrameIndex + 1]), x, y)
-    end
+    local x, y = self:_cursorPosition(slot, frame)
+    lg.draw(assert(self._cursorImage), assert(self._cursorQuads[presentation.cursorFrameIndex + 1]), x, y)
   end)
 end
 

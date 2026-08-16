@@ -33,7 +33,7 @@ function TrainerTipsTask.create(spec, ctx)
   local node = assert(spec.node, "trainer tips requires its graph node")
   local host = SignpostAccess.requireSignpost(ctx)
   host:printTyped(node.message, nil, ctx.instance.textArgs or {})
-  return { waiting = true }
+  return {}
 end
 
 ---@param state table
@@ -80,10 +80,10 @@ end
 ---@param state table
 ---@return Errors.Error|nil
 function TrainerTipsTask.validate(state)
-  if type(state) ~= "table" or state.waiting ~= true then
+  if type(state) ~= "table" then
     return Errors.new(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "trainer_tips_print state must hold the waiting marker",
+      "trainer_tips_print state must be a table",
       { state = state }
     )
   end

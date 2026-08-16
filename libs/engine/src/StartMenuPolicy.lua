@@ -45,63 +45,54 @@ local FACT_FIELDS = {
 -- RUNNING_SHOES is a controller toggle, RETIRE is a field action, 7 is a
 -- removed feature).
 local ACTIONS = {
-  { sourceAction = "retire", id = "vanilla.retire", inhibitedBy = true },
-  { sourceAction = "7", id = "vanilla.special_7", inhibitedBy = true },
+  { id = "vanilla.retire", inhibitedBy = true },
+  { id = "vanilla.special_7", inhibitedBy = true },
   {
-    sourceAction = "pokedex",
     id = "vanilla.pokedex",
     targetApplication = FieldApplicationIds.POKEDEX,
     inhibitedBy = "hasPokedex",
     unlockedBy = "hasPokedex",
   },
   {
-    sourceAction = "pokemon",
     id = "vanilla.pokemon",
     targetApplication = FieldApplicationIds.POKEMON,
     inhibitedBy = "hasStarter",
     unlockedBy = "hasStarter",
   },
   {
-    sourceAction = "bag",
     id = "vanilla.bag",
     targetApplication = FieldApplicationIds.BAG,
     inhibitedBy = "bagUnlocked",
     unlockedBy = "bagUnlocked",
   },
   {
-    sourceAction = "pokegear",
     id = "vanilla.pokegear",
     targetApplication = FieldApplicationIds.POKEGEAR,
     inhibitedBy = "hasPokegear",
     unlockedBy = "hasPokegear",
   },
   {
-    sourceAction = "trainer_card",
     id = "vanilla.trainer_card",
     targetApplication = FieldApplicationIds.TRAINER_CARD,
     unlockedBy = "trainerCardUnlocked",
   },
   {
-    sourceAction = "save",
     id = "vanilla.save",
     targetApplication = FieldApplicationIds.SAVE,
     unlockedBy = "saveUnlocked",
   },
   {
-    sourceAction = "options",
     id = "vanilla.options",
     targetApplication = FieldApplicationIds.OPTIONS,
     unlockedBy = "optionsUnlocked",
   },
-  { sourceAction = "running_shoes", id = "vanilla.running_shoes" },
+  { id = "vanilla.running_shoes" },
   {
-    sourceAction = "9",
     id = "vanilla.special_9",
     targetApplication = FieldApplicationIds.POKEGEAR,
     displayPosition = 7,
   },
   {
-    sourceAction = "10",
     id = "vanilla.special_10",
     targetApplication = FieldApplicationIds.POKEGEAR,
     displayPosition = 8,

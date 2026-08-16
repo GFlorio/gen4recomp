@@ -2,8 +2,9 @@
 -- driven through an injected graphics namespace so the Nth-construction and
 -- mid-draw failures can be provoked deterministically. The renderer resolves
 -- the whole canonical surface from the generated manifest's `startMenu`
--- section (background rect, slot rects, icon mapping, cursor frames with
--- durations) and never repeats source coordinates; a quad failure after the
+-- section (background rect, slot rects, cursor frames with
+-- durations; the action-icon art is baked into the background PNG) and never
+-- repeats source coordinates; a quad failure after the
 -- background and cursor images exist must release both, and a missing
 -- manifest, background, or cursor asset is a typed error. Drawing the
 -- surface consumes the StartMenuLayout placement record -- the same record
@@ -261,7 +262,7 @@ function T.constructor_failure_releases_background_and_cursor()
 end
 
 -- The renderer resolves the whole surface from the manifest's startMenu
--- section: background rect, the slot rects, the icon mapping, and the cursor
+-- section: background rect, the slot rects, and the cursor
 -- frames with their durations. The fixture's values are the only authority;
 -- the renderer must not carry its own copy of the geometry.
 function T.resolves_the_start_menu_section_from_the_manifest()
@@ -349,20 +350,29 @@ function T.draws_the_background_and_the_cursor_over_the_presented_slot()
   Assert.equal(cursorDraw.y, slot.y + slot.height / 2 - 8)
 end
 
--- A missing cursor is a valid menu state, not malformed presentation: an
--- open menu without a selection draws the background and stops successfully.
-function T.a_missing_cursor_draws_the_background_and_stops()
+-- An open menu always has a selection: the controller rejects empty entries,
+-- so a presented menu without a cursor slot is an impossible presentation and
+-- must be rejected, never drawn as a background-only surface.
+function T.an_open_menu_presentation_requires_a_cursor_slot()
   local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
   local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
-  renderer:draw({ cursorSlotId = nil, cursorFrameIndex = nil }, canonicalPlacement())
+  Assert.throws(function()
+    renderer:draw({}, canonicalPlacement())
+  end, "an open menu presentation without a cursor slot must be rejected")
+  renderer:release()
+  Assert.equal(#lg.draws, 0, "no rejected draw reaches the graphics namespace")
+end
+
+-- The nil-presentation no-op is the closed-menu channel: with no open menu,
+-- the renderer draws nothing (the released-renderer no-op is covered by the
+-- release test below).
+function T.a_nil_presentation_draws_nothing()
+  local lg = fakeGraphics({ imageSizes = { { 256, 192 }, { 16, 32 } } })
+  local renderer = StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = lg })
+  renderer:draw(nil, canonicalPlacement())
   renderer:release()
 
-  Assert.equal(#lg.draws, 1, "a menu without a cursor draws only the background")
-  Assert.equal(lg.draws[1].image, lg.images[1], "the background image is drawn")
-  Assert.deepEqual(
-    { lg.draws[1].quad.x, lg.draws[1].quad.y, lg.draws[1].quad.w, lg.draws[1].quad.h },
-    { 0, 0, 256, 192 }
-  )
+  Assert.equal(#lg.draws, 0, "a nil presentation draws nothing")
   Assert.equal(lg.pushDepth(), 0, "the transform stack is balanced")
 end
 

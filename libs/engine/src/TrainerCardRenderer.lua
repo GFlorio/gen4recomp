@@ -54,7 +54,9 @@ TrainerCardRenderer.TRAINER_ID_DIGITS = 5
 -- class (card front PNG); opts.manifest: the already-validated generated
 -- field-UI manifest the runtime loaded once (FieldRuntime.uiManifest);
 -- opts.text: the shared FieldTextRenderer (FieldState owns exactly one);
--- opts.graphics: injectable LÖVE graphics namespace.
+-- opts.graphics: injectable LÖVE graphics namespace so tests can record draw
+-- calls; LÖVE itself remains an allowed presentation-layer dependency (the
+-- PNG bytes still enter through love.filesystem.newFileData).
 
 ---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, graphics?: love.Graphics? }
 ---@return TrainerCardRenderer

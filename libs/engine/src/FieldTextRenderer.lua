@@ -26,7 +26,9 @@ local FieldTextRenderer = {}
 FieldTextRenderer.__index = FieldTextRenderer
 
 -- opts.cacheFs: version-scoped private cache holding the compiled font def
--- and atlas PNG; opts.graphics: injectable LÖVE graphics namespace.
+-- and atlas PNG; opts.graphics: injectable LÖVE graphics namespace so tests
+-- can record draw calls; LÖVE itself remains an allowed presentation-layer
+-- dependency (the atlas bytes still enter through love.filesystem.newFileData).
 
 ---@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics? }
 ---@return FieldTextRenderer
