@@ -294,7 +294,8 @@ function FieldRuntime:_load()
 
     -- The player profile/options authority: a fresh session copies and
     -- validates the checked-in initial manifest; a resumed session uses the
-    -- required saved player-data bucket (validated at the store boundary).
+    -- required saved player-data bucket, canonicalized by FieldSave.restore
+    -- as the single resume validation boundary.
     -- This is the single authority the script platform and later dialogue
     -- presentation consume; they never re-read the manifest.
     local initialPlayerData, initialPlayerDataErr = FieldPlayerData.validate(FieldPlayerManifest, playerDataContext)

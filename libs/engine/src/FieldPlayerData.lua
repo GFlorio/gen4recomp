@@ -40,11 +40,13 @@ function FieldPlayerData.ticksPerGlyph(textSpeed)
   return cadence
 end
 
--- Strict validation (raising). The record must be exactly the model shape:
--- the profile (name/gender/trainerId) and the options (textFrame/textSpeed)
+-- Strict validation (raising). Returns the exact canonical model shape: the
+-- profile (name/gender/trainerId) and the options (textFrame/textSpeed)
 -- tables, every field within its strict range, the name encodable by the
 -- generated field font, and the text frame resolving to an imported frame
--- style. Missing tables and unknown enum values are errors, never defaults.
+-- style. The input record may carry unknown keys; canonicalization discards
+-- them, so the input is not required to contain only the model keys. Missing
+-- tables and unknown enum values are errors, never defaults.
 ---@param record table
 ---@param context table { charmap: table, frameIndexes: table<integer, true> }
 ---@return table validated copy
@@ -59,25 +61,36 @@ local function validate(record, context)
   if type(profile.name) ~= "string" then
     Errors.raise(FieldErrors.PLAYER_DATA_NAME_INVALID, "player name must be a string", { name = profile.name })
   end
+  -- One UTF-8 pass checks the glyph-count bound and charmap encodability
+  -- together. The count bound fires as soon as it is exceeded, so an
+  -- over-length name reports the glyph-count failure even when it also
+  -- contains an unencodable character; the charmap failure is raised after
+  -- the pass, and the minimum bound after that.
+  local nameGlyphBound = "player name must be "
+    .. FieldPlayerData.MIN_NAME_GLYPHS
+    .. ".."
+    .. FieldPlayerData.MAX_NAME_GLYPHS
+    .. " glyphs"
   local glyphs = 0
-  for _ in Utf8Glyphs.iter(profile.name) do
+  local unencodableGlyph
+  for glyph in Utf8Glyphs.iter(profile.name) do
     glyphs = glyphs + 1
+    if glyphs > FieldPlayerData.MAX_NAME_GLYPHS then
+      Errors.raise(FieldErrors.PLAYER_DATA_NAME_INVALID, nameGlyphBound, { name = profile.name, glyphs = glyphs })
+    end
+    if context.charmap[glyph] == nil then
+      unencodableGlyph = glyph
+    end
   end
-  if glyphs < FieldPlayerData.MIN_NAME_GLYPHS or glyphs > FieldPlayerData.MAX_NAME_GLYPHS then
+  if unencodableGlyph ~= nil then
     Errors.raise(
       FieldErrors.PLAYER_DATA_NAME_INVALID,
-      "player name must be " .. FieldPlayerData.MIN_NAME_GLYPHS .. ".." .. FieldPlayerData.MAX_NAME_GLYPHS .. " glyphs",
-      { name = profile.name, glyphs = glyphs }
+      "player name contains a character the generated field font cannot encode",
+      { character = unencodableGlyph }
     )
   end
-  for glyph in Utf8Glyphs.iter(profile.name) do
-    if context.charmap[glyph] == nil then
-      Errors.raise(
-        FieldErrors.PLAYER_DATA_NAME_INVALID,
-        "player name contains a character the generated field font cannot encode",
-        { character = glyph }
-      )
-    end
+  if glyphs < FieldPlayerData.MIN_NAME_GLYPHS then
+    Errors.raise(FieldErrors.PLAYER_DATA_NAME_INVALID, nameGlyphBound, { name = profile.name, glyphs = glyphs })
   end
   if FieldPlayerData.GENDERS[profile.gender] ~= true then
     Errors.raise(FieldErrors.PLAYER_DATA_GENDER_INVALID, "player gender must be one of the gendered-message values", {
