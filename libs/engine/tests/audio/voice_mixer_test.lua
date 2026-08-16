@@ -12,36 +12,39 @@
 --   * The envelope is the SDK state machine (SND_SetExChannelAttack
 --     coefficients and the 19-entry high table, CalcDecayCoeff decay/release
 --     with the 127/126 special cases, DecibelSquare[sustain]<<7 target,
---     release stopped at the SDK vol <= -723 threshold), advanced once per
---     control step -- 192 Hz, i.e. one step per 250 output frames at 48 kHz
---     (SND_TIMER_RATE 240 at the 192 Hz sound interval, the cadence the
---     sequence player already derives its tick clock from). The noteOn
---     itself is the note's first control step; subsequent steps fire every
---     CONTROL_PERIOD frames on the mixer's absolute frame count.
+--     release stopped at the control step whose current pre-register dB sum
+--     crosses the vol <= -723 threshold (SND_VOL_DB_MIN)), advanced once per
+--     control step -- exactly 192 Hz through the integer phase accumulator
+--     (phase += 192 per output frame, one step when it reaches the output
+--     rate): 250-frame boundaries at 48 kHz and the 170/171 alternation at
+--     32768 Hz. The noteOn itself is the note's first control step.
 --   * Pitch is the integer domain (key - originalKey)*0x40 with
 --     SND_CalcTimer(baseTimer, pitch) (BIOS pitch table); PSG timers are
 --     masked with 0xFFFC; PSG/noise use the 8006 base timer. The host phase
---     increment is sampleRate*baseTimer/(timer*outputRate) -- the calculated
---     NDS timer feeds the physical boundary, never a MIDI frequency.
+--     increment is the DS sample clock/(timer*outputRate) -- the calculated
+--     NDS timer feeds the physical boundary, never a MIDI frequency and
+--     never a source sample-rate header.
 --   * Pan has three distinct domains: the instrument pan (0..127,
 --     initPan = pan-64), the track pan offset (starts 0), and the final
 --     hardware register (initPan + userPan + 0x40, clamped 0..127). The
 --     register feeds the linear hardware mix L=(128-N)/128, R=N/128 with
 --     register 127 interpreted as N=128 (GBATEK "7bit Volume and Panning
 --     Values").
---   * Square duty stays the discrete 0..7 index (8-sample cycle starting at
---     LOW, HIGH=(d+1)*12.5%); noise is the 15-bit LFSR from 7FFFh.
+--   * Square duty is the discrete integer 0..7 index (8-sample cycle
+--     starting at LOW, HIGH=(d+1)*12.5%; duty 7 is the all-LOW special
+--     pattern); noise is the 15-bit LFSR from 7FFFh.
 -- Output is interleaved stereo int16; mixing sums and saturates at
 -- +-32767/+-32768; per-voice host gains use the register mantissa N/128 and
 -- the divider shift {0,1,2,4}. Commands between renders apply at the next
 -- control step; rendering is independent of chunk size.
 --
--- The voice/spec shapes follow the frozen contracts: voice = {generator,
--- originalKey, envelope, pan}; sample descriptor = {schema, key, file,
--- frames, sampleRate, baseTimer, loopEnabled, loop}. Every expected value
--- below is a known vector transcribed from the SDK sources or the NDS ARM7
--- BIOS tables (getpitchtbl/getvoltbl hardware dumps); the tests never
--- reimplement the SDK algorithms.
+-- The voice/spec shapes follow the agreed contracts: voice = {generator,
+-- originalKey, envelope, pan}; the sample voice spec = {pcm, baseTimer,
+-- loop, loopEnabled} -- no source sample rate (playback derives from the DS
+-- clock and the calculated timer). Every expected value below is a known
+-- vector transcribed from the SDK sources or the NDS ARM7 BIOS tables
+-- (getpitchtbl/getvoltbl hardware dumps); the tests never reimplement the
+-- SDK algorithms.
 
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
@@ -73,12 +76,13 @@ end
 -- channelMask, trackPriority, playerPriority, and the optional channel-side
 -- controls (trackPanOffset 0, panRange 127, fader 0, sweepPitch 0,
 -- sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/2=pan,
--- depth 0, range 1, speed 16, delay 0}).
+-- depth 0, range 1, speed 16, delay 0}). Sample voices carry no source
+-- sample rate: playback derives from the DS sound clock and the calculated
+-- timer.
 local function spec(overrides)
   local s = {
     generator = { kind = "sample", sample = AudioFixture.key(1) },
     pcm = WAVE_A,
-    sampleRate = SAMPLE_RATE,
     baseTimer = 8006,
     loopEnabled = true,
     loop = { startFrame = 0, endFrame = 8 },
@@ -313,35 +317,32 @@ end
 
 -- Pitch is the integer domain (key - originalKey)*0x40 through
 -- SND_CalcTimer(baseTimer, pitch) (NDS ARM7 BIOS pitch table); the host
--- phase increment is sampleRate*baseTimer/(timer*outputRate), so at the
--- octaves the ratios are exactly 2 and 1/2, and one semitone up (timer
--- 7556) drifts the read position by the exact rational 8006/7556 (frame 18
--- reads the third sample while unity reads the second).
+-- phase increment is the DS sample clock/(timer*outputRate), so at a
+-- DS-clock-rate mixer the read advances exactly 1/timer samples per frame:
+-- an octave up (timer 4003) reads sample 2 at half the frames of unity
+-- (timer 8006), an octave down (timer 16012) at twice the frames, and one
+-- semitone up (timer 7556) is one sample ahead of unity by frame 16012.
 function T.sample_voices_pitch_through_the_calculated_timer()
+  local DS_RATE = 16756991
   local function renderAt(key, frames)
-    local mixer = newMixer()
+    local mixer = newMixer(DS_RATE)
     mixer:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, key = key, pan = 0 }))
     return mixer:render(frames)
   end
-  local pcm = renderAt(60, 8)
-  for frame = 1, 8 do
-    Assert.equal(leftAt(pcm, frame), WAVE16[frame], "key 60 plays the wave at unity pitch")
-  end
-  local up = renderAt(72, 8)
-  local expectedUp = { 100, 300, 500, 700, 900, 1100, 1300, 1500 }
-  for frame = 1, 8 do
-    Assert.equal(leftAt(up, frame), expectedUp[frame], "an octave up reads every other sample (timer 4003)")
-  end
-  local down = renderAt(48, 8)
-  local expectedDown = { 100, 100, 200, 200, 300, 300, 400, 400 }
-  for frame = 1, 8 do
-    Assert.equal(leftAt(down, frame), expectedDown[frame], "an octave down reads each sample twice (timer 16012)")
-  end
-  local sharp = renderAt(61, 20)
-  for frame = 1, 17 do
-    Assert.equal(leftAt(sharp, frame), WAVE16[(frame - 1) % 16 + 1], "one semitone up matches unity early")
-  end
-  Assert.equal(leftAt(sharp, 18), 300, "one semitone up reads the third sample at frame 18 (timer 7556)")
+  local unity = renderAt(60, 24018)
+  Assert.equal(leftAt(unity, 8006), 100, "key 60 reads sample 1 at frame 8006 (timer 8006)")
+  Assert.equal(leftAt(unity, 16012), 200, "key 60 reads sample 2 at frame 16012")
+  Assert.equal(leftAt(unity, 24018), 300, "key 60 reads sample 3 at frame 24018")
+  local up = renderAt(72, 12009)
+  Assert.equal(leftAt(up, 4003), 100, "an octave up reads sample 1 at half the frames (timer 4003)")
+  Assert.equal(leftAt(up, 8006), 200, "an octave up reads sample 2 at half the frames")
+  Assert.equal(leftAt(up, 12009), 300, "an octave up reads sample 3 at half the frames")
+  local down = renderAt(48, 32024)
+  Assert.equal(leftAt(down, 16012), 100, "an octave down reads sample 1 at twice the frames (timer 16012)")
+  Assert.equal(leftAt(down, 32024), 200, "an octave down reads sample 2 at twice the frames")
+  local sharp = renderAt(61, 16012)
+  Assert.equal(leftAt(sharp, 16012), 300, "one semitone up reads the third sample at frame 16012 (timer 7556)")
+  Assert.equal(leftAt(unity, 16012), 200, "unity is still at the second sample")
 end
 
 -- PSG runs only on channels 8..13 and noise only on 14..15, both with the
@@ -358,15 +359,15 @@ function T.psg_and_noise_use_the_base_timer_masks_and_lfsr()
     mixer:noteOn(spec({ generator = { kind = "square", duty = duty }, key = key, channelMask = 0x3F00, pan = 0 }))
     return mixer:render(frames)
   end
-  local out = squareAt(1 / 8, 60, 64033)
+  local out = squareAt(0, 60, 64033)
   Assert.equal(leftAt(out, 56028), -32767, "key 60 duty 0: LOW through frame 7*8004 (masked timer)")
   Assert.equal(leftAt(out, 56029), 32767, "key 60 duty 0: HIGH from frame 7*8004+1")
   Assert.equal(leftAt(out, 64032), 32767, "key 60 duty 0: HIGH through frame 8*8004")
   Assert.equal(leftAt(out, 64033), -32767, "key 60 duty 0: the cycle restarts LOW")
-  local octave = squareAt(1 / 8, 72, 32001)
+  local octave = squareAt(0, 72, 32001)
   Assert.equal(leftAt(octave, 28000), -32767, "key 72 (timer 4000): LOW through frame 7*4000")
   Assert.equal(leftAt(octave, 28001), 32767, "key 72: HIGH from frame 7*4000+1")
-  local masked = squareAt(1 / 8, 59, 59376)
+  local masked = squareAt(0, 59, 59376)
   Assert.equal(leftAt(masked, 59360), -32767, "key 59: the masked timer 8480 keeps frame 7*8480 LOW")
   Assert.equal(leftAt(masked, 59361), 32767, "key 59: the masked timer 8480 turns HIGH at frame 7*8480+1")
   local noise = newMixer(DS_RATE)
@@ -380,19 +381,28 @@ end
 
 -- Sample voices start at the sample start and wrap inside their loop
 -- window; a one-shot wave stops at the window end; a looping voice holds
--- until noteOff, whose release follows the control cadence.
+-- until noteOff, whose release follows the control cadence. At a DS-rate
+-- host with base timer 16 the read advances exactly one sample per 16
+-- frames (the DS-clock ratio 1/16 is exact), so the window edges land on
+-- exact frames: the pre-loop samples 1..2 play once, then the window
+-- 3..6 repeats; the one-shot sounds its last sample at frame 128 and stops
+-- at the window end.
 function T.loops_wrap_inside_the_window_and_one_shots_stop()
-  local mixer = newMixer()
-  mixer:noteOn(spec({ loop = { startFrame = 2, endFrame = 6 }, pan = 0 }))
-  local pcm = mixer:render(8)
-  Assert.equal(leftAt(pcm, 7), 300, "the voice plays the pre-loop region first, then wraps into the window")
-  Assert.equal(leftAt(pcm, 8), 400, "the loop window repeats")
+  local DS_RATE = 16756991
+  local loopMixer = newMixer(DS_RATE)
+  loopMixer:noteOn(spec({ baseTimer = 16, loop = { startFrame = 2, endFrame = 6 }, pan = 0 }))
+  local pcm = loopMixer:render(120)
+  Assert.equal(leftAt(pcm, 16), 100, "the pre-loop region plays sample 1 first")
+  Assert.equal(leftAt(pcm, 32), 200, "the pre-loop region plays sample 2")
+  Assert.equal(leftAt(pcm, 48), 300, "the loop window starts at sample 3")
+  Assert.equal(leftAt(pcm, 96), 600, "the window plays sample 6 at its end")
+  Assert.equal(leftAt(pcm, 97), 300, "the window repeats from sample 3")
 
-  local oneShot = newMixer()
-  oneShot:noteOn(spec({ loopEnabled = false, pan = 0 }))
-  local shot = oneShot:render(12)
-  Assert.equal(leftAt(shot, 8), 800, "the one-shot wave plays its window")
-  Assert.equal(leftAt(shot, 12), 0, "the one-shot stops at the window end")
+  local oneShot = newMixer(DS_RATE)
+  oneShot:noteOn(spec({ baseTimer = 16, loopEnabled = false, pan = 0 }))
+  local shot = oneShot:render(140)
+  Assert.equal(leftAt(shot, 128), 800, "the one-shot wave plays its window")
+  Assert.equal(leftAt(shot, 129), 0, "the one-shot stops at the window end")
 
   local held = newMixer()
   local pcm2048 = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
@@ -407,15 +417,15 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
 end
 
 function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
-  local mixer = newMixer()
+  local DS_RATE = 16756991
+  local mixer = newMixer(DS_RATE)
   local loud = { 30000, -30000, 30000, -30000, 30000, -30000, 30000, -30000 }
   mixer:noteOn(spec({ pcm = loud, pan = 0 }))
   mixer:noteOn(spec({ pcm = loud, pan = 0 }))
-  local pcm = mixer:render(8)
-  local expected = { 32767, -32768, 32767, -32768, 32767, -32768, 32767, -32768 }
-  for frame = 1, 8 do
-    Assert.equal(leftAt(pcm, frame), expected[frame], "the mix saturates at the int16 bounds")
-  end
+  local pcm = mixer:render(24018)
+  Assert.equal(leftAt(pcm, 8006), 32767, "two sample-1 voices saturate at +32767")
+  Assert.equal(leftAt(pcm, 16012), -32768, "two sample-2 voices saturate at -32768")
+  Assert.equal(leftAt(pcm, 24018), 32767, "the mix keeps saturating at the int16 bounds")
 
   local function playChunked(chunks)
     local m = newMixer()
@@ -484,54 +494,238 @@ function T.render_into_appends_spans_byte_identical_to_render()
   )
 end
 
--- The transport pause hook (the NNS SND_PlayerPause the sequence player's
--- pausePlayer uses): a suspended voice reads nothing, advances nothing, and
--- runs no control steps -- its sample position and envelope freeze in place
--- -- and resumes exactly where it stopped.
-function T.suspended_voices_freeze_in_place_and_resume_exactly()
+-- The mixer is the authoritative owner of voice liveness. isVoiceAlive
+-- (handle) is true from noteOn through the release ring-out and false once
+-- the mixer removes the voice -- a natural one-shot death, a generation
+-- mismatch, and an empty channel all answer false. The sequencer prunes its
+-- voice collections with this query instead of predicting the death moment.
+function T.is_voice_alive_tracks_liveness_until_removal()
   local mixer = newMixer()
-  local handle = mixer:noteOn(spec({ pan = 0 })) --[[@as { channel: integer, generation: integer }]]
-  local before = mixer:render(200)
-  Assert.equal(leftAt(before, 200), WAVE_A[(200 - 1) % 8 + 1], "the voice sounds before the suspension")
-  mixer:suspendVoice(handle, true)
-  local held = mixer:render(100)
-  for frame = 1, 100 do
-    Assert.equal(leftAt(held, frame), 0, "the suspended voice contributes nothing")
-  end
-  mixer:suspendVoice(handle, false)
-  local resumed = mixer:render(50)
-  Assert.equal(
-    leftAt(resumed, 50),
-    WAVE_A[(200 + 50 - 1) % 8 + 1],
-    "the voice resumes at the sample position it froze at"
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  local handle = mixer:noteOn(spec({ pcm = pcm, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  Assert.isTrue(mixer:isVoiceAlive(handle), "a fresh voice is alive")
+  mixer:render(4)
+  Assert.isTrue(mixer:isVoiceAlive(handle), "a sounding voice stays alive")
+  mixer:noteOff(handle)
+  Assert.isTrue(mixer:isVoiceAlive(handle), "a voice in release stays alive until the mixer removes it")
+  mixer:render(600)
+  Assert.isFalse(mixer:isVoiceAlive(handle), "the release completed and the voice was removed")
+
+  local oneShot = newMixer()
+  local shot = oneShot:noteOn(spec({ loopEnabled = false, pan = 0, baseTimer = 16 })) --[[@as { channel: integer, generation: integer }]]
+  Assert.isTrue(oneShot:isVoiceAlive(shot), "the one-shot voice is alive before its window ends")
+  oneShot:render(12)
+  Assert.isFalse(oneShot:isVoiceAlive(shot), "a one-shot voice is dead once the window ended")
+  Assert.isFalse(
+    oneShot:isVoiceAlive({ channel = shot.channel, generation = shot.generation + 1 }),
+    "a generation mismatch is not alive"
   )
+  Assert.isFalse(oneShot:isVoiceAlive({ channel = 15, generation = 0 }), "an empty channel is not alive")
 end
 
--- A note-off on a suspended voice un-suspends it: the release must always
--- ring out and free the channel, never leak a suspended voice that no
--- render can reach.
-function T.note_off_un_suspends_a_voice_so_its_release_proceeds()
+-- Release death is computed per control step from the current register
+-- inputs (SND_exChannel.c ExChannelMain: the pre-register dB sum crossing
+-- SND_VOL_DB_MIN), never from a noteOff-time count. A control value pushed
+-- during the release -- here track volume 0 -- reaches the volume sum at
+-- the next control step and stops the voice the same step; the voice cannot
+-- keep ringing out a count precomputed from the louder noteOff-time inputs.
+function T.release_death_follows_the_current_volume_not_a_precomputed_count()
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  local mixer = newMixer()
+  local handle = mixer:noteOn(spec({
+    pcm = pcm,
+    pan = 0,
+    envelope = { attack = 127, decay = 127, sustain = 127, release = 100 },
+  })) --[[@as { channel: integer, generation: integer }]]
+  mixer:render(300)
+  mixer:noteOff(handle)
+  mixer:updateVoice(handle, { trackVolume = 0 })
+  local tail = mixer:render(400)
+  Assert.equal(leftAt(tail, 201), 0, "track volume 0 stops the release at the next control step")
+  Assert.equal(leftAt(tail, 300), 0, "the voice never rings on the noteOff-time volume")
+end
+
+-- noteOff(handle, releaseOverride) sets the channel release before
+-- entering release: nil keeps the voice's instrument release; an integer
+-- 0..127 replaces the release byte (through CalcDecayCoeff). Override 100
+-- on a release-127 voice rings 314 steps and stops at the vol <= -723
+-- threshold (register 0x301 -> 1 through the last sounding step); override
+-- 127 on a slow release-20 voice stops in two steps like release 127.
+function T.release_override_applies_the_coefficient_before_release()
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  local function run(releaseByte, override, frames)
+    local mixer = newMixer()
+    local handle = mixer:noteOn(spec({
+      pcm = pcm,
+      pan = 0,
+      envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
+    })) --[[@as { channel: integer, generation: integer }]]
+    mixer:noteOff(handle, override)
+    return mixer:render(frames)
+  end
+  local slow = run(127, 100, 78600)
+  Assert.equal(leftAt(slow, 78400), 1, "override 100 rings through release step 313 (register 0x301)")
+  Assert.equal(leftAt(slow, 78501), 0, "override 100 stops at release step 314 (vol <= -723)")
+  local fast = run(127, nil, 800)
+  Assert.equal(leftAt(fast, 251), 6, "nil keeps release 127 (register 0x306 at step 1)")
+  Assert.equal(leftAt(fast, 501), 0, "nil keeps release 127 (the two-step stop)")
+  local forced = run(20, 127, 800)
+  Assert.equal(leftAt(forced, 251), 6, "override 127 replaces the instrument release 20 (register 0x306)")
+  Assert.equal(leftAt(forced, 501), 0, "override 127 stops on the second release step")
+end
+
+-- The release override contract is nil or an integer 0..127; anything else
+-- is a programming fault at the mixer boundary, and 0 stays a valid slow
+-- release.
+function T.release_override_rejects_out_of_range_values()
   local mixer = newMixer()
   local handle = mixer:noteOn(spec({ pan = 0 })) --[[@as { channel: integer, generation: integer }]]
-  mixer:render(100)
-  mixer:suspendVoice(handle, true)
+  Assert.throws(function()
+    mixer:noteOff(handle, 128)
+  end, "a release override above 127 is rejected")
+  Assert.throws(function()
+    mixer:noteOff(handle, -1)
+  end, "a negative release override is rejected")
+  Assert.throws(function()
+    mixer:noteOff(handle, 1.5)
+  end, "a non-integer release override is rejected")
+  mixer:noteOff(handle, 0)
+  mixer:render(1)
+end
+
+-- The control clock is the integer rational phase accumulator
+-- (phase += 192 per output frame, one step when it reaches the output
+-- rate), so at 32768 Hz the step boundaries alternate 171/170 frames:
+-- steps 2 and 3 fire at the ends of frames 171 and 342, with the known
+-- attack-100 register vectors 0x30D/0x360/0x250 (13/96/320) landing on
+-- those exact frames -- never every floor(32768/192) = 170 frames. The
+-- noteOn itself stays the note's first control step (frame 1 reads the
+-- step-1 register).
+function T.control_steps_alternate_170_and_171_at_32768_hz()
+  local mixer = newMixer(32768)
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
+  local out = mixer:render(350)
+  Assert.equal(leftAt(out, 1), 13, "the noteOn is the note's first control step (step 1, register 0x30D)")
+  Assert.equal(leftAt(out, 171), 13, "step 2 fires at the end of frame 171, not at 170 (register 0x30D)")
+  Assert.equal(leftAt(out, 172), 96, "step 2 registers apply from frame 172 (register 0x360)")
+  Assert.equal(leftAt(out, 341), 96, "frame 341 still reads the step-2 register (0x360)")
+  Assert.equal(leftAt(out, 342), 96, "frame 342 is the last step-2 frame (register 0x360)")
+  Assert.equal(leftAt(out, 343), 320, "step 3 registers apply from frame 343 (register 0x250)")
+end
+
+-- Over a long run at the production 32768 Hz rate the accumulator keeps
+-- the exact 192 steps per second. A release-100 voice (295 units per
+-- control step) dies at release step 314 (env -92630, floor(-92630/128) =
+-- -724 <= -723) at the end of frame ceil(32768*314/192) = 53590, with the
+-- step-312/313 register 0x301 (gain 1/2048 -> sample 1) sounding through
+-- it. A floored 170-frame period would stop the voice at frame 53380,
+-- ~210 frames early.
+function T.exactly_192_control_steps_per_second_over_a_long_run_at_32768_hz()
+  local mixer = newMixer(32768)
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  local handle = mixer:noteOn(spec({
+    pcm = pcm,
+    pan = 0,
+    envelope = { attack = 127, decay = 127, sustain = 127, release = 100 },
+  })) --[[@as { channel: integer, generation: integer }]]
   mixer:noteOff(handle)
-  local tail = mixer:render(600)
-  local sounding = 0
-  for frame = 1, 600 do
-    if leftAt(tail, frame) ~= 0 then
-      sounding = sounding + 1
+  local out = mixer:render(53600)
+  Assert.equal(leftAt(out, 53400), 1, "the release still sounds past the floored-period death frame 53210")
+  Assert.equal(leftAt(out, 53590), 1, "the last sounding frame is the 314th release step's boundary frame")
+  Assert.equal(leftAt(out, 53591), 0, "the voice stops the frame after step 314")
+end
+
+-- The phase accumulator is absolute mixer frame state, so chunking
+-- the same total frames differently at 32768 Hz -- including splits across
+-- the alternating 170/171 boundaries -- produces byte-identical PCM.
+function T.chunking_is_independent_at_32768_hz()
+  local function playChunked(chunks)
+    local mixer = newMixer(32768)
+    mixer:noteOn(spec({
+      pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 },
+      pan = 0,
+      envelope = { attack = 0, decay = 127, sustain = 127, release = 127 },
+    }))
+    local out = {}
+    for _, frames in ipairs(chunks) do
+      local part = mixer:render(frames)
+      for i = 1, #part do
+        out[#out + 1] = part[i]
+      end
     end
+    return out
   end
-  Assert.isTrue(sounding > 0, "the release rings out instead of staying suspended")
-  local after = mixer:render(100)
-  for frame = 1, 100 do
-    Assert.equal(leftAt(after, frame), 0, "the release ended and the channel freed")
+  local whole = playChunked({ 400 })
+  Assert.deepEqual(whole, playChunked({ 200, 200 }), "chunk boundaries do not move the control steps")
+  Assert.deepEqual(whole, playChunked({ 171, 170, 59 }), "a 171/170 split is byte-identical")
+  Assert.deepEqual(whole, playChunked({ 100, 100, 100, 100 }), "small chunks are byte-identical")
+end
+
+-- PCM playback phase derives from the DS sound clock and the
+-- calculated channel timer (DS_SOUND_CLOCK / timer / outputRate), never
+-- from a source sample-rate header: the voice spec carries no sampleRate.
+-- At a DS-clock-rate mixer (16756991 Hz) the base timer 8006 advances the
+-- read exactly one sample per 8006 frames (frame 8006 reads the first wave
+-- sample, frame 8007 the second); at the production 32768 Hz rate a
+-- 512-base-timer wave (clock/512 ~= 32728 Hz) drifts the read to sample 9
+-- by frame 32769.
+function T.sample_voices_play_from_the_ds_clock_and_timer_without_a_source_rate()
+  local function rateSpec(baseTimer)
+    -- The 16-sample wave carries the 16-frame loop window; the production
+    -- rate reads sample 9 at frame 32769, so the wave must cover it.
+    return spec({ pcm = WAVE16, pan = 0, baseTimer = baseTimer, loop = { startFrame = 0, endFrame = 16 } })
   end
-  local nextHandle = assert(mixer:noteOn(spec({ pan = 0 })))
-  Assert.equal(nextHandle.channel, handle.channel, "the freed channel is reusable")
-  local fresh = mixer:render(8)
-  Assert.isTrue(leftAt(fresh, 1) ~= 0, "the fresh note sounds on the reused channel")
+  local dsRate = newMixer(16756991)
+  dsRate:noteOn(rateSpec(8006))
+  local out = dsRate:render(8020)
+  Assert.equal(leftAt(out, 8006), 100, "at the DS clock the wave advances one sample per 8006 frames (sample 1)")
+  Assert.equal(leftAt(out, 8007), 200, "frame 8007 reads the second sample")
+
+  local production = newMixer(32768)
+  production:noteOn(rateSpec(512))
+  local prod = production:render(32769)
+  Assert.equal(leftAt(prod, 32769), 900, "at 32768 Hz the clock-derived rate reads sample 9 by frame 32769")
+end
+
+-- Duty index 7 is the DS special all-LOW pattern (GBATEK "PSG
+-- rectangular wave"): the 8-step cycle never goes HIGH, unlike duty 6,
+-- which is one LOW step then seven HIGH steps.
+function T.square_duty_seven_is_all_low()
+  local mixer = newMixer(16756991)
+  mixer:noteOn(spec({ generator = { kind = "square", duty = 7 }, key = 60, channelMask = 0x3F00, pan = 0 }))
+  local out = mixer:render(8005)
+  for frame = 1, 8005 do
+    Assert.equal(leftAt(out, frame), -32767, "duty 7 stays LOW through the full cycle at frame " .. frame)
+  end
+end
+
+-- The mixer consumes the discrete integer duty index 0..7 directly and
+-- renders the (7-d) LOW / (d+1) HIGH 8-step grid at the masked timer;
+-- floats are a programming fault, not a duty to convert back to an index.
+function T.square_duty_is_consumed_as_the_integer_index()
+  local DS_RATE = 16756991
+  local six = newMixer(DS_RATE)
+  six:noteOn(spec({ generator = { kind = "square", duty = 6 }, key = 60, channelMask = 0x3F00, pan = 0 }))
+  local out = six:render(64040)
+  Assert.equal(leftAt(out, 8004), -32767, "duty 6 starts with one LOW step (7-6, masked timer 8004)")
+  Assert.equal(leftAt(out, 8005), 32767, "duty 6 turns HIGH for seven steps")
+  Assert.equal(leftAt(out, 64032), 32767, "duty 6 stays HIGH through step 7 of the cycle")
+  Assert.equal(leftAt(out, 64033), -32767, "duty 6 restarts LOW on the next cycle")
+
+  local function rejects(duty)
+    local mixer = newMixer(DS_RATE)
+    Assert.throws(function()
+      mixer:noteOn(spec({ generator = { kind = "square", duty = duty }, key = 60, channelMask = 0x3F00 }))
+    end, "square duty " .. tostring(duty) .. " is not an integer index 0..7")
+  end
+  -- 1.0 is the integer 1 in LuaJIT (no float/integer value distinction), so
+  -- an integral float cannot be told apart from the valid duty 1; the
+  -- non-integral float pins the float rejection instead.
+  rejects(0.5)
+  rejects(1.5)
+  rejects(8)
+  rejects(-1)
 end
 
 return { tests = T }

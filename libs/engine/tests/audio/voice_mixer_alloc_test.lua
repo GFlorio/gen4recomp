@@ -9,9 +9,10 @@
 --     quieter last-synced volume register; an incoming note below the
 --     victim's priority is rejected; a stolen channel revokes the previous
 --     voice handle so a later noteOff cannot kill the replacement.
---   * noteOn returns {channel, generation} (generation 0-based, incremented
---     per channel reuse) or nil; noteOff/updateVoice on a stale handle are
---     harmless.
+--   * noteOn returns {channel, generation} (generation persists per channel
+--     and increments on every allocation, so a naturally freed channel never
+--     reuses the old generation) or nil; noteOff/updateVoice/isVoiceAlive on
+--     a stale handle are harmless.
 --   * TrackUpdateChannel per-main control values (track volume, expression,
 --     player volume, fader, pan offset) reach the channel at the next
 --     control step -- 192 Hz, i.e. one step per 250 output frames at 48 kHz
@@ -23,12 +24,12 @@
 --     (ExChannelSweepUpdate) state machines run per control step and feed
 --     the pitch/volume/pan calculations.
 --
--- The voice/spec shapes follow the frozen contracts: voice = {generator,
--- originalKey, envelope, pan}; sample descriptor = {schema, key, file,
--- frames, sampleRate, baseTimer, loopEnabled, loop}. Every expected value
--- below is a known vector transcribed from the SDK sources or the NDS ARM7
--- BIOS tables (getpitchtbl/getvoltbl hardware dumps); the tests never
--- reimplement the SDK algorithms.
+-- The voice/spec shapes follow the agreed contracts: voice = {generator,
+-- originalKey, envelope, pan}; sample descriptor = {schema, key, frames,
+-- baseTimer, loopEnabled, loop}. Every expected value below is a
+-- known vector transcribed from the SDK sources or the NDS ARM7 BIOS tables
+-- (getpitchtbl/getvoltbl hardware dumps); the tests never reimplement the
+-- SDK algorithms.
 
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
@@ -48,6 +49,9 @@ local WAVE16 = {}
 for i = 1, 16 do
   WAVE16[i] = i * 100
 end
+-- A constant wave for the stale-handle pins: the full register gain 1 makes
+-- every frame's expected sample the constant itself.
+local CONST_4096 = { 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 }
 
 local function newMixer(rate)
   return VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
@@ -58,12 +62,13 @@ end
 -- channelMask, trackPriority, playerPriority, and the optional channel-side
 -- controls (trackPanOffset 0, panRange 127, fader 0, sweepPitch 0,
 -- sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/2=pan,
--- depth 0, range 1, speed 16, delay 0}).
+-- depth 0, range 1, speed 16, delay 0}). Sample voices carry no source
+-- sample rate: playback derives from the DS sound clock and the calculated
+-- timer.
 local function spec(overrides)
   local s = {
     generator = { kind = "sample", sample = AudioFixture.key(1) },
     pcm = WAVE_A,
-    sampleRate = SAMPLE_RATE,
     baseTimer = 8006,
     loopEnabled = true,
     loop = { startFrame = 0, endFrame = 8 },
@@ -112,7 +117,7 @@ function T.allocation_follows_the_sdk_channel_order_and_generator_masks()
   local square = newMixer()
   local squareChannels = {}
   for i = 1, 6 do
-    squareChannels[i] = square:noteOn(spec({ generator = { kind = "square", duty = 0.5 }, channelMask = 0x3F00 }))
+    squareChannels[i] = square:noteOn(spec({ generator = { kind = "square", duty = 4 }, channelMask = 0x3F00 }))
   end
   for i = 1, 6 do
     Assert.equal(squareChannels[i].channel, 7 + i, "square voices take channels 8..13 in order")
@@ -130,7 +135,7 @@ function T.allocation_follows_the_sdk_channel_order_and_generator_masks()
   )
   local restricted = newMixer()
   Assert.isNil(
-    restricted:noteOn(spec({ generator = { kind = "square", duty = 0.5 }, channelMask = 0xC000 })),
+    restricted:noteOn(spec({ generator = { kind = "square", duty = 4 }, channelMask = 0xC000 })),
     "square has no channel inside a noise-only mask"
   )
   Assert.isNil(
@@ -138,7 +143,7 @@ function T.allocation_follows_the_sdk_channel_order_and_generator_masks()
     "noise has no channel inside a square-only mask"
   )
   Assert.isNil(
-    restricted:noteOn(spec({ generator = { kind = "square", duty = 0.5 }, channelMask = 0x00FF })),
+    restricted:noteOn(spec({ generator = { kind = "square", duty = 4 }, channelMask = 0x00FF })),
     "square has no channel inside mask 0-7"
   )
   local masked = newMixer()
@@ -265,8 +270,9 @@ end
 -- updateVoice retunes a live voice at the next control step: `key`
 -- re-enters the note's pitch path (midiKey -> SND_CalcTimer -> timer/ratio)
 -- without touching the envelope state or the release/attack status, so a
--- tied note keeps its attack progression. Key 72 doubles the read rate
--- (timer 4003) from the boundary frame on; the attack-100 register pins
+-- tied note keeps its attack progression. With base timer 512 the retune to
+-- key 72 halves the timer (512 -> 256) and exactly doubles the read rate
+-- from the boundary frame's own advance on; the attack-100 register pins
 -- show the curve continued from step 3 instead of restarting.
 function T.update_voice_retunes_the_key_at_the_next_control_step()
   local function run(overrides, firstLength, secondLength)
@@ -277,13 +283,18 @@ function T.update_voice_retunes_the_key_at_the_next_control_step()
     local second = mixer:render(secondLength)
     return first, second
   end
-  local first, second = run({ pcm = WAVE16, pan = 0, loop = { startFrame = 0, endFrame = 16 } }, CONTROL, 300)
-  Assert.equal(leftAt(first, CONTROL), 1000, "key 60 plays at unity pitch through the first block")
-  Assert.equal(leftAt(second, CONTROL - 1), 300, "the frame before the boundary still reads at unity pitch")
-  Assert.equal(leftAt(second, CONTROL), 400, "the boundary frame's own read hears the retune")
-  Assert.equal(leftAt(second, CONTROL + 1), 600, "key 72 reads every other sample from the next frame")
-  Assert.equal(leftAt(second, CONTROL + 2), 800, "key 72 reads every other sample from the next frame")
-  Assert.equal(leftAt(second, CONTROL + 3), 1000, "key 72 reads every other sample from the next frame")
+  local first, second = run({
+    pcm = WAVE16,
+    baseTimer = 512,
+    pan = 0,
+    loop = { startFrame = 0, endFrame = 16 },
+  }, CONTROL, 300)
+  Assert.equal(leftAt(first, CONTROL), 1000, "key 60 reads sample 10 through the first block (base timer 512)")
+  Assert.equal(leftAt(second, CONTROL - 1), 400, "the frame before the boundary still reads at the old rate")
+  Assert.equal(leftAt(second, CONTROL), 500, "the boundary frame's own read hears the retune")
+  Assert.equal(leftAt(second, CONTROL + 1), 600, "key 72 reads at twice the rate from the next frame")
+  Assert.equal(leftAt(second, CONTROL + 2), 700, "key 72 reads at twice the rate from the next frame")
+  Assert.equal(leftAt(second, CONTROL + 3), 900, "key 72 reads at twice the rate from the next frame")
 
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   first, second = run({
@@ -341,21 +352,25 @@ function T.lfo_pan_target_moves_the_hardware_register()
 end
 
 -- Pitch- and volume-target LFOs feed their channel calculations: a
--- pitch-target LFO (contribution 12 at step 2, timer 7919) drifts the
--- sample read until frame 343 reads the eighth sample where unity reads the
--- seventh; a volume-target LFO (contributions 11, 22, 33, 41) moves the dB
--- sum from db[100] = -42 to registers 0x5A, 0x66, 0x73, 0x7E.
+-- pitch-target LFO (contribution 12 at step 2 -> timer 506, 24 at step 3
+-- -> timer 501 from a 512 base timer) advances the read faster than the
+-- base-timer rate -- frame 451 reads sample 5 where the 0.68-sample/frame
+-- baseline reads sample 3; a volume-target LFO (contributions 11, 22, 33,
+-- 41) moves the dB sum from db[100] = -42 to registers 0x5A, 0x66, 0x73,
+-- 0x7E.
 function T.lfo_pitch_and_volume_targets_affect_their_calculations()
   local pitchMixer = newMixer()
   pitchMixer:noteOn(spec({
     pcm = WAVE16,
+    baseTimer = 512,
     loop = { startFrame = 0, endFrame = 16 },
     lfo = { target = 0, depth = 127, range = 1, speed = 16, delay = 0 },
     pan = 0,
   }))
-  local out = pitchMixer:render(400)
-  Assert.equal(leftAt(out, 342), 600, "before the LFO drift the read still matches unity")
-  Assert.equal(leftAt(out, 343), 800, "the pitch-target LFO advances the read at frame 343")
+  local out = pitchMixer:render(560)
+  Assert.equal(leftAt(out, 342), 1000, "the drift from step 2 leaves the read at sample 10 by frame 342")
+  Assert.equal(leftAt(out, 450), 400, "the pitch-target LFO advances the read to sample 4 at frame 450")
+  Assert.equal(leftAt(out, 451), 500, "the pitch-target LFO advances the read to sample 5 at frame 451")
 
   local volumeMixer = newMixer()
   volumeMixer:noteOn(spec({
@@ -380,13 +395,15 @@ end
 -- ExChannelSweepUpdate: the sweep contribution is sweepPitch*
 -- (sweepLength - sweepCounter)/sweepLength with the counter advancing per
 -- control step while autoSweep is set (pitch 768, 576, 384, 192, 0 over
--- sweepLength 4 -> timers 4003, 4760, 5661, 6732, 8006); without autoSweep
--- the counter stays and the pitch holds at the first contribution.
+-- sweepLength 4 -> timers 256, 304, 362, 430, 512 from the 512 base timer);
+-- without autoSweep the counter stays and the pitch holds at the first
+-- contribution (timer 256).
 function T.sweep_ramps_pitch_over_its_length()
   local function run(autoSweep, frames)
     local mixer = newMixer()
     mixer:noteOn(spec({
       pcm = WAVE16,
+      baseTimer = 512,
       loop = { startFrame = 0, endFrame = 16 },
       sweepPitch = 768,
       sweepLength = 4,
@@ -397,25 +414,57 @@ function T.sweep_ramps_pitch_over_its_length()
   end
   local out = run(true, 1300)
   local pins = {
-    { 251, 500, "step 2 reads at the doubled-rate position (timer 4003)" },
-    { 501, 900, "step 3 (timer 4760)" },
-    { 751, 1100, "step 4 (timer 5661)" },
-    { 1001, 400, "step 5 (timer 6732)" },
-    { 1251, 1400, "the sweep completed (timer 8006)" },
+    { 251, 500, "step 2 reads at the doubled-rate position (timer 256)" },
+    { 501, 500, "step 3 (timer 304)" },
+    { 751, 600, "step 4 (timer 362)" },
+    { 1001, 100, "step 5 (timer 430)" },
+    { 1251, 1100, "the sweep completed (timer 512)" },
   }
   for _, pin in ipairs(pins) do
     Assert.equal(leftAt(out, pin[1]), pin[2], "sweep pin frame " .. pin[1] .. ": " .. pin[3])
   end
   local held = run(false, 1300)
   local heldPins = {
-    { 501, 900, "without autoSweep the pitch stays at the first contribution" },
-    { 751, 1300, "without autoSweep the pitch stays at the first contribution" },
-    { 1001, 100, "without autoSweep the pitch stays at the first contribution" },
-    { 1251, 500, "without autoSweep the pitch stays at the first contribution" },
+    { 501, 1000, "without autoSweep the pitch stays at the first contribution" },
+    { 751, 1500, "without autoSweep the pitch stays at the first contribution" },
+    { 1001, 400, "without autoSweep the pitch stays at the first contribution" },
+    { 1251, 900, "without autoSweep the pitch stays at the first contribution" },
   }
   for _, pin in ipairs(heldPins) do
     Assert.equal(leftAt(held, pin[1]), pin[2], "held sweep pin frame " .. pin[1] .. ": " .. pin[3])
   end
+end
+
+-- The generation is persistent per-channel state, not victim-derived:
+-- a naturally dead one-shot frees the channel entry, but the next
+-- allocation on that channel keeps incrementing the generation, so the
+-- stale handle from before the death can never alias the new voice. The
+-- reuse-after-steal tests above cover the occupied-victim path.
+function T.natural_death_does_not_reuse_the_old_generation()
+  local mixer = newMixer()
+  -- Base timer 16 advances the read fast (CLK/(16*48000) ~= 21.8 samples per
+  -- frame), so the one-shot dies within the first rendered frame and the
+  -- channel is free for the next allocation.
+  local oneShot = { loopEnabled = false, loop = { startFrame = 0, endFrame = 8 }, baseTimer = 16 }
+  local h1 = mixer:noteOn(spec(oneShot)) --[[@as { channel: integer, generation: integer }]]
+  mixer:render(12)
+  local h2 = mixer:noteOn(spec(oneShot)) --[[@as { channel: integer, generation: integer }]]
+  Assert.equal(h2.channel, h1.channel, "the second voice reuses the naturally freed channel")
+  Assert.isTrue(h2.generation ~= h1.generation, "a freed channel never reuses the old generation")
+  mixer:render(12)
+  local h3 = mixer:noteOn(spec({ pcm = CONST_4096, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  Assert.equal(h3.channel, h1.channel, "the third voice reuses the same channel again")
+  Assert.isTrue(h3.generation ~= h1.generation, "the generation keeps moving after the second natural death")
+  Assert.isTrue(h3.generation ~= h2.generation, "the generation keeps moving after the second natural death")
+  mixer:noteOff(h1)
+  mixer:updateVoice(h1, { trackVolume = 0 })
+  local out = mixer:render(300)
+  Assert.equal(leftAt(out, 251), 4096, "the stale noteOff and updateVoice leave the replacement voice untouched")
+  Assert.equal(leftAt(out, 300), 4096, "the replacement never enters release")
+  Assert.isFalse(mixer:isVoiceAlive(h1), "the stale handle is not alive")
+  Assert.isTrue(mixer:isVoiceAlive(h3), "the replacement voice is alive")
+  mixer:noteOff(h3)
+  mixer:render(600)
 end
 
 return { tests = T }

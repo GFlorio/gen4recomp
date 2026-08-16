@@ -10,17 +10,20 @@
 --     (127 -> 128) >> sSampleDataShiftTable.
 --   * The envelope is the SDK state machine (SND_SetExChannelAttack
 --     coefficients, CalcDecayCoeff decay/release with the 127/126 special
---     cases, DecibelSquare[sustain]<<7 decay target, release stopped when
---     the dB sum crosses the vol <= -723 threshold at the step count
---     NnsSoundMath.releaseStopSteps precomputed), advanced once per control
---     step -- 192 Hz, one step per outputRate/192 frames (SND_TIMER_RATE
---     240 at the 192 Hz sound interval). The noteOn itself is the note's
---     first control step.
+--     cases, DecibelSquare[sustain]<<7 decay target); a release voice
+--     stops at the control step whose current pre-register dB sum crosses
+--     SND_VOL_DB_MIN (vol <= -723), the SDK's death moment -- never a
+--     noteOff-time prediction. The envelope advances once per control
+--     step -- exactly 192 Hz through the integer phase accumulator
+--     (phase += 192 per output frame, one step when it reaches the output
+--     rate): every 250 frames at 48 kHz, the 170/171 alternation at 32768
+--     Hz. The noteOn itself is the note's first control step.
 --   * Pitch is the integer domain (key - originalKey)*0x40 through
 --     SND_CalcTimer (BIOS pitch table); square timers are masked with
---     0xFFFC and square/noise use the 8006 base timer; the host phase
---     increment is sampleRate*baseTimer/(timer*outputRate) for samples and
---     the DS sample clock/(timer*outputRate) for square/noise.
+--     0xFFFC and square/noise use the 8006 base timer. The host phase
+--     increment is the DS sample clock/(timer*outputRate) for every
+--     generator: the calculated NDS timer feeds the physical boundary,
+--     never a MIDI frequency and never a source sample-rate header.
 --   * Pan has three distinct domains: the instrument pan (initPan =
 --     pan - 0x40), the track pan offset (TrackUpdateChannel: scaled by
 --     panRange, starts 0), and the final hardware register (initPan +
@@ -32,20 +35,23 @@
 --     (playerPriority + trackPriority, one sum) and among equals the
 --     quieter last-synced volume register; an incoming note below the
 --     victim's priority is rejected; a stolen channel revokes the previous
---     voice handle. noteOn returns {channel, generation} (generation
---     0-based, incremented per channel reuse) or nil; noteOff/updateVoice
---     on a stale handle are harmless.
+--     voice handle. noteOn returns {channel, generation} with the
+--     generation a persistent per-channel counter (incremented on every
+--     allocation of the channel, never derived from the victim, so a
+--     naturally freed channel never reuses an old generation) or nil;
+--     noteOff/updateVoice/isVoiceAlive on a stale handle are harmless.
 --   * LFO (SND_UpdateLfo/SND_GetLfoValue/SND_SinIdx) and sweep
 --     (ExChannelSweepUpdate) state machines run per control step and feed
 --     the pitch/volume/pan calculations; the sweep counter advances only
 --     at control steps (a noteOn's own step contributes the full
 --     sweepPitch without advancing the counter).
---   * Square duty is the discrete 0..7 index (8-sample cycle starting at
---     LOW, HIGH=(d+1)*12.5%); noise is the 15-bit LFSR from 7FFFh
+--   * Square duty is the discrete integer 0..7 index consumed directly
+--     (8-sample cycle starting at LOW, HIGH=(d+1)*12.5%; duty 7 is the
+--     all-LOW special pattern); noise is the 15-bit LFSR from 7FFFh
 --     (X = X SHR 1; carry -> LOW and X = X XOR 6000h, else HIGH).
 -- Commands between renders apply at the next control step; control steps
--- fire on the mixer's absolute frame count, so rendering is independent of
--- chunk size. Output is interleaved stereo int16; mixing sums and
+-- fire on the mixer's absolute phase accumulator, so rendering is
+-- independent of chunk size. Output is interleaved stereo int16; mixing sums and
 -- saturates at +-32767/+-32768; per-voice host gains round with
 -- floor(x+0.5).
 
@@ -53,14 +59,15 @@ local bit = require("bit")
 local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 
 ---@class VoiceMixer
----@field private _sampleRate integer
+---@field private _outputRate integer
 ---@field private _channels table<integer, table>
----@field private _frameCount integer
----@field private _controlPeriod integer
+---@field private _channelGeneration table<integer, integer>
+---@field private _controlPhase integer
 ---@field new fun(opts: { sampleRate: integer }): VoiceMixer
 ---@field noteOn fun(self: VoiceMixer, spec: table): { channel: integer, generation: integer } | nil
----@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer })
+---@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, releaseOverride: integer?)
 ---@field updateVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, partial: table)
+---@field isVoiceAlive fun(self: VoiceMixer, handle: { channel: integer, generation: integer }): boolean
 ---@field renderInto fun(self: VoiceMixer, out: integer[], frames: integer)
 ---@field render fun(self: VoiceMixer, frames: integer): integer[]
 
@@ -98,12 +105,15 @@ local DS_SAMPLE_CLOCK = 16756991
 local PAN_CENTER = 0x40
 
 -- The envelope starts fully attenuated (SND_exChannel.c ExChannelStart);
--- the release stops when the dB sum crosses the SDK threshold, computed by
--- NnsSoundMath.releaseStopSteps.
+-- the release stops at the control step whose current pre-register dB sum
+-- reaches the SDK threshold SND_VOL_DB_MIN.
 local ENV_START = -92544
+local RELEASE_STOP_DB = -723
 
--- The 192 Hz sound interval (SND_main.c SndThread); control steps fire
--- every outputRate/192 frames.
+-- The 192 Hz sound interval (SND_main.c SndThread). The control cadence is
+-- the integer phase accumulator phase += SOUND_INTERVAL per output frame;
+-- a step fires when the phase reaches the output rate (exactly every 250
+-- frames at 48 kHz, the 170/171 alternation at 32768 Hz).
 local SOUND_INTERVAL = 192
 
 -- Phase snap for square/noise: the pinned duty and LFSR boundaries sit on
@@ -219,16 +229,16 @@ local function panMix(register)
   return (128 - n) / 128, n / 128
 end
 
--- The discrete square duty index 0..7. The asset contract carries the
--- exact dyadic fraction (N+1)/8 (the compiler emits it from the source
--- duty byte), and the conversion is exact: the 8/8 = 1.0 fraction maps to
--- index 7 (100% HIGH).
----@param duty number
+-- The discrete square duty index 0..7 (GBATEK "PSG rectangular wave": the
+-- 8-step cycle is LOW for 7-d steps and HIGH for d+1 steps, with index 7
+-- the all-LOW special pattern). The asset contract carries the integer
+-- index directly; anything else is a programming fault at the mixer
+-- boundary.
+---@param duty integer
 ---@return integer
-local function dutyIndex(duty)
-  local index = math.floor(duty * 8 + 0.5) - 1
-  assert(index >= 0 and index <= 7, "square duty out of range")
-  return index
+local function checkDuty(duty)
+  assert(duty >= 0 and duty <= 7 and duty % 1 == 0, "square duty must be an integer index 0..7")
+  return duty
 end
 
 -- ---------------------------------------------------------------------------
@@ -281,15 +291,16 @@ local function newVoice(spec)
   }
   if generator.kind == "sample" then
     -- The spec carries the provider-decoded PCM array (shared, immutable);
-    -- the mixer never decodes payload bytes.
+    -- the mixer never decodes payload bytes. The base timer and the
+    -- calculated channel timer drive the phase; no source sample rate is
+    -- involved.
     voice.pcm = spec.pcm
     voice.baseTimer = spec.baseTimer
-    voice.sampleRate = spec.sampleRate
     voice.pos = 0
     voice.loop = spec.loop
     voice.loopEnabled = spec.loopEnabled
   elseif generator.kind == "square" then
-    voice.duty = dutyIndex(generator.duty)
+    voice.duty = checkDuty(generator.duty)
     voice.phase = 0
   else
     voice.phase = 0
@@ -378,25 +389,20 @@ local function advanceLfo(voice)
 end
 
 -- The host phase increment: the calculated NDS timer feeds the physical
--- boundary. Sample voices translate through their sample rate and base
--- timer; square/noise through the DS sample clock (so at a DS-rate mixer
--- the translation is exactly 1/timer).
+-- boundary through the DS sample clock for every generator (the source
+-- hardware path SND_CalcTimer -> sound timer -> sample clock; at a
+-- DS-rate mixer the translation is exactly 1/timer).
 ---@param voice table
 ---@return number
 local function voiceRatio(voice)
-  if voice.generator.kind == "sample" then
-    return voice.sampleRate * voice.baseTimer / (voice.timer * voice._outputRate)
-  end
   return DS_SAMPLE_CLOCK / (voice.timer * voice._outputRate)
 end
 
 -- SND_ExChannelMain: the vol/pitch/pan computation and the register sync
 -- from the current channel state (without advancing the envelope/sweep/LFO
--- state machines). The release stop fires when the noteOff-precomputed
--- releaseStepsRemaining is exhausted (the count NnsSoundMath
--- .releaseStopSteps derived from the dB sum and the release recurrence);
--- the -0x8000 volume-LFO guard lives here; the PSG timer is masked with
--- 0xFFFC.
+-- state machines). The release stops when the current pre-register dB sum
+-- crosses SND_VOL_DB_MIN (the SDK's death moment; the -0x8000 volume-LFO
+-- guard lives here); the PSG timer is masked with 0xFFFC.
 ---@param voice table
 ---@return boolean -- false when the voice hit the release stop threshold
 local function syncRegisters(voice)
@@ -408,6 +414,10 @@ local function syncRegisters(voice)
     + voice.userDecay2
   if lfo ~= 0 and param.target == 1 and vol > -0x8000 then
     vol = vol + lfo
+  end
+  if voice.released and vol <= RELEASE_STOP_DB then
+    voice.dead = true
+    return false
   end
   local pitch = (voice.midiKey - voice.rootMidiKey) * 0x40
   if lfo ~= 0 and param.target == 0 then
@@ -423,10 +433,6 @@ local function syncRegisters(voice)
     pan = pan + lfo
   end
   pan = pan + voice.userPan
-  if voice.released and voice.envStatus == "release" and voice.releaseStepsRemaining <= 0 then
-    voice.dead = true
-    return false
-  end
   voice.volume = NnsSoundMath.calcChannelVolume(vol)
   local timer = NnsSoundMath.calcTimer(voice.baseTimer, pitch)
   if voice.generator.kind == "square" then
@@ -442,7 +448,8 @@ end
 -- One control step (SND_ExChannelMain(step = TRUE)): track values, then
 -- the envelope advance (SND_UpdateExChannelEnvelope), the sweep counter
 -- advance (only at regular steps, never at the noteOn step itself), the
--- LFO advance, and the register sync.
+-- LFO advance, and the register sync (a release voice whose pre-register
+-- dB sum reaches the SND_VOL_DB_MIN threshold is stopped by the sync).
 ---@param voice table
 ---@param advanceSweep boolean
 local function controlStep(voice, advanceSweep)
@@ -461,7 +468,6 @@ local function controlStep(voice, advanceSweep)
     end
   elseif voice.envStatus == "release" then
     voice.envAttenuation = voice.envAttenuation - voice.envRelease
-    voice.releaseStepsRemaining = voice.releaseStepsRemaining - 1
   end
   if advanceSweep and voice.autoSweep and voice.sweepPitch ~= 0 and voice.sweepCounter < voice.sweepLength then
     voice.sweepCounter = voice.sweepCounter + 1
@@ -507,7 +513,9 @@ local function sampleAt(voice)
     return sample
   end
   local state = math.floor(voice.phase + PHASE_SNAP)
-  local sample = state % 8 < (7 - voice.duty) and -32767 or 32767
+  -- The 8-step duty grid: LOW for 7-d states, HIGH for d+1; duty 7 is the
+  -- GBATEK all-LOW special pattern, not a full-HIGH cycle.
+  local sample = (voice.duty == 7 and -32767) or (state % 8 < 7 - voice.duty and -32767 or 32767)
   voice.phase = voice.phase + voice.ratio
   return sample
 end
@@ -518,10 +526,14 @@ end
 function VoiceMixer.new(opts)
   assert(opts and opts.sampleRate, "VoiceMixer requires a sampleRate")
   return setmetatable({
-    _sampleRate = opts.sampleRate,
+    _outputRate = opts.sampleRate,
     _channels = {},
-    _frameCount = 0,
-    _controlPeriod = math.max(1, math.floor(opts.sampleRate / SOUND_INTERVAL)),
+    -- The persistent per-channel generation counter: every allocation of a
+    -- channel increments it, so two distinct allocations never share a
+    -- generation while an old handle may still exist (doubles hold the
+    -- count exactly; no wrap is needed).
+    _channelGeneration = {},
+    _controlPhase = 0,
   }, VoiceMixer)
 end
 
@@ -542,21 +554,25 @@ function VoiceMixer:noteOn(spec)
   )
   assert(spec.pan ~= nil and spec.trackPriority ~= nil, "voice spec requires pan/trackPriority")
   local priority = spec.playerPriority + spec.trackPriority
-  local channel, victim = allocateChannel(self, spec.generator.kind, spec.channelMask, priority)
+  local channel = allocateChannel(self, spec.generator.kind, spec.channelMask, priority)
   if channel == nil then
     return nil
   end
   if spec.generator.kind == "sample" then
     assert(
-      spec.pcm ~= nil and spec.sampleRate ~= nil and spec.baseTimer ~= nil and spec.loop ~= nil,
-      "sample voice spec requires pcm/sampleRate/baseTimer/loop"
+      spec.pcm ~= nil and spec.baseTimer ~= nil and spec.loop ~= nil,
+      "sample voice spec requires pcm/baseTimer/loop"
     )
     assert(type(spec.loopEnabled) == "boolean", "sample voice spec requires the wave's loop flag")
   end
   local voice = newVoice(spec)
-  voice._outputRate = self._sampleRate
+  voice._outputRate = self._outputRate
   voice.priority = priority
-  voice.generation = victim and victim.generation + 1 or 0
+  -- The generation is the channel's persistent counter, not the victim's:
+  -- a channel freed by a natural death keeps its count so a stale handle
+  -- can never alias a later allocation of the same channel.
+  voice.generation = (self._channelGeneration[channel] or -1) + 1
+  self._channelGeneration[channel] = voice.generation
   -- The noteOn itself is the note's first control step; the sweep counter
   -- does not advance on it (the contribution is the full sweepPitch).
   controlStep(voice, false)
@@ -566,45 +582,44 @@ end
 
 -- Starts the release of the voice a handle names. A stale handle (channel
 -- stolen, generation replaced) and a dead voice are harmless no-ops, as is
--- a note-off for a voice already releasing. The release runs
--- releaseStepsRemaining control steps (NnsSoundMath.releaseStopSteps from
--- the current dB-sum inputs and release coefficient) before the voice
--- stops.
+-- a note-off for a voice already releasing. `releaseOverride` (nil or an
+-- integer 0..127) replaces the voice's instrument release coefficient
+-- before entering release -- the forced track-release path (pause/mute
+-- stop) the SDK distinguishes from an ordinary release. The voice then
+-- stops at the control step whose current pre-register dB sum crosses
+-- SND_VOL_DB_MIN; the death moment is the mixer's, never precomputed.
 ---@param handle { channel: integer, generation: integer }
-function VoiceMixer:noteOff(handle)
+---@param releaseOverride integer?
+function VoiceMixer:noteOff(handle, releaseOverride)
+  if releaseOverride ~= nil then
+    assert(
+      releaseOverride >= 0 and releaseOverride <= 127 and releaseOverride % 1 == 0,
+      "release override must be nil or an integer 0..127"
+    )
+  end
   local voice = self._channels[handle.channel]
-  if voice == nil or voice.generation ~= handle.generation or voice.released or voice.dead then
+  if voice == nil or voice.generation ~= handle.generation or voice.released then
     return
   end
+  if releaseOverride ~= nil then
+    voice.envRelease = NnsSoundMath.decayCoefficient(releaseOverride)
+  end
   voice.released = true
-  -- A released voice is never left suspended: the release must ring out and
-  -- free the channel even when the suspension owner replaced the player.
-  voice.suspended = false
   voice.envStatus = "release"
-  -- The stop is precomputed from the queued (not yet applied) pending
-  -- values: the pending apply precedes the first release decrement at the
-  -- next control step.
-  voice.releaseStepsRemaining = NnsSoundMath.releaseStopSteps({
-    velocity = voice.velocity,
-    envAttenuation = voice.envAttenuation,
-    trackVolume = voice.pending.trackVolume,
-    expression = voice.pending.expression,
-    playerVolume = voice.pending.playerVolume,
-    fader = voice.pending.fader,
-    releaseCoeff = voice.envRelease,
-  })
 end
 
 -- Queues track-level control values for the voice a handle names; they are
--- applied at the next control step. The `key` partial retunes the voice
--- through the note's pitch path (the timer/ratio recompute) without
--- touching the envelope or the release/attack status; `velocity` updates
--- the velocity in the volume dB sum. A stale or dead handle is harmless.
+-- applied at the next control step -- also while the voice is releasing,
+-- because the current inputs decide the release's death moment. The `key`
+-- partial retunes the voice through the note's pitch path (the
+-- timer/ratio recompute) without touching the envelope or the
+-- release/attack status; `velocity` updates the velocity in the volume dB
+-- sum. A stale handle is harmless.
 ---@param handle { channel: integer, generation: integer }
 ---@param partial table
 function VoiceMixer:updateVoice(handle, partial)
   local voice = self._channels[handle.channel]
-  if voice == nil or voice.generation ~= handle.generation or voice.released or voice.dead then
+  if voice == nil or voice.generation ~= handle.generation then
     return
   end
   for key, value in pairs(partial) do
@@ -613,41 +628,48 @@ function VoiceMixer:updateVoice(handle, partial)
   voice.pending.dirty = true
 end
 
--- Suspends or resumes the voice a handle names (the sequence player's
--- transport pause). A suspended voice contributes nothing to renders, does
--- not advance its sample position, and runs no control steps -- it freezes
--- in place until it is unsuspended. A stale or dead handle is harmless.
+-- The mixer owns voice liveness: true from noteOn until the mixer removes
+-- the voice (a natural one-shot death or the release-stop step); false for
+-- an empty channel, a generation mismatch, and a removed voice. The
+-- sequencer prunes its voice collections with this query.
+---@param handle { channel: integer, generation: integer }
+---@return boolean
+function VoiceMixer:isVoiceAlive(handle)
+  local voice = self._channels[handle.channel]
+  return voice ~= nil and voice.generation == handle.generation and not voice.dead
+end
+
+-- No-op: the mixer does not suspend voices (player pause releases channels
+-- instead). Kept because the sequence player's transport pause still calls
+-- it per voice; the call is removed with the player-side pause rework.
 ---@param handle { channel: integer, generation: integer }
 ---@param suspended boolean
-function VoiceMixer:suspendVoice(handle, suspended)
-  local voice = self._channels[handle.channel]
-  if voice == nil or voice.generation ~= handle.generation or voice.dead then
-    return
-  end
-  voice.suspended = suspended
-end
+function VoiceMixer:suspendVoice(handle, suspended) end
 
 -- Renders `frames` output frames of interleaved stereo int16 PCM (2*frames
 -- entries) appended to `out` after its current end, so a caller-owned
 -- buffer is reused across span renders instead of allocating a fresh result
 -- table per call. Voices read at their position, advance
 -- with the current ratio, and run a control step at the end of every
--- control-period frame on the mixer's absolute frame count; queued track
--- values are applied and the registers resynced at the start of the next
--- control-period frame. The mix sums and saturates at the int16 bounds;
--- chunk sizes never change the result. Suspended voices are inert: no
--- reads, no advances, no applies, no control steps.
+-- control-step frame on the mixer's absolute phase accumulator (192 Hz:
+-- phase += 192 per frame, one step when it reaches the output rate);
+-- queued track values are applied and the registers resynced at the start
+-- of the next control-step frame. The mix sums and saturates at the int16
+-- bounds; chunk sizes never change the result.
 ---@param out integer[]
 ---@param frames integer
 function VoiceMixer:renderInto(out, frames)
   for frame = 1, frames do
-    -- Queued track values apply at the start of the next control-period
-    -- frame (the registers resync with the current channel state), so the
-    -- boundary frame's own read hears them.
-    if (self._frameCount + 1) % self._controlPeriod == 0 then
+    local phase = self._controlPhase + SOUND_INTERVAL
+    local boundary = phase >= self._outputRate
+    if boundary then
+      -- Queued track values apply at the start of the next control-step
+      -- frame (the registers resync with the current channel state), so the
+      -- boundary frame's own read hears them; a releasing voice whose
+      -- current inputs cross the stop threshold dies here.
       for channel = 0, CHANNEL_COUNT - 1 do
         local voice = self._channels[channel]
-        if voice ~= nil and not voice.suspended and voice.pending.dirty then
+        if voice ~= nil and voice.pending.dirty then
           applyPending(voice)
           syncRegisters(voice)
           if voice.dead then
@@ -659,7 +681,7 @@ function VoiceMixer:renderInto(out, frames)
     local left, right = 0, 0
     for channel = 0, CHANNEL_COUNT - 1 do
       local voice = self._channels[channel]
-      if voice ~= nil and not voice.suspended then
+      if voice ~= nil then
         local sample = sampleAt(voice)
         -- The one-shot boundary sample still sounds; the voice is
         -- removed after this frame.
@@ -674,11 +696,11 @@ function VoiceMixer:renderInto(out, frames)
     end
     out[#out + 1] = saturate(left)
     out[#out + 1] = saturate(right)
-    self._frameCount = self._frameCount + 1
-    if self._frameCount % self._controlPeriod == 0 then
+    if boundary then
+      self._controlPhase = phase - self._outputRate
       for channel = 0, CHANNEL_COUNT - 1 do
         local voice = self._channels[channel]
-        if voice ~= nil and not voice.suspended then
+        if voice ~= nil then
           if not voice.dead then
             controlStep(voice, true)
           end
@@ -687,6 +709,8 @@ function VoiceMixer:renderInto(out, frames)
           end
         end
       end
+    else
+      self._controlPhase = phase
     end
   end
 end
