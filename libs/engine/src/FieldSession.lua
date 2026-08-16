@@ -208,7 +208,7 @@ function FieldSession:updateFixed(inputSnapshot)
     if inputSnapshot.menuPressed then
       uiEvents[#uiEvents + 1] = { type = "menu" }
     end
-    self.applicationHost:updateFixed(self.tick + 1, uiEvents)
+    self.applicationHost:updateFixed(uiEvents)
     self:_advanceTick()
     return
   end

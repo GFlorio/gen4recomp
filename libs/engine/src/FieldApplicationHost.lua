@@ -262,9 +262,8 @@ end
 -- One fixed tick of the phase machine. The session steps the host exactly
 -- once per tick while it is active and feeds it the single UI event list of
 -- the tick; no other modal controller receives the same events.
----@param tick integer
 ---@param uiInput table[]
-function FieldApplicationHost:updateFixed(tick, uiInput)
+function FieldApplicationHost:updateFixed(uiInput)
   assert(self._phase ~= FieldApplicationHost.PHASES.closed, "a closed host is not stepped")
   local phase = self._phase
   if phase == FieldApplicationHost.PHASES.failed then
@@ -422,12 +421,11 @@ function FieldApplicationHost:setMenuPlacement(placement)
 end
 
 -- The one teardown path for reset and runtime disposal: dispose the active
--- controller exactly once, release the modal input lifetime once, and
--- return to closed. Idempotent.
+-- controller exactly once, release the modal input lifetime once, clear the
+-- queued script reopen, and return to closed. The helpers are idempotent, so
+-- unconditional teardown is safe from any phase, including a closed phase
+-- that still holds a pending reopen.
 function FieldApplicationHost:dispose()
-  if self._phase == FieldApplicationHost.PHASES.closed and self._controller == nil then
-    return
-  end
   self:_disposeController()
   self:_releaseUi()
   self._reopenPending = false

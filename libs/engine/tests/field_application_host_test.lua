@@ -184,7 +184,7 @@ end
 function T.tests.menu_input_is_live_on_the_first_step()
   local host, input, registry = fixture()
   local controller = openMenu(host, input, registry)
-  host:updateFixed(11, { { type = "navigate", direction = "down" } })
+  host:updateFixed({ { type = "navigate", direction = "down" } })
   Assert.equal(host:status().phase, "menu")
   Assert.equal(controller.updateFixedCalls, 1)
   Assert.equal(controller.receivedEvents[1].type, "navigate")
@@ -193,11 +193,11 @@ end
 function T.tests.launch_freezes_menu_input_then_fades_out_and_dispatches_the_destination()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
-  host:updateFixed(12, { { type = "confirm" } })
+  host:updateFixed({ { type = "confirm" } })
   Assert.equal(host:status().phase, "fading_out")
   Assert.equal(host:status().fadeAlpha, 0)
   Assert.equal(host:status().applicationId, "trainer_card")
@@ -208,11 +208,11 @@ function T.tests.launch_freezes_menu_input_then_fades_out_and_dispatches_the_des
   Assert.equal(menu.updateFixedCalls, 2)
   local fadeTicks = FieldApplicationHost.FADE_TICKS
   for tick = 1, fadeTicks - 1 do
-    host:updateFixed(12 + tick, { { type = "cancel" } })
+    host:updateFixed({ { type = "cancel" } })
     Assert.equal(host:status().phase, "fading_out")
     Assert.equal(host:status().fadeAlpha, tick / fadeTicks)
   end
-  host:updateFixed(12 + fadeTicks, { { type = "cancel" } })
+  host:updateFixed({ { type = "cancel" } })
   Assert.equal(host:status().phase, "application")
   Assert.equal(host:status().fadeAlpha, 1)
   Assert.equal(menu.disposeCount, 1, "the menu controller is disposed exactly once at the fade-out end")
@@ -225,7 +225,7 @@ function T.tests.launch_freezes_menu_input_then_fades_out_and_dispatches_the_des
     0,
     "the destination must not receive a synthetic first update in its construction tick"
   )
-  host:updateFixed(13 + fadeTicks, { { type = "confirm" } })
+  host:updateFixed({ { type = "confirm" } })
   Assert.equal(destination.updateFixedCalls, 1, "the first real update arrives on the tick after construction")
   Assert.equal(destination.receivedEvents[1].type, "confirm", "the destination receives that tick's real events")
 end
@@ -233,18 +233,18 @@ end
 function T.tests.application_steps_the_destination_once_per_tick_until_close()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   Assert.equal(host:status().phase, "application")
   Assert.equal(destination.updateFixedCalls, 0, "construction itself never steps the destination")
-  host:updateFixed(30, { { type = "cancel" } })
+  host:updateFixed({ { type = "cancel" } })
   Assert.equal(destination.receivedEvents[1].type, "cancel", "the destination receives the tick events")
-  host:updateFixed(31, {})
+  host:updateFixed({})
   Assert.equal(destination.updateFixedCalls, 2)
 end
 
@@ -255,15 +255,15 @@ end
 function T.tests.application_phase_exposes_the_destination_presentation_and_other_phases_do_not()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   Assert.equal(host:status().application, nil, "the menu phase presents no application surface")
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController({ presentation = { name = "GOLD", trainerId = 0 } })
   registry.controllers.trainer_card = destination
-  host:updateFixed(12, {})
+  host:updateFixed({})
   Assert.equal(host:status().application, nil, "the fade-out phase presents no application surface")
   for tick = 13, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   Assert.equal(host:status().phase, "application")
   Assert.deepEqual(
@@ -272,31 +272,31 @@ function T.tests.application_phase_exposes_the_destination_presentation_and_othe
     "the application phase exposes the destination presentation"
   )
   destination.result = { kind = "close" }
-  host:updateFixed(30, {})
+  host:updateFixed({})
   Assert.equal(host:status().application, nil, "the fade-in after a close presents no application surface")
 end
 
 function T.tests.destination_close_disposes_exactly_once_and_fades_back_in()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   destination.result = { kind = "close" }
-  host:updateFixed(30, { { type = "cancel" } })
+  host:updateFixed({ { type = "cancel" } })
   Assert.equal(destination.disposeCount, 1, "the returned destination is disposed exactly once")
   Assert.equal(host:status().phase, "fading_in")
   Assert.equal(host:status().fadeAlpha, 1)
   local fadeTicks = FieldApplicationHost.FADE_TICKS
   for tick = 1, fadeTicks - 1 do
-    host:updateFixed(30 + tick, {})
+    host:updateFixed({})
     Assert.equal(host:status().fadeAlpha, 1 - tick / fadeTicks)
   end
-  host:updateFixed(30 + fadeTicks, {})
+  host:updateFixed({})
   Assert.equal(host:status().fadeAlpha, 0)
   Assert.equal(host:status().phase, "menu")
   Assert.equal(destination.disposeCount, 1, "the destination is never disposed twice")
@@ -305,17 +305,17 @@ end
 function T.tests.menu_rebuild_restores_the_remembered_selection_by_action_id()
   local host, input, registry = fixture()
   local menu = openMenu(host, input, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   destination.result = { kind = "close" }
-  host:updateFixed(30, { { type = "cancel" } })
+  host:updateFixed({ { type = "cancel" } })
   for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   Assert.equal(host:status().phase, "menu")
   Assert.equal(#registry.menuControllers, 2)
@@ -332,9 +332,9 @@ end
 function T.tests.menu_close_disposes_controller_and_releases_ownership_in_the_same_tick()
   local host, input, registry = fixture()
   local menu = openMenu(host, input, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "close" }
-  host:updateFixed(12, { { type = "menu" } })
+  host:updateFixed({ { type = "menu" } })
   Assert.equal(menu.disposeCount, 1, "the closing menu controller is disposed exactly once")
   Assert.equal(input.clearUiCalls, 1, "the final field return releases the modal input lifetime once")
   Assert.equal(host:status().phase, "closed", "no closing phase exists: the host returns to closed on the tick")
@@ -345,7 +345,7 @@ end
 function T.tests.update_fixed_requires_an_active_host()
   local host, _, _ = fixture()
   throws(function()
-    host:updateFixed(1, {})
+    host:updateFixed({})
   end)
 end
 
@@ -360,13 +360,13 @@ end
 function T.tests.destination_factory_failure_after_fade_out_retains_the_error_and_releases_ownership()
   local host, input, registry = fixture()
   local menu = openMenu(host, input, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   registry.controllers.trainer_card = function()
     error("injected destination factory failure")
   end
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   Assert.equal(host:status().phase, "failed")
   Assert.isTrue(tostring(host:error()):find("injected destination factory failure", 1, true) ~= nil)
@@ -377,7 +377,7 @@ function T.tests.destination_factory_failure_after_fade_out_retains_the_error_an
   Assert.isNil(host:status().application)
   Assert.equal(host:status().fadeAlpha, 0, "the failed host clears its fade state")
   Assert.equal(host:isActive(), true, "the failed host stays active so the world never resumes")
-  host:updateFixed(99, {})
+  host:updateFixed({})
   Assert.equal(host:status().phase, "failed", "the failed phase is terminal")
 end
 
@@ -420,21 +420,21 @@ end
 function T.tests.menu_rebuild_failure_after_return_is_retained_after_the_destination_disposal()
   local host, input, registry, factory = fixture()
   local menu = openMenu(host, input, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   destination.result = { kind = "close" }
-  host:updateFixed(30, { { type = "cancel" } })
+  host:updateFixed({ { type = "cancel" } })
   Assert.equal(destination.disposeCount, 1)
   factory.fn = function()
     error("injected rebuild failure")
   end
   for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   Assert.equal(host:status().phase, "failed")
   Assert.equal(destination.disposeCount, 1, "the returned destination is never disposed twice")
@@ -453,21 +453,21 @@ end
 function T.tests.menu_unavailable_at_rebuild_returns_to_the_field()
   local host, input, registry, factory = fixture()
   local menu = openMenu(host, input, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   destination.result = { kind = "close" }
-  host:updateFixed(30, { { type = "cancel" } })
+  host:updateFixed({ { type = "cancel" } })
   Assert.equal(destination.disposeCount, 1)
   factory.fn = function()
     return nil
   end
   for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   Assert.equal(host:status().phase, "closed", "an unavailable rebuild must return to the field")
   Assert.equal(host:isActive(), false)
@@ -549,40 +549,40 @@ function T.tests.dispose_in_every_phase_releases_exactly_once()
       host:requestOpen(10)
     elseif case.phase == "fading_out" then
       host:requestOpen(10)
-      host:updateFixed(11, {})
+      host:updateFixed({})
       registry.menuControllers[1].result = {
         kind = "launch",
         applicationId = "trainer_card",
         actionId = "vanilla.trainer_card",
       }
-      host:updateFixed(12, {})
+      host:updateFixed({})
     elseif case.phase == "application" then
       host:requestOpen(10)
-      host:updateFixed(11, {})
+      host:updateFixed({})
       registry.menuControllers[1].result = {
         kind = "launch",
         applicationId = "trainer_card",
         actionId = "vanilla.trainer_card",
       }
       for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-        host:updateFixed(tick, {})
+        host:updateFixed({})
       end
     elseif case.phase == "fading_in" then
       host:requestOpen(10)
-      host:updateFixed(11, {})
+      host:updateFixed({})
       registry.menuControllers[1].result = {
         kind = "launch",
         applicationId = "trainer_card",
         actionId = "vanilla.trainer_card",
       }
       for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-        host:updateFixed(tick, {})
+        host:updateFixed({})
       end
       destination.result = { kind = "close" }
-      host:updateFixed(30, { { type = "cancel" } })
+      host:updateFixed({ { type = "cancel" } })
     elseif case.phase == "failed" then
       host:requestOpen(10)
-      host:updateFixed(11, {})
+      host:updateFixed({})
       registry.menuControllers[1].result = {
         kind = "launch",
         applicationId = "trainer_card",
@@ -592,7 +592,7 @@ function T.tests.dispose_in_every_phase_releases_exactly_once()
         error("injected failure")
       end
       for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-        host:updateFixed(tick, {})
+        host:updateFixed({})
       end
     end
     host:dispose()
@@ -621,10 +621,43 @@ function T.tests.dispose_in_every_phase_releases_exactly_once()
   end
 end
 
+-- Disposal is total teardown for the queued script reopen too: the pending
+-- request is independent host state, so a dispose from the closed phase must
+-- still clear it. After requestReopen(); dispose(); the host is fully clean:
+-- takeReopen must report nothing pending, never invoke the menu factory, and
+-- never begin a modal input lifetime.
+function T.tests.dispose_clears_a_queued_reopen()
+  local host, input, registry = fixture()
+  host:requestReopen()
+  host:dispose()
+  Assert.equal(host:takeReopen(20), false, "a disposed host must not open the queued reopen")
+  Assert.equal(#(registry.menuControllers or {}), 0, "the menu factory must not run after disposal")
+  Assert.equal(input.beginUiTicks[1], nil, "disposal must not begin a modal input lifetime")
+  Assert.equal(input.clearUiCalls, 0, "a clean dispose must not clear an unheld lifetime")
+  Assert.equal(host:status().phase, "closed", "disposal must leave the host closed")
+  Assert.equal(host:isActive(), false)
+  Assert.equal(host:error(), nil, "disposal must not retain a failure")
+end
+
+-- A repeated dispose is a no-op: the second call must not dispose the
+-- already-released controller again or clear the already-released modal
+-- input lifetime again.
+function T.tests.dispose_twice_never_double_disposes_or_double_clears()
+  local host, input, registry = fixture()
+  local menu = openMenu(host, input, registry)
+  host:dispose()
+  host:dispose()
+  Assert.equal(menu.disposeCount, 1, "two disposes dispose the controller exactly once")
+  Assert.equal(input.clearUiCalls, 1, "two disposes clear the modal input lifetime exactly once")
+  Assert.equal(host:status().phase, "closed")
+  Assert.equal(host:isActive(), false)
+  Assert.equal(host:error(), nil)
+end
+
 function T.tests.set_menu_placement_cancels_the_menu_pointer_capture()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   host:setMenuPlacement(canonicalPlacement())
   Assert.equal(menu.cancelPointerCaptureCalls, 1, "a placement change cancels an active menu pointer capture")
 end
@@ -632,9 +665,9 @@ end
 function T.tests.pointer_events_are_mapped_through_the_placement_for_the_menu_controller()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   host:setMenuPlacement(canonicalPlacement())
-  host:updateFixed(12, {
+  host:updateFixed({
     { type = "pointer_down", pointerId = "p1", x = 64, y = 48 },
     { type = "pointer_move", x = 400, y = 100 },
     { type = "pointer_up", pointerId = "p1", x = 64, y = 48 },
@@ -652,8 +685,8 @@ end
 function T.tests.pointer_events_are_dropped_without_a_placement()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
-  host:updateFixed(12, {
+  host:updateFixed({})
+  host:updateFixed({
     { type = "pointer_down", pointerId = "p1", x = 64, y = 48 },
     { type = "pointer_scroll", pointerId = "p1", dx = 0, dy = -1 },
   })
@@ -663,15 +696,15 @@ end
 function T.tests.destination_controllers_receive_events_passthrough()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
   host:setMenuPlacement(canonicalPlacement())
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
-  host:updateFixed(30, { { type = "cancel" }, { type = "pointer_down", pointerId = "p1", x = 0, y = 0 } })
+  host:updateFixed({ { type = "cancel" }, { type = "pointer_down", pointerId = "p1", x = 0, y = 0 } })
   Assert.equal(destination.receivedEvents[1].type, "cancel")
   Assert.equal(destination.receivedEvents[2].type, "pointer_down", "destinations own their input policy")
 end
@@ -679,16 +712,16 @@ end
 function T.tests.a_destination_launch_result_is_a_programming_invariant()
   local host, _, registry = fixture()
   local menu = openMenu(host, _, registry)
-  host:updateFixed(11, {})
+  host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
   for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
-    host:updateFixed(tick, {})
+    host:updateFixed({})
   end
   destination.result = { kind = "launch", applicationId = "pokedex" }
   throws(function()
-    host:updateFixed(30, {})
+    host:updateFixed({})
   end)
 end
 
