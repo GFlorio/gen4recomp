@@ -30,9 +30,11 @@ local BIT_DEPTH = 16
 -- near real time when the host advertises a small free-buffer budget.
 local CHUNK_FRAMES = 1024
 
--- The render contract is int16; an out-of-range or fractional sample is a
--- programming fault that must fail loudly rather than be clamped silently by
--- the host buffer.
+-- The render contract is int16 and exact: the returned PCM is
+-- requestedFrames * 2 interleaved stereo samples, checked before any host
+-- buffer is built. An out-of-range or fractional sample is a programming
+-- fault that must fail loudly rather than be clamped silently by the host
+-- buffer.
 local function sampleValue(sample)
   assert(sample >= -32768 and sample <= 32767 and sample == math.floor(sample), "renderer must produce int16 samples")
   return sample / 32768
@@ -57,10 +59,12 @@ end
 
 -- Pumps PCM from the renderer into the host source: one render + queue per
 -- free host buffer, then restarts the source when the host stopped it.
--- After release the pump is a no-op. A failure inside the pump releases
--- everything the failed update acquired but did not hand off -- the
--- un-queued SoundData, and the source when this update constructed it --
--- and rethrows, leaving the sink usable for the next update.
+-- After release the pump is a no-op. Host failures follow one policy: a
+-- failure anywhere in the pump -- the free-buffer query, a render, SoundData
+-- construction, a queue, or the start step -- propagates from the update
+-- and releases exactly what the failed update acquired but did not hand
+-- off -- the in-flight SoundData, and the source when this update
+-- constructed it -- leaving the sink usable for the next update.
 function LoveAudioSink:update()
   if self._released then
     return
@@ -74,12 +78,19 @@ function LoveAudioSink:update()
   -- A narrowed alias for the closure below: the branch narrowing of `source`
   -- does not propagate into pcall's function.
   local live = source
-  local free = live:getFreeBufferCount()
-  for _ = 1, free do
-    local chunk
-    local ok, err = pcall(function()
+  local chunk
+  local ok, err = pcall(function()
+    local free = live:getFreeBufferCount()
+    for _ = 1, free do
       local pcm = self._renderer:render(CHUNK_FRAMES)
-      assert(#pcm % CHANNELS == 0, "renderer must produce interleaved stereo PCM")
+      assert(
+        #pcm == CHUNK_FRAMES * CHANNELS,
+        string.format(
+          "renderer must return exactly %d stereo samples for %d frames",
+          CHUNK_FRAMES * CHANNELS,
+          CHUNK_FRAMES
+        )
+      )
       chunk = self._sound.newSoundData(#pcm, self._sampleRate, BIT_DEPTH, CHANNELS)
       for i = 0, #pcm / CHANNELS - 1 do
         for channel = 1, CHANNELS do
@@ -87,21 +98,25 @@ function LoveAudioSink:update()
         end
       end
       live:queue(chunk)
-    end)
-    if not ok then
-      if chunk ~= nil then
-        chunk:release()
-      end
-      if acquiredSource then
-        live:release()
-        self._source = nil
-      end
-      error(err, 0)
+      chunk:release()
+      chunk = nil
     end
-    chunk:release()
-  end
-  if not live:isPlaying() then
-    live:play()
+    if not live:isPlaying() then
+      live:play()
+    end
+  end)
+  if not ok then
+    -- The uniform failure policy: release the update's in-flight SoundData
+    -- (non-nil only while constructed but not yet handed off) and, when
+    -- this update constructed the source, the source itself, then rethrow.
+    if chunk ~= nil then
+      chunk:release()
+    end
+    if acquiredSource then
+      live:release()
+      self._source = nil
+    end
+    error(err, 0)
   end
 end
 

@@ -9,7 +9,10 @@
 -- canonical audio references (the composition never decorates symbols).
 -- Audio output is the faked host boundary (FakeAudioOutput); the
 -- composition, the engine playback state, and the real script platform stay
--- production.
+-- production. The script audio service and the production output
+-- composition are independent axes: one scenario pins that a recording
+-- script adapter can coexist with the production composition when an
+-- audio-output host is explicitly requested.
 
 local Assert = require("tests.support.Assert")
 local AudioCache = require("libs.assets.src.AudioCache")
@@ -53,10 +56,10 @@ local function bootWithAudio(harness, versionId, map, dayNight, fake)
   })
 end
 
-local function requireAudio(game)
+local function requireAudio(game, message)
   Assert.isTrue(
     type(game.runtime.audio) == "table",
-    "production composition must wire the real GameSound at runtime.audio"
+    message or "production composition must wire the real GameSound at runtime.audio"
   )
   return game.runtime.audio
 end
@@ -360,6 +363,72 @@ function T.tests.cries_and_temporary_music_execute_through_the_production_compos
     game:advanceUntil("temporary music renders into the audio-output host", function()
       return fake:anyNonSilent()
     end, 60)
+  end)
+end
+
+-- The script audio service and the production composition are independent
+-- composition axes: injecting a recording script adapter must not implicitly
+-- suppress the production renderer/output composition when an audio-output
+-- host is explicitly requested. The recording adapter stays the script
+-- service (scripted audio lands there), while the production composition
+-- boots the map-header music and pumps it into the host.
+function T.tests.recording_script_audio_and_production_output_are_separate_composition_axes()
+  local harness = AcceptanceHarness.new()
+  harness:forEachVersion(function(versionId)
+    local fake = FakeAudioOutput.new()
+    -- A recording script audio adapter (the harness default; no
+    -- `audioHost = "production"`) together with an explicit audio-output
+    -- host: neither axis may force the other.
+    local game = harness:boot({
+      versionId = versionId,
+      map = TOWN,
+      save = "fresh",
+      fieldOptions = {
+        dayNight = day,
+        audioOutput = fake,
+      },
+    })
+    local ok, err = xpcall(function()
+      local audio = requireAudio(
+        game,
+        "an audio-output host must construct the production composition even with a recording script service"
+      )
+      -- The boot starts the map-header music through the production
+      -- composition and the sink renders it into the host.
+      Assert.equal(audio:currentMusic(), musicId(game, NEW_BARK_MUSIC))
+      game:advanceUntil("map music renders into the audio-output host", function()
+        return fake:anyNonSilent()
+      end, 120)
+
+      -- Scripts still receive the recording adapter: the New Bark woman's
+      -- scripted SE is recorded there, never on the production service.
+      game:moveTo({ fieldX = 683, fieldZ = 400 })
+      game:face("north")
+      game:pressAction()
+      local effects = game:hostEffects()
+      local recorded = false
+      for _, entry in ipairs(effects) do
+        if entry == "audio:SEQ_SE_DP_SELECT" then
+          recorded = true
+          break
+        end
+      end
+      Assert.isTrue(recorded, "the scripted SE must reach the recording script adapter")
+      Assert.isFalse(
+        audio:isEffectPlaying("SEQ_SE_DP_SELECT"),
+        "the production service must not receive the scripted SE"
+      )
+      Assert.equal(audio:currentMusic(), musicId(game, NEW_BARK_MUSIC), "the BGM must be unaffected by the scripted SE")
+      game:advanceDialogue()
+      game:advanceUntil("the map music keeps rendering under the scripted SE", function()
+        return fake:anyNonSilent()
+      end, 60)
+      Assert.equal(game:renderAttempts(), 0)
+    end, debug.traceback)
+    game:close()
+    if not ok then
+      error(err, 0)
+    end
   end)
 end
 

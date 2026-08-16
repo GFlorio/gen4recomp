@@ -6,9 +6,13 @@
 -- once -- and understands nothing else: no notes, no sequence ids, no fades,
 -- no asset parsing. The love.audio and love.sound namespaces are injected
 -- (no audio device in CI); the renderer is injected as a callable so the
--- sink is testable without the whole playback stack. One smoke test runs the
--- sink against the real love.audio/love.sound namespaces, so the SoundData
--- constructor and accessor signatures cannot drift from the actual API.
+-- sink is testable without the whole playback stack. The renderer contract
+-- is exact (#pcm == requestedFrames * 2) and the host-error policy is one
+-- policy: every host failure propagates from the update and releases
+-- exactly what that update acquired, leaving the sink usable. One smoke
+-- test runs the sink against the real love.audio/love.sound namespaces, so
+-- the SoundData constructor and accessor signatures cannot drift from the
+-- actual API.
 
 local Assert = require("tests.support.Assert")
 local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
@@ -77,6 +81,8 @@ local function fakeHost(freeBufferCount)
     failSource = false,
     failSoundData = false,
     failQueue = false,
+    failFreeBufferCount = false,
+    failPlay = false,
   }
   function host.newSoundData(samples, sampleRate, bitDepth, channels)
     if host.failSoundData then
@@ -118,6 +124,10 @@ local function fakeHost(freeBufferCount)
       self.free = math.max(self.free - 1, 0)
     end
     function source:play()
+      if host.failPlay then
+        host.failPlay = false
+        error("injected play failure")
+      end
       self.playCalls = self.playCalls + 1
       self.playing = true
     end
@@ -128,6 +138,10 @@ local function fakeHost(freeBufferCount)
       return self.playing
     end
     function source:getFreeBufferCount()
+      if host.failFreeBufferCount then
+        host.failFreeBufferCount = false
+        error("injected free-buffer query failure")
+      end
       return self.free
     end
     function source:release()
@@ -153,6 +167,20 @@ local function rendererReturning(pattern)
       local out = {}
       for index = 1, frames * CHANNELS do
         out[index] = pattern(index)
+      end
+      return out
+    end,
+  }
+end
+
+-- A renderer whose returned PCM length is offset from the exact stereo
+-- frame count the sink requests (CHUNK_FRAMES * CHANNELS = 2048 samples).
+local function rendererWithLengthOffset(offset)
+  return {
+    render = function(_, frames)
+      local out = {}
+      for index = 1, frames * CHANNELS + offset do
+        out[index] = 0
       end
       return out
     end,
@@ -322,6 +350,98 @@ function T.an_out_of_range_renderer_sample_fails_loudly_without_leaking_the_chun
   Assert.equal(host.soundData[1].releaseCalls, 1, "the unqueued SoundData must not leak")
   Assert.equal(#host.sources, 1, "the source must have been constructed before the buffer step")
   Assert.equal(host.sources[1].releaseCalls, 1, "the partially acquired source must not leak")
+end
+
+-- The render contract is exact: the returned PCM must be requestedFrames *
+-- 2 samples (interleaved stereo), not merely an even length. A short or
+-- long even-length buffer is a programming fault that fails loudly before
+-- any host buffer is built or queued.
+function T.the_renderer_length_contract_is_exact_stereo_frames()
+  for _, offset in ipairs({ -2, 2 }) do
+    local host = fakeHost(1)
+    local sink = sinkFor(host, rendererWithLengthOffset(offset))
+    local err = Assert.throws(function()
+      sink:update()
+    end)
+    Assert.isTrue(
+      tostring(err):find("2048", 1, true) ~= nil,
+      "the fault must name the exact expected sample count: " .. tostring(err)
+    )
+    Assert.equal(#host.soundData, 0, "the length check must run before any host buffer is built")
+    Assert.equal(#host.sources[1].queueCalls, 0, "a wrong-length render must never reach the host queue")
+  end
+end
+
+-- The host-error policy is one policy across the whole pump: a failure
+-- outside the per-chunk transaction -- here the free-buffer query on a
+-- source acquired by this update -- propagates and releases exactly what
+-- the failed update acquired, leaving the sink usable for the next update.
+function T.a_free_buffer_query_failure_releases_the_acquired_source()
+  local host = fakeHost(1)
+  host.failFreeBufferCount = true
+  local renderer = rendererReturning(function(index)
+    return index
+  end)
+  local sink = sinkFor(host, renderer)
+  local err = Assert.throws(function()
+    sink:update()
+  end)
+  Assert.isTrue(
+    tostring(err):find("injected free-buffer query failure", 1, true) ~= nil,
+    "the free-buffer query failure must propagate: " .. tostring(err)
+  )
+  Assert.equal(host.sources[1].releaseCalls, 1, "the acquired source must not leak on the failed update")
+  sink:update()
+  Assert.equal(#host.sources, 2, "the sink must stay usable and reacquire the source")
+  Assert.equal(host.sources[2].releaseCalls, 0)
+  Assert.equal(host.sources[2].playCalls, 1)
+end
+
+-- The same policy reaches the start step: a play failure on a source
+-- acquired by this update propagates and releases that source, and the sink
+-- reacquires on the next update.
+function T.a_play_failure_releases_the_acquired_source()
+  local host = fakeHost(1)
+  host.failPlay = true
+  local renderer = rendererReturning(function(index)
+    return index
+  end)
+  local sink = sinkFor(host, renderer)
+  local err = Assert.throws(function()
+    sink:update()
+  end)
+  Assert.isTrue(
+    tostring(err):find("injected play failure", 1, true) ~= nil,
+    "the play failure must propagate: " .. tostring(err)
+  )
+  Assert.equal(#host.sources[1].queueCalls, 1, "the chunk was queued before the start step")
+  Assert.equal(host.sources[1].releaseCalls, 1, "the source acquired by the failed update must not leak")
+  sink:update()
+  Assert.equal(#host.sources, 2, "the sink must stay usable and reacquire the source")
+  Assert.equal(host.sources[2].playCalls, 1)
+end
+
+-- The failure policy releases exactly what the failed update acquired: a
+-- failure on a later update (the source pre-exists) must never release the
+-- sink's own source, and the sink keeps pumping with the same source.
+function T.a_later_failure_keeps_the_preexisting_source()
+  local host = fakeHost(1)
+  local renderer = rendererReturning(function(index)
+    return index
+  end)
+  local sink = sinkFor(host, renderer)
+  sink:update()
+  host.failFreeBufferCount = true
+  local err = Assert.throws(function()
+    sink:update()
+  end)
+  Assert.isTrue(
+    tostring(err):find("injected free-buffer query failure", 1, true) ~= nil,
+    "the later free-buffer query failure must propagate: " .. tostring(err)
+  )
+  Assert.equal(host.sources[1].releaseCalls, 0, "a pre-existing source is never released by a later failed update")
+  sink:update()
+  Assert.equal(#host.sources, 1, "the sink must keep the same source across the failure")
 end
 
 -- The signature drift guard: real love.sound.newSoundData (samples, rate,
