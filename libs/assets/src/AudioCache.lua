@@ -1,13 +1,15 @@
 -- Paths, contract constants, and strict readiness for the derived audio cache.
--- The audio class (index, sequence/bank assets, content-addressed samples)
--- is one of the independently rebuildable derived classes: changing the
--- sound-archive compiler must not disturb the raw ROM dump or any other
--- class. Readiness verifies more than the completion marker: the exact
--- marker and the authoritative cross-file walk (AudioCacheValidator) over
--- the index, every indexed sequence and bank (schema, identity, bank-id
--- resolution, leaf validation), and every bank-referenced sample's metadata
--- and PCM payload. A missing artifact is never interpreted as silence. Paths
--- are cache-relative; all IO goes through a CacheFs.
+-- The audio class shares the per-version derived-cache identity with every
+-- other derived class (the build-state identity includes the whole
+-- DerivedAssetContract), so a sound-archive compiler change alone never
+-- disturbs the raw ROM dump, and an audio contract change is not rebuildable
+-- in isolation from the other classes. Readiness verifies more than the
+-- completion marker: the exact marker and the authoritative cross-file walk
+-- (AudioCacheValidator) over the index (schema and every runtime-required
+-- section), every indexed sequence and bank (schema, identity, and index
+-- agreement), and every bank-referenced sample's metadata and PCM payload. A
+-- missing artifact is never interpreted as silence. Paths are
+-- cache-relative; all IO goes through a CacheFs.
 
 local AudioCache = {}
 
@@ -56,12 +58,15 @@ function AudioCache.marker(romSha1, depHash)
 end
 
 -- True only if the marker is exact and the authoritative cross-file walk
--- (AudioCacheValidator) finds no problem: the index schema and sections, every
--- indexed sequence/bank asset with its validator passing and its identity
--- matching, sequence bank-id resolution, and every bank-referenced sample's
--- metadata (schema, address-matching key) and PCM payload. The validator
--- requires this module for its paths, so it is loaded here rather than at
--- module scope (the walk is never needed before isReady runs).
+-- (AudioCacheValidator) finds no problem: the index schema and every
+-- runtime-required section (sequences, banks, players, both symbol maps),
+-- every indexed sequence/bank asset with its validator passing and its
+-- identity agreeing with the index, sequence bank-id and player-id
+-- resolution, bidirectional symbol-map consistency, and every
+-- bank-referenced sample's metadata (schema, address-matching key) and PCM
+-- payload. The validator requires this module for its paths, so it is loaded
+-- here rather than at module scope (the walk is never needed before isReady
+-- runs).
 function AudioCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(AudioCache.markerPath()) ~= expectedMarker then
     return false

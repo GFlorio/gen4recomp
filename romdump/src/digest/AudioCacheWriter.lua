@@ -12,6 +12,7 @@
 local Errors = require("libs.errors.src.Errors")
 local AudioCache = require("libs.assets.src.AudioCache")
 local AudioCacheValidator = require("libs.assets.src.AudioCacheValidator")
+local AudioErrors = require("libs.assets.src.AudioErrors")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local AudioCacheWriter = {}
@@ -21,7 +22,7 @@ function AudioCacheWriter.isReady(cacheFs, marker)
 end
 
 local function raiseReadback(message, context)
-  Errors.raise("AUDIO_CACHE_READBACK_FAILED", message, context)
+  Errors.raise(AudioErrors.AUDIO_CACHE_READBACK_FAILED, message, context)
 end
 
 local function stageBundle(tx, bundle)

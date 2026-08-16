@@ -4,9 +4,13 @@
 -- readiness and the write gate can never drift apart; there is no second
 -- inspection vocabulary. The walk is content-only: it returns nil when the
 -- cache is valid or a problem message otherwise, never raises (the leaf
--- validators' structured errors are converted into problems). The completion
--- marker is the caller's business (isReady checks it first; the writer writes
--- it last). Pure domain module.
+-- validators' structured errors are converted into problems). It verifies
+-- every runtime-required index section -- sequences, banks, players, and both
+-- symbol maps -- including player-entry validity, sequence player/bank
+-- resolution, index/asset identity agreement, and bidirectional symbol-map
+-- consistency, but never filesystem orphans. The completion marker is the
+-- caller's business (isReady checks it first; the writer writes it last).
+-- Pure domain module.
 
 local AudioCache = require("libs.assets.src.AudioCache")
 local AudioSequence = require("libs.assets.src.AudioSequence")
@@ -24,6 +28,46 @@ local function passes(validate, ...)
   return ok
 end
 
+local function isIndexId(id)
+  return type(id) == "number" and id >= 0 and id % 1 == 0
+end
+
+-- Every index entry of `section` is a self-identifying table under its own
+-- nonnegative integer id.
+---@param section table
+---@param name string
+---@return string? problem
+local function sectionProblem(section, name)
+  for id, entry in pairs(section) do
+    if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
+      return name .. " index entry is malformed"
+    end
+  end
+  return nil
+end
+
+-- The symbol map and the indexed symbols must describe each other in both
+-- directions: every map entry resolves into `section` and agrees on its
+-- symbol, and every indexed symbol (when present) has a map entry back.
+---@param section table
+---@param symbolMap table
+---@param name string
+---@return string? problem
+local function symbolMapProblem(section, symbolMap, name)
+  for symbol, id in pairs(symbolMap) do
+    local entry = section[id]
+    if entry == nil or entry.symbol ~= symbol then
+      return name .. " symbol map does not resolve"
+    end
+  end
+  for _, entry in pairs(section) do
+    if entry.symbol ~= nil and symbolMap[entry.symbol] ~= entry.id then
+      return name .. " indexed symbol is not covered by the symbol map"
+    end
+  end
+  return nil
+end
+
 ---@param cacheFs CacheFs
 ---@return string|nil
 function AudioCacheValidator.validate(cacheFs)
@@ -34,17 +78,21 @@ function AudioCacheValidator.validate(cacheFs)
   if
     type(index.sequences) ~= "table"
     or type(index.banks) ~= "table"
+    or type(index.players) ~= "table"
     or type(index.sequenceBySymbol) ~= "table"
     or type(index.bankBySymbol) ~= "table"
   then
     return "index sections are missing"
   end
   for id, entry in pairs(index.sequences) do
-    if type(id) ~= "number" or id < 0 or id % 1 ~= 0 or type(entry) ~= "table" or entry.id ~= id then
+    if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
       return "sequence index entry is malformed"
     end
     if type(entry.bankId) ~= "number" or index.banks[entry.bankId] == nil then
       return "sequence bank id does not resolve"
+    end
+    if index.players[entry.playerId] == nil then
+      return "sequence player id does not resolve"
     end
     local sequence = cacheFs:loadLua(AudioCache.sequencePath(id))
     if type(sequence) ~= "table" then
@@ -53,12 +101,31 @@ function AudioCacheValidator.validate(cacheFs)
     if not passes(AudioSequence.validate, sequence) then
       return "sequence fails its validator"
     end
-    if sequence.id ~= entry.id then
+    -- The asset duplicates index identity fields (id, bank reference,
+    -- symbol, and the player block it starts from; the leaf validator
+    -- already proved the player block's shape); a disagreement means the
+    -- index no longer describes the cache.
+    if sequence.id ~= entry.id or sequence.bankId ~= entry.bankId or sequence.symbol ~= entry.symbol then
       return "sequence identity does not match its index entry"
     end
+    if sequence.player.id ~= entry.playerId then
+      return "sequence player block does not match its index entry"
+    end
+  end
+  local problem = sectionProblem(index.players, "player")
+  if problem ~= nil then
+    return problem
+  end
+  problem = symbolMapProblem(index.sequences, index.sequenceBySymbol, "sequence")
+  if problem ~= nil then
+    return problem
+  end
+  problem = symbolMapProblem(index.banks, index.bankBySymbol, "bank")
+  if problem ~= nil then
+    return problem
   end
   for id, entry in pairs(index.banks) do
-    if type(id) ~= "number" or id < 0 or id % 1 ~= 0 or type(entry) ~= "table" or entry.id ~= id then
+    if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
       return "bank index entry is malformed"
     end
     local bank = cacheFs:loadLua(AudioCache.bankPath(id))
@@ -68,11 +135,13 @@ function AudioCacheValidator.validate(cacheFs)
     if not passes(AudioBank.validate, bank) then
       return "bank fails its validator"
     end
-    if bank.id ~= entry.id then
+    if bank.id ~= entry.id or bank.symbol ~= entry.symbol then
       return "bank identity does not match its index entry"
     end
     local keys = AudioBank.sampleKeys(bank)
-    assert(keys, "a validated bank always exposes its sample references")
+    if keys == nil then
+      return "bank sample references are malformed"
+    end
     for _, key in ipairs(keys) do
       local metadata = cacheFs:loadLua(AudioCache.sampleMetadataPath(key))
       if type(metadata) ~= "table" then

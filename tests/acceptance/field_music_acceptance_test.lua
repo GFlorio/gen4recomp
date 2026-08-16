@@ -1,12 +1,15 @@
 -- Production-composed field-audio contracts. The scenarios boot the real
 -- FieldRuntime with the production audio composition (the runtime wires
--- AudioAssetProvider/SequencePlayer/VoiceMixer/GameSound/FieldMusicController
--- and the LÖVE sink over the injected audio-output host boundary) and drive
--- the field integration order: boot map-header music, day/night selection,
--- scripted PlaySE over BGM, the WaitSE wait state, fanfare suspend/restore,
--- blocking fades, StopBGM, ResetBGM, and the map-swap policy handoff. Audio
--- output is the faked host boundary (FakeAudioOutput); the composition, the
--- engine playback state, and the real script platform stay production.
+-- AudioAssetProvider/SequencePlayer/VoiceMixer/GameSound and the LÖVE sink
+-- over the injected audio-output host boundary) and drive the field
+-- integration order: boot map-header music, day/night selection, scripted
+-- PlaySE over BGM, the WaitSE wait state, fanfare suspend/restore, blocking
+-- fades, StopBGM, ResetBGM, and the map-swap policy handoff. The map-music
+-- policy is a plain day/night lookup over the generated field record's
+-- canonical audio references (the composition never decorates symbols).
+-- Audio output is the faked host boundary (FakeAudioOutput); the
+-- composition, the engine playback state, and the real script platform stay
+-- production.
 
 local Assert = require("tests.support.Assert")
 local AudioCache = require("libs.assets.src.AudioCache")
@@ -55,10 +58,6 @@ local function requireAudio(game)
     type(game.runtime.audio) == "table",
     "production composition must wire the real GameSound at runtime.audio"
   )
-  Assert.isTrue(
-    type(game.runtime.fieldMusic) == "table",
-    "production composition must wire FieldMusicController at runtime.fieldMusic"
-  )
   return game.runtime.audio
 end
 
@@ -92,12 +91,13 @@ local function withProductionAudio(map, dayNight, fn)
   end)
 end
 
--- F1: booting a field map starts its map-header music, which the day/night
--- selection resolves from the generated field-map record. All real maps carry
--- equal day/night music in the frozen catalog, so the selection is observed
--- through the record's day/night branches and the booted reference; the
--- branch distinction itself is pinned at the controller layer with synthetic
--- day != night records.
+-- Booting a field map starts its map-header music, which the day/night
+-- selection resolves from the generated field-map record. The record carries
+-- canonical audio sequence references (never bare suffixes the runtime must
+-- decorate); all real maps carry equal day/night music in the frozen catalog,
+-- so the selection is observed through the record's day/night branches and
+-- the booted reference, and the day/night lookup itself is a plain table read
+-- over the generated record.
 function T.tests.boot_starts_the_generated_maps_header_music_for_day_and_night()
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
@@ -107,10 +107,10 @@ function T.tests.boot_starts_the_generated_maps_header_music_for_day_and_night()
       local audio = requireAudio(dayGame)
       local map = dayGame.runtime.runtimeMap
       -- The generated field record carries the frozen catalog's day and
-      -- night music through the production map load.
-      Assert.deepEqual(map.fieldData.music, { day = "GS_T_WAKABA", night = "GS_T_WAKABA" })
-      -- The controller resolves the day branch into the audio reference.
-      Assert.equal(dayGame.runtime.fieldMusic:mapHeaderMusic(map), NEW_BARK_MUSIC)
+      -- night music as canonical audio references through the production
+      -- map load.
+      Assert.deepEqual(map.fieldData.music, { day = NEW_BARK_MUSIC, night = NEW_BARK_MUSIC })
+      Assert.equal(map.fieldData.music[day()], NEW_BARK_MUSIC)
       -- The boot started the map-header music through the composition.
       Assert.equal(audio:currentMusic(), musicId(dayGame, NEW_BARK_MUSIC))
       -- The audio-output host actually receives the music.
@@ -129,7 +129,7 @@ function T.tests.boot_starts_the_generated_maps_header_music_for_day_and_night()
     local ok2, err2 = xpcall(function()
       local audio = requireAudio(nightGame)
       -- The night branch reads the generated record's nightMusic.
-      Assert.equal(nightGame.runtime.fieldMusic:mapHeaderMusic(nightGame.runtime.runtimeMap), NEW_BARK_MUSIC)
+      Assert.equal(nightGame.runtime.runtimeMap.fieldData.music[night()], NEW_BARK_MUSIC)
       Assert.equal(audio:currentMusic(), musicId(nightGame, NEW_BARK_MUSIC))
       Assert.equal(nightGame:renderAttempts(), 0)
     end, debug.traceback)
@@ -144,7 +144,7 @@ function T.tests.boot_starts_the_generated_maps_header_music_for_day_and_night()
     local labGame = bootWithAudio(harness, versionId, LAB, day, labFake)
     local ok3, err3 = xpcall(function()
       local audio = requireAudio(labGame)
-      Assert.equal(labGame.runtime.fieldMusic:mapHeaderMusic(labGame.runtime.runtimeMap), LAB_MUSIC)
+      Assert.equal(labGame.runtime.runtimeMap.fieldData.music[day()], LAB_MUSIC)
       Assert.equal(audio:currentMusic(), musicId(labGame, LAB_MUSIC))
       labGame:advanceUntil("the lab music renders into the audio-output host", function()
         return labFake:anyNonSilent()
@@ -157,7 +157,7 @@ function T.tests.boot_starts_the_generated_maps_header_music_for_day_and_night()
   end)
 end
 
--- F3: the New Bark woman's real vanilla script plays SEQ_SE_DP_SELECT through
+-- The New Bark woman's real vanilla script plays SEQ_SE_DP_SELECT through
 -- the production scheduler and the real GameSound; the effect overlaps the
 -- map BGM (distinct players), ends on its own, and leaves the BGM running.
 function T.tests.a_scripted_play_sound_overlaps_the_map_bgm()
@@ -186,7 +186,7 @@ function T.tests.a_scripted_play_sound_overlaps_the_map_bgm()
   end)
 end
 
--- F4: an effect started through the production service stays playing until
+-- An effect started through the production service stays playing until
 -- the engine player finishes it (the poll the WaitSE task blocks on) while
 -- the map BGM continues underneath.
 function T.tests.wait_sound_state_blocks_until_the_effect_ends_and_the_bgm_continues()
@@ -204,7 +204,7 @@ function T.tests.wait_sound_state_blocks_until_the_effect_ends_and_the_bgm_conti
   end)
 end
 
--- F5: a fanfare PAUSES the map BGM player (the HGSS PlayFanfare
+-- A fanfare PAUSES the map BGM player (the HGSS PlayFanfare
 -- NNS_SndPlayerPause transport pause: the sequence stays held and resumes at
 -- its preserved position) while keeping its reference; after the playback +
 -- post-wait interval the same reference is restored and renders again.
@@ -230,7 +230,7 @@ function T.tests.a_fanfare_suspends_the_map_bgm_and_restores_it()
   end)
 end
 
--- F6/F7: a fade-out blocks (the isMusicFadeActive poll the MusicFadeTask
+-- A fade-out blocks (the isMusicFadeActive poll the MusicFadeTask
 -- waits on) for exactly its requested field ticks; a fade never stops the
 -- BGM player (a fade-out to 0 leaves it running silent at the target level),
 -- and the matching fade-in ramps the same player back to full without
@@ -266,7 +266,7 @@ function T.tests.music_fades_block_for_their_requested_durations()
   end)
 end
 
--- F8/F9: StopBGM stops the current music (its source operand is an erasure at
+-- StopBGM stops the current music (its source operand is an erasure at
 -- lowering and at the service), and ResetBGM plays the current map-header
 -- day/night music -- never the previously played reference.
 function T.tests.stop_bgm_then_reset_bgm_follows_the_map_header_music()
@@ -295,7 +295,7 @@ function T.tests.stop_bgm_then_reset_bgm_follows_the_map_header_music()
   end)
 end
 
--- F10: a real lab-to-town warp updates the field-music policy to the
+-- A real lab-to-town warp updates the field-music policy to the
 -- destination map and the composition starts the destination's music; the
 -- old map BGM is not left playing, and a later reset keeps the new policy.
 function T.tests.map_swap_updates_the_field_music_policy_without_orphaning_the_old_bgm()
@@ -316,9 +316,10 @@ function T.tests.map_swap_updates_the_field_music_policy_without_orphaning_the_o
       Assert.equal(transition.destination.mapSymbol, TOWN)
       Assert.equal(game:snapshot().mapSymbol, TOWN)
 
-      -- The policy follows the destination map and the composition starts its
-      -- music; the old map BGM is replaced, not left playing.
-      Assert.equal(game.runtime.fieldMusic:mapHeaderMusic(game.runtime.runtimeMap), NEW_BARK_MUSIC)
+      -- The policy follows the destination map (the generated record's
+      -- canonical day reference) and the composition starts its music; the
+      -- old map BGM is replaced, not left playing.
+      Assert.equal(game.runtime.runtimeMap.fieldData.music[day()], NEW_BARK_MUSIC)
       Assert.equal(audio:currentMusic(), wakaba, "the composition must start the destination map's music")
       Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC))
       game:advanceUntil("the destination music renders after the warp", function()

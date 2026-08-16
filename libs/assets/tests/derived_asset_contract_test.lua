@@ -44,7 +44,7 @@ function T.contract_pins_the_current_asset_identities()
     },
     fieldMapData = {
       cacheFormat = "g4-field-map-cache-v1",
-      fieldSchema = "g4-field-map-v2",
+      fieldSchema = "g4-field-map-v3",
     },
     messages = {
       cacheFormat = "field-message-cache-v2",

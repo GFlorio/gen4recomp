@@ -275,7 +275,7 @@ end
 
 local function writeFieldRecord(c, mapId, events)
   c:writeLua(FieldMapDataCache.fieldPath(mapId), {
-    schema = "g4-field-map-v2",
+    schema = "g4-field-map-v3",
     mapId = mapId,
     mapSymbol = "test",
     events = events,

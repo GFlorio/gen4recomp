@@ -52,7 +52,6 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
-local FieldMusicController = require("libs.engine.src.audio.FieldMusicController")
 local GameSound = require("libs.engine.src.audio.GameSound")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
@@ -116,7 +115,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field dayNight fun(): string?
 ---@field audioOutput table?
 ---@field audio GameSound? production-composed audio service (absent when a recording adapter is injected)
----@field fieldMusic FieldMusicController? production-composed field-music policy (absent with a recording adapter)
+---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (absent with a recording adapter)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
@@ -152,6 +151,25 @@ local function menuBindings()
     keys[key] = true
   end
   return keys
+end
+
+-- The day/night map-header music reference of a generated field record (a
+-- canonical audio sequence symbol), or nil when the record carries no music
+-- block. The generated values are already canonical references; the runtime
+-- never decorates symbols.
+---@param runtimeMap table
+---@param dayNight fun(): string
+---@return string?
+local function mapHeaderMusic(runtimeMap, dayNight)
+  local music = runtimeMap.fieldData and runtimeMap.fieldData.music
+  if type(music) ~= "table" then
+    return nil
+  end
+  local reference = music[dayNight()]
+  if type(reference) ~= "string" then
+    return nil
+  end
+  return reference
 end
 
 -- The save validation set of compiled avatar ids, so a corrupt save naming an
@@ -728,15 +746,17 @@ end
 
 -- The production audio composition: when no recording script audio adapter
 -- is injected, builds the real stack (AudioAssetProvider -> VoiceMixer ->
--- SequencePlayer -> GameSound) plus the field-music policy controller, wires
--- GameSound as the script audio service and the session's fixed-tick audio
--- collaborator, and starts the current map's header music. The LÖVE sink is
--- built over the injected audio-output host boundary (acceptance fakes it);
--- production defaults to the love.audio + love.sound namespaces, and a host
--- with no audio module has no sink to pump. The sink receives the
--- SequencePlayer as its renderer. The day/night source defaults to the
--- wall-clock IsNighttime predicate (hours 0-3 and 20-23, the bandForHour
--- nite band); tests and hosts inject a deterministic one.
+-- SequencePlayer -> GameSound), wires GameSound as the script audio service
+-- and the session's fixed-tick audio collaborator, and starts the current
+-- map's header music. The map-music policy is the plain day/night lookup
+-- over the generated field record (canonical references; nothing is
+-- decorated at runtime). The LÖVE sink is built over the injected
+-- audio-output host boundary (acceptance fakes it); production defaults to
+-- the love.audio + love.sound namespaces, and a host with no audio module
+-- has no sink to pump. The sink receives the SequencePlayer as its
+-- renderer. The day/night source defaults to the wall-clock IsNighttime
+-- predicate (hours 0-3 and 20-23, the bandForHour nite band); tests and
+-- hosts inject a deterministic one.
 ---@param cacheFs CacheFs
 ---@return table audioService the GameSound instance, or the injected recording adapter
 function FieldRuntime:_composeAudio(cacheFs)
@@ -751,16 +771,15 @@ function FieldRuntime:_composeAudio(cacheFs)
     mixer = mixer,
     provider = provider,
   })
-  local dayNight = self.dayNight
+  self.mapMusicDayNight = self.dayNight
     or function()
       return TimeOfDayProps.bandForHour(os.date("*t").hour) == "nite" and "night" or "day"
     end
-  self.fieldMusic = FieldMusicController.new({ dayNight = dayNight })
   self.audio = GameSound.new({
     provider = provider,
     player = player,
     mapMusic = function()
-      return self.fieldMusic:mapHeaderMusic(self.runtimeMap)
+      return mapHeaderMusic(self.runtimeMap, self.mapMusicDayNight)
     end,
   })
   local audioOutput = self.audioOutput
@@ -775,7 +794,7 @@ function FieldRuntime:_composeAudio(cacheFs)
       sampleRate = AUDIO_SAMPLE_RATE,
     })
   end
-  local reference = self.fieldMusic:mapHeaderMusic(self.runtimeMap)
+  local reference = mapHeaderMusic(self.runtimeMap, self.mapMusicDayNight)
   if reference ~= nil then
     self.audio:playMusic(reference)
   else
@@ -905,12 +924,13 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
   self.session.currentMap = runtimeMap
   self.session.player = prepared.player
   self.session.camera = prepared.camera
-  -- The field-music policy follows the destination map: the composition
-  -- starts the destination's header music (replacing the old map's BGM on
-  -- the shared BGM player), so a warp never leaves the source map's music
-  -- orphaned.
-  if self.fieldMusic then
-    local reference = self.fieldMusic:mapHeaderMusic(runtimeMap)
+  -- The map-music policy follows the destination map: the plain day/night
+  -- lookup over the destination's generated field record feeds the
+  -- composition, which starts the destination's music (replacing the old
+  -- map's BGM on the shared BGM player), so a warp never leaves the source
+  -- map's music orphaned.
+  if self.audio then
+    local reference = mapHeaderMusic(runtimeMap, self.mapMusicDayNight)
     if reference ~= nil then
       self.audio:playMusic(reference)
     else
@@ -992,7 +1012,7 @@ function FieldRuntime:_releaseAll()
     self.audioSink:release()
   end
   self.actors, self.actorAssets, self.mapLoader = nil, nil, nil
-  self.audio, self.audioSink, self.fieldMusic = nil, nil, nil
+  self.audio, self.audioSink, self.mapMusicDayNight = nil, nil, nil
   self.session, self.saveStore, self.scripts = nil, nil, nil
   self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
   self.viewport, self.input, self.menuHost = nil, nil, nil

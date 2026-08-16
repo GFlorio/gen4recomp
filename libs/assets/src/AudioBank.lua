@@ -5,11 +5,12 @@
 -- envelope, pan}: sample voices add the content-address key, square voices
 -- carry the discrete DS PSG duty index 0..7 (never a float fraction), and
 -- square/noise voices carry their source original key like every other leaf.
--- `sampleKeys` is the shared reference walk: callers validate the bank first,
--- then collect the content-address keys every voice references through a walk
--- that trusts voice fields (their grammar is the validator's). It returns nil
--- when the instrument shape is malformed, so a malformed shape can never be
--- mistaken for "no sample references" (AudioCacheValidator relies on it).
+-- `validate` and `sampleKeys` share one internal leaf traversal (walkVoices)
+-- that owns the instruments-map grammar; validation additionally enforces the
+-- strict leaf grammar, while `sampleKeys` collects the content-address keys
+-- every voice references through a walk that trusts voice fields. It returns
+-- nil when the instrument shape is malformed, so a malformed shape can never
+-- be mistaken for "no sample references" (AudioCacheValidator relies on it).
 -- `selectVoice` is the semantic leaf selection by MIDI key (key-split range
 -- match / drum-set index), the helper the runtime player calls after it
 -- resolves the clamped transposed key.
@@ -35,22 +36,26 @@ local function isKey(value)
   return isIntegerInRange(value, 0, 0x7F)
 end
 
--- Walks every leaf voice of an instruments map. `visit(voice)` decides
--- acceptance; returning false aborts the walk with a falsy result, so a
--- malformed shape is a failed walk, never an empty reference set.
+-- Walks every leaf voice of an instruments map, calling
+-- `visit(instrument, voice)`; returning false from the visit aborts the walk
+-- with a falsy result, so a malformed shape is a failed walk, never an empty
+-- reference set. The walk owns the instruments-map grammar (nonnegative
+-- integer program keys, known kinds, key-split range keys and order,
+-- drum-set bounds with full key coverage); leaf field validity is the
+-- validator's own strict check.
 ---@param instruments table
----@param visit fun(voice: table): boolean
+---@param visit fun(instrument: table, voice: table): boolean
 ---@return boolean
 local function walkVoices(instruments, visit)
   if type(instruments) ~= "table" or next(instruments) == nil then
     return false
   end
-  for _, instrument in pairs(instruments) do
-    if type(instrument) ~= "table" then
+  for key, instrument in pairs(instruments) do
+    if type(key) ~= "number" or key % 1 ~= 0 or key < 0 or type(instrument) ~= "table" then
       return false
     end
     if instrument.kind == "direct" then
-      if type(instrument.voice) ~= "table" or not visit(instrument.voice) then
+      if type(instrument.voice) ~= "table" or not visit(instrument, instrument.voice) then
         return false
       end
     elseif instrument.kind == "key_split" then
@@ -58,16 +63,30 @@ local function walkVoices(instruments, visit)
         return false
       end
       for _, range in ipairs(instrument.ranges) do
-        if type(range) ~= "table" or type(range.voice) ~= "table" or not visit(range.voice) then
+        if
+          type(range) ~= "table"
+          or not isKey(range.lowKey)
+          or not isKey(range.highKey)
+          or range.lowKey > range.highKey
+        then
+          return false
+        end
+        if type(range.voice) ~= "table" or not visit(instrument, range.voice) then
           return false
         end
       end
     elseif instrument.kind == "drum_set" then
-      if not Validate.isArray(instrument.voices) or #instrument.voices == 0 then
+      if not isKey(instrument.lowKey) or not isKey(instrument.highKey) or instrument.lowKey > instrument.highKey then
+        return false
+      end
+      if
+        not Validate.isArray(instrument.voices)
+        or #instrument.voices ~= instrument.highKey - instrument.lowKey + 1
+      then
         return false
       end
       for _, voice in ipairs(instrument.voices) do
-        if type(voice) ~= "table" or not visit(voice) then
+        if type(voice) ~= "table" or not visit(instrument, voice) then
           return false
         end
       end
@@ -89,7 +108,7 @@ function AudioBank.sampleKeys(bank)
     return nil
   end
   local keys, seen = {}, {}
-  local ok = walkVoices(bank.instruments, function(voice)
+  local ok = walkVoices(bank.instruments, function(_, voice)
     local generator = voice.generator
     if type(generator) == "table" and generator.kind == "sample" then
       local key = generator.sample
@@ -192,47 +211,15 @@ function AudioBank.validate(bank)
   if bank.symbol ~= nil and (type(bank.symbol) ~= "string" or bank.symbol == "") then
     fail({ field = "symbol" })
   end
-  if type(bank.instruments) ~= "table" or next(bank.instruments) == nil then
+  -- The instruments-map grammar is the walk's; the visit enforces the strict
+  -- leaf grammar (validateVoice raises its own structured errors), so a walk
+  -- failure is the malformed-instruments problem.
+  local ok = walkVoices(bank.instruments, function(_, voice)
+    validateVoice(voice)
+    return true
+  end)
+  if not ok then
     fail({ field = "instruments" })
-  end
-  for key, instrument in pairs(bank.instruments) do
-    if type(key) ~= "number" or key % 1 ~= 0 or key < 0 then
-      fail({ field = "instruments.key" })
-    end
-    if type(instrument) ~= "table" then
-      fail({ field = "instruments[" .. tostring(key) .. "]" })
-    end
-    if instrument.kind == "direct" then
-      validateVoice(instrument.voice)
-    elseif instrument.kind == "key_split" then
-      if not Validate.isArray(instrument.ranges) or #instrument.ranges == 0 then
-        fail({ field = "instruments[" .. tostring(key) .. "].ranges" })
-      end
-      for _, range in ipairs(instrument.ranges) do
-        if type(range) ~= "table" or not isKey(range.lowKey) or not isKey(range.highKey) then
-          fail({ field = "instruments[" .. tostring(key) .. "].ranges" })
-        end
-        if range.lowKey > range.highKey then
-          fail({ field = "instruments[" .. tostring(key) .. "].ranges" })
-        end
-        validateVoice(range.voice)
-      end
-    elseif instrument.kind == "drum_set" then
-      if not isKey(instrument.lowKey) or not isKey(instrument.highKey) or instrument.lowKey > instrument.highKey then
-        fail({ field = "instruments[" .. tostring(key) .. "]" })
-      end
-      if not Validate.isArray(instrument.voices) then
-        fail({ field = "instruments[" .. tostring(key) .. "].voices" })
-      end
-      if #instrument.voices ~= instrument.highKey - instrument.lowKey + 1 then
-        fail({ field = "instruments[" .. tostring(key) .. "].voices" })
-      end
-      for _, voice in ipairs(instrument.voices) do
-        validateVoice(voice)
-      end
-    else
-      fail({ field = "instruments[" .. tostring(key) .. "].kind" })
-    end
   end
   return true
 end

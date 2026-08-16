@@ -2,24 +2,25 @@
 -- eagerly at construction, resolves sequences and banks by numeric id
 -- or symbolic name through the index's per-class symbol maps
 -- (sequenceBySymbol/bankBySymbol), and loads sequence, bank, and sample
--- assets lazily with per-asset memoization and strict validation (the asset
--- validators raise AUDIO_*_INVALID on malformed files). Samples arrive as
--- metadata plus the provider-decoded PCM array, decoded exactly once per key
--- and shared across consumers. Loading policy: index eager; sequence/bank/
--- sample descriptors lazy + memoized, loaded assets stay cached for the
--- process lifetime. It is the only module that reads the audio cache: it
--- never parses SDAT/SSEQ and never plays notes. Missing or malformed
--- artifacts are structured failures, never silence, and the completion
--- marker is not consulted (there is no expected marker value at runtime;
--- readiness is the cache builder's business).
+-- assets lazily with per-asset memoization. The cache is a TRUSTED runtime
+-- input: generated audio files are deep-validated exactly once by the
+-- authoritative cross-file readiness walk (AudioCacheValidator, the same
+-- walk the cache writer's staged readback runs), so load-time re-validation
+-- is deliberately absent -- there is no runtime mod-injection path that
+-- bypasses the builder. Missing or unreadable artifacts are still structured
+-- failures, never silence. Samples arrive as metadata plus the
+-- provider-decoded PCM array, decoded exactly once per key and shared across
+-- consumers. Loading policy: index eager; sequence/bank/sample descriptors
+-- lazy + memoized, loaded assets stay cached for the process lifetime. It is
+-- the only module that reads the audio cache: it never parses SDAT/SSEQ and
+-- never plays notes. The completion marker is not consulted (there is no
+-- expected marker value at runtime; readiness is the cache builder's
+-- business).
 
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.engine.src.audio.AudioErrors")
 local AssetErrors = require("libs.assets.src.AudioErrors")
 local AudioCache = require("libs.assets.src.AudioCache")
-local AudioSequence = require("libs.assets.src.AudioSequence")
-local AudioBank = require("libs.assets.src.AudioBank")
-local AudioSample = require("libs.assets.src.AudioSample")
 
 ---@class AudioAssetProvider
 ---@field private _cacheFs CacheFs
@@ -77,15 +78,16 @@ local function resolveId(section, symbolMap, idOrSymbol)
   return nil
 end
 
--- Loads and validates the asset file at `path` once, memoized by id.
+-- Loads the asset file at `path` once, memoized by id. A missing or
+-- unreadable file is a structured failure; the file's content itself is
+-- trusted (see the module header: readiness validates the whole cache).
 ---@param memo table<integer, table>
 ---@param cacheFs CacheFs
 ---@param id integer
 ---@param path string
----@param validate fun(asset: table): boolean
 ---@param invalidCode string
 ---@return table
-local function loadAsset(memo, cacheFs, id, path, validate, invalidCode)
+local function loadAsset(memo, cacheFs, id, path, invalidCode)
   local asset = memo[id]
   if asset ~= nil then
     return asset
@@ -95,7 +97,6 @@ local function loadAsset(memo, cacheFs, id, path, validate, invalidCode)
     Errors.raise(invalidCode, "missing or unreadable audio asset at " .. path, { path = path, id = id })
   end
   value = value --[[@as table]]
-  validate(value)
   memo[id] = value
   return value
 end
@@ -116,7 +117,6 @@ function AudioAssetProvider:sequence(idOrSymbol)
     self._cacheFs,
     id --[[@as integer]],
     AudioCache.sequencePath(id),
-    AudioSequence.validate,
     AssetErrors.AUDIO_SEQUENCE_INVALID
   )
 end
@@ -137,7 +137,6 @@ function AudioAssetProvider:bank(idOrSymbol)
     self._cacheFs,
     id --[[@as integer]],
     AudioCache.bankPath(id),
-    AudioBank.validate,
     AssetErrors.AUDIO_BANK_INVALID
   )
 end
@@ -169,9 +168,8 @@ end
 
 -- Loads a sample's metadata and decoded PCM array by content key, memoized.
 -- Both files must exist; a missing or unreadable file is
--- AUDIO_PROVIDER_SAMPLE_UNKNOWN, a malformed metadata record or payload byte
--- count is the sample validator's code. The decoded array is created once
--- per key and shared (consumers must not mutate it).
+-- AUDIO_PROVIDER_SAMPLE_UNKNOWN. The decoded array is created once per key
+-- and shared (consumers must not mutate it).
 function AudioAssetProvider:loadSample(key)
   local sample = self._samples[key]
   if sample ~= nil then
@@ -185,7 +183,6 @@ function AudioAssetProvider:loadSample(key)
   if bytes == nil then
     Errors.raise(AudioErrors.AUDIO_PROVIDER_SAMPLE_UNKNOWN, "no audio sample payload for key " .. key, { key = key })
   end
-  AudioSample.validate(metadata, bytes --[[@as string]])
   sample = {
     metadata = metadata,
     pcm = decodePcm(bytes --[[@as string]]),

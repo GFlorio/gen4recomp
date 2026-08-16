@@ -46,7 +46,7 @@ local function resolveFlag(entry, fieldDataFor)
   )
 end
 
--- fieldDataFor(mapId) returns the compiled `g4-field-map-v2` artifact, so the
+-- fieldDataFor(mapId) returns the compiled `g4-field-map-v3` artifact, so the
 -- bootstrap costs a cache read per map rather than a full runtime map load.
 -- Returns the applied entries (mapId/objectEventId/eventFlag), which the
 -- ROM conformance suite uses to pin the scenario against the real ROM.

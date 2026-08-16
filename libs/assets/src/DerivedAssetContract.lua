@@ -57,8 +57,10 @@ DerivedAssetContract.fieldCamera = {
 DerivedAssetContract.fieldMapData = {
   cacheFormat = "g4-field-map-cache-v1",
   -- The generated field record carries the day/night map-header music block
-  -- (the runtime field-music policy reads it, never map ids).
-  fieldSchema = "g4-field-map-v2",
+  -- as canonical audio sequence references (never bare source suffixes), so
+  -- the runtime field-music policy reads it directly and never decorates
+  -- symbols.
+  fieldSchema = "g4-field-map-v3",
 }
 
 DerivedAssetContract.messages = {

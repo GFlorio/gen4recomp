@@ -1,8 +1,10 @@
 -- AudioCache contract: the g4-audio cache layout, the contract constants,
 -- and the strict-readiness gate. Readiness verifies the exact marker and the
 -- authoritative cross-file walk (AudioCacheValidator): the index schema and
--- sections, every indexed sequence/bank file with its leaf validator passing
--- and its identity matching, sequence bank-id resolution, and every
+-- sections (sequences/banks/players plus both symbol maps), every indexed
+-- sequence/bank file with its leaf validator passing and its identity
+-- matching, sequence bank-id and player-id resolution, player-entry
+-- validity, symbol-map consistency in both directions, and every
 -- bank-referenced sample's metadata and PCM payload. A missing artifact is
 -- never silence.
 
@@ -93,6 +95,74 @@ function T.negative_indexed_ids_are_not_ready()
   bundle.sequences[-1] = AudioFixture.sequence(-1, nil, 12, 1)
   local cache = AudioFixture.readyCache(bundle)
   Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "ids become path components; negatives are malformed")
+end
+
+function T.missing_index_players_section_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.players = nil
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "the runtime resolves players from the index")
+end
+
+function T.malformed_player_entries_are_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.players[1].id = 2
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "player entries must identify themselves")
+end
+
+function T.sequence_player_reference_mismatch_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.sequences[0].playerId = 9
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "every sequence player id must resolve to a player entry")
+end
+
+-- The sequence asset duplicates index identity fields (bank reference and
+-- symbol plus the player block it starts from); a disagreement between the
+-- asset and its index entry means the index no longer describes the cache.
+function T.sequence_asset_identity_fields_must_agree_with_the_index()
+  local bundle = AudioFixture.bundle()
+  bundle.sequences[0].bankId = 99
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "sequence bank reference must match its index entry")
+
+  bundle = AudioFixture.bundle()
+  bundle.sequences[0].symbol = "SEQ_TEST_RENAMED"
+  cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "sequence symbol must match its index entry")
+
+  bundle = AudioFixture.bundle()
+  bundle.sequences[0].player.id = 2
+  cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "sequence player block must match its index entry")
+end
+
+function T.bank_asset_symbol_must_agree_with_the_index()
+  local bundle = AudioFixture.bundle()
+  bundle.banks[12].symbol = "BANK_TEST_RENAMED"
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "bank symbol must match its index entry")
+end
+
+function T.symbol_map_entries_that_do_not_resolve_are_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.sequenceBySymbol.SEQ_TEST_C = 999
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "every sequence map entry must resolve into the index")
+
+  bundle = AudioFixture.bundle()
+  bundle.index.bankBySymbol.BANK_TEST_C = 999
+  cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "every bank map entry must resolve into the index")
+end
+
+function T.indexed_symbols_must_be_covered_by_the_symbol_map()
+  local bundle = AudioFixture.bundle()
+  bundle.index.sequences[0].symbol = "SEQ_TEST_RENAMED"
+  bundle.sequences[0].symbol = "SEQ_TEST_RENAMED"
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "an indexed symbol with no map entry is not resolvable")
 end
 
 function T.missing_indexed_bank_is_not_ready()

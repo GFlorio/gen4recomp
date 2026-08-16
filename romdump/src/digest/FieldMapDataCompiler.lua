@@ -10,6 +10,16 @@ local Hashing = require("romdump.src.digest.Hashing")
 
 local FieldMapDataCompiler = {}
 
+-- The canonical audio sequence reference of a map-header music suffix: the
+-- frozen catalog carries the SDAT symbol without its class prefix, and the
+-- generated record carries the full reference so runtime field-music policy
+-- never decorates symbols.
+---@param suffix string
+---@return string
+local function canonicalSequence(suffix)
+  return "SEQ_" .. suffix
+end
+
 local function must(value, err)
   if value == nil then
     error(err)
@@ -67,11 +77,12 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     messageBankId = map.messageMemberId,
     scriptBankId = map.scriptsMemberId,
     -- The map-header day/night music references (the frozen catalog's
-    -- dayMusic/nightMusic); the field-music policy selects the day or night
-    -- branch at runtime from this generated record.
+    -- dayMusic/nightMusic, emitted as canonical audio sequence references);
+    -- the field-music policy selects the day or night branch at runtime
+    -- from this generated record.
     music = {
-      day = map.dayMusic,
-      night = map.nightMusic,
+      day = canonicalSequence(map.dayMusic),
+      night = canonicalSequence(map.nightMusic),
     },
     events = {
       background = decoded.backgroundEvents,

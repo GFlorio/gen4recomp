@@ -1,9 +1,12 @@
 -- AudioAssetProvider contract: the runtime owner of the generated audio cache.
 -- It loads the index eagerly at construction, resolves sequences/banks by
 -- numeric id or per-class symbol map (sequenceBySymbol/bankBySymbol), and
--- loads sequence/bank/sample assets lazily and memoized with strict
--- validation. Samples arrive as metadata plus the provider-decoded PCM
--- array, decoded exactly once per key. The contract is authored against
+-- loads sequence/bank/sample assets lazily and memoized. The cache is a
+-- trusted runtime input (the readiness walk validates the whole cache at
+-- build time), so load-time content re-validation is not part of the
+-- provider contract -- missing or unreadable files are, and stay structured
+-- failures. Samples arrive as metadata plus the provider-decoded PCM array,
+-- decoded exactly once per key. The contract is authored against
 -- hand-written project-owned synthetic assets; nothing
 -- here touches a ROM. Loading policy: index eager, sequence/bank/
 -- sample descriptors lazy + memoized, loaded assets stay cached for the
@@ -109,19 +112,6 @@ function T.samples_load_by_content_key_with_metadata_and_decoded_pcm()
   Assert.deepEqual(sample.pcm, { 1000, 2000, 3000, 4000 }, "the provider hands over the decoded PCM array")
 end
 
--- The payload size contract is enforced at the load boundary: metadata whose
--- payload is not exactly frames*2 bytes of PCM16LE is malformed, never
--- silence.
-function T.malformed_sample_payload_byte_count_fails_load()
-  local bundle = AudioFixture.bundle()
-  local key = AudioFixture.key(1)
-  bundle.samples[key] = bundle.samples[key] .. "\0"
-  local p = provider(bundle)
-  throwsCode("AUDIO_SAMPLE_INVALID", function()
-    p:loadSample(key)
-  end)
-end
-
 function T.unknown_sample_keys_and_missing_payloads_fail()
   local bundle = AudioFixture.bundle()
   local p, cache = provider(bundle)
@@ -176,24 +166,6 @@ function T.missing_or_malformed_index_fails_construction()
     local bundle = AudioFixture.bundle()
     bundle.index.schema = "g4-audio-index-wrong"
     AudioAssetProvider.new(AudioFixture.readyCache(bundle))
-  end)
-end
-
-function T.malformed_sequence_asset_fails_on_access()
-  local bundle = AudioFixture.bundle()
-  bundle.sequences[0].schema = "not-a-sequence"
-  local p = provider(bundle)
-  throwsCode("AUDIO_SEQUENCE_INVALID", function()
-    p:sequence(0)
-  end)
-end
-
-function T.malformed_bank_asset_fails_on_access()
-  local bundle = AudioFixture.bundle()
-  bundle.banks[12].instruments = {}
-  local p = provider(bundle)
-  throwsCode("AUDIO_BANK_INVALID", function()
-    p:bank(12)
   end)
 end
 
