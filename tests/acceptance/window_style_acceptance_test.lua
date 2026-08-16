@@ -1,15 +1,12 @@
 -- Production-composed window-style contracts: the runtime constructs the
 -- immutable style catalogue from the generated field-UI manifest it already
--- validates, and the built-in hgss.dialogue / hgss.signpost /
--- hgss.trainer_tip styles carry the canonical signpost presentation geometry
--- for every source type found in the script corpus, preserving the raw
--- source type numbers. Styles own only presentation records (id, role,
--- contentGeometry, graphicRegion, types): they must not advertise
--- frame/mapGraphic asset replacement or text colors. Boot-config custom
--- descriptors and their rejection contracts live in
--- window_style_catalog_acceptance_test.lua; the high-level custom-style sign
--- journey lives in high_level_sign_acceptance_test.lua. Nothing here
--- renders.
+-- validates, and the built-in hgss.signpost / hgss.trainer_tip styles carry
+-- the canonical signpost presentation geometry for every source type found
+-- in the script corpus, preserving the raw source type numbers. Styles own
+-- only presentation records (id, contentGeometry, per-type graphicRegion,
+-- types): they must not advertise frame/mapGraphic asset replacement or text
+-- colors. The high-level custom-style sign journey lives in
+-- high_level_sign_acceptance_test.lua. Nothing here renders.
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -101,23 +98,16 @@ function T.tests.runtime_catalogue_resolves_builtin_styles_for_every_corpus_sign
     local styles = game.runtime.windowStyles
     Assert.isTrue(type(styles) == "table", "the production runtime must expose the window style catalogue")
 
-    local dialogue = assert(styles:resolve("hgss.dialogue"), "hgss.dialogue must resolve as a built-in style")
-    Assert.equal(dialogue.role, "dialogue", "the dialogue style must declare its role")
-    Assert.deepEqual(dialogue.contentGeometry, FULL_WIDTH_TEXT, "dialogue content geometry")
-
     local trainerTip = assert(styles:resolve("hgss.trainer_tip"), "hgss.trainer_tip must resolve as a built-in style")
-    Assert.equal(trainerTip.role, "trainer_tip", "the trainer-tip style must declare its role")
     Assert.deepEqual(trainerTip.contentGeometry, FULL_WIDTH_TEXT, "trainer-tip content geometry")
 
     local signpost = assert(styles:resolve("hgss.signpost"), "hgss.signpost must resolve as a built-in style")
-    Assert.equal(signpost.role, "signpost", "the signpost style must declare its role")
     Assert.deepEqual(signpost.contentGeometry, FULL_WIDTH_TEXT, "signpost content geometry")
 
     for _, sourceType in ipairs(CORPUS_SOURCE_TYPES) do
       assertStyleGeometry(signpost, sourceType, "every corpus signpost source type must resolve")
     end
 
-    assertPresentationRecord(dialogue, "hgss.dialogue", "the dialogue style")
     assertPresentationRecord(trainerTip, "hgss.trainer_tip", "the trainer-tip style")
     assertPresentationRecord(signpost, "hgss.signpost", "the signpost style")
     Assert.equal(game:renderAttempts(), 0, "style definitions must not render")
