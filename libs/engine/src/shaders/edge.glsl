@@ -47,10 +47,10 @@ const int MAX_EDGE_RADIUS = 8;
 
 bool marked(vec2 uv, vec2 offset, float centerId, float centerDepth)
 {
-  vec3 n = Texel(u_idTex, uv + offset).rgb;
-  bool differentId = abs(n.r - centerId) > 0.5 / 255.0;
-  // DsDepth.isInFront(center, neighbour): strictly less, no tolerance.
-  bool centerInFront = centerDepth < n.g;
+  vec3 neighborSample = Texel(u_idTex, uv + offset).rgb;
+  bool differentId = abs(neighborSample.r - centerId) > 0.5 / 255.0;
+  // Strictly less, no tolerance -- the marked pixel must be in front.
+  bool centerInFront = centerDepth < neighborSample.g;
   return differentId && centerInFront;
 }
 
@@ -60,10 +60,18 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
   vec3 center = Texel(u_idTex, uv).rgb;
   float centerId = center.r;
   float centerDepth = center.g;
+  int centerPolygonId = int(floor(centerId * 255.0 + 0.5));
 
   // Translucent pixels occlude but are never edge centers (opaque + wireframe
   // only): the translucent-attribute flag, not an ID sentinel.
   if (center.b > 0.5) return scene;
+
+  // The rear-plane/wireframe sentinel (255, MapRenderer.REAR_PLANE_ID) is
+  // outside the real 0-63 polygon-id domain u_edgeColors indexes; a
+  // sentinel-valued center can still be "marked" (it differs from and sits
+  // in front of a real neighbor), so this guard must come before any table
+  // index below, not only before the marked-pixel loop.
+  if (centerPolygonId > 63) return scene;
 
   bool edge = false;
   for (int i = 1; i <= MAX_EDGE_RADIUS; i++) {
@@ -81,10 +89,9 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
   }
   if (!edge) return scene;
 
-  int id = int(floor(centerId * 255.0 + 0.5));
-  vec3 ec = u_edgeColors[id / 8];
+  vec3 edgeColor = u_edgeColors[centerPolygonId / 8];
   // DS hardware edge compositing replaces RGB outright; it does not
   // alpha-mix with the scene color.
-  return vec4(ec, scene.a);
+  return vec4(edgeColor, scene.a);
 }
 #endif

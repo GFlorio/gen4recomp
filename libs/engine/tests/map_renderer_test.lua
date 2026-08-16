@@ -44,6 +44,7 @@ local function emptySceneCamera()
   return {
     camera = {
       distance = 26,
+      far = 400,
       view = function()
         return identity
       end,
@@ -702,6 +703,56 @@ function T.draw_requires_the_scenes_edge_color_table()
 
   Assert.throws(function()
     renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  end)
+  renderer:release()
+end
+
+-- The shader's depth quantization range comes from the active camera's own
+-- far clipping plane, not a hidden fixed field-draw-distance bound: sent once
+-- per frame alongside u_view (never per draw item, and never cached across
+-- frames -- a camera whose far plane changes mid-run must retarget the very
+-- next frame, the same way u_view always resends).
+function T.draw_sends_the_cameras_far_plane_as_the_depth_normalization_range()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  scene.camera.far = 123.5
+  local shader = lg.shaders[1]
+
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  Assert.equal(shaderSendCount(shader, "u_depthWMax"), 1, "sent exactly once for the frame, not once per item")
+  Assert.equal(shader.uniforms.u_depthWMax, 123.5, "the exact camera far value reaches the shader")
+
+  scene.camera.far = 200
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  Assert.equal(shaderSendCount(shader, "u_depthWMax"), 2, "each frame resends, like u_view")
+  Assert.equal(shader.uniforms.u_depthWMax, 200, "a changed far plane reaches the shader the very next frame")
+  renderer:release()
+end
+
+-- A camera missing a usable far plane is a malformed collaborator, not a case
+-- to silently default around (e.g. the retired DS_DEPTH_WMAX = 400.0
+-- constant): MapRenderer must fail loudly rather than quantize depth against
+-- an invented bound.
+function T.draw_requires_a_positive_camera_far_plane()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+
+  scene.camera.far = nil
+  Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  end)
+
+  scene.camera.far = 0
+  Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  end)
+
+  scene.camera.far = -10
+  Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, viewport)
   end)
   renderer:release()
 end

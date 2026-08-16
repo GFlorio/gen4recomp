@@ -30,6 +30,7 @@ local function identityCamera()
   local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
   return {
     distance = 26,
+    far = 400,
     view = function()
       return identity
     end,

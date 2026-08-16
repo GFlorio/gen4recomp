@@ -266,20 +266,20 @@ vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
   return vertex6 + floor((texture6 - vertex6) * textureAlpha5 / 31.0);
 }
 
-// DS W-buffer depth quantization (DsDepth.wbufferDepth, libs/engine/src/DsDepth.lua):
-// gl_FragCoord.w is 1/clip.w and clip.w IS the eye-space distance, so 1/w is the
-// linear depth in world units. It is normalized against a generous field
-// draw-distance bound and truncated into the 24-bit integer domain both DS
-// depth-buffer modes share, stored as a float (exactly representable: float32's
-// 24-bit mantissa covers the full 0..0xFFFFFF range). The edge shader compares
-// this value with a strict integer-domain inequality (DsDepth.isInFront), never
-// a tolerance-scaled float heuristic.
-const float DS_DEPTH_WMAX = 400.0; // field draw-distance bound, world units
-const float DS_DEPTH_MAX = 16777215.0; // DsDepth.MAX_DEPTH
+// DS W-buffer depth quantization: gl_FragCoord.w is 1/clip.w and clip.w IS the
+// eye-space distance, so 1/w is the linear depth in world units. It is
+// normalized against the active camera's own far clipping plane (u_depthWMax,
+// sent once per frame by MapRenderer) and truncated into the 24-bit integer
+// domain both DS depth-buffer modes share, stored as a float (exactly
+// representable: float32's 24-bit mantissa covers the full 0..0xFFFFFF
+// range). The edge shader compares this value with a strict integer-domain
+// inequality, never a tolerance-scaled float heuristic.
+uniform float u_depthWMax;
+const float DS_DEPTH_MAX = 16777215.0; // 0xFFFFFF, the 24-bit quantized-depth domain max
 
 float dsWbufferDepth(float linearEyeDepth)
 {
-  float fraction = clamp(linearEyeDepth / DS_DEPTH_WMAX, 0.0, 1.0);
+  float fraction = clamp(linearEyeDepth / u_depthWMax, 0.0, 1.0);
   return floor(fraction * DS_DEPTH_MAX);
 }
 
@@ -336,20 +336,19 @@ void effect()
   vec3 texture6 = expand5to6v(texture5);
   vec3 vertex6 = expand5to6v(vertex5);
 
-  float At5f = floor(base.a * 31.0 + 0.5);
-  int At5 = int(At5f);
-  int Ap5 = int(floor(u_polygonAlpha * 31.0 + 0.5));
+  float textureAlpha5 = floor(base.a * 31.0 + 0.5);
+  int polygonAlpha5 = int(floor(u_polygonAlpha * 31.0 + 0.5));
 
   vec3 outRgb6;
-  int Aout5;
+  int outputAlpha5;
   if (u_polygonMode == 1) {
     // DECAL: polygon alpha unconditionally; RGB blended by texture alpha.
-    outRgb6 = decalRgb6(texture6, vertex6, At5f);
-    Aout5 = Ap5;
+    outRgb6 = decalRgb6(texture6, vertex6, textureAlpha5);
+    outputAlpha5 = polygonAlpha5;
   } else {
-    // MODULATE: exact DS integer-domain equations (DsFragment.lua).
+    // MODULATE: exact DS integer-domain equations.
     outRgb6 = modulateRgb6(texture6, vertex6);
-    Aout5 = int(floor(float((At5 + 1) * (Ap5 + 1) - 1) / 32.0));
+    outputAlpha5 = int(floor(float((int(textureAlpha5) + 1) * (polygonAlpha5 + 1) - 1) / 32.0));
   }
   float dsDepth = dsWbufferDepth(1.0 / gl_FragCoord.w);
 
@@ -362,7 +361,7 @@ void effect()
   }
 
   vec3 outRgb = outRgb6 / 63.0;
-  float alpha = float(Aout5) / 31.0;
+  float alpha = float(outputAlpha5) / 31.0;
 
   if (u_alphaMode == 1 && alpha < u_alphaCutoff) {
     discard;

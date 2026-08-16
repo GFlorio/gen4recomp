@@ -786,6 +786,11 @@ end
 ---@param worldParts table[][]?
 function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
+  -- The shader's depth quantization range tracks the active camera's real far
+  -- clipping plane (map.glsl's u_depthWMax), never a hidden fixed bound: a
+  -- camera without one is a malformed collaborator, not a case to default
+  -- around.
+  assert(type(camera.far) == "number" and camera.far > 0, "MapRenderer requires camera.far to be a positive number")
   local lg = assert(self._graphics)
   local parts = worldParts or {}
 
@@ -815,6 +820,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     lg.setDepthMode("less", true)
     lg.setBlendMode("alpha")
     self.shader:send("u_view", "column", viewMatrix)
+    self.shader:send("u_depthWMax", camera.far)
 
     self:_sendLighting(sceneRuntime)
     self:_sendEdgeColors(sceneRuntime)

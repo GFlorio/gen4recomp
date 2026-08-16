@@ -731,6 +731,7 @@ function T.animated_building_loads_advances_and_renders()
   local identity = identityMatrix()
   local camera = {
     distance = 26,
+    far = 400,
     view = function()
       return identity
     end,

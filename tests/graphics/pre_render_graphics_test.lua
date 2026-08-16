@@ -24,7 +24,7 @@ local function fixedCamera()
   local function identity()
     return IDENTITY
   end
-  return { distance = 26, view = identity, projection = identity, billboardProjection = identity }
+  return { distance = 26, far = 400, view = identity, projection = identity, billboardProjection = identity }
 end
 
 local function emptyRuntime()

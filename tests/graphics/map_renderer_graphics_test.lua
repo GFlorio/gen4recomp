@@ -28,7 +28,7 @@ local function fixedCamera()
   local function identity()
     return IDENTITY
   end
-  return { distance = 26, view = identity, projection = identity, billboardProjection = identity }
+  return { distance = 26, far = 400, view = identity, projection = identity, billboardProjection = identity }
 end
 
 local function emptyRuntime()
@@ -1304,6 +1304,109 @@ function T.terrain_animation_offscreen_swap_and_srt(scope)
   assertPixel(img2, flowerX, flowerY, 0, 0, 1, "flower switched to the second step image at the swap boundary")
   assertPixel(img2, flowerX, flowerMirrorY, 0, 0, 1, "flower switched to the second step image (mirror row)")
   assertPixel(img2, waterX, waterY, 1, 0, 0, "water keeps the shifted sample")
+end
+
+-- The shader's depth quantization range comes from the active camera's real
+-- far clipping plane (u_depthWMax), not a fixed field-draw-distance bound
+-- baked into the shader. With the identity view/projection/model this test
+-- drives, clip.w is exactly 1 so linearEyeDepth (dsWbufferDepth's argument)
+-- is exactly 1 -- the only free variable across the two draws below is the
+-- camera's far plane, so a real difference in the readback proves the value
+-- reaches the shader and is used, not merely accepted and ignored.
+function T.camera_far_plane_drives_the_normalized_depth_target(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local image = solidAlphaImage(scope, 255, 255, 255, 255)
+  local item = decalItem(decalTriangle(scope), image)
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local DS_DEPTH_MAX = 16777215.0
+
+  -- Whichever of the two candidate interior samples is not the rear-plane
+  -- clear (r == 1.0, the normalized sentinel) carries the drawn item's own
+  -- id (0) and real quantized depth in its green channel.
+  local function idDepthInterior(camera)
+    renderer:draw(emptyRuntime(), camera, { { item } }, viewport)
+    local img = renderer.idDepth:newImageData()
+    local a, b = { img:getPixel(416, 384) }, { img:getPixel(416, 95) }
+    return a[1] < 0.5 and a or b
+  end
+
+  local function expectedDepth(far)
+    return math.floor(math.min(1, 1 / far) * DS_DEPTH_MAX)
+  end
+
+  local shortRange = fixedCamera()
+  shortRange.far = 2
+  local shortRangeSample = idDepthInterior(shortRange)
+
+  local longRange = fixedCamera()
+  longRange.far = 4
+  local longRangeSample = idDepthInterior(longRange)
+
+  Assert.isTrue(
+    shortRangeSample[2] ~= longRangeSample[2],
+    "changing the camera's far plane must change the quantized depth for identical eye-space geometry"
+  )
+  Assert.near(shortRangeSample[2], expectedDepth(2), 1, "matches dsWbufferDepth(1) at u_depthWMax=2")
+  Assert.near(longRangeSample[2], expectedDepth(4), 1, "matches dsWbufferDepth(1) at u_depthWMax=4")
+end
+
+-- F: the edge pass's ID/depth target carries the rear-plane/wireframe
+-- sentinel (255, outside the real 0-63 polygon-id domain -- see
+-- MapRenderer.REAR_PLANE_ID) at every wireframe draw's own center, not only
+-- at the background clear. A sentinel-valued center adjacent to a real,
+-- differently-id'd, farther neighbor must still be recognized as "marked"
+-- (different id, center in front) without ever indexing u_edgeColors[8]
+-- with a sentinel-derived value (255/8 = 31, out of the table's 0-7 range):
+-- the guard must return the unmodified scene color instead. This drives
+-- edge.glsl directly (not through MapRenderer's full draw path) so the
+-- neighbor/center ID and depth values are exact and independent of any
+-- particular mesh/camera geometry.
+function T.edge_shader_never_indexes_the_color_table_for_a_sentinel_center(scope)
+  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+
+  -- A 3x1 idTex: two real, differently-id'd, farther neighbors flank a
+  -- sentinel-id (255) center that is nearer than both -- exactly the
+  -- shape a wireframe draw adjacent to opaque geometry produces.
+  local idData = love.image.newImageData(3, 1, "rgba32f")
+  idData:setPixel(0, 0, 38 / 255, 1000, 0, 1)
+  idData:setPixel(1, 0, 255 / 255, 10, 0, 1)
+  idData:setPixel(2, 0, 51 / 255, 2000, 0, 1)
+  local idImage = scope:own(love.graphics.newImage(idData))
+  idImage:setFilter("nearest", "nearest")
+
+  -- The pre-edge scene color at the sentinel pixel: a value distinct from
+  -- every entry in u_edgeColors below, so an out-of-range table read
+  -- (rather than the required unmodified-scene guard) is distinguishable.
+  local sceneData = love.image.newImageData(3, 1)
+  sceneData:setPixel(0, 0, 0.2, 0.2, 0.2, 1)
+  sceneData:setPixel(1, 0, 100 / 255, 150 / 255, 200 / 255, 1)
+  sceneData:setPixel(2, 0, 0.2, 0.2, 0.2, 1)
+  local sceneImage = scope:own(love.graphics.newImage(sceneData))
+  sceneImage:setFilter("nearest", "nearest")
+
+  local edgeColors = {}
+  for i = 0, 7 do
+    edgeColors[i + 1] = { i / 10, i / 10, i / 10 }
+  end
+
+  local target = scope:own(love.graphics.newCanvas(3, 1))
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 0, 0, 1)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.setShader(edgeShader)
+  edgeShader:send("u_idTex", idImage)
+  edgeShader:send("u_texelSize", { 1 / 3, 1 })
+  edgeShader:send("u_edgeRadius", 1)
+  edgeShader:send("u_edgeColors", unpack(edgeColors))
+  love.graphics.draw(sceneImage, 0, 0)
+  love.graphics.setShader()
+  love.graphics.setCanvas()
+
+  local out = target:newImageData()
+  local r, g, b = out:getPixel(1, 0)
+  Assert.near(r, 100 / 255, 1 / 255, "sentinel center must render the unmodified scene color's red channel")
+  Assert.near(g, 150 / 255, 1 / 255, "sentinel center must render the unmodified scene color's green channel")
+  Assert.near(b, 200 / 255, 1 / 255, "sentinel center must render the unmodified scene color's blue channel")
 end
 
 return GraphicsSmoke.suite(T)
