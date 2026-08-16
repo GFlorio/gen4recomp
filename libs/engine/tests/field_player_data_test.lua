@@ -132,6 +132,19 @@ function T.unencodable_characters_are_rejected()
   end)
 end
 
+-- The one UTF-8 pass checks the glyph-count bound early: an over-length name
+-- that also contains an unencodable character must report the glyph-count
+-- failure with the counted glyphs, never the charmap failure.
+function T.over_length_names_report_the_glyph_bound_even_when_unencodable()
+  -- G O U+20AC D E F G H: eight glyphs, one unencodable.
+  local _, err = FieldPlayerData.validate(
+    record({ profile = { name = "GO\226\130\172DEFGH", gender = 0, trainerId = 0 } }),
+    context()
+  )
+  Assert.equal(err and err.code, "PLAYER_DATA_NAME_INVALID")
+  Assert.equal(err and err.context.glyphs, 8, "the glyph-count bound must fire for over-length names")
+end
+
 function T.gender_is_restricted_to_the_gendered_message_values()
   for _, gender in ipairs({ 0, 1 }) do
     Assert.notNil(

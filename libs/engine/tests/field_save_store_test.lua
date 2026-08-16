@@ -1,9 +1,9 @@
 -- FieldSaveStore tests verify version-scoped transactional publication and
--- rejection of malformed persisted data with an in-memory filesystem. The
--- store is rooted in the persistent user-data namespace (SaveFs), never in the
--- disposable version cache. Loading is the complete validation boundary: a
--- record whose wired scripts bucket fails deep validation is rejected as a
--- whole.
+-- persistence-only loading with an in-memory filesystem. The store is rooted
+-- in the persistent user-data namespace (SaveFs), never in the disposable
+-- version cache. Loading returns the deserialized record unchanged; resume
+-- validation/canonicalization belongs to the FieldSave.restore boundary, and
+-- save still validates and persists the canonical record.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -18,7 +18,27 @@ local T = {}
 
 local SAVE_TEMP = "saves/heartgold/" .. FieldSave.PATH .. ".tmp"
 
--- The store's save/load boundary requires the player-data validation context
+-- Restore is the domain validation boundary for deserialized records; the
+-- loader must never be reached when validation rejects the record.
+local function rejectingLoader()
+  return {
+    load = function()
+      error("restore must reject the invalid record before loading any map")
+    end,
+  }
+end
+
+-- Mirrors the production resume call: the runtime passes the player-data
+-- context it also wired into the store.
+local function restoreOpts(overrides)
+  local value = { playerDataContext = PlayerDataContext.new() }
+  for key, item in pairs(overrides or {}) do
+    value[key] = item
+  end
+  return value
+end
+
+-- The store's save boundary requires the player-data validation context
 -- (mirroring the runtime composition), so every fixture supplies it.
 local function store(saveFs, opts)
   local value = { playerDataContext = PlayerDataContext.new() }
@@ -64,6 +84,43 @@ function T.atomic_save_publishes_without_leaving_temporary_file()
   Assert.isNil(backend.files["heartgold/save/" .. FieldSave.PATH], "saves must not live in the cache root")
 end
 
+-- The store load is persistence only: the deserialized record is returned
+-- unchanged, so a record carrying uncanonical player-data keys survives the
+-- load exactly as written. Validation and canonicalization are the restore
+-- boundary's job, never the load path's.
+function T.load_returns_the_deserialized_record_unchanged()
+  local backend = FakeCache.new()
+  local saveFs = SaveFs.forVersion("heartgold", backend)
+  local store = store(saveFs)
+  local value = record("heartgold")
+  value.playerData.profile.transientThing = 123
+  value.playerData.options.futureThing = true
+  value.playerData.extraTopLevel = true
+  saveFs:writeLua(FieldSave.PATH, value)
+  local loaded, loadErr = store:load()
+  Assert.isNil(loadErr, "persistence load must not validate; got " .. tostring(loadErr))
+  loaded = assert(loaded, "load must return the deserialized record")
+  Assert.equal(loaded.playerData.profile.transientThing, 123, "the raw bucket must survive load unchanged")
+  Assert.equal(loaded.playerData.options.futureThing, true, "the raw bucket must survive load unchanged")
+  Assert.equal(loaded.playerData.extraTopLevel, true, "the raw bucket must survive load unchanged")
+end
+
+-- Persistence failures stay at the persistence boundary: an absent save and
+-- an unparseable save file return the storage/load error unchanged, never a
+-- fabricated validation error.
+function T.load_returns_storage_errors_unchanged()
+  local backend = FakeCache.new()
+  local saveFs = SaveFs.forVersion("heartgold", backend)
+  local store = store(saveFs)
+  local missing, missingErr = store:load()
+  Assert.isNil(missing)
+  Assert.equal(missingErr and missingErr.code, "SAVE_FILE_MISSING")
+  saveFs:write(FieldSave.PATH, "this is not lua")
+  local corrupt, corruptErr = store:load()
+  Assert.isNil(corrupt)
+  Assert.equal(corruptErr and corruptErr.code, "SAVE_LUA_PARSE_FAILED")
+end
+
 function T.imported_versions_have_independent_saves()
   local backend = FakeCache.new()
   local hg = store(SaveFs.forVersion("heartgold", backend))
@@ -74,7 +131,9 @@ function T.imported_versions_have_independent_saves()
   Assert.equal(assert(ss:load()).versionId, "soulsilver")
 end
 
-function T.load_rejects_unknown_schemas()
+-- The store load returns the raw record for any present file; schema
+-- rejection belongs to the restore boundary.
+function T.load_is_persistence_only_and_restore_rejects_unknown_schemas()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
   saveFs:writeLua(FieldSave.PATH, {
@@ -90,29 +149,28 @@ function T.load_rejects_unknown_schemas()
   })
   local store = store(saveFs)
   local loaded, loadErr = store:load()
-  Assert.isNil(loaded)
-  Assert.isTrue(
-    loadErr and loadErr.code == "FIELD_SAVE_SCHEMA_UNSUPPORTED",
-    "expected FIELD_SAVE_SCHEMA_UNSUPPORTED, got " .. tostring(loadErr)
+  Assert.isNil(loadErr, "persistence load must not validate; got " .. tostring(loadErr))
+  local _, restoreErr = FieldSave.restore(assert(loaded), rejectingLoader(), "heartgold", restoreOpts())
+  Assert.equal(
+    restoreErr and restoreErr.code,
+    "FIELD_SAVE_SCHEMA_UNSUPPORTED",
+    "the unsupported schema must be rejected at restore"
   )
 end
 
--- The store load is the production save boundary: a persisted world bucket
--- whose rng state is malformed must be rejected as a whole, never accepted
--- and left for a later runtime stage to fail on.
-function T.load_rejects_a_malformed_world_bucket()
+-- Restore is the save validation boundary: a persisted world bucket whose rng
+-- state is malformed loads raw and is rejected as a whole by restore, never
+-- accepted and left for a later runtime stage to fail on.
+function T.a_malformed_world_bucket_reaches_restore_and_is_rejected()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
   local value = record("heartgold")
   value.world.rng = {}
   saveFs:writeLua(FieldSave.PATH, value)
   local store = store(saveFs)
-  local loaded, loadErr = store:load()
-  Assert.isNil(loaded)
-  Assert.isTrue(
-    loadErr and loadErr.code == "FIELD_SAVE_WORLD_INVALID",
-    "expected FIELD_SAVE_WORLD_INVALID, got " .. tostring(loadErr and loadErr.code or loadErr)
-  )
+  local loaded = assert(store:load(), "persistence load must return the raw record")
+  local _, restoreErr = FieldSave.restore(loaded, rejectingLoader(), "heartgold", restoreOpts())
+  Assert.equal(restoreErr and restoreErr.code, "FIELD_SAVE_WORLD_INVALID")
 end
 
 function T.save_validates_the_compiled_avatar_set()
@@ -165,17 +223,16 @@ function T.store_rejects_a_disposable_cache_root()
   Assert.isTrue(tostring(err):find("SaveFs"), "expected a SaveFs-required assertion, got: " .. tostring(err))
 end
 
--- The store load is the complete validation boundary: a scripts bucket that
--- passes the envelope but carries a malformed environment record must be
--- rejected as a whole before any live state is constructed.
-function T.load_rejects_a_deeply_malformed_scripts_bucket()
+-- Restore is the save validation boundary: a scripts bucket that passes the
+-- envelope but carries a malformed environment record loads raw and is
+-- rejected as a whole by restore before any live state is constructed.
+function T.a_deeply_malformed_scripts_bucket_reaches_restore_and_is_rejected()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
-  local store = store(saveFs, {
-    scriptsValidate = function(bucket)
-      return ScriptSave.validate(bucket, {})
-    end,
-  })
+  local scriptsValidate = function(bucket)
+    return ScriptSave.validate(bucket, {})
+  end
+  local store = store(saveFs)
   local value = record("heartgold")
   value.scripts = {
     schema = ScriptSave.SCHEMA_NAME,
@@ -187,35 +244,43 @@ function T.load_rejects_a_deeply_malformed_scripts_bucket()
     tasks = {},
   }
   saveFs:writeLua(FieldSave.PATH, value)
-  local loaded, loadErr = store:load()
-  Assert.isNil(loaded)
-  Assert.isTrue(
-    loadErr and loadErr.code == "FIELD_SAVE_SCRIPTS_INVALID",
-    "expected FIELD_SAVE_SCRIPTS_INVALID, got " .. tostring(loadErr and loadErr.code or loadErr)
-  )
+  local loaded = assert(store:load(), "persistence load must return the raw record")
+  local _, restoreErr =
+    FieldSave.restore(loaded, rejectingLoader(), "heartgold", restoreOpts({ scriptsValidate = scriptsValidate }))
+  Assert.equal(restoreErr and restoreErr.code, "FIELD_SAVE_SCRIPTS_INVALID")
 end
 
--- The store load is the complete validation boundary: a player-data bucket
--- that fails the injected model validation (here: an over-long name against
--- the generated font context) must be rejected as a whole, never defaulted.
-function T.load_rejects_a_deeply_invalid_player_data_bucket()
+-- Restore is the save validation boundary: a player-data bucket that fails
+-- the injected model validation (here: an over-long name against the
+-- generated font context) loads raw and is rejected as a whole by restore,
+-- never defaulted.
+function T.a_deeply_invalid_player_data_bucket_reaches_restore_and_is_rejected()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
-  local store = store(saveFs, {
-    playerDataContext = {
-      charmap = { G = 1, O = 2, L = 3, D = 4 },
-      frameIndexes = { [0] = true },
-    },
-  })
+  local store = store(saveFs)
   local value = record("heartgold")
   value.playerData.profile.name = "GOLDGOLD"
   saveFs:writeLua(FieldSave.PATH, value)
-  local loaded, loadErr = store:load()
-  Assert.isNil(loaded)
-  Assert.isTrue(
-    loadErr and loadErr.code == "FIELD_SAVE_PLAYER_DATA_INVALID",
-    "expected FIELD_SAVE_PLAYER_DATA_INVALID, got " .. tostring(loadErr and loadErr.code or loadErr)
-  )
+  local loaded = assert(store:load(), "persistence load must return the raw record")
+  local _, restoreErr = FieldSave.restore(loaded, rejectingLoader(), "heartgold", restoreOpts())
+  Assert.equal(restoreErr and restoreErr.code, "FIELD_SAVE_PLAYER_DATA_INVALID")
+end
+
+-- Save still validates and persists the canonical record: unknown player-data
+-- keys are discarded on disk, so the raw persisted data is canonical even
+-- though load never canonicalizes.
+function T.save_persists_the_canonical_player_data()
+  local backend = FakeCache.new()
+  local store = store(SaveFs.forVersion("heartgold", backend))
+  local value = record("heartgold")
+  value.playerData.profile.transientThing = 123
+  value.playerData.options.futureThing = true
+  value.playerData.extraTopLevel = true
+  store:save(value)
+  local persisted = assert(store:load())
+  Assert.keySet(persisted.playerData, "options,profile", "save must persist the canonical player-data record")
+  Assert.keySet(persisted.playerData.profile, "gender,name,trainerId")
+  Assert.keySet(persisted.playerData.options, "textFrame,textSpeed")
 end
 
 return { tests = T }

@@ -129,6 +129,67 @@ function T.tests.resume_reports_a_save_read_failure_instead_of_treating_it_as_mi
   end)
 end
 
+-- A save that loads raw but is structurally invalid reaches the restore
+-- boundary, is rejected with a typed FIELD_SAVE_* error, and the runtime
+-- treats it as ignored: the resume boot lands on the fresh spawn with the
+-- initial player manifest, never the corrupted record's state.
+function T.tests.corrupt_save_is_ignored_and_fresh_state_boots()
+  withGame(LAB, function(game)
+    requireCapability(game, "failNextSave")
+    local fresh = game:snapshot()
+    -- Plant a structurally invalid record at the live save path: the rng
+    -- bucket is malformed, and the location/facing differ from the fresh
+    -- spawn so a corrupted boot would be observable.
+    love.filesystem.createDirectory(game.saveNamespace)
+    love.filesystem.write(
+      game.saveNamespace .. "/" .. FieldSave.PATH,
+      LuaWriter.encode({
+        schema = FieldSave.SCHEMA,
+        versionId = "heartgold",
+        mapId = fresh.mapId,
+        fieldX = fresh.player.fieldX + 1,
+        fieldZ = fresh.player.fieldZ + 1,
+        worldY = 0,
+        surfaceId = 0,
+        terrainDependencyHash = "corrupted",
+        facing = "south",
+        avatar = "hero",
+        scenario = FieldScenarioManifest.id,
+        world = { flags = {}, variables = {}, objects = {}, rng = {} },
+        scripts = {},
+        auxiliaryUi = { requested = "shown", state = "shown" },
+        playerData = {
+          profile = { name = "GOLD", gender = 0, trainerId = 0 },
+          options = { textFrame = 0, textSpeed = "mid" },
+        },
+      })
+    )
+    -- The disposal write at restart would overwrite the planted file; fault
+    -- it so the resume boot reads the corrupted record.
+    game:failNextSave()
+    local resumed = restart(game, { save = "resume" })
+    Assert.equal(
+      resumed.lifecycle.saveReads,
+      1,
+      "the corrupted save must be read exactly once, got " .. tostring(resumed.lifecycle.saveReads)
+    )
+    Assert.isTrue(
+      resumed.runtime.saveStatus:find("Save ignored:", 1, true) ~= nil,
+      "the resume boundary must present the corrupted save as ignored, got " .. tostring(resumed.runtime.saveStatus)
+    )
+    Assert.isTrue(
+      resumed.runtime.saveStatus:find("FIELD_SAVE_WORLD_INVALID", 1, true) ~= nil,
+      "the ignored save must carry the typed FIELD_SAVE_* error"
+    )
+    Assert.deepEqual(
+      resumed:snapshot().player,
+      fresh.player,
+      "a corrupted save must boot the fresh spawn state, never the corrupted record"
+    )
+    Assert.equal(resumed.runtime.playerData.profile.name, "GOLD", "the fresh boot owns the initial player manifest")
+  end)
+end
+
 -- SAVE-09: the live save filename is the current semantic name, and an
 -- obsolete development save at the old filename is never read as current.
 -- The first restart round-trips the real session through the production save
