@@ -52,12 +52,11 @@ local DEMO_SIGNPOST = "demo.signpost"
 -- result reference.
 local SPECIAL_RESULT = FieldScriptSymbols.variablesByName.VAR_SPECIAL_RESULT
 
-local function withGame(fn, fieldOptions)
+local function withGame(fn)
   local game = AcceptanceHarness.new():boot({
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
     save = "fresh",
-    fieldOptions = fieldOptions,
   })
   local ok, err = xpcall(function()
     fn(game)
@@ -67,22 +66,6 @@ local function withGame(fn, fieldOptions)
   if not ok then
     error(err, 0)
   end
-end
-
--- The high-level demo script runs in this journey, so the boot carries the
--- same complete mod.route_sign style descriptor as the high-level-sign
--- acceptance suite (the catalogue accepts only complete records, never
--- bases).
-local function withDemoCapableGame(fn)
-  withGame(fn, {
-    windowStyleDescriptors = {
-      {
-        id = "mod.route_sign",
-        role = "signpost",
-        contentGeometry = { x = 16, y = 152, width = 216, height = 32 },
-      },
-    },
-  })
 end
 
 -- How many times the scheduler recorded the script's normal completion;
@@ -285,7 +268,7 @@ end
 -- run inherits nothing; and environment cancellation mid-wipe releases every
 -- signpost-owned resource.
 function T.tests.the_real_imported_signpost_journeys_complete_and_high_level_signs_inherit_no_appearance()
-  withDemoCapableGame(function(game)
+  withGame(function(game)
     -- The imported programs keep the low-level nodes: no high-level op
     -- rewrites the imported sequence, and the real child keeps its
     -- signal_caller terminal.

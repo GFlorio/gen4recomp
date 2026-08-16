@@ -1,13 +1,16 @@
--- Production-composed contract for the high-level sign mod API: the
--- handwritten demo override script (demo.signpost) runs S.sign and
--- S.trainerTip through the real production composition. S.sign must present
--- the signpost window immediately with the requested catalogued style id and
--- no source-only type/map data, print its message instantly, and dismiss on
--- the A edge; S.trainerTip then presents with the semantic trainer_tip
--- style, types at the player text speed, and dismisses the same way. The
--- whole journey runs in one production boot with zero script faults and
--- zero render attempts. Imported ROM scripts keep the low-level nodes
--- (covered by the signpost-opcode scenarios).
+-- Production-composed contract for the high-level sign script API through
+-- the built-in semantic styles: the handwritten demo override script
+-- (demo.signpost) runs S.sign and S.trainerTip through the real production
+-- composition with no boot-config style descriptors. S.sign must resolve
+-- its semantic appearance to the built-in hgss.signpost style, present the
+-- signpost window immediately with no source-only type/map data, print its
+-- message instantly, and dismiss on the A edge; S.trainerTip then presents
+-- with the semantic trainer_tip style, types at the player text speed, and
+-- dismisses the same way. The whole journey runs in one production boot
+-- with zero script faults and zero render attempts. Imported ROM scripts
+-- keep the low-level nodes (covered by the signpost-opcode scenarios), and
+-- the no-stale-sourceAppearance contract after an imported sign lives in
+-- that journey.
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -27,17 +30,6 @@ local function withGame(fn)
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
     save = "fresh",
-    fieldOptions = {
-      -- The catalog accepts only complete custom descriptors: a full record
-      -- (id, role, contentGeometry) with no base/inheritance.
-      windowStyleDescriptors = {
-        {
-          id = "mod.route_sign",
-          role = "signpost",
-          contentGeometry = { x = 16, y = 152, width = 216, height = 32 },
-        },
-      },
-    },
   })
   local ok, err = xpcall(function()
     fn(game)
@@ -71,17 +63,18 @@ local function signpostStatus(game)
   return game.runtime.signpost:status()
 end
 
--- The whole high-level journey in one production boot: S.sign opens the
--- custom-style sign and dismisses on A; S.trainerTip opens with the
--- semantic style, types at the player cadence, and dismisses; the script
--- ends with zero script faults. Neither presentation carries source
--- type/map data.
+-- The whole high-level journey in one production boot: S.sign resolves its
+-- semantic appearance to the built-in hgss.signpost style, opens and
+-- dismisses on A; S.trainerTip opens with the semantic trainer_tip style,
+-- types at the player cadence, and dismisses; the script ends with zero
+-- script faults. Neither presentation carries source type/map data.
 function T.tests.high_level_sign_script_presents_and_dismisses_without_source_appearance()
   withGame(function(game)
     game:startScript(DEMO_SIGNPOST)
 
     -- The executable program owns the complete blocking lifecycle: the sign
-    -- nodes carry the canonical one-table spec (message + appearance).
+    -- nodes carry the canonical one-table spec (message + semantic
+    -- appearance).
     local composed = assert(game.runtime.scripts.composition:effective(DEMO_SIGNPOST))
     local graph = assert(composed.entries[1].graph, "the demo script must compile to an executable graph")
     local signCount = 0
@@ -89,17 +82,18 @@ function T.tests.high_level_sign_script_presents_and_dismisses_without_source_ap
       if node.op == "sign" then
         signCount = signCount + 1
         Assert.notNil(node.message, "high-level sign nodes carry the canonical message spec")
-        Assert.equal(node.appearance, "mod.route_sign", "high-level sign nodes carry the canonical appearance spec")
+        Assert.equal(node.appearance, "sign", "high-level sign nodes carry the canonical semantic appearance")
       end
     end
     Assert.isTrue(signCount > 0, "the demo script must compile sign nodes")
 
-    -- S.sign presents the window immediately with the requested registered
-    -- style id and no source type/map data; the message prints instantly.
+    -- S.sign presents the window immediately with the built-in style id
+    -- resolved from the semantic appearance and no source type/map data;
+    -- the message prints instantly.
     local status = signpostStatus(game)
     Assert.equal(#scriptFaults(game), 0, "S.sign must not fault at open, got: " .. faultCode(scriptFaults(game)))
     Assert.isTrue(status.active, "S.sign must present the signpost window immediately")
-    Assert.equal(status.styleId, "mod.route_sign", "S.sign must route the requested catalogued style id")
+    Assert.equal(status.styleId, "hgss.signpost", "S.sign must resolve its semantic appearance to the built-in style")
     Assert.isNil(status.sourceAppearance, "S.sign must not carry source-only type/map data")
     Assert.isTrue(status.printDone, "S.sign must print its message instantly")
 

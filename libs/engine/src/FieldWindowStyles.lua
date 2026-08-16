@@ -1,14 +1,13 @@
--- Per-runtime window-style catalogue for field presentation: the three HGSS
+-- Per-runtime window-style catalogue for field presentation: the HGSS
 -- built-in styles are built from the generated field-UI manifest at
--- construction, boot-config custom descriptors are validated and copied once,
--- and the catalogue is immutable afterwards -- resolve() returns the stored
--- record, never a copy. A style carries presentation information only (id,
--- role, contentGeometry, graphicRegion, per-source-type signpost geometry) --
--- never frame/mapGraphic asset replacement ids, text colors, input, script
--- wait behavior, result values, or message sources: the renderer loads the
--- fixed generated HGSS assets itself, and no renderer consumes text colors.
--- Custom descriptors are complete records, not inheritance deltas: there is
--- no base field and no copy-on-resolve.
+-- construction, and the catalogue is immutable afterwards -- resolve()
+-- returns the stored record, never a copy. A style carries presentation
+-- information only (id, role, contentGeometry, per-source-type signpost
+-- geometry) -- never frame/mapGraphic asset replacement ids, text colors,
+-- input, script wait behavior, result values, or message sources: the
+-- renderer loads the fixed generated HGSS assets itself, and no renderer
+-- consumes text colors. The catalogue holds production-owned built-ins
+-- only; there is no external descriptor registration.
 -- Signpost content geometry follows the HGSS signpost window: source types
 -- 0/1 reserve a seven-tile (56px) wayfinding graphic on the left of the
 -- ordinary 27x4-tile window (`LoadMapSignpostFrameAndGraphic`,
@@ -17,24 +16,10 @@
 -- 16,152,216,32 content rect (DIALOG_BOX_* constants, src/dialog_box.c,
 -- 8px/tile).
 
-local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
-
 ---@class FieldWindowStyles
 ---@field _styles table<string, table> stored final records by id
 local FieldWindowStyles = {}
 FieldWindowStyles.__index = FieldWindowStyles
-
--- The three style roles mods may reference.
-FieldWindowStyles.ROLES = {
-  dialogue = true,
-  signpost = true,
-  trainer_tip = true,
-}
-
--- Built-in HGSS styles own the hgss.* prefix: a mod cannot implicitly
--- replace them.
-FieldWindowStyles.RESERVED_PREFIX = "hgss."
 
 -- The built-in style ids: one constant table so runtime, renderers, and
 -- scripts never repeat the raw protocol strings.
@@ -68,22 +53,8 @@ local FULL_WIDTH_TEXT = { x = 16, y = 152, width = 216, height = 32 }
 local GRAPHIC_TEXT = { x = 72, y = 152, width = 160, height = 32 }
 local GRAPHIC_REGION = { x = 16, y = 152, width = 56, height = 32 }
 
-local function isRect(value)
-  if type(value) ~= "table" then
-    return false
-  end
-  for _, field in ipairs({ "x", "y", "width", "height" }) do
-    local v = value[field]
-    if type(v) ~= "number" or v % 1 ~= 0 or v < 0 then
-      return false
-    end
-  end
-  return value.width > 0 and value.height > 0
-end
-
--- Deep copy: descriptors are validated and copied once at construction so a
--- later mutation of the caller's table never reaches the catalogue. Resolved
--- records are never copied out again.
+-- Deep copy: the stored records never alias the canonical geometry constants
+-- above, and resolve() hands out the stored record, never a copy.
 ---@param value table
 ---@return table
 local function copy(value)
@@ -92,16 +63,6 @@ local function copy(value)
     out[key] = type(item) == "table" and copy(item) or item
   end
   return out
-end
-
-local function invalidDescriptor(id, message, extra)
-  local context = { id = id }
-  if extra then
-    for key, value in pairs(extra) do
-      context[key] = value
-    end
-  end
-  Errors.raise(FieldErrors.WINDOW_STYLE_INVALID_DESCRIPTOR, message, context)
 end
 
 -- Builds the three built-in HGSS styles from the generated field-UI manifest:
@@ -161,84 +122,15 @@ local function registerBuiltins(self, manifest)
   }
 end
 
--- Validates one boot-config custom descriptor (a complete record: a base
--- field is rejected, because mod styles never inherit) and stores a private
--- copy. The catalogue is immutable from here on.
----@param self FieldWindowStyles
----@param descriptor table
-local function register(self, descriptor)
-  assert(type(descriptor) == "table", "window style descriptor must be a table")
-  local id = descriptor.id
-  if type(id) ~= "string" or id == "" then
-    invalidDescriptor(id, "window style id must be a non-empty string")
-  end
-  local reservedPrefix = FieldWindowStyles.RESERVED_PREFIX
-  if id:sub(1, #reservedPrefix) == reservedPrefix then
-    Errors.raise(
-      FieldErrors.WINDOW_STYLE_RESERVED_ID,
-      "window style ids under the hgss. prefix are reserved for built-ins",
-      { id = id }
-    )
-  end
-  if self._styles[id] then
-    Errors.raise(FieldErrors.WINDOW_STYLE_DUPLICATE_ID, "duplicate window style id", { id = id })
-  end
-  if descriptor.base ~= nil then
-    invalidDescriptor(id, "custom window styles are complete records and cannot name a base", {
-      base = descriptor.base,
-    })
-  end
-  local role = descriptor.role
-  if not FieldWindowStyles.ROLES[role] then
-    invalidDescriptor(id, "unknown window style role", { role = role })
-  end
-  if descriptor.contentGeometry == nil or not isRect(descriptor.contentGeometry) then
-    invalidDescriptor(id, "window style contentGeometry must be a non-empty integer rectangle")
-  end
-  if descriptor.graphicRegion ~= nil and not isRect(descriptor.graphicRegion) then
-    invalidDescriptor(id, "window style graphicRegion must be a non-empty integer rectangle")
-  end
-  local types = descriptor.types
-  if types ~= nil then
-    if type(types) ~= "table" then
-      invalidDescriptor(id, "window style types must be a table")
-    end
-    for key, entry in pairs(types) do
-      if type(key) ~= "number" or key % 1 ~= 0 or key < 0 then
-        invalidDescriptor(id, "window style type keys must be non-negative integers", { key = key })
-      end
-      if type(entry) ~= "table" or entry.sourceType ~= key then
-        invalidDescriptor(id, "window style type entries must be keyed by their own sourceType", {
-          key = key,
-        })
-      end
-      if entry.contentGeometry ~= nil and not isRect(entry.contentGeometry) then
-        invalidDescriptor(id, "window style type contentGeometry must be a rectangle")
-      end
-      if entry.graphicRegion ~= nil and not isRect(entry.graphicRegion) then
-        invalidDescriptor(id, "window style type graphicRegion must be a rectangle")
-      end
-    end
-  end
-  self._styles[id] = copy(descriptor)
-end
-
--- Constructs the immutable catalogue: the three HGSS built-ins from the
--- generated field-UI manifest (the strict class the runtime already
--- validated), then every boot-config custom descriptor. Custom descriptors
--- are complete records -- id, role, contentGeometry, plus optional
--- graphicRegion/types -- never inheritance deltas.
+-- Constructs the immutable catalogue from the generated field-UI manifest
+-- (the strict class the runtime already validated): the three HGSS built-ins
+-- only, with no external descriptor input.
 ---@param uiManifest table the validated FieldUiAssetCache manifest
----@param descriptors table[] boot-config custom style descriptors
 ---@return FieldWindowStyles
-function FieldWindowStyles.new(uiManifest, descriptors)
+function FieldWindowStyles.new(uiManifest)
   assert(type(uiManifest) == "table", "FieldWindowStyles requires the generated field-UI manifest")
-  assert(type(descriptors) == "table", "FieldWindowStyles requires a descriptor list")
   local self = setmetatable({ _styles = {} }, FieldWindowStyles)
   registerBuiltins(self, uiManifest)
-  for _, descriptor in ipairs(descriptors) do
-    register(self, descriptor)
-  end
   return self
 end
 

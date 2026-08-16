@@ -47,7 +47,7 @@ end
 -- builtins FieldRuntime builds from the generated manifest).
 ---@return FieldWindowStyles
 function FieldSignpostFixture.styles()
-  return FieldWindowStyles.new(FieldUiFixture.manifest(), {})
+  return FieldWindowStyles.new(FieldUiFixture.manifest())
 end
 
 -- A controller shown at the chosen source type, wiped to the chosen offset
