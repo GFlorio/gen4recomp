@@ -14,6 +14,10 @@ local Errors = require("libs.errors.src.Errors")
 
 local PolygonState = {}
 
+PolygonState.ERROR_MISSING_FIELD = "POLYGON_STATE_MISSING_FIELD"
+PolygonState.ERROR_INVALID = "POLYGON_STATE_INVALID"
+PolygonState.ERROR_DEPTH_EQUAL_UNSUPPORTED = "POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED"
+
 -- The polygon draw-state fields every serialized batch record carries (the
 -- shape DsPolygonAttr.decode normalizes the DS POLYGON_ATTR word into).
 PolygonState.FIELDS = {
@@ -47,7 +51,7 @@ function PolygonState.requirePresent(record, context)
   for _, field in ipairs(PolygonState.FIELDS) do
     if record[field] == nil then
       Errors.raise(
-        "POLYGON_STATE_MISSING_FIELD",
+        PolygonState.ERROR_MISSING_FIELD,
         "batch is missing the " .. field .. " polygon draw state",
         { field = field, where = context }
       )
@@ -60,7 +64,7 @@ end
 function PolygonState.validate(record, context)
   PolygonState.requirePresent(record, context)
   local function invalid(what)
-    Errors.raise("POLYGON_STATE_INVALID", "batch " .. what, { where = context })
+    Errors.raise(PolygonState.ERROR_INVALID, "batch " .. what, { where = context })
   end
   if not CULL_MODES[record.cullMode] then
     invalid("cullMode must be back, front, or none")
@@ -92,7 +96,7 @@ function PolygonState.validate(record, context)
     -- claims it, mirroring MAP_COMPILE_UNSUPPORTED_POLYGON_MODE's precedent
     -- for other corpus-provable-absent states.
     Errors.raise(
-      "POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED",
+      PolygonState.ERROR_DEPTH_EQUAL_UNSUPPORTED,
       "batch depthEqual = true is not supported: the HGSS field corpus never exercises DS depth-equal",
       { where = context }
     )

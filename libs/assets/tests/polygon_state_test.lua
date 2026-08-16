@@ -53,7 +53,7 @@ function T.require_present_rejects_a_missing_field()
   for _, field in ipairs(PolygonState.FIELDS) do
     local record = validRecord()
     record[field] = nil
-    throwsCode("POLYGON_STATE_MISSING_FIELD", function()
+    throwsCode(PolygonState.ERROR_MISSING_FIELD, function()
       PolygonState.requirePresent(record, "batch")
     end)
   end
@@ -84,7 +84,7 @@ function T.validate_rejects_out_of_range_values()
   for _, case in ipairs(cases) do
     local record = validRecord()
     record[case.field] = case.value
-    throwsCode("POLYGON_STATE_INVALID", function()
+    throwsCode(PolygonState.ERROR_INVALID, function()
       PolygonState.validate(record, "batch")
     end)
   end
@@ -100,7 +100,7 @@ end
 function T.validate_rejects_depth_equal_true()
   local record = validRecord()
   record.depthEqual = true
-  throwsCode("POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED", function()
+  throwsCode(PolygonState.ERROR_DEPTH_EQUAL_UNSUPPORTED, function()
     PolygonState.validate(record, "batch")
   end)
 end
