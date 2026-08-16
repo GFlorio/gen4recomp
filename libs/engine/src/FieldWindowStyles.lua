@@ -2,7 +2,7 @@
 -- built-in styles are built from the generated field-UI manifest at
 -- construction, and the catalogue is immutable afterwards -- resolve()
 -- returns the stored record, never a copy. A style carries presentation
--- information only (id, role, contentGeometry, per-source-type signpost
+-- information only (id, contentGeometry, per-source-type signpost
 -- geometry) -- never frame/mapGraphic asset replacement ids, text colors,
 -- input, script wait behavior, result values, or message sources: the
 -- renderer loads the fixed generated HGSS assets itself, and no renderer
@@ -24,7 +24,6 @@ FieldWindowStyles.__index = FieldWindowStyles
 -- The built-in style ids: one constant table so runtime, renderers, and
 -- scripts never repeat the raw protocol strings.
 FieldWindowStyles.BUILTIN = {
-  DIALOGUE = "hgss.dialogue",
   SIGNPOST = "hgss.signpost",
   TRAINER_TIP = "hgss.trainer_tip",
 }
@@ -65,11 +64,11 @@ local function copy(value)
   return out
 end
 
--- Builds the three built-in HGSS styles from the generated field-UI manifest:
--- hgss.dialogue and hgss.trainer_tip are thin full-width records; hgss.signpost
--- carries a per-source-type record for every type the manifest declares,
--- preserving the raw source numbers, with the wayfinding region exactly where
--- the manifest gives a type a wayfinding map. The built-ins carry presentation
+-- Builds the two built-in HGSS styles from the generated field-UI manifest:
+-- hgss.trainer_tip is a thin full-width record; hgss.signpost carries a
+-- per-source-type record for every type the manifest declares, preserving
+-- the raw source numbers, with the wayfinding region exactly where the
+-- manifest gives a type a wayfinding map. The built-ins carry presentation
 -- fields only: the renderer loads the generated HGSS assets directly.
 ---@param self FieldWindowStyles
 ---@param manifest table the validated FieldUiAssetCache manifest
@@ -104,26 +103,19 @@ local function registerBuiltins(self, manifest)
     end
     types[entry.sourceType] = typeRecord
   end
-  self._styles[FieldWindowStyles.BUILTIN.DIALOGUE] = {
-    id = FieldWindowStyles.BUILTIN.DIALOGUE,
-    role = "dialogue",
-    contentGeometry = copy(FULL_WIDTH_TEXT),
-  }
   self._styles[FieldWindowStyles.BUILTIN.SIGNPOST] = {
     id = FieldWindowStyles.BUILTIN.SIGNPOST,
-    role = "signpost",
     contentGeometry = copy(FULL_WIDTH_TEXT),
     types = types,
   }
   self._styles[FieldWindowStyles.BUILTIN.TRAINER_TIP] = {
     id = FieldWindowStyles.BUILTIN.TRAINER_TIP,
-    role = "trainer_tip",
     contentGeometry = copy(FULL_WIDTH_TEXT),
   }
 end
 
 -- Constructs the immutable catalogue from the generated field-UI manifest
--- (the strict class the runtime already validated): the three HGSS built-ins
+-- (the strict class the runtime already validated): the two HGSS built-ins
 -- only, with no external descriptor input.
 ---@param uiManifest table the validated FieldUiAssetCache manifest
 ---@return FieldWindowStyles

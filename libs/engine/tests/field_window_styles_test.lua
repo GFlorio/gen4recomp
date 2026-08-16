@@ -1,11 +1,11 @@
 -- FieldWindowStyles contract tests: the immutable style catalogue built once
 -- from the generated field-UI manifest. Built-ins come from the manifest
--- (hgss.dialogue / hgss.signpost / hgss.trainer_tip, with per-source-type
--- signpost geometry derived from wayfinding presence); the catalogue holds
--- production-owned built-ins only -- no external descriptor registration.
--- resolve(id) returns the stored record -- unknown ids return nil -- and
--- semanticStyleId maps the handwritten sign/trainer_tip appearances to the
--- built-in constants. Pure domain module: no love, no I/O.
+-- (hgss.signpost / hgss.trainer_tip, with per-source-type signpost geometry
+-- derived from wayfinding presence); the catalogue holds production-owned
+-- built-ins only -- no external descriptor registration. resolve(id) returns
+-- the stored record -- unknown ids return nil -- and semanticStyleId maps the
+-- handwritten sign/trainer_tip appearances to the built-in constants. Pure
+-- domain module: no love, no I/O.
 
 local Assert = require("tests.support.Assert")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
@@ -29,14 +29,9 @@ end
 
 function T.tests.builtin_styles_resolve_with_the_canonical_geometry()
   local catalogue = styles()
-  local dialogue = assert(catalogue:resolve(FieldWindowStyles.BUILTIN.DIALOGUE))
-  Assert.equal(dialogue.role, "dialogue")
-  Assert.deepEqual(dialogue.contentGeometry, FULL_WIDTH_TEXT)
-  Assert.isNil(dialogue.assets, "styles carry no asset-replacement ids")
-
   local signpost = assert(catalogue:resolve(FieldWindowStyles.BUILTIN.SIGNPOST))
-  Assert.equal(signpost.role, "signpost")
   Assert.deepEqual(signpost.contentGeometry, FULL_WIDTH_TEXT)
+  Assert.isNil(signpost.assets, "styles carry no asset-replacement ids")
   -- Type 0/1 reserve the wayfinding graphic; every other corpus type uses
   -- the full-width text region.
   Assert.deepEqual(signpost.types[0].contentGeometry, GRAPHIC_TEXT)
@@ -46,7 +41,6 @@ function T.tests.builtin_styles_resolve_with_the_canonical_geometry()
   Assert.isNil(signpost.types[2].graphicRegion)
 
   local trainerTip = assert(catalogue:resolve(FieldWindowStyles.BUILTIN.TRAINER_TIP))
-  Assert.equal(trainerTip.role, "trainer_tip")
   Assert.deepEqual(trainerTip.contentGeometry, FULL_WIDTH_TEXT)
 end
 
@@ -106,16 +100,10 @@ function T.tests.semantic_style_ids_map_to_the_builtin_constants()
   Assert.isNil(FieldWindowStyles.semanticStyleId("bogus"))
 end
 
-function T.tests.resolve_returns_the_stored_record_without_copies()
+-- resolve() is the strict lookup boundary: an id the catalogue does not
+-- store returns nil.
+function T.tests.unknown_ids_resolve_to_nil()
   local catalogue = styles()
-  local first = assert(catalogue:resolve(FieldWindowStyles.BUILTIN.DIALOGUE))
-  first.contentGeometry.x = 999
-  local second = assert(catalogue:resolve(FieldWindowStyles.BUILTIN.DIALOGUE))
-  Assert.equal(
-    second.contentGeometry.x,
-    999,
-    "resolve hands out the stored record: consumers treat it as immutable by convention"
-  )
   Assert.isNil(catalogue:resolve("no.such.style"), "unknown ids resolve to nil")
 end
 

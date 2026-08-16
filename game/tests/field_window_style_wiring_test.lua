@@ -25,14 +25,11 @@ function T.tests.runtime_composes_the_window_style_catalogue()
     local styles = game.runtime.windowStyles
     Assert.isTrue(type(styles) == "table", "the runtime must expose the window style catalogue")
 
-    local dialogue = assert(styles:resolve("hgss.dialogue"))
-    Assert.equal(dialogue.role, "dialogue")
-    Assert.isNil(dialogue.assets, "styles carry no asset-replacement ids")
     local signpost = assert(styles:resolve("hgss.signpost"))
-    Assert.isNil(signpost.assets)
+    Assert.isNil(signpost.assets, "styles carry no asset-replacement ids")
     Assert.isTrue(type(signpost.types[0]) == "table", "the real manifest type map must flow through")
     Assert.isTrue(signpost.types[0].graphicRegion ~= nil, "type 0 keeps its wayfinding region")
-    Assert.equal(assert(styles:resolve("hgss.trainer_tip")).role, "trainer_tip")
+    Assert.notNil(styles:resolve("hgss.trainer_tip"), "the trainer-tip style must resolve")
     Assert.isNil(
       styles:resolve("mod.route_sign"),
       "the production catalogue holds built-ins only: no external style can resolve"
