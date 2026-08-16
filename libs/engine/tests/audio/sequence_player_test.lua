@@ -713,27 +713,14 @@ function T.playing_an_unknown_instrument_is_silent()
   Assert.isFalse(player:isPlaying())
 end
 
--- Malformed programs fail loudly at the authoritative asset boundary: an
--- unknown op or an illegally shaped amount operand is rejected by the
--- closed sequence validator when the provider loads the asset, never
--- accepted into the player. A structurally valid runaway loop still fails
--- the player's host safety budget.
-function T.unsupported_ops_amounts_and_runaway_loops_fail_loudly()
-  throwsCode("AUDIO_SEQUENCE_INVALID", function()
-    local player, provider = engine({
-      [0] = seq({
-        { op = "volume", amount = { kind = "variable" } },
-        { op = "end" },
-      }),
-    })
-    play(player, provider)
-    player:render(10)
-  end)
-  throwsCode("AUDIO_SEQUENCE_INVALID", function()
-    local player, provider = engine({ [0] = seq({ { op = "sustain_hold" }, { op = "end" } }) })
-    play(player, provider)
-    player:render(10)
-  end)
+-- A structurally valid program that can never reach `end` (a self-loop) must
+-- not hang the host: the step-budget failure is the player's host-safety
+-- boundary and stays even though no retail sequence triggers it. Malformed
+-- IR is excluded before it reaches the player -- the closed sequence
+-- validator (libs/assets AudioSequence, AUDIO_SEQUENCE_INVALID) owns unknown
+-- ops and illegal operand shapes at the asset boundary, so feeding them to
+-- the player directly is not a contract here.
+function T.runaway_loops_hit_the_host_safety_budget()
   throwsCode("AUDIO_PLAYER_UNBOUNDED_EXECUTION", function()
     local player, provider = engine({ [0] = seq({ { op = "jump", target = 1 } }) })
     play(player, provider)
