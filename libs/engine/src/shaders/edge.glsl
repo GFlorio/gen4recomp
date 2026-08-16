@@ -8,11 +8,8 @@
 // depth condition is what suppresses coplanar boundaries: adjacent ground
 // batches and flat shadow decals carry different polygon IDs but no depth
 // step, so they are never marked. The edge color is chosen by the marked
-// pixel's own ID, indexed as id >> 3. This predicate and the table index are
-// the direct transcription of libs/engine/src/DsEdgeMarking.lua
-// (isEdgePixel/edgeTableIndex); the depth comparison itself is
-// libs/engine/src/DsDepth.lua's isInFront -- a strict integer-domain
-// inequality, never a tolerance-scaled float heuristic.
+// pixel's own ID, indexed as id >> 3. The depth comparison is a strict
+// integer-domain inequality, never a tolerance-scaled float heuristic.
 //
 // The green channel holds the DS-quantized W-buffer depth map.glsl computes
 // (see its dsWbufferDepth) rather than raw window Z: a perspective near/far of

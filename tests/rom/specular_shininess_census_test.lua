@@ -147,8 +147,7 @@ end
 
 -- One pass over the corpus (all catalog records, all actor archive members);
 -- every postcondition is asserted against the same census result, and the
--- recorded bit-15 and depth-equal findings are pinned as regression
--- assertions.
+-- recorded bit-15 finding is pinned as a regression assertion.
 function T.field_material_corpus_keeps_the_recorded_bit15_finding(romFs)
   local tally = newTally()
   censusMapModels(romFs, tally)

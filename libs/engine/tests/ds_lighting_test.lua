@@ -2,8 +2,9 @@
 -- diffuse front/back-facing, emission alone, multiple lights, saturation,
 -- material-owned versus field-owned colors, the front-light specular gate,
 -- and the fixed-point truncation pipeline itself (fractional diffuse levels,
--- the cos(2a) specular square). Alpha composition (MODULATE/DECAL) lives in
--- DsFragment and is tested there, not here.
+-- the cos(2a) specular square). Alpha composition (MODULATE/DECAL) is the
+-- map shader's own combiner and is tested in map_renderer_graphics_test.lua,
+-- not here.
 
 local Assert = require("tests.support.Assert")
 local DsLighting = require("libs.engine.src.DsLighting")

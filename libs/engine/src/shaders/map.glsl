@@ -24,26 +24,23 @@
 // light), so a light contributes only when the profile enables it AND the
 // polygon's mask admits it (GBATEK POLYGON_ATTR light mask).
 //
-// The pixel-stage combiner (modulateRgb6, decalRgb6, expand5to6) is a direct
-// GLSL transcription of libs/engine/src/DsFragment.lua -- see that module's
-// header for the 5-bit/6-bit domain documentation. An untextured polygon
-// samples `vec4(1.0)` rather than a dedicated synthetic-texture uniform: at
-// 5-bit quantization that is exactly (31,31,31,31), which expand5to6 widens
-// to (63,63,63) -- DsFragment.syntheticTexture()'s exact value, proven to be
-// the identity element of both combiner equations by
-// modulate_component_identity_at_full_white_texture and
-// untextured_decal_polygon_renders_opaque_white in ds_fragment_test.lua. No
-// separate uniform is needed to reach that value.
+// The pixel-stage combiner (modulateRgb6, decalRgb6, expand5to6) is the exact
+// DS integer MODULATE/DECAL combiner in its native 5-bit/6-bit domain
+// (map_renderer_graphics_test.lua's modulate/decal cases lock the equations
+// against hand-computed values). An untextured polygon samples `vec4(1.0)`
+// rather than a dedicated synthetic-texture uniform: at 5-bit quantization
+// that is exactly (31,31,31,31), which expand5to6 widens to (63,63,63), the
+// identity element of both combiner equations -- no separate uniform is
+// needed to reach that value.
 //
-// The post-combiner fog pass (fogDensityAt, fogBlendColor) is a direct GLSL
-// transcription of libs/engine/src/DsFog.lua -- see that module's header for
-// the density-table/blend domain documentation. Fog applies only when both
-// u_fogEnabled (the global DISP3DCNT gate) and u_polygonFogEnabled (this
+// The post-combiner fog pass (fogDensityAt, fogBlendColor) applies only when
+// both u_fogEnabled (the global DISP3DCNT gate) and u_polygonFogEnabled (this
 // draw's POLYGON_ATTR FOG_ENABLE bit, PolygonState's fogEnabled field) are
-// set (DsFog.applies); the density index derives from the same
-// dsWbufferDepth quantity the edge pass already reads, offset by
-// u_fogOffset and divided into the table's 32 steps -- real DS depth, never
-// an invented camera near/far falloff.
+// set; the density index derives from the same dsWbufferDepth quantity the
+// edge pass already reads, offset by u_fogOffset and divided into the
+// table's 32 steps -- real DS depth, never an invented camera near/far
+// falloff. The global gate is always sent false (MapRenderer:_sendFog) until
+// a real per-area/weather fog source is wired; see docs/rendering.md.
 
 varying vec3 v_dsColor;
 
@@ -211,9 +208,9 @@ uniform bool u_translucentAttribute; // translucent identity, separate from poly
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
 
-// DsFog (see file header): the global gate, this draw's own polygon gate,
-// the fog color (normalized c/31, blended in the 6-bit combiner domain like
-// every other color here), the 32-entry density table (0..127), and the
+// Fog state (see file header): the global gate, this draw's own polygon
+// gate, the fog color (normalized c/31, blended in the 6-bit combiner domain
+// like every other color here), the 32-entry density table (0..127), and the
 // depth offset in the same 24-bit domain as dsWbufferDepth.
 uniform bool u_fogEnabled;
 uniform bool u_polygonFogEnabled;
@@ -225,8 +222,8 @@ uniform vec3 u_fogColor;
 uniform vec4 u_fogTable[8];
 uniform float u_fogOffset;
 
-// DsFragment 5-bit (0-31) color component -> the combiner's 6-bit (0-63)
-// domain, by hardware bit-replication of the top bit into the new low bit.
+// 5-bit (0-31) color component -> the combiner's 6-bit (0-63) domain, by
+// hardware bit-replication of the top bit into the new low bit.
 float expand5to6(float c5)
 {
   return c5 * 2.0 + floor(c5 / 16.0);
@@ -283,9 +280,9 @@ float dsWbufferDepth(float linearEyeDepth)
   return floor(fraction * DS_DEPTH_MAX);
 }
 
-// DsFog.densityAt: index the 32-entry table, clamping out-of-range indices
-// to entry 0 or 31 rather than wrapping. The table is packed 4-per-vec4
-// (see u_fogTable's declaration above).
+// Index the 32-entry fog density table, clamping out-of-range indices to
+// entry 0 or 31 rather than wrapping. The table is packed 4-per-vec4 (see
+// u_fogTable's declaration above).
 float fogDensityAt(int index)
 {
   int clamped = index;
@@ -306,17 +303,17 @@ float fogDensityAt(int index)
   return group.w;
 }
 
-// DsFog.blendColor, 6-bit combiner domain (fogColor6/fragmentRgb6 both
-// already widened like every other color in this shader).
+// Fog blend, 6-bit combiner domain (fogColor6/fragmentRgb6 both already
+// widened like every other color in this shader).
 vec3 fogBlendColor(vec3 fragmentRgb6, vec3 fogColor6, float density)
 {
   return floor((fragmentRgb6 * (127.0 - density) + fogColor6 * density) / 127.0);
 }
 
-// DsFog's depth-index derivation: the fragment's own DS-quantized depth
-// (the same value the edge pass compares), offset and divided into the
-// table's 32 steps. Not yet melonDS-verified (same disclosed scope cut as
-// DsDepth.lua); the density table/gates it feeds are exact.
+// Fog depth-index derivation: the fragment's own DS-quantized depth (the
+// same value the edge pass compares), offset and divided into the table's
+// 32 steps. Not yet melonDS-verified; the density table/gates it feeds are
+// exact.
 int fogTableIndex(float dsDepth)
 {
   float steps = DS_DEPTH_MAX / 32.0;
@@ -329,7 +326,7 @@ void effect()
   vec4 base = u_useTexture ? Texel(MainTex, uv) : vec4(1.0);
 
   // Both operands enter the combiner as 5-bit components widened to the
-  // 6-bit domain (DsFragment.expand5to6); v_dsColor already arrived
+  // 6-bit domain (expand5to6); v_dsColor already arrived
   // 5-bit-quantized from the vertex stage (quantizeRgb5).
   vec3 texture5 = floor(base.rgb * 31.0 + 0.5);
   vec3 vertex5 = floor(v_dsColor * 31.0 + 0.5);
@@ -352,8 +349,8 @@ void effect()
   }
   float dsDepth = dsWbufferDepth(1.0 / gl_FragCoord.w);
 
-  // Post-combiner fog (DsFog.applies/densityAt/blendColor): both the global
-  // and per-polygon gates must be set, matching GBATEK's two-gate fog rule.
+  // Post-combiner fog: both the global and per-polygon gates must be set,
+  // matching GBATEK's two-gate fog rule.
   if (u_fogEnabled && u_polygonFogEnabled) {
     float density = fogDensityAt(fogTableIndex(dsDepth));
     vec3 fogColor6 = expand5to6v(floor(u_fogColor * 31.0 + 0.5));
