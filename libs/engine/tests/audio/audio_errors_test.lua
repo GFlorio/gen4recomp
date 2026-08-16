@@ -30,7 +30,6 @@ function T.runtime_audio_codes_are_owned_here()
     "AUDIO_PLAYER_UNBOUNDED_EXECUTION",
     "AUDIO_CRY_UNAVAILABLE",
     "AUDIO_MAP_MUSIC_UNAVAILABLE",
-    "AUDIO_TEMPORARY_MUSIC_UNSUPPORTED",
   }
   for _, code in ipairs(codes) do
     Assert.equal(AudioErrors[code], code, code .. " is owned by the audio errors module")

@@ -211,7 +211,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.playFanfare(spec)` | `op=play_fanfare` | spec={fanfare}. |
 | `S.waitFanfare(spec)` | `op=wait_fanfare` | spec optional. |
 | `S.playMusic(spec)` | `op=play_music` | spec={music}. |
-| `S.stopMusic(spec)` | `op=stop_music` | spec={music=nil}; missing ID stops the active field BGM. |
+| `S.stopMusic(spec)` | `op=stop_music` | spec optional; stops the active field BGM. |
 | `S.resetMusic(spec)` | `op=reset_music` | spec optional. |
 | `S.temporaryMusic(spec)` | `op=temporary_music` | spec={music}. |
 | `S.fadeMusicOut(spec)` | `op=fade_music_out` | spec={target=0,durationTicks}. |
@@ -1131,7 +1131,6 @@ No fields.
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `key` | string |  |  |
-| `music` | string |  |  |
 | `provenance` | source_provenance |  |  |
 
 ### `stop_sound`

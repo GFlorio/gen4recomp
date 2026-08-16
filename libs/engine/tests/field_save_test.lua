@@ -528,45 +528,11 @@ function T.event_state_over_the_safety_limit_is_rejected()
   end)
 end
 
--- The save gate honors the audio collaborator's stability answer: the
--- session contract guarantees the predicate exists (validated at session
--- construction), so capture code calls it unconditionally and never
--- second-guesses it. The policy -- which transient audio states answer
--- true -- lives in the collaborator (GameSound), whose predicate is always
--- true: every script wait on transient audio persists as task state and
--- completes immediately against the fresh audio service built at load, so
--- no capture bisects a persisted game-semantic operation.
-function T.unstable_audio_blocks_capture_and_stable_audio_allows_it()
-  local audioState = { stable = false }
-  local audio = {
-    isSaveStable = function()
-      return audioState.stable
-    end,
-  }
-  local s = session(runtimeMap("terrain-a", { flat(11, 4) }))
-  s.audio = audio
-  Assert.isFalse(FieldSave.canCapture(s), "audio answering unstable blocks capture")
-  audioState.stable = true
-  Assert.isTrue(FieldSave.canCapture(s), "stable audio never blocks capture")
-  -- A nil stability answer must never allow capture: the audio backend that
-  -- cannot report stability behaves like unstable audio.
-  audioState.stable = nil
-  Assert.isFalse(FieldSave.canCapture(s))
-  -- The capture boundary enforces the gate through canCapture.
-  audioState.stable = true
-  local saved = FieldSave.capture(s, {
-    avatarId = "hero",
-    world = world(),
-    scenario = "pre-script-demo-v1",
-    scriptsBucket = {},
-    auxiliaryUi = { requested = "shown", state = "shown" },
-  })
-  Assert.deepEqual(saved, record())
-end
-
--- Sessions without an audio collaborator keep the existing stability
--- contract: the audio gate is absent, not always-open or always-closed.
-function T.sessions_without_audio_keep_the_existing_capture_contract()
+-- The capture gate is the idle-tile boundary only: the audio collaborator
+-- has no save-stability concept (transient audio is discarded on load and
+-- the restored wait tasks complete against the fresh service), so
+-- canCapture never consults it.
+function T.capture_requires_the_idle_tile_boundary()
   local map = runtimeMap("terrain-a", { flat(11, 4) })
   Assert.isTrue(FieldSave.canCapture(session(map)))
   local walking = session(map)

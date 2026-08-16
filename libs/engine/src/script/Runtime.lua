@@ -1158,8 +1158,8 @@ HANDLERS.play_music = function(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.stop_music = function(node, run)
-  -- The pinned StopBGM reads its operand but ignores it: the currently
-  -- playing BGM stops, and the operand never reaches the service.
+  -- The semantic stop_music operation takes no operand (the StopBGM
+  -- operand is an erasure at lowering); the currently playing BGM stops.
   requireService(run, "audio"):stopMusic()
   return Runtime.OUTCOME_CONTINUE
 end

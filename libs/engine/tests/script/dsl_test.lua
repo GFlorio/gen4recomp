@@ -842,13 +842,7 @@ local CASES = {
   },
   stop_music = {
     function()
-      return S.stopMusic({ music = "SEQ_GS_NEW_BARK" })
-    end,
-    { op = "stop_music", music = "SEQ_GS_NEW_BARK" },
-  },
-  stop_music_active = {
-    function()
-      return S.stopMusic({})
+      return S.stopMusic()
     end,
     { op = "stop_music" },
   },

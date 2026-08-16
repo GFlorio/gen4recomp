@@ -602,7 +602,11 @@ Schema.OPERATIONS = {
   play_fanfare = { fields = { fanfare = { type = "scalar_or_value", required = true } } },
   wait_fanfare = { fields = {} },
   play_music = { fields = { music = { type = "string", required = true } } },
-  stop_music = { fields = { music = { type = "string" } } },
+  -- The StopBGM operand is an erasure at lowering (ScrCmd_StopBGM ignores
+  -- it and stops the currently playing BGM), so the semantic operation
+  -- takes no fields: an optional music field would be advertised and
+  -- ignored.
+  stop_music = { fields = {} },
   reset_music = { fields = {} },
   temporary_music = { fields = { music = { type = "string", required = true } } },
   fade_music_out = {
@@ -1106,7 +1110,7 @@ Schema.CONSTRUCTORS = {
       {
         signature = "S.stopMusic(spec)",
         canonical = "op=stop_music",
-        notes = "spec={music=nil}; missing ID stops the active field BGM.",
+        notes = "spec optional; stops the active field BGM.",
       },
       { signature = "S.resetMusic(spec)", canonical = "op=reset_music", notes = "spec optional." },
       { signature = "S.temporaryMusic(spec)", canonical = "op=temporary_music", notes = "spec={music}." },

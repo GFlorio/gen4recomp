@@ -622,6 +622,23 @@ function T.accepts_value_reference_sound_and_cry_operands()
   })
 end
 
+-- The StopBGM operand is an erasure at lowering (ScrCmd_StopBGM ignores
+-- its operand and stops the currently playing BGM), so the semantic
+-- operation takes no fields: an optional music field would be advertised
+-- and ignored.
+function T.stop_music_takes_no_operand()
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "stop_music", music = "SEQ_GS_NEW_BARK" } },
+  })
+  valid({
+    api = 1,
+    id = "x",
+    steps = { { op = "stop_music" } },
+  })
+end
+
 -- Numeric world ids are valid in id_or_var positions (the world store is
 -- U16-keyed and catalog symbols resolve to those ids; a mod's scratch
 -- variables beyond the catalog must be addressable by id).

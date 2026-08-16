@@ -165,7 +165,7 @@ local function allOpsScript()
     S.playFanfare({ fanfare = "SEQ_ME_POKEGET" }),
     S.waitFanfare(),
     S.playMusic({ music = "SEQ_GS_NEW_BARK" }),
-    S.stopMusic({ music = "SEQ_GS_NEW_BARK" }),
+    S.stopMusic(),
     S.resetMusic(),
     S.temporaryMusic({ music = "SEQ_GS_EVENT" }),
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),

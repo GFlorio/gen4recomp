@@ -52,6 +52,7 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
+local CryPlayer = require("libs.engine.src.audio.CryPlayer")
 local GameSound = require("libs.engine.src.audio.GameSound")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
@@ -747,16 +748,17 @@ end
 -- The production audio composition: when no recording script audio adapter
 -- is injected, builds the real stack (AudioAssetProvider -> VoiceMixer ->
 -- SequencePlayer -> GameSound), wires GameSound as the script audio service
--- and the session's fixed-tick audio collaborator, and starts the current
--- map's header music. The map-music policy is the plain day/night lookup
--- over the generated field record (canonical references; nothing is
--- decorated at runtime). The LÖVE sink is built over the injected
--- audio-output host boundary (acceptance fakes it); production defaults to
--- the love.audio + love.sound namespaces, and a host with no audio module
--- has no sink to pump. The sink receives the SequencePlayer as its
--- renderer. The day/night source defaults to the wall-clock IsNighttime
--- predicate (hours 0-3 and 20-23, the bandForHour nite band); tests and
--- hosts inject a deterministic one.
+-- and the session's fixed-tick audio collaborator, supplies the cry
+-- boundary (CryPlayer plays the referenced cry through the same engine
+-- audio), and starts the current map's header music. The map-music policy
+-- is the plain day/night lookup over the generated field record (canonical
+-- references; nothing is decorated at runtime). The LÖVE sink is built over
+-- the injected audio-output host boundary (acceptance fakes it); production
+-- defaults to the love.audio + love.sound namespaces, and a host with no
+-- audio module has no sink to pump. The sink receives the SequencePlayer as
+-- its renderer. The day/night source defaults to the wall-clock
+-- IsNighttime predicate (hours 0-3 and 20-23, the bandForHour nite band);
+-- tests and hosts inject a deterministic one.
 ---@param cacheFs CacheFs
 ---@return table audioService the GameSound instance, or the injected recording adapter
 function FieldRuntime:_composeAudio(cacheFs)
@@ -778,6 +780,7 @@ function FieldRuntime:_composeAudio(cacheFs)
   self.audio = GameSound.new({
     provider = provider,
     player = player,
+    cry = CryPlayer.new({ player = player }),
     mapMusic = function()
       return mapHeaderMusic(self.runtimeMap, self.mapMusicDayNight)
     end,

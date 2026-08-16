@@ -241,14 +241,13 @@ function FieldSave.validate(record, opts)
   error(result)
 end
 
--- True only when a stable tile boundary can be captured: the player idle, no
--- transition active, no half-open modal dialogue, presented signpost
+-- True only when a stable tile boundary can be captured: the player idle,
+-- no transition active, no half-open modal dialogue, presented signpost
 -- window, or active application (the Start Menu, an application fade, or a
--- child application), and -- when the session has an audio collaborator --
--- that audio reports save-stable. Which transient audio states answer true
--- is the collaborator's policy (GameSound's predicate is always true); the
--- gate only honors the answer. A nil stability answer reads as unstable; a
--- session without audio skips the gate entirely.
+-- child application). Transient audio has no save-stability concept of its
+-- own (it is discarded on load and the restored wait tasks complete against
+-- the fresh audio service), so the gate never consults the audio
+-- collaborator.
 ---@param session FieldSession?
 ---@return boolean?
 function FieldSave.canCapture(session)
@@ -259,7 +258,6 @@ function FieldSave.canCapture(session)
     and (not session.dialogue or not session.dialogue:isModal())
     and (not session.signpost or not session.signpost:isModal())
     and (not session.applicationHost or not session.applicationHost:isActive())
-    and (session.audio == nil or session.audio:isSaveStable() == true)
 end
 
 -- Capture the record: the identity/location fields plus the world and

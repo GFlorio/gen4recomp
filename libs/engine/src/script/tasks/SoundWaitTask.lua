@@ -3,9 +3,11 @@
 -- state. The wait state carries the semantic wait kind: `wait_sound` holds
 -- the resolved effect sequence and polls `isEffectPlaying(sequence)`;
 -- `wait_cry` polls `isCryFinished`; `wait_fanfare` polls
--- `isFanfarePlaying`. A backend that cannot report completion for the kind
--- is a fault, never a simulated duration. Graph continuation follows the
--- generic one-tick handoff. Pure domain module: no love dependency.
+-- `isFanfarePlaying`. The audio service contract says every poll returns a
+-- boolean, never nil: a nil poll result is a programming fault (assert),
+-- not a recoverable task error, and the task carries no capability-
+-- detection branches for the defined interface. Graph continuation follows
+-- the generic one-tick handoff. Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -37,25 +39,9 @@ function SoundWaitTask.create(spec, ctx)
     kind = "fanfare"
   end
   if kind == "cry" then
-    local audioService = audio --[[@as { isCryFinished: fun(self: table): boolean|nil }]]
-    if type(audioService.isCryFinished) ~= "function" then
-      Errors.raise(
-        ScriptErrors.SCRIPT_SERVICE_MISSING,
-        "the audio service must report isCryFinished for wait_cry",
-        { scriptId = ctx.instance.scriptId }
-      )
-    end
     return { kind = "cry" }
   end
   if kind == "fanfare" then
-    local audioService = audio --[[@as { isFanfarePlaying: fun(self: table): boolean|nil }]]
-    if type(audioService.isFanfarePlaying) ~= "function" then
-      Errors.raise(
-        ScriptErrors.SCRIPT_SERVICE_MISSING,
-        "the audio service must report isFanfarePlaying for wait_fanfare",
-        { scriptId = ctx.instance.scriptId }
-      )
-    end
     return { kind = "fanfare" }
   end
   -- The effect wait carries the resolved sequence: HGSS WaitSE always reads
@@ -78,14 +64,6 @@ function SoundWaitTask.create(spec, ctx)
       { scriptId = ctx.instance.scriptId }
     )
   end
-  local audioService = audio --[[@as { isEffectPlaying: fun(self: table, sequence: any): boolean|nil }]]
-  if type(audioService.isEffectPlaying) ~= "function" then
-    Errors.raise(
-      ScriptErrors.SCRIPT_SERVICE_MISSING,
-      "the audio service must report effect play state for sound waits",
-      { scriptId = ctx.instance.scriptId }
-    )
-  end
   return {
     kind = "effect",
     sequence = sequence,
@@ -100,35 +78,24 @@ function SoundWaitTask.poll(state, ctx)
   if audio == nil then
     Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the sound wait task requires the audio service")
   end
+  -- LuaLS cannot see through Errors.raise; the nil check above never falls
+  -- through, so the service is non-nil from here on. The per-branch casts
+  -- name the poll the wait kind uses.
   local done
   if state.kind == "effect" then
-    local audioService = audio --[[@as { isEffectPlaying: fun(self: table, sequence: any): boolean|nil }]]
-    local playing = audioService:isEffectPlaying(state.sequence)
-    if playing == nil then
-      Errors.raise(
-        ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-        "the audio service cannot report completion for the effect wait",
-        { kind = state.kind, sequence = state.sequence }
-      )
-    end
+    local service = audio --[[@as { isEffectPlaying: fun(self: table, sequence: any): boolean }]]
+    local playing = service:isEffectPlaying(state.sequence)
+    assert(playing ~= nil, "the audio service must report effect play state as a boolean")
     done = not playing
   elseif state.kind == "cry" then
-    local audioService = audio --[[@as { isCryFinished: fun(self: table): boolean|nil }]]
-    local finished = audioService:isCryFinished()
-    if finished == nil then
-      Errors.raise(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "the audio service cannot report cry completion", {
-        kind = state.kind,
-      })
-    end
+    local service = audio --[[@as { isCryFinished: fun(self: table): boolean }]]
+    local finished = service:isCryFinished()
+    assert(finished ~= nil, "the audio service must report cry completion as a boolean")
     done = finished
   else
-    local audioService = audio --[[@as { isFanfarePlaying: fun(self: table): boolean|nil }]]
-    local playing = audioService:isFanfarePlaying()
-    if playing == nil then
-      Errors.raise(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "the audio service cannot report fanfare completion", {
-        kind = state.kind,
-      })
-    end
+    local service = audio --[[@as { isFanfarePlaying: fun(self: table): boolean }]]
+    local playing = service:isFanfarePlaying()
+    assert(playing ~= nil, "the audio service must report fanfare play state as a boolean")
     done = not playing
   end
   if done then

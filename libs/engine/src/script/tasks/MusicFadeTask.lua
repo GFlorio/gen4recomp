@@ -4,8 +4,11 @@
 -- blocks until the audio service reports the global music fade inactive,
 -- preserving the source command's combined start-and-native-wait semantics
 -- (GF_SndStartFadeOutBGM + SetupNativeScript(ScrNative_GetFadeTimer)).
--- Graph continuation follows the generic one-tick handoff. Pure domain
--- module: no love dependency.
+-- The audio service contract says isMusicFadeActive returns a boolean,
+-- never nil: a nil result is a programming fault (assert), not a
+-- recoverable task error, and the task carries no capability-detection
+-- branches for the defined interface. Graph continuation follows the
+-- generic one-tick handoff. Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -29,11 +32,13 @@ function MusicFadeTask.create(spec, ctx)
       { scriptId = ctx.instance.scriptId }
     )
   end
-  local audioService = audio --[[@as { fadeMusicOut: fun(self: table, spec: table), fadeMusicIn: fun(self: table, spec: table) }]]
+  -- LuaLS cannot see through Errors.raise; the nil check above never falls
+  -- through, so the service is non-nil from here on.
+  ---@cast audio { fadeMusicOut: fun(self: table, spec: table), fadeMusicIn: fun(self: table, spec: table) }
   if node.op == "fade_music_out" then
-    audioService:fadeMusicOut(node)
+    audio:fadeMusicOut(node)
   else
-    audioService:fadeMusicIn(node)
+    audio:fadeMusicIn(node)
   end
   return { op = node.op }
 end
@@ -46,11 +51,11 @@ function MusicFadeTask.poll(state, ctx)
   if audio == nil then
     Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "the music fade task requires the audio service")
   end
-  local audioService = audio --[[@as { isMusicFadeActive: fun(self: table): boolean|nil }]]
-  local active = audioService:isMusicFadeActive()
-  if active == nil then
-    Errors.raise(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "the audio service cannot report music fade state")
-  end
+  -- LuaLS cannot see through Errors.raise; the nil check above never falls
+  -- through, so the service is non-nil from here on.
+  ---@cast audio { isMusicFadeActive: fun(self: table): boolean }
+  local active = audio:isMusicFadeActive()
+  assert(active ~= nil, "the audio service must report music fade state as a boolean")
   if not active then
     return { complete = true, state = state, result = { completed = true } }
   end

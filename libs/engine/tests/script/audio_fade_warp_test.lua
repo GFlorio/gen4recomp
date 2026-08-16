@@ -318,6 +318,52 @@ T["sound wait without backend faults"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
 end
 
+-- 2b. The audio service contract is strict: polls return booleans, never
+-- nil. A nil result is a programming fault, never a recoverable task error
+-- (the tasks carry no capability-detection branches for the defined audio
+-- interface).
+T["sound wait polls never accept a nil result"] = function()
+  local cases = {
+    effect = {
+      node = { op = "wait_sound", sound = "SEQ_SE_DP_SELECT" },
+      audio = {
+        isEffectPlaying = function()
+          return nil
+        end,
+      },
+    },
+    cry = {
+      node = { op = "wait_cry" },
+      audio = {
+        isCryFinished = function()
+          return nil
+        end,
+      },
+    },
+    fanfare = {
+      node = { op = "wait_fanfare" },
+      audio = {
+        isFanfarePlaying = function()
+          return nil
+        end,
+      },
+    },
+  }
+  for name, case in pairs(cases) do
+    local state = SoundWaitTask.create(
+      { node = case.node },
+      { services = { audio = case.audio }, instance = { scriptId = "probe" } }
+    )
+    local err = Assert.throws(function()
+      SoundWaitTask.poll(state, { services = { audio = case.audio } })
+    end)
+    Assert.isFalse(
+      Errors.is(err),
+      "a nil " .. name .. " poll result is a programming fault, not a recoverable task error"
+    )
+  end
+end
+
 T["cry wait blocks until the cry finishes"] = function()
   local h = harness({ audio = true })
   local resource = script("test.cry", {
@@ -554,7 +600,7 @@ T["music and camera same tick"] = function()
   local h = harness({ audio = true, camera = true })
   local resource = script("test.music", {
     S.playMusic({ music = "SEQ_GS_NEW_BARK" }),
-    S.stopMusic({ music = "SEQ_GS_NEW_BARK" }),
+    S.stopMusic(),
     S.temporaryMusic({ music = "SEQ_GS_EVENT" }),
     S.resetMusic(),
     S.shakeCamera({ amplitudeX = 2, amplitudeY = 0, intervalTicks = 2, count = 8 }),
@@ -693,6 +739,22 @@ T["music fade without backend faults"] = function()
   h.scheduler:step(100, nil)
   Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_SERVICE_MISSING")
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+end
+
+-- 8b2. The music-fade poll follows the same strict audio contract: the
+-- service's isMusicFadeActive result is boolean, so a nil result is a
+-- programming fault, never a recoverable task error.
+T["music fade polls never accept a nil result"] = function()
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  local audio = {
+    isMusicFadeActive = function()
+      return nil
+    end,
+  }
+  local err = Assert.throws(function()
+    MusicFadeTask.poll({ op = "fade_music_out" }, { services = { audio = audio } })
+  end)
+  Assert.isFalse(Errors.is(err), "a nil fade poll result is a programming fault, not a recoverable task error")
 end
 
 -- 8b2. The fade task against the REAL GameSound: the fade starts in the
@@ -873,14 +935,14 @@ T["audio handlers evaluate value references before the service call"] = function
   Assert.equal(h.audio.calls[4].fanfare, 42, "play_fanfare resolves the fanfare reference")
 end
 
--- 12. the StopBGM operand is a documented erasure at runtime too: a
--- stop_music node never forwards a sound id to the service, and the
--- currently playing BGM is stopped.
-T["stop music never forwards its source operand"] = function()
+-- 12. stop_music takes no operand (the StopBGM operand is an erasure at
+-- lowering): the node calls the service's stopMusic with no arguments and
+-- the currently playing BGM is stopped.
+T["stop music stops the current bgm without arguments"] = function()
   local h = harness({ audio = true })
   local resource = script("test.stopbgm", {
     S.playMusic({ music = "SEQ_GS_NEW_BARK" }),
-    S.stopMusic({ music = "SEQ_GS_OTHER" }),
+    S.stopMusic(),
     S.stop(),
   })
   startForeground(h, resource, 100)
@@ -888,7 +950,7 @@ T["stop music never forwards its source operand"] = function()
   Assert.equal(h.audio.calls[1].op, "playMusic")
   Assert.equal(h.audio.calls[1].id, "SEQ_GS_NEW_BARK")
   Assert.equal(h.audio.calls[2].op, "stopMusic")
-  Assert.equal(h.audio.calls[2].id, nil, "the StopBGM operand never reaches the audio service")
+  Assert.equal(h.audio.calls[2].id, nil, "stop_music never forwards a sound id to the service")
   Assert.isNil(h.audio.music.current, "the currently playing BGM is stopped")
 end
 

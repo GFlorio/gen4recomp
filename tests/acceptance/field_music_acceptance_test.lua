@@ -340,4 +340,27 @@ function T.tests.map_swap_updates_the_field_music_policy_without_orphaning_the_o
   end)
 end
 
+-- The retail field corpus reaches cries and temporary music (census:
+-- play_cry/wait_cry and temporary_music all occur in reachable scripts), so
+-- the production composition must execute them: a reachable audio operation
+-- may never fail only when executed.
+function T.tests.cries_and_temporary_music_execute_through_the_production_composition()
+  withProductionAudio(TOWN, day, function(game, fake)
+    local audio = requireAudio(game)
+    audio:playCry(25, 0)
+    Assert.isFalse(audio:isCryFinished(), "a reachable cry must start through the production composition")
+    game:advanceUntil("the cry completes", function()
+      return audio:isCryFinished()
+    end, 900)
+    audio:temporaryMusic("SEQ_GS_EYE_J_SHOUJO")
+    Assert.isTrue(
+      audio:isEffectPlaying("SEQ_GS_EYE_J_SHOUJO"),
+      "temporary music must start its sequence through the production composition"
+    )
+    game:advanceUntil("temporary music renders into the audio-output host", function()
+      return fake:anyNonSilent()
+    end, 60)
+  end)
+end
+
 return T
