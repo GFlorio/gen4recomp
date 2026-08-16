@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FieldSave = require("libs.engine.src.FieldSave")
+local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FieldScenarioManifest = require("data.manifests.field_scenario")
 
@@ -46,6 +47,57 @@ end
 local function restart(game, options)
   requireCapability(game, "restart")
   return game:restart(options)
+end
+
+-- The scripts bucket of a real empty capture: deep-valid per ScriptSave, with
+-- the live runtime's registry fingerprints so the planted save cannot be
+-- rejected for a fingerprint mismatch instead of the planted defect.
+local function validScriptsBucket(game)
+  return {
+    schema = ScriptSave.SCHEMA_NAME,
+    registryFingerprint = game.runtime.scripts:registryFingerprint(),
+    taskFingerprint = game.runtime.scripts.scheduler:taskRegistryFingerprint(),
+    capturedAtSimulationTick = 0,
+    nextEnvironmentId = 1,
+    nextInstanceId = 1,
+    nextTaskId = 1,
+    environments = {},
+    instances = {},
+    tasks = {},
+  }
+end
+
+-- Plant a structurally otherwise-valid field save at the live save path of
+-- the acceptance namespace, over the fresh spawn state; `overrides` replace
+-- record fields (position offsets make a wrongly restored boot observable).
+local function plantSave(game, overrides)
+  local fresh = game:snapshot()
+  local record = {
+    schema = FieldSave.SCHEMA,
+    versionId = game.versionId,
+    mapId = fresh.mapId,
+    fieldX = fresh.player.fieldX,
+    fieldZ = fresh.player.fieldZ,
+    worldY = fresh.player.worldY,
+    surfaceId = fresh.player.surfaceId,
+    terrainDependencyHash = game.runtime.runtimeMap.terrainDependencyHash,
+    facing = "south",
+    avatar = "hero",
+    scenario = FieldScenarioManifest.id,
+    world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
+    scripts = validScriptsBucket(game),
+    auxiliaryUi = { requested = "shown", state = "shown" },
+    playerData = {
+      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      options = { textFrame = 0, textSpeed = "mid" },
+    },
+  }
+  for key, value in pairs(overrides) do
+    record[key] = value
+  end
+  love.filesystem.createDirectory(game.saveNamespace)
+  love.filesystem.write(game.saveNamespace .. "/" .. FieldSave.PATH, LuaWriter.encode(record))
+  return record
 end
 
 -- DET-02 helper: confirm edges like the harness's advanceDialogue, but stop
@@ -187,6 +239,86 @@ function T.tests.corrupt_save_is_ignored_and_fresh_state_boots()
       "a corrupted save must boot the fresh spawn state, never the corrupted record"
     )
     Assert.equal(resumed.runtime.playerData.profile.name, "GOLD", "the fresh boot owns the initial player manifest")
+  end)
+end
+
+-- S-2: a save naming a player graphic outside the compiled avatar set must be
+-- rejected by FieldSave.restore through the runtime's own resume wiring (the
+-- same validation record the save store receives), reported as ignored, and
+-- fall back to the fresh spawn instead of crashing runtime construction.
+function T.tests.resume_ignores_a_save_with_an_unknown_compiled_avatar()
+  withGame(function(game)
+    requireCapability(game, "failNextSave")
+    local fresh = game:snapshot()
+    plantSave(game, {
+      avatar = "not-a-compiled-avatar",
+      fieldX = fresh.player.fieldX + 1,
+      fieldZ = fresh.player.fieldZ + 1,
+    })
+    -- The disposal write at restart would overwrite the planted file; fault
+    -- it so the resume boot reads the planted record.
+    game:failNextSave()
+    local resumed = restart(game, { save = "resume" })
+    Assert.equal(
+      resumed.lifecycle.saveReads,
+      1,
+      "the invalid-avatar save must be read exactly once, got " .. tostring(resumed.lifecycle.saveReads)
+    )
+    Assert.isTrue(
+      resumed.runtime.saveStatus:find("Save ignored:", 1, true) ~= nil,
+      "the resume boundary must present the invalid avatar as ignored, got " .. tostring(resumed.runtime.saveStatus)
+    )
+    Assert.isTrue(
+      resumed.runtime.saveStatus:find("FIELD_SAVE_AVATAR_INVALID", 1, true) ~= nil,
+      "the ignored save must carry the typed avatar validation error, got " .. tostring(resumed.runtime.saveStatus)
+    )
+    Assert.deepEqual(
+      resumed:snapshot().player,
+      fresh.player,
+      "an unknown compiled avatar must boot the fresh spawn state, never the corrupted record"
+    )
+  end)
+end
+
+-- S-3: a scripts bucket that passes the outer table shape but fails deep
+-- ScriptSave.validate must be rejected at the restore boundary with the
+-- scripts attribution, ignored, and fall back to the fresh spawn. The planted
+-- environment record carries an impossible mode; everything else is a valid
+-- empty capture, so only the deep validation can reject it.
+function T.tests.resume_ignores_a_save_with_a_deeply_malformed_scripts_bucket()
+  withGame(function(game)
+    requireCapability(game, "failNextSave")
+    local fresh = game:snapshot()
+    local scripts = validScriptsBucket(game)
+    scripts.environments = { { environmentId = "env:0", mode = "impossible" } }
+    plantSave(game, {
+      fieldX = fresh.player.fieldX + 1,
+      fieldZ = fresh.player.fieldZ + 1,
+      scripts = scripts,
+    })
+    -- The disposal write at restart would overwrite the planted file; fault
+    -- it so the resume boot reads the planted record.
+    game:failNextSave()
+    local resumed = restart(game, { save = "resume" })
+    Assert.equal(
+      resumed.lifecycle.saveReads,
+      1,
+      "the malformed-scripts save must be read exactly once, got " .. tostring(resumed.lifecycle.saveReads)
+    )
+    Assert.isTrue(
+      resumed.runtime.saveStatus:find("Save ignored:", 1, true) ~= nil,
+      "the resume boundary must present the malformed scripts bucket as ignored, got "
+        .. tostring(resumed.runtime.saveStatus)
+    )
+    Assert.isTrue(
+      resumed.runtime.saveStatus:find("FIELD_SAVE_SCRIPTS_INVALID", 1, true) ~= nil,
+      "the ignored save must carry the typed scripts validation error, got " .. tostring(resumed.runtime.saveStatus)
+    )
+    Assert.deepEqual(
+      resumed:snapshot().player,
+      fresh.player,
+      "a malformed scripts bucket must boot the fresh spawn state, never the corrupted record"
+    )
   end)
 end
 

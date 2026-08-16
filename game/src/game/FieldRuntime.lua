@@ -240,13 +240,18 @@ function FieldRuntime:_load()
       charmap = fontDef.charmap,
       frameIndexes = frameIndexes,
     }
-    self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), {
+    -- The one immutable save-validation policy: the compiled avatar set, the
+    -- deep scripts validator, and the player-data context. Both the save
+    -- store and the resume restore receive the same record, so persisted data
+    -- cannot bypass any injectable validator on resume.
+    local saveValidation = {
       avatars = avatarIdSet(actorIndex),
       scriptsValidate = function(bucket)
         return ScriptSave.validate(bucket, {})
       end,
       playerDataContext = playerDataContext,
-    })
+    }
+    self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), saveValidation)
     if self.resetSave then
       self.saveStore:reset()
       self.resetSave = false
@@ -271,9 +276,7 @@ function FieldRuntime:_load()
     if self.resumeSave then
       local saved, saveErr = self.saveStore:load()
       if saved then
-        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId, {
-          playerDataContext = playerDataContext,
-        })
+        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId, saveValidation)
       end
       if saveErr and saveErr.code ~= StorageErrors.SAVE_FILE_MISSING then
         self.saveStatus = "Save ignored: " .. tostring(saveErr)

@@ -11,8 +11,10 @@ local Assert = require("tests.support.Assert")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local SaveFs = require("libs.storage.src.SaveFs")
+local ScopedFs = require("libs.storage.src.ScopedFs")
 local RemapBackend = require("tests.support.RemapBackend")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local FieldScenarioManifest = require("data.manifests.field_scenario")
 
 local T = {
   metadata = {
@@ -159,6 +161,59 @@ function T.tests.save_host_programming_fault_is_rethrown_not_reported_as_save_fa
     tostring(err):find("Save failed:", 1, true) == nil,
     "a programming fault must not be repackaged as a save failure: " .. tostring(err)
   )
+end
+
+-- The runtime negotiates its resume restore with the same validation record
+-- it wires into the save store: the compiled avatar set, the deep scripts
+-- validator, and the player-data context. Persisted data that only one of
+-- those injectable validators can reject must be refused at the restore
+-- boundary and reported as ignored, not sail through to a later live
+-- construction stage that crashes on it. The planted records start from the
+-- real save the fresh boot writes on dispose (real spawn, terrain identity,
+-- and scripts fingerprints), so the planted defect is the only thing that can
+-- change the boot outcome.
+function T.tests.resume_restore_uses_the_full_save_validation_record()
+  local namespace = "component/resume-validation/heartgold"
+  removeNamespace(namespace)
+  local saveFs = SaveFs.forVersion(
+    "heartgold",
+    RemapBackend.new(ScopedFs.loveBackend(), function(path)
+      return (path:gsub("^saves/heartgold", namespace))
+    end)
+  )
+  local fresh = FieldRuntime.new("heartgold", LAB, { saveFs = saveFs })
+  fresh:dispose()
+
+  -- A structurally valid save naming a player graphic outside the compiled
+  -- avatar set must be rejected by resume restore with the avatar action and
+  -- boot the fresh scenario avatar, never the corrupted record or a crash.
+  local planted = assert(saveFs:loadLua(FieldSave.PATH), "the fresh boot must have written its save")
+  planted.avatar = "not-a-compiled-avatar"
+  assert(saveFs:writeLua(FieldSave.PATH, planted))
+  local runtime = FieldRuntime.new("heartgold", LAB, { saveFs = saveFs, resumeSave = true })
+  Assert.isTrue(
+    runtime.saveStatus:find("Save ignored:", 1, true) ~= nil
+      and runtime.saveStatus:find("FIELD_SAVE_AVATAR_INVALID", 1, true) ~= nil,
+    "an unknown compiled avatar must be rejected at resume restore, got " .. tostring(runtime.saveStatus)
+  )
+  Assert.equal(runtime.avatar.id, FieldScenarioManifest.avatar, "the ignored save must boot the fresh scenario avatar")
+  runtime:dispose()
+
+  -- A scripts bucket that passes the outer table shape but fails deep
+  -- ScriptSave validation (an impossible environment mode) must be rejected at
+  -- resume restore with the scripts attribution, and the runtime must boot
+  -- fresh instead of crashing during the later scheduler restore.
+  local planted = assert(saveFs:loadLua(FieldSave.PATH), "the ignored boot must have written a fresh save")
+  planted.scripts.environments = { { environmentId = "env:0", mode = "impossible" } }
+  assert(saveFs:writeLua(FieldSave.PATH, planted))
+  local resumed = FieldRuntime.new("heartgold", LAB, { saveFs = saveFs, resumeSave = true })
+  Assert.isTrue(
+    resumed.saveStatus:find("Save ignored:", 1, true) ~= nil
+      and resumed.saveStatus:find("FIELD_SAVE_SCRIPTS_INVALID", 1, true) ~= nil,
+    "a deeply malformed scripts bucket must be rejected at resume restore, got " .. tostring(resumed.saveStatus)
+  )
+  resumed:dispose()
+  removeNamespace(namespace)
 end
 
 return T
