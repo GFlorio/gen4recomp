@@ -193,16 +193,82 @@ function T.layout_is_immutable_across_reuse()
   Assert.equal(#tokens, 9)
 end
 
--- A metrics object with nonGlyphWidth gives marker tokens a measured width so
--- the rendered marker never overflows a line the layout did not budget for.
-local function markerMetrics(nonGlyphWidth)
-  return {
-    glyphWidth = function(code)
-      local glyph = FONT[code]
-      return glyph and glyph.advance or nil
-    end,
-    nonGlyphWidth = nonGlyphWidth,
+-- Controls are pure geometry-free markers: a line of COLOR + YESNO tokens
+-- measures only the glyph advance.
+function T.controls_are_zero_width()
+  local tokens = {
+    { kind = "style", control = 0xFF00, name = "COLOR", args = { 1 }, raw = { 0xFFFE, 0xFF00, 1, 1 } },
+    { kind = "focus_indicator", control = 0x0200, name = "YESNO", args = { 0 }, raw = { 0xFFFE, 0x0200, 1, 0 } },
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "eos", raw = { 0xFFFF } },
   }
+  local layout = DialogueLayout.layout(tokens, metrics(FONT), { width = 24 })
+  Assert.equal(layout.pages[1].lines[1].width, 6, "a control-heavy line measures only the glyph advance")
+end
+
+function T.controls_preserve_source_order()
+  local tokens = {
+    { kind = "style", control = 0xFF00, name = "COLOR", args = { 1 }, raw = { 0xFFFE, 0xFF00, 1, 1 } },
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "focus_indicator", control = 0x0200, name = "YESNO", args = { 0 }, raw = { 0xFFFE, 0x0200, 1, 0 } },
+    { kind = "eos", raw = { 0xFFFF } },
+  }
+  local layout = DialogueLayout.layout(tokens, metrics(FONT), { width = 24 })
+  local line = layout.pages[1].lines[1]
+  Assert.equal(line.tokens[1].control, 0xFF00)
+  Assert.equal(line.tokens[2].kind, "glyph")
+  Assert.equal(line.tokens[3].control, 0x0200)
+end
+
+function T.controls_never_generate_an_overwide_warning()
+  -- Only glyphs can overrun the width budget; zero-width controls placed
+  -- anywhere in the stream never produce the overwide trace.
+  local tokens = {
+    { kind = "focus_indicator", control = 0x0200, name = "YESNO", args = { 0 }, raw = { 0xFFFE, 0x0200, 1, 0 } },
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "style", control = 0xFF00, name = "COLOR", args = { 1 }, raw = { 0xFFFE, 0xFF00, 1, 1 } },
+    { kind = "eos", raw = { 0xFFFF } },
+  }
+  local layout = DialogueLayout.layout(tokens, metrics(FONT), { width = 24 })
+  Assert.equal(#layout.warnings, 0, "zero-width controls are never overwide")
+end
+
+function T.zero_width_controls_do_not_change_wrap_positions()
+  local decorated = {}
+  for i, token in ipairs(glyphs("AAAA BBBB")) do
+    if i == 4 then
+      decorated[#decorated + 1] = {
+        kind = "focus_indicator",
+        control = 0x0200,
+        name = "YESNO",
+        args = { 0 },
+        raw = { 0xFFFE, 0x0200, 1, 0 },
+      }
+    end
+    if i == 7 then
+      decorated[#decorated + 1] = {
+        kind = "style",
+        control = 0xFF00,
+        name = "COLOR",
+        args = { 1 },
+        raw = { 0xFFFE, 0xFF00, 1, 1 },
+      }
+    end
+    decorated[#decorated + 1] = token
+  end
+  local opts = { width = 24, maxLines = 2 }
+  local plain = DialogueLayout.layout(glyphs("AAAA BBBB"), metrics(FONT), opts)
+  local withControls = DialogueLayout.layout(decorated, metrics(FONT), opts)
+  Assert.equal(#withControls.pages, #plain.pages)
+  for p = 1, #plain.pages do
+    Assert.equal(#withControls.pages[p].lines, #plain.pages[p].lines, "page " .. p .. " wraps identically")
+    for l = 1, #plain.pages[p].lines do
+      Assert.equal(withControls.pages[p].lines[l].width, plain.pages[p].lines[l].width)
+    end
+  end
 end
 
 function T.eos_is_terminal_ignoring_later_glyphs_and_markers()
@@ -241,69 +307,6 @@ function T.carried_word_glyphs_keep_exact_line_width()
   Assert.equal(layout.pages[2].breakKind, "eos")
   Assert.equal(textOf(layout.pages[2].lines[1]), "C")
   Assert.equal(layout.pages[2].lines[1].width, 6)
-end
-
-function T.carried_markers_keep_their_measured_width()
-  local tokens = {
-    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
-    { kind = "glyph", code = 0x01DE, text = " ", raw = { 0x01DE } },
-    { kind = "unsupported_control", control = 0x0707, name = nil, args = {}, raw = { 1 } },
-    { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
-    { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
-    { kind = "eos", raw = { 0xFFFF } },
-  }
-  local m = markerMetrics(function()
-    return 6
-  end)
-  local layout = DialogueLayout.layout(tokens, m, { width = 24, maxLines = 2 })
-  Assert.equal(#layout.pages, 1)
-  Assert.equal(textOf(layout.pages[1].lines[1]), "A")
-  Assert.equal(layout.pages[1].lines[1].width, 6)
-  Assert.equal(textOf(layout.pages[1].lines[2]), "BB")
-  Assert.equal(layout.pages[1].lines[2].width, 18)
-end
-
-function T.marker_width_counts_toward_the_line_budget()
-  local tokens = {
-    { kind = "unsupported_control", control = 0x0707, name = nil, args = {}, raw = { 1 } },
-    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
-    { kind = "glyph", code = 0x01DE, text = " ", raw = { 0x01DE } },
-    { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
-    { kind = "eos", raw = { 0xFFFF } },
-  }
-  local m = markerMetrics(function()
-    return 18
-  end)
-  local layout = DialogueLayout.layout(tokens, m, { width = 24, maxLines = 2 })
-  Assert.equal(layout.pages[1].lines[1].width, 18 + 6, "marker width is part of the line")
-  -- Without nonGlyphWidth the marker stays widthless (legacy contract).
-  local plain = DialogueLayout.layout(tokens, metrics(FONT), { width = 24, maxLines = 2 })
-  Assert.equal(plain.pages[1].lines[1].width, 18)
-end
-
-function T.marker_width_affects_wrap_positions()
-  -- "{marker} BBBB" at width 24: an 18px marker leaves room for one 6px
-  -- glyph, so BBBB wraps; without the measured width everything fits on one
-  -- line and the rendered marker would overflow the box.
-  local function build()
-    return {
-      { kind = "unsupported_control", control = 0x0707, name = nil, args = {}, raw = { 1 } },
-      { kind = "glyph", code = 0x01DE, text = " ", raw = { 0x01DE } },
-      { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
-      { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
-      { kind = "glyph", code = 0x0121, text = "B", raw = { 0x0121 } },
-      { kind = "eos", raw = { 0xFFFF } },
-    }
-  end
-  local m = markerMetrics(function()
-    return 18
-  end)
-  local layout = DialogueLayout.layout(build(), m, { width = 24, maxLines = 2 })
-  Assert.equal(#layout.pages[1].lines, 2, "marker width forces the wrap")
-  Assert.equal(layout.pages[1].lines[1].width, 18)
-  Assert.equal(textOf(layout.pages[1].lines[2]), "BBB")
-  local plain = DialogueLayout.layout(build(), metrics(FONT), { width = 24, maxLines = 2 })
-  Assert.equal(#plain.pages[1].lines, 1, "widthless marker fits the whole line")
 end
 
 return { tests = T }

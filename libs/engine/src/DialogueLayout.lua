@@ -13,9 +13,8 @@ local DialogueLayout = {}
 
 local DEFAULT_MAX_LINES = 2
 
--- metrics: { glyphWidth(code) -> integer, nonGlyphWidth(token) -> integer|nil }
--- resolving glyph advances and, optionally, the explicit width of non-glyph
--- control tokens. Without nonGlyphWidth, non-glyph tokens stay widthless.
+-- metrics: { glyphWidth(code) -> integer }
+-- resolving glyph advances. Every non-glyph token is zero-width.
 -- opts: { width = integer, maxLines = integer }
 -- Returns { pages = { { lines = { { tokens, width } }, breakKind } }, warnings }.
 -- breakKind is "prompt", "page", "line", "overflow", or "eos".
@@ -73,18 +72,13 @@ function DialogueLayout.layout(tokens, metrics, opts)
   end
 
   -- One token-width rule for every layout calculation: a glyph contributes
-  -- its advance; a non-glyph token contributes its explicit non-glyph width
-  -- (zero when the metrics object provides none). Carried tokens keep the
-  -- same rule, so a word wrapped to a new line keeps its exact width.
+  -- its advance and every control token contributes nothing. Carried tokens
+  -- keep the same rule, so a word wrapped to a new line keeps its exact width.
   local function tokenWidth(token)
     if token.kind == "glyph" then
       return metrics.glyphWidth(token.code)
     end
-    if not metrics.nonGlyphWidth then
-      return 0
-    end
-    local measured = metrics.nonGlyphWidth(token)
-    return type(measured) == "number" and measured or 0
+    return 0
   end
 
   -- Finds the trailing breakable space on the current line; returns its token
@@ -179,23 +173,11 @@ function DialogueLayout.layout(tokens, metrics, opts)
     elseif token.kind == "page_break" then
       endPage("page")
     else
-      -- style/wait/substitution/unsupported tokens keep their explicit
-      -- non-glyph width (zero when the metrics object does not provide
-      -- one). A non-glyph token that pushes the line past the budget is
-      -- placed anyway and traced, exactly like an over-wide glyph:
-      -- non-glyph tokens cannot be split.
-      local w = tokenWidth(token)
+      -- style/wait/focus_indicator/substitution/unsupported tokens are
+      -- zero-width and cannot be split: keep them at their source position
+      -- so reveal ordering and diagnostic fidelity survive pagination.
       local line = currentLine()
-      if line.width + w > width then
-        warnings[#warnings + 1] = {
-          kind = "overwide",
-          control = token.control,
-          width = line.width + w,
-          boxWidth = width,
-        }
-      end
       line.tokens[#line.tokens + 1] = token
-      line.width = line.width + w
     end
   end
 
@@ -219,13 +201,11 @@ end
 ---@field lines DialogueLayout.Line[]
 ---@field breakKind "prompt"|"page"|"line"|"overflow"|"eos"
 
--- A traced layout problem (e.g. a glyph or non-glyph token wider than the
--- box).
+-- A traced layout problem (a glyph token wider than the box).
 
 ---@class DialogueLayout.Warning
 ---@field kind "overwide"
 ---@field code integer?
----@field control integer?
 ---@field width integer
 ---@field boxWidth integer
 

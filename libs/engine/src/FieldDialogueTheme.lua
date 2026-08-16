@@ -219,11 +219,9 @@ end
 
 -- Metrics consumed by DialogueLayout: glyph advances from the generated font
 -- definition. Non-glyph tokens get no width here, so DialogueLayout measures
--- them as widthless. The optional nonGlyphWidth field types DialogueLayout's
--- generic control-width hook for metrics objects that choose to provide one.
+-- them as widthless.
 
 ---@class FieldDialogueTheme.Metrics
 ---@field glyphWidth fun(code: integer): integer?
----@field nonGlyphWidth? fun(token: MessageToken): integer
 
 return FieldDialogueTheme

@@ -441,4 +441,53 @@ function T.status_exposes_visible_lines_up_to_the_reveal()
   Assert.equal(c:status().state, "WAITING_CLOSE")
 end
 
+function T.trailing_indicator_appears_only_at_its_reveal_position()
+  local indicator = {
+    kind = "focus_indicator",
+    control = 0x0200,
+    name = "YESNO",
+    args = { 0 },
+    raw = { 0xFFFE, 0x0200, 1, 0 },
+  }
+  local c = controller({ page({ line({ glyph("A", 1), glyph("B", 2), indicator }) }, "eos") })
+  c:open(request("t", message()))
+  c:step({}) -- opening -> revealing
+  Assert.equal(#c:status().visibleLines, 0, "nothing revealed yet")
+  c:step({}) -- reveal A (ticksPerGlyph 2)
+  Assert.equal(#c:status().visibleLines[1], 1, "only the first glyph is visible")
+  c:step({}) -- tick between glyphs
+  c:step({}) -- reveal B: the trailing indicator becomes visible in the same prefix
+  Assert.equal(#c:status().visibleLines[1], 3)
+  Assert.equal(c:status().visibleLines[1][3].kind, "focus_indicator")
+  Assert.equal(c:status().state, "WAITING_CLOSE")
+
+  -- Full-reveal Action makes the trailing indicator visible immediately.
+  local c2 = controller({ page({ line({ glyph("A", 1), glyph("B", 2), indicator }) }, "eos") })
+  c2:open(request("t2", message()))
+  c2:step({}) -- opening -> revealing
+  c2:step({ actionPressed = true }) -- reveal the whole page at once
+  Assert.equal(c2:status().visibleLines[1][3].kind, "focus_indicator", "full reveal exposes the indicator")
+end
+
+function T.color_tokens_do_not_consume_the_reveal_count()
+  local colorToken = {
+    kind = "style",
+    control = 0xFF00,
+    name = "COLOR",
+    args = { 1 },
+    raw = { 0xFFFE, 0xFF00, 1, 1 },
+  }
+  local c = controller({
+    page({ line({ glyph("A", 1), colorToken, glyph("B", 2) }) }, "eos"),
+  })
+  c:open(request("t", message()))
+  c:step({}) -- opening -> revealing
+  c:step({}) -- reveal the first glyph
+  Assert.equal(c:status().revealedGlyphs, 1, "reveal counts glyphs only")
+  Assert.equal(c:status().pageGlyphCount, 2, "the color control consumes no glyph slot")
+  local prefix = c:status().visibleLines[1]
+  Assert.equal(#prefix, 2, "the color control rides the reveal prefix")
+  Assert.equal(prefix[2].control, 0xFF00)
+end
+
 return { tests = T }
