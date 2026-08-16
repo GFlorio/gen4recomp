@@ -22,9 +22,11 @@ local FieldTexAnimFixture = require("tests.support.FieldTextureAnimationFixture"
 local FieldTextureAnimation = require("romdump.src.digest.FieldTextureAnimation")
 local Hashing = require("romdump.src.digest.Hashing")
 local HgssFieldEdgeColors = require("romdump.src.digest.HgssFieldEdgeColors")
+local HgssFieldFog = require("romdump.src.digest.HgssFieldFog")
 local LandDataBuilder = require("tests.support.LandDataBuilder")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapCatalog = require("romdump.src.digest.MapCatalog")
 local MapRomFixture = require("tests.support.MapRomFixture")
 local NB = require("tests.support.NitroBuilder")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
@@ -279,6 +281,19 @@ function T.scene_edge_colors_follow_the_area_light_pattern_byte()
 
   local nonzero = assert(compile({ lightTypeRaw = 1 }))
   Assert.deepEqual(nonzero.scene.edgeColors, HgssFieldEdgeColors.TABLE_B)
+end
+
+-- The compiled scene carries the resolved global fog preset for this map's
+-- real HGSS weather field (MapCatalog.get(mapId).weather), resolved through
+-- the same HgssFieldFog table the romdump-level tests exercise directly --
+-- never a hardcoded disabled placeholder. This fixture map's real weather is
+-- 0 (Sunny/disabled); the assertion still calls the independent resolver
+-- rather than hardcoding "disabled" so a future fixture-map change or wiring
+-- bug (e.g. reading the wrong field) cannot silently pass.
+function T.scene_fog_matches_the_resolved_weather_preset_for_this_map()
+  local bundle = assert(compile())
+  local weatherId = assert(MapCatalog.get(MapRomFixture.MAP_SYMBOL)).weather
+  Assert.deepEqual(bundle.scene.fog, HgssFieldFog.runtimePreset(weatherId))
 end
 
 function T.a_fully_resolved_map_reports_nothing_unresolved()

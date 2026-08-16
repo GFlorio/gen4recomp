@@ -31,12 +31,21 @@ local function fixedCamera()
   return { distance = 26, far = 400, view = identity, projection = identity, billboardProjection = identity }
 end
 
+local function zeroFogFixture()
+  local table32 = {}
+  for i = 1, 32 do
+    table32[i] = 0
+  end
+  return { enabled = false, color = 0, offset = 0, table = table32 }
+end
+
 local function emptyRuntime()
   return {
     mapDraws = {},
     buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
+    fog = zeroFogFixture(),
   }
 end
 
@@ -1273,6 +1282,7 @@ local function terrainAnimationScene(flowerFrames, waterPng, srtClip)
     lighting = nil,
     terrainAnimations = { textureSrt = srtClip },
     edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
+    fog = zeroFogFixture(),
   }
   backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
   backend:write(dir .. "/collision.g4collision", collisionGridBytes())

@@ -18,6 +18,7 @@ local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
 local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
 local HgssFieldLightProfile = require("romdump.src.digest.HgssFieldLightProfile")
 local HgssFieldEdgeColors = require("romdump.src.digest.HgssFieldEdgeColors")
+local HgssFieldFog = require("romdump.src.digest.HgssFieldFog")
 local BuildingTransform = require("romdump.src.digest.BuildingTransform")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local MapUnits = require("romdump.src.digest.MapUnits")
@@ -696,6 +697,11 @@ local function _compile(romFs, idOrSymbol, opts)
     -- marking is unconditionally enabled, so every compiled scene carries
     -- this table.
     edgeColors = HgssFieldEdgeColors.tableForAreaLightPattern(area.lightTypeRaw),
+    -- The resolved global HGSS weather fog preset for this map's real weather
+    -- field (MapCatalog record), never a placeholder: every compiled scene
+    -- carries it unconditionally, matching HGSS's own unconditional
+    -- Fog_New()/WeatherManager_SetWeather call on field init.
+    fog = HgssFieldFog.runtimePreset(resolved.map.weather),
   }
 
   return {

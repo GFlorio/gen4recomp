@@ -13,6 +13,11 @@ local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = {}
 
+local ZERO_FOG_TABLE = {}
+for i = 1, 32 do
+  ZERO_FOG_TABLE[i] = 0
+end
+
 -- Build love meshes for every definition mesh through the production mesh
 -- path (G4M2 encode -> decode -> build), keyed by mesh id like the loader's
 -- renderMeshesById. The fixture mesh references the .g4mesh path shape; the
@@ -61,6 +66,7 @@ function T.nitro_animated_fixture_renders_through_map_renderer()
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     lighting = nil,
     edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
+    fog = { enabled = false, color = 0, offset = 0, table = ZERO_FOG_TABLE },
   }
 
   instance:play("door.open")

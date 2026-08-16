@@ -23,6 +23,17 @@ local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
 
 local T = {}
 
+-- A disabled fog preset shape (HgssFieldFog.runtimePreset's shape for a
+-- disabled weather), the default for scene builders not exercising fog
+-- forwarding itself.
+local function defaultFogFixture()
+  local table32 = {}
+  for i = 1, 32 do
+    table32[i] = 0
+  end
+  return { enabled = false, color = 0, offset = 0, table = table32 }
+end
+
 -- A 32x32 all-plain collision grid (the scene cell), optionally with
 -- DOOR-behavior (105) tiles. `doorTiles` is either one { x, z } tile or a
 -- list of them.
@@ -373,6 +384,7 @@ local function sceneWith(instances, descriptors, doorTiles)
     neighbors = {},
     terrainAnimations = { textureSrt = false },
     lighting = nil,
+    fog = defaultFogFixture(),
   }
   backend:write(dir .. "/scene.lua", LuaWriter.encode(scene))
   for _, desc in pairs(descriptors) do
@@ -581,6 +593,7 @@ local function terrainScene(materials, clip)
     neighbors = {},
     lighting = nil,
     terrainAnimations = { textureSrt = clip or false },
+    fog = defaultFogFixture(),
   }
   local geomPath = MapAssetCache.geometryPath("terrain-quad")
   for _, material in ipairs(materials) do
@@ -684,6 +697,7 @@ function T.animated_building_loads_advances_and_renders()
     terrainAnimations = { textureSrt = false },
     lighting = nil,
     edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
+    fog = defaultFogFixture(),
   }
   local descriptor = doorDescriptor()
   local modelPath = MapAssetCache.modelPath("outdoor:26:door")
@@ -1656,6 +1670,45 @@ function T.static_building_draw_materials_carry_a_tex_matrix()
     "a static building draw material carries the identity tex matrix"
   )
   runtime:release()
+end
+
+-- ---- global fog preset forwarding ----
+
+-- A resolved HgssFieldFog.runtimePreset(1) shape (Rain/Heavy Rain/Thunder-
+-- storm): enabled, RGB555 color, offset, and the generated 32-entry ramp.
+-- Written out here as a literal (rather than requiring romdump's
+-- HgssFieldFog) because MapSceneLoader is a runtime module that must never
+-- import romdump -- the loader only ever sees this shape already resolved on
+-- the compiled scene.
+local function fogPresetFixture()
+  local table32 = {}
+  for i = 1, 32 do
+    table32[i] = (i - 1) * 4
+  end
+  return { enabled = true, color = 26 + 26 * 32 + 26 * 1024, offset = 0x726F, table = table32 }
+end
+
+-- The compiled area's resolved global fog preset is opaque scene state,
+-- forwarded to the runtime exactly like edgeColors -- MapSceneLoader has no
+-- ROM/weather knowledge of its own.
+function T.load_forwards_the_scenes_resolved_fog_preset()
+  local cache, scene = terrainScene({}, false)
+  scene.fog = fogPresetFixture()
+  local runtime = MapSceneLoader.load(cache, scene)
+  Assert.deepEqual(runtime.fog, fogPresetFixture(), "the runtime carries the scene's resolved fog preset")
+  runtime:release()
+end
+
+-- Every compiled HGSS field scene carries a resolved fog preset (global fog
+-- is unconditionally evaluated per map, even when the result is "disabled");
+-- a scene missing it is a required production collaborator gone missing, not
+-- a case the loader defaults around.
+function T.load_requires_the_scenes_fog_preset()
+  local cache, scene = terrainScene({}, false)
+  scene.fog = nil
+  Assert.throws(function()
+    MapSceneLoader.load(cache, scene)
+  end)
 end
 
 return {

@@ -43,6 +43,7 @@ local DsLighting = require("libs.engine.src.DsLighting")
 ---@field edgeShader love.Shader
 ---@field _edgeColorsCache number[][]
 ---@field _edgeColorsProfile table<integer, integer>?
+---@field _fogColorCache number[]
 ---@field stats { drawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
 ---@field sceneColor love.Canvas?
 ---@field idDepth love.Canvas?
@@ -157,6 +158,7 @@ function MapRenderer.new(opts)
       { 0, 0, 0 },
     },
     _edgeColorsProfile = nil,
+    _fogColorCache = { 0, 0, 0 },
     stats = { drawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
     _lightMaterialColorCache = {
       diffuse = { 0, 0, 0 },
@@ -427,29 +429,27 @@ function MapRenderer:_sendEdgeColors(sceneRuntime)
   self._edgeColorsProfile = edgeColors
 end
 
--- The DS SDK's idle fog state (GX_g3x.c: reg_G3X_FOG_COLOR = reg_G3X_FOG_OFFSET
--- = 0 on init; the field engine's FogData is Heap-cleared by Fog_New before any
--- weather/event script calls G3X_SetFog), sent once per frame: the global
--- DISP3DCNT gate off, black color, a zeroed 32-entry density table, and a zero
--- depth offset. No per-area HGSS fog color/table/offset source was found under
--- tmp/refs (unlike the edge-color tables, which are per-area ROM/decomp
--- constants); the field engine sets these registers live from weather/event
--- scripts rather than a compiled-in per-area table, so wiring that live source
--- is future work. Sending this real, ROM-confirmed idle default (rather than a
--- fabricated color/table) keeps the shader's fog gate/combiner path exercised
--- and correct while it is off; each draw's own per-polygon fog gate still
--- reaches the shader unconditionally (see u_polygonFogEnabled sends below).
-local FOG_ZERO_TABLE = {}
-for i = 1, 32 do
-  FOG_ZERO_TABLE[i] = 0
-end
-
-function MapRenderer:_sendFog()
+-- The scene's resolved global HGSS weather fog preset (HgssFieldFog.
+-- runtimePreset, compiled per map from the real weather field): enable,
+-- RGB555-decoded color, the 32-entry density table, and the raw offset, sent
+-- unconditionally every frame -- no reference-equality resend cache, unlike
+-- _sendEdgeColors/_sendLighting, since fog is not a large, rarely-changing
+-- lookup table shared across many draws the way edge colors are (matches how
+-- u_depthWMax/u_view are already sent per-frame from live scene/camera
+-- state). Every compiled HGSS field scene carries this preset unconditionally
+-- (global fog is evaluated per map regardless of whether it resolves to
+-- disabled), so a missing preset is a collaborator gone missing, not a case
+-- to default around. Each draw's own per-polygon fog gate still reaches the
+-- shader unconditionally and independently (see u_polygonFogEnabled sends
+-- below).
+function MapRenderer:_sendFog(sceneRuntime)
+  local fog = assert(sceneRuntime.fog, "scene runtime requires a fog preset")
   local shader = self.shader
-  shader:send("u_fogEnabled", false)
-  shader:send("u_fogColor", ZERO_COLOR)
-  shader:send("u_fogTable", FOG_ZERO_TABLE)
-  shader:send("u_fogOffset", 0)
+  decodeRgb555(self._fogColorCache, fog.color)
+  shader:send("u_fogEnabled", fog.enabled)
+  shader:send("u_fogColor", self._fogColorCache)
+  shader:send("u_fogTable", fog.table)
+  shader:send("u_fogOffset", fog.offset)
 end
 
 -- The effective DS material register for one channel of one draw item: the
@@ -824,7 +824,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
 
     self:_sendLighting(sceneRuntime)
     self:_sendEdgeColors(sceneRuntime)
-    self:_sendFog()
+    self:_sendFog(sceneRuntime)
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
     -- Pass 1: opaque, depth test + write.

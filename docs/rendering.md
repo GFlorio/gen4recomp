@@ -12,7 +12,7 @@ The pipeline has four stages:
 1. **Parse** raw Nitro formats (`Nsbmd`, `Nsbtx`, `GxDisplayList`) independently
    of LÖVE.
 2. **Compile** a map + its placed buildings into derived, content-addressed
-   assets: `g4-map-scene-v7` descriptors, `G4M2` mesh batches, and PNG textures.
+   assets: `g4-map-scene-v8` descriptors, `G4M2` mesh batches, and PNG textures.
 3. **Load** the derived cache into runtime GPU objects (`MapSceneLoader`).
 4. **Draw** with the DS-shaped shader and render queue (`MapRenderer`).
 
@@ -327,8 +327,16 @@ actors draw with the world projection, exactly as on the DS.
 * Global DS fog: the two-gate (`DISP3DCNT` + per-polygon `FOG_ENABLE`) rule,
   the 32-entry density table, and the post-combiner blend, applied in
   `map.glsl` from the same DS-quantized depth the edge pass reads. The
-  per-area/time-of-day source of the fog color/table/offset themselves is
-  not: see "Deferred / approximate."
+  per-map/weather source of the fog color/table/offset is now also real:
+  `HgssFieldFog` resolves each map's HGSS `weatherId` (0-13) to the exact
+  steady-state overlay-01 preset (`ov01_021EC94C`/`ov01_021ECD08`/
+  `ov01_021ED0F0`/`ov01_021ED584`/`ov01_021ED710`/`ov01_021ED924`/
+  `ov01_021EDA50`, see `tmp/fog.md` sections 3/7), and `MapAssetCompiler`
+  compiles the resolved `enabled`/`color`/`offset`/`table` subset onto every
+  scene (`g4-map-scene-v8`, `scene.fog`) unconditionally -- disabled weathers
+  (Sunny/Sandstorm) carry a real disabled preset, not an invented one. Every
+  real preset uses fog blend mode 0 (color+alpha); mode 1 (alpha-only) never
+  occurs in this table.
 * `BB` billboards, oriented in the vertex shader from the captured base transform.
 * The field-billboard depth bias (`unk11C = 8` model units in `ov01_021E6220`):
   actor billboards render through a projection whose Z row is pulled
@@ -363,12 +371,27 @@ one, the compiler raises a structured error instead of rendering incorrectly.
   itself already matches the DS blend shape, but nothing downstream reads
   the scene color's alpha channel, so this part of the contract is
   unimplemented and currently unobservable.
-* Per-area/time-of-day fog color/table/offset source data: the fog gate,
-  table, and post-combiner math are implemented exactly (see "Implemented
-  exactly" above), but no decompiled reference in this checkout identifies
-  where HGSS selects them per area/weather, so the renderer sends the DS
-  SDK's real idle-default fog state (disabled, black, zero table, zero
-  offset) globally rather than live per-area data.
+* Runtime weather-ID overrides: HGSS rewrites the map's base `weatherId`
+  before resolving fog in four cases (Mt. Silver Cave Summit forces Diamond
+  Dust on specific RTC calendar dates; a Lake of Rage save flag forces
+  weather 0; Defog forces weather 9 to 0; an active Flash-move forces weather
+  11 to 12). `HgssFieldFog` implements only the steady-state
+  `weatherId -> FogPreset` table itself; none of the four overrides are wired,
+  since they need RTC/save-flag plumbing that does not exist yet in this
+  engine.
+* The fog slope's real per-entry depth-step size: GBATEK's
+  `FogDepthBoundary[n] = FOG_OFFSET + FOG_STEP*(n+1)`, where
+  `FOG_STEP = 0x400 >> FOG_SHIFT` and `FOG_SHIFT` is the raw DISP3DCNT slope
+  field (HGSS's presets use shift values 1, 3, 6, and 10) -- confirmed
+  against pokeheartgold's `G3X_SetFog`/`GXFogSlope` enum, this step size is
+  *not* a uniform 32-way split of the full depth range. `map.glsl` still
+  quantizes fog table lookups with a fixed `DS_DEPTH_MAX / 32.0` step; the
+  real slope-dependent step needs a confirmed correspondence between
+  `FOG_STEP`/`FOG_OFFSET`'s raw DS W/Z-buffer depth units and this engine's
+  own `DS_DEPTH_MAX`/camera-far-normalized depth domain, which no current
+  reference establishes. `HgssFieldFog.resolve` (romdump-internal, not part
+  of the runtime schema) keeps `slope` and `blendMode` available for a future
+  pass that resolves this correspondence.
 * `depthEqual`/`translucentDepthWrite`: never exercised anywhere in the
   target field corpus; `PolygonState.validate` raises
   `POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED` rather than approximating the DS
@@ -395,7 +418,7 @@ Derived map caches carry the persisted format/schema identities:
 
 ```lua
 MapAssetCache.FORMAT              = "map-cache-v7"
-scene.schema                      = "g4-map-scene-v7"
+scene.schema                      = "g4-map-scene-v8"
 terrain.schema                    = "g4-terrain-surfaces-v1"
 collision version                 = 1
 VertexFormat.VERSION              = 2

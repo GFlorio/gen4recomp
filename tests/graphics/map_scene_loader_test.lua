@@ -70,9 +70,19 @@ end
 -- A minimal current scene: no building instances, no neighbors, one terrain
 -- batch per supplied material, and the scene's collision asset (the door
 -- pass resolves against the grid it decodes into).
+-- A disabled fog preset shape (HgssFieldFog.runtimePreset's shape for a
+-- disabled weather); this suite does not exercise fog wiring itself.
+local function defaultFogFixture()
+  local table32 = {}
+  for i = 1, 32 do
+    table32[i] = 0
+  end
+  return { enabled = false, color = 0, offset = 0, table = table32 }
+end
+
 local function scene(materials)
   return {
-    schema = "g4-map-scene-v7",
+    schema = "g4-map-scene-v8",
     mapId = 1,
     cameraType = 0,
     matrix = { width = 1, height = 1, x = 0, z = 0, worldOriginX = 0, worldOriginZ = 0 },
@@ -82,6 +92,7 @@ local function scene(materials)
     buildingInstances = {},
     neighbors = {},
     terrainAnimations = { textureSrt = false },
+    fog = defaultFogFixture(),
   }
 end
 

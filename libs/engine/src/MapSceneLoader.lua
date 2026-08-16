@@ -503,6 +503,10 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- opaque scene state -- MapRenderer decodes and sends it, with no ROM
   -- knowledge of its own.
   runtime.edgeColors = scene.edgeColors
+  -- The compiled area's resolved global HGSS weather fog preset, forwarded
+  -- as opaque scene state -- MapSceneLoader has no ROM/weather knowledge of
+  -- its own. Every compiled scene carries this unconditionally.
+  runtime.fog = assert(scene.fog, "scene runtime requires a fog preset")
   runtime.fieldTimeSeconds = FieldLightProfile.DEFAULT_TIME_SECONDS
   runtime.timeBand = timeBand
   runtime.animatedInstances = animatedInstances

@@ -25,6 +25,16 @@ local function edgeColorsFixture()
   return { [0] = 0, 1 + 2 * 32 + 3 * 1024, 4, 5 * 32, 6 * 1024, 7, 8 + 8 * 32, 9 }
 end
 
+-- A disabled fog fixture (HgssFieldFog.runtimePreset's shape for a disabled
+-- weather): the default for tests not exercising fog wiring itself.
+local function disabledFogFixture()
+  local table32 = {}
+  for i = 1, 32 do
+    table32[i] = 0
+  end
+  return { enabled = false, color = 0, offset = 0, table = table32 }
+end
+
 -- The exact decode MapRenderer applies to a packed RGB555 edge-color entry:
 -- each 5-bit channel normalized to 0..1. Mirrors MapRenderer's private
 -- decodeRgb555 so tests assert against the documented contract, not an
@@ -62,6 +72,10 @@ local function emptySceneCamera()
       -- Edge colors are scene state fed from the compiled area's
       -- real HGSS table, never a MapRenderer constructor invariant.
       edgeColors = edgeColorsFixture(),
+      -- Likewise fog: the resolved global weather preset, disabled by
+      -- default here so tests unrelated to fog wiring do not need their own
+      -- fixture.
+      fog = disabledFogFixture(),
     },
   }
 end
@@ -753,6 +767,85 @@ function T.draw_requires_a_positive_camera_far_plane()
   scene.camera.far = -10
   Assert.throws(function()
     renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  end)
+  renderer:release()
+end
+
+-- The resolved HgssFieldFog.runtimePreset shape a compiled scene carries:
+-- enabled, packed RGB555 color, raw offset, and a 32-entry density table --
+-- distinct, non-placeholder values (not the renderer's own idle-default
+-- zero/black/false) so a hardcoded-disabled bug cannot hide behind a
+-- coincidentally-zero fixture.
+local function fogFixture(enabled)
+  local table32 = {}
+  for i = 1, 32 do
+    table32[i] = enabled and ((i - 1) * 4) or 255
+  end
+  return {
+    enabled = enabled,
+    color = enabled and (26 + 26 * 32 + 26 * 1024) or (1 + 2 * 32 + 3 * 1024),
+    offset = enabled and 0x726F or 17,
+    table = table32,
+  }
+end
+
+-- MapRenderer must send the scene's own resolved fog preset, not the
+-- permanently-disabled idle default: enable, the RGB555-decoded color, the
+-- raw offset, and the 32-entry table all reach the shader unconditionally
+-- (per-frame, like u_depthWMax), whether the resolved preset is enabled or
+-- disabled -- disabled is data on the preset, never a MapRenderer special
+-- case.
+function T.draw_sends_the_scenes_resolved_fog_preset_when_enabled()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  scene.runtime.fog = fogFixture(true)
+  local shader = lg.shaders[1]
+
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  Assert.equal(shader.uniforms.u_fogEnabled, true, "the resolved preset's enable reaches the shader")
+  Assert.deepEqual(
+    shader.uniforms.u_fogColor,
+    decodeRgb555Float(scene.runtime.fog.color),
+    "fog color decodes like edge colors"
+  )
+  Assert.equal(shader.uniforms.u_fogOffset, 0x726F, "the raw offset reaches the shader unconverted")
+  Assert.deepEqual(
+    shader.uniforms.u_fogTable,
+    scene.runtime.fog.table,
+    "the resolved 32-entry table reaches the shader"
+  )
+  renderer:release()
+end
+
+function T.draw_sends_the_scenes_resolved_fog_preset_when_disabled()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  scene.runtime.fog = fogFixture(false)
+  local shader = lg.shaders[1]
+
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  Assert.equal(shader.uniforms.u_fogEnabled, false)
+  Assert.deepEqual(shader.uniforms.u_fogColor, decodeRgb555Float(scene.runtime.fog.color))
+  Assert.equal(shader.uniforms.u_fogOffset, 17)
+  Assert.deepEqual(shader.uniforms.u_fogTable, scene.runtime.fog.table)
+  renderer:release()
+end
+
+-- Every compiled HGSS field scene carries a resolved fog preset (global fog
+-- is unconditionally resolved per map); a scene missing it is a required
+-- collaborator gone missing, not a case MapRenderer defaults around.
+function T.draw_requires_the_scenes_fog_preset()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  scene.runtime.fog = nil
+
+  Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
   end)
   renderer:release()
 end

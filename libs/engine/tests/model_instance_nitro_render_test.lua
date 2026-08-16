@@ -15,6 +15,11 @@ local ModelDefinition = require("libs.engine.src.ModelDefinition")
 
 local T = {}
 
+local ZERO_FOG_TABLE = {}
+for i = 1, 32 do
+  ZERO_FOG_TABLE[i] = 0
+end
+
 local function identity9()
   return { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 end
@@ -258,6 +263,7 @@ local function litRuntime()
     buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
+    fog = { enabled = false, color = 0, offset = 0, table = ZERO_FOG_TABLE },
     lighting = {
       records = {
         {
