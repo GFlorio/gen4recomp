@@ -172,24 +172,6 @@ function T.raster_scale_derives_and_reuses_target_size_and_nearest_filters_scene
   end
 end
 
--- setRasterScale on a real driver: switching to a raster scale recreates the
--- targets at the derived size, and switching back to nil (unrestricted host
--- resolution) recreates them again at the raw display viewport.
-function T.set_raster_scale_recreates_real_targets_at_the_derived_size(scope)
-  local renderer = scope:own(MapRenderer.new())
-  local camera, runtime = fixedCamera(), emptyRuntime()
-  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
-
-  renderer:draw(runtime, camera, nil, viewport)
-  Assert.equal(renderer.canvasW, 640)
-  Assert.equal(renderer.canvasH, 480)
-
-  renderer:setRasterScale(2)
-  renderer:draw(runtime, camera, nil, viewport)
-  Assert.equal(renderer.canvasW, 512)
-  Assert.equal(renderer.canvasH, 384)
-end
-
 -- An actor draw is a cutout billboard submitted as an overlay item, and it sets
 -- per-item cull, depth, and alpha state. Nothing it touches may survive the
 -- frame, or the 2D dialogue UI and the next map's draws inherit it.

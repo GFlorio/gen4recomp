@@ -199,15 +199,6 @@ function MapRenderer.new(opts)
   return renderer
 end
 
--- Change the raster scale for subsequent draws. Target recreation is
--- change-driven: the next `draw` reallocates only if the newly derived
--- raster size actually differs from the currently published one (see
--- `_ensureCanvases`), never merely because this method was called.
----@param scale number|nil
-function MapRenderer:setRasterScale(scale)
-  self._rasterScale = scale
-end
-
 function MapRenderer:_releaseCanvases()
   if self.sceneColor then
     self.sceneColor:release()
