@@ -722,19 +722,17 @@ function T.wait_signpost_action_cancel_marks_state_and_is_safe_without_a_service
   Assert.equal(noService.cancelled, "reason")
 end
 
--- The registered task state is strictly validated: non-table or markerless
--- state is an unserializable task record, never a silent acceptance.
-function T.trainer_tips_and_wait_signpost_states_validate_strictly()
+-- The registered task state is stateless: validation accepts any table (the
+-- empty state included — no waiting marker is invented) and rejects only
+-- non-table records.
+function T.trainer_tips_and_wait_signpost_states_validate_as_tables()
   for _, impl in ipairs({ TrainerTipsTask, WaitSignpostTask }) do
-    local markerless = {} ---@type any
     local nonTable = 7 ---@type any
-    local err = impl.validate(markerless)
+    local err = impl.validate(nonTable)
     ---@cast err Errors.Error
     Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
-    local err2 = impl.validate(nonTable)
-    ---@cast err2 Errors.Error
-    Assert.equal(err2.code, "SCRIPT_TASK_UNSERIALIZABLE")
-    Assert.isNil(impl.validate({ waiting = true }))
+    Assert.isNil(impl.validate({}), "the empty stateless state must validate")
+    Assert.isNil(impl.validate({ waiting = true }), "any table state must validate")
   end
 end
 
@@ -1067,19 +1065,29 @@ function T.high_level_sign_cancel_closes_the_signpost_exactly_once()
   Assert.equal(#h.scheduler:tasks(), 0)
 end
 
--- The registered sign task state is strictly validated: non-table or
--- markerless state is an unserializable task record, never a silent
--- acceptance.
-function T.high_level_sign_state_validates_strictly()
-  local markerless = {} ---@type any
+-- The registered sign task state is stateless: validation accepts any table
+-- (the empty state included — no waiting marker is invented) and rejects
+-- only non-table records.
+function T.high_level_sign_state_validates_as_a_table()
   local nonTable = 7 ---@type any
-  local err = SignTask.validate(markerless)
+  local err = SignTask.validate(nonTable)
   ---@cast err Errors.Error
   Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
-  local err2 = SignTask.validate(nonTable)
-  ---@cast err2 Errors.Error
-  Assert.equal(err2.code, "SCRIPT_TASK_UNSERIALIZABLE")
-  Assert.isNil(SignTask.validate({ waiting = true }))
+  Assert.isNil(SignTask.validate({}), "the empty stateless state must validate")
+  Assert.isNil(SignTask.validate({ waiting = true }), "any table state must validate")
+end
+
+-- The stateless sign tasks create the empty state: creation serializes no
+-- waiting marker for behavior that never reads it.
+function T.stateless_sign_tasks_create_empty_state()
+  Assert.deepEqual(SignTask.create({ node = {} }), {})
+  Assert.deepEqual(WaitSignpostTask.create({ node = {} }), {})
+  local host = RecordingSignpostHost.new()
+  local state = TrainerTipsTask.create(
+    { node = { message = "msg.hgss.0542.00035" } },
+    { services = { signpost = host }, instance = { textArgs = {} } }
+  )
+  Assert.deepEqual(state, {})
 end
 
 return { tests = T }

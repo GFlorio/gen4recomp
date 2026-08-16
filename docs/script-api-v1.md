@@ -115,7 +115,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.sign(spec)` | `op=sign` | spec={message,appearance="sign"}; appearance is a catalogued style id or the semantic "sign". |
 | `S.trainerTip(spec)` | `op=trainer_tip` | spec={message,appearance="trainer_tip"}; types at the player text speed and waits for dismissal. |
 | `S.signpostSet(spec)` | `op=signpost_set` | Generated/advanced imported-HGSS form; spec={sourceAppearance={game,type,map}}. |
-| `S.signpostCommand(command)` | `op=signpost_command` | Generated/advanced; command is one of the semantic strings (nop/show/wipe_out/wipe_in/hide). |
+| `S.signpostCommand(spec)` | `op=signpost_command` | Generated/advanced; spec={command}; command is one of the semantic strings (nop/show/wipe_out/wipe_in/hide). |
 | `S.waitSignpostAction(spec)` | `op=wait_signpost_action` | Generated/advanced imported-HGSS form; spec optional. |
 | `S.signpostDirection(spec)` | `op=signpost_direction` | Generated/advanced imported-HGSS form. |
 | `S.trainerTipsPrint(spec)` | `op=trainer_tips_print` | Generated/advanced imported-HGSS form. |

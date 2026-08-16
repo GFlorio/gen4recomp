@@ -520,9 +520,8 @@ function M.signpostSet(spec)
   return op("signpost_set", spec)
 end
 
-function M.signpostCommand(command)
-  assert(type(command) == "string" and command ~= "", "signpost command must be a non-empty string")
-  return op("signpost_command", { command = command })
+function M.signpostCommand(spec)
+  return op("signpost_command", spec)
 end
 
 function M.waitSignpostAction(spec)

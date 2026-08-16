@@ -945,7 +945,7 @@ local CASES = {
   },
   signpost_command = {
     function()
-      return S.signpostCommand("wipe_in")
+      return S.signpostCommand({ command = "wipe_in" })
     end,
     { op = "signpost_command", command = "wipe_in" },
   },
@@ -1164,6 +1164,14 @@ function T.sign_constructors_reject_positional_message_forms()
   Assert.isFalse(ok, "S.sign must not accept a positional message, got: " .. tostring(err))
   local ok2, err2 = pcall(S.trainerTip, "msg.hgss.0542.00036")
   Assert.isFalse(ok2, "S.trainerTip must not accept a positional message, got: " .. tostring(err2))
+end
+
+-- signpostCommand follows the same canonical-spec rule as the other
+-- constructors: only the one-table spec form is valid, never a positional
+-- command string.
+function T.signpost_command_rejects_the_positional_string_form()
+  local ok, err = pcall(S.signpostCommand, "wipe_in")
+  Assert.isFalse(ok, "S.signpostCommand must not accept a positional command, got: " .. tostring(err))
 end
 
 -- Every raw handler sees ctx.apiVersion == 1.

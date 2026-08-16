@@ -14,9 +14,8 @@ local DialogueLayout = {}
 local DEFAULT_MAX_LINES = 2
 
 -- metrics: { glyphWidth(code) -> integer, nonGlyphWidth(token) -> integer|nil }
--- resolving glyph advances and, optionally, the typeset width of marker
--- tokens (control tokens have explicit width behavior). Without
--- nonGlyphWidth, non-glyph tokens stay widthless.
+-- resolving glyph advances and, optionally, the explicit width of non-glyph
+-- control tokens. Without nonGlyphWidth, non-glyph tokens stay widthless.
 -- opts: { width = integer, maxLines = integer }
 -- Returns { pages = { { lines = { { tokens, width } }, breakKind } }, warnings }.
 -- breakKind is "prompt", "page", "line", "overflow", or "eos".
@@ -74,10 +73,9 @@ function DialogueLayout.layout(tokens, metrics, opts)
   end
 
   -- One token-width rule for every layout calculation: a glyph contributes
-  -- its advance; a non-glyph token contributes its measured marker width
-  -- (zero when the metrics object provides none), so a rendered marker never
-  -- overlaps the following glyphs. Carried tokens keep the same rule, so a
-  -- word wrapped to a new line keeps its exact width.
+  -- its advance; a non-glyph token contributes its explicit non-glyph width
+  -- (zero when the metrics object provides none). Carried tokens keep the
+  -- same rule, so a word wrapped to a new line keeps its exact width.
   local function tokenWidth(token)
     if token.kind == "glyph" then
       return metrics.glyphWidth(token.code)
@@ -144,8 +142,8 @@ function DialogueLayout.layout(tokens, metrics, opts)
             line = currentLine()
           elseif breakIndex then
             -- Wrap at the last breakable space; the tokens placed after the
-            -- space (glyphs and markers) carry to the new line with their
-            -- exact width instead of vanishing.
+            -- space (glyphs and non-glyph tokens) carry to the new line with
+            -- their exact width instead of vanishing.
             local kept = {}
             local carried = {}
             for i = 1, breakIndex - 1 do
@@ -181,11 +179,11 @@ function DialogueLayout.layout(tokens, metrics, opts)
     elseif token.kind == "page_break" then
       endPage("page")
     else
-      -- style/wait/substitution/unsupported tokens keep their measured marker
-      -- width (zero when the metrics object does not provide one), so a
-      -- rendered marker never overlaps the following glyphs. A marker that
-      -- pushes the line past the budget is placed anyway and traced, exactly
-      -- like an over-wide glyph: markers cannot be split.
+      -- style/wait/substitution/unsupported tokens keep their explicit
+      -- non-glyph width (zero when the metrics object does not provide
+      -- one). A non-glyph token that pushes the line past the budget is
+      -- placed anyway and traced, exactly like an over-wide glyph:
+      -- non-glyph tokens cannot be split.
       local w = tokenWidth(token)
       local line = currentLine()
       if line.width + w > width then
@@ -221,7 +219,8 @@ end
 ---@field lines DialogueLayout.Line[]
 ---@field breakKind "prompt"|"page"|"line"|"overflow"|"eos"
 
--- A traced layout problem (e.g. a glyph or marker wider than the box).
+-- A traced layout problem (e.g. a glyph or non-glyph token wider than the
+-- box).
 
 ---@class DialogueLayout.Warning
 ---@field kind "overwide"

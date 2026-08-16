@@ -45,8 +45,10 @@ FieldSignpostRenderer.__index = FieldSignpostRenderer
 -- class; opts.manifest: the already-validated generated field-UI manifest
 -- the runtime loaded once (FieldRuntime.uiManifest); opts.text: the shared
 -- FieldTextRenderer (FieldState owns exactly one); opts.graphics: injectable
--- LÖVE graphics namespace; opts.windowStyles: the per-runtime window style
--- catalogue the controller's styleId resolves in.
+-- LÖVE graphics namespace so tests can record draw calls (LÖVE itself
+-- remains an allowed presentation-layer dependency: the PNG bytes still
+-- enter through love.filesystem.newFileData); opts.windowStyles: the
+-- per-runtime window style catalogue the controller's styleId resolves in.
 
 ---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, windowStyles: FieldWindowStyles, graphics?: love.Graphics? }
 ---@return FieldSignpostRenderer

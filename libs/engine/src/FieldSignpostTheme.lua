@@ -19,7 +19,6 @@ local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 ---@field LINE_HEIGHT integer
 ---@field WAYFINDING_GRID_COLUMNS integer
 ---@field WAYFINDING_GRID_ROWS integer
----@field colors { marker: number[] }
 ---@field frameTilePlacements fun(kind: string): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
 ---@field wayfindingPlacements fun(region: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer }[]
 ---@field wipeY fun(logicalYOffset: number): number
