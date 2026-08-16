@@ -1,13 +1,15 @@
 -- HGSS's steady-state global field-fog presets, one per `WeatherManager_New`
 -- weather ID (0-13), recovered from pokeheartgold overlay 01's weather
--- dispatch table and its handler literal pools -- see tmp/fog.md sections 3
--- and 7 for the full derivation. Pinned to the same pokeheartgold commit
--- `romdump/src/reference/hgss/maps.lua` already cites
--- (7e25c842061d026f43fe6efbd7be0ec94c50839d).
+-- dispatch table and its handler literal pools. Pinned to the same
+-- pokeheartgold commit `romdump/src/reference/hgss/maps.lua` already cites
+-- (7e25c842061d026f43fe6efbd7be0ec94c50839d); overlay 01's weather handlers
+-- have not yet been converted from `asm/overlay_01_021EB1E8.s` to C at that
+-- commit, so the citations below are overlay-01 virtual addresses rather
+-- than decompiled symbol names.
 --
 -- The 14-record dispatch table lives at `ov01_022098B0` (overlay 01 .data);
 -- each record's handler resolves to one of the groups below. Handler
--- addresses and their literal-pool constants (tmp/fog.md table 5):
+-- addresses and their literal-pool constants:
 --
 --   weather  handler          offset literal   color literal   slope
 --   0        ov01_021EC8F8    (no fog: Fog_New's disabled default)
@@ -141,16 +143,26 @@ function HgssFieldFog.resolve(weatherId)
   return PRESETS[weatherId]
 end
 
--- The renderer-consumed subset of a resolved preset: `enabled`, `color`,
--- `offset`, `table` only -- no `slope`/`blendMode`/`alpha`, which map.glsl's
--- shader does not consume today (see docs/rendering.md).
----@param weatherId integer 0-13
-function HgssFieldFog.runtimePreset(weatherId)
-  local full = HgssFieldFog.resolve(weatherId)
+-- The runtime-relevant subset of a resolved preset: `enabled`, `slope`,
+-- `offset`, `color`, `alpha`, and `table`. `blendMode` is never carried --
+-- every currently supported HGSS steady-state preset uses blend mode 0
+-- (`GX_FOGBLEND_COLOR_ALPHA`, `ov01_021EC678`), so this asserts that
+-- invariant instead of serializing a field with exactly one observed value.
+-- Takes the full resolved preset (not a weatherId) so a synthetic preset can
+-- exercise the blend-mode invariant directly; call sites that only have a
+-- weatherId should resolve it first.
+---@param full table a preset as returned by `HgssFieldFog.resolve`
+function HgssFieldFog.runtimePreset(full)
+  assert(
+    full.blendMode == 0,
+    "HgssFieldFog.runtimePreset: source preset has a non-zero blend mode; only GX_FOGBLEND_COLOR_ALPHA (0) is implemented"
+  )
   return {
     enabled = full.enabled,
-    color = full.color,
+    slope = full.slope,
     offset = full.offset,
+    color = full.color,
+    alpha = full.alpha,
     table = full.table,
   }
 end

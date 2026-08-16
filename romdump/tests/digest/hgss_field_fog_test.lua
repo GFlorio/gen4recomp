@@ -1,13 +1,10 @@
--- RED (TDD): tests for the not-yet-implemented HgssFieldFog, the steady-state
--- HGSS weather-fog preset table. Source: tmp/fog.md section 3 (the
--- overlay-01 weather-dispatch fog constants, cross-checked against GBATEK's
--- "3D Display - Fog" FOG_OFFSET/FOG_TABLE bit layout and pokeheartgold's
--- GX_g3x.h GXFogSlope enum). Scope is steady-state presets only -- no
--- calendar-date, save-flag, Defog, or Flash-move override.
---
--- This file requires "romdump.src.digest.HgssFieldFog", which does not exist
--- yet; every test here is expected to fail on that require until the
--- implementation pass creates the module.
+-- Tests for HgssFieldFog, the steady-state HGSS weather-fog preset table,
+-- recovered from pokeheartgold overlay 01's weather dispatch table and its
+-- handler literal pools, cross-checked against GBATEK's "3D Display - Fog"
+-- FOG_OFFSET/FOG_TABLE bit layout and GX_g3x.h's GXFogSlope enum, pinned to
+-- pokeheartgold commit 7e25c842061d026f43fe6efbd7be0ec94c50839d. Scope is
+-- steady-state presets only -- no calendar-date, save-flag, Defog, or
+-- Flash-move override.
 
 local Assert = require("tests.support.Assert")
 local HgssFieldFog = require("romdump.src.digest.HgssFieldFog")
@@ -136,27 +133,55 @@ function T.resolve_rejects_weather_ids_outside_0_to_13()
   end)
 end
 
--- The runtime-relevant subset attached to a compiled map scene: enable,
--- color, offset, and the resolved 32-entry table -- never slope or blend
--- mode, which map.glsl's shader does not consume today (see docs/rendering.md
--- for the deferred slope-dependent step-size question).
-function T.runtime_preset_carries_only_the_renderer_consumed_fields()
-  local runtime = HgssFieldFog.runtimePreset(1)
+-- The runtime-relevant subset attached to a compiled map scene: enabled,
+-- slope, offset, color, alpha, and the resolved 32-entry table. blendMode is
+-- never carried -- every steady-state preset uses GX_FOGBLEND_COLOR_ALPHA
+-- (blendMode 0), so runtimePreset asserts that invariant instead of
+-- serializing a field with exactly one observed value (see the
+-- non-zero-blend-mode rejection test below).
+function T.runtime_preset_carries_slope_offset_color_alpha_and_table_but_not_blend_mode()
   local full = HgssFieldFog.resolve(1)
+  local runtime = HgssFieldFog.runtimePreset(full)
   Assert.equal(runtime.enabled, full.enabled)
-  Assert.equal(runtime.color, full.color)
+  Assert.equal(runtime.slope, full.slope)
   Assert.equal(runtime.offset, full.offset)
+  Assert.equal(runtime.color, full.color)
+  Assert.equal(runtime.alpha, full.alpha)
   Assert.deepEqual(runtime.table, full.table)
-  Assert.isNil(runtime.slope, "runtime preset omits slope")
   Assert.isNil(runtime.blendMode, "runtime preset omits blend mode")
-  Assert.isNil(runtime.alpha, "runtime preset omits fog-color alpha (no shader uniform consumes it)")
 end
 
 function T.runtime_preset_for_a_disabled_weather_is_harmlessly_zeroed()
-  local runtime = HgssFieldFog.runtimePreset(0)
+  local full = HgssFieldFog.resolve(0)
+  local runtime = HgssFieldFog.runtimePreset(full)
   Assert.isFalse(runtime.enabled)
+  Assert.equal(runtime.slope, 0)
   Assert.equal(runtime.offset, 0)
   Assert.equal(runtime.color, BLACK)
+  Assert.equal(runtime.alpha, 0)
+end
+
+-- Every currently supported HGSS steady-state preset uses blend mode 0
+-- (color+alpha). runtimePreset must fail loudly rather than silently
+-- dropping a hypothetical future alpha-only (blendMode 1) source preset.
+function T.runtime_preset_rejects_a_source_preset_with_nonzero_blend_mode()
+  local full = HgssFieldFog.resolve(1)
+  local alphaOnly = {
+    enabled = full.enabled,
+    blendMode = 1,
+    slope = full.slope,
+    offset = full.offset,
+    color = full.color,
+    alpha = full.alpha,
+    table = full.table,
+  }
+  local err = Assert.throws(function()
+    HgssFieldFog.runtimePreset(alphaOnly)
+  end)
+  Assert.isTrue(
+    tostring(err):find("blend", 1, true) ~= nil,
+    "error should name the blend-mode invariant, got: " .. tostring(err)
+  )
 end
 
 return { tests = T }

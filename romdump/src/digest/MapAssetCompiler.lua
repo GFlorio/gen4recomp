@@ -697,11 +697,17 @@ local function _compile(romFs, idOrSymbol, opts)
     -- marking is unconditionally enabled, so every compiled scene carries
     -- this table.
     edgeColors = HgssFieldEdgeColors.tableForAreaLightPattern(area.lightTypeRaw),
+    -- The map's base weather ID (MapCatalog record), carried alongside its
+    -- resolved fog preset so a future runtime override policy (RTC/save/
+    -- Defog/Flash) can start from the original ID rather than only the
+    -- already-resolved preset.
+    weatherId = resolved.map.weather,
     -- The resolved global HGSS weather fog preset for this map's real weather
-    -- field (MapCatalog record), never a placeholder: every compiled scene
-    -- carries it unconditionally, matching HGSS's own unconditional
-    -- Fog_New()/WeatherManager_SetWeather call on field init.
-    fog = HgssFieldFog.runtimePreset(resolved.map.weather),
+    -- field, never a placeholder: every compiled scene carries it
+    -- unconditionally, matching HGSS's own unconditional Fog_New()/
+    -- WeatherManager_SetWeather call on field init. Derived from weatherId
+    -- in this one place so the two fields cannot diverge.
+    fog = HgssFieldFog.runtimePreset(HgssFieldFog.resolve(resolved.map.weather)),
   }
 
   return {

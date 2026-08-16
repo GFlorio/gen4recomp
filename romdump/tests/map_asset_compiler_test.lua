@@ -283,17 +283,21 @@ function T.scene_edge_colors_follow_the_area_light_pattern_byte()
   Assert.deepEqual(nonzero.scene.edgeColors, HgssFieldEdgeColors.TABLE_B)
 end
 
--- The compiled scene carries the resolved global fog preset for this map's
--- real HGSS weather field (MapCatalog.get(mapId).weather), resolved through
--- the same HgssFieldFog table the romdump-level tests exercise directly --
--- never a hardcoded disabled placeholder. This fixture map's real weather is
--- 0 (Sunny/disabled); the assertion still calls the independent resolver
+-- The compiled scene carries the map's base weather ID (MapCatalog.get(mapId)
+-- .weather) verbatim, and the resolved global fog preset for that weather,
+-- resolved through the same HgssFieldFog table the romdump-level tests
+-- exercise directly -- never a hardcoded disabled placeholder. weatherId is
+-- kept alongside the resolved fog preset (rather than only the preset) so a
+-- future runtime weather override can start from the original ID without
+-- reimporting romdump. This fixture map's real weather is 0
+-- (Sunny/disabled); the assertion still calls the independent resolver
 -- rather than hardcoding "disabled" so a future fixture-map change or wiring
 -- bug (e.g. reading the wrong field) cannot silently pass.
-function T.scene_fog_matches_the_resolved_weather_preset_for_this_map()
+function T.scene_carries_the_base_weather_id_and_its_resolved_fog_preset()
   local bundle = assert(compile())
   local weatherId = assert(MapCatalog.get(MapRomFixture.MAP_SYMBOL)).weather
-  Assert.deepEqual(bundle.scene.fog, HgssFieldFog.runtimePreset(weatherId))
+  Assert.equal(bundle.scene.weatherId, weatherId)
+  Assert.deepEqual(bundle.scene.fog, HgssFieldFog.runtimePreset(HgssFieldFog.resolve(weatherId)))
 end
 
 function T.a_fully_resolved_map_reports_nothing_unresolved()
