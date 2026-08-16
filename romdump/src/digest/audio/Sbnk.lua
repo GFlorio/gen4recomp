@@ -72,15 +72,15 @@ local function readLeaf(bytes, offset, size, source)
       offset = offset,
     })
   end
-  local type = u8At(bytes, offset, source)
-  if type ~= Sbnk.TYPE_PCM and type ~= Sbnk.TYPE_PSG and type ~= Sbnk.TYPE_NOISE then
+  local recordType = u8At(bytes, offset, source)
+  if recordType ~= Sbnk.TYPE_PCM and recordType ~= Sbnk.TYPE_PSG and recordType ~= Sbnk.TYPE_NOISE then
     fail("SBNK_UNSUPPORTED_INSTRUMENT", "unsupported instrument leaf type", {
       source = source,
       sourceOffset = offset,
-      type = type,
+      type = recordType,
     })
   end
-  return { type = type, param = readParam(bytes, offset + 2, size, source) }
+  return { type = recordType, param = readParam(bytes, offset + 2, size, source) }
 end
 
 local function _decode(bytes, context)
@@ -103,16 +103,16 @@ local function _decode(bytes, context)
   local instruments = {}
   for program = 0, instCount - 1 do
     local packed = u32At(bytes, ENTRY_TABLE_OFFSET + program * 4, source)
-    local type = packed % 256
+    local recordType = packed % 256
     local offset = math.floor(packed / 256)
-    if type == 0 then
+    if recordType == 0 then
       -- illegal record: notes on this program are silent
-    elseif type == Sbnk.TYPE_PCM or type == Sbnk.TYPE_PSG or type == Sbnk.TYPE_NOISE then
+    elseif recordType == Sbnk.TYPE_PCM or recordType == Sbnk.TYPE_PSG or recordType == Sbnk.TYPE_NOISE then
       instruments[program] = {
-        type = type,
+        type = recordType,
         param = readParam(bytes, offset, size, source),
       }
-    elseif type == Sbnk.TYPE_DRUM_SET then
+    elseif recordType == Sbnk.TYPE_DRUM_SET then
       if offset + 2 > size then
         fail("SBNK_TRUNCATED", "drum set header extends past the end of the bank", {
           source = source,
@@ -125,8 +125,8 @@ local function _decode(bytes, context)
       for key = minKey, maxKey do
         leaves[key - minKey] = readLeaf(bytes, offset + 2 + (key - minKey) * LEAF_SIZE, size, source)
       end
-      instruments[program] = { type = type, minKey = minKey, maxKey = maxKey, leaves = leaves }
-    elseif type == Sbnk.TYPE_KEY_SPLIT then
+      instruments[program] = { type = recordType, minKey = minKey, maxKey = maxKey, leaves = leaves }
+    elseif recordType == Sbnk.TYPE_KEY_SPLIT then
       if offset + 8 > size then
         fail("SBNK_TRUNCATED", "key split header extends past the end of the bank", {
           source = source,
@@ -148,7 +148,7 @@ local function _decode(bytes, context)
         for i = 0, leafCount - 1 do
           leaves[i] = readLeaf(bytes, offset + 8 + i * LEAF_SIZE, size, source)
         end
-        instruments[program] = { type = type, keys = keys, leaves = leaves }
+        instruments[program] = { type = recordType, keys = keys, leaves = leaves }
       end
       -- a leafless key split is silent: dropped like a type-0 record
     else
@@ -156,7 +156,7 @@ local function _decode(bytes, context)
         source = source,
         instrument = program,
         sourceOffset = offset,
-        type = type,
+        type = recordType,
       })
     end
   end

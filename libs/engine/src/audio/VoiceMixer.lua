@@ -275,7 +275,6 @@ local function newVoice(spec)
       trackPanOffset = spec.trackPanOffset or 0,
       panRange = spec.panRange or 127,
       lfo = spec.lfo or { target = 0, depth = 0, range = 1, speed = 16, delay = 0 },
-      sweepCounter = nil,
       dirty = true,
     },
     sweepPitch = spec.sweepPitch or 0,
@@ -337,11 +336,6 @@ local function applyPending(voice)
     voice.userPan = math.floor((pending.trackPanOffset * pending.panRange + 0x40) / 128)
   end
   voice.lfoParam = pending.lfo
-  -- The sweep counter is voice-owned state (the autoSweep advance); a
-  -- pushed sweepCounter from updateVoice overrides it.
-  if pending.sweepCounter ~= nil then
-    voice.sweepCounter = pending.sweepCounter
-  end
   -- The tie partials: key retunes the pitch path, userPitch offsets it,
   -- velocity re-enters the dB sum; all leave the envelope and the
   -- release/attack status alone.

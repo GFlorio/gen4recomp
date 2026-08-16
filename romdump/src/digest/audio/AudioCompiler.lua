@@ -32,11 +32,11 @@ local function must(value, err)
   return value
 end
 
-local function leafKind(type)
-  if type == Sbnk.TYPE_PCM then
+local function leafKind(recordType)
+  if recordType == Sbnk.TYPE_PCM then
     return "sample"
   end
-  if type == Sbnk.TYPE_PSG then
+  if recordType == Sbnk.TYPE_PSG then
     return "square"
   end
   return "noise"

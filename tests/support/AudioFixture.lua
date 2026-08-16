@@ -124,9 +124,9 @@ end
 -- path derives from the content key, and playback comes from the DS sound
 -- clock and the calculated timer). One-shot waves (loopEnabled false) must
 -- carry the full-range window, mirroring the compiler's normalization.
--- baseTimer defaults to 8006, the DS base timer (16756991/2093); it is the
--- value the mixer suites pin, and it makes octave ratios exact (key 72 ->
--- ratio exactly 2.0).
+-- baseTimer defaults to 8006, the DS PSG base timer (the DS sample clock
+-- 16756991 Hz over 8006 is about 2093 Hz); it is the value the mixer suites
+-- pin, and it makes octave ratios exact (key 72 -> ratio exactly 2.0).
 function AudioFixture.sampleMetadata(key, opts)
   opts = opts or {}
   local frames = opts.frames or 8214
