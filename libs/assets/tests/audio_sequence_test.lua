@@ -10,7 +10,11 @@
 -- ops, missing or illegally shaped operands, variables without a valid
 -- variable number (0..31: 16 player-local plus 16 global SDK variables),
 -- invalid track numbers (0..15), out-of-range branch targets, note
--- key/velocity outside 0..127, and non-boolean conditionals.
+-- key/velocity outside 0..127, conditional instructions (no reachable
+-- retail command is conditional, so the field is forbidden at any value),
+-- and extra instruction or nested-block fields (an instruction carries
+-- only its op and its exact semantic operands; player carries only its
+-- supported fields; program only entry and instructions).
 
 local Assert = require("tests.support.Assert")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
@@ -52,6 +56,13 @@ function T.rejects_unknown_and_deleted_operations()
     AudioSequence.validate(sequence)
   end)
   sequence.program.instructions[2] = { op = "print_var", amount = 1 }
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+  -- The comparison operations are deleted with the conditional execution
+  -- they served: no reachable retail command is conditional, so no runtime
+  -- comparison state exists and no producer emits them.
+  sequence.program.instructions[2] = { op = "cmp_eq", var = 0, amount = 42 }
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -228,12 +239,6 @@ function T.every_op_requires_its_operands()
     "divvar",
     "shiftvar",
     "randomvar",
-    "cmp_eq",
-    "cmp_ge",
-    "cmp_gt",
-    "cmp_le",
-    "cmp_lt",
-    "cmp_ne",
   }) do
     throwsCode("AUDIO_SEQUENCE_INVALID", function()
       validateWith({ op = op })
@@ -391,17 +396,75 @@ function T.validates_note_key_and_velocity()
   end)
 end
 
--- The conditional flag is a boolean when present; any other value is an
--- impossible enum.
-function T.conditional_is_a_boolean_when_present()
+-- The derived IR carries no conditional field: the retail census proves no
+-- reachable conditional command exists, so a conditional instruction is
+-- malformed asset data at any value -- the key itself is forbidden, not
+-- merely its type.
+function T.conditional_instructions_are_rejected()
   local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
   sequence.program.instructions[2] = { op = "pan", amount = 64, conditional = true }
-  Assert.isTrue(AudioSequence.validate(sequence))
-  sequence.program.instructions[2].conditional = 1
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.program.instructions[2].conditional = "yes"
+  sequence.program.instructions[2].conditional = false
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+end
+
+-- Instruction shapes are exact: an instruction carries only its op and the
+-- semantic operands its op requires. A raw opcode, a source offset, a mode
+-- marker, a raw operand byte, or any other extra field is malformed asset
+-- data, never tolerated, and an operand-less op accepts no operands at all.
+function T.rejects_extra_instruction_fields()
+  local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
+  for _, field in ipairs({
+    "opcode",
+    "sourceOffset",
+    "sourceOpcode",
+    "sseqOpcode",
+    "mode",
+    "varlen",
+    "raw",
+    "operand",
+    "offset",
+  }) do
+    sequence.program.instructions[2] = { op = "pan", amount = 64 }
+    sequence.program.instructions[2][field] = "leak"
+    throwsCode("AUDIO_SEQUENCE_INVALID", function()
+      AudioSequence.validate(sequence)
+    end)
+  end
+  sequence.program.instructions[2] = { op = "nop", amount = 1 }
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+  sequence.program.instructions[2] = { op = "note", key = 60, velocity = 96, duration = 24, amount = 7 }
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+end
+
+-- The nested blocks are exact too: sequence.player carries only its
+-- supported fields, and sequence.program only entry and instructions.
+function T.rejects_extra_nested_block_fields()
+  local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
+  sequence.player.maxSequences = 16
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+  sequence.player.maxSequences = nil
+  sequence.player.channelMask = 0xFFFF
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+  sequence.player.channelMask = nil
+  sequence.program.name = "main"
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+  sequence.program.name = nil
+  sequence.program.offsets = {}
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)

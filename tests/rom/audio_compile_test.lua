@@ -12,10 +12,12 @@
 -- and the acceptance field-music scenarios' contract, not asserted here.
 -- The suite also pins the retail corpus facts the runtime contracts rely on:
 -- no reachable conditional command, every reachable open_track inside its FE
--- track mask, one active sequence per field player id, and the field-script
--- BGM/fanfare/effect player roles never colliding with the BGM players.
--- Counts are derived from the dump, never guessed, and the suite runs for
--- every ready version (soulsilver included when its dump lands).
+-- track mask, one active sequence per field player id, the field-script
+-- BGM/fanfare/effect player roles never colliding with the BGM players, every
+-- emitted op inside the actual runtime playback vocabulary, and the derived
+-- sample metadata carrying no source rate or payload path. Counts are derived
+-- from the dump, never guessed, and the suite runs for every ready version
+-- (soulsilver included when its dump lands).
 
 local Assert = require("tests.support.Assert")
 local AudioCache = require("libs.assets.src.AudioCache")
@@ -51,6 +53,64 @@ local FORBIDDEN_INSTRUCTION_FIELDS = {
   varlen = true,
   raw = true,
   operand = true,
+}
+
+-- The actual runtime playback vocabulary: the ops the player executor
+-- handles with real behavior (or nop), mirroring the executor's branches --
+-- deliberately not AudioSequence.OPS, so "the validator says it is closed"
+-- is never treated as proof the runtime can play it. Comparison ops are
+-- present because the current executor still implements conditional
+-- gating; they leave this list when the conditional state does.
+local SUPPORTED_RUNTIME_OPS = {
+  note = true,
+  wait = true,
+  program = true,
+  open_track = true,
+  jump = true,
+  call = true,
+  ["return"] = true,
+  setvar = true,
+  addvar = true,
+  subvar = true,
+  mulvar = true,
+  divvar = true,
+  shiftvar = true,
+  randomvar = true,
+  cmp_eq = true,
+  cmp_ge = true,
+  cmp_gt = true,
+  cmp_le = true,
+  cmp_lt = true,
+  cmp_ne = true,
+  pan = true,
+  volume = true,
+  master_volume = true,
+  transpose = true,
+  pitch_bend = true,
+  pitch_bend_range = true,
+  priority = true,
+  note_wait = true,
+  tie = true,
+  portamento_key = true,
+  portamento = true,
+  portamento_time = true,
+  mod_depth = true,
+  mod_speed = true,
+  mod_type = true,
+  mod_range = true,
+  mod_delay = true,
+  attack = true,
+  decay = true,
+  sustain = true,
+  release = true,
+  loop_begin = true,
+  loop_end = true,
+  expression = true,
+  sweep = true,
+  mute = true,
+  tempo = true,
+  ["end"] = true,
+  nop = true,
 }
 
 local T = {}
@@ -313,6 +373,34 @@ function T.no_unknown_sequence_opcode_remains()
   end)
 end
 
+-- The emitted IR is behaviorally closed against the actual runtime
+-- vocabulary: every op any compiled sequence emits is one the player
+-- executor implements with real playback behavior (or nop) -- never an op
+-- the runtime would accept without effect, and never a mere known-lowercase
+-- name. The executor-side list mirrors its branches, not the validator's
+-- table.
+function T.every_emitted_op_has_runtime_playback_behavior()
+  forEachVersion(function(ctx)
+    local emitted = 0
+    for id, sequence in pairs(ctx.bundle.sequences) do
+      for index, instruction in ipairs(sequence.program.instructions) do
+        emitted = emitted + 1
+        Assert.isTrue(
+          SUPPORTED_RUNTIME_OPS[instruction.op] == true,
+          "sequence "
+            .. id
+            .. " instruction "
+            .. index
+            .. " emits op "
+            .. tostring(instruction.op)
+            .. " outside the runtime playback vocabulary"
+        )
+      end
+    end
+    Assert.isTrue(emitted >= 1, "the compiled corpus has instructions")
+  end)
+end
+
 -- Every referenced bank resolves: each used bank slot is indexed under its
 -- symbolic name with the archive's wave-archive slot map, and the asset
 -- passes the bank validator. Instrument-level wave-archive references are
@@ -378,7 +466,14 @@ function T.every_referenced_sample_resolves()
       Assert.notNil(metadata, "sample " .. key .. " metadata present")
       AudioSample.validate(metadata, payload)
       Assert.equal(metadata.key, key, "sample " .. key .. " metadata key")
-      Assert.equal(metadata.file, AudioCache.samplePath(key), "sample " .. key .. " metadata file")
+      Assert.isNil(
+        metadata.file,
+        "sample " .. key .. " metadata carries no payload path (it derives from the content key)"
+      )
+      Assert.isNil(
+        metadata.sampleRate,
+        "sample " .. key .. " metadata carries no source rate (playback comes from the DS timer path)"
+      )
       Assert.equal(metadata.frames, math.floor(#payload / 2), "sample " .. key .. " frames match its payload")
       Assert.isTrue(metadata.baseTimer > 0, "sample " .. key .. " carries a valid base timer")
       Assert.equal(
@@ -625,6 +720,7 @@ return {
     compiles_the_real_sound_archive_into_a_complete_bundle = T.compiles_the_real_sound_archive_into_a_complete_bundle,
     every_referenced_sequence_compiles = T.every_referenced_sequence_compiles,
     no_unknown_sequence_opcode_remains = T.no_unknown_sequence_opcode_remains,
+    every_emitted_op_has_runtime_playback_behavior = T.every_emitted_op_has_runtime_playback_behavior,
     every_referenced_bank_resolves = T.every_referenced_bank_resolves,
     every_referenced_sample_resolves = T.every_referenced_sample_resolves,
     all_map_day_night_music_references_resolve = T.all_map_day_night_music_references_resolve,

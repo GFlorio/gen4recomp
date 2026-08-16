@@ -82,7 +82,7 @@ end
 local function square(opts)
   opts = opts or {}
   return {
-    generator = { kind = "square", duty = 0.5 },
+    generator = { kind = "square", duty = 3 },
     originalKey = 60,
     envelope = { attack = 127, decay = 0, sustain = 127, release = 127 },
     pan = opts.pan or 0,
@@ -836,6 +836,56 @@ function T.drum_set_voices_select_by_key_and_out_of_range_is_silent()
     }, 1500),
     "drum 35 plays the sample voice at its exact NNS ratio, drum 36 the square, key 60 is out of range and silent"
   )
+end
+
+-- The transposed, clamped MIDI key drives instrument leaf selection (the
+-- NNS TrackStepTicks midiKey plus TrackPlayNote SND_ReadInstData path): a
+-- note crossing a key-split boundary after transposition must play the
+-- range the transposed key lands in, never the source key's voice pitched
+-- up.
+function T.transpose_moves_key_split_selection_across_the_boundary()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "program", program = 2 },
+      { op = "transpose", amount = 5 },
+      { op = "note", key = 55, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(100)
+  Assert.deepEqual(
+    mixer.log.noteOns[1].generator,
+    { kind = "sample", sample = AudioFixture.key(2) },
+    "key 55 + transpose 5 = 60 crosses the split at 60 and selects the high range voice"
+  )
+  Assert.equal(mixer.log.noteOns[1].key, 60, "the voice pitch is the transposed key")
+end
+
+-- The same contract holds across a drum-set boundary: the transposed key
+-- indexes the drum voices, and a transposition out of the drum range is
+-- silent (a drum-set miss, not a stale source-key voice).
+function T.transpose_moves_drum_selection_across_the_boundary()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "program", program = 3 },
+      { op = "transpose", amount = 1 },
+      { op = "note", key = 35, velocity = 127, duration = 1 },
+      { op = "note", key = 36, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(100)
+  Assert.deepEqual(
+    mixer.log.noteOns[1].generator,
+    { kind = "square", duty = 3 },
+    "key 35 + transpose 1 = 36 selects the drum voice at key 36"
+  )
+  Assert.equal(mixer.log.noteOns[1].key, 36, "the drum voice pitches at the transposed key")
+  Assert.equal(#mixer.log.noteOns, 1, "key 36 + transpose 1 = 37 leaves the drum range and is silent")
 end
 
 function T.loop_begin_and_loop_end_repeat_the_body()

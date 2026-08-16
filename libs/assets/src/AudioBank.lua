@@ -2,13 +2,17 @@
 -- its wave-archive slot map, and a program-keyed instruments map. Instrument
 -- kinds are the semantic direct/key_split/drum_set (never SBNK record
 -- types), and every leaf voice has the common shape {generator, originalKey,
--- envelope, pan}: sample voices add the content-address key, and
+-- envelope, pan}: sample voices add the content-address key, square voices
+-- carry the discrete DS PSG duty index 0..7 (never a float fraction), and
 -- square/noise voices carry their source original key like every other leaf.
 -- `sampleKeys` is the shared reference walk: callers validate the bank first,
 -- then collect the content-address keys every voice references through a walk
 -- that trusts voice fields (their grammar is the validator's). It returns nil
 -- when the instrument shape is malformed, so a malformed shape can never be
 -- mistaken for "no sample references" (AudioCacheValidator relies on it).
+-- `selectVoice` is the semantic leaf selection by MIDI key (key-split range
+-- match / drum-set index), the helper the runtime player calls after it
+-- resolves the clamped transposed key.
 
 local AudioBank = {}
 
@@ -102,6 +106,37 @@ function AudioBank.sampleKeys(bank)
   return keys
 end
 
+-- The leaf voice an instrument plays for a MIDI key: direct is the single
+-- voice, key_split matches the key's range, drum_set indexes voices by key
+-- within its low/high bounds. Returns nil for a key with no voice (the note
+-- is silent but still gates the track). The caller resolves the clamped
+-- transposed MIDI key before calling -- the NNS TrackPlayNote path clamps
+-- midiKey and SND_ReadInstData selects the leaf by it, so instrument
+-- selection always runs on the transposed key, never the source note key.
+---@param instrument table
+---@param midiKey integer
+---@return table?
+function AudioBank.selectVoice(instrument, midiKey)
+  if instrument.kind == "direct" then
+    return instrument.voice
+  end
+  if instrument.kind == "key_split" then
+    for _, range in ipairs(instrument.ranges) do
+      if midiKey >= range.lowKey and midiKey <= range.highKey then
+        return range.voice
+      end
+    end
+    return nil
+  end
+  if instrument.kind == "drum_set" then
+    if midiKey < instrument.lowKey or midiKey > instrument.highKey then
+      return nil
+    end
+    return instrument.voices[midiKey - instrument.lowKey + 1]
+  end
+  assert(false, "unknown instrument kind")
+end
+
 local function validateVoice(voice)
   if type(voice) ~= "table" then
     fail({ field = "voice" })
@@ -120,7 +155,9 @@ local function validateVoice(voice)
       fail({ field = "voice.generator.sample" })
     end
   elseif generator.kind == "square" then
-    if type(generator.duty) ~= "number" or generator.duty < 0 or generator.duty > 1 then
+    -- The discrete DS PSG duty index 0..7 (GBATEK): an integer, never a
+    -- float fraction; index 7 is the hardware all-LOW special pattern.
+    if not isIntegerInRange(generator.duty, 0, 7) then
       fail({ field = "voice.generator.duty" })
     end
   elseif generator.kind == "noise" then

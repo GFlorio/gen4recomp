@@ -91,8 +91,9 @@ end
 
 -- The full semantic vocabulary lowers to lowercase semantic names, never raw
 -- opcodes or offsets, and reserved commands lower to explicit no-ops. The
--- 0xD6 print_var diagnostic is dropped entirely: it is never emitted into the
--- closed IR.
+-- comparison commands (0xB8..0xBD) have no runtime consumer once conditional
+-- execution is gone, so they too lower to nop. The 0xD6 print_var diagnostic
+-- is dropped entirely: it is never emitted into the closed IR.
 function T.lowers_the_semantic_vocabulary()
   local bytes = SseqFixture.build({
     { op = "wait", duration = 1 },
@@ -164,7 +165,7 @@ function T.lowers_the_semantic_vocabulary()
     "tempo",
     "sweep",
     "setvar",
-    "cmp_eq",
+    "nop",
     "nop",
     "nop",
     "loop_end",
@@ -313,15 +314,38 @@ function T.preserves_random_operand_spans_beyond_u16()
   Assert.deepEqual(program.instructions[1].duration, { kind = "random", min = 0, max = 49373 })
 end
 
--- The conditional prefix stays on the emitted instruction.
-function T.conditional_commands_carry_the_flag()
+-- A reachable 0xA2 conditional prefix is a compiler failure: the retail
+-- census proves no reachable conditional command exists, so the derived IR
+-- never carries a conditional field and the runtime needs no comparison
+-- state. The rejection carries the sequence provenance like every other
+-- lowering failure.
+function T.reachable_conditional_prefix_is_a_compiler_failure()
   local bytes = SseqFixture.build({
     { op = "prefix", kind = "if", command = { op = "u8", command = 0xC1, amount = 100 } },
     { op = "fin" },
   })
+  local err = lowerRejects(bytes, "AUDIO_SEQUENCE_CONDITIONAL_UNSUPPORTED")
+  Assert.equal(err.context.sequenceId, 7)
+  Assert.equal(err.context.sequenceSymbol, "SEQ_TEST")
+  Assert.notNil(err.context.sourceOffset)
+end
+
+-- The comparison commands (0xB8..0xBD) lower to semantic nop instructions:
+-- with no reachable conditional command to gate, no runtime comparison state
+-- exists, and the operand bytes are consumed without emitting operand fields.
+function T.comparison_commands_lower_to_nop()
+  local bytes = SseqFixture.build({
+    { op = "cmp_eq", var = 0, amount = 42 },
+    { op = "cmp_ge", var = 3, amount = -7 },
+    { op = "fin" },
+  })
   local program = lowerOrFail(bytes)
-  Assert.equal(program.instructions[1].op, "volume")
-  Assert.isTrue(program.instructions[1].conditional)
+  Assert.equal(program.instructions[1].op, "nop")
+  Assert.isNil(program.instructions[1].var)
+  Assert.isNil(program.instructions[1].amount)
+  Assert.equal(program.instructions[2].op, "nop")
+  Assert.isNil(program.instructions[2].var)
+  Assert.isNil(program.instructions[2].amount)
 end
 
 -- Targets pointing before the data offset (into the SSEQ header region) are
@@ -370,6 +394,123 @@ function T.rejects_off_boundary_targets()
   Assert.equal(err.context.sequenceSymbol, "SEQ_TEST")
   Assert.notNil(err.context.sourceOffset)
   Assert.notNil(err.context.target)
+end
+
+-- A reachable open_track whose destination track is not allocated by the
+-- FE track mask is rejected at lowering: the retail corpus never contains
+-- such a sequence, so the proven track set is checked at compile time and
+-- runtime never carries allocation-failure state. The rejection also covers
+-- a sequence with no FE header opening any track.
+function T.rejects_reachable_open_track_outside_the_fe_mask()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 1 },
+    { op = "open_track", track = 2, target = { cmd = 3 } },
+    { op = "fin" },
+  })
+  local err = lowerRejects(bytes, "AUDIO_SEQUENCE_TRACK_NOT_ALLOCATED")
+  Assert.equal(err.context.sequenceId, 7)
+  Assert.equal(err.context.sequenceSymbol, "SEQ_TEST")
+
+  local bytesNoHeader = SseqFixture.build({
+    { op = "open_track", track = 1, target = { cmd = 2 } },
+    { op = "fin" },
+  })
+  lowerRejects(bytesNoHeader, "AUDIO_SEQUENCE_TRACK_NOT_ALLOCATED")
+end
+
+-- The s8 operand class: transpose (0xC3) and pitch_bend (0xC4) store their
+-- byte as signed in the NitroSDK player (SND_seq.c: par._s8 into
+-- track->transpose / track->pitchBend), so the emitted operand is the
+-- already-semantic signed value, never a raw unsigned byte.
+function T.lowers_s8_operands_as_signed()
+  local bytes = SseqFixture.build({
+    { op = "u8", command = 0xC3, amount = 0x00 },
+    { op = "u8", command = 0xC3, amount = 0x7F },
+    { op = "u8", command = 0xC3, amount = 0x80 },
+    { op = "u8", command = 0xC3, amount = 0xFF },
+    { op = "u8", command = 0xC4, amount = 0x00 },
+    { op = "u8", command = 0xC4, amount = 0x7F },
+    { op = "u8", command = 0xC4, amount = 0x80 },
+    { op = "u8", command = 0xC4, amount = 0xFF },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(program.instructions[1].op, "transpose")
+  Assert.equal(program.instructions[1].amount, 0)
+  Assert.equal(program.instructions[2].amount, 127)
+  Assert.equal(program.instructions[3].amount, -128)
+  Assert.equal(program.instructions[4].amount, -1)
+  Assert.equal(program.instructions[5].op, "pitch_bend")
+  Assert.equal(program.instructions[5].amount, 0)
+  Assert.equal(program.instructions[6].amount, 127)
+  Assert.equal(program.instructions[7].amount, -128)
+  Assert.equal(program.instructions[8].amount, -1)
+end
+
+-- The s16 operand class: sweep (0xE3) and the variable operations
+-- (0xB0..0xB6) cast their u16 operand to s16 in the NitroSDK player
+-- (SND_seq.c: (s16)TrackParseValue), so 0xFFFF is the semantic value -1,
+-- never a raw 65535. The true-u16 class (tempo 0xE1, mod_delay 0xE0) stays
+-- unsigned.
+function T.lowers_s16_operands_as_signed()
+  local bytes = SseqFixture.build({
+    { op = "u16", command = 0xE3, amount = 0xFFFF },
+    { op = "u16", command = 0xE3, amount = 0x8000 },
+    { op = "u16", command = 0xE3, amount = 0x7FFF },
+    { op = "setvar", var = 0, amount = 0xFFFF },
+    { op = "addvar", var = 1, amount = 0x8000 },
+    { op = "u16", command = 0xE1, amount = 0xFFFF },
+    { op = "u16", command = 0xE0, amount = 0xFFFF },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(program.instructions[1].op, "sweep")
+  Assert.equal(program.instructions[1].amount, -1)
+  Assert.equal(program.instructions[2].amount, -32768)
+  Assert.equal(program.instructions[3].amount, 32767)
+  Assert.equal(program.instructions[4].op, "setvar")
+  Assert.equal(program.instructions[4].amount, -1)
+  Assert.equal(program.instructions[5].op, "addvar")
+  Assert.equal(program.instructions[5].amount, -32768)
+  Assert.equal(program.instructions[6].op, "tempo")
+  Assert.equal(program.instructions[6].amount, 0xFFFF, "tempo is a true u16 operand")
+  Assert.equal(program.instructions[7].op, "mod_delay")
+  Assert.equal(program.instructions[7].amount, 0xFFFF, "mod_delay is a true u16 operand")
+end
+
+-- Random operands keep their full signed effective span: negative and
+-- positive bounds for the byte-class commands (the encoder's signed pair)
+-- and the full s16 span for the sweep class. The span is the semantic
+-- contract; final narrowing of a drawn value is runtime work.
+function T.random_operands_keep_their_signed_spans()
+  local bytes = SseqFixture.build({
+    {
+      op = "prefix",
+      kind = "random",
+      command = { op = "u8", command = 0xC3, amount = { kind = "random", min = -128, max = 127 } },
+    },
+    {
+      op = "prefix",
+      kind = "random",
+      command = { op = "u8", command = 0xC3, amount = { kind = "random", min = 1, max = 127 } },
+    },
+    {
+      op = "prefix",
+      kind = "random",
+      command = { op = "u8", command = 0xC3, amount = { kind = "random", min = -128, max = -1 } },
+    },
+    {
+      op = "prefix",
+      kind = "random",
+      command = { op = "u16", command = 0xE3, amount = { kind = "random", min = -32768, max = 32767 } },
+    },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.deepEqual(program.instructions[1].amount, { kind = "random", min = -128, max = 127 })
+  Assert.deepEqual(program.instructions[2].amount, { kind = "random", min = 1, max = 127 })
+  Assert.deepEqual(program.instructions[3].amount, { kind = "random", min = -128, max = -1 })
+  Assert.deepEqual(program.instructions[4].amount, { kind = "random", min = -32768, max = 32767 })
 end
 
 -- Lowering is deterministic: the same bytes always produce the same program.

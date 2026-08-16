@@ -289,8 +289,8 @@ function T.compiles_sequences_with_index_targets()
 end
 
 -- Banks carry normalized instruments: sample voices reference content keys,
--- PSG duties become fractions, drums and splits keep their key ranges, and
--- illegal records are dropped.
+-- PSG duties become the discrete source duty index, drums and splits keep
+-- their key ranges, and illegal records are dropped.
 function T.compiles_banks_with_semantic_instruments()
   local bytes = buildArchive()
   local bundle = compileOrFail(bytes)
@@ -322,9 +322,10 @@ function T.compiles_banks_with_semantic_instruments()
   Assert.deepEqual({ split.ranges[2].lowKey, split.ranges[2].highKey }, { 49, 72 })
 
   -- Square and noise leaves carry their source original key like sample
-  -- leaves: the common voice shape never drops it.
+  -- leaves: the common voice shape never drops it. The PSG duty is the
+  -- discrete hardware index from the source record, never a fraction.
   Assert.equal(bank0.instruments[4].voice.generator.kind, "square")
-  Assert.equal(bank0.instruments[4].voice.generator.duty, 0.5)
+  Assert.equal(bank0.instruments[4].voice.generator.duty, 3)
   Assert.equal(bank0.instruments[4].voice.originalKey, 48)
   Assert.equal(bank0.instruments[5].voice.generator.kind, "noise")
   Assert.equal(bank0.instruments[5].voice.originalKey, 60)
@@ -332,6 +333,39 @@ function T.compiles_banks_with_semantic_instruments()
   local bank1 = bundle.banks[1]
   AudioBank.validate(bank1)
   Assert.equal(bank1.instruments[0].voice.generator.sample, memberKey(adpcmMember()))
+end
+
+-- The compiled PSG duty is the source record's discrete index 0..7, never a
+-- reconstructed fraction: every index survives verbatim, and index 7 is the
+-- hardware all-LOW pattern, not 100% HIGH.
+function T.psg_duty_is_the_source_index_with_seven_all_low()
+  local sbnk = SbnkFixture.build({
+    {
+      type = 2,
+      param = { swav = 0, rootKey = 60, attack = 127, decay = 0, sustain = 127, release = 127, pan = 64 },
+    },
+    {
+      type = 2,
+      param = { swav = 7, rootKey = 60, attack = 127, decay = 0, sustain = 127, release = 127, pan = 64 },
+    },
+  })
+  local spec = {
+    sequences = { [0] = { bankId = 0, volume = 120, channelPriority = 127, playerPriority = 64, playerId = 0 } },
+    banks = { [0] = { waveArchives = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF } } },
+    waveArchives = {},
+    players = { [0] = { maxSequences = 2, channelMask = 0xC000, heapSize = 0x5E88 } },
+    extraFiles = 0,
+  }
+  local _, layout = SdatFixture.build(spec)
+  spec.payloads = {
+    [layout.fileIds.sequences[0]] = SseqFixture.build({ { op = "fin" } }),
+    [layout.fileIds.banks[0]] = sbnk,
+  }
+  local bundle = compileOrFail(SdatFixture.build(spec))
+  local bank = bundle.banks[0]
+  AudioBank.validate(bank)
+  Assert.equal(bank.instruments[0].voice.generator.duty, 0, "the source duty index is preserved")
+  Assert.equal(bank.instruments[1].voice.generator.duty, 7, "duty index 7 is the all-LOW hardware pattern")
 end
 
 -- Samples are content-addressed by their semantic identity: equal wave
@@ -352,7 +386,8 @@ function T.samples_deduplicate_by_content()
     Assert.notNil(metadata)
     AudioSample.validate(metadata, payload)
     Assert.equal(metadata.key, key)
-    Assert.equal(metadata.file, AudioCache.samplePath(key))
+    Assert.isNil(metadata.file, "the payload path is derived from the content key, never stored")
+    Assert.isNil(metadata.sampleRate, "the source rate never enters the derived sample metadata")
     Assert.equal(metadata.frames, math.floor(#payload / 2))
     Assert.isTrue(metadata.baseTimer > 0, "sample metadata carries the wave's base timer")
   end

@@ -1,20 +1,21 @@
 -- Validator for the derived audio sample metadata: content-addressed by a
 -- sha1 key over the full semantic sample identity (decoded PCM, base timer,
--- loop flag, loop window) that doubles as its path identity, pointing at the
--- canonical PCM16LE payload path, carrying engine-meaningful timing (frames,
--- sampleRate, the DS base timer, the wave's loop flag, and the loop-window
--- frames) — never raw SWAV units. A one-shot wave (loopEnabled false) always
--- carries the full-range window: the flag owns the one-shot/loop distinction.
--- The exact payload size (#pcm == frames * 2 for PCM16LE) is part of the
--- contract: load/readback paths validate the metadata together with the
--- payload bytes.
+-- loop flag, loop window) that doubles as its path identity, carrying
+-- engine-meaningful timing only -- frames, the DS base timer, the wave's
+-- loop flag, and the loop-window frames -- never raw SWAV units. The source
+-- sample rate never enters the derived shape (playback derives from the DS
+-- sound clock and the calculated timer), and the payload path is not stored
+-- (it is deterministically derived from the key), so either field is
+-- malformed metadata. A one-shot wave (loopEnabled false) always carries the
+-- full-range window: the flag owns the one-shot/loop distinction. The exact
+-- payload size (#pcm == frames * 2 for PCM16LE) is part of the contract:
+-- load/readback paths validate the metadata together with the payload bytes.
 
 local AudioSample = {}
 
 local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.assets.src.AudioErrors")
-local AudioCache = require("libs.assets.src.AudioCache")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
 AudioSample.SCHEMA = Contract.audio.sampleSchema
@@ -40,14 +41,14 @@ function AudioSample.validate(metadata, pcm)
   if not Validate.isSha1Key(metadata.key) then
     fail({ field = "key" })
   end
-  if metadata.file ~= AudioCache.samplePath(metadata.key) then
+  if metadata.file ~= nil then
     fail({ field = "file" })
+  end
+  if metadata.sampleRate ~= nil then
+    fail({ field = "sampleRate" })
   end
   if not isNonNegativeInteger(metadata.frames) then
     fail({ field = "frames" })
-  end
-  if type(metadata.sampleRate) ~= "number" or metadata.sampleRate % 1 ~= 0 or metadata.sampleRate <= 0 then
-    fail({ field = "sampleRate" })
   end
   -- The DS base timer is a positive u16: zero is an invalid rate and the
   -- source field is 16 bits.

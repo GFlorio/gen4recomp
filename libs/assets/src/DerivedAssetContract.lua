@@ -7,10 +7,6 @@
 -- constant; compiler implementation versions are deliberately absent (producer
 -- freshness belongs to the romdump source fingerprint).
 --
--- revision 2: the compiled NSBTP payload drops the redundant
--- keyCount/numTextures/numPalettes counts (sampler and gate trust the
--- arrays).
---
 -- fieldUi schema 4: the manifest drops the per-frame dialogueFrames.palettes
 -- records (the palette colors are baked into the compiled frame-strip PNG;
 -- no runtime consumer exists).
@@ -30,18 +26,6 @@
 -- font cacheFormat/schema v2: the compiled definition gains seven color bands
 -- and a focus-indicator PNG, and the marker hashes font member 6, so a stale
 -- pre-change font cache must not pass readiness.
---
--- revision 3: the audio contracts change together -- the sample metadata
--- gains the SWAV base timer and semantically content-addressed keys, the
--- sequence IR closes its operation vocabulary with normalized operands (no
--- u16 truncation, rest/print_var removed), and bank voices carry the common
--- originalKey shape for every generator kind.
--- revision 4: the audio index splits its single bySymbol map into the
--- per-class sequenceBySymbol/bankBySymbol maps (wave-archive symbols are no
--- longer indexed).
--- revision 5: the sequence and bank assets drop source-record mirror fields
--- with no runtime consumer (the sequence's channelPriority and the bank and
--- index entries' waveArchives).
 
 local DerivedAssetContract = {}
 
@@ -72,8 +56,8 @@ DerivedAssetContract.fieldCamera = {
 
 DerivedAssetContract.fieldMapData = {
   cacheFormat = "g4-field-map-cache-v1",
-  -- revision 2: the generated field record gains the day/night map-header
-  -- music block (the runtime field-music policy reads it, never map ids).
+  -- The generated field record carries the day/night map-header music block
+  -- (the runtime field-music policy reads it, never map ids).
   fieldSchema = "g4-field-map-v2",
 }
 
@@ -102,21 +86,18 @@ DerivedAssetContract.fieldUi = {
 
 DerivedAssetContract.audio = {
   cacheFormat = "g4-audio-cache-v1",
-  -- revision 4: the index carries the per-class symbol maps
-  -- sequenceBySymbol/bankBySymbol instead of one bySymbol map.
+  -- The index carries the per-class symbol maps sequenceBySymbol and
+  -- bankBySymbol (wave-archive symbols are not indexed).
   indexSchema = "g4-audio-index-v2",
-  -- revision 2: the sequence asset closes its instruction vocabulary to the
-  -- frozen semantic op set with normalized operands (integer | random |
-  -- variable), no u16 truncation, and no rest/print_var.
-  -- revision 3: the sequence asset drops the unused channelPriority field.
-  sequenceSchema = "g4-audio-sequence-v3",
-  -- revision 2: bank voices carry the common originalKey shape for every
-  -- generator kind.
-  -- revision 3: the bank asset drops the unused waveArchives mirror field.
-  bankSchema = "g4-audio-bank-v3",
-  -- revision 3: the sample metadata gains the SWAV base timer (and the
-  -- content key now covers the full semantic identity).
-  sampleSchema = "g4-audio-sample-v3",
+  -- The sequence asset carries a closed semantic instruction vocabulary
+  -- (signed operands, no conditional field, comparison commands consumed as
+  -- nop, exact instruction and nested-block shapes). The bank asset's square
+  -- duty is the discrete index 0..7 and the sample asset carries no source
+  -- rate and no stored payload path; the three change together because the
+  -- compiler and the runtime consume them as one contract.
+  sequenceSchema = "g4-audio-sequence-v4",
+  bankSchema = "g4-audio-bank-v4",
+  sampleSchema = "g4-audio-sample-v4",
   provenanceSchema = "g4-audio-provenance-v1",
 }
 

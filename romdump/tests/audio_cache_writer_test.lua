@@ -135,7 +135,6 @@ T["sample metadata key must match its address"] = function()
   local bundle = AudioFixture.bundle()
   local keyA, keyB = AudioFixture.key(1), AudioFixture.key(2)
   bundle.sampleMetadata[keyA].key = keyB
-  bundle.sampleMetadata[keyA].file = AudioCache.samplePath(keyB)
   Assert.throws(function()
     AudioCacheWriter.write(cache, bundle)
   end)

@@ -1,17 +1,21 @@
 -- Validator for the derived audio sequence asset: numeric and symbolic
 -- identity, a bank reference, a player block, and a program whose branch
 -- targets are instruction indices, never source offsets. The instruction
--- vocabulary is closed: every emitted op is a member of the frozen semantic
--- set (the lowering emits nothing else), each op requires exactly its
--- operand(s), and every operand is normalized to a plain integer,
+-- vocabulary is closed: every emitted op is a member of the semantic set
+-- (the lowering emits nothing else), each op carries exactly its operand(s)
+-- and no other fields, and every operand is normalized to a plain integer,
 -- {kind=random min max}, or {kind=variable var}. Source value ranges survive
 -- (durations and program numbers are not truncated to u16), so the validator
 -- rejects only impossible shapes: unknown or deleted ops, missing or
 -- illegally shaped operands, variables without a valid variable number
 -- (0..31: 16 player-local plus 16 global SDK variables), track numbers
 -- outside 0..15, out-of-range branch targets, note key/velocity outside
--- 0..127, and non-boolean conditionals. Source provenance may ride along for
--- diagnostics but is never behavior-visible.
+-- 0..127, conditional instructions (no reachable retail command is
+-- conditional, so the field is forbidden at any value), and extra
+-- instruction or nested-block fields (an instruction carries only its op
+-- and its exact semantic operands; player only its supported fields;
+-- program only entry and instructions). Source provenance may ride along at
+-- the sequence level for diagnostics but is never behavior-visible.
 
 local AudioSequence = {}
 
@@ -25,7 +29,9 @@ AudioSequence.SCHEMA = Contract.audio.sequenceSchema
 -- The closed semantic operation vocabulary shared by the lowering and the
 -- player. `rest` and `print_var` are deliberately absent: no producer emits
 -- a semantic rest (SSEQ WAIT models the behavior), and print_var is an NNS
--- diagnostic dropped during lowering.
+-- diagnostic dropped during lowering. The comparison operations are absent
+-- too: no reachable retail command is conditional, so no runtime comparison
+-- state exists and the lowering consumes their opcodes as nop instructions.
 local OPS = {
   note = { "key", "velocity", "duration" },
   wait = { "duration" },
@@ -41,12 +47,6 @@ local OPS = {
   divvar = { "var", "amount" },
   shiftvar = { "var", "amount" },
   randomvar = { "var", "amount" },
-  cmp_eq = { "var", "amount" },
-  cmp_ge = { "var", "amount" },
-  cmp_gt = { "var", "amount" },
-  cmp_le = { "var", "amount" },
-  cmp_lt = { "var", "amount" },
-  cmp_ne = { "var", "amount" },
   pan = { "amount" },
   volume = { "amount" },
   master_volume = { "amount" },
@@ -87,6 +87,20 @@ local TRACK_MAX = 15
 
 local function fail(context)
   Errors.raise(AudioErrors.AUDIO_SEQUENCE_INVALID, "malformed audio sequence asset", context)
+end
+
+-- Rejects a record carrying any key outside the allowed set: instruction
+-- shapes are exact, so a raw opcode, a source offset, a mode marker, or any
+-- other source-leak field is malformed asset data, never tolerated.
+---@param record table
+---@param allowed table<string, boolean>
+---@param field string
+local function assertOnlyKeys(record, allowed, field)
+  for key in pairs(record) do
+    if not allowed[key] then
+      fail({ field = field, key = key })
+    end
+  end
 end
 
 local function isIntegerInRange(value, low, high)
@@ -147,6 +161,7 @@ function AudioSequence.validate(sequence)
   if type(player) ~= "table" then
     fail({ field = "player" })
   end
+  assertOnlyKeys(player, { id = true, initialVolume = true, playerPriority = true }, "player")
   if not isIntegerInRange(player.id, 0, 0xFF) then
     fail({ field = "player.id" })
   end
@@ -160,6 +175,7 @@ function AudioSequence.validate(sequence)
   if type(program) ~= "table" then
     fail({ field = "program" })
   end
+  assertOnlyKeys(program, { entry = true, instructions = true }, "program")
   if not Validate.isArray(program.instructions) or #program.instructions == 0 then
     fail({ field = "program.instructions" })
   end
@@ -176,9 +192,15 @@ function AudioSequence.validate(sequence)
       fail({ field = "program.instructions[" .. index .. "].op", op = op })
     end
     operandSpec = operandSpec --[[@as table]]
-    if instruction.conditional ~= nil and type(instruction.conditional) ~= "boolean" then
-      fail({ field = "program.instructions[" .. index .. "].conditional" })
+    -- Exact instruction shapes: the record carries its op and exactly its
+    -- semantic operands. The conditional field is forbidden at any value --
+    -- no reachable retail command is conditional, so a conditional
+    -- instruction is malformed asset data, not a boolean option.
+    local allowed = { op = true }
+    for _, operand in ipairs(operandSpec) do
+      allowed[operand] = true
     end
+    assertOnlyKeys(instruction, allowed, "program.instructions[" .. index .. "]")
     for _, operand in ipairs(operandSpec) do
       if instruction[operand] == nil then
         fail({ field = "program.instructions[" .. index .. "]." .. operand, op = op })

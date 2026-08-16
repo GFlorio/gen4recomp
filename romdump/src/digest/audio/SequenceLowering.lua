@@ -5,19 +5,28 @@
 -- source offsets), and packed operand encodings normalize into asset fields.
 -- The FE track-mask byte and its u16 mask are header bytes; the FE header's
 -- open-track records are track 0's first commands and stay ordinary
--- instructions. Operands normalize into a single field per command (plain
+-- instructions, and every reachable open_track destination must be allocated
+-- by the mask (the retail corpus never violates this, so the proven track
+-- set is checked at compile time and runtime never carries allocation
+-- failure). Operands normalize into a single field per command (plain
 -- integers or {kind=random min max} / {kind=variable var} records) with no
 -- artificial u16 truncation: durations and program numbers preserve the full
--- source range, and random spans keep their full effective pair. Note
--- velocities clamp to the 128-entry SDK volume table. The semantic opcode
--- table follows the ARM7 NitroSDK sequence player: known meaningful opcodes
--- map to semantic names, the reserved SDK no-op classes lower declaratively
--- to explicit nop instructions, the 0xD6 print_var diagnostic (no
--- runtime-observable game behavior) is dropped and never emitted, and a
--- command outside the table is a build failure with source provenance (an
--- unsupported reachable command is never a runtime placeholder).
--- Unreachable bytes are never decoded, so malformed data outside the
--- reachable program cannot fail a build. Pure domain module.
+-- source range, random spans keep their full effective pair, and the signed
+-- operand classes are narrowed to their semantic value (s8 for transpose and
+-- pitch_bend, s16 for sweep and the variable operations, per the ARM7
+-- NitroSDK player's s8/(s16)TrackParseValue stores) while the true-u16 class
+-- (tempo, mod_delay) stays unsigned. Note velocities clamp to the 128-entry
+-- SDK volume table. The semantic opcode table follows the ARM7 NitroSDK
+-- sequence player: known meaningful opcodes map to semantic names, the
+-- reserved SDK no-op classes lower declaratively to explicit nop
+-- instructions, the comparison commands (0xB8..0xBD) have no runtime
+-- consumer and also lower to nop, a reachable conditional (0xA2) prefix is a
+-- build failure (no reachable retail command is conditional), the 0xD6
+-- print_var diagnostic (no runtime-observable game behavior) is dropped and
+-- never emitted, and a command outside the table is a build failure with
+-- source provenance (an unsupported reachable command is never a runtime
+-- placeholder). Unreachable bytes are never decoded, so malformed data
+-- outside the reachable program cannot fail a build. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
 local Sseq = require("romdump.src.digest.audio.Sseq")
@@ -36,12 +45,6 @@ local SEMANTIC_OPS = {
   [0xB4] = "divvar",
   [0xB5] = "shiftvar",
   [0xB6] = "randomvar",
-  [0xB8] = "cmp_eq",
-  [0xB9] = "cmp_ge",
-  [0xBA] = "cmp_gt",
-  [0xBB] = "cmp_le",
-  [0xBC] = "cmp_lt",
-  [0xBD] = "cmp_ne",
   [0xC0] = "pan",
   [0xC1] = "volume",
   [0xC2] = "master_volume",
@@ -75,13 +78,17 @@ local SEMANTIC_OPS = {
 
 -- The reserved SDK no-op classes: the NitroSDK player consumes these
 -- opcodes without effect, so they lower to explicit nop instructions without
--- one table row per opcode.
+-- one table row per opcode. The comparison commands (0xB8..0xBD) live here
+-- too: with no reachable conditional command, no runtime comparison state
+-- exists, and the operand bytes are consumed without emitting operand
+-- fields.
 local NO_OP_RANGES = {
   { 0x82, 0x8F },
   { 0x90, 0x92 },
   { 0x96, 0x9F },
   { 0xA3, 0xAF },
   { 0xB7, 0xB7 },
+  { 0xB8, 0xBD },
   { 0xBE, 0xBF },
   { 0xD8, 0xDF },
   { 0xE2, 0xE2 },
@@ -126,6 +133,12 @@ local function failUnsupported(identity, command)
   })
 end
 
+-- Whether the FE header's u16 track mask allocates `track` (track 0 is the
+-- mask's low bit; the retail corpus always allocates it).
+local function trackAllocated(trackMask, track)
+  return math.floor(trackMask / 2 ^ track) % 2 == 1
+end
+
 -- The SDK draws random operands as u16(lo) + (s16(hi) - u16(lo)) * r/65536.
 -- For duration-class operands (note/wait) the full span between the raw pair
 -- applies; for the byte-class commands the encoder's signed pair is the
@@ -148,6 +161,25 @@ local function randomAmount(value, isDuration)
   }
 end
 
+-- The signed operand classes (SND_seq.c stores par._s8 for transpose and
+-- pitch_bend and casts (s16)TrackParseValue for sweep and the variable
+-- operations): a plain u8/u16 operand narrows to its semantic signed value,
+-- while a dynamic {kind=random|variable} record keeps its span (final
+-- narrowing of a drawn value is runtime work).
+local function toS8(value)
+  if type(value) == "number" and value >= 0x80 then
+    return value - 0x100
+  end
+  return value
+end
+
+local function toS16(value)
+  if type(value) == "number" and value >= 0x8000 then
+    return value - 0x10000
+  end
+  return value
+end
+
 -- Normalizes a decoded operand into the closed operand representation: a
 -- plain value passes through as an integer (never a clamped placeholder), a
 -- random record keeps its full effective span, and a variable record keeps
@@ -165,8 +197,12 @@ end
 -- Maps a decoded command to its instruction record, or nil when the command
 -- is a dropped diagnostic (0xD6 print_var). `indexOf` resolves source
 -- offsets to instruction indices for branch targets. Operands are emitted per
--- semantic op, so reserved no-op forms never carry operand fields.
-local function toInstruction(command, indexOf, identity)
+-- semantic op, so reserved no-op forms never carry operand fields; the
+-- signed operand classes narrow plain values to their semantic signed
+-- number. `trackMask` is the FE header's u16 mask (nil without an FE
+-- header): a reachable open_track whose destination the mask does not
+-- allocate is a build failure with provenance.
+local function toInstruction(command, indexOf, identity, trackMask)
   local opcode = command.opcode
   if isDroppedDiagnostic(opcode) then
     return nil
@@ -192,9 +228,6 @@ local function toInstruction(command, indexOf, identity)
     end
   end
   local instruction = { op = op }
-  if command.conditional then
-    instruction.conditional = true
-  end
   if op == "note" then
     instruction.key = opcode
     instruction.velocity = clamp(command.velocity, 0, 0x7F)
@@ -204,6 +237,18 @@ local function toInstruction(command, indexOf, identity)
   elseif op == "program" then
     instruction.program = normalizeValue(command.value, true)
   elseif op == "open_track" then
+    if trackMask == nil or not trackAllocated(trackMask, command.track) then
+      Errors.raise(
+        "AUDIO_SEQUENCE_TRACK_NOT_ALLOCATED",
+        "open_track destination is not allocated by the FE track mask",
+        {
+          sequenceId = identity.sequenceId,
+          sequenceSymbol = identity.symbol,
+          sourceOffset = command.offset,
+          track = command.track,
+        }
+      )
+    end
     local target = indexOf[command.target]
     if target == nil then
       Errors.raise("AUDIO_SEQUENCE_BAD_TARGET", "open-track target is not an instruction boundary", {
@@ -228,12 +273,16 @@ local function toInstruction(command, indexOf, identity)
     instruction.target = target
   elseif op ~= "nop" and opcode >= 0xB0 and opcode <= 0xBF then
     instruction.var = command.var
-    instruction.amount = normalizeValue(command.value, false)
+    instruction.amount = toS16(normalizeValue(command.value, false))
   elseif op ~= "nop" and opcode >= 0xC0 and opcode <= 0xEF then
     if op == "loop_begin" then
       -- 0xD4 loop_begin: the u8 loop count is a value operand (the player's
       -- loop frame), never an amount field.
       instruction.count = normalizeValue(command.value, false)
+    elseif op == "transpose" or op == "pitch_bend" then
+      instruction.amount = toS8(normalizeValue(command.value, false))
+    elseif op == "sweep" then
+      instruction.amount = toS16(normalizeValue(command.value, false))
     else
       instruction.amount = normalizeValue(command.value, false)
     end
@@ -256,16 +305,20 @@ local function _lower(bytes, identity, context)
   -- first commands) is code. Branch targets queued while walking make every
   -- reachable instruction an entry point, so targets before the data offset
   -- (into the header region) are ordinary targets that decode header bytes
-  -- as code exactly like the inventory scanner.
+  -- as code exactly like the inventory scanner. `trackMask` stays nil when
+  -- there is no FE header: an open_track in such a sequence is then a build
+  -- failure, never a runtime allocation.
   local pos = dataOffset
+  local trackMask = nil
   if pos < endPos and string.byte(bytes, pos + 1) == 0xFE then
-    pos = pos + 3
-    if pos > endPos then
+    if pos + 3 > endPos then
       Errors.raise("SSEQ_TRUNCATED", "track mask runs past the end of the sequence", {
         source = source,
         offset = dataOffset,
       })
     end
+    trackMask = string.byte(bytes, pos + 2) + string.byte(bytes, pos + 3) * 256
+    pos = pos + 3
   end
   local entryOffset = pos
   if entryOffset >= endPos then
@@ -287,6 +340,17 @@ local function _lower(bytes, identity, context)
         local command, cmdErr = Sseq.decodeCommand(bytes, pos, endPos, source)
         if command == nil then
           error(cmdErr)
+        end
+        -- A reachable conditional (0xA2) prefix is a compiler failure: the
+        -- retail census proves no reachable conditional command exists, so
+        -- the derived IR carries no conditional field and the runtime needs
+        -- no comparison state.
+        if command.conditional then
+          Errors.raise("AUDIO_SEQUENCE_CONDITIONAL_UNSUPPORTED", "conditional commands are unsupported", {
+            sequenceId = identity.sequenceId,
+            sequenceSymbol = identity.symbol,
+            sourceOffset = command.offset,
+          })
         end
         commands[pos] = command
         pos = command.next
@@ -322,7 +386,7 @@ local function _lower(bytes, identity, context)
   end
   local instructions = {}
   for index, offset in ipairs(emitted) do
-    instructions[index] = toInstruction(commands[offset], indexOf, identity)
+    instructions[index] = toInstruction(commands[offset], indexOf, identity, trackMask)
   end
 
   -- The track-0 entry is always walked, but a dropped diagnostic at the

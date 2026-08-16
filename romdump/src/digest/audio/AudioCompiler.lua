@@ -67,10 +67,11 @@ end
 
 -- The semantic voice for a direct/leaf record. Sample voices resolve their
 -- wave member through the shared wave cache (decode once per member, dedupe
--- by semantic identity across every bank); PSG duties become the DS
--- high-duty fraction ((N+1)/8 per GBATEK); noise is a bare generator. Every
--- leaf carries its source original key, so the common voice shape never
--- drops it for square/noise.
+-- by semantic identity across every bank); PSG duties carry the discrete DS
+-- duty index 0..7 from the source record (GBATEK: the SNDInstParam swav
+-- field selects the hardware duty pattern, index 7 the all-LOW special
+-- pattern); noise is a bare generator. Every leaf carries its source
+-- original key, so the common voice shape never drops it for square/noise.
 local function voiceFromLeaf(leaf, kind, waveCache, bankId, waveArchives)
   local voice = {
     originalKey = leaf.param.rootKey,
@@ -88,7 +89,7 @@ local function voiceFromLeaf(leaf, kind, waveCache, bankId, waveArchives)
       sample = waveCache:resolve(bankId, waveArchives, leaf.param.swarSlot, leaf.param.swav),
     }
   elseif kind == "square" then
-    voice.generator = { kind = "square", duty = ((leaf.param.swav % 8) + 1) / 8 }
+    voice.generator = { kind = "square", duty = leaf.param.swav % 8 }
   else
     voice.generator = { kind = "noise" }
   end
@@ -178,12 +179,15 @@ function WaveCache:resolve(bankId, waveArchives, slot, member)
     self.decoded[waveId .. ":" .. member] = key
     if self.samples[key] == nil then
       self.samples[key] = wave.pcm16le
+      -- The derived metadata carries only runtime-relevant identity: the
+      -- content key (the payload path is derived from it), the frame count,
+      -- the DS base timer, and the loop window. The source sample rate never
+      -- enters the derived shape (playback derives from the DS sound clock
+      -- and the calculated timer).
       self.sampleMetadata[key] = {
         schema = AudioCache.SAMPLE_SCHEMA,
         key = key,
-        file = AudioCache.samplePath(key),
         frames = wave.frames,
-        sampleRate = wave.sampleRate,
         baseTimer = wave.baseTimer,
         loopEnabled = wave.loopEnabled,
         loop = wave.loop,
