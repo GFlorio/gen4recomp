@@ -40,6 +40,13 @@ FieldMessageText.COLOR = 0xFF00
 FieldMessageText.SIZE = 0xFF01
 FieldMessageText.UNK_FF02 = 0xFF02
 
+-- Source-protocol counts for the implemented printer controls. The field font
+-- archive holds four 24x32 focus-indicator frames, and COLOR selects one of
+-- seven foreground/shadow palette pairs (slots 1..14 with slot 15 reserved
+-- for the field-window background). These are format facts, not settings.
+FieldMessageText.FOCUS_INDICATOR_COUNT = 4
+FieldMessageText.COLOR_VARIANT_COUNT = 7
+
 -- The marker name registry: family bases for STRVAR families, plain codes
 -- otherwise. Names are exactly what the marker syntax accepts and must stay in
 -- sync with romdump/src/reference/hgss/charmap.lua controlNames (verified by the
@@ -90,8 +97,8 @@ function FieldMessageText.isStrvarFamily(control)
   return family == 0x0100 or family == 0x0300 or family == 0x0400 or family == 0x3400
 end
 
--- Token kind for a control code: substitution, style, wait, or
--- unsupported_control. Matches the import tokenizer's classification.
+-- Token kind for a control code: substitution, style, wait, focus_indicator,
+-- or unsupported_control. Matches the import tokenizer's classification.
 function FieldMessageText.controlKind(control)
   if FieldMessageText.isStrvarFamily(control) then
     return "substitution"
@@ -101,6 +108,9 @@ function FieldMessageText.controlKind(control)
   end
   if control == FieldMessageText.PAUSE or control == FieldMessageText.WAIT then
     return "wait"
+  end
+  if control == FieldMessageText.YESNO then
+    return "focus_indicator"
   end
   return "unsupported_control"
 end

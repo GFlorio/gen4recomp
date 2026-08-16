@@ -22,15 +22,18 @@ FieldMessageProvider.__index = FieldMessageProvider
 FieldMessageProvider.MESSAGE_BANK_MISSING = "MESSAGE_BANK_MISSING"
 FieldMessageProvider.MESSAGE_BANK_NOT_ACQUIRED = "MESSAGE_BANK_NOT_ACQUIRED"
 FieldMessageProvider.MESSAGE_ID_OUT_OF_RANGE = "MESSAGE_ID_OUT_OF_RANGE"
+FieldMessageProvider.MESSAGE_CONTROL_UNSUPPORTED = "MESSAGE_CONTROL_UNSUPPORTED"
+FieldMessageProvider.MESSAGE_CONTROL_ARGUMENT_INVALID = "MESSAGE_CONTROL_ARGUMENT_INVALID"
 
 ---@class MessageToken
----@field kind "glyph"|"substitution"|"eos"|"line_break"|"prompt_break"|"page_break"|"unsupported_control"
+---@field kind "glyph"|"substitution"|"eos"|"line_break"|"prompt_break"|"page_break"|"focus_indicator"|"style"|"wait"|"unsupported_control"
 ---@field raw integer[]
 ---@field code integer?
 ---@field text string?
 ---@field control integer?
 ---@field name string?
 ---@field args integer[]?
+---@field colorIndex integer? runtime-prepared presentation metadata on glyph tokens; not part of the raw ROM message format
 
 ---@class FieldMessageProvider.FormattedMessage
 ---@field bankId integer
@@ -39,7 +42,20 @@ FieldMessageProvider.MESSAGE_ID_OUT_OF_RANGE = "MESSAGE_ID_OUT_OF_RANGE"
 ---@field tokens MessageToken[]
 ---@field hadUnresolvedSubstitutions boolean
 
+---@class FieldMessageProvider.MessageTemplate
+---@field bankId integer
+---@field messageId integer
+---@field text string
+---@field raw integer[]
+---@field tokens MessageToken[]
+
 local DEFAULT_MAX_CACHED_BANKS = 4
+
+-- COLOR's special argument values from the source printer: 100..106 store a
+-- color pair for later restoration, and 0xFF swaps the active and stored pairs
+-- (handled in the prepareControls pass below).
+local COLOR_SAVE_BASE = 100
+local COLOR_SWAP = 0xFF
 
 ---@param cacheFs table CacheFs-shaped
 ---@param opts table|nil
@@ -182,15 +198,162 @@ function FieldMessageProvider:get(bankId, messageId)
   }
 end
 
+-- Raises a printer-control fault that always carries the message's source
+-- identity, so no playback failure ever says only "unsupported control".
+---@param code string
+---@param template FieldMessageProvider.MessageTemplate
+---@param token MessageToken
+---@param message string
+local function controlFault(code, template, token, message)
+  Errors.raise(code, message, {
+    bankId = template.bankId,
+    messageId = template.messageId,
+    control = token.control,
+    name = token.name,
+    args = token.args,
+    kind = token.kind,
+  })
+end
+
+local function controlLabel(token)
+  return token.name or (token.control and string.format("0x%04X", token.control) or tostring(token.kind))
+end
+
+-- Prepares printer-control state on an expanded runtime token stream: a pure
+-- left-to-right pass that annotates every glyph with the effective colorIndex
+-- (default 0; COLOR 0..6 selects a variant, 100..106 saves one for later, and
+-- 0xFF swaps the active and saved colors). focus_indicator tokens must carry
+-- one valid frame argument. Every other control -- wait, size/unknown style
+-- families, and unsupported controls -- is a typed fault at this playback
+-- boundary instead of a silent renderer no-op. Non-glyph tokens are kept by
+-- reference: the prepared stream stays lossless for diagnostics and marker
+-- round-tripping, and the template is never mutated.
+---@param template FieldMessageProvider.MessageTemplate
+---@param tokens MessageToken[]
+---@return MessageToken[]
+local function prepareControls(template, tokens)
+  local currentColor = 0
+  local savedColor = nil
+  local out = {}
+  for _, token in ipairs(tokens) do
+    if token.kind == "glyph" then
+      local prepared = {}
+      for key, value in pairs(token) do
+        prepared[key] = value
+      end
+      prepared.colorIndex = currentColor
+      out[#out + 1] = prepared
+    elseif token.kind == "focus_indicator" then
+      local args = token.args or {}
+      if #args ~= 1 then
+        controlFault(
+          FieldMessageProvider.MESSAGE_CONTROL_ARGUMENT_INVALID,
+          template,
+          token,
+          "focus indicator " .. controlLabel(token) .. " must take exactly one frame argument"
+        )
+      end
+      local field = args[1]
+      if type(field) ~= "number" or field % 1 ~= 0 or field < 0 or field >= FieldMessageText.FOCUS_INDICATOR_COUNT then
+        controlFault(
+          FieldMessageProvider.MESSAGE_CONTROL_ARGUMENT_INVALID,
+          template,
+          token,
+          "focus indicator field "
+            .. tostring(field)
+            .. " is outside 0.."
+            .. tostring(FieldMessageText.FOCUS_INDICATOR_COUNT - 1)
+        )
+      end
+      out[#out + 1] = token
+    elseif token.kind == "style" and token.control == FieldMessageText.COLOR then
+      local args = token.args or {}
+      if #args ~= 1 then
+        controlFault(
+          FieldMessageProvider.MESSAGE_CONTROL_ARGUMENT_INVALID,
+          template,
+          token,
+          "COLOR must take exactly one argument"
+        )
+      end
+      local value = args[1]
+      if type(value) ~= "number" or value % 1 ~= 0 then
+        controlFault(
+          FieldMessageProvider.MESSAGE_CONTROL_ARGUMENT_INVALID,
+          template,
+          token,
+          "COLOR argument " .. tostring(value) .. " is not an integer"
+        )
+      end
+      if value >= 0 and value < FieldMessageText.COLOR_VARIANT_COUNT then
+        currentColor = value
+      elseif value >= COLOR_SAVE_BASE and value <= COLOR_SAVE_BASE + FieldMessageText.COLOR_VARIANT_COUNT - 1 then
+        savedColor = value - COLOR_SAVE_BASE
+      elseif value == COLOR_SWAP then
+        if savedColor ~= nil then
+          local previous = currentColor
+          currentColor = savedColor
+          savedColor = previous
+        else
+          savedColor = currentColor
+        end
+      else
+        controlFault(
+          FieldMessageProvider.MESSAGE_CONTROL_ARGUMENT_INVALID,
+          template,
+          token,
+          "COLOR argument "
+            .. tostring(value)
+            .. " is not 0.."
+            .. tostring(FieldMessageText.COLOR_VARIANT_COUNT - 1)
+            .. ", "
+            .. tostring(COLOR_SAVE_BASE)
+            .. ".."
+            .. tostring(COLOR_SAVE_BASE + FieldMessageText.COLOR_VARIANT_COUNT - 1)
+            .. ", or "
+            .. string.format("0x%02X", COLOR_SWAP)
+        )
+      end
+      out[#out + 1] = token
+    elseif token.kind == "style" then
+      controlFault(
+        FieldMessageProvider.MESSAGE_CONTROL_UNSUPPORTED,
+        template,
+        token,
+        controlLabel(token) .. " is a style control with no playback semantics in this build"
+      )
+    elseif token.kind == "wait" then
+      controlFault(
+        FieldMessageProvider.MESSAGE_CONTROL_UNSUPPORTED,
+        template,
+        token,
+        controlLabel(token) .. " has no playback semantics in this build"
+      )
+    elseif token.kind == "unsupported_control" then
+      controlFault(
+        FieldMessageProvider.MESSAGE_CONTROL_UNSUPPORTED,
+        template,
+        token,
+        "unsupported printer control " .. controlLabel(token)
+      )
+    else
+      -- eos, breaks, and unresolved substitutions pass through unchanged.
+      out[#out + 1] = token
+    end
+  end
+  return out
+end
+
 -- Builds a new token sequence from the template. resolvers maps extended
 -- control codes to `function(control, args, context) -> replacementTokens`.
--- Replacement tokens must be glyph-kind tokens; they are spliced in verbatim.
--- Unresolved substitution tokens stay in the stream (traced by the caller)
--- and the result flags them.
+-- Replacement tokens must be glyph-kind tokens; they are spliced in verbatim
+-- before printer-control preparation, so substituted glyphs inherit the color
+-- active at their source position. Unresolved substitution tokens stay in the
+-- stream (traced by the caller) and the result flags them.
 function FieldMessageProvider:format(template, context, resolvers)
   assert(template and template.tokens, "format requires a MessageTemplate")
   context = context or {}
-  local tokens = {}
+  local expanded = {}
   local hadUnresolved = false
   for _, token in ipairs(template.tokens) do
     if token.kind == "substitution" then
@@ -198,21 +361,22 @@ function FieldMessageProvider:format(template, context, resolvers)
       local replacement = resolver and resolver(token.control, token.args, context)
       if replacement then
         for _, replacementToken in ipairs(replacement) do
-          tokens[#tokens + 1] = replacementToken
+          expanded[#expanded + 1] = replacementToken
         end
       else
         hadUnresolved = true
-        tokens[#tokens + 1] = token
+        expanded[#expanded + 1] = token
       end
     else
-      tokens[#tokens + 1] = token
+      expanded[#expanded + 1] = token
     end
   end
+  local prepared = prepareControls(template, expanded)
   return {
     bankId = template.bankId,
     messageId = template.messageId,
-    text = FieldMessageText.tokensToText(tokens),
-    tokens = tokens,
+    text = FieldMessageText.tokensToText(prepared),
+    tokens = prepared,
     hadUnresolvedSubstitutions = hadUnresolved,
   }
 end

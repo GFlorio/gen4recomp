@@ -22,6 +22,10 @@
 --
 -- fieldUi schema 2: the generated field-UI manifest drops the sounds
 -- section (the branch no longer compiles Start Menu effects).
+--
+-- messages cacheFormat v2: YESNO tokens classify as focus_indicator in the
+-- persisted bank streams (runtime playback rejects the old
+-- unsupported_control classification), so a stale bank must not be misread.
 
 local DerivedAssetContract = {}
 
@@ -56,7 +60,7 @@ DerivedAssetContract.fieldMapData = {
 }
 
 DerivedAssetContract.messages = {
-  cacheFormat = "field-message-cache-v1",
+  cacheFormat = "field-message-cache-v2",
   schema = "g4-field-message-bank-v1",
   indexSchema = "g4-field-message-index-v1",
   provenanceSchema = "g4-field-message-provenance-v1",

@@ -66,6 +66,9 @@ function T.code_unit_constants_match_charcode_h()
   Assert.equal(FieldMessageText.STRVAR_1 + 3, 0x0103)
   Assert.equal(FieldMessageText.COLOR, 0xFF00)
   Assert.equal(FieldMessageText.YESNO, 0x0200)
+  -- Source-protocol counts for the implemented printer controls.
+  Assert.equal(FieldMessageText.FOCUS_INDICATOR_COUNT, 4)
+  Assert.equal(FieldMessageText.COLOR_VARIANT_COUNT, 7)
 end
 
 function T.renders_glyphs_breaks_and_eos()
@@ -127,11 +130,22 @@ function T.control_name_and_kind_helpers()
   Assert.equal(FieldMessageText.controlName(0xFF00), "COLOR")
   Assert.isNil(FieldMessageText.controlName(0x0707))
   Assert.equal(FieldMessageText.controlKind(0x0103), "substitution")
-  Assert.equal(FieldMessageText.controlKind(0x0200), "unsupported_control")
+  Assert.equal(FieldMessageText.controlKind(0x0200), "focus_indicator")
   Assert.equal(FieldMessageText.controlKind(0xFF00), "style")
   Assert.equal(FieldMessageText.controlKind(0x0202), "wait")
   Assert.isTrue(FieldMessageText.isStrvarFamily(0x3401))
   Assert.isFalse(FieldMessageText.isStrvarFamily(0x0200))
+end
+
+function T.yesno_round_trips_as_a_focus_indicator()
+  -- YESNO is the screen focus-indicator graphic command, not a choice
+  -- controller; its serialized marker spelling must not change.
+  local tokens = assert(FieldMessageText.parse("{YESNO 0}", FONT))
+  Assert.equal(tokens[1].kind, "focus_indicator")
+  Assert.equal(tokens[1].control, FieldMessageText.YESNO)
+  Assert.equal(tokens[1].name, "YESNO")
+  Assert.deepEqual(tokens[1].args, { 0 })
+  Assert.equal(FieldMessageText.tokensToText(tokens), "{YESNO 0}")
 end
 
 function T.parse_reads_marker_text_back_into_tokens()

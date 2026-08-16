@@ -68,7 +68,7 @@ end
 function T.arg_count_is_not_assumed_constant()
   -- YESNO carries one argument; STRVAR in another bank may carry more.
   local yesno = tokenize({ 0xFFFE, 0x0200, 0x0001, 0x0000, 0xFFFF })
-  Assert.equal(yesno[1].kind, "unsupported_control")
+  Assert.equal(yesno[1].kind, "focus_indicator")
   Assert.deepEqual(yesno[1].args, { 0x0000 })
   local wide = tokenize({ 0xFFFE, 0x0100, 0x0003, 0x1, 0x2, 0x3, 0xFFFF })
   Assert.equal(wide[1].kind, "substitution")

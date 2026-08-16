@@ -1,8 +1,6 @@
 -- ROM-conformance facts for the message/font derived classes, verified against
--- the imported ROM. Asserts only non-copyright structural facts:
--- 21.6): bank counts, control signature sets, glyph coverage, map-header
--- bank counts, control signature sets, glyph coverage, map-header
--- associations, and font geometry.
+-- the imported ROM. Asserts only non-copyright structural facts: bank counts,
+-- control census, glyph coverage, map-header associations, and font geometry.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -11,6 +9,8 @@ local FieldMessageTokenizer = require("romdump.src.digest.FieldMessageTokenizer"
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
+local FieldMessages = require("romdump.src.config.FieldMessages")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
@@ -47,10 +47,15 @@ function T.target_bank_counts_and_decryption_vectors(romFs)
   end
 end
 
-function T.target_control_signatures_are_stable(romFs)
+function T.selected_bank_control_census_is_stable(romFs)
+  -- Inventory the control census of every bank the FieldMessages manifest
+  -- selects, reported as semantic kind + control code. YESNO (0x0200) is the
+  -- focus-indicator control; CURSOR_X (0x0203) and ALN_CENTER (0x0205) are
+  -- selected-bank controls that remain unsupported, so their presence in the
+  -- census is expected but their playback is not.
   local messages = assert(romFs:openNarc("messages"))
   local signatures = {}
-  for _, bankId in ipairs({ 542, 543 }) do
+  for _, bankId in ipairs(FieldMessages.banks) do
     local bank = assert(FieldMessageBank.decode(messages:readMember(bankId), {}))
     for _, message in ipairs(bank.messages) do
       local tokens = assert(FieldMessageTokenizer.tokenize(message.raw, charmap, {}))
@@ -63,22 +68,137 @@ function T.target_control_signatures_are_stable(romFs)
     end
   end
   local expected = {
-    ["substitution:0100"] = true,
-    ["substitution:0101"] = true,
-    ["substitution:0103"] = true,
-    ["unsupported_control:0200"] = true,
-    ["style:ff00"] = true,
     ["line_break:0000"] = true,
     ["prompt_break:0000"] = true,
     ["page_break:0000"] = true,
+    ["style:ff00"] = true,
+    ["substitution:0100"] = true,
+    ["substitution:0101"] = true,
+    ["substitution:0102"] = true,
+    ["substitution:0103"] = true,
+    ["substitution:0132"] = true,
+    ["substitution:0134"] = true,
+    ["substitution:0135"] = true,
+    ["substitution:0136"] = true,
+    ["substitution:0137"] = true,
+    ["focus_indicator:0200"] = true,
+    ["unsupported_control:0203"] = true,
+    ["unsupported_control:0205"] = true,
   }
   for key in pairs(expected) do
     Assert.isTrue(signatures[key], "missing control signature " .. key)
   end
-  -- No unknown families in the target banks: every signature is accounted for.
+  -- No unknown families in the selected banks: every signature is accounted
+  -- for.
   for key in pairs(signatures) do
     Assert.isTrue(expected[key], "unexpected control signature " .. key)
   end
+end
+
+function T.known_yesno_and_color_messages_carry_the_expected_controls(romFs)
+  -- Known target-message control facts for bank 543, verified from the raw
+  -- ROM code units: messages 8/9/27/92 end with a YESNO field 0, and messages
+  -- 79/80 carry the COLOR 1 -> 0 transition around the highlighted span.
+  -- Structural facts only; no retail message text is asserted.
+  local messages = assert(romFs:openNarc("messages"))
+  local bank = assert(FieldMessageBank.decode(messages:readMember(543), {}))
+  local function controlsOf(messageId)
+    local tokens = assert(FieldMessageTokenizer.tokenize(bank.messages[messageId + 1].raw, charmap, {}))
+    local controls = {}
+    for _, token in ipairs(tokens) do
+      if token.kind ~= "glyph" and token.kind ~= "eos" then
+        controls[#controls + 1] = token
+      end
+    end
+    return controls
+  end
+  for _, messageId in ipairs({ 8, 9, 27, 92 }) do
+    local yesno = {}
+    for _, token in ipairs(controlsOf(messageId)) do
+      if token.control == FieldMessageText.YESNO then
+        yesno[#yesno + 1] = token
+      end
+    end
+    Assert.equal(#yesno, 1, "bank 543 message " .. messageId .. " has exactly one YESNO")
+    Assert.equal(yesno[1].kind, "focus_indicator")
+    Assert.equal(yesno[1].name, "YESNO")
+    Assert.deepEqual(yesno[1].args, { 0 })
+  end
+  for _, messageId in ipairs({ 79, 80 }) do
+    local colorArgs = {}
+    for _, token in ipairs(controlsOf(messageId)) do
+      if token.control == FieldMessageText.COLOR then
+        colorArgs[#colorArgs + 1] = token.args[1]
+      end
+    end
+    Assert.equal(#colorArgs, 2, "bank 543 message " .. messageId .. " has two COLOR controls")
+    Assert.equal(colorArgs[1], 1, "message " .. messageId .. " opens the color span at 1")
+    Assert.equal(colorArgs[2], 0, "message " .. messageId .. " closes the color span back to 0")
+  end
+end
+
+function T.known_target_messages_format_with_prepared_tokens(romFs, version)
+  -- The known target messages must pass through the actual provider
+  -- formatting path (compiled bank cache -> template -> substitution
+  -- resolution -> prepared tokens) without an unsupported-control fault:
+  -- glyphs carry their effective colorIndex, and the indicator survives with
+  -- field 0. A layout/controller-only test cannot prove this: the provider is
+  -- the playback boundary that validates and prepares printer controls.
+  local cache = CacheFs.forVersion(version)
+  local def = assert(cache:loadLua("data/generated/field/font/font-0.lua"))
+  local provider = assert(FieldMessageProvider.new(cache))
+  provider:acquireBank(543)
+  local resolvers = {
+    [0x0100] = function()
+      return FieldMessageProvider.asciiGlyphTokens("GOLD", def)
+    end,
+    [0x0101] = function()
+      return FieldMessageProvider.asciiGlyphTokens("GOLD", def)
+    end,
+    [0x0103] = function()
+      return FieldMessageProvider.asciiGlyphTokens("GOLD", def)
+    end,
+  }
+  for _, messageId in ipairs({ 8, 9, 27, 92 }) do
+    local template = assert(provider:get(543, messageId))
+    local formatted = assert(provider:format(template, { playerName = "GOLD" }, resolvers))
+    Assert.isFalse(formatted.hadUnresolvedSubstitutions)
+    local indicator
+    for _, token in ipairs(formatted.tokens) do
+      if token.kind == "glyph" then
+        Assert.equal(token.colorIndex, 0, "bank 543 message " .. messageId .. " glyph stays default color")
+      elseif token.control == FieldMessageText.YESNO then
+        indicator = token
+      end
+    end
+    Assert.notNil(indicator, "message " .. messageId .. " keeps its indicator token")
+    Assert.equal(indicator.kind, "focus_indicator")
+    Assert.equal(indicator.control, FieldMessageText.YESNO)
+    Assert.deepEqual(indicator.args, { 0 })
+  end
+  for _, messageId in ipairs({ 79, 80 }) do
+    local template = assert(provider:get(543, messageId))
+    local formatted = assert(provider:format(template, { playerName = "GOLD" }, resolvers))
+    Assert.isFalse(formatted.hadUnresolvedSubstitutions)
+    local current = 0
+    local highlighted = 0
+    local afterSpan = 0
+    for _, token in ipairs(formatted.tokens) do
+      if token.kind == "style" and token.control == FieldMessageText.COLOR then
+        current = token.args[1]
+      elseif token.kind == "glyph" then
+        Assert.equal(token.colorIndex, current, "message " .. messageId .. " glyph carries the active color")
+        if current == 1 then
+          highlighted = highlighted + 1
+        elseif highlighted > 0 then
+          afterSpan = afterSpan + 1
+        end
+      end
+    end
+    Assert.isTrue(highlighted > 0, "message " .. messageId .. " highlights its color span")
+    Assert.isTrue(afterSpan > 0, "message " .. messageId .. " returns to default color after the span")
+  end
+  provider:releaseBank(543)
 end
 
 function T.target_glyph_set_resolves_in_the_font(romFs)
