@@ -89,8 +89,10 @@ DerivedAssetContract.fieldUi = {
 DerivedAssetContract.audio = {
   cacheFormat = "g4-audio-cache-v1",
   -- The index carries the per-class symbol maps sequenceBySymbol and
-  -- bankBySymbol (wave-archive symbols are not indexed).
-  indexSchema = "g4-audio-index-v2",
+  -- bankBySymbol (wave-archive symbols are not indexed), and per-player
+  -- entries with only runtime-relevant fields (the parser keeps source
+  -- facts such as the heap budget).
+  indexSchema = "g4-audio-index-v3",
   -- The sequence asset carries a closed semantic instruction vocabulary
   -- (signed operands, no conditional field, comparison commands consumed as
   -- nop, exact instruction and nested-block shapes). The bank asset's square

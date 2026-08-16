@@ -243,7 +243,6 @@ function T.compiles_the_real_sound_archive_into_a_complete_bundle()
         Assert.equal(entry.id, id, "player " .. id .. " index id")
         Assert.equal(entry.maxSequences, record.maxSequences, "player " .. id .. " maxSequences")
         Assert.equal(entry.channelMask, record.channelMask, "player " .. id .. " channelMask")
-        Assert.equal(entry.heapSize, record.heapSize, "player " .. id .. " heapSize")
       end
     end
     Assert.isTrue(indexedPlayers >= 1, "at least one player indexed")

@@ -67,7 +67,7 @@ function T.contract_pins_the_current_asset_identities()
     },
     audio = {
       cacheFormat = "g4-audio-cache-v1",
-      indexSchema = "g4-audio-index-v2",
+      indexSchema = "g4-audio-index-v3",
       sequenceSchema = "g4-audio-sequence-v4",
       bankSchema = "g4-audio-bank-v4",
       sampleSchema = "g4-audio-sample-v4",

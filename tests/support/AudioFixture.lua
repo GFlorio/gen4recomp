@@ -162,7 +162,7 @@ function AudioFixture.bundle()
         [12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12) },
       },
       players = {
-        [1] = { id = 1, maxSequences = 16, channelMask = 0xFFFF, heapSize = 0x2000 },
+        [1] = { id = 1, maxSequences = 16, channelMask = 0xFFFF },
       },
       sequenceBySymbol = {
         ["SEQ_TEST_A"] = 0,

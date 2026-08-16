@@ -59,7 +59,6 @@ local function newCryPlayer()
         id = sequence.player.id,
         maxSequences = 16,
         channelMask = 0xFFFF,
-        heapSize = 0x2000,
       }
     end
   end

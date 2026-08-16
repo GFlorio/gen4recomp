@@ -147,7 +147,6 @@ local function buildBundle(sequences, opts)
       id = sequence.player.id,
       maxSequences = 16,
       channelMask = opts.channelMask or 0xFFFF,
-      heapSize = 0x2000,
     }
   end
   bundle.index.sequences = indexSequences

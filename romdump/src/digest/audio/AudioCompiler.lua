@@ -345,9 +345,20 @@ local function _compile(romFs, sha1hex, hashLua)
     end
   end
 
-  -- The index players section mirrors the INFO player records: used slots
-  -- carry maxSequences/channelMask/heapSize, unused slots stay bare ids.
-  local players = sdat.players
+  -- The index players section mirrors the runtime-relevant INFO player
+  -- fields: used slots carry maxSequences/channelMask (the archive-declared
+  -- per-player slot count and the hardware channel mask), unused slots stay
+  -- id-only records. heapSize is a source heap-budget fact with no runtime
+  -- consumer, so it stays in the parser, not in the derived index.
+  local players = {}
+  for id = 0, sdat.counts.players - 1 do
+    local record = sdat.players[id]
+    players[id] = {
+      id = id,
+      maxSequences = record.maxSequences,
+      channelMask = record.channelMask,
+    }
+  end
 
   local index = {
     schema = AudioCache.INDEX_SCHEMA,
