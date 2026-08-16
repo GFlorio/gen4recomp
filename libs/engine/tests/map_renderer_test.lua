@@ -286,8 +286,8 @@ end
 -- built on: nil scale never restricts the host resolution; otherwise the
 -- raster height is scale * 192 DS lines, clamped so the raster is never
 -- upscaled past the presentation viewport (the 320x240 row), and the width
--- follows the display aspect. Every row is the epic's locked pixel-conform
--- table; the 1280x720/1920x1080/2560x1440 rows additionally prove distinct
+-- follows the display aspect. Every row is a locked pixel-conform value;
+-- the 1280x720/1920x1080/2560x1440 rows additionally prove distinct
 -- host resolutions at the same aspect and scale collapse onto one raster size
 -- so same-aspect resizes can reuse render targets.
 function T.rasterTargetSize_matches_the_pixel_conform_table()
@@ -506,8 +506,8 @@ function T.new_first_shader_source_failure_leaks_nothing()
   Assert.equal(#lg.shaders, 0, "no shader was created")
 end
 
--- opts.rasterScale (Story 1/14) makes the renderer allocate its targets at
--- the derived raster size, not the raw display viewport, and nearest-filter
+-- opts.rasterScale makes the renderer allocate its targets at the derived
+-- DS-relative raster size, not the raw display viewport, and nearest-filter
 -- the composited scene the same way idDepth already is -- the world stays
 -- DS-relative while the final draw upscales it to the display viewport.
 function T.new_with_raster_scale_derives_canvas_size_and_nearest_filters_scene_color()

@@ -185,7 +185,7 @@ function T.injected_failure_leaves_no_marker(romFs, version)
     return orig(self, path, data)
   end
   local c = CacheFs.forVersion(version, backend)
-  c:write("rom-dump.complete", "raw-owned-by-previous-sprint")
+  c:write("rom-dump.complete", "raw-owned-by-earlier-run")
 
   local bundle = assert(MapAssetCompiler.compile(romFs, SYMBOL))
   Assert.isTrue(not pcall(MapCacheWriter.write, c, bundle), "write raises")

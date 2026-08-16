@@ -172,19 +172,17 @@ A batch is classified into one of four ordering classes:
 | otherwise | `opaque` |
 
 The RGB fragment combiner is the DS integer-domain equation (GBATEK's
-MODULATE/DECAL blending modes; `libs/engine/src/DsFragment.lua` is the pure
-reference, `map.glsl`'s `modulateRgb6`/`decalRgb6` its GLSL transcription),
-not floating-point multiplication. Both the texture sample and the vertex
-color enter as 5-bit (0-31) components, widened to the combiner's 6-bit
-(0-63) domain by hardware bit-replication (`expand5to6`: `c5*2 +
-floor(c5/16)`). MODULATE is
+MODULATE/DECAL blending modes, transcribed in `map.glsl`'s
+`modulateRgb6`/`decalRgb6`), not floating-point multiplication. Both the
+texture sample and the vertex color enter as 5-bit (0-31) components,
+widened to the combiner's 6-bit (0-63) domain by hardware bit-replication
+(`expand5to6`: `c5*2 + floor(c5/16)`). MODULATE is
 `floor(((texture6+1)*(vertex6+1)-1)/64)` per channel. DECAL keeps the
 polygon alpha as output alpha and blends RGB by the texel's own alpha:
 texture alpha 0 keeps the vertex color, 31 keeps the texture color,
 otherwise the two interpolate by that alpha. An untextured polygon samples
-`vec4(1.0)`, which is exactly `DsFragment.syntheticTexture()`'s (63,63,63,31)
-after quantization -- the identity element of both equations, so no separate
-synthetic-texture uniform exists.
+`vec4(1.0)`, which quantizes to (63,63,63,31) -- the identity element of
+both equations, so no separate synthetic-texture uniform exists.
 
 The shader composes 5-bit alpha as:
 
@@ -220,8 +218,8 @@ resends `u_edgeColors` when the active scene's table changes.
 The edge predicate is the DS rule, not a linear-eye-space heuristic: a pixel
 is an edge when an orthogonal neighbor's polygon ID differs from the
 center's AND the center is strictly in front of that neighbor
-(`DsEdgeMarking.isEdgePixel`, table-indexed by `centerPolygonId >> 3`). The
-compared depth is `DsDepth`'s quantized 24-bit domain, derived from the same
+(`edge.glsl`'s `marked` test, table-indexed by `centerPolygonId >> 3`). The
+compared depth is a quantized 24-bit domain, derived from the same
 W-buffer-shaped value the shader also stores; there is no
 `DEPTH_STEP_TOLERANCE` fudge factor. An edge pixel's output is hardware-style
 RGB replacement (`vec4(edgeColor, scene.a)`), never an alpha-mix with the
@@ -327,10 +325,10 @@ actors draw with the world projection, exactly as on the DS.
 * Mirrored texture repeat (`TEXIMAGE_PARAM` flip bits), mapped to LÖVE's
   `mirroredrepeat` wrap mode.
 * Global DS fog: the two-gate (`DISP3DCNT` + per-polygon `FOG_ENABLE`) rule,
-  the 32-entry density table, and the post-combiner blend (`DsFog.lua`,
-  applied in `map.glsl` from the same DS-quantized depth the edge pass
-  reads). The per-area/time-of-day source of the fog color/table/offset
-  themselves is not: see "Deferred / approximate."
+  the 32-entry density table, and the post-combiner blend, applied in
+  `map.glsl` from the same DS-quantized depth the edge pass reads. The
+  per-area/time-of-day source of the fog color/table/offset themselves is
+  not: see "Deferred / approximate."
 * `BB` billboards, oriented in the vertex shader from the captured base transform.
 * The field-billboard depth bias (`unk11C = 8` model units in `ov01_021E6220`):
   actor billboards render through a projection whose Z row is pulled
@@ -351,8 +349,9 @@ actors draw with the world projection, exactly as on the DS.
 These are documented rather than silently approximated. If a target map needs
 one, the compiler raises a structured error instead of rendering incorrectly.
 
-* Polygon-ID same-ID translucent self-blend rejection: `DsBlend.rejectsSelfBlend`
-  defines the rule, but the renderer does not implement it (no auxiliary
+* Polygon-ID same-ID translucent self-blend rejection: the DS rule (a
+  translucent fragment must not blend against a prior fragment sharing its
+  own polygon ID) is not implemented by the renderer (no auxiliary
   compositor exists, and no corpus content has been found to produce that
   overdraw pattern).
 * Exact DS automatic translucent Y sorting: HGSS field content is confirmed
@@ -361,8 +360,8 @@ one, the compiler raises a structured error instead of rendering incorrectly.
   the renderer keeps the pre-existing approximate object-center-Z
   back-to-front sort rather than tuning an unconfirmed rule.
 * Destination-alpha (`max(SrcAlpha, DstAlpha)`): the RGB blend equation
-  itself already matches `DsBlend.blendRgb6`'s shape, but nothing downstream
-  reads the scene color's alpha channel, so this part of the contract is
+  itself already matches the DS blend shape, but nothing downstream reads
+  the scene color's alpha channel, so this part of the contract is
   unimplemented and currently unobservable.
 * Per-area/time-of-day fog color/table/offset source data: the fog gate,
   table, and post-combiner math are implemented exactly (see "Implemented

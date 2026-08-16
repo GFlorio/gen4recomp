@@ -144,8 +144,8 @@ function T.field_viewport_sizes_and_rebuilds_render_targets(scope)
   Assert.equal(renderer.canvasH, 720)
 end
 
--- The 2x DS-relative world raster (Story 1/14) against real driver resources:
--- the renderer allocates its targets at the derived raster size rather than
+-- The 2x DS-relative world raster against real driver resources: the
+-- renderer allocates its targets at the derived raster size rather than
 -- the raw display viewport, several host resolutions at the same aspect and
 -- scale reuse that same raster target instead of reallocating, and the
 -- composited scene canvas is nearest-filtered on the real driver like idDepth
