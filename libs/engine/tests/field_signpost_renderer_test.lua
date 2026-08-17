@@ -32,15 +32,16 @@ local MANIFEST = FieldUiFixture.manifest()
 -- helper is tests/support/FakeGraphics.lua.
 local fakeGraphics = require("tests.support.FakeGraphics").new
 
--- The created images in order: font atlas (16x16), signpost strip (144x8),
--- wayfinding atlas (192x32).
+-- The created images in order: font atlas (16x16), focus strip (96x32),
+-- signpost strip (144x8), wayfinding atlas (192x32).
 local function uiCache()
   return FieldUiFixture.cacheWithFontAndFrames()
 end
 
--- The shared font atlas: the fixture font carries three glyphs, so the text
--- renderer creates one image and three glyph quads ahead of the signpost
--- renderer's own strip/wayfinding images and tile quads.
+-- The shared font assets: the fixture font carries three glyphs, so the text
+-- renderer creates two images (glyph atlas and focus strip) and three glyph
+-- quads ahead of the signpost renderer's own strip/wayfinding images and
+-- tile quads.
 local function withTextRenderer(cache, lg)
   return FieldTextRenderer.new({ cacheFs = cache, graphics = lg })
 end
@@ -66,18 +67,19 @@ local function drawsFor(lg, image)
   return out
 end
 
--- The shared text renderer owns the font atlas (the fixture font carries
--- three glyphs); the signpost renderer owns the strip and wayfinding images.
+-- The shared text renderer owns the font atlas and focus strip (the fixture
+-- font carries three glyphs); the signpost renderer owns the strip and
+-- wayfinding images.
 local function textDraws(lg)
   return drawsFor(lg, lg.images[1])
 end
 
 local function frameDraws(lg)
-  return drawsFor(lg, lg.images[2])
+  return drawsFor(lg, lg.images[3])
 end
 
 local function wayfindingDraws(lg)
-  return drawsFor(lg, lg.images[3])
+  return drawsFor(lg, lg.images[4])
 end
 
 local function renderedDraws(opts)
@@ -106,7 +108,7 @@ function T.rejects_a_missing_graphics_namespace()
 end
 
 function T.requires_a_window_style_catalogue()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local err = Assert.throws(function()
     ---@diagnostic disable: assign-type-mismatch
     FieldSignpostRenderer.new({ cacheFs = uiCache(), manifest = MANIFEST, graphics = lg, windowStyles = false })
@@ -138,7 +140,7 @@ end
 -- fails.
 function T.missing_signpost_strip_is_a_typed_error()
   local cache = FieldDialogueFixture.cacheWithFont()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 } } })
   local text = withTextRenderer(cache, lg)
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
@@ -153,8 +155,9 @@ function T.missing_signpost_strip_is_a_typed_error()
     Errors.is(err) and err.code == "FIELD_UI_SIGNPOST_TILES_MISSING",
     "raises FIELD_UI_SIGNPOST_TILES_MISSING"
   )
-  Assert.equal(#lg.images, 1, "the font atlas was acquired before the strip failed")
+  Assert.equal(#lg.images, 2, "the font atlas and focus strip were acquired before the strip failed")
   Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  Assert.equal(lg.images[2].released, false, "the caller-owned text renderer focus strip stays alive")
   text:release()
 end
 
@@ -163,7 +166,7 @@ end
 function T.missing_wayfinding_atlas_is_a_typed_error()
   local cache = uiCache()
   cache:remove(FieldUiFixture.WAYFINDING_PATH)
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 } } })
   local text = withTextRenderer(cache, lg)
   local err = Assert.throws(function()
     FieldSignpostRenderer.new({
@@ -175,8 +178,9 @@ function T.missing_wayfinding_atlas_is_a_typed_error()
     })
   end)
   Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_WAYFINDING_MISSING", "raises FIELD_UI_WAYFINDING_MISSING")
-  Assert.equal(#lg.images, 1, "only the font atlas image exists when the wayfinding read fails")
+  Assert.equal(#lg.images, 2, "only the font atlas and focus strip exist when the wayfinding read fails")
   Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  Assert.equal(lg.images[2].released, false, "the caller-owned text renderer focus strip stays alive")
   text:release()
 end
 
@@ -186,7 +190,7 @@ end
 -- and succeed first).
 function T.constructor_failure_releases_all_acquired_images()
   local lg = fakeGraphics({
-    imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
+    imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } },
     failOnQuadCall = 4,
   })
   local text = withTextRenderer(uiCache(), lg)
@@ -200,25 +204,26 @@ function T.constructor_failure_releases_all_acquired_images()
     })
   end)
   Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
-  Assert.equal(#lg.images, 3, "atlas, strip, and wayfinding were created before the failure")
+  Assert.equal(#lg.images, 4, "atlas, focus strip, strip, and wayfinding were created before the failure")
   Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
-  Assert.equal(lg.images[2].released, true, "the strip was released")
-  Assert.equal(lg.images[3].released, true, "the wayfinding atlas was released")
+  Assert.equal(lg.images[2].released, false, "the caller-owned text renderer focus strip stays alive")
+  Assert.equal(lg.images[3].released, true, "the strip was released")
+  Assert.equal(lg.images[4].released, true, "the wayfinding atlas was released")
   text:release()
 end
 
--- The renderer owns exactly the signpost strip and the wayfinding atlas
--- (the font atlas belongs to the shared text renderer); a full-width draw
--- creates nothing more.
-function T.loads_exactly_the_three_owned_images()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+-- The signpost renderer owns exactly the signpost strip and the wayfinding
+-- atlas (the font atlas and focus strip belong to the shared text renderer);
+-- a full-width draw creates nothing more.
+function T.loads_exactly_the_shared_font_and_owned_assets()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  Assert.equal(#lg.images, 3, "only the three owned images are created")
+  Assert.equal(#lg.images, 4, "only the four composed images are created")
   r:draw(
     FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
     FieldViewport.new(256, 192, { mode = "expanded" })
   )
-  Assert.equal(#lg.images, 3, "drawing creates no further images")
+  Assert.equal(#lg.images, 4, "drawing creates no further images")
   r:release()
 end
 
@@ -238,7 +243,7 @@ function T.an_inactive_controller_draws_nothing_and_changes_no_state()
     cullMode = "back",
     color = { 0.2, 0.4, 0.6, 0.8 },
     scissor = { 4, 8, 32, 16 },
-    imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
+    imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } },
   })
   local r = renderer(lg)
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 })
@@ -259,7 +264,7 @@ end
 -- divider 8), text at the content origin (16,152), all translated by the
 -- wipe offset.
 function T.full_width_type_draws_the_full_frame_and_text_at_the_content_origin()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   r:draw(
     FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
@@ -295,7 +300,7 @@ end
 -- wayfinding row blits as the 6x4 grid at (16..64, 152..184), and the
 -- divider tile 8 spans the window height between graphic and text.
 function T.type_zero_draws_the_graphic_region_and_the_shifted_text()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   r:draw(
     FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, offset = 0 }),
@@ -337,7 +342,7 @@ end
 -- Type 1 map 0 samples the type-1 map-0 row (the manifest rect at y=16);
 -- the geometry is otherwise identical to type 0.
 function T.type_one_samples_the_map_zero_row()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   r:draw(
     FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 1, offset = 0 }),
@@ -352,7 +357,7 @@ end
 -- The (type, map) pair selects the row: a type-0 map-1 appearance samples
 -- the map-1 atlas row (y=8), never the map-0 row (y=0).
 function T.type_zero_map_one_samples_the_map_one_row()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   r:draw(
     FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, map = 1, offset = 0 }),
@@ -368,7 +373,7 @@ end
 -- (type, map) pair is a manifest/source-contract failure: the lookup never
 -- falls back to another map's row.
 function T.a_missing_type_map_pair_is_a_manifest_contract_failure()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, map = 2, offset = 0 })
   Assert.throws(function()
@@ -402,7 +407,7 @@ end
 -- the same positions regardless of render order or repeated calls, and
 -- drawing must never mutate the controller.
 function T.interpolation_is_stateless_over_the_paired_wipe_history()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -32 })
@@ -440,7 +445,7 @@ end
 -- interpolates purely from that controller's own paired history, exactly as
 -- a fresh renderer would.
 function T.an_inactive_gap_leaves_the_next_draw_pure()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
   r:draw(FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -48 }), viewport, 1)
@@ -470,7 +475,7 @@ end
 -- offset; the renderer must not re-present the surface at the reset position
 -- on any later draw while inactive.
 function T.wipe_out_never_flashes_the_cleared_window()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 })
@@ -492,7 +497,7 @@ end
 -- signpost text growing at the fixed cadence.
 function T.typed_print_draws_only_the_revealed_glyphs()
   local lines = FieldSignpostFixture.textLines()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
   local controller = FieldSignpostFixture.shown(lines, { type = 2, offset = 0, text = false })
@@ -525,7 +530,7 @@ function T.an_active_window_without_appearance_draws_the_full_width_box()
   Assert.isTrue(controller:status().active)
   Assert.isNil(controller:status().sourceAppearance)
 
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
   Assert.equal(#wayfindingDraws(lg), 0, "no wayfinding without a source appearance")
@@ -537,7 +542,7 @@ end
 -- full-width geometry even for a source type that the signpost style would
 -- give a graphic region.
 function T.a_style_without_a_per_type_map_uses_its_own_geometry()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), {
     type = 0,
@@ -565,7 +570,7 @@ function T.an_unknown_style_id_is_a_programming_error()
     cullMode = "back",
     color = { 0.2, 0.4, 0.6, 0.8 },
     scissor = { 4, 8, 32, 16 },
-    imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
+    imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } },
   })
   local r = renderer(lg)
   local controller = FieldSignpostController.new({
@@ -599,7 +604,7 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
     cullMode = "back",
     color = { 0.2, 0.4, 0.6, 0.8 },
     scissor = { 4, 8, 32, 16 },
-    imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } },
+    imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } },
     failOnDrawCall = 1,
   })
   local r = renderer(lg)
@@ -615,7 +620,7 @@ end
 
 -- Release frees every owned image; a later draw is a no-op.
 function T.release_frees_all_owned_images_and_noops_drawing()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 8 }, { 192, 32 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local text = withTextRenderer(uiCache(), lg)
   local r = FieldSignpostRenderer.new({
     cacheFs = uiCache(),
@@ -625,14 +630,104 @@ function T.release_frees_all_owned_images_and_noops_drawing()
     windowStyles = FieldSignpostFixture.styles(),
   })
   r:release()
-  Assert.equal(lg.images[2].released, true)
   Assert.equal(lg.images[3].released, true)
+  Assert.equal(lg.images[4].released, true)
   r:draw(
     FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
     FieldViewport.new(256, 192, { mode = "expanded" })
   )
   Assert.equal(#lg.draws, 0, "drawing after release is a no-op")
   text:release()
+end
+
+local focusToken = FieldDialogueFixture.focusToken
+local focusDraws = FieldDialogueFixture.focusDraws
+
+-- The content-window right-edge expectation from the same immutable style
+-- catalogue the renderer resolves, so placement is asserted against the
+-- signpost content rectangle, never against dialogue box geometry.
+local function contentRightEdge(typeId, styleId)
+  local style = assert(FieldSignpostFixture.styles():resolve(styleId or "hgss.signpost"))
+  local content = typeId ~= nil and style.types and style.types[typeId].contentGeometry or style.contentGeometry
+  assert(content ~= nil, "the style must carry content geometry")
+  return content.x + content.width - 24, content.y
+end
+
+-- Colored glyph tokens reach the shared text renderer with their prepared
+-- colorIndex: the drawn quads sample the color band and the advance is
+-- unchanged. The signpost renderer itself holds no color state.
+function T.colored_glyph_tokens_draw_through_the_shared_color_bands()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  local lines = {
+    {
+      tokens = {
+        { kind = "glyph", code = 1, text = "A", raw = { 1 }, colorIndex = 1 },
+        { kind = "glyph", code = 2, text = "B", raw = { 2 }, colorIndex = 6 },
+      },
+    },
+  }
+  r:draw(
+    FieldSignpostFixture.shown(lines, { type = 2, offset = 0 }),
+    FieldViewport.new(256, 192, { mode = "expanded" })
+  )
+  local text = textDraws(lg)
+  Assert.equal(#text, 2)
+  Assert.equal(text[1].quad.y, 0 + 1 * 16, "the color-1 glyph samples its band")
+  Assert.equal(text[2].quad.y, 0 + 6 * 16, "the color-6 glyph samples its band")
+  Assert.equal(text[2].x, text[1].x + 6, "color never changes the glyph advance")
+  r:release()
+end
+
+-- A visible focus indicator draws once through the shared renderer at the
+-- signpost content-window right edge (type 0 text window, right of the
+-- wayfinding graphic), while the frame/wayfinding/text surface is unchanged.
+function T.visible_focus_indicator_draws_at_the_signpost_content_right_edge()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
+  local r = renderer(lg)
+  local lines = FieldSignpostFixture.textLines()
+  lines[#lines].tokens[#lines[#lines].tokens + 1] = focusToken(2)
+  r:draw(
+    FieldSignpostFixture.shown(lines, { type = 0, offset = 0 }),
+    FieldViewport.new(256, 192, { mode = "expanded" })
+  )
+  local focus = focusDraws(lg)
+  Assert.equal(#focus, 1, "exactly one indicator frame is drawn")
+  local x, y = contentRightEdge(0)
+  Assert.equal(focus[1].x, x, "the indicator sits at the signpost content-window right edge")
+  Assert.equal(focus[1].y, y, "the indicator sits at the signpost content-window top")
+  Assert.deepEqual({ focus[1].quad.x, focus[1].quad.y }, { 2 * 24, 0 }, "field 2 samples its imported strip rect")
+  Assert.equal(#wayfindingDraws(lg), 24, "the wayfinding surface is unchanged")
+  Assert.equal(#textDraws(lg), 3, "the glyph surface is unchanged")
+  r:release()
+end
+
+-- The indicator is part of the sliding signpost BG surface: the whole window
+-- (frame, wayfinding, text, indicator) translates by the wipe offset, and the
+-- same frame is sampled at every offset.
+function T.focus_indicator_translates_with_the_signpost_wipe()
+  local function drawAt(offset)
+    local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
+    local r = renderer(lg)
+    local lines = FieldSignpostFixture.textLines()
+    lines[#lines].tokens[#lines[#lines].tokens + 1] = focusToken(0)
+    r:draw(
+      FieldSignpostFixture.shown(lines, { type = 2, offset = offset }),
+      FieldViewport.new(256, 192, { mode = "expanded" })
+    )
+    r:release()
+    return focusDraws(lg)[1]
+  end
+  local rest = drawAt(0)
+  local hidden = drawAt(-48)
+  Assert.notNil(rest)
+  Assert.equal(hidden.x, rest.x, "the wipe never moves the indicator horizontally")
+  Assert.equal(hidden.y, rest.y + 48, "the indicator is part of the sliding signpost surface")
+  Assert.deepEqual(
+    { hidden.quad.x, hidden.quad.y, hidden.quad.w, hidden.quad.h },
+    { rest.quad.x, rest.quad.y, rest.quad.w, rest.quad.h },
+    "the same frame is sampled at every offset"
+  )
 end
 
 return { tests = T }

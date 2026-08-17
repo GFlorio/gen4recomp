@@ -1,7 +1,8 @@
 -- Synthetic dialogue-renderer fixtures shared by the dialogue smoke suite and
--- the injected-failure suite: a 16x16 two-glyph font atlas, the cache holding
--- it, an opened controller with a canned layout, and the exact graphics-state
--- restoration contract a draw must honour.
+-- the injected-failure suite: a 16x16 font atlas, the 96x32 focus-indicator
+-- strip, the cache holding the ready font bundle, an opened controller with a
+-- canned layout, and the exact graphics-state restoration contract a draw
+-- must honour.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -17,6 +18,8 @@ local FieldDialogueFixture = {}
 local DEF_PATH = "data/generated/field/font/font-0.lua"
 local ATLAS_PATH = "assets/generated/field/font/font-0.png"
 
+FieldDialogueFixture.FOCUS_INDICATOR_PATH = "assets/generated/field/font/font-0-focus-indicators.png"
+
 local function px(r, g, b, a)
   return string.char(r, g, b, a)
 end
@@ -31,6 +34,22 @@ function FieldDialogueFixture.atlasBytes()
     end
   end
   return PngWriter.encode(16, 16, table.concat(rgba))
+end
+
+-- 96x32 focus-indicator strip: four 24x32 frames side by side, each a
+-- distinct color so a wrong frame rect is a pixel mismatch. This is the
+-- ready font bundle's required third asset; the shared text renderer owns
+-- the image after the renderer-integration change.
+---@return string png
+function FieldDialogueFixture.focusIndicatorBytes()
+  local rgba = {}
+  for y = 1, 32 do
+    for x = 1, 96 do
+      local frame = math.floor((x - 1) / 24)
+      rgba[#rgba + 1] = px(80 + frame * 40, 60 + frame * 20, 220 - frame * 40, 255)
+    end
+  end
+  return PngWriter.encode(96, 32, table.concat(rgba))
 end
 
 ---@return FieldFontDef
@@ -85,7 +104,31 @@ function FieldDialogueFixture.cacheWithFont()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   cache:write(DEF_PATH, FieldDialogueFixture.encodedFontDef())
   cache:write(ATLAS_PATH, FieldDialogueFixture.atlasBytes())
+  cache:write(FieldDialogueFixture.FOCUS_INDICATOR_PATH, FieldDialogueFixture.focusIndicatorBytes())
   return cache
+end
+
+-- The prepared focus_indicator token shape the provider produces: zero-width,
+-- carrying the imported field index.
+---@param field integer
+---@return table
+function FieldDialogueFixture.focusToken(field)
+  return { kind = "focus_indicator", control = 0x0200, name = "YESNO", args = { field } }
+end
+
+-- The drawn 24x32 indicator frames in a recorded draw stream: only the focus
+-- indicator has that rect in the dialogue/signpost streams (frame and
+-- wayfinding tiles are 8x8, glyphs 8x16).
+---@param lg table love.graphics-shaped namespace
+---@return table[]
+function FieldDialogueFixture.focusDraws(lg)
+  local out = {}
+  for _, call in ipairs(lg.draws) do
+    if call.quad and call.quad.w == 24 and call.quad.h == 32 then
+      out[#out + 1] = call
+    end
+  end
+  return out
 end
 
 -- An opened modal controller whose layout is canned, so the smoke tests

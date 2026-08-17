@@ -17,6 +17,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
@@ -54,7 +55,10 @@ function FieldDialogueRenderer.new(opts)
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldDialogueRenderer requires love.graphics")
   local text = opts.text
-  assert(text and type(text.drawLine) == "function", "FieldDialogueRenderer requires the shared FieldTextRenderer")
+  assert(
+    text and type(text.drawLine) == "function" and type(text.drawFocusIndicator) == "function",
+    "FieldDialogueRenderer requires the shared FieldTextRenderer"
+  )
   local cacheFs = opts.cacheFs
   local manifest = opts.manifest
   assert(type(manifest) == "table", "FieldDialogueRenderer requires the runtime-validated field-UI manifest")
@@ -176,6 +180,26 @@ function FieldDialogueRenderer:_drawFrame(status, layout)
   end
 end
 
+-- Draws the source screen-focus indicator (the YESNO printer control
+-- graphic) once, when the reveal has reached a focus_indicator token: the
+-- last visible control in source order wins. Placement is window-relative,
+-- not a text-cursor advance: the right edge of the content window, without
+-- subtracting the text inset. The indicator and the continuation cursor are
+-- distinct source concepts and never suppress each other.
+
+---@param status FieldDialogueController.Status
+---@param layout FieldDialogueTheme.Layout
+function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
+  local field = FieldTextRenderer.lastVisibleFocusField(status.visibleLines)
+  if field ~= nil then
+    self._text:drawFocusIndicator(
+      field,
+      layout.box.x + layout.box.width - FieldFontCache.FOCUS_FRAME_WIDTH,
+      layout.box.y
+    )
+  end
+end
+
 -- Draws the dialogue into viewport.referenceFrame. No-op (and no state
 -- touched) when the controller is closed or this renderer is disposed.
 -- Restores canvas, shader, scissor, blend, depth, wireframe, cull, and color
@@ -202,6 +226,7 @@ function FieldDialogueRenderer:draw(controller, viewport)
       self._text:drawLine(tokens, layout.text.x, lineY)
       lineY = lineY + layout.lineHeight
     end
+    self:_drawFocusIndicator(status, layout)
     self:_drawCursor(status, layout)
   end)
 end

@@ -13,7 +13,9 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
+local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
+local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
@@ -34,9 +36,9 @@ local function uiCache()
   return FieldUiFixture.cacheWithFontAndFrames()
 end
 
--- The shared font atlas: the fixture font carries three glyphs, so the text
--- renderer creates one image and three glyph quads ahead of the dialogue
--- renderer's own strip image and tile quads.
+-- The shared font assets: the fixture font carries three glyphs, so the text
+-- renderer creates two images (glyph atlas and focus strip) and three glyph
+-- quads ahead of the dialogue renderer's own strip image and tile quads.
 local function withTextRenderer(cache, lg)
   return FieldTextRenderer.new({ cacheFs = cache, graphics = lg })
 end
@@ -74,14 +76,15 @@ end
 -- alive; the renderer itself acquires nothing before the strip read fails.
 function T.missing_frame_strip_is_a_typed_error()
   local cache = FieldDialogueFixture.cacheWithFont()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 } } })
   local text = withTextRenderer(cache, lg)
   local err = Assert.throws(function()
     FieldDialogueRenderer.new({ cacheFs = cache, manifest = MANIFEST, text = text, graphics = lg })
   end)
   Assert.isTrue(Errors.is(err) and err.code == "FIELD_UI_FRAME_ATLAS_MISSING", "raises FIELD_UI_FRAME_ATLAS_MISSING")
-  Assert.equal(#lg.images, 1, "the font atlas was acquired before the strip failed")
+  Assert.equal(#lg.images, 2, "the font atlas and focus strip were acquired before the strip failed")
   Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
+  Assert.equal(lg.images[2].released, false, "the caller-owned text renderer focus strip stays alive")
   text:release()
 end
 
@@ -126,7 +129,7 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
     cullMode = "back",
     color = { 0.2, 0.4, 0.6, 0.8 },
     scissor = { 4, 8, 32, 16 },
-    imageSizes = { { 16, 16 }, { 144, 16 } },
+    imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 16 } },
     failOnDrawCall = 1,
   })
   local renderer = FieldDialogueRenderer.new({
@@ -152,18 +155,18 @@ end
 -- strip, creates no third slice source image, and draws the frame from the
 -- generated strip tiles.
 function T.no_nine_slice_assets_are_built()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 16 } } })
   local renderer = FieldDialogueRenderer.new({
     cacheFs = uiCache(),
     manifest = MANIFEST,
     text = withTextRenderer(uiCache(), lg),
     graphics = lg,
   })
-  Assert.equal(#lg.images, 2, "only the font atlas and the frame strip are created")
+  Assert.equal(#lg.images, 3, "only the font atlas, focus strip, and frame strip are created")
 
   local controller = FieldDialogueFixture.openDialogue("AB", 0)
   renderer:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
-  Assert.equal(#lg.images, 2, "drawing creates no slice image")
+  Assert.equal(#lg.images, 3, "drawing creates no slice image")
   renderer:release()
 end
 
@@ -172,7 +175,7 @@ end
 -- canonical DrawFrameAndWindow2 tilemap around the content box.
 function T.frame_index_resolves_the_manifest_strip_tiles()
   local function renderedDraws(frameIndex)
-    local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
+    local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 16 } } })
     local renderer = FieldDialogueRenderer.new({
       cacheFs = uiCache(),
       manifest = MANIFEST,
@@ -217,7 +220,7 @@ end
 -- A request without a frame index (a host that carries no player options)
 -- still draws its text; no frame tiles are fabricated.
 function T.request_without_a_frame_index_draws_no_frame_tiles()
-  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 144, 16 } } })
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 16 } } })
   local renderer = FieldDialogueRenderer.new({
     cacheFs = uiCache(),
     manifest = MANIFEST,
@@ -229,6 +232,121 @@ function T.request_without_a_frame_index_draws_no_frame_tiles()
   for _, call in ipairs(lg.draws) do
     Assert.equal(call.quad.imgW, 16, "only font-atlas quads are drawn without a frame index")
   end
+  renderer:release()
+end
+
+-- A dialogue controller whose single eos page carries the given tokens, so
+-- the renderer suites drive the real reveal state machine (the same canned
+-- layout convention as FieldDialogueFixture.openDialogue).
+local function openedWithTokens(tokens, opts)
+  opts = opts or {}
+  local controller = FieldDialogueController.new({
+    layout = function()
+      return {
+        pages = { { lines = { { tokens = tokens, width = 0 } }, breakKind = "eos" } },
+        warnings = {},
+      }
+    end,
+    ticksPerGlyph = opts.ticksPerGlyph or 2,
+  })
+  controller:open({
+    id = "focus",
+    message = { bankId = 543, messageId = 6, text = "x", tokens = tokens, hadUnresolvedSubstitutions = false },
+    allowCancel = false,
+  })
+  return controller
+end
+
+local function glyphToken(code)
+  return { kind = "glyph", code = code, text = "x", raw = { code } }
+end
+
+local focusToken = FieldDialogueFixture.focusToken
+local focusDraws = FieldDialogueFixture.focusDraws
+
+-- The indicator stays hidden while the reveal cursor has not reached
+-- its source position (the controller keeps the token out of visibleLines).
+function T.focus_indicator_not_reached_by_reveal_is_not_drawn()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 16 } } })
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = uiCache(),
+    manifest = MANIFEST,
+    text = withTextRenderer(uiCache(), lg),
+    graphics = lg,
+  })
+  local controller = openedWithTokens({ glyphToken(1), glyphToken(2), focusToken(0) }, { ticksPerGlyph = 1 })
+  controller:step({})
+  Assert.equal(controller:status().revealedGlyphs, 1, "the reveal cursor has not reached the trailing control")
+  renderer:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  Assert.equal(#focusDraws(lg), 0, "a not-yet-visible indicator is never drawn")
+  renderer:release()
+end
+
+-- Once the trailing indicator token is in the visible lines, exactly
+-- one indicator frame draws at the content-window right edge (no textInsetX
+-- subtraction), under the same reference-frame transform as the dialogue,
+-- after the text; the continuation cursor still draws on its own blink
+-- semantics -- the two are distinct source concepts, never mutually
+-- suppressed.
+function T.reached_focus_indicator_draws_at_the_content_window_right_edge()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 16 } } })
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = uiCache(),
+    manifest = MANIFEST,
+    text = withTextRenderer(uiCache(), lg),
+    graphics = lg,
+  })
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local controller = openedWithTokens({ glyphToken(1), glyphToken(2), focusToken(0) })
+  controller:step({ actionPressed = true }) -- full reveal; eos page waits
+  for _ = 1, 30 do
+    controller:step({}) -- cursor blink on
+  end
+  local status = controller:status()
+  Assert.equal(status.waiting, true)
+  Assert.equal(status.cursorOn, true, "the continuation cursor is on at its blink edge")
+
+  renderer:draw(controller, viewport)
+  local focus = focusDraws(lg)
+  Assert.equal(#focus, 1, "exactly one indicator frame is drawn")
+  local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
+  Assert.equal(focus[1].x, layout.box.x + layout.box.width - 24, "the indicator sits at the content-window right edge")
+  Assert.equal(focus[1].y, layout.box.y, "the indicator sits at the content-window top")
+  Assert.deepEqual(
+    { focus[1].quad.x, focus[1].quad.y, focus[1].quad.w, focus[1].quad.h },
+    { 0, 0, 24, 32 },
+    "field 0 samples its imported strip rect"
+  )
+  Assert.equal(lg.draws[#lg.draws].quad, focus[1].quad, "the indicator draws after the frame and text")
+  Assert.equal(#lg.primitives, 1, "the continuation cursor polygon still draws")
+  Assert.equal(lg.primitives[1], "polygon", "the cursor is drawn, never suppressed by the indicator")
+  renderer:release()
+end
+
+-- When several indicator tokens are visible in one window state, the
+-- last one in source order wins; exactly one frame draws.
+function T.the_last_visible_focus_field_wins()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 16 } } })
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = uiCache(),
+    manifest = MANIFEST,
+    text = withTextRenderer(uiCache(), lg),
+    graphics = lg,
+  })
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local controller = openedWithTokens({ glyphToken(1), focusToken(0), focusToken(3) })
+  controller:step({ actionPressed = true })
+  renderer:draw(controller, viewport)
+  local focus = focusDraws(lg)
+  local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
+  Assert.equal(#focus, 1, "multiple visible controls still draw one frame")
+  Assert.equal(focus[1].quad.x, 3 * 24, "the last visible field in source order wins")
+  Assert.equal(
+    focus[1].x,
+    layout.box.x + layout.box.width - 24,
+    "the frame keeps the content-window right-edge placement"
+  )
+  Assert.equal(focus[1].y, layout.box.y)
   renderer:release()
 end
 

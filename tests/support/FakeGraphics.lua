@@ -3,10 +3,11 @@
 -- position, and the color at draw time), the transform stack (translate/
 -- scale) and primitive calls (rectangle/polygon/print) as separate lists,
 -- tracks the transform-stack depth, and holds a full settable state the
--- renderers must restore exactly. failOnQuadCall/failOnDrawCall make the Nth
--- construction/draw call raise; imageSizes supplies the created image
--- dimensions in creation order. The suites assert exactly the record shapes
--- this helper produces; the real love.graphics object is never touched.
+-- renderers must restore exactly. failOnQuadCall/failOnDrawCall/
+-- failOnImageCall make the Nth construction/draw/image call raise;
+-- imageSizes supplies the created image dimensions in creation order. The
+-- suites assert exactly the record shapes this helper produces; the real
+-- love.graphics object is never touched.
 
 ---@class FakeGraphics
 ---@field images table[]
@@ -20,11 +21,11 @@ local FakeGraphics = {}
 -- verify exact restoration after a draw. The returned table is structurally
 -- a love.Graphics subset plus the recording fields; call sites pass it as
 -- the renderers' injectable graphics namespace.
----@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer }
+---@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer, failOnImageCall?: integer }
 function FakeGraphics.new(opts)
   opts = opts or {}
   local images = {}
-  local quadCalls, drawCalls = 0, 0
+  local imageCalls, quadCalls, drawCalls = 0, 0, 0
   local pushDepth = 0
   local draws = {}
   local transforms = {}
@@ -50,6 +51,10 @@ function FakeGraphics.new(opts)
       return pushDepth
     end,
     newImage = function()
+      imageCalls = imageCalls + 1
+      if opts.failOnImageCall == imageCalls then
+        error("injected newImage failure")
+      end
       local size = opts.imageSizes and opts.imageSizes[#images + 1] or { 16, 16 }
       local image = {
         released = false,

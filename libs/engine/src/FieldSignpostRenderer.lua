@@ -25,6 +25,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldSignpostTheme = require("libs.engine.src.FieldSignpostTheme")
+local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
@@ -68,7 +69,10 @@ function FieldSignpostRenderer.new(opts)
     "FieldSignpostRenderer requires a window style catalogue"
   )
   local text = opts.text
-  assert(text and type(text.drawLine) == "function", "FieldSignpostRenderer requires the shared FieldTextRenderer")
+  assert(
+    text and type(text.drawLine) == "function" and type(text.drawFocusIndicator) == "function",
+    "FieldSignpostRenderer requires the shared FieldTextRenderer"
+  )
   local cacheFs = opts.cacheFs
   local manifest = opts.manifest
   assert(type(manifest) == "table", "FieldSignpostRenderer requires the runtime-validated field-UI manifest")
@@ -271,7 +275,29 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha)
       self._text:drawLine(tokens, contentGeometry.x, lineY)
       lineY = lineY + FieldSignpostTheme.LINE_HEIGHT
     end
+    self:_drawFocusIndicator(status, contentGeometry, wipe)
   end)
+end
+
+-- Draws the source screen-focus indicator (the YESNO printer control
+-- graphic) once, when the visible print lines carry a focus_indicator
+-- token: the last visible control in source order wins. The same shared
+-- presentation as the dialogue, placed against this window's own content
+-- rectangle (never dialogue box geometry) and translated by the wipe like
+-- the rest of the signpost BG surface.
+
+---@param status FieldSignpostController.Status
+---@param contentGeometry FieldDialogueTheme.Rect
+---@param wipe number
+function FieldSignpostRenderer:_drawFocusIndicator(status, contentGeometry, wipe)
+  local field = FieldTextRenderer.lastVisibleFocusField(status.visibleLines)
+  if field ~= nil then
+    self._text:drawFocusIndicator(
+      field,
+      contentGeometry.x + contentGeometry.width - FieldFontCache.FOCUS_FRAME_WIDTH,
+      contentGeometry.y + wipe
+    )
+  end
 end
 
 function FieldSignpostRenderer:release()

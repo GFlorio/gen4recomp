@@ -484,6 +484,7 @@ function FieldUiFixture.trainerCardCache(fontDef)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   cache:writeLua("data/generated/field/font/font-0.lua", fontDef or FieldUiFixture.cardFontDef())
   cache:write("assets/generated/field/font/font-0.png", FieldUiFixture.cardFontAtlasBytes())
+  cache:write(FieldDialogueFixture.FOCUS_INDICATOR_PATH, FieldDialogueFixture.focusIndicatorBytes())
   cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
   cache:write(FieldUiFixture.TRAINER_CARD_PATH, FieldUiFixture.cardBytes())
   return cache
