@@ -25,10 +25,14 @@ LoveAudioSink.__index = LoveAudioSink
 
 local CHANNELS = 2
 local BIT_DEPTH = 16
--- One chunk is about one field tick of real-time audio at the DS output
--- rate (32768/30 frames), so the per-update pump keeps the audio clock
--- near real time when the host advertises a small free-buffer budget.
-local CHUNK_FRAMES = 1024
+-- One chunk is 512 stereo frames. Two queued buffers at the DS output rate
+-- (32768 Hz) are 31.25 ms of queued PCM -- an explicit low-latency budget for
+-- interactive audio, kept well short of the project's 70 ms ceiling instead
+-- of LÖVE's accidental default queue depth (8 buffers). The pump renders one
+-- chunk per free host buffer, so the audio clock cannot run far ahead of the
+-- host playback head.
+local CHUNK_FRAMES = 512
+local QUEUE_BUFFER_COUNT = 2
 
 -- The render contract is int16 and exact: the returned PCM is
 -- requestedFrames * 2 interleaved stereo samples, checked before any host
@@ -61,10 +65,14 @@ end
 -- free host buffer, then restarts the source when the host stopped it.
 -- After release the pump is a no-op. Host failures follow one policy: a
 -- failure anywhere in the pump -- the free-buffer query, a render, SoundData
--- construction, a queue, or the start step -- propagates from the update
--- and releases exactly what the failed update acquired but did not hand
--- off -- the in-flight SoundData, and the source when this update
--- constructed it -- leaving the sink usable for the next update.
+-- construction, a queue, or the start step -- propagates from the update,
+-- releases the in-flight SoundData the update did not hand off, and leaves
+-- the sink usable. The source acquired by the failed update is released only
+-- when the failure was not a queue handoff: a refused or failing queue means
+-- the chunk was rejected while the source itself stayed healthy, so the next
+-- update retries with the same source. Construction-time failures (the
+-- free-buffer query, buffer build, or start step) release a source that this
+-- update acquired, exactly once.
 function LoveAudioSink:update()
   if self._released then
     return
@@ -72,13 +80,14 @@ function LoveAudioSink:update()
   local source = self._source
   local acquiredSource = source == nil
   if source == nil then
-    source = self._audio.newQueueableSource(self._sampleRate, BIT_DEPTH, CHANNELS)
+    source = self._audio.newQueueableSource(self._sampleRate, BIT_DEPTH, CHANNELS, QUEUE_BUFFER_COUNT)
     self._source = source
   end
   -- A narrowed alias for the closure below: the branch narrowing of `source`
   -- does not propagate into pcall's function.
   local live = source
   local chunk
+  local queueStep = false
   local ok, err = pcall(function()
     local free = live:getFreeBufferCount()
     for _ = 1, free do
@@ -91,13 +100,26 @@ function LoveAudioSink:update()
           CHUNK_FRAMES
         )
       )
-      chunk = self._sound.newSoundData(#pcm, self._sampleRate, BIT_DEPTH, CHANNELS)
-      for i = 0, #pcm / CHANNELS - 1 do
+      -- SoundData's first argument is the per-channel FRAME count, not the
+      -- total interleaved scalar count: a 512-frame stereo render is 1024
+      -- scalars that build a 512-frame buffer with getSampleCount() == 512.
+      local frameCount = #pcm / CHANNELS
+      chunk = self._sound.newSoundData(frameCount, self._sampleRate, BIT_DEPTH, CHANNELS)
+      for i = 0, frameCount - 1 do
         for channel = 1, CHANNELS do
           chunk:setSample(i, channel, sampleValue(pcm[i * CHANNELS + channel]))
         end
       end
-      live:queue(chunk)
+      -- The real binding returns a success boolean from queue: an explicit
+      -- `false` means the queue refused the chunk (full queue); anything else
+      -- is a successful handoff. Assert the boolean so a refused chunk must
+      -- fail the update, never be silently considered delivered.
+      queueStep = true
+      local queued = live:queue(chunk)
+      if queued == false then
+        error("the host queue refused the rendered chunk", 0)
+      end
+      queueStep = false
       chunk:release()
       chunk = nil
     end
@@ -107,12 +129,14 @@ function LoveAudioSink:update()
   end)
   if not ok then
     -- The uniform failure policy: release the update's in-flight SoundData
-    -- (non-nil only while constructed but not yet handed off) and, when
-    -- this update constructed the source, the source itself, then rethrow.
+    -- (non-nil only while constructed but not yet handed off). A queue-step
+    -- failure leaves the healthy source in place for the next update; any
+    -- other failure on a source this update constructed releases that source
+    -- exactly once before the update propagates.
     if chunk ~= nil then
       chunk:release()
     end
-    if acquiredSource then
+    if acquiredSource and not queueStep then
       live:release()
       self._source = nil
     end
