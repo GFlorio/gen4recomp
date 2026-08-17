@@ -111,8 +111,17 @@ function T.tests.boot_starts_the_generated_maps_header_music_for_day_and_night()
       local map = dayGame.runtime.runtimeMap
       -- The generated field record carries the frozen catalog's day and
       -- night music as canonical audio references through the production
-      -- map load.
-      Assert.deepEqual(map.fieldData.music, { day = NEW_BARK_MUSIC, night = NEW_BARK_MUSIC })
+      -- map load, plus the compiled music policy: New Bark has no
+      -- flag-driven overrides, and the surfing traversal rule is the
+      -- source's SEQ_GS_NAMINORI unless the suppressing flag is set.
+      Assert.deepEqual(map.fieldData.music, {
+        day = NEW_BARK_MUSIC,
+        night = NEW_BARK_MUSIC,
+        flagOverrides = {},
+        traversalOverrides = {
+          { traversal = "surfing", sequence = "SEQ_GS_NAMINORI", unlessFlagId = 0x99A },
+        },
+      })
       Assert.equal(map.fieldData.music[day()], NEW_BARK_MUSIC)
       -- The boot started the map-header music through the composition.
       Assert.equal(audio:currentMusic(), musicId(dayGame, NEW_BARK_MUSIC))
