@@ -4,14 +4,17 @@
 -- vocabulary is closed: every emitted op is a member of the semantic set
 -- (the lowering emits nothing else), each op carries exactly its operand(s)
 -- and no other fields, and every operand is normalized to a plain integer,
--- {kind=random min max}, or {kind=variable var}. Source value ranges survive
--- (durations and program numbers are not truncated to u16), so the validator
--- rejects only impossible shapes: unknown or deleted ops, missing or
--- illegally shaped operands, variables without a valid variable number
--- (0..31: 16 player-local plus 16 global SDK variables), track numbers
--- outside 0..15, out-of-range branch targets, note key/velocity outside
--- 0..127, conditional instructions (no reachable retail command is
--- conditional, so the field is forbidden at any value), and extra
+-- {kind=random lo hi}, or {kind=variable var}. Random operands keep the
+-- exact signed source pair: both endpoints are integers in the signed-16
+-- domain, never sorted or renamed min/max, and the record carries no extra
+-- keys. Source value ranges survive (durations and program numbers are not
+-- truncated to u16), so the validator rejects only impossible shapes: unknown
+-- or deleted ops, missing or illegally shaped operands, extra keys anywhere --
+-- including on the nested operand records -- variables without a valid
+-- variable number (0..31: 16 player-local plus 16 global SDK variables),
+-- track numbers outside 0..15, out-of-range branch targets, note
+-- key/velocity outside 0..127, conditional instructions (no reachable retail
+-- command is conditional, so the field is forbidden at any value), and extra
 -- instruction or nested-block fields (an instruction carries only its op
 -- and its exact semantic operands; player only its supported fields;
 -- program only entry and instructions). Source provenance may ride along at
@@ -115,9 +118,15 @@ local function isTarget(value, count)
   return isIntegerInRange(value, 1, count)
 end
 
--- A normalized operand: a plain integer, a random {min, max} pair (any
--- ordered integer pair: the source spans the full signed range, never a
--- truncated u16), or a variable {var} record with a valid variable number.
+-- A normalized operand: a plain integer, a random {lo, hi} pair (both
+-- endpoints integers in the signed-16 domain, descending pairs included --
+-- the source operation is not a sorted range so no ordering is enforced), or
+-- a variable {var} record with a valid variable number. Every record is a
+-- closed shape: extra keys (including the retired min/max names) are
+-- malformed. The optional nonNegative constraint applies to the plain
+-- integer form only; random endpoints keep the exact signed source pair.
+---@param amount any
+---@param nonNegative boolean?
 local function isValidOperand(amount, nonNegative)
   if type(amount) == "number" then
     if amount % 1 ~= 0 then
@@ -129,14 +138,20 @@ local function isValidOperand(amount, nonNegative)
     return false
   end
   if amount.kind == "variable" then
+    for key in pairs(amount) do
+      if key ~= "kind" and key ~= "var" then
+        return false
+      end
+    end
     return isIntegerInRange(amount.var, 0, VARIABLE_MAX)
   end
   if amount.kind == "random" then
-    return type(amount.min) == "number"
-      and amount.min % 1 == 0
-      and type(amount.max) == "number"
-      and amount.max % 1 == 0
-      and amount.min <= amount.max
+    for key in pairs(amount) do
+      if key ~= "kind" and key ~= "lo" and key ~= "hi" then
+        return false
+      end
+    end
+    return isIntegerInRange(amount.lo, -0x8000, 0x7FFF) and isIntegerInRange(amount.hi, -0x8000, 0x7FFF)
   end
   return false
 end

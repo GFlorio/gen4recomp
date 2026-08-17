@@ -4,10 +4,13 @@
 -- offsets. The instruction vocabulary is closed: every emitted op is a member
 -- of the frozen semantic set (the lowering emits nothing else), each op
 -- requires exactly its operand(s), and every operand is normalized to a plain
--- integer, {kind=random min max}, or {kind=variable var}. Source value ranges
--- survive: durations and program numbers are not truncated to u16, so any
--- non-negative integer is valid. The validator rejects unknown or deleted
--- ops, missing or illegally shaped operands, variables without a valid
+-- integer, {kind=random lo hi}, or {kind=variable var}. Random operands keep
+-- the exact raw signed source pair: endpoints are never sorted, renamed
+-- min/max, or clamped, so both endpoints must be integers in the signed-16
+-- domain. Source value ranges survive: durations are not truncated to u16, so
+-- any non-negative integer duration is valid. The validator rejects unknown
+-- or deleted ops, missing or illegally shaped operands, extra keys anywhere --
+-- including on the nested operand records -- variables without a valid
 -- variable number (0..31: 16 player-local plus 16 global SDK variables),
 -- invalid track numbers (0..15), out-of-range branch targets, note
 -- key/velocity outside 0..127, conditional instructions (no reachable
@@ -282,12 +285,13 @@ function T.every_op_requires_its_operands()
   Assert.isTrue(validateWith({ op = "loop_begin", count = 2 }))
 end
 
--- Normalized operands: a plain integer, a random {min, max} pair, or a
--- variable {var} record. Anything else -- fractions, unknown kinds, missing
--- random bounds, unordered random bounds, or a variable without a valid var
--- number -- is malformed. Random bounds are not truncated to a u16 range:
--- the source pair can span the full signed range, so any ordered integer
--- pair is valid.
+-- Normalized operands: a plain integer, a random {kind="random", lo, hi}
+-- record with both endpoints integers in the signed-16 domain, or a variable
+-- {kind="variable", var} record with a valid variable number. Random operands
+-- keep the exact raw signed pair: endpoints are never sorted or renamed, so a
+-- descending raw pair (lo > hi) is valid -- the retired friendliness-oriented
+-- min/max names are rejected as extra keys -- and an endpoint outside the
+-- signed-16 range is malformed.
 function T.validates_normalized_amount_shapes()
   local function withAmount(amount)
     local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
@@ -295,9 +299,12 @@ function T.validates_normalized_amount_shapes()
     return sequence
   end
   Assert.isTrue(AudioSequence.validate(withAmount(-12)), "plain integer amounts stay plain")
-  Assert.isTrue(AudioSequence.validate(withAmount({ kind = "random", min = -12, max = 12 })))
-  Assert.isTrue(AudioSequence.validate(withAmount({ kind = "random", min = 40000, max = 49437 })))
-  Assert.isTrue(AudioSequence.validate(withAmount({ kind = "random", min = -49437, max = 40000 })))
+  -- The exact signed pair, ascending and descending: a descending raw pair
+  -- is valid because the contract forbids sorting endpoints.
+  Assert.isTrue(AudioSequence.validate(withAmount({ kind = "random", lo = -12, hi = 12 })))
+  Assert.isTrue(AudioSequence.validate(withAmount({ kind = "random", lo = -32768, hi = 32767 })))
+  Assert.isTrue(AudioSequence.validate(withAmount({ kind = "random", lo = 127, hi = -128 })))
+  Assert.isTrue(AudioSequence.validate(withAmount({ kind = "random", lo = 0, hi = -1 })))
   Assert.isTrue(AudioSequence.validate(withAmount({ kind = "variable", var = 0 })))
   Assert.isTrue(AudioSequence.validate(withAmount({ kind = "variable", var = 31 })))
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
@@ -306,14 +313,38 @@ function T.validates_normalized_amount_shapes()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(withAmount(1.5))
   end)
+  -- The min/max shape is the sorted/reordered pair this contract retires;
+  -- those names are not closed-shape keys whatever their relative order.
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
-    AudioSequence.validate(withAmount({ kind = "random", min = 1 }))
-  end)
-  throwsCode("AUDIO_SEQUENCE_INVALID", function()
-    AudioSequence.validate(withAmount({ kind = "random", min = 1.5, max = 2 }))
+    AudioSequence.validate(withAmount({ kind = "random", min = -12, max = 12 }))
   end)
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(withAmount({ kind = "random", min = 12, max = -12 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random" }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", lo = 1 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", hi = 1 }))
+  end)
+  -- Endpoints must be integers in the signed-16 domain.
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", lo = 1.5, hi = 2 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", lo = 1, hi = 2.5 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", lo = 40000, hi = 0 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", lo = 0, hi = 32768 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", lo = -32769, hi = 0 }))
   end)
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(withAmount({ kind = "other" }))
@@ -332,9 +363,35 @@ function T.validates_normalized_amount_shapes()
   end)
 end
 
+-- Operand records are closed shapes too: a variable record carries only its
+-- var, a random record only kind/lo/hi. Extra keys on an operand -- including
+-- the retired min/max names riding alongside lo/hi -- are malformed, never
+-- tolerated for forward-compatibility.
+function T.rejects_extra_keys_on_operand_records()
+  local function withAmount(amount)
+    local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
+    sequence.program.instructions[2] = { op = "pan", amount = amount }
+    return sequence
+  end
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "variable", var = 3, extra = 1 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", lo = -12, hi = 12, extra = 1 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", lo = -12, hi = 12, min = -20 }))
+  end)
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(withAmount({ kind = "random", min = -12, max = 12, lo = 0, hi = 0 }))
+  end)
+end
+
 -- Duration-class operands are not truncated to u16: any non-negative integer
 -- survives (the source varlen encoding is wider than 16 bits), so the schema
--- never clamps valid source values.
+-- never clamps valid source values. A duration-class random still keeps its
+-- exact signed pair -- the non-negative constraint applies only to the plain
+-- integer form, never to the random endpoints.
 function T.durations_are_not_truncated_to_u16()
   local function withDuration(duration)
     local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
@@ -345,7 +402,8 @@ function T.durations_are_not_truncated_to_u16()
   Assert.isTrue(AudioSequence.validate(withDuration(0xFFFF)))
   Assert.isTrue(AudioSequence.validate(withDuration(300000)))
   Assert.isTrue(AudioSequence.validate(withDuration(2089856)))
-  Assert.isTrue(AudioSequence.validate(withDuration({ kind = "random", min = 0, max = 49437 })))
+  Assert.isTrue(AudioSequence.validate(withDuration({ kind = "random", lo = -16163, hi = 0 })))
+  Assert.isTrue(AudioSequence.validate(withDuration({ kind = "random", lo = 0, hi = -1 })))
   Assert.isTrue(AudioSequence.validate(withDuration({ kind = "variable", var = 3 })))
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(withDuration(-1))
@@ -484,8 +542,6 @@ function T.validates_program_and_timing_fields()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.program.instructions[2] = { op = "program", program = 70000 }
-  Assert.isTrue(AudioSequence.validate(sequence), "program numbers survive past u16")
 end
 
 function T.provenance_is_allowed_but_never_required()

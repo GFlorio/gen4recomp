@@ -237,33 +237,34 @@ end
 -- Random and variable operands normalize into the operand field itself: a
 -- duration-class random becomes the note's duration record (no parallel
 -- placeholder), a variable program becomes the program record, and byte-class
--- commands keep their amount records. Duration-class randoms use the SDK's
--- effective span between the raw u16 pair; byte-class randoms keep the
--- encoder's signed pair.
+-- commands keep their amount records. Random operands keep the exact raw
+-- signed pair ({kind="random", lo, hi}); the lowering never sorts endpoints
+-- into a min/max range (TrackParseValue is source arithmetic, not
+-- math.random(min,max)).
 function T.normalizes_packed_operand_modes()
   local bytes, layout = SseqFixture.build({
     {
       op = "prefix",
       kind = "random",
-      command = { op = "note", key = 50, velocity = 80, duration = { kind = "random", min = 100, max = 120 } },
+      command = { op = "note", key = 50, velocity = 80, duration = { kind = "random", lo = 100, hi = 120 } },
     },
     { op = "prefix", kind = "variable", command = { op = "program", program = { kind = "variable", var = 3 } } },
     {
       op = "prefix",
       kind = "random",
-      command = { op = "u8", command = 0xC0, amount = { kind = "random", min = 10, max = 120 } },
+      command = { op = "u8", command = 0xC0, amount = { kind = "random", lo = 10, hi = 120 } },
     },
     {
       op = "prefix",
       kind = "random",
-      command = { op = "u8", command = 0xC3, amount = { kind = "random", min = -1, max = 3 } },
+      command = { op = "u8", command = 0xC3, amount = { kind = "random", lo = -1, hi = 3 } },
     },
     { op = "fin" },
   })
   local program = lowerOrFail(bytes)
   local randomNote = program.instructions[1]
   Assert.equal(randomNote.op, "note")
-  Assert.deepEqual(randomNote.duration, { kind = "random", min = 100, max = 120 })
+  Assert.deepEqual(randomNote.duration, { kind = "random", lo = 100, hi = 120 })
   Assert.isNil(randomNote.amount, "the duration operand carries no parallel amount")
 
   local variableProgram = program.instructions[2]
@@ -273,45 +274,47 @@ function T.normalizes_packed_operand_modes()
 
   local randomPan = program.instructions[3]
   Assert.equal(randomPan.op, "pan")
-  Assert.deepEqual(randomPan.amount, { kind = "random", min = 10, max = 120 })
+  Assert.deepEqual(randomPan.amount, { kind = "random", lo = 10, hi = 120 })
 
   local randomTranspose = program.instructions[4]
   Assert.equal(randomTranspose.op, "transpose")
-  Assert.deepEqual(randomTranspose.amount, { kind = "random", min = -1, max = 3 })
+  Assert.deepEqual(randomTranspose.amount, { kind = "random", lo = -1, hi = 3 })
 end
 
--- The asset contract does not truncate source values: durations and program
--- numbers beyond u16 survive verbatim (the source varlen encoding is wider
+-- The asset contract does not truncate duration source values: note/wait
+-- durations beyond u16 survive verbatim (the source varlen encoding is wider
 -- than 16 bits and the real archive contains such values), so the emitted
 -- operands are never clamped placeholders. Only the note velocity, an index
 -- into the 128-entry SDK volume table, stays clamped to its 0..127 range.
-function T.preserves_out_of_range_value_fields()
+-- Program numbers have no such preservation floor here: Nitro stores program
+-- in u16, so a test asserting an arbitrary >65535 program value survives
+-- would pin behavior nobody wants (the runtime gate owns that boundary).
+function T.large_durations_survive_while_velocity_stays_clamped()
   local bytes, layout = SseqFixture.build({
     { op = "note", key = 60, velocity = 193, duration = 300000 },
     { op = "wait", duration = 2089856 },
-    { op = "program", program = 70000 },
     { op = "fin" },
   })
   local program = lowerOrFail(bytes)
   Assert.equal(program.instructions[1].velocity, 127)
   Assert.equal(program.instructions[1].duration, 300000)
   Assert.equal(program.instructions[2].duration, 2089856)
-  Assert.equal(program.instructions[3].program, 70000)
 end
 
--- Duration-class random operands keep their full effective span: a raw u16
--- pair whose span exceeds 0x7FFF is not truncated to the signed range. The
--- SDK draws the operand as u16(lo) + (s16(hi) - u16(lo)) * r/65536, so the
--- emitted min/max is the raw pair's effective range.
-function T.preserves_random_operand_spans_beyond_u16()
-  -- A0 prefix + 0x80 wait + lo = 0xC0DD (49373) + hi = 0x0000.
+-- Duration-class random operands keep the exact raw signed pair, including a
+-- lo endpoint with the high bit set: the SDK's first u16 word is interpreted
+-- signed, so a span a friendly min/max read would stretch past u16 instead
+-- keeps its true signed lo value. The pair is carried verbatim for the
+-- runtime's source-width arithmetic.
+function T.random_duration_keeps_its_exact_signed_pair()
+  -- A0 prefix + 0x80 wait + lo = 0xC0DD (49373) + hi = 0x0000 (0).
   local bytes = SseqFixture.build({
     { op = "raw", bytes = "\xA0\x80\xDD\xC0\x00\x00" },
     { op = "fin" },
   })
   local program = lowerOrFail(bytes)
   Assert.equal(program.instructions[1].op, "wait")
-  Assert.deepEqual(program.instructions[1].duration, { kind = "random", min = 0, max = 49373 })
+  Assert.deepEqual(program.instructions[1].duration, { kind = "random", lo = -16163, hi = 0 })
 end
 
 -- A reachable 0xA2 conditional prefix is a compiler failure: the retail
@@ -478,39 +481,70 @@ function T.lowers_s16_operands_as_signed()
   Assert.equal(program.instructions[7].amount, 0xFFFF, "mod_delay is a true u16 operand")
 end
 
--- Random operands keep their full signed effective span: negative and
--- positive bounds for the byte-class commands (the encoder's signed pair)
--- and the full s16 span for the sweep class. The span is the semantic
--- contract; final narrowing of a drawn value is runtime work.
-function T.random_operands_keep_their_signed_spans()
+-- Random operands keep their exact signed pairs: negative and positive lo/hi
+-- for the byte-class commands, and the full s16 span for the sweep class.
+-- The exact raw pair (with final narrowing of a drawn value being runtime
+-- work) is the semantic contract; lowering never sorts endpoints into an
+-- effective min/max range.
+function T.random_operands_keep_their_exact_signed_pairs()
   local bytes = SseqFixture.build({
     {
       op = "prefix",
       kind = "random",
-      command = { op = "u8", command = 0xC3, amount = { kind = "random", min = -128, max = 127 } },
+      command = { op = "u8", command = 0xC3, amount = { kind = "random", lo = -128, hi = 127 } },
     },
     {
       op = "prefix",
       kind = "random",
-      command = { op = "u8", command = 0xC3, amount = { kind = "random", min = 1, max = 127 } },
+      command = { op = "u8", command = 0xC3, amount = { kind = "random", lo = 1, hi = 127 } },
     },
     {
       op = "prefix",
       kind = "random",
-      command = { op = "u8", command = 0xC3, amount = { kind = "random", min = -128, max = -1 } },
+      command = { op = "u8", command = 0xC3, amount = { kind = "random", lo = -128, hi = -1 } },
     },
     {
       op = "prefix",
       kind = "random",
-      command = { op = "u16", command = 0xE3, amount = { kind = "random", min = -32768, max = 32767 } },
+      command = { op = "u16", command = 0xE3, amount = { kind = "random", lo = -32768, hi = 32767 } },
     },
     { op = "fin" },
   })
   local program = lowerOrFail(bytes)
-  Assert.deepEqual(program.instructions[1].amount, { kind = "random", min = -128, max = 127 })
-  Assert.deepEqual(program.instructions[2].amount, { kind = "random", min = 1, max = 127 })
-  Assert.deepEqual(program.instructions[3].amount, { kind = "random", min = -128, max = -1 })
-  Assert.deepEqual(program.instructions[4].amount, { kind = "random", min = -32768, max = 32767 })
+  Assert.deepEqual(program.instructions[1].amount, { kind = "random", lo = -128, hi = 127 })
+  Assert.deepEqual(program.instructions[2].amount, { kind = "random", lo = 1, hi = 127 })
+  Assert.deepEqual(program.instructions[3].amount, { kind = "random", lo = -128, hi = -1 })
+  Assert.deepEqual(program.instructions[4].amount, { kind = "random", lo = -32768, hi = 32767 })
+end
+
+-- Descending raw pairs stay exactly as the source byte stream presents them.
+-- The SDK draws operands with its own formula and has no concept of a sorted
+-- range, so lowering must not normalize lo > hi into min/max order: the
+-- emitted record preserves the raw pair for the runtime.
+function T.keeps_descending_random_pairs_unsorted()
+  local bytes = SseqFixture.build({
+    -- byte-class transpose: lo = 127, hi = -128 (A0 prefix + u8 command).
+    {
+      op = "prefix",
+      kind = "random",
+      command = { op = "u8", command = 0xC3, amount = { kind = "random", lo = 127, hi = -128 } },
+    },
+    -- duration-class wait: lo = 0, hi = -1 (A0 prefix + varlen command).
+    {
+      op = "prefix",
+      kind = "random",
+      command = { op = "wait", duration = { kind = "random", lo = 0, hi = -1 } },
+    },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  local transpose = program.instructions[1]
+  Assert.deepEqual(transpose.amount, { kind = "random", lo = 127, hi = -128 })
+  Assert.isTrue(transpose.amount.lo > transpose.amount.hi, "the descending pair is not sorted")
+
+  local wait = program.instructions[2]
+  Assert.deepEqual(wait.duration, { kind = "random", lo = 0, hi = -1 })
+  Assert.isTrue(wait.duration.lo > wait.duration.hi, "the descending pair is not sorted")
 end
 
 -- Lowering is deterministic: the same bytes always produce the same program.

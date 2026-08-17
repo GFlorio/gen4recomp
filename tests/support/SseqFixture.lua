@@ -16,9 +16,11 @@
 --   { op = "u16", command = 0xE1, amount = <int|random|variable> }  (0xE0-0xEF)
 --   { op = "prefix", kind = "random"|"variable"|"if", command = {...} }
 --   { op = "raw", bytes = "..." }
--- `random` operands are { kind = "random", min =, max = } (u16 pair, signed);
--- `variable` operands are { kind = "variable", var = n } (u8 after the A1
--- prefix). build() returns bytes, layout where layout.offsets[i] is the file
+-- `random` operands are { kind = "random", lo =, hi = } or the legacy
+-- { kind = "random", min =, max = } (u16 pair, signed; lo/min encodes the
+-- first word, hi/max the second); `variable` operands are
+-- { kind = "variable", var = n } (u8 after the A1 prefix). build() returns
+-- bytes, layout where layout.offsets[i] is the file
 -- offset of command i (1-based, over the whole file including the wrapper)
 -- and layout.dataOffset the decoded data offset. Test-only fixture.
 
@@ -53,7 +55,7 @@ local function s16(value)
   return value
 end
 
--- Encodes a normalized value: plain integer (u16), random (u16 min, u16 max),
+-- Encodes a normalized value: plain integer (u16), random (u16 lo, u16 hi),
 -- or variable (u8 var number).
 local function encodeAmount(value, width)
   if type(value) == "number" then
@@ -64,7 +66,13 @@ local function encodeAmount(value, width)
   end
   assert(type(value) == "table", "amount must be an integer or a record")
   if value.kind == "random" then
-    return u16(s16(value.min)) .. u16(s16(value.max))
+    local lo, hi
+    if value.lo ~= nil then
+      lo, hi = value.lo, value.hi
+    else
+      lo, hi = value.min, value.max
+    end
+    return u16(s16(lo)) .. u16(s16(hi))
   end
   assert(value.kind == "variable", "unknown amount kind " .. tostring(value.kind))
   return u8(value.var)

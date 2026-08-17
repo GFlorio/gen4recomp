@@ -22,9 +22,11 @@ local ScriptCache = require("libs.assets.src.ScriptCache")
 local T = {}
 
 function T.contract_pins_the_current_asset_identities()
-  -- The audio contracts moved to their v4 schemas while the global revision
-  -- stayed put: the per-class schemas fully identify the changed contracts,
-  -- so unrelated derived classes must not invalidate.
+  -- The audio contracts moved to explicit class schemas while the global
+  -- revision stayed put: the per-class schemas fully identify the changed
+  -- contracts, so unrelated derived classes must not invalidate. The random
+  -- operand shape change (sorted min/max -> exact signed lo/hi pair) bumps
+  -- the sequence schema from v4 to v5.
   Assert.deepEqual(DerivedAssetContract, {
     revision = 5,
     map = {
@@ -68,7 +70,7 @@ function T.contract_pins_the_current_asset_identities()
     audio = {
       cacheFormat = "g4-audio-cache-v1",
       indexSchema = "g4-audio-index-v3",
-      sequenceSchema = "g4-audio-sequence-v4",
+      sequenceSchema = "g4-audio-sequence-v5",
       bankSchema = "g4-audio-bank-v4",
       sampleSchema = "g4-audio-sample-v4",
       provenanceSchema = "g4-audio-provenance-v1",

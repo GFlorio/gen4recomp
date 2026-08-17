@@ -8,9 +8,11 @@
 -- prefixes; 0xB0-0xBF a var number plus u16; 0xC0-0xDF a u8; 0xE0-0xEF a
 -- u16; 0xF0-0xFF nothing. Random operands (u16 lo, u16 hi) and variable
 -- operands (u8 var number) normalize into {kind="random", lo, hi} and
--- {kind="variable", var} records; the lowering turns the raw random pair
--- into the asset's min/max range. Every read is bounds-checked; malformed
--- data raises SSEQ_* errors, never slicing artifacts. Pure domain module.
+-- {kind="variable", var} records; the random lo is the raw unsigned u16 word
+-- and hi is its signed interpretation, and the lowering carries the pair
+-- through verbatim (never a friendly min/max range). Every read is
+-- bounds-checked; malformed data raises SSEQ_* errors, never slicing
+-- artifacts. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
 
@@ -70,9 +72,8 @@ end
 
 -- Parses a normalized operand: the plain encoding for the class (varlen/u8/
 -- u16) or the prefixed random/variable encodings. Returns value, nextPos.
--- The random operand keeps the raw SDK pair: the first u16 and the second
--- u16 as signed; the lowering normalizes the effective range per command
--- class.
+-- The random operand keeps the raw SDK pair: the first u16 as unsigned and
+-- the second u16 as signed; the lowering carries the pair through verbatim.
 local function parseValue(bytes, pos, endPos, mode, width, source)
   if mode == "random" then
     local lo = u16At(bytes, pos, endPos, source)

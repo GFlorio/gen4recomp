@@ -9,24 +9,25 @@
 -- by the mask (the retail corpus never violates this, so the proven track
 -- set is checked at compile time and runtime never carries allocation
 -- failure). Operands normalize into a single field per command (plain
--- integers or {kind=random min max} / {kind=variable var} records) with no
+-- integers or {kind=random lo hi} / {kind=variable var} records) with no
 -- artificial u16 truncation: durations and program numbers preserve the full
--- source range, random spans keep their full effective pair, and the signed
--- operand classes are narrowed to their semantic value (s8 for transpose and
--- pitch_bend, s16 for sweep and the variable operations, per the ARM7
--- NitroSDK player's s8/(s16)TrackParseValue stores) while the true-u16 class
--- (tempo, mod_delay) stays unsigned. Note velocities clamp to the 128-entry
--- SDK volume table. The semantic opcode table follows the ARM7 NitroSDK
--- sequence player: known meaningful opcodes map to semantic names, the
--- reserved SDK no-op classes lower declaratively to explicit nop
--- instructions, the comparison commands (0xB8..0xBD) have no runtime
--- consumer and also lower to nop, a reachable conditional (0xA2) prefix is a
--- build failure (no reachable retail command is conditional), the 0xD6
--- print_var diagnostic (no runtime-observable game behavior) is dropped and
--- never emitted, and a command outside the table is a build failure with
--- source provenance (an unsupported reachable command is never a runtime
--- placeholder). Unreachable bytes are never decoded, so malformed data
--- outside the reachable program cannot fail a build. Pure domain module.
+-- source range, random operands keep the exact signed source pair the parser
+-- decoded (never sorted into a min/max range), and the signed operand classes
+-- are narrowed to their semantic value (s8 for transpose and pitch_bend, s16
+-- for sweep and the variable operations, per the ARM7 NitroSDK player's
+-- s8/(s16)TrackParseValue stores) while the true-u16 class (tempo,
+-- mod_delay) stays unsigned. Note velocities clamp to the 128-entry SDK
+-- volume table. The semantic opcode table follows the ARM7 NitroSDK sequence
+-- player: known meaningful opcodes map to semantic names, the reserved SDK
+-- no-op classes lower declaratively to explicit nop instructions, the
+-- comparison commands (0xB8..0xBD) have no runtime consumer and also lower to
+-- nop, a reachable conditional (0xA2) prefix is a build failure (no reachable
+-- retail command is conditional), the 0xD6 print_var diagnostic (no
+-- runtime-observable game behavior) is dropped and never emitted, and a
+-- command outside the table is a build failure with source provenance (an
+-- unsupported reachable command is never a runtime placeholder). Unreachable
+-- bytes are never decoded, so malformed data outside the reachable program
+-- cannot fail a build. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
 local Sseq = require("romdump.src.digest.audio.Sseq")
@@ -139,32 +140,10 @@ local function trackAllocated(trackMask, track)
   return math.floor(trackMask / 2 ^ track) % 2 == 1
 end
 
--- The SDK draws random operands as u16(lo) + (s16(hi) - u16(lo)) * r/65536.
--- For duration-class operands (note/wait) the full span between the raw pair
--- applies; for the byte-class commands the encoder's signed pair is the
--- effective range after the class truncation. Both normalize into the asset
--- operand record without truncating the span.
-local function randomAmount(value, isDuration)
-  local s16lo = value.lo >= 0x8000 and value.lo - 0x10000 or value.lo
-  local low, high
-  if isDuration then
-    low, high = math.min(value.lo, value.hi), math.max(value.lo, value.hi)
-  elseif s16lo <= value.hi then
-    low, high = s16lo, value.hi
-  else
-    low, high = math.min(value.lo, value.hi), math.max(value.lo, value.hi)
-  end
-  return {
-    kind = "random",
-    min = low,
-    max = high,
-  }
-end
-
 -- The signed operand classes (SND_seq.c stores par._s8 for transpose and
 -- pitch_bend and casts (s16)TrackParseValue for sweep and the variable
 -- operations): a plain u8/u16 operand narrows to its semantic signed value,
--- while a dynamic {kind=random|variable} record keeps its span (final
+-- while a dynamic {kind=random|variable} record keeps its pair (final
 -- narrowing of a drawn value is runtime work).
 local function toS8(value)
   if type(value) == "number" and value >= 0x80 then
@@ -180,16 +159,30 @@ local function toS16(value)
   return value
 end
 
+-- A random operand keeps the exact signed source pair the parser decoded:
+-- the first word is a signed u16 in the SDK's arithmetic, the second word is
+-- already signed. The pair is never sorted, never renamed min/max, and never
+-- treated as a duration-friendly unsigned range (TrackParseValue is source
+-- arithmetic over the raw pair, not math.random(min,max)); the runtime
+-- applies the semantic width of the drawn value.
+local function randomAmount(value)
+  return {
+    kind = "random",
+    lo = toS16(value.lo),
+    hi = toS16(value.hi),
+  }
+end
+
 -- Normalizes a decoded operand into the closed operand representation: a
 -- plain value passes through as an integer (never a clamped placeholder), a
--- random record keeps its full effective span, and a variable record keeps
--- its var reference.
-local function normalizeValue(value, isDuration)
+-- random record keeps its exact signed source pair, and a variable record
+-- keeps its var reference.
+local function normalizeValue(value)
   if type(value) == "number" then
     return value
   end
   if value.kind == "random" then
-    return randomAmount(value, isDuration)
+    return randomAmount(value)
   end
   return value
 end
@@ -231,11 +224,11 @@ local function toInstruction(command, indexOf, identity, trackMask)
   if op == "note" then
     instruction.key = opcode
     instruction.velocity = clamp(command.velocity, 0, 0x7F)
-    instruction.duration = normalizeValue(command.duration, true)
+    instruction.duration = normalizeValue(command.duration)
   elseif op == "wait" then
-    instruction.duration = normalizeValue(command.value, true)
+    instruction.duration = normalizeValue(command.value)
   elseif op == "program" then
-    instruction.program = normalizeValue(command.value, true)
+    instruction.program = normalizeValue(command.value)
   elseif op == "open_track" then
     if trackMask == nil or not trackAllocated(trackMask, command.track) then
       Errors.raise(
@@ -273,18 +266,18 @@ local function toInstruction(command, indexOf, identity, trackMask)
     instruction.target = target
   elseif op ~= "nop" and opcode >= 0xB0 and opcode <= 0xBF then
     instruction.var = command.var
-    instruction.amount = toS16(normalizeValue(command.value, false))
+    instruction.amount = toS16(normalizeValue(command.value))
   elseif op ~= "nop" and opcode >= 0xC0 and opcode <= 0xEF then
     if op == "loop_begin" then
       -- 0xD4 loop_begin: the u8 loop count is a value operand (the player's
       -- loop frame), never an amount field.
-      instruction.count = normalizeValue(command.value, false)
+      instruction.count = normalizeValue(command.value)
     elseif op == "transpose" or op == "pitch_bend" then
-      instruction.amount = toS8(normalizeValue(command.value, false))
+      instruction.amount = toS8(normalizeValue(command.value))
     elseif op == "sweep" then
-      instruction.amount = toS16(normalizeValue(command.value, false))
+      instruction.amount = toS16(normalizeValue(command.value))
     else
-      instruction.amount = normalizeValue(command.value, false)
+      instruction.amount = normalizeValue(command.value)
     end
   end
   return instruction
