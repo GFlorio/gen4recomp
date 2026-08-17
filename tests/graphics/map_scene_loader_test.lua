@@ -82,7 +82,7 @@ end
 
 local function scene(materials)
   return {
-    schema = "g4-map-scene-v8",
+    schema = "g4-map-scene-v6",
     mapId = 1,
     cameraType = 0,
     matrix = { width = 1, height = 1, x = 0, z = 0, worldOriginX = 0, worldOriginZ = 0 },
