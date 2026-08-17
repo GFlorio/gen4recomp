@@ -1,20 +1,114 @@
 -- Field font definitions are runtime data. Loading them must not allocate a
 -- presentation resource, so field composition can lay out dialogue before a
--- renderer exists.
+-- renderer exists. The loader must also reject a malformed or stale v1
+-- definition before presentation construction, so a pre-change cache cannot
+-- pass through the new color-band and focus-indicator contract.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
+local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
+local FieldMessageText = require("libs.assets.src.FieldMessageText")
 
 local T = {}
 
-function T.loads_the_compiled_definition_without_a_graphics_namespace()
+local COLOR_COUNT = FieldMessageText.COLOR_VARIANT_COUNT
+local FOCUS_COUNT = FieldMessageText.FOCUS_INDICATOR_COUNT
+
+local function validDef()
+  local baseHeight = 16
+  return {
+    schema = FieldFontCache.SCHEMA,
+    fontId = 0,
+    lineHeight = 16,
+    maxLetterHeight = 16,
+    letterSpacing = 0,
+    glyphCount = 1,
+    fallbackCode = 0,
+    atlas = {
+      width = 1024,
+      height = baseHeight * COLOR_COUNT,
+      baseHeight = baseHeight,
+      glyphsPerRow = 64,
+      glyphWidth = 16,
+      glyphHeight = 16,
+    },
+    colorVariants = { count = COLOR_COUNT, strideY = baseHeight },
+    focusIndicators = {
+      imagePath = "assets/generated/field/font/font-0-focus-indicators.png",
+      count = FOCUS_COUNT,
+      width = 24,
+      height = 32,
+      frames = {
+        [0] = { x = 0, y = 0, width = 24, height = 32 },
+        [1] = { x = 24, y = 0, width = 24, height = 32 },
+        [2] = { x = 48, y = 0, width = 24, height = 32 },
+        [3] = { x = 72, y = 0, width = 24, height = 32 },
+      },
+    },
+    glyphs = {
+      [0] = { x = 0, y = 0, w = 16, h = 16, advance = 6, bearingX = 0, bearingY = 0 },
+    },
+    charmap = {},
+    palette = {},
+  }
+end
+
+local function cacheWith(def)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  local definition = { schema = FieldFontCache.SCHEMA, charmap = {}, glyphs = {} }
-  cache:writeLua(FieldFontCache.defPath(0), definition)
-  Assert.deepEqual(FieldFontLoader.load(cache), definition)
+  cache:writeLua(FieldFontCache.defPath(0), def)
+  return cache
+end
+
+local function loadExpectRaised(def, context)
+  local raised = Assert.throws(function()
+    FieldFontLoader.load(cacheWith(def))
+  end, context)
+  Assert.isTrue(Errors.is(raised), context .. " must be a typed error")
+end
+
+function T.loads_the_compiled_definition_without_a_graphics_namespace()
+  local definition = validDef()
+  local loaded = FieldFontLoader.load(cacheWith(definition)) --[[@as table]]
+  Assert.deepEqual(loaded, definition)
+  Assert.equal(loaded.colorVariants.count, FieldMessageText.COLOR_VARIANT_COUNT)
+  Assert.equal(loaded.focusIndicators.count, FieldMessageText.FOCUS_INDICATOR_COUNT)
+end
+
+function T.load_rejects_a_wrong_color_variant_count()
+  local definition = validDef()
+  assert(definition.colorVariants)
+  definition.colorVariants.count = FieldMessageText.COLOR_VARIANT_COUNT - 1
+  loadExpectRaised(definition, "a count that does not match the protocol color count must be rejected")
+end
+
+function T.load_rejects_a_non_positive_color_stride()
+  local definition = validDef()
+  assert(definition.colorVariants)
+  definition.colorVariants.strideY = 0
+  loadExpectRaised(definition, "a non-positive color stride must be rejected")
+end
+
+function T.load_rejects_an_atlas_too_short_for_the_color_bands()
+  local definition = validDef()
+  definition.atlas.height = definition.atlas.baseHeight * FieldMessageText.COLOR_VARIANT_COUNT - 1
+  loadExpectRaised(definition, "an atlas too short for all color bands must be rejected")
+end
+
+function T.load_rejects_wrong_focus_count_and_rect_geometry()
+  for _, count in ipairs({ FieldMessageText.FOCUS_INDICATOR_COUNT - 1, FieldMessageText.FOCUS_INDICATOR_COUNT + 1 }) do
+    local definition = validDef()
+    definition.focusIndicators.count = count
+    loadExpectRaised(definition, "a focus count that does not match the protocol must be rejected")
+  end
+  local noFrames = validDef()
+  noFrames.focusIndicators.frames = nil
+  loadExpectRaised(noFrames, "missing focus frame rects must be rejected")
+  local badRect = validDef()
+  badRect.focusIndicators.frames[0].width = 23
+  loadExpectRaised(badRect, "a focus rect that is not exactly 24x32 must be rejected")
 end
 
 return { tests = T }

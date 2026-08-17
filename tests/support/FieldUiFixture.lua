@@ -15,6 +15,8 @@
 local PngWriter = require("libs.assets.src.PngWriter")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
+local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 
@@ -309,13 +311,37 @@ function FieldUiFixture.cardFontDef()
   for index = 1, #FieldUiFixture.CARD_CHARSET do
     charmap[FieldUiFixture.CARD_CHARSET:sub(index, index)] = index
   end
+  local baseHeight = 32
   return {
-    schema = "g4-field-font-v1",
+    schema = FieldFontCache.SCHEMA,
     fontId = 0,
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
-    atlas = { width = 512, height = 32, glyphsPerRow = 64, glyphWidth = 8, glyphHeight = 16 },
+    atlas = {
+      width = 512,
+      height = baseHeight * FieldMessageText.COLOR_VARIANT_COUNT,
+      baseHeight = baseHeight,
+      glyphsPerRow = 64,
+      glyphWidth = 8,
+      glyphHeight = 16,
+    },
+    colorVariants = {
+      count = FieldMessageText.COLOR_VARIANT_COUNT,
+      strideY = baseHeight,
+    },
+    focusIndicators = {
+      imagePath = "assets/generated/field/font/font-0-focus-indicators.png",
+      count = FieldMessageText.FOCUS_INDICATOR_COUNT,
+      width = FieldFontCache.FOCUS_FRAME_WIDTH,
+      height = FieldFontCache.FOCUS_FRAME_HEIGHT,
+      frames = {
+        [0] = { x = 0, y = 0, width = FieldFontCache.FOCUS_FRAME_WIDTH, height = FieldFontCache.FOCUS_FRAME_HEIGHT },
+        [1] = { x = 24, y = 0, width = FieldFontCache.FOCUS_FRAME_WIDTH, height = FieldFontCache.FOCUS_FRAME_HEIGHT },
+        [2] = { x = 48, y = 0, width = FieldFontCache.FOCUS_FRAME_WIDTH, height = FieldFontCache.FOCUS_FRAME_HEIGHT },
+        [3] = { x = 72, y = 0, width = FieldFontCache.FOCUS_FRAME_WIDTH, height = FieldFontCache.FOCUS_FRAME_HEIGHT },
+      },
+    },
     glyphs = glyphs,
     charmap = charmap,
   }

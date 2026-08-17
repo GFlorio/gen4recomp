@@ -167,7 +167,7 @@ end
 function FieldDialogueTheme.fontMetrics(fontDef)
   assert(
     type(fontDef) == "table" and type(fontDef.glyphs) == "table",
-    "font metrics require a g4-field-font-v1 definition"
+    "font metrics require a compiled field-font definition"
   )
   return {
     glyphWidth = function(code)
@@ -184,7 +184,7 @@ end
 function FieldDialogueTheme.measureText(fontDef)
   assert(
     type(fontDef) == "table" and type(fontDef.glyphs) == "table" and type(fontDef.charmap) == "table",
-    "font text measurement requires a g4-field-font-v1 definition"
+    "font text measurement requires a compiled field-font definition"
   )
   return function(text)
     assert(type(text) == "string", "text measurement requires a string")

@@ -15,6 +15,7 @@ local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
+local FieldFontCache = require("libs.assets.src.FieldFontCache")
 
 local T = {}
 
@@ -229,7 +230,7 @@ function T.canonical_golden_matches_the_real_generated_card_pixel_for_pixel(scop
   Assert.notNil(front, "the generated class indexes the trainer card front")
   local trainerCard = assert(manifest.trainerCard, "the generated class carries the trainer card section")
   local fontDef = assert(cache:loadLua("data/generated/field/font/font-0.lua"), "the real font def must load")
-  Assert.equal(fontDef.schema, "g4-field-font-v1", "the real font def schema")
+  Assert.equal(fontDef.schema, FieldFontCache.SCHEMA, "the real font def schema")
 
   local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
   local art = love.image.newImageData(love.filesystem.newFileData(cache:read(front.image), front.image))

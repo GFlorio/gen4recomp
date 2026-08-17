@@ -26,6 +26,10 @@
 -- messages cacheFormat v2: YESNO tokens classify as focus_indicator in the
 -- persisted bank streams (runtime playback rejects the old
 -- unsupported_control classification), so a stale bank must not be misread.
+--
+-- font cacheFormat/schema v2: the compiled definition gains seven color bands
+-- and a focus-indicator PNG, and the marker hashes font member 6, so a stale
+-- pre-change font cache must not pass readiness.
 
 local DerivedAssetContract = {}
 
@@ -67,8 +71,8 @@ DerivedAssetContract.messages = {
 }
 
 DerivedAssetContract.font = {
-  cacheFormat = "field-font-cache-v1",
-  schema = "g4-field-font-v1",
+  cacheFormat = "field-font-cache-v2",
+  schema = "g4-field-font-v2",
 }
 
 DerivedAssetContract.scripts = {

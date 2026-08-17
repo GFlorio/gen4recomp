@@ -8,6 +8,8 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
+local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 
 local FieldDialogueFixture = {}
@@ -33,13 +35,37 @@ end
 
 ---@return FieldFontDef
 function FieldDialogueFixture.fontDef()
+  local baseHeight = 16
   return {
-    schema = "g4-field-font-v1",
+    schema = FieldFontCache.SCHEMA,
     fontId = 0,
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
-    atlas = { width = 16, height = 16, glyphsPerRow = 2, glyphWidth = 8, glyphHeight = 16 },
+    atlas = {
+      width = 16,
+      height = baseHeight * FieldMessageText.COLOR_VARIANT_COUNT,
+      baseHeight = baseHeight,
+      glyphsPerRow = 2,
+      glyphWidth = 8,
+      glyphHeight = 16,
+    },
+    colorVariants = {
+      count = FieldMessageText.COLOR_VARIANT_COUNT,
+      strideY = baseHeight,
+    },
+    focusIndicators = {
+      imagePath = "assets/generated/field/font/font-0-focus-indicators.png",
+      count = FieldMessageText.FOCUS_INDICATOR_COUNT,
+      width = 24,
+      height = 32,
+      frames = {
+        [0] = { x = 0, y = 0, width = 24, height = 32 },
+        [1] = { x = 24, y = 0, width = 24, height = 32 },
+        [2] = { x = 48, y = 0, width = 24, height = 32 },
+        [3] = { x = 72, y = 0, width = 24, height = 32 },
+      },
+    },
     glyphs = {
       [1] = { x = 0, y = 0, w = 8, h = 16, advance = 6, bearingX = 0, bearingY = 0 },
       [2] = { x = 8, y = 0, w = 8, h = 16, advance = 6, bearingX = 0, bearingY = 0 },

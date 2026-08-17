@@ -29,6 +29,9 @@ return {
   -- Font 0 is the field dialogue font (src/font.c sFontArcParam[0]).
   fontId = 0,
   fontGlyphMember = 0,
+  -- Member 6 is the screen-focus indicator set the text printer blits next
+  -- to YESNO prompts (GfGfxLoader_GetCharData in src/font.c).
+  fontFocusIndicatorMember = 6,
   fontPaletteMember = 7,
   -- Atlas packing: 16px glyphs in a fixed grid.
   atlasGlyphsPerRow = 64,

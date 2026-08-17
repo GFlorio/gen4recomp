@@ -13,9 +13,12 @@ local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldMessages = require("romdump.src.config.FieldMessages")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
+local G2dDecoder = require("romdump.src.digest.G2dDecoder")
+local Hashing = require("romdump.src.digest.Hashing")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
 local charmap = require("romdump.src.reference.hgss.charmap")
 local MenuProtocol = require("libs.assets.src.MenuProtocol")
+local PngReader = require("tests.support.PngReader")
 
 local T = {}
 
@@ -348,6 +351,125 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   Assert.equal(fontBundle.dependencies.glyphMemberSha1, memberSha("font", 0))
   Assert.equal(fontBundle.dependencies.paletteMemberSha1, memberSha("font", 7))
   Assert.equal(messageBundle.dependencies.messageNarc.sha1, archiveSha("messages"))
+end
+
+function T.font_focus_indicator_member_is_a_four_frame_24x32_4bpp_ncgr(romFs)
+  -- Font NARC member 6 is the screen-focus indicator set (the
+  -- GfGfxLoader_GetCharData payload the text printer blits next to YESNO
+  -- prompts). These are structural facts about the real member: the NCGR char
+  -- data is 4bpp and forms exactly FOCUS_INDICATOR_COUNT 24x32 frames (12
+  -- tiles each), reserving the background index for transparency.
+  local member = assert(assert(romFs:openNarc("font")):readMember(6))
+  local char, charErr = G2dDecoder.decodeChar(member, { label = "font-focus-indicator" })
+  Assert.notNil(char, charErr and charErr.message or "font member 6 must decode as NCGR char data")
+  local chars = assert(char, "font member 6 decodes as NCGR char data")
+  Assert.equal(chars.depth, 3, "the indicator set is 4bpp")
+  local tiles = math.floor(#chars.tiles / 32)
+  Assert.equal(
+    tiles,
+    FieldMessageText.FOCUS_INDICATOR_COUNT * 12,
+    "24x32 at 4bpp is 12 8x8 tiles per frame; the member must hold exactly the protocol frame count"
+  )
+  local function tileValue(tile, tx, ty)
+    local byte = chars.tiles:byte(tile * 32 + ty * 4 + math.floor(tx / 2) + 1)
+    local hi = math.floor(byte / 16)
+    return tx % 2 == 0 and hi or byte % 16
+  end
+  local function frameValue(frame, x, y)
+    local tileY = math.floor(y / 8)
+    local tileX = math.floor(x / 8)
+    return tileValue(frame * 12 + tileY * 3 + tileX, x % 8, y % 8)
+  end
+  local used = {}
+  for frame = 0, FieldMessageText.FOCUS_INDICATOR_COUNT - 1 do
+    for y = 0, 31 do
+      for x = 0, 23 do
+        used[frameValue(frame, x, y)] = true
+      end
+    end
+  end
+  -- Palette-index interpretation: index 0 is the transparent background; the
+  -- visible indicator uses slots 0x0B..0x0E and never the font background slot.
+  local expected = { [0] = true, [0x0B] = true, [0x0C] = true, [0x0D] = true, [0x0E] = true }
+  for index in pairs(expected) do
+    Assert.isTrue(used[index], "the indicator set must use palette index " .. string.format("0x%02X", index))
+  end
+  for index in pairs(used) do
+    Assert.isTrue(expected[index] == true, "unexpected indicator index " .. string.format("0x%02X", index))
+  end
+  -- The four source frames are pairwise distinct, so a degenerate payload that
+  -- collapsed frames cannot pass as the protocol shape.
+  local frames = {}
+  for frame = 0, FieldMessageText.FOCUS_INDICATOR_COUNT - 1 do
+    local bytes = {}
+    for y = 0, 31 do
+      for x = 0, 23, 2 do
+        bytes[#bytes + 1] = string.char(frameValue(frame, x, y) * 16 + frameValue(frame, x + 1, y))
+      end
+    end
+    frames[frame] = table.concat(bytes)
+  end
+  for a = 0, FieldMessageText.FOCUS_INDICATOR_COUNT - 1 do
+    for b = a + 1, FieldMessageText.FOCUS_INDICATOR_COUNT - 1 do
+      Assert.isFalse(frames[a] == frames[b], "focus frames " .. a .. " and " .. b .. " must be distinct")
+    end
+  end
+end
+
+function T.compiled_font_def_matches_the_real_focus_and_color_contract(romFs, version)
+  -- The compiled field-font definition and its cache marker must reflect the
+  -- ROM's font member 6: seven color bands (the protocol COLOR_VARIANT_COUNT),
+  -- four 24x32 focus frames with in-bounds rects, and the member bytes
+  -- participating in the dependency record.
+  local bundle = assert(FieldFontCompiler.compile(romFs)) --[[@as table]]
+  local def = bundle.font
+  local variants = def.colorVariants
+  Assert.notNil(variants, "the compiled font must expose colorVariants")
+  Assert.equal(variants.count, FieldMessageText.COLOR_VARIANT_COUNT)
+  Assert.isTrue(variants.strideY > 0, "the color stride must be positive")
+  Assert.equal(def.atlas.height, def.atlas.baseHeight * variants.count)
+
+  local focus = def.focusIndicators
+  Assert.notNil(focus, "the compiled font must expose focusIndicators")
+  Assert.equal(focus.count, FieldMessageText.FOCUS_INDICATOR_COUNT)
+  Assert.equal(focus.width, 24)
+  Assert.equal(focus.height, 32)
+  local focusW, focusH, _ = PngReader.rgba(bundle.focusIndicators)
+  for field = 0, focus.count - 1 do
+    local rect = focus.frames[field]
+    Assert.equal(rect.width, 24, "focus frame " .. field .. " must be 24 wide")
+    Assert.equal(rect.height, 32, "focus frame " .. field .. " must be 32 tall")
+    Assert.isTrue(
+      rect.x + rect.width <= focusW and rect.y + rect.height <= focusH,
+      "focus frame " .. field .. " must lie inside the focus PNG"
+    )
+  end
+  Assert.equal(bundle.dependencies.focusIndicatorMemberId, 6)
+  local member6 = assert(assert(romFs:openNarc("font")):readMember(6))
+  Assert.equal(bundle.dependencies.focusIndicatorMemberSha1, Hashing.sha1hex(member6))
+
+  -- The default band keeps the pre-change palette mapping: visible pixels
+  -- resolve to the font foreground slot 1 and shadow slot 2 (the same slots
+  -- the old single-band compiler used), so unstyled dialogue is unchanged.
+  local atlasW, atlasH, atlasRgba = PngReader.rgba(bundle.atlas)
+  Assert.equal(atlasH, def.atlas.height)
+  local fg = def.palette[FieldFontDecoder.FG_PALETTE_INDEX + 1]
+  local shadow = def.palette[FieldFontDecoder.SHADOW_PALETTE_INDEX + 1]
+  local foundFg, foundShadow = false, false
+  for y = 0, def.atlas.baseHeight - 1 do
+    for x = 0, atlasW - 1 do
+      local r, g, b, a = PngReader.pixel(atlasRgba, atlasW, x, y)
+      if a > 0 then
+        if r == fg.r and g == fg.g and b == fg.b then
+          foundFg = true
+        elseif r == shadow.r and g == shadow.g and b == shadow.b then
+          foundShadow = true
+        end
+      end
+    end
+  end
+  Assert.isTrue(foundFg, "the default band must draw foreground ink from slot 1")
+  Assert.isTrue(foundShadow, "the default band must draw shadow ink from slot 2")
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

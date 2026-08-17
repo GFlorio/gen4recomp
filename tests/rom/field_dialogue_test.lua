@@ -10,12 +10,13 @@ local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
+local FieldFontCache = require("libs.assets.src.FieldFontCache")
 
 local T = {}
 
 local function fontDef(version)
   local def = assert(CacheFs.forVersion(version):loadLua("data/generated/field/font/font-0.lua"))
-  assert(def.schema == "g4-field-font-v1", "field font cache is cold")
+  assert(def.schema == FieldFontCache.SCHEMA, "field font cache is cold")
   return def
 end
 

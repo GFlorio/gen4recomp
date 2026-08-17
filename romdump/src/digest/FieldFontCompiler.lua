@@ -1,22 +1,32 @@
--- Compiles the HGSS field font (font 0) into a private atlas PNG plus the
--- g4-field-font-v1 definition. Glyph tiles and the width table come from
--- NARC_graphic_font member 0 (src/font_data.c); colors come from the
--- RLCN-wrapped TTLP palette member 7 (src/font.c LoadFontPal0). Pixel values
--- map to palette slots via GenerateFontHalfRowLookupTable (src/text.c):
--- 0 = transparent, 1 = foreground, 2 = shadow, 3 = background.
+-- Compiles the HGSS field font (font 0) into a private glyph atlas PNG, a
+-- focus-indicator PNG, and the g4-field-font-v2 definition. Glyph tiles and
+-- the width table come from NARC_graphic_font member 0 (src/font_data.c); the
+-- screen-focus indicator set the YESNO printer control blits comes from member
+-- 6 (the GfGfxLoader_GetCharData payload, decoded as NCGR char data); colors
+-- come from the RLCN-wrapped TTLP palette member 7 (src/font.c LoadFontPal0).
+-- Glyph pixel values map to palette slots via GenerateFontHalfRowLookupTable
+-- (src/text.c): 0 = transparent, 1 = foreground, 2 = shadow, 3 = background.
+-- Each color variant resolves one foreground/shadow palette pair (slots 2n+1
+-- and 2n+2 for color n; slot 15 stays the field-window background), so the
+-- atlas stacks COLOR_VARIANT_COUNT bands of the base glyph geometry.
 
 local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
 local PngWriter = require("libs.assets.src.PngWriter")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
+local G2dDecoder = require("romdump.src.digest.G2dDecoder")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
 local charmap = require("romdump.src.reference.hgss.charmap")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local manifest = require("romdump.src.config.FieldMessages")
 
 local FieldFontCompiler = {}
 
 local GLYPH_SIZE = 16
+local FOCUS_FRAME_WIDTH = FieldFontCache.FOCUS_FRAME_WIDTH
+local FOCUS_FRAME_HEIGHT = FieldFontCache.FOCUS_FRAME_HEIGHT
+local FOCUS_TILES_PER_FRAME = math.floor(FOCUS_FRAME_WIDTH / 8) * math.floor(FOCUS_FRAME_HEIGHT / 8)
 
 local function must(value, err)
   if value == nil then
@@ -39,26 +49,34 @@ local function loadSource(romFs, sha1hex)
   }
 end
 
--- Composite-atlas pixel mapping: 0 = transparent, 1 = foreground ink,
--- 2 = shadow, 3 = the font's background slot. The slot numbers come from
--- sFontInfos[0] in src/font.c (fgColor = 0x01, shadowColor = 0x02,
--- bgColor = 0x0F) applied through GenerateFontHalfRowLookupTable
--- (src/text.c); palette.colors is 1-based (colors[i] = slot i-1), so the
--- index is slot + 1. The DS drew the background slot in the window fill color
--- so it *looked* transparent; in a composited atlas it must be actually
--- transparent ("transparent glyph background"), otherwise
--- every 16x16 glyph cell becomes an opaque rectangle that chops the narrower
--- glyphs placed before it.
+-- Composite-atlas pixel mapping for one color band: 0 = transparent,
+-- 1 = the band's foreground ink, 2 = the band's shadow, 3 = the font's
+-- background slot. Band n resolves source values 1/2 to palette slots 2n+1
+-- and 2n+2, so band 0 keeps the font's default sFontInfos[0] pair
+-- (fgColor = 0x01, shadowColor = 0x02) from src/font.c applied through
+-- GenerateFontHalfRowLookupTable (src/text.c); palette.colors is 1-based
+-- (colors[i] = slot i-1), so the index is slot + 1. The DS drew the
+-- background slot in the window fill color so it *looked* transparent; in a
+-- composited atlas it must be actually transparent ("transparent glyph
+-- background"), otherwise every 16x16 glyph cell becomes an opaque rectangle
+-- that chops the narrower glyphs placed before it.
 
 ---@param value integer
 ---@param palette FieldFontDecoder.Palette
+---@param colorVariant integer
 ---@return integer, integer, integer, integer
-local function pixelToRgba(value, palette)
+local function pixelToRgba(value, palette, colorVariant)
   if value == 0 or value == 3 then
     return 0, 0, 0, 0
   end
-  local index = value == 1 and FieldFontDecoder.FG_PALETTE_INDEX + 1 or FieldFontDecoder.SHADOW_PALETTE_INDEX + 1
-  local color = palette[index] or { r = 0, g = 0, b = 0 }
+  local slot
+  if value == 1 then
+    slot = colorVariant * 2 + FieldFontDecoder.FG_PALETTE_INDEX
+  else
+    slot = colorVariant * 2 + FieldFontDecoder.SHADOW_PALETTE_INDEX
+  end
+  local color = palette[slot + 1]
+  assert(color ~= nil, "color variant " .. colorVariant .. " needs palette slot " .. slot)
   return color.r, color.g, color.b, 255
 end
 
@@ -70,8 +88,10 @@ end
 local function compileFont(romFs, source, sha1hex, hashLua)
   local fontId = manifest.fontId
   local glyphMember = must(source.archive:readMember(manifest.fontGlyphMember))
+  local focusMember = must(source.archive:readMember(manifest.fontFocusIndicatorMember))
   local paletteMember = must(source.archive:readMember(manifest.fontPaletteMember))
   local glyphSha1 = sha1hex(glyphMember)
+  local focusSha1 = sha1hex(focusMember)
   local paletteSha1 = sha1hex(paletteMember)
 
   local font = must(FieldFontDecoder.decodeMember(glyphMember, {
@@ -88,30 +108,28 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     )
   end
 
-  local perRow = manifest.atlasGlyphsPerRow
-  local rows = math.ceil(font.numGlyphs / perRow)
-  local width = perRow * GLYPH_SIZE
-  local height = rows * GLYPH_SIZE
+  -- The focus-indicator set is 4bpp NCGR char data (the member the source
+  -- loads through GfGfxLoader_GetCharData); the shape must be exactly
+  -- FOCUS_INDICATOR_COUNT 24x32 frames, so a wrong payload is a format error,
+  -- never a partial/garbage indicator set.
+  local focusChars = must(G2dDecoder.decodeChar(focusMember, {
+    label = "field-font-focus-indicators",
+  }))
+  local focusTiles = math.floor(#focusChars.tiles / 32)
+  local expectedTiles = FieldMessageText.FOCUS_INDICATOR_COUNT * FOCUS_TILES_PER_FRAME
+  if focusChars.depth ~= 3 or focusTiles ~= expectedTiles then
+    Errors.raise(
+      "FONT_FORMAT_INVALID",
+      "font focus member holds "
+        .. focusChars.depth
+        .. "-bpp char data with "
+        .. focusTiles
+        .. " tiles, need 4bpp with exactly "
+        .. expectedTiles,
+      { depth = focusChars.depth, tiles = focusTiles, expectedTiles = expectedTiles }
+    )
+  end
 
-  local rgba = {}
-  for i = 1, width * height * 4 do
-    rgba[i] = 0
-  end
-  for glyphIndex = 0, font.numGlyphs - 1 do
-    local glyph = font.glyphPixels(glyphIndex)
-    local baseX = (glyphIndex % perRow) * GLYPH_SIZE
-    local baseY = math.floor(glyphIndex / perRow) * GLYPH_SIZE
-    for y = 0, 15 do
-      for x = 0, 15 do
-        local r, g, b, a = pixelToRgba(glyph.values[y + 1][x + 1], palette.colors)
-        local offset = ((baseY + y) * width + baseX + x) * 4
-        rgba[offset + 1] = r
-        rgba[offset + 2] = g
-        rgba[offset + 3] = b
-        rgba[offset + 4] = a
-      end
-    end
-  end
   local function concatRgba(chars)
     -- string.char/unpack are limited by the Lua stack; build in row chunks.
     local out = {}
@@ -120,7 +138,100 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     end
     return table.concat(out)
   end
+
+  local perRow = manifest.atlasGlyphsPerRow
+  local rows = math.ceil(font.numGlyphs / perRow)
+  local width = perRow * GLYPH_SIZE
+  local baseHeight = rows * GLYPH_SIZE
+  local variantCount = FieldMessageText.COLOR_VARIANT_COUNT
+  local height = baseHeight * variantCount
+
+  local glyphPixels = {}
+  for glyphIndex = 0, font.numGlyphs - 1 do
+    glyphPixels[glyphIndex + 1] = font.glyphPixels(glyphIndex)
+  end
+
+  -- One stacked band per color index; each band repeats the base glyph
+  -- geometry exactly, only the foreground/shadow palette pair differs.
+  local rgba = {}
+  for i = 1, width * height * 4 do
+    rgba[i] = 0
+  end
+  for colorVariant = 0, variantCount - 1 do
+    local variantBaseY = colorVariant * baseHeight
+    for glyphIndex = 0, font.numGlyphs - 1 do
+      local glyph = glyphPixels[glyphIndex + 1]
+      local baseX = (glyphIndex % perRow) * GLYPH_SIZE
+      local baseY = variantBaseY + math.floor(glyphIndex / perRow) * GLYPH_SIZE
+      for y = 0, 15 do
+        for x = 0, 15 do
+          local r, g, b, a = pixelToRgba(glyph.values[y + 1][x + 1], palette.colors, colorVariant)
+          local offset = ((baseY + y) * width + baseX + x) * 4
+          rgba[offset + 1] = r
+          rgba[offset + 2] = g
+          rgba[offset + 3] = b
+          rgba[offset + 4] = a
+        end
+      end
+    end
+  end
   local atlasBytes = PngWriter.encode(width, height, concatRgba(rgba))
+
+  -- Indicator frames composite from the same palette: pixel value 0 is the
+  -- shape's empty background (and the field-window background slot stays
+  -- transparent, mirroring the glyph atlas), every other value keeps its
+  -- source palette slot. Frames are packed left-to-right by source field
+  -- index; the frames table below makes the packing explicit.
+  local focusImageWidth = FOCUS_FRAME_WIDTH * FieldMessageText.FOCUS_INDICATOR_COUNT
+  local focusRgba = {}
+  for i = 1, focusImageWidth * FOCUS_FRAME_HEIGHT * 4 do
+    focusRgba[i] = 0
+  end
+  local function focusPixel(field, x, y)
+    local intraX = x % FOCUS_FRAME_WIDTH
+    local tileIndex = field * FOCUS_TILES_PER_FRAME
+      + math.floor(y / 8) * math.floor(FOCUS_FRAME_WIDTH / 8)
+      + math.floor(intraX / 8)
+    local byte = focusChars.tiles:byte(tileIndex * 32 + (y % 8) * 4 + math.floor((intraX % 8) / 2) + 1)
+    if intraX % 2 == 0 then
+      return math.floor(byte / 16)
+    end
+    return byte % 16
+  end
+  for field = 0, FieldMessageText.FOCUS_INDICATOR_COUNT - 1 do
+    for y = 0, FOCUS_FRAME_HEIGHT - 1 do
+      for x = 0, FOCUS_FRAME_WIDTH - 1 do
+        local value = focusPixel(field, x, y)
+        local r, g, b, a = 0, 0, 0, 0
+        if value ~= 0 and value ~= FieldFontDecoder.BG_PALETTE_INDEX then
+          local color = palette.colors[value + 1]
+          assert(color ~= nil, "focus indicator needs palette slot " .. value)
+          r, g, b, a = color.r, color.g, color.b, 255
+        end
+        local offset = ((field * FOCUS_FRAME_WIDTH + x) + y * focusImageWidth) * 4
+        focusRgba[offset + 1] = r
+        focusRgba[offset + 2] = g
+        focusRgba[offset + 3] = b
+        focusRgba[offset + 4] = a
+      end
+    end
+  end
+  local focusIndicators = {
+    imagePath = FieldFontCache.focusIndicatorsPath(fontId),
+    count = FieldMessageText.FOCUS_INDICATOR_COUNT,
+    width = FOCUS_FRAME_WIDTH,
+    height = FOCUS_FRAME_HEIGHT,
+    frames = {},
+  }
+  for field = 0, FieldMessageText.FOCUS_INDICATOR_COUNT - 1 do
+    focusIndicators.frames[field] = {
+      x = field * FOCUS_FRAME_WIDTH,
+      y = 0,
+      width = FOCUS_FRAME_WIDTH,
+      height = FOCUS_FRAME_HEIGHT,
+    }
+  end
+  local focusIndicatorsBytes = PngWriter.encode(focusImageWidth, FOCUS_FRAME_HEIGHT, concatRgba(focusRgba))
 
   local glyphs = {}
   local function quad(glyphIndex)
@@ -175,10 +286,16 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     atlas = {
       width = width,
       height = height,
+      baseHeight = baseHeight,
       glyphsPerRow = perRow,
       glyphWidth = GLYPH_SIZE,
       glyphHeight = GLYPH_SIZE,
     },
+    colorVariants = {
+      count = variantCount,
+      strideY = baseHeight,
+    },
+    focusIndicators = focusIndicators,
     glyphs = glyphs,
     charmap = textToCode,
     palette = palette.colors,
@@ -199,6 +316,8 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     },
     glyphMemberId = manifest.fontGlyphMember,
     glyphMemberSha1 = glyphSha1,
+    focusIndicatorMemberId = manifest.fontFocusIndicatorMember,
+    focusIndicatorMemberSha1 = focusSha1,
     paletteMemberId = manifest.fontPaletteMember,
     paletteMemberSha1 = paletteSha1,
   }
@@ -209,6 +328,7 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     marker = marker,
     font = fontDef,
     atlas = atlasBytes,
+    focusIndicators = focusIndicatorsBytes,
     dependencies = dependencies,
   }
 end
@@ -240,19 +360,22 @@ function FieldFontCompiler.compile(romFs, sha1hex, hashLua)
   error(result)
 end
 
--- The compiled font class: the g4-field-font-v1 definition, the atlas PNG,
--- and the cache marker derived from every source dependency.
+-- The compiled font class: the g4-field-font-v2 definition, the glyph atlas
+-- PNG, the focus-indicator PNG, and the cache marker derived from every
+-- source dependency.
 
 ---@class FieldFontCompiler.Bundle
 ---@field fontId integer
 ---@field marker string
 ---@field font FieldFontDef
 ---@field atlas string
+---@field focusIndicators string
 ---@field dependencies table
 
--- The g4-field-font-v1 runtime definition consumed by the dialogue layout and
--- renderer: geometry, per-code glyph quads/advances, the text-to-code charmap,
--- the 16-color palette, and source provenance.
+-- The g4-field-font-v2 runtime definition consumed by the dialogue layout and
+-- renderer: geometry, per-code glyph quads/advances, the stacked color-band
+-- metadata, the focus-indicator frame rects, the text-to-code charmap, the
+-- 16-color palette, and source provenance.
 
 ---@class FieldFontDef
 ---@field schema string
@@ -262,7 +385,9 @@ end
 ---@field letterSpacing integer
 ---@field glyphCount integer
 ---@field fallbackCode integer
----@field atlas { width: integer, height: integer, glyphsPerRow: integer, glyphWidth: integer, glyphHeight: integer }
+---@field atlas { width: integer, height: integer, baseHeight: integer, glyphsPerRow: integer, glyphWidth: integer, glyphHeight: integer }
+---@field colorVariants { count: integer, strideY: integer }
+---@field focusIndicators { imagePath: string, count: integer, width: integer, height: integer, frames: table<integer, { x: integer, y: integer, width: integer, height: integer }> }
 ---@field glyphs table<integer, { x: integer, y: integer, w: integer, h: integer, advance: integer, bearingX: integer, bearingY: integer }>
 ---@field charmap table<string, integer>
 ---@field palette { r: integer, g: integer, b: integer }[]
