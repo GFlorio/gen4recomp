@@ -120,8 +120,8 @@ function T.target_lines_stay_inside_the_reference_text_width(romFs, version)
     for _, page in ipairs(layout.pages) do
       for _, line in ipairs(page.lines) do
         widths[#widths + 1] = line.width
-        -- Only unwrappable marker tokens may exceed the budget, and each
-        -- such line is traced as an overwide warning.
+        -- Only glyph advance contributes to line width, and every over-wide
+        -- line is traced as an overwide warning.
         Assert.isTrue(
           line.width <= FieldDialogueTheme.textWidth or warnedWidths[line.width] == true,
           string.format("bank 543 message %d line %d exceeds the text width untraced", messageId, line.width)

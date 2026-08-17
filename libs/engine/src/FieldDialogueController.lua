@@ -54,9 +54,10 @@ local function glyphCount(page)
   return count
 end
 
--- Flattens the page's tokens up to the Nth revealed glyph. Non-glyph tokens
--- before the cut are included so markers show as soon as their position is
--- reached; lines beyond the cut are omitted.
+-- Flattens the page's tokens up to the Nth revealed glyph. Non-glyph
+-- presentation controls before the cut remain visible so their source-position
+-- effects activate at the correct reveal point; lines beyond the cut are
+-- omitted.
 
 ---@param page DialogueLayout.Page
 ---@param revealed integer

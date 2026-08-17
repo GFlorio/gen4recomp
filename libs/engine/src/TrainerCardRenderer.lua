@@ -23,7 +23,6 @@ local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
-local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class TrainerCardRenderer

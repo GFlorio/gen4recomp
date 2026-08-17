@@ -295,9 +295,9 @@ function StartMenuController:updateFixed(uiInput)
 end
 
 -- The presentation snapshot: cursor slot/frame for the renderer plus the
--- ordered visible actions. Fresh tables per call; the caller may not mutate
--- controller state through them.
----@return StartMenuController.Status
+-- ordered visible actions, or the closed marker alone. Fresh tables per
+-- call; the caller may not mutate controller state through them.
+---@return StartMenuController.OpenStatus|StartMenuController.ClosedStatus
 function StartMenuController:status()
   if self._closed then
     return { open = false }
@@ -351,8 +351,11 @@ function StartMenuController:cancelPointerCapture()
   self._pointerDown = nil
 end
 
----@class StartMenuController.Status
----@field open boolean
+---@class StartMenuController.ClosedStatus
+---@field open false
+
+---@class StartMenuController.OpenStatus
+---@field open true
 ---@field actions StartMenuController.Action[]
 ---@field cancelSlotId integer
 ---@field cursorSlotId integer

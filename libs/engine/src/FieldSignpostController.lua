@@ -60,9 +60,9 @@ local function glyphCount(lines)
 end
 
 -- The token lines up to the Nth revealed glyph, with the same cut semantics
--- as the dialogue controller: non-glyph tokens before the cut are included
--- so markers show as soon as their position is reached; lines beyond the
--- cut are omitted.
+-- as the dialogue controller: non-glyph presentation controls before the cut
+-- remain visible so their source-position effects activate at the correct
+-- reveal point; lines beyond the cut are omitted.
 
 ---@param lines { tokens: MessageToken[] }[]
 ---@param revealed integer

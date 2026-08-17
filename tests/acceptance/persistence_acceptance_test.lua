@@ -418,12 +418,7 @@ function T.tests.mid_script_restart_resumes_through_recomputed_revisions()
   end)
 end
 
--- SAVE-07: the game autosaves after every completed warp, and warp
--- destinations can be any compiled map -- not only the two spawn-manifest
--- maps. A resume must restore from the save record alone: the spawn manifest
--- gates fresh boots only, or the game would produce saves it cannot load
--- (walk into a New Bark house, autosave, restart, and the boot fails).
--- SAVE-07: the game autosaves after every completed warp, and warp
+-- The game autosaves after every completed warp, and warp
 -- destinations can be any compiled map -- not only the two spawn-manifest
 -- maps. A resume must restore from the save record alone: the spawn manifest
 -- gates fresh boots only, or the game would produce saves it cannot load

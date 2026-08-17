@@ -27,31 +27,11 @@ local function fixtureCache()
   return FieldUiFixture.trainerCardCache(FieldUiFixture.cardFontDefWithMultibyte())
 end
 
--- A minimal graphics namespace: enough image/quad creation for the renderer
--- constructor and draw recording for the draw operations under test.
+-- The shared fake graphics namespace (tests/support/FakeGraphics) records
+-- every draw and created image. Image sizes: the 512x32 card font atlas and
+-- the 96x32 focus-indicator strip, in the order the renderer acquires them.
 local function fakeGraphics()
-  local draws = {}
-  return {
-    newImage = function()
-      return {
-        setFilter = function() end,
-        getWidth = function()
-          return 512
-        end,
-        getHeight = function()
-          return 32
-        end,
-      }
-    end,
-    newQuad = function(x, y, w, h, imgW, imgH)
-      return { x = x, y = y, w = w, h = h, imgW = imgW, imgH = imgH }
-    end,
-    setColor = function() end,
-    draw = function(image, quad, x, y)
-      draws[#draws + 1] = { image = image, quad = quad, x = x, y = y }
-    end,
-  },
-    draws
+  return require("tests.support.FakeGraphics").new({ imageSizes = { { 512, 32 }, { 96, 32 } } })
 end
 
 local function renderer()
@@ -81,9 +61,10 @@ end
 -- atlas visit carrying the encoded glyph's quad and advance, never two
 -- fallback runs per byte.
 function T.draw_line_visits_each_multibyte_glyph_once()
-  local lg, draws = fakeGraphics()
+  local lg = fakeGraphics()
   local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
   text:drawLine({ { kind = "glyph", code = 360, text = MULTIBYTE, raw = { 360 } } }, 10, 20)
+  local draws = lg.draws
   Assert.equal(#draws, 1, "a two-byte glyph draws once, not per byte")
   Assert.equal(draws[1].quad.x, (MULTIBYTE_CODE - 1) * ASCII_ADVANCE)
   Assert.equal(draws[1].x, 10)
@@ -95,11 +76,12 @@ end
 -- reserves marker-string width: a control token in a line draws nothing and
 -- does not advance x, so the following glyph starts at the original x.
 function T.control_tokens_draw_nothing_and_do_not_offset_the_following_glyph()
-  local lg, draws = fakeGraphics()
+  local lg = fakeGraphics()
   local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
   local wait = { kind = "wait", control = 514, name = "WAIT", args = {} }
   local glyph = { kind = "glyph", code = 1, text = "A", raw = { 1 } }
   text:drawLine({ wait, glyph }, 10, 20)
+  local draws = lg.draws
   Assert.equal(#draws, 1, "the control token draws no marker text")
   Assert.equal(draws[1].x, 10, "WAIT occupies zero pixels; the glyph starts at the original x")
   Assert.equal(draws[1].y, 20)
@@ -118,9 +100,10 @@ end
 -- Drawn text visits the atlas once per glyph sequence at the reference
 -- position with the encoded glyph's quad.
 function T.draw_text_draws_each_multibyte_glyph_once()
-  local lg, draws = fakeGraphics()
+  local lg = fakeGraphics()
   local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
   text:drawText(MULTIBYTE, 10, 20)
+  local draws = lg.draws
   Assert.equal(#draws, 1, "a two-byte glyph draws once, not per byte")
   Assert.equal(draws[1].quad.x, (MULTIBYTE_CODE - 1) * ASCII_ADVANCE)
   Assert.equal(draws[1].x, 10)
