@@ -94,8 +94,12 @@ both quantize the clamped result to 5 bits by truncation
 accumulator (a single full-intensity light caps at 30/31 per channel).
 
 The vertex shader (`libs/engine/src/shaders/map.glsl`) is the rendered form of
-this contract, and `libs/engine/src/DsLighting.lua` is its pure-Lua reference;
-`ds_lighting_test` asserts they agree at midrange colors and angles.
+this contract. `tests/support/DsLighting.lua` is an independent pure-Lua
+transcription of the same melonDS algorithm, used only as a test oracle (no
+production code requires it); `ds_lighting_test` checks it against numbers
+hand-derived from `GPU3D::CalculateLighting`, and a graphics-smoke test checks
+the shader's own rendered output against a separately hand-derived expected
+pixel value from that same source algorithm.
 
 ## Normalized material state
 
@@ -231,12 +235,17 @@ W-buffer-shaped value the shader also stores; there is no
 RGB replacement (`vec4(edgeColor, scene.a)`), never an alpha-mix with the
 scene color, and there is no separate edge-opacity uniform.
 
-The opaque polygon ID, the DS-quantized depth, and translucent identity are
-three independent logical attributes, carried as separate channels of one
-`rgba32f` attachment (R = polygon ID, G = depth, B = translucent flag) rather
-than one value overloaded to mean several things. In particular, a
-translucent fragment's real polygon ID survives (used by later
-self-blend-rejection work), never replaced by an invented sentinel ID.
+The opaque polygon ID, the DS-quantized depth, and the per-polygon fog gate
+are three independent logical attributes, carried as separate channels of one
+`rgba32f` attachment (`finalState`: R = polygon ID, G = depth, B = fog gate,
+A = validity) rather than one value overloaded to mean several things.
+Opaque, cutout, and wireframe fragments write their own real 0..63 polygon ID
+into R -- there is no invented sentinel value. Ordinary non-depth-writing
+translucent fragments do not write `finalState` at all: `MapRenderer` binds a
+narrower render-target set for the translucent pass (scene color plus the
+shared depth buffer, omitting `finalState`), so the opaque/cutout state
+underneath a translucent fragment survives untouched, matching DS behavior
+for a fragment that never updates the depth/attribute buffers.
 
 ## Billboards
 
@@ -326,10 +335,13 @@ actors draw with the world projection, exactly as on the DS.
   multiplication (see "Alpha classification and fragment contract" above).
 * The real HGSS field edge-color tables, per-area table selection, the
   strict DS edge predicate/depth representation, RGB-replacement edge
-  compositing, and the three-way opaque-ID/depth/translucent-identity
-  attribute split (see "Edge marking" above).
-* Mirrored texture repeat (`TEXIMAGE_PARAM` flip bits), mapped to LÖVE's
-  `mirroredrepeat` wrap mode.
+  compositing, the clear/rear-plane polygon ID (63, HGSS's real value, not an
+  invented sentinel), and the opaque-ID/depth/fog-gate `finalState` attribute
+  split (see "Edge marking" above).
+* Sampler wrap normalization (clamp, repeat, and mirrored repeat via
+  `TEXIMAGE_PARAM` flip bits, mapped to LÖVE's `mirroredrepeat` wrap mode)
+  and nearest-neighbor texture/presentation filtering, matching the DS's own
+  point-sampled, unfiltered raster.
 * Global DS fog: the two-gate (`DISP3DCNT` + per-polygon `FOG_ENABLE`) rule,
   melonDS's exact slope-aware density-table interpolation (endpoint
   duplication, the `>>2`/shift/`>>17` sequencing, the 127->128 saturation),
@@ -358,7 +370,8 @@ actors draw with the world projection, exactly as on the DS.
   door roles and the time-of-day banded clips.
 * Terrain texture swap and terrain texture SRT (see "Terrain animation"),
   stepped at fixed-tick time by `TerrainMaterialAnimator`.
-* Scene v5 / G4M2 / cache v7 explicit versioning and invalidation.
+* Scene / G4M2 / cache explicit versioning and invalidation (see "Cache
+  invalidation" below for the current version identities).
 
 ### Deferred / approximate
 
@@ -370,15 +383,24 @@ one, the compiler raises a structured error instead of rendering incorrectly.
   own polygon ID) is not implemented by the renderer (no auxiliary
   compositor exists, and no corpus content has been found to produce that
   overdraw pattern).
+* Bit-exact translucent RGB blend: the host's `"alpha"`/`"alphamultiply"`
+  blend mode reproduces the DS blend equation's shape
+  (`Dst' = Src*SrcAlpha + Dst*(1-SrcAlpha)`), but it weights with continuous
+  host alpha rather than the DS's 5-bit `(alpha5+1)/32` weighting and divide,
+  so the composited result is structurally equivalent, not bit-exact.
 * Exact DS automatic translucent Y sorting: HGSS field content is confirmed
   (via decomp) to genuinely use `GX_SORTMODE_AUTO`, but the exact hardware
   vertex-selection rule was never independently confirmed against melonDS, so
   the renderer keeps the pre-existing approximate object-center-Z
   back-to-front sort rather than tuning an unconfirmed rule.
-* Destination-alpha (`max(SrcAlpha, DstAlpha)`): the RGB blend equation
-  itself already matches the DS blend shape, but nothing downstream reads
-  the scene color's alpha channel, so this part of the contract is
-  unimplemented and currently unobservable.
+* Destination-alpha accumulation (`max(SrcAlpha, DstAlpha)`) during the
+  translucent pass: the RGB blend equation matches the DS blend shape, but
+  successive translucent draws accumulate alpha with the host's ordinary
+  "over" blend, not the DS `max` rule. The final full-screen pass does read
+  and correctly fog-blend whatever alpha the scene canvas holds, and its own
+  RGB/alpha output is written verbatim to the screen -- that later step is
+  exact relative to the alpha value it receives, but is not proof that the
+  translucent pass's own destination-alpha accumulation was DS-exact.
 * Runtime weather-ID overrides: HGSS rewrites the map's base `weatherId`
   before resolving fog in four cases (Mt. Silver Cave Summit forces Diamond
   Dust on specific RTC calendar dates; a Lake of Rage save flag forces

@@ -90,4 +90,4 @@ concepts; a row here never names a source decoder.
 | Field camera runtime math (raw angle indices → DS camera motion) | `libs/engine/src/FieldCamera.lua` | generated camera profiles only |
 | Collision, terrain surface, and surface resolution | `libs/engine/src/CollisionGrid.lua`, `TerrainSurface.lua`, `SurfaceResolver.lua` | generated `G4CL` and terrain artifacts only |
 | Scene mesh decode and GPU scene assembly | `libs/engine/src/SceneMesh.lua`, `MapSceneLoader.lua` | generated map artifacts only |
-| Lighting behavior (time-of-day selection and binding) | `libs/engine/src/DsLighting.lua`, `RenderQueue.lua` | generated light profiles only |
+| Lighting behavior (time-of-day selection and binding) | `libs/engine/src/MapRenderer.lua`, `libs/engine/src/shaders/map.glsl`, `RenderQueue.lua` | generated light profiles only |
