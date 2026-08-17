@@ -7,6 +7,7 @@ local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
 local FieldMapDataCacheWriter = require("romdump.src.digest.FieldMapDataCacheWriter")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapDataInspector = require("romdump.src.digest.FieldMapDataInspector")
+local FieldMapDataFixture = require("tests.support.FieldMapDataFixture")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
@@ -17,38 +18,7 @@ local function fixture()
   local member = Builder.build({
     warps = { { x = 684, z = 393, destinationMapId = 61, destinationWarpId = 0, y = 0 } },
   })
-  local archiveBytes = "synthetic-narc"
-  local romFs = {
-    resolvedNarc = function(_, alias)
-      Assert.equal(alias, "zone_events")
-      return {
-        symbol = "NARC_fielddata_eventdata_zone_event",
-        alias = "zone_events",
-        narcId = 32,
-        fileId = 99,
-        path = "a/0/3/2",
-      }
-    end,
-    read = function(_, fileId)
-      Assert.equal(fileId, 99)
-      return archiveBytes
-    end,
-    openNarc = function(_, alias)
-      Assert.equal(alias, "zone_events")
-      return {
-        readMember = function(_, memberId)
-          Assert.isTrue(memberId == 57 or memberId == 58, "unexpected member " .. memberId)
-          return member
-        end,
-      }
-    end,
-    metadata = function()
-      return { sha1 = "rom-sha" }
-    end,
-    version = function()
-      return "heartgold"
-    end,
-  }
+  local romFs = FieldMapDataFixture.build({ zoneEventsMember = member })
   local function sha1(bytes)
     return bytes == member and "member-sha" or "archive-sha"
   end
@@ -59,42 +29,21 @@ local function fixture()
 end
 
 local function allMapsFixture()
-  local member = Builder.build()
-  return {
-    resolvedNarc = function()
-      return {
-        symbol = "NARC_fielddata_eventdata_zone_event",
-        alias = "zone_events",
-        narcId = 32,
-        fileId = 99,
-        path = "a/0/3/2",
-      }
-    end,
-    read = function()
-      return "synthetic-narc"
-    end,
-    openNarc = function()
-      return {
-        readMember = function()
-          return member
-        end,
-      }
-    end,
-    metadata = function()
-      return { sha1 = "rom-sha" }
-    end,
-  }, function(bytes)
-    return bytes == member and "member-sha" or "archive-sha"
-  end, function()
+  local romFs = FieldMapDataFixture.build()
+  local function sha1()
+    return "archive-sha"
+  end
+  local function hashLua()
     return "dependency-sha"
   end
+  return romFs, sha1, hashLua
 end
 
 function T.compiles_catalog_identity_source_and_events()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
   Assert.equal(bundle.mapId, 60)
-  Assert.equal(bundle.field.schema, "g4-field-map-v3")
+  Assert.equal(bundle.field.schema, "g4-field-map-v4")
   Assert.equal(bundle.field.mapSymbol, "MAP_NEW_BARK")
   Assert.equal(bundle.field.cameraType, 0)
   -- Source identity lives only in the dependency record; the runtime asset
@@ -105,6 +54,9 @@ function T.compiles_catalog_identity_source_and_events()
   Assert.equal(bundle.dependencies.eventMemberSha1, "member-sha")
   Assert.equal(bundle.dependencies.eventNarc.fileId, 99)
   Assert.equal(bundle.dependencies.eventNarc.sha1, "archive-sha")
+  -- The audio policy resolves through the map matrix: the matrix cell of map
+  -- 60 names land member 244, whose BGS payload feeds the soundplates array.
+  Assert.equal(bundle.dependencies.landDataMemberId, 244)
   Assert.equal(bundle.marker, "g4-field-map-cache-v1:rom-sha:60:dependency-sha")
 
   local again = assert(FieldMapDataCompiler.compile(romFs, "MAP_NEW_BARK", sha1, hashLua))
@@ -115,12 +67,23 @@ function T.map_header_music_fields_are_emitted_as_canonical_sequence_references(
   -- The frozen catalog's dayMusic/nightMusic become canonical audio sequence
   -- references (map 60 = SEQ_GS_T_WAKABA, map 61 = SEQ_GS_UTSUGI_RABO) in the
   -- generated field record, so runtime music policy never branches on map ids
-  -- and never decorates a bare source suffix.
+  -- and never decorates a bare source suffix. The music record also carries
+  -- the generated policy blocks: ordered flag overrides (empty for maps with
+  -- no source rule) and the source surfing traversal override on every record.
   local romFs, sha1, hashLua = fixture()
   local newBark = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
-  Assert.deepEqual(newBark.field.music, { day = "SEQ_GS_T_WAKABA", night = "SEQ_GS_T_WAKABA" })
+  Assert.deepEqual(newBark.field.music, {
+    day = "SEQ_GS_T_WAKABA",
+    night = "SEQ_GS_T_WAKABA",
+    flagOverrides = {},
+    traversalOverrides = {
+      { traversal = "surfing", sequence = "SEQ_GS_NAMINORI", unlessFlagId = 0x99A },
+    },
+  })
+  Assert.deepEqual(newBark.field.soundplates, {}, "an empty land BGS payload emits no soundplates")
   local elmsLab = assert(FieldMapDataCompiler.compile(romFs, 61, sha1, hashLua))
-  Assert.deepEqual(elmsLab.field.music, { day = "SEQ_GS_UTSUGI_RABO", night = "SEQ_GS_UTSUGI_RABO" })
+  Assert.equal(elmsLab.field.music.day, "SEQ_GS_UTSUGI_RABO")
+  Assert.equal(elmsLab.field.music.night, "SEQ_GS_UTSUGI_RABO")
 end
 
 function T.map_header_message_and_script_banks_are_emitted()

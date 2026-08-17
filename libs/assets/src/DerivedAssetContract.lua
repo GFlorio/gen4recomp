@@ -59,8 +59,9 @@ DerivedAssetContract.fieldMapData = {
   -- The generated field record carries the day/night map-header music block
   -- as canonical audio sequence references (never bare source suffixes), so
   -- the runtime field-music policy reads it directly and never decorates
-  -- symbols.
-  fieldSchema = "g4-field-map-v3",
+  -- symbols. v4 adds the flag/traversal music policy and the semantic
+  -- soundplates array (no raw soundplateSoundID) to the record.
+  fieldSchema = "g4-field-map-v4",
 }
 
 DerivedAssetContract.messages = {

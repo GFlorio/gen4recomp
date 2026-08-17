@@ -273,12 +273,19 @@ end
 
 -- Field-map record collections
 
-local function writeFieldRecord(c, mapId, events)
+local function writeFieldRecord(c, mapId, events, audioPolicy)
+  audioPolicy = audioPolicy
+    or {
+      music = { day = "SEQ_X", night = "SEQ_X", flagOverrides = {}, traversalOverrides = {} },
+      soundplates = {},
+    }
   c:writeLua(FieldMapDataCache.fieldPath(mapId), {
-    schema = "g4-field-map-v3",
+    schema = "g4-field-map-v4",
     mapId = mapId,
     mapSymbol = "test",
     events = events,
+    music = audioPolicy.music,
+    soundplates = audioPolicy.soundplates,
   })
   c:writeLua(FieldMapDataCache.dependenciesPath(mapId), { cacheFormat = FieldMapDataCache.FORMAT })
   c:write(FieldMapDataCache.markerPath(mapId), "m")
@@ -306,6 +313,20 @@ function T.field_data_valid_artifact_is_ready()
   local c = cache()
   writeFieldRecord(c, 60, { background = {}, objects = {}, warps = {}, coordinates = {} })
   Assert.isTrue(FieldMapDataCache.isReady(c, 60, "m"))
+end
+
+function T.field_data_missing_audio_policy_is_not_ready()
+  local c = cache()
+  local events = { background = {}, objects = {}, warps = {}, coordinates = {} }
+  writeFieldRecord(c, 60, events, { soundplates = {} })
+  Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"), "the music record is required by the current schema")
+  writeFieldRecord(
+    c,
+    61,
+    events,
+    { music = { day = "SEQ_X", night = "SEQ_X", flagOverrides = {}, traversalOverrides = {} } }
+  )
+  Assert.isFalse(FieldMapDataCache.isReady(c, 61, "m"), "the soundplates array is required by the current schema")
 end
 
 -- Script index and emitted resources

@@ -12,6 +12,14 @@ FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
 
+-- The audio policy the current field-map schema always carries: the music
+-- record and the soundplates array.
+---@param field any
+---@return boolean
+local function hasAudioPolicy(field)
+  return type(field.music) == "table" and Validate.isArray(field.soundplates)
+end
+
 -- The authoritative event-collection rule of the current field-map record:
 -- true only when every required collection is present as an array. Runtime
 -- consumers that read field records (the map loader, the scenario) validate
@@ -54,7 +62,7 @@ end
 
 -- True only if the marker is exact, the record carries the current identity
 -- (schema and mapId), dependencies load, and every required event collection
--- is present as an array.
+-- and the audio policy (music record, soundplates array) are present.
 function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
   if cacheFs:read(FieldMapDataCache.markerPath(mapId)) ~= expectedMarker then
     return false
@@ -70,7 +78,7 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
     return false
   end
   local events = field.events
-  if not FieldMapDataCache.hasRequiredEvents(events) then
+  if not FieldMapDataCache.hasRequiredEvents(events) or not hasAudioPolicy(field) then
     return false
   end
   return true
