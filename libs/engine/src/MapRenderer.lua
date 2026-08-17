@@ -110,6 +110,11 @@ local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 -- depth domain can represent (see DS_DEPTH_MAX in map.glsl).
 local DS_DEPTH_MAX = 0xFFFFFF
 
+-- melonDS's RenderFogOffset latch (src/GPU3D.cpp): the raw G3X FOG_OFFSET
+-- register is multiplied by this scale once per frame, not per pixel, before
+-- reaching the final pass's density calculation (edge.glsl's u_fogOffsetDepth).
+local FOG_OFFSET_TO_DEPTH_SCALE = 0x200
+
 -- Rear-plane entry for the finalState target: HGSS's real clear polygon ID
 -- (MapRenderer.CLEAR_POLYGON_ID, 63) at the farthest quantized depth
 -- (DS_DEPTH_MAX), with its fog gate false -- HGSS's rear plane is not itself
@@ -466,25 +471,39 @@ end
 
 -- The scene's resolved global HGSS weather fog preset (HgssFieldFog.
 -- runtimePreset, compiled per map from the real weather field): enable,
--- RGB555-decoded color, the 32-entry density table, and the raw offset, sent
--- unconditionally every frame -- no reference-equality resend cache, unlike
--- _sendEdgeColors/_sendLighting, since fog is not a large, rarely-changing
--- lookup table shared across many draws the way edge colors are (matches how
--- u_depthWMax/u_view are already sent per-frame from live scene/camera
--- state). Every compiled HGSS field scene carries this preset unconditionally
--- (global fog is evaluated per map regardless of whether it resolves to
--- disabled), so a missing preset is a collaborator gone missing, not a case
--- to default around. Each draw's own per-polygon fog gate still reaches the
--- shader unconditionally and independently (see u_polygonFogEnabled sends
--- below).
+-- RGB555-decoded color, the 32-entry density table, and the depth-domain
+-- offset and density shift (the preset's own slope field) -- sent to the
+-- final pass shader (edgeShader) every frame, unconditionally -- no
+-- reference-equality resend cache, unlike _sendEdgeColors/_sendLighting,
+-- since fog is not a large, rarely-changing lookup table shared across many
+-- draws the way edge colors are (matches how u_depthWMax/u_view are already
+-- sent per-frame from live scene/camera state). Every compiled HGSS field
+-- scene carries this preset unconditionally (global fog is evaluated per map
+-- regardless of whether it resolves to disabled), so a missing preset is a
+-- collaborator gone missing, not a case to default around. Each draw's own
+-- per-polygon fog gate still reaches map.glsl unconditionally and
+-- independently (see u_polygonFogEnabled sends there), landing in
+-- finalState's blue channel for this pass to read back. The preset's own
+-- `alpha` field is sent as `u_fogAlpha` (0..31, the same 5-bit domain as
+-- melonDS's fog alpha register) and blended by edge.glsl exactly like RGB;
+-- see doDraw's final composite draw for the "replace"/"premultiplied" blend
+-- mode this requires so the computed alpha is written as data instead of
+-- being consumed by the host's own compositing.
+--
+-- The raw G3X FOG_OFFSET register (fog.offset) is converted into the
+-- depth-quantization domain once here (fogOffsetRaw * 0x200, melonDS's
+-- RenderFogOffset latch), not recomputed per pixel in the shader.
 function MapRenderer:_sendFog(sceneRuntime)
   local fog = assert(sceneRuntime.fog, "scene runtime requires a fog preset")
-  local shader = self.shader
+  local shader = self.edgeShader
   decodeRgb555(self._fogColorCache, fog.color)
+  local fogOffsetDepth = fog.offset * FOG_OFFSET_TO_DEPTH_SCALE
   shader:send("u_fogEnabled", fog.enabled)
   shader:send("u_fogColor", self._fogColorCache)
   shader:send("u_fogTable", fog.table)
-  shader:send("u_fogOffset", fog.offset)
+  shader:send("u_fogOffsetDepth", fogOffsetDepth)
+  shader:send("u_fogShift", fog.slope)
+  shader:send("u_fogAlpha", fog.alpha)
 end
 
 -- The effective DS material register for one channel of one draw item: the
@@ -934,10 +953,22 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     end
 
     -- Composite the scene canvas back to the screen through the edge shader,
-    -- which outlines polygon-ID boundaries that carry a depth step.
+    -- which outlines polygon-ID boundaries that carry a depth step and then
+    -- applies fog (RGB and alpha, matching melonDS's RenderPixel). This draw
+    -- must use "replace"/"premultiplied" blend, not the host's default
+    -- "alpha" mode: the shader's output alpha is real fog data (it can be
+    -- less than 1 whenever fog blends toward a preset's own alpha, e.g. the
+    -- Flash weather preset's alpha 0), and under "alpha" blending the host
+    -- would additionally alpha-composite the already-correct RGB against
+    -- whatever the destination canvas held, darkening it a second time for
+    -- no source-backed reason. "replace" writes the shader's RGB/alpha
+    -- verbatim; "premultiplied" keeps LÖVE from multiplying that RGB by
+    -- alpha a third time before the write (see Graphics::setBlendMode's
+    -- srcRGB-becomes-SRC_ALPHA rule for BLEND_REPLACE under the default
+    -- "alphamultiply" mode).
     lg.setCanvas()
     lg.setDepthMode()
-    lg.setBlendMode("alpha")
+    lg.setBlendMode("replace", "premultiplied")
     lg.setColor(1, 1, 1, 1)
     lg.setShader(self.edgeShader)
     lg.draw(self.sceneColor, rectangle.x, rectangle.y, 0, rectangle.width / w, rectangle.height / h)

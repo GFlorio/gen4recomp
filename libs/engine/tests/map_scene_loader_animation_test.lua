@@ -31,7 +31,7 @@ local function defaultFogFixture()
   for i = 1, 32 do
     table32[i] = 0
   end
-  return { enabled = false, color = 0, offset = 0, table = table32 }
+  return { enabled = false, color = 0, offset = 0, slope = 0, alpha = 0, table = table32 }
 end
 
 -- A 32x32 all-plain collision grid (the scene cell), optionally with

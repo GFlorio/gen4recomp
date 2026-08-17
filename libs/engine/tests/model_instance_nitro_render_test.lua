@@ -263,7 +263,7 @@ local function litRuntime()
     buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
-    fog = { enabled = false, color = 0, offset = 0, table = ZERO_FOG_TABLE },
+    fog = { enabled = false, color = 0, offset = 0, slope = 0, alpha = 0, table = ZERO_FOG_TABLE },
     lighting = {
       records = {
         {

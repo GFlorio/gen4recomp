@@ -36,7 +36,7 @@ local function zeroFogFixture()
   for i = 1, 32 do
     table32[i] = 0
   end
-  return { enabled = false, color = 0, offset = 0, table = table32 }
+  return { enabled = false, color = 0, offset = 0, slope = 0, alpha = 0, table = table32 }
 end
 
 local function emptyRuntime()
@@ -99,13 +99,47 @@ function T.shader_has_polygon_light_mask_uniform(scope)
   shader:send("u_lightMask", { 0, 1, 0, 1 })
 end
 
--- The ROM census proves fogEnabled is exercised by most HGSS field
--- materials, so the fidelity shader carries a per-fragment fog gate, the
--- global fog color, and the 32-entry density table -- applied
--- post-composition (GBATEK "3D Display - Fog"), not invented distance fog
--- from camera near/far.
-function T.shader_has_fog_uniforms(scope)
+-- Fog is a DS final-pass operation (GBATEK "3D Display - Fog": edge marking,
+-- then fog, over the whole composited scene), not a per-object color-path
+-- effect -- so the geometry/fragment-combiner shader (map.glsl) must not own
+-- the global fog gate, color, table, or offset. It still carries this draw's
+-- own per-polygon fog gate (POLYGON_ATTR FOG_ENABLE) into finalState's blue
+-- channel (see opaque_draw_writes_its_fog_gate_into_the_final_state_blue_channel
+-- below); that per-item bit is not a "fog uniform" in the sense retired here.
+-- Absence is checked the same way edge_shader_has_no_alpha_mix_uniform checks
+-- it: LÖVE errors when a name is not a real uniform of the compiled shader.
+function T.map_shader_has_no_global_fog_uniforms(scope)
   local shader = scope:own(MapRenderer.new()).shader
+
+  local zeroFogTable = {}
+  for i = 1, 32 do
+    zeroFogTable[i] = 0
+  end
+
+  Assert.throws(function()
+    shader:send("u_fogEnabled", true)
+  end)
+  Assert.throws(function()
+    shader:send("u_fogColor", { 0.5, 0.5, 0.5 })
+  end)
+  Assert.throws(function()
+    shader:send("u_fogTable", zeroFogTable)
+  end)
+  Assert.throws(function()
+    shader:send("u_fogOffset", 0)
+  end)
+end
+
+-- The final full-screen pass (edgeShader/edge.glsl) is where fog now lives:
+-- it owns the global gate, color, 32-entry density table, the shift/slope
+-- field, and the offset already converted into the depth domain
+-- (u_fogOffsetDepth = fogOffsetRaw * 0x200 -- MapRenderer's per-frame state
+-- capture does this multiply once, not the shader per pixel; see
+-- runFinalPass below for the exact contract every fog behavior test drives).
+-- Presence is checked by sending a value; LÖVE errors for unknown names, so
+-- this only passes once the final pass actually declares them.
+function T.final_shader_has_fog_uniforms(scope)
+  local shader = scope:own(MapRenderer.new()).edgeShader
 
   local zeroFogTable = {}
   for i = 1, 32 do
@@ -115,7 +149,9 @@ function T.shader_has_fog_uniforms(scope)
   shader:send("u_fogEnabled", true)
   shader:send("u_fogColor", { 0.5, 0.5, 0.5 })
   shader:send("u_fogTable", zeroFogTable)
-  shader:send("u_fogOffset", 0)
+  shader:send("u_fogOffsetDepth", 0)
+  shader:send("u_fogShift", 0)
+  shader:send("u_fogAlpha", 31)
 end
 
 -- The DS composites edge color by RGB replacement, not an alpha-mix
@@ -1880,6 +1916,216 @@ function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque
     1 / 255,
     "a non-depth-writing translucent draw must not replace the opaque fog gate underneath it"
   )
+end
+
+-- A 32-entry density table whose every raw byte is 64: with both
+-- interpolation endpoints always equal, the exact melonDS interpolation
+-- (see tests/support/DsFog.lua) collapses to a constant density of 64
+-- regardless of depth/offset/shift/densityFrac -- letting these fixtures
+-- isolate the fog gate/enable/RGB/ordering questions from the density
+-- interpolation math, which ds_fog_test.lua already locks independently.
+local function constantDensityTable(byte)
+  local t = {}
+  for i = 1, 32 do
+    t[i] = byte
+  end
+  return t
+end
+
+-- Drives the final full-screen pass (edgeShader/edge.glsl) directly with a
+-- synthetic finalState/sceneColor pair and a fog preset -- the same
+-- real-GLSL, real-canvas, no-MapRenderer:draw technique runEdgePass above
+-- uses for the pure edge-predicate anchors, extended with the fog inputs
+-- E.3-E.7 add to the final pass. `pixels` is the same 3-wide
+-- (left/center/right) fixture shape runEdgePass uses, each entry optionally
+-- carrying `fogGate` (finalState's blue channel, default 0) and `scene` (the
+-- pixel's pre-fog RGB, default opaque white -- RGB6 63/63/63, so an unfogged
+-- center reads exactly (1,1,1)). `fog` supplies `enabled`, `color` (packed
+-- RGB555), `offsetRaw` (the raw G3X FOG_OFFSET field, not yet *0x200 --
+-- u_fogOffsetDepth's own conversion is exercised here, matching how
+-- MapRenderer's real per-frame state capture will compute it), `shift`
+-- (used directly as u_fogShift, matching HgssFieldFog's `slope` field),
+-- `alpha` (0..31, defaults to 31 -- opaque -- matching a steady preset that
+-- does not attenuate alpha, used as u_fogAlpha), and `table32` (32 raw
+-- density bytes, 0..255). Draws through "replace"/"premultiplied" blend,
+-- matching MapRenderer's own final composite, so the readback reflects the
+-- shader's computed RGB/alpha directly rather than the host's default alpha
+-- compositing against the (irrelevant) black-cleared target. Returns the
+-- center pixel's rendered RGBA.
+local function runFinalPass(scope, pixels, fog, edgeColors)
+  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+
+  local idData = love.image.newImageData(3, 1, "rgba32f")
+  for i, p in ipairs(pixels) do
+    idData:setPixel(i - 1, 0, p.id / 63, p.depth, p.fogGate or 0, 1)
+  end
+  local idImage = scope:own(love.graphics.newImage(idData))
+  idImage:setFilter("nearest", "nearest")
+
+  local sceneData = love.image.newImageData(3, 1)
+  for i, p in ipairs(pixels) do
+    local c = p.scene or { 1, 1, 1 }
+    sceneData:setPixel(i - 1, 0, c[1], c[2], c[3], 1)
+  end
+  local sceneImage = scope:own(love.graphics.newImage(sceneData))
+  sceneImage:setFilter("nearest", "nearest")
+
+  local target = scope:own(love.graphics.newCanvas(3, 1))
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 0, 0, 1)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.setShader(edgeShader)
+  edgeShader:send("u_idTex", idImage)
+  edgeShader:send("u_texelSize", { 1 / 3, 1 })
+  edgeShader:send("u_edgeRadius", 1)
+  edgeShader:send("u_edgeColors", unpack(edgeColors or eightEdgeColors()))
+  edgeShader:send("u_fogEnabled", fog.enabled)
+  -- Decoded the same way MapRenderer:_sendFog already decodes fog.color for
+  -- the (retired) per-object path: component/31, normalized 5-bit.
+  local fogColorNormalized = {
+    (fog.color % 32) / 31,
+    (math.floor(fog.color / 32) % 32) / 31,
+    (math.floor(fog.color / 1024) % 32) / 31,
+  }
+  edgeShader:send("u_fogColor", fogColorNormalized)
+  edgeShader:send("u_fogTable", fog.table32)
+  edgeShader:send("u_fogOffsetDepth", fog.offsetRaw * 0x200)
+  edgeShader:send("u_fogShift", fog.shift)
+  edgeShader:send("u_fogAlpha", fog.alpha or 31)
+  love.graphics.setBlendMode("replace", "premultiplied")
+  love.graphics.draw(sceneImage, 0, 0)
+  love.graphics.setShader()
+  love.graphics.setCanvas()
+
+  local out = target:newImageData()
+  return { out:getPixel(1, 0) }
+end
+
+-- E.9 real graphics fixture 1: fog visibly changes an opaque fragment at a
+-- known synthetic depth. A constant density-64 table makes the exact
+-- expected output independent of the depth value itself (see
+-- constantDensityTable): outRgb6 = floor((63*64 + 0*64)/128) = 31 against a
+-- black (rgb555=0) fog color and a fully white (RGB6 63) scene fragment, so
+-- the fragment must read 31/63, not 1.0 (unfogged) or the old /127 or
+-- DS_DEPTH_MAX/32-derived value.
+function T.fog_visibly_changes_an_opaque_fragment_at_a_known_synthetic_depth(scope)
+  local out = runFinalPass(scope, {
+    { id = 20, depth = 12345, fogGate = 1 },
+    { id = 20, depth = 12345, fogGate = 1 },
+    { id = 20, depth = 12345, fogGate = 1 },
+  }, { enabled = true, color = 0, offsetRaw = 0, shift = 0, table32 = constantDensityTable(64) })
+  Assert.near(out[1], 31 / 63, 1 / 255, "half-density black fog over a white fragment must read 31/63")
+  Assert.near(out[2], 31 / 63, 1 / 255)
+  Assert.near(out[3], 31 / 63, 1 / 255)
+end
+
+-- E.9 real graphics fixture 2: disabling the global fog gate leaves the
+-- identical fragment/depth/polygon-gate setup entirely unchanged (the scene
+-- color, 1.0 white, passes through untouched).
+function T.disabled_global_fog_leaves_the_fragment_unchanged(scope)
+  local out = runFinalPass(scope, {
+    { id = 20, depth = 12345, fogGate = 1 },
+    { id = 20, depth = 12345, fogGate = 1 },
+    { id = 20, depth = 12345, fogGate = 1 },
+  }, { enabled = false, color = 0, offsetRaw = 0, shift = 0, table32 = constantDensityTable(64) })
+  Assert.near(out[1], 1.0, 1 / 255, "u_fogEnabled=false must leave the fragment at its unfogged scene color")
+  Assert.near(out[2], 1.0, 1 / 255)
+  Assert.near(out[3], 1.0, 1 / 255)
+end
+
+-- E.9 real graphics fixture 3: the global gate alone is not sufficient --
+-- this draw's own polygon fog gate (finalState's blue channel,
+-- already wired end to end since deliverable 6) must also be set. With the
+-- global gate enabled but this pixel's own gate 0, the fragment must stay
+-- unchanged, exactly like GBATEK's two-gate fog rule the retired per-object
+-- map.glsl path already enforced.
+function T.polygon_fog_gate_false_leaves_the_fragment_unchanged(scope)
+  local out = runFinalPass(scope, {
+    { id = 20, depth = 12345, fogGate = 0 },
+    { id = 20, depth = 12345, fogGate = 0 },
+    { id = 20, depth = 12345, fogGate = 0 },
+  }, { enabled = true, color = 0, offsetRaw = 0, shift = 0, table32 = constantDensityTable(64) })
+  Assert.near(out[1], 1.0, 1 / 255, "a fog-disabled polygon must stay unfogged even with the global gate enabled")
+  Assert.near(out[2], 1.0, 1 / 255)
+  Assert.near(out[3], 1.0, 1 / 255)
+end
+
+-- E.9 real graphics fixture 4: an edge-marked pixel is fogged AFTER edge RGB
+-- replacement, not fogged-then-overwritten. The center (id 20, depth 500,
+-- fog-gated) sits strictly in front of its differently-id'd left neighbor
+-- (id 10, depth 1000, farther), so it marks and its RGB is first replaced by
+-- u_edgeColors[20/8] = entry 2 = (0.2, 0.2, 0.2) -- 6-bit floor(0.2*63+0.5) =
+-- 13. Fog then blends *that* value, not the pre-edge scene color: outRgb6 =
+-- floor((13*64 + 0*64)/128) = 6, i.e. 6/63. If fog ran before edge
+-- replacement (or not at all after it), the result would instead be the
+-- unfogged edge color itself (13/63 = 0.2063, matching the input exactly) --
+-- a numerically distinct, easily distinguished wrong answer.
+function T.edge_marked_pixel_is_fogged_after_edge_rgb_replacement(scope)
+  local out = runFinalPass(scope, {
+    { id = 10, depth = 1000, fogGate = 0 },
+    { id = 20, depth = 500, fogGate = 1 },
+    { id = 20, depth = 500, fogGate = 1 },
+  }, { enabled = true, color = 0, offsetRaw = 0, shift = 0, table32 = constantDensityTable(64) }, eightEdgeColors())
+  Assert.near(out[1], 6 / 63, 1 / 255, "the edge color must be fogged, not the pre-edge scene color")
+  Assert.near(out[2], 6 / 63, 1 / 255)
+  Assert.near(out[3], 6 / 63, 1 / 255)
+end
+
+-- E.9 real graphics fixture 5: changing the scene's fog preset changes the
+-- final pass's output between two draws with identical geometry/depth/gate
+-- state, proving the uniforms are actually resent and consumed each frame,
+-- not cached from the first draw. Preset A (black fog, as fixture 1) reads
+-- 31/63; preset B (white fog, rgb555 (31,31,31)) blends white with white and
+-- must stay 1.0 -- a wide, unambiguous divergence.
+function T.scene_change_between_two_fog_presets_updates_the_final_output(scope)
+  local pixels = {
+    { id = 20, depth = 12345, fogGate = 1 },
+    { id = 20, depth = 12345, fogGate = 1 },
+    { id = 20, depth = 12345, fogGate = 1 },
+  }
+  local blackFogOut = runFinalPass(
+    scope,
+    pixels,
+    { enabled = true, color = 0, offsetRaw = 0, shift = 0, table32 = constantDensityTable(64) }
+  )
+  local whiteRgb555 = 31 + 31 * 32 + 31 * 1024
+  local whiteFogOut = runFinalPass(
+    scope,
+    pixels,
+    { enabled = true, color = whiteRgb555, offsetRaw = 0, shift = 0, table32 = constantDensityTable(64) }
+  )
+
+  Assert.near(blackFogOut[1], 31 / 63, 1 / 255, "the first preset's black fog must blend to 31/63")
+  Assert.near(whiteFogOut[1], 1.0, 1 / 255, "the second preset's white fog over a white fragment must stay 1.0")
+  Assert.isTrue(
+    math.abs(blackFogOut[1] - whiteFogOut[1]) > 0.1,
+    "changing the scene's fog preset between draws must change the final pass's output"
+  )
+end
+
+-- E.7: fog alpha blends the same way as RGB, in the 5-bit domain, and this
+-- draw's own "replace"/"premultiplied" blend mode (see MapRenderer.lua's
+-- doDraw) must write that computed alpha as data rather than let the host's
+-- default alpha compositing consume it. A fully opaque white scene fragment
+-- (srcAlpha5 = 31) fogged at density 64 against a preset whose fog alpha is
+-- 0 (matching the real Flash preset) must read back alpha = floor((0*64 +
+-- 31*64)/128)/31 = 15/31, not 1.0 (alpha untouched) and not a value
+-- indicating the RGB was additionally darkened by host alpha compositing
+-- (which, at alpha 15/31 over this test's black-cleared target, would read
+-- roughly half of the expected RGB instead of the exact value).
+function T.fog_alpha_blends_and_is_not_additionally_composited_by_the_host(scope)
+  local out = runFinalPass(scope, {
+    { id = 20, depth = 12345, fogGate = 1 },
+    { id = 20, depth = 12345, fogGate = 1 },
+    { id = 20, depth = 12345, fogGate = 1 },
+  }, { enabled = true, color = 0, offsetRaw = 0, shift = 0, table32 = constantDensityTable(64), alpha = 0 })
+  Assert.near(
+    out[1],
+    31 / 63,
+    1 / 255,
+    "RGB must be the exact fog blend, not additionally darkened by host alpha compositing"
+  )
+  Assert.near(out[4], 15 / 31, 1 / 255, "alpha must reflect the melonDS fog-alpha blend, not stay unfogged at 1.0")
 end
 
 return GraphicsSmoke.suite(T)

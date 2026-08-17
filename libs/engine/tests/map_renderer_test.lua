@@ -33,7 +33,7 @@ local function disabledFogFixture()
   for i = 1, 32 do
     table32[i] = 0
   end
-  return { enabled = false, color = 0, offset = 0, table = table32 }
+  return { enabled = false, color = 0, offset = 0, slope = 0, alpha = 0, table = table32 }
 end
 
 -- The raw 5-bit RGB555 decode (each channel normalized /31, no six-bit
@@ -617,7 +617,14 @@ end
 -- previous uniforms, retains the previous published descriptor and canvases,
 -- and releases the unpublished replacement set.
 function T.canvas_recreation_send_failure_retains_previous_targets()
-  local lg = fakeGraphics({ failOnEdgeShaderSend = 7 })
+  -- The first draw's edge-shader sends, in order: 3 target uniforms
+  -- (u_idTex/u_texelSize/u_edgeRadius) from _ensureCanvases, 1 from
+  -- _sendEdgeColors, and 6 from _sendFog (now the final pass's fog uniforms,
+  -- including u_fogAlpha) -- 10 total. The second (recreating) draw's target
+  -- uniforms then start at 11, so failing on the 13th send lands on that
+  -- draw's u_edgeRadius, after u_idTex/u_texelSize succeeded but before all
+  -- size uniforms were accepted.
+  local lg = fakeGraphics({ failOnEdgeShaderSend = 13 })
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local oldViewport = FieldViewport.new(640, 480, { mode = "strict" })
@@ -828,10 +835,10 @@ function T.draw_requires_a_positive_camera_far_plane()
 end
 
 -- The resolved HgssFieldFog.runtimePreset shape a compiled scene carries:
--- enabled, packed RGB555 color, raw offset, and a 32-entry density table --
--- distinct, non-placeholder values (not the renderer's own idle-default
--- zero/black/false) so a hardcoded-disabled bug cannot hide behind a
--- coincidentally-zero fixture.
+-- enabled, packed RGB555 color, raw offset, slope, alpha, and a 32-entry
+-- density table -- distinct, non-placeholder values (not the renderer's own
+-- idle-default zero/black/false) so a hardcoded-disabled bug cannot hide
+-- behind a coincidentally-zero fixture.
 local function fogFixture(enabled)
   local table32 = {}
   for i = 1, 32 do
@@ -841,13 +848,21 @@ local function fogFixture(enabled)
     enabled = enabled,
     color = enabled and (26 + 26 * 32 + 26 * 1024) or (1 + 2 * 32 + 3 * 1024),
     offset = enabled and 0x726F or 17,
+    slope = enabled and 3 or 6,
+    alpha = enabled and 31 or 0,
     table = table32,
   }
 end
 
--- MapRenderer must send the scene's own resolved fog preset, not the
--- permanently-disabled idle default: enable, the RGB555-decoded color, the
--- raw offset, and the 32-entry table all reach the shader unconditionally
+-- MapRenderer must send the scene's own resolved fog preset to the final
+-- pass shader (edgeShader), not the permanently-disabled idle default and
+-- not map.glsl (which owns no fog uniform -- see
+-- map_shader_has_no_global_fog_uniforms in the graphics-smoke suite): enable,
+-- the RGB555-decoded color, the offset converted into the depth domain
+-- (fogOffsetRaw * 0x200), the slope (sent verbatim as the density shift), the
+-- alpha (sent verbatim, 0..31, the same 5-bit domain the final shader's
+-- fogAlpha5/srcAlpha5 blend operates in -- not normalized, unlike the fog
+-- color), and the 32-entry table all reach edgeShader unconditionally
 -- (per-frame, like u_depthWMax), whether the resolved preset is enabled or
 -- disabled -- disabled is data on the preset, never a MapRenderer special
 -- case.
@@ -856,17 +871,19 @@ function T.draw_sends_the_scenes_resolved_fog_preset_when_enabled()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   scene.runtime.fog = fogFixture(true)
-  local shader = lg.shaders[1]
+  local shader = lg.shaders[2]
 
   renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
-  Assert.equal(shader.uniforms.u_fogEnabled, true, "the resolved preset's enable reaches the shader")
+  Assert.equal(shader.uniforms.u_fogEnabled, true, "the resolved preset's enable reaches the final pass shader")
   Assert.deepEqual(
     shader.uniforms.u_fogColor,
     decodeRgb555Float(scene.runtime.fog.color),
     "fog color decodes like edge colors"
   )
-  Assert.equal(shader.uniforms.u_fogOffset, 0x726F, "the raw offset reaches the shader unconverted")
+  Assert.equal(shader.uniforms.u_fogOffsetDepth, 0x726F * 0x200, "the raw offset is converted into the depth domain")
+  Assert.equal(shader.uniforms.u_fogShift, 3, "the preset's slope reaches the shader as the density shift verbatim")
+  Assert.equal(shader.uniforms.u_fogAlpha, 31, "the preset's alpha reaches the shader verbatim, 0..31")
   Assert.deepEqual(
     shader.uniforms.u_fogTable,
     scene.runtime.fog.table,
@@ -880,13 +897,15 @@ function T.draw_sends_the_scenes_resolved_fog_preset_when_disabled()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   scene.runtime.fog = fogFixture(false)
-  local shader = lg.shaders[1]
+  local shader = lg.shaders[2]
 
   renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   Assert.equal(shader.uniforms.u_fogEnabled, false)
   Assert.deepEqual(shader.uniforms.u_fogColor, decodeRgb555Float(scene.runtime.fog.color))
-  Assert.equal(shader.uniforms.u_fogOffset, 17)
+  Assert.equal(shader.uniforms.u_fogOffsetDepth, 17 * 0x200)
+  Assert.equal(shader.uniforms.u_fogShift, 6)
+  Assert.equal(shader.uniforms.u_fogAlpha, 0)
   Assert.deepEqual(shader.uniforms.u_fogTable, scene.runtime.fog.table)
   renderer:release()
 end

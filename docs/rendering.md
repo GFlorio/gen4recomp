@@ -331,18 +331,20 @@ actors draw with the world projection, exactly as on the DS.
 * Mirrored texture repeat (`TEXIMAGE_PARAM` flip bits), mapped to LÖVE's
   `mirroredrepeat` wrap mode.
 * Global DS fog: the two-gate (`DISP3DCNT` + per-polygon `FOG_ENABLE`) rule,
-  the 32-entry density table, and the post-combiner blend, applied in
-  `map.glsl` from the same DS-quantized depth the edge pass reads. The
-  per-map/weather source of the fog color/table/offset is now also real:
-  `HgssFieldFog` resolves each map's HGSS `weatherId` (0-13) to the exact
-  steady-state overlay-01 preset (`ov01_021EC94C`/`ov01_021ECD08`/
-  `ov01_021ED0F0`/`ov01_021ED584`/`ov01_021ED710`/`ov01_021ED924`/
-  `ov01_021EDA50`, see `tmp/fog.md` sections 3/7), and `MapAssetCompiler`
-  compiles the resolved `enabled`/`color`/`offset`/`table` subset onto every
-  scene (`g4-map-scene-v8`, `scene.fog`) unconditionally -- disabled weathers
-  (Sunny/Sandstorm) carry a real disabled preset, not an invented one. Every
-  real preset uses fog blend mode 0 (color+alpha); mode 1 (alpha-only) never
-  occurs in this table.
+  melonDS's exact slope-aware density-table interpolation (endpoint
+  duplication, the `>>2`/shift/`>>17` sequencing, the 127->128 saturation),
+  and the post-combiner RGB and alpha blend (`/128`, not `/127`), applied in
+  the final full-screen pass (`edge.glsl`, after edge marking) from the
+  DS-quantized depth the edge predicate also reads. The per-map/weather
+  source of the fog color/table/offset/slope/alpha is real: `HgssFieldFog`
+  resolves each map's HGSS `weatherId` (0-13) to the exact steady-state
+  overlay-01 preset (`ov01_021EC94C`/`ov01_021ECD08`/`ov01_021ED0F0`/
+  `ov01_021ED584`/`ov01_021ED710`/`ov01_021ED924`/`ov01_021EDA50`), and
+  `MapAssetCompiler` compiles the resolved `enabled`/`color`/`offset`/`slope`/
+  `alpha`/`table` subset onto every scene (`scene.weatherId`/`scene.fog`)
+  unconditionally -- disabled weathers (Sunny/Sandstorm) carry a real
+  disabled preset, not an invented one. Every real preset uses fog blend
+  mode 0 (color+alpha); mode 1 (alpha-only) never occurs in this table.
 * `BB` billboards, oriented in the vertex shader from the captured base transform.
 * The field-billboard depth bias (`unk11C = 8` model units in `ov01_021E6220`):
   actor billboards render through a projection whose Z row is pulled
@@ -385,19 +387,22 @@ one, the compiler raises a structured error instead of rendering incorrectly.
   `weatherId -> FogPreset` table itself; none of the four overrides are wired,
   since they need RTC/save-flag plumbing that does not exist yet in this
   engine.
-* The fog slope's real per-entry depth-step size: GBATEK's
-  `FogDepthBoundary[n] = FOG_OFFSET + FOG_STEP*(n+1)`, where
-  `FOG_STEP = 0x400 >> FOG_SHIFT` and `FOG_SHIFT` is the raw DISP3DCNT slope
-  field (HGSS's presets use shift values 1, 3, 6, and 10) -- confirmed
-  against pokeheartgold's `G3X_SetFog`/`GXFogSlope` enum, this step size is
-  *not* a uniform 32-way split of the full depth range. `map.glsl` still
-  quantizes fog table lookups with a fixed `DS_DEPTH_MAX / 32.0` step; the
-  real slope-dependent step needs a confirmed correspondence between
-  `FOG_STEP`/`FOG_OFFSET`'s raw DS W/Z-buffer depth units and this engine's
-  own `DS_DEPTH_MAX`/camera-far-normalized depth domain, which no current
-  reference establishes. `HgssFieldFog.resolve` (romdump-internal, not part
-  of the runtime schema) keeps `slope` and `blendMode` available for a future
-  pass that resolves this correspondence.
+* Fog's depth *input*: the final pass's density interpolation itself is exact
+  melonDS sequencing (offset subtraction, the preset's own slope applied as
+  the density shift exponent, `>>17` interval/fraction math, endpoint
+  duplication, 127->128 saturation) -- there is no more fixed 32-way split.
+  What remains approximate is the depth *value* fed into that interpolation:
+  it is this engine's existing camera-far-normalized W-buffer proxy
+  (`dsWbufferDepth`, shared with edge marking), not melonDS's real per-polygon
+  W-buffer value. melonDS normalizes `DepthBuffer` per polygon by that
+  polygon's own clip-space W bit-width (`GPU3D::SubmitPolygon`'s `wsize`), a
+  data-dependent quantity with no camera/scene-level constant equivalent
+  reachable from this engine's host-float projection pipeline; reproducing it
+  exactly would mean tracking each mesh's own clip-space W range and deriving
+  a matching per-draw normalization, which is a generic DS geometry-engine
+  feature this renderer does not implement. Absolute fog boundaries (how far
+  away fog visibly starts/reaches full density) are therefore approximate,
+  not exact, even though the interpolation math applied to that depth is.
 * `depthEqual`/`translucentDepthWrite`: never exercised anywhere in the
   target field corpus; `PolygonState.validate` raises
   `POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED` rather than approximating the DS

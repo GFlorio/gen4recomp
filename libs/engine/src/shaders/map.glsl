@@ -38,14 +38,12 @@
 // identity element of both combiner equations -- no separate uniform is
 // needed to reach that value.
 //
-// The post-combiner fog pass (fogDensityAt, fogBlendColor) applies only when
-// both u_fogEnabled (the global DISP3DCNT gate) and u_polygonFogEnabled (this
-// draw's POLYGON_ATTR FOG_ENABLE bit, PolygonState's fogEnabled field) are
-// set; the density index derives from the same dsWbufferDepth quantity the
-// edge pass already reads, offset by u_fogOffset and divided into the
-// table's 32 steps -- real DS depth, never an invented camera near/far
-// falloff. The global gate is always sent false (MapRenderer:_sendFog) until
-// a real per-area/weather fog source is wired; see docs/rendering.md.
+// Fog is entirely a final-pass concern (GBATEK "3D Display - Fog": edge
+// marking, then fog, over the whole composited scene) -- this shader owns no
+// fog uniform. It still stamps this draw's own POLYGON_ATTR FOG_ENABLE bit
+// (u_polygonFogEnabled, PolygonState's fogEnabled field) into finalState's
+// blue channel, the only per-polygon signal the final pass needs to gate its
+// own fog blend.
 
 varying vec3 v_dsColor;
 
@@ -245,19 +243,9 @@ uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 63), HGSS cl
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
 
-// Fog state (see file header): the global gate, this draw's own polygon
-// gate, the fog color (normalized c/31, blended in the 6-bit combiner domain
-// like every other color here), the 32-entry density table (0..127), and the
-// depth offset in the same 24-bit domain as dsWbufferDepth.
-uniform bool u_fogEnabled;
+// This draw's own POLYGON_ATTR FOG_ENABLE bit (see file header); the final
+// pass reads it back out of finalState's blue channel.
 uniform bool u_polygonFogEnabled;
-uniform vec3 u_fogColor;
-// The 32-entry density table packed as 8 vec4s (LOVE's Shader:send flattens
-// a single 32-number Lua table into this array in order: table[1..4] ->
-// u_fogTable[0], table[5..8] -> u_fogTable[1], etc.), read back out via
-// fogDensityAt below.
-uniform vec4 u_fogTable[8];
-uniform float u_fogOffset;
 
 // 5-bit (0-31) color component -> the combiner's 6-bit (0-63) domain
 // (melonDS GPU3D_Soft.cpp color conversion): 0 stays 0, any non-zero n
@@ -302,14 +290,23 @@ vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
   return floor((texture6 * textureAlpha5 + vertex6 * (31.0 - textureAlpha5)) / 32.0);
 }
 
-// DS W-buffer depth quantization: gl_FragCoord.w is 1/clip.w and clip.w IS the
-// eye-space distance, so 1/w is the linear depth in world units. It is
+// Approximate DS W-buffer depth proxy: gl_FragCoord.w is 1/clip.w and clip.w
+// IS the eye-space distance, so 1/w is the linear depth in world units. It is
 // normalized against the active camera's own far clipping plane (u_depthWMax,
 // sent once per frame by MapRenderer) and truncated into the 24-bit integer
 // domain both DS depth-buffer modes share, stored as a float (exactly
 // representable: float32's 24-bit mantissa covers the full 0..0xFFFFFF
-// range). The edge shader compares this value with a strict integer-domain
-// inequality, never a tolerance-scaled float heuristic.
+// range). This is an ordering/edge-marking proxy, not a reproduction of the
+// DS's own W-buffer value: melonDS normalizes its real DepthBuffer per
+// polygon by that polygon's own clip-space W bit-width
+// (GPU3D::SubmitPolygon's wsize), a data-dependent quantity this
+// camera-relative, per-frame normalization cannot express. The edge shader
+// compares this value with a strict integer-domain inequality (correct for
+// ordering, since it is monotonic in eye depth), never a tolerance-scaled
+// float heuristic; the final pass's fog density interpolation also reads it,
+// which is why fog's absolute boundaries are approximate even though the
+// interpolation math applied to this depth is exact (see edge.glsl and
+// docs/rendering.md).
 uniform float u_depthWMax;
 const float DS_DEPTH_MAX = 16777215.0; // 0xFFFFFF, the 24-bit quantized-depth domain max
 
@@ -317,46 +314,6 @@ float dsWbufferDepth(float linearEyeDepth)
 {
   float fraction = clamp(linearEyeDepth / u_depthWMax, 0.0, 1.0);
   return floor(fraction * DS_DEPTH_MAX);
-}
-
-// Index the 32-entry fog density table, clamping out-of-range indices to
-// entry 0 or 31 rather than wrapping. The table is packed 4-per-vec4 (see
-// u_fogTable's declaration above).
-float fogDensityAt(int index)
-{
-  int clamped = index;
-  if (clamped < 0) {
-    clamped = 0;
-  } else if (clamped > 31) {
-    clamped = 31;
-  }
-  vec4 group = u_fogTable[clamped / 4];
-  int component = clamped - (clamped / 4) * 4;
-  if (component == 0) {
-    return group.x;
-  } else if (component == 1) {
-    return group.y;
-  } else if (component == 2) {
-    return group.z;
-  }
-  return group.w;
-}
-
-// Fog blend, 6-bit combiner domain (fogColor6/fragmentRgb6 both already
-// widened like every other color in this shader).
-vec3 fogBlendColor(vec3 fragmentRgb6, vec3 fogColor6, float density)
-{
-  return floor((fragmentRgb6 * (127.0 - density) + fogColor6 * density) / 127.0);
-}
-
-// Fog depth-index derivation: the fragment's own DS-quantized depth (the
-// same value the edge pass compares), offset and divided into the table's
-// 32 steps. Not yet melonDS-verified; the density table/gates it feeds are
-// exact.
-int fogTableIndex(float dsDepth)
-{
-  float steps = DS_DEPTH_MAX / 32.0;
-  return int(floor((dsDepth - u_fogOffset) / steps));
 }
 
 void effect()
@@ -387,14 +344,6 @@ void effect()
     outputAlpha5 = int(floor(float((int(textureAlpha5) + 1) * (polygonAlpha5 + 1) - 1) / 32.0));
   }
   float dsDepth = dsWbufferDepth(1.0 / gl_FragCoord.w);
-
-  // Post-combiner fog: both the global and per-polygon gates must be set,
-  // matching GBATEK's two-gate fog rule.
-  if (u_fogEnabled && u_polygonFogEnabled) {
-    float density = fogDensityAt(fogTableIndex(dsDepth));
-    vec3 fogColor6 = expand5to6v(floor(u_fogColor * 31.0 + 0.5));
-    outRgb6 = fogBlendColor(outRgb6, fogColor6, density);
-  }
 
   vec3 outRgb = outRgb6 / 63.0;
   float alpha = float(outputAlpha5) / 31.0;
