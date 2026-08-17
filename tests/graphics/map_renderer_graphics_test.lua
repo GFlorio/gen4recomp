@@ -326,18 +326,36 @@ function T.decal_zero_texture_alpha_renders_vertex_color(scope)
 end
 
 -- A partially transparent DECAL texel (texture alpha strictly between 0 and
--- 31/31) must interpolate texture and vertex RGB by that alpha, not render
--- the texture color unconditionally (GBATEK DECAL texel format).
-function T.decal_partial_texture_alpha_blends_toward_vertex_color(scope)
+-- 31/31) must interpolate texture and vertex RGB with melonDS's exact
+-- divide-by-32, not a divide-by-31: texture6=63 (a fully white, fully opaque
+-- texel), vertex6=0 (a black literal vertex color), textureAlpha5=16 (alpha
+-- byte 131 -> floor(131/255*31+0.5) = 16) must produce exactly
+-- floor((63*16 + 0*15)/32) = 31, not the /31 formula's 32 (GBATEK DECAL
+-- texel format). This numeric fixture replaces a prior broad "some green is
+-- present" assertion that could not have caught the wrong divisor.
+function T.decal_partial_texture_alpha_uses_the_exact_divide_by_32(scope)
   local renderer = scope:own(MapRenderer.new())
-  local image = solidAlphaImage(scope, 255, 0, 0, 128)
-  local item = decalItem(decalTriangle(scope), image)
+  local blackVertexTriangle = scope:own(syntheticMesh({
+    { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0 },
+    { 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0 },
+    { 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0 },
+  }))
+  local image = solidAlphaImage(scope, 255, 255, 255, 131)
+  local item = decalItem(blackVertexTriangle, image)
 
   renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
 
   local p = decalInteriorSample(renderer)
-  local scale = p[2] > 1 and 255 or 1
-  Assert.isTrue(p[2] >= 0.2 * scale, "a partially transparent decal texel must blend in the vertex color's green")
+  local scale = p[1] > 1 and 255 or 1
+  -- Half a 6-bit combiner step, scaled to whichever readback domain the
+  -- driver used: tight enough to separate 31/63 from the /31 formula's
+  -- neighboring value 32/63, unlike a flat tolerance of 1 (which is wider
+  -- than the entire 0..1 readback domain some drivers here return, and so
+  -- can never fail).
+  local tolerance = 0.5 * scale / 63
+  Assert.near(p[1], 31 / 63 * scale, tolerance, "decal red: floor((63*16+0*15)/32) = 31, not the /31 formula's 32")
+  Assert.near(p[2], 31 / 63 * scale, tolerance, "decal green: floor((63*16+0*15)/32) = 31")
+  Assert.near(p[3], 31 / 63 * scale, tolerance, "decal blue: floor((63*16+0*15)/32) = 31")
 end
 
 -- A literal-color vertex triangle (colorSource 0) for the MODULATE test
@@ -354,14 +372,15 @@ end
 -- MODULATE, the DS integer combiner (map.glsl's modulateRgb6/
 -- modulateComponent6), at a nontrivial midrange value -- not an
 -- identity/full-white or zero edge case. Both operands enter 5-bit
--- quantized then widened to 6-bit (expand5to6) before combining:
+-- quantized then widened to 6-bit by melonDS's expand5to6 (0 -> 0, n ->
+-- 2n+1) before combining:
 --   modulateComponent6(t6, v6) = floor(((t6+1)*(v6+1)-1)/64)
 -- Texture (200,100,50)/255 -> texture5 = floor(c*31+0.5) = (24,12,6) ->
--- texture6 = expand5to6 = (49,24,12). A literal vertex color (colorSource 0)
+-- texture6 = expand5to6 = (49,25,13). A literal vertex color (colorSource 0)
 -- (128,64,200)/255 is truncated, not rounded, by the vertex stage's
 -- quantizeRgb5 (floor(c*31), no +0.5) -> vertex5 = (15,7,24) -> vertex6 =
--- (30,14,49). Per channel: R floor((50*31-1)/64)=24, G
--- floor((25*15-1)/64)=5, B floor((13*50-1)/64)=10.
+-- (31,15,49). Per channel: R floor((50*32-1)/64)=24, G
+-- floor((26*16-1)/64)=6, B floor((14*50-1)/64)=10.
 function T.modulate_combines_texture_and_vertex_color_at_a_nontrivial_midrange_value(scope)
   local renderer = scope:own(MapRenderer.new())
   local image = solidAlphaImage(scope, 200, 100, 50, 255)
@@ -372,9 +391,60 @@ function T.modulate_combines_texture_and_vertex_color_at_a_nontrivial_midrange_v
 
   local p = decalInteriorSample(renderer)
   local scale = p[1] > 1 and 255 or 1
-  Assert.near(p[1], 24 / 63 * scale, 1, "modulate red channel: floor((50*31-1)/64) = 24")
-  Assert.near(p[2], 5 / 63 * scale, 1, "modulate green channel: floor((25*15-1)/64) = 5")
-  Assert.near(p[3], 10 / 63 * scale, 1, "modulate blue channel: floor((13*50-1)/64) = 10")
+  -- Half a 6-bit combiner step, scaled to the readback domain: a flat
+  -- tolerance of 1 is wider than the entire 0..1 domain some drivers here
+  -- return, and so could never fail.
+  local tolerance = 0.5 * scale / 63
+  Assert.near(p[1], 24 / 63 * scale, tolerance, "modulate red channel: floor((50*32-1)/64) = 24")
+  Assert.near(p[2], 6 / 63 * scale, tolerance, "modulate green channel: floor((26*16-1)/64) = 6")
+  Assert.near(p[3], 10 / 63 * scale, tolerance, "modulate blue channel: floor((14*50-1)/64) = 10")
+end
+
+-- The locked melonDS 5-bit-to-6-bit expansion table (map.glsl's
+-- expand5to6): 0 stays 0, any non-zero n becomes 2n+1. The texture bytes
+-- below are chosen so floor(byte/255*31+0.5) lands exactly on each locked
+-- source value {0,1,4,15,16,31}. Vertex color is full white (literal,
+-- colorSource 0), which quantizes to vertex5=31 -> vertex6=63 --
+-- MODULATE's identity element (modulateComponent6(t6,63) = t6 exactly) --
+-- so the readback isolates expand5to6's own output on the texture operand.
+-- The previous floor(c5/16) expansion only disagrees with this table at
+-- n in {1,4,15} (n=0, 16, and 31 happen to coincide under both formulas),
+-- so this fixture must include at least one of those discriminating values.
+local EXPAND5TO6_LOCKED_CASES = {
+  { byte = 0, source5 = 0, expected6 = 0 },
+  { byte = 8, source5 = 1, expected6 = 3 },
+  { byte = 32, source5 = 4, expected6 = 9 },
+  { byte = 123, source5 = 15, expected6 = 31 },
+  { byte = 131, source5 = 16, expected6 = 33 },
+  { byte = 255, source5 = 31, expected6 = 63 },
+}
+
+function T.expand5to6_matches_the_locked_melonds_table(scope)
+  for _, case in ipairs(EXPAND5TO6_LOCKED_CASES) do
+    local renderer = scope:own(MapRenderer.new())
+    local image = solidAlphaImage(scope, case.byte, case.byte, case.byte, 255)
+    local item = decalItem(modulateTriangle(scope, 1, 1, 1), image)
+    item.polygonMode = "modulation"
+
+    renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+    local p = decalInteriorSample(renderer)
+    local scale = p[1] > 1 and 255 or 1
+    -- Half a 6-bit combiner step, scaled to the readback domain: a flat
+    -- tolerance of 1 is wider than the entire 0..1 domain some drivers here
+    -- return, and so could never fail.
+    local tolerance = 0.5 * scale / 63
+    Assert.near(
+      p[1],
+      case.expected6 / 63 * scale,
+      tolerance,
+      string.format(
+        "5-bit source %d must expand to 6-bit %d (melonDS: 0 -> 0, n -> 2n+1)",
+        case.source5,
+        case.expected6
+      )
+    )
+  end
 end
 
 -- A cutout fragment whose combined alpha falls below alphaCutoff must

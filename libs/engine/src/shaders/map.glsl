@@ -222,11 +222,12 @@ uniform vec3 u_fogColor;
 uniform vec4 u_fogTable[8];
 uniform float u_fogOffset;
 
-// 5-bit (0-31) color component -> the combiner's 6-bit (0-63) domain, by
-// hardware bit-replication of the top bit into the new low bit.
+// 5-bit (0-31) color component -> the combiner's 6-bit (0-63) domain
+// (melonDS GPU3D_Soft.cpp color conversion): 0 stays 0, any non-zero n
+// becomes 2n+1.
 float expand5to6(float c5)
 {
-  return c5 * 2.0 + floor(c5 / 16.0);
+  return c5 <= 0.0 ? 0.0 : c5 * 2.0 + 1.0;
 }
 
 vec3 expand5to6v(vec3 c5)
@@ -250,8 +251,9 @@ vec3 modulateRgb6(vec3 texture6, vec3 vertex6)
 }
 
 // DECAL RGB triple, 6-bit domain: texture alpha 0 -> vertex, 31 -> texture,
-// otherwise a texture-alpha-weighted interpolation (truncating divide by the
-// alpha full scale, 31).
+// otherwise a texture-alpha-weighted interpolation. melonDS computes
+// ((texture6 * textureAlpha5) + (vertex6 * (31 - textureAlpha5))) >> 5, i.e.
+// a truncating divide by 32, not 31.
 vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
 {
   if (textureAlpha5 <= 0.5) {
@@ -260,7 +262,7 @@ vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
   if (textureAlpha5 >= 30.5) {
     return texture6;
   }
-  return vertex6 + floor((texture6 - vertex6) * textureAlpha5 / 31.0);
+  return floor((texture6 * textureAlpha5 + vertex6 * (31.0 - textureAlpha5)) / 32.0);
 }
 
 // DS W-buffer depth quantization: gl_FragCoord.w is 1/clip.w and clip.w IS the

@@ -175,14 +175,16 @@ The RGB fragment combiner is the DS integer-domain equation (GBATEK's
 MODULATE/DECAL blending modes, transcribed in `map.glsl`'s
 `modulateRgb6`/`decalRgb6`), not floating-point multiplication. Both the
 texture sample and the vertex color enter as 5-bit (0-31) components,
-widened to the combiner's 6-bit (0-63) domain by hardware bit-replication
-(`expand5to6`: `c5*2 + floor(c5/16)`). MODULATE is
+widened to the combiner's 6-bit (0-63) domain by melonDS's RGB555 expansion
+(`expand5to6`: 0 stays 0, any non-zero `n` becomes `2n+1`). MODULATE is
 `floor(((texture6+1)*(vertex6+1)-1)/64)` per channel. DECAL keeps the
 polygon alpha as output alpha and blends RGB by the texel's own alpha:
 texture alpha 0 keeps the vertex color, 31 keeps the texture color,
-otherwise the two interpolate by that alpha. An untextured polygon samples
-`vec4(1.0)`, which quantizes to (63,63,63,31) -- the identity element of
-both equations, so no separate synthetic-texture uniform exists.
+otherwise the two interpolate as
+`floor((texture6*textureAlpha5 + vertex6*(31-textureAlpha5))/32)`. An
+untextured polygon samples `vec4(1.0)`, which quantizes to (63,63,63,31) --
+the identity element of both equations, so no separate synthetic-texture
+uniform exists.
 
 The shader composes 5-bit alpha as:
 
@@ -213,7 +215,11 @@ RGB555 entries), selected by `AreaData.lightTypeRaw`: zero selects table A,
 non-zero selects table B. `MapAssetCompiler` resolves the table once per area
 into `scene.edgeColors`, a required scene field (not a `MapRenderer`
 constructor invariant); the renderer caches the table by reference and only
-resends `u_edgeColors` when the active scene's table changes.
+resends `u_edgeColors` when the active scene's table changes. Because edge
+color composites directly into the six-bit scene RGB, `MapRenderer` decodes
+each RGB555 entry with the same `expand5to6` rule as the fragment combiner
+(`decodeRgb555ToRgb6Normalized`, normalized by 63) before sending it, not the
+raw `/31` RGB555 float used for material/light registers.
 
 The edge predicate is the DS rule, not a linear-eye-space heuristic: a pixel
 is an edge when an orthogonal neighbor's polygon ID differs from the

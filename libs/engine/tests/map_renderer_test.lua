@@ -35,15 +35,43 @@ local function disabledFogFixture()
   return { enabled = false, color = 0, offset = 0, table = table32 }
 end
 
--- The exact decode MapRenderer applies to a packed RGB555 edge-color entry:
--- each 5-bit channel normalized to 0..1. Mirrors MapRenderer's private
--- decodeRgb555 so tests assert against the documented contract, not an
--- internal helper.
+-- The raw 5-bit RGB555 decode (each channel normalized /31, no six-bit
+-- expansion): still the correct expected domain for material/light color
+-- registers and, until a separate deliverable fixes it, the fog color this
+-- file's fog-preset tests assert against -- MapRenderer's DsLighting-facing
+-- and fog decode paths are out of this deliverable's scope.
 local function decodeRgb555Float(packed)
   return {
     (packed % 32) / 31,
     (math.floor(packed / 32) % 32) / 31,
     (math.floor(packed / 1024) % 32) / 31,
+  }
+end
+
+-- The exact decode MapRenderer must apply to a packed RGB555 edge-color
+-- entry before it reaches the final shader: each 5-bit channel expanded to
+-- the DS six-bit framebuffer domain (melonDS's rule -- 0 stays 0, any
+-- non-zero n becomes 2n+1 -- the same expansion map.glsl's expand5to6
+-- applies to texture/vertex colors), then normalized by 63, not 31. Edge
+-- color composites directly into the six-bit scene RGB (edge.glsl replaces
+-- scene.rgb outright), so a raw /31 RGB555 value is the wrong domain, not
+-- merely an unrounded one. This is an independently hand-derived expected
+-- function, not a copy of MapRenderer's private decoder.
+local function expand5to6(c5)
+  if c5 <= 0 then
+    return 0
+  end
+  return c5 * 2 + 1
+end
+
+local function decodeRgb555ToRgb6Float(packed)
+  local r = packed % 32
+  local g = math.floor(packed / 32) % 32
+  local b = math.floor(packed / 1024) % 32
+  return {
+    expand5to6(r) / 63,
+    expand5to6(g) / 63,
+    expand5to6(b) / 63,
   }
 end
 
@@ -680,10 +708,11 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.isNil(renderer._sceneTargets, "release clears the target descriptor")
 end
 
--- The decoded values MapRenderer sends for u_edgeColors are the
--- exact RGB555 decode of the scene's edge table, in table order -- not a
--- placeholder grey and not the wrong index/channel.
-function T.draw_sends_the_scene_edge_table_decoded_to_normalized_rgb()
+-- The decoded values MapRenderer sends for u_edgeColors are the scene's edge
+-- table RGB555 entries expanded into the six-bit combiner domain (0 -> 0,
+-- n -> 2n+1, normalized /63) -- not a raw /31 RGB555 float, a placeholder
+-- grey, or the wrong index/channel.
+function T.draw_sends_the_scene_edge_table_decoded_to_normalized_rgb6()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
@@ -700,8 +729,33 @@ function T.draw_sends_the_scene_edge_table_decoded_to_normalized_rgb()
   assert(sent, "u_edgeColors was sent")
   local fixture = edgeColorsFixture()
   for i = 0, 7 do
-    Assert.deepEqual(sent[i + 1], decodeRgb555Float(fixture[i]), "edge color entry " .. i)
+    Assert.deepEqual(sent[i + 1], decodeRgb555ToRgb6Float(fixture[i]), "edge color entry " .. i)
   end
+  renderer:release()
+end
+
+-- The locked A.5 fixture: RGB555(4,4,4) (packed 4 + 4*32 + 4*1024) must
+-- reach the final shader as (9/63, 9/63, 9/63) -- melonDS's expand5to6(4) =
+-- 2*4+1 = 9 in the six-bit domain, not 4/31 (the raw RGB555 float) and not
+-- 8/63 (the old floor(c5/16) expansion's result for 4).
+function T.edge_color_rgb555_4_4_4_expands_to_rgb6_9_63()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local edgeShader = renderer.edgeShader --[[@as any]]
+  local packed444 = 4 + 4 * 32 + 4 * 1024
+  scene.runtime.edgeColors = { [0] = packed444, 0, 0, 0, 0, 0, 0, 0 }
+
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local sent
+  for _, send in ipairs(edgeShader.sends) do
+    if send.name == "u_edgeColors" then
+      sent = send.values
+    end
+  end
+  assert(sent, "u_edgeColors was sent")
+  Assert.deepEqual(sent[1], { 9 / 63, 9 / 63, 9 / 63 }, "RGB555(4,4,4) expands to RGB6(9,9,9), normalized /63")
   renderer:release()
 end
 

@@ -340,6 +340,24 @@ local function decodeRgb555(target, packed)
   target[3] = (math.floor(packed / 1024) % 32) / FixedPoint.RGB5_MAX
 end
 
+-- 5-bit (0-31) RGB555 component -> the DS six-bit framebuffer domain
+-- (melonDS GPU3D_Soft.cpp color conversion): 0 stays 0, any non-zero n
+-- becomes 2n+1, normalized by 63. Used only for edge colors, which composite
+-- directly into the six-bit scene RGB; material/light registers stay 5-bit
+-- and must keep using decodeRgb555 above.
+local function expand5to6(c5)
+  if c5 <= 0 then
+    return 0
+  end
+  return c5 * 2 + 1
+end
+
+local function decodeRgb555ToRgb6Normalized(target, packed)
+  target[1] = expand5to6(packed % 32) / 63
+  target[2] = expand5to6(math.floor(packed / 32) % 32) / 63
+  target[3] = expand5to6(math.floor(packed / 1024) % 32) / 63
+end
+
 local function decodeFx12(target, vec)
   target[1] = vec[1] / FixedPoint.FX32_SCALE
   target[2] = vec[2] / FixedPoint.FX32_SCALE
@@ -423,7 +441,7 @@ function MapRenderer:_sendEdgeColors(sceneRuntime)
   end
   local decoded = self._edgeColorsCache
   for i = 0, 7 do
-    decodeRgb555(decoded[i + 1], edgeColors[i])
+    decodeRgb555ToRgb6Normalized(decoded[i + 1], edgeColors[i])
   end
   self.edgeShader:send("u_edgeColors", unpack(decoded))
   self._edgeColorsProfile = edgeColors
