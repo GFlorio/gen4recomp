@@ -1728,13 +1728,158 @@ function T.edge_shader_does_not_mark_a_same_id_neighbor(scope)
 end
 
 -- The retired "translucent center never marks" fixture (blue-channel
--- translucent-attribute flag) is deliberately not replaced here. Under the
--- target finalState render-target contract, the blue channel is the per-polygon
--- fog gate, not a translucent identity, so edge.glsl no longer reads it at
--- all -- translucent-draw preservation (keeping translucent fragments from
--- becoming spurious edge centers) is a later renderer change, done by
--- excluding the translucent pass from the finalState canvas binding, not by
--- a shader-side flag. See MapRenderer:draw's pass-3 comment for the tracked
--- gap between this state and that one.
+-- translucent-attribute flag) is deliberately not replaced by another
+-- shader-level fixture -- edge.glsl no longer reads a translucent identity
+-- at all. Its actual behavioral successor is the finalState-preservation
+-- test below, which proves the same real-world invariant (a translucent
+-- fragment cannot become a spurious edge center) at its true production
+-- boundary: the translucent pass's canvas binding, not a shader flag.
+
+-- A real perspective camera (unlike this suite's usual `fixedCamera`, whose
+-- identity projection makes clip.w -- and therefore every item's
+-- dsWbufferDepth -- 1.0 regardless of vertex z). The finalState-preservation
+-- test below needs the opaque and translucent triangles to carry genuinely
+-- different depth values, so a translucent overwrite of finalState's depth
+-- channel is numerically distinguishable from the opaque value it should
+-- have left alone.
+local function perspectiveCamera()
+  local far = 400
+  local projection = Matrix4.perspective(math.rad(60), 640 / 480, 0.1, far)
+  return {
+    distance = 26,
+    far = far,
+    view = function()
+      return IDENTITY
+    end,
+    projection = function()
+      return projection
+    end,
+    billboardProjection = function()
+      return projection
+    end,
+  }
+end
+
+-- A literal-color triangle at world/eye-space depth `z` (camera looks down
+-- -Z, so a more negative `z` is farther away). `scale` shrinks the triangle
+-- proportionally to `-z` so that, under the perspective camera above, two
+-- triangles at different depths but matching scale/`-z` ratios project to
+-- the identical screen-space footprint -- letting the two draws below share
+-- one sample pixel while differing only in depth.
+local function literalTriangleAtDepth(scope, z, scale)
+  return scope:own(syntheticMesh({
+    { 0, 0, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { scale, 0, z, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 0, scale, z, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+end
+
+local function opaqueFinalStateItem(mesh, polygonId, fogEnabled)
+  return {
+    mesh = mesh,
+    material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "opaque",
+    cullMode = "none",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = polygonId,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    fogEnabled = fogEnabled,
+    center = { 0.5, 0.5, 0 },
+  }
+end
+
+-- `translucentDepthWrite = false` is the only value the real HGSS field
+-- corpus ever emits (0 of 10246 censused materials set it true), so this is
+-- the exact target-corpus shape, not a hypothetical.
+local function nonDepthWritingTranslucentItem(mesh, polygonId, fogEnabled)
+  return {
+    mesh = mesh,
+    material = { alphaClass = "translucent", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "translucent",
+    cullMode = "none",
+    polygonAlpha = 0.5,
+    polygonMode = "modulation",
+    polygonId = polygonId,
+    translucentDepthWrite = false,
+    depthEqual = false,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    fogEnabled = fogEnabled,
+    center = { 0.5, 0.5, 0 },
+  }
+end
+
+-- The finalState render-target contract's core translucent-preservation
+-- rule: an opaque draw authors finalState's edge id/depth/fog-gate for a
+-- pixel; an ordinary non-depth-writing translucent draw covering that same
+-- pixel must not replace those values with its own, a blend of the two, or
+-- a zeroed value -- because the real DS never updates its depth/attribute
+-- buffers for a non-depth-writing translucent fragment, so nothing
+-- downstream of it (edge marking, fog gating) may observe it at all.
+--
+-- Proven by comparing two independent draws through the real MapRenderer
+-- pipeline: one with only the opaque triangle, one with the identical opaque
+-- triangle plus a translucent triangle in front of it covering the same
+-- pixel. If the translucent draw cannot reach finalState, both readbacks are
+-- identical; today it still can (MapRenderer's pass 3 leaves finalState
+-- bound for the whole translucent pass), so the two readbacks diverge to the
+-- translucent item's own id/depth/fog-gate values.
+function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque_geometry(scope)
+  local camera = perspectiveCamera()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+
+  -- Sample pixels are this fixture's own projected footprint (hand-derived
+  -- from the perspective matrix above for the triangle centroid at world
+  -- (0.3, 0.3, -2) / (0.15, 0.15, -1), both of which project to the same
+  -- NDC point by construction), not the identity-camera pixels other tests
+  -- in this file use.
+  local function finalStateInterior(renderer, parts)
+    renderer:draw(emptyRuntime(), camera, parts, viewport)
+    local img = renderer.finalState:newImageData()
+    local a, b = { img:getPixel(382, 178) }, { img:getPixel(382, 302) }
+    -- Whichever sample is not the rear-plane clear (r == 1.0, id 63) carries
+    -- the drawn geometry's own finalState value.
+    return a[1] < 0.99 and a or b
+  end
+
+  local renderer = scope:own(MapRenderer.new())
+
+  local opaqueOnly = opaqueFinalStateItem(literalTriangleAtDepth(scope, -2, 1), 20, true)
+  local baseline = finalStateInterior(renderer, { { opaqueOnly } })
+
+  -- The translucent triangle sits strictly in front of the opaque one (a
+  -- smaller eye-space distance passes the renderer's "less" depth test) and,
+  -- scaled to match, shares the same screen-space footprint, so it is
+  -- guaranteed to shade the sampled pixel with a genuinely different own
+  -- depth value.
+  local opaqueUnder = opaqueFinalStateItem(literalTriangleAtDepth(scope, -2, 1), 20, true)
+  local translucentOver = nonDepthWritingTranslucentItem(literalTriangleAtDepth(scope, -1, 0.5), 5, false)
+  local withTranslucentOnTop = finalStateInterior(renderer, { { opaqueUnder, translucentOver } })
+
+  Assert.near(
+    withTranslucentOnTop[1],
+    baseline[1],
+    1 / 255,
+    "a non-depth-writing translucent draw must not replace the opaque edge polygon id underneath it"
+  )
+  Assert.near(
+    withTranslucentOnTop[2],
+    baseline[2],
+    1,
+    "a non-depth-writing translucent draw must not replace the opaque depth value underneath it"
+  )
+  Assert.near(
+    withTranslucentOnTop[3],
+    baseline[3],
+    1 / 255,
+    "a non-depth-writing translucent draw must not replace the opaque fog gate underneath it"
+  )
+end
 
 return GraphicsSmoke.suite(T)

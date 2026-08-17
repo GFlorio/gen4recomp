@@ -6,13 +6,12 @@
 -- and wireframe edges. Every opaque/cutout/wireframe fragment stamps its
 -- polygon ID, DS-quantized depth, and per-polygon fog gate into a second
 -- render target (`finalState`) that the DS edge-marking/fog final pass reads
--- when compositing to the screen. Translucent draws currently still stamp
--- this same target with their own real polygon ID/depth/fog gate rather than
--- leaving the underlying opaque state untouched -- an intentional, tracked
--- gap: the DS itself does not update its depth/attribute buffers for a
--- non-depth-writing translucent fragment, and closing this gap requires
--- binding `finalState` out of the translucent pass entirely, which is a
--- separate change. It clears the depth buffer itself (love's frame clear
+-- when compositing to the screen. The translucent pass binds a narrower
+-- target set that omits `finalState` (see `_translucentTargets`), so an
+-- ordinary non-depth-writing translucent fragment cannot replace the
+-- opaque/cutout state underneath it -- matching real DS behavior, which
+-- never updates its depth/attribute buffers for such a fragment. It clears
+-- the depth buffer itself (love's frame clear
 -- only touches color) and restores the exact caller state it changed
 -- (canvas, shader, depth, cull, blend, wireframe,
 -- color) even when drawing raises, so the diagnostic UI drawn afterwards is
@@ -52,6 +51,7 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field canvasW integer?
 ---@field canvasH integer?
 ---@field _sceneTargets { [1]: love.Canvas, [2]: love.Canvas, depthstencil: love.Canvas }?
+---@field _translucentTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
@@ -218,6 +218,7 @@ function MapRenderer:_releaseCanvases()
   self.sceneColor, self.finalState, self.depth = nil, nil, nil
   self.canvasW, self.canvasH = nil, nil
   self._sceneTargets = nil
+  self._translucentTargets = nil
 end
 
 local function sendEdgeTargetUniforms(shader, finalState, w, h)
@@ -235,7 +236,7 @@ function MapRenderer:_ensureCanvases(w, h)
     return
   end
   local lg = assert(self._graphics)
-  local sceneColor, finalState, depth, sceneTargets
+  local sceneColor, finalState, depth, sceneTargets, translucentTargets
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(w, h)
     -- The completed world is nearest-upscaled to the presentation viewport
@@ -253,6 +254,16 @@ function MapRenderer:_ensureCanvases(w, h)
     finalState:setFilter("nearest", "nearest")
     depth = lg.newCanvas(w, h, { format = "depth24stencil8", readable = false })
     sceneTargets = { sceneColor, finalState, depthstencil = depth }
+    -- The translucent pass binds this narrower target set instead of
+    -- sceneTargets: it shares the same depth canvas (so translucent
+    -- fragments still depth-test, and depth-write per translucentDepthWrite,
+    -- against the opaque/cutout depth already there) but omits finalState,
+    -- so a translucent fragment's finalState write is simply never observed
+    -- -- the DS itself never updates its depth/attribute buffers for a
+    -- non-depth-writing translucent fragment. Both entries are references to
+    -- the same owned canvases as sceneTargets; this table owns nothing new
+    -- and needs no separate release.
+    translucentTargets = { sceneColor, depthstencil = depth }
     sendEdgeTargetUniforms(self.edgeShader, finalState, w, h)
   end)
   if not ok then
@@ -274,6 +285,7 @@ function MapRenderer:_ensureCanvases(w, h)
   self.sceneColor, self.finalState, self.depth = sceneColor, finalState, depth
   self.canvasW, self.canvasH = w, h
   self._sceneTargets = sceneTargets
+  self._translucentTargets = translucentTargets
 end
 
 -- Field cameras have an authored, immutable distance. DS-pixel effects scale
@@ -830,6 +842,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   local billboardProjection = camera:billboardProjection()
 
   local sceneTargets = assert(self._sceneTargets)
+  local translucentTargets = assert(self._translucentTargets)
 
   local function doDraw()
     lg.setCanvas(sceneTargets)
@@ -858,13 +871,12 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     end
 
     -- Pass 3: blended, depth test on, write governed by polygon state.
-    -- finalState stays bound, so a translucent fragment still overwrites the
-    -- edge polygon ID/depth/fog gate underneath it with its own real values
-    -- (never an invented sentinel) -- a known, tracked gap versus real DS
-    -- behavior for a non-depth-writing translucent fragment; see this
-    -- function's header comment. The finalState attachment carries alpha 1,
-    -- so it is replaced -- not alpha-blended -- even while the colour
-    -- attachment blends.
+    -- finalState is left unbound for this pass (translucentTargets binds
+    -- only sceneColor + the shared depth canvas), so a translucent
+    -- fragment's finalState write is never observed and the edge polygon
+    -- id/depth/fog gate underneath it survives untouched -- matching real DS
+    -- behavior, which never updates its depth/attribute buffers for a
+    -- non-depth-writing translucent fragment.
     --
     -- DS blend contract vs. host blend state: host `setBlendMode("alpha",
     -- "alphamultiply")` reproduces the DS RGB blend equation exactly in shape
@@ -887,6 +899,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     -- is the one part actually implemented below.
     local lastDepthWrite = true
     if #queue.translucent > 0 then
+      lg.setCanvas(translucentTargets)
       lg.setBlendMode("alpha", "alphamultiply")
     end
     for _, d in ipairs(queue.translucent) do
