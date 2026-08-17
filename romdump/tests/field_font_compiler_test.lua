@@ -102,7 +102,8 @@ local function buildFocusMember(tiles)
 end
 
 -- Encodes one 24x32 frame as its 12 row-major 8x8 4bpp tiles. `pattern` maps
--- a zero-based pixel coordinate to a 0..15 palette index.
+-- a zero-based pixel coordinate to a 0..15 palette index. 4bpp tile bytes
+-- hold two pixels with the left (even) pixel in the low nibble (GBATEK).
 local function frameTiles(pattern)
   local tiles = {}
   for tileY = 0, 3 do
@@ -112,7 +113,7 @@ local function frameTiles(pattern)
         for pair = 0, 3 do
           local x0 = tileX * 8 + pair * 2
           local y0 = tileY * 8 + row
-          bytes[#bytes + 1] = string.char(pattern(x0, y0) * 16 + pattern(x0 + 1, y0))
+          bytes[#bytes + 1] = string.char(pattern(x0 + 1, y0) * 16 + pattern(x0, y0))
         end
       end
       tiles[#tiles + 1] = table.concat(bytes)
@@ -387,8 +388,8 @@ function T.corrupt_palette_member_is_typed()
   Assert.equal(assert(err).code, "FONT_FORMAT_INVALID")
 end
 
--- F-1/F-2: the font derived class imports font member 6 and reports four
--- 24x32 focus frames with explicit in-bounds rects plus the dependency record.
+-- The font derived class imports font member 6 and reports four 24x32 focus
+-- frames with explicit in-bounds rects plus the dependency record.
 function T.font_def_exposes_four_24x32_focus_frames_and_member6_dependencies()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
@@ -414,7 +415,7 @@ function T.font_def_exposes_four_24x32_focus_frames_and_member6_dependencies()
   Assert.equal(bundle.dependencies.focusIndicatorMemberSha1, "focus-member-a-sha")
 end
 
--- F-3: a malformed focus member (invalid container or truncated payload) fails
+-- A malformed focus member (invalid container or truncated payload) fails
 -- the whole font compile with a typed format error; the compiler never emits
 -- fewer frames.
 function T.malformed_focus_members_fail_with_a_typed_format_error()
@@ -426,7 +427,7 @@ function T.malformed_focus_members_fail_with_a_typed_format_error()
   end
 end
 
--- F-4: the compiled definition reports seven color bands that share the base
+-- The compiled definition reports seven color bands that share the base
 -- atlas geometry via a positive stride, and the atlas is tall enough for every
 -- band.
 function T.the_font_def_reports_seven_color_bands_over_the_base_geometry()
@@ -450,7 +451,7 @@ function T.the_font_def_reports_seven_color_bands_over_the_base_geometry()
   end
 end
 
--- F-5: each color variant resolves the source 1/2 pixel pair to palette slots
+-- Each color variant resolves the source 1/2 pixel pair to palette slots
 -- 2n+1 (foreground) and 2n+2 (shadow), verified against the imported palette.
 function T.color_variants_resolve_the_foreground_and_shadow_palette_pairs()
   local romFs, sha1, hashLua = fixture()
@@ -472,7 +473,7 @@ function T.color_variants_resolve_the_foreground_and_shadow_palette_pairs()
   end
 end
 
--- F-6: the default band keeps the previous default palette slots (FG 1,
+-- The default band keeps the previous default palette slots (FG 1,
 -- shadow 2), so Trainer Card and unstyled dialogue stay unchanged.
 function T.variant_zero_keeps_the_previous_default_palette_slots()
   local romFs, sha1, hashLua = fixture()
@@ -493,7 +494,7 @@ function T.variant_zero_keeps_the_previous_default_palette_slots()
   )
 end
 
--- F-7: the focus-indicator PNG keeps visible source palette slots while the
+-- The focus-indicator PNG keeps visible source palette slots while the
 -- background index composites transparent.
 function T.focus_indicator_png_keeps_ink_slots_and_makes_the_background_transparent()
   local romFs, sha1, hashLua = fixture()
@@ -516,7 +517,7 @@ function T.focus_indicator_png_keeps_ink_slots_and_makes_the_background_transpar
   Assert.equal(bb, 0)
 end
 
--- F-8: when only the member 6 bytes change, the font dependency marker
+-- When only the member 6 bytes change, the font dependency marker
 -- changes; hashing the member id alone would not catch a recompiled member.
 function T.changing_only_member6_bytes_changes_the_font_marker()
   local hashLua = function(value)
@@ -529,7 +530,7 @@ function T.changing_only_member6_bytes_changes_the_font_marker()
   Assert.isTrue(first.marker ~= second.marker, "member 6 bytes must participate in the font dependency marker")
 end
 
--- F-9: a cache that is missing the focus-indicator PNG must not be ready, so a
+-- A cache that is missing the focus-indicator PNG must not be ready, so a
 -- stale pre-change font cache cannot pass readiness after the contract bump.
 function T.cache_missing_the_focus_indicator_png_is_not_ready()
   local romFs, sha1, hashLua = fixture()

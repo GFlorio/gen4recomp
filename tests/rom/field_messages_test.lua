@@ -372,8 +372,8 @@ function T.font_focus_indicator_member_is_a_four_frame_24x32_4bpp_ncgr(romFs)
   )
   local function tileValue(tile, tx, ty)
     local byte = chars.tiles:byte(tile * 32 + ty * 4 + math.floor(tx / 2) + 1)
-    local hi = math.floor(byte / 16)
-    return tx % 2 == 0 and hi or byte % 16
+    local lo = byte % 16
+    return tx % 2 == 0 and lo or math.floor(byte / 16)
   end
   local function frameValue(frame, x, y)
     local tileY = math.floor(y / 8)

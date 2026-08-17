@@ -193,10 +193,13 @@ local function compileFont(romFs, source, sha1hex, hashLua)
       + math.floor(y / 8) * math.floor(FOCUS_FRAME_WIDTH / 8)
       + math.floor(intraX / 8)
     local byte = focusChars.tiles:byte(tileIndex * 32 + (y % 8) * 4 + math.floor((intraX % 8) / 2) + 1)
+    -- 4bpp tile bytes hold two pixels with the LEFT (even) pixel in the low
+    -- nibble (GBATEK "Nitro Character Tiles"), the same convention as
+    -- FieldUiCompiler.blitTile; a swapped read mirrors every 2px group.
     if intraX % 2 == 0 then
-      return math.floor(byte / 16)
+      return byte % 16
     end
-    return byte % 16
+    return math.floor(byte / 16)
   end
   for field = 0, FieldMessageText.FOCUS_INDICATOR_COUNT - 1 do
     for y = 0, FOCUS_FRAME_HEIGHT - 1 do

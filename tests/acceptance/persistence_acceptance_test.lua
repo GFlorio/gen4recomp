@@ -242,7 +242,7 @@ function T.tests.corrupt_save_is_ignored_and_fresh_state_boots()
   end)
 end
 
--- S-2: a save naming a player graphic outside the compiled avatar set must be
+-- A save naming a player graphic outside the compiled avatar set must be
 -- rejected by FieldSave.restore through the runtime's own resume wiring (the
 -- same validation record the save store receives), reported as ignored, and
 -- fall back to the fresh spawn instead of crashing runtime construction.
@@ -280,7 +280,7 @@ function T.tests.resume_ignores_a_save_with_an_unknown_compiled_avatar()
   end)
 end
 
--- S-3: a scripts bucket that passes the outer table shape but fails deep
+-- A scripts bucket that passes the outer table shape but fails deep
 -- ScriptSave.validate must be rejected at the restore boundary with the
 -- scripts attribution, ignored, and fall back to the fresh spawn. The planted
 -- environment record carries an impossible mode; everything else is a valid
