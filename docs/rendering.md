@@ -65,33 +65,40 @@ the derived cache.
 
 ## Vertex lighting contract
 
-The per-vertex color is the DS geometry-engine formula (GBATEK "Internal
-Operation on Normal Command"; the fixed-point domain from melonDS
-`GPU3D::CalculateLighting`):
+The per-vertex color is a literal transcription of melonDS's
+`GPU3D::CalculateLighting`, in its own unnormalized fixed-point domain, not a
+continuous formula quantized only at the end:
 
 ```text
-VertexColor = Emission + Sum_i( LightColor_i * (Ambient + Diffuse*ld_i + Specular*ls_i) )
+vtxbuff[c] = MatEmission[c] << 14
+per enabled light i (polygon lightMask bit i):
+  dot = sum_c( (LightDirection_i[c] * normalTransformed[c]) >> 9 )   -- per-component truncation, before summing
+  if dot > 0:
+    diffdot = signExtend(dot, 11 bits)
+    vtxbuff[c] += (MatDiffuse[c] * LightColor_i[c] * diffdot) & 0xFFFFF
+    -- specular reuses dot, folds in the normal's Z, truncate-squares it,
+    -- then applies the light's reciprocal (SpecRecip) -- not a half-vector
+  vtxbuff[c] += ((MatSpecular[c] * shinelevel) + (MatAmbient[c] << 9)) * LightColor_i[c]
+VertexColor[c] = min(vtxbuff[c] >> 14, 31)   -- the only clamp, at the very end
 ```
 
-summed per RGB channel over the lights enabled by the polygon's `lightMask`,
-where `ld = max(0, -dot(L, N))` (the profile light vectors point in the
-direction the light travels, from source toward surface) and `ls` is the
-melonDS `cos(2a)` term `clamp(2*ndh^2 - 1, 0, 1)` with
-`ndh = max(0, dot(N, H))`, `H = normalize(-L + (0,0,1))` in camera/vector
-space, gated on the front-light test `ld > 0` (`dot(-L,N) > 0`) exactly like
-the hardware (GPU3D.cpp `CalculateLighting`; DeSmuME computes the same
-`2*dot^2-4096`). Ambient is not gated: melonDS adds it for every enabled
-light regardless of the light/normal dot. There is no shininess-table path:
-the table is global GX state (SPE_EMI bit 15) and the ROM census found no
-HGSS field material setting the bit.
+summed per RGB channel over the lights enabled by the polygon's `lightMask`.
+The bottom 9 bits of each per-component product are discarded before adding,
+not after summing all three components and shifting once. Ambient is not
+diffuse-gated: melonDS adds it for every enabled light regardless of the
+diffuse dot. Specular is melonDS's `dot`/normal-Z/`SpecRecip`/`shinelevel`
+sequence, not a conventional Blinn half-vector squared-cosine term -- the two
+do not agree over the same inputs. There is no shininess-table path: the
+table is global GX state (SPE_EMI bit 15) and the ROM census found no HGSS
+field material setting the bit.
 
-The numeric domain is the important part: the DS hardware multiplies its RGB555
-colors as fractions of full scale (fixed point), not as saturating integers, so
-a dim light dims a bright material proportionally. Both implementations
-therefore work in normalized 0..1 (RGB555 color / 31, fx12 vector / 4096), and
-both quantize the clamped result to 5 bits by truncation
-(`floor(c*31)`), matching the hardware, which truncates its fixed-point
-accumulator (a single full-intensity light caps at 30/31 per channel).
+The numeric domain is the important part: nothing above is a `/31` or `/512`
+normalized division mid-pipeline. The accumulator starts at
+`MatEmission << 14` (not a normalized 0..31 value) and stays in that
+unnormalized fixed-point domain through every light's contribution; only the
+final result is shifted back down (`>> 14`) and clamped to 0..31. Normals and
+the transformed light-direction register both live in the geometry engine's
+1.0.9 domain (scale 512).
 
 The vertex shader (`libs/engine/src/shaders/map.glsl`) is the rendered form of
 this contract. `tests/support/DsLighting.lua` is an independent pure-Lua

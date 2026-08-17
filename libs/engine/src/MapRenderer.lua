@@ -559,6 +559,57 @@ function MapRenderer.bakeStraddle(vertices, leading, straddleTransform, transfor
   return baked
 end
 
+-- Bind the model/normal matrices or billboard placement common to both the
+-- filled and wireframe draw bodies (_drawMesh, _drawWireframeMesh).
+local function sendTransformUniforms(shader, projection, modelMatrix, modelNormal, billboardCenter, billboardScale)
+  shader:send("u_proj", "column", projection)
+  local isBillboard = billboardCenter ~= nil
+  shader:send("u_billboard", isBillboard)
+  if isBillboard then
+    assert(billboardScale, "billboard draw requires billboardScale")
+    shader:send("u_billboardCenter", billboardCenter)
+    shader:send("u_billboardScale", billboardScale)
+  else
+    shader:send("u_model", "column", modelMatrix)
+    shader:send("u_modelNormal", "column", modelNormal)
+  end
+end
+
+-- Bake a straddling item's shared mesh into a scratch mesh under the item's
+-- two submission transforms (see MapRenderer.bakeStraddle), resolving a
+-- billboard base through the current view first if the item is a
+-- billboarded straddle. Shared by _drawStraddle and _drawWireframeStraddle:
+-- both bake identically and differ only in which draw body consumes the
+-- result. The caller owns releasing the returned mesh.
+local function bakeStraddleMesh(lg, item, viewMatrix)
+  -- love 11.5 has no Mesh:getVertices bulk read; the CPU-side vertex data is
+  -- still reachable per vertex (getVertex returns the attribute components
+  -- as multiple values on this build).
+  local vertices = {}
+  for i = 1, item.mesh:getVertexCount() do
+    vertices[i] = { item.mesh:getVertex(i) }
+  end
+  local transform = item.transform
+  if item.billboardBase then
+    -- A billboarded straddle still has mixed submission transforms, so keep
+    -- the proven CPU bend until that exceptional combination has an exact
+    -- view-space equivalent.
+    transform =
+      BillboardTransform.resolve(item.billboardBase, assert(viewMatrix, "straddle billboard needs a view matrix"))
+  end
+  local scratch = lg.newMesh(
+    VertexFormat.LAYOUT,
+    MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, transform),
+    "triangles",
+    "static"
+  )
+  local map = item.mesh:getVertexMap()
+  if map and #map > 0 then
+    scratch:setVertexMap(map)
+  end
+  return scratch
+end
+
 -- Bind a material's uniforms/texture/cull state, then draw the mesh.
 -- `projection` is per item: billboard actors draw through the camera's
 -- field-billboard projection, everything else through the world projection.
@@ -595,31 +646,7 @@ function MapRenderer:_drawStraddle(item, projection, alphaClass, viewMatrix)
   local lg = assert(self._graphics)
   local scratch
   local ok, err = pcall(function()
-    -- love 11.5 has no Mesh:getVertices bulk read; the CPU-side vertex data
-    -- is still reachable per vertex (getVertex returns the attribute
-    -- components as multiple values on this build).
-    local vertices = {}
-    for i = 1, item.mesh:getVertexCount() do
-      vertices[i] = { item.mesh:getVertex(i) }
-    end
-    local transform = item.transform
-    if item.billboardBase then
-      -- A billboarded straddle still has mixed submission transforms, so keep
-      -- the proven CPU bend until that exceptional combination has an exact
-      -- view-space equivalent.
-      transform =
-        BillboardTransform.resolve(item.billboardBase, assert(viewMatrix, "straddle billboard needs a view matrix"))
-    end
-    scratch = lg.newMesh(
-      VertexFormat.LAYOUT,
-      MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, transform),
-      "triangles",
-      "static"
-    )
-    local map = item.mesh:getVertexMap()
-    if map and #map > 0 then
-      scratch:setVertexMap(map)
-    end
+    scratch = bakeStraddleMesh(lg, item, viewMatrix)
     self:_drawMesh(item, projection, IDENTITY_MODEL, IDENTITY_MODEL_NORMAL, scratch, alphaClass, nil, nil)
   end)
   if scratch then
@@ -647,17 +674,7 @@ function MapRenderer:_drawMesh(
   local mat = item.material
   local shader = self.shader
 
-  shader:send("u_proj", "column", projection)
-  local isBillboard = billboardCenter ~= nil
-  shader:send("u_billboard", isBillboard)
-  if isBillboard then
-    assert(billboardScale, "billboard draw requires billboardScale")
-    shader:send("u_billboardCenter", billboardCenter)
-    shader:send("u_billboardScale", billboardScale)
-  else
-    shader:send("u_model", "column", modelMatrix)
-    shader:send("u_modelNormal", "column", modelNormal)
-  end
+  sendTransformUniforms(shader, projection, modelMatrix, modelNormal, billboardCenter, billboardScale)
 
   -- The effective DS material registers: the field profile's colors, with
   -- any playing NSBMA color clip's sampled colors replacing them (see
@@ -743,27 +760,7 @@ function MapRenderer:_drawWireframeStraddle(item, projection, alphaClass, viewMa
   local lg = assert(self._graphics)
   local scratch
   local ok, err = pcall(function()
-    local vertices = {}
-    for i = 1, item.mesh:getVertexCount() do
-      vertices[i] = { item.mesh:getVertex(i) }
-    end
-    local transform = item.transform
-    if item.billboardBase then
-      -- The wireframe straddle follows the same exceptional CPU fallback as
-      -- the filled path.
-      transform =
-        BillboardTransform.resolve(item.billboardBase, assert(viewMatrix, "straddle billboard needs a view matrix"))
-    end
-    scratch = lg.newMesh(
-      VertexFormat.LAYOUT,
-      MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, transform),
-      "triangles",
-      "static"
-    )
-    local map = item.mesh:getVertexMap()
-    if map and #map > 0 then
-      scratch:setVertexMap(map)
-    end
+    scratch = bakeStraddleMesh(lg, item, viewMatrix)
     self:_drawWireframeMesh(item, projection, IDENTITY_MODEL, IDENTITY_MODEL_NORMAL, scratch, alphaClass, nil, nil)
   end)
   if scratch then
@@ -790,17 +787,7 @@ function MapRenderer:_drawWireframeMesh(
   local lg = assert(self._graphics)
   local shader = self.shader
 
-  shader:send("u_proj", "column", projection)
-  local isBillboard = billboardCenter ~= nil
-  shader:send("u_billboard", isBillboard)
-  if isBillboard then
-    assert(billboardScale, "billboard draw requires billboardScale")
-    shader:send("u_billboardCenter", billboardCenter)
-    shader:send("u_billboardScale", billboardScale)
-  else
-    shader:send("u_model", "column", modelMatrix)
-    shader:send("u_modelNormal", "column", modelNormal)
-  end
+  sendTransformUniforms(shader, projection, modelMatrix, modelNormal, billboardCenter, billboardScale)
   -- Wireframe polygons are static field geometry: the effective registers
   -- are the field profile's.
   local profileColors = self._lightMaterialColors
