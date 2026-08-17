@@ -90,10 +90,12 @@ DerivedAssetContract.fieldUi = {
 DerivedAssetContract.audio = {
   cacheFormat = "g4-audio-cache-v1",
   -- The index carries the per-class symbol maps sequenceBySymbol and
-  -- bankBySymbol (wave-archive symbols are not indexed), and per-player
-  -- entries with only runtime-relevant fields (the parser keeps source
-  -- facts such as the heap budget).
-  indexSchema = "g4-audio-index-v3",
+  -- bankBySymbol (wave-archive symbols are not indexed), per-player entries
+  -- with only runtime-relevant fields (the parser keeps source facts such as
+  -- the heap budget), and no stored payload path on sequence/bank records:
+  -- every path derives from the numeric id (AudioCache.sequencePath/bankPath),
+  -- so a redundant `file` field is malformed index data.
+  indexSchema = "g4-audio-index-v4",
   -- The sequence asset carries a closed semantic instruction vocabulary
   -- (signed operands, no conditional field, comparison commands consumed as
   -- nop, exact instruction and nested-block shapes). Random operands are the

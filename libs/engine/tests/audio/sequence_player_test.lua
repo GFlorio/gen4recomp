@@ -57,7 +57,6 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local AudioCache = require("libs.assets.src.AudioCache")
 local AudioFixture = require("tests.support.AudioFixture")
 local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
@@ -138,7 +137,6 @@ local function buildBundle(sequences, opts)
     indexSequences[id] = {
       id = id,
       symbol = sequence.symbol,
-      file = AudioCache.sequencePath(id),
       bankId = sequence.bankId,
       playerId = sequence.player.id,
     }
@@ -151,7 +149,7 @@ local function buildBundle(sequences, opts)
   end
   bundle.index.sequences = indexSequences
   bundle.index.players = indexPlayers
-  bundle.index.banks = { [12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12) } }
+  bundle.index.banks = { [12] = { id = 12, symbol = "BANK_TEST" } }
   bundle.index.sequenceBySymbol = sequenceBySymbol
   bundle.index.bankBySymbol = { BANK_TEST = 12 }
   bundle.sequences = sequences

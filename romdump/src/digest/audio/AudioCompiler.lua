@@ -319,7 +319,6 @@ local function _compile(romFs, sha1hex, hashLua)
       indexSequences[id] = {
         id = id,
         symbol = sequence.symbol,
-        file = AudioCache.sequencePath(id),
         bankId = record.bankId,
         playerId = record.playerId,
       }
@@ -337,7 +336,6 @@ local function _compile(romFs, sha1hex, hashLua)
       indexBanks[id] = {
         id = id,
         symbol = bank.symbol,
-        file = AudioCache.bankPath(id),
       }
       if bank.symbol ~= nil then
         bankBySymbol[bank.symbol] = id

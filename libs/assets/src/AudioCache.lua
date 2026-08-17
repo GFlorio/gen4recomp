@@ -60,8 +60,10 @@ end
 -- True only if the marker is exact and the authoritative cross-file walk
 -- (AudioCacheValidator) finds no problem: the index schema and every
 -- runtime-required section (sequences, banks, players, both symbol maps),
--- every indexed sequence/bank asset with its validator passing and its
--- identity agreeing with the index, sequence bank-id and player-id
+-- player-record validity (supported id range, integer U16 channel mask,
+-- positive slot count for used players), index records carrying no stored
+-- payload path, every indexed sequence/bank asset with its validator passing
+-- and its identity agreeing with the index, sequence bank-id and player-id
 -- resolution, bidirectional symbol-map consistency, and every
 -- bank-referenced sample's metadata (schema, address-matching key) and PCM
 -- payload. The validator requires this module for its paths, so it is loaded

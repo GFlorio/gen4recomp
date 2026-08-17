@@ -154,12 +154,15 @@ function AudioFixture.bundle()
     index = {
       schema = AudioCache.INDEX_SCHEMA,
       version = "heartgold",
+      -- Sequence/bank index records deliberately carry no stored payload path:
+      -- every path derives from the numeric id (AudioCache.sequencePath/bankPath),
+      -- so a redundant `file` field is malformed index data.
       sequences = {
-        [0] = { id = 0, symbol = "SEQ_TEST_A", file = AudioCache.sequencePath(0), bankId = 12, playerId = 1 },
-        [37] = { id = 37, symbol = "SEQ_TEST_B", file = AudioCache.sequencePath(37), bankId = 12, playerId = 1 },
+        [0] = { id = 0, symbol = "SEQ_TEST_A", bankId = 12, playerId = 1 },
+        [37] = { id = 37, symbol = "SEQ_TEST_B", bankId = 12, playerId = 1 },
       },
       banks = {
-        [12] = { id = 12, symbol = "BANK_TEST", file = AudioCache.bankPath(12) },
+        [12] = { id = 12, symbol = "BANK_TEST" },
       },
       players = {
         [1] = { id = 1, maxSequences = 16, channelMask = 0xFFFF },

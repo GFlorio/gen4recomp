@@ -6,7 +6,6 @@
 -- composition injects.
 
 local Assert = require("tests.support.Assert")
-local AudioCache = require("libs.assets.src.AudioCache")
 local AudioFixture = require("tests.support.AudioFixture")
 local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
@@ -49,7 +48,6 @@ local function newCryPlayer()
     indexSequences[id] = {
       id = id,
       symbol = sequence.symbol,
-      file = AudioCache.sequencePath(id),
       bankId = sequence.bankId,
       playerId = sequence.player.id,
     }

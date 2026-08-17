@@ -62,15 +62,21 @@ local function walkVoices(instruments, visit)
       if not Validate.isArray(instrument.ranges) or #instrument.ranges == 0 then
         return false
       end
+      -- The SDK split-key walk drops leaves with a smaller-low split key, so
+      -- compiler output is an ordered, non-overlapping partition: every
+      -- range's lowKey must be strictly above the previous range's highKey.
+      local previousHigh = nil
       for _, range in ipairs(instrument.ranges) do
         if
           type(range) ~= "table"
           or not isKey(range.lowKey)
           or not isKey(range.highKey)
           or range.lowKey > range.highKey
+          or (previousHigh ~= nil and range.lowKey <= previousHigh)
         then
           return false
         end
+        previousHigh = range.highKey
         if type(range.voice) ~= "table" or not visit(instrument, range.voice) then
           return false
         end

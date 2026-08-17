@@ -236,4 +236,79 @@ function T.sample_payload_with_wrong_byte_count_is_not_ready()
   Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "payload byte count must match the metadata frames")
 end
 
+-- A compiled sequence can only reference a player the runtime can address:
+-- the engine owns a fixed 16-player table (NNS SND_PLAYER_COUNT), so a player
+-- record keyed at or beyond that bound is beyond the supported domain even
+-- when no sequence references it.
+function T.player_id_outside_the_supported_range_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.players[16] = { id = 16, maxSequences = 16, channelMask = 0xFFFF }
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "player ids are 0..15")
+end
+
+-- A used player (referenced by a compiled sequence) must declare at least one
+-- playable slot: zero or negative maxSequences means the runtime cannot
+-- schedule the sequence's player at all.
+function T.used_player_with_nonpositive_max_sequences_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.players[1].maxSequences = 0
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "a used player needs a positive maxSequences")
+
+  bundle = AudioFixture.bundle()
+  bundle.index.players[1].maxSequences = -1
+  cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "a used player needs a positive maxSequences")
+end
+
+function T.used_player_with_malformed_channel_mask_is_not_ready()
+  for _, mask in ipairs({ 0x10000, -1, 1.5, "wide" }) do
+    local bundle = AudioFixture.bundle()
+    bundle.index.players[1].channelMask = mask
+    local cache = AudioFixture.readyCache(bundle)
+    Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "channelMask is an integer U16")
+  end
+end
+
+-- Only used players must declare a positive slot count: an unused slot may
+-- genuinely have no playable sequences (the compiler still emits every INFO
+-- slot), so the positivity requirement stays scoped to referenced players.
+function T.unused_player_with_zero_max_sequences_stays_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.players[2] = { id = 2, maxSequences = 0, channelMask = 0 }
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isTrue(AudioCache.isReady(cache, bundle.marker), "unused players are not required positive")
+end
+
+-- The index contract stores no payload path on sequence/bank records: every
+-- path derives from the numeric id (AudioCache.sequencePath/bankPath), so a
+-- stale or foreign `file` field is malformed index data, never tolerated.
+function T.sequence_index_record_with_a_redundant_file_field_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.sequences[0].file = AudioCache.sequencePath(0)
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "index records carry no stored payload path")
+end
+
+function T.bank_index_record_with_a_redundant_file_field_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.index.banks[12].file = AudioCache.bankPath(12)
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "index records carry no stored payload path")
+end
+
+-- A bank with out-of-order key_split ranges fails its leaf validator; the
+-- walk converts that structured raise into a readiness problem, so isReady
+-- reports the malformed instrument shape without ever raising.
+function T.bank_with_out_of_order_key_split_ranges_is_not_ready()
+  local bundle = AudioFixture.bundle()
+  bundle.banks[12].instruments[1].ranges = {
+    { lowKey = 60, highKey = 127, voice = AudioFixture.squareVoice() },
+    { lowKey = 0, highKey = 59, voice = AudioFixture.sampleVoice(AudioFixture.key(1)) },
+  }
+  local cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "key_split ranges must ascend")
+end
+
 return { tests = T }

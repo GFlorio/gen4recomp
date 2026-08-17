@@ -6,11 +6,14 @@
 -- cache is valid or a problem message otherwise, never raises (the leaf
 -- validators' structured errors are converted into problems). It verifies
 -- every runtime-required index section -- sequences, banks, players, and both
--- symbol maps -- including player-entry validity, sequence player/bank
--- resolution, index/asset identity agreement, and bidirectional symbol-map
--- consistency, but never filesystem orphans. The completion marker is the
--- caller's business (isReady checks it first; the writer writes it last).
--- Pure domain module.
+-- symbol maps -- including player-record fields (supported id range, the
+-- integer U16 channel mask, and a positive slot count for every player a
+-- sequence references), index records carrying no stored payload path (all
+-- paths derive from the numeric id), sequence player/bank resolution,
+-- index/asset identity agreement, and bidirectional symbol-map consistency,
+-- but never filesystem orphans. The completion marker is the caller's
+-- business (isReady checks it first; the writer writes it last). Pure domain
+-- module.
 
 local AudioCache = require("libs.assets.src.AudioCache")
 local AudioSequence = require("libs.assets.src.AudioSequence")
@@ -18,6 +21,11 @@ local AudioBank = require("libs.assets.src.AudioBank")
 local AudioSample = require("libs.assets.src.AudioSample")
 
 local AudioCacheValidator = {}
+
+-- The runtime player table is a fixed 0..NNS SND_PLAYER_COUNT-1 slot array:
+-- a player record at or beyond that bound is an id the engine can never
+-- address, even when no compiled sequence references it.
+local SND_PLAYER_COUNT = 16
 
 -- Runs a leaf validator that raises on malformed assets, reporting failure as
 -- a problem instead of propagating.
@@ -30,6 +38,14 @@ end
 
 local function isIndexId(id)
   return type(id) == "number" and id >= 0 and id % 1 == 0
+end
+
+local function isU16(value)
+  return type(value) == "number" and value % 1 == 0 and value >= 0 and value <= 0xFFFF
+end
+
+local function isPositiveInteger(value)
+  return type(value) == "number" and value % 1 == 0 and value >= 1
 end
 
 -- Every index entry of `section` is a self-identifying table under its own
@@ -84,9 +100,16 @@ function AudioCacheValidator.validate(cacheFs)
   then
     return "index sections are missing"
   end
+  local usedPlayers = {}
   for id, entry in pairs(index.sequences) do
     if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
       return "sequence index entry is malformed"
+    end
+    -- Index records store no payload path: every path derives from the
+    -- numeric id (AudioCache.sequencePath), so a redundant `file` field is
+    -- malformed index data, never tolerated.
+    if entry.file ~= nil then
+      return "sequence index entry carries a stored payload path"
     end
     if type(entry.bankId) ~= "number" or index.banks[entry.bankId] == nil then
       return "sequence bank id does not resolve"
@@ -94,6 +117,7 @@ function AudioCacheValidator.validate(cacheFs)
     if index.players[entry.playerId] == nil then
       return "sequence player id does not resolve"
     end
+    usedPlayers[entry.playerId] = true
     local sequence = cacheFs:loadLua(AudioCache.sequencePath(id))
     if type(sequence) ~= "table" then
       return "sequence asset is missing or unreadable"
@@ -116,6 +140,18 @@ function AudioCacheValidator.validate(cacheFs)
   if problem ~= nil then
     return problem
   end
+  for id, entry in pairs(index.players) do
+    -- sectionProblem proved id is a nonnegative integer and entry.id == id.
+    if id >= SND_PLAYER_COUNT then
+      return "player id is outside the supported range"
+    end
+    if not isU16(entry.channelMask) then
+      return "player channel mask is not an unsigned 16-bit integer"
+    end
+    if usedPlayers[id] ~= nil and not isPositiveInteger(entry.maxSequences) then
+      return "a used player must declare a positive sequence slot count"
+    end
+  end
   problem = symbolMapProblem(index.sequences, index.sequenceBySymbol, "sequence")
   if problem ~= nil then
     return problem
@@ -127,6 +163,10 @@ function AudioCacheValidator.validate(cacheFs)
   for id, entry in pairs(index.banks) do
     if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
       return "bank index entry is malformed"
+    end
+    -- Bank index records carry no payload path either (AudioCache.bankPath).
+    if entry.file ~= nil then
+      return "bank index entry carries a stored payload path"
     end
     local bank = cacheFs:loadLua(AudioCache.bankPath(id))
     if type(bank) ~= "table" then

@@ -293,4 +293,49 @@ function T.sample_keys_do_not_revalidate_voice_fields()
   )
 end
 
+-- key_split ranges are an ordered, non-overlapping partition of the MIDI
+-- domain: the compiler emits only monotonic ranges (the SDK's split-key walk
+-- drops leaves with a smaller split key, so every surviving range starts
+-- where the previous ended + 1). A reversed or descending list is malformed
+-- even though each individual range is well formed.
+function T.key_split_ranges_must_be_strictly_ascending()
+  local bank = AudioFixture.bank(12, "BANK_TEST")
+  bank.instruments[1].ranges = {
+    { lowKey = 60, highKey = 127, voice = AudioFixture.squareVoice() },
+    { lowKey = 0, highKey = 59, voice = AudioFixture.sampleVoice(AudioFixture.key(1)) },
+  }
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
+  bank.instruments[1].ranges = {
+    { lowKey = 0, highKey = 59, voice = AudioFixture.sampleVoice(AudioFixture.key(1)) },
+    { lowKey = 60, highKey = 127, voice = AudioFixture.squareVoice() },
+    { lowKey = 30, highKey = 50, voice = AudioFixture.noiseVoice() },
+  }
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
+end
+
+-- Consecutive ranges must be strictly disjoint: an overlap -- even one that
+-- ends exactly where the next begins -- would make the SDK leaf selection
+-- ambiguous, so it is malformed asset data.
+function T.key_split_ranges_must_not_overlap()
+  local bank = AudioFixture.bank(12, "BANK_TEST")
+  bank.instruments[1].ranges = {
+    { lowKey = 0, highKey = 59, voice = AudioFixture.sampleVoice(AudioFixture.key(1)) },
+    { lowKey = 50, highKey = 80, voice = AudioFixture.squareVoice() },
+  }
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
+  bank.instruments[1].ranges = {
+    { lowKey = 0, highKey = 59, voice = AudioFixture.sampleVoice(AudioFixture.key(1)) },
+    { lowKey = 59, highKey = 80, voice = AudioFixture.squareVoice() },
+  }
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
+end
+
 return { tests = T }

@@ -210,21 +210,18 @@ function T.compiles_the_archive_into_a_complete_bundle()
   Assert.deepEqual(bundle.index.sequences[0], {
     id = 0,
     symbol = "SEQ_0",
-    file = AudioCache.sequencePath(0),
     bankId = 1,
     playerId = 0,
   })
   Assert.deepEqual(bundle.index.sequences[2], {
     id = 2,
     symbol = "SEQ_2",
-    file = AudioCache.sequencePath(2),
     bankId = 0,
     playerId = 1,
   })
   Assert.deepEqual(bundle.index.banks[0], {
     id = 0,
     symbol = "BANK_0",
-    file = AudioCache.bankPath(0),
   })
   Assert.equal(bundle.index.players[0].maxSequences, 2)
   Assert.equal(bundle.index.players[0].channelMask, 0xC000)

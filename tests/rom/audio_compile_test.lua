@@ -264,7 +264,6 @@ function T.every_referenced_sequence_compiles()
         local entry = bundle.index.sequences[id]
         Assert.notNil(entry, "sequence " .. id .. " indexed")
         Assert.equal(entry.id, id, "sequence " .. id .. " index id")
-        Assert.equal(entry.file, AudioCache.sequencePath(id), "sequence " .. id .. " index file")
         Assert.equal(entry.bankId, record.bankId, "sequence " .. id .. " index bankId")
         Assert.equal(entry.playerId, record.playerId, "sequence " .. id .. " index playerId")
         local symbol = ctx.sdat.symbols.sequences[id]
@@ -410,7 +409,6 @@ function T.every_referenced_bank_resolves()
         local entry = bundle.index.banks[id]
         Assert.notNil(entry, "bank " .. id .. " indexed")
         Assert.equal(entry.id, id, "bank " .. id .. " index id")
-        Assert.equal(entry.file, AudioCache.bankPath(id), "bank " .. id .. " index file")
         local symbol = ctx.sdat.symbols.banks[id]
         Assert.equal(entry.symbol, symbol, "bank " .. id .. " index symbol")
         Assert.equal(bundle.index.bankBySymbol[symbol], id, "bank " .. id .. " symbol resolves")
