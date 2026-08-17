@@ -108,13 +108,15 @@ local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 -- depth domain can represent (see DS_DEPTH_MAX in map.glsl).
 local DS_DEPTH_MAX = 0xFFFFFF
 
--- Rear-plane entry for the polygon-ID/depth/translucent-attribute target: the
--- rear-plane sentinel (MapRenderer.REAR_PLANE_ID) at the farthest quantized
--- depth (DS_DEPTH_MAX), not translucent (blue channel 0). Clearing depth
--- to the maximum makes background neighbours read as farther than any real
--- geometry -- that is what outlines silhouettes against the background
+-- Rear-plane entry for the polygon-ID/depth/translucent-attribute target: HGSS's
+-- real clear polygon ID (MapRenderer.CLEAR_POLYGON_ID, 63) at the farthest
+-- quantized depth (DS_DEPTH_MAX), not translucent (blue channel 0). Clearing
+-- depth to the maximum makes background neighbours read as farther than any
+-- real geometry -- that is what outlines silhouettes against the background
 -- (GBATEK: at the screen borders edges are resolved against the rear plane's
--- polygon_id).
+-- polygon_id). Normalized by the same CLEAR_POLYGON_ID domain maximum every
+-- real draw uses (63/63 == 1.0), so a real id-63 polygon is indistinguishable
+-- from the background, exactly as GBATEK specifies.
 local ID_CLEAR = { 1, DS_DEPTH_MAX, 0, 1 }
 
 -- DS framebuffer height. Edge marking is one hardware pixel wide, so the
@@ -123,15 +125,19 @@ local ID_CLEAR = { 1, DS_DEPTH_MAX, 0, 1 }
 local DS_NATIVE_HEIGHT = 192
 local MAX_EDGE_RADIUS = 8
 
--- Polygon-ID domain (GBATEK POLYGON_ATTR polygon ID, 6-bit 0..63) and the
--- sentinel stamped into the ID/depth target by the wireframe pass (255, the
--- rear plane). The shader normalizes by the rear-plane value (id/255;
--- map.glsl documents it). Translucent fragments stamp their own real polygon
--- ID -- never a sentinel carved out of this domain -- and are told apart from
--- opaque fragments by the target's separate translucent-attribute channel
--- (see u_translucentAttribute and the edge predicate in map.glsl).
-MapRenderer.MAX_POLYGON_ID = 63
-MapRenderer.REAR_PLANE_ID = 255
+-- Polygon-ID domain (GBATEK POLYGON_ATTR polygon ID, 6-bit 0..63). HGSS
+-- initializes the rear/clear plane's polygon ID to 0x3F (63) -- a real,
+-- reachable id, not a sentinel outside the domain. Every draw (opaque,
+-- cutout, translucent, and wireframe alike) sends its own real polygon ID,
+-- normalized by this same domain maximum (id/63; map.glsl and edge.glsl
+-- document the encoding/decoding). Translucent fragments are told apart from
+-- opaque/wireframe fragments by the target's separate translucent-attribute
+-- channel (see u_translucentAttribute and the edge predicate in map.glsl),
+-- never by carving a sentinel id out of the 0..63 domain. PolygonState
+-- already validates that source polygon ids are integers in 0..63, so this
+-- module does not duplicate that validation with its own MAX_POLYGON_ID
+-- constant.
+MapRenderer.CLEAR_POLYGON_ID = 63
 
 ---@param opts { graphics?: love.Graphics, clearColor?: number[], rasterScale?: number, readSource?: fun(path: string): string }?
 function MapRenderer.new(opts)
@@ -665,7 +671,7 @@ function MapRenderer:_drawMesh(
   shader:send("u_alphaCutoff", item.alphaCutoff)
   shader:send("u_polygonAlpha", item.polygonAlpha)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-  shader:send("u_polygonId", item.polygonId / MapRenderer.REAR_PLANE_ID)
+  shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
   -- The translucent-attribute flag is a separate logical field from
   -- the polygon ID -- translucent draws still send their own real ID above.
   shader:send("u_translucentAttribute", alphaClass == AlphaClassifier.TRANSLUCENT)
@@ -780,9 +786,9 @@ function MapRenderer:_drawWireframeMesh(
   shader:send("u_alphaCutoff", CUTOUT_EPSILON)
   shader:send("u_polygonAlpha", 1.0)
   shader:send("u_polygonMode", 0)
-  -- Wireframe polygons stamp the rear-plane sentinel, normalized by the id
-  -- domain exactly like every other id (255/255 == 1.0).
-  shader:send("u_polygonId", MapRenderer.REAR_PLANE_ID / MapRenderer.REAR_PLANE_ID)
+  -- Wireframe draws send their own real polygon id, normalized by the same
+  -- domain maximum as every other draw -- never an invented sentinel.
+  shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
   -- Wireframe counts as opaque for edge marking (GBATEK): never translucent.
   shader:send("u_translucentAttribute", false)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
@@ -903,9 +909,8 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
-    -- edge marking and stamp the rear-plane sentinel into the ID target --
-    -- 255/255 == 1.0, the same sentinel the wireframe draw body writes (see
-    -- _drawWireframeMesh), never the item's own polygon id.
+    -- edge marking and send the item's own real polygon id into the ID
+    -- target, normalized like every other draw (see _drawWireframeMesh).
     lg.setCanvas(sceneTargets)
     if #queue.wireframe > 0 then
       lg.setShader(self.shader)

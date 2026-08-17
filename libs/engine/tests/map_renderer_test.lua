@@ -13,6 +13,7 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 
 local T = {}
 
@@ -234,8 +235,8 @@ local function fakeGraphics(opts)
         error("injected draw failure")
       end
     end,
-    clear = function(sceneColor)
-      calls.clear[#calls.clear + 1] = sceneColor
+    clear = function(sceneColor, idClear)
+      calls.clear[#calls.clear + 1] = { sceneColor, idClear }
     end,
   }
 end
@@ -397,7 +398,7 @@ function T.draw_clears_the_scene_canvas_to_the_injected_color()
   local renderer = MapRenderer.new({ graphics = lg, clearColor = injected })
   local scene = emptySceneCamera()
   renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
-  Assert.equal(lg.calls.clear[1], injected, "scene canvas clears to the injected color")
+  Assert.equal(lg.calls.clear[1][1], injected, "scene canvas clears to the injected color")
 end
 
 function T.draw_without_an_injected_color_uses_a_renderer_default()
@@ -405,7 +406,7 @@ function T.draw_without_an_injected_color_uses_a_renderer_default()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
-  Assert.isTrue(lg.calls.clear[1] ~= nil, "scene canvas still clears when no color is injected")
+  Assert.isTrue(lg.calls.clear[1][1] ~= nil, "scene canvas still clears when no color is injected")
 end
 
 -- A draw failure must not leak the scene's state either: the wireframe item
@@ -437,6 +438,7 @@ function T.draw_failure_restores_exact_state_and_rethrows()
           alphaClass = "wireframe",
           cullMode = "none",
           lightMask = 0,
+          polygonId = 0,
           transform = identity,
           modelNormal = Matrix3.identity(),
           center = { 0, 0, 0 },
@@ -1116,13 +1118,59 @@ local function passItem(alphaClass, z, opts)
   }
 end
 
+-- HGSS initializes the clear/rear-plane polygon ID to the real, reachable DS
+-- polygon-id value 0x3F (63) -- it is not a value carved out of the 0..63
+-- domain (pokeheartgold: the field renderer's clear-buffer setup; GBATEK
+-- POLYGON_ATTR polygon ID is 6 bits wide, so 63 is the largest real id, not a
+-- sentinel outside it). MapRenderer must expose this as a named constant, not
+-- an invented out-of-domain value like the retired REAR_PLANE_ID (255).
+function T.clear_polygon_id_is_the_hgss_rear_plane_value()
+  Assert.equal(MapRenderer.CLEAR_POLYGON_ID, 63, "HGSS's real clear polygon id is 0x3F (63), a reachable DS id")
+end
+
+-- The root of the "invented 255 sentinel" bug: because opaque/cutout/
+-- translucent draws normalized their real polygon id by 255 while the
+-- clear/rear-plane entry stamped a fixed value representing 255 in that same
+-- domain, a real polygon legitimately using id 63 (the same id as the clear
+-- plane) encoded to a completely different id/depth-target value than the
+-- clear background -- so it always looked like a different polygon to the
+-- edge predicate and spuriously outlined against empty space. Once both are
+-- normalized by the true domain maximum (CLEAR_POLYGON_ID == 63), a real
+-- polygon 63 and the clear background must encode to exactly the same value,
+-- so the edge predicate's "different id" check correctly sees them as the
+-- same polygon.
+function T.a_real_polygon_63_encodes_the_same_id_value_as_the_clear_background()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local item = passItem("opaque", 0)
+  item.polygonId = 63
+
+  renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local sentPolygonId
+  for _, send in ipairs(lg.shaders[1].sends) do
+    if send.name == "u_polygonId" then
+      sentPolygonId = send.values[1]
+    end
+  end
+  local clearIdChannel = lg.calls.clear[1][2][1]
+  Assert.equal(
+    sentPolygonId,
+    clearIdChannel,
+    "a real polygon using HGSS's real clear id (63) must encode to exactly the same id/depth-target value "
+      .. "as the clear background, or it spuriously edges against empty space"
+  )
+  renderer:release()
+end
+
 -- The opaque polygon-ID field survives translucent drawing rather
 -- than being replaced by an invented sentinel (melonDS: the ID/depth
 -- attribute the edge pass reads is not one value overloaded to also mean
 -- "translucent"). A translucent item's own polygon ID is a distinct,
--- independent attribute -- it must send exactly the same
--- polygonId/REAR_PLANE_ID normalization every opaque/cutout item sends, never
--- a value carved out of the polygon-ID domain to signal translucency.
+-- independent attribute -- it must send exactly the same normalization every
+-- opaque/cutout item sends, by the real domain maximum (63), never a value
+-- carved out of the polygon-ID domain to signal translucency.
 function T.translucent_draws_send_their_own_polygon_id_not_an_invented_sentinel()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -1140,7 +1188,7 @@ function T.translucent_draws_send_their_own_polygon_id_not_an_invented_sentinel(
   end
   Assert.equal(
     sent,
-    item.polygonId / MapRenderer.REAR_PLANE_ID,
+    item.polygonId / 63,
     "translucent items send their real polygon id, never a sentinel outside the item's own attributes"
   )
   renderer:release()
@@ -1188,7 +1236,7 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
     sent[send.name] = send.values[1]
   end
   Assert.equal(sent.u_polygonMode, 0, "the actor's modulation material sends the modulation combiner id")
-  Assert.equal(sent.u_polygonId, 0 / MapRenderer.REAR_PLANE_ID, "the actor's polygon id 0 rides the real id channel")
+  Assert.equal(sent.u_polygonId, 0 / 63, "the actor's polygon id 0 rides the real id channel")
   Assert.equal(sent.u_alphaMode, 1, "the actor's cutout class sends the cutout alpha-mode id")
   Assert.deepEqual(sent.u_lightMask, MapRenderer.lightMaskUniforms(1), "light mask 1 decodes to bit 0 only")
   Assert.isFalse(sent.u_translucentAttribute, "an opaque/cutout actor draw is not the translucent identity")
@@ -1600,6 +1648,55 @@ function T.a_failed_wireframe_straddle_draw_still_releases_the_scratch()
 
   Assert.equal(#fake.meshes, 1)
   Assert.isTrue(fake.meshes[1].released, "a failed wireframe straddle draw releases its scratch")
+end
+
+-- ---- wireframe polygon-id/opaque-classification semantics ----
+--
+-- The DS draws polygon alpha zero (wireframe) as ordinary opaque geometry
+-- with its own real POLYGON_ATTR polygon id -- there is no separate
+-- "wireframe id" register on real hardware. The renderer must send that same
+-- real id, never a value invented to mean "this is a wireframe/rear-plane
+-- draw" (see MapRenderer.CLEAR_POLYGON_ID for the one real DS sentinel value,
+-- which is a legitimate polygon id, not a wireframe-specific one).
+function T.wireframe_draw_sends_its_own_real_polygon_id_not_an_invented_sentinel()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local item = passItem("wireframe", 0)
+  item.polygonId = 37
+
+  renderer:_drawWireframe(item, Matrix4.identity(), AlphaClassifier.WIREFRAME)
+
+  local sent
+  for _, send in ipairs(lg.shaders[1].sends) do
+    if send.name == "u_polygonId" then
+      sent = send.values[1]
+    end
+  end
+  Assert.equal(sent, item.polygonId / 63, "a wireframe draw sends its own real polygon id, never a sentinel")
+  renderer:release()
+end
+
+-- GBATEK: "Edge Marking is applied ONLY to opaque polygons (including
+-- wire-frames)" -- wireframe draws must be classified as opaque for both
+-- uniforms the edge/fog final pass keys on: the alpha-mode id (never the
+-- cutout/translucent branch) and the translucent-attribute flag (never
+-- true). This locks a contract the renderer already satisfies structurally
+-- (alphaModeId has no wireframe branch and _drawWireframeMesh hardcodes the
+-- flag false) so a later refactor cannot regress it silently.
+function T.wireframe_draw_is_opaque_classified_for_edge_marking()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local item = passItem("wireframe", 0)
+
+  renderer:_drawWireframe(item, Matrix4.identity(), AlphaClassifier.WIREFRAME)
+
+  local sent = {}
+  for _, send in ipairs(lg.shaders[1].sends) do
+    sent[send.name] = send.values[1]
+  end
+  Assert.equal(sent.u_alphaMode, 0, "a wireframe draw sends the opaque alpha-mode id")
+  Assert.isFalse(sent.u_translucentAttribute, "a wireframe draw is never the translucent identity")
+  renderer:release()
 end
 
 return { tests = T }

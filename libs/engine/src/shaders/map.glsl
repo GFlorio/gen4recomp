@@ -241,7 +241,7 @@ uniform int u_alphaMode;       // 0 opaque, 1 cutout, 2 translucent
 uniform float u_alphaCutoff;
 uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
-uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 255), sentinel 1.0
+uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 63), HGSS clear id 63 -> 1.0
 uniform bool u_translucentAttribute; // translucent identity, separate from polygon ID
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;

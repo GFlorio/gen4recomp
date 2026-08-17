@@ -1566,78 +1566,21 @@ function T.camera_far_plane_drives_the_normalized_depth_target(scope)
   Assert.near(longRangeSample[2], expectedDepth(4), 1, "matches dsWbufferDepth(1) at u_depthWMax=4")
 end
 
--- F: the edge pass's ID/depth target carries the rear-plane/wireframe
--- sentinel (255, outside the real 0-63 polygon-id domain -- see
--- MapRenderer.REAR_PLANE_ID) at every wireframe draw's own center, not only
--- at the background clear. A sentinel-valued center adjacent to a real,
--- differently-id'd, farther neighbor must still be recognized as "marked"
--- (different id, center in front) without ever indexing u_edgeColors[8]
--- with a sentinel-derived value (255/8 = 31, out of the table's 0-7 range):
--- the guard must return the unmodified scene color instead. This drives
--- edge.glsl directly (not through MapRenderer's full draw path) so the
--- neighbor/center ID and depth values are exact and independent of any
--- particular mesh/camera geometry.
-function T.edge_shader_never_indexes_the_color_table_for_a_sentinel_center(scope)
-  local edgeShader = scope:own(MapRenderer.new()).edgeShader
-
-  -- A 3x1 idTex: two real, differently-id'd, farther neighbors flank a
-  -- sentinel-id (255) center that is nearer than both -- exactly the
-  -- shape a wireframe draw adjacent to opaque geometry produces.
-  local idData = love.image.newImageData(3, 1, "rgba32f")
-  idData:setPixel(0, 0, 38 / 255, 1000, 0, 1)
-  idData:setPixel(1, 0, 255 / 255, 10, 0, 1)
-  idData:setPixel(2, 0, 51 / 255, 2000, 0, 1)
-  local idImage = scope:own(love.graphics.newImage(idData))
-  idImage:setFilter("nearest", "nearest")
-
-  -- The pre-edge scene color at the sentinel pixel: a value distinct from
-  -- every entry in u_edgeColors below, so an out-of-range table read
-  -- (rather than the required unmodified-scene guard) is distinguishable.
-  local sceneData = love.image.newImageData(3, 1)
-  sceneData:setPixel(0, 0, 0.2, 0.2, 0.2, 1)
-  sceneData:setPixel(1, 0, 100 / 255, 150 / 255, 200 / 255, 1)
-  sceneData:setPixel(2, 0, 0.2, 0.2, 0.2, 1)
-  local sceneImage = scope:own(love.graphics.newImage(sceneData))
-  sceneImage:setFilter("nearest", "nearest")
-
-  local edgeColors = {}
-  for i = 0, 7 do
-    edgeColors[i + 1] = { i / 10, i / 10, i / 10 }
-  end
-
-  local target = scope:own(love.graphics.newCanvas(3, 1))
-  love.graphics.setCanvas(target)
-  love.graphics.clear(0, 0, 0, 1)
-  love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.setShader(edgeShader)
-  edgeShader:send("u_idTex", idImage)
-  edgeShader:send("u_texelSize", { 1 / 3, 1 })
-  edgeShader:send("u_edgeRadius", 1)
-  edgeShader:send("u_edgeColors", unpack(edgeColors))
-  love.graphics.draw(sceneImage, 0, 0)
-  love.graphics.setShader()
-  love.graphics.setCanvas()
-
-  local out = target:newImageData()
-  local r, g, b = out:getPixel(1, 0)
-  Assert.near(r, 100 / 255, 1 / 255, "sentinel center must render the unmodified scene color's red channel")
-  Assert.near(g, 150 / 255, 1 / 255, "sentinel center must render the unmodified scene color's green channel")
-  Assert.near(b, 200 / 255, 1 / 255, "sentinel center must render the unmodified scene color's blue channel")
-end
-
--- Shared 3x1 fixture for the four edge-predicate anchors below: pixel 1 is
+-- Shared 3x1 fixture for the edge-predicate anchors below: pixel 1 is
 -- always the center under test, pixels 0/2 its left/right neighbors
 -- (u_edgeRadius=1 samples only the immediate neighbor). Drives edge.glsl
--- directly, the same idiom
--- edge_shader_never_indexes_the_color_table_for_a_sentinel_center uses, so
--- the id/depth/translucent-flag inputs are exact and independent of any
--- particular mesh/camera geometry. Returns the center pixel's rendered RGB.
+-- directly (not through MapRenderer's full draw path) so the neighbor/center
+-- ID and depth values are exact and independent of any particular
+-- mesh/camera geometry. Ids are encoded by the real domain maximum (63,
+-- MapRenderer.CLEAR_POLYGON_ID), the same normalization every real
+-- MapRenderer draw applies -- not the retired 255-wide sentinel domain.
+-- Returns the center pixel's rendered RGB.
 local function runEdgePass(scope, pixels, edgeColors)
   local edgeShader = scope:own(MapRenderer.new()).edgeShader
 
   local idData = love.image.newImageData(3, 1, "rgba32f")
   for i, p in ipairs(pixels) do
-    idData:setPixel(i - 1, 0, p.id / 255, p.depth, p.translucent and 1 or 0, 1)
+    idData:setPixel(i - 1, 0, p.id / 63, p.depth, p.translucent and 1 or 0, 1)
   end
   local idImage = scope:own(love.graphics.newImage(idData))
   idImage:setFilter("nearest", "nearest")
@@ -1669,15 +1612,40 @@ local function runEdgePass(scope, pixels, edgeColors)
   return { out:getPixel(1, 0) }
 end
 
--- Eight distinct, non-uniform edge colors (the same fixture the sentinel
--- test uses): entry i is (i/10, i/10, i/10), so an edge render is
--- distinguishable from every other entry and from the scene color.
+-- Eight distinct, non-uniform edge colors, shared by every anchor below:
+-- entry i is (i/10, i/10, i/10), so an edge render is distinguishable from
+-- every other entry and from the scene color.
 local function eightEdgeColors()
   local colors = {}
   for i = 0, 7 do
     colors[i + 1] = { i / 10, i / 10, i / 10 }
   end
   return colors
+end
+
+-- D.6: the domain maximum, 63 (HGSS's real clear/rear-plane id --
+-- MapRenderer.CLEAR_POLYGON_ID) is a genuine, reachable DS polygon id
+-- (GBATEK POLYGON_ATTR polygon id is 6 bits wide), not an out-of-domain
+-- sentinel to special-case. A center legitimately carrying id 63 must
+-- participate in ordinary edge marking exactly like any other id --
+-- correctly indexing u_edgeColors[63/8] = entry 7 -- never rejected as
+-- invalid data merely because it equals the domain's largest value. This
+-- replaces the retired REAR_PLANE_ID (255) sentinel-guard fixture: that
+-- out-of-domain value no longer occurs anywhere in this domain, so a guard
+-- that special-cased it would now incorrectly reject a real polygon 63
+-- (see map_renderer_test's clear_polygon_id_is_the_hgss_rear_plane_value and
+-- a_real_polygon_63_encodes_the_same_id_value_as_the_clear_background for the
+-- companion unit-layer proof that a real polygon 63 and the clear background
+-- encode to the identical id/depth-target value).
+function T.edge_shader_marks_a_real_polygon_id_63_like_any_other_id(scope)
+  local out = runEdgePass(scope, {
+    { id = 10, depth = 1000 },
+    { id = 63, depth = 500 },
+    { id = 63, depth = 500 },
+  }, eightEdgeColors())
+  Assert.near(out[1], 0.7, 1 / 255, "id 63 marks and indexes u_edgeColors[63/8] (entry 7, 0.7,0.7,0.7)")
+  Assert.near(out[2], 0.7, 1 / 255)
+  Assert.near(out[3], 0.7, 1 / 255)
 end
 
 -- Edge behavior anchor 1: a real, differently-id'd neighbor strictly
