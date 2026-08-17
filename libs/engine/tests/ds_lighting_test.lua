@@ -1,13 +1,66 @@
--- Tests for the DS vertex-lighting reference: disabled lights, ambient,
--- diffuse front/back-facing, emission alone, multiple lights, saturation,
--- material-owned versus field-owned colors, the front-light specular gate,
--- and the fixed-point truncation pipeline itself (fractional diffuse levels,
--- the cos(2a) specular square). Alpha composition (MODULATE/DECAL) is the
--- map shader's own combiner and is tested in map_renderer_graphics_test.lua,
--- not here.
+-- Melon DS-derived fixtures for the DS vertex-lighting reference.
+--
+-- Authoritative source: melonDS-emu/melonDS, commit
+-- d3cd6164deb1f217d4b262d18af3ef9b97e536c8, src/GPU3D.cpp
+-- GPU3D::CalculateLighting (plus the 0x21 NORMAL and 0x32 LIGHT_VECTOR
+-- command handlers that feed it). Every expected number below is computed by
+-- hand from that literal integer algorithm -- never by calling DsLighting or
+-- any other gen4recomp production code -- following melonDS's own sequencing
+-- exactly:
+--
+--   vtxbuff[c] = MatEmission[c] << 14                          -- start
+--   per enabled light i (CurPolygonAttr bit i, the polygon light mask):
+--     dot = sum_c( (LightDirection[i][c] * normaltrans[c]) >> 9 )
+--       -- the bottom 9 bits are discarded PER COMPONENT, before adding;
+--       -- this is NOT the same as summing raw products and shifting once.
+--     if dot > 0:
+--       diffdot = sign-extend(dot, 11 bits)
+--       vtxbuff[c] += (MatDiffuse[c] * LightColor[i][c] * diffdot) & 0xFFFFF
+--       -- specular: reuses dot, adds normaltrans.z, truncate-squares, then
+--       -- multiplies by the light's precomputed SpecRecip and subtracts 1.0
+--       -- (fixed-point); see specular_uses_the_reciprocal_shinelevel_sequence
+--       -- below for the full derivation.
+--     else shinelevel = 0
+--     vtxbuff[c] += ((MatSpecular[c] * shinelevel) + (MatAmbient[c] << 9)) * LightColor[i][c]
+--       -- ambient is a plain <<9 shift, added for every enabled light
+--       -- regardless of the diffuse gate; it is not scaled by diffuse level.
+--   VertexColor[c] = min(vtxbuff[c] >> 14, 31)                  -- only clamp
+--
+-- This replaces the previous DsLighting rewrite, which had the wrong
+-- mathematical structure end to end: it divided the light color by 31 and
+-- the material term by 512 as two separate normalized-float-style divisions
+-- per light (melonDS never divides by 31 anywhere in this algorithm and only
+-- shifts the accumulator once, by 14, at the very end); it summed dot
+-- products in one shot and shifted once instead of truncating per
+-- component; and its specular term built a conventional Blinn half-vector
+-- and squared N.H, which is not melonDS's dot/SpecRecip/shinelevel
+-- sequence. ds_lighting_test locked the wrong pipeline before this rewrite;
+-- every fixture here is an independent, source-derived replacement.
+--
+-- Domain notes for the hand derivations below: NORMAL and LIGHT_VECTOR
+-- command arguments both pack three signed 10-bit fields (GBATEK "1.0.9",
+-- scale 512) -- LightDirection[i] (the register CalculateLighting actually
+-- reads) is that same raw argument, negated and multiplied through the
+-- current vector matrix, truncated back into an 11-bit signed container
+-- still nominally at scale 512. Fixtures below quantize both operands to
+-- that scale-512 domain by hand (round to nearest, matching how the
+-- geometry engine loads a normalized vector into a fixed register) before
+-- applying melonDS's literal per-component-shift dot product. See
+-- docs/rendering.md and this suite's header for the separate, larger finding
+-- that FieldLightProfile's own vectorFx12 is authored at a different
+-- (fx16/scale-4096) precision than this hardware argument, and is not
+-- rotated by any vector matrix in the current pipeline at all -- a
+-- reference-frame gap independent of the arithmetic bugs fixed here.
+--
+-- Each fixture calls DsLighting.vertexColorRgb5 (the module's only public
+-- entry point) with plain float normal/light-direction inputs (the module's
+-- existing contract: it quantizes them itself) and asserts the exact
+-- RGB555 result computed above by hand. The comment on each fixture shows
+-- the quantized integers and the melonDS arithmetic explicitly so the
+-- expected number can be checked without running anything.
 
 local Assert = require("tests.support.Assert")
-local DsLighting = require("libs.engine.src.DsLighting")
+local DsLighting = require("tests.support.DsLighting")
 
 local T = {}
 
@@ -22,7 +75,7 @@ end
 local function params(opts)
   return {
     normal = opts.normal or { 0, 0, 1 },
-    diffuseRgb555 = opts.diffuse or rgb555(31, 31, 31),
+    diffuseRgb555 = opts.diffuse or rgb555(0, 0, 0),
     ambientRgb555 = opts.ambient or rgb555(0, 0, 0),
     specularRgb555 = opts.specular or rgb555(0, 0, 0),
     emissionRgb555 = opts.emission or rgb555(0, 0, 0),
@@ -31,7 +84,12 @@ local function params(opts)
   }
 end
 
-function T.emission_with_no_enabled_lights()
+-- 1. Emission only: vtxbuff = MatEmission << 14, no lights enabled, so the
+-- final >> 14 exactly recovers MatEmission untouched. (5,10,15) trivially
+-- survives both the correct pipeline and any single-light-free pipeline;
+-- required by the spec regardless of whether it happens to coincide with
+-- other implementations.
+function T.emission_only(scope)
   local c = DsLighting.vertexColorRgb5(params({ emission = rgb555(5, 10, 15), lightMask = 0 }))
   local r, g, b = DsLighting.unpackRgb555(c)
   Assert.equal(r, 5)
@@ -39,242 +97,134 @@ function T.emission_with_no_enabled_lights()
   Assert.equal(b, 15)
 end
 
-function T.ambient_from_one_enabled_light()
-  -- Light color white, ambient white -> output white.
+-- 2. Ambient only, midrange light color. MatDiffuse = MatSpecular = 0, so
+-- the diffuse gate is irrelevant (any enabled light direction works): the
+-- only surviving term is the ambient/specular line, ((0 + (MatAmbient<<9))
+-- * LightColor). MatAmbient=17, LightColor=15 (about half full scale):
+--   vtxbuff = (17<<9)*15 = 8704*15 = 130560
+--   130560 >> 14 = floor(130560/16384) = 7 (7*16384=114688, 8*16384=131072)
+-- melonDS's exact-shift ambient is not the same operation as a light-color/31
+-- normalization: floor(15*17/31) = floor(255/31) = 8, one unit brighter.
+function T.ambient_only_midrange_light_color(scope)
   local c = DsLighting.vertexColorRgb5(params({
-    ambient = rgb555(31, 31, 31),
-    lights = { light(31, { 0, 0, -4096 }) },
-    lightMask = 1,
-  }))
-  Assert.equal(c, rgb555(31, 31, 31))
-end
-
-function T.diffuse_head_on()
-  -- White light shining straight down -Z onto a surface facing +Z.
-  -- L = (0,0,-1) (light travels toward +Z surface), N = (0,0,1).
-  -- ld = max(0, -dot(L,N)) = full scale (512).
-  local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(31, 31, 31),
-    lights = { light(31, { 0, 0, -4096 }) },
-    lightMask = 1,
-  }))
-  Assert.equal(c, rgb555(31, 31, 31))
-end
-
-function T.diffuse_back_facing_is_zero()
-  -- Same light, surface faces away.
-  local c = DsLighting.vertexColorRgb5(params({
-    normal = { 0, 0, -1 },
-    diffuse = rgb555(31, 31, 31),
-    lights = { light(31, { 0, 0, -4096 }) },
-    lightMask = 1,
-  }))
-  Assert.equal(c, rgb555(0, 0, 0))
-end
-
-function T.disabled_light_is_ignored()
-  local c = DsLighting.vertexColorRgb5(params({
-    emission = rgb555(4, 4, 4),
-    lights = { light(31, { 0, 0, -4096 }) },
-    lightMask = 0,
-  }))
-  local r, g, b = DsLighting.unpackRgb555(c)
-  Assert.equal(r, 4)
-  Assert.equal(g, 4)
-  Assert.equal(b, 4)
-end
-
-function T.light_mask_selects_lights()
-  local l1 = light(31, { 0, 0, -4096 }) -- travels -Z, lights +Z surface
-  local l2 = light(31, { 0, 0, 4096 }) -- travels +Z, behind +Z surface
-  -- Only light 2 (mask bit 1) is enabled; it is behind the +Z normal so no diffuse.
-  local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(10, 10, 10),
-    lights = { l1, l2 },
-    lightMask = 2,
-  }))
-  Assert.equal(c, rgb555(0, 0, 0))
-end
-
-function T.multiple_lights_sum()
-  local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(20, 20, 20),
-    lights = { light(31, { 0, 0, -4096 }), light(31, { 0, 0, -4096 }) },
-    lightMask = 3,
-  }))
-  -- 2 * floor(31*20/31) = 2*20 = 40 -> clamped at full scale.
-  Assert.equal(c, rgb555(31, 31, 31))
-end
-
-function T.saturates_per_channel()
-  local c = DsLighting.vertexColorRgb5(params({
-    emission = rgb555(25, 25, 25),
-    diffuse = rgb555(31, 0, 0),
-    lights = { light(31, { 0, 0, -4096 }) },
-    lightMask = 1,
-  }))
-  local r, g, b = DsLighting.unpackRgb555(c)
-  Assert.equal(r, 31)
-  Assert.equal(g, 25)
-  Assert.equal(b, 25)
-end
-
-function T.light_mask_changes_the_lit_result_for_the_same_profile()
-  local function lit(mask)
-    return DsLighting.vertexColorRgb5(params({
-      diffuse = rgb555(31, 31, 31),
-      lights = {
-        { enabled = true, colorRgb555 = rgb555(31, 0, 0), vectorFx12 = { 0, 0, -4096 } },
-        { enabled = true, colorRgb555 = rgb555(0, 0, 31), vectorFx12 = { 0, 0, -4096 } },
-      },
-      lightMask = mask,
-    }))
-  end
-  Assert.equal(lit(0), rgb555(0, 0, 0))
-  Assert.equal(lit(1), rgb555(31, 0, 0))
-  Assert.equal(lit(2), rgb555(0, 0, 31))
-  Assert.equal(lit(3), rgb555(31, 0, 31))
-end
-
--- The integer pipeline's own truncation replaces incidental floating-point
--- rounding: lightColor*(ambient+diffuse) = 31*(2+8)/31 and 31*(2+16)/31 land
--- on exact integers here (10 and 18), unlike an ordinary float multiply that
--- can sit one ULP below the boundary. The reference must not reintroduce
--- that float rounding artifact.
-function T.material_owned_channel_used_when_passed()
-  local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(8, 16, 24),
-    ambient = rgb555(2, 2, 2),
-    lights = { light(31, { 0, 0, -4096 }) },
-    lightMask = 1,
-  }))
-  local r, g, b = DsLighting.unpackRgb555(c)
-  Assert.equal(r, 10)
-  Assert.equal(g, 18)
-  Assert.equal(b, 26)
-end
-
-function T.midrange_colors_scale_with_light_intensity()
-  local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(20, 15, 10),
-    ambient = rgb555(5, 5, 5),
-    lights = { { enabled = true, colorRgb555 = rgb555(15, 20, 25), vectorFx12 = { 0, 0, -4096 } } },
-    lightMask = 1,
-  }))
-  -- termSum = (25,20,15); floor(15*25/31), floor(20*20/31), floor(25*15/31) -> 12,12,12.
-  Assert.equal(c, rgb555(12, 12, 12))
-end
-
--- Real HGSS profile colors with a head-on light so ambient, diffuse, and the
--- profile's nonzero specular all land on clean values: termSum = (38,38,42),
--- lightContribution = floor(11*38/31), floor(11*38/31), floor(16*42/31) ->
--- 13,13,21; plus emission (8,8,11) -> (21,21,32) clamped to (21,21,31).
-function T.head_on_profile_colors_quantize_like_the_shader()
-  local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(14, 14, 16),
-    ambient = rgb555(10, 10, 10),
-    specular = rgb555(14, 14, 16),
-    emission = rgb555(8, 8, 11),
-    lights = { { enabled = true, colorRgb555 = rgb555(11, 11, 16), vectorFx12 = { 0, 0, -4096 } } },
-    lightMask = 1,
-  }))
-  Assert.equal(c, rgb555(21, 21, 31))
-end
-
-function T.dim_light_contributes_proportionally()
-  -- A 15/31 light with full material stays at 15 (never saturates to 31).
-  local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(31, 31, 31),
+    ambient = rgb555(17, 17, 17),
     lights = { light(15, { 0, 0, -4096 }) },
     lightMask = 1,
   }))
-  Assert.equal(c, rgb555(15, 15, 15))
-  -- A 1/31 light with midrange material truncates to zero: floor(1*15/31)=0.
-  local d = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(15, 15, 15),
-    lights = { light(1, { 0, 0, -4096 }) },
-    lightMask = 1,
-  }))
-  Assert.equal(d, rgb555(0, 0, 0))
+  Assert.equal(c, rgb555(7, 7, 7))
 end
 
--- A light 60 degrees off the normal truncates to a half-scale diffuse level
--- (dot(L,N) = -0.5 exactly for these vectors): diffuseTerm =
--- floor(20*256/512) = 10, termSum = 14, lightContribution =
--- floor(30*14/31) = 13.
-function T.diffuse_at_an_angle_truncates_the_fractional_level()
+-- 3. Diffuse dot exercising component-wise truncation. Unit-vector normal
+-- (0.6794128682,-0.7314995667,0.0575025088), quantized (scale 512, round to
+-- nearest) to N=(348,-375,29). The light's authored direction
+-- (-0.1692758096,0.5645169007,0.8078776944), negated per the LIGHT_VECTOR
+-- command handler and quantized the same way, gives the actual
+-- LightDirection register L=(87,-289,-414).
+--   term_x = 87*348   = 30276;  floor(30276/512)   = 59
+--   term_y = -289*-375 = 108375; floor(108375/512) = 211
+--   term_z = -414*29  = -12006; floor(-12006/512)  = -24
+--   dot (correct, per-component) = 59+211-24 = 246 (positive, gate fires)
+-- Summing the raw products first and shifting once (the bug this fixture
+-- specifically catches) gives 30276+108375-12006 = 126645,
+-- floor(126645/512) = 247, one unit off.
+-- vtxbuff = MatDiffuse(31)*LightColor(31)*246 = 961*246 = 236406
+--   236406 >> 14 = floor(236406/16384) = 14 (14*16384=229376, 15*16384=245760)
+function T.diffuse_dot_truncates_component_wise_not_after_summing(scope)
   local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(20, 20, 20),
-    ambient = rgb555(4, 4, 4),
-    lights = { light(30, { 3548, 0, -2048 }) },
+    normal = { 0.6794128682, -0.7314995667, 0.0575025088 },
+    diffuse = rgb555(31, 31, 31),
+    lights = { light(31, { -693.3537161216, 2312.2612252672, 3309.0670362624 }) },
     lightMask = 1,
   }))
-  Assert.equal(c, rgb555(13, 13, 13))
+  Assert.equal(c, rgb555(14, 14, 14))
 end
 
--- Two lights at the same fractional angle sum as plain integers before the
--- final saturating clamp: 13 (from the case above) + floor(10*14/31) = 4.
-function T.two_lights_at_fractional_levels_sum_before_the_final_clamp()
+-- 4. A diffuse dot at a sign boundary where per-component truncation and
+-- summed-then-truncated truncation land on opposite sides of the "dot > 0"
+-- gate. Unit-vector normal (-0.2203804515,0.6715671726,-0.7074107642)
+-- quantized (scale 512) to N=(-113,344,-362); the light's authored direction
+-- (-0.8156686822,0.2652960562,0.5141036894), negated and quantized the same
+-- way, gives LightDirection L=(418,-136,-263):
+--   term_x = 418*-113  = -47234;  floor(-47234/512)  = -93
+--   term_y = -136*344  = -46784;  floor(-46784/512)  = -92
+--   term_z = -263*-362 = 95206;   floor(95206/512)   = 185
+--   dot (correct, per-component) = -93-92+185 = 0 -> gate fails (dot > 0
+--   is strict; zero does not fire)
+-- Summing the raw products first and shifting once instead gives
+-- -47234-46784+95206 = 1188, floor(1188/512) = 2, which WOULD pass the
+-- gate. A nonzero MatDiffuse (17) with MatAmbient (2) and LightColor (31)
+-- makes the two orderings diverge in the final channel:
+--   ambient term = (2<<9)*31 = 1024*31 = 31744; >>14 = 1
+--   correct (gate fails): vtxbuff = 31744 (ambient only); >>14 = 1
+--   wrong-order (gate fires): vtxbuff = 31744 + 17*31*2 = 32798; >>14 = 2
+function T.diffuse_dot_sign_boundary_from_component_wise_truncation(scope)
   local c = DsLighting.vertexColorRgb5(params({
-    diffuse = rgb555(20, 20, 20),
-    ambient = rgb555(4, 4, 4),
-    lights = {
-      light(30, { 3548, 0, -2048 }),
-      light(10, { -3548, 0, -2048 }),
-    },
+    normal = { -0.2203804515, 0.6715671726, -0.7074107642 },
+    diffuse = rgb555(17, 17, 17),
+    ambient = rgb555(2, 2, 2),
+    lights = { light(31, { -0.8156686822 * 4096, 0.2652960562 * 4096, 0.5141036894 * 4096 }) },
+    lightMask = 1,
+  }))
+  Assert.equal(c, rgb555(1, 1, 1))
+end
+
+-- 5. Specular with a nontrivial SpecRecip. Head-on setup: normal
+-- (0.6,0,0.8), and the LightDirection register aligned with the normal
+-- (quantized N=L=(307,0,410), matching a light reflecting straight back at
+-- the viewer). dot = floor(307*307/512)+floor(410*410/512) = 184+328 = 512
+-- (the diffuse gate fires; MatDiffuse is 0 here so no diffuse term joins).
+-- Specular reuses dot, adds normaltrans.z (410): 512+410 = 922 (well inside
+-- the 11-bit signed range, no wraparound). Truncate-square:
+--   ((922*922) >> 10) & 0x3FF = (850084 >> 10) & 0x3FF = 830 & 1023 = 830
+-- SpecRecip is melonDS's reciprocal of (LightDirection.z + 1.0) in this
+-- fixed domain: den = 410+512 = 922, SpecRecip = floor((1<<18)/922) =
+-- floor(262144/922) = 284 (nontrivial: neither 0 nor a power of two).
+--   shinelevel = ((830*284) >> 8) - 512 = floor(235720/256) - 512 = 920-512 = 408
+-- MatSpecular=31, LightColor=31 (ambient/diffuse/emission all 0):
+--   vtxbuff = (31*408 + 0)*31 = 31*31*408 = 961*408 = 392088
+--   392088 >> 14 = floor(392088/16384) = 23 (23*16384=376832, 24*16384=393216)
+-- This is not a conventional Blinn half-vector/N.H^2 specular value; a
+-- half-vector implementation over the same inputs does not reproduce 23.
+function T.specular_uses_the_reciprocal_shinelevel_sequence(scope)
+  local c = DsLighting.vertexColorRgb5(params({
+    normal = { 0.6, 0, 0.8 },
+    specular = rgb555(31, 31, 31),
+    lights = { light(31, { -2457.6, 0, -3276.8 }) },
+    lightMask = 1,
+  }))
+  Assert.equal(c, rgb555(23, 23, 23))
+end
+
+-- 6. Multiple enabled lights accumulate past 31 before the final clamp: two
+-- identical head-on lights (MatDiffuse=22, LightColor=30, ld=512 each):
+--   per light: 22*30*512 = 337920; two lights sum (unclamped) = 675840
+--   675840 >> 14 = floor(675840/16384) = 41, clamped to 31
+-- Neither light's own contribution (337920>>14 = 20) exceeds 31 on its own;
+-- only the combined accumulator does, and only the final result saturates
+-- -- melonDS never clamps per light or per term.
+function T.multiple_lights_accumulate_past_31_and_saturate_only_at_the_end(scope)
+  local sameLight = light(30, { 0, 0, -4096 })
+  local c = DsLighting.vertexColorRgb5(params({
+    diffuse = rgb555(22, 22, 22),
+    lights = { sameLight, sameLight },
     lightMask = 3,
   }))
-  Assert.equal(c, rgb555(17, 17, 17))
+  Assert.equal(c, rgb555(31, 31, 31))
 end
 
--- The melonDS cos(2a) midrange pins: isolate specular with one white
--- (31,31,31) light, material specular (14,14,16), zero
--- diffuse/ambient/emission, L = (0,0,-1) and N(d) = (sqrt(1-d^2), 0, d), so
--- dot(N,H) truncates to exactly d*512 and the truncated square reproduces
--- the melonDS cos(2a) term ls = clamp(2*d^2 - 1, 0, 1):
---   d=0.25 -> ls=0     -> (0,0,0)
---   d=0.50 -> ls=0     -> (0,0,0)
---   d=0.75 -> ls=64/512 -> (1,1,2)  (floor(14*64/512)=1, floor(16*64/512)=2)
---   d=1.00 -> ls=512/512 -> (14,14,16), the unchanged head-on case
-function T.cos2a_specular_pins_at_midrange()
-  local function lit(d)
-    return DsLighting.vertexColorRgb5(params({
-      normal = { math.sqrt(1 - d * d), 0, d },
-      diffuse = rgb555(0, 0, 0),
-      specular = rgb555(14, 14, 16),
-      lights = { light(31, { 0, 0, -4096 }) },
-      lightMask = 1,
-    }))
-  end
-  for _, d in ipairs({ 0.25, 0.5 }) do
-    local r, g, b = DsLighting.unpackRgb555(lit(d))
-    Assert.equal(r, 0, "d=" .. d .. " red")
-    Assert.equal(g, 0, "d=" .. d .. " green")
-    Assert.equal(b, 0, "d=" .. d .. " blue")
-  end
-  Assert.equal(lit(0.75), rgb555(1, 1, 2))
-  Assert.equal(lit(1.0), rgb555(14, 14, 16))
-end
-
--- The gate that separates melonDS from DeSmuME: a light whose travel
--- direction is behind the surface, dot(-L,N) < 0, yet whose half vector
--- still lies in front of it, dot(N,H) > 1/sqrt(2), so the cos(2a) scalar
--- would be positive. N at 30deg from +z; L travels at 60deg from +z on the
--- far side (fx12 {-3313, 0, 2407}): -L = (0.809, 0, -0.588),
--- dot(-L,N) = -0.105, H = normalize(-L+z) = (0.891, 0, 0.454),
--- dot(N,H) = 0.839. The melonDS front-light gate zeroes specular (-> ls 0 ->
--- (0,0,0) for white light over (14,14,16)); a DeSmuME h > 0 gate would
--- compute ls = 2*0.839^2 - 1 = 0.407 -> (6,6,7). The reference must not
--- contribute here.
-function T.melonds_front_gate_zeroes_specular_behind_the_surface()
-  local c = DsLighting.vertexColorRgb5(params({
-    normal = { 0.5, 0, 0.8660254037844386 },
-    diffuse = rgb555(0, 0, 0),
-    specular = rgb555(14, 14, 16),
-    lights = { light(31, { -3313, 0, 2407 }) },
-    lightMask = 1,
-  }))
-  Assert.equal(c, rgb555(0, 0, 0))
+-- 7. Light-mask exclusion: CurPolygonAttr bit i gates light i entirely (no
+-- contribution of any kind, including ambient) when unset. MatDiffuse=20,
+-- LightColor=9, head-on (ld=512):
+--   admitted: vtxbuff = 20*9*512 = 92160; >>14 = floor(92160/16384) = 5
+--   excluded: vtxbuff = 0 (emission only, here 0); final = 0
+function T.light_mask_excludes_a_light_entirely(scope)
+  local theLight = light(9, { 0, 0, -4096 })
+  local admitted =
+    DsLighting.vertexColorRgb5(params({ diffuse = rgb555(20, 20, 20), lights = { theLight }, lightMask = 1 }))
+  local excluded =
+    DsLighting.vertexColorRgb5(params({ diffuse = rgb555(20, 20, 20), lights = { theLight }, lightMask = 0 }))
+  Assert.equal(admitted, rgb555(5, 5, 5))
+  Assert.equal(excluded, rgb555(0, 0, 0))
 end
 
 return { tests = T }

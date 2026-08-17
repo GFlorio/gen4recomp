@@ -6,23 +6,28 @@
 // second diffuse multiplication remains.
 //
 // The vertex-lighting algebra below (computeDsLighting, dsLightContribution,
-// quantizeVectorFx, dotFxScale) is a direct GLSL transcription of
-// libs/engine/src/DsLighting.lua -- see that module's header for the
-// authoritative domain/truncation documentation (normals in the 1.0.9 domain
-// scaled by NORMAL_FX_SCALE, light vectors in the 1.3.12 domain scaled by
-// LIGHT_FX_SCALE, colors as 5-bit (0..31) integers, and every intermediate
-// step truncated toward -infinity via floor() the same way melonDS's
-// CalculateLighting truncates via integer shifts). ds_lighting_test locks the
-// pure-Lua reference this shader mirrors. The u_mat* uniforms carry the
-// effective DS material registers, normalized c/31: the field profile's
-// colors -- the HGSS field engine overrides every material's stored color
-// registers with the profile -- replaced wholesale by the sampled colors of a
-// playing NSBMA material clip. The renderer composes them per draw item
-// (effectiveMaterialColor); a static item always receives the profile.
-// Each light additionally requires the polygon's light-mask bit: the renderer
-// sends the draw item's 4-bit mask decoded into u_lightMask (one 0/1 float per
-// light), so a light contributes only when the profile enables it AND the
-// polygon's mask admits it (GBATEK POLYGON_ATTR light mask).
+// quantizeVectorFx, signExtend, dotDiscardingPerComponent) is a direct GLSL
+// transcription of tests/support/DsLighting.lua -- see that module's
+// header for the authoritative GPU3D::CalculateLighting derivation this
+// mirrors line for line (the emission-seeded unnormalized accumulator, the
+// per-component-truncated dot product, the diffuse/specular/ambient terms in
+// their native fixed-point domains, and a single clamp to 0..31 at the very
+// end -- no `/31` normalization anywhere in the pipeline). ds_lighting_test
+// locks the pure-Lua reference this shader mirrors. The u_mat* uniforms
+// carry the effective DS material registers, normalized c/31: the field
+// profile's colors -- the HGSS field engine overrides every material's
+// stored color registers with the profile -- replaced wholesale by the
+// sampled colors of a playing NSBMA material clip. The renderer composes
+// them per draw item (effectiveMaterialColor); a static item always receives
+// the profile. Each light additionally requires the polygon's light-mask
+// bit: the renderer sends the draw item's 4-bit mask decoded into
+// u_lightMask (one 0/1 float per light), so a light contributes only when
+// the profile enables it AND the polygon's mask admits it (GBATEK
+// POLYGON_ATTR light mask). u_lightVectorN carries the raw field-authored
+// direction (untransformed); dsLightContribution rotates it by mat3(u_view)
+// -- the same camera-only rotation applied to the vertex normal below, since
+// GPU3D's NORMAL and LIGHT_VECTOR commands share one vector matrix -- before
+// negating and quantizing it into the LightDirection register.
 //
 // The pixel-stage combiner (modulateRgb6, decalRgb6, expand5to6) is the exact
 // DS integer MODULATE/DECAL combiner in its native 5-bit/6-bit domain
@@ -77,12 +82,17 @@ uniform vec3 u_matAmbient;
 uniform vec3 u_matSpecular;
 uniform vec3 u_matEmission;
 
-const vec3 VIEW_DIRECTION = vec3(0.0, 0.0, 1.0);
-
-// DsLighting fixed-point domain scales (see module header).
+// 1.0.9 domain scale shared by normals and the transformed light-direction
+// register (see DsLighting.lua's header for the full derivation this block
+// mirrors -- GPU3D::CalculateLighting, melonDS-emu/melonDS commit
+// d3cd6164deb1f217d4b262d18af3ef9b97e536c8, src/GPU3D.cpp).
 const float NORMAL_FX_SCALE = 512.0;
-const float LIGHT_FX_SCALE = 4096.0;
 const float RGB5_MAX = 31.0;
+const float DIFFUSE_TERM_MODULUS = 1048576.0; // 20-bit mask (0xFFFFF + 1)
+const float SPEC_SQUARE_MODULUS = 1024.0;     // 10-bit mask (0x3FF + 1)
+const float SPEC_RECIP_NUMERATOR = 262144.0;  // 1 << 18
+const float SPEC_SHINELEVEL_MAX = 511.0;      // 9-bit clamp (0x1FF)
+const float ACCUMULATOR_SHIFT = 16384.0;      // 1 << 14
 
 // Round a normalized float vector into an integer fixed-point domain,
 // matching DsLighting.quantizeVector (round to nearest, not truncate).
@@ -91,45 +101,72 @@ vec3 quantizeVectorFx(vec3 v, float scale)
   return floor(v * scale + 0.5);
 }
 
-// Dot product of two same-scale fixed-point vectors, truncated (floor,
-// matching a hardware arithmetic right shift) back into that scale's domain.
-float dotFxScale(vec3 a, vec3 b, float scale)
+// Reinterpret a value as two's-complement of the given bit width
+// (GPU3D.cpp's "<< (32-bits) >> (32-bits)" sign-extension idiom).
+float signExtend(float x, float bits)
 {
-  return floor(dot(a, b) / scale);
+  float range = pow(2.0, bits);
+  float wrapped = mod(x, range);
+  return wrapped >= range * 0.5 ? wrapped - range : wrapped;
 }
 
-vec3 dsLightContribution(vec3 normalFx9, vec3 lightDirection, vec3 lightColorNorm,
+// Dot product of two 1.0.9-domain vectors, with the bottom 9 bits of each
+// per-component product discarded before summing (CalculateLighting: "bottom
+// 9 bits are discarded after multiplying and before adding" -- not the same
+// as summing raw products and shifting once).
+float dotDiscardingPerComponent(vec3 a, vec3 b, float scale)
+{
+  vec3 terms = floor((a * b) / scale);
+  return terms.x + terms.y + terms.z;
+}
+
+// One enabled light's contribution to the accumulator, added directly (the
+// caller sums these as plain integers; only the final accumulator clamps).
+// `rawLightVector` is the field-authored direction, not yet rotated into
+// camera space -- see computeDsLighting.
+vec3 dsLightContribution(vec3 normalFx9, vec3 rawLightVector, vec3 lightColorNorm,
                           vec3 diffuse5, vec3 ambient5, vec3 specular5)
 {
-  vec3 lightFx12 = quantizeVectorFx(normalize(lightDirection), LIGHT_FX_SCALE);
+  // LightDirection[i]: the authored direction rotated by the same
+  // camera-only vector matrix as the vertex normal (GPU3D.cpp's VecMatrix is
+  // shared between the NORMAL and LIGHT_VECTOR commands), then negated per
+  // the LIGHT_VECTOR command handler (case 0x32: "discard bottom bits ->
+  // negate -> sign-extend").
+  vec3 rotated = mat3(u_view) * rawLightVector;
+  vec3 lightDirectionFx9 = quantizeVectorFx(-normalize(rotated), NORMAL_FX_SCALE);
 
-  // Dot truncates into the normal's 1.0.9 domain (DsLighting.dotNormalLight);
-  // ld is the negated, front-light-gated dot, same 0..512 domain.
-  float dot9 = floor(dot(normalFx9, lightFx12) / LIGHT_FX_SCALE);
-  float ld = clamp(-dot9, 0.0, NORMAL_FX_SCALE);
+  float dot9 = dotDiscardingPerComponent(lightDirectionFx9, normalFx9, NORMAL_FX_SCALE);
 
-  // Specular is only evaluated when ld > 0 (the melonDS front-light gate).
-  // H is quantized to 1.0.9, dotted with the normal the same truncating way
-  // to get ndh, then truncate-squared before the cos(2a)-equivalent doubling.
-  float ls = 0.0;
-  if (ld > 0.0) {
-    vec3 halfFx9 = quantizeVectorFx(
-      normalize(-lightFx12 / LIGHT_FX_SCALE + VIEW_DIRECTION),
-      NORMAL_FX_SCALE
-    );
-    float ndh = clamp(dotFxScale(normalFx9, halfFx9, NORMAL_FX_SCALE), 0.0, NORMAL_FX_SCALE);
-    float ndhSquared = floor((ndh * ndh) / NORMAL_FX_SCALE);
-    ls = clamp(2.0 * ndhSquared - NORMAL_FX_SCALE, 0.0, NORMAL_FX_SCALE);
+  vec3 lightColor5 = floor(lightColorNorm * RGB5_MAX + 0.5);
+  vec3 diffuseTerm = vec3(0.0);
+  float shinelevel = 0.0;
+  if (dot9 > 0.0) {
+    float diffdot = signExtend(dot9, 11.0);
+    diffuseTerm = mod(diffuse5 * lightColor5 * diffdot, DIFFUSE_TERM_MODULUS);
+
+    // Specular reuses the diffuse dot, folds in the normal's Z (the DS
+    // geometry engine's fixed eye direction), truncate-squares it, then
+    // applies the light's precomputed reciprocal (SpecRecip). `den` is
+    // recovered from lightDirectionFx9.z rather than kept as a separate
+    // pre-negation intermediate: DsLighting.lua's header documents why this
+    // is lossless for the unit-vector inputs this pipeline only ever sees.
+    float specDot = signExtend(dot9 + normalFx9.z, 11.0);
+    float squared = mod(floor((specDot * specDot) / 1024.0), SPEC_SQUARE_MODULUS);
+    float den = lightDirectionFx9.z + NORMAL_FX_SCALE;
+    float specRecip = den == 0.0 ? 0.0 : floor(SPEC_RECIP_NUMERATOR / den);
+    shinelevel = floor((squared * specRecip) / 256.0) - NORMAL_FX_SCALE;
+    if (shinelevel < 0.0) {
+      shinelevel = 0.0;
+    } else {
+      shinelevel = signExtend(shinelevel, 14.0);
+      shinelevel = clamp(shinelevel, 0.0, SPEC_SHINELEVEL_MAX);
+    }
   }
 
-  // Each material term truncates its own product before joining the
-  // (ungated) ambient term; the light color then scales that per-channel
-  // sum, truncating again.
-  vec3 lightColor5 = floor(lightColorNorm * RGB5_MAX + 0.5);
-  vec3 diffuseTerm = floor((diffuse5 * ld) / NORMAL_FX_SCALE);
-  vec3 specularTerm = floor((specular5 * ls) / NORMAL_FX_SCALE);
-  vec3 termSum = ambient5 + diffuseTerm + specularTerm;
-  return floor((lightColor5 * termSum) / RGB5_MAX);
+  // Ambient is a plain <<9 shift, added for every enabled light regardless
+  // of the diffuse gate; it is not scaled by diffuse level.
+  vec3 ambientSpecularTerm = ((specular5 * shinelevel) + (ambient5 * NORMAL_FX_SCALE)) * lightColor5;
+  return diffuseTerm + ambientSpecularTerm;
 }
 
 vec3 computeDsLighting(vec3 normal)
@@ -140,9 +177,10 @@ vec3 computeDsLighting(vec3 normal)
   vec3 specular5 = floor(u_matSpecular * RGB5_MAX + 0.5);
   vec3 emission5 = floor(u_matEmission * RGB5_MAX + 0.5);
 
-  // Contributions from every enabled light and the emission register sum as
-  // plain integers; only the final accumulator saturates to 0..31.
-  vec3 acc = emission5;
+  // The accumulator starts at MatEmission << 14, unnormalized -- not a
+  // normalized 0..31 value -- and every light's contribution sums into it as
+  // a plain integer; only the final result saturates to 0..31.
+  vec3 acc = emission5 * ACCUMULATOR_SHIFT;
 
   if (u_lightEnabled0 && u_lightMask.x > 0.5)
     acc += dsLightContribution(normalFx9, u_lightVector0, u_lightColor0, diffuse5, ambient5, specular5);
@@ -153,7 +191,7 @@ vec3 computeDsLighting(vec3 normal)
   if (u_lightEnabled3 && u_lightMask.w > 0.5)
     acc += dsLightContribution(normalFx9, u_lightVector3, u_lightColor3, diffuse5, ambient5, specular5);
 
-  return clamp(acc, 0.0, RGB5_MAX) / RGB5_MAX;
+  return clamp(floor(acc / ACCUMULATOR_SHIFT), 0.0, RGB5_MAX) / RGB5_MAX;
 }
 
 vec3 quantizeRgb5(vec3 c)

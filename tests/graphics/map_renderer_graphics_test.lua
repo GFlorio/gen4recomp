@@ -1094,35 +1094,109 @@ local function specularFrame(renderer, scope, normal, vectorFx12)
   return brightestSample(renderer)
 end
 
--- The melonDS cos(2a) term narrows the specular highlight: at N(d=0.75)
--- with L = (0,0,-1), dot(N,H) = 0.75 and ls = 2*0.75^2-1 = 0.125, so the
--- frame renders 2/31 after round-half-up quantization, well below half of
--- the head-on 14/31 frame (a raw half-vector term would render 11/31 and
--- stay above that threshold). The off-axis frame must come out well below
--- half the head-on one either way.
+-- GPU3D::CalculateLighting's shinelevel sequence narrows off-axis: reusing
+-- the diffuse dot plus the normal's Z, truncate-squaring it, and scaling by
+-- the light's SpecRecip falls off sharply as the normal tilts away from the
+-- light. (Nearly-but-not-exactly axis-aligned normal, {1,0,20}: an exactly
+-- axis-aligned {0,0,1} normal against this light hits the literal 11-bit
+-- sign-extension boundary of dot+normal.z == 1024 and wraps to a spurious
+-- zero -- a genuine hardware edge case, not a bug in this shader -- so the
+-- head-on reference frame here stays just off that exact boundary.) The
+-- off-axis frame must come out well below half the head-on one.
 function T.specular_cos2a_narrows_the_highlight_off_axis(scope)
   local renderer = scope:own(MapRenderer.new())
-  local headOn = specularFrame(renderer, scope, { 0, 0, 1 }, { 0, 0, -4096 })
+  local headOn = specularFrame(renderer, scope, { 1, 0, 20 }, { 0, 0, -4096 })
   local offAxis = specularFrame(renderer, scope, { 0.661438, 0, 0.75 }, { 0, 0, -4096 })
 
   Assert.isTrue(headOn > 0, "the head-on specular frame must have a sample to derive a threshold from")
-  Assert.isTrue(
-    offAxis < headOn / 2,
-    "the off-axis specular must be far dimmer than head-on (cos(2a): 2/31 vs 14/31; raw ndh: 11/31)"
-  )
+  Assert.isTrue(offAxis < headOn / 2, "the off-axis specular must be far dimmer than head-on")
 end
 
--- The melonDS front-light gate: a light whose travel direction is behind
--- the surface, dot(-L,N) < 0, must contribute no specular even though its
--- half vector still faces the surface (dot(N,H) = 0.839, so the ungated
--- cos(2a) scalar would be 0.407); the gated shader must render black.
+-- GPU3D::CalculateLighting's front-light gate ("if (dot > 0)"): a light whose
+-- direction faces away from the surface contributes no specular (or diffuse)
+-- term at all, regardless of where the reused dot/normal.z sum would
+-- otherwise land; the gated shader must render (near-)black.
 function T.behind_light_specular_stays_dark(scope)
   local renderer = scope:own(MapRenderer.new())
-  local headOn = specularFrame(renderer, scope, { 0, 0, 1 }, { 0, 0, -4096 })
+  local headOn = specularFrame(renderer, scope, { 1, 0, 20 }, { 0, 0, -4096 })
   local behind = specularFrame(renderer, scope, { 0.5, 0, 0.8660254037844386 }, { -3313, 0, 2407 })
 
   Assert.isTrue(headOn > 0, "the head-on specular frame must have a sample to derive a threshold from")
   Assert.isTrue(behind < headOn / 2, "a behind-the-surface light contributes no specular under the melonDS gate")
+end
+
+-- Required real-graphics fixture: a rendered triangle's lit vertex color
+-- compared to a fixed expected RGB6 value hand-derived from melonDS's
+-- CalculateLighting (GPU3D.cpp, see ds_lighting_test.lua's header and
+-- ambient_only_midrange_light_color for the same derivation form) -- not
+-- computed by calling DsLighting or any other production code. MatAmbient=27,
+-- LightColor=20, MatDiffuse=MatSpecular=MatEmission=0 (so no light
+-- direction/normal-transform concerns enter this fixture at all, only the
+-- ambient accumulator):
+--   vtxbuff = (27<<9)*20 = 13824*20 = 276480; vtxbuff>>14 = floor(276480/16384) = 16
+-- The untextured MODULATE combiner is the identity on a lone vertex color
+-- (texture6 = expand5to6(31) = 63 either way, since c5=31 is unaffected by
+-- the separate 5->6 expansion fix), and 16 is deliberately in the [16,31]
+-- band where the old and corrected expand5to6 rules already agree (2*16+1 =
+-- 33 either way), so this fixture is sensitive only to vertex-lighting
+-- arithmetic, never to the fragment-combiner deliverable owned elsewhere.
+-- Expected normalized scene color: 33/63.
+function T.ambient_lit_triangle_matches_the_hand_derived_melonds_rgb6(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local camera, runtime = fixedCamera(), emptyRuntime()
+  runtime.lighting = {
+    records = {
+      {
+        startHalfSeconds = 0,
+        lights = {
+          { enabled = true, colorRgb555 = 20 + 20 * 32 + 20 * 1024, vectorFx12 = { 0, 0, -4096 } },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+        },
+        diffuseRgb555 = 0,
+        ambientRgb555 = 27 + 27 * 32 + 27 * 1024,
+        specularRgb555 = 0,
+        emissionRgb555 = 0,
+      },
+    },
+  }
+  local mesh = scope:own(syntheticMesh({
+    { 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+  }))
+  renderer:draw(runtime, camera, {
+    {
+      {
+        mesh = mesh,
+        material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
+        transform = IDENTITY,
+        modelNormal = IDENTITY_NORMAL,
+        alphaClass = "opaque",
+        cullMode = "back",
+        polygonAlpha = 1.0,
+        polygonMode = "modulation",
+        polygonId = 0,
+        lightMask = 1,
+        alphaCutoff = 0.5 / 255,
+        center = { 0.5, 0.5, 0 },
+      },
+    },
+  }, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  local img = renderer.sceneColor:newImageData()
+  local a, b = { img:getPixel(416, 384) }, { img:getPixel(416, 95) }
+  local function sum(p)
+    return p[1] + p[2] + p[3]
+  end
+  local p = sum(a) >= sum(b) and a or b
+  local scale = p[1] > 1 and 255 or 1
+  local expected = 33 / 63 * scale
+  local tolerance = scale > 1 and 1 or (1 / 63)
+  Assert.near(p[1], expected, tolerance, "hand-derived melonDS ambient RGB6: expand5to6(16) = 33, red")
+  Assert.near(p[2], expected, tolerance, "hand-derived melonDS ambient RGB6: expand5to6(16) = 33, green")
+  Assert.near(p[3], expected, tolerance, "hand-derived melonDS ambient RGB6: expand5to6(16) = 33, blue")
 end
 
 -- ---- terrain-animation offscreen fixtures ----

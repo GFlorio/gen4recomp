@@ -34,7 +34,6 @@ local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
-local DsLighting = require("libs.engine.src.DsLighting")
 
 ---@class MapRenderer
 ---@field _graphics love.Graphics
