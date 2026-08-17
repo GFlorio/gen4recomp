@@ -1643,43 +1643,57 @@ end
 -- MapRenderer.CLEAR_POLYGON_ID), the same normalization every real
 -- MapRenderer draw applies -- not the retired 255-wide sentinel domain.
 -- Returns the center pixel's rendered RGB.
-local function runEdgePass(scope, pixels, edgeColors)
+--
+-- Shared by every edge-predicate fixture in this section, including the
+-- diagonal-neighbor fixture below, which needs a 3x3 grid (a 3x1 strip can
+-- only ever exercise left/right neighbors) but otherwise drives the same
+-- shader/canvas boilerplate.
+local function runEdgeShaderPass(scope, width, height, fillId, fillScene, edgeColors, texelSize)
   local edgeShader = scope:own(MapRenderer.new()).edgeShader
 
-  -- The blue (fog-gate) and alpha (validity) channels are irrelevant to
-  -- edge.glsl's predicate (it reads only R/id and G/depth), so this fixture
-  -- fills them with fixed placeholder values rather than per-pixel fields.
-  local idData = love.image.newImageData(3, 1, "rgba32f")
-  for i, p in ipairs(pixels) do
-    idData:setPixel(i - 1, 0, p.id / 63, p.depth, 0, 1)
-  end
+  local idData = love.image.newImageData(width, height, "rgba32f")
+  fillId(idData)
   local idImage = scope:own(love.graphics.newImage(idData))
   idImage:setFilter("nearest", "nearest")
 
-  -- A center scene color distinct from every u_edgeColors entry below, so
-  -- "no edge" (unmodified scene) is distinguishable from "edge" (a table
-  -- entry) or a garbage/out-of-range read.
-  local sceneData = love.image.newImageData(3, 1)
-  sceneData:setPixel(0, 0, 0.2, 0.2, 0.2, 1)
-  sceneData:setPixel(1, 0, 200 / 255, 210 / 255, 220 / 255, 1)
-  sceneData:setPixel(2, 0, 0.2, 0.2, 0.2, 1)
+  local sceneData = love.image.newImageData(width, height)
+  fillScene(sceneData)
   local sceneImage = scope:own(love.graphics.newImage(sceneData))
   sceneImage:setFilter("nearest", "nearest")
 
-  local target = scope:own(love.graphics.newCanvas(3, 1))
+  local target = scope:own(love.graphics.newCanvas(width, height))
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.setShader(edgeShader)
   edgeShader:send("u_idTex", idImage)
-  edgeShader:send("u_texelSize", { 1 / 3, 1 })
+  edgeShader:send("u_texelSize", texelSize)
   edgeShader:send("u_edgeRadius", 1)
   edgeShader:send("u_edgeColors", unpack(edgeColors))
   love.graphics.draw(sceneImage, 0, 0)
   love.graphics.setShader()
   love.graphics.setCanvas()
 
-  local out = target:newImageData()
+  return target:newImageData()
+end
+
+local function runEdgePass(scope, pixels, edgeColors)
+  local out = runEdgeShaderPass(scope, 3, 1, function(idData)
+    -- The blue (fog-gate) and alpha (validity) channels are irrelevant to
+    -- edge.glsl's predicate (it reads only R/id and G/depth), so this
+    -- fixture fills them with fixed placeholder values rather than
+    -- per-pixel fields.
+    for i, p in ipairs(pixels) do
+      idData:setPixel(i - 1, 0, p.id / 63, p.depth, 0, 1)
+    end
+  end, function(sceneData)
+    -- A center scene color distinct from every u_edgeColors entry below, so
+    -- "no edge" (unmodified scene) is distinguishable from "edge" (a table
+    -- entry) or a garbage/out-of-range read.
+    sceneData:setPixel(0, 0, 0.2, 0.2, 0.2, 1)
+    sceneData:setPixel(1, 0, 200 / 255, 210 / 255, 220 / 255, 1)
+    sceneData:setPixel(2, 0, 0.2, 0.2, 0.2, 1)
+  end, edgeColors, { 1 / 3, 1 })
   return { out:getPixel(1, 0) }
 end
 
@@ -1761,6 +1775,38 @@ function T.edge_shader_does_not_mark_a_same_id_neighbor(scope)
   Assert.near(out[1], 200 / 255, 1 / 255, "same polygon id must not mark: unmodified scene color")
   Assert.near(out[2], 210 / 255, 1 / 255)
   Assert.near(out[3], 220 / 255, 1 / 255)
+end
+
+-- DS edge marking samples only the four orthogonal neighbors (left, right,
+-- up, down) -- never diagonals. Every existing edge-predicate test
+-- above drives a 3x1 strip, which can only ever exercise left/right; this
+-- fixture uses a 3x3 grid so a genuine up/down/diagonal distinction exists.
+-- The center's four orthogonal neighbors all share its own id/depth (never
+-- marking), while the top-left diagonal neighbor is differently-id'd and
+-- strictly nearer than the center -- exactly the predicate that would mark
+-- if (and only if) diagonals were sampled. If this ever regressed to an
+-- eight-neighbor scan, this is the only test in the suite that would catch
+-- it: every other fixture's grid is too small to have a diagonal at all.
+function T.edge_shader_never_marks_from_a_diagonal_neighbor(scope)
+  local out = runEdgeShaderPass(scope, 3, 3, function(idData)
+    for x = 0, 2 do
+      for y = 0, 2 do
+        idData:setPixel(x, y, 20 / 63, 500, 0, 1)
+      end
+    end
+    idData:setPixel(0, 0, 10 / 63, 1000, 0, 1)
+  end, function(sceneData)
+    for x = 0, 2 do
+      for y = 0, 2 do
+        sceneData:setPixel(x, y, 200 / 255, 210 / 255, 220 / 255, 1)
+      end
+    end
+  end, eightEdgeColors(), { 1 / 3, 1 / 3 })
+
+  local r, g, b = out:getPixel(1, 1)
+  Assert.near(r, 200 / 255, 1 / 255, "a diagonal-only differently-id'd, nearer neighbor must not mark")
+  Assert.near(g, 210 / 255, 1 / 255)
+  Assert.near(b, 220 / 255, 1 / 255)
 end
 
 -- The retired "translucent center never marks" fixture (blue-channel
@@ -1965,7 +2011,7 @@ local function runFinalPass(scope, pixels, fog, edgeColors)
   local sceneData = love.image.newImageData(3, 1)
   for i, p in ipairs(pixels) do
     local c = p.scene or { 1, 1, 1 }
-    sceneData:setPixel(i - 1, 0, c[1], c[2], c[3], 1)
+    sceneData:setPixel(i - 1, 0, c[1], c[2], c[3], c[4] or 1)
   end
   local sceneImage = scope:own(love.graphics.newImage(sceneData))
   sceneImage:setFilter("nearest", "nearest")
@@ -2069,6 +2115,21 @@ function T.edge_marked_pixel_is_fogged_after_edge_rgb_replacement(scope)
   Assert.near(out[1], 6 / 63, 1 / 255, "the edge color must be fogged, not the pre-edge scene color")
   Assert.near(out[2], 6 / 63, 1 / 255)
   Assert.near(out[3], 6 / 63, 1 / 255)
+end
+
+-- Edge marking replaces only RGB -- the prior scene alpha survives
+-- untouched (`vec4(edgeColor, scene.a)`), never stamped to a fixed/opaque
+-- value. Fog is disabled here so this is isolated from fog's own (separate,
+-- already-covered) alpha blend: a marked pixel with a non-trivial scene
+-- alpha (0.5, not this suite's usual opaque 1.0) must keep that exact alpha.
+function T.edge_marking_preserves_scene_alpha_unchanged(scope)
+  local out = runFinalPass(scope, {
+    { id = 10, depth = 1000, fogGate = 0, scene = { 1, 1, 1, 0.5 } },
+    { id = 20, depth = 500, fogGate = 0, scene = { 1, 1, 1, 0.5 } },
+    { id = 20, depth = 500, fogGate = 0, scene = { 1, 1, 1, 0.5 } },
+  }, { enabled = false, color = 0, offsetRaw = 0, shift = 0, table32 = constantDensityTable(64) })
+  Assert.near(out[1], 0.2, 1 / 255, "the marked pixel's RGB is replaced by u_edgeColors[20/8] (entry 2)")
+  Assert.near(out[4], 0.5, 1 / 255, "edge marking must not modify alpha -- it stays the prior scene alpha")
 end
 
 -- E.9 real graphics fixture 5: changing the scene's fog preset changes the
