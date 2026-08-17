@@ -3,16 +3,18 @@
 -- placement directly to the vertex shader, and runs four passes:
 -- opaque (depth write on), cutout (depth write on, shader discards alpha-zero
 -- fragments), translucent (depth test on, write governed by polygon bit 11),
--- and wireframe edges. Every pass stamps its polygon ID and DS-quantized depth
--- into a second render target that the DS edge-marking post-process reads
--- when compositing to the screen (the wireframe pass stamps the rear-plane
--- sentinel, not a real polygon ID); the translucent pass stamps its own real
--- polygon ID plus a separate translucent-attribute flag in that target's blue
--- channel -- the opaque-ID field is never overloaded to also mean translucent
--- -- so it occludes opaque geometry behind it for edge marking while the edge
--- pass never outlines the translucent pixels themselves. It clears the depth
--- buffer itself (love's frame clear only touches color) and restores the exact
--- caller state it changed (canvas, shader, depth, cull, blend, wireframe,
+-- and wireframe edges. Every opaque/cutout/wireframe fragment stamps its
+-- polygon ID, DS-quantized depth, and per-polygon fog gate into a second
+-- render target (`finalState`) that the DS edge-marking/fog final pass reads
+-- when compositing to the screen. Translucent draws currently still stamp
+-- this same target with their own real polygon ID/depth/fog gate rather than
+-- leaving the underlying opaque state untouched -- an intentional, tracked
+-- gap: the DS itself does not update its depth/attribute buffers for a
+-- non-depth-writing translucent fragment, and closing this gap requires
+-- binding `finalState` out of the translucent pass entirely, which is a
+-- separate change. It clears the depth buffer itself (love's frame clear
+-- only touches color) and restores the exact caller state it changed
+-- (canvas, shader, depth, cull, blend, wireframe,
 -- color) even when drawing raises, so the diagnostic UI drawn afterwards is
 -- unaffected. A straddling draw item (the first `leading` vertices submitted
 -- under a pre-boundary matrix, per the DS geometry engine) is bent per frame,
@@ -45,7 +47,7 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _fogColorCache number[]
 ---@field stats { drawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
 ---@field sceneColor love.Canvas?
----@field idDepth love.Canvas?
+---@field finalState love.Canvas?
 ---@field depth love.Canvas?
 ---@field canvasW integer?
 ---@field canvasH integer?
@@ -108,15 +110,16 @@ local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 -- depth domain can represent (see DS_DEPTH_MAX in map.glsl).
 local DS_DEPTH_MAX = 0xFFFFFF
 
--- Rear-plane entry for the polygon-ID/depth/translucent-attribute target: HGSS's
--- real clear polygon ID (MapRenderer.CLEAR_POLYGON_ID, 63) at the farthest
--- quantized depth (DS_DEPTH_MAX), not translucent (blue channel 0). Clearing
--- depth to the maximum makes background neighbours read as farther than any
--- real geometry -- that is what outlines silhouettes against the background
--- (GBATEK: at the screen borders edges are resolved against the rear plane's
--- polygon_id). Normalized by the same CLEAR_POLYGON_ID domain maximum every
--- real draw uses (63/63 == 1.0), so a real id-63 polygon is indistinguishable
--- from the background, exactly as GBATEK specifies.
+-- Rear-plane entry for the finalState target: HGSS's real clear polygon ID
+-- (MapRenderer.CLEAR_POLYGON_ID, 63) at the farthest quantized depth
+-- (DS_DEPTH_MAX), with its fog gate false -- HGSS's rear plane is not itself
+-- fog-gated. Clearing depth to the maximum makes background neighbours read
+-- as farther than any real geometry -- that is what outlines silhouettes
+-- against the background (GBATEK: at the screen borders edges are resolved
+-- against the rear plane's polygon_id). Normalized by the same
+-- CLEAR_POLYGON_ID domain maximum every real draw uses (63/63 == 1.0), so a
+-- real id-63 polygon is indistinguishable from the background, exactly as
+-- GBATEK specifies.
 local ID_CLEAR = { 1, DS_DEPTH_MAX, 0, 1 }
 
 -- DS framebuffer height. Edge marking is one hardware pixel wide, so the
@@ -130,13 +133,9 @@ local MAX_EDGE_RADIUS = 8
 -- reachable id, not a sentinel outside the domain. Every draw (opaque,
 -- cutout, translucent, and wireframe alike) sends its own real polygon ID,
 -- normalized by this same domain maximum (id/63; map.glsl and edge.glsl
--- document the encoding/decoding). Translucent fragments are told apart from
--- opaque/wireframe fragments by the target's separate translucent-attribute
--- channel (see u_translucentAttribute and the edge predicate in map.glsl),
--- never by carving a sentinel id out of the 0..63 domain. PolygonState
--- already validates that source polygon ids are integers in 0..63, so this
--- module does not duplicate that validation with its own MAX_POLYGON_ID
--- constant.
+-- document the encoding/decoding). PolygonState already validates that
+-- source polygon ids are integers in 0..63, so this module does not
+-- duplicate that validation with its own MAX_POLYGON_ID constant.
 MapRenderer.CLEAR_POLYGON_ID = 63
 
 ---@param opts { graphics?: love.Graphics, clearColor?: number[], rasterScale?: number, readSource?: fun(path: string): string }?
@@ -210,19 +209,19 @@ function MapRenderer:_releaseCanvases()
   if self.sceneColor then
     self.sceneColor:release()
   end
-  if self.idDepth then
-    self.idDepth:release()
+  if self.finalState then
+    self.finalState:release()
   end
   if self.depth then
     self.depth:release()
   end
-  self.sceneColor, self.idDepth, self.depth = nil, nil, nil
+  self.sceneColor, self.finalState, self.depth = nil, nil, nil
   self.canvasW, self.canvasH = nil, nil
   self._sceneTargets = nil
 end
 
-local function sendEdgeTargetUniforms(shader, idDepth, w, h)
-  shader:send("u_idTex", idDepth)
+local function sendEdgeTargetUniforms(shader, finalState, w, h)
+  shader:send("u_idTex", finalState)
   shader:send("u_texelSize", { 1 / w, 1 / h })
   shader:send("u_edgeRadius", MapRenderer.fieldEdgeRadiusPixels(h))
 end
@@ -236,34 +235,35 @@ function MapRenderer:_ensureCanvases(w, h)
     return
   end
   local lg = assert(self._graphics)
-  local sceneColor, idDepth, depth, sceneTargets
+  local sceneColor, finalState, depth, sceneTargets
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(w, h)
     -- The completed world is nearest-upscaled to the presentation viewport
     -- (see the final composite draw in MapRenderer:draw), so the raster
     -- stays DS-relative instead of blurring into the host resolution.
     sceneColor:setFilter("nearest", "nearest")
-    -- Red holds the normalized polygon ID, green the DS-quantized W-buffer
-    -- depth (a 24-bit integer domain, stored as a float; see dsWbufferDepth
-    -- in map.glsl), blue the translucent-attribute flag (0 opaque/wireframe,
-    -- 1 translucent -- see u_translucentAttribute in map.glsl's edge
-    -- predicate). The format must be 32-bit float: the quantized depth spans
-    -- the full 24-bit domain, which 16-bit floats cannot resolve exactly.
-    idDepth = lg.newCanvas(w, h, { format = "rgba32f" })
-    idDepth:setFilter("nearest", "nearest")
+    -- The final-pass state target: red holds the normalized edge polygon ID,
+    -- green the DS-quantized W-buffer depth (a 24-bit integer domain, stored
+    -- as a float; see dsWbufferDepth in map.glsl), blue the per-polygon fog
+    -- gate (0/1, POLYGON_ATTR FOG_ENABLE -- see u_polygonFogEnabled in
+    -- map.glsl), alpha validity/reserved. The format must be 32-bit float:
+    -- the quantized depth spans the full 24-bit domain, which 16-bit floats
+    -- cannot resolve exactly.
+    finalState = lg.newCanvas(w, h, { format = "rgba32f" })
+    finalState:setFilter("nearest", "nearest")
     depth = lg.newCanvas(w, h, { format = "depth24stencil8", readable = false })
-    sceneTargets = { sceneColor, idDepth, depthstencil = depth }
-    sendEdgeTargetUniforms(self.edgeShader, idDepth, w, h)
+    sceneTargets = { sceneColor, finalState, depthstencil = depth }
+    sendEdgeTargetUniforms(self.edgeShader, finalState, w, h)
   end)
   if not ok then
-    if self.idDepth then
-      pcall(sendEdgeTargetUniforms, self.edgeShader, self.idDepth, self.canvasW, self.canvasH)
+    if self.finalState then
+      pcall(sendEdgeTargetUniforms, self.edgeShader, self.finalState, self.canvasW, self.canvasH)
     end
     if sceneColor then
       sceneColor:release()
     end
-    if idDepth then
-      idDepth:release()
+    if finalState then
+      finalState:release()
     end
     if depth then
       depth:release()
@@ -271,7 +271,7 @@ function MapRenderer:_ensureCanvases(w, h)
     error(err)
   end
   self:_releaseCanvases()
-  self.sceneColor, self.idDepth, self.depth = sceneColor, idDepth, depth
+  self.sceneColor, self.finalState, self.depth = sceneColor, finalState, depth
   self.canvasW, self.canvasH = w, h
   self._sceneTargets = sceneTargets
 end
@@ -672,9 +672,6 @@ function MapRenderer:_drawMesh(
   shader:send("u_polygonAlpha", item.polygonAlpha)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
   shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
-  -- The translucent-attribute flag is a separate logical field from
-  -- the polygon ID -- translucent draws still send their own real ID above.
-  shader:send("u_translucentAttribute", alphaClass == AlphaClassifier.TRANSLUCENT)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
   -- This draw's own POLYGON_ATTR FOG_ENABLE bit (the per-polygon gate);
   -- the global gate/color/table/offset are frame-invariant (_sendFog).
@@ -789,8 +786,6 @@ function MapRenderer:_drawWireframeMesh(
   -- Wireframe draws send their own real polygon id, normalized by the same
   -- domain maximum as every other draw -- never an invented sentinel.
   shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
-  -- Wireframe counts as opaque for edge marking (GBATEK): never translucent.
-  shader:send("u_translucentAttribute", false)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
   shader:send("u_polygonFogEnabled", item.fogEnabled == true)
   mesh:setTexture()
@@ -862,13 +857,14 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
       self:_drawItem(d, projection, AlphaClassifier.CUTOUT, viewMatrix)
     end
 
-    -- Pass 3: blended, depth test on, write governed by polygon state. The
-    -- ID/depth target stays bound so translucent fragments occlude the opaque
-    -- geometry behind them for edge marking; they stamp their own real
-    -- polygon ID (never an invented sentinel) plus the separate
-    -- translucent-attribute flag so the edge pass never outlines them itself.
-    -- The ID/depth attachment carries alpha 1, so it is replaced -- not
-    -- alpha-blended -- even while the colour attachment blends.
+    -- Pass 3: blended, depth test on, write governed by polygon state.
+    -- finalState stays bound, so a translucent fragment still overwrites the
+    -- edge polygon ID/depth/fog gate underneath it with its own real values
+    -- (never an invented sentinel) -- a known, tracked gap versus real DS
+    -- behavior for a non-depth-writing translucent fragment; see this
+    -- function's header comment. The finalState attachment carries alpha 1,
+    -- so it is replaced -- not alpha-blended -- even while the colour
+    -- attachment blends.
     --
     -- DS blend contract vs. host blend state: host `setBlendMode("alpha",
     -- "alphamultiply")` reproduces the DS RGB blend equation exactly in shape
@@ -909,8 +905,8 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for
-    -- edge marking and send the item's own real polygon id into the ID
-    -- target, normalized like every other draw (see _drawWireframeMesh).
+    -- edge marking and send the item's own real polygon id into finalState,
+    -- normalized like every other draw (see _drawWireframeMesh).
     lg.setCanvas(sceneTargets)
     if #queue.wireframe > 0 then
       lg.setShader(self.shader)

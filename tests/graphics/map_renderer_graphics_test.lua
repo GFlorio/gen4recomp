@@ -157,7 +157,7 @@ end
 -- renderer allocates its targets at the derived raster size rather than
 -- the raw display viewport, several host resolutions at the same aspect and
 -- scale reuse that same raster target instead of reallocating, and the
--- composited scene canvas is nearest-filtered on the real driver like idDepth
+-- composited scene canvas is nearest-filtered on the real driver like finalState
 -- already is.
 function T.raster_scale_derives_and_reuses_target_size_and_nearest_filters_scene_color(scope)
   local renderer = scope:own(MapRenderer.new({ rasterScale = 2 }))
@@ -1539,9 +1539,9 @@ function T.camera_far_plane_drives_the_normalized_depth_target(scope)
   -- Whichever of the two candidate interior samples is not the rear-plane
   -- clear (r == 1.0, the normalized sentinel) carries the drawn item's own
   -- id (0) and real quantized depth in its green channel.
-  local function idDepthInterior(camera)
+  local function finalStateInterior(camera)
     renderer:draw(emptyRuntime(), camera, { { item } }, viewport)
-    local img = renderer.idDepth:newImageData()
+    local img = renderer.finalState:newImageData()
     local a, b = { img:getPixel(416, 384) }, { img:getPixel(416, 95) }
     return a[1] < 0.5 and a or b
   end
@@ -1552,11 +1552,11 @@ function T.camera_far_plane_drives_the_normalized_depth_target(scope)
 
   local shortRange = fixedCamera()
   shortRange.far = 2
-  local shortRangeSample = idDepthInterior(shortRange)
+  local shortRangeSample = finalStateInterior(shortRange)
 
   local longRange = fixedCamera()
   longRange.far = 4
-  local longRangeSample = idDepthInterior(longRange)
+  local longRangeSample = finalStateInterior(longRange)
 
   Assert.isTrue(
     shortRangeSample[2] ~= longRangeSample[2],
@@ -1564,6 +1564,38 @@ function T.camera_far_plane_drives_the_normalized_depth_target(scope)
   )
   Assert.near(shortRangeSample[2], expectedDepth(2), 1, "matches dsWbufferDepth(1) at u_depthWMax=2")
   Assert.near(longRangeSample[2], expectedDepth(4), 1, "matches dsWbufferDepth(1) at u_depthWMax=4")
+end
+
+-- The finalState render-target contract: an opaque (or cutout/wireframe --
+-- they share this exact fragment shader code path) fragment must write its
+-- own POLYGON_ATTR FOG_ENABLE bit
+-- (item.fogEnabled, already threaded to the shader as u_polygonFogEnabled for
+-- fog blending) into finalState's blue channel, not the retired translucent-
+-- identity flag. An opaque item is never translucent, so today's blue
+-- channel (u_translucentAttribute) is always 0 regardless of fogEnabled --
+-- this is the exact numeric divergence that proves the channel's meaning
+-- changed, not merely its uniform source.
+function T.opaque_draw_writes_its_fog_gate_into_the_final_state_blue_channel(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local image = solidAlphaImage(scope, 255, 255, 255, 255)
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+
+  local function finalStateInterior(item)
+    renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, viewport)
+    local img = renderer.finalState:newImageData()
+    local a, b = { img:getPixel(416, 384) }, { img:getPixel(416, 95) }
+    return a[1] < 0.5 and a or b
+  end
+
+  local fogGated = decalItem(decalTriangle(scope), image)
+  fogGated.fogEnabled = true
+  local sampleGated = finalStateInterior(fogGated)
+  Assert.near(sampleGated[3], 1.0, 1 / 255, "a fog-enabled opaque fragment's fog gate reaches the blue channel")
+
+  local fogUngated = decalItem(decalTriangle(scope), image)
+  fogUngated.fogEnabled = false
+  local sampleUngated = finalStateInterior(fogUngated)
+  Assert.near(sampleUngated[3], 0.0, 1 / 255, "a fog-disabled opaque fragment's fog gate stays 0")
 end
 
 -- Shared 3x1 fixture for the edge-predicate anchors below: pixel 1 is
@@ -1578,9 +1610,12 @@ end
 local function runEdgePass(scope, pixels, edgeColors)
   local edgeShader = scope:own(MapRenderer.new()).edgeShader
 
+  -- The blue (fog-gate) and alpha (validity) channels are irrelevant to
+  -- edge.glsl's predicate (it reads only R/id and G/depth), so this fixture
+  -- fills them with fixed placeholder values rather than per-pixel fields.
   local idData = love.image.newImageData(3, 1, "rgba32f")
   for i, p in ipairs(pixels) do
-    idData:setPixel(i - 1, 0, p.id / 63, p.depth, p.translucent and 1 or 0, 1)
+    idData:setPixel(i - 1, 0, p.id / 63, p.depth, 0, 1)
   end
   local idImage = scope:own(love.graphics.newImage(idData))
   idImage:setFilter("nearest", "nearest")
@@ -1692,19 +1727,14 @@ function T.edge_shader_does_not_mark_a_same_id_neighbor(scope)
   Assert.near(out[3], 220 / 255, 1 / 255)
 end
 
--- Edge behavior anchor 4: a translucent center (the blue-channel
--- translucent-attribute flag) is never an edge center, even under the exact
--- neighbor/depth shape that marks an opaque center (anchor 1's own
--- fixture) -- translucent draws occlude but are never outlined themselves.
-function T.edge_shader_never_marks_a_translucent_center(scope)
-  local out = runEdgePass(scope, {
-    { id = 10, depth = 1000 },
-    { id = 20, depth = 500, translucent = true },
-    { id = 20, depth = 500 },
-  }, eightEdgeColors())
-  Assert.near(out[1], 200 / 255, 1 / 255, "a translucent center must not mark: unmodified scene color")
-  Assert.near(out[2], 210 / 255, 1 / 255)
-  Assert.near(out[3], 220 / 255, 1 / 255)
-end
+-- The retired "translucent center never marks" fixture (blue-channel
+-- translucent-attribute flag) is deliberately not replaced here. Under the
+-- target finalState render-target contract, the blue channel is the per-polygon
+-- fog gate, not a translucent identity, so edge.glsl no longer reads it at
+-- all -- translucent-draw preservation (keeping translucent fragments from
+-- becoming spurious edge centers) is a later renderer change, done by
+-- excluding the translucent pass from the finalState canvas binding, not by
+-- a shader-side flag. See MapRenderer:draw's pass-3 comment for the tracked
+-- gap between this state and that one.
 
 return GraphicsSmoke.suite(T)

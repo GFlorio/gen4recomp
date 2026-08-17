@@ -552,7 +552,7 @@ end
 
 -- opts.rasterScale makes the renderer allocate its targets at the derived
 -- DS-relative raster size, not the raw display viewport, and nearest-filter
--- the composited scene the same way idDepth already is -- the world stays
+-- the composited scene the same way finalState already is -- the world stays
 -- DS-relative while the final draw upscales it to the display viewport.
 function T.new_with_raster_scale_derives_canvas_size_and_nearest_filters_scene_color()
   local lg = fakeGraphics()
@@ -566,7 +566,7 @@ function T.new_with_raster_scale_derives_canvas_size_and_nearest_filters_scene_c
   Assert.deepEqual(
     sceneColor.filter,
     { "nearest", "nearest" },
-    "the composited scene canvas is nearest-filtered like idDepth"
+    "the composited scene canvas is nearest-filtered like finalState"
   )
   renderer:release()
 end
@@ -596,13 +596,13 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     end
     -- The previous target set survives untouched, at its recorded size.
     Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
-    Assert.equal(renderer.idDepth, lg.canvases[2], "the previous id-depth canvas survives")
+    Assert.equal(renderer.finalState, lg.canvases[2], "the previous final-state canvas survives")
     Assert.equal(renderer.depth, lg.canvases[3], "the previous depth canvas survives")
     Assert.equal(renderer.canvasW, oldW, "the recorded size survives")
     Assert.equal(renderer.canvasH, oldH, "the recorded size survives")
     Assert.equal(renderer._sceneTargets, oldTargets, "the previous target descriptor survives")
     Assert.equal(lg.canvases[1].releaseCount, 0, "the previous scene canvas is still owned")
-    Assert.equal(lg.canvases[2].releaseCount, 0, "the previous id-depth canvas is still owned")
+    Assert.equal(lg.canvases[2].releaseCount, 0, "the previous final-state canvas is still owned")
     Assert.equal(lg.canvases[3].releaseCount, 0, "the previous depth canvas is still owned")
 
     renderer:release()
@@ -632,7 +632,7 @@ function T.canvas_recreation_send_failure_retains_previous_targets()
 
   Assert.equal(renderer._sceneTargets, oldTargets, "the previous descriptor remains published")
   Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
-  Assert.equal(renderer.idDepth, lg.canvases[2], "the previous ID canvas survives")
+  Assert.equal(renderer.finalState, lg.canvases[2], "the previous final-state canvas survives")
   Assert.equal(renderer.depth, lg.canvases[3], "the previous depth canvas survives")
   Assert.equal(renderer.canvasW, 640)
   Assert.equal(renderer.canvasH, 480)
@@ -671,7 +671,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   local targets = assert(renderer._sceneTargets, "successful canvas creation publishes its target descriptor")
   Assert.equal(targets[1], renderer.sceneColor)
-  Assert.equal(targets[2], renderer.idDepth)
+  Assert.equal(targets[2], renderer.finalState)
   Assert.equal(targets.depthstencil, renderer.depth)
   Assert.equal(renderer.stats, stats, "draw reuses the public stats table")
   Assert.equal(shaderSendCount(edgeShader, "u_idTex"), 1)
@@ -1239,7 +1239,6 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
   Assert.equal(sent.u_polygonId, 0 / 63, "the actor's polygon id 0 rides the real id channel")
   Assert.equal(sent.u_alphaMode, 1, "the actor's cutout class sends the cutout alpha-mode id")
   Assert.deepEqual(sent.u_lightMask, MapRenderer.lightMaskUniforms(1), "light mask 1 decodes to bit 0 only")
-  Assert.isFalse(sent.u_translucentAttribute, "an opaque/cutout actor draw is not the translucent identity")
   Assert.notNil(
     sent.u_billboardCenter,
     "the actor's billboard projection selection reaches the shared billboard branch"
@@ -1677,12 +1676,11 @@ function T.wireframe_draw_sends_its_own_real_polygon_id_not_an_invented_sentinel
 end
 
 -- GBATEK: "Edge Marking is applied ONLY to opaque polygons (including
--- wire-frames)" -- wireframe draws must be classified as opaque for both
--- uniforms the edge/fog final pass keys on: the alpha-mode id (never the
--- cutout/translucent branch) and the translucent-attribute flag (never
--- true). This locks a contract the renderer already satisfies structurally
--- (alphaModeId has no wireframe branch and _drawWireframeMesh hardcodes the
--- flag false) so a later refactor cannot regress it silently.
+-- wire-frames)" -- a wireframe draw must be classified as opaque for the
+-- uniform the edge/fog final pass keys on: the alpha-mode id (never the
+-- cutout/translucent branch). This locks a contract the renderer already
+-- satisfies structurally (alphaModeId has no wireframe branch) so a later
+-- refactor cannot regress it silently.
 function T.wireframe_draw_is_opaque_classified_for_edge_marking()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -1695,7 +1693,37 @@ function T.wireframe_draw_is_opaque_classified_for_edge_marking()
     sent[send.name] = send.values[1]
   end
   Assert.equal(sent.u_alphaMode, 0, "a wireframe draw sends the opaque alpha-mode id")
-  Assert.isFalse(sent.u_translucentAttribute, "a wireframe draw is never the translucent identity")
+  renderer:release()
+end
+
+-- The finalState render-target contract's blue channel is the per-polygon fog gate
+-- (item.fogEnabled), not a separate "translucent identity" flag -- the old
+-- u_translucentAttribute uniform is retired outright, not merely unread, for
+-- every draw kind (opaque, cutout, translucent, wireframe alike). A stray
+-- send of the retired uniform is exactly the kind of silent regression this
+-- locks: a shader still reading it would compile and render, so only an
+-- explicit "never sent" assertion catches its reintroduction.
+function T.draws_never_send_the_retired_translucent_attribute_uniform()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local opaqueItem = passItem("opaque", 0)
+  local cutoutItem = passItem("cutout", 0)
+  local translucentItem = passItem("translucent", -1)
+  local wireframeItem = passItem("wireframe", 0)
+
+  renderer:draw(
+    scene.runtime,
+    scene.camera,
+    { { opaqueItem, cutoutItem, translucentItem, wireframeItem } },
+    FieldViewport.new(640, 480, { mode = "strict" })
+  )
+
+  Assert.equal(
+    shaderSendCount(lg.shaders[1], "u_translucentAttribute"),
+    0,
+    "the map shader is never sent the retired translucent-attribute uniform"
+  )
   renderer:release()
 end
 

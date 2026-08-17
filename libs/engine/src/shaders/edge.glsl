@@ -1,5 +1,7 @@
-// DS edge-marking post-process, run as a full-screen pass over the polygon-ID /
-// depth / translucent-attribute target written by map.glsl.
+// DS edge-marking post-process, run as a full-screen pass over the finalState
+// target written by map.glsl (red edge polygon ID, green DS-quantized depth,
+// blue per-polygon fog gate, alpha validity). This pass reads only red and
+// green; the fog gate is consumed by the final fog stage, not here.
 //
 // GBATEK ("4000330h..33Fh - EDGE_COLOR") defines the rule: a pixel is marked
 // when at least one of its four surrounding pixels (up, down, left, right --
@@ -21,12 +23,12 @@
 // hardware.
 //
 // Only opaque geometry participates -- "Edge Marking is applied ONLY to opaque
-// polygons (including wire-frames)". Translucent draws still stamp this buffer
-// so they OCCLUDE the opaque geometry behind them (otherwise a back object
-// outlines through a translucent object in front of it), but they carry their
-// own real polygon ID (never an invented sentinel) plus a separate
-// translucent-attribute flag in the blue channel, and are skipped as edge
-// centers below via that flag, so they are never outlined themselves.
+// polygons (including wire-frames)". Translucent draws currently still stamp
+// this same target with their own real polygon ID/depth rather than leaving
+// the underlying opaque state untouched, so a translucent fragment can
+// currently become a spurious edge center or be outlined itself -- a known,
+// tracked gap fixed by excluding the translucent pass from this target
+// entirely, not by a shader-side flag (see MapRenderer's header comment).
 //
 // Hardware marks a single 256x192 pixel. u_edgeRadius rescales that to the
 // current framebuffer so the outline keeps its DS-relative weight.
@@ -42,10 +44,16 @@ uniform int u_edgeRadius;
 
 const int MAX_EDGE_RADIUS = 8;
 
+// HGSS's real clear/rear-plane polygon ID and the domain maximum every real
+// draw's u_polygonId is normalized by (MapRenderer.CLEAR_POLYGON_ID; see
+// MapRenderer.lua). Named so the encode (Lua) and decode (here) sides cannot
+// silently drift apart.
+const float CLEAR_POLYGON_ID = 63.0;
+
 bool marked(vec2 uv, vec2 offset, float centerId, float centerDepth)
 {
   vec3 neighborSample = Texel(u_idTex, uv + offset).rgb;
-  bool differentId = abs(neighborSample.r - centerId) > 0.5 / 63.0;
+  bool differentId = abs(neighborSample.r - centerId) > 0.5 / CLEAR_POLYGON_ID;
   // Strictly less, no tolerance -- the marked pixel must be in front.
   bool centerInFront = centerDepth < neighborSample.g;
   return differentId && centerInFront;
@@ -57,17 +65,13 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
   vec3 center = Texel(u_idTex, uv).rgb;
   float centerId = center.r;
   float centerDepth = center.g;
-  int centerPolygonId = int(floor(centerId * 63.0 + 0.5));
-
-  // Translucent pixels occlude but are never edge centers (opaque + wireframe
-  // only): the translucent-attribute flag, not an ID sentinel.
-  if (center.b > 0.5) return scene;
+  int centerPolygonId = int(floor(centerId * CLEAR_POLYGON_ID + 0.5));
 
   // Every legitimately encoded id (real draws and the clear/rear-plane entry
   // alike) decodes into 0..63; this is a cheap defensive guard against
   // malformed upstream data, not a sentinel check -- well-formed input can
   // never reach it.
-  if (centerPolygonId > 63) return scene;
+  if (centerPolygonId > int(CLEAR_POLYGON_ID)) return scene;
 
   bool edge = false;
   for (int i = 1; i <= MAX_EDGE_RADIUS; i++) {

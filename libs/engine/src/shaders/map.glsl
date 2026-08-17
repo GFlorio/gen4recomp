@@ -242,7 +242,6 @@ uniform float u_alphaCutoff;
 uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
 uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 63), HGSS clear id 63 -> 1.0
-uniform bool u_translucentAttribute; // translucent identity, separate from polygon ID
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
 
@@ -405,12 +404,13 @@ void effect()
   }
 
   love_Canvases[0] = vec4(outRgb, alpha);
-  // Red: normalized polygon ID (the fragment's own real ID -- translucent
-  // fragments included, never a sentinel). Green: DS-quantized W-buffer depth (see
-  // dsWbufferDepth above); perspective window Z is too crushed at this
-  // near/far to resolve short-object silhouettes, hence the linear domain.
-  // Blue: the translucent-attribute flag, a separate logical field from the
-  // polygon ID (never an invented sentinel carved out of the ID domain).
-  love_Canvases[1] = vec4(u_polygonId, dsDepth, u_translucentAttribute ? 1.0 : 0.0, 1.0);
+  // finalState: red the normalized edge polygon ID (the fragment's own real
+  // ID -- translucent fragments included, never a sentinel). Green the
+  // DS-quantized W-buffer depth (see dsWbufferDepth above); perspective
+  // window Z is too crushed at this near/far to resolve short-object
+  // silhouettes, hence the linear domain. Blue this draw's own per-polygon
+  // fog gate (POLYGON_ATTR FOG_ENABLE, u_polygonFogEnabled). Alpha
+  // validity/reserved, always 1 for a fragment that reaches this point.
+  love_Canvases[1] = vec4(u_polygonId, dsDepth, u_polygonFogEnabled ? 1.0 : 0.0, 1.0);
 }
 #endif
