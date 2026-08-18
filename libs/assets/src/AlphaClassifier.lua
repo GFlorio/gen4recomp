@@ -22,16 +22,6 @@ AlphaClassifier.CUTOUT = "cutout"
 AlphaClassifier.WIREFRAME = "wireframe"
 AlphaClassifier.MIXED = "mixed"
 
--- The texture format ids that force translucency (raw NSBTX format ids,
--- GBATEK TEXIMAGE_PARAM; the classifier needs only the two alpha formats).
-AlphaClassifier.A3I5 = 1
-AlphaClassifier.A5I3 = 6
-
--- The fragment alpha cutoff for cutout draws: a 5-bit alpha of zero becomes
--- a normalized value just below half of one 8-bit step. Shared by the
--- renderer (per-draw default), the model draw path, and the neighbor ring.
-AlphaClassifier.CUTOUT_EPSILON = 0.5 / 255
-
 -- Classify an effective polygon state against a texture and polygon mode.
 -- `polygonMode` is a string ("decal" or "modulation" per DS semantics).
 -- `textureFormat` is the raw NSBTX format (0 for untextured); `alphaUsage`

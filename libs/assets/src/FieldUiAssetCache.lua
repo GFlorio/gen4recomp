@@ -264,7 +264,9 @@ function FieldUiAssetCache.validateManifest(manifest)
             type = key,
           })
       end
-      local paletteCount = 0
+      local function isValidComponent(val)
+        return type(val) == "number" and val % 1 == 0 and val >= 0 and val <= 255
+      end
       for slot = 0, 15 do
         local color = typeEntry.palette[slot]
         if color == nil then
@@ -276,47 +278,32 @@ function FieldUiAssetCache.validateManifest(manifest)
         end
         if
           type(color) ~= "table"
-          or type(color.r) ~= "number"
-          or type(color.g) ~= "number"
-          or type(color.b) ~= "number"
+          or not isValidComponent(color.r)
+          or not isValidComponent(color.g)
+          or not isValidComponent(color.b)
         then
-          return false,
-            Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette slot " .. slot .. " must have r, g, b", {
-              type = key,
-              slot = slot,
-            })
-        end
-        local function checkComponent(val, comp)
-          return val % 1 == 0 and val >= 0 and val <= 255
-        end
-        if not checkComponent(color.r, "r") or not checkComponent(color.g, "g") or not checkComponent(color.b, "b") then
           return false,
             Errors.new(
               MANIFEST_INVALID,
-              "signpost type " .. key .. " palette slot " .. slot .. " components must be integral 0..255",
+              "signpost type " .. key .. " palette slot " .. slot .. " must have integral r/g/b 0..255",
               {
                 type = key,
                 slot = slot,
-                r = color.r,
-                g = color.g,
-                b = color.b,
               }
             )
         end
-        paletteCount = paletteCount + 1
       end
-      if paletteCount ~= 16 then
-        return false,
-          Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette must have exactly 16 entries", {
-            type = key,
-            count = paletteCount,
-          })
+      -- Every slot 0..15 was checked above; any other key means the table
+      -- carries more than the exact 16-entry palette the schema requires.
+      local paletteKeyCount = 0
+      for _ in pairs(typeEntry.palette) do
+        paletteKeyCount = paletteKeyCount + 1
       end
-      -- Check for extra entries beyond slot 15.
-      if typeEntry.palette[16] ~= nil then
+      if paletteKeyCount ~= 16 then
         return false,
           Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette must have exactly 16 entries (0..15)", {
             type = key,
+            count = paletteKeyCount,
           })
       end
 

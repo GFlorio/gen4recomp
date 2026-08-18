@@ -147,15 +147,6 @@ local function renderScreen(charData, palette, screen, source)
   return PngWriter.encode(width, height, concatChars(rgba))
 end
 
--- Render a tile run (e.g. a frame's 18 tiles) into a strip atlas.
-local function renderTiles(charData, palette, tileCount, atlasWidth, source)
-  local rgba = newRgba(atlasWidth, 8)
-  for tile = 0, tileCount - 1 do
-    blitTile(rgba, atlasWidth, tile * 8, 0, charData, tile, 0, palette, false, false, source)
-  end
-  return PngWriter.encode(atlasWidth, 8, concatChars(rgba))
-end
-
 local function cellBounds(cell)
   local first = assert(cell.objs[1], "cell bounds require at least one object")
   local minX, minY, maxX, maxY = first.x, first.y, first.x + first.width, first.y + first.height
@@ -432,6 +423,17 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
     return bank
   end
 
+  -- blitTile's palette argument is a 1-based array; the generated manifest
+  -- keeps the clear zero-based slot map, so callers convert at the point of
+  -- use.
+  local function paletteAsOneBasedArray(bank)
+    local array = {}
+    for slot = 0, 15 do
+      array[slot + 1] = bank[slot]
+    end
+    return array
+  end
+
   -- v5: render one frame strip row per source type using its own palette.
   local frameRowYs = {}
   local frameAtlasHeight = #cfg.sourceTypes * 8
@@ -439,11 +441,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   local frameRgba = newRgba(frameAtlasWidth, frameAtlasHeight)
 
   for rowIndex, sourceType in ipairs(cfg.sourceTypes) do
-    local palette = signPaletteBank(framePal.colors, sourceType)
-    local paletteOneBasedArray = {}
-    for slot = 0, 15 do
-      paletteOneBasedArray[slot + 1] = palette[slot]
-    end
+    local paletteOneBasedArray = paletteAsOneBasedArray(signPaletteBank(framePal.colors, sourceType))
 
     for tile = 0, frameTiles - 1 do
       blitTile(
@@ -522,11 +520,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   for index, row in ipairs(rows) do
     local wfChar = row.char
     -- v5: render wayfinding row with its source type's palette bank.
-    local palette = signPaletteBank(framePal.colors, row.sourceType)
-    local paletteOneBasedArray = {}
-    for slot = 0, 15 do
-      paletteOneBasedArray[slot + 1] = palette[slot]
-    end
+    local paletteOneBasedArray = paletteAsOneBasedArray(signPaletteBank(framePal.colors, row.sourceType))
 
     for tile = 0, FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES - 1 do
       blitTile(rgba, rowWidth, tile * 8, (index - 1) * 8, wfChar, tile, 0, paletteOneBasedArray, false, false, {

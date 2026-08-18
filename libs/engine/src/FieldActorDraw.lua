@@ -16,7 +16,6 @@ local FieldActorPose = require("libs.engine.src.FieldActorPose")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 
 local FieldActorDraw = {}
 
@@ -114,7 +113,6 @@ local function writeItem(record, entry, partIndex, item)
   item.modelNormal = IDENTITY_MODEL_NORMAL
   item.billboardProjection = isBillboard
   item.alphaClass = part.alphaClass
-  item.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
   item.cullMode = polygon.cullMode
   item.polygonAlpha = polygon.polygonAlpha / FixedPoint.RGB5_MAX
   item.polygonMode = polygon.polygonMode

@@ -67,11 +67,6 @@ local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
 
--- Fragment alpha cutoff for cutout materials; the shared render constant
--- (AlphaClassifier.CUTOUT_EPSILON) the renderer also uses as the default for
--- items carrying no explicit cutoff.
-local CUTOUT_EPSILON = AlphaClassifier.CUTOUT_EPSILON
-
 -- The polygon draw fields the draw path consumes from a nitro backend mesh
 -- record: the shared PolygonState schema minus polygonAlpha, which rides on
 -- the effective material (it can be animated) rather than the batch record.
@@ -286,9 +281,6 @@ function ModelInstance:effectiveMaterial(materialIndex)
     -- color ownership bits, so the stored colors alone never reach the DS).
     colorsAnimated = state and state.colorAnimated or false,
     alphaClass = alphaClass,
-    -- The fragment cutoff is a render constant the shader reads only in
-    -- cutout mode; the item contract requires a concrete value.
-    alphaCutoff = CUTOUT_EPSILON,
     polygonAlpha = state.polygonAlpha / FixedPoint.RGB5_MAX,
   }
 end
@@ -301,7 +293,6 @@ end
 ---@field transform number[] -- 16-element column-major matrix
 ---@field modelNormal number[] -- inverse-transpose model linear transform
 ---@field alphaClass string
----@field alphaCutoff number -- the fragment cutoff (read only in cutout mode)
 ---@field polygonAlpha number
 ---@field polygonMode string
 ---@field polygonId integer
@@ -379,7 +370,6 @@ function ModelInstance:drawItems(renderMeshesById)
         billboardCenter = billboardCenter,
         billboardScale = billboardScale,
         alphaClass = material.alphaClass,
-        alphaCutoff = material.alphaCutoff,
         polygonAlpha = material.polygonAlpha,
         -- The loader stamps each mesh's model-space center from the decoded
         -- geometry; a definition mesh without one cannot be sorted.
