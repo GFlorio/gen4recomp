@@ -349,8 +349,9 @@ function T.tests.save_resume_preserves_field_music_override_state()
 
       -- Set a field-music override (e.g., bicycle music).
       local overrideSeq = "SEQ_GS_BICYCLE"
+      local overrideId = musicId(game1, overrideSeq)
       audio:setMusicOverride(overrideSeq)
-      Assert.equal(audio:musicOverride(), overrideSeq, "setMusicOverride must update state")
+      Assert.equal(audio:musicOverride(), overrideId, "setMusicOverride must update state with numeric ID")
     end, debug.traceback)
 
     if not ok then
@@ -370,10 +371,11 @@ function T.tests.save_resume_preserves_field_music_override_state()
 
     local ok2, err2 = xpcall(function()
       local audio = requireAudio(game2)
+      local bicycleId = musicId(game2, "SEQ_GS_BICYCLE")
 
       Assert.equal(
         audio:musicOverride(),
-        "SEQ_GS_BICYCLE",
+        bicycleId,
         "field-music override must be restored from save on resume"
       )
 
