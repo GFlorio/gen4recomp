@@ -5,8 +5,12 @@
 -- graphic region, and every fixed-tick wipe position (-48, -32, -16, 0; the
 -- hidden -48 render is fully transparent because the surface sits below the
 -- screen), and every graphics state the draw touched is proven restored
--- against the real driver. The construction/draw failure paths are injected
--- fakes and stay in field_signpost_renderer_test.lua.
+-- against the real driver. The reference composes the interior fill and the
+-- palette-driven glyph text from the active source type's own generated
+-- palette (slots 2/10/15), through the real palette shader and mask atlas --
+-- never a hardcoded RGB stand-in -- so a wrong bank, a wrong slot, or a stray
+-- fallback to type 0 is a pixel mismatch. The construction/draw failure paths
+-- are injected fakes and stay in field_signpost_renderer_test.lua.
 
 local Assert = require("tests.support.Assert")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
@@ -112,25 +116,52 @@ local function pasteRowTile(reference, row, tile, x, y)
   end
 end
 
--- Pastes one 8x16 glyph of the fixture font (A red, B green) at its
--- position; pixels outside the canvas are skipped.
+-- Pastes one 8x16 glyph of the fixture mask font (code 1 all foreground
+-- class, code 2 all shadow class) at its position, recolored through the
+-- caller's own palette color -- exactly the palette shader's job -- so a
+-- wrong slot or a fallback to another type's bank is a pixel mismatch.
+-- Pixels outside the canvas are skipped.
 ---@param reference love.ImageData
----@param red boolean
+---@param color { r: integer, g: integer, b: integer }
 ---@param x integer
 ---@param y integer
-local function pasteGlyph(reference, red, x, y)
+local function pasteGlyph(reference, color, x, y)
   for ty = 0, 15 do
     for tx = 0, 7 do
       local px, py = x + tx, y + ty
       if px >= 0 and py >= 0 and px < CANONICAL_WIDTH and py < CANONICAL_HEIGHT then
-        if red then
-          reference:setPixel(px, py, 200 / 255, 40 / 255, 40 / 255, 1)
-        else
-          reference:setPixel(px, py, 40 / 255, 200 / 255, 40 / 255, 1)
-        end
+        reference:setPixel(px, py, color.r / 255, color.g / 255, color.b / 255, 1)
       end
     end
   end
+end
+
+-- Fills one rectangle solid at the wipe-translated position; pixels outside
+-- the canvas are skipped.
+---@param reference love.ImageData
+---@param rect { x: integer, y: integer, width: integer, height: integer }
+---@param color { r: integer, g: integer, b: integer }
+---@param wipe integer
+local function fillRect(reference, rect, color, wipe)
+  for y = rect.y + wipe, rect.y + rect.height - 1 + wipe do
+    for x = rect.x, rect.x + rect.width - 1 do
+      if x >= 0 and y >= 0 and x < CANONICAL_WIDTH and y < CANONICAL_HEIGHT then
+        reference:setPixel(x, y, color.r / 255, color.g / 255, color.b / 255, 1)
+      end
+    end
+  end
+end
+
+-- The interior text-window rectangle for one frame kind, matching
+-- FieldSignpostRenderer's own contentGeometry contract exactly: the graphic
+-- kind reserves the left 56px for the wayfinding art.
+---@param kind "full"|"graphic"
+---@return { x: integer, y: integer, width: integer, height: integer }
+local function contentGeometryFor(kind)
+  if kind == "graphic" then
+    return { x = 72, y = 152, width = 160, height = 32 }
+  end
+  return { x = 16, y = 152, width = 216, height = 32 }
 end
 
 -- The independent reference for the canonical render, composed from the
@@ -147,6 +178,8 @@ local function goldenReference(sourceType, wipeOffset)
   local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
   local wipe = -wipeOffset
   local kind = (sourceType == 0 or sourceType == 1) and "graphic" or "full"
+  local palette = FieldUiFixture.typePalette(sourceType)
+  fillRect(reference, contentGeometryFor(kind), palette[15], wipe)
   for _, placement in ipairs(FieldSignpostTheme.frameTilePlacements(kind)) do
     for row = 0, (placement.spanY or 1) - 1 do
       for col = 0, (placement.spanX or 1) - 1 do
@@ -174,7 +207,10 @@ local function goldenReference(sourceType, wipeOffset)
     local x = textX
     for _, token in ipairs(ln.tokens) do
       if token.kind == "glyph" then
-        pasteGlyph(reference, token.code == 1, x, 152 + (lineIndex - 1) * 16 + wipe)
+        -- The fixture mask font: code 1 is entirely the foreground class
+        -- (palette slot 2), code 2 entirely the shadow class (slot 10).
+        local color = token.code == 1 and palette[2] or palette[10]
+        pasteGlyph(reference, color, x, 152 + (lineIndex - 1) * 16 + wipe)
         x = x + 6
       end
     end
