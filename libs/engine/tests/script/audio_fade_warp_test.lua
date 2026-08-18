@@ -778,7 +778,7 @@ T["music fade task completes exactly when the real fade reaches its target"] = f
   local h = harness({ audio = false })
   h.services.audio = sound
   h.services.advanceAsync = function()
-    sound:updateFixed()
+    sound:updateSoundFrame()
   end
   local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
   h.taskRegistry:register("music_fade", 1, MusicFadeTask)

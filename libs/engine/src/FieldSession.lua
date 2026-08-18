@@ -120,7 +120,7 @@ function FieldSession.new(options)
   )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
   if options.audio then
-    assert(type(options.audio.updateFixed) == "function", "field session audio update required")
+    assert(type(options.audio.updateSoundFrame) == "function", "field session audio update required")
   end
   return setmetatable({
     versionId = options.versionId,
@@ -170,11 +170,14 @@ function FieldSession:_advanceTick()
 end
 
 function FieldSession:updateFixed(inputSnapshot)
-  -- The audio service advances once per field fixed tick, before every
+  -- The audio service advances once per field sound frame (60 Hz), before every
   -- early return (transition, dialogue, script lock), so fades, fanfares
   -- and post-wait state never stall behind dialogue or movement.
+  -- Note: FieldSession calls this per field tick (30 Hz), but GameSound
+  -- semantics are per sound frame (60 Hz). FieldRuntime will later own
+  -- the 60 Hz accumulation.
   if self.audio then
-    self.audio:updateFixed()
+    self.audio:updateSoundFrame()
   end
   inputSnapshot = inputSnapshot or self.input:snapshot()
   -- The door/stair choreography drives the player during the locked

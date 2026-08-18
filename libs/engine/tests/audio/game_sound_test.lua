@@ -230,7 +230,7 @@ end
 -- 0 is full volume and -0x8000 the fully attenuated clamp.
 local function advanceFade(sound, player, spy, ticks)
   for _ = 1, ticks do
-    sound:updateFixed()
+    sound:updateSoundFrame()
   end
   player:render(250)
   for i = #spy.readings, 1, -1 do
@@ -341,10 +341,10 @@ function T.fanfare_pauses_the_bgm_player_and_resumes_its_timeline()
   Assert.isTrue(maxAbs(left(player:render(500), 500)) > 0, "the fanfare plays while the bgm timeline is paused")
   Assert.isTrue(sound:isFanfarePlaying(), "the post-fanfare wait interval is still fanfare-playing")
   for _ = 1, FANFARE_POST_WAIT_TICKS - 1 do
-    sound:updateFixed()
+    sound:updateSoundFrame()
   end
   Assert.isTrue(sound:isFanfarePlaying(), "the interval holds for its full length")
-  sound:updateFixed()
+  sound:updateSoundFrame()
   Assert.isFalse(sound:isFanfarePlaying(), "the interval expired")
   -- The still-current bgm's timeline resumes from its paused position and
   -- its loop renders again; the released voice is never resurrected.
@@ -500,7 +500,7 @@ function T.a_fanfare_freezes_the_active_fade_until_it_ends()
   -- The fanfare's post-wait counts down on field ticks while the fade is
   -- frozen; the bgm player is paused, so no new fader reaches its voice.
   for _ = 1, FANFARE_POST_WAIT_TICKS - 1 do
-    sound:updateFixed()
+    sound:updateSoundFrame()
   end
   Assert.isTrue(sound:isFanfarePlaying(), "the fanfare is still in its post-wait")
   Assert.isTrue(sound:isMusicFadeActive(), "the fade is frozen, not completed")
@@ -512,7 +512,7 @@ function T.a_fanfare_freezes_the_active_fade_until_it_ends()
     end
   end
   Assert.equal(frozen, level10, "the fade's level does not advance while the fanfare plays")
-  sound:updateFixed()
+  sound:updateSoundFrame()
   Assert.isFalse(sound:isFanfarePlaying(), "the post-wait expired")
   -- The fade resumes on its original schedule: the fanfare's ticks did not
   -- count, so it still needs 19 more updates to finish.
@@ -658,7 +658,7 @@ function T.stopping_the_bgm_cancels_an_active_fade()
   Assert.isNil(sound:currentMusic())
   Assert.isFalse(sound:isMusicFadeActive(), "stopping the bgm cancels its fade")
   for _ = 1, 40 do
-    sound:updateFixed()
+    sound:updateSoundFrame()
   end
   Assert.isFalse(sound:isMusicFadeActive(), "the cancelled fade never reactivates")
   player:render(500)
@@ -673,7 +673,7 @@ function T.replacing_the_bgm_cancels_an_active_fade()
   player:render(200)
   sound:fadeMusicOut({ target = 0, durationTicks = 30 })
   for _ = 1, 10 do
-    sound:updateFixed()
+    sound:updateSoundFrame()
   end
   Assert.isTrue(sound:isMusicFadeActive(), "the fade is mid-ramp")
   sound:playMusic("SEQ_TEST_BGM_B")
@@ -681,7 +681,7 @@ function T.replacing_the_bgm_cancels_an_active_fade()
   Assert.equal(sound:currentMusic(), 4)
   local readings = #spy.readings
   for _ = 1, 20 do
-    sound:updateFixed()
+    sound:updateSoundFrame()
   end
   player:render(250)
   Assert.equal(#spy.readings, readings, "the cancelled fade never pushes a level to the replacement")
@@ -716,7 +716,7 @@ function T.fanfare_completion_never_resumes_a_replaced_or_stopped_bgm()
   sound:playMusic("SEQ_TEST_BGM_SPECIAL")
   player:render(500)
   for _ = 1, FANFARE_POST_WAIT_TICKS do
-    sound:updateFixed()
+    sound:updateSoundFrame()
   end
   Assert.isFalse(sound:isFanfarePlaying(), "the fanfare interval expired")
   Assert.isFalse(sound:isEffectPlaying("SEQ_TEST_BGM"), "the replaced bgm is never resumed by the fanfare completion")
@@ -730,7 +730,7 @@ function T.fanfare_completion_never_resumes_a_replaced_or_stopped_bgm()
   stopped:stopMusic()
   stoppedPlayer:render(500)
   for _ = 1, FANFARE_POST_WAIT_TICKS do
-    stopped:updateFixed()
+    stopped:updateSoundFrame()
   end
   Assert.isFalse(stopped:isFanfarePlaying(), "the fanfare interval expired")
   Assert.isNil(stopped:currentMusic())

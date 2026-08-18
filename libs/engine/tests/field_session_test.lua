@@ -269,10 +269,10 @@ end
 -- complete against the fresh service), so a collaborator that only advances
 -- is complete. A session without audio has no audio collaborator at all.
 function T.audio_collaborator_requires_only_fixed_tick_advancement()
-  local complete = { updateFixed = function() end }
+  local complete = { updateSoundFrame = function() end }
   Assert.notNil(FieldSession.new(baseOptions({ audio = complete })))
   local ok, err = pcall(FieldSession.new, baseOptions({ audio = {} }))
-  Assert.isFalse(ok, "a session with audio must require audio.updateFixed: " .. tostring(err))
+  Assert.isFalse(ok, "a session with audio must require audio.updateSoundFrame: " .. tostring(err))
   Assert.notNil(FieldSession.new(baseOptions({})))
 end
 
@@ -2024,7 +2024,7 @@ function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
   local log = {}
   local state = { transitionLocked = false, dialogueModal = false, scriptLocked = false }
   local audio = {
-    updateFixed = function()
+    updateSoundFrame = function()
       log[#log + 1] = "audio"
     end,
   }
