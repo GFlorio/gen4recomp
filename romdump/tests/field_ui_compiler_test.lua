@@ -35,19 +35,19 @@ local function compileWithTestConfig(romFs, sha1hex, hashLua)
     [1] = { memberBase = 2, maps = { 0, 21 } },
   }
 
-  local ok, result = xpcall(function()
-    return FieldUiCompiler.compile(romFs, sha1hex, hashLua)
-  end, debug.traceback)
+  -- xpcall forwards every return value of a successful call; capture both
+  -- `compile`'s bundle and its typed nil,err failure return so callers see
+  -- the real error instead of a silently dropped second value.
+  local ok, bundle, err = xpcall(FieldUiCompiler.compile, debug.traceback, romFs, sha1hex, hashLua)
 
   -- Restore original config
   manifestConfig.signposts.sourceTypes = originalSourceTypes
   manifestConfig.signposts.wayfinding = originalWayfinding
 
   if ok then
-    return result
-  else
-    error(result, 0)
+    return bundle, err
   end
+  error(bundle, 0)
 end
 
 local function u16(v)
@@ -391,30 +391,33 @@ function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   local frameWidth, _, frameRgba =
     PngReader.rgba(bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES].image])
   local r, g, b, a = PngReader.pixel(frameRgba, frameWidth, 0, 0)
-  -- Frame tile 0 value 1 uses palette[1] = 0x39B -> RGB555(r5=27, g5=28, b5=0)
-  Assert.equal(r, 222)
-  Assert.equal(g, 230)
-  Assert.equal(b, 0)
+  -- Frame tile 0 carries pixel value 1; a 4bpp pixel value v selects the
+  -- decoded bank's entry v (entry 0 is the reserved transparent slot), which
+  -- is colors[v+1] in the 1-based decoded array: colors[2] = 2*0x39B = 0x736
+  -- -> RGB555(r5=22, g5=25, b5=1).
+  Assert.equal(r, 181)
+  Assert.equal(g, 206)
+  Assert.equal(b, 8)
   Assert.equal(a, 255)
   -- Tile 1 carries value 2 and tile 14 value 15; the 16-color palette covers
   -- both, each through its own distinct entry.
   local r2, g2, b2, a2 = PngReader.pixel(frameRgba, frameWidth, 8, 0)
-  -- Frame tile 1 value 2 uses palette[2] = 0x736 -> RGB555(r5=22, g5=25, b5=1)
+  -- Frame tile 1 value 2 -> colors[3] = 3*0x39B = 0xAD1 -> RGB555(r5=17, g5=22, b5=2)
   Assert.equal(a2, 255)
-  Assert.deepEqual({ r2, g2, b2 }, { 181, 206, 8 })
+  Assert.deepEqual({ r2, g2, b2 }, { 140, 181, 16 })
   local r3, g3, b3, a3 = PngReader.pixel(frameRgba, frameWidth, 14 * 8, 0)
-  -- Frame tile 14 value 15 uses palette[15] = 15*0x39B = 0x3615 -> RGB555(r5=21, g5=16, b5=13)
+  -- Frame tile 14 value 15 -> colors[16] = 16*0x39B = 0x39B0 -> RGB555(r5=16, g5=13, b5=14)
   Assert.equal(a3, 255)
-  Assert.deepEqual({ r3, g3, b3 }, { 173, 132, 107 })
+  Assert.deepEqual({ r3, g3, b3 }, { 132, 107, 115 })
 
   -- The start menu background screen references tile 0 of palette bank 0,
   -- which the fixture palette covers: every pixel is the value-1 color.
   local bgWidth, _, bgRgba =
     PngReader.rgba(bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND].image])
   local rB, gB, bB, aB = PngReader.pixel(bgRgba, bgWidth, 10, 10)
-  -- Background uses palette[1] = 0x39B -> RGB555(r5=27, g5=28, b5=0)
+  -- Same tile 0 / value 1 mapping as the dialogue frame above -> colors[2].
   Assert.equal(aB, 255)
-  Assert.deepEqual({ rB, gB, bB }, { 222, 230, 0 })
+  Assert.deepEqual({ rB, gB, bB }, { 181, 206, 8 })
 end
 
 -- Every (type, map) pair gets its own atlas row, and the map-0 and map-1
@@ -472,12 +475,13 @@ function T.square_32x32_cursor_objs_compile_all_sixteen_tiles()
   local width, height, rgba = PngReader.rgba(bundle.assets[path])
   Assert.equal(width, 32)
   Assert.equal(height, 32)
-  -- Tile 14 (row 3, col 2 of the 4x4 layout) carries value 15 -> the
-  -- fixture's sixteenth palette color.
+  -- Tile 14 (row 3, col 2 of the 4x4 layout) carries value 15 -> colors[16]
+  -- (entry 0 is the reserved transparent slot, so pixel value v selects the
+  -- decoded array's colors[v+1]).
   local r, g, b, a = PngReader.pixel(rgba, width, 2 * 8 + 4, 3 * 8 + 4)
-  -- Tile 14 value 15 uses palette[15] = 0x3615 -> RGB555(r5=21, g5=16, b5=13)
+  -- value 15 -> colors[16] = 16*0x39B = 0x39B0 -> RGB555(r5=16, g5=13, b5=14)
   Assert.equal(a, 255)
-  Assert.deepEqual({ r, g, b }, { 173, 132, 107 })
+  Assert.deepEqual({ r, g, b }, { 132, 107, 115 })
 end
 
 -- A flipped OBJ mirrors the whole object per the OAM layout: the tile grid
@@ -493,12 +497,12 @@ function T.flipped_cursor_objs_mirror_the_tile_grid()
   local width, _, rgba = PngReader.rgba(bundle.assets[path])
   local r, g, b, a = PngReader.pixel(rgba, width, 1 * 8 + 4, 3 * 8 + 4)
   Assert.equal(a, 255)
-  -- Tile 14 value 15 uses palette[15] = 0x3615 -> RGB555(r5=21, g5=16, b5=13)
-  Assert.deepEqual({ r, g, b }, { 173, 132, 107 }, "tile 14 renders mirrored at grid column 1")
+  -- Tile 14 value 15 -> colors[16] = 16*0x39B = 0x39B0 -> RGB555(r5=16, g5=13, b5=14)
+  Assert.deepEqual({ r, g, b }, { 132, 107, 115 }, "tile 14 renders mirrored at grid column 1")
   local r2, g2, b2, a2 = PngReader.pixel(rgba, width, 2 * 8 + 4, 3 * 8 + 4)
   Assert.equal(a2, 255)
-  -- Tile 13 value 14 uses palette[14] = 14*0x39B = 0x327A -> RGB555(r5=26, g5=19, b5=12)
-  Assert.deepEqual({ r2, g2, b2 }, { 214, 156, 99 }, "tile 13 renders at the mirrored tile 14 position")
+  -- Tile 13 value 14 -> colors[15] = 15*0x39B = 0x3615 -> RGB555(r5=21, g5=16, b5=13)
+  Assert.deepEqual({ r2, g2, b2 }, { 173, 132, 107 }, "tile 13 renders at the mirrored tile 14 position")
 end
 
 -- A wide or tall OBJ is a geometry this compiler does not support: the
@@ -815,20 +819,41 @@ function T.g2d_palette_decodes_rgb555_with_correct_channel_order()
   end
 
   -- Build a fixture with a test palette containing known RGB555 values.
-  -- We use simple values: (r,g,b) pairs where each differs distinctly.
+  -- colors[1] is unused padding: pixel value 0 is the reserved transparent
+  -- slot and a 4bpp pixel value v otherwise selects the decoded bank's entry
+  -- v, i.e. colors[v+1] in this 1-based array.
   -- Pair 0: r=0x1F (31, red max), g=0x00 (0), b=0x00 (0) -> pure red
   -- Pair 1: r=0x00 (0), g=0x1F (31), b=0x00 (0) -> pure green
   -- Pair 2: r=0x00 (0), g=0x00 (0), b=0x1F (31) -> pure blue
   -- Pair 3: r=0x1F (31), g=0x14 (20), b=0x00 (0) -> amber/gold (HGSS signpost)
   local testColors = {
+    0x0000, -- padding: never referenced (value 0 is transparent)
     0x001F, -- red: r5=31, g5=0, b5=0
     0x03E0, -- green: r5=0, g5=31, b5=0
     0x7C00, -- blue: r5=0, g5=0, b5=31
     0x1F + (0x14 * 32), -- amber: r5=31, g5=20, b5=0
   }
 
+  -- The background char's default tile t carries pixel value (t % 15) + 1, so
+  -- tiles 0..3 carry values 1..4 -> colors[2..5]. Point screen columns 0..3
+  -- at those tiles so each probed pixel samples a distinct test color; every
+  -- other screen position stays tile 0.
+  local entries = {}
+  for i = 1, 768 do
+    entries[i] = 0
+  end
+  for tile = 0, 3 do
+    entries[tile + 1] = tile
+  end
+
   local romFs, sha1, hashLua = fixture({
     bgPalette = testColors,
+    tamper = function(alias, members)
+      if alias == "start_menu" then
+        members[14] = lz10Wrap(screenData(entries))
+      end
+      return members
+    end,
   })
 
   local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
@@ -847,15 +872,11 @@ function T.g2d_palette_decodes_rgb555_with_correct_channel_order()
   -- the start menu asset to validate the color expansion.
   local bgAssetPath = manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND].image
   local bgBytes = assert(bundle.assets[bgAssetPath])
-  local width, height, rgba = PngReader.rgba(bgBytes)
+  local width, _, rgba = PngReader.rgba(bgBytes)
 
-  -- Each palette entry becomes a different tile value in the test. The screen
-  -- is all zeros (tile 0), so we sample the (1,0) tile to get color[1], etc.
-  for paletteIndex, expected in ipairs(expectedColors) do
-    local tileIndex = paletteIndex - 1
-    local pixelX = tileIndex * 8
-    local pixelY = 0
-    local r, g, b, a = PngReader.pixel(rgba, width, pixelX, pixelY)
+  for tileIndex, expected in ipairs(expectedColors) do
+    local pixelX = (tileIndex - 1) * 8
+    local r, g, b, a = PngReader.pixel(rgba, width, pixelX, 0)
     Assert.equal(r, expected.r, "palette " .. tileIndex .. " red channel")
     Assert.equal(g, expected.g, "palette " .. tileIndex .. " green channel")
     Assert.equal(b, expected.b, "palette " .. tileIndex .. " blue channel")
