@@ -103,7 +103,7 @@ end
 -- then fog, over the whole composited scene), not a per-object color-path
 -- effect -- so the geometry/fragment-combiner shader (map.glsl) must not own
 -- the global fog gate, color, table, or offset. It still carries this draw's
--- own per-polygon fog gate (POLYGON_ATTR FOG_ENABLE) into dsState's blue
+-- own per-polygon fog gate (POLYGON_ATTR FOG_ENABLE) into renderState's blue
 -- channel (see opaque_draw_writes_its_fog_gate_into_the_final_state_blue_channel
 -- below); that per-item bit is not a "fog uniform" in the sense retired here.
 -- Absence is checked the same way edge_shader_has_no_alpha_mix_uniform checks
@@ -190,11 +190,11 @@ function T.field_viewport_sizes_and_rebuilds_render_targets(scope)
 end
 
 -- The color target always matches the display viewport exactly (no tunable
--- scale); the semantic (DS) target uses MapRenderer.semanticTargetSize
--- instead, several host resolutions at the same aspect reuse that same
--- semantic raster instead of reallocating, and both sceneColor and dsState are
--- nearest-filtered on the real driver.
-function T.color_and_semantic_targets_derive_independent_sizes_and_nearest_filter(scope)
+-- scale); the render-state target shares the color target's exact dimensions
+-- at every host size (one-to-one screen coverage -- state classification is
+-- never downsampled), and both sceneColor and renderState are nearest-filtered
+-- on the real driver.
+function T.color_and_state_targets_share_the_color_resolution_and_nearest_filter(scope)
   local renderer = scope:own(MapRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
 
@@ -202,28 +202,28 @@ function T.color_and_semantic_targets_derive_independent_sizes_and_nearest_filte
   renderer:draw(runtime, camera, nil, viewport)
   Assert.equal(renderer.colorW, 1280, "the color target matches the display viewport exactly")
   Assert.equal(renderer.colorH, 720)
-  Assert.equal(renderer.dsW, 341, "the semantic target follows semanticTargetSize")
-  Assert.equal(renderer.dsH, 192)
+  Assert.equal(renderer.stateW, 1280, "the state target shares the color width")
+  Assert.equal(renderer.stateH, 720, "the state target shares the color height")
   local sceneMin, sceneMag = renderer.sceneColor:getFilter()
   Assert.equal(sceneMin, "nearest", "sceneColor is nearest-filtered")
   Assert.equal(sceneMag, "nearest")
-  local dsMin, dsMag = renderer.dsState:getFilter()
-  Assert.equal(dsMin, "nearest", "dsState is nearest-filtered")
-  Assert.equal(dsMag, "nearest")
+  local stateMin, stateMag = renderer.renderState:getFilter()
+  Assert.equal(stateMin, "nearest", "renderState is nearest-filtered")
+  Assert.equal(stateMag, "nearest")
 
-  local dsTargets = renderer._dsTargets
+  local stateTargets = renderer._stateTargets
   for _, size in ipairs({ { 1920, 1080 }, { 2560, 1440 } }) do
     viewport:resize(size[1], size[2])
     renderer:draw(runtime, camera, nil, viewport)
     Assert.equal(renderer.colorW, size[1], "the color target follows the new display size exactly")
     Assert.equal(renderer.colorH, size[2])
-    Assert.equal(renderer.dsW, 341, "same aspect reuses the 341x192 semantic raster")
-    Assert.equal(renderer.dsH, 192)
+    Assert.equal(renderer.stateW, size[1], "the state target follows the new display size exactly")
+    Assert.equal(renderer.stateH, size[2])
     Assert.isTrue(
-      renderer._dsTargets ~= dsTargets,
+      renderer._stateTargets ~= stateTargets,
       "the renderer replaces the whole atomic target set on any dimension change"
     )
-    dsTargets = renderer._dsTargets
+    stateTargets = renderer._stateTargets
   end
 end
 
@@ -519,13 +519,13 @@ end
 
 -- Maps a color-space sample coordinate (chosen for convenient hand-picked
 -- interior pixels against a 640x480 sceneColor canvas) to the corresponding
--- sample in the much-lower-resolution dsState/dsDepth semantic canvas, using
--- the renderer's actual ratio between the two raster domains -- so these
--- fixtures do not need separate hand-derived coordinates for the semantic
--- target.
-local function dsPixel(renderer, colorX, colorY)
-  local x = math.min(renderer.dsW - 1, math.floor(colorX * renderer.dsW / renderer.colorW))
-  local y = math.min(renderer.dsH - 1, math.floor(colorY * renderer.dsH / renderer.colorH))
+-- sample in the render-state canvas. The state raster shares the color
+-- raster's dimensions (full-resolution contract), so the mapping is the
+-- identity -- the renderer's own stateW/stateH fields are used so the helper
+-- stays correct even if a future contract changes the size relationship.
+local function statePixel(renderer, colorX, colorY)
+  local x = math.min(renderer.stateW - 1, math.floor(colorX * renderer.stateW / renderer.colorW))
+  local y = math.min(renderer.stateH - 1, math.floor(colorY * renderer.stateH / renderer.colorH))
   return x, y
 end
 
@@ -610,7 +610,7 @@ function T.mixed_modulate_splits_opaque_and_translucent_by_exact_final_alpha5(sc
   renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, viewport)
 
   local colorImg = renderer.sceneColor:newImageData()
-  local dsImg = renderer.dsState:newImageData()
+  local stateImg = renderer.renderState:newImageData()
   local alphas5 = { 0, 1, 15, 30, 31 }
 
   for i, a5 in ipairs(alphas5) do
@@ -619,14 +619,14 @@ function T.mixed_modulate_splits_opaque_and_translucent_by_exact_final_alpha5(sc
     local color = interiorSample(colorImg, renderer.colorH, cx, cy)
     local colorScale = color[1] > 1 and 255 or 1
 
-    local dsx, dsy = dsPixel(renderer, cx, cy)
-    local dsMirrorX, dsMirrorY = dsPixel(renderer, cx, renderer.colorH - 1 - cy)
-    local dsPixelValue = { dsImg:getPixel(dsx, dsy) }
-    local dsMirrorValue = { dsImg:getPixel(dsMirrorX, dsMirrorY) }
+    local sx, sy = statePixel(renderer, cx, cy)
+    local mirrorX, mirrorY = statePixel(renderer, cx, renderer.colorH - 1 - cy)
+    local statePixelValue = { stateImg:getPixel(sx, sy) }
+    local stateMirrorValue = { stateImg:getPixel(mirrorX, mirrorY) }
     -- Whichever candidate is not the rear-plane clear (r == 1.0, id 63)
-    -- carries this texel's own semantic state, if any was stamped.
-    local dsValue = dsPixelValue[1] < 0.99 and dsPixelValue or dsMirrorValue
-    local semanticStamped = dsValue[1] < 0.99
+    -- carries this texel's own render state, if any was stamped.
+    local stateValue = statePixelValue[1] < 0.99 and statePixelValue or stateMirrorValue
+    local semanticStamped = stateValue[1] < 0.99
 
     if a5 == 0 then
       Assert.isTrue(
@@ -640,7 +640,7 @@ function T.mixed_modulate_splits_opaque_and_translucent_by_exact_final_alpha5(sc
         "alpha5=31 is the only texel visible via the opaque mixed subpass, at full brightness"
       )
       Assert.isTrue(semanticStamped, "alpha5=31 is the only texel that stamps semantic state")
-      Assert.near(dsValue[1], item.polygonId / 63, 1 / 255, "the stamped id is this item's own real polygon id")
+      Assert.near(stateValue[1], item.polygonId / 63, 1 / 255, "the stamped id is this item's own real polygon id")
     else
       -- A fully white fragment alpha-blended over the black clear color
       -- reads back exactly its own alpha fraction (src*alpha + dst*(1-alpha)
@@ -676,12 +676,17 @@ function T.decal_polygon_alpha_31_is_opaque_regardless_of_texture_alpha(scope)
   local scale = p[2] > 1 and 255 or 1
   Assert.isTrue(p[2] >= 0.5 * scale, "the fully transparent decal texel still renders opaque vertex-color green")
 
-  local dsImg = renderer.dsState:newImageData()
-  local ax, ay = dsPixel(renderer, 416, 384)
-  local bx, by = dsPixel(renderer, 416, 95)
-  local a, b = { dsImg:getPixel(ax, ay) }, { dsImg:getPixel(bx, by) }
-  local dsValue = a[1] < 0.99 and a or b
-  Assert.near(dsValue[1], item.polygonId / 63, 1 / 255, "DECAL at alpha 31 stamps semantic state like any opaque draw")
+  local stateImg = renderer.renderState:newImageData()
+  local ax, ay = statePixel(renderer, 416, 384)
+  local bx, by = statePixel(renderer, 416, 95)
+  local a, b = { stateImg:getPixel(ax, ay) }, { stateImg:getPixel(bx, by) }
+  local stateValue = a[1] < 0.99 and a or b
+  Assert.near(
+    stateValue[1],
+    item.polygonId / 63,
+    1 / 255,
+    "DECAL at alpha 31 stamps semantic state like any opaque draw"
+  )
 end
 
 -- A DECAL polygon at a below-31 polygon alpha is translucent regardless of
@@ -697,11 +702,11 @@ function T.decal_polygon_alpha_below_31_is_translucent_and_never_stamps_semantic
 
   renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
 
-  local dsImg = renderer.dsState:newImageData()
-  local ax, ay = dsPixel(renderer, 416, 384)
-  local bx, by = dsPixel(renderer, 416, 95)
-  local a, b = { dsImg:getPixel(ax, ay) }, { dsImg:getPixel(bx, by) }
-  Assert.near(a[1], 1.0, 1 / 255, "a translucent DECAL draw never reaches the semantic pass (rear-plane id survives)")
+  local stateImg = renderer.renderState:newImageData()
+  local ax, ay = statePixel(renderer, 416, 384)
+  local bx, by = statePixel(renderer, 416, 95)
+  local a, b = { stateImg:getPixel(ax, ay) }, { stateImg:getPixel(bx, by) }
+  Assert.near(a[1], 1.0, 1 / 255, "a translucent DECAL draw never reaches the state pass (rear-plane id survives)")
   Assert.near(b[1], 1.0, 1 / 255)
 end
 
@@ -1773,11 +1778,11 @@ function T.camera_far_plane_drives_the_normalized_depth_target(scope)
   -- Whichever of the two candidate interior samples is not the rear-plane
   -- clear (r == 1.0, the normalized sentinel) carries the drawn item's own
   -- id (0) and real quantized depth in its green channel.
-  local function dsStateInterior(camera)
+  local function stateInterior(camera)
     renderer:draw(emptyRuntime(), camera, { { item } }, viewport)
-    local img = renderer.dsState:newImageData()
-    local ax, ay = dsPixel(renderer, 416, 384)
-    local bx, by = dsPixel(renderer, 416, 95)
+    local img = renderer.renderState:newImageData()
+    local ax, ay = statePixel(renderer, 416, 384)
+    local bx, by = statePixel(renderer, 416, 95)
     local a, b = { img:getPixel(ax, ay) }, { img:getPixel(bx, by) }
     return a[1] < 0.5 and a or b
   end
@@ -1788,11 +1793,11 @@ function T.camera_far_plane_drives_the_normalized_depth_target(scope)
 
   local shortRange = fixedCamera()
   shortRange.far = 2
-  local shortRangeSample = dsStateInterior(shortRange)
+  local shortRangeSample = stateInterior(shortRange)
 
   local longRange = fixedCamera()
   longRange.far = 4
-  local longRangeSample = dsStateInterior(longRange)
+  local longRangeSample = stateInterior(longRange)
 
   Assert.isTrue(
     shortRangeSample[2] ~= longRangeSample[2],
@@ -1802,50 +1807,49 @@ function T.camera_far_plane_drives_the_normalized_depth_target(scope)
   Assert.near(longRangeSample[2], expectedDepth(4), 1, "matches dsWbufferDepth(1) at u_depthWMax=4")
 end
 
--- The dsState render-target contract: an opaque (or cutout/wireframe --
--- they share this exact fragment shader code path) fragment must write its
--- own POLYGON_ATTR FOG_ENABLE bit
--- (item.fogEnabled, already threaded to the shader as u_polygonFogEnabled for
--- fog blending) into dsState's blue channel, not the retired translucent-
--- identity flag. An opaque item is never translucent, so today's blue
--- channel (u_translucentAttribute) is always 0 regardless of fogEnabled --
--- this is the exact numeric divergence that proves the channel's meaning
--- changed, not merely its uniform source.
+-- The renderState target contract: an opaque (or cutout/wireframe -- they
+-- share this exact fragment shader code path) fragment must write its own
+-- POLYGON_ATTR FOG_ENABLE bit (item.fogEnabled, already threaded to the
+-- shader as u_polygonFogEnabled for fog blending) into renderState's blue
+-- channel, not the retired translucent-identity flag. An opaque item is never
+-- translucent, so today's blue channel (u_translucentAttribute) is always 0
+-- regardless of fogEnabled -- this is the exact numeric divergence that proves
+-- the channel's meaning changed, not merely its uniform source.
 function T.opaque_draw_writes_its_fog_gate_into_the_final_state_blue_channel(scope)
   local renderer = scope:own(MapRenderer.new())
   local image = solidAlphaImage(scope, 255, 255, 255, 255)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
 
-  local function dsStateInterior(item)
+  local function stateInterior(item)
     renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, viewport)
-    local img = renderer.dsState:newImageData()
-    local ax, ay = dsPixel(renderer, 416, 384)
-    local bx, by = dsPixel(renderer, 416, 95)
+    local img = renderer.renderState:newImageData()
+    local ax, ay = statePixel(renderer, 416, 384)
+    local bx, by = statePixel(renderer, 416, 95)
     local a, b = { img:getPixel(ax, ay) }, { img:getPixel(bx, by) }
     return a[1] < 0.5 and a or b
   end
 
   local fogGated = decalItem(decalTriangle(scope), image)
   fogGated.fogEnabled = true
-  local sampleGated = dsStateInterior(fogGated)
+  local sampleGated = stateInterior(fogGated)
   Assert.near(sampleGated[3], 1.0, 1 / 255, "a fog-enabled opaque fragment's fog gate reaches the blue channel")
 
   local fogUngated = decalItem(decalTriangle(scope), image)
   fogUngated.fogEnabled = false
-  local sampleUngated = dsStateInterior(fogUngated)
+  local sampleUngated = stateInterior(fogUngated)
   Assert.near(sampleUngated[3], 0.0, 1 / 255, "a fog-disabled opaque fragment's fog gate stays 0")
 end
 
 -- Shared 3x1 fixture for the edge-predicate anchors below: pixel 1 is
 -- always the center under test, pixels 0/2 its left/right neighbors (the
--- edge shader always samples exactly one semantic texel in each direction).
+-- edge shader always samples exactly one state texel in each direction).
 -- Drives edge.glsl directly (not through MapRenderer's full draw path) so the
 -- neighbor/center ID and depth values are exact and independent of any
 -- particular mesh/camera geometry. Ids are encoded by the real domain
 -- maximum (63, MapRenderer.CLEAR_POLYGON_ID), the same normalization every
 -- real MapRenderer draw applies -- not the retired 255-wide sentinel domain.
--- Returns the center pixel's rendered RGB. Both the scene and semantic
--- textures share the same dimensions here, so the semantic size IS the
+-- Returns the center pixel's rendered RGB. Both the scene and state
+-- textures share the same dimensions here, so the state size IS the
 -- per-pixel scene size -- this fixture does not exercise the dual-resolution
 -- case (see the mixed-alpha/state-vs-color graphics tests for that).
 --
@@ -1871,8 +1875,13 @@ local function runEdgeShaderPass(scope, width, height, fillId, fillScene, edgeCo
   love.graphics.clear(0, 0, 0, 1)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.setShader(edgeShader)
-  edgeShader:send("u_dsState", idImage)
-  edgeShader:send("u_dsSize", { width, height })
+  edgeShader:send("u_renderState", idImage)
+  edgeShader:send("u_stateSize", { width, height })
+  -- The state texture shares the scene texture's dimensions in this fixture
+  -- (same-resolution contract), so a radius of 1 samples the immediately
+  -- adjacent state pixels -- the exact neighbor distance these predicate
+  -- fixtures assert.
+  edgeShader:send("u_edgeRadiusPx", 1)
   -- Coverage is a separate concern (see the AA graphics tests below); these
   -- predicate fixtures assert the raw edge-replacement color.
   edgeShader:send("u_antialiasEnabled", false)
@@ -1886,8 +1895,8 @@ end
 
 -- A 3x3 grid (not 3x1): every row is identical, so the vertical neighbors
 -- are always real same-id/same-depth samples rather than an out-of-bounds
--- rear-plane fallback (see edge.glsl's semanticSample) -- a genuinely 1-line-
--- tall semantic target never occurs in production, and relying on
+-- rear-plane fallback (see edge.glsl's stateSample) -- a genuinely 1-line-
+-- tall state target never occurs in production, and relying on
 -- texture-clamp behavior to paper over a degenerate fixture would defeat the
 -- exact rear-plane boundary check these fixtures are not meant to exercise
 -- (see the dedicated rear-plane boundary test below for that).
@@ -2063,8 +2072,9 @@ function T.edge_aa_coverage_mixes_scene_and_edge_at_exactly_half(scope)
     love.graphics.clear(0, 0, 0, 1)
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.setShader(edgeShader)
-    edgeShader:send("u_dsState", idImage)
-    edgeShader:send("u_dsSize", { 3, 3 })
+    edgeShader:send("u_renderState", idImage)
+    edgeShader:send("u_stateSize", { 3, 3 })
+    edgeShader:send("u_edgeRadiusPx", 1)
     edgeShader:send("u_antialiasEnabled", antialiasEnabled)
     edgeShader:send("u_edgeColors", unpack(eightEdgeColors()))
     local zeroFogTable = {}
@@ -2095,13 +2105,13 @@ function T.edge_aa_coverage_mixes_scene_and_edge_at_exactly_half(scope)
   Assert.near(disabled[3], 0.0, 1 / 255)
 end
 
--- A foreground pixel at the semantic screen's logical edge must be marked
+-- A foreground pixel at the state screen's logical edge must be marked
 -- against the rear-plane state (id 63, farthest depth), not a clamped copy
--- of its own row/column -- edge.glsl's semanticSample never relies on
+-- of its own row/column -- edge.glsl's stateSample never relies on
 -- texture-clamp behavior for this. The rightmost column here has no real
 -- neighbor to its right; the shader must still treat that missing neighbor
 -- as the rear plane and mark the boundary.
-function T.rear_plane_boundary_marks_at_the_semantic_screen_edge(scope)
+function T.rear_plane_boundary_marks_at_the_state_screen_edge(scope)
   local out = runEdgeShaderPass(scope, 3, 3, function(idData)
     for x = 0, 2 do
       for y = 0, 2 do
@@ -2131,16 +2141,16 @@ end
 -- The retired "translucent center never marks" fixture (blue-channel
 -- translucent-attribute flag) is deliberately not replaced by another
 -- shader-level fixture -- edge.glsl no longer reads a translucent identity
--- at all. Its actual behavioral successor is the dsState-preservation
+-- at all. Its actual behavioral successor is the state-preservation
 -- test below, which proves the same real-world invariant (a translucent
 -- fragment cannot become a spurious edge center) at its true production
 -- boundary: the translucent pass's canvas binding, not a shader flag.
 
 -- A real perspective camera (unlike this suite's usual `fixedCamera`, whose
 -- identity projection makes clip.w -- and therefore every item's
--- dsWbufferDepth -- 1.0 regardless of vertex z). The dsState-preservation
+-- dsWbufferDepth -- 1.0 regardless of vertex z). The state-preservation
 -- test below needs the opaque and translucent triangles to carry genuinely
--- different depth values, so a translucent overwrite of dsState's depth
+-- different depth values, so a translucent overwrite of the state depth
 -- channel is numerically distinguishable from the opaque value it should
 -- have left alone.
 local function perspectiveCamera()
@@ -2216,8 +2226,8 @@ local function nonDepthWritingTranslucentItem(mesh, polygonId, fogEnabled)
   }
 end
 
--- The dsState render-target contract's core translucent-preservation
--- rule: an opaque draw authors dsState's edge id/depth/fog-gate for a
+-- The renderState render-target contract's core translucent-preservation
+-- rule: an opaque draw authors renderState's edge id/depth/fog-gate for a
 -- pixel; an ordinary non-depth-writing translucent draw covering that same
 -- pixel must not replace those values with its own, a blend of the two, or
 -- a zeroed value -- because the real DS never updates its depth/attribute
@@ -2227,10 +2237,14 @@ end
 -- Proven by comparing two independent draws through the real MapRenderer
 -- pipeline: one with only the opaque triangle, one with the identical opaque
 -- triangle plus a translucent triangle in front of it covering the same
--- pixel. If the translucent draw cannot reach dsState, both readbacks are
--- identical; today it still can (MapRenderer's pass 3 leaves dsState
--- bound for the whole translucent pass), so the two readbacks diverge to the
--- translucent item's own id/depth/fog-gate values.
+-- pixel. On the old baseline the translucent draw could still reach the
+-- state target (the state pass left it bound across the translucent draws),
+-- so the two readbacks diverged to the translucent item's own
+-- id/depth/fog-gate values -- the scenario's red. Today the state pass
+-- binds renderState for its opaque/cutout/mixed-opaque/wireframe draws and
+-- the color pass draws translucent items to sceneColor only, so a
+-- non-depth-writing translucent draw cannot overwrite renderState and the
+-- two readbacks must be identical.
 function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque_geometry(scope)
   local camera = perspectiveCamera()
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
@@ -2240,21 +2254,21 @@ function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque
   -- (0.3, 0.3, -2) / (0.15, 0.15, -1), both of which project to the same
   -- NDC point by construction), not the identity-camera pixels other tests
   -- in this file use.
-  local function dsStateInterior(renderer, parts)
+  local function stateInterior(renderer, parts)
     renderer:draw(emptyRuntime(), camera, parts, viewport)
-    local img = renderer.dsState:newImageData()
-    local ax, ay = dsPixel(renderer, 382, 178)
-    local bx, by = dsPixel(renderer, 382, 302)
+    local img = renderer.renderState:newImageData()
+    local ax, ay = statePixel(renderer, 382, 178)
+    local bx, by = statePixel(renderer, 382, 302)
     local a, b = { img:getPixel(ax, ay) }, { img:getPixel(bx, by) }
     -- Whichever sample is not the rear-plane clear (r == 1.0, id 63) carries
-    -- the drawn geometry's own dsState value.
+    -- the drawn geometry's own renderState value.
     return a[1] < 0.99 and a or b
   end
 
   local renderer = scope:own(MapRenderer.new())
 
   local opaqueOnly = opaqueFinalStateItem(literalTriangleAtDepth(scope, -2, 1), 20, true)
-  local baseline = dsStateInterior(renderer, { { opaqueOnly } })
+  local baseline = stateInterior(renderer, { { opaqueOnly } })
 
   -- The translucent triangle sits strictly in front of the opaque one (a
   -- smaller eye-space distance passes the renderer's "less" depth test) and,
@@ -2263,7 +2277,7 @@ function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque
   -- depth value.
   local opaqueUnder = opaqueFinalStateItem(literalTriangleAtDepth(scope, -2, 1), 20, true)
   local translucentOver = nonDepthWritingTranslucentItem(literalTriangleAtDepth(scope, -1, 0.5), 5, false)
-  local withTranslucentOnTop = dsStateInterior(renderer, { { opaqueUnder, translucentOver } })
+  local withTranslucentOnTop = stateInterior(renderer, { { opaqueUnder, translucentOver } })
 
   Assert.near(
     withTranslucentOnTop[1],
@@ -2300,12 +2314,12 @@ local function constantDensityTable(byte)
 end
 
 -- Drives the final full-screen pass (edgeShader/edge.glsl) directly with a
--- synthetic dsState/sceneColor pair and a fog preset -- the same
+-- synthetic renderState/sceneColor pair and a fog preset -- the same
 -- real-GLSL, real-canvas, no-MapRenderer:draw technique runEdgePass above
 -- uses for the pure edge-predicate anchors, extended with the fog inputs
 -- E.3-E.7 add to the final pass. `pixels` is the same 3-wide
 -- (left/center/right) fixture shape runEdgePass uses, each entry optionally
--- carrying `fogGate` (dsState's blue channel, default 0) and `scene` (the
+-- carrying `fogGate` (renderState's blue channel, default 0) and `scene` (the
 -- pixel's pre-fog RGB, default opaque white -- RGB6 63/63/63, so an unfogged
 -- center reads exactly (1,1,1)). `fog` supplies `enabled`, `color` (packed
 -- RGB555), `offsetRaw` (the raw G3X FOG_OFFSET field, not yet *0x200 --
@@ -2320,7 +2334,7 @@ end
 -- compositing against the (irrelevant) black-cleared target. Returns the
 -- center pixel's rendered RGBA.
 -- A 3x3 grid (not 3x1); see runEdgePass's header for why a genuinely 1-line-
--- tall semantic target would spuriously exercise the rear-plane fallback on
+-- tall state target would spuriously exercise the rear-plane fallback on
 -- every vertical neighbor probe instead of the real (identical) row data
 -- these fixtures intend.
 local function runFinalPass(scope, pixels, fog, edgeColors, antialiasEnabled)
@@ -2350,8 +2364,9 @@ local function runFinalPass(scope, pixels, fog, edgeColors, antialiasEnabled)
   love.graphics.clear(0, 0, 0, 1)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.setShader(edgeShader)
-  edgeShader:send("u_dsState", idImage)
-  edgeShader:send("u_dsSize", { 3, 3 })
+  edgeShader:send("u_renderState", idImage)
+  edgeShader:send("u_stateSize", { 3, 3 })
+  edgeShader:send("u_edgeRadiusPx", 1)
   -- Coverage defaults off so these fog fixtures assert the raw
   -- edge-replacement/fog result; the fog-ordering test below is the one
   -- caller that opts into AA coverage to distinguish all three candidate
@@ -2413,7 +2428,7 @@ function T.disabled_global_fog_leaves_the_fragment_unchanged(scope)
 end
 
 -- E.9 real graphics fixture 3: the global gate alone is not sufficient --
--- this draw's own polygon fog gate (dsState's blue channel,
+-- this draw's own polygon fog gate (renderState's blue channel,
 -- already wired end to end since deliverable 6) must also be set. With the
 -- global gate enabled but this pixel's own gate 0, the fragment must stay
 -- unchanged, exactly like GBATEK's two-gate fog rule the retired per-object
@@ -2559,6 +2574,383 @@ function T.fog_alpha_blends_and_is_not_additionally_composited_by_the_host(scope
     "RGB must be the exact fog blend, not additionally darkened by host alpha compositing"
   )
   Assert.near(out[4], 15 / 31, 1 / 255, "alpha must reflect the melonDS fog-alpha blend, not stay unfogged at 1.0")
+end
+
+-- ---- full-resolution state + zoom-aware edge scale fixtures ----
+
+-- The composite harness: redirects only the final resolve's default-framebuffer
+-- binding (setCanvas(nil)) into a readable canvas at the same dimensions, so
+-- the post-edge/fog output is observable. Every internal target binding still
+-- goes to the real implementation; the renderer's caller-state restore re-binds
+-- the pre-draw canvas at the end.
+local function compositeReadback(scope, renderer, viewport)
+  local lg = love.graphics
+  local width = math.max(1, math.floor(viewport.worldViewport.width + 0.5))
+  local height = math.max(1, math.floor(viewport.worldViewport.height + 0.5))
+  local out = scope:own(lg.newCanvas(width, height))
+  out:setFilter("nearest", "nearest")
+  local realSetCanvas = lg.setCanvas
+  local patched = true
+  lg.setCanvas = function(c)
+    if c == nil then
+      realSetCanvas(out)
+    else
+      realSetCanvas(c)
+    end
+  end
+  return {
+    canvas = out,
+    restore = function()
+      if patched then
+        lg.setCanvas = realSetCanvas
+        patched = false
+      end
+    end,
+  }
+end
+
+local function opaqueItem(mesh, polygonId)
+  return {
+    mesh = mesh,
+    material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "opaque",
+    cullMode = "none",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = polygonId,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    fogEnabled = false,
+    center = { 0.5, 0.5, 0 },
+  }
+end
+
+-- R01 observable boundary: the renderer-owned state targets are exactly the
+-- color targets' dimensions at every host size. 1280x720 must not allocate a
+-- 341x192 state raster; 2560x1440 stays one-to-one as well. This reads the
+-- real canvas objects on the real driver, so it is the honest boundary the
+-- acceptance scenario names -- not a fake-graphics approximation.
+function T.state_canvas_dimensions_equal_color_dimensions_at_every_host_size(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local camera, runtime = fixedCamera(), emptyRuntime()
+  local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
+  renderer:draw(runtime, camera, nil, viewport)
+  Assert.equal(renderer.colorW, 1280, "color target width matches the expanded viewport")
+  Assert.equal(renderer.colorH, 720)
+  Assert.equal(renderer.stateW, renderer.colorW, "state width equals color width at 1280x720")
+  Assert.equal(renderer.stateH, renderer.colorH, "state height equals color height at 1280x720")
+  Assert.isTrue(renderer.stateW ~= 341, "1280x720 must not allocate the fixed 341-wide semantic raster")
+  Assert.isTrue(renderer.stateH ~= 192, "1280x720 must not allocate the fixed 192-line semantic raster")
+  local stateCanvas, stateDepth = renderer.renderState, renderer.stateDepth
+  Assert.notNil(stateCanvas, "the state canvas is published under its durable name")
+  Assert.notNil(stateDepth, "the state depth target is published under its durable name")
+  Assert.equal(stateCanvas:getWidth(), renderer.colorW)
+  Assert.equal(stateCanvas:getHeight(), renderer.colorH)
+  Assert.equal(stateDepth:getWidth(), renderer.colorW)
+  Assert.equal(stateDepth:getHeight(), renderer.colorH)
+
+  viewport:resize(2560, 1440)
+  renderer:draw(runtime, camera, nil, viewport)
+  Assert.equal(renderer.colorW, 2560)
+  Assert.equal(renderer.colorH, 1440)
+  Assert.equal(renderer.stateW, renderer.colorW, "state width equals color width at 2560x1440")
+  Assert.equal(renderer.stateH, renderer.colorH, "state height equals color height at 2560x1440")
+  Assert.equal(renderer.renderState:getWidth(), 2560)
+  Assert.equal(renderer.renderState:getHeight(), 1440)
+end
+
+-- R02 shader contract: the final pass declares the full-resolution state
+-- uniforms (u_renderState/u_stateSize) and the integer edge-radius uniform
+-- (u_edgeRadiusPx). Presence is asserted by sending values; LÖVE errors for
+-- unknown names, exactly like the file's other uniform-presence tests.
+function T.final_shader_has_full_resolution_state_and_edge_radius_uniforms(scope)
+  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+  local size = love.image.newImageData(8, 8, "rgba32f")
+  local stateImage = scope:own(love.graphics.newImage(size))
+  stateImage:setFilter("nearest", "nearest")
+  edgeShader:send("u_renderState", stateImage)
+  edgeShader:send("u_stateSize", { 8, 8 })
+  edgeShader:send("u_edgeRadiusPx", 4)
+end
+
+-- R03 fixture: a 2-host-pixel-wide vertical white bar (polygonId 20) drawn in
+-- front of the clear rear plane through the real color and state passes, plus
+-- a diagonal blade crossing the same rows. Identity camera at z=0 gives the
+-- drawn state depth 41943 < clear 16777215 (depth ordering only, never an
+-- absolute value). Every edge-colored output pixel must lie within the
+-- configured radius (4 at 1280x720) of a visibly present object pixel, and
+-- the bar must not lose state over stretches that are visibly present.
+--
+-- On the baseline the bar sits at world x = -0.08 (color columns 588-589) but
+-- the 341x192 state raster stamps no id-20 state anywhere on the canvas, so
+-- the whole visible bar loses its attached edge -- the scenario's red.
+local function thinBarParts(scope)
+  local function v(x, y)
+    return { x, y, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 }
+  end
+  -- Vertical bar: 2 host px wide (0.003125 world) centered at x = -0.08,
+  -- spanning y in [-0.5, 0.5] (the full 720p height).
+  local bar = scope:own(syntheticMesh({
+    v(-0.0815625, -0.5),
+    v(-0.0784375, -0.5),
+    v(-0.0784375, 0.5),
+    v(-0.0815625, -0.5),
+    v(-0.0784375, 0.5),
+    v(-0.0815625, 0.5),
+  }))
+  -- Diagonal blade: 2 px wide, running from (0.31, -0.5) to (0.6, 0.5).
+  local blade = scope:own(syntheticMesh({
+    v(0.31, -0.5),
+    v(0.312, -0.5),
+    v(0.6, 0.5),
+    v(0.31, -0.5),
+    v(0.6, 0.5),
+    v(0.598, 0.5),
+  }))
+  return { { opaqueItem(bar, 20) }, { opaqueItem(blade, 20) } }
+end
+
+function T.thin_bar_and_blade_keep_their_attached_edge_state(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local runtime = emptyRuntime()
+  -- id 20 -> u_edgeColors[20/8] = entry 2: a distinguishable pure blue
+  -- (RGB555 packed: blue channel 31).
+  runtime.edgeColors = { [0] = 0, 0, 31, 0, 0, 0, 0, 0 }
+  local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
+  local harness = compositeReadback(scope, renderer, viewport)
+
+  renderer:draw(runtime, fixedCamera(), thinBarParts(scope), viewport)
+  harness.restore()
+  love.graphics.setCanvas()
+
+  local color = renderer.sceneColor:newImageData()
+  local state = renderer.renderState:newImageData()
+  local final = harness.canvas:newImageData()
+
+  -- Sample a middle row of the bar (color row 360).
+  local colorScale = color:getPixel(0, 0)
+  local scale = colorScale > 1 and 255 or 1
+  local barCols = {}
+  for x = 0, 1279 do
+    local r, g, b = color:getPixel(x, 360)
+    if r >= 0.9 * scale and g >= 0.9 * scale and b >= 0.9 * scale then
+      barCols[#barCols + 1] = x
+    end
+  end
+  Assert.isTrue(#barCols >= 1, "the bar is visibly present on the sampled row")
+  Assert.isTrue(#barCols <= 8, "the sampled row is a thin structure, not a large quad")
+
+  -- State coverage: for the sampled row, every color column that is part of
+  -- the visible bar must carry this item's own state at the same screen
+  -- location (state reads map through the renderer's own state dimensions,
+  -- which are one-to-one with the color dimensions).
+  local function stateAt(colorX, colorY)
+    local sx = math.min(renderer.stateW - 1, math.floor(colorX * renderer.stateW / renderer.colorW))
+    local sy = math.min(renderer.stateH - 1, math.floor(colorY * renderer.stateH / renderer.colorH))
+    return state:getPixel(sx, sy)
+  end
+  local stateHits = 0
+  for _, x in ipairs(barCols) do
+    local sr = stateAt(x, 360)
+    if sr < 0.9 * scale then
+      stateHits = stateHits + 1
+    end
+  end
+  Assert.equal(stateHits, #barCols, "the visible bar's pixels carry their own state at the same screen location")
+
+  -- Every edge-colored pixel lies within the configured radius (4) of a
+  -- visible object pixel, and no edge pixel exists where there is no object.
+  local function isObjectColor(p)
+    return p[1] >= 0.9 * scale and p[2] >= 0.9 * scale and p[3] >= 0.9 * scale
+  end
+  for x = 0, 1279 do
+    local r, g, b = final:getPixel(x, 360)
+    if r >= 0.9 * scale and g < 0.6 * scale and b < 0.6 * scale then
+      local nearObject = false
+      for d = -4, 4 do
+        local nx = x + d
+        if nx >= 0 and nx < 1280 then
+          local pr, pg, pb = color:getPixel(nx, 360)
+          if isObjectColor({ pr, pg, pb }) then
+            nearObject = true
+            break
+          end
+        end
+      end
+      Assert.isTrue(nearObject, "every edge-colored pixel lies within the radius of a visible object pixel")
+    end
+  end
+
+  -- The bar's state must not be lost over visibly-present stretches: every
+  -- state row the bar actually covers (the identity camera maps the bar's
+  -- world y in [-0.5, 0.5] to rows 180..539 of the 720-row state raster)
+  -- must carry id-20 state at the bar's columns. Rows outside that footprint
+  -- legitimately have no state -- the bar never reaches them.
+  local rowTop = math.floor((1 - 0.5) / 2 * renderer.stateH + 0.5)
+  local rowBottom = math.floor((1 + 0.5) / 2 * renderer.stateH + 0.5) - 1
+  local lostRows = 0
+  for sy = rowTop, rowBottom do
+    local stamped = false
+    for sx = 0, renderer.stateW - 1 do
+      local sr = state:getPixel(sx, sy)
+      if sr < 0.9 * scale then
+        stamped = true
+        break
+      end
+    end
+    if not stamped then
+      lostRows = lostRows + 1
+    end
+  end
+  Assert.equal(lostRows, 0, "no state row the visible bar crosses loses its state")
+end
+
+-- R03 mixed-alpha motion: a 5x1 texture (alpha5 0,1,15,30,31) on a ground
+-- quad (id 3, fog-gated) rendered at two offsets whose visible 30->31
+-- boundary is essentially stationary while the old 192-line state raster's
+-- stamp cell flips. State changes must be confined to full-resolution opaque
+-- texel coverage, and no final edge-colored pixel may appear whose support
+-- exists only because one coarse state cell changed.
+function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local runtime = emptyRuntime()
+  -- id 3 -> u_edgeColors[3/8] = entry 0: pure red.
+  runtime.edgeColors = { [0] = 31, 0, 0, 0, 0, 0, 0, 0 }
+  local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
+
+  local data = love.image.newImageData(5, 1)
+  local bytes = { 0, 8, 123, 245, 255 }
+  for i, byte in ipairs(bytes) do
+    data:setPixel(i - 1, 0, 1, 1, 1, byte / 255)
+  end
+  local image = scope:own(love.graphics.newImage(data))
+  image:setFilter("nearest", "nearest")
+
+  -- Quad spans y in [-0.3, 0.7] (sample row 360 is interior) and x in
+  -- [dx, 1+dx]; u runs [0,1] across x so the five texel columns sweep.
+  local function mixedQuad(dxWorld)
+    local function v(x, y, u)
+      return { x, y, 0, u, y, 0, 0, 1, 1, 1, 1, 1, 0 }
+    end
+    return scope:own(syntheticMesh({
+      v(dxWorld, -0.3, 0),
+      v(1 + dxWorld, -0.3, 1),
+      v(1 + dxWorld, 0.7, 1),
+      v(dxWorld, -0.3, 0),
+      v(1 + dxWorld, 0.7, 1),
+      v(dxWorld, 0.7, 0),
+    }))
+  end
+  local function mixedItem(m)
+    return {
+      mesh = m,
+      material = { texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, image = image },
+      transform = IDENTITY,
+      modelNormal = IDENTITY_NORMAL,
+      alphaClass = "mixed",
+      cullMode = "none",
+      polygonAlpha = 1.0,
+      polygonMode = "modulation",
+      polygonId = 3,
+      lightMask = 0,
+      fogEnabled = true,
+      alphaCutoff = 0.5 / 255,
+      translucentDepthWrite = false,
+      center = { 0.5, 0.5, 0 },
+    }
+  end
+
+  local function scan(offsetPx)
+    local harness = compositeReadback(scope, renderer, viewport)
+    local dx = offsetPx * 2 / 1280
+    renderer:draw(runtime, fixedCamera(), { { mixedItem(mixedQuad(dx)) } }, viewport)
+    harness.restore()
+    love.graphics.setCanvas()
+    local color = renderer.sceneColor:newImageData()
+    local state = renderer.renderState:newImageData()
+    local final = harness.canvas:newImageData()
+    local colorScale = color:getPixel(0, 0)
+    local scale = colorScale > 1 and 255 or 1
+
+    -- Visible 30->31 boundary: first fully opaque (alpha-31) column.
+    local visibleBoundary = nil
+    for x = 0, 1279 do
+      local r, g, b = color:getPixel(x, 360)
+      if r >= 0.99 * scale and g >= 0.99 * scale and b >= 0.99 * scale then
+        visibleBoundary = x
+        break
+      end
+    end
+    -- State stamp edge: first state column carrying id 3 on the sampled row
+    -- (mapped through the renderer's own state dimensions, which are
+    -- one-to-one with the color dimensions).
+    local stateStampLeft = nil
+    for sx = 0, renderer.stateW - 1 do
+      local r = state:getPixel(sx, math.min(renderer.stateH - 1, math.floor(360 * renderer.stateH / renderer.colorH)))
+      if r < 0.9 * scale then
+        stateStampLeft = sx
+        break
+      end
+    end
+    local stateStampColor = stateStampLeft and math.floor((stateStampLeft + 0.5) * renderer.colorW / renderer.stateW)
+      or nil
+    -- Final edge-colored columns on the sampled row.
+    local edgeCols = {}
+    for x = 0, 1279 do
+      local r, g, b = final:getPixel(x, 360)
+      if r >= 0.9 * scale and g < 0.6 * scale and b < 0.6 * scale then
+        edgeCols[#edgeCols + 1] = x
+      end
+    end
+    return {
+      visibleBoundary = visibleBoundary,
+      stateStampLeft = stateStampLeft,
+      stateStampColor = stateStampColor,
+      edgeCols = edgeCols,
+    }
+  end
+
+  -- Tuned on the baseline: from offset 0.75 to 2.75 px the visible boundary
+  -- moves 1153 -> 1155 while the old state raster's id-3 stamp cell jumps
+  -- from color-1154 to color-1158 -- a 2-px visible shift against a 4-px
+  -- state jump.
+  local a = scan(0.75)
+  local b = scan(2.75)
+  Assert.notNil(a.visibleBoundary, "the mixed quad is visible at the first offset")
+  Assert.notNil(b.visibleBoundary, "the mixed quad is visible at the second offset")
+
+  -- The visible 30->31 boundary moves by at most a couple of host pixels.
+  Assert.isTrue(math.abs(b.visibleBoundary - a.visibleBoundary) <= 2, "the visible boundary is nearly stationary")
+
+  -- The state stamp edge may not drift more than one host pixel per host
+  -- pixel of visible movement: state changes are confined to full-resolution
+  -- opaque texel coverage.
+  local stateJump = b.stateStampColor - a.stateStampColor
+  Assert.isTrue(
+    stateJump <= math.abs(b.visibleBoundary - a.visibleBoundary) + 1,
+    "the state stamp edge stays within the visible opaque texel coverage"
+  )
+
+  -- No edge-colored pixel appears whose support exists only because one
+  -- coarse state cell changed: every edge pixel must be adjacent to a visible
+  -- opaque texel at BOTH offsets.
+  local function everyEdgeNearVisible(sample)
+    for _, x in ipairs(sample.edgeCols) do
+      local near = false
+      for d = -1, 1 do
+        local nx = x + d
+        if nx >= sample.visibleBoundary then
+          near = true
+          break
+        end
+      end
+      Assert.isTrue(near, "no edge-colored pixel appears without visible opaque texel support")
+    end
+  end
+  everyEdgeNearVisible(a)
+  everyEdgeNearVisible(b)
 end
 
 return GraphicsSmoke.suite(T)

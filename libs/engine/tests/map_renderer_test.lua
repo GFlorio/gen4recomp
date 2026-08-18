@@ -1,8 +1,11 @@
--- Pure MapRenderer contracts that need no graphics context: the field-edge
--- radius derivation, the per-draw light-mask encoding, the straddle bend
--- bake, and the scene-schema gate. Everything that compiles a shader,
--- allocates a render target, or reads back driver state lives in
--- map_renderer_graphics_test.lua.
+-- Pure MapRenderer contracts that need no graphics context: the per-draw
+-- light-mask encoding, the straddle bend bake, and the scene-schema gate.
+-- Everything that compiles a shader, allocates a render target, or reads
+-- back driver state lives in map_renderer_graphics_test.lua. (The state
+-- target's color-resolution sizing and the transactional rollback contract
+-- are pinned by state_target_dimensions_equal_color_dimensions and
+-- state_target_recreation_failure_releases_partials_and_keeps_previous_set
+-- below, both driven through the fake graphics context.)
 
 local Assert = require("tests.support.Assert")
 local MapRenderer = require("libs.engine.src.MapRenderer")
@@ -303,7 +306,7 @@ local function assertResourcesReleased(lg)
     Assert.equal(canvas.releaseCount, 1, "renderer released every created canvas exactly once")
   end
   Assert.equal(#lg.shaders, 3, "the three engine shaders were created (color, resolve, state)")
-  Assert.equal(#lg.canvases, 4, "the sceneColor, colorDepth, dsState, and dsDepth canvases were created")
+  Assert.equal(#lg.canvases, 4, "the sceneColor, colorDepth, renderState, and stateDepth canvases were created")
 end
 
 -- Six vertices in the project render layout
@@ -320,36 +323,118 @@ local function stripVertices()
   }
 end
 
--- MapRenderer.semanticTargetSize is the pure derivation the DS semantic
--- raster is built on: one DS scanline per semantic line (192 when the
--- viewport is at least that tall), width from the viewport's own aspect
--- ratio, and a viewport shorter than 192 lines clamps to 1:1 instead of
--- upscaling the semantic raster past the actual viewport. The color raster
--- has no equivalent derivation any more -- it is always exactly the display
--- size (spec: render resolution is a property of the pass, and the color
--- pass's property is "the actual viewport", not a tunable scale).
-function T.semanticTargetSize_matches_the_exact_table()
-  local cases = {
-    { 640, 480, 256, 192 },
-    { 1280, 960, 256, 192 },
-    { 960, 540, 341, 192 },
-    { 256, 192, 256, 192 },
-    { 200, 150, 200, 150 },
-  }
-  for _, case in ipairs(cases) do
-    local displayW, displayH, expectedW, expectedH = case[1], case[2], case[3], case[4]
-    local dsW, dsH = MapRenderer.semanticTargetSize(displayW, displayH)
-    Assert.equal(dsW, expectedW, ("%dx%d -> semantic width"):format(displayW, displayH))
-    Assert.equal(dsH, expectedH, ("%dx%d -> semantic height"):format(displayW, displayH))
-  end
-end
-
 function T.rejects_stale_scene_schema()
   local ok, err = pcall(MapSceneLoader.load, nil, { schema = "g4-map-scene-v1" })
   Assert.isTrue(
     not ok and err.code == "MAP_SCENE_UNSUPPORTED_SCHEMA",
     "rejects old scene schema: " .. tostring(err.code)
   )
+end
+
+-- The fixed-192-line semantic raster is gone: state coverage is one-to-one
+-- with color coverage, so the renderer's state dimensions equal the color
+-- dimensions after any draw. The durable names carry the new meaning
+-- (renderState/stateDepth/stateW/stateH/_stateTargets); on this baseline they
+-- did not exist yet, so the pre-implementation red was the actual size
+-- mismatch (341 vs 1280), not a nil-index crash.
+function T.state_target_dimensions_equal_color_dimensions()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local viewport = { worldViewport = { x = 0, y = 0, width = 1280, height = 720 } }
+  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  Assert.equal(renderer.colorW, 1280)
+  Assert.equal(renderer.colorH, 720)
+  Assert.equal(renderer.stateW, renderer.colorW, "state width equals the color width, not a fixed semantic raster")
+  Assert.equal(renderer.stateH, renderer.colorH, "state height equals the color height, not a fixed semantic raster")
+  Assert.equal(renderer.stateW, 1280)
+  Assert.equal(renderer.stateH, 720)
+  renderer:release()
+end
+
+-- Target recreation is transactional at equal color/state dimensions: a
+-- failure while building the replacement set leaves the previous targets and
+-- their recorded size fully usable, and every partial new canvas is released.
+-- The first draw allocates canvases 1-4; a failure on canvas 5 (the new
+-- sceneColor) must keep the old set published.
+function T.state_target_recreation_failure_releases_partials_and_keeps_previous_set()
+  for _, failOnNewCanvas in ipairs({ 5, 6, 7, 8 }) do
+    local lg = fakeGraphics({ failOnNewCanvas = failOnNewCanvas })
+    local renderer = MapRenderer.new({ graphics = lg })
+    local scene = emptySceneCamera()
+    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+    local oldColorW, oldColorH, oldStateW, oldStateH =
+      renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
+    local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
+    Assert.equal(#lg.canvases, 4, "the first target set was created")
+
+    local err = Assert.throws(function()
+      renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
+    end)
+    Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
+
+    for i = 5, #lg.canvases do
+      Assert.equal(lg.canvases[i].releaseCount, 1, "partial canvas " .. i .. " was released")
+    end
+    Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
+    Assert.equal(renderer.colorDepth, lg.canvases[2], "the previous color-depth canvas survives")
+    Assert.equal(renderer.renderState, lg.canvases[3], "the previous state canvas survives")
+    Assert.equal(renderer.stateDepth, lg.canvases[4], "the previous state-depth canvas survives")
+    Assert.equal(renderer.colorW, oldColorW, "the recorded color size survives")
+    Assert.equal(renderer.colorH, oldColorH, "the recorded color size survives")
+    Assert.equal(renderer.stateW, oldStateW, "the recorded state width survives")
+    Assert.equal(renderer.stateH, oldStateH, "the recorded state height survives")
+    Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color target descriptor survives")
+    Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state target descriptor survives")
+    for i = 1, 4 do
+      Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas " .. i .. " is still owned")
+    end
+
+    renderer:release()
+    for _, canvas in ipairs(lg.canvases) do
+      Assert.equal(canvas.releaseCount, 1, "release cleans up every canvas exactly once")
+    end
+  end
+end
+
+-- The fixed-DS-density semantic-size helper is deleted, not left as a dead
+-- compatibility wrapper: no production, test, or doc may still derive a
+-- 192-line state raster from the display size.
+function T.no_fixed_semantic_size_helper_remains()
+  ---@diagnostic disable-next-line: undefined-field -- intentional: asserts the deleted helper is absent
+  Assert.isNil(MapRenderer.semanticTargetSize, "the fixed-192 semantic-size helper is removed")
+end
+
+-- R02 renderer contract: the edge radius the renderer sends on the real draw
+-- path is the nearest integer of the viewport's field-pixel scale
+-- (referenceFrame.height / 192 * zoom), minimum 1. At 1280x720 expanded
+-- (referenceFrame.height 720) with zoom 1, the scale is 720/192 = 3.75, so
+-- the radius is floor(3.75 + 0.5) = 4; the same viewport at zoom 0.5 gives
+-- floor(1.875 + 0.5) = 2; a 2560x1440 viewport at zoom 1 gives
+-- floor(7.5 + 0.5) = 8; a 480p viewport at zoom 1 gives floor(2.5 + 0.5) = 3.
+function T.draw_sends_the_rounded_field_pixel_scale_as_the_edge_radius()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local edgeShader = lg.shaders[2]
+
+  local function radiusSentFor(viewport, zoom)
+    scene.camera.zoom = zoom
+    renderer:draw(scene.runtime, scene.camera, nil, viewport)
+    local last
+    for _, send in ipairs(edgeShader.sends) do
+      if send.name == "u_edgeRadiusPx" then
+        last = send.values[1]
+      end
+    end
+    return last
+  end
+
+  Assert.equal(radiusSentFor(FieldViewport.new(1280, 720, { mode = "expanded" }), 1.0), 4, "radius 4 at 720p zoom 1")
+  Assert.equal(radiusSentFor(FieldViewport.new(1280, 720, { mode = "expanded" }), 0.5), 2, "radius 2 at 720p zoom 0.5")
+  Assert.equal(radiusSentFor(FieldViewport.new(2560, 1440, { mode = "expanded" }), 1.0), 8, "radius 8 at 1440p zoom 1")
+  Assert.equal(radiusSentFor(FieldViewport.new(640, 480, { mode = "strict" }), 1.0), 3, "radius 3 at 480p zoom 1")
+  renderer:release()
 end
 
 -- Exact caller-state restoration: every captured caller state comes back
@@ -383,7 +468,7 @@ end
 -- color is injected as opts.clearColor rather than hardcoded: the renderer
 -- clears the scene canvas to exactly the table it was given, and falls back
 -- to its own default when the caller (e.g. a test uninterested in
--- background color) omits it. The semantic pass clears first (its own
+-- background color) omits it. The state pass clears first (its own
 -- DS_STATE_CLEAR rear-plane value, not the scene color), so the color clear
 -- is the draw's second clear call.
 function T.draw_clears_the_scene_canvas_to_the_injected_color()
@@ -407,7 +492,7 @@ end
 -- dirties cull mode and wireframe before the injected draw failure, so the
 -- captured caller state (including those two) is restored exactly and the
 -- original draw error is rethrown. The item's first draw call is the
--- semantic pass's own wireframe pass (which never touches host wireframe/cull
+-- state pass's own wireframe pass (which never touches host wireframe/cull
 -- state), so the failure is injected on the second draw call -- the color
 -- pass's wireframe draw, issued after setWireframe(true)/setMeshCullMode.
 function T.draw_failure_restores_exact_state_and_rethrows()
@@ -550,10 +635,11 @@ function T.new_first_shader_source_failure_leaks_nothing()
   Assert.equal(#lg.shaders, 0, "no shader was created")
 end
 
--- Color targets always match the display size directly (no tunable scale);
--- the semantic (DS) targets use MapRenderer.semanticTargetSize instead.
--- sceneColor and dsState are both nearest-filtered.
-function T.new_derives_color_and_semantic_target_sizes_and_nearest_filters_scene_color_and_ds_state()
+-- Color targets always match the display size directly; the render-state
+-- targets share the exact same dimensions (state coverage is one-to-one with
+-- color coverage -- there is no separate semantic-size derivation any more).
+-- sceneColor and renderState are both nearest-filtered.
+function T.new_derives_equal_color_and_state_target_sizes_and_nearest_filters_scene_color_and_render_state()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
@@ -561,12 +647,12 @@ function T.new_derives_color_and_semantic_target_sizes_and_nearest_filters_scene
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   Assert.equal(renderer.colorW, 1280, "the color target matches the display viewport width exactly")
   Assert.equal(renderer.colorH, 720, "the color target matches the display viewport height exactly")
-  Assert.equal(renderer.dsW, 341, "the semantic target width follows semanticTargetSize")
-  Assert.equal(renderer.dsH, 192, "the semantic target height follows semanticTargetSize")
+  Assert.equal(renderer.stateW, 1280, "the state target matches the color target width exactly")
+  Assert.equal(renderer.stateH, 720, "the state target matches the color target height exactly")
   local sceneColor = renderer.sceneColor --[[@as any]]
-  local dsState = renderer.dsState --[[@as any]]
+  local renderState = renderer.renderState --[[@as any]]
   Assert.deepEqual(sceneColor.filter, { "nearest", "nearest" }, "sceneColor is nearest-filtered")
-  Assert.deepEqual(dsState.filter, { "nearest", "nearest" }, "dsState is nearest-filtered")
+  Assert.deepEqual(renderState.filter, { "nearest", "nearest" }, "renderState is nearest-filtered")
   renderer:release()
 end
 
@@ -574,16 +660,17 @@ end
 -- live one: when any new-canvas allocation fails, every partial new canvas is
 -- released, the previous targets and their recorded size survive, and the
 -- failure reaches the caller. Each failOnNewCanvas value places the failure at
--- a different point in the new set of four (sceneColor, colorDepth, dsState,
--- dsDepth), which the first draw allocates as canvases 1-4.
+-- a different point in the new set of four (sceneColor, colorDepth,
+-- renderState, stateDepth), which the first draw allocates as canvases 1-4.
 function T.canvas_recreation_failure_releases_partial_new_canvases()
   for _, failOnNewCanvas in ipairs({ 5, 6, 7, 8 }) do
     local lg = fakeGraphics({ failOnNewCanvas = failOnNewCanvas })
     local renderer = MapRenderer.new({ graphics = lg })
     local scene = emptySceneCamera()
     renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
-    local oldColorW, oldColorH, oldDsW, oldDsH = renderer.colorW, renderer.colorH, renderer.dsW, renderer.dsH
-    local oldColorTargets, oldDsTargets = renderer._colorTargets, renderer._dsTargets
+    local oldColorW, oldColorH, oldStateW, oldStateH =
+      renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
+    local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
     Assert.equal(#lg.canvases, 4, "the first target set was created")
 
     local err = Assert.throws(function()
@@ -597,14 +684,14 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     -- The previous target set survives untouched, at its recorded size.
     Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
     Assert.equal(renderer.colorDepth, lg.canvases[2], "the previous color-depth canvas survives")
-    Assert.equal(renderer.dsState, lg.canvases[3], "the previous ds-state canvas survives")
-    Assert.equal(renderer.dsDepth, lg.canvases[4], "the previous ds-depth canvas survives")
+    Assert.equal(renderer.renderState, lg.canvases[3], "the previous render-state canvas survives")
+    Assert.equal(renderer.stateDepth, lg.canvases[4], "the previous state-depth canvas survives")
     Assert.equal(renderer.colorW, oldColorW, "the recorded color size survives")
     Assert.equal(renderer.colorH, oldColorH, "the recorded color size survives")
-    Assert.equal(renderer.dsW, oldDsW, "the recorded semantic size survives")
-    Assert.equal(renderer.dsH, oldDsH, "the recorded semantic size survives")
+    Assert.equal(renderer.stateW, oldStateW, "the recorded state size survives")
+    Assert.equal(renderer.stateH, oldStateH, "the recorded state size survives")
     Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color target descriptor survives")
-    Assert.equal(renderer._dsTargets, oldDsTargets, "the previous ds target descriptor survives")
+    Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state target descriptor survives")
     for i = 1, 4 do
       Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas " .. i .. " is still owned")
     end
@@ -617,22 +704,22 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
 end
 
 -- Edge configuration is part of target staging: a failure after the new
--- dsState texture was sent but before u_dsSize was accepted restores the
--- previous uniforms, retains the previous published descriptors and
+-- renderState texture was sent but before u_stateSize was accepted restores
+-- the previous uniforms, retains the previous published descriptors and
 -- canvases, and releases the unpublished replacement set.
 function T.canvas_recreation_send_failure_retains_previous_targets()
   -- The first draw's edge-shader sends, in order: 2 target uniforms
-  -- (u_dsState/u_dsSize) from _ensureTargets, 1 from _sendEdgeColors, 6 from
-  -- _sendFog, and 1 for u_antialiasEnabled -- 10 total. The second
-  -- (recreating) draw's target uniforms then start at 11 (u_dsState) and 12
-  -- (u_dsSize), so failing on the 12th send lands on u_dsSize, after
-  -- u_dsState already succeeded.
+  -- (u_renderState/u_stateSize) from _ensureTargets, 1 from _sendEdgeColors,
+  -- 6 from _sendFog, and 1 for u_antialiasEnabled -- 10 total. The second
+  -- (recreating) draw's target uniforms then start at 11 (u_renderState) and
+  -- 12 (u_stateSize), so failing on the 12th send lands on u_stateSize, after
+  -- u_renderState already succeeded.
   local lg = fakeGraphics({ failOnEdgeShaderSend = 12 })
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local oldViewport = FieldViewport.new(640, 480, { mode = "strict" })
   renderer:draw(scene.runtime, scene.camera, nil, oldViewport)
-  local oldColorTargets, oldDsTargets = assert(renderer._colorTargets), assert(renderer._dsTargets)
+  local oldColorTargets, oldStateTargets = assert(renderer._colorTargets), assert(renderer._stateTargets)
   local edgeShader = assert(lg.shaders[2])
 
   local err = Assert.throws(function()
@@ -641,17 +728,17 @@ function T.canvas_recreation_send_failure_retains_previous_targets()
   Assert.isTrue(tostring(err):find("injected edge shader send failure", 1, true) ~= nil, "rethrows send failure")
 
   Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color descriptor remains published")
-  Assert.equal(renderer._dsTargets, oldDsTargets, "the previous ds descriptor remains published")
+  Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state descriptor remains published")
   Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
   Assert.equal(renderer.colorDepth, lg.canvases[2], "the previous color-depth canvas survives")
-  Assert.equal(renderer.dsState, lg.canvases[3], "the previous ds-state canvas survives")
-  Assert.equal(renderer.dsDepth, lg.canvases[4], "the previous ds-depth canvas survives")
+  Assert.equal(renderer.renderState, lg.canvases[3], "the previous render-state canvas survives")
+  Assert.equal(renderer.stateDepth, lg.canvases[4], "the previous state-depth canvas survives")
   Assert.equal(renderer.colorW, 640)
   Assert.equal(renderer.colorH, 480)
-  Assert.equal(renderer.dsW, 256)
-  Assert.equal(renderer.dsH, 192)
-  Assert.equal(edgeShader.uniforms.u_dsState, lg.canvases[3], "the previous dsState binding is restored")
-  Assert.deepEqual(edgeShader.uniforms.u_dsSize, { 256, 192 }, "the previous semantic size is restored")
+  Assert.equal(renderer.stateW, 640)
+  Assert.equal(renderer.stateH, 480)
+  Assert.equal(edgeShader.uniforms.u_renderState, lg.canvases[3], "the previous renderState binding is restored")
+  Assert.deepEqual(edgeShader.uniforms.u_stateSize, { 640, 480 }, "the previous state size is restored")
   for i = 1, 4 do
     Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas remains owned")
     Assert.equal(lg.canvases[i + 4].releaseCount, 1, "the unpublished replacement canvas is released")
@@ -683,30 +770,30 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
 
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   local colorTargets = assert(renderer._colorTargets, "successful canvas creation publishes the color descriptor")
-  local dsTargets = assert(renderer._dsTargets, "successful canvas creation publishes the ds descriptor")
+  local stateTargets = assert(renderer._stateTargets, "successful canvas creation publishes the state descriptor")
   Assert.equal(colorTargets[1], renderer.sceneColor)
   Assert.equal(colorTargets.depthstencil, renderer.colorDepth)
-  Assert.equal(dsTargets[1], renderer.dsState)
-  Assert.equal(dsTargets.depthstencil, renderer.dsDepth)
+  Assert.equal(stateTargets[1], renderer.renderState)
+  Assert.equal(stateTargets.depthstencil, renderer.stateDepth)
   Assert.equal(renderer.stats, stats, "draw reuses the public stats table")
-  Assert.equal(shaderSendCount(edgeShader, "u_dsState"), 1)
-  Assert.equal(shaderSendCount(edgeShader, "u_dsSize"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 1)
+  Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 1)
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the first draw establishes the scene edge table")
 
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   Assert.equal(renderer._colorTargets, colorTargets, "unchanged dimensions reuse the color descriptor")
-  Assert.equal(renderer._dsTargets, dsTargets, "unchanged dimensions reuse the ds descriptor")
+  Assert.equal(renderer._stateTargets, stateTargets, "unchanged dimensions reuse the state descriptor")
   Assert.equal(renderer.stats, stats, "later draws retain stats identity")
-  Assert.equal(shaderSendCount(edgeShader, "u_dsState"), 1, "unchanged targets do not resend the semantic texture")
-  Assert.equal(shaderSendCount(edgeShader, "u_dsSize"), 1, "unchanged size does not resend the semantic size")
+  Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 1, "unchanged targets do not resend the state texture")
+  Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 1, "unchanged size does not resend the state size")
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the same edge table reference is not resent")
 
   viewport:resize(1280, 720)
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new color descriptor")
-  Assert.isTrue(renderer._dsTargets ~= dsTargets, "replacement publishes a new ds descriptor")
-  Assert.equal(shaderSendCount(edgeShader, "u_dsState"), 2)
-  Assert.equal(shaderSendCount(edgeShader, "u_dsSize"), 2)
+  Assert.isTrue(renderer._stateTargets ~= stateTargets, "replacement publishes a new state descriptor")
+  Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 2)
+  Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 2)
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "a target resize alone does not resend the edge table")
 
   -- A different edge table (a new area's scene profile) resends, even though
@@ -722,7 +809,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
 
   renderer:release()
   Assert.isNil(renderer._colorTargets, "release clears the color descriptor")
-  Assert.isNil(renderer._dsTargets, "release clears the ds descriptor")
+  Assert.isNil(renderer._stateTargets, "release clears the state descriptor")
 end
 
 -- The decoded values MapRenderer sends for u_edgeColors are the scene's edge
@@ -797,7 +884,7 @@ end
 -- per frame alongside u_view (never per draw item, and never cached across
 -- frames -- a camera whose far plane changes mid-run must retarget the very
 -- next frame, the same way u_view always resends). u_depthWMax now lives only
--- on the semantic-pass shader (the color pass no longer quantizes depth into
+-- on the state-pass shader (the color pass no longer quantizes depth into
 -- any output channel).
 function T.draw_sends_the_cameras_far_plane_as_the_depth_normalization_range()
   local lg = fakeGraphics()
@@ -938,7 +1025,7 @@ end
 -- After a failed recreation the renderer stays usable at the previous size,
 -- and a later successful recreation swaps in a full new set while releasing
 -- the previous set exactly once. The first draw allocates canvases 1-4
--- (sceneColor, colorDepth, dsState, dsDepth); the failed recreation attempt
+-- (sceneColor, colorDepth, renderState, stateDepth); the failed recreation attempt
 -- allocates canvas 5 (sceneColor) before failing on canvas 6 (colorDepth).
 function T.canvas_recreation_failure_keeps_renderer_usable()
   local lg = fakeGraphics({ failOnNewCanvas = 6 })
@@ -963,10 +1050,10 @@ function T.canvas_recreation_failure_keeps_renderer_usable()
   Assert.equal(#lg.canvases, 9, "a full new set was created")
   Assert.equal(lg.canvases[1].releaseCount, 1, "the old scene canvas is released exactly once")
   Assert.equal(lg.canvases[2].releaseCount, 1, "the old color-depth canvas is released exactly once")
-  Assert.equal(lg.canvases[3].releaseCount, 1, "the old ds-state canvas is released exactly once")
-  Assert.equal(lg.canvases[4].releaseCount, 1, "the old ds-depth canvas is released exactly once")
+  Assert.equal(lg.canvases[3].releaseCount, 1, "the old render-state canvas is released exactly once")
+  Assert.equal(lg.canvases[4].releaseCount, 1, "the old state-depth canvas is released exactly once")
   Assert.equal(lg.canvases[6].releaseCount, 0, "the new scene canvas is owned by the renderer")
-  Assert.equal(lg.canvases[9].releaseCount, 0, "the new ds-depth canvas is owned by the renderer")
+  Assert.equal(lg.canvases[9].releaseCount, 0, "the new state-depth canvas is owned by the renderer")
 
   renderer:release()
   for _, canvas in ipairs(lg.canvases) do
@@ -1006,7 +1093,7 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
   -- Every draw() also issues its own composite blit, so the empty frame's
   -- call count is the per-frame composite baseline: empty parts draw nothing
   -- beyond it, and each item in the given parts draws exactly twice -- once
-  -- into the semantic pass, once into the color pass.
+  -- into the state pass, once into the color pass.
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   local emptyFrame = lg.getDrawCalls()
   renderer:draw(scene.runtime, scene.camera, {
@@ -1014,7 +1101,7 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
     { drawItem("b") },
   }, viewport)
   local itemFrame = lg.getDrawCalls() - emptyFrame
-  Assert.equal(itemFrame - emptyFrame, 4, "each given world item draws once per pass (semantic + color)")
+  Assert.equal(itemFrame - emptyFrame, 4, "each given world item draws once per pass (state + color)")
 
   local scratch = renderer._queueScratch
   Assert.isTrue(type(scratch) == "table", "the renderer owns queue scratch")
@@ -1179,14 +1266,14 @@ function T.a_real_polygon_63_encodes_the_same_id_value_as_the_clear_background()
 
   renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
 
-  -- Only the semantic-pass shader (shaders[3]) carries a polygon-ID uniform.
+  -- Only the state-pass shader (shaders[3]) carries a polygon-ID uniform.
   local sentPolygonId
   for _, send in ipairs(lg.shaders[3].sends) do
     if send.name == "u_polygonId" then
       sentPolygonId = send.values[1]
     end
   end
-  -- The semantic target's own clear call is the draw's first clear.
+  -- The state target's own clear call is the draw's first clear.
   local clearIdChannel = lg.calls.clear[1][1][1]
   Assert.equal(
     sentPolygonId,
@@ -1204,10 +1291,10 @@ end
 -- independent attribute -- it must send exactly the same normalization every
 -- opaque/cutout item sends, by the real domain maximum (63), never a value
 -- carved out of the polygon-ID domain to signal translucency.
--- An ordinary translucent item never reaches the semantic pass at all (only
--- opaque/cutout/mixed-opaque/wireframe touch dsState/dsDepth -- see
+-- An ordinary translucent item never reaches the state pass at all (only
+-- opaque/cutout/mixed-opaque/wireframe touch renderState/stateDepth -- see
 -- MapRenderer:draw), so it sends no u_polygonId anywhere; this locks that it
--- is not, for example, routed through the semantic pass with an invented
+-- is not, for example, routed through the state pass with an invented
 -- sentinel ID merely because it is translucent.
 function T.translucent_draws_send_their_own_polygon_id_not_an_invented_sentinel()
   local lg = fakeGraphics()
@@ -1221,7 +1308,7 @@ function T.translucent_draws_send_their_own_polygon_id_not_an_invented_sentinel(
   Assert.equal(
     shaderSendCount(lg.shaders[3], "u_polygonId"),
     0,
-    "an ordinary translucent item never draws into the semantic pass"
+    "an ordinary translucent item never draws into the state pass"
   )
   renderer:release()
 end
@@ -1271,9 +1358,9 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
     stateSent[send.name] = send.values[1]
   end
   Assert.equal(sent.u_polygonMode, 0, "the actor's modulation material sends the modulation combiner id")
-  Assert.equal(stateSent.u_polygonId, 0 / 63, "the actor's polygon id 0 rides the real id channel in the semantic pass")
+  Assert.equal(stateSent.u_polygonId, 0 / 63, "the actor's polygon id 0 rides the real id channel in the state pass")
   Assert.equal(sent.u_fragmentPass, 1, "the actor's cutout class sends the color-pass cutout fragment-pass id")
-  Assert.equal(stateSent.u_fragmentPass, 1, "the actor's cutout class sends the semantic-pass cutout fragment-pass id")
+  Assert.equal(stateSent.u_fragmentPass, 1, "the actor's cutout class sends the state-pass cutout fragment-pass id")
   Assert.deepEqual(sent.u_lightMask, MapRenderer.lightMaskUniforms(1), "light mask 1 decodes to bit 0 only")
   Assert.notNil(
     sent.u_billboardCenter,
@@ -1282,7 +1369,7 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
   Assert.equal(
     #lg.shaders,
     3,
-    "the actor drew through the shared color/semantic shaders, no separate sprite shader was created"
+    "the actor drew through the shared color/state shaders, no separate sprite shader was created"
   )
   renderer:release()
 end
@@ -1384,7 +1471,7 @@ function T.draw_sets_wireframe_and_translucent_state_once_per_run()
   Assert.equal(
     callCount(lg.calls.depth, { mode = "less", write = true }),
     4,
-    "semantic-pass start, color-pass start, translucent write-on, and color wireframe passes"
+    "state-pass start, color-pass start, translucent write-on, and color wireframe passes"
   )
   Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = false }), 0, "lequal is retired, not merely unused")
   Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = true }), 0, "lequal is retired, not merely unused")
@@ -1697,7 +1784,7 @@ end
 -- real id, never a value invented to mean "this is a wireframe/rear-plane
 -- draw" (see MapRenderer.CLEAR_POLYGON_ID for the one real DS sentinel value,
 -- which is a legitimate polygon id, not a wireframe-specific one). Only the
--- semantic pass's wireframe draw carries a polygon-ID uniform at all -- the
+-- state pass's wireframe draw carries a polygon-ID uniform at all -- the
 -- color shader no longer owns any ID/fog-gate output.
 function T.wireframe_draw_sends_its_own_real_polygon_id_not_an_invented_sentinel()
   local lg = fakeGraphics()
@@ -1722,7 +1809,7 @@ end
 -- fragment-pass uniform the edge/fog final pass keys on (never the
 -- cutout/mixed-opaque discard branches). This locks a contract the renderer
 -- already satisfies structurally so a later refactor cannot regress it
--- silently. Both the color and semantic wireframe draw bodies always send the
+-- silently. Both the color and state wireframe draw bodies always send the
 -- opaque fragment-pass id.
 function T.wireframe_draw_is_opaque_classified_for_edge_marking()
   local lg = fakeGraphics()
@@ -1740,17 +1827,17 @@ function T.wireframe_draw_is_opaque_classified_for_edge_marking()
     stateSent[send.name] = send.values[1]
   end
   Assert.equal(colorSent.u_fragmentPass, 0, "a color-pass wireframe draw sends the opaque fragment-pass id")
-  Assert.equal(stateSent.u_fragmentPass, 0, "a semantic-pass wireframe draw sends the opaque fragment-pass id")
+  Assert.equal(stateSent.u_fragmentPass, 0, "a state-pass wireframe draw sends the opaque fragment-pass id")
   renderer:release()
 end
 
--- The dsState render-target contract's blue channel is the per-polygon fog gate
--- (item.fogEnabled), not a separate "translucent identity" flag -- the old
--- u_translucentAttribute uniform is retired outright, not merely unread, for
--- every draw kind (opaque, cutout, translucent, wireframe alike). A stray
--- send of the retired uniform is exactly the kind of silent regression this
--- locks: a shader still reading it would compile and render, so only an
--- explicit "never sent" assertion catches its reintroduction.
+-- The renderState render-target contract's blue channel is the per-polygon
+-- fog gate (item.fogEnabled), not a separate "translucent identity" flag --
+-- the old u_translucentAttribute uniform is retired outright, not merely
+-- unread, for every draw kind (opaque, cutout, translucent, wireframe
+-- alike). A stray send of the retired uniform is exactly the kind of silent
+-- regression this locks: a shader still reading it would compile and render,
+-- so only an explicit "never sent" assertion catches its reintroduction.
 function T.draws_never_send_the_retired_translucent_attribute_uniform()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -1810,11 +1897,11 @@ function T.draw_builds_the_render_queue_exactly_once_per_frame()
   renderer:release()
 end
 
--- Both the semantic and color passes must select projection identically per
+-- Both the state and color passes must select projection identically per
 -- item: an ordinary item always draws through camera:projection(), a
 -- billboard item always through camera:billboardProjection() -- in both
 -- passes, never mismatched between them.
-function T.projection_selection_matches_between_the_semantic_and_color_passes()
+function T.projection_selection_matches_between_the_state_and_color_passes()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
@@ -1853,7 +1940,7 @@ function T.projection_selection_matches_between_the_semantic_and_color_passes()
   local colorProjections = projectionsSentBy(lg.shaders[1])
   local stateProjections = projectionsSentBy(lg.shaders[3])
   Assert.deepEqual(colorProjections, { worldProjection, billboardProjection }, "color pass: ordinary then billboard")
-  Assert.deepEqual(stateProjections, { worldProjection, billboardProjection }, "semantic pass: ordinary then billboard")
+  Assert.deepEqual(stateProjections, { worldProjection, billboardProjection }, "state pass: ordinary then billboard")
   renderer:release()
 end
 

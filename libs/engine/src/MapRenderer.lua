@@ -1,27 +1,28 @@
--- Draws a loaded runtime scene in real 3D, split across two independent
--- raster domains (see docs/rendering.md): a full-viewport-resolution color
--- raster (sceneColor/colorDepth) and a DS-pixel-density semantic raster
--- (dsState/dsDepth, one line per DS scanline -- see
--- MapRenderer.semanticTargetSize). Render resolution is a property of the
--- pass, never of the object being drawn: map geometry, buildings, the
--- neighbour ring, and actor billboards all draw through the identical shared
--- item pipeline in both passes.
+-- Draws a loaded runtime scene in real 3D through two full-resolution raster
+-- passes (see docs/rendering.md): a color raster (sceneColor/colorDepth) and
+-- a render-state raster (renderState/stateDepth) that shares the color
+-- raster's exact dimensions and screen coverage at every host size. Raster
+-- resolution is a property of the pass, never of the object being drawn: map
+-- geometry, buildings, the neighbour ring, and actor billboards all draw
+-- through the identical shared item pipeline in both passes.
 --
 -- The render queue is built exactly once per frame (RenderQueue.buildInto)
--- and both passes consume it. The semantic pass (state.glsl) draws opaque,
+-- and both passes consume it. The state pass (state.glsl) draws opaque,
 -- cutout, and mixed-opaque fragments (mixed-opaque-fragment predicate only)
--- into dsState/dsDepth: every surviving fragment stamps its polygon ID,
--- DS-quantized depth, and per-polygon fog gate. Ordinary translucent and
--- mixed-translucent fragments never touch the semantic target, matching real
--- DS behavior, which never updates its depth/attribute buffers for a
+-- into renderState/stateDepth: every surviving fragment stamps its polygon
+-- ID, DS-quantized depth, and per-polygon fog gate. Ordinary translucent and
+-- mixed-translucent fragments never touch the state target, matching real DS
+-- behavior, which never updates its depth/attribute buffers for a
 -- non-depth-writing translucent fragment. The color pass (map.glsl) draws the
 -- same opaque/cutout/mixed-opaque items at full resolution, then the joint
 -- `blended` list (ordinary translucent and mixed-translucent, already
 -- depth-sorted by RenderQueue) with per-entry depth-write toggling, then
--- wireframe. The final resolve (edge.glsl) samples the high-resolution
--- sceneColor as its own texture and the low-resolution dsState through exact
--- one-semantic-pixel snapping (never texture-clamp reliance), and applies, in
--- order: edge marking, HGSS field anti-alias coverage, then fog.
+-- wireframe. The final resolve (edge.glsl) samples sceneColor as its own
+-- texture and the same-resolution renderState through explicit snap/clamp to
+-- render-state pixel centers (never texture-clamp reliance), probing the four
+-- orthogonal neighbors at a distance of one integer edge radius (the rounded
+-- field logical pixel scale -- see FieldViewport:logicalPixelScale), and
+-- applies, in order: edge marking, HGSS field anti-alias coverage, then fog.
 --
 -- A straddling draw item (the first `leading` vertices submitted under a
 -- pre-boundary matrix, per the DS geometry engine) is bent per frame, in both
@@ -55,17 +56,17 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _edgeColorsCache number[][]
 ---@field _edgeColorsProfile table<integer, integer>?
 ---@field _fogColorCache number[]
----@field stats { drawCalls: integer, colorDrawCalls: integer, semanticDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
+---@field stats { drawCalls: integer, colorDrawCalls: integer, stateDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
 ---@field sceneColor love.Canvas?
 ---@field colorDepth love.Canvas?
----@field dsState love.Canvas?
----@field dsDepth love.Canvas?
+---@field renderState love.Canvas?
+---@field stateDepth love.Canvas?
 ---@field colorW integer?
 ---@field colorH integer?
----@field dsW integer?
----@field dsH integer?
+---@field stateW integer?
+---@field stateH integer?
 ---@field _colorTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
----@field _dsTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
+---@field _stateTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
@@ -124,7 +125,7 @@ local DS_DEPTH_MAX = 0xFFFFFF
 -- reaching the final pass's density calculation (edge.glsl's u_fogOffsetDepth).
 local FOG_OFFSET_TO_DEPTH_SCALE = 0x200
 
--- Rear-plane entry for the dsState target: HGSS's real clear polygon ID
+-- Rear-plane entry for the renderState target: HGSS's real clear polygon ID
 -- (MapRenderer.CLEAR_POLYGON_ID, 63) at the farthest quantized depth
 -- (DS_DEPTH_MAX), with its fog gate false -- HGSS's rear plane is not itself
 -- fog-gated. Clearing depth to the maximum makes background neighbours read
@@ -136,10 +137,6 @@ local FOG_OFFSET_TO_DEPTH_SCALE = 0x200
 -- GBATEK specifies. This exact table is also edge.glsl's rearPlaneState
 -- constant, hand-mirrored there (GLSL has no cross-source include).
 local DS_STATE_CLEAR = { 1, DS_DEPTH_MAX, 0, 1 }
-
--- DS framebuffer height: one DS scanline per semantic-target line (see
--- MapRenderer.semanticTargetSize).
-local DS_NATIVE_HEIGHT = 192
 
 -- Polygon-ID domain (GBATEK POLYGON_ATTR polygon ID, 6-bit 0..63). HGSS
 -- initializes the rear/clear plane's polygon ID to 0x3F (63) -- a real,
@@ -159,8 +156,8 @@ local FRAGMENT_PASS_TRANSLUCENT = 2
 local FRAGMENT_PASS_MIXED_OPAQUE = 3
 local FRAGMENT_PASS_MIXED_TRANSLUCENT = 4
 
--- Semantic-pass fragment-pass ids (state.glsl's u_fragmentPass): only the
--- three passes that ever touch dsState/dsDepth.
+-- State-pass fragment-pass ids (state.glsl's u_fragmentPass): only the
+-- three passes that ever touch renderState/stateDepth.
 local STATE_PASS_OPAQUE = 0
 local STATE_PASS_CUTOUT = 1
 local STATE_PASS_MIXED_OPAQUE = 2
@@ -189,7 +186,7 @@ function MapRenderer.new(opts)
     },
     _edgeColorsProfile = nil,
     _fogColorCache = { 0, 0, 0 },
-    stats = { drawCalls = 0, colorDrawCalls = 0, semanticDrawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
+    stats = { drawCalls = 0, colorDrawCalls = 0, stateDrawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
     _lightMaterialColorCache = {
       diffuse = { 0, 0, 0 },
       ambient = { 0, 0, 0 },
@@ -238,37 +235,43 @@ function MapRenderer:_releaseTargets()
   if self.colorDepth then
     self.colorDepth:release()
   end
-  if self.dsState then
-    self.dsState:release()
+  if self.renderState then
+    self.renderState:release()
   end
-  if self.dsDepth then
-    self.dsDepth:release()
+  if self.stateDepth then
+    self.stateDepth:release()
   end
-  self.sceneColor, self.colorDepth, self.dsState, self.dsDepth = nil, nil, nil, nil
-  self.colorW, self.colorH, self.dsW, self.dsH = nil, nil, nil, nil
+  self.sceneColor, self.colorDepth, self.renderState, self.stateDepth = nil, nil, nil, nil
+  self.colorW, self.colorH, self.stateW, self.stateH = nil, nil, nil, nil
   self._colorTargets = nil
-  self._dsTargets = nil
+  self._stateTargets = nil
 end
 
-local function sendDsStateUniforms(shader, dsState, dsW, dsH)
-  shader:send("u_dsState", dsState)
-  shader:send("u_dsSize", { dsW, dsH })
+local function sendStateUniforms(shader, renderState, stateW, stateH)
+  shader:send("u_renderState", renderState)
+  shader:send("u_stateSize", { stateW, stateH })
 end
 
 -- Recreate every render target at new dimensions. All four canvases are
 -- allocated and configured into local staged variables before anything
 -- published is touched: on any failure, only the staged canvases are
--- released, the edge shader's dsState/dsSize uniforms are restored to the
--- still-live previous values if a partial send had already changed them, and
--- the previously published target set and its recorded dimensions are left
--- completely untouched. Only once every staged resource is valid does the
--- previous set get released (exactly once) and the staged set published.
-function MapRenderer:_ensureTargets(colorW, colorH, dsW, dsH)
-  if self.sceneColor and self.colorW == colorW and self.colorH == colorH and self.dsW == dsW and self.dsH == dsH then
+-- released, the edge shader's renderState/stateSize uniforms are restored to
+-- the still-live previous values if a partial send had already changed them,
+-- and the previously published target set and its recorded dimensions are
+-- left completely untouched. Only once every staged resource is valid does
+-- the previous set get released (exactly once) and the staged set published.
+function MapRenderer:_ensureTargets(colorW, colorH)
+  if
+    self.sceneColor
+    and self.colorW == colorW
+    and self.colorH == colorH
+    and self.stateW == colorW
+    and self.stateH == colorH
+  then
     return
   end
   local lg = assert(self._graphics)
-  local sceneColor, colorDepth, dsState, dsDepth, colorTargets, dsTargets
+  local sceneColor, colorDepth, renderState, stateDepth, colorTargets, stateTargets
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(colorW, colorH)
     -- Nearest sampling keeps the final composite draw (a 1:1 blit at
@@ -277,22 +280,25 @@ function MapRenderer:_ensureTargets(colorW, colorH, dsW, dsH)
     colorDepth = lg.newCanvas(colorW, colorH, { format = "depth24stencil8", readable = false })
     colorTargets = { sceneColor, depthstencil = colorDepth }
 
-    -- dsState: red the normalized opaque edge polygon ID, green the
+    -- renderState: red the normalized opaque edge polygon ID, green the
     -- DS-quantized W-buffer depth (a 24-bit integer domain, stored as a
     -- float -- see dsWbufferDepth in state.glsl), blue the per-polygon fog
-    -- gate, alpha validity/reserved. The format must be 32-bit float: the
-    -- quantized depth spans the full 24-bit domain, which 16-bit floats
-    -- cannot resolve exactly.
-    dsState = lg.newCanvas(dsW, dsH, { format = "rgba32f" })
-    dsState:setFilter("nearest", "nearest")
-    dsDepth = lg.newCanvas(dsW, dsH, { format = "depth24stencil8", readable = false })
-    dsTargets = { dsState, depthstencil = dsDepth }
+    -- gate, alpha validity/reserved. The state canvas shares the color
+    -- canvas's exact dimensions: state classification is never deliberately
+    -- downsampled, and the final resolve probes this same-resolution state
+    -- at a sampling distance of one integer edge radius. The format must be
+    -- 32-bit float: the quantized depth spans the full 24-bit domain, which
+    -- 16-bit floats cannot resolve exactly.
+    renderState = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
+    renderState:setFilter("nearest", "nearest")
+    stateDepth = lg.newCanvas(colorW, colorH, { format = "depth24stencil8", readable = false })
+    stateTargets = { renderState, depthstencil = stateDepth }
 
-    sendDsStateUniforms(self.edgeShader, dsState, dsW, dsH)
+    sendStateUniforms(self.edgeShader, renderState, colorW, colorH)
   end)
   if not ok then
-    if self.dsState then
-      pcall(sendDsStateUniforms, self.edgeShader, self.dsState, self.dsW, self.dsH)
+    if self.renderState then
+      pcall(sendStateUniforms, self.edgeShader, self.renderState, self.stateW, self.stateH)
     end
     if sceneColor then
       sceneColor:release()
@@ -300,34 +306,19 @@ function MapRenderer:_ensureTargets(colorW, colorH, dsW, dsH)
     if colorDepth then
       colorDepth:release()
     end
-    if dsState then
-      dsState:release()
+    if renderState then
+      renderState:release()
     end
-    if dsDepth then
-      dsDepth:release()
+    if stateDepth then
+      stateDepth:release()
     end
     error(err)
   end
   self:_releaseTargets()
-  self.sceneColor, self.colorDepth, self.dsState, self.dsDepth = sceneColor, colorDepth, dsState, dsDepth
-  self.colorW, self.colorH, self.dsW, self.dsH = colorW, colorH, dsW, dsH
+  self.sceneColor, self.colorDepth, self.renderState, self.stateDepth = sceneColor, colorDepth, renderState, stateDepth
+  self.colorW, self.colorH, self.stateW, self.stateH = colorW, colorH, colorW, colorH
   self._colorTargets = colorTargets
-  self._dsTargets = dsTargets
-end
-
--- The DS semantic raster's exact size: one DS scanline per semantic line
--- (192 when the viewport is at least that tall), width from the viewport's
--- own aspect ratio, rounded with the project's usual +0.5 floor convention. A
--- viewport shorter than 192 lines clamps to 1:1 rather than upscaling the
--- semantic raster past the actual viewport.
----@param displayW number
----@param displayH number
----@return integer dsW
----@return integer dsH
-function MapRenderer.semanticTargetSize(displayW, displayH)
-  local dsH = math.min(displayH, DS_NATIVE_HEIGHT)
-  local dsW = displayW * (dsH / displayH)
-  return math.floor(dsW + 0.5), math.floor(dsH + 0.5)
+  self._stateTargets = stateTargets
 end
 
 -- Decode every polygon 4-bit light mask (GBATEK POLYGON_ATTR bits 0-3) once.
@@ -480,7 +471,7 @@ end
 -- regardless of whether it resolves to disabled), so a missing preset is a
 -- collaborator gone missing, not a case to default around. Each draw's own
 -- per-polygon fog gate still reaches state.glsl unconditionally and
--- independently, landing in dsState's blue channel for this pass to read
+-- independently, landing in renderState's blue channel for this pass to read
 -- back. The preset's own `alpha` field is sent as `u_fogAlpha` (0..31, the
 -- same 5-bit domain as melonDS's fog alpha register) and blended by
 -- edge.glsl exactly like RGB; see doDraw's final composite draw for the
@@ -574,7 +565,7 @@ end
 
 -- The state shader's transform uniforms: the same billboard/world placement,
 -- without the model-normal uniform the color shader's lighting needs (the
--- semantic pass computes no lit color).
+-- state pass computes no lit color).
 local function sendStateTransformUniforms(shader, projection, modelMatrix, billboardCenter, billboardScale)
   shader:send("u_proj", "column", projection)
   local isBillboard = billboardCenter ~= nil
@@ -591,7 +582,7 @@ end
 -- Bake a straddling item's shared mesh into a scratch mesh under the item's
 -- two submission transforms (see MapRenderer.bakeStraddle), resolving a
 -- billboard base through the current view first if the item is a
--- billboarded straddle. Shared by every straddle draw path (color, semantic,
+-- billboarded straddle. Shared by every straddle draw path (color, state,
 -- and wireframe): all bake identically and differ only in which draw body
 -- consumes the result. The caller owns releasing the returned mesh.
 local function bakeStraddleMesh(lg, item, viewMatrix)
@@ -815,12 +806,12 @@ function MapRenderer:_drawWireframeMesh(
   self.stats.colorDrawCalls = self.stats.colorDrawCalls + 1
 end
 
--- ---- semantic pass draw bodies ----
+-- ---- state pass draw bodies ----
 --
 -- Mirror the color-pass draw bodies above (_drawItem/_drawStraddle/_drawMesh
 -- and their wireframe counterparts), but through stateShader: no lighting, no
 -- material registers, and the item's polygon id / fog-enable bit / camera far
--- plane feed state.glsl's semantic output instead of map.glsl's color combiner.
+-- plane feed state.glsl's state output instead of map.glsl's color combiner.
 
 function MapRenderer:_drawStateItem(item, projection, fragmentPass, viewMatrix)
   if item.straddle then
@@ -877,7 +868,7 @@ function MapRenderer:_drawStateMesh(item, projection, modelMatrix, mesh, fragmen
   lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
-  self.stats.semanticDrawCalls = self.stats.semanticDrawCalls + 1
+  self.stats.stateDrawCalls = self.stats.stateDrawCalls + 1
 end
 
 function MapRenderer:_drawStateWireframe(item, projection, viewMatrix)
@@ -919,7 +910,7 @@ function MapRenderer:_drawStateWireframeMesh(item, projection, modelMatrix, mesh
   lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
-  self.stats.semanticDrawCalls = self.stats.semanticDrawCalls + 1
+  self.stats.stateDrawCalls = self.stats.stateDrawCalls + 1
 end
 
 -- `worldParts` contains ordered arrays of map geometry, building batches, the
@@ -942,13 +933,12 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
 
   self.stats.drawCalls = 0
   self.stats.colorDrawCalls = 0
-  self.stats.semanticDrawCalls = 0
+  self.stats.stateDrawCalls = 0
 
   local rectangle = viewport.worldViewport
   local colorW = math.max(1, math.floor(rectangle.width + 0.5))
   local colorH = math.max(1, math.floor(rectangle.height + 0.5))
-  local dsW, dsH = MapRenderer.semanticTargetSize(colorW, colorH)
-  self:_ensureTargets(colorW, colorH, dsW, dsH)
+  self:_ensureTargets(colorW, colorH)
 
   local viewMatrix = camera:view(alpha)
 
@@ -956,7 +946,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   -- depth-biased billboard copy (see FieldCamera:billboardProjection). Only
   -- actor billboards opt into the biased matrix; map/building billboards and
   -- static-model actors keep the world projection, as on the DS. Both the
-  -- semantic and color passes select projection identically per item.
+  -- state and color passes select projection identically per item.
   local worldProjection = camera:projection()
   local billboardProjection = camera:billboardProjection()
   local function projectionFor(item)
@@ -964,15 +954,34 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   end
 
   local colorTargets = assert(self._colorTargets)
-  local dsTargets = assert(self._dsTargets)
+  local stateTargets = assert(self._stateTargets)
+
+  -- The final pass's edge-neighbor sampling distance: one logical field
+  -- pixel at the camera's effective zoom (referenceFrame.height / 192 *
+  -- zoom), rounded to the nearest integer and floored at 1 (see
+  -- FieldViewport:logicalPixelScale). FieldCamera always carries its effective
+  -- zoom (FieldRuntime applies FieldZoom:effectiveZoom() via setZoom); the
+  -- draw path treats a missing zoom as 1.0 only so zoom-less camera fakes in
+  -- tests render deterministically. Draw's viewport requirement is the
+  -- worldViewport rectangle (asserted above), so a viewport that also exposes
+  -- FieldViewport:logicalPixelScale drives the radius, and one that does not
+  -- falls back to the minimum radius of 1 -- the same neutral default.
+  local edgeRadiusPx = 1
+  local cameraZoom = camera.zoom
+  if cameraZoom == nil then
+    cameraZoom = 1
+  end
+  if type(cameraZoom) == "number" and cameraZoom > 0 and viewport.logicalPixelScale then
+    edgeRadiusPx = math.max(1, math.floor(viewport:logicalPixelScale(cameraZoom) + 0.5))
+  end
 
   local function doDraw()
-    -- The render queue is built exactly once per frame; both the semantic and
+    -- The render queue is built exactly once per frame; both the state and
     -- color passes below consume this same queue.
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
-    -- ---- semantic pass: DS-pixel-density polygon ID/depth/fog-gate state ----
-    lg.setCanvas(dsTargets)
+    -- ---- state pass: full-resolution polygon ID/depth/fog-gate state ----
+    lg.setCanvas(stateTargets)
     lg.clear(DS_STATE_CLEAR, false, true)
     lg.setShader(self.stateShader)
     lg.setDepthMode("less", true)
@@ -1073,6 +1082,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     self:_sendEdgeColors(sceneRuntime)
     self:_sendFog(sceneRuntime)
     self.edgeShader:send("u_antialiasEnabled", true)
+    self.edgeShader:send("u_edgeRadiusPx", edgeRadiusPx)
 
     lg.setCanvas()
     lg.setDepthMode()

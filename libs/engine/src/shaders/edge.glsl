@@ -1,21 +1,26 @@
-// DS final composite pass, run as a full-screen pass over the high-resolution
-// sceneColor target (map.glsl's color-only output) and the separate,
-// DS-pixel-density dsState target (state.glsl's semantic output: red edge
-// polygon ID, green DS-quantized depth, blue per-polygon fog gate, alpha
-// validity). It performs, in order, edge marking (replacing scene RGB
-// outright when a pixel is a marked silhouette), then HGSS field
-// anti-aliasing's coverage approximation (mixing that replacement 50/50 with
-// the underlying scene color -- see u_antialiasEnabled below), then fog
-// (blending the result against the scene's global weather fog), matching
-// GBATEK's "3D Display" ordering: edge marking first, fog over the whole
-// composited result second.
+// DS final composite pass, run as a full-screen pass over the full-resolution
+// sceneColor target (map.glsl's color-only output) and the same-resolution
+// renderState target (state.glsl's state output: red edge polygon ID, green
+// DS-quantized depth, blue per-polygon fog gate, alpha validity). It
+// performs, in order, edge marking (replacing scene RGB outright when a pixel
+// is a marked silhouette), then HGSS field anti-aliasing's coverage
+// approximation (mixing that replacement 50/50 with the underlying scene
+// color -- see u_antialiasEnabled below), then fog (blending the result
+// against the scene's global weather fog), matching GBATEK's "3D Display"
+// ordering: edge marking first, fog over the whole composited result second.
 //
-// The two targets are different resolutions by design (spec: color renders at
-// the full presentation viewport, DS semantic state at one DS-pixel-density
-// raster) -- semanticUv/semanticSample below map every high-resolution
-// fragment to its one owning semantic texel, snapped explicitly rather than
-// relying on the sampler's own filtering/clamp behavior, so the edge and fog
-// reads are exact regardless of how much larger the color target is.
+// The color and state targets have identical dimensions and identical
+// screen-space coverage (see MapRenderer:_ensureTargets): state
+// classification is never downsampled, so a visible one-host-pixel state
+// change has a matching one-host-pixel state location. The state texture is
+// nearest-filtered; every sample snaps/clamps to a render-state pixel center
+// explicitly rather than relying on the sampler's own filtering/clamp
+// behavior. The neighbor probes sample at a distance of u_edgeRadiusPx
+// integer render-state pixels -- the rounded field logical pixel scale
+// (referenceFrame.height / 192 * camera zoom, minimum 1; see
+// FieldViewport:logicalPixelScale and MapRenderer:draw) -- so DS-relative
+// edge width is now a sampling distance over the full-resolution state, not a
+// block of host pixels owned by one coarse state texel.
 //
 // GBATEK ("4000330h..33Fh - EDGE_COLOR") defines the edge rule: a pixel is
 // marked when at least one of its four surrounding pixels (up, down, left,
@@ -42,21 +47,17 @@
 //
 // Only opaque geometry participates in edge marking -- "Edge Marking is
 // applied ONLY to opaque polygons (including wire-frames)". Ordinary
-// translucent and mixed-translucent draws never touch dsState (MapRenderer's
-// semantic pass only draws opaque/cutout/mixed-opaque/wireframe), so this
-// pass never observes a translucent fragment's own id/depth/fog gate.
-//
-// Edge width is exactly one semantic texel (dsTexel = 1/u_dsSize), regardless
-// of the color target's host resolution -- there is no radius/scale knob:
-// hardware marks one DS pixel, and the semantic raster already sits at DS
-// pixel density, so a fixed one-texel offset reproduces that directly.
+// translucent and mixed-translucent draws never touch renderState
+// (MapRenderer's state pass only draws opaque/cutout/mixed-opaque/wireframe),
+// so this pass never observes a translucent fragment's own id/depth/fog gate.
 //
 // Edge compositing replaces scene RGB outright (hardware behavior) rather than
 // alpha-mixing with it; there is no alpha-mix uniform on this path. HGSS field
 // rendering additionally enables 3D anti-aliasing (G3X_AntiAlias(TRUE)), which
 // melonDS's software renderer approximates as 50% coverage at a marked edge
 // (3DFinalPassEdgeFS.glsl); u_antialiasEnabled selects that coverage mix vs.
-// the flat replacement, per spec -- not a stylistic opacity tweak.
+// the flat replacement, per spec -- not a stylistic opacity tweak. This
+// 50%-coverage approximation is not exact DS lower-pixel coverage generation.
 //
 // Fog (melonDS src/GPU3D_Soft.cpp, SoftRenderer3D::CalculateFogDensity and the
 // post-density blend in SoftRenderer3D::RenderPixel; see tests/support/DsFog.lua
@@ -77,8 +78,9 @@
 // required once this alpha is meaningful).
 
 #ifdef PIXEL
-uniform Image u_dsState;
-uniform vec2 u_dsSize; // the semantic target's actual width/height (not its reciprocal)
+uniform Image u_renderState;
+uniform vec2 u_stateSize; // the state target's actual width/height (not its reciprocal)
+uniform int u_edgeRadiusPx; // integer sampling distance: the rounded field logical pixel scale, >= 1
 uniform vec3 u_edgeColors[8];
 uniform bool u_antialiasEnabled;
 
@@ -88,40 +90,44 @@ uniform bool u_antialiasEnabled;
 // silently drift apart.
 const float CLEAR_POLYGON_ID = 63.0;
 
-// Snap a full-resolution color-space UV to the center of the one semantic
-// texel it falls in, so the sample is exact regardless of how much finer the
-// color target's resolution is than the semantic raster -- never left to the
-// sampler's own filtering/clamp behavior (spec: "do not rely on texture clamp
-// behavior for this").
-vec2 semanticUv(vec2 uv)
+// Snap a color-space UV to the center of the render-state pixel it falls in,
+// clamped to the state texture's edge, so the sample is exact -- the state
+// raster shares the color raster's dimensions, so this is a one-to-one
+// mapping that only ever adjusts for rasterization rounding, never for a
+// resolution gap (spec: sampling may derive from the color UV but must
+// snap/clamp to the render-state pixel center before the neighbor probes).
+vec2 statePixelCenter(vec2 uv)
 {
-  vec2 clamped = clamp(uv, vec2(0.0), vec2(1.0) - 0.5 / u_dsSize);
-  vec2 pixel = floor(clamped * u_dsSize);
-  return (pixel + vec2(0.5)) / u_dsSize;
+  vec2 clamped = clamp(uv, vec2(0.0), vec2(1.0) - 0.5 / u_stateSize);
+  vec2 pixel = floor(clamped * u_stateSize);
+  return (pixel + vec2(0.5)) / u_stateSize;
 }
 
-// The rear-plane semantic state (MapRenderer.DS_STATE_CLEAR): polygon id 63
-// (the real HGSS clear/rear-plane id, not an out-of-domain sentinel), the
-// farthest quantized depth, and no fog gate. Used for any semantic sample
-// that falls outside the logical screen -- a neighbor probe past the screen
-// edge must behave like the rear plane, not like a clamped copy of the
-// center pixel (which would suppress a silhouette at the screen boundary).
+// The rear-plane state (MapRenderer.DS_STATE_CLEAR): polygon id 63 (the real
+// HGSS clear/rear-plane id, not an out-of-domain sentinel), the farthest
+// quantized depth, and no fog gate. Used for any state sample that falls
+// outside the logical screen -- a neighbor probe past the screen edge must
+// behave like the rear plane, not like a clamped copy of the center pixel
+// (which would suppress a silhouette at the screen boundary).
 vec3 rearPlaneState()
 {
   return vec3(1.0, 16777215.0, 0.0);
 }
 
-vec3 semanticSample(vec2 uv)
+// Sample the render-state texture at a snapped, clamped pixel center. Off-
+// screen samples return the rear-plane state; only in-bounds neighbor
+// positions are clamped to the state texture edge (see marked below).
+vec3 stateSample(vec2 uv)
 {
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0) {
     return rearPlaneState();
   }
-  return Texel(u_dsState, semanticUv(uv)).rgb;
+  return Texel(u_renderState, statePixelCenter(uv)).rgb;
 }
 
-bool marked(vec2 uv, vec2 offset, float centerId, float centerDepth)
+bool marked(vec2 centerUv, vec2 offset, float centerId, float centerDepth)
 {
-  vec3 neighborSample = semanticSample(uv + offset);
+  vec3 neighborSample = stateSample(centerUv + offset);
   bool differentId = abs(neighborSample.r - centerId) > 0.5 / CLEAR_POLYGON_ID;
   // Strictly less, no tolerance -- the marked pixel must be in front.
   bool centerInFront = centerDepth < neighborSample.g;
@@ -232,7 +238,7 @@ float fogBlendComponent(float component, float fogComponent, float density)
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
 {
   vec4 scene = Texel(tex, uv);
-  vec3 center = semanticSample(uv);
+  vec3 center = stateSample(uv);
   float centerId = center.r;
   float centerDepth = center.g;
   float centerFogGate = center.b;
@@ -245,9 +251,15 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
   // malformed upstream data, not a sentinel check -- well-formed input can
   // never reach it. Malformed data skips both edge marking and fog.
   if (centerPolygonId <= int(CLEAR_POLYGON_ID)) {
-    vec2 dsTexel = 1.0 / u_dsSize;
-    vec2 dx = vec2(dsTexel.x, 0.0);
-    vec2 dy = vec2(0.0, dsTexel.y);
+    vec2 stateTexel = 1.0 / u_stateSize;
+    float radius = float(u_edgeRadiusPx);
+    vec2 dx = vec2(radius * stateTexel.x, 0.0);
+    vec2 dy = vec2(0.0, radius * stateTexel.y);
+    // The four orthogonal neighbor probes at one integer edge radius, never
+    // diagonals. In-bounds neighbor positions clamp to the state texture
+    // edge (the state sample itself snaps to the clamped pixel center);
+    // probes past the logical screen edge fall back to the rear-plane state
+    // in stateSample.
     bool edge =
       marked(uv, dx, centerId, centerDepth)
       || marked(uv, -dx, centerId, centerDepth)

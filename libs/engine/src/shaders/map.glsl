@@ -4,9 +4,9 @@
 // resulting RGB. The pixel stage samples the texture, applies the exact DS
 // MODULATE/DECAL combiner, and discards fragments per the exact-alpha5
 // fragment-pass predicate (u_fragmentPass). No fake directional light or
-// second diffuse multiplication remains. This shader owns no DS semantic
-// state (polygon ID, quantized depth, fog gate) -- state.glsl's semantic pass
-// writes that independently, at DS-pixel density, into its own target.
+// second diffuse multiplication remains. This shader owns no DS render
+// state (polygon ID, quantized depth, fog gate) -- state.glsl's state pass
+// writes that independently, at the same full resolution, into its own target.
 //
 // The vertex-lighting algebra below (computeDsLighting, dsLightContribution,
 // quantizeVectorFx, signExtend, dotDiscardingPerComponent) is a direct GLSL
@@ -44,7 +44,7 @@
 // Fog is entirely a final-pass concern (GBATEK "3D Display - Fog": edge
 // marking, then fog, over the whole composited scene) -- this shader owns no
 // fog uniform, and (since this refactor) no per-polygon fog-gate output
-// either; state.glsl's semantic pass carries POLYGON_ATTR FOG_ENABLE into its
+// either; state.glsl's state pass carries POLYGON_ATTR FOG_ENABLE into its
 // own target instead.
 
 varying vec3 v_dsColor;

@@ -190,7 +190,7 @@ alpha for final alpha entirely):
 | otherwise | `opaque` |
 
 A `mixed` batch draws through both the opaque and translucent subpasses (see
-"Dual-raster split" below): each fragment's own exact final alpha5 decides
+"Shared full-resolution rasters" below): each fragment's own exact final alpha5 decides
 which subpass's write, if any, survives at that fragment.
 
 The RGB fragment combiner is the DS integer-domain equation (GBATEK's
@@ -227,13 +227,13 @@ both ordinary translucent items and a mixed item's translucent subpass,
 sorted together back-to-front in view space (submission position breaks
 ties) and honoring the polygon bit-11 translucent depth-write flag. Wireframe
 edges are drawn with opaque alpha after the filled passes, in both the color
-and semantic passes. `FieldState` supplies ordered arrays of map geometry,
+and state passes. `FieldState` supplies ordered arrays of map geometry,
 buildings, neighbour-ring draws, and actors. `RenderQueue` traverses those
 parts with one monotonically increasing submission position, so cross-part
 tie ordering is established without flattening or stamping the draw items.
 `MapRenderer` owns and reuses the queue scratch arrays, and builds the queue
-exactly once per frame for both the semantic and color passes to share (see
-"Dual-raster split" above).
+exactly once per frame for both the state and color passes to share (see
+"Shared full-resolution rasters" above).
 
 ## Edge marking
 
@@ -261,40 +261,40 @@ scene color, and there is no separate edge-opacity uniform.
 
 The opaque polygon ID, the DS-quantized depth, and the per-polygon fog gate
 are three independent logical attributes, carried as separate channels of one
-`rgba32f` attachment (`dsState`: R = polygon ID, G = depth, B = fog gate,
+`rgba32f` attachment (`renderState`: R = polygon ID, G = depth, B = fog gate,
 A = validity) rather than one value overloaded to mean several things.
 Opaque, cutout, and mixed-opaque fragments write their own real 0..63 polygon
 ID into R -- there is no invented sentinel value. Ordinary translucent and
-mixed-translucent fragments never draw into the semantic pass at all (see
-"Dual-raster split" below), so the opaque/cutout state underneath a
-translucent fragment survives untouched, matching DS behavior for a fragment
+mixed-translucent fragments never draw into the state pass at all (see
+"Shared full-resolution rasters" below), so the opaque/cutout state underneath
+a translucent fragment survives untouched, matching DS behavior for a fragment
 that never updates the depth/attribute buffers.
 
-## Dual-raster split
+## Shared full-resolution rasters
 
-Color rendering and DS semantic state (the polygon ID/depth/fog-gate attribute
-above, plus edge-marking coverage/validity) are two independent raster
-domains, because only the latter needs DS pixel density:
+Color rendering and DS render state (the polygon ID/depth/fog-gate attribute
+above, plus edge-marking coverage/validity) are two separate geometry passes
+over one shared full-resolution raster domain -- state classification is never
+deliberately downsampled:
 
 * **`sceneColor` + `colorDepth`** (`map.glsl`): the presentation color raster,
   always exactly the viewport size (`colorW = displayW`, `colorH = displayH`
   -- no reduced-resolution/nearest-upscaled world raster). Every DS
   RGB/alpha combiner and lighting computation happens here; the shader owns
   no polygon-ID/fog-gate output at all.
-* **`dsState` + `dsDepth`** (`state.glsl`): the DS semantic raster, one line
-  per DS scanline (`MapRenderer.semanticTargetSize`: 192 lines high when the
-  viewport is at least that tall, narrower only when the viewport itself is
-  shorter than 192 lines; width follows the viewport's aspect ratio). This
-  shader computes the same exact final alpha5 as `map.glsl` (for the
-  MODULATE/DECAL discard predicates) but does no lighting, no fog, and no
-  edge search -- only geometry/UV/final-alpha/state.
+* **`renderState` + `stateDepth`** (`state.glsl`): the render-state raster,
+  allocated at the exact same dimensions and screen coverage as `sceneColor`
+  (`stateW = colorW`, `stateH = colorH` at every host size). This shader
+  computes the same exact final alpha5 as `map.glsl` (for the MODULATE/DECAL
+  discard predicates) but does no lighting, no fog, and no edge search -- only
+  geometry/UV/final-alpha/state.
 
 `MapRenderer:draw` builds the render queue exactly once per frame
 (`RenderQueue.buildInto`) and both passes consume it, selecting projection
 identically per item (`item.billboardProjection and billboardProjection or
 worldProjection`) -- map geometry, buildings, the neighbour ring, and actor
 billboards are all ordinary shared queue items in both passes; no object
-class chooses its own raster resolution or skips a pass. The semantic pass
+class chooses its own raster resolution or skips a pass. The state pass
 draws opaque, then cutout, then mixed-opaque (discard-unless-alpha31), then
 wireframe; ordinary translucent and mixed-translucent items never touch it.
 The color pass draws the same opaque/cutout/mixed-opaque items at full
@@ -303,7 +303,7 @@ and mixed-translucent, split by `AlphaClassifier.MIXED`'s exact final-alpha5
 discard predicates), then wireframe.
 
 Both target sets are allocated transactionally by one `MapRenderer:_ensureTargets`
-call: all four canvases (`sceneColor`, `colorDepth`, `dsState`, `dsDepth`) are
+call: all four canvases (`sceneColor`, `colorDepth`, `renderState`, `stateDepth`) are
 staged before anything published is touched, so a failed allocation or a
 failed size-uniform send releases only the staged canvases and leaves the
 previous live set (and its recorded dimensions) completely untouched.
@@ -317,25 +317,30 @@ alone -- texture storage format (e.g. A3I5/A5I3) describes capability, not the
 alpha distribution of a particular decoded texture, and DECAL ignores texture
 alpha for final alpha entirely. Such a material draws twice in the color pass
 (once as `mixedOpaque`, once in the joint `blended` list) and once in the
-semantic pass (`mixedOpaque` only): each fragment's own exact final alpha5
+state pass (`mixedOpaque` only): each fragment's own exact final alpha5
 (not a float-epsilon comparison) decides which pass's write, if any, survives
--- alpha 0 discards everywhere, alpha 31 is opaque in both color and semantic
-state, and alpha 1-30 blends in color only, contributing no semantic state.
+-- alpha 0 discards everywhere, alpha 31 is opaque in both color and state,
+and alpha 1-30 blends in color only, contributing no state.
 
 ### Final resolve
 
 `edge.glsl` samples `sceneColor` (its full-resolution `tex` input) and
-`dsState` (a separate, much lower-resolution sampler) together: every
-high-resolution fragment maps to exactly one semantic texel via an explicit
-snap (`semanticUv`), never texture-clamp behavior, and an out-of-bounds
-neighbour probe returns the same rear-plane state
-(`MapRenderer.DS_STATE_CLEAR`) a real off-screen sample would. Edge marking
-is exactly one semantic texel wide (`dsTexel = 1/u_dsSize`) regardless of the
-color target's host resolution -- there is no radius/scale knob. Ordering is
-strictly: scene RGB -> edge detection -> HGSS field anti-alias coverage
-(`u_antialiasEnabled`: `mix(scene, edgeColor, 0.5)` when true, matching
-melonDS's 3D-AA edge-coverage approximation, or a flat replacement when
-false) -> fog -> output.
+`renderState` (a same-resolution sampler) together: because the two rasters
+share one-to-one screen coverage, every fragment's state sample snaps/clamps
+to the render-state pixel center via an explicit `statePixelCenter` -- never
+texture-clamp behavior -- and an out-of-bounds neighbour probe returns the
+same rear-plane state (`MapRenderer.DS_STATE_CLEAR`) a real off-screen sample
+would. The four orthogonal neighbour probes (never diagonals) sit at a
+distance of one integer edge radius, `u_edgeRadiusPx`, which `MapRenderer`
+derives each frame from the field logical pixel scale
+(`FieldViewport:logicalPixelScale(camera.zoom)` =
+`(referenceFrame.height / 192) * zoom`, rounded to the nearest integer,
+minimum 1) -- so DS-relative edge width is a sampling distance over the
+full-resolution state, not a block of host pixels owned by one coarse state
+texel. Ordering is strictly: scene RGB -> edge detection -> HGSS field
+anti-alias coverage (`u_antialiasEnabled`: `mix(scene, edgeColor, 0.5)` when
+true, matching melonDS's 3D-AA edge-coverage approximation, or a flat
+replacement when false) -> fog -> output.
 
 ## Billboards
 
@@ -428,9 +433,9 @@ actors draw with the world projection, exactly as on the DS.
 * The real HGSS field edge-color tables, per-area table selection, the
   strict DS edge predicate/depth representation, RGB-replacement edge
   compositing, the clear/rear-plane polygon ID (63, HGSS's real value, not an
-  invented sentinel), and the opaque-ID/depth/fog-gate `dsState` attribute
-  split, rasterized at DS pixel density independently of the full-resolution
-  color raster (see "Edge marking" and "Dual-raster split" above).
+  invented sentinel), and the opaque-ID/depth/fog-gate `renderState` attribute
+  split, rasterized at the same full resolution as the color raster (see
+  "Edge marking" and "Shared full-resolution rasters" above).
 * HGSS field 3D anti-aliasing's edge-coverage approximation (50% coverage at
   a marked edge, matching melonDS's software renderer -- see "Final resolve"
   above).

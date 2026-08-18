@@ -1,15 +1,16 @@
-// DS semantic-state shader. Rasterizes the same world/billboard geometry as
-// map.glsl at the DS-pixel-density semantic target (MapRenderer.dsW/dsH, see
-// MapRenderer.semanticTargetSize), and writes only the DS state edge marking
+// DS render-state shader. Rasterizes the same world/billboard geometry as
+// map.glsl at the same full-resolution render-state target as the color
+// raster (MapRenderer.stateW/stateH, always equal to the color dimensions --
+// see MapRenderer:_ensureTargets), and writes only the DS state edge marking
 // and fog need: the opaque fragment's polygon ID, DS-quantized depth proxy,
 // per-polygon fog gate, and validity. It owns no lighting RGB, no fog blend,
 // and no edge search -- those stay in map.glsl's color output and edge.glsl's
-// final resolve respectively (spec: the semantic pass's job is geometry/UV/
+// final resolve respectively (spec: the state pass's job is geometry/UV/
 // final-alpha/state only).
 //
 // The vertex stage is the same world/billboard placement map.glsl uses (see
 // that shader's header and position()), without the lighting/normal work: no
-// semantic-state channel depends on lit color, so this shader carries no
+// render-state channel depends on lit color, so this shader carries no
 // normal, light, or material uniforms at all.
 //
 // The pixel stage computes the same exact DS final-alpha5 map.glsl computes
@@ -24,10 +25,10 @@
 //   2 = mixed opaque:  discard unless alpha5 == 31 -- only a mixed material's
 //                      fully-opaque texels reach this pass's writes.
 // A surviving fragment writes vec4(polygonId/63, dsWbufferDepth, fogGate,
-// 1.0) into the single semantic-state canvas -- exactly finalState's old
+// 1.0) into the single render-state canvas -- exactly finalState's old
 // packing (see map.glsl's prior header), now the only writer of that state.
 
-varying vec2 v_semanticUv;
+varying vec2 v_stateUv;
 
 #ifdef VERTEX
 attribute vec3 VertexNormal; // present in the shared vertex layout, unused here
@@ -50,7 +51,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
     viewPosition = u_view * u_model * vertex_position;
   }
 
-  v_semanticUv = (u_texMatrix * vec3(VertexTexCoord.xy, 1.0)).xy;
+  v_stateUv = (u_texMatrix * vec3(VertexTexCoord.xy, 1.0)).xy;
 
   // See map.glsl's position() for why this custom-projection pass must negate
   // clip Y: LÖVE Canvas framebuffers are Y-inverted relative to the screen,
@@ -86,7 +87,7 @@ void effect()
   // An untextured polygon has no texture alpha to modulate with -- treat it
   // as fully opaque (alpha5 = 31), the same convention map.glsl's untextured
   // vec4(1.0) sample reaches.
-  float textureAlpha5 = u_useTexture ? floor(Texel(MainTex, v_semanticUv).a * 31.0 + 0.5) : 31.0;
+  float textureAlpha5 = u_useTexture ? floor(Texel(MainTex, v_stateUv).a * 31.0 + 0.5) : 31.0;
   int polygonAlpha5 = int(floor(u_polygonAlpha * 31.0 + 0.5));
 
   int outputAlpha5;
