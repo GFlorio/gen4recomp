@@ -180,8 +180,14 @@ local function engine(sequences, opts)
   return player, provider
 end
 
-local function play(player, provider)
+-- Plays the test sequence. By default, renders through the first 192 Hz boundary
+-- so the entry program fetches on the first sound interval (spec §9 C3, deferred entry fetch).
+-- Pass mayDeferRender=true to skip the render for tests that explicitly manage rendering.
+local function play(player, provider, mayDeferRender)
   player:play(provider:sequence(0), provider:bank(12))
+  if not mayDeferRender then
+    player:render(250)
+  end
 end
 
 -- An injected RNG in the SDK u16 draw domain: returns the raw 16-bit
@@ -320,9 +326,13 @@ function T.tempo_is_bpm_with_48_ticks_per_quarter_note()
         { op = "end" },
       }),
     }, { mixer = mixer })
-    play(player, provider)
+    play(player, provider, true) -- Skip auto-render to manually control frame counts
+    -- Entry program fetches at first 192 Hz boundary (frame 250)
+    player:render(250)
+    -- Frame 250: entry fetched, note started. Render 249 more (frame 499)
     player:render(249)
     local first = #mixer.log.noteOffs
+    -- Frame 500: note releases (1 tick = 250 frames after entry)
     player:render(1)
     local boundary = #mixer.log.noteOffs
     player:render(250)
@@ -330,8 +340,8 @@ function T.tempo_is_bpm_with_48_ticks_per_quarter_note()
     return first, boundary, rest
   end
   local first, boundary = noteOffAt(240)
-  Assert.equal(first, 0, "at 240 BPM one tick is 250 frames; the note still rings before it")
-  Assert.equal(boundary, 1, "the 1-tick note releases exactly at the tick boundary")
+  Assert.equal(first, 0, "at 240 BPM one tick is 250 frames; note released at frame 500 (250+250)")
+  Assert.equal(boundary, 1, "the 1-tick note releases exactly 250 frames after entry fetch")
   local slowFirst, slowBoundary, slowRest = noteOffAt(120)
   Assert.equal(slowFirst, 0, "at 120 BPM one tick is 500 frames")
   Assert.equal(slowBoundary, 0, "the note survives frame 250")

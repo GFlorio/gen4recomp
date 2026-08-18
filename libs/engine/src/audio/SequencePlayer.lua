@@ -114,11 +114,17 @@ SequencePlayer.__index = SequencePlayer
 
 local DEFAULT_TEMPO = 120
 local DEFAULT_BEND_RANGE = 2
+-- The Nitro sound interval: 192 Hz global scheduling clock (spec §5.1)
+local SOUND_INTERVAL_HZ = 192
 -- The fixed NNS scheduling domains (SND_seq.c SND_PLAYER_COUNT /
 -- SND_TRACK_COUNT): players and tracks iterate ascending over these bounds,
 -- never in Lua table order, so contested allocation is deterministic.
 local PLAYER_COUNT = 16
 local TRACK_COUNT = 16
+-- The Nitro sequence tick relationship at the 192 Hz sound interval:
+-- SND_TIMER_RATE 240 (spec §5.3); per interval: tempoCounter is decremented
+-- while >= 240, and incremented by tempoInc = (tempo * tempoRatio) >> 8.
+local SND_TIMER_RATE = 240
 -- The tick relationship (GBATEK "DS Sound Files - SSEQ" and the ARM7
 -- SND_TIMER_RATE 240 at the 192 Hz sound interval): a quarter note is 48
 -- ticks, so per output frame the accumulator gains tempo*TICKS_PER_QUARTER
@@ -188,16 +194,35 @@ end
 -- Resolves a normalized amount operand against the player instance: a plain
 -- value passes through, a random record draws from the player's RNG in the
 -- SDK u16 draw domain and scales with the TrackParseValue integer
--- arithmetic (min + ((draw * (max - min + 1)) >> 16)), a variable record
+-- arithmetic (lo + arshift(draw * (hi - lo + 1), 16)), a variable record
 -- reads the SDK variable it names. The sequence validator admits only these
 -- shapes, so anything else is a programmer fault.
+local function toS32(value)
+  return bit.tobit(value)
+end
+
+local function randomOperand(draw, operand)
+  local lo = operand.lo
+  local hi = operand.hi
+  local span = toS32(hi - lo + 1)
+  local product = toS32(draw * span)
+  return toS32(lo + bit.arshift(product, 16))
+end
+
 local function resolveAmount(self, amount, instance)
   if type(amount) == "number" then
     return amount
   end
   if amount.kind == "random" then
-    local span = amount.max - amount.min + 1
-    return amount.min + math.floor(self._rng() * span / 65536)
+    -- Support both new lo/hi format (P2 changed) and legacy min/max for compatibility
+    local draw = self._rng()
+    if amount.lo ~= nil then
+      return randomOperand(draw, amount)
+    else
+      -- Legacy format from pre-P2
+      local span = amount.max - amount.min + 1
+      return amount.min + math.floor(draw * span / 65536)
+    end
   end
   if amount.kind == "variable" then
     return varRead(self, instance, assert(amount.var, "variable amount requires a var id"))
@@ -755,6 +780,10 @@ function SequencePlayer.new(opts)
     -- The SDK shared global variables (vars 16..31); the player-local
     -- variables live on each instance.
     _globalVars = {},
+    -- The global 192 Hz sound phase accumulator (spec §5.1): each rendered
+    -- frame advances phase by SOUND_INTERVAL_HZ units. When phase >= sampleRate,
+    -- a sound interval fires and phase is decremented by sampleRate.
+    _soundPhase = 0,
     -- False until the first play: the mixer's control cadence is frozen
     -- while nothing has ever been audible, so the phase a play sees starts
     -- at zero (idle frames before the first play never shift it). After the
@@ -795,7 +824,11 @@ function SequencePlayer:play(sequence, bank)
     bank = bank,
     channelMask = playerRecord.channelMask,
     tempo = DEFAULT_TEMPO,
+    tempoRatio = 256,
+    tempoCounter = 240,
     acc = 0,
+    -- Entry program fetched on first 192 Hz boundary after play(), not immediately
+    entryFetched = false,
     -- The player-level volume (the NNS player->volume): starts at the
     -- sequence's initial volume; master_volume commands change it.
     volume = sequence.player.initialVolume,
@@ -813,7 +846,6 @@ function SequencePlayer:play(sequence, bank)
   }
   self._players[playerId] = instance
   self._everPlayed = true
-  fetch(self, instance, instance.tracks[0])
 end
 
 -- Sets the player's fader level (0..127, the volume domain -- the NNS
@@ -874,6 +906,21 @@ function SequencePlayer:resumePlayer(playerId)
   instance.paused = false
 end
 
+-- Processes one 192 Hz sound interval: advances entry-program fetching
+-- for freshly played sequences on their first interval boundary.
+local function processSoundInterval(self)
+  for playerId = 0, PLAYER_COUNT - 1 do
+    local instance = self._players[playerId]
+    if instance ~= nil and not instance.entryFetched then
+      instance.entryFetched = true
+      local track = instance.tracks[0]
+      if track ~= nil then
+        fetch(self, instance, track)
+      end
+    end
+  end
+end
+
 -- The frames until the next event boundary from the current position: the
 -- span of output frames the mixer can render in one call without breaking
 -- the per-frame delivery order. Every tick-issued event -- a voice expiry
@@ -931,8 +978,13 @@ function SequencePlayer:render(frames)
       if instance ~= nil and not instance.paused then
         for trackId = 0, TRACK_COUNT - 1 do
           local track = instance.tracks[trackId]
+          -- Skip fetching from track 0 until entry program has been fetched at first 192 Hz boundary
           if track ~= nil and not track.ended and not track.gated and not track.noteFinishWait then
-            fetch(self, instance, track)
+            if trackId == 0 and not instance.entryFetched then
+              -- Defer entry program to first 192 Hz boundary
+            else
+              fetch(self, instance, track)
+            end
           end
         end
       end
@@ -941,6 +993,16 @@ function SequencePlayer:render(frames)
     assert(span >= 1, "a render span must advance the frame count")
     self._mixer:renderInto(out, span)
     for frame = 1, span do
+      -- Advance the global 192 Hz sound phase (spec §5.1): each frame adds
+      -- SOUND_INTERVAL_HZ units to phase; a boundary fires when phase >= sampleRate.
+      self._soundPhase = self._soundPhase + SOUND_INTERVAL_HZ
+      local soundIntervalFired = false
+      if self._soundPhase >= self._sampleRate then
+        self._soundPhase = self._soundPhase - self._sampleRate
+        soundIntervalFired = true
+        processSoundInterval(self)
+      end
+
       for playerId = 0, PLAYER_COUNT - 1 do
         local instance = self._players[playerId]
         if instance ~= nil and not instance.paused then
