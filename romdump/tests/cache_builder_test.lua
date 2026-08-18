@@ -450,10 +450,11 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
   Assert.isNil(report)
   Assert.equal(err, "cache preparation failed")
-  Assert.equal(capture.lines[8], "build-cache: heartgold audio current")
-  Assert.equal(capture.lines[9], "build-cache: heartgold map 2 current")
+  Assert.equal(capture.lines[8], "build-cache: heartgold scripts current")
+  Assert.equal(capture.lines[9], "build-cache: heartgold audio current")
+  Assert.equal(capture.lines[10], "build-cache: heartgold map 2 current")
   Assert.equal(
-    capture.lines[10],
+    capture.lines[11],
     "build-cache: heartgold map 5 excluded: MAP_SCHEMA_INVALID: injected compile rejection"
   )
   Assert.deepEqual(env.worldStage.compileExcluded, {
@@ -466,11 +467,11 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
     },
   })
   Assert.equal(
-    capture.lines[11],
+    capture.lines[12],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
   Assert.equal(
-    capture.lines[12],
+    capture.lines[13],
     "build-cache: compile exclusions remain; " .. "rerun with --allow-compile-exclusions to accept them"
   )
   Assert.equal(env.worldPublishes, 0, "an unaccepted-exclusion build must never publish its staged world")
@@ -484,10 +485,10 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   Assert.isNil(err2)
   Assert.deepEqual(report2, { published = true, complete = false, exclusionCount = 1 })
   Assert.equal(
-    accepted.lines[11],
+    accepted.lines[12],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
-  Assert.equal(accepted.lines[12], "build-cache: heartgold world.lua published")
+  Assert.equal(accepted.lines[13], "build-cache: heartgold world.lua published")
   Assert.equal(env.worldPublishes, 1, "an accepted-exclusion build publishes its staged world")
   -- A build that accepted compile exclusions is not a strict success and must
   -- never publish the successful-build attestation.

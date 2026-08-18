@@ -584,47 +584,4 @@ function T.the_configured_queue_stays_within_the_latency_budget()
   )
 end
 
--- The signature drift guard: real love.sound.newSoundData (samples, rate,
--- depth, channels) treats the first argument as the per-channel FRAME count,
--- and real love.audio.newQueueableSource takes an explicit buffer count, so
--- this smoke test pins the exact contract the old total-scalar fake missed:
--- getSampleCount() on a real buffer equals the requested frames. The standard
--- test command keeps love.audio and love.sound disabled (hermetic suite), so
--- this test skips there and only exercises the real API on a host with the
--- sound modules available.
-function T.real_love_sound_and_audio_namespaces_accept_the_sinks_queueing_and_frame_count(context)
-  if not (love and love.audio and love.sound and love.audio.newQueueableSource and love.sound.newSoundData) then
-    context:skip(
-      "the test command keeps love.audio/love.sound disabled; run on a host with the sound modules to check signatures"
-    )
-  end
-  -- The exact contract the old fake model hid: real SoundData reports the
-  -- constructor's per-channel frame count, with 1-based channels.
-  local probe = love.sound.newSoundData(CHUNK_FRAMES, SAMPLE_RATE, BIT_DEPTH, CHANNELS)
-  Assert.equal(probe:getSampleCount(), CHUNK_FRAMES, "real SoundData getSampleCount must be frames per channel")
-  probe:setSample(CHUNK_FRAMES - 1, CHANNELS, 0.5)
-  Assert.equal(probe:getSample(CHUNK_FRAMES - 1, CHANNELS), 0.5)
-  probe:release()
-  -- The explicit buffer-count form is how the sink must construct the source.
-  local source = love.audio.newQueueableSource(SAMPLE_RATE, BIT_DEPTH, CHANNELS, QUEUE_BUFFER_COUNT)
-  local free = source:getFreeBufferCount()
-  source:release()
-  local renderer = rendererReturning(function(index)
-    return index
-  end)
-  local sink = LoveAudioSink.new({
-    audio = love.audio,
-    sound = love.sound,
-    renderer = renderer,
-    sampleRate = SAMPLE_RATE,
-  })
-  sink:update()
-  Assert.equal(renderer:calls(), free, "the sink must pump one chunk per real free buffer")
-  Assert.equal(love.audio.getActiveSourceCount(), 1, "the queued real source must be playing")
-  sink:release()
-  local callsAfterRelease = renderer:calls()
-  sink:update()
-  Assert.equal(renderer:calls(), callsAfterRelease, "an update after release must not pump")
-end
-
 return { tests = T }

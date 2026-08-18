@@ -1,8 +1,6 @@
 -- P8 acceptance tests: runtime/save integration, field-audio composition reorder,
 -- transition lifecycle hooks, stair SFX wiring, 60 Hz sound-frame accumulator.
 --
--- These scenarios verify the complete field-audio integration expected by §H (Workstream H):
---
 -- 1. Runtime composition reorder: field audio boots AFTER player/eventState exist but
 --    BEFORE scripts need it (FieldRuntime construction order per §H.1).
 -- 2. FieldAudioController orchestrates all field-audio policy (map entry, soundplate
@@ -32,7 +30,7 @@ local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local T = {
   metadata = {
     capabilities = { "rom_dump", "derived_cache" },
-    tags = { "field", "audio", "p8", "integration", "save", "soundplate", "transition" },
+    tags = { "field", "audio", "integration", "save", "soundplate", "transition" },
   },
   tests = {},
 }

@@ -155,7 +155,7 @@ end
 -- common script are the pinned real-script fixtures the signpost runtime work
 -- must keep byte- and sequence-faithful.
 T["signpost contracts hold on the real corpus"] = function(romFs)
-  local archive, memberIrs = decodeAll(romFs)
+  local archive, memberIrs = FieldScripts.decode(romFs)
   local stdCatalog = SourceCatalog.catalog()
   local vars = require("romdump.src.reference.hgss.vars").byId
   local varNameToId = {}
