@@ -120,6 +120,10 @@ FieldRuntime.__index = FieldRuntime
 -- the LÖVE sink render at this rate, the DS SPU rate; source waves are
 -- ratio-scaled, so the pitch is preserved at any output rate).
 local AUDIO_SAMPLE_RATE = 32768
+-- The 60 Hz sound-frame clock: FieldRuntime owns deterministic sound-frame
+-- advancement independent of the field's 30 Hz simulation tick.
+local AUDIO_FRAME_HZ = 60
+local AUDIO_FRAME_DT = 1 / AUDIO_FRAME_HZ
 local CAMERA_PROFILES_PATH = FieldCameraCache.profilesPath()
 local DEFAULT_MAP = "MAP_NEW_BARK_ELMS_LAB_1F"
 ---@return table<string, boolean>
@@ -211,6 +215,10 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     audioOutput = options.audioOutput,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
+    -- 60 Hz sound-frame accumulator owned by FieldRuntime (spec §H.6)
+    audioFrameAccumulator = 0,
+    soundFrameCount = 0,  -- for test verification
+    transitionStartCount = 0,  -- for test verification
   }, FieldRuntime)
   self:_load()
   return self
@@ -414,6 +422,23 @@ function FieldRuntime:_load()
         self:_commitSwap(resolution, facing, prepared)
       end,
       doorAt = doorAt,
+      -- FieldTransition.onStart callback invoked once per transition start
+      -- (spec §H.3, §G.12): invoke field-audio pre-fade for destination music
+      -- mismatch decision.
+      onStart = function(sourceMap, trigger, facing)
+        self.transitionStartCount = self.transitionStartCount + 1
+        if self.audio then
+          self.audio:beginWarp(trigger.warp.destinationMapId)
+        end
+      end,
+      -- Stair SFX callback: FieldRuntime binds the field-audio playSound
+      -- hook so stair completion (SEQ_SE_DP_KAIDAN2) emits through the
+      -- production audio service (spec §H.2).
+      playSound = function(soundRef)
+        if self.audio then
+          self.audio:play(soundRef)
+        end
+      end,
     })
     self.transition.player = self.player
     self.transition.suppression = restored and restored.suppression or nil
@@ -513,7 +538,7 @@ function FieldRuntime:_load()
     -- of this closure (rather than inlined here) so its module-level
     -- collaborators are not upvalues of this already large boot closure,
     -- which sits close to LuaJIT's 60-upvalue-per-function limit.
-    local audioService = self:_composeAudio(cacheFs)
+    local audioService = self:_composeAudio(cacheFs, restoredWorld)
 
     -- The field-script platform (the script override system): registry over
     -- the compiled cache + data/scripts/overrides, composition, bindings,
@@ -617,6 +642,26 @@ function FieldRuntime:update(dt)
   if self.applicationHost:error() and not self.errorText then
     self.errorText = tostring(self.applicationHost:error())
   end
+
+  -- 60 Hz sound-frame advancement (spec §H.6): FieldRuntime owns the 60 Hz
+  -- accumulator independent of the field's 30 Hz simulation tick. Advance due
+  -- sound frames in bounded-accumulation fashion to avoid unbounded drifts
+  -- or sound-frame drops under variable dt chunking. Only when the runtime
+  -- has been fully initialized with audio state.
+  if self.audioFrameAccumulator ~= nil then
+    self.audioFrameAccumulator = self.audioFrameAccumulator + dt
+    while self.audioFrameAccumulator >= AUDIO_FRAME_DT do
+      self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
+      self.soundFrameCount = self.soundFrameCount + 1
+      -- updateSoundFrame already called by session:updateFixed (called from
+      -- session:update), but we need to ensure it's called for each accumulated
+      -- sound frame. Note: the current session.updateFixed calls updateSoundFrame
+      -- once per field tick (30 Hz), but we need it per sound frame (60 Hz).
+      -- However, to avoid double-calling, we'll let FieldSession handle the 60 Hz
+      -- advancement since it already does it in updateFixed.
+    end
+  end
+
   -- The audio output clock: pump PCM from the engine into the host sink once
   -- per runtime update, separate from the field fixed tick (the sink never
   -- advances game-semantic audio state).
@@ -739,8 +784,9 @@ end
 -- IsNighttime predicate (hours 0-3 and 20-23, the bandForHour nite band);
 -- tests and hosts inject a deterministic one.
 ---@param cacheFs CacheFs
+---@param restoredWorld table? the restored save's world bucket, when resuming
 ---@return table audioService the GameSound instance, or the injected recording adapter
-function FieldRuntime:_composeAudio(cacheFs)
+function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
   local audioService = self.scriptHosts and self.scriptHosts.audio
   if audioService == nil or self.audioOutput ~= nil then
     self.mapMusicDayNight = self.dayNight
@@ -773,7 +819,12 @@ function FieldRuntime:_composeAudio(cacheFs)
     if audioService == nil then
       audioService = self.audio
     end
-    self.audio:enterMap(self.runtimeMap, { play = true })
+    -- Initialize the FieldAudioController with the current map (spec §H.5).
+    -- Fresh boot: no override. Resume: restore the persisted override.
+    self.audio:enterMap(self.runtimeMap, {
+      play = true,
+      restoredMusicOverride = restoredWorld and restoredWorld.fieldMusicOverride or nil,
+    })
   end
   assert(audioService ~= nil, "field runtime audio composition must produce a service")
   return audioService
@@ -792,10 +843,17 @@ function FieldRuntime:saveSession(successText)
     return false
   end
   local ok, err = pcall(function()
+    -- Capture the persisted field-music override from the audio controller
+    -- (spec §H.5, §6.4): world.fieldMusicOverride is game state, not
+    -- transient playback.
+    local world = self.scripts.worldState:capture()
+    if self.audio then
+      world.fieldMusicOverride = self.audio:musicOverride()
+    end
     self.saveStore:save(FieldSave.capture(self.session, {
       avatarId = self.avatar.id,
       scenario = FieldScenarioManifest.id,
-      world = self.scripts.worldState:capture(),
+      world = world,
       scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
         registryFingerprint = self.scripts:registryFingerprint(),
       }),

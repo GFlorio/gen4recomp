@@ -178,6 +178,12 @@ function FieldSession:updateFixed(inputSnapshot)
   -- the 60 Hz accumulation.
   if self.audio then
     self.audio:updateSoundFrame()
+    -- Field-audio policy update at 30 Hz: soundplate selection, environmental
+    -- audio state, and gating flags (spec §5.5, §H.7). This is distinct from
+    -- the 60 Hz sound-frame timing (fades, fanfare post-wait, etc.).
+    if type(self.audio.updateField) == "function" then
+      self.audio:updateField()
+    end
   end
   inputSnapshot = inputSnapshot or self.input:snapshot()
   -- The door/stair choreography drives the player during the locked

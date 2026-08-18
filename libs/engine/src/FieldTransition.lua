@@ -62,6 +62,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field resolveDestination function
 ---@field doorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table|nil -- nil = no door choreography
 ---@field playSound fun(soundId: string)?
+---@field onStart fun(sourceMap: table, trigger: table, facing: FieldDirection)? -- invoked once per transition start (spec §H.3)
 ---@field player table|nil -- FieldPlayer, bound by the owner across the swap
 ---@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"choreo_hold"
 ---@field fadeAlpha number
@@ -115,6 +116,7 @@ function FieldTransition.new(options)
     commit = options.commit,
     doorAt = options.doorAt,
     playSound = options.playSound,
+    onStart = options.onStart,  -- invoked once per transition start (spec §H.3)
     player = options.player,
     fadeOutTicks = fadeOutTicks,
     fadeInTicks = fadeInTicks,
@@ -355,6 +357,20 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.destinationDoor = nil
   self.sourceChoreo = nil
   self.destinationChoreo = nil
+
+  -- Invoke onStart callback once per transition start (spec §H.3): this
+  -- callback runs before ownership changes and can fail coherently like
+  -- other pre-commit failures.
+  if self.onStart then
+    local ok, err = pcall(function()
+      self.onStart(sourceMap, trigger, facing)
+    end)
+    if not ok then
+      self:_abort(err)
+      return
+    end
+  end
+
   self.phase = FieldTransition.PHASES.fade_out
   self.locked = true
   self.fadeAlpha = 0
