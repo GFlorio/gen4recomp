@@ -1,19 +1,19 @@
 -- Pure HGSS Start Menu action policy for the implemented normal field
 -- context: the canonical action definitions and the progression rules that
--- build the menu's final interactive list. The facts are the seven unlock
--- values the runtime reads from the event-state flags (the four CheckGot*
+-- build the menu's final action list. The facts are the seven unlock values
+-- the runtime reads from the event-state flags (the four CheckGot*
 -- progression gates plus the three FLAG_GOT_BAG+idx unlocks) as ordinary
--- internal data; each source action still separates list presence (the
--- source inhibit masks, StartMenu_GetStartMenuButtonInhibitFlags_Normal,
+-- internal data; each source action separates list presence (the source
+-- inhibit masks, StartMenu_GetStartMenuButtonInhibitFlags_Normal,
 -- start_menu.c:288-331) from the gameplay unlock gate
 -- (FieldSystem_StartMenuActionIsAvailable, start_menu.c:531-556, gates at
--- sys_flags.c:273-289). availableActions processes every source action in
--- canonical insertion order -- present-but-unimplemented actions keep their
--- canonical display positions -- and returns the final records the runtime
--- needs: an entry is interactive exactly when present AND unlocked AND its
--- destination application is registered (the hasApplication predicate).
--- Pure domain module: no love, no I/O. Source evidence: src/start_menu.c at
--- the pinned decomp commit 008257708; full audit in
+-- sys_flags.c:273-289). The actions() API processes every source action in
+-- canonical insertion order (present-but-unimplemented actions keep their
+-- canonical display positions) and returns source-present entries with
+-- source-enablement state, independent of implementation capability. The
+-- runtime composes this with implementation capability to set the final
+-- enabled state. Pure domain module: no love, no I/O. Source evidence:
+-- src/start_menu.c at the pinned decomp commit 008257708; full audit in
 -- docs/research/start-menu-policy.md.
 
 local FieldApplicationIds = require("libs.engine.src.FieldApplicationIds")
