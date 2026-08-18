@@ -134,6 +134,7 @@ function FieldActorStaticModel.compile(modelBytes, context, texturePack, texture
     local polygon = polygonRecord(batch.polygonAttrRaw)
     local alphaClass = AlphaClassifier.classify(
       polygon.polygonAlpha,
+      polygon.polygonMode,
       material.textureFormat or 0,
       textureEntry and textureEntry.texture.alphaUsage or nil
     )

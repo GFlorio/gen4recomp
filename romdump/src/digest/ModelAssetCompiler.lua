@@ -128,7 +128,8 @@ local function compileModel(model, texturePack, meshes, textures, context)
     local poly = DsPolygonAttr.decode(batch.polygonAttrRaw)
     if poly.cullMode ~= "all" then
       local fmt = info and info.textureFormat or 0
-      local alphaClass = AlphaClassifier.classify(poly.polygonAlpha, fmt, info and info.alphaUsage or nil)
+      local alphaClass =
+        AlphaClassifier.classify(poly.polygonAlpha, poly.polygonMode, fmt, info and info.alphaUsage or nil)
       local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
       meshes[sha1] = batch
       local record = {

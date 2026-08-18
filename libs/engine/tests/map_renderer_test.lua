@@ -1006,18 +1006,16 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
   Assert.isTrue(type(scratch) == "table", "the renderer owns queue scratch")
   local opaque = scratch.opaque
   local cutout = scratch.cutout
-  local translucent = scratch.translucent
+  local blended = scratch.blended
   local wireframe = scratch.wireframe
-  local entries = scratch.translucentEntries
 
   renderer:draw(scene.runtime, scene.camera, { { drawItem("next") } }, viewport)
   Assert.equal(renderer.stats.drawCalls, 1, "a smaller frame retains no stale draw items")
   Assert.isTrue(renderer._queueScratch == scratch)
   Assert.isTrue(scratch.opaque == opaque)
   Assert.isTrue(scratch.cutout == cutout)
-  Assert.isTrue(scratch.translucent == translucent)
+  Assert.isTrue(scratch.blended == blended)
   Assert.isTrue(scratch.wireframe == wireframe)
-  Assert.isTrue(scratch.translucentEntries == entries)
 
   renderer:release()
 end

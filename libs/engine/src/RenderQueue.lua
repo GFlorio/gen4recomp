@@ -1,20 +1,24 @@
 -- Pure render-queue builder. Traverses ordered scene parts (map, building,
 -- neighbour, and actor), partitions their draw items into opaque / cutout /
--- translucent / wireframe passes, preserves source order for
--- opaque/cutout/wireframe, and sorts translucent draws approximately
--- back-to-front in camera space using the item center and the view matrix.
--- The item's traversal position across ordered parts is the deterministic
--- tie-breaker for equal-depth translucent draws, so the queue never invents
--- cross-group ordering. This
--- is an explicit approximation of DS auto sorting, not a claim of exact
--- hardware ordering. Pure domain module: no love, arithmetic only.
+-- mixedOpaque / wireframe passes, and blended translucent/mixed-translucent
+-- entries. Preserves source order for opaque/cutout/mixedOpaque/wireframe.
+-- Sorts blended draws approximately back-to-front in camera space using the
+-- item center and the view matrix. The item's traversal position across
+-- ordered parts is the deterministic tie-breaker for equal-depth blended
+-- draws, so the queue never invents cross-group ordering. This is an
+-- explicit approximation of DS auto sorting, not a claim of exact hardware
+-- ordering. Pure domain module: no love, arithmetic only.
 --
 -- Queue construction validates its input contract and never mutates the
--- caller's draw records: only the four known alpha classes are accepted
+-- caller's draw records: only the five known alpha classes are accepted
 -- (anything else -- including a missing class -- fails loudly instead of
--- defaulting to opaque), and the translucent sort runs over local decorated
--- sort entries so no `_viewZ`-style field is written back onto the persistent
--- items. The returned queue holds the original item tables.
+-- defaulting to opaque). Mixed items appear in mixedOpaque AND in blended
+-- with fragmentPass="mixed"; blended contains decorated pass records
+-- {item, fragmentPass, viewZ, position}, not original items. Translucent
+-- items appear only in blended with fragmentPass="translucent". The sort
+-- runs over local decorated entries so no field is written back onto
+-- persistent items. The returned queue holds original items in
+-- opaque/cutout/mixedOpaque/wireframe; blended holds decorated records.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -28,6 +32,7 @@ local ALPHA_CLASSES = {
   [AlphaClassifier.CUTOUT] = true,
   [AlphaClassifier.TRANSLUCENT] = true,
   [AlphaClassifier.WIREFRAME] = true,
+  [AlphaClassifier.MIXED] = true,
 }
 
 -- Validate the item's renderer-facing alpha class instead of inferring it from
@@ -79,13 +84,15 @@ end
 ---@class RenderQueueScratch
 ---@field opaque table[]
 ---@field cutout table[]
----@field translucent table[]
+---@field mixedOpaque table[]
 ---@field wireframe table[]
----@field translucentEntries table[]
+---@field blended table[]
 
 -- Build into renderer-owned scratch storage. Parts are traversed in source
 -- order and share one submission position sequence, including across part
 -- boundaries. The scratch arrays retain their identities across calls.
+-- Mixed items appear in both mixedOpaque and blended. Blended contains
+-- decorated pass records, not original items.
 ---@param parts table[][]
 ---@param viewMatrix number[]
 ---@param scratch RenderQueueScratch
@@ -93,53 +100,61 @@ end
 function RenderQueue.buildInto(parts, viewMatrix, scratch)
   local opaque = scratch.opaque
   local cutout = scratch.cutout
-  local translucent = scratch.translucent
+  local mixedOpaque = scratch.mixedOpaque
   local wireframe = scratch.wireframe
-  local entries = scratch.translucentEntries
-  assert(opaque and cutout and translucent and wireframe and entries, "render queue scratch is incomplete")
+  local blended = scratch.blended
+  assert(opaque and cutout and mixedOpaque and wireframe and blended, "render queue scratch is incomplete")
 
   clear(opaque)
   clear(cutout)
-  clear(translucent)
+  clear(mixedOpaque)
   clear(wireframe)
 
   local position = 0
-  local entryCount = 0
+  local blendedCount = 0
   for _, part in ipairs(parts) do
     for _, item in ipairs(part) do
       position = position + 1
       local mode = RenderQueue.classifyAlphaClass(item)
-      if mode == AlphaClassifier.TRANSLUCENT then
-        entryCount = entryCount + 1
-        local entry = entries[entryCount] or {}
-        entry.item = item
-        entry.viewZ = itemViewSpaceZ(item, viewMatrix)
-        entry.position = position
-        entries[entryCount] = entry
+
+      if mode == AlphaClassifier.OPAQUE then
+        opaque[#opaque + 1] = item
       elseif mode == AlphaClassifier.CUTOUT then
         cutout[#cutout + 1] = item
-      elseif mode == AlphaClassifier.WIREFRAME then
-        wireframe[#wireframe + 1] = item
+      elseif mode == AlphaClassifier.MIXED then
+        mixedOpaque[#mixedOpaque + 1] = item
+
+        blendedCount = blendedCount + 1
+        local entry = blended[blendedCount] or {}
+        entry.item = item
+        entry.fragmentPass = AlphaClassifier.MIXED
+        entry.viewZ = itemViewSpaceZ(item, viewMatrix)
+        entry.position = position
+        blended[blendedCount] = entry
+      elseif mode == AlphaClassifier.TRANSLUCENT then
+        blendedCount = blendedCount + 1
+        local entry = blended[blendedCount] or {}
+        entry.item = item
+        entry.fragmentPass = AlphaClassifier.TRANSLUCENT
+        entry.viewZ = itemViewSpaceZ(item, viewMatrix)
+        entry.position = position
+        blended[blendedCount] = entry
       else
-        opaque[#opaque + 1] = item
+        wireframe[#wireframe + 1] = item
       end
     end
   end
 
-  for i = #entries, entryCount + 1, -1 do
-    entries[i] = nil
+  for i = #blended, blendedCount + 1, -1 do
+    blended[i] = nil
   end
 
-  table.sort(entries, function(a, b)
+  table.sort(blended, function(a, b)
     if a.viewZ ~= b.viewZ then
       return a.viewZ < b.viewZ
     end
     return a.position < b.position
   end)
-
-  for i, entry in ipairs(entries) do
-    translucent[i] = entry.item
-  end
 
   return scratch
 end

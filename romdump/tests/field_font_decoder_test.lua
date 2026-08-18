@@ -180,13 +180,13 @@ function T.member_validation_is_typed()
 end
 
 function T.decodes_rlcn_palette_and_expands_5bit_colors()
-  local colors = { 0x0000, 0x296B, 0x5EF5, 0x7FFF }
+  local colors = { 0x0000, 0x29AB, 0x5EF5, 0x7FFF }
   local member = buildPalette(colors)
   local palette = assert(FieldFontDecoder.decodePalette(member, {}))
   Assert.equal(palette.colorCount, 4)
   Assert.deepEqual(palette.colors[1], { r = 0, g = 0, b = 0 })
   Assert.deepEqual(palette.colors[4], { r = 255, g = 255, b = 255 })
-  -- 0x296B = r5=11 g5=13 b5=10 -> ~(90, 107, 82)
+  -- 0x29AB = r5=11 g5=13 b5=10 -> (90, 107, 82)
   Assert.deepEqual(palette.colors[2], { r = 90, g = 107, b = 82 })
 end
 

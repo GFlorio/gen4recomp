@@ -190,9 +190,9 @@ function MapRenderer.new(opts)
     _queueScratch = {
       opaque = {},
       cutout = {},
-      translucent = {},
+      mixedOpaque = {},
       wireframe = {},
-      translucentEntries = {},
+      blended = {},
     },
   }, MapRenderer)
   -- Shader construction is transactional: a failure while creating the second
@@ -904,11 +904,12 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     -- the one part of the contract with an observable per-item effect, so it
     -- is the one part actually implemented below.
     local lastDepthWrite = true
-    if #queue.translucent > 0 then
+    if #queue.blended > 0 then
       lg.setCanvas(translucentTargets)
       lg.setBlendMode("alpha", "alphamultiply")
     end
-    for _, d in ipairs(queue.translucent) do
+    for _, entry in ipairs(queue.blended) do
+      local d = entry.item
       -- Depth-equal is a corpus-provable-absent DS state (see
       -- PolygonState.validate's POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED
       -- rejection): the renderer never branches on d.depthEqual and always
@@ -920,7 +921,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
         lastDepthWrite = depthWrite
       end
       local projection = d.billboardProjection and billboardProjection or worldProjection
-      self:_drawItem(d, projection, AlphaClassifier.TRANSLUCENT, viewMatrix)
+      self:_drawItem(d, projection, entry.fragmentPass, viewMatrix)
     end
 
     -- Pass 4: wireframe edges (polygon alpha zero). These count as opaque for

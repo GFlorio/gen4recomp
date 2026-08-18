@@ -171,7 +171,8 @@ function FieldActorModel.compile(modelBytes, opts)
   if polygon.cullMode == "all" then
     fail("FIELD_ACTOR_MODEL_INVISIBLE", "shared actor model renders neither polygon surface", { context = context })
   end
-  local alphaClass = AlphaClassifier.classify(polygon.polygonAlpha, opts.textureFormat or 0, opts.alphaUsage)
+  local alphaClass =
+    AlphaClassifier.classify(polygon.polygonAlpha, polygon.polygonMode, opts.textureFormat or 0, opts.alphaUsage)
   if alphaClass ~= AlphaClassifier.CUTOUT and alphaClass ~= AlphaClassifier.OPAQUE then
     -- A translucent or wireframe actor would need a different render pass and a
     -- sorting contract; no target actor asks for one.

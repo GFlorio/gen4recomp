@@ -30,9 +30,9 @@ local function queueScratch()
   return {
     opaque = {},
     cutout = {},
-    translucent = {},
+    mixedOpaque = {},
     wireframe = {},
-    translucentEntries = {},
+    blended = {},
   }
 end
 
@@ -203,8 +203,8 @@ function T.sorts_translucent_neighbors_using_one_cell_transform()
   -- With one transform application, the first draw is submitted first. A
   -- pre-offset center would be transformed again to z=65 and reverse them.
   local queue = RenderQueue.buildInto({ ring.draws }, Matrix4.identity(), queueScratch())
-  Assert.isTrue(queue.translucent[1] == ring.draws[1], "the +32 neighbor sorts at z=33")
-  Assert.isTrue(queue.translucent[2] == ring.draws[2], "the origin neighbor sorts at z=49")
+  Assert.isTrue(queue.blended[1].item == ring.draws[1], "the +32 neighbor sorts at z=33")
+  Assert.isTrue(queue.blended[2].item == ring.draws[2], "the origin neighbor sorts at z=49")
 
   ring:release()
 end
