@@ -1,20 +1,25 @@
 -- Shared presentation collaborator for authentic field text: the generated
--- HGSS field-font definition, its seven-band glyph atlas, and the
--- focus-indicator strip, plus the color-aware glyph quads (built lazily per
--- color band so plain color-0 UI never materializes variant quads), the
--- token-line and plain-string drawing operations, and the
+-- HGSS field-font definition, its seven-band glyph atlas, its semantic glyph
+-- mask atlas, and the focus-indicator strip, plus the color-aware glyph
+-- quads (built lazily per color band so plain color-0 UI never materializes
+-- variant quads), the mask-atlas quads (built lazily, one cache shared by
+-- every palette-driven caller), the token-line and plain-string drawing
+-- operations, the palette-driven drawLineWithPalette operation, and the
 -- drawFocusIndicator operation the dialogue, signpost, and Trainer Card
 -- renderers all share. FieldState owns exactly one instance (a renderer
 -- never acquires an independent atlas) and injects it; the renderer owns
--- the glyph atlas, the focus-indicator image, and their quad caches. Glyph
--- ink and shadow colors are baked at import time per band, so text draws at
--- identity tint; control tokens in a line draw nothing and take no width,
--- exactly as the paginator measured them -- the serialized marker spelling
--- is an editing contract, not presentation geometry. Glyph color is part of
--- the prepared token stream (colorIndex), never mutable renderer state.
--- Construction is failure-safe: a missing font atlas or focus-indicator
--- image is a typed error, and a quad or image failure after the atlas was
--- created releases every acquired image before rethrowing.
+-- the glyph atlas, the mask atlas, the palette shader, the focus-indicator
+-- image, and their quad caches. Glyph ink and shadow colors are baked at
+-- import time per band, so drawLine draws at identity tint; control tokens
+-- in a line draw nothing and take no width, exactly as the paginator
+-- measured them -- the serialized marker spelling is an editing contract,
+-- not presentation geometry. Glyph color is part of the prepared token
+-- stream (colorIndex), never mutable renderer state; the palette path is
+-- separate and deliberately ignores colorIndex, since sign printing sources
+-- a fixed foreground/shadow/background triple regardless of any token
+-- coloring. Construction is failure-safe: a missing font atlas, mask atlas,
+-- or focus-indicator image is a typed error, and any later image/shader/quad
+-- failure releases every resource already created before rethrowing.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -23,23 +28,52 @@ local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
+-- The palette-text shader source is an engine asset colocated with this
+-- module, addressed by repo-relative path like every `require` -- the same
+-- convention MapRenderer uses for its own shaders. opts.readSource injects
+-- the reader so construction is testable headless without any filesystem.
+local PALETTE_SHADER_PATH = "libs/engine/src/shaders/palette_text.glsl"
+
+---@param path string
+---@return string
+local function defaultReadSource(path)
+  if love and love.filesystem then
+    local source = love.filesystem.read(path)
+    if source then
+      return source
+    end
+    local base = love.filesystem.getSourceBaseDirectory()
+    local f = io.open(base .. "/" .. path, "rb")
+    if f then
+      local src = f:read("*a")
+      f:close()
+      return src
+    end
+  end
+  error("cannot read shader source: " .. path)
+end
+
 ---@class FieldTextRenderer
 ---@field fontDef FieldFontDef
 ---@field _graphics love.Graphics
 ---@field _atlas love.Image?
+---@field _maskAtlas love.Image?
+---@field _paletteShader love.Shader?
 ---@field _focusImage love.Image?
 ---@field _quads table<integer, table<integer, love.Quad>>? glyph quads per color band, band 0 built eagerly
+---@field _maskQuads table<integer, love.Quad>? mask-atlas glyph quads, built lazily
 ---@field _focusQuads table<integer, love.Quad>? focus-indicator frame quads, built lazily
 local FieldTextRenderer = {}
 FieldTextRenderer.__index = FieldTextRenderer
 
 -- opts.cacheFs: version-scoped private cache holding the compiled font def
 -- and the atlas/focus PNGs; opts.graphics: injectable LÖVE graphics
--- namespace so tests can record draw calls; LÖVE itself remains an allowed
--- presentation-layer dependency (the atlas bytes still enter through
+-- namespace so tests can record draw calls; opts.readSource: injectable
+-- shader-source reader (see defaultReadSource above); LÖVE itself remains an
+-- allowed presentation-layer dependency (the atlas bytes still enter through
 -- love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics?, readSource?: fun(path: string): string }
 ---@return FieldTextRenderer
 function FieldTextRenderer.new(opts)
   assert(
@@ -52,22 +86,34 @@ function FieldTextRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldTextRenderer requires love.graphics")
+  local readSource = opts.readSource or defaultReadSource
   local fontDef = FieldFontLoader.load(opts.cacheFs, fontId)
   local self = setmetatable({
     fontDef = fontDef,
     _graphics = graphics,
     _atlas = nil,
+    _maskAtlas = nil,
+    _paletteShader = nil,
     _quads = nil,
+    _maskQuads = nil,
     _focusImage = nil,
     _focusQuads = nil,
   }, FieldTextRenderer)
-  local data = opts.cacheFs:read(FieldFontCache.atlasPath(fontId))
+  local atlasPath = FieldFontCache.atlasPath(fontId)
+  local data = opts.cacheFs:read(atlasPath)
   if not data then
-    Errors.raise(
-      FieldErrors.FONT_ATLAS_MISSING,
-      "font atlas missing at " .. FieldFontCache.atlasPath(fontId),
-      { fontId = fontId, path = FieldFontCache.atlasPath(fontId) }
-    )
+    Errors.raise(FieldErrors.FONT_ATLAS_MISSING, "font atlas missing at " .. atlasPath, {
+      fontId = fontId,
+      path = atlasPath,
+    })
+  end
+  local maskAtlasPath = FieldFontCache.maskAtlasPath(fontId)
+  local maskData = opts.cacheFs:read(maskAtlasPath)
+  if not maskData then
+    Errors.raise(FieldErrors.FONT_MASK_ATLAS_MISSING, "font mask atlas missing at " .. maskAtlasPath, {
+      fontId = fontId,
+      path = maskAtlasPath,
+    })
   end
   local focusPath = FieldFontCache.focusIndicatorsPath(fontId)
   local focusData = opts.cacheFs:read(focusPath)
@@ -78,8 +124,11 @@ function FieldTextRenderer.new(opts)
     })
   end
   local ok, err = pcall(function()
-    self._atlas = graphics.newImage(love.filesystem.newFileData(data, FieldFontCache.atlasPath(fontId)))
+    self._atlas = graphics.newImage(love.filesystem.newFileData(data, atlasPath))
     self._atlas:setFilter("nearest", "nearest")
+    self._maskAtlas = graphics.newImage(love.filesystem.newFileData(maskData, maskAtlasPath))
+    self._maskAtlas:setFilter("nearest", "nearest")
+    self._paletteShader = graphics.newShader(readSource(PALETTE_SHADER_PATH))
     self:_buildQuads()
     self._focusImage = graphics.newImage(love.filesystem.newFileData(focusData, focusPath))
     self._focusImage:setFilter("nearest", "nearest")
@@ -178,6 +227,65 @@ function FieldTextRenderer:drawLine(tokens, x, y)
   end
 end
 
+-- The mask-atlas quad of one glyph code, built lazily and cached: the mask
+-- atlas carries only the base glyph geometry (no color bands), so the same
+-- quad serves every palette-driven draw of that code.
+---@param code integer
+---@return love.Quad
+function FieldTextRenderer:_maskQuad(code)
+  local quads = self._maskQuads or {}
+  local quad = quads[code]
+  if quad then
+    return quad
+  end
+  local lg = assert(self._graphics)
+  local atlas = assert(self._maskAtlas)
+  local glyph = self.fontDef.glyphs[code] or self.fontDef.glyphs[0]
+  quad = lg.newQuad(glyph.x, glyph.y, glyph.w, glyph.h, atlas:getWidth(), atlas:getHeight())
+  quads[code] = quad
+  self._maskQuads = quads
+  return quad
+end
+
+-- Draws one line through the palette-driven path: the mask atlas recolored
+-- by the shader against the caller's exact foreground/shadow/background
+-- triple, at the same glyph advance/letterSpacing geometry as drawLine.
+-- Deliberately ignores token.colorIndex -- this path exists precisely
+-- because sign printing sources a fixed color triple from the sign's own
+-- palette, never the font's baked color bands. Separate from drawLine so
+-- ordinary token-color semantics are never overloaded.
+---@param tokens MessageToken[]
+---@param x number
+---@param y number
+---@param palette { foreground: {r:number,g:number,b:number}, shadow: {r:number,g:number,b:number}, background: {r:number,g:number,b:number} }
+function FieldTextRenderer:drawLineWithPalette(tokens, x, y, palette)
+  local lg = assert(self._graphics)
+  local atlas = assert(self._maskAtlas)
+  local shader = assert(self._paletteShader)
+  local def = self.fontDef
+  local letterSpacing = def.letterSpacing or 0
+
+  local function norm(c)
+    return { c.r / 255, c.g / 255, c.b / 255, 1 }
+  end
+
+  shader:send("u_foreground", norm(palette.foreground))
+  shader:send("u_shadow", norm(palette.shadow))
+  shader:send("u_background", norm(palette.background))
+
+  lg.setShader(shader)
+  lg.setColor(1, 1, 1, 1)
+  for _, token in ipairs(tokens) do
+    if token.kind == "glyph" then
+      local quad = self:_maskQuad(token.code)
+      lg.draw(atlas, quad, x, y)
+      local glyph = def.glyphs[token.code] or def.glyphs[0]
+      x = x + glyph.advance + letterSpacing
+    end
+  end
+  lg.setShader()
+end
+
 -- Draws one plain text string at the reference-canvas position (the audited
 -- card labels/values path), glyph by glyph at identity tint on the base
 -- color band.
@@ -274,10 +382,18 @@ function FieldTextRenderer:release()
   if self._atlas and self._atlas.release then
     self._atlas:release()
   end
+  if self._maskAtlas and self._maskAtlas.release then
+    self._maskAtlas:release()
+  end
+  if self._paletteShader and self._paletteShader.release then
+    self._paletteShader:release()
+  end
   if self._focusImage and self._focusImage.release then
     self._focusImage:release()
   end
   self._atlas, self._quads = nil, nil
+  self._maskAtlas, self._maskQuads = nil, nil
+  self._paletteShader = nil
   self._focusImage, self._focusQuads = nil, nil
 end
 

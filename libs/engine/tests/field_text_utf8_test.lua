@@ -28,10 +28,11 @@ local function fixtureCache()
 end
 
 -- The shared fake graphics namespace (tests/support/FakeGraphics) records
--- every draw and created image. Image sizes: the 512x32 card font atlas and
--- the 96x32 focus-indicator strip, in the order the renderer acquires them.
+-- every draw and created image. Image sizes: the 512x32 card font atlas, its
+-- semantic glyph mask atlas, and the 96x32 focus-indicator strip, in the
+-- order the renderer acquires them.
 local function fakeGraphics()
-  return require("tests.support.FakeGraphics").new({ imageSizes = { { 512, 32 }, { 96, 32 } } })
+  return require("tests.support.FakeGraphics").new({ imageSizes = { { 512, 32 }, { 16, 16 }, { 96, 32 } } })
 end
 
 local function renderer()

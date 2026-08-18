@@ -1,10 +1,12 @@
 -- Shared fake LÖVE graphics namespace for the renderer unit suites. Tracks
 -- created images and their release calls, records every draw (with its quad,
 -- position, and the color at draw time), the transform stack (translate/
--- scale) and primitive calls (rectangle/polygon/print) as separate lists,
--- tracks the transform-stack depth, and holds a full settable state the
--- renderers must restore exactly. failOnQuadCall/failOnDrawCall/
--- failOnImageCall make the Nth construction/draw/image call raise;
+-- scale) and primitive calls (rectangle/polygon/print) as separate lists (plus
+-- a detailed `rectangles` record for callers that need the exact mode/rect/
+-- color), created shaders (with every `send` call recorded), tracks the
+-- transform-stack depth, and holds a full settable state the renderers must
+-- restore exactly. failOnQuadCall/failOnDrawCall/failOnImageCall/
+-- failOnShaderCall make the Nth construction/draw/image/shader call raise;
 -- imageSizes supplies the created image dimensions in creation order. The
 -- suites assert exactly the record shapes this helper produces; the real
 -- love.graphics object is never touched.
@@ -14,6 +16,8 @@
 ---@field draws table[]
 ---@field transforms table[]
 ---@field primitives string[]
+---@field rectangles table[]
+---@field shaders table[]
 ---@field pushDepth fun(): integer
 local FakeGraphics = {}
 
@@ -21,15 +25,17 @@ local FakeGraphics = {}
 -- verify exact restoration after a draw. The returned table is structurally
 -- a love.Graphics subset plus the recording fields; call sites pass it as
 -- the renderers' injectable graphics namespace.
----@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer, failOnImageCall?: integer }
+---@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer, failOnImageCall?: integer, failOnShaderCall?: integer }
 function FakeGraphics.new(opts)
   opts = opts or {}
   local images = {}
-  local imageCalls, quadCalls, drawCalls = 0, 0, 0
+  local shaders = {}
+  local imageCalls, quadCalls, drawCalls, shaderCalls = 0, 0, 0, 0
   local pushDepth = 0
   local draws = {}
   local transforms = {}
   local primitives = {}
+  local rectangles = {}
   local state = {
     canvas = opts.canvas,
     shader = opts.shader,
@@ -44,11 +50,28 @@ function FakeGraphics.new(opts)
   }
   return {
     images = images,
+    shaders = shaders,
     draws = draws,
     transforms = transforms,
     primitives = primitives,
+    rectangles = rectangles,
     pushDepth = function()
       return pushDepth
+    end,
+    newShader = function(source)
+      shaderCalls = shaderCalls + 1
+      if opts.failOnShaderCall == shaderCalls then
+        error("injected newShader failure")
+      end
+      local shader = { source = source, released = false, sends = {} }
+      shader.send = function(_, name, value)
+        shader.sends[#shader.sends + 1] = { name = name, value = value }
+      end
+      shader.release = function()
+        shader.released = true
+      end
+      shaders[#shaders + 1] = shader
+      return shader
     end,
     newImage = function()
       imageCalls = imageCalls + 1
@@ -104,8 +127,9 @@ function FakeGraphics.new(opts)
         error("injected draw failure")
       end
     end,
-    rectangle = function()
+    rectangle = function(mode, x, y, w, h)
       primitives[#primitives + 1] = "rectangle"
+      rectangles[#rectangles + 1] = { mode = mode, x = x, y = y, w = w, h = h, color = state.color }
     end,
     polygon = function()
       primitives[#primitives + 1] = "polygon"

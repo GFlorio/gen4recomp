@@ -315,6 +315,7 @@ function FieldUiFixture.cardFontDef()
   return {
     schema = FieldFontCache.SCHEMA,
     fontId = 0,
+    maskAtlasPath = FieldFontCache.maskAtlasPath(0),
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
@@ -373,12 +374,22 @@ function FieldUiFixture.cardFontAtlasBytes()
   return PngWriter.encode(512, 32, table.concat(bytes))
 end
 
+-- The card font's semantic glyph mask atlas: the Trainer Card path never
+-- draws through the palette-driven text method, so the fixture only needs a
+-- valid decodable PNG at the manifest's mask path, not per-glyph class
+-- fidelity.
+---@return string png
+function FieldUiFixture.cardMaskAtlasBytes()
+  return PngWriter.encode(16, 16, string.rep(string.char(255, 0, 0, 255), 16 * 16))
+end
+
 -- A synthetic 16-color v5 palette bank for one source type: placeholder
--- values distinct per type/slot (not source-decoded; deliverable 4's
--- palette-driven glyph work is what actually consumes these).
+-- values distinct per type/slot (not source-decoded), consumed both by the
+-- generated manifest fixture below and directly by tests computing the
+-- expected palette-driven fill/text colors for a given source type.
 ---@param sourceType integer
 ---@return table<integer, {r: integer, g: integer, b: integer}>
-local function typePalette(sourceType)
+function FieldUiFixture.typePalette(sourceType)
   local palette = {}
   for slot = 0, 15 do
     palette[slot] = {
@@ -404,7 +415,7 @@ function FieldUiFixture.signpostTypes()
   for _, sourceType in ipairs(FieldUiFixture.CORPUS_SOURCE_TYPES) do
     local entry = {
       sourceType = sourceType,
-      palette = typePalette(sourceType),
+      palette = FieldUiFixture.typePalette(sourceType),
       frameTiles = { x = 0, y = 0, width = 144, height = 8 },
     }
     if sourceType == 0 then
@@ -505,6 +516,7 @@ function FieldUiFixture.trainerCardCache(fontDef)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   cache:writeLua("data/generated/field/font/font-0.lua", fontDef or FieldUiFixture.cardFontDef())
   cache:write("assets/generated/field/font/font-0.png", FieldUiFixture.cardFontAtlasBytes())
+  cache:write(FieldFontCache.maskAtlasPath(0), FieldUiFixture.cardMaskAtlasBytes())
   cache:write(FieldDialogueFixture.FOCUS_INDICATOR_PATH, FieldDialogueFixture.focusIndicatorBytes())
   cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
   cache:write(FieldUiFixture.TRAINER_CARD_PATH, FieldUiFixture.cardBytes())

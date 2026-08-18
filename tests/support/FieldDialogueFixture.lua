@@ -1,8 +1,8 @@
 -- Synthetic dialogue-renderer fixtures shared by the dialogue smoke suite and
--- the injected-failure suite: a 16x16 font atlas, the 96x32 focus-indicator
--- strip, the cache holding the ready font bundle, an opened controller with a
--- canned layout, and the exact graphics-state restoration contract a draw
--- must honour.
+-- the injected-failure suite: a 16x16 font atlas, its matching 16x16 semantic
+-- glyph mask atlas, the 96x32 focus-indicator strip, the cache holding the
+-- ready font bundle, an opened controller with a canned layout, and the exact
+-- graphics-state restoration contract a draw must honour.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -17,8 +17,10 @@ local FieldDialogueFixture = {}
 
 local DEF_PATH = "data/generated/field/font/font-0.lua"
 local ATLAS_PATH = "assets/generated/field/font/font-0.png"
+local MASK_ATLAS_PATH = FieldFontCache.maskAtlasPath(0)
 
 FieldDialogueFixture.FOCUS_INDICATOR_PATH = "assets/generated/field/font/font-0-focus-indicators.png"
+FieldDialogueFixture.MASK_ATLAS_PATH = MASK_ATLAS_PATH
 
 local function px(r, g, b, a)
   return string.char(r, g, b, a)
@@ -52,12 +54,29 @@ function FieldDialogueFixture.focusIndicatorBytes()
   return PngWriter.encode(96, 32, table.concat(rgba))
 end
 
+-- 16x16 mask atlas: the same two 8x16 glyph cells as atlasBytes(), encoding
+-- the categorical glyph class instead of a baked color -- glyph 1 (code 1,
+-- x=0) all foreground class, glyph 2 (code 2, x=8) all shadow class -- so a
+-- palette-driven draw recolors them against the caller's own palette rather
+-- than these fixed marker colors.
+---@return string png
+function FieldDialogueFixture.maskAtlasBytes()
+  local rgba = {}
+  for _ = 1, 16 do
+    for x = 1, 16 do
+      rgba[#rgba + 1] = x <= 8 and px(255, 0, 0, 255) or px(0, 255, 0, 255)
+    end
+  end
+  return PngWriter.encode(16, 16, table.concat(rgba))
+end
+
 ---@return FieldFontDef
 function FieldDialogueFixture.fontDef()
   local baseHeight = 16
   return {
     schema = FieldFontCache.SCHEMA,
     fontId = 0,
+    maskAtlasPath = MASK_ATLAS_PATH,
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
@@ -104,6 +123,7 @@ function FieldDialogueFixture.cacheWithFont()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   cache:write(DEF_PATH, FieldDialogueFixture.encodedFontDef())
   cache:write(ATLAS_PATH, FieldDialogueFixture.atlasBytes())
+  cache:write(MASK_ATLAS_PATH, FieldDialogueFixture.maskAtlasBytes())
   cache:write(FieldDialogueFixture.FOCUS_INDICATOR_PATH, FieldDialogueFixture.focusIndicatorBytes())
   return cache
 end

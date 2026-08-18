@@ -59,11 +59,11 @@ local function fixtureCache()
   return FieldUiFixture.trainerCardCache()
 end
 
--- The construction order: the 512x32 font atlas, the 96x32 focus strip, then
--- the 256x256 card front.
+-- The construction order: the 512x32 font atlas, its semantic glyph mask
+-- atlas, the 96x32 focus strip, then the 256x256 card front.
 local function renderedGraphics(opts)
   opts = opts or {}
-  local sizes = { { 512, 32 }, { 96, 32 }, { 256, 256 } }
+  local sizes = { { 512, 32 }, { 16, 16 }, { 96, 32 }, { 256, 256 } }
   if opts.imageSizes then
     for index, size in ipairs(opts.imageSizes) do
       sizes[index] = size
@@ -170,18 +170,16 @@ end
 -- card image before the constructor rethrows (the 65 glyph quads belong to
 -- the caller-owned text renderer and succeed first).
 function T.quad_failure_releases_the_acquired_card_image()
-  local graphics = renderedGraphics({
-    imageSizes = { { 512, 32 }, { 256, 256 } },
-    failOnQuadCall = 66,
-  })
+  local graphics = renderedGraphics({ failOnQuadCall = 66 })
   local text = withTextRenderer(fixtureCache(), graphics)
   local ok, err = pcall(function()
     TrainerCardRenderer.new({ cacheFs = fixtureCache(), manifest = MANIFEST, text = text, graphics = graphics })
   end)
   Assert.isFalse(ok, "the quad failure must propagate")
   Assert.equal(graphics.images[1].released, false, "the caller-owned text renderer atlas stays alive")
-  Assert.equal(graphics.images[2].released, false, "the caller-owned text renderer focus strip stays alive")
-  Assert.equal(graphics.images[3].released, true, "the card image was released")
+  Assert.equal(graphics.images[2].released, false, "the caller-owned text renderer mask atlas stays alive")
+  Assert.equal(graphics.images[3].released, false, "the caller-owned text renderer focus strip stays alive")
+  Assert.equal(graphics.images[4].released, true, "the card image was released")
   text:release()
 end
 
@@ -305,8 +303,9 @@ function T.release_frees_the_owned_card_image_and_is_idempotent()
   renderer:release()
   renderer:release()
   Assert.equal(graphics.images[1].released, false, "the caller-owned text renderer atlas stays alive")
-  Assert.equal(graphics.images[2].released, false, "the caller-owned text renderer focus strip stays alive")
-  Assert.equal(graphics.images[3].released, true, "the card image was released")
+  Assert.equal(graphics.images[2].released, false, "the caller-owned text renderer mask atlas stays alive")
+  Assert.equal(graphics.images[3].released, false, "the caller-owned text renderer focus strip stays alive")
+  Assert.equal(graphics.images[4].released, true, "the card image was released")
   text:release()
 end
 
