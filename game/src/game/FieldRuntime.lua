@@ -653,12 +653,6 @@ function FieldRuntime:update(dt)
     while self.audioFrameAccumulator >= AUDIO_FRAME_DT do
       self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
       self.soundFrameCount = self.soundFrameCount + 1
-      -- updateSoundFrame already called by session:updateFixed (called from
-      -- session:update), but we need to ensure it's called for each accumulated
-      -- sound frame. Note: the current session.updateFixed calls updateSoundFrame
-      -- once per field tick (30 Hz), but we need it per sound frame (60 Hz).
-      -- However, to avoid double-calling, we'll let FieldSession handle the 60 Hz
-      -- advancement since it already does it in updateFixed.
     end
   end
 
