@@ -32,18 +32,21 @@
 // marked pixel's own ID, indexed as id >> 3. The depth comparison is a strict
 // integer-domain inequality, never a tolerance-scaled float heuristic.
 //
-// The green channel holds the DS-quantized W-buffer depth state.glsl computes
-// (see its dsWbufferDepth) rather than raw window Z: a perspective near/far of
-// 0.1/400 crushes window Z to ~0.993 across the whole field, so silhouette
-// steps for anything but very close geometry would fall below any usable
-// threshold and go unmarked. The DS depth test works in W-buffer (linear)
-// space, where a fixed world gap is detectable at any range; matching that is
-// what makes short objects (signposts, hydrants) outline as they do on
-// hardware. Fog's depth input is this same camera.far-normalized proxy, not
-// an exact reproduction of the DS's own per-polygon W-buffer normalization
-// (see dsWbufferDepth's header and docs/rendering.md); the density/blend
-// arithmetic below is the exact melonDS sequencing, applied to that
-// approximate depth.
+// The green channel holds the DS Z-buffer depth state.glsl computes (see its
+// dsZbufferDepth) rather than raw window Z: the DS 24-bit Z domain preserves
+// depth separation across the whole field far better than a raw 24-bit
+// window-Z quantization would, so silhouette steps for short field objects
+// stay well above any usable threshold and mark as they do on hardware. The
+// DS field camera selects GX_BUFFERMODE_Z (HGSS Camera_ApplyPerspectiveType;
+// see state.glsl's header), so the depth is the DS Z-buffer conversion of
+// the host fragment's normalized window depth, evaluated exactly per the
+// pinned melonDS formula (windowZ -> ndcZ = 2*windowZ - 1, ndcZ scaled by
+// 0x4000 with truncation toward zero, +0x3FFF, *0x200, clamped to
+// 0..0xFFFFFF). Projection, rasterization, and interpolation remain
+// host-side -- only the depth-domain conversion is exact DS (see
+// docs/rendering.md). Fog's depth input is this same DS Z depth, used
+// directly without any camera-far rescaling; the density/blend
+// arithmetic below is the exact melonDS sequencing, applied to that depth.
 //
 // Only opaque geometry participates in edge marking -- "Edge Marking is
 // applied ONLY to opaque polygons (including wire-frames)". Ordinary
@@ -105,10 +108,12 @@ vec2 statePixelCenter(vec2 uv)
 
 // The rear-plane state (MapRenderer.DS_STATE_CLEAR): polygon id 63 (the real
 // HGSS clear/rear-plane id, not an out-of-domain sentinel), the farthest
-// quantized depth, and no fog gate. Used for any state sample that falls
-// outside the logical screen -- a neighbor probe past the screen edge must
-// behave like the rear plane, not like a clamped copy of the center pixel
-// (which would suppress a silhouette at the screen boundary).
+// quantized depth (DS_DEPTH_MAX, the 24-bit maximum -- the clear/rear plane
+// stays at 0xFFFFFF even though a geometry fragment at windowZ == 1 maps to
+// 0xFFFE00 under the DS Z conversion), and no fog gate. Used for any state
+// sample that falls outside the logical screen -- a neighbor probe past the
+// screen edge must behave like the rear plane, not like a clamped copy of the
+// center pixel (which would suppress a silhouette at the screen boundary).
 vec3 rearPlaneState()
 {
   return vec3(1.0, 16777215.0, 0.0);
@@ -141,11 +146,20 @@ bool marked(vec2 centerUv, vec2 offset, float centerId, float centerDepth)
 // preset's slope (used directly as the density shift exponent).
 uniform bool u_fogEnabled;
 uniform vec3 u_fogColor;
-// The 32-entry density table packed as 8 vec4s (LOVE's Shader:send flattens
-// a single 32-number Lua table into this array in order: table[1..4] ->
-// u_fogTable[0], table[5..8] -> u_fogTable[1], etc.), read back out via
-// fogTableEntry below.
-uniform vec4 u_fogTable[8];
+// The 32-entry density table packed as 8 distinctly-named vec4s
+// (u_fogTable0..u_fogTable7), one per 4-entry group. LÖVE 11.5 fills only
+// the first vec4 of a `vec4[N]` array uniform when sent a flat table, so a
+// single-array delivery could never reach entries past index 0; each group
+// is therefore its own named uniform, sent separately (MapRenderer:_sendFog)
+// and read back out via fogTableEntry below.
+uniform vec4 u_fogTable0;
+uniform vec4 u_fogTable1;
+uniform vec4 u_fogTable2;
+uniform vec4 u_fogTable3;
+uniform vec4 u_fogTable4;
+uniform vec4 u_fogTable5;
+uniform vec4 u_fogTable6;
+uniform vec4 u_fogTable7;
 uniform float u_fogOffsetDepth;
 uniform float u_fogShift;
 uniform float u_fogAlpha;
@@ -185,16 +199,34 @@ float fogTableEntry(int index)
   } else if (clamped > 31) {
     clamped = 31;
   }
-  vec4 group = u_fogTable[clamped / 4];
-  int component = clamped - (clamped / 4) * 4;
-  if (component == 0) {
-    return group.x;
-  } else if (component == 1) {
-    return group.y;
-  } else if (component == 2) {
-    return group.z;
+  int group = clamped / 4;
+  int component = clamped - group * 4;
+  vec4 value;
+  if (group == 0) {
+    value = u_fogTable0;
+  } else if (group == 1) {
+    value = u_fogTable1;
+  } else if (group == 2) {
+    value = u_fogTable2;
+  } else if (group == 3) {
+    value = u_fogTable3;
+  } else if (group == 4) {
+    value = u_fogTable4;
+  } else if (group == 5) {
+    value = u_fogTable5;
+  } else if (group == 6) {
+    value = u_fogTable6;
+  } else {
+    value = u_fogTable7;
   }
-  return group.w;
+  if (component == 0) {
+    return value.x;
+  } else if (component == 1) {
+    return value.y;
+  } else if (component == 2) {
+    return value.z;
+  }
+  return value.w;
 }
 
 // SoftRenderer3D::CalculateFogDensity's exact integer sequencing, evaluated

@@ -710,11 +710,12 @@ end
 function T.canvas_recreation_send_failure_retains_previous_targets()
   -- The first draw's edge-shader sends, in order: 2 target uniforms
   -- (u_renderState/u_stateSize) from _ensureTargets, 1 from _sendEdgeColors,
-  -- 6 from _sendFog, and 1 for u_antialiasEnabled -- 10 total. The second
-  -- (recreating) draw's target uniforms then start at 11 (u_renderState) and
-  -- 12 (u_stateSize), so failing on the 12th send lands on u_stateSize, after
-  -- u_renderState already succeeded.
-  local lg = fakeGraphics({ failOnEdgeShaderSend = 12 })
+  -- 13 from _sendFog (u_fogEnabled/u_fogColor + 8 density-table groups +
+  -- u_fogOffsetDepth/u_fogShift/u_fogAlpha), and 1 for u_antialiasEnabled --
+  -- 17 total. The second (recreating) draw's target uniforms then start at
+  -- 18 (u_renderState) and 19 (u_stateSize), so failing on the 19th send
+  -- lands on u_stateSize, after u_renderState already succeeded.
+  local lg = fakeGraphics({ failOnEdgeShaderSend = 19 })
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local oldViewport = FieldViewport.new(640, 480, { mode = "strict" })
@@ -879,35 +880,11 @@ function T.draw_requires_the_scenes_edge_color_table()
   renderer:release()
 end
 
--- The shader's depth quantization range comes from the active camera's own
--- far clipping plane, not a hidden fixed field-draw-distance bound: sent once
--- per frame alongside u_view (never per draw item, and never cached across
--- frames -- a camera whose far plane changes mid-run must retarget the very
--- next frame, the same way u_view always resends). u_depthWMax now lives only
--- on the state-pass shader (the color pass no longer quantizes depth into
--- any output channel).
-function T.draw_sends_the_cameras_far_plane_as_the_depth_normalization_range()
-  local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
-  local scene = emptySceneCamera()
-  scene.camera.far = 123.5
-  local shader = lg.shaders[3]
-
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
-  Assert.equal(shaderSendCount(shader, "u_depthWMax"), 1, "sent exactly once for the frame, not once per item")
-  Assert.equal(shader.uniforms.u_depthWMax, 123.5, "the exact camera far value reaches the shader")
-
-  scene.camera.far = 200
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
-  Assert.equal(shaderSendCount(shader, "u_depthWMax"), 2, "each frame resends, like u_view")
-  Assert.equal(shader.uniforms.u_depthWMax, 200, "a changed far plane reaches the shader the very next frame")
-  renderer:release()
-end
-
 -- A camera missing a usable far plane is a malformed collaborator, not a case
--- to silently default around (e.g. the retired DS_DEPTH_WMAX = 400.0
--- constant): MapRenderer must fail loudly rather than quantize depth against
--- an invented bound.
+-- to silently default around: the camera's far plane still feeds its own
+-- projection matrices (camera:projection()/camera:billboardProjection()),
+-- which both passes draw through, so MapRenderer must fail loudly rather
+-- than render against an invented projection bound.
 function T.draw_requires_a_positive_camera_far_plane()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -960,7 +937,7 @@ end
 -- alpha (sent verbatim, 0..31, the same 5-bit domain the final shader's
 -- fogAlpha5/srcAlpha5 blend operates in -- not normalized, unlike the fog
 -- color), and the 32-entry table all reach edgeShader unconditionally
--- (per-frame, like u_depthWMax), whether the resolved preset is enabled or
+-- (per-frame, like u_view), whether the resolved preset is enabled or
 -- disabled -- disabled is data on the preset, never a MapRenderer special
 -- case.
 function T.draw_sends_the_scenes_resolved_fog_preset_when_enabled()
@@ -981,11 +958,14 @@ function T.draw_sends_the_scenes_resolved_fog_preset_when_enabled()
   Assert.equal(shader.uniforms.u_fogOffsetDepth, 0x726F * 0x200, "the raw offset is converted into the depth domain")
   Assert.equal(shader.uniforms.u_fogShift, 3, "the preset's slope reaches the shader as the density shift verbatim")
   Assert.equal(shader.uniforms.u_fogAlpha, 31, "the preset's alpha reaches the shader verbatim, 0..31")
-  Assert.deepEqual(
-    shader.uniforms.u_fogTable,
-    scene.runtime.fog.table,
-    "the resolved 32-entry table reaches the shader"
-  )
+  local table32 = scene.runtime.fog.table
+  for group = 0, 7 do
+    Assert.deepEqual(
+      shader.uniforms["u_fogTable" .. group],
+      { table32[group * 4 + 1], table32[group * 4 + 2], table32[group * 4 + 3], table32[group * 4 + 4] },
+      "each 4-entry density-table group reaches its own named uniform"
+    )
+  end
   renderer:release()
 end
 
@@ -1003,7 +983,15 @@ function T.draw_sends_the_scenes_resolved_fog_preset_when_disabled()
   Assert.equal(shader.uniforms.u_fogOffsetDepth, 17 * 0x200)
   Assert.equal(shader.uniforms.u_fogShift, 6)
   Assert.equal(shader.uniforms.u_fogAlpha, 0)
-  Assert.deepEqual(shader.uniforms.u_fogTable, scene.runtime.fog.table)
+  local disabledTable32 = scene.runtime.fog.table
+  for group = 0, 7 do
+    Assert.deepEqual(shader.uniforms["u_fogTable" .. group], {
+      disabledTable32[group * 4 + 1],
+      disabledTable32[group * 4 + 2],
+      disabledTable32[group * 4 + 3],
+      disabledTable32[group * 4 + 4],
+    }, "each 4-entry density-table group reaches its own named uniform")
+  end
   renderer:release()
 end
 
@@ -1942,6 +1930,65 @@ function T.projection_selection_matches_between_the_state_and_color_passes()
   Assert.deepEqual(colorProjections, { worldProjection, billboardProjection }, "color pass: ordinary then billboard")
   Assert.deepEqual(stateProjections, { worldProjection, billboardProjection }, "state pass: ordinary then billboard")
   renderer:release()
+end
+
+-- The field camera selects DS Z buffering (GX_BUFFERMODE_Z), so the state
+-- shader derives depth from the fragment's normalized window depth; the
+-- retired camera-far depth-normalization uniform must not be sent to the
+-- state pass (or any pass) anymore. The state shader is lg.shaders[3] (the
+-- color/resolve shaders are shaders[1]/shaders[2]).
+function T.draw_never_sends_the_retired_depth_normalization_uniform()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  scene.camera.far = 123.5
+
+  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+
+  Assert.equal(shaderSendCount(lg.shaders[1], "u_depthWMax"), 0, "the color shader never receives the retired uniform")
+  Assert.equal(
+    shaderSendCount(lg.shaders[2], "u_depthWMax"),
+    0,
+    "the final-pass shader never receives the retired uniform"
+  )
+  Assert.equal(
+    shaderSendCount(lg.shaders[3], "u_depthWMax"),
+    0,
+    "the state shader derives depth from window depth, not a far-plane normalization"
+  )
+  renderer:release()
+end
+
+-- The DS Z conversion -- windowZ -> ndcZ = 2*windowZ - 1, ndcZ scaled by
+-- 0x4000 with truncation toward zero (GLSL int() truncates, so a fractional
+-- negative NDC must not floor), offset by 0x3FFF, scaled by 0x200, clamped
+-- to 0..0xFFFFFF -- as a pure table, independently hand-computed (never
+-- calling the production shader). Anchors: the near plane clamps to 0; the
+-- exact midpoint 0.5 maps to 0x7FFE00 (the +0x3FFF offset); the far plane 1
+-- maps to 0xFFFE00, distinct from the 0xFFFFFF clear/rear-plane value; the
+-- negative-NDC fractional case 0.4 truncates -3276.8 to -3276 (0x666600),
+-- not floor's -3277 (0x665E00).
+function T.field_depth_conversion_table_matches_the_ds_z_formula()
+  local function trunc(x)
+    return x >= 0 and math.floor(x) or math.ceil(x)
+  end
+  local function dsZ(windowZ)
+    local ndc = windowZ * 2 - 1
+    local ndc14 = trunc(ndc * 0x4000)
+    local depth = (ndc14 + 0x3FFF) * 0x200
+    if depth < 0 then
+      depth = 0
+    elseif depth > 0xFFFFFF then
+      depth = 0xFFFFFF
+    end
+    return depth
+  end
+
+  Assert.equal(dsZ(0), 0, "windowZ=0 maps to DS depth 0 after clamping the signed formula")
+  Assert.equal(dsZ(0.5), 0x7FFE00, "windowZ=0.5 maps to the exact midpoint depth 0x7FFE00")
+  Assert.equal(dsZ(1), 0xFFFE00, "windowZ=1 maps to 0xFFFE00 -- the DS far value, below the 0xFFFFFF clear/rear plane")
+  Assert.equal(dsZ(0.4), 0x666600, "windowZ=0.4 (ndc*0x4000 = -3276.8) truncates to -3276 -> 0x666600")
+  Assert.equal(dsZ(0) < dsZ(0.5) and dsZ(0.5) < dsZ(1), true, "the mapping is monotonic across the anchors")
 end
 
 return { tests = T }

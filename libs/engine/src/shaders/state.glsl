@@ -2,11 +2,20 @@
 // map.glsl at the same full-resolution render-state target as the color
 // raster (MapRenderer.stateW/stateH, always equal to the color dimensions --
 // see MapRenderer:_ensureTargets), and writes only the DS state edge marking
-// and fog need: the opaque fragment's polygon ID, DS-quantized depth proxy,
+// and fog need: the opaque fragment's polygon ID, DS Z-buffer depth,
 // per-polygon fog gate, and validity. It owns no lighting RGB, no fog blend,
 // and no edge search -- those stay in map.glsl's color output and edge.glsl's
 // final resolve respectively (spec: the state pass's job is geometry/UV/
 // final-alpha/state only).
+//
+// Depth is the DS Z-buffer domain, not a linear/window-depth proxy: the
+// field camera selects GX_BUFFERMODE_Z (Camera_ApplyPerspectiveType in
+// src/camera.c, passed to the buffer swap by fieldmap.c), so melonDS follows
+// the non-W branch of GPU3D::SubmitPolygon and the engine's render-state
+// depth is the DS Z-buffer conversion of the host fragment's normalized
+// window depth (dsZbufferDepth below). The state canvas stays rgba32f; the
+// conversion stores the exact 24-bit integer values (0..DS_DEPTH_MAX) as
+// floats.
 //
 // The vertex stage is the same world/billboard placement map.glsl uses (see
 // that shader's header and position()), without the lighting/normal work: no
@@ -24,7 +33,7 @@
 //                      classification contract).
 //   2 = mixed opaque:  discard unless alpha5 == 31 -- only a mixed material's
 //                      fully-opaque texels reach this pass's writes.
-// A surviving fragment writes vec4(polygonId/63, dsWbufferDepth, fogGate,
+// A surviving fragment writes vec4(polygonId/63, dsZbufferDepth, fogGate,
 // 1.0) into the single render-state canvas -- exactly finalState's old
 // packing (see map.glsl's prior header), now the only writer of that state.
 
@@ -71,15 +80,30 @@ uniform float u_polygonId;    // normalized 6-bit polygon ID (id / 63)
 uniform bool u_polygonFogEnabled;
 uniform sampler2D MainTex;
 
-// Mirrors map.glsl's dsWbufferDepth exactly -- see that shader for the full
-// derivation (gl_FragCoord.w, u_depthWMax, and the 24-bit quantized domain).
-uniform float u_depthWMax;
+// The DS Z-buffer depth domain (melonDS GPU3D.cpp's non-W branch of
+// GPU3D::SubmitPolygon -- HGSS field selects GX_BUFFERMODE_Z, see the file
+// header). Converts the host fragment's normalized window depth
+// (gl_FragCoord.z in [0,1]) to the DS 24-bit Z value: NDC z scaled by
+// 0x4000 with truncation toward zero (GLSL float-to-int conversion
+// truncates, matching the signed quotient behavior), offset by 0x3FFF,
+// scaled by 0x200, clamped to 0..0xFFFFFF. Projection, rasterization, and
+// interpolation remain host-side -- only the depth-domain conversion is the
+// DS formula.
 const float DS_DEPTH_MAX = 16777215.0; // 0xFFFFFF
 
-float dsWbufferDepth(float linearEyeDepth)
+float dsZbufferDepth(float windowDepth)
 {
-  float fraction = clamp(linearEyeDepth / u_depthWMax, 0.0, 1.0);
-  return floor(fraction * DS_DEPTH_MAX);
+  float ndc = windowDepth * 2.0 - 1.0;
+  int ndc14 = int(ndc * 16384.0);
+  // Arithmetic stays in float32: this GLSL dialect (ES 1.00) has no integer
+  // min/max/clamp overload, and every intermediate here is an exact float
+  // (the product domain is bounded by 0xFFFFFF and all values are multiples
+  // of 0x200, so float32's 24-bit mantissa holds them exactly). int()
+  // above is the one conversion the formula needs -- it truncates toward
+  // zero, matching the signed quotient behavior.
+  float zf = float(ndc14 + 16383) * 512.0;
+  zf = clamp(zf, 0.0, DS_DEPTH_MAX);
+  return zf;
 }
 
 void effect()
@@ -105,7 +129,7 @@ void effect()
     if (outputAlpha5 != 31) discard;
   }
 
-  float dsDepth = dsWbufferDepth(1.0 / gl_FragCoord.w);
+  float dsDepth = dsZbufferDepth(gl_FragCoord.z);
   love_Canvases[0] = vec4(u_polygonId, dsDepth, u_polygonFogEnabled ? 1.0 : 0.0, 1.0);
 }
 #endif

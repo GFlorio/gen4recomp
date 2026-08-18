@@ -17,6 +17,7 @@ local FakeCache = require("tests.support.FakeCache")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local Matrix4 = require("libs.math.src.Matrix4")
+local DsFog = require("tests.support.DsFog")
 
 local T = {}
 
@@ -37,6 +38,22 @@ local function zeroFogFixture()
     table32[i] = 0
   end
   return { enabled = false, color = 0, offset = 0, slope = 0, alpha = 0, table = table32 }
+end
+
+-- The 32-entry fog density table is delivered as 8 groups of 4 raw entries,
+-- one named uniform each (u_fogTable0..u_fogTable7): LÖVE 11.5 fills only
+-- the first vec4 of a `vec4[N]` array uniform from a flat table, so a
+-- single-array send could never reach entries past index 0 (see edge.glsl's
+-- fogTableEntry and MapRenderer:_sendFog, which group the same way).
+-- table32 is the 1-indexed 32-entry table; group i covers entries
+-- 4*i+1 .. 4*i+4.
+local function sendFogTableGroups(shader, table32)
+  for group = 0, 7 do
+    shader:send(
+      "u_fogTable" .. group,
+      { table32[group * 4 + 1], table32[group * 4 + 2], table32[group * 4 + 3], table32[group * 4 + 4] }
+    )
+  end
 end
 
 local function emptyRuntime()
@@ -111,11 +128,6 @@ end
 function T.map_shader_has_no_global_fog_uniforms(scope)
   local shader = scope:own(MapRenderer.new()).shader
 
-  local zeroFogTable = {}
-  for i = 1, 32 do
-    zeroFogTable[i] = 0
-  end
-
   Assert.throws(function()
     shader:send("u_fogEnabled", true)
   end)
@@ -123,7 +135,7 @@ function T.map_shader_has_no_global_fog_uniforms(scope)
     shader:send("u_fogColor", { 0.5, 0.5, 0.5 })
   end)
   Assert.throws(function()
-    shader:send("u_fogTable", zeroFogTable)
+    shader:send("u_fogTable", { 0, 0, 0, 0 })
   end)
   Assert.throws(function()
     shader:send("u_fogOffset", 0)
@@ -148,7 +160,7 @@ function T.final_shader_has_fog_uniforms(scope)
 
   shader:send("u_fogEnabled", true)
   shader:send("u_fogColor", { 0.5, 0.5, 0.5 })
-  shader:send("u_fogTable", zeroFogTable)
+  sendFogTableGroups(shader, zeroFogTable)
   shader:send("u_fogOffsetDepth", 0)
   shader:send("u_fogShift", 0)
   shader:send("u_fogAlpha", 31)
@@ -1760,53 +1772,6 @@ function T.terrain_animation_offscreen_swap_and_srt(scope)
   assertPixel(img2, waterX, waterY, 1, 0, 0, "water keeps the shifted sample")
 end
 
--- The shader's depth quantization range comes from the active camera's real
--- far clipping plane (u_depthWMax), not a fixed field-draw-distance bound
--- baked into the shader. With the identity view/projection/model this test
--- drives, clip.w is exactly 1 so linearEyeDepth (dsWbufferDepth's argument)
--- is exactly 1 -- the only free variable across the two draws below is the
--- camera's far plane, so a real difference in the readback proves the value
--- reaches the shader and is used, not merely accepted and ignored.
-
-function T.camera_far_plane_drives_the_normalized_depth_target(scope)
-  local renderer = scope:own(MapRenderer.new())
-  local image = solidAlphaImage(scope, 255, 255, 255, 255)
-  local item = decalItem(decalTriangle(scope), image)
-  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
-  local DS_DEPTH_MAX = 16777215.0
-
-  -- Whichever of the two candidate interior samples is not the rear-plane
-  -- clear (r == 1.0, the normalized sentinel) carries the drawn item's own
-  -- id (0) and real quantized depth in its green channel.
-  local function stateInterior(camera)
-    renderer:draw(emptyRuntime(), camera, { { item } }, viewport)
-    local img = renderer.renderState:newImageData()
-    local ax, ay = statePixel(renderer, 416, 384)
-    local bx, by = statePixel(renderer, 416, 95)
-    local a, b = { img:getPixel(ax, ay) }, { img:getPixel(bx, by) }
-    return a[1] < 0.5 and a or b
-  end
-
-  local function expectedDepth(far)
-    return math.floor(math.min(1, 1 / far) * DS_DEPTH_MAX)
-  end
-
-  local shortRange = fixedCamera()
-  shortRange.far = 2
-  local shortRangeSample = stateInterior(shortRange)
-
-  local longRange = fixedCamera()
-  longRange.far = 4
-  local longRangeSample = stateInterior(longRange)
-
-  Assert.isTrue(
-    shortRangeSample[2] ~= longRangeSample[2],
-    "changing the camera's far plane must change the quantized depth for identical eye-space geometry"
-  )
-  Assert.near(shortRangeSample[2], expectedDepth(2), 1, "matches dsWbufferDepth(1) at u_depthWMax=2")
-  Assert.near(longRangeSample[2], expectedDepth(4), 1, "matches dsWbufferDepth(1) at u_depthWMax=4")
-end
-
 -- The renderState target contract: an opaque (or cutout/wireframe -- they
 -- share this exact fragment shader code path) fragment must write its own
 -- POLYGON_ATTR FOG_ENABLE bit (item.fogEnabled, already threaded to the
@@ -2083,7 +2048,7 @@ function T.edge_aa_coverage_mixes_scene_and_edge_at_exactly_half(scope)
     end
     edgeShader:send("u_fogEnabled", false)
     edgeShader:send("u_fogColor", { 0, 0, 0 })
-    edgeShader:send("u_fogTable", zeroFogTable)
+    sendFogTableGroups(edgeShader, zeroFogTable)
     edgeShader:send("u_fogOffsetDepth", 0)
     edgeShader:send("u_fogShift", 0)
     edgeShader:send("u_fogAlpha", 31)
@@ -2147,8 +2112,8 @@ end
 -- boundary: the translucent pass's canvas binding, not a shader flag.
 
 -- A real perspective camera (unlike this suite's usual `fixedCamera`, whose
--- identity projection makes clip.w -- and therefore every item's
--- dsWbufferDepth -- 1.0 regardless of vertex z). The state-preservation
+-- identity projection makes every item's window depth 1.0 regardless of
+-- vertex z). The state-preservation
 -- test below needs the opaque and translucent triangles to carry genuinely
 -- different depth values, so a translucent overwrite of the state depth
 -- channel is numerically distinguishable from the opaque value it should
@@ -2382,7 +2347,7 @@ local function runFinalPass(scope, pixels, fog, edgeColors, antialiasEnabled)
     (math.floor(fog.color / 1024) % 32) / 31,
   }
   edgeShader:send("u_fogColor", fogColorNormalized)
-  edgeShader:send("u_fogTable", fog.table32)
+  sendFogTableGroups(edgeShader, fog.table32)
   edgeShader:send("u_fogOffsetDepth", fog.offsetRaw * 0x200)
   edgeShader:send("u_fogShift", fog.shift)
   edgeShader:send("u_fogAlpha", fog.alpha or 31)
@@ -2951,6 +2916,252 @@ function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
   end
   everyEdgeNearVisible(a)
   everyEdgeNearVisible(b)
+end
+
+-- ---- field depth-domain fixtures (state.glsl's G-channel conversion) ----
+
+-- The field camera selects DS Z buffering (GX_BUFFERMODE_Z), so the render
+-- state's green channel is the DS 24-bit Z-domain value derived from the host
+-- fragment's normalized window depth (the non-W path of the pinned
+-- GPU3D::SubmitPolygon), not a linear-eye-depth proxy normalized by the
+-- camera's far plane. This section's fixtures drive that conversion and its
+-- consumers. Expected values below are hand-derived from the normative
+-- conversion -- signed 14-bit scale, +0x3FFF, *0x200, clamp to 0..0xFFFFFF --
+-- never computed by calling production code.
+
+-- The exact conversion the state shader models, re-derived independently in
+-- test arithmetic: windowZ in [0,1] -> ndcZ = 2*windowZ - 1, ndcZ scaled by
+-- 0x4000 with truncation toward zero (GLSL int() truncates, so a fractional
+-- negative NDC must not floor), offset by 0x3FFF, scaled by 0x200, clamped
+-- to the 24-bit domain.
+local function truncTowardZero(x)
+  return x >= 0 and math.floor(x) or math.ceil(x)
+end
+
+local function expectedDsDepth(windowZ)
+  local ndc = windowZ * 2 - 1
+  local ndc14 = truncTowardZero(ndc * 0x4000)
+  local depth = (ndc14 + 0x3FFF) * 0x200
+  if depth < 0 then
+    depth = 0
+  elseif depth > 0xFFFFFF then
+    depth = 0xFFFFFF
+  end
+  return depth
+end
+
+-- The windowZ value the fragment shader sees for an eye-space depth `z`
+-- under Matrix4.perspective(math.rad(60), 640/480, 0.1, 400) with an
+-- identity view (the exact camera the perspective fixtures in this file
+-- use): clipZ = z*(far+near)/(near-far) + (2*far*near)/(near-far),
+-- clipW = -z, ndcZ = clipZ/clipW, windowZ = (ndcZ+1)/2.
+local function projectedWindowZ(z)
+  return (z * 400.1 + 80) / (z * 399.9) / 2 + 0.5
+end
+
+-- Renders one fullscreen quad through the real state shader with a fixed
+-- normalized device depth, then reads the renderState G channel back.
+-- Driving state.glsl directly (rather than through MapRenderer:draw) fixes
+-- the fragment's NDC depth exactly, so the window-depth anchors are exact
+-- rather than dependent on rasterization. The state pass output is the
+-- renderer-owned rgba32f canvas, so the readback is the real acceptance
+-- boundary (the state raster's green channel), not a fake: the same
+-- stateShader/renderState object MapRenderer's state pass binds is driven
+-- here directly, with the projection pinned so every fragment lands at the
+-- requested NDC depth (MapRenderer:draw would overwrite a custom u_proj with
+-- the camera's own projection on every draw item). Depth testing is disabled
+-- so the far anchor (windowZ == 1) is not rejected by the strict "less"
+-- test against the depth-cleared rear plane.
+local function stateDepthReadback(scope, ndcZ)
+  local renderer = scope:own(MapRenderer.new())
+  local mesh = scope:own(syntheticMesh({
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 3, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  -- Establish the real renderState canvas (and its dimensions) through one
+  -- ordinary MapRenderer:draw, then drive the same canvas directly below.
+  renderer:draw(emptyRuntime(), fixedCamera(), { { opaqueFinalStateItem(mesh, 20, false) } }, viewport)
+
+  -- Rewrite the state shader's projection so every fragment lands at the
+  -- requested normalized depth: a clip matrix mapping [x,y] to the unit
+  -- square and every z to the chosen NDC depth. LÖVE's projection matrix
+  -- uses row-vector convention, so this orthographic form's rows are the
+  -- clip components.
+  local proj = {
+    2,
+    0,
+    0,
+    0,
+    0,
+    2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    -1,
+    -1,
+    ndcZ,
+    1,
+  }
+  local lg = love.graphics
+  lg.setCanvas(renderer._stateTargets)
+  -- Clear to the normalized id-63 sentinel (CLEAR_POLYGON_ID -> 1.0), not
+  -- black: the readback below tells a drawn pixel (id 20 -> 20/63) from the
+  -- untouched background by its red channel, and black would be
+  -- indistinguishable from the drawn value.
+  lg.clear(1, 0, 0, 1)
+  lg.setShader(renderer.stateShader)
+  lg.setDepthMode("always", false)
+  lg.setBlendMode("replace", "premultiplied")
+  renderer.stateShader:send("u_proj", "column", proj)
+  renderer.stateShader:send("u_view", "column", IDENTITY)
+  renderer.stateShader:send("u_model", "column", IDENTITY)
+  renderer.stateShader:send("u_billboard", false)
+  renderer.stateShader:send("u_texMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
+  renderer.stateShader:send("u_useTexture", false)
+  renderer.stateShader:send("u_fragmentPass", 0)
+  renderer.stateShader:send("u_polygonAlpha", 1.0)
+  renderer.stateShader:send("u_polygonMode", 0)
+  renderer.stateShader:send("u_polygonId", 20 / MapRenderer.CLEAR_POLYGON_ID)
+  renderer.stateShader:send("u_polygonFogEnabled", false)
+  lg.setMeshCullMode("none")
+  lg.draw(mesh)
+  lg.setShader()
+  lg.setCanvas()
+
+  local img = renderer.renderState:newImageData()
+  local x, y = statePixel(renderer, 320, 240)
+  local sample = { img:getPixel(x, y) }
+  -- The state target was cleared to the id-63 sentinel (1.0), so the sample
+  -- whose red channel is the drawn id (20/63) is the real fragment on every
+  -- driver: canvas readback is Y-inverted on some drivers, so probe the
+  -- Y-mirror too and pick whichever carries the drawn id.
+  local mirrored = { img:getPixel(x, renderer.stateH - 1 - y) }
+  return sample[1] < 0.5 and sample or mirrored
+end
+
+-- The canonical window-depth anchors of the DS Z conversion: 0 -> 0 (the
+-- near plane, clamped from the signed formula), 0.5 -> 0x7FFE00 (the exact
+-- mid depth, matching the +0x3FFF offset), and 1 -> 0xFFFE00 (the far plane
+-- -- the DS formula's far value, distinct from the 0xFFFFFF clear/rear
+-- plane that keeps marking against the background working). All three are
+-- observed through the real state shader's renderState readback.
+function T.state_depth_maps_the_canonical_window_depth_anchors(scope)
+  Assert.near(stateDepthReadback(scope, -1)[2], expectedDsDepth(0), 1, "windowZ=0 must map to DS depth 0")
+  Assert.near(stateDepthReadback(scope, 0)[2], expectedDsDepth(0.5), 1, "windowZ=0.5 must map to DS depth 0x7FFE00")
+  Assert.near(stateDepthReadback(scope, 1)[2], expectedDsDepth(1), 1, "windowZ=1 must map to DS depth 0xFFFE00")
+end
+
+-- WindowZ 0.4: ndcZ = -0.2, ndcZ*0x4000 = -3276.8 -- a fractional negative
+-- value where truncation toward zero and floor diverge. Truncation gives
+-- ndc14 = -3276 -> DS depth 0x666600; floor would give -3277 ->
+-- 0x665E00. The state shader must read the truncation value, so a
+-- floor-based conversion is caught by the readback, not merely by code
+-- review.
+function T.state_depth_truncates_negative_ndc_toward_zero(scope)
+  local truncDepth = expectedDsDepth(0.4)
+  local floorNdc14 = math.floor((0.4 * 2 - 1) * 0x4000)
+  local floorDepth = math.max(0, math.min(0xFFFFFF, (floorNdc14 + 0x3FFF) * 0x200))
+  Assert.isTrue(floorDepth ~= truncDepth, "the fixture's floor/trunc candidates must differ to discriminate")
+
+  local sample = stateDepthReadback(scope, -0.2)
+  Assert.near(sample[2], truncDepth, 1, "negative NDC must use truncation toward zero, not floor")
+  Assert.isTrue(math.abs(sample[2] - floorDepth) > 1, "the readback must not match the floor-based conversion")
+end
+
+-- The deprecated camera-far depth normalization is gone from the state
+-- shader: its uniform must not exist after the change, so sending it must
+-- fail (the same presence/absence convention as this file's other shader
+-- uniform tests).
+function T.state_shader_has_no_depth_w_max_uniform(scope)
+  local stateShader = scope:own(MapRenderer.new()).stateShader
+  Assert.throws(function()
+    stateShader:send("u_depthWMax", 400)
+  end)
+end
+
+-- A 32-entry fog density table with a sharp transition at exactly one
+-- density interval: entries 1..11 are 0, entries 12..32 are 64. The 34-entry
+-- interpolation domain duplicates the endpoints, so any depth whose
+-- (depth - offset) >> 2 has densityId <= 11 (all 131072-wide intervals from
+-- 0 through 11) reads density 0, and any depth reaching densityId 12 reads
+-- density 64 -- a boundary at exactly one quantized depth step.
+local function stepDensityTable()
+  local t = {}
+  for i = 1, 32 do
+    t[i] = i < 12 and 0 or 64
+  end
+  return t
+end
+
+-- The final pass's density lookup consumes the state G channel's DS Z value
+-- directly, with no camera-far rescaling: the hand-computed DS Z depth for a
+-- fragment at eye-space -0.2 (0x800600, from the perspective matrix's
+-- windowZ and the signed conversion) sits at densityId 12 of a 0x1000-offset
+-- step table -- density 64 -- while the retired linear-eye-depth proxy for
+-- the same fragment (the old far-normalized dsWbufferDepth) is only a few
+-- 0x200 quanta, which reads density 0. The fogged RGB (63 -> 31 at density
+-- 64, unchanged at density 0) discriminates the two depth sources, and the
+-- state G readback is asserted at the same boundary depth. DsFog.density is
+-- the independent pure-Lua oracle for both expectations.
+function T.fog_boundary_consumes_the_ds_z_depth_without_camera_far_rescaling(scope)
+  local renderer = scope:own(MapRenderer.new())
+  -- The quad's vertices sit at z = 0; the eye-space depth comes solely from
+  -- the item's world transform below (z = -0.2), so the fragment lands at
+  -- exactly eye-space -0.2 -- the depth the hand-derived expectations use.
+  local mesh = scope:own(syntheticMesh({
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 3, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+  local item = opaqueFinalStateItem(mesh, 20, true)
+  item.transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -0.2, 1 }
+  local camera = perspectiveCamera()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local runtime = emptyRuntime()
+  runtime.fog = { enabled = true, color = 0, offset = 0x1000, slope = 0, alpha = 31, table = stepDensityTable() }
+
+  local harness = compositeReadback(scope, renderer, viewport)
+  renderer:draw(runtime, camera, { { item } }, viewport)
+  harness.restore()
+  love.graphics.setCanvas()
+
+  local expectedDepth = expectedDsDepth(projectedWindowZ(-0.2))
+  local expectedDensity = DsFog.density(expectedDepth, 0x1000, 0, stepDensityTable())
+  local expectedRgb = DsFog.blend(63, 0, expectedDensity) / 63
+
+  -- State G readback: the drawn fragment's green channel must be the DS Z
+  -- value of the real projection, with the depth test confirming the mesh
+  -- actually reached the state target.
+  local state = renderer.renderState:newImageData()
+  local sx, sy = statePixel(renderer, 320, 240)
+  local sample = { state:getPixel(sx, sy) }
+  local mirrored = { state:getPixel(sx, renderer.stateH - 1 - sy) }
+  local depthSample = sample[1] < 0.5 and sample or mirrored
+  Assert.near(depthSample[2], expectedDepth, 1, "the fragment's state G must be the DS Z depth of its real projection")
+
+  -- Final pixel readback: fog density must follow the oracle at the DS Z
+  -- depth. The retired camera-far proxy (only a few 0x200 quanta for this
+  -- fragment, i.e. density 0) sat below the boundary, so this assertion is
+  -- the red for the old depth source.
+  local final = harness.canvas:newImageData()
+  local fx, fy = 320, math.min(479, math.floor(240 * 480 / viewport.worldViewport.height))
+  local fSample = { final:getPixel(fx, fy) }
+  local fMirror = { final:getPixel(fx, 479 - fy) }
+  local finalSample = fSample[1] < 0.5 and fSample or fMirror
+  Assert.near(finalSample[1], expectedRgb, 1 / 255, "the fogged RGB must follow DsFog at the DS Z depth")
+  Assert.near(finalSample[2], expectedRgb, 1 / 255)
+  Assert.near(finalSample[3], expectedRgb, 1 / 255)
 end
 
 return GraphicsSmoke.suite(T)

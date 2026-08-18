@@ -281,8 +281,8 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     colorTargets = { sceneColor, depthstencil = colorDepth }
 
     -- renderState: red the normalized opaque edge polygon ID, green the
-    -- DS-quantized W-buffer depth (a 24-bit integer domain, stored as a
-    -- float -- see dsWbufferDepth in state.glsl), blue the per-polygon fog
+    -- DS Z-buffer depth (a 24-bit integer domain, stored as a
+    -- float -- see dsZbufferDepth in state.glsl), blue the per-polygon fog
     -- gate, alpha validity/reserved. The state canvas shares the color
     -- canvas's exact dimensions: state classification is never deliberately
     -- downsampled, and the final resolve probes this same-resolution state
@@ -465,7 +465,7 @@ end
 -- final pass shader (edgeShader) every frame, unconditionally -- no
 -- reference-equality resend cache, unlike _sendEdgeColors/_sendLighting,
 -- since fog is not a large, rarely-changing lookup table shared across many
--- draws the way edge colors are (matches how u_depthWMax/u_view are already
+-- draws the way edge colors are (matches how u_view is already
 -- sent per-frame from live scene/camera state). Every compiled HGSS field
 -- scene carries this preset unconditionally (global fog is evaluated per map
 -- regardless of whether it resolves to disabled), so a missing preset is a
@@ -488,7 +488,18 @@ function MapRenderer:_sendFog(sceneRuntime)
   local fogOffsetDepth = fog.offset * FOG_OFFSET_TO_DEPTH_SCALE
   shader:send("u_fogEnabled", fog.enabled)
   shader:send("u_fogColor", self._fogColorCache)
-  shader:send("u_fogTable", fog.table)
+  -- The 32-entry density table is delivered as 8 groups of 4 raw entries,
+  -- one named uniform each: LÖVE 11.5 fills only the first vec4 of a
+  -- `vec4[N]` array uniform from a flat table, so a single-array send could
+  -- never reach entries past index 0 (see edge.glsl's fogTableEntry). fog.table
+  -- is the 1-indexed 32-entry preset table; group i covers entries
+  -- 4*i+1 .. 4*i+4.
+  for group = 0, 7 do
+    shader:send(
+      "u_fogTable" .. group,
+      { fog.table[group * 4 + 1], fog.table[group * 4 + 2], fog.table[group * 4 + 3], fog.table[group * 4 + 4] }
+    )
+  end
   shader:send("u_fogOffsetDepth", fogOffsetDepth)
   shader:send("u_fogShift", fog.slope)
   shader:send("u_fogAlpha", fog.alpha)
@@ -810,8 +821,9 @@ end
 --
 -- Mirror the color-pass draw bodies above (_drawItem/_drawStraddle/_drawMesh
 -- and their wireframe counterparts), but through stateShader: no lighting, no
--- material registers, and the item's polygon id / fog-enable bit / camera far
--- plane feed state.glsl's state output instead of map.glsl's color combiner.
+-- material registers, and the item's polygon id / fog-enable bit feed
+-- state.glsl's state output instead of map.glsl's color combiner (depth comes
+-- from the fragment's own window depth -- see dsZbufferDepth there).
 
 function MapRenderer:_drawStateItem(item, projection, fragmentPass, viewMatrix)
   if item.straddle then
@@ -923,10 +935,13 @@ end
 ---@param worldParts table[][]?
 function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
-  -- The shader's depth quantization range tracks the active camera's real far
-  -- clipping plane (state.glsl's u_depthWMax), never a hidden fixed bound: a
-  -- camera without one is a malformed collaborator, not a case to default
-  -- around.
+  -- The state shader derives its depth from the host fragment's normalized
+  -- window depth (state.glsl's dsZbufferDepth, the HGSS field Z-buffer
+  -- domain) -- no camera far plane is sent for depth normalization. The
+  -- camera's far plane still participates in the frame through its own
+  -- projection matrices (camera:projection()/camera:billboardProjection()),
+  -- so a camera without one is a malformed collaborator, not a case to
+  -- default around.
   assert(type(camera.far) == "number" and camera.far > 0, "MapRenderer requires camera.far to be a positive number")
   local lg = assert(self._graphics)
   local parts = worldParts or {}
@@ -987,7 +1002,6 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     lg.setDepthMode("less", true)
     lg.setBlendMode("replace", "premultiplied")
     self.stateShader:send("u_view", "column", viewMatrix)
-    self.stateShader:send("u_depthWMax", camera.far)
 
     for _, d in ipairs(queue.opaque) do
       self:_drawStateItem(d, projectionFor(d), STATE_PASS_OPAQUE, viewMatrix)

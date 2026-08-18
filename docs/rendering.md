@@ -253,8 +253,8 @@ The edge predicate is the DS rule, not a linear-eye-space heuristic: a pixel
 is an edge when an orthogonal neighbor's polygon ID differs from the
 center's AND the center is strictly in front of that neighbor
 (`edge.glsl`'s `marked` test, table-indexed by `centerPolygonId >> 3`). The
-compared depth is a quantized 24-bit domain, derived from the same
-W-buffer-shaped value the shader also stores; there is no
+compared depth is the DS 24-bit Z-buffer domain, derived from the same
+value the shader also stores (see "Render-state depth" below); there is no
 `DEPTH_STEP_TOLERANCE` fudge factor. An edge pixel's output is hardware-style
 RGB replacement (`vec4(edgeColor, scene.a)`), never an alpha-mix with the
 scene color, and there is no separate edge-opacity uniform.
@@ -288,6 +288,34 @@ deliberately downsampled:
   computes the same exact final alpha5 as `map.glsl` (for the MODULATE/DECAL
   discard predicates) but does no lighting, no fog, and no edge search -- only
   geometry/UV/final-alpha/state.
+
+### Render-state depth
+
+The field camera selects DS Z buffering: `Camera_ApplyPerspectiveType`
+(pokeheartgold `src/camera.c`) sets `gG3dDepthBufferingMode =
+GX_BUFFERMODE_Z` for both the perspective and orthographic field cameras, and
+`fieldmap.c` passes that mode to the buffer swap (`RequestSwap3DBuffers`/
+`G3_SwapBuffers`), so melonDS follows the non-W branch of
+`GPU3D::SubmitPolygon` for HGSS field polygons. The render state's green
+channel is therefore the DS Z-buffer conversion of the host fragment's
+normalized window depth (`state.glsl`'s `dsZbufferDepth`, evaluated from
+`gl_FragCoord.z` in `[0,1]`):
+
+```text
+ndcZ   = 2 * windowZ - 1
+ndc14  = trunc_toward_zero(ndcZ * 0x4000)
+dsZ    = clamp((ndc14 + 0x3FFF) * 0x200, 0, 0xFFFFFF)
+```
+
+GLSL's float-to-int conversion truncates toward zero, matching the signed
+quotient behavior of the formula's NDC scale. The clear/rear plane remains
+the 24-bit maximum `0xFFFFFF` even though a geometry fragment at
+`windowZ == 1` maps to `0xFFFE00` under the formula (see "Edge marking"
+above); edge marking and fog consume these integer-valued G-channel depths
+directly, with no camera-far rescaling. This depth-domain conversion is
+exact per the pinned melonDS formula, but projection, rasterization, and
+interpolation remain host-side -- this is not bit-exact DS rasterization (see
+"Exact versus approximate behavior" below).
 
 `MapRenderer:draw` builds the render queue exactly once per frame
 (`RenderQueue.buildInto`) and both passes consume it, selecting projection
@@ -448,7 +476,7 @@ actors draw with the world projection, exactly as on the DS.
   duplication, the `>>2`/shift/`>>17` sequencing, the 127->128 saturation),
   and the post-combiner RGB and alpha blend (`/128`, not `/127`), applied in
   the final full-screen pass (`edge.glsl`, after edge marking) from the
-  DS-quantized depth the edge predicate also reads. The per-map/weather
+  DS Z-buffer depth the edge predicate also reads. The per-map/weather
   source of the fog color/table/offset/slope/alpha is real: `HgssFieldFog`
   resolves each map's HGSS `weatherId` (0-13) to the exact steady-state
   overlay-01 preset (`ov01_021EC94C`/`ov01_021ECD08`/`ov01_021ED0F0`/
@@ -513,19 +541,17 @@ one, the compiler raises a structured error instead of rendering incorrectly.
 * Fog's depth *input*: the final pass's density interpolation itself is exact
   melonDS sequencing (offset subtraction, the preset's own slope applied as
   the density shift exponent, `>>17` interval/fraction math, endpoint
-  duplication, 127->128 saturation) -- there is no more fixed 32-way split.
-  What remains approximate is the depth *value* fed into that interpolation:
-  it is this engine's existing camera-far-normalized W-buffer proxy
-  (`dsWbufferDepth`, shared with edge marking), not melonDS's real per-polygon
-  W-buffer value. melonDS normalizes `DepthBuffer` per polygon by that
-  polygon's own clip-space W bit-width (`GPU3D::SubmitPolygon`'s `wsize`), a
-  data-dependent quantity with no camera/scene-level constant equivalent
-  reachable from this engine's host-float projection pipeline; reproducing it
-  exactly would mean tracking each mesh's own clip-space W range and deriving
-  a matching per-draw normalization, which is a generic DS geometry-engine
-  feature this renderer does not implement. Absolute fog boundaries (how far
-  away fog visibly starts/reaches full density) are therefore approximate,
-  not exact, even though the interpolation math applied to that depth is.
+  duplication, 127->128 saturation) -- there is no more fixed 32-way split,
+  and the depth fed into that interpolation is the state G channel's DS
+  Z-buffer value (see "Render-state depth" above), consumed directly with no
+  camera-far rescaling. What remains approximate is the depth's *production*,
+  not its domain: the host projects, rasterizes, and interpolates in float,
+  and the DS Z conversion is applied to the host fragment's window depth --
+  it is not bit-exact DS fixed-point clipping and subpixel rasterization, so
+  absolute fog boundaries (how far away fog visibly starts/reaches full
+  density) can still differ from the DS by a rounding step even though the
+  depth-domain conversion itself is exact and the interpolation math applied
+  to it is.
 * `depthEqual`/`translucentDepthWrite`: never exercised anywhere in the
   target field corpus; `PolygonState.validate` raises
   `POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED` rather than approximating the DS

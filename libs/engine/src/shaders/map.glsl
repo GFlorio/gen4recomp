@@ -288,12 +288,12 @@ vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
   return floor((texture6 * textureAlpha5 + vertex6 * (31.0 - textureAlpha5)) / 32.0);
 }
 
-// The DS-quantized W-buffer depth proxy (formerly computed here for
-// finalState's green channel) is now exclusively state.glsl's concern -- see
-// that shader's dsWbufferDepth for the full derivation. Color output alone
+// The DS Z-buffer depth (formerly computed here for finalState's green
+// channel) is now exclusively state.glsl's concern -- see that shader's
+// dsZbufferDepth for the full derivation. Color output alone
 // has no use for it: the color pass's own depth test/write uses the host
 // depth buffer (colorDepth) directly via the ordinary rasterizer depth, not
-// this quantized proxy.
+// this quantized value.
 
 void effect()
 {
