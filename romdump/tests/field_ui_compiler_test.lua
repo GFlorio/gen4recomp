@@ -755,4 +755,63 @@ function T.malformed_source_members_are_typed()
   Assert.isTrue(Errors.is(err))
 end
 
+-- RGB555 decoder integration: G2dDecoder correctly decodes palette colors using
+-- the Nintendo DS RGB555 channel layout (red 0..4, green 5..9, blue 10..14).
+-- The fixture palette16() uses values that would expose a red/blue swap.
+-- A correct decoder produces the expected 8-bit RGBA; a swapped decoder
+-- produces inverted R and B values.
+function T.g2d_palette_decodes_rgb555_with_correct_channel_order()
+  local function expand5(value)
+    return math.floor((value * 255 + 15) / 31)
+  end
+
+  -- Build a fixture with a test palette containing known RGB555 values.
+  -- We use simple values: (r,g,b) pairs where each differs distinctly.
+  -- Pair 0: r=0x1F (31, red max), g=0x00 (0), b=0x00 (0) -> pure red
+  -- Pair 1: r=0x00 (0), g=0x1F (31), b=0x00 (0) -> pure green
+  -- Pair 2: r=0x00 (0), g=0x00 (0), b=0x1F (31) -> pure blue
+  -- Pair 3: r=0x1F (31), g=0x14 (20), b=0x00 (0) -> amber/gold (HGSS signpost)
+  local testColors = {
+    0x001F, -- red: r5=31, g5=0, b5=0
+    0x03E0, -- green: r5=0, g5=31, b5=0
+    0x7C00, -- blue: r5=0, g5=0, b5=31
+    0x1F + (0x14 * 32), -- amber: r5=31, g5=20, b5=0
+  }
+
+  local romFs, sha1, hashLua = fixture({
+    bgPalette = testColors,
+  })
+
+  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local manifest = bundle.manifest
+
+  -- The manifest's start menu background palette comes from G2dDecoder
+  -- applied to the test palette. Verify the decoded values are correct.
+  local expectedColors = {
+    { r = 255, g = 0, b = 0 }, -- red
+    { r = 0, g = 255, b = 0 }, -- green
+    { r = 0, g = 0, b = 255 }, -- blue
+    { r = 255, g = expand5(20), b = 0 }, -- amber
+  }
+
+  -- The background palette was compiled through G2dDecoder. Extract it from
+  -- the start menu asset to validate the color expansion.
+  local bgAssetPath = manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND].image
+  local bgBytes = assert(bundle.assets[bgAssetPath])
+  local width, height, rgba = PngReader.rgba(bgBytes)
+
+  -- Each palette entry becomes a different tile value in the test. The screen
+  -- is all zeros (tile 0), so we sample the (1,0) tile to get color[1], etc.
+  for paletteIndex, expected in ipairs(expectedColors) do
+    local tileIndex = paletteIndex - 1
+    local pixelX = tileIndex * 8
+    local pixelY = 0
+    local r, g, b, a = PngReader.pixel(rgba, width, pixelX, pixelY)
+    Assert.equal(r, expected.r, "palette " .. tileIndex .. " red channel")
+    Assert.equal(g, expected.g, "palette " .. tileIndex .. " green channel")
+    Assert.equal(b, expected.b, "palette " .. tileIndex .. " blue channel")
+    Assert.equal(a, 255, "palette " .. tileIndex .. " alpha")
+  end
+end
+
 return { tests = T }

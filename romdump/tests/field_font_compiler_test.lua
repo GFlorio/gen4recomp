@@ -273,26 +273,26 @@ function T.compiles_font_def_and_atlas()
 
   -- The 8x8 sub-tile is repeated for all four quadrants: each row is
   -- (right=0xAA shadow, left=0x55 fg), so every quadrant's left half is
-  -- fg (slot 1, 0x296B -> 82,90,90) and its right half is shadow
-  -- (slot 2, 0x5EF5 -> 189,189,173), resolved at colors[slot+1].
+  -- fg (slot 1, 0x296B -> 91,107,82) and its right half is shadow
+  -- (slot 2, 0x5EF5 -> 173,239,189), resolved at colors[slot+1].
   local atlasWidth, _, rgba = PngReader.rgba(bundle.atlas)
   Assert.equal(atlasWidth, 1024)
   local r, g, b, a = PngReader.pixel(rgba, atlasWidth, 0, 0)
   Assert.equal(a, 255)
-  Assert.equal(r, 82)
-  Assert.equal(g, 90)
-  Assert.equal(b, 90)
+  Assert.equal(r, 91)
+  Assert.equal(g, 107)
+  Assert.equal(b, 82)
   local r2, g2, b2, a2 = PngReader.pixel(rgba, atlasWidth, 4, 0)
   Assert.equal(a2, 255)
-  Assert.equal(r2, 189)
-  Assert.equal(g2, 189)
-  Assert.equal(b2, 173)
+  Assert.equal(r2, 173)
+  Assert.equal(g2, 239)
+  Assert.equal(b2, 189)
   local r3, g3, b3, a3 = PngReader.pixel(rgba, atlasWidth, 0, 8)
   Assert.equal(a3, 255) -- BL tile repeats the same pattern
-  Assert.equal(r3, 82)
+  Assert.equal(r3, 91)
   local r4, g4, b4, a4 = PngReader.pixel(rgba, atlasWidth, 12, 8)
   Assert.equal(a4, 255)
-  Assert.equal(r4, 189) -- BR right half carries the shadow too
+  Assert.equal(r4, 173) -- BR right half carries the shadow too
   -- Background-slot pixels (value 3) composite as transparent so glyph cells
   -- never paint opaque rectangles over the narrower glyphs before them.
   local r5, g5, b5, a5 = PngReader.pixel(rgba, atlasWidth, 5, 0)

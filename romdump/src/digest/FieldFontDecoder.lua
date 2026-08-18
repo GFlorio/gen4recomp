@@ -10,6 +10,7 @@
 
 local BinaryReader = require("libs.codec.src.BinaryReader")
 local Errors = require("libs.errors.src.Errors")
+local Rgb555 = require("libs.codec.src.Rgb555")
 
 ---@class FieldFontDecoder
 ---@field FALLBACK_GLYPH_INDEX integer
@@ -31,18 +32,6 @@ FieldFontDecoder.MAX_GLYPHS = 0x1000
 FieldFontDecoder.MAX_PALETTE_BYTES = 0x200
 
 local TILE_BYTES = 16
-
----@param word integer
----@return { r: integer, g: integer, b: integer }
-local function colorFromU16(word)
-  local b = word % 32
-  local g = math.floor(word / 32) % 32
-  local r = math.floor(word / 1024) % 32
-  local function expand(v)
-    return math.floor((v * 255 + 15) / 31)
-  end
-  return { r = expand(r), g = expand(g), b = expand(b) }
-end
 
 -- Decodes the member into a font object with per-glyph accessors. The member
 -- keeps its byte string; callers must not mutate it.
@@ -258,7 +247,7 @@ local function decodePalette(data, opts)
   local colorCount = math.floor(paletteBytes / 2)
   local colors = {}
   for i = 0, colorCount - 1 do
-    colors[i + 1] = colorFromU16(reader:u16le(colorsOffset + i * 2))
+    colors[i + 1] = Rgb555.decode(reader:u16le(colorsOffset + i * 2))
   end
   return { colors = colors, colorCount = colorCount, depth = depth }
 end
