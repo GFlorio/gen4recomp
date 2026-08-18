@@ -349,26 +349,30 @@ function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   local frameWidth, _, frameRgba =
     PngReader.rgba(bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES].image])
   local r, g, b, a = PngReader.pixel(frameRgba, frameWidth, 0, 0)
-  Assert.equal(r, 8)
-  Assert.equal(g, 206)
-  Assert.equal(b, 181)
+  -- Frame tile 0 value 1 uses palette[1] = 0x39B -> RGB555(r5=27, g5=28, b5=0)
+  Assert.equal(r, 222)
+  Assert.equal(g, 230)
+  Assert.equal(b, 0)
   Assert.equal(a, 255)
   -- Tile 1 carries value 2 and tile 14 value 15; the 16-color palette covers
   -- both, each through its own distinct entry.
   local r2, g2, b2, a2 = PngReader.pixel(frameRgba, frameWidth, 8, 0)
+  -- Frame tile 1 value 2 uses palette[2] = 0x736 -> RGB555(r5=22, g5=25, b5=1)
   Assert.equal(a2, 255)
-  Assert.deepEqual({ r2, g2, b2 }, { 16, 181, 140 })
+  Assert.deepEqual({ r2, g2, b2 }, { 181, 206, 8 })
   local r3, g3, b3, a3 = PngReader.pixel(frameRgba, frameWidth, 14 * 8, 0)
+  -- Frame tile 14 value 15 uses palette[15] = 15*0x39B = 0x3615 -> RGB555(r5=21, g5=16, b5=13)
   Assert.equal(a3, 255)
-  Assert.deepEqual({ r3, g3, b3 }, { 115, 107, 132 })
+  Assert.deepEqual({ r3, g3, b3 }, { 173, 132, 107 })
 
   -- The start menu background screen references tile 0 of palette bank 0,
   -- which the fixture palette covers: every pixel is the value-1 color.
   local bgWidth, _, bgRgba =
     PngReader.rgba(bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND].image])
   local rB, gB, bB, aB = PngReader.pixel(bgRgba, bgWidth, 10, 10)
+  -- Background uses palette[1] = 0x39B -> RGB555(r5=27, g5=28, b5=0)
   Assert.equal(aB, 255)
-  Assert.deepEqual({ rB, gB, bB }, { 8, 206, 181 })
+  Assert.deepEqual({ rB, gB, bB }, { 222, 230, 0 })
 end
 
 -- Every (type, map) pair gets its own atlas row, and the map-0 and map-1
@@ -429,8 +433,9 @@ function T.square_32x32_cursor_objs_compile_all_sixteen_tiles()
   -- Tile 14 (row 3, col 2 of the 4x4 layout) carries value 15 -> the
   -- fixture's sixteenth palette color.
   local r, g, b, a = PngReader.pixel(rgba, width, 2 * 8 + 4, 3 * 8 + 4)
+  -- Tile 14 value 15 uses palette[15] = 0x3615 -> RGB555(r5=21, g5=16, b5=13)
   Assert.equal(a, 255)
-  Assert.deepEqual({ r, g, b }, { 115, 107, 132 })
+  Assert.deepEqual({ r, g, b }, { 173, 132, 107 })
 end
 
 -- A flipped OBJ mirrors the whole object per the OAM layout: the tile grid
@@ -446,10 +451,12 @@ function T.flipped_cursor_objs_mirror_the_tile_grid()
   local width, _, rgba = PngReader.rgba(bundle.assets[path])
   local r, g, b, a = PngReader.pixel(rgba, width, 1 * 8 + 4, 3 * 8 + 4)
   Assert.equal(a, 255)
-  Assert.deepEqual({ r, g, b }, { 115, 107, 132 }, "tile 14 renders mirrored at grid column 1")
+  -- Tile 14 value 15 uses palette[15] = 0x3615 -> RGB555(r5=21, g5=16, b5=13)
+  Assert.deepEqual({ r, g, b }, { 173, 132, 107 }, "tile 14 renders mirrored at grid column 1")
   local r2, g2, b2, a2 = PngReader.pixel(rgba, width, 2 * 8 + 4, 3 * 8 + 4)
   Assert.equal(a2, 255)
-  Assert.deepEqual({ r2, g2, b2 }, { 107, 132, 173 }, "tile 13 renders at the mirrored tile 14 position")
+  -- Tile 13 value 14 uses palette[14] = 14*0x39B = 0x327A -> RGB555(r5=26, g5=19, b5=12)
+  Assert.deepEqual({ r2, g2, b2 }, { 214, 156, 99 }, "tile 13 renders at the mirrored tile 14 position")
 end
 
 -- A wide or tall OBJ is a geometry this compiler does not support: the

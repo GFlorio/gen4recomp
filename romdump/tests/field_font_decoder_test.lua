@@ -186,8 +186,8 @@ function T.decodes_rlcn_palette_and_expands_5bit_colors()
   Assert.equal(palette.colorCount, 4)
   Assert.deepEqual(palette.colors[1], { r = 0, g = 0, b = 0 })
   Assert.deepEqual(palette.colors[4], { r = 255, g = 255, b = 255 })
-  -- 0x296B = r5=11 g5=13 b5=10 -> ~(91, 107, 82)
-  Assert.deepEqual(palette.colors[2], { r = 91, g = 107, b = 82 })
+  -- 0x296B = r5=11 g5=13 b5=10 -> ~(90, 107, 82)
+  Assert.deepEqual(palette.colors[2], { r = 90, g = 107, b = 82 })
 end
 
 function T.palette_validation_is_typed()
