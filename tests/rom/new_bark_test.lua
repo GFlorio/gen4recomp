@@ -24,6 +24,7 @@ local FieldSpawns = require("data.manifests.field_spawns")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
+local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 
 local T = {}
 
@@ -158,15 +159,33 @@ function T.geometry_inventory(romFs)
   Assert.equal(labo.modelName, "wk_labo")
 end
 
--- New Bark's outdoor texture pack includes A3I5/A5I3 partial-alpha textures;
--- these must be classified as translucent regardless of polygon alpha.
-function T.format_1_and_6_are_translucent(romFs)
+-- New Bark's outdoor texture pack includes A3I5/A5I3 partial-alpha textures.
+-- Texture storage format alone no longer decides the alpha class:
+-- `AlphaClassifier` v2 is final-alpha-aware (a DECAL material ignores texture
+-- alpha entirely; a MODULATE material at polygon alpha 31 whose decoded
+-- texture mixes fully opaque and partially transparent texels is `mixed`,
+-- not blanket `translucent`). This locks the real corpus regression this
+-- deliverable fixes: New Bark's `sea_line02` material (format 6/A5I3,
+-- MODULATE, polygon alpha 31) has both fully-opaque and partial texels and
+-- must classify `mixed`, so its opaque texels still contribute semantic
+-- state instead of silently losing edge/depth participation the way the old
+-- format-forces-translucent rule made them.
+function T.mixed_alpha_materials_split_by_exact_final_alpha_not_format_alone(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   local scene = bundle.scene
   Assert.equal(scene.schema, "g4-map-scene-v7")
 
+  local VALID_CLASSES = {
+    [AlphaClassifier.OPAQUE] = true,
+    [AlphaClassifier.CUTOUT] = true,
+    [AlphaClassifier.TRANSLUCENT] = true,
+    [AlphaClassifier.WIREFRAME] = true,
+    [AlphaClassifier.MIXED] = true,
+  }
+
   local found = false
-  local function translucentBatches(materials, batches)
+  local foundMixed = false
+  local function checkBatches(materials, batches)
     local fmtById = {}
     for _, m in ipairs(materials or {}) do
       if m.textureFormat == 1 or m.textureFormat == 6 then
@@ -176,16 +195,27 @@ function T.format_1_and_6_are_translucent(romFs)
     end
     for _, b in ipairs(batches or {}) do
       if fmtById[b.material] then
-        Assert.equal(b.alphaClass, "translucent", "format " .. fmtById[b.material] .. " batch is translucent")
+        Assert.isTrue(
+          VALID_CLASSES[b.alphaClass] == true,
+          "format " .. fmtById[b.material] .. " batch has a real classifier alpha class, never a defaulted value"
+        )
+        if b.alphaClass == AlphaClassifier.MIXED then
+          foundMixed = true
+        end
       end
     end
   end
 
-  translucentBatches(scene.materials, scene.mapBatches)
+  checkBatches(scene.materials, scene.mapBatches)
   for _, desc in pairs(bundle.models) do
-    translucentBatches(desc.materials, desc.batches)
+    checkBatches(desc.materials, desc.batches)
   end
   Assert.isTrue(found, "test found A3I5/A5I3 materials")
+  Assert.isTrue(
+    foundMixed,
+    "New Bark's real corpus must contain at least one MODULATE alpha-31 A3I5/A5I3 material with mixed "
+      .. "opaque/translucent texels (sea_line02) -- the exact mechanism the mixed-alpha split fixes"
+  )
 end
 
 -- Flower quads tile: their UVs run outside [0,1], so they only render if the
