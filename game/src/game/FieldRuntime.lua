@@ -655,20 +655,33 @@ function FieldRuntime:releaseMenu()
   requireLiveInput(self):releaseMenu("runtime")
 end
 
--- The Start Menu composition step: build the final interactive action list
--- from the authoritative world-state unlock flags (read through
--- FieldScriptSymbols, never raw numbers) and the registered destination
--- capabilities, and construct the controller with the selection remembered
--- across a child-application round trip. With no interactive action the
--- menu is unavailable and the factory returns nil -- a zero-action Start
--- Menu is never constructed -- so the application host treats the open as a
--- no-op and the field continues.
+-- Helper: determine if this port has implemented the destination application
+-- for an action kind.
+local function implementationAvailable(self, entry)
+  if entry.actionKind == "application" then
+    return entry.targetApplication ~= nil and self.applications:has(entry.targetApplication)
+  end
+  -- Non-application actions (toggle, field_action, removed) are not yet
+  -- implemented in this port.
+  return false
+end
+
+-- The Start Menu composition step: build the final action list from the
+-- authoritative world-state unlock flags (read through FieldScriptSymbols,
+-- never raw numbers) and the registered destination capabilities. The source
+-- policy produces source-present entries; the runtime separates source
+-- enablement from implementation capability and combines them to set the final
+-- enabled state. Construct the controller with the selection remembered
+-- across a child-application round trip. Return nil only when no source-present
+-- actions exist; disabled entries are visible and remain in the menu.
 ---@param rememberedActionId string?
----@return StartMenuController? nil when no action is interactive
+---@return StartMenuController? nil when the source has no present actions
 function FieldRuntime:_composeStartMenu(rememberedActionId)
   local world = self.scripts.worldState
   local flags = FieldScriptSymbols.flagsByName
-  local entries = StartMenuPolicy.availableActions({
+
+  -- Source policy: returns all present actions (regardless of implementation)
+  local sourceEntries = StartMenuPolicy.actions({
     hasPokedex = world:isFlagSet(flags.FLAG_GOT_POKEDEX),
     hasStarter = world:isFlagSet(flags.FLAG_GOT_STARTER),
     bagUnlocked = world:isFlagSet(flags.FLAG_GOT_BAG),
@@ -676,12 +689,25 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
     trainerCardUnlocked = world:isFlagSet(flags.FLAG_GOT_TRAINER_CARD),
     saveUnlocked = world:isFlagSet(flags.FLAG_GOT_SAVE_BUTTON),
     optionsUnlocked = world:isFlagSet(flags.FLAG_GOT_OPTIONS_BUTTON),
-  }, function(applicationId)
-    return self.applications:has(applicationId)
-  end)
-  if #entries == 0 then
+  })
+
+  if #sourceEntries == 0 then
     return nil
   end
+
+  -- Compose source policy with implementation capability: set enabled to
+  -- true only when both source-enabled AND implementation-available.
+  local entries = {}
+  for index, source in ipairs(sourceEntries) do
+    entries[index] = {
+      id = source.id,
+      displayPosition = source.displayPosition,
+      actionKind = source.actionKind,
+      targetApplication = source.targetApplication,
+      enabled = source.sourceEnabled and implementationAvailable(self, source),
+    }
+  end
+
   return StartMenuController.new({
     entries = entries,
     slots = self.uiManifest.startMenu.slots,

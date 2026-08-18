@@ -43,61 +43,105 @@ local FACT_FIELDS = {
 -- default TRUE). `targetApplication` is the destination application id from
 -- FieldApplicationIds (nil when the destination is not an application:
 -- RUNNING_SHOES is a controller toggle, RETIRE is a field action, 7 is a
--- removed feature).
+-- removed feature). `actionKind` describes the semantic type: "application",
+-- "field_action", "toggle", or "removed".
 local ACTIONS = {
-  { id = "vanilla.retire", inhibitedBy = true },
-  { id = "vanilla.special_7", inhibitedBy = true },
+  { id = "vanilla.retire", inhibitedBy = true, actionKind = "field_action" },
+  { id = "vanilla.special_7", inhibitedBy = true, actionKind = "removed" },
   {
     id = "vanilla.pokedex",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.POKEDEX,
     inhibitedBy = "hasPokedex",
     unlockedBy = "hasPokedex",
   },
   {
     id = "vanilla.pokemon",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.POKEMON,
     inhibitedBy = "hasStarter",
     unlockedBy = "hasStarter",
   },
   {
     id = "vanilla.bag",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.BAG,
     inhibitedBy = "bagUnlocked",
     unlockedBy = "bagUnlocked",
   },
   {
     id = "vanilla.pokegear",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.POKEGEAR,
     inhibitedBy = "hasPokegear",
     unlockedBy = "hasPokegear",
   },
   {
     id = "vanilla.trainer_card",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.TRAINER_CARD,
     unlockedBy = "trainerCardUnlocked",
   },
   {
     id = "vanilla.save",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.SAVE,
     unlockedBy = "saveUnlocked",
   },
   {
     id = "vanilla.options",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.OPTIONS,
     unlockedBy = "optionsUnlocked",
   },
-  { id = "vanilla.running_shoes" },
+  { id = "vanilla.running_shoes", actionKind = "toggle" },
   {
     id = "vanilla.special_9",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.POKEGEAR,
     displayPosition = 7,
   },
   {
     id = "vanilla.special_10",
+    actionKind = "application",
     targetApplication = FieldApplicationIds.POKEGEAR,
     displayPosition = 8,
   },
 }
+
+-- Returns all source-present actions with source-enablement state, independent
+-- of implementation capability. This is the source-of-truth policy: every action
+-- in the source appears in the returned list if present; unlocked/present are
+-- separate questions. The runtime composes this with implementation capability
+-- to decide the final enabled state. Fresh records per call; the facts are
+-- never mutated.
+---@param value table the seven unlock facts (asserted booleans, unknown keys tolerated)
+---@return { id: string, actionKind: string, targetApplication: string?, sourceEnabled: boolean, displayPosition: integer }[]
+function StartMenuPolicy.actions(value)
+  assert(type(value) == "table", "the start menu policy requires the unlock facts")
+  for _, field in ipairs(FACT_FIELDS) do
+    assert(type(value[field]) == "boolean", "the start menu policy requires boolean unlock facts")
+  end
+  local actions = {}
+  local presentCount = 0
+  for _, definition in ipairs(ACTIONS) do
+    local inhibitedBy = definition.inhibitedBy
+    local present = inhibitedBy == nil or (inhibitedBy ~= true and value[inhibitedBy] == true)
+    if present then
+      local unlockedBy = definition.unlockedBy
+      local sourceEnabled = unlockedBy == nil or value[unlockedBy] == true
+      actions[#actions + 1] = {
+        id = definition.id,
+        actionKind = definition.actionKind,
+        targetApplication = definition.targetApplication,
+        sourceEnabled = sourceEnabled,
+        displayPosition = definition.displayPosition or presentCount,
+      }
+      presentCount = presentCount + 1
+    end
+  end
+  return actions
+end
 
 -- Builds the final interactive action list for one facts snapshot: all
 -- source actions are processed in canonical insertion order, so

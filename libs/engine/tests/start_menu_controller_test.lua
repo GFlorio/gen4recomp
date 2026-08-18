@@ -69,21 +69,21 @@ function T.visible_actions_follow_positions_and_slot_ids()
   Assert.equal(status.open, true)
   Assert.equal(status.cancelSlotId, 1, "the cancel touch region is slot 1")
   Assert.deepEqual(status.actions, {
-    { id = "vanilla.pokedex", targetApplication = "pokedex", position = 0, slotId = 2 },
-    { id = "vanilla.pokemon", targetApplication = "pokemon", position = 1, slotId = 3 },
-    { id = "vanilla.bag", targetApplication = "bag", position = 2, slotId = 4 },
-    { id = "vanilla.pokegear", targetApplication = "pokegear", position = 3, slotId = 5 },
-    { id = "vanilla.trainer_card", targetApplication = "trainer_card", position = 4, slotId = 6 },
-    { id = "vanilla.save", targetApplication = "save", position = 5, slotId = 7 },
-    { id = "vanilla.options", targetApplication = "options", position = 6, slotId = 8 },
-    { id = "vanilla.special_9", targetApplication = "pokegear", position = 7, slotId = 9 },
-    { id = "vanilla.special_10", targetApplication = "pokegear", position = 8, slotId = 10 },
+    { id = "vanilla.pokedex", targetApplication = "pokedex", position = 0, slotId = 2, enabled = true },
+    { id = "vanilla.pokemon", targetApplication = "pokemon", position = 1, slotId = 3, enabled = true },
+    { id = "vanilla.bag", targetApplication = "bag", position = 2, slotId = 4, enabled = true },
+    { id = "vanilla.pokegear", targetApplication = "pokegear", position = 3, slotId = 5, enabled = true },
+    { id = "vanilla.trainer_card", targetApplication = "trainer_card", position = 4, slotId = 6, enabled = true },
+    { id = "vanilla.save", targetApplication = "save", position = 5, slotId = 7, enabled = true },
+    { id = "vanilla.options", targetApplication = "options", position = 6, slotId = 8, enabled = true },
+    { id = "vanilla.special_9", targetApplication = "pokegear", position = 7, slotId = 9, enabled = true },
+    { id = "vanilla.special_10", targetApplication = "pokegear", position = 8, slotId = 10, enabled = true },
   })
   Assert.equal(status.cursorSlotId, 2, "the default selection is the first visible action")
   Assert.equal(status.cursorFrameIndex, 0, "a selected menu presents the cursor animation frame")
 end
 
-function T.actions_carry_only_id_destination_position_and_slot()
+function T.actions_carry_id_destination_position_slot_and_enabled()
   local actions = newController():status().actions
   for _, action in ipairs(actions) do
     local keys = {}
@@ -91,7 +91,11 @@ function T.actions_carry_only_id_destination_position_and_slot()
       keys[#keys + 1] = key
     end
     table.sort(keys)
-    Assert.deepEqual(keys, { "id", "position", "slotId", "targetApplication" }, "no labels or product-mode projections")
+    Assert.deepEqual(
+      keys,
+      { "enabled", "id", "position", "slotId", "targetApplication" },
+      "status actions include enabled flag"
+    )
   end
 end
 
@@ -357,6 +361,62 @@ function T.construction_guards_the_controller_invariants()
   Assert.throws(function()
     StartMenuController.new(with({ cursorFrames = {} }))
   end, "the cursor animation requires frames")
+end
+
+-- Disabled entries (enabled=false) are visible and selectable but do not
+-- activate on confirm or pointer tap.
+function T.disabled_entries_are_visible_and_selectable()
+  local mixed = {
+    { id = "vanilla.trainer_card", targetApplication = "trainer_card", displayPosition = 0, enabled = true },
+    { id = "vanilla.save", targetApplication = "save", displayPosition = 1, enabled = false },
+    { id = "vanilla.options", targetApplication = "options", displayPosition = 2, enabled = true },
+  }
+  local controller = newController({ entries = mixed })
+  local status = controller:status()
+  Assert.equal(#status.actions, 3, "disabled entries appear in the visible list")
+  Assert.equal(status.actions[2].id, "vanilla.save", "disabled entry is at its display position")
+end
+
+-- Confirming on a disabled entry is a no-op: the menu stays open,
+-- no result is taken, and the selection is unchanged.
+function T.confirming_disabled_entry_is_noop()
+  local mixed = {
+    { id = "vanilla.trainer_card", targetApplication = "trainer_card", displayPosition = 0, enabled = true },
+    { id = "vanilla.save", targetApplication = "save", displayPosition = 1, enabled = false },
+  }
+  local controller = newController({ entries = mixed })
+  controller:updateFixed({ { type = "navigate", direction = "down" } })
+  local selectedBefore = controller:status().cursorSlotId
+  controller:updateFixed({ { type = "confirm" } })
+  Assert.isNil(controller:takeResult(), "confirming disabled entry produces no result")
+  Assert.equal(controller:status().open, true, "menu remains open")
+  Assert.equal(controller:status().cursorSlotId, selectedBefore, "selection unchanged")
+end
+
+-- Pointer tap on a disabled entry is a no-op.
+function T.pointer_tap_on_disabled_entry_is_noop()
+  local mixed = {
+    { id = "vanilla.trainer_card", targetApplication = "trainer_card", displayPosition = 0, enabled = true },
+    { id = "vanilla.save", targetApplication = "save", displayPosition = 1, enabled = false },
+  }
+  local controller = newController({ entries = mixed })
+  local x, y = slotCenter(7) -- slot 7 is the disabled save action
+  controller:updateFixed({ { type = "pointer_down", pointerId = "touch:1", x = x, y = y } })
+  controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = x, y = y, dragged = false } })
+  Assert.isNil(controller:takeResult(), "tap on disabled entry produces no result")
+  Assert.equal(controller:status().open, true, "menu remains open")
+end
+
+-- Status output includes enabled field for each action.
+function T.status_includes_enabled_field()
+  local mixed = {
+    { id = "vanilla.trainer_card", targetApplication = "trainer_card", displayPosition = 0, enabled = true },
+    { id = "vanilla.save", targetApplication = "save", displayPosition = 1, enabled = false },
+  }
+  local controller = newController({ entries = mixed })
+  local actions = controller:status().actions
+  Assert.equal(actions[1].enabled, true, "enabled action has enabled=true")
+  Assert.equal(actions[2].enabled, false, "disabled action has enabled=false")
 end
 
 return { tests = T }

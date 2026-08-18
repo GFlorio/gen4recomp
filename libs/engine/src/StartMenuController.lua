@@ -66,6 +66,7 @@ local function composeDisplay(entries, slotCount)
       targetApplication = entry.targetApplication,
       position = position,
       slotId = position + StartMenuController.CANCEL_SLOT_ID + 1,
+      enabled = entry.enabled ~= false, -- default to enabled if not specified
     }
   end
   local ordered = {}
@@ -110,6 +111,7 @@ end
 ---@field targetApplication string
 ---@field position integer display position (0-based)
 ---@field slotId integer manifest slot id
+---@field enabled boolean whether the action can be activated (source-enabled and implementation-available)
 
 -- opts.entries: the runtime-composed final interactive action list
 -- (id / targetApplication / displayPosition), never empty. opts.slots: the
@@ -205,11 +207,15 @@ function StartMenuController:_moveSelection(direction)
   self:_selectPosition(ordered[((current - 1 + delta) % #ordered) + 1])
 end
 
--- Activation of the selected action. The launch result carries the action id
--- so the application host can restore the selection by id when the child
--- application returns.
+-- Activation of the selected action. Disabled entries (enabled=false) are
+-- a no-op; enabled entries produce a launch result. The launch result carries
+-- the action id so the application host can restore the selection by id when
+-- the child application returns.
 function StartMenuController:_activate(position)
   local action = assert(self._visibleActions[position], "activation requires a visible action")
+  if not action.enabled then
+    return -- disabled entry is a no-op
+  end
   self._result = {
     kind = "launch",
     applicationId = action.targetApplication,
@@ -311,6 +317,7 @@ function StartMenuController:status()
         targetApplication = action.targetApplication,
         position = action.position,
         slotId = action.slotId,
+        enabled = action.enabled,
       }
     end
   end

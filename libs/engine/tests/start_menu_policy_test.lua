@@ -194,4 +194,77 @@ function T.tests.available_actions_is_pure()
   Assert.equal(seen.pokedex, true, "the predicate is consulted for every application action")
 end
 
+-- New API: actions(value) returns source-present entries without application knowledge
+function T.tests.actions_returns_fresh_game_with_present_entries()
+  local actions = StartMenuPolicy.actions(FRESH)
+  Assert.isTrue(#actions > 0, "fresh game has source-present entries")
+  -- Trainer Card is unconditionally present in HGSS
+  for _, action in ipairs(actions) do
+    if action.id == "vanilla.trainer_card" then
+      Assert.equal(action.sourceEnabled, false, "fresh game has trainer card disabled")
+      Assert.equal(action.actionKind, "application", "trainer card targets an application")
+      Assert.equal(action.targetApplication, "trainer_card", "routes to trainer_card app")
+      return
+    end
+  end
+  error("trainer card not found in fresh demo actions", 2)
+end
+
+-- actions() separates source enablement from implementation availability
+function T.tests.actions_includes_source_enabled_distinct_from_implementation()
+  local withUnlock = facts({ trainerCardUnlocked = true, saveUnlocked = true })
+  local actions = StartMenuPolicy.actions(withUnlock)
+  for _, action in ipairs(actions) do
+    if action.id == "vanilla.trainer_card" then
+      Assert.equal(action.sourceEnabled, true, "trainer card is source-enabled when flag is set")
+    elseif action.id == "vanilla.save" then
+      Assert.equal(action.sourceEnabled, true, "save is source-enabled when flag is set")
+    end
+  end
+end
+
+-- actions() returns entries without being influenced by application presence.
+-- With full facts, all 10 source-present actions appear (pokedex, pokemon, bag,
+-- pokegear, trainer_card, save, options, running_shoes, special_9, special_10).
+-- The retired actions (retire, special_7) are not present.
+function T.tests.actions_does_not_query_applications()
+  local actions = StartMenuPolicy.actions(facts())
+  Assert.equal(#actions, 10, "full facts produce all source-present actions")
+  for _, action in ipairs(actions) do
+    if action.actionKind == "application" then
+      Assert.notNil(action.targetApplication, "app action has targetApplication")
+    else
+      Assert.equal(action.targetApplication, nil, "non-app action has no targetApplication")
+    end
+  end
+end
+
+-- Running shoes has no application target (it's a toggle, not an app)
+function T.tests.actions_includes_running_shoes_with_no_target_application()
+  local actions = StartMenuPolicy.actions(facts())
+  for _, action in ipairs(actions) do
+    if action.id == "vanilla.running_shoes" then
+      Assert.equal(action.actionKind, "toggle", "running shoes is a toggle action")
+      Assert.equal(action.targetApplication, nil, "toggle has no target application")
+      return
+    end
+  end
+  error("running shoes not found in actions", 2)
+end
+
+-- Presence positions stay dense per source rules: when pokedex is not
+-- present, pokemon is position 0, then bag, pokegear, trainer_card.
+function T.tests.actions_preserves_display_positions_by_presence()
+  local withoutPokedex = facts({ hasPokedex = false })
+  local actions = StartMenuPolicy.actions(withoutPokedex)
+  for _, action in ipairs(actions) do
+    if action.id == "vanilla.pokemon" then
+      Assert.equal(action.displayPosition, 0, "pokemon is first present action")
+    elseif action.id == "vanilla.trainer_card" then
+      -- Skips pokedex (not present), so pokemon=0, bag=1, pokegear=2, trainer_card=3
+      Assert.equal(action.displayPosition, 3, "trainer card position accounts for skipped actions")
+    end
+  end
+end
+
 return T
