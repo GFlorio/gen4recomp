@@ -226,16 +226,32 @@ end
 
 -- SND_SetExChannelAttack: attack 100 maps to the 255-attack branch
 -- (coefficient 155); the envelope runs envAttenuation =
--- -((-envAttenuation * coeff) >> 8) once per control step (250 output
--- frames), reaching 0 after exactly 22 steps (known recurrence vectors:
--- env -438, -266, -161, -5 at steps 1, 2, 3, 10, register 0x30D, 0x360,
--- 0x250, 0x79). The first step applies at noteOn; the envelope never
--- advances once per output sample.
+-- -((-envAttenuation * coeff) >> 8) once per explicit control step (every
+-- 250 output frames at 48 kHz), reaching 0 after exactly 22 steps (known
+-- recurrence vectors: env -438, -266, -161, -5 at steps 1, 2, 3, 10,
+-- register 0x30D, 0x360, 0x250, 0x79). The first step applies at noteOn;
+-- the envelope never advances once per output sample and never advances
+-- inside renderInto -- the external scheduler drives the cadence (the C03
+-- contract), so this test renders 249 frames and control-steps at the
+-- 250-frame boundary the way the scheduler does.
 function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
+  local function drive(mixer, frames)
+    local out = {}
+    local remaining = frames
+    while remaining > 0 do
+      local span = math.min(remaining, 250)
+      mixer:renderInto(out, span)
+      remaining = remaining - span
+      if remaining > 0 then
+        mixer:controlStep()
+      end
+    end
+    return out
+  end
   local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
-  local out = mixer:render(5750)
+  local out = drive(mixer, 5750)
   local pins = {
     { 250, 13, "step 1 (env -438, register 0x30D)" },
     { 500, 96, "step 2 (env -266, register 0x360)" },
@@ -250,7 +266,7 @@ function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
 
   local fast = newMixer()
   fast:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 120, decay = 127, sustain = 127, release = 127 } }))
-  local fastOut = fast:render(2000)
+  local fastOut = drive(fast, 2000)
   Assert.equal(leftAt(fastOut, 250), 264, "attack 120 uses the high-range table coefficient 63 (register 0x242)")
   Assert.equal(leftAt(fastOut, 500), 1232, "attack 120 step 2 (register 0x4D)")
   Assert.equal(leftAt(fastOut, 2000), 2048, "attack 120 completes after 8 steps")
@@ -258,14 +274,29 @@ end
 
 -- SND_UpdateExChannelEnvelope decay: with sustain 64 the envelope moves
 -- toward DecibelSquare[64] << 7 = -15232 (env -119), decrementing by the
--- CalcDecayCoeff(100) = 295 value per control step and clamping to the
--- target (register 0x141 = 65/256) instead of passing through env -120
--- (0x140); sustain holds the clamped value.
+-- CalcDecayCoeff(100) = 295 value per explicit control step (every 250
+-- frames at 48 kHz) and clamping to the target (register 0x141 = 65/256)
+-- instead of passing through env -120 (0x140); sustain holds the clamped
+-- value. The render/control cadence is the external scheduler's, so the
+-- steps are driven explicitly at the interval boundaries.
 function T.envelope_decay_clamps_to_the_sustain_target()
+  local function drive(mixer, frames)
+    local out = {}
+    local remaining = frames
+    while remaining > 0 do
+      local span = math.min(remaining, 250)
+      mixer:renderInto(out, span)
+      remaining = remaining - span
+      if remaining > 0 then
+        mixer:controlStep()
+      end
+    end
+    return out
+  end
   local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 127, decay = 100, sustain = 64, release = 127 } }))
-  local out = mixer:render(13500)
+  local out = drive(mixer, 13500)
   local pins = {
     { 250, 2048, "attack 127 is instant" },
     { 500, 1984, "decay step 1 (env -3, register 0x7C)" },
@@ -280,15 +311,31 @@ function T.envelope_decay_clamps_to_the_sustain_target()
 end
 
 -- SND_ReleaseExChannel release: the envelope decrements by the
--- CalcDecayCoeff(release) value per control step; the channel stops when
--- the dB sum crosses the SDK threshold vol <= -723 (SND_VOL_DB_MIN), so a
--- quieter velocity reaches the threshold sooner. Release 127 (coeff
--- 0xFFFF) takes one step to the near-silent register 0x306 and one more to
--- stop; the noteOff itself never kills the voice -- the first release step
--- fires at the next control step (noteOff here lands between steps 2 and 3,
--- at frame 300).
+-- CalcDecayCoeff(release) value per explicit control step; the channel
+-- stops when the dB sum crosses the SDK threshold vol <= -723
+-- (SND_VOL_DB_MIN), so a quieter velocity reaches the threshold sooner.
+-- Release 127 (coeff 0xFFFF) takes one step to the near-silent register
+-- 0x306 and one more to stop; the noteOff itself never kills the voice --
+-- the first release step fires at the next control step. The mixer no
+-- longer owns a cadence: the external scheduler drives one controlStep per
+-- 250-frame interval (the C03 contract), so each render block is followed
+-- by an explicit step. In the pinned scenario the noteOff lands between
+-- steps 2 and 3 of the envelope (after frame 300 of the first 250-frame
+-- block, i.e. during the second interval), so the release's first step
+-- fires at frame 500 instead of the old frame 300+250.
 function T.envelope_release_decays_to_the_sdk_stop_threshold()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  local function driveBlock(mixer, out, frames)
+    local remaining = frames
+    while remaining > 0 do
+      local span = math.min(remaining, 250)
+      mixer:renderInto(out, span)
+      remaining = remaining - span
+      if remaining > 0 then
+        mixer:controlStep()
+      end
+    end
+  end
   local function releaseRun(velocity, releaseByte, frames)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec({
@@ -297,22 +344,29 @@ function T.envelope_release_decays_to_the_sdk_stop_threshold()
       velocity = velocity,
       envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
     })) --[[@as { channel: integer, generation: integer }]]
-    mixer:render(300)
+    -- The first 250-frame block renders, then the first control step runs
+    -- (the note's step 2), then the noteOff lands mid-interval (old frame
+    -- 300) -- the release's first step therefore fires at the next control
+    -- step, at frame 500.
+    local out = {}
+    driveBlock(mixer, out, 250)
+    mixer:controlStep()
     mixer:noteOff(handle)
-    return mixer:render(frames)
+    driveBlock(mixer, out, frames - 250)
+    return out
   end
-  local before = releaseRun(127, 100, 200)
+  local before = releaseRun(127, 100, 450)
   Assert.equal(leftAt(before, 200), 2048, "the voice holds until the release step")
-  local out = releaseRun(127, 100, 78700)
-  Assert.equal(leftAt(out, 78201), 1, "velocity 127: last sounding release step (register 0x301)")
-  Assert.equal(leftAt(out, 78451), 0, "velocity 127: stop at release step 314 (vol <= -723)")
-  local quiet = releaseRun(64, 100, 65700)
+  local out = releaseRun(127, 100, 78751)
+  Assert.equal(leftAt(out, 78750), 1, "velocity 127: the 314th release step's boundary frame sounds register 0x301")
+  Assert.equal(leftAt(out, 78751), 0, "velocity 127: the 314th release step (vol <= -723) removes the voice")
+  local quiet = releaseRun(64, 100, 65751)
   Assert.equal(leftAt(quiet, 200), 520, "velocity 64 sustains at register 0x141 until the release step")
-  Assert.equal(leftAt(quiet, 65201), 1, "velocity 64: last sounding release step (register 0x301)")
-  Assert.equal(leftAt(quiet, 65451), 0, "velocity 64: stop at release step 262")
-  local fast = releaseRun(127, 127, 700)
-  Assert.equal(leftAt(fast, 201), 6, "release 127: one step at register 0x306")
-  Assert.equal(leftAt(fast, 451), 0, "release 127: stops on the second release step")
+  Assert.equal(leftAt(quiet, 65750), 1, "velocity 64: the 262nd release step's boundary frame sounds register 0x301")
+  Assert.equal(leftAt(quiet, 65751), 0, "velocity 64: the 262nd release step (vol <= -723) removes the voice")
+  local fast = releaseRun(127, 127, 751)
+  Assert.equal(leftAt(fast, 501), 6, "release 127: the first release step's register 0x306 sounds from frame 501")
+  Assert.equal(leftAt(fast, 751), 0, "release 127: the second release step stops the voice")
 end
 
 -- Pitch is the integer domain (key - originalKey)*0x40 through
@@ -435,10 +489,19 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
   local before = held:render(12)
   Assert.equal(leftAt(before, 12), 2048, "the looping voice holds")
   held:noteOff(handle)
-  local after = held:render(500)
-  Assert.equal(leftAt(after, 238), 2048, "the voice keeps sounding until the next control step")
-  Assert.equal(leftAt(after, 239), 6, "release 127 reaches register 0x306 at the control step")
-  Assert.equal(leftAt(after, 489), 0, "release 127 stops the voice on the following control step")
+  local after = {}
+  held:renderInto(after, 500)
+  -- The release's first step fires at the explicit control step (frame 500,
+  -- release 127's register 0x306) and the second step (frame 750) stops the
+  -- voice -- the mixer no longer self-steps inside rendering.
+  Assert.equal(leftAt(after, 500), 2048, "the voice keeps sounding until the explicit control step")
+  held:controlStep()
+  held:renderInto(after, 250)
+  Assert.equal(leftAt(after, 501), 6, "release 127 reaches register 0x306 at the control step")
+  Assert.equal(leftAt(after, 750), 6, "the first release register holds through the next interval")
+  held:controlStep()
+  held:renderInto(after, 250)
+  Assert.equal(leftAt(after, 751), 0, "release 127 stops the voice on the following control step")
 end
 
 function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
@@ -533,7 +596,11 @@ function T.is_voice_alive_tracks_liveness_until_removal()
   Assert.isTrue(mixer:isVoiceAlive(handle), "a sounding voice stays alive")
   mixer:noteOff(handle)
   Assert.isTrue(mixer:isVoiceAlive(handle), "a voice in release stays alive until the mixer removes it")
-  mixer:render(600)
+  mixer:render(250)
+  mixer:controlStep() -- release 127 step 1: register 0x306
+  Assert.isTrue(mixer:isVoiceAlive(handle), "release 127 is still alive after its first release step")
+  mixer:render(250)
+  mixer:controlStep() -- release 127 step 2: vol <= -723 removes the voice
   Assert.isFalse(mixer:isVoiceAlive(handle), "the release completed and the voice was removed")
 
   local oneShot = newMixer()
@@ -554,6 +621,9 @@ end
 -- during the release -- here track volume 0 -- reaches the volume sum at
 -- the next control step and stops the voice the same step; the voice cannot
 -- keep ringing out a count precomputed from the louder noteOff-time inputs.
+-- The step is an explicit mixer controlStep (the external scheduler's
+-- cadence), so the test renders the first interval, steps, then pushes the
+-- mute before the next step.
 function T.release_death_follows_the_current_volume_not_a_precomputed_count()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local mixer = newMixer()
@@ -562,12 +632,18 @@ function T.release_death_follows_the_current_volume_not_a_precomputed_count()
     pan = 0,
     envelope = { attack = 127, decay = 127, sustain = 127, release = 100 },
   })) --[[@as { channel: integer, generation: integer }]]
-  mixer:render(300)
+  local head = {}
+  mixer:renderInto(head, 250)
+  mixer:controlStep() -- the note's step 2
   mixer:noteOff(handle)
   mixer:updateVoice(handle, { trackVolume = 0 })
-  local tail = mixer:render(400)
-  Assert.equal(leftAt(tail, 201), 0, "track volume 0 stops the release at the next control step")
-  Assert.equal(leftAt(tail, 300), 0, "the voice never rings on the noteOff-time volume")
+  local tail = {}
+  mixer:renderInto(tail, 250)
+  Assert.equal(leftAt(tail, 250), 2048, "the voice still holds the release at full volume until the step")
+  mixer:controlStep() -- track volume 0 reaches the sum: vol <= -723 stops the voice here
+  mixer:renderInto(tail, 250)
+  Assert.equal(leftAt(tail, 251), 0, "track volume 0 stops the release at the next control step")
+  Assert.equal(leftAt(tail, 500), 0, "the voice never rings on the noteOff-time volume")
 end
 
 -- noteOff(handle, releaseOverride) sets the channel release before
@@ -575,9 +651,24 @@ end
 -- 0..127 replaces the release byte (through CalcDecayCoeff). Override 100
 -- on a release-127 voice rings 314 steps and stops at the vol <= -723
 -- threshold (register 0x301 -> 1 through the last sounding step); override
--- 127 on a slow release-20 voice stops in two steps like release 127.
+-- 127 on a slow release-20 voice stops in two steps like release 127. The
+-- steps are explicit mixer controlSteps at the 250-frame interval
+-- boundaries (the external scheduler's cadence); the noteOff here lands
+-- before any control step, so the release's first step fires at the first
+-- interval boundary (frame 250).
 function T.release_override_applies_the_coefficient_before_release()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  local function driveBlock(mixer, out, frames)
+    local remaining = frames
+    while remaining > 0 do
+      local span = math.min(remaining, 250)
+      mixer:renderInto(out, span)
+      remaining = remaining - span
+      if remaining > 0 then
+        mixer:controlStep()
+      end
+    end
+  end
   local function run(releaseByte, override, frames)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec({
@@ -586,15 +677,17 @@ function T.release_override_applies_the_coefficient_before_release()
       envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
     })) --[[@as { channel: integer, generation: integer }]]
     mixer:noteOff(handle, override)
-    return mixer:render(frames)
+    local out = {}
+    driveBlock(mixer, out, frames)
+    return out
   end
-  local slow = run(127, 100, 78600)
-  Assert.equal(leftAt(slow, 78400), 1, "override 100 rings through release step 313 (register 0x301)")
+  local slow = run(127, 100, 78501)
+  Assert.equal(leftAt(slow, 78500), 1, "override 100 rings through release step 314 (register 0x301)")
   Assert.equal(leftAt(slow, 78501), 0, "override 100 stops at release step 314 (vol <= -723)")
-  local fast = run(127, nil, 800)
+  local fast = run(127, nil, 801)
   Assert.equal(leftAt(fast, 251), 6, "nil keeps release 127 (register 0x306 at step 1)")
   Assert.equal(leftAt(fast, 501), 0, "nil keeps release 127 (the two-step stop)")
-  local forced = run(20, 127, 800)
+  local forced = run(20, 127, 801)
   Assert.equal(leftAt(forced, 251), 6, "override 127 replaces the instrument release 20 (register 0x306)")
   Assert.equal(leftAt(forced, 501), 0, "override 127 stops on the second release step")
 end
@@ -618,35 +711,56 @@ function T.release_override_rejects_out_of_range_values()
   mixer:render(1)
 end
 
--- The control clock is the integer rational phase accumulator
--- (phase += 192 per output frame, one step when it reaches the output
--- rate), so at 32768 Hz the step boundaries alternate 171/170 frames:
--- steps 2 and 3 fire at the ends of frames 171 and 342, with the known
--- attack-100 register vectors 0x30D/0x360/0x250 (13/96/320) landing on
--- those exact frames -- never every floor(32768/192) = 170 frames. The
--- noteOn itself stays the note's first control step (frame 1 reads the
+-- The 192 Hz cadence is owned by the external scheduler (the C03 contract),
+-- not by the mixer: at the production 32768 Hz rate the scheduler's exact
+-- integer accumulator (phase += 192 per output frame, one interval when it
+-- reaches the output rate) places the interval boundaries at 171, 342, 512,
+-- 683, ... -- never every floor(32768/192) = 170 frames. This test proves
+-- the mixer honors that external cadence: driving one explicit controlStep
+-- at each exact boundary reproduces the known attack-100 register vectors
+-- 0x30D/0x360/0x250/0x20E (13/96/320/664) on exactly those boundary frames,
+-- with the step's registers applying from the frame after the boundary.
+-- The noteOn itself stays the note's first control step (frame 1 reads the
 -- step-1 register).
-function T.control_steps_alternate_170_and_171_at_32768_hz()
+function T.control_steps_follow_the_external_boundary_cadence_at_32768_hz()
   local mixer = newMixer(32768)
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
-  local out = mixer:render(350)
+  local out = {}
+  local prev = 0
+  local boundaries = { 171, 342, 512, 683, 854 }
+  for _, boundary in ipairs(boundaries) do
+    mixer:renderInto(out, boundary - prev)
+    prev = boundary
+    mixer:controlStep()
+  end
+  mixer:renderInto(out, 1)
   Assert.equal(leftAt(out, 1), 13, "the noteOn is the note's first control step (step 1, register 0x30D)")
   Assert.equal(leftAt(out, 171), 13, "step 2 fires at the end of frame 171, not at 170 (register 0x30D)")
   Assert.equal(leftAt(out, 172), 96, "step 2 registers apply from frame 172 (register 0x360)")
   Assert.equal(leftAt(out, 341), 96, "frame 341 still reads the step-2 register (0x360)")
   Assert.equal(leftAt(out, 342), 96, "frame 342 is the last step-2 frame (register 0x360)")
   Assert.equal(leftAt(out, 343), 320, "step 3 registers apply from frame 343 (register 0x250)")
+  Assert.equal(leftAt(out, 512), 320, "step 4 fires at frame 512 (the 171+171+170 accumulation)")
+  Assert.equal(leftAt(out, 513), 664, "step 4 registers apply from frame 513 (register 0x20E)")
+  Assert.equal(leftAt(out, 683), 664, "step 5 fires at frame 683 (register 0x20E)")
+  Assert.equal(leftAt(out, 684), 1040, "step 5 registers apply from frame 684")
+  Assert.equal(leftAt(out, 854), 1040, "step 6 fires at frame 854")
+  Assert.equal(leftAt(out, 855), 1360, "step 6 registers apply from frame 855")
 end
 
--- Over a long run at the production 32768 Hz rate the accumulator keeps
--- the exact 192 steps per second. A release-100 voice (295 units per
--- control step) dies at release step 314 (env -92630, floor(-92630/128) =
--- -724 <= -723) at the end of frame ceil(32768*314/192) = 53590, with the
--- step-312/313 register 0x301 (gain 1/2048 -> sample 1) sounding through
--- it. A floored 170-frame period would stop the voice at frame 53380,
--- ~210 frames early.
-function T.exactly_192_control_steps_per_second_over_a_long_run_at_32768_hz()
+-- One explicit controlStep is exactly one envelope advance: over a long run
+-- at the production 32768 Hz rate, 314 release steps of a release-100 voice
+-- (295 units per step) stop it at the vol <= -723 threshold at the control
+-- step after boundary frame ceil(32768*314/192) = 53590, with the
+-- step-313/314 register 0x301 (gain 1/2048 -> sample 1) sounding through
+-- that boundary frame and silence from 53591 -- proving the 192 steps per
+-- second come from the scheduler's exact 171/171/170 boundaries, not a
+-- floored 170-frame period (which would stop the voice at 53380, ~210
+-- frames early). The mixer contract is that each explicit controlStep
+-- advances the envelope exactly once, whatever the scheduler's frame
+-- spacing.
+function T.exactly_one_envelope_advance_per_external_control_step_at_32768_hz()
   local mixer = newMixer(32768)
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local handle = mixer:noteOn(spec({
@@ -655,8 +769,27 @@ function T.exactly_192_control_steps_per_second_over_a_long_run_at_32768_hz()
     envelope = { attack = 127, decay = 127, sustain = 127, release = 100 },
   })) --[[@as { channel: integer, generation: integer }]]
   mixer:noteOff(handle)
-  local out = mixer:render(53600)
-  Assert.equal(leftAt(out, 53400), 1, "the release still sounds past the floored-period death frame 53210")
+  local out = {}
+  local remaining = 53600
+  local prev = 0
+  local boundaries = {}
+  local phase = 0
+  for frame = 1, 53600 do
+    phase = phase + 192
+    if phase >= 32768 then
+      phase = phase - 32768
+      boundaries[#boundaries + 1] = frame
+    end
+  end
+  for _, boundary in ipairs(boundaries) do
+    mixer:renderInto(out, boundary - prev)
+    prev = boundary
+    mixer:controlStep()
+  end
+  -- Render a short tail past the last boundary so the death frame is
+  -- observable in the output.
+  mixer:renderInto(out, 10)
+  Assert.equal(leftAt(out, 53400), 1, "the release still sounds past the floored-period death frame 53380")
   Assert.equal(leftAt(out, 53590), 1, "the last sounding frame is the 314th release step's boundary frame")
   Assert.equal(leftAt(out, 53591), 0, "the voice stops the frame after step 314")
 end
@@ -751,6 +884,44 @@ function T.square_duty_is_consumed_as_the_integer_index()
   rejects(1.5)
   rejects(8)
   rejects(-1)
+end
+
+-- The external control cadence (the C03 contract): renderInto is a pure PCM
+-- span renderer and must never advance the 192 Hz control state on its own --
+-- no envelope step, no sweep/LFO advance, no pending-value application. One
+-- explicit controlStep() advances the channel-control state exactly once.
+-- Proof without a phase spy: an instant-attack (attack 127) constant voice
+-- reaches the full register on the noteOn's own first control step and holds
+-- it while rendering across what used to be control boundaries, so the
+-- register sampled after 500 frames must be unchanged; only the explicit
+-- control step can change it.
+function T.renderInto_never_runs_a_control_step_without_an_explicit_call()
+  local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
+  local function run(chunks)
+    local mixer = newMixer()
+    local handle = mixer:noteOn(spec({
+      pcm = pcm,
+      pan = 0,
+      envelope = { attack = 127, decay = 127, sustain = 127, release = 127 },
+    })) --[[@as { channel: integer, generation: integer }]]
+    local out = {}
+    for _, frames in ipairs(chunks) do
+      mixer:renderInto(out, frames)
+    end
+    return mixer, handle, out
+  end
+  local mixer, handle, out = run({ 250, 250 })
+  Assert.equal(leftAt(out, 250), 2048, "the voice holds the full register at the first former boundary")
+  Assert.equal(leftAt(out, 500), 2048, "rendering across the 192 Hz boundary changes nothing")
+  -- A control-value push stays queued (dirty) through pure rendering and is
+  -- only applied by the explicit control step.
+  mixer:updateVoice(handle, { trackVolume = 64 })
+  local tail = {}
+  mixer:renderInto(tail, 250)
+  Assert.equal(leftAt(tail, 250), 2048, "a queued control value does not apply during pure rendering")
+  mixer:controlStep()
+  mixer:renderInto(tail, 1)
+  Assert.equal(leftAt(tail, 251), 520, "the explicit control step applies the queued value (track volume 64)")
 end
 
 return { tests = T }

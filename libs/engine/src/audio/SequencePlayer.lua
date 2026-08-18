@@ -8,16 +8,17 @@
 -- tick clock is the NNS relationship verified from GBATEK ("DS Sound Files
 -- - SSEQ") and the ARM7 NitroSDK player (SND_seq.c: SND_TIMER_RATE 240 at
 -- the 192 Hz sound interval): a quarter note is 48 ticks and tempo is BPM
--- (1..240, default 120). Ticks come from an exact integer accumulator per
--- player instance: every output frame adds tempo*48, and a tick fires each
--- time the accumulator reaches sampleRate*60 (the frames-per-tick identity
--- sampleRate*60/(tempo*48) without float drift) -- NOT the 30 Hz field tick
--- and not MIDI PPQN. A track's wait is an integer tick count; a note-off
--- lands on the tick boundary after the boundary frame's render, so a
--- 1-tick note at tempo 120 occupies exactly 500 frames at 48 kHz, and a
--- re-triggered note restarts its sample. Tempo changes apply to the
--- accumulator rate from the next frame (the accumulator keeps its residue,
--- like the DS timer).
+-- (1..240, default 120). Sequence ticks come from each player's integer
+-- `tempoCounter` (PlayerSeqMain) driven only by the global 192 Hz sound
+-- interval: while the counter is at least 240 the player executes one
+-- sequence tick per 240 subtracted, and after all ticks of the interval
+-- the counter gains (tempo * tempoRatio) >> 8 once. A fresh player starts
+-- at tempoCounter 240 (PlayerInit), so its first source sequence tick
+-- occurs on the first sound interval after play(); play() itself does not
+-- fetch or execute the entry program. A track's wait is an integer tick
+-- count; a note-off lands on the tick boundary after the boundary frame's
+-- render. Tempo changes executed during one of several ticks of the same
+-- interval affect the interval's end increment, matching source ordering.
 --
 -- Track state follows the SDK: wait ticks, the note-finish hold (a
 -- zero-length note under note-wait is a note-FINISH wait, never a one-tick
@@ -67,27 +68,29 @@
 -- derived from portamentoTime), and each note updates the track's
 -- portamento key to the note's MIDI key.
 --
--- Rendering asks the mixer for spans that end at the next event boundary
--- (a tick that releases a gate, a note-finish clear, or the end of the
--- requested window) instead of one frame at a time, so command boundaries
--- inside a buffer still apply at their sample index, and the accumulator
--- and waits are instance/player state carried across render calls, so
--- chunk sizes never change the result. Players process
--- ascending player number and tracks ascending track number over the fixed
--- NNS domains (16 players x 16 tracks), so contested allocation is
--- deterministic. The mixer renders only while at least one player is
--- active, so the mixer's control cadence is aligned with a play (idle
--- frames before a play never shift the release phase). Control values
+-- Rendering is a span scheduler around the pure PCM mixer: the player owns
+-- the one global 192 Hz sound phase (`_soundPhase`), renders each span up
+-- to the next sound-interval boundary, and processes that interval once
+-- the boundary frame has rendered -- ascending players' `tempoCounter`
+-- sequence ticks first, then one `VoiceMixer:controlStep()`, then one
+-- unconditional periodic RNG draw (SND_SeqMain then SND_ExChannelMain then
+-- SND_CalcRandom). The phase and RNG advance whenever PCM rendering is
+-- requested, even with no active sequence, so idle frames and detached
+-- release tails keep the clock running. The mixer renders spans that end
+-- at the next sound-interval boundary or the requested window end -- never
+-- one frame at a time and never on a per-player tick distance, so chunk
+-- sizes never change the result. Players process ascending player number
+-- and tracks ascending track number over the fixed NNS domains (16 players
+-- x 16 tracks), so contested allocation is deterministic. Control values
 -- reach the active voices as events: a track/player control command
 -- (volume, pan, expression, master volume, pitch bend, modulation) or a
 -- fader change queues the current values -- including the user pitch and
 -- the live LFO parameters -- to its live voice handles
 -- immediately (the NNS TrackUpdateChannel delivery), and the mixer applies
--- them at its next control step -- the mixer owns the 192 Hz cadence, the
--- player maintains no second rounded control clock. play(sequence, bank)
--- starts the sequence on its player id and runs its entry program
--- immediately; the same player id replaces the running sequence (releasing
--- its voices), different player ids mix.
+-- them at the next control step after the sequence portion of the same
+-- sound interval. play(sequence, bank) starts the sequence on its player id
+-- without executing its entry program; the same player id replaces the
+-- running sequence (releasing its voices), different player ids mix.
 
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.engine.src.audio.AudioErrors")
@@ -100,6 +103,7 @@ local bit = require("bit")
 ---@field private _mixer VoiceMixer
 ---@field private _provider AudioAssetProvider
 ---@field private _players table<integer, table>
+---@field private _soundPhase integer the one global 192 Hz sound-interval phase accumulator
 ---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider }): SequencePlayer
 ---@field play fun(self: SequencePlayer, sequence: table, bank: table)
 ---@field render fun(self: SequencePlayer, frames: integer): integer[]
@@ -114,23 +118,23 @@ SequencePlayer.__index = SequencePlayer
 
 local DEFAULT_TEMPO = 120
 local DEFAULT_BEND_RANGE = 2
--- The Nitro sound interval: 192 Hz global scheduling clock (spec §5.1)
+-- The Nitro sound interval: 192 Hz global scheduling clock (SND_main.c
+-- SndThread). Each rendered output frame advances the global phase by
+-- SOUND_INTERVAL_HZ units; one sound interval fires when the phase reaches
+-- the sample rate.
 local SOUND_INTERVAL_HZ = 192
 -- The fixed NNS scheduling domains (SND_seq.c SND_PLAYER_COUNT /
 -- SND_TRACK_COUNT): players and tracks iterate ascending over these bounds,
 -- never in Lua table order, so contested allocation is deterministic.
 local PLAYER_COUNT = 16
 local TRACK_COUNT = 16
--- The Nitro sequence tick relationship at the 192 Hz sound interval:
--- SND_TIMER_RATE 240 (spec §5.3); per interval: tempoCounter is decremented
--- while >= 240, and incremented by tempoInc = (tempo * tempoRatio) >> 8.
+-- The Nitro sequence tick relationship at the 192 Hz sound interval
+-- (SND_seq.c PlayerSeqMain): SND_TIMER_RATE 240; per interval the player
+-- consumes one tick per 240 subtracted from tempoCounter while it is at
+-- least 240, then adds tempoInc = (tempo * tempoRatio) >> 8 once. PlayerInit
+-- starts a fresh player at tempo = 120, tempoRatio = 256, tempoCounter =
+-- 240, so the first source tick occurs on the first interval after play().
 local SND_TIMER_RATE = 240
--- The tick relationship (GBATEK "DS Sound Files - SSEQ" and the ARM7
--- SND_TIMER_RATE 240 at the 192 Hz sound interval): a quarter note is 48
--- ticks, so per output frame the accumulator gains tempo*TICKS_PER_QUARTER
--- and a tick fires each time it reaches sampleRate*SECONDS_PER_MINUTE.
-local TICKS_PER_QUARTER = 48
-local SECONDS_PER_MINUTE = 60
 -- The SDK variable domain: vars 0..15 are player-local, 16..31 the shared
 -- global variables (SND_work_shared localVars[16] per player plus
 -- globalVars[16]).
@@ -214,15 +218,7 @@ local function resolveAmount(self, amount, instance)
     return amount
   end
   if amount.kind == "random" then
-    -- Support both new lo/hi format (P2 changed) and legacy min/max for compatibility
-    local draw = self._rng()
-    if amount.lo ~= nil then
-      return randomOperand(draw, amount)
-    else
-      -- Legacy format from pre-P2
-      local span = amount.max - amount.min + 1
-      return amount.min + math.floor(draw * span / 65536)
-    end
+    return randomOperand(self._rng(), amount)
   end
   if amount.kind == "variable" then
     return varRead(self, instance, assert(amount.var, "variable amount requires a var id"))
@@ -419,11 +415,12 @@ end
 -- Queues the current track values to every live voice handle of a track
 -- (the NNS TrackUpdateChannel delivery): a track/player control command or
 -- a fader change delivers the current values as an event immediately, and
--- the mixer applies them at its next control step -- the mixer owns the
--- 192 Hz cadence, the player never rounds it. New notes already receive
--- the current values in their noteOn spec. The partial carries the user
--- pitch and the track's live LFO parameter table, so later modulation
--- commands change the values the mixer applies.
+-- the mixer applies them at the next control step after the sequence
+-- portion of the same sound interval -- the player owns the 192 Hz cadence
+-- and never rounds it. New notes already receive the current values in
+-- their noteOn spec. The partial carries the user pitch and the track's
+-- live LFO parameter table, so later modulation commands change the values
+-- the mixer applies.
 local function pushTrackValues(self, instance, track)
   local partial = {
     trackVolume = clamp(track.volume, 0, 127),
@@ -780,26 +777,25 @@ function SequencePlayer.new(opts)
     -- The SDK shared global variables (vars 16..31); the player-local
     -- variables live on each instance.
     _globalVars = {},
-    -- The global 192 Hz sound phase accumulator (spec §5.1): each rendered
-    -- frame advances phase by SOUND_INTERVAL_HZ units. When phase >= sampleRate,
-    -- a sound interval fires and phase is decremented by sampleRate.
+    -- The global 192 Hz sound phase accumulator (SND_main.c SndThread):
+    -- each rendered output frame advances the phase by SOUND_INTERVAL_HZ
+    -- units; when the phase reaches the sample rate a sound interval fires
+    -- and the sample rate is subtracted. Owned here for the lifetime of the
+    -- player; plays and stops never reset it, so the clock is continuous
+    -- across idle frames and sequence replacements.
     _soundPhase = 0,
-    -- False until the first play: the mixer's control cadence is frozen
-    -- while nothing has ever been audible, so the phase a play sees starts
-    -- at zero (idle frames before the first play never shift it). After the
-    -- first play the mixer always renders, because released voices may be
-    -- ringing even while no player instance is active.
-    _everPlayed = false,
   }, SequencePlayer)
 end
 
 -- Starts `sequence` on its player id with `bank`. The bank must be the
 -- sequence's bankId; a sequence already running on the same player id is
 -- replaced (its voices released) exactly once, so the new note never mixes
--- with the old one. The entry track starts immediately (the SDK's
--- TrackStart): its program runs until the first gate, so a sequence
--- replaced before its first render has already allocated and released its
--- voices.
+-- with the old one. The instance is initialized to the source PlayerInit
+-- state (tempo 120, tempoRatio 256, tempoCounter 240) and the entry track
+-- is armed, but play() does not fetch or execute the entry program: the
+-- first source sequence tick runs on the first sound interval after play
+-- (tempoCounter 240 naturally produces it). The global sound phase and the
+-- shared RNG are never reset by a play.
 function SequencePlayer:play(sequence, bank)
   assert(sequence and bank, "play requires a sequence and a bank")
   if bank.id ~= sequence.bankId then
@@ -823,12 +819,12 @@ function SequencePlayer:play(sequence, bank)
     sequence = sequence,
     bank = bank,
     channelMask = playerRecord.channelMask,
+    -- The source PlayerInit fields (SND_seq.c): tempo 120, tempoRatio 256,
+    -- tempoCounter 240 -- the counter that produces the first sequence tick
+    -- on the first sound interval after play.
     tempo = DEFAULT_TEMPO,
     tempoRatio = 256,
-    tempoCounter = 240,
-    acc = 0,
-    -- Entry program fetched on first 192 Hz boundary after play(), not immediately
-    entryFetched = false,
+    tempoCounter = SND_TIMER_RATE,
     -- The player-level volume (the NNS player->volume): starts at the
     -- sequence's initial volume; master_volume commands change it.
     volume = sequence.player.initialVolume,
@@ -845,7 +841,6 @@ function SequencePlayer:play(sequence, bank)
     tracks = { [0] = newTrack(sequence.program.entry) },
   }
   self._players[playerId] = instance
-  self._everPlayed = true
 end
 
 -- Sets the player's fader level (0..127, the volume domain -- the NNS
@@ -906,173 +901,138 @@ function SequencePlayer:resumePlayer(playerId)
   instance.paused = false
 end
 
--- Processes one 192 Hz sound interval: advances entry-program fetching
--- for freshly played sequences on their first interval boundary.
-local function processSoundInterval(self)
-  for playerId = 0, PLAYER_COUNT - 1 do
-    local instance = self._players[playerId]
-    if instance ~= nil and not instance.entryFetched then
-      instance.entryFetched = true
-      local track = instance.tracks[0]
-      if track ~= nil then
+-- Executes one source sequence tick for one active, unpaused player
+-- (SND_seq.c PlayerStepTicks): every live track of the player steps
+-- ascending track id 0..15, following the TrackStepTicks order -- each
+-- ringing voice's remaining length expires (releasing at zero, independent
+-- of gates), the note-finish hold clears once its live handles are all
+-- gone, the gate's integer wait decrements, and a track whose wait reached
+-- zero fetches its following instructions (its command loop runs until it
+-- gates again or ends). `processSoundInterval` calls this once per tick the
+-- player's tempoCounter produces; it owns no frame timing of its own.
+local function stepSequenceTick(self, instance)
+  for trackId = 0, TRACK_COUNT - 1 do
+    local track = instance.tracks[trackId]
+    if track ~= nil then
+      -- Dead/stolen handles leave the collection first, so a release or a
+      -- later note never touches a stale handle.
+      pruneTrackVoices(self, track)
+      -- Each voice's own length expires at its tick boundary (the NNS
+      -- channel length): only positive finite lengths decrement, and an
+      -- expired voice is released and dropped from the collection. Tied and
+      -- non-positive-length voices are indefinite and are never released by
+      -- the counter.
+      local write = 1
+      local count = #track.voices
+      for index = 1, count do
+        local voice = track.voices[index]
+        if voice.length > 0 then
+          voice.length = voice.length - 1
+          if voice.length > 0 then
+            track.voices[write] = voice
+            write = write + 1
+          else
+            self._mixer:noteOff(voice.handle)
+          end
+        else
+          track.voices[write] = voice
+          write = write + 1
+        end
+      end
+      for index = write, count do
+        track.voices[index] = nil
+      end
+      -- The note-finish hold clears on the first tick whose live handles
+      -- are all gone (SND_seq.c TrackStepTicks: the note_finish_wait check
+      -- runs per tick over the track's channel list; the wait clears when
+      -- the list is empty and the track resumes in the same tick).
+      if track.noteFinishWait and #track.voices == 0 then
+        track.noteFinishWait = false
+      end
+      -- The gate: decrement the integer wait while the track is waiting; a
+      -- gate that reaches zero opens and the track's command loop resumes in
+      -- the same tick.
+      if track.gated then
+        track.wait = track.wait - 1
+        if track.wait <= 0 then
+          track.gated = false
+        end
+      end
+      if not track.ended and track.wait <= 0 and not track.noteFinishWait then
         fetch(self, instance, track)
       end
     end
   end
 end
 
--- The frames until the next event boundary from the current position: the
--- span of output frames the mixer can render in one call without breaking
--- the per-frame delivery order. Every tick-issued event -- a voice expiry
--- noteOff, a released gate's following notes -- lands in the frame loop
--- after the span's render, so the span ends on the next tick of any active
--- instance and the events reach the mixer before the next span, at the
--- same absolute frames whatever the chunk sizes. The end of the requested
--- window is always a boundary.
-local function spanLength(self, remaining)
-  local span = remaining
+-- Processes one completed 192 Hz sound interval in source order
+-- (SND_main.c SndThread: SND_SeqMain, then SND_ExChannelMain, then the
+-- unconditional SND_CalcRandom draw):
+--   1. each active, unpaused player in ascending player id 0..15 executes
+--      one sequence tick per 240 subtracted from its tempoCounter while the
+--      counter is at least 240, then adds tempoInc = (tempo * tempoRatio)
+--      >> 8 exactly once after all of that interval's ticks (PlayerSeqMain);
+--   2. the mixer runs exactly one control step;
+--   3. one unconditional periodic RNG draw is consumed, whether or not an
+--      explicit random command ran during the sequence portion.
+-- A player whose last track ends during a tick is removed according to the
+-- existing lifecycle (stopPlayer); remaining player ids still process in
+-- ascending order. An error raised during the sequence portion propagates:
+-- the interval did not complete, so mixer control and the periodic draw
+-- are skipped and the render call fails.
+local function processSoundInterval(self)
   for playerId = 0, PLAYER_COUNT - 1 do
     local instance = self._players[playerId]
     if instance ~= nil and not instance.paused then
-      local ticksPerFrame = instance.tempo * TICKS_PER_QUARTER
-      if ticksPerFrame > 0 then
-        local framesToTick = math.ceil((self._sampleRate * SECONDS_PER_MINUTE - instance.acc) / ticksPerFrame)
-        if framesToTick <= span then
-          span = math.min(span, framesToTick)
-        end
+      while instance.tempoCounter >= SND_TIMER_RATE do
+        instance.tempoCounter = instance.tempoCounter - SND_TIMER_RATE
+        stepSequenceTick(self, instance)
       end
+      -- The end-of-interval increment uses the tempo after any tempo
+      -- command executed during this interval's ticks (PlayerSeqMain).
+      instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)
     end
   end
-  return span
+  self._mixer:controlStep()
+  self._rng()
+end
+
+-- The frames until the next global sound-interval boundary from the
+-- current phase: the span of output frames the mixer renders in one call
+-- before the boundary fires. The end of the requested window is always a
+-- boundary. Sequence ticks never shorten a span -- ticks are produced only
+-- at the interval boundaries themselves.
+local function spanLength(self, remaining)
+  local framesToBoundary = math.ceil((self._sampleRate - self._soundPhase) / SOUND_INTERVAL_HZ)
+  return math.min(remaining, framesToBoundary)
 end
 
 -- Renders `frames` output frames of interleaved stereo int16 PCM. The
--- sequencer advances once per output frame: not-gated tracks fetch their
--- next instruction first, the mixer renders the span, then each frame the
--- note-finish holds are checked against real handle liveness and each
--- instance's tick accumulator adds tempo*48 (a tick fires per sampleRate*60
--- units). Every tick prunes dead handles, decrements each ringing voice's
--- remaining length (releasing it at zero, independently of gates) and each
--- gated track's integer wait, releasing completed gates and fetching the
--- following instructions. The mixer renders in spans that end at the next
--- event boundary (spanLength) instead of one frame at a time, preserving
--- the per-frame delivery order of note-offs and gate-release notes without
--- a mixer call per frame. Players and tracks process ascending over the
--- fixed NNS domains. The mixer renders only while at least one player is
--- active, so idle frames never shift the control cadence a later play
--- sees. Instance-carried state keeps rendering independent of chunk size.
+-- renderer is a span scheduler around the pure PCM mixer: it renders up to
+-- the next global 192 Hz sound-interval boundary, advances the global phase
+-- by the span, and -- when the phase reaches the sample rate -- subtracts
+-- the sample rate once and processes that interval (sequence ticks, then
+-- one mixer control step, then the periodic RNG draw). The mixer is asked
+-- for PCM even when no active sequence exists, so idle frames and detached
+-- release tails keep the global clock and the periodic RNG running (the
+-- mixer renders silence when no voices exist). Players and tracks process
+-- ascending over the fixed NNS domains. Instance-carried tempoCounter/wait
+-- state and the global phase keep rendering independent of chunk size.
 ---@param frames integer
 ---@return integer[]
 function SequencePlayer:render(frames)
   local out = {}
   local remaining = frames
   while remaining > 0 do
-    if not (next(self._players) ~= nil or self._everPlayed) then
-      for i = 1, remaining * 2 do
-        out[#out + 1] = 0
-      end
-      break
-    end
-    for playerId = 0, PLAYER_COUNT - 1 do
-      local instance = self._players[playerId]
-      if instance ~= nil and not instance.paused then
-        for trackId = 0, TRACK_COUNT - 1 do
-          local track = instance.tracks[trackId]
-          -- Skip fetching from track 0 until entry program has been fetched at first 192 Hz boundary
-          if track ~= nil and not track.ended and not track.gated and not track.noteFinishWait then
-            if trackId == 0 and not instance.entryFetched then
-              -- Defer entry program to first 192 Hz boundary
-            else
-              fetch(self, instance, track)
-            end
-          end
-        end
-      end
-    end
     local span = spanLength(self, remaining)
     assert(span >= 1, "a render span must advance the frame count")
     self._mixer:renderInto(out, span)
-    for frame = 1, span do
-      -- Advance the global 192 Hz sound phase (spec §5.1): each frame adds
-      -- SOUND_INTERVAL_HZ units to phase; a boundary fires when phase >= sampleRate.
-      self._soundPhase = self._soundPhase + SOUND_INTERVAL_HZ
-      local soundIntervalFired = false
-      if self._soundPhase >= self._sampleRate then
-        self._soundPhase = self._soundPhase - self._sampleRate
-        soundIntervalFired = true
-        processSoundInterval(self)
-      end
-
-      for playerId = 0, PLAYER_COUNT - 1 do
-        local instance = self._players[playerId]
-        if instance ~= nil and not instance.paused then
-          -- The note-finish hold clears on the first frame after its
-          -- zero-length note's gate opened whose live handles are all gone
-          -- (SND_seq.c TrackStepTicks: the note_finish_wait check runs per
-          -- tick over the track's channel list; the wait clears when the
-          -- list is empty and the track resumes). The resumed track
-          -- fetches its following instructions here.
-          for trackId = 0, TRACK_COUNT - 1 do
-            local track = instance.tracks[trackId]
-            if track ~= nil and track.noteFinishWait and not track.gated then
-              pruneTrackVoices(self, track)
-              if #track.voices == 0 then
-                track.noteFinishWait = false
-                fetch(self, instance, track)
-              end
-            end
-          end
-          instance.acc = instance.acc + instance.tempo * TICKS_PER_QUARTER
-          while instance.acc >= self._sampleRate * SECONDS_PER_MINUTE do
-            instance.acc = instance.acc - self._sampleRate * SECONDS_PER_MINUTE
-            for trackId = 0, TRACK_COUNT - 1 do
-              local track = instance.tracks[trackId]
-              if track ~= nil then
-                -- Dead/stolen handles leave the collection first, so a
-                -- release or a later note never touches a stale handle.
-                pruneTrackVoices(self, track)
-                -- Each voice's own length expires at its tick boundary (the
-                -- NNS channel length): only positive finite lengths
-                -- decrement, and an expired voice is released and dropped
-                -- from the collection. Tied and non-positive-length voices
-                -- are indefinite and are never released by the counter.
-                local write = 1
-                local count = #track.voices
-                for index = 1, count do
-                  local voice = track.voices[index]
-                  if voice.length > 0 then
-                    voice.length = voice.length - 1
-                    if voice.length > 0 then
-                      track.voices[write] = voice
-                      write = write + 1
-                    else
-                      self._mixer:noteOff(voice.handle)
-                    end
-                  else
-                    track.voices[write] = voice
-                    write = write + 1
-                  end
-                end
-                for index = write, count do
-                  track.voices[index] = nil
-                end
-              end
-            end
-            for trackId = 0, TRACK_COUNT - 1 do
-              local track = instance.tracks[trackId]
-              if track ~= nil and track.gated then
-                track.wait = track.wait - 1
-                if track.wait <= 0 then
-                  track.gated = false
-                  if not track.ended then
-                    fetch(self, instance, track)
-                  end
-                end
-              end
-            end
-          end
-        end
-      end
+    self._soundPhase = self._soundPhase + SOUND_INTERVAL_HZ * span
+    if self._soundPhase >= self._sampleRate then
+      -- One rendered frame adds 192 units, so a span cannot cross more than
+      -- one sample-rate threshold at the supported output rates.
+      self._soundPhase = self._soundPhase - self._sampleRate
+      processSoundInterval(self)
     end
     remaining = remaining - span
   end

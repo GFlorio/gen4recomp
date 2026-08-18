@@ -300,6 +300,9 @@ function T.effects_overlap_bgm_and_report_player_completion()
   Assert.isTrue(sound:isEffectPlaying(1), "the effect is playing on its player")
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the bgm plays under the effect")
   Assert.isTrue(maxAbs(left(player:render(600), 600)) > 0, "bgm and effect mix")
+  -- The duration-1 effect ends at the second tempoCounter tick (frame 750
+  -- at default tempo), so 1000 frames complete it.
+  player:render(400)
   Assert.isFalse(sound:isEffectPlaying(1), "the effect completed; the bgm player is untouched")
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the bgm outlives the effect")
 end
@@ -315,7 +318,10 @@ function T.effect_waits_follow_the_sequence_player_state()
   Assert.isTrue(sound:isEffectPlaying(3))
   player:render(500)
   Assert.isTrue(sound:isEffectPlaying(1), "the replacement effect keeps its player busy through its window")
-  player:render(500)
+  -- At default tempo 120 a player ticks every two sound intervals: the
+  -- effect's duration-2 note gates for two ticks (ending at the third tick,
+  -- frame 1250), so 1500 frames cover the full window.
+  player:render(1000)
   Assert.isFalse(sound:isEffectPlaying(1), "the player's sequence ended")
   Assert.isFalse(sound:isEffectPlaying(3))
 end
@@ -347,8 +353,10 @@ function T.fanfare_pauses_the_bgm_player_and_resumes_its_timeline()
   Assert.isTrue(sound:isFanfarePlaying())
   -- The BGM player is paused, not stopped: its sequence is still held.
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the bgm player is paused, not stopped, during the fanfare")
-  -- The fanfare plays through the pause.
-  Assert.isTrue(maxAbs(left(player:render(500), 500)) > 0, "the fanfare plays while the bgm timeline is paused")
+  -- The fanfare plays through the pause; its duration-1 note ends at the
+  -- second tempoCounter tick (frame 750 at default tempo), so 1000 frames
+  -- complete the sequence and start the post-wait.
+  Assert.isTrue(maxAbs(left(player:render(1000), 1000)) > 0, "the fanfare plays while the bgm timeline is paused")
   Assert.isTrue(sound:isFanfarePlaying(), "the post-fanfare wait interval is still fanfare-playing")
   for _ = 1, FANFARE_POST_WAIT_TICKS - 1 do
     sound:updateSoundFrame()
@@ -357,10 +365,12 @@ function T.fanfare_pauses_the_bgm_player_and_resumes_its_timeline()
   sound:updateSoundFrame()
   Assert.isFalse(sound:isFanfarePlaying(), "the interval expired")
   -- The still-current bgm's timeline resumes from its paused position and
-  -- its loop renders again; the released voice is never resurrected.
+  -- its loop renders again; the released voice is never resurrected. The
+  -- paused player re-notes on its second interval after resume (frame 500),
+  -- so 750 frames carry the re-note's audible window.
   Assert.equal(sound:currentMusic(), 0, "the fanfare never stops the bgm reference")
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the resumed bgm player still plays")
-  Assert.isTrue(maxAbs(left(player:render(500), 500)) > 0, "the resumed bgm renders again")
+  Assert.isTrue(maxAbs(left(player:render(750), 750)) > 0, "the resumed bgm renders again")
 end
 
 -- Fades follow the HGSS GF_SndStartFadeOutBGM model (asm/unk_02005D10.s +
@@ -506,8 +516,11 @@ function T.a_fanfare_freezes_the_active_fade_until_it_ends()
   local level10 = advanceFade(sound, player, spy, 10)
   Assert.isTrue(strictlyBetween(level10, -32768, 0), "the fade is mid-ramp")
   sound:playFanfare("SEQ_TEST_FANFARE")
-  player:render(500)
-  -- The fanfare's post-wait counts down on field ticks while the fade is
+  -- The fanfare sequence (duration-1 note) ends at its second tempoCounter
+  -- tick (frame 750 at default tempo), so 1000 frames complete it and start
+  -- the 15-frame post-wait.
+  player:render(1000)
+  -- The fanfare's post-wait counts down on sound frames while the fade is
   -- frozen; the bgm player is paused, so no new fader reaches its voice.
   for _ = 1, FANFARE_POST_WAIT_TICKS - 1 do
     sound:updateSoundFrame()
@@ -724,7 +737,9 @@ function T.fanfare_completion_never_resumes_a_replaced_or_stopped_bgm()
   -- slot (the retail BGM role spans the fixed field-music slot and the
   -- special scripted-music slot).
   sound:playMusic("SEQ_TEST_BGM_SPECIAL")
-  player:render(500)
+  -- The fanfare sequence ends at its second tempoCounter tick (frame 750
+  -- at default tempo).
+  player:render(1000)
   for _ = 1, FANFARE_POST_WAIT_TICKS do
     sound:updateSoundFrame()
   end
@@ -738,7 +753,7 @@ function T.fanfare_completion_never_resumes_a_replaced_or_stopped_bgm()
   stopped:playMusic("SEQ_TEST_BGM")
   stopped:playFanfare("SEQ_TEST_FANFARE")
   stopped:stopMusic()
-  stoppedPlayer:render(500)
+  stoppedPlayer:render(1000)
   for _ = 1, FANFARE_POST_WAIT_TICKS do
     stopped:updateSoundFrame()
   end

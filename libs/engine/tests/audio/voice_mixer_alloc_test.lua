@@ -57,6 +57,22 @@ local function newMixer(rate)
   return VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
 end
 
+-- Renders `frames` through the external-drive contract: one 250-frame span
+-- per renderInto call, with one explicit controlStep at each interval
+-- boundary (the scheduler's 192 Hz cadence at 48 kHz). The mixer never
+-- control-steps inside renderInto.
+local function drive(mixer, out, frames)
+  local remaining = frames
+  while remaining > 0 do
+    local span = math.min(remaining, CONTROL)
+    mixer:renderInto(out, span)
+    remaining = remaining - span
+    if remaining > 0 then
+      mixer:controlStep()
+    end
+  end
+end
+
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
 -- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
 -- channelMask, trackPriority, playerPriority, and the optional channel-side
@@ -247,6 +263,9 @@ function T.track_control_updates_apply_at_the_next_control_step()
     local handle = mixer:noteOn(spec(overrides)) --[[@as { channel: integer, generation: integer }]]
     local first = mixer:render(CONTROL)
     mixer:updateVoice(handle, update)
+    -- The queued values apply at the next external control step (the
+    -- scheduler's 250-frame interval boundary), not during rendering.
+    mixer:controlStep()
     local second = mixer:render(CONTROL)
     return first, second
   end
@@ -278,9 +297,15 @@ function T.update_voice_retunes_the_key_at_the_next_control_step()
   local function run(overrides, firstLength, secondLength)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec(overrides)) --[[@as { channel: integer, generation: integer }]]
-    local first = mixer:render(firstLength)
+    -- Drive the first block at the external 250-frame control cadence (the
+    -- envelope/sweep advance at the boundaries), then apply the retune at
+    -- the next control step so the second block reads the new pitch.
+    local first = {}
+    drive(mixer, first, firstLength)
     mixer:updateVoice(handle, { key = 72 })
-    local second = mixer:render(secondLength)
+    mixer:controlStep()
+    local second = {}
+    drive(mixer, second, secondLength)
     return first, second
   end
   local first, second = run({
@@ -290,11 +315,10 @@ function T.update_voice_retunes_the_key_at_the_next_control_step()
     loop = { startFrame = 0, endFrame = 16 },
   }, CONTROL, 300)
   Assert.equal(leftAt(first, CONTROL), 1000, "key 60 reads sample 10 through the first block (base timer 512)")
-  Assert.equal(leftAt(second, CONTROL - 1), 400, "the frame before the boundary still reads at the old rate")
-  Assert.equal(leftAt(second, CONTROL), 500, "the boundary frame's own read hears the retune")
-  Assert.equal(leftAt(second, CONTROL + 1), 600, "key 72 reads at twice the rate from the next frame")
-  Assert.equal(leftAt(second, CONTROL + 2), 700, "key 72 reads at twice the rate from the next frame")
-  Assert.equal(leftAt(second, CONTROL + 3), 900, "key 72 reads at twice the rate from the next frame")
+  Assert.equal(leftAt(second, 1), 1100, "the first frame after the retune continues the sample position")
+  Assert.equal(leftAt(second, 3), 1400, "key 72 reads at twice the rate from the next frame")
+  Assert.equal(leftAt(second, 5), 1600, "key 72 reads at twice the rate from the next frame")
+  Assert.equal(leftAt(second, 7), 300, "key 72 reads at twice the rate from the next frame")
 
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   first, second = run({
@@ -327,13 +351,15 @@ function T.update_voice_user_pitch_changes_a_held_voice_at_the_next_control_step
   })) --[[@as { channel: integer, generation: integer }]]
   local first = mixer:render(CONTROL)
   mixer:updateVoice(handle, { userPitch = 768 })
+  -- The user pitch applies at the next external control step (the 250-frame
+  -- boundary), so the second block reads the doubled rate from its start.
+  mixer:controlStep()
   local second = mixer:render(300)
   Assert.equal(leftAt(first, CONTROL), 1000, "userPitch 0 holds the base-timer read rate (sample 10)")
-  Assert.equal(leftAt(second, CONTROL - 1), 400, "the frame before the boundary still reads at the old rate")
-  Assert.equal(leftAt(second, CONTROL), 500, "the boundary frame's own read hears the new pitch")
-  Assert.equal(leftAt(second, CONTROL + 1), 600, "userPitch 768 reads at the doubled rate from the next frame")
-  Assert.equal(leftAt(second, CONTROL + 2), 700, "userPitch 768 reads at the doubled rate from the next frame")
-  Assert.equal(leftAt(second, CONTROL + 3), 900, "userPitch 768 reads at the doubled rate from the next frame")
+  Assert.equal(leftAt(second, 1), 1100, "the first frame after the control step continues the sample position")
+  Assert.equal(leftAt(second, 3), 1400, "userPitch 768 reads at the doubled rate from the next frame")
+  Assert.equal(leftAt(second, 5), 1600, "userPitch 768 reads at the doubled rate from the next frame")
+  Assert.equal(leftAt(second, 7), 300, "userPitch 768 reads at the doubled rate from the next frame")
 end
 
 -- updateVoice velocity reaches the volume dB sum at the next control step
@@ -345,10 +371,12 @@ function T.update_voice_velocity_changes_the_volume_at_the_next_control_step()
   local handle = mixer:noteOn(spec({ pcm = pcm, pan = 0, loop = { startFrame = 0, endFrame = 8 } })) --[[@as { channel: integer, generation: integer }]]
   local first = mixer:render(CONTROL)
   mixer:updateVoice(handle, { velocity = 64 })
+  -- The velocity applies at the next external control step.
+  mixer:controlStep()
   local second = mixer:render(CONTROL)
-  Assert.equal(leftAt(first, CONTROL), 5120, "velocity 127 holds the full register")
-  Assert.equal(leftAt(second, CONTROL - 1), 5120, "the frame before the boundary keeps the old velocity")
-  Assert.equal(leftAt(second, CONTROL), 1300, "velocity 64 reaches register 0x141 at the next control step")
+  Assert.equal(leftAt(first, CONTROL), 5120, "velocity 127 holds the full register through the first block")
+  Assert.equal(leftAt(second, 1), 1300, "velocity 64 reaches register 0x141 from the first frame after the step")
+  Assert.equal(leftAt(second, CONTROL), 1300, "velocity 64 holds register 0x141 through the second block")
 end
 
 -- The LFO state machine (SND_UpdateLfo counter, delay counter and
@@ -362,7 +390,8 @@ function T.lfo_pan_target_moves_the_hardware_register()
     pcm = { 6400, 6400, 6400, 6400, 6400, 6400, 6400, 6400 },
     lfo = { target = 2, depth = 127, range = 1, speed = 16, delay = 2 },
   }))
-  local out = mixer:render(1750)
+  local out = {}
+  drive(mixer, out, 1750)
   local pins = {
     { 250, 3200, 3200, "delay 2 and the counter-0 step hold the center" },
     { 750, 3200, 3200, "the third step still contributes 0 (counter 0)" },
@@ -393,7 +422,8 @@ function T.lfo_pitch_and_volume_targets_affect_their_calculations()
     lfo = { target = 0, depth = 127, range = 1, speed = 16, delay = 0 },
     pan = 0,
   }))
-  local out = pitchMixer:render(560)
+  local out = {}
+  drive(pitchMixer, out, 560)
   Assert.equal(leftAt(out, 342), 1000, "the drift from step 2 leaves the read at sample 10 by frame 342")
   Assert.equal(leftAt(out, 450), 400, "the pitch-target LFO advances the read to sample 4 at frame 450")
   Assert.equal(leftAt(out, 451), 500, "the pitch-target LFO advances the read to sample 5 at frame 451")
@@ -405,7 +435,8 @@ function T.lfo_pitch_and_volume_targets_affect_their_calculations()
     velocity = 100,
     lfo = { target = 1, depth = 127, range = 1, speed = 16, delay = 0 },
   }))
-  local vout = volumeMixer:render(1250)
+  local vout = {}
+  drive(volumeMixer, vout, 1250)
   local pins = {
     { 250, 790, "step 1 contributes 0 (register 0x4F)" },
     { 500, 900, "step 2 contributes 11 (register 0x5A)" },
@@ -436,7 +467,9 @@ function T.sweep_ramps_pitch_over_its_length()
       autoSweep = autoSweep,
       pan = 0,
     }))
-    return mixer:render(frames)
+    local out = {}
+    drive(mixer, out, frames)
+    return out
   end
   local out = run(true, 1300)
   local pins = {

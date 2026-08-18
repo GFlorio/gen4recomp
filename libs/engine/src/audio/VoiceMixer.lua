@@ -1,7 +1,9 @@
 -- Deterministic 16-channel DS sound engine per the ARM7 NitroSDK
 -- (SND_exChannel.c, SND_util.c, SND_bank.c, SND_seq.c) and GBATEK
 -- ("DS Sound" chapter). The mixer owns per-voice NNS channel behavior and
--- the physical host boundary:
+-- the physical host boundary; the 192 Hz control cadence belongs to the
+-- external scheduler, which drives it through one controlStep per sound
+-- interval:
 --   * Volume is a dB-like integer sum per control step
 --     (SNDi_DecibelSquareTable[velocity] + envAttenuation>>7 +
 --     DecibelSquare[trackVolume] + DecibelSquare[expression] +
@@ -13,11 +15,8 @@
 --     cases, DecibelSquare[sustain]<<7 decay target); a release voice
 --     stops at the control step whose current pre-register dB sum crosses
 --     SND_VOL_DB_MIN (vol <= -723), the SDK's death moment -- never a
---     noteOff-time prediction. The envelope advances once per control
---     step -- exactly 192 Hz through the integer phase accumulator
---     (phase += 192 per output frame, one step when it reaches the output
---     rate): every 250 frames at 48 kHz, the 170/171 alternation at 32768
---     Hz. The noteOn itself is the note's first control step.
+--     noteOff-time prediction. The envelope advances once per external
+--     control step. The noteOn itself is the note's first control step.
 --   * Pitch is the integer domain (key - originalKey)*0x40 + userPitch
 --     (the note's user pitch, default 0) + sweep + pitch LFO through
 --     SND_CalcTimer (BIOS pitch table); square timers are masked with
@@ -50,9 +49,9 @@
 --     (8-sample cycle starting at LOW, HIGH=(d+1)*12.5%; duty 7 is the
 --     all-LOW special pattern); noise is the 15-bit LFSR from 7FFFh
 --     (X = X SHR 1; carry -> LOW and X = X XOR 6000h, else HIGH).
--- Commands between renders apply at the next control step; control steps
--- fire on the mixer's absolute phase accumulator, so rendering is
--- independent of chunk size. Output is interleaved stereo int16; mixing sums and
+-- Queued control values (updateVoice) apply at the next explicit
+-- controlStep; renderInto is a pure PCM span renderer and never steps the
+-- control state itself. Output is interleaved stereo int16; mixing sums and
 -- saturates at +-32767/+-32768; per-voice host gains round with
 -- floor(x+0.5).
 
@@ -63,12 +62,12 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _outputRate integer
 ---@field private _channels table<integer, table>
 ---@field private _channelGeneration table<integer, integer>
----@field private _controlPhase integer
 ---@field new fun(opts: { sampleRate: integer }): VoiceMixer
 ---@field noteOn fun(self: VoiceMixer, spec: table): { channel: integer, generation: integer } | nil
 ---@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, releaseOverride: integer?)
 ---@field updateVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, partial: table)
 ---@field isVoiceAlive fun(self: VoiceMixer, handle: { channel: integer, generation: integer }): boolean
+---@field controlStep fun(self: VoiceMixer)
 ---@field renderInto fun(self: VoiceMixer, out: integer[], frames: integer)
 ---@field render fun(self: VoiceMixer, frames: integer): integer[]
 
@@ -111,11 +110,11 @@ local PAN_CENTER = 0x40
 local ENV_START = -92544
 local RELEASE_STOP_DB = -723
 
--- The 192 Hz sound interval (SND_main.c SndThread). The control cadence is
--- the integer phase accumulator phase += SOUND_INTERVAL per output frame;
--- a step fires when the phase reaches the output rate (exactly every 250
--- frames at 48 kHz, the 170/171 alternation at 32768 Hz).
-local SOUND_INTERVAL = 192
+-- The 192 Hz sound interval (SND_main.c SndThread) is owned by the
+-- external scheduler: the mixer exposes one controlStep per interval and
+-- keeps no phase accumulator of its own. The noteOn itself is the note's
+-- first control step (ExChannelStart), so a controlStep never re-applies
+-- a fresh note's own step.
 
 -- Phase snap for square/noise: the pinned duty and LFSR boundaries sit on
 -- exact frame multiples of the timer, and the float phase accumulation may
@@ -535,7 +534,6 @@ function VoiceMixer.new(opts)
     -- generation while an old handle may still exist (doubles hold the
     -- count exactly; no wrap is needed).
     _channelGeneration = {},
-    _controlPhase = 0,
   }, VoiceMixer)
 end
 
@@ -641,38 +639,45 @@ function VoiceMixer:isVoiceAlive(handle)
   return voice ~= nil and voice.generation == handle.generation and not voice.dead
 end
 
+-- One externally driven channel-control step (SND_ExChannelMain(step =
+-- TRUE) at one 192 Hz sound interval): queued track-level values apply
+-- first -- so the boundary frame's own PCM read hears the new registers and
+-- a releasing voice whose current inputs cross the stop threshold dies
+-- here -- then every live channel advances its envelope/sweep/LFO state
+-- machines once and resyncs its registers. Deterministic ascending channel
+-- order; the external scheduler calls this exactly once per completed
+-- sound interval after all sequence ticks.
+function VoiceMixer:controlStep()
+  for channel = 0, CHANNEL_COUNT - 1 do
+    local voice = self._channels[channel]
+    if voice ~= nil then
+      if voice.pending.dirty then
+        applyPending(voice)
+        syncRegisters(voice)
+      end
+      if not voice.dead then
+        controlStep(voice, true)
+      end
+      if voice.dead then
+        self._channels[channel] = nil
+      end
+    end
+  end
+end
+
 -- Renders `frames` output frames of interleaved stereo int16 PCM (2*frames
 -- entries) appended to `out` after its current end, so a caller-owned
 -- buffer is reused across span renders instead of allocating a fresh result
--- table per call. Voices read at their position, advance
--- with the current ratio, and run a control step at the end of every
--- control-step frame on the mixer's absolute phase accumulator (192 Hz:
--- phase += 192 per frame, one step when it reaches the output rate);
--- queued track values are applied and the registers resynced at the start
--- of the next control-step frame. The mix sums and saturates at the int16
--- bounds; chunk sizes never change the result.
+-- table per call. This is a pure PCM span renderer: voices read at their
+-- position and advance with the current ratio, and no control state -- no
+-- envelope step, no sweep/LFO advance, no queued-value application -- moves
+-- during rendering. The external scheduler runs one controlStep per sound
+-- interval after the sequence portion. The mix sums and saturates at the
+-- int16 bounds; chunk sizes never change the result.
 ---@param out integer[]
 ---@param frames integer
 function VoiceMixer:renderInto(out, frames)
   for frame = 1, frames do
-    local phase = self._controlPhase + SOUND_INTERVAL
-    local boundary = phase >= self._outputRate
-    if boundary then
-      -- Queued track values apply at the start of the next control-step
-      -- frame (the registers resync with the current channel state), so the
-      -- boundary frame's own read hears them; a releasing voice whose
-      -- current inputs cross the stop threshold dies here.
-      for channel = 0, CHANNEL_COUNT - 1 do
-        local voice = self._channels[channel]
-        if voice ~= nil and voice.pending.dirty then
-          applyPending(voice)
-          syncRegisters(voice)
-          if voice.dead then
-            self._channels[channel] = nil
-          end
-        end
-      end
-    end
     local left, right = 0, 0
     for channel = 0, CHANNEL_COUNT - 1 do
       local voice = self._channels[channel]
@@ -691,22 +696,6 @@ function VoiceMixer:renderInto(out, frames)
     end
     out[#out + 1] = saturate(left)
     out[#out + 1] = saturate(right)
-    if boundary then
-      self._controlPhase = phase - self._outputRate
-      for channel = 0, CHANNEL_COUNT - 1 do
-        local voice = self._channels[channel]
-        if voice ~= nil then
-          if not voice.dead then
-            controlStep(voice, true)
-          end
-          if voice.dead then
-            self._channels[channel] = nil
-          end
-        end
-      end
-    else
-      self._controlPhase = phase
-    end
   end
 end
 

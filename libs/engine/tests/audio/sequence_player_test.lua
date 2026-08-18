@@ -1,16 +1,23 @@
 -- SequencePlayer contract: the g4 sequence-IR interpreter on the NNS timing
 -- and state model (SND_seq.c TrackStepTicks/TrackPlayNote/TrackInit/
--- TrackUpdateChannel). The tick clock is unchanged: a quarter note is 48
--- ticks, tempo is BPM (1..240, default 120), and ticks come from an exact
--- integer accumulator (tempo*48 per output frame, one tick per sampleRate*60
--- units) -- the GBATEK/ARM7 SND_TIMER_RATE relationship. A track processes
--- commands while `wait == 0` and not note-finish waiting (WAIT 0 continues
--- in the same pass); a note under note-wait gates the track for its
--- duration, and a zero-length note becomes a note-FINISH wait that holds the
--- track until its live channel handles are gone -- never a one-tick wait and
--- never a synthesized release. The player does not predict mixer death: the
--- mixer owns voice liveness (`isVoiceAlive`) and the sequencer prunes dead
--- handles from its collections and observes liveness for finish waits.
+-- TrackUpdateChannel). The tick clock is the NNS relationship verified from
+-- GBATEK ("DS Sound Files - SSEQ") and the ARM7 NitroSDK player
+-- (SND_seq.c PlayerSeqMain: SND_TIMER_RATE 240 at the 192 Hz sound
+-- interval): a quarter note is 48 ticks, tempo is BPM (1..240, default
+-- 120), and ticks come from each player's integer tempoCounter driven only
+-- by the global sound interval -- while the counter is at least 240 the
+-- player executes one sequence tick per 240 subtracted, then the counter
+-- gains (tempo * tempoRatio) >> 8 once per interval. A fresh player starts
+-- at tempoCounter 240 (PlayerInit), so its first tick fires on the first
+-- interval after play() and play() never runs the entry program itself. A
+-- track processes commands while `wait == 0` and not note-finish waiting
+-- (WAIT 0 continues in the same pass); a note under note-wait gates the
+-- track for its duration, and a zero-length note becomes a note-FINISH wait
+-- that holds the track until its live channel handles are gone -- never a
+-- one-tick wait and never a synthesized release. The player does not
+-- predict mixer death: the mixer owns voice liveness (`isVoiceAlive`) and
+-- the sequencer prunes dead handles from its collections and observes
+-- liveness for finish waits.
 --
 -- Track state follows the SDK: wait ticks, the note-finish hold, note-wait
 -- (default true), a polyphonic voice collection of {handle, length} pairs,
@@ -37,15 +44,17 @@
 -- the note's MIDI key after the note.
 --
 -- The player queues control changes (track values, fader, LFO parameters,
--- user pitch) to its live voices as events rather than maintaining its own
--- rounded control clock; the mixer owns the 192 Hz sound-control cadence.
--- Pause releases the player's voices with release override 127 and frees
--- the handles; the timeline freezes and resume never resurrects old voices.
--- Random amount operands resolve through the player's RNG in the SDK u16
--- draw domain (SND_CalcRandom: state = state*1664525 + 1013904223 mod 2^32,
--- draw = state >> 16, initial state 0x12345678; TrackParseValue scales
--- min + ((draw * (max - min + 1)) >> 16)); production creates the RNG once
--- and never reseeds per play.
+-- user pitch) to its live voices as events; the mixer applies them at its
+-- one external control step per sound interval (the 192 Hz sound-control
+-- cadence the player owns). Pause releases the player's voices with release
+-- override 127 and frees the handles; the timeline freezes and resume never
+-- resurrects old voices. Random amount operands resolve through the
+-- player's RNG in the SDK u16 draw domain (SND_CalcRandom: state =
+-- state*1664525 + 1013904223 mod 2^32, draw = state >> 16, initial state
+-- 0x12345678; TrackParseValue scales min + ((draw * (max - min + 1)) >>
+-- 16)); production creates the RNG once and never reseeds per play, and
+-- every completed sound interval additionally consumes one unconditional
+-- periodic draw after the sequence portion and the mixer control step.
 --
 -- The suite asserts events and state through a recording mixer (noteOn/
 -- noteOff/updateVoice/isVoiceAlive order, handles, tick boundaries, pause
@@ -180,9 +189,10 @@ local function engine(sequences, opts)
   return player, provider
 end
 
--- Plays the test sequence. By default, renders through the first 192 Hz boundary
--- so the entry program fetches on the first sound interval (spec §9 C3, deferred entry fetch).
--- Pass mayDeferRender=true to skip the render for tests that explicitly manage rendering.
+-- Plays the test sequence. By default, renders through the first 192 Hz
+-- sound interval (250 frames at 48 kHz) so the first source sequence tick
+-- fires on that boundary. Pass mayDeferRender=true to skip the render for
+-- tests that explicitly manage rendering.
 local function play(player, provider, mayDeferRender)
   player:play(provider:sequence(0), provider:bank(12))
   if not mayDeferRender then
@@ -212,6 +222,7 @@ local function stubMixer()
   local alive = {}
   local mixer = {
     log = log,
+    controlSteps = {},
     noteOn = function(_, spec)
       local gen = generation
       generation = generation + 1
@@ -232,6 +243,9 @@ local function stubMixer()
     end,
     kill = function(_, handle)
       alive[handle.generation] = false
+    end,
+    controlStep = function(self)
+      self.controlSteps[#self.controlSteps + 1] = true
     end,
     renderInto = function(_, out, frames)
       log.renders[#log.renders + 1] = frames
@@ -331,8 +345,8 @@ function T.tempo_is_bpm_with_48_ticks_per_quarter_note()
     player:render(250)
     -- For fast tempo (240 BPM), 1 tick = 250 frames, so note releases at frame 500
     -- For slow tempo (120 BPM), 1 tick = 500 frames, so note releases at frame 750
-    player:render(750)  -- Render enough for both tempos to complete
-    local first = #mixer.log.noteOffs  -- Check after 1000 total frames
+    player:render(750) -- Render enough for both tempos to complete
+    local first = #mixer.log.noteOffs -- Check after 1000 total frames
     return first
   end
   local fast_count = noteOffAt(240)
@@ -430,10 +444,13 @@ function T.open_track_plays_a_second_voice_in_parallel()
     { op = "end" },
   }
   local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
+  -- play() renders through the first interval: the first source tick runs
+  -- the entry program, which opens track 1 and notes the main track, and
+  -- the opened track notes in the same tick's ascending-track pass.
   play(player, provider)
-  Assert.equal(#mixer.log.noteOns, 1, "the main track notes at play")
+  Assert.equal(#mixer.log.noteOns, 2, "the first tick opens the second track and notes both tracks")
   player:render(500)
-  Assert.equal(#mixer.log.noteOns, 2, "the opened track notes on the first render pass")
+  Assert.equal(#mixer.log.noteOns, 2, "the one-tick notes gate both tracks until they end")
   Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(2))
   Assert.isFalse(player:isPlaying(), "the sequence ends when every track ends")
 end
@@ -511,7 +528,7 @@ function T.random_operands_draw_from_the_default_sdk_rng_without_reseeding()
   local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
-      { op = "pan", amount = { kind = "random", min = 0, max = 127 } },
+      { op = "pan", amount = { kind = "random", lo = 0, hi = 127 } },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
@@ -526,34 +543,45 @@ function T.random_operands_draw_from_the_default_sdk_rng_without_reseeding()
   play(player, provider)
   Assert.equal(
     mixer.log.noteOns[2].trackPanOffset,
-    38,
-    "the second draw 0xCD30 = 52528 scales to pan 102, and the state persisted across plays"
+    -46,
+    "the second play's explicit draw (0x25DB = 9691, after the first interval's periodic draw) scales to pan 18"
   )
   play(player, provider)
-  Assert.equal(mixer.log.noteOns[3].trackPanOffset, -46, "the third draw 0x25DB = 9691 scales to pan 18")
+  Assert.equal(
+    mixer.log.noteOns[3].trackPanOffset,
+    2,
+    "the third play's explicit draw (0x84DE = 33950) scales to pan 66"
+  )
 end
 
 -- The injected RNG is in the same u16 draw domain as the production RNG (a
 -- function returning the raw 16-bit draw), and the operand scales the draw
--- with the SDK integer arithmetic -- never a 0..1 float.
+-- with the SDK integer arithmetic -- never a 0..1 float. Each play renders
+-- one completed interval, so the explicit operand draw is followed by that
+-- interval's unconditional periodic draw: the injected sequence is consumed
+-- two draws per play.
 function T.random_operands_scale_the_u16_draw_with_sdk_integer_arithmetic()
   local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
-      { op = "pan", amount = { kind = "random", min = 0, max = 127 } },
+      { op = "pan", amount = { kind = "random", lo = 0, hi = 127 } },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
-  }, { mixer = mixer, rng = u16Draws({ 0x0000, 0x8000, 0xFFFF, 0x4000 }) })
+  }, { mixer = mixer, rng = u16Draws({ 0x0000, 0x8000, 0xFFFF, 0x4000, 0x2000, 0x6000, 0x1000, 0x3000 }) })
   play(player, provider)
   player:render(10)
   Assert.equal(mixer.log.noteOns[1].trackPanOffset, -64, "draw 0x0000 scales to pan 0")
   play(player, provider)
-  Assert.equal(mixer.log.noteOns[2].trackPanOffset, 0, "draw 0x8000 = 32768 scales (32768*128)>>16 = 64")
+  Assert.equal(
+    mixer.log.noteOns[2].trackPanOffset,
+    63,
+    "draw 0xFFFF = 65535 scales to pan 127 (after the first interval's periodic draw)"
+  )
   play(player, provider)
-  Assert.equal(mixer.log.noteOns[3].trackPanOffset, 63, "draw 0xFFFF = 65535 scales to pan 127")
+  Assert.equal(mixer.log.noteOns[3].trackPanOffset, -48, "draw 0x2000 = 8192 scales to pan 16")
   play(player, provider)
-  Assert.equal(mixer.log.noteOns[4].trackPanOffset, -32, "draw 0x4000 = 16384 scales to pan 32")
+  Assert.equal(mixer.log.noteOns[4].trackPanOffset, -56, "draw 0x1000 = 4096 scales to pan 8")
 end
 
 function T.the_player_initial_volume_passes_through_as_player_volume()
@@ -1477,10 +1505,14 @@ function T.contested_allocation_is_identical_across_player_play_orders()
   end
   local forward = run({ 0, 1, 2, 3 })
   local backward = run({ 3, 2, 1, 0 })
-  Assert.equal(#forward.log.noteOns, 12, "the four initial noteOns plus one per player per tick (two ticks)")
-  Assert.equal(#backward.log.noteOns, 12)
-  for i = 9, 12 do
-    local expected = ({ AudioFixture.key(1), AudioFixture.key(2) })[((i - 9) % 2) + 1]
+  -- Under the interval scheduler, play() does not run the entry program:
+  -- each player's first tick fires on the first completed interval and a
+  -- default-tempo player ticks every two intervals, so four players in
+  -- 1000 frames (four intervals) produce 4 x 2 = 8 noteOns.
+  Assert.equal(#forward.log.noteOns, 8, "one noteOn per player per tempoCounter tick (two ticks in four intervals)")
+  Assert.equal(#backward.log.noteOns, 8)
+  for i = 5, 8 do
+    local expected = ({ AudioFixture.key(1), AudioFixture.key(2) })[((i - 5) % 2) + 1]
     Assert.equal(
       generatorOf(forward.log.noteOns[i]).sample,
       generatorOf(backward.log.noteOns[i]).sample,
@@ -1553,7 +1585,11 @@ function T.an_ended_or_never_played_player_reports_free()
     engine({ [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } }, { playerId = 2 }) })
   Assert.isFalse(player:isPlayerPlaying(2), "a player with no instance reports free")
   player:play(provider:sequence(0), provider:bank(12))
-  player:render(600)
+  -- At default tempo 120 a player ticks every two sound intervals (250,
+  -- 750, ... at 48 kHz): the first tick notes (gating the track), the
+  -- second tick opens the gate and runs `end`. 1000 frames (four intervals)
+  -- covers both ticks.
+  player:render(1000)
   Assert.isFalse(player:isPlayerPlaying(2), "a player whose sequence ended reports free")
   Assert.isFalse(player:isPlaying())
   player:stopPlayer(2)
@@ -1961,6 +1997,312 @@ function T.the_player_fader_reaches_the_update_voice_push_in_the_db_domain()
   end
   Assert.notNil(push, "the player queues a fader update to its active voice")
   Assert.equal(push.partial.fader, NnsSoundMath.decibelSquare(42), "the level reaches the mixer in the dB domain")
+end
+
+-- The global 192 Hz sound interval (SND_main.c SndThread): `_soundPhase`
+-- advances 192 units per rendered output frame and one interval fires each
+-- time it reaches the sample rate, so at 48 kHz an interval is exactly 250
+-- frames and the boundary frame index of the Nth interval is N*250. Sequence
+-- ticks come from each player's `tempoCounter` only at those boundaries --
+-- never from a per-output-frame accumulator -- so with the default tempo 120
+-- (tempoCounter 240, one tick per interval at 192 Hz) a fresh play executes
+-- its entry program at the first boundary (frame 250) and one tick per
+-- boundary after that.
+local function intervalBoundaryFrameIndices(sampleRate, intervalCount)
+  local boundaries = {}
+  local phase = 0
+  for frame = 1, sampleRate * 10 do
+    phase = phase + 192
+    if phase >= sampleRate then
+      phase = phase - sampleRate
+      boundaries[#boundaries + 1] = frame
+      if #boundaries >= intervalCount then
+        break
+      end
+    end
+  end
+  return boundaries
+end
+
+-- A recording mixer that stamps every mixer call with the absolute frame
+-- index it ends at, using the exact accumulator boundary math (phase += 192
+-- per frame, one interval when the phase reaches the sample rate). It is the
+-- observable "frame index" clock for the interval contract; a target
+-- SequencePlayer must ask the mixer for spans that end exactly on these
+-- boundaries and run its interval processing (sequence ticks, then mixer
+-- control, then the periodic RNG draw) once per boundary.
+local BoundaryMixer = {}
+BoundaryMixer.__index = BoundaryMixer
+
+function BoundaryMixer.new(sampleRate)
+  return setmetatable({
+    _sampleRate = sampleRate,
+    _frame = 0,
+    _phase = 0,
+    renders = {}, -- frame index each renderInto call ends at
+    controlSteps = {}, -- frame index each controlStep call observes
+    noteOns = {}, -- frame index each noteOn lands at
+  }, BoundaryMixer)
+end
+
+function BoundaryMixer:renderInto(out, frames)
+  for _ = 1, frames do
+    self._frame = self._frame + 1
+    self._phase = self._phase + 192
+    if self._phase >= self._sampleRate then
+      self._phase = self._phase - self._sampleRate
+    end
+  end
+  self.renders[#self.renders + 1] = self._frame
+  for i = 1, frames * 2 do
+    out[#out + 1] = 0
+  end
+end
+
+function BoundaryMixer:controlStep()
+  self.controlSteps[#self.controlSteps + 1] = self._frame
+end
+
+function BoundaryMixer:noteOn()
+  self.noteOns[#self.noteOns + 1] = self._frame
+  return { channel = 3, generation = #self.noteOns }
+end
+
+function BoundaryMixer:noteOff() end
+
+function BoundaryMixer:updateVoice() end
+
+function BoundaryMixer:isVoiceAlive()
+  return true
+end
+
+-- The one 192 Hz interval owner: at 48 kHz a sound interval is exactly 250
+-- frames. A fresh default-tempo play must run its first source sequence
+-- tick at the first completed 250-frame interval -- frame 250 -- and never
+-- halfway between boundaries. At the default tempo 120 the source
+-- tempoCounter gains (120 * 256) >> 8 = 120 per interval, so one tick
+-- fires every two intervals (frames 250, 750, 1250); at tempo 240 the
+-- increment is 240 and one tick fires on every interval (frames 250, 500,
+-- 750, 1000, 1250). The observable boundaries are the mixer spans the
+-- player asks for (they must end exactly on the 250-frame multiples, never
+-- on the per-player tick distance 500 of the old per-output-frame
+-- accumulator) and the mixer control steps (one per completed interval, on
+-- the boundary frame).
+function T.sequence_ticks_fire_only_on_48khz_interval_boundaries()
+  local mixer = BoundaryMixer.new(SAMPLE_RATE)
+  local player, provider = engine({
+    [0] = seq({
+      { op = "tempo", amount = 240 },
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "jump", target = 3 },
+    }),
+  }, { mixer = mixer })
+  -- play() must not execute the entry program (no noteOn yet).
+  player:play(provider:sequence(0), provider:bank(12))
+  Assert.equal(#mixer.noteOns, 0, "play() itself does not run the entry program")
+  -- 249 frames: still inside the first interval; the entry program must not
+  -- have run.
+  player:render(249)
+  Assert.equal(#mixer.noteOns, 0, "the first interval boundary is at frame 250, not inside it")
+  Assert.equal(#mixer.controlSteps, 0, "no completed interval, no mixer control step")
+  -- The 250th frame completes the first interval: one sequence tick (the
+  -- entry program's noteOn) then one mixer control step.
+  player:render(1)
+  Assert.equal(#mixer.noteOns, 1, "the first interval boundary runs the entry program's tick")
+  Assert.equal(#mixer.controlSteps, 1, "the completed first interval runs one mixer control step")
+  Assert.equal(mixer.controlSteps[1], 250, "the control step observes the boundary frame 250")
+  -- Continue through four more boundaries: one tick (one noteOn) per
+  -- 250-frame boundary at tempo 240.
+  player:render(1000)
+  Assert.equal(#mixer.noteOns, 5, "one source sequence tick per completed interval at tempo 240")
+  Assert.equal(#mixer.controlSteps, 5, "one control step per completed interval")
+  local expected = intervalBoundaryFrameIndices(SAMPLE_RATE, 5)
+  for index = 1, 5 do
+    Assert.equal(mixer.controlSteps[index], expected[index], "control step " .. index .. " lands on the boundary")
+  end
+  -- The render spans: the player must ask the mixer for spans that end on
+  -- the interval boundaries (250-frame multiples) or on the requested-frame
+  -- boundary of an explicit render call (the 249-frame request above),
+  -- never on per-player tick distances (500 frames at tempo 120 under the
+  -- old accumulator).
+  Assert.deepEqual(
+    mixer.renders,
+    { 249, 250, 500, 750, 1000, 1250 },
+    "every mixer span ends on an interval boundary or the requested frame boundary"
+  )
+end
+
+-- The exact 32768 Hz boundary pattern: from phase zero the integer
+-- accumulator (phase += 192 per frame, one interval at 32768) puts the first
+-- six interval boundaries at frames 171, 342, 512, 683, 854, 1024 -- not
+-- every floor(32768/192)=170 frames and not a 170/171 alternating
+-- approximation. One render call and any partition of the same window must
+-- produce identical boundary frame indices (the mixer span ends and the
+-- control steps), identical sequence event counts, and byte-identical PCM.
+-- The sequence runs at tempo 240 so one source tick fires per interval at
+-- the production rate.
+function T.interval_boundaries_and_chunk_partition_are_invariant_at_32768_hz()
+  local RATE = 32768
+  local expected = intervalBoundaryFrameIndices(RATE, 6)
+  Assert.deepEqual(
+    expected,
+    { 171, 342, 512, 683, 854, 1024 },
+    "the exact accumulator boundary pattern from phase zero is 171, 171, 170 repeating"
+  )
+  local program = {
+    { op = "tempo", amount = 240 },
+    { op = "program", program = 0 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "jump", target = 3 },
+  }
+  local function playChunked(chunks)
+    local mixer = BoundaryMixer.new(RATE)
+    local provider = AudioAssetProvider.new(AudioFixture.readyCache(buildBundle({ [0] = seq(program) })))
+    local player = SequencePlayer.new({ sampleRate = RATE, mixer = mixer, provider = provider })
+    player:play(provider:sequence(0), provider:bank(12))
+    local out = {}
+    for _, frames in ipairs(chunks) do
+      local pcm = player:render(frames)
+      for i = 1, #pcm do
+        out[#out + 1] = pcm[i]
+      end
+    end
+    return { mixer = mixer, pcm = out }
+  end
+  local whole = playChunked({ 1024 })
+  Assert.deepEqual(whole.mixer.renders, expected, "single-call render spans end on every exact boundary")
+  Assert.deepEqual(whole.mixer.controlSteps, expected, "single-call render controls on every exact boundary")
+  Assert.equal(#whole.mixer.noteOns, 6, "one sequence tick per completed interval")
+  -- The boundary partition requests exactly the interval lengths, so every
+  -- render call ends on a boundary and the cumulative end-frame log matches
+  -- the absolute boundary indices.
+  local partition = playChunked({ 171, 171, 170, 171, 171, 170 })
+  Assert.deepEqual(partition.mixer.renders, expected, "the boundary partition spans end on the same exact frames")
+  Assert.deepEqual(partition.mixer.controlSteps, expected, "the boundary partition controls on the same exact frames")
+  Assert.equal(#partition.mixer.noteOns, 6, "the boundary partition ticks once per interval")
+  Assert.deepEqual(whole.pcm, partition.pcm, "the partition renders byte-identical PCM")
+  -- An irregular partition whose chunks cross the interval boundaries: the
+  -- span scheduler splits each chunk at the interval boundaries, so the
+  -- renderInto end-frame log is the chunk ends AND the boundary frames the
+  -- chunks cross, and the control steps land on the same absolute boundary
+  -- frames. The PCM is byte-identical to the single call.
+  local irregular = playChunked({ 100, 200, 300, 100, 324 })
+  Assert.deepEqual(
+    irregular.mixer.renders,
+    { 100, 171, 300, 342, 512, 600, 683, 700, 854, 1024 },
+    "an irregular partition splits its chunks at the interval boundaries"
+  )
+  Assert.deepEqual(irregular.mixer.controlSteps, expected, "an irregular partition controls on the same exact frames")
+  Assert.equal(#irregular.mixer.noteOns, 6, "the irregular partition ticks once per interval")
+  Assert.deepEqual(whole.pcm, irregular.pcm, "the irregular partition renders byte-identical PCM")
+end
+
+-- An injected RNG recorder: returns the same SDK u16 draw domain as the
+-- production RNG and records every call in order, so the explicit
+-- random-draw calls and the periodic interval draw are distinguishable by
+-- position and count.
+local function recordingRng(draws)
+  local index = 0
+  local calls = {}
+  return {
+    calls = calls,
+    fn = function()
+      index = index + 1
+      local draw = draws[index] or 0
+      draws[index] = draw -- keep the table indexed for later reads
+      calls[#calls + 1] = draw
+      return draw
+    end,
+  }
+end
+
+-- Source interval order: one completed interval executes the sequence
+-- portion first (an explicit random operand draws during its tick and the
+-- tick's queued voice update precedes the control step), then one mixer
+-- control step, then exactly one unconditional periodic RNG draw. No
+-- periodic draw happens before the explicit random command of the same
+-- interval. The sequence holds one voice (note_wait cleared) so the pan
+-- command in the same tick queues an update to a live voice, and the note
+-- after the pan carries the drawn offset.
+function T.each_interval_runs_sequence_then_control_then_the_periodic_rng_draw()
+  local rng = recordingRng({ 0x8000 })
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 4 },
+      { op = "pan", amount = { kind = "random", lo = 0, hi = 127 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "jump", target = 3 },
+    }),
+  }, { mixer = mixer, rng = rng.fn })
+  player:play(provider:sequence(0), provider:bank(12))
+  player:render(249)
+  Assert.equal(#rng.calls, 0, "no RNG draw before the first completed interval")
+  Assert.equal(#mixer.log.noteOns, 0, "no sequence command before the first completed interval")
+  player:render(1) -- completes the first 250-frame interval
+  Assert.equal(#rng.calls, 2, "the first interval draws once for the explicit operand and once periodic")
+  -- The first interval's first tick: the held note's voice is live when the
+  -- pan command runs, so the pan's queued update is observed during the
+  -- sequence portion (before any control step), and the note after the pan
+  -- carries the drawn pan offset (0x8000 scales (32768*128)>>16 = 64 ->
+  -- offset 0).
+  Assert.equal(#mixer.log.noteOns, 2, "the held note and the post-pan note allocate in the first tick")
+  Assert.equal(
+    mixer.log.noteOns[2].trackPanOffset,
+    0,
+    "the explicit draw 0x8000 scaled (32768*128)>>16 = 64 -> offset 0"
+  )
+  Assert.equal(#mixer.log.updates, 1, "the pan command queued an update to the live voice during the tick")
+  Assert.equal(#mixer.controlSteps, 1, "exactly one control step per completed interval")
+  -- Cross the second interval: at the default tempo 120 the tempoCounter
+  -- gains (120 * 256) >> 8 = 120 per interval, so the second interval
+  -- (frame 500) produces no sequence tick -- only the periodic draw and the
+  -- control step run.
+  player:render(250)
+  Assert.equal(#rng.calls, 3, "an interval with no tick draws only the periodic RNG")
+  Assert.equal(#mixer.log.noteOns, 2, "no sequence command runs on an interval without a tick")
+  Assert.equal(#mixer.controlSteps, 2, "the control step still runs once per completed interval")
+  -- The third interval (frame 750) produces the next tick: the explicit
+  -- operand draws again (draw 0 for the exhausted recorder) and the
+  -- periodic draw follows the control step.
+  player:render(250)
+  Assert.equal(#rng.calls, 5, "the tick interval draws once for the explicit operand and once periodic")
+  Assert.equal(#mixer.controlSteps, 3, "three completed intervals, three control steps")
+  Assert.equal(#mixer.log.noteOns, 3, "the tick interval allocates the next post-pan note")
+end
+
+-- Idle rendering advances the global interval: with no active sequence the
+-- audio clock keeps running, so rendering silence still fires the periodic
+-- RNG draw on every completed interval and advances the global phase. A
+-- later play() starts relative to that phase -- the first tick lands on the
+-- next global boundary, not 250 frames after play() unless the phase
+-- happens to be zero -- and never resets the RNG state.
+function T.idle_rendering_advances_the_global_interval_and_rng()
+  local RATE = 32768
+  local rng = recordingRng({})
+  local provider = AudioAssetProvider.new(AudioFixture.readyCache(buildBundle({
+    [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 } }),
+  })))
+  local mixer = stubMixer()
+  local player = SequencePlayer.new({ sampleRate = RATE, mixer = mixer, provider = provider, rng = rng.fn })
+  -- Render silence across two full intervals at the production rate
+  -- (boundaries at 171 and 342): no active sequence, but the clock runs.
+  player:render(342)
+  Assert.equal(#rng.calls, 2, "two completed idle intervals draw the periodic RNG twice")
+  Assert.equal(#mixer.controlSteps, 2, "two completed idle intervals run two mixer control steps")
+  -- play() must not reset the phase or the RNG: the global phase is now 342
+  -- frames in, and the next boundary is at absolute frame 512 (170 frames
+  -- after play), not 171/342-style 171 frames from a reset zero.
+  player:play(provider:sequence(0), provider:bank(12))
+  player:render(169) -- still inside the third interval (boundary at 512)
+  Assert.equal(#mixer.log.noteOns, 0, "the entry tick waits for the next global boundary")
+  Assert.equal(#rng.calls, 2, "no periodic draw before the third interval completes")
+  player:render(1) -- completes the third interval at absolute frame 512
+  Assert.equal(#mixer.log.noteOns, 1, "the first tick lands on the next global boundary after play")
+  Assert.equal(#rng.calls, 3, "the completed interval draws the periodic RNG once more")
 end
 
 return { tests = T }
