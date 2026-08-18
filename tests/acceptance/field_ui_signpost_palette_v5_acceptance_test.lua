@@ -1,7 +1,6 @@
 -- Production-composed contract for field UI v5 schema with per-sign-type palettes.
--- Deliverable B changes the generated field-UI manifest to include source-type-specific
--- 16-color palette banks for signposts, moving palette information from the compiler
--- into the runtime-accessible manifest. This proves that:
+-- The generated field-UI manifest carries source-type-specific 16-color palette
+-- banks for signposts in the runtime-accessible manifest. This proves that:
 -- 1. The compiler generates v5 manifests with per-type palette data
 -- 2. The validator accepts v5 and rejects v4
 -- 3. The runtime can boot successfully with v5 manifests
@@ -72,7 +71,7 @@ function T.tests.v5_manifest_has_per_type_signpost_data()
     local signposts = assert(manifest.signposts, "manifest must have signposts section")
     local types = assert(signposts.types, "v5 manifest must have signposts.types")
 
-    Assert.truthy(next(types), "v5 manifest must have at least one signpost type")
+    Assert.isTrue(next(types), "v5 manifest must have at least one signpost type")
 
     -- Verify the first type has required v5 fields
     local type0 = types[0]
@@ -99,9 +98,9 @@ function T.tests.v5_per_type_palette_has_16_entries()
       Assert.equal(type(color.r), "number", "palette color r must be number")
       Assert.equal(type(color.g), "number", "palette color g must be number")
       Assert.equal(type(color.b), "number", "palette color b must be number")
-      Assert.truthy(color.r >= 0 and color.r <= 255, "palette color r must be 0..255")
-      Assert.truthy(color.g >= 0 and color.g <= 255, "palette color g must be 0..255")
-      Assert.truthy(color.b >= 0 and color.b <= 255, "palette color b must be 0..255")
+      Assert.isTrue(color.r >= 0 and color.r <= 255, "palette color r must be 0..255")
+      Assert.isTrue(color.g >= 0 and color.g <= 255, "palette color g must be 0..255")
+      Assert.isTrue(color.b >= 0 and color.b <= 255, "palette color b must be 0..255")
       count = count + 1
     end
 
@@ -119,7 +118,7 @@ function T.tests.v5_per_type_frame_tiles_geometry()
 
     Assert.equal(frameTiles.width, 144, "frameTiles width must be 144 (18 tiles * 8 pixels)")
     Assert.equal(frameTiles.height, 8, "frameTiles height must be 8 (one tile row)")
-    Assert.truthy(
+    Assert.isTrue(
       type(frameTiles.x) == "number" and type(frameTiles.y) == "number",
       "frameTiles must have x,y position"
     )
@@ -190,7 +189,7 @@ function T.tests.v5_multiple_types_have_independent_palettes()
         end
       end
 
-      Assert.truthy(anyDifferent, "type 0 and type 1 palettes should differ (independent per-type compilation)")
+      Assert.isTrue(anyDifferent, "type 0 and type 1 palettes should differ (independent per-type compilation)")
     end
   end)
 end
