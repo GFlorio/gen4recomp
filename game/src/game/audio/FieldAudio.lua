@@ -1,13 +1,14 @@
 -- FieldAudio: the production field-audio composition. One plain function
 -- wires the engine audio stack (AudioAssetProvider -> VoiceMixer ->
--- SequencePlayer -> GameSound), the cry boundary (CryPlayer over the
--- composed player), and the LÖVE output sink from the runtime's inputs;
--- FieldRuntime consumes only the composed service and sink and never
--- constructs an audio collaborator itself. This module is wiring, not a
--- stateful audio runtime: compose carries no instance state.
+-- SequencePlayer -> GameSound -> FieldAudioController), the cry boundary
+-- (CryPlayer over the composed player), and the LÖVE output sink from the
+-- runtime's inputs; FieldRuntime consumes only the composed service and sink
+-- and never constructs an audio collaborator itself. This module is wiring,
+-- not a stateful audio runtime: compose carries no instance state.
 
 local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
 local CryPlayer = require("libs.engine.src.audio.CryPlayer")
+local FieldAudioController = require("libs.engine.src.audio.FieldAudioController")
 local GameSound = require("libs.engine.src.audio.GameSound")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
@@ -15,12 +16,18 @@ local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
 
 local FieldAudio = {}
 
----@param opts { cacheFs: table, outputRate: integer, mapMusic: fun(): integer|string|nil?, outputHost: table|nil }
----@return { service: GameSound, sink: LoveAudioSink|nil }
+---@param opts { cacheFs: table, outputRate: integer, eventState: any, player: any, dayNight: fun(): "day"|"night", fieldDataForMap: fun(mapIdOrSymbol: integer|string): any, outputHost: table|nil }
+---@return { service: FieldAudioController, sink: LoveAudioSink|nil }
 function FieldAudio.compose(opts)
   assert(
-    opts and opts.cacheFs and opts.outputRate and opts.mapMusic,
-    "FieldAudio.compose requires cacheFs, outputRate and mapMusic"
+    opts
+      and opts.cacheFs
+      and opts.outputRate
+      and opts.eventState
+      and opts.player
+      and opts.dayNight
+      and opts.fieldDataForMap,
+    "FieldAudio.compose requires cacheFs, outputRate, eventState, player, dayNight, and fieldDataForMap"
   )
   ---@cast opts +{ outputHost: table|nil }
   local provider = AudioAssetProvider.new(opts.cacheFs)
@@ -48,12 +55,19 @@ function FieldAudio.compose(opts)
       sampleRate = opts.outputRate,
     })
   end
+  local sound = GameSound.new({
+    provider = provider,
+    player = player,
+    cry = CryPlayer.new({ player = player }),
+  })
   return {
-    service = GameSound.new({
+    service = FieldAudioController.new({
+      sound = sound,
       provider = provider,
-      player = player,
-      cry = CryPlayer.new({ player = player }),
-      mapMusic = opts.mapMusic,
+      eventState = opts.eventState,
+      player = opts.player,
+      dayNight = opts.dayNight,
+      fieldDataForMap = opts.fieldDataForMap,
     }),
     sink = sink,
   }

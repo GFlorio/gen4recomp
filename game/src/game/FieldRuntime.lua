@@ -110,7 +110,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share
 ---@field dayNight fun(): string?
 ---@field audioOutput table?
----@field audio GameSound? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
+---@field audio FieldAudioController? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
 local FieldRuntime = {}
@@ -147,25 +147,6 @@ local function menuBindings()
     keys[key] = true
   end
   return keys
-end
-
--- The day/night map-header music reference of a generated field record (a
--- canonical audio sequence symbol), or nil when the record carries no music
--- block. The generated values are already canonical references; the runtime
--- never decorates symbols.
----@param runtimeMap table
----@param dayNight fun(): string
----@return string?
-local function mapHeaderMusic(runtimeMap, dayNight)
-  local music = runtimeMap.fieldData and runtimeMap.fieldData.music
-  if type(music) ~= "table" then
-    return nil
-  end
-  local reference = music[dayNight()]
-  if type(reference) ~= "string" then
-    return nil
-  end
-  return reference
 end
 
 -- The save validation set of compiled avatar ids, so a corrupt save naming an
@@ -746,17 +727,17 @@ end
 -- provided (a recording adapter then stays the script service while the
 -- production renderer/output composition still exists). FieldAudio.compose
 -- wires the whole engine stack (AudioAssetProvider -> VoiceMixer ->
--- SequencePlayer -> GameSound), supplies the cry boundary (CryPlayer plays
--- the referenced cry through the same engine audio), and builds the LÖVE
--- sink over the injected audio-output host boundary (acceptance fakes it;
--- production defaults to the love.audio + love.sound namespaces, and a host
--- with no audio module has no sink to pump). The caller consumes only the
--- composed service and sink and starts the current map's header music. The
--- map-music policy is the plain day/night lookup over the generated field
--- record (canonical references; nothing is decorated at runtime). The
--- day/night source defaults to the wall-clock IsNighttime predicate (hours
--- 0-3 and 20-23, the bandForHour nite band); tests and hosts inject a
--- deterministic one.
+-- SequencePlayer -> GameSound -> FieldAudioController), supplies the cry
+-- boundary (CryPlayer plays the referenced cry through the same engine
+-- audio), and builds the LÖVE sink over the injected audio-output host
+-- boundary (acceptance fakes it; production defaults to the love.audio +
+-- love.sound namespaces, and a host with no audio module has no sink to
+-- pump). The caller consumes only the composed service and sink; the
+-- FieldAudioController owns the map music/soundplate field policy through
+-- enterMap, resolving each map's music through the injected
+-- fieldDataForMap lookup. The day/night source defaults to the wall-clock
+-- IsNighttime predicate (hours 0-3 and 20-23, the bandForHour nite band);
+-- tests and hosts inject a deterministic one.
 ---@param cacheFs CacheFs
 ---@return table audioService the GameSound instance, or the injected recording adapter
 function FieldRuntime:_composeAudio(cacheFs)
@@ -769,8 +750,21 @@ function FieldRuntime:_composeAudio(cacheFs)
     local audio = FieldAudio.compose({
       cacheFs = cacheFs,
       outputRate = AUDIO_SAMPLE_RATE,
-      mapMusic = function()
-        return mapHeaderMusic(self.runtimeMap, self.mapMusicDayNight)
+      eventState = self.eventState,
+      player = self.player,
+      dayNight = self.mapMusicDayNight,
+      fieldDataForMap = function(mapIdOrSymbol)
+        local world = cacheFs:loadLua(MapAssetCache.worldPath())
+        local mapData
+        if world and world.mapDataByVersionAndId and world.mapDataByVersionAndId[self.versionId] then
+          mapData = world.mapDataByVersionAndId[self.versionId][mapIdOrSymbol]
+        end
+        return mapData
+            and {
+              music = mapData.music,
+              soundplates = mapData.soundplates,
+            }
+          or nil
       end,
       outputHost = self.audioOutput,
     })
@@ -779,12 +773,7 @@ function FieldRuntime:_composeAudio(cacheFs)
     if audioService == nil then
       audioService = self.audio
     end
-    local reference = mapHeaderMusic(self.runtimeMap, self.mapMusicDayNight)
-    if reference ~= nil then
-      self.audio:playMusic(reference)
-    else
-      self.audio:stopMusic()
-    end
+    self.audio:enterMap(self.runtimeMap, { play = true })
   end
   assert(audioService ~= nil, "field runtime audio composition must produce a service")
   return audioService
@@ -911,18 +900,11 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
   self.session.currentMap = runtimeMap
   self.session.player = prepared.player
   self.session.camera = prepared.camera
-  -- The map-music policy follows the destination map: the plain day/night
-  -- lookup over the destination's generated field record feeds the
-  -- composition, which starts the destination's music (replacing the old
-  -- map's BGM on the shared BGM player), so a warp never leaves the source
-  -- map's music orphaned.
+  -- The map-music policy follows the destination map through FieldAudioController.
+  -- enterMap updates the policy, clears the persisted override, and starts the
+  -- destination's music.
   if self.audio then
-    local reference = mapHeaderMusic(runtimeMap, self.mapMusicDayNight)
-    if reference ~= nil then
-      self.audio:playMusic(reference)
-    else
-      self.audio:stopMusic()
-    end
+    self.audio:enterMap(runtimeMap, { clearMusicOverride = true, play = true })
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
 end
