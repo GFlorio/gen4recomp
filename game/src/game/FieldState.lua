@@ -88,8 +88,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     worldParts = {},
   }, FieldState)
   local ok, err = pcall(function()
-    self.renderer =
-      MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR, rasterScale = WindowConfig.WORLD_RASTER_SCALE })
+    self.renderer = MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR })
     -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
     -- text all draw through it; the state owns and releases it exactly once.
     self.textRenderer = FieldTextRenderer.new({ cacheFs = runtime.cacheFs })

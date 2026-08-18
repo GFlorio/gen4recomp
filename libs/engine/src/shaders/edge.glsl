@@ -1,10 +1,21 @@
-// DS final composite pass, run as a full-screen pass over the finalState
-// target written by map.glsl (red edge polygon ID, green DS-quantized depth,
-// blue per-polygon fog gate, alpha validity). It performs, in order, edge
-// marking (replacing scene RGB outright when a pixel is a marked silhouette)
-// and then fog (blending the -- possibly edge-replaced -- color against the
-// scene's global weather fog), matching GBATEK's "3D Display" ordering: edge
-// marking first, fog over the whole composited result second.
+// DS final composite pass, run as a full-screen pass over the high-resolution
+// sceneColor target (map.glsl's color-only output) and the separate,
+// DS-pixel-density dsState target (state.glsl's semantic output: red edge
+// polygon ID, green DS-quantized depth, blue per-polygon fog gate, alpha
+// validity). It performs, in order, edge marking (replacing scene RGB
+// outright when a pixel is a marked silhouette), then HGSS field
+// anti-aliasing's coverage approximation (mixing that replacement 50/50 with
+// the underlying scene color -- see u_antialiasEnabled below), then fog
+// (blending the result against the scene's global weather fog), matching
+// GBATEK's "3D Display" ordering: edge marking first, fog over the whole
+// composited result second.
+//
+// The two targets are different resolutions by design (spec: color renders at
+// the full presentation viewport, DS semantic state at one DS-pixel-density
+// raster) -- semanticUv/semanticSample below map every high-resolution
+// fragment to its one owning semantic texel, snapped explicitly rather than
+// relying on the sampler's own filtering/clamp behavior, so the edge and fog
+// reads are exact regardless of how much larger the color target is.
 //
 // GBATEK ("4000330h..33Fh - EDGE_COLOR") defines the edge rule: a pixel is
 // marked when at least one of its four surrounding pixels (up, down, left,
@@ -16,7 +27,7 @@
 // marked pixel's own ID, indexed as id >> 3. The depth comparison is a strict
 // integer-domain inequality, never a tolerance-scaled float heuristic.
 //
-// The green channel holds the DS-quantized W-buffer depth map.glsl computes
+// The green channel holds the DS-quantized W-buffer depth state.glsl computes
 // (see its dsWbufferDepth) rather than raw window Z: a perspective near/far of
 // 0.1/400 crushes window Z to ~0.993 across the whole field, so silhouette
 // steps for anything but very close geometry would fall below any usable
@@ -30,16 +41,22 @@
 // approximate depth.
 //
 // Only opaque geometry participates in edge marking -- "Edge Marking is
-// applied ONLY to opaque polygons (including wire-frames)". Translucent draws
-// leave finalState untouched (MapRenderer's translucent pass binds a
-// narrower target set that omits it), so this pass never observes a
-// translucent fragment's own id/depth/fog gate.
+// applied ONLY to opaque polygons (including wire-frames)". Ordinary
+// translucent and mixed-translucent draws never touch dsState (MapRenderer's
+// semantic pass only draws opaque/cutout/mixed-opaque/wireframe), so this
+// pass never observes a translucent fragment's own id/depth/fog gate.
 //
-// Hardware marks a single 256x192 pixel. u_edgeRadius rescales that to the
-// current framebuffer so the outline keeps its DS-relative weight.
+// Edge width is exactly one semantic texel (dsTexel = 1/u_dsSize), regardless
+// of the color target's host resolution -- there is no radius/scale knob:
+// hardware marks one DS pixel, and the semantic raster already sits at DS
+// pixel density, so a fixed one-texel offset reproduces that directly.
 //
 // Edge compositing replaces scene RGB outright (hardware behavior) rather than
-// alpha-mixing with it; there is no alpha-mix uniform on this path.
+// alpha-mixing with it; there is no alpha-mix uniform on this path. HGSS field
+// rendering additionally enables 3D anti-aliasing (G3X_AntiAlias(TRUE)), which
+// melonDS's software renderer approximates as 50% coverage at a marked edge
+// (3DFinalPassEdgeFS.glsl); u_antialiasEnabled selects that coverage mix vs.
+// the flat replacement, per spec -- not a stylistic opacity tweak.
 //
 // Fog (melonDS src/GPU3D_Soft.cpp, SoftRenderer3D::CalculateFogDensity and the
 // post-density blend in SoftRenderer3D::RenderPixel; see tests/support/DsFog.lua
@@ -60,12 +77,10 @@
 // required once this alpha is meaningful).
 
 #ifdef PIXEL
-uniform Image u_idTex;
-uniform vec2 u_texelSize;
+uniform Image u_dsState;
+uniform vec2 u_dsSize; // the semantic target's actual width/height (not its reciprocal)
 uniform vec3 u_edgeColors[8];
-uniform int u_edgeRadius;
-
-const int MAX_EDGE_RADIUS = 8;
+uniform bool u_antialiasEnabled;
 
 // HGSS's real clear/rear-plane polygon ID and the domain maximum every real
 // draw's u_polygonId is normalized by (MapRenderer.CLEAR_POLYGON_ID; see
@@ -73,9 +88,40 @@ const int MAX_EDGE_RADIUS = 8;
 // silently drift apart.
 const float CLEAR_POLYGON_ID = 63.0;
 
+// Snap a full-resolution color-space UV to the center of the one semantic
+// texel it falls in, so the sample is exact regardless of how much finer the
+// color target's resolution is than the semantic raster -- never left to the
+// sampler's own filtering/clamp behavior (spec: "do not rely on texture clamp
+// behavior for this").
+vec2 semanticUv(vec2 uv)
+{
+  vec2 clamped = clamp(uv, vec2(0.0), vec2(1.0) - 0.5 / u_dsSize);
+  vec2 pixel = floor(clamped * u_dsSize);
+  return (pixel + vec2(0.5)) / u_dsSize;
+}
+
+// The rear-plane semantic state (MapRenderer.DS_STATE_CLEAR): polygon id 63
+// (the real HGSS clear/rear-plane id, not an out-of-domain sentinel), the
+// farthest quantized depth, and no fog gate. Used for any semantic sample
+// that falls outside the logical screen -- a neighbor probe past the screen
+// edge must behave like the rear plane, not like a clamped copy of the
+// center pixel (which would suppress a silhouette at the screen boundary).
+vec3 rearPlaneState()
+{
+  return vec3(1.0, 16777215.0, 0.0);
+}
+
+vec3 semanticSample(vec2 uv)
+{
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0) {
+    return rearPlaneState();
+  }
+  return Texel(u_dsState, semanticUv(uv)).rgb;
+}
+
 bool marked(vec2 uv, vec2 offset, float centerId, float centerDepth)
 {
-  vec3 neighborSample = Texel(u_idTex, uv + offset).rgb;
+  vec3 neighborSample = semanticSample(uv + offset);
   bool differentId = abs(neighborSample.r - centerId) > 0.5 / CLEAR_POLYGON_ID;
   // Strictly less, no tolerance -- the marked pixel must be in front.
   bool centerInFront = centerDepth < neighborSample.g;
@@ -186,7 +232,7 @@ float fogBlendComponent(float component, float fogComponent, float density)
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
 {
   vec4 scene = Texel(tex, uv);
-  vec3 center = Texel(u_idTex, uv).rgb;
+  vec3 center = semanticSample(uv);
   float centerId = center.r;
   float centerDepth = center.g;
   float centerFogGate = center.b;
@@ -199,26 +245,23 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
   // malformed upstream data, not a sentinel check -- well-formed input can
   // never reach it. Malformed data skips both edge marking and fog.
   if (centerPolygonId <= int(CLEAR_POLYGON_ID)) {
-    bool edge = false;
-    for (int i = 1; i <= MAX_EDGE_RADIUS; i++) {
-      if (i > u_edgeRadius) break;
-      float step = float(i);
-      vec2 dx = vec2(u_texelSize.x * step, 0.0);
-      vec2 dy = vec2(0.0, u_texelSize.y * step);
-      if (marked(uv, dx, centerId, centerDepth)
-        || marked(uv, -dx, centerId, centerDepth)
-        || marked(uv, dy, centerId, centerDepth)
-        || marked(uv, -dy, centerId, centerDepth)) {
-        edge = true;
-        break;
-      }
-    }
+    vec2 dsTexel = 1.0 / u_dsSize;
+    vec2 dx = vec2(dsTexel.x, 0.0);
+    vec2 dy = vec2(0.0, dsTexel.y);
+    bool edge =
+      marked(uv, dx, centerId, centerDepth)
+      || marked(uv, -dx, centerId, centerDepth)
+      || marked(uv, dy, centerId, centerDepth)
+      || marked(uv, -dy, centerId, centerDepth);
 
     if (edge) {
       vec3 edgeColor = u_edgeColors[centerPolygonId / 8];
-      // DS hardware edge compositing replaces RGB outright; it does not
-      // alpha-mix with the scene color.
-      outColor = vec4(edgeColor, scene.a);
+      // DS hardware edge compositing replaces RGB outright, but HGSS field
+      // rendering's 3D anti-aliasing approximates 50% coverage at a marked
+      // edge (see file header); u_antialiasEnabled selects between the two,
+      // never a tuned/arbitrary blend factor.
+      vec3 replacedRgb = u_antialiasEnabled ? mix(scene.rgb, edgeColor, 0.5) : edgeColor;
+      outColor = vec4(replacedRgb, scene.a);
     }
 
     // Post-edge fog: both the global and per-polygon gates must be set,

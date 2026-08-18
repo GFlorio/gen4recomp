@@ -1,9 +1,12 @@
-// DS-shaped map/building shader. The vertex stage resolves each vertex's color
-// source (literal COLOR, field-profile diffuse, or NORMAL lighting), computes
-// DS lighting in camera/vector space, and forwards the resulting RGB. The pixel
-// stage samples the texture, applies the exact DS MODULATE/DECAL combiner, and
-// discards alpha-zero fragments for cutout draws. No fake directional light or
-// second diffuse multiplication remains.
+// DS-shaped map/building shader. Color-only output: the vertex stage resolves
+// each vertex's color source (literal COLOR, field-profile diffuse, or NORMAL
+// lighting), computes DS lighting in camera/vector space, and forwards the
+// resulting RGB. The pixel stage samples the texture, applies the exact DS
+// MODULATE/DECAL combiner, and discards fragments per the exact-alpha5
+// fragment-pass predicate (u_fragmentPass). No fake directional light or
+// second diffuse multiplication remains. This shader owns no DS semantic
+// state (polygon ID, quantized depth, fog gate) -- state.glsl's semantic pass
+// writes that independently, at DS-pixel density, into its own target.
 //
 // The vertex-lighting algebra below (computeDsLighting, dsLightContribution,
 // quantizeVectorFx, signExtend, dotDiscardingPerComponent) is a direct GLSL
@@ -40,10 +43,9 @@
 //
 // Fog is entirely a final-pass concern (GBATEK "3D Display - Fog": edge
 // marking, then fog, over the whole composited scene) -- this shader owns no
-// fog uniform. It still stamps this draw's own POLYGON_ATTR FOG_ENABLE bit
-// (u_polygonFogEnabled, PolygonState's fogEnabled field) into finalState's
-// blue channel, the only per-polygon signal the final pass needs to gate its
-// own fog blend.
+// fog uniform, and (since this refactor) no per-polygon fog-gate output
+// either; state.glsl's semantic pass carries POLYGON_ATTR FOG_ENABLE into its
+// own target instead.
 
 varying vec3 v_dsColor;
 
@@ -235,17 +237,13 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
 
 #ifdef PIXEL
 uniform bool u_useTexture;
-uniform int u_alphaMode;       // 0 opaque, 1 cutout, 2 translucent
-uniform float u_alphaCutoff;
+// 0 opaque, 1 cutout, 2 translucent, 3 mixed opaque, 4 mixed translucent --
+// see the exact alpha5 discard predicates below.
+uniform int u_fragmentPass;
 uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
-uniform float u_polygonId;     // normalized 6-bit polygon ID (id / 63), HGSS clear id 63 -> 1.0
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
-
-// This draw's own POLYGON_ATTR FOG_ENABLE bit (see file header); the final
-// pass reads it back out of finalState's blue channel.
-uniform bool u_polygonFogEnabled;
 
 // 5-bit (0-31) color component -> the combiner's 6-bit (0-63) domain
 // (melonDS GPU3D_Soft.cpp color conversion): 0 stays 0, any non-zero n
@@ -290,31 +288,12 @@ vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
   return floor((texture6 * textureAlpha5 + vertex6 * (31.0 - textureAlpha5)) / 32.0);
 }
 
-// Approximate DS W-buffer depth proxy: gl_FragCoord.w is 1/clip.w and clip.w
-// IS the eye-space distance, so 1/w is the linear depth in world units. It is
-// normalized against the active camera's own far clipping plane (u_depthWMax,
-// sent once per frame by MapRenderer) and truncated into the 24-bit integer
-// domain both DS depth-buffer modes share, stored as a float (exactly
-// representable: float32's 24-bit mantissa covers the full 0..0xFFFFFF
-// range). This is an ordering/edge-marking proxy, not a reproduction of the
-// DS's own W-buffer value: melonDS normalizes its real DepthBuffer per
-// polygon by that polygon's own clip-space W bit-width
-// (GPU3D::SubmitPolygon's wsize), a data-dependent quantity this
-// camera-relative, per-frame normalization cannot express. The edge shader
-// compares this value with a strict integer-domain inequality (correct for
-// ordering, since it is monotonic in eye depth), never a tolerance-scaled
-// float heuristic; the final pass's fog density interpolation also reads it,
-// which is why fog's absolute boundaries are approximate even though the
-// interpolation math applied to this depth is exact (see edge.glsl and
-// docs/rendering.md).
-uniform float u_depthWMax;
-const float DS_DEPTH_MAX = 16777215.0; // 0xFFFFFF, the 24-bit quantized-depth domain max
-
-float dsWbufferDepth(float linearEyeDepth)
-{
-  float fraction = clamp(linearEyeDepth / u_depthWMax, 0.0, 1.0);
-  return floor(fraction * DS_DEPTH_MAX);
-}
+// The DS-quantized W-buffer depth proxy (formerly computed here for
+// finalState's green channel) is now exclusively state.glsl's concern -- see
+// that shader's dsWbufferDepth for the full derivation. Color output alone
+// has no use for it: the color pass's own depth test/write uses the host
+// depth buffer (colorDepth) directly via the ordinary rasterizer depth, not
+// this quantized proxy.
 
 void effect()
 {
@@ -343,23 +322,22 @@ void effect()
     outRgb6 = modulateRgb6(texture6, vertex6);
     outputAlpha5 = int(floor(float((int(textureAlpha5) + 1) * (polygonAlpha5 + 1) - 1) / 32.0));
   }
-  float dsDepth = dsWbufferDepth(1.0 / gl_FragCoord.w);
+  // Exact integer-domain alpha5 discard predicates -- never a float-epsilon
+  // comparison once outputAlpha5 is already computed exactly (spec: mixed
+  // materials split their opaque and translucent texels by this exact value).
+  if (u_fragmentPass == 1) {
+    if (outputAlpha5 == 0) discard;
+  } else if (u_fragmentPass == 2) {
+    if (outputAlpha5 == 0) discard;
+  } else if (u_fragmentPass == 3) {
+    if (outputAlpha5 != 31) discard;
+  } else if (u_fragmentPass == 4) {
+    if (outputAlpha5 == 0 || outputAlpha5 == 31) discard;
+  }
 
   vec3 outRgb = outRgb6 / 63.0;
   float alpha = float(outputAlpha5) / 31.0;
 
-  if (u_alphaMode == 1 && alpha < u_alphaCutoff) {
-    discard;
-  }
-
   love_Canvases[0] = vec4(outRgb, alpha);
-  // finalState: red the normalized edge polygon ID (the fragment's own real
-  // ID -- translucent fragments included, never a sentinel). Green the
-  // DS-quantized W-buffer depth (see dsWbufferDepth above); perspective
-  // window Z is too crushed at this near/far to resolve short-object
-  // silhouettes, hence the linear domain. Blue this draw's own per-polygon
-  // fog gate (POLYGON_ATTR FOG_ENABLE, u_polygonFogEnabled). Alpha
-  // validity/reserved, always 1 for a fragment that reaches this point.
-  love_Canvases[1] = vec4(u_polygonId, dsDepth, u_polygonFogEnabled ? 1.0 : 0.0, 1.0);
 }
 #endif
