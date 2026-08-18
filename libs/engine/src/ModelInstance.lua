@@ -128,7 +128,8 @@ local function baseMaterialState(material)
     texMatrix = IDENTITY_TEX_MATRIX,
   }
   if material.textureFormat ~= nil then
-    state.alphaClass = AlphaClassifier.classify(state.polygonAlpha, material.textureFormat, material.alphaUsage)
+    state.alphaClass =
+      AlphaClassifier.classify(state.polygonAlpha, material.polygonMode, material.textureFormat, material.alphaUsage)
   else
     state.alphaClass = ALPHA_CLASS[material.alphaMode]
   end

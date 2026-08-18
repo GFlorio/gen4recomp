@@ -22,13 +22,13 @@ function T.contract_pins_the_current_asset_identities()
     revision = 2,
     map = {
       cacheFormat = "map-cache-v7",
-      sceneSchema = "g4-map-scene-v6",
+      sceneSchema = "g4-map-scene-v7",
       terrainSchema = "g4-terrain-surfaces-v1",
       collisionVersion = 1,
     },
     fieldActors = {
       cacheFormat = "field-actor-cache-v1",
-      schema = "g4-field-actor-v1",
+      schema = "g4-field-actor-v2",
       indexSchema = "g4-field-actor-index-v1",
     },
     fieldCamera = {

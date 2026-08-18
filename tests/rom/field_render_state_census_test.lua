@@ -130,7 +130,8 @@ local function foldFieldMaterials(tally, materials, texPack)
       tally.mirroredRepeatCount = tally.mirroredRepeatCount + 1
     end
     local alphaUsage = compiledMat.texture and compiled.textures[compiledMat.texture].alphaUsage or nil
-    local alphaClass = AlphaClassifier.classify(poly.polygonAlpha, compiledMat.textureFormat or 0, alphaUsage)
+    local alphaClass =
+      AlphaClassifier.classify(poly.polygonAlpha, poly.polygonMode, compiledMat.textureFormat or 0, alphaUsage)
     bump(tally.alphaClass, alphaClass)
     bump(tally.alphaClassByFogEnabled, alphaClass .. ":" .. tostring(poly.fogEnabled))
     bump(tally.alphaClassByTranslucentDepthWrite, alphaClass .. ":" .. tostring(poly.translucentDepthWrite))

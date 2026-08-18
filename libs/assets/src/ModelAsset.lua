@@ -32,7 +32,11 @@ local ModelAsset = {}
 
 -- v3: every batch record carries fogEnabled (PolygonState.FIELDS), the
 -- per-polygon fog gate the map shader now reads.
-ModelAsset.SCHEMA = "g4-model-v3"
+--
+-- v4: every dynamic material record carries polygonMode (the real decoded DS
+-- polygon mode), so the runtime evaluator can classify final alpha
+-- (AlphaClassifier v2) without a placeholder mode.
+ModelAsset.SCHEMA = "g4-model-v4"
 ModelAsset.KINDS = { static = true, ["nitro-dynamic"] = true }
 
 -- Structured error code owned by this module.
@@ -49,6 +53,10 @@ local WRAP_MODES = { clamp = true, ["repeat"] = true }
 
 -- The render classification vocabulary of the dynamic material contract.
 local ALPHA_MODES = { opaque = true, mask = true, blend = true }
+
+-- The DS polygon modes the dynamic compiler emits (NsbmdDynamicModel); toon
+-- and shadow never reach an animated material.
+local DYNAMIC_POLYGON_MODES = { modulation = true, decal = true }
 
 local function invalid(reason, context)
   Errors.raise(ModelAsset.ERROR_INVALID, "model descriptor is malformed: " .. reason, {
@@ -220,6 +228,9 @@ local function checkDynamicMaterial(m, where, desc)
   checkColors(m, where, desc, true)
   if not ALPHA_MODES[m.alphaMode] then
     invalid(where .. " material alphaMode must be opaque, mask, or blend", desc.key)
+  end
+  if not DYNAMIC_POLYGON_MODES[m.polygonMode] then
+    invalid(where .. " material polygonMode must be modulation or decal", desc.key)
   end
   if type(m.doubleSided) ~= "boolean" then
     invalid(where .. " material doubleSided must be a boolean", desc.key)

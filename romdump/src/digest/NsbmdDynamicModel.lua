@@ -4,8 +4,8 @@
 --   result = {
 --     program = <NsbmdTransformProgram>,        -- the pose evaluator's input
 --     meshes = <MeshCompiler.compileDynamic>,   -- per-draw-segment geometry
---     materials = { { id, name, baseColor, colors, alphaMode, doubleSided,
---       polygonAlpha, texMtxMode, srt, texWidth, texHeight } },
+--     materials = { { id, name, baseColor, colors, alphaMode, polygonMode,
+--       doubleSided, polygonAlpha, texMtxMode, srt, texWidth, texHeight } },
 --   }
 --
 -- The meshes carry their transform sources ("draw" or a matrix-stack slot)
@@ -66,6 +66,7 @@ local function baseMaterial(mat, texMtxMode)
       emission = channel(resolved.colors.emission),
     },
     alphaMode = poly.polygonAlpha < FixedPoint.RGB5_MAX and "blend" or "opaque",
+    polygonMode = poly.polygonMode,
     doubleSided = poly.cullMode ~= "back",
     polygonAlpha = poly.polygonAlpha,
     texMtxMode = texture.texMtxMode,

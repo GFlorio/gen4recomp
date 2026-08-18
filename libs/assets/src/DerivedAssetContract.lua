@@ -11,6 +11,16 @@
 -- keyCount/numTextures/numPalettes counts (sampler and gate trust the
 -- arrays).
 --
+-- map sceneSchema 7: map/neighbor terrain batches can now serialize
+-- alphaClass = "mixed" (AlphaClassifier v2: a MODULATE polygon at alpha 31
+-- with both opaque and partial texture alpha texels splits into an opaque
+-- and a translucent subpass instead of being forced wholly translucent).
+--
+-- fieldActors schema 2: the visual definition's render.alphaClass now comes
+-- from AlphaClassifier v2 (polygon-mode-aware, final-alpha-driven
+-- classification); the vocabulary a stale v1 cache could have baked in is
+-- no longer trustworthy.
+--
 -- fieldUi schema 5: signposts.types entries gain per-type palette banks
 -- (one 16-color table per source type) and per-type frameTiles rectangles.
 -- The old global signposts.frame.tiles authority is removed. Each type's
@@ -47,14 +57,14 @@ DerivedAssetContract.map = {
   -- the per-polygon fog gate (fogEnabled, PolygonState.FIELDS), and scenes
   -- carry the map's base weather ID plus its resolved global HGSS fog preset
   -- (scene.weatherId, scene.fog).
-  sceneSchema = "g4-map-scene-v6",
+  sceneSchema = "g4-map-scene-v7",
   terrainSchema = "g4-terrain-surfaces-v1",
   collisionVersion = 1,
 }
 
 DerivedAssetContract.fieldActors = {
   cacheFormat = "field-actor-cache-v1",
-  schema = "g4-field-actor-v1",
+  schema = "g4-field-actor-v2",
   indexSchema = "g4-field-actor-index-v1",
 }
 

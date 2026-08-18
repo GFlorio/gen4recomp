@@ -42,6 +42,7 @@ local function dynamicMaterial()
       emission = { r = 0, g = 0, b = 0 },
     },
     alphaMode = "opaque",
+    polygonMode = "modulation",
     doubleSided = false,
     polygonAlpha = 31,
     texMtxMode = 0,
@@ -218,6 +219,7 @@ local function emittedDynamicMaterial()
     name = "wall",
     baseColor = { r = 255, g = 255, b = 255, a = 255 },
     alphaMode = "opaque",
+    polygonMode = "modulation",
     doubleSided = false,
     polygonAlpha = 31,
     texMtxMode = 0,
@@ -543,6 +545,30 @@ function T.validate_rejects_a_dynamic_material_with_an_unknown_alpha_mode()
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
+end
+
+-- polygonMode is the real decoded DS polygon mode (AlphaClassifier needs it
+-- at runtime to classify animated materials without a placeholder mode).
+function T.validate_rejects_a_dynamic_material_missing_polygon_mode()
+  local desc = emittedDynamicDescriptor()
+  desc.materials[1].polygonMode = nil
+  throwsCode(ModelAsset.ERROR_INVALID, function()
+    ModelAsset.validate(desc)
+  end)
+end
+
+function T.validate_rejects_a_dynamic_material_with_an_unsupported_polygon_mode()
+  local desc = emittedDynamicDescriptor()
+  desc.materials[1].polygonMode = "toon"
+  throwsCode(ModelAsset.ERROR_INVALID, function()
+    ModelAsset.validate(desc)
+  end)
+end
+
+function T.validate_accepts_a_decal_dynamic_material()
+  local desc = emittedDynamicDescriptor()
+  desc.materials[1].polygonMode = "decal"
+  Assert.equal(ModelAsset.validate(desc), desc)
 end
 
 function T.validate_rejects_a_dynamic_material_missing_tex_dimensions()

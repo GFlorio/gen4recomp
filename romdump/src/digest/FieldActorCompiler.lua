@@ -1,5 +1,5 @@
 -- Compiles every field-actor sprite referenced by the map catalog into normalized
--- `g4-field-actor-v1`
+-- `g4-field-actor-v2`
 -- visual definitions plus one private RGBA atlas each.
 --
 -- Ordinary actors use a shared camera-facing billboard and timeline. Static
