@@ -2,7 +2,8 @@
 -- pret/pokeheartgold. Flag-driven map-music overrides come from
 -- src/sys_flags.c, the surfing traversal override from FieldBGM_GetEffective in
 -- src/field_bgm.c, and the soundplate sequence/field-music-bank table,
--- ambient volume table, and BGM duck targets from src/field/field_control.c.
+-- ambient volume table, BGM duck targets, and per-sound disable rules from
+-- src/field/field_control.c (FieldSystem_SoundplateIsActive).
 -- Producer-only reference data: the runtime must never require this module.
 
 return {
@@ -31,7 +32,9 @@ return {
   -- The sixteen src/field/field_control.c soundplate sound types. ambientLevels
   -- is the far/mid/close volume triple indexed by the plate's volumeIndex
   -- (levels[volumeIndex + 1]); useFieldMusicBank=true plates borrow the field
-  -- BGM bank instead of their own.
+  -- BGM bank instead of their own. A plate carrying disableWhen = { flagId,
+  -- map? } is gated by that event-state flag: a map-scoped rule applies only
+  -- on its named map, an unscoped rule on every map carrying the sound.
   soundplates = {
     {
       kind = "water_flow",
@@ -43,7 +46,13 @@ return {
     { kind = "seashore", sequence = "SEQ_SE_GS_N_UMIBE", useFieldMusicBank = false, ambientLevels = { 46, 96, 127 } },
     { kind = "pillar", sequence = "SEQ_SE_GS_N_HASHIRA", useFieldMusicBank = true, ambientLevels = { 64, 96, 127 } },
     { kind = "whirlpool", sequence = "SEQ_SE_GS_N_UZUSIO", useFieldMusicBank = false, ambientLevels = { 46, 64, 96 } },
-    { kind = "waterfall", sequence = "SEQ_SE_GS_N_TAKI", useFieldMusicBank = false, ambientLevels = { 64, 96, 108 } },
+    {
+      kind = "waterfall",
+      sequence = "SEQ_SE_GS_N_TAKI",
+      useFieldMusicBank = false,
+      ambientLevels = { 64, 96, 108 },
+      disableWhen = { flagId = 0x981, map = "MAP_CIANWOOD_GYM" },
+    },
     { kind = "lava", sequence = "SEQ_SE_GS_N_YOUGAN", useFieldMusicBank = true, ambientLevels = { 46, 96, 108 } },
     { kind = "cheers", sequence = "SEQ_SE_GS_N_KANSEI", useFieldMusicBank = false, ambientLevels = { 46, 96, 127 } },
     {
@@ -57,8 +66,15 @@ return {
       sequence = "SEQ_SE_GS_KABIGON_IBIKI",
       useFieldMusicBank = true,
       ambientLevels = { 46, 96, 127 },
+      disableWhen = { flagId = 0xF9 },
     },
-    { kind = "motor", sequence = "SEQ_SE_GS_N_MOTER", useFieldMusicBank = true, ambientLevels = { 46, 96, 127 } },
+    {
+      kind = "motor",
+      sequence = "SEQ_SE_GS_N_MOTER",
+      useFieldMusicBank = true,
+      ambientLevels = { 46, 96, 127 },
+      disableWhen = { flagId = 0xCA },
+    },
     { kind = "bells", sequence = "SEQ_SE_GS_N_KANE", useFieldMusicBank = true, ambientLevels = { 46, 72, 108 } },
     { kind = "strong_wind", sequence = "SEQ_SE_GS_KYOUHUU", useFieldMusicBank = true, ambientLevels = { 46, 96, 127 } },
     { kind = "engine", sequence = "SEQ_SE_GS_N_ENGINE", useFieldMusicBank = true, ambientLevels = { 46, 96, 127 } },
@@ -68,6 +84,7 @@ return {
       sequence = "SEQ_SE_GS_DENGEKIBARIA",
       useFieldMusicBank = false,
       ambientLevels = { 46, 96, 127 },
+      disableWhen = { flagId = 0x9A6, map = "MAP_VERMILION_GYM" },
     },
   },
   -- Source field-BGM duck targets per plate volumeIndex (bgmTarget = bgmDuckTargets[volumeIndex + 1]).

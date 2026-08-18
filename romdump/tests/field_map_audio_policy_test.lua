@@ -30,29 +30,22 @@ local function compileOk(payload, map)
   return assert(bundle)
 end
 
--- The four source disable scopes of FieldSystem_SoundplateIsActive (field
--- control): the Cianwood waterfall and Vermilion electric barrier are scoped to
--- their gym map plus the specific sequence; Snorlax snoring and the Rocket
--- Hideout motor are gated by sound alone, on every map that carries the plate.
+-- The disable scope of FieldSystem_SoundplateIsActive, derived from the single
+-- frozen reference authority (field_audio.lua): each soundplate entry carries
+-- its disableWhen {flagId, map?} metadata -- a map-scoped rule applies only on
+-- its named map, an unscoped rule on every map carrying that sound. The tests
+-- never maintain a second copy of the four rule constants.
 local function expectedDisableFlag(id, mapSymbol)
-  if id == 9 then
-    return 0xF9
-  end
-  if id == 10 then
-    return 0xCA
-  end
-  if id == 5 and mapSymbol == "MAP_CIANWOOD_GYM" then
-    return 0x981
-  end
-  if id == 15 and mapSymbol == "MAP_VERMILION_GYM" then
-    return 0x9A6
+  local rule = fieldAudio.soundplates[id + 1].disableWhen
+  if rule ~= nil and (rule.map == nil or rule.map == mapSymbol) then
+    return rule.flagId
   end
   return nil
 end
 
 function T.music_record_carries_day_night_overrides_and_the_surf_traversal_rule()
   local bundle = compileOk("")
-  Assert.equal(bundle.field.schema, "g4-field-map-v4")
+  Assert.equal(bundle.field.schema, "g4-field-map-v5")
   Assert.deepEqual(bundle.field.music, {
     day = "SEQ_GS_T_WAKABA",
     night = "SEQ_GS_T_WAKABA",
@@ -91,13 +84,13 @@ function T.all_sixteen_sounds_compile_semantic_records_without_raw_ids()
       zBounds = 24,
       sequence = ref.sequence,
       useFieldMusicBank = ref.useFieldMusicBank,
-      volumeIndex = 0,
       bgmTarget = fieldAudio.bgmDuckTargets[1],
       ambientTarget = ref.ambientLevels[1],
       disabledWhenFlag = expectedDisableFlag(id, mapSymbol),
     }, "sound id " .. id)
   end
-  Assert.equal(bundle.field.soundplates[1].soundplateSoundID, nil, "a raw sound id never reaches the runtime asset")
+  Assert.isNil(bundle.field.soundplates[1].soundplateSoundID, "a raw sound id never reaches the runtime asset")
+  Assert.isNil(bundle.field.soundplates[1].volumeIndex, "the raw volume index never reaches the runtime asset")
 end
 
 function T.volume_index_emits_duck_and_ambient_targets_or_nothing_above_two()
@@ -117,7 +110,7 @@ function T.volume_index_emits_duck_and_ambient_targets_or_nothing_above_two()
   Assert.equal(ref.sequence, "SEQ_SE_GS_N_HASHIRA")
   for volumeIndex = 0, 3 do
     local plate = bundle.field.soundplates[volumeIndex + 1]
-    Assert.equal(plate.volumeIndex, volumeIndex)
+    Assert.isNil(plate.volumeIndex, "the raw volume index never reaches the runtime asset")
     if volumeIndex >= 3 then
       Assert.isNil(plate.bgmTarget, "volume index " .. volumeIndex .. " emits no bgm duck")
       Assert.isNil(plate.ambientTarget, "volume index " .. volumeIndex .. " emits no ambient move")

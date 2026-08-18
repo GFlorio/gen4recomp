@@ -59,9 +59,13 @@ DerivedAssetContract.fieldMapData = {
   -- The generated field record carries the day/night map-header music block
   -- as canonical audio sequence references (never bare source suffixes), so
   -- the runtime field-music policy reads it directly and never decorates
-  -- symbols. v4 adds the flag/traversal music policy and the semantic
-  -- soundplates array (no raw soundplateSoundID) to the record.
-  fieldSchema = "g4-field-map-v4",
+  -- symbols. v5 drops the source-only volumeIndex from the soundplates
+  -- records: the BGM duck and ambient targets derived from the raw volume
+  -- index are emitted instead (nothing above index two), the disable flag
+  -- comes from the frozen reference rule scoped to the map, and raw
+  -- soundplateSoundID never reaches the record. v4 added the flag/traversal
+  -- music policy and the semantic soundplates array to the record.
+  fieldSchema = "g4-field-map-v5",
 }
 
 DerivedAssetContract.messages = {

@@ -27,26 +27,18 @@ local function canonicalSequence(suffix)
   return "SEQ_" .. suffix
 end
 
--- The four disable rules of FieldSystem_SoundplateIsActive (HGSS
--- src/field/field_control.c): the Cianwood waterfall and Vermilion electric
--- barrier are gated on their gym map plus the sequence; Snorlax snoring and
--- the Rocket Hideout motor are gated by the sound alone on every map that
--- carries the plate. A plate without a matching rule is never disabled.
-local DISABLE_RULES = {
-  { soundId = 5, flagId = 0x981, map = "MAP_CIANWOOD_GYM" },
-  { soundId = 15, flagId = 0x9A6, map = "MAP_VERMILION_GYM" },
-  { soundId = 9, flagId = 0xF9 },
-  { soundId = 10, flagId = 0xCA },
-}
-
----@param soundId integer
+-- The disable flag a soundplate carries on a given map, read from the frozen
+-- sound reference's own disableWhen rule (HGSS field_control.c
+-- FieldSystem_SoundplateIsActive): a map-scoped rule applies only on its named
+-- map, an unscoped rule on every map that carries the sound. A plate whose
+-- reference carries no rule is never disabled.
+---@param ref table
 ---@param mapSymbol string
 ---@return integer|nil
-local function disabledWhenFlag(soundId, mapSymbol)
-  for _, rule in ipairs(DISABLE_RULES) do
-    if rule.soundId == soundId and (rule.map == nil or rule.map == mapSymbol) then
-      return rule.flagId
-    end
+local function disabledWhenFlag(ref, mapSymbol)
+  local rule = ref.disableWhen
+  if rule ~= nil and (rule.map == nil or rule.map == mapSymbol) then
+    return rule.flagId
   end
   return nil
 end
@@ -88,9 +80,10 @@ end
 local VOLUME_INDEX_TARGETS = 3
 
 -- The semantic record for one decoded soundplate: the raw soundplateSoundID
--- never reaches the runtime asset, only the frozen sound-table facts and the
--- BGM duck / ambient targets from the volume index (levels above two emit
--- no volume moves, matching the source's guarded GF_SndHandleMoveVolume).
+-- never reaches the runtime asset, only the frozen sound-table facts, the BGM
+-- duck / ambient targets derived from the volume index (levels above two emit
+-- no volume moves, matching the source's guarded GF_SndHandleMoveVolume), and
+-- the disable flag the reference's own rule scopes to this map.
 ---@param record table
 ---@param ref table
 ---@param mapSymbol string
@@ -103,13 +96,12 @@ local function semanticSoundplate(record, ref, mapSymbol)
     zBounds = record.zBounds,
     sequence = ref.sequence,
     useFieldMusicBank = ref.useFieldMusicBank,
-    volumeIndex = record.volumeIndex,
   }
   if record.volumeIndex < VOLUME_INDEX_TARGETS then
     plate.bgmTarget = fieldAudio.bgmDuckTargets[record.volumeIndex + 1]
     plate.ambientTarget = ref.ambientLevels[record.volumeIndex + 1]
   end
-  plate.disabledWhenFlag = disabledWhenFlag(record.soundplateSoundID, mapSymbol)
+  plate.disabledWhenFlag = disabledWhenFlag(ref, mapSymbol)
   return plate
 end
 

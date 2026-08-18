@@ -36,28 +36,25 @@ local flags = require("romdump.src.reference.hgss.flags")
 
 local SDAT_PATH = "data/sound/gs_sound_data.sdat"
 
--- The four disable rules of FieldSystem_SoundplateIsActive, recomputed here so
--- the census can re-derive each compiled record's expected flag from its sound
--- id and map: the Cianwood waterfall and Vermilion electric barrier are scoped
--- to their gym map plus the sequence; Snorlax snoring and the Rocket Hideout
--- motor are gated by sound alone on every map.
+-- The four disable rules of FieldSystem_SoundplateIsActive, re-derived from the
+-- single frozen reference authority (field_audio.lua): each soundplate entry
+-- carries its disableWhen {flagId, map?} -- a map-scoped rule applies only on
+-- its named map, an unscoped rule on every map carrying that sound. The census
+-- never maintains a second copy of the four rule constants.
 local function expectedDisableFlag(soundId, mapSymbol)
-  if soundId == 9 then
-    return 0xF9
-  end
-  if soundId == 10 then
-    return 0xCA
-  end
-  if soundId == 5 and mapSymbol == "MAP_CIANWOOD_GYM" then
-    return 0x981
-  end
-  if soundId == 15 and mapSymbol == "MAP_VERMILION_GYM" then
-    return 0x9A6
+  local rule = fieldAudio.soundplates[soundId + 1].disableWhen
+  if rule ~= nil and (rule.map == nil or rule.map == mapSymbol) then
+    return rule.flagId
   end
   return nil
 end
 
-local DISABLE_RULE_FLAGS = { [0x981] = true, [0x9A6] = true, [0xF9] = true, [0xCA] = true }
+local DISABLE_RULE_FLAGS = {}
+for _, record in ipairs(fieldAudio.soundplates) do
+  if record.disableWhen ~= nil then
+    DISABLE_RULE_FLAGS[record.disableWhen.flagId] = true
+  end
+end
 
 local T = {}
 local contexts = nil
@@ -207,7 +204,8 @@ function T.every_land_bgs_payload_conforms_and_the_compiled_plates_match_the_sou
               ref.useFieldMusicBank,
               bundle.mapId .. " plate " .. index .. " bank flag"
             )
-            Assert.equal(plate.volumeIndex, raw.volumeIndex, bundle.mapId .. " plate " .. index .. " volume index")
+            Assert.isNil(plate.volumeIndex, bundle.mapId .. " plate " .. index .. " raw volume index leaks")
+            Assert.isNil(plate.soundplateSoundID, bundle.mapId .. " plate " .. index .. " raw sound id leaks")
             volumeIndexes[raw.volumeIndex] = true
             if raw.volumeIndex >= 3 then
               Assert.isNil(plate.bgmTarget, bundle.mapId .. " plate " .. index .. " duck target above the range")

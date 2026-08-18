@@ -273,14 +273,14 @@ end
 
 -- Field-map record collections
 
-local function writeFieldRecord(c, mapId, events, audioPolicy)
+local function writeFieldRecord(c, mapId, events, audioPolicy, schema)
   audioPolicy = audioPolicy
     or {
       music = { day = "SEQ_X", night = "SEQ_X", flagOverrides = {}, traversalOverrides = {} },
       soundplates = {},
     }
   c:writeLua(FieldMapDataCache.fieldPath(mapId), {
-    schema = "g4-field-map-v4",
+    schema = schema or "g4-field-map-v5",
     mapId = mapId,
     mapSymbol = "test",
     events = events,
@@ -313,6 +313,16 @@ function T.field_data_valid_artifact_is_ready()
   local c = cache()
   writeFieldRecord(c, 60, { background = {}, objects = {}, warps = {}, coordinates = {} })
   Assert.isTrue(FieldMapDataCache.isReady(c, 60, "m"))
+end
+
+-- The generated field schema is current-schema-only: a record that is valid in
+-- every other respect but carries the superseded schema identity is stale
+-- generated data and must never read as ready (rebuilding the derived cache is
+-- the only migration; no compatibility reader exists).
+function T.field_data_with_the_superseded_schema_is_not_ready()
+  local c = cache()
+  writeFieldRecord(c, 60, { background = {}, objects = {}, warps = {}, coordinates = {} }, nil, "g4-field-map-v4")
+  Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"), "a stale v4 field record is not current data")
 end
 
 function T.field_data_missing_audio_policy_is_not_ready()

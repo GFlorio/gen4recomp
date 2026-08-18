@@ -42,14 +42,23 @@ local EXPECTED_FLAG_MUSIC = {
 }
 
 -- The source surfing override; ambient levels are the far/mid/close ramp
--- selected by volumeIndex (levels[volumeIndex + 1]).
+-- selected by volumeIndex (levels[volumeIndex + 1]). The four disable rules of
+-- FieldSystem_SoundplateIsActive (field_control.c) ride on their sound entries
+-- as `disableWhen = {flagId, map?}`: a map-scoped rule applies only on its
+-- named gym map, an unscoped rule on every map carrying that sound.
 local EXPECTED_SOUNDPLATES = {
   { kind = "water_flow", sequence = "SEQ_SE_GS_N_SESERAGI", useFieldMusicBank = true, ambientLevels = { 64, 96, 127 } },
   { kind = "windmill", sequence = "SEQ_SE_GS_N_HUUSHA", useFieldMusicBank = false, ambientLevels = { 46, 96, 127 } },
   { kind = "seashore", sequence = "SEQ_SE_GS_N_UMIBE", useFieldMusicBank = false, ambientLevels = { 46, 96, 127 } },
   { kind = "pillar", sequence = "SEQ_SE_GS_N_HASHIRA", useFieldMusicBank = true, ambientLevels = { 64, 96, 127 } },
   { kind = "whirlpool", sequence = "SEQ_SE_GS_N_UZUSIO", useFieldMusicBank = false, ambientLevels = { 46, 64, 96 } },
-  { kind = "waterfall", sequence = "SEQ_SE_GS_N_TAKI", useFieldMusicBank = false, ambientLevels = { 64, 96, 108 } },
+  {
+    kind = "waterfall",
+    sequence = "SEQ_SE_GS_N_TAKI",
+    useFieldMusicBank = false,
+    ambientLevels = { 64, 96, 108 },
+    disableWhen = { flagId = 0x981, map = "MAP_CIANWOOD_GYM" },
+  },
   { kind = "lava", sequence = "SEQ_SE_GS_N_YOUGAN", useFieldMusicBank = true, ambientLevels = { 46, 96, 108 } },
   { kind = "cheers", sequence = "SEQ_SE_GS_N_KANSEI", useFieldMusicBank = false, ambientLevels = { 46, 96, 127 } },
   {
@@ -63,8 +72,15 @@ local EXPECTED_SOUNDPLATES = {
     sequence = "SEQ_SE_GS_KABIGON_IBIKI",
     useFieldMusicBank = true,
     ambientLevels = { 46, 96, 127 },
+    disableWhen = { flagId = 0xF9 },
   },
-  { kind = "motor", sequence = "SEQ_SE_GS_N_MOTER", useFieldMusicBank = true, ambientLevels = { 46, 96, 127 } },
+  {
+    kind = "motor",
+    sequence = "SEQ_SE_GS_N_MOTER",
+    useFieldMusicBank = true,
+    ambientLevels = { 46, 96, 127 },
+    disableWhen = { flagId = 0xCA },
+  },
   { kind = "bells", sequence = "SEQ_SE_GS_N_KANE", useFieldMusicBank = true, ambientLevels = { 46, 72, 108 } },
   { kind = "strong_wind", sequence = "SEQ_SE_GS_KYOUHUU", useFieldMusicBank = true, ambientLevels = { 46, 96, 127 } },
   { kind = "engine", sequence = "SEQ_SE_GS_N_ENGINE", useFieldMusicBank = true, ambientLevels = { 46, 96, 127 } },
@@ -74,6 +90,7 @@ local EXPECTED_SOUNDPLATES = {
     sequence = "SEQ_SE_GS_DENGEKIBARIA",
     useFieldMusicBank = false,
     ambientLevels = { 46, 96, 127 },
+    disableWhen = { flagId = 0x9A6, map = "MAP_VERMILION_GYM" },
   },
 }
 
@@ -107,8 +124,44 @@ function T.soundplate_table_pins_all_sixteen_records()
   end
 end
 
+-- The disable metadata lives only on the four source-gated sounds, carries the
+-- exact flag ids, and every named map scope resolves in the frozen map catalog
+-- (an impossible map name would silently drop the rule otherwise).
+function T.disable_rules_ride_the_frozen_sound_entries()
+  local rules = {}
+  for index, record in ipairs(fieldAudio.soundplates) do
+    local rule = record.disableWhen
+    if rule ~= nil then
+      Assert.notNil(flags.byId[rule.flagId], "unknown flag id 0x" .. string.format("%X", rule.flagId))
+      if rule.map ~= nil then
+        Assert.isTrue(mapSymbols[rule.map], "unknown map symbol " .. rule.map)
+      end
+      rules[index - 1] = { flagId = rule.flagId, map = rule.map }
+    end
+  end
+  Assert.deepEqual(rules, {
+    [5] = { flagId = 0x981, map = "MAP_CIANWOOD_GYM" },
+    [9] = { flagId = 0xF9, map = nil },
+    [10] = { flagId = 0xCA, map = nil },
+    [15] = { flagId = 0x9A6, map = "MAP_VERMILION_GYM" },
+  })
+end
+
 function T.bgm_duck_targets_pin_the_volume_indices()
   Assert.deepEqual(fieldAudio.bgmDuckTargets, { 96, 64, 32 })
+end
+
+-- A disableWhen rule must always name the flag that gates the sound; a rule
+-- without a flagId would silently emit nothing and read as "never disabled".
+function T.disable_rules_always_carry_a_flag()
+  for index, record in ipairs(fieldAudio.soundplates) do
+    if record.disableWhen ~= nil then
+      Assert.notNil(
+        record.disableWhen.flagId,
+        "soundplate " .. (index - 1) .. " (" .. record.kind .. ") disableWhen lacks a flagId"
+      )
+    end
+  end
 end
 
 return { tests = T }

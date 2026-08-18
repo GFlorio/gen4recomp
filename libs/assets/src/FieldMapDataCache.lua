@@ -13,7 +13,9 @@ FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
 
 -- The audio policy the current field-map schema always carries: the music
--- record and the soundplates array.
+-- record and the soundplates array. Soundplate records are runtime-semantic
+-- only (rectangle, sequence, donor-bank flag, derived duck/ambient targets,
+-- optional disable flag); raw source selectors live solely in producer data.
 ---@param field any
 ---@return boolean
 local function hasAudioPolicy(field)
