@@ -215,16 +215,20 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     audioOutput = options.audioOutput,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
-    -- 60 Hz sound-frame accumulator owned by FieldRuntime (spec §H.6)
+    -- The 60 Hz sound-frame accumulator: wall-clock elapsed time the update
+    -- loop converts into due semantic sound frames, one per complete
+    -- 1/60-second interval.
     audioFrameAccumulator = 0,
-    soundFrameCount = 0,  -- for test verification
-    transitionStartCount = 0,  -- for test verification
   }, FieldRuntime)
   self:_load()
   return self
 end
 
 function FieldRuntime:_load()
+  -- The 60 Hz audio accumulator is transient wall-clock state and starts
+  -- clean on every boot: a reset re-boots through _load, so a stale
+  -- pre-reset residue must never carry into the fresh runtime.
+  self.audioFrameAccumulator = 0
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
     self.cacheFs = cacheFs
@@ -422,18 +426,16 @@ function FieldRuntime:_load()
         self:_commitSwap(resolution, facing, prepared)
       end,
       doorAt = doorAt,
-      -- FieldTransition.onStart callback invoked once per transition start
-      -- (spec §H.3, §G.12): invoke field-audio pre-fade for destination music
-      -- mismatch decision.
+      -- FieldTransition.onStart callback invoked once per transition start:
+      -- invoke field-audio pre-fade for destination music mismatch decision.
       onStart = function(sourceMap, trigger, facing)
-        self.transitionStartCount = self.transitionStartCount + 1
         if self.audio then
           self.audio:beginWarp(trigger.warp.destinationMapId)
         end
       end,
       -- Stair SFX callback: FieldRuntime binds the field-audio playSound
       -- hook so stair completion (SEQ_SE_DP_KAIDAN2) emits through the
-      -- production audio service (spec §H.2).
+      -- production audio service.
       playSound = function(soundRef)
         if self.audio then
           self.audio:play(soundRef)
@@ -643,16 +645,19 @@ function FieldRuntime:update(dt)
     self.errorText = tostring(self.applicationHost:error())
   end
 
-  -- 60 Hz sound-frame advancement (spec §H.6): FieldRuntime owns the 60 Hz
-  -- accumulator independent of the field's 30 Hz simulation tick. Advance due
-  -- sound frames in bounded-accumulation fashion to avoid unbounded drifts
-  -- or sound-frame drops under variable dt chunking. Only when the runtime
-  -- has been fully initialized with audio state.
-  if self.audioFrameAccumulator ~= nil then
+  -- 60 Hz sound-frame advancement: FieldRuntime owns the wall-clock audio
+  -- accumulator independent of the field's 30 Hz simulation tick. Add dt to
+  -- the accumulator and invoke the production field-audio service's semantic
+  -- update once per complete 1/60-second interval; the residual fraction
+  -- stays in the accumulator, so identical elapsed time produces identical
+  -- semantic state under any dt chunking. The loop runs only when the
+  -- production audio composition exists (a recording script adapter without
+  -- an audio-output host has no 60 Hz service).
+  if self.audio then
     self.audioFrameAccumulator = self.audioFrameAccumulator + dt
     while self.audioFrameAccumulator >= AUDIO_FRAME_DT do
       self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
-      self.soundFrameCount = self.soundFrameCount + 1
+      self.audio:updateSoundFrame()
     end
   end
 
@@ -794,11 +799,16 @@ function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
       player = self.player,
       dayNight = self.mapMusicDayNight,
       fieldDataForMap = function(mapIdOrSymbol)
+        -- Symbolic map ids resolve through the already loaded world
+        -- manifest's bySymbol index; the field-map record is then read from
+        -- the generated field cache (the one data authority for the audio
+        -- policy the warp pre-fade and soundplate lookups consume).
         local world = cacheFs:loadLua(MapAssetCache.worldPath())
-        local mapData
-        if world and world.mapDataByVersionAndId and world.mapDataByVersionAndId[self.versionId] then
-          mapData = world.mapDataByVersionAndId[self.versionId][mapIdOrSymbol]
+        local mapId = mapIdOrSymbol
+        if type(mapIdOrSymbol) == "string" then
+          mapId = world and world.bySymbol and world.bySymbol[mapIdOrSymbol]
         end
+        local mapData = mapId ~= nil and cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) or nil
         return mapData
             and {
               music = mapData.music,
@@ -813,7 +823,7 @@ function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
     if audioService == nil then
       audioService = self.audio
     end
-    -- Initialize the FieldAudioController with the current map (spec §H.5).
+    -- Initialize the FieldAudioController with the current map.
     -- Fresh boot: no override. Resume: restore the persisted override.
     self.audio:enterMap(self.runtimeMap, {
       play = true,
@@ -837,9 +847,8 @@ function FieldRuntime:saveSession(successText)
     return false
   end
   local ok, err = pcall(function()
-    -- Capture the persisted field-music override from the audio controller
-    -- (spec §H.5, §6.4): world.fieldMusicOverride is game state, not
-    -- transient playback.
+    -- Capture the persisted field-music override from the audio controller:
+    -- world.fieldMusicOverride is game state, not transient playback.
     local world = self.scripts.worldState:capture()
     if self.audio then
       world.fieldMusicOverride = self.audio:musicOverride()

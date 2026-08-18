@@ -263,16 +263,19 @@ function T.required_collaborator_methods_are_validated_at_construction()
   end
 end
 
--- A session with an audio collaborator requires its fixed-tick advancement
--- at construction. The save gate never consults a save-stability predicate
--- (transient audio is discarded on load and the restored wait tasks
--- complete against the fresh service), so a collaborator that only advances
--- is complete. A session without audio has no audio collaborator at all.
-function T.audio_collaborator_requires_only_fixed_tick_advancement()
-  local complete = { updateSoundFrame = function() end }
+-- A session with an audio collaborator requires the field-policy method it
+-- actually invokes at construction. The save gate never consults a
+-- save-stability predicate (transient audio is discarded on load and the
+-- restored wait tasks complete against the fresh service), so a collaborator
+-- that only provides field-policy work is complete. A session without audio
+-- has no audio collaborator at all. The session must never require the 60 Hz
+-- sound-frame method: the wall-clock audio clock is not a session
+-- collaborator.
+function T.audio_collaborator_requires_only_field_policy_advancement()
+  local complete = { updateField = function() end }
   Assert.notNil(FieldSession.new(baseOptions({ audio = complete })))
   local ok, err = pcall(FieldSession.new, baseOptions({ audio = {} }))
-  Assert.isFalse(ok, "a session with audio must require audio.updateSoundFrame: " .. tostring(err))
+  Assert.isFalse(ok, "a session with audio must require audio.updateField: " .. tostring(err))
   Assert.notNil(FieldSession.new(baseOptions({})))
 end
 
@@ -2015,16 +2018,17 @@ function T.a_successful_open_consumes_the_tick_without_stepping_the_world()
   Assert.equal(session.tick, 1)
 end
 
-
 -- The audio collaborator is optional, but a session that has one must
--- advance it once near the start of every fixed tick, before the tick's
--- early returns (transition, dialogue, script lock), so fades, fanfares and
--- post-wait state never stall behind dialogue or movement.
+-- advance its field-policy work once near the start of every fixed tick,
+-- before the tick's early returns (transition, dialogue, script lock), so
+-- soundplate selection and environmental state never stall behind dialogue
+-- or movement. The session owns only this 30 Hz field-policy update: the
+-- 60 Hz sound-frame clock belongs to the runtime.
 function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
   local log = {}
   local state = { transitionLocked = false, dialogueModal = false, scriptLocked = false }
   local audio = {
-    updateSoundFrame = function()
+    updateField = function()
       log[#log + 1] = "audio"
     end,
   }
@@ -2122,6 +2126,89 @@ function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
     end
     Assert.deepEqual(got, order, "the " .. label .. " tick calls audio first, exactly once, and returns early")
   end
+end
+
+-- The field-policy call is the only audio work a session tick owns: an
+-- audio collaborator that records updateField calls and exposes no 60 Hz
+-- sound-frame method proves the session never touches the wall-clock audio
+-- clock, on every tick path including the modal early returns (transition,
+-- dialogue, script lock). The recording collaborator has exactly the
+-- field-policy surface, so a missing-method error is the wrong-owner red,
+-- not a missing fake feature.
+function T.field_policy_runs_once_per_tick_and_never_touches_the_sound_frame_clock()
+  local fieldCalls = 0
+  local state = { transitionLocked = false, dialogueModal = false, scriptLocked = false }
+  local audio = {
+    updateField = function()
+      fieldCalls = fieldCalls + 1
+    end,
+  }
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function(self)
+      self.locked = state.transitionLocked
+    end,
+    start = function()
+      error("idle transition must never start a warp", 2)
+    end,
+  }
+  local map = {
+    mapId = 61,
+    fieldData = { events = { warps = {} } },
+    updateAnimated = function() end,
+  }
+  local dialogue = {
+    isModal = function()
+      return state.dialogueModal
+    end,
+    step = function() end,
+  }
+  local scheduler = {
+    step = function() end,
+    playerMovementLocked = function()
+      return state.scriptLocked
+    end,
+  }
+  local player = {
+    fieldX = 4,
+    fieldZ = 13,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
+  local camera = { updateFixed = function() end }
+  local s = FieldSession.new(baseOptions({
+    audio = audio,
+    currentMap = map,
+    player = player,
+    camera = camera,
+    transition = transition,
+    dialogue = dialogue,
+    scriptScheduler = scheduler,
+  }))
+
+  s:updateFixed({})
+  Assert.equal(fieldCalls, 1, "an ordinary tick runs the field-policy update exactly once")
+  state.transitionLocked = true
+  s:updateFixed({})
+  Assert.equal(fieldCalls, 2, "a locked transition tick still runs the field-policy update")
+  state.transitionLocked = false
+  state.dialogueModal = true
+  s:updateFixed({})
+  Assert.equal(fieldCalls, 3, "a modal-dialogue tick still runs the field-policy update")
+  state.dialogueModal = false
+  state.scriptLocked = true
+  s:updateFixed({})
+  Assert.equal(fieldCalls, 4, "a script-locked tick still runs the field-policy update")
+  state.scriptLocked = false
+  s:updateFixed({})
+  Assert.equal(fieldCalls, 5, "each subsequent tick keeps running the field-policy update once")
 end
 
 return { tests = T }

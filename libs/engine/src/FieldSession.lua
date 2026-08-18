@@ -19,6 +19,10 @@
 -- interactable event is bound, so an unmapped intent is a composition fault.
 -- The resolve service is invoked with the interactions table as self (colon
 -- style), so implementations must declare a leading self parameter.
+--
+-- The session owns no 60 Hz audio timing: its audio collaborator receives
+-- only the field-policy update (`updateField`) once per fixed tick. The 60 Hz
+-- sound-frame clock is the runtime's wall-clock accumulator.
 
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")
@@ -42,7 +46,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
----@field audio { updateFixed: fun(self: table) }?
+---@field audio { updateField: fun(self: table) }?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -64,7 +68,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
----@field audio { updateFixed: fun(self: table) }?
+---@field audio { updateField: fun(self: table) }?
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -120,7 +124,7 @@ function FieldSession.new(options)
   )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
   if options.audio then
-    assert(type(options.audio.updateSoundFrame) == "function", "field session audio update required")
+    assert(type(options.audio.updateField) == "function", "field session audio field-policy update required")
   end
   return setmetatable({
     versionId = options.versionId,
@@ -170,20 +174,14 @@ function FieldSession:_advanceTick()
 end
 
 function FieldSession:updateFixed(inputSnapshot)
-  -- The audio service advances once per field sound frame (60 Hz), before every
-  -- early return (transition, dialogue, script lock), so fades, fanfares
-  -- and post-wait state never stall behind dialogue or movement.
-  -- Note: FieldSession calls this per field tick (30 Hz), but GameSound
-  -- semantics are per sound frame (60 Hz). FieldRuntime will later own
-  -- the 60 Hz accumulation.
+  -- The audio service's field-policy work runs once per fixed field tick,
+  -- before every early return (transition, dialogue, script lock), so
+  -- soundplate selection and environmental state never stall behind modal
+  -- ownership. This is the 30 Hz field-policy update only: the 60 Hz
+  -- sound-frame clock (fades, fanfare post-wait, fader ramps) is owned by
+  -- the runtime, never by the session.
   if self.audio then
-    self.audio:updateSoundFrame()
-    -- Field-audio policy update at 30 Hz: soundplate selection, environmental
-    -- audio state, and gating flags (spec §5.5, §H.7). This is distinct from
-    -- the 60 Hz sound-frame timing (fades, fanfare post-wait, etc.).
-    if type(self.audio.updateField) == "function" then
-      self.audio:updateField()
-    end
+    self.audio:updateField()
   end
   inputSnapshot = inputSnapshot or self.input:snapshot()
   -- The door/stair choreography drives the player during the locked

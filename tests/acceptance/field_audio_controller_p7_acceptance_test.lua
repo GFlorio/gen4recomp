@@ -423,9 +423,11 @@ function T.tests.new_notes_inherit_current_player_fader_through_field_bgm()
     -- Fade to a lower level
     audio:fadeMusicOut({ target = 64, durationTicks = 20 })
 
-    -- Advance the fade partway
+    -- Advance the fade partway at the 60 Hz wall-clock cadence: 10 host
+    -- updates of 1/60 = 10 sound frames (a field tick is 1/30 and would
+    -- advance two frames, so the fade would complete after only 10 ticks).
     for _ = 1, 10 do
-      game:step()
+      game.runtime:update(1 / 60)
     end
 
     -- The fader should be at an intermediate level

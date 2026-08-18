@@ -110,11 +110,7 @@ function T.tests.temporaryMusic_updates_current_music_identity()
     -- P6: TempBGM must update currentMusic to the temp sequence
     audio:temporaryMusic(TEMP_MUSIC)
     local current = audio:currentMusic()
-    Assert.equal(
-      current,
-      musicId(game, TEMP_MUSIC),
-      "temporaryMusic must update currentMusic to the temp sequence ID"
-    )
+    Assert.equal(current, musicId(game, TEMP_MUSIC), "temporaryMusic must update currentMusic to the temp sequence ID")
   end)
 end
 
@@ -125,18 +121,11 @@ function T.tests.stopBGM_after_tempBGM_stops_the_current_temp_identity()
 
     -- Start temp music
     audio:temporaryMusic(TEMP_MUSIC)
-    Assert.equal(
-      audio:currentMusic(),
-      musicId(game, TEMP_MUSIC),
-      "temporaryMusic must set currentMusic"
-    )
+    Assert.equal(audio:currentMusic(), musicId(game, TEMP_MUSIC), "temporaryMusic must set currentMusic")
 
     -- P6: StopBGM must stop the current (temp) identity
     audio:stopMusic()
-    Assert.isNil(
-      audio:currentMusic(),
-      "stopMusic after temporaryMusic must stop the current (temp) identity"
-    )
+    Assert.isNil(audio:currentMusic(), "stopMusic after temporaryMusic must stop the current (temp) identity")
   end)
 end
 
@@ -146,21 +135,12 @@ function T.tests.fadeMusicOut_after_tempBGM_fades_the_current_temp_identity()
 
     -- Start temp music
     audio:temporaryMusic(TEMP_MUSIC)
-    Assert.equal(
-      audio:currentMusic(),
-      musicId(game, TEMP_MUSIC)
-    )
+    Assert.equal(audio:currentMusic(), musicId(game, TEMP_MUSIC))
 
     -- P6: Fade after TempBGM must act on the current (temp) identity
     audio:fadeMusicOut({ target = 0, durationTicks = 20 })
-    Assert.isTrue(
-      audio:isMusicFadeActive(),
-      "fadeMusicOut after temporaryMusic must be active"
-    )
-    Assert.isTrue(
-      audio:isEffectPlaying(TEMP_MUSIC),
-      "temp music player must still be active during fade"
-    )
+    Assert.isTrue(audio:isMusicFadeActive(), "fadeMusicOut after temporaryMusic must be active")
+    Assert.isTrue(audio:isEffectPlaying(TEMP_MUSIC), "temp music player must still be active during fade")
   end)
 end
 
@@ -182,10 +162,7 @@ function T.tests.fanfare_post_wait_is_15_sound_frames_not_field_ticks()
       return not audio:isEffectPlaying(FANFARE_MUSIC)
     end, 240)
 
-    Assert.isTrue(
-      audio:isFanfarePlaying(),
-      "fanfare must still be in post-wait after player finishes"
-    )
+    Assert.isTrue(audio:isFanfarePlaying(), "fanfare must still be in post-wait after player finishes")
 
     -- P6: Post-wait is 15 sound frames at 60 Hz
     -- 15 sound frames = 15/60 = 0.25 seconds = 250 ms
@@ -243,10 +220,7 @@ function T.tests.fanfare_pauses_bgm_and_resumes_after_post_wait()
     -- BGM must be resumed and still playing
     Assert.isFalse(audio:isFanfarePlaying())
     Assert.equal(audio:currentMusic(), bgmId)
-    Assert.isTrue(
-      audio:isEffectPlaying(NEW_BARK_MUSIC),
-      "BGM must be resumed after fanfare post-wait"
-    )
+    Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC), "BGM must be resumed after fanfare post-wait")
   end)
 end
 
@@ -269,30 +243,30 @@ end
 function T.tests.fader_ramp_reaches_target_at_exact_frame_count()
   withProductionAudio(TOWN, day, function(game)
     local audio = requireAudio(game)
-    local bgm = musicId(game, NEW_BARK_MUSIC)
 
     -- Skip the moveSequenceVolume test if not implemented yet
     if type(audio.moveSequenceVolume) ~= "function" then
       return
     end
 
-    -- Start a music fade to 50 over 60 sound frames (1 second)
-    -- At 60 Hz, 60 frames = 1 second
+    -- Start a music fade to 50 over 60 sound frames (1 second at 60 Hz).
     local targetLevel = 50
     local durationFrames = 60
 
-    audio:fadeMusicOut({ target = targetLevel, durationTicks = 60 })
+    audio:fadeMusicOut({ target = targetLevel, durationTicks = durationFrames })
 
-    -- Advance by 59 ticks (less than 60 frames)
-    for _ = 1, 59 do
-      game:step()
+    -- Advance 59 sound frames at the 60 Hz wall-clock cadence: one host
+    -- update per semantic frame (a field tick is 1/30 and would advance two
+    -- frames).
+    for _ = 1, durationFrames - 1 do
+      game.runtime:update(1 / 60)
     end
 
     -- Fade should still be active
     Assert.isTrue(audio:isMusicFadeActive())
 
-    -- Advance one more tick (total 60)
-    game:step()
+    -- Advance the final sound frame (total 60)
+    game.runtime:update(1 / 60)
 
     -- Fade should be complete
     Assert.isFalse(audio:isMusicFadeActive())
@@ -308,12 +282,12 @@ function T.tests.replacing_fader_ramp_from_interpolated_level()
       return
     end
 
-    -- Start fade from 127 to 64 over 20 ticks
+    -- Start fade from 127 to 64 over 20 sound frames
     audio:fadeMusicOut({ target = 64, durationTicks = 20 })
 
-    -- Advance 10 ticks (halfway)
+    -- Advance 10 sound frames (halfway) at the 60 Hz wall-clock cadence
     for _ = 1, 10 do
-      game:step()
+      game.runtime:update(1 / 60)
     end
 
     Assert.isTrue(audio:isMusicFadeActive())
@@ -322,9 +296,9 @@ function T.tests.replacing_fader_ramp_from_interpolated_level()
     -- P6: This should replace the current fade, interpolating from where we are
     audio:fadeMusicOut({ target = 32, durationTicks = 10 })
 
-    -- Advance 10 ticks
+    -- Advance 10 sound frames
     for _ = 1, 10 do
-      game:step()
+      game.runtime:update(1 / 60)
     end
 
     -- New fade should be complete
@@ -348,17 +322,16 @@ function T.tests.stopSequenceWithFade_fades_to_silence_before_stop()
     -- P6: Stop with fade should fade to 0 before stopping
     audio:stopSequenceWithFade(bgmId, 30)
 
-    -- Music should still be "playing" (fading) for the duration
+    -- Music should still be "playing" (fading) for the duration: advance 29
+    -- sound frames at the 60 Hz wall-clock cadence (one host update per
+    -- semantic frame; a field tick is 1/30 and would advance two frames).
     for _ = 1, 29 do
-      game:step()
-      Assert.isTrue(
-        audio:isEffectPlaying(NEW_BARK_MUSIC),
-        "sequence must keep playing while fade-stop is in progress"
-      )
+      game.runtime:update(1 / 60)
+      Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC), "sequence must keep playing while fade-stop is in progress")
     end
 
-    -- After duration, sequence should be stopped
-    game:step()
+    -- After the duration, sequence should be stopped
+    game.runtime:update(1 / 60)
     Assert.isFalse(audio:isEffectPlaying(NEW_BARK_MUSIC))
   end)
 end

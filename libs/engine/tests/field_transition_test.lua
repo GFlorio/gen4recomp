@@ -474,6 +474,7 @@ local function transitionFixture(opts)
   local transition = FieldTransition.new({
     loader = loader,
     doorAt = opts.doorAt,
+    onStart = opts.onStart,
     playSound = function(soundId)
       sounds[#sounds + 1] = soundId
     end,
@@ -1298,6 +1299,43 @@ function T.plain_warps_never_play_the_stair_choreography()
   Assert.equal(transition.sourceKind, "generic")
   Assert.deepEqual(sounds, {}, "plain warps play no stair sound")
   Assert.deepEqual(player.steps, {})
+end
+
+-- The onStart callback fires exactly once per transition start, before any
+-- ownership change (the beginWarp pre-fade hook the runtime binds); a second
+-- start fires it again, and a raising callback aborts the start coherently
+-- (the same pre-commit failure path as destination preparation).
+function T.on_start_callback_fires_once_per_transition_start_before_ownership_changes()
+  local starts = 0
+  local transition, source = transitionFixture({})
+  transition.onStart = function(cbSource, trigger, facing)
+    starts = starts + 1
+    Assert.equal(cbSource, source, "the callback receives the source map")
+    Assert.equal(trigger.warp.x, 4, "the callback receives the warp trigger")
+    Assert.equal(facing, "south", "the callback receives the facing")
+  end
+  transition:start(source, trigger("generic", DOOR_WARP), "south")
+  Assert.equal(starts, 1, "the callback fires exactly once for the first start")
+  -- Complete the first transition back to idle before starting a second one:
+  -- the transition is single-flight, so a second start is legal only after
+  -- the first runs its full fade cycle.
+  runTicks(transition, 2 * FADE + 2)
+  Assert.equal(transition.phase, "idle", "the completed transition returns to idle")
+  transition:start(source, trigger("generic", DOOR_WARP), "south")
+  Assert.equal(starts, 2, "a second start fires the callback again")
+end
+
+function T.a_raising_on_start_callback_aborts_the_start_coherently()
+  local transition, source = transitionFixture({
+    onStart = function()
+      error("injected onStart failure")
+    end,
+  })
+  transition:start(source, trigger("generic", DOOR_WARP), "south")
+  Assert.equal(transition.phase, "idle", "a failed onStart aborts back to idle")
+  Assert.isFalse(transition.locked)
+  Assert.notNil(transition.error, "the abort records the callback failure")
+  Assert.notNil(transition.warpContext, "the abort records the warp context")
 end
 
 return { tests = T }

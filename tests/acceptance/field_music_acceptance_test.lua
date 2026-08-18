@@ -243,10 +243,13 @@ function T.tests.a_fanfare_suspends_the_map_bgm_and_restores_it()
 end
 
 -- A fade-out blocks (the isMusicFadeActive poll the MusicFadeTask
--- waits on) for exactly its requested field ticks; a fade never stops the
--- BGM player (a fade-out to 0 leaves it running silent at the target level),
--- and the matching fade-in ramps the same player back to full without
--- replaying it.
+-- waits on) for exactly its requested sound frames at the 60 Hz wall-clock
+-- cadence; a fade never stops the BGM player (a fade-out to 0 leaves it
+-- running silent at the target level), and the matching fade-in ramps the
+-- same player back to full without replaying it. The durations are sound
+-- frames, so the test drives the runtime's 60 Hz accumulator directly with
+-- 1/60 updates -- one host update per semantic frame, not one field tick
+-- (a field tick is 1/30 and would advance two frames).
 function T.tests.music_fades_block_for_their_requested_durations()
   withProductionAudio(TOWN, day, function(game)
     local audio = requireAudio(game)
@@ -254,10 +257,10 @@ function T.tests.music_fades_block_for_their_requested_durations()
     audio:fadeMusicOut({ target = 0, durationTicks = 30 })
     Assert.isTrue(audio:isMusicFadeActive(), "the fade must be active in its start tick")
     for _ = 1, 29 do
-      game:step()
+      game.runtime:update(1 / 60)
     end
     Assert.isTrue(audio:isMusicFadeActive(), "the fade must still block before its requested duration")
-    game:step()
+    game.runtime:update(1 / 60)
     Assert.isFalse(audio:isMusicFadeActive(), "the fade must complete at exactly its requested duration")
     Assert.equal(audio:currentMusic(), wakaba, "the fade-out to 0 must keep the reference for a later fade-in")
     Assert.isTrue(
@@ -269,10 +272,10 @@ function T.tests.music_fades_block_for_their_requested_durations()
     Assert.isTrue(audio:isMusicFadeActive(), "the fade-in must be active in its start tick")
     Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC), "the fade-in never replays the BGM; the player kept running")
     for _ = 1, 19 do
-      game:step()
+      game.runtime:update(1 / 60)
     end
     Assert.isTrue(audio:isMusicFadeActive(), "the fade-in must still block before its requested duration")
-    game:step()
+    game.runtime:update(1 / 60)
     Assert.isFalse(audio:isMusicFadeActive(), "the fade-in must complete at exactly its requested duration")
     Assert.equal(audio:currentMusic(), wakaba)
   end)
@@ -438,6 +441,116 @@ function T.tests.recording_script_audio_and_production_output_are_separate_compo
     if not ok then
       error(err, 0)
     end
+  end)
+end
+
+-- The 60 Hz semantic audio clock is wall-clock-owned by the runtime, not
+-- field-tick-owned: a 60-frame BGM fade completes after exactly one second
+-- of elapsed runtime time, with the same completion boundary under every
+-- host update chunking (60 steps of 1/60, 30 steps of 1/30, and an
+-- irregular schedule whose intervals are not field ticks and sum to one
+-- second). No schedule may need 60 field ticks, because the field runs at
+-- 30 Hz.
+function T.tests.a_60_frame_fade_completes_after_one_wall_clock_second_for_every_dt_chunking()
+  withProductionAudio(TOWN, day, function(game)
+    local audio = requireAudio(game)
+    local wakaba = musicId(game, NEW_BARK_MUSIC)
+    Assert.equal(audio:currentMusic(), wakaba, "the map-header BGM must be running")
+
+    local function runSchedule(label, schedule)
+      audio:fadeMusicOut({ target = 50, durationTicks = 60 })
+      Assert.isTrue(audio:isMusicFadeActive(), label .. ": the fade must start")
+      -- Before the final 1/60 interval the fade is still active: a 30 Hz
+      -- owner has advanced only 29 of the 60 frames at this point.
+      for index = 1, #schedule - 1 do
+        game.runtime:update(schedule[index])
+      end
+      Assert.isTrue(
+        audio:isMusicFadeActive(),
+        label .. ": the fade must still block before the final wall-clock interval"
+      )
+      game.runtime:update(schedule[#schedule])
+      Assert.isFalse(
+        audio:isMusicFadeActive(),
+        label .. ": the 60-frame fade must complete after exactly one wall-clock second"
+      )
+      Assert.equal(audio:currentMusic(), wakaba, label .. ": the BGM reference must survive the fade")
+      Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC), label .. ": a fade never stops the BGM player")
+      -- A fresh runtime second: the accumulator keeps running after the fade.
+      game.runtime:update(1 / 60)
+    end
+
+    local sixtieths = {}
+    for _ = 1, 60 do
+      sixtieths[#sixtieths + 1] = 1 / 60
+    end
+    runSchedule("60 calls of 1/60", sixtieths)
+
+    local thirtieths = {}
+    for _ = 1, 30 do
+      thirtieths[#thirtieths + 1] = 1 / 30
+    end
+    runSchedule("30 calls of 1/30", thirtieths)
+
+    -- A deterministic irregular schedule: 30 sixtieths + 10 thirtieths + 20
+    -- one-hundred-twentieths -- none of them a field tick -- summing to
+    -- exactly one second (30/60 + 10/30 + 20/120 = 1).
+    local irregular = {}
+    for index = 1, 30 do
+      irregular[#irregular + 1] = 1 / 60
+    end
+    for index = 1, 10 do
+      irregular[#irregular + 1] = 1 / 30
+    end
+    for index = 1, 20 do
+      irregular[#irregular + 1] = 1 / 120
+    end
+    runSchedule("irregular sub-tick schedule", irregular)
+  end)
+end
+
+-- A fanfare's post-wait is measured in 60 Hz sound frames, not 30 Hz field
+-- ticks: the fanfare stays active through the first 14 post-wait frames and
+-- the 15th completes the state and resumes the current BGM. At 60 Hz that
+-- is 0.25 seconds. The host update schedule deliberately does not equal one
+-- field tick per sound frame (1/120 steps), so a field-tick owner cannot
+-- satisfy the boundary.
+function T.tests.a_fanfare_post_wait_lasts_15_sound_frames_not_field_ticks()
+  withProductionAudio(TOWN, day, function(game)
+    local audio = requireAudio(game)
+    local wakaba = musicId(game, NEW_BARK_MUSIC)
+    local fanfare = musicId(game, "SEQ_ME_ITEM")
+    Assert.equal(audio:currentMusic(), wakaba, "the map-header BGM must be running")
+
+    audio:playFanfare(fanfare)
+    Assert.isTrue(audio:isFanfarePlaying(), "the fanfare must be playing")
+    Assert.equal(audio:currentMusic(), wakaba, "the fanfare keeps the suspended BGM reference")
+
+    -- Run the fanfare sequence itself to its end on the 60 Hz runtime clock
+    -- (the fanfare player must be finished before the post-wait counts).
+    game:advanceUntil("the fanfare player finishes", function()
+      return not audio:isEffectPlaying(fanfare)
+    end, 400)
+
+    -- The post-wait is 15 sound frames, driven at 1/120 host steps (two host
+    -- updates per sound frame, so no host update equals a field tick).
+    -- Twenty-eight 1/120 updates advance exactly 14 sound frames: the fanfare
+    -- must still be active.
+    for _ = 1, 28 do
+      game.runtime:update(1 / 120)
+    end
+    Assert.isTrue(audio:isFanfarePlaying(), "the fanfare post-wait must still hold through the first 14 sound frames")
+    -- Two more 1/120 updates reach the 15th sound frame: the post-wait
+    -- completes and the preserved BGM player resumes.
+    for _ = 1, 2 do
+      game.runtime:update(1 / 120)
+    end
+    Assert.isFalse(
+      audio:isFanfarePlaying(),
+      "the fanfare post-wait must complete at exactly 15 sound frames (0.25 seconds)"
+    )
+    Assert.equal(audio:currentMusic(), wakaba, "the resumed BGM is the suspended map music")
+    Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC), "the fanfare completion resumes the BGM player")
   end)
 end
 
