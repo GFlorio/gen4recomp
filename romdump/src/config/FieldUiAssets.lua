@@ -1,18 +1,22 @@
 -- Source-only member selection for the generated HGSS field-UI class. Every
 -- NARC alias/member number lives here and in the dependencies/provenance
 -- records; the generated manifest never carries them. Member numbers are
--- zero-based per the repository convention. The wayfinding selection is the
--- corpus-audited set: the real scr_seq material uses types {0,1,2,3,4,5,8,9,
--- 10,11,13,15,16,17,18,19,20,21,23,28,29,30,33,34,39}, and per
--- LoadMapSignpostFrameAndGraphic (asm/render_window.s at the pinned decomp
--- commit) the wayfinding member is map + 0x21 for type 0 and map + 2 for
--- type 1 — the corpus presents type 0 at maps 1..20 and type 1 at maps
--- 1,2,3,4,5,6,8,10,13,14,15,19,21, so each range covers those plus the
--- canonical map-0 member the type loads. Start Menu members follow
--- src/start_menu.c, dialogue frames LoadUserFrameGfx2 (member = frame + 2,
--- palette = frame + 0x1A), Trainer Card members src/overlay_trainer_card_main.s.
--- No sound archive is selected: the branch does not reproduce the source
--- Start Menu effects.
+-- zero-based per the repository convention. The signpost source-type domain
+-- is exactly {0,1,2,3}: `LoadMapSignpostFrameAndGraphic` (asm/render_window.s
+-- at the pinned decomp commit) always reads NARC 0x24 member 1 and selects
+-- palette bank `type * 0x20`, with no alternate palette source for any other
+-- type value; `tests/rom/script_corpus_test.lua`'s "signpost contracts hold
+-- on the real corpus" case decodes every DirectionSignpost/SetSignpostMap
+-- instruction (opcodes 55/56) in the real scr_seq corpus and pins this exact
+-- domain, so a future corpus change that introduces a new type value fails
+-- loudly there instead of silently widening this list. Type 0 and 1
+-- additionally load the map-specific wayfinding graphic (the `type > 1`
+-- branch skips it); the wayfinding member is map + 0x21 for type 0 and
+-- map + 2 for type 1, over the corpus-audited map ranges. Start Menu members
+-- follow src/start_menu.c, dialogue frames LoadUserFrameGfx2 (member =
+-- frame + 2, palette = frame + 0x1A), Trainer Card members
+-- src/overlay_trainer_card_main.s. No sound archive is selected: the branch
+-- does not reproduce the source Start Menu effects.
 
 return {
   schema = 1,
@@ -52,13 +56,10 @@ return {
       [0] = { memberBase = 0x21, maps = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 } },
       [1] = { memberBase = 2, maps = { 0, 1, 2, 3, 4, 5, 6, 8, 10, 13, 14, 15, 19, 21 } },
     },
-    -- Every signpost source type found in the corpus, kept as raw numbers
-    -- (the style catalogue owns their semantics). Palette member 1 decodes to
-    -- exactly 256 colors (16 banks of 16), so only types 0..15 have a real
-    -- palette bank; corpus types above that (16, 17, 18, 19, 20, 21, 23, 28,
-    -- 29, 30, 33, 34, 39) are scoped out pending research into whether retail
-    -- reads their palette from a different source for higher type values.
-    sourceTypes = { 0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 13, 15 },
+    -- Every signpost source type in the real corpus (see the module header:
+    -- pinned to {0,1,2,3} by the script-corpus census), kept as raw numbers
+    -- (the style catalogue owns their semantics).
+    sourceTypes = { 0, 1, 2, 3 },
   },
   trainerCard = {
     alias = "trainer_card_graphics",

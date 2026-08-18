@@ -185,6 +185,14 @@ T["signpost contracts hold on the real corpus"] = function(romFs)
 
   local counts = {}
   local membersWithSignposts = {}
+  -- DirectionSignpost (55) operand 2 and SetSignpostMap (56) operand 1 are
+  -- both the signpost source `type` parameter (SemanticLowering's
+  -- `sourceAppearance.type`). The generated field-UI asset config's
+  -- `signposts.sourceTypes` claims to be "every signpost source type found
+  -- in the corpus" -- this census is the one authoritative scan for that
+  -- claim, replacing a hand-curated numeric-literal scan that previously
+  -- swept up unrelated opcode parameters as if they were signpost types.
+  local sourceTypes = {}
   for member, ir in pairs(memberIrs) do
     if ir ~= nil then
       for _, script in pairs(ir.scripts) do
@@ -193,6 +201,11 @@ T["signpost contracts hold on the real corpus"] = function(romFs)
             counts[ins.opcode] = (counts[ins.opcode] or 0) + 1
             membersWithSignposts[member] = true
           end
+          if ins.opcode == 55 then
+            sourceTypes[ins.operands[2].raw] = true
+          elseif ins.opcode == 56 then
+            sourceTypes[ins.operands[1].raw] = true
+          end
         end
       end
     end
@@ -200,6 +213,17 @@ T["signpost contracts hold on the real corpus"] = function(romFs)
   for opcode = 55, 60 do
     Assert.isTrue((counts[opcode] or 0) > 0, "opcode " .. opcode .. " occurs in the corpus")
   end
+  local sortedTypes = {}
+  for t in pairs(sourceTypes) do
+    sortedTypes[#sortedTypes + 1] = t
+  end
+  table.sort(sortedTypes)
+  Assert.deepEqual(
+    sortedTypes,
+    { 0, 1, 2, 3 },
+    "the real corpus's signpost source-type domain is exactly {0,1,2,3}; a new value here means "
+      .. "romdump/src/config/FieldUiAssets.lua's sourceTypes must be updated to match, not defaulted around"
+  )
 
   -- Operand preservation against the raw member bytes. The decoder renames
   -- var-range operands through the pinned vars catalog; every other operand
