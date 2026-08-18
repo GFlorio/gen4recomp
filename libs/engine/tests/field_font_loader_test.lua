@@ -22,6 +22,7 @@ local function validDef()
   return {
     schema = FieldFontCache.SCHEMA,
     fontId = 0,
+    maskAtlasPath = FieldFontCache.maskAtlasPath(0),
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
@@ -95,6 +96,26 @@ function T.load_rejects_an_atlas_too_short_for_the_color_bands()
   local definition = validDef()
   definition.atlas.height = definition.atlas.baseHeight * FieldMessageText.COLOR_VARIANT_COUNT - 1
   loadExpectRaised(definition, "an atlas too short for all color bands must be rejected")
+end
+
+-- The v3 contract requires a named semantic glyph mask atlas; a missing or
+-- empty path is rejected before presentation construction.
+function T.load_rejects_a_missing_mask_atlas_path()
+  local definition = validDef()
+  definition.maskAtlasPath = nil
+  loadExpectRaised(definition, "a definition without maskAtlasPath must be rejected")
+  local empty = validDef()
+  empty.maskAtlasPath = ""
+  loadExpectRaised(empty, "an empty maskAtlasPath must be rejected")
+end
+
+-- A stale pre-v3 definition (no maskAtlasPath at all, as a real v2 font
+-- definition would be) must never pass through as if it were current.
+function T.load_rejects_a_stale_v2_definition()
+  local v2 = validDef()
+  v2.schema = "g4-field-font-v2"
+  v2.maskAtlasPath = nil
+  loadExpectRaised(v2, "a stale v2 definition must be rejected")
 end
 
 function T.load_rejects_wrong_focus_count_and_rect_geometry()

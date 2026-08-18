@@ -46,8 +46,8 @@ function T.contract_pins_the_current_asset_identities()
       provenanceSchema = "g4-field-message-provenance-v1",
     },
     font = {
-      cacheFormat = "field-font-cache-v2",
-      schema = "g4-field-font-v2",
+      cacheFormat = "field-font-cache-v3",
+      schema = "g4-field-font-v3",
     },
     scripts = {
       cacheFormat = "script-cache-v1",

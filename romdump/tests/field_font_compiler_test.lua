@@ -269,7 +269,7 @@ function T.compiles_font_def_and_atlas()
   Assert.equal(bundle.dependencies.paletteMemberSha1, "palette-member-sha")
   Assert.equal(bundle.dependencies.glyphMemberId, 0)
   Assert.equal(bundle.dependencies.paletteMemberId, 7)
-  Assert.equal(bundle.marker, "field-font-cache-v2:rom-sha:dependency-sha")
+  Assert.equal(bundle.marker, "field-font-cache-v3:rom-sha:dependency-sha")
 
   -- The 8x8 sub-tile is repeated for all four quadrants: each row is
   -- (right=0xAA shadow, left=0x55 fg), so every quadrant's left half is
@@ -539,6 +539,74 @@ function T.cache_missing_the_focus_indicator_png_is_not_ready()
   FieldFontCacheWriter.write(cache, bundle)
   cache:remove(FieldFontCache.focusIndicatorsPath(0))
   Assert.isFalse(FieldFontCache.isReady(cache, 0, bundle.marker), "a cache without the focus PNG must not be ready")
+end
+
+-- The compiled definition names the required v3 semantic glyph mask atlas,
+-- and the bundle carries the mask PNG bytes themselves.
+function T.v3_definition_names_the_mask_atlas_and_the_bundle_carries_its_bytes()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
+  Assert.equal(bundle.font.schema, "g4-field-font-v3")
+  Assert.equal(bundle.font.maskAtlasPath, FieldFontCache.maskAtlasPath(0))
+  Assert.isTrue(type(bundle.maskAtlas) == "string" and #bundle.maskAtlas > 0, "the mask atlas PNG bytes are emitted")
+end
+
+-- The mask atlas repeats the base glyph-layout geometry exactly once (no
+-- stacked color bands): its dimensions equal the composited atlas's own
+-- base-band dimensions.
+function T.mask_atlas_dimensions_equal_the_base_glyph_atlas_dimensions()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
+  local maskW, maskH = PngReader.rgba(bundle.maskAtlas)
+  Assert.equal(maskW, bundle.font.atlas.width, "the mask atlas width matches the base glyph atlas width")
+  Assert.equal(maskH, bundle.font.atlas.baseHeight, "the mask atlas height matches the base glyph atlas baseHeight")
+end
+
+-- The mask atlas encodes the raw 0..3 glyph pixel value categorically, using
+-- the exact channel markers a palette shader reads (never a baked color):
+-- 0 transparent, 1 red foreground, 2 green shadow, 3 blue background. The
+-- same fixture pixel positions the composited-atlas test already proved
+-- carry foreground (0,0), shadow (4,0), and background (5,0) classes.
+function T.mask_atlas_encodes_the_categorical_glyph_class_exactly()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
+  local maskW, _, maskRgba = PngReader.rgba(bundle.maskAtlas)
+
+  local r, g, b, a = PngReader.pixel(maskRgba, maskW, 0, 0)
+  Assert.deepEqual({ r = r, g = g, b = b, a = a }, { r = 255, g = 0, b = 0, a = 255 }, "foreground encodes as red")
+
+  local r2, g2, b2, a2 = PngReader.pixel(maskRgba, maskW, 4, 0)
+  Assert.deepEqual({ r = r2, g = g2, b = b2, a = a2 }, { r = 0, g = 255, b = 0, a = 255 }, "shadow encodes as green")
+
+  local r3, g3, b3, a3 = PngReader.pixel(maskRgba, maskW, 5, 0)
+  Assert.deepEqual(
+    { r = r3, g = g3, b = b3, a = a3 },
+    { r = 0, g = 0, b = 255, a = 255 },
+    "background encodes as opaque blue, never transparent"
+  )
+
+  -- Every atlas cell the single fixture glyph never touches stays exactly
+  -- the "0 transparent" encoding, matching the buffer's own zero-fill.
+  local r4, g4, b4, a4 = PngReader.pixel(maskRgba, maskW, 16, 0)
+  Assert.deepEqual(
+    { r = r4, g = g4, b = b4, a = a4 },
+    { r = 0, g = 0, b = 0, a = 0 },
+    "untouched cells stay transparent"
+  )
+end
+
+-- A cache that is missing the semantic glyph mask atlas PNG must not be
+-- ready: readiness fails just like a missing focus-indicator PNG.
+function T.cache_missing_the_mask_atlas_png_is_not_ready()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  FieldFontCacheWriter.write(cache, bundle)
+  cache:remove(FieldFontCache.maskAtlasPath(0))
+  Assert.isFalse(
+    FieldFontCache.isReady(cache, 0, bundle.marker),
+    "a cache without the mask atlas PNG must not be ready"
+  )
 end
 
 return { tests = T }

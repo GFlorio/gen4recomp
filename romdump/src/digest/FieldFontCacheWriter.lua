@@ -1,11 +1,12 @@
 -- Persists a compiled field-font bundle through the shared staged
 -- publication primitive: the provenance record, the font definition Lua, and
--- the two generated PNGs (glyph atlas and focus indicators) are written into a
--- disposable staging root, readback-validated there, and only then is the
--- completed stage published with the marker last. Staging and validation are
--- one step; publication happens outside that step's error handler, so a
--- publish failure never triggers writer-level stage cleanup that could delete
--- the last remaining copy of the previous artifact.
+-- the three generated PNGs (composited glyph atlas, semantic glyph mask
+-- atlas, and focus indicators) are written into a disposable staging root,
+-- readback-validated there, and only then is the completed stage published
+-- with the marker last. Staging and validation are one step; publication
+-- happens outside that step's error handler, so a publish failure never
+-- triggers writer-level stage cleanup that could delete the last remaining
+-- copy of the previous artifact.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
@@ -24,6 +25,7 @@ local function stageBundle(tx, bundle)
     dependencies = bundle.dependencies,
   })
   stage:write(FieldFontCache.atlasPath(bundle.fontId), bundle.atlas)
+  stage:write(FieldFontCache.maskAtlasPath(bundle.fontId), bundle.maskAtlas)
   stage:write(FieldFontCache.focusIndicatorsPath(bundle.fontId), bundle.focusIndicators)
   stage:writeLua(FieldFontCache.defPath(bundle.fontId), bundle.font)
   local def = stage:loadLua(FieldFontCache.defPath(bundle.fontId))
@@ -33,6 +35,9 @@ local function stageBundle(tx, bundle)
   if not stage:exists(FieldFontCache.atlasPath(bundle.fontId), "file") then
     Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font atlas readback failed", { fontId = bundle.fontId })
   end
+  if not stage:exists(FieldFontCache.maskAtlasPath(bundle.fontId), "file") then
+    Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font mask atlas readback failed", { fontId = bundle.fontId })
+  end
   if not stage:exists(FieldFontCache.focusIndicatorsPath(bundle.fontId), "file") then
     Errors.raise("FIELD_FONT_CACHE_READBACK_FAILED", "font focus-indicator readback failed", { fontId = bundle.fontId })
   end
@@ -41,7 +46,7 @@ end
 
 function FieldFontCacheWriter.write(cacheFs, bundle)
   assert(
-    bundle and bundle.marker and bundle.font and bundle.atlas and bundle.focusIndicators,
+    bundle and bundle.marker and bundle.font and bundle.atlas and bundle.maskAtlas and bundle.focusIndicators,
     "write requires a font bundle"
   )
   assert(bundle.font.schema == FieldFontCache.SCHEMA, "font def schema mismatch")
