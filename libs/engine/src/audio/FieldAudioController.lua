@@ -95,7 +95,7 @@ function FieldAudioController:mapHeaderMusic(fieldData)
 end
 
 -- Returns the effective field music: traversal > map-header > persisted override
--- Returns numeric IDs.
+-- Returns numeric ID (resolves persisted override string if needed).
 ---@return integer|nil
 function FieldAudioController:effectiveMusic()
   -- Check traversal overrides first (highest precedence)
@@ -123,7 +123,11 @@ function FieldAudioController:effectiveMusic()
 
   -- Persisted override (lowest precedence)
   if self._musicOverride ~= nil then
-    return self._musicOverride
+    local override = self._musicOverride
+    if type(override) == "string" then
+      override = self._provider:sequence(override).id
+    end
+    return override
   end
 
   return header
@@ -140,12 +144,9 @@ function FieldAudioController:resetMusic()
   self._sound:playMusic(reference)
 end
 
--- Sets the persisted field-music override (resolves string symbols to IDs)
+-- Sets the persisted field-music override (stores original string or numeric form)
 ---@param sequenceRef integer|string|nil
 function FieldAudioController:setMusicOverride(sequenceRef)
-  if sequenceRef ~= nil and type(sequenceRef) == "string" then
-    sequenceRef = self._provider:sequence(sequenceRef).id
-  end
   self._musicOverride = sequenceRef
 end
 
@@ -154,8 +155,8 @@ function FieldAudioController:clearMusicOverride()
   self._musicOverride = nil
 end
 
--- Returns the current persisted override (numeric ID)
----@return integer|nil
+-- Returns the current persisted override (string symbol or numeric ID)
+---@return integer|string|nil
 function FieldAudioController:musicOverride()
   return self._musicOverride
 end
