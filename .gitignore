@@ -51,6 +51,7 @@ luac.out
 **/tmp/
 opencode.json
 .claude/settings.local.json
+.commandcode
 
 # Agent worktrees
 .agents/worktrees/

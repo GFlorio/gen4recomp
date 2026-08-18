@@ -3,7 +3,7 @@ FROM docker.io/library/ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
 ARG USER_ID=1000
 ARG GROUP_ID=1000
-ARG OPENCODE_VERSION=latest
+ARG NODE_VERSION=24.19.0
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -21,8 +21,6 @@ RUN apt-get update \
         git \
         jq \
         less \
-        nodejs \
-        npm \
         procps \
         python3 \
         python3-pil \
@@ -42,13 +40,13 @@ RUN apt-get update \
     && mkdir -p /home/agent \
     && chown "${USER_ID}" /home/agent
 
-RUN npm install --global "opencode-ai@${OPENCODE_VERSION}" \
+RUN curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+    && tar -xJf "node-v${NODE_VERSION}-linux-x64.tar.xz" \
+        -C /usr/local \
+        --strip-components=1 \
+    && rm "node-v${NODE_VERSION}-linux-x64.tar.xz" \
+    && npm install --global "command-code@${COMMAND_CODE_VERSION}" \
     && npm cache clean --force
-
-RUN mkdir -p /tmp/opencode \
-    && chown "${USER_ID}" /tmp/opencode \
-    && mkdir -p /etc/opencode \
-    && echo '{"permission": { "*": "allow" }, "lsp": true }' > /etc/opencode/opencode.json
 
 ENV HOME=/home/agent
 ENV XDG_CACHE_HOME=/home/agent/.cache
@@ -88,5 +86,5 @@ RUN set -eux \
 USER 1000:1000
 
 WORKDIR /workspace
-CMD ["opencode", "/workspace"]
+CMD ["cmd"]
 
