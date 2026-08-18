@@ -171,17 +171,12 @@ function FieldActorModel.compile(modelBytes, opts)
   if polygon.cullMode == "all" then
     fail("FIELD_ACTOR_MODEL_INVISIBLE", "shared actor model renders neither polygon surface", { context = context })
   end
+  -- Every alpha class the shared classifier can produce (opaque, cutout,
+  -- translucent, mixed, wireframe) is ordinary shared render-queue geometry
+  -- (see MapRenderer/RenderQueue): actors carry no format-specific rendering
+  -- restriction, matching the ROM's own polygon state exactly.
   local alphaClass =
     AlphaClassifier.classify(polygon.polygonAlpha, polygon.polygonMode, opts.textureFormat or 0, opts.alphaUsage)
-  if alphaClass ~= AlphaClassifier.CUTOUT and alphaClass ~= AlphaClassifier.OPAQUE then
-    -- A translucent or wireframe actor would need a different render pass and a
-    -- sorting contract; no target actor asks for one.
-    fail(
-      "FIELD_ACTOR_MODEL_ALPHA_UNSUPPORTED",
-      "shared actor model classifies as " .. alphaClass .. ", expected opaque or cutout",
-      { context = context, polygonAlpha = polygon.polygonAlpha, textureFormat = opts.textureFormat }
-    )
-  end
 
   -- The actor loader adds a fixed Y offset in model units before installing the
   -- draw position. Converting it here keeps every runtime-facing number in tiles.
