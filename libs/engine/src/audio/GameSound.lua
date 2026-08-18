@@ -9,9 +9,8 @@
 -- BGM player: the sequence timeline freezes and the paused player's
 -- channels are released with the forced release override -- no channel or
 -- sample state is preserved; after the fanfare and its 15-tick post-play
--- wait, which advances on field fixed ticks and is the u16 0x0F the HGSS
--- path sets, the still-current BGM's timeline resumes, and a BGM replaced
--- or stopped during the fanfare is never resumed), fixed-tick fades (the
+-- wait the still-current BGM's timeline resumes, and a BGM replaced or
+-- stopped during the fanfare is never resumed), fixed-tick fades (the
 -- HGSS GF_SndStartFadeOutBGM/FadeInBGM model: the fade state carries
 -- starting level/target/total duration/elapsed, the level ramps linearly
 -- per tick into a dB-domain attenuation the player pushes to the mixer's
@@ -25,6 +24,13 @@
 -- subsystem and the map-music resolver (the field-music policy owner);
 -- everything else runs the real engine audio. PCM rendering is the output
 -- sink's business: GameSound never renders.
+--
+-- Fader ownership: each NNS player carries exactly one applied fader record
+-- (level + at most one ramp) in this module. Script music fades, generic
+-- sequence-volume moves, and fade-stop operations all create/replace that
+-- same ramp, so no second authority can write the player. SequencePlayer
+-- owns the instance fader used for voice updates; this module is the only
+-- semantic ramp generator in the field-audio stack.
 
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.engine.src.audio.AudioErrors")
@@ -36,10 +42,8 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _cry table?
 ---@field private _mapMusic fun(): integer|string|nil?
 ---@field private _currentMusic integer?
----@field private _musicLevel integer
 ---@field private _fanfare table?
----@field private _musicFade table?
----@field private _faders table<integer, table>
+---@field private _faders table<integer, GameSoundPlayerFader>
 ---@field private _cryActive boolean
 ---@field new fun(opts: { provider: AudioAssetProvider, player: SequencePlayer, cry: table?, mapMusic: fun(): integer|string|nil? }): GameSound
 ---@field play fun(self: GameSound, idOrSymbol: integer|string)
@@ -58,8 +62,31 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field resetMusic fun(self: GameSound)
 ---@field temporaryMusic fun(self: GameSound, idOrSymbol: integer|string)
 ---@field updateSoundFrame fun(self: GameSound)
----@field moveSequenceVolume fun(self: GameSound, playerId: integer, target: integer, durationFrames: integer)
----@field stopSequenceWithFade fun(self: GameSound, playerId: integer, durationFrames: integer)
+---@field moveSequenceVolume fun(self: GameSound, idOrSymbol: integer|string, target: integer, durationFrames: integer)
+---@field stopSequenceWithFade fun(self: GameSound, idOrSymbol: integer|string, durationFrames: integer)
+
+-- One applied fader timeline per NNS player. `level` is the level this
+-- module last asked SequencePlayer to apply (always 0..127 after the apply
+-- boundary normalizes the source full-restore spelling 128). `ramp` is nil
+-- or the one active ramp owning the player; `kind` tags a script music fade
+-- ("music") so the BGM facade can answer its source fade polls without a
+-- second level accumulator.
+---@class GameSoundPlayerFader
+---@field level integer
+---@field ramp GameSoundFaderRamp?
+
+-- A single ramp owning one player's fader for `durationFrames` 60 Hz sound
+-- frames. `start` is the applied level at creation; `target` is the source
+-- volume-domain goal (may be the full-restore spelling 128); the applied
+-- level interpolates with the source cDiv formula and is normalized to
+-- 0..127 only when it reaches SequencePlayer:setFader.
+---@class GameSoundFaderRamp
+---@field start integer
+---@field target integer
+---@field durationFrames integer
+---@field elapsedFrames integer
+---@field kind "music"|"generic"
+---@field stopWhenDone boolean
 
 local GameSound = {}
 GameSound.__index = GameSound
@@ -68,6 +95,15 @@ GameSound.__index = GameSound
 -- sets a u16 timer to 0x0F and the fanfare stays "playing" until it counts
 -- down after the fanfare player stops. At 60 Hz, 15 frames = 250 ms.
 local FANFARE_POST_WAIT_FRAMES = 15
+
+-- The strict player fader domain (SequencePlayer:setFader asserts 0..127)
+-- and the source full-restore spelling accepted only at the GameSound
+-- boundary (HGSS GF_SndHandleMoveVolume(0, 128, 15) on soundplate exit).
+local PLAYER_FADER_FULL = 127
+local SOURCE_FULL_RESTORE = 128
+-- The fixed NNS player domain (SequencePlayer's PLAYER_COUNT): fader ramps
+-- iterate ascending over these ids, never in Lua table order.
+local NNS_PLAYER_COUNT = 16
 
 ---@param opts { provider: AudioAssetProvider, player: SequencePlayer, cry: table?, mapMusic: fun(): integer|string|nil? }
 ---@return GameSound
@@ -88,9 +124,7 @@ function GameSound.new(opts)
     _cry = opts.cry,
     _mapMusic = opts.mapMusic,
     _currentMusic = nil,
-    _musicLevel = 127,
     _fanfare = nil,
-    _musicFade = nil,
     _faders = {},
     _cryActive = false,
   }, GameSound)
@@ -98,23 +132,97 @@ end
 
 -- Resolves a sequence reference and starts it on the engine player,
 -- returning the resolved sequence for the caller's bookkeeping.
+-- Starting/replacing a sequence is a synchronization boundary: SequencePlayer
+-- creates a fresh instance at the full fader level 127, so this module's
+-- record for that player is reset to full and idle immediately -- stale
+-- ramp/level bookkeeping from a replaced sequence must never survive.
 ---@param idOrSymbol integer|string
 ---@return table
 function GameSound:_startSequence(idOrSymbol)
   local sequence = self._provider:sequence(idOrSymbol)
   local bank = self._provider:bank(sequence.bankId)
   self._player:play(sequence, bank)
+  self:_resetPlayerFader(sequence.player.id)
   return sequence
 end
 
+-- The fader record for `playerId`, created at the known actual full level
+-- 127 when the player has no record yet. A player that never started a
+-- sequence in this module is still created at full because that is what a
+-- fresh SequencePlayer instance starts at; the record is only ever written
+-- after a real sequence start or a ramp application.
+---@param playerId integer
+---@return GameSoundPlayerFader
+function GameSound:_faderFor(playerId)
+  local fader = self._faders[playerId]
+  if fader == nil then
+    fader = { level = PLAYER_FADER_FULL, ramp = nil }
+    self._faders[playerId] = fader
+  end
+  return fader
+end
+
+-- Synchronizes the player's fader record to the state SequencePlayer actually
+-- holds after creating a fresh instance: full level and no active ramp.
+---@param playerId integer
+function GameSound:_resetPlayerFader(playerId)
+  self._faders[playerId] = { level = PLAYER_FADER_FULL, ramp = nil }
+end
+
+-- Applies a volume-domain level to the player through the strict
+-- SequencePlayer:setFader contract, normalizing the source full-restore
+-- spelling 128 to the player full level 127 exactly at this boundary.
+-- Returns the level actually applied, so the module's record always matches
+-- what SequencePlayer holds.
+---@param playerId integer
+---@param level integer
+---@return integer
+function GameSound:_applyFader(playerId, level)
+  if level > PLAYER_FADER_FULL then
+    level = PLAYER_FADER_FULL
+  end
+  self._player:setFader(playerId, level)
+  return level
+end
+
+-- Creates (or replaces) the player's single ramp. The ramp interpolates from
+-- the current applied level -- never from a stale original-ramp start -- and
+-- carries the source target: a full-restore spelling 128 ramps toward 128
+-- and is normalized to 127 only when the interpolated level is applied, so
+-- the exact final-frame value matches the source move. The start level is
+-- pushed to the player immediately, matching the HGSS command's first volume
+-- move happening in its start tick rather than on the first fixed tick.
+-- `kind` tags script music fades for the BGM facade polls; `stopWhenDone`
+-- makes the final applied frame stop the player.
+---@param playerId integer
+---@param target integer
+---@param durationFrames integer
+---@param kind "music"|"generic"
+---@param stopWhenDone boolean
+function GameSound:_replaceFaderRamp(playerId, target, durationFrames, kind, stopWhenDone)
+  local fader = self:_faderFor(playerId)
+  self:_applyFader(playerId, fader.level)
+  fader.ramp = {
+    start = fader.level,
+    target = target,
+    durationFrames = durationFrames,
+    elapsedFrames = 0,
+    kind = kind,
+    stopWhenDone = stopWhenDone,
+  }
+end
+
 -- Stops the player the current BGM runs on; no-op while no BGM reference
--- is held.
+-- is held. Stopping a player drops its stale fader bookkeeping so a future
+-- sequence on that player cannot inherit a record that no longer matches a
+-- SequencePlayer instance.
 function GameSound:_stopBgmPlayer()
   if self._currentMusic == nil then
     return
   end
   local bgm = self._provider:sequence(self._currentMusic)
   self._player:stopPlayer(bgm.player.id)
+  self:_resetPlayerFader(bgm.player.id)
 end
 
 -- `play` is the effect (SE) path: the sequence runs on its own player id,
@@ -127,11 +235,13 @@ function GameSound:play(idOrSymbol)
 end
 
 -- Stops the player the sequence plays on, leaving every other player (in
--- particular the BGM player) untouched.
+-- particular the BGM player) untouched. Stopping drops the player's fader
+-- record so stale ramp state cannot outlive the instance it described.
 ---@param idOrSymbol integer|string
 function GameSound:stop(idOrSymbol)
   local sequence = self._provider:sequence(idOrSymbol)
   self._player:stopPlayer(sequence.player.id)
+  self:_resetPlayerFader(sequence.player.id)
 end
 
 -- True while the sequence's player has a running sequence. An unresolvable
@@ -153,10 +263,8 @@ end
 -- fade belongs to the BGM it fades, never to a later replacement).
 ---@param idOrSymbol integer|string
 function GameSound:playMusic(idOrSymbol)
-  self._musicFade = nil
   self:_stopBgmPlayer()
   self._currentMusic = self:_startSequence(idOrSymbol).id
-  self._musicLevel = 127
 end
 
 -- Stops the current BGM, drops the reference, and cancels its fade (a
@@ -165,7 +273,6 @@ end
 function GameSound:stopMusic()
   self:_stopBgmPlayer()
   self._currentMusic = nil
-  self._musicFade = nil
 end
 
 -- The resolved id of the current BGM reference, or nil while silent. The
@@ -229,28 +336,26 @@ end
 
 -- Starts a fade-out from the current music level to the target level over
 -- the requested ticks (the HGSS GF_SndStartFadeOutBGM model: the first
--- script operand is a target LEVEL, 0..127). A fade while one is already
--- active is skipped -- the HGSS fade timer is nonzero, so the volume move
--- is ignored -- and with no current BGM the fade never starts and the
--- script wait completes immediately.
+-- script operand is a target LEVEL, 0..127). A fade while the current music
+-- still owns an active script-music fade is skipped -- the HGSS fade timer
+-- is nonzero, so the volume move is ignored -- and with no current BGM the
+-- fade never starts and the script wait completes immediately. The ramp is
+-- the player's single unified ramp, tagged as a music fade.
 ---@param spec { target: integer, durationTicks: integer }
 function GameSound:fadeMusicOut(spec)
-  if self._musicFade ~= nil or self._currentMusic == nil then
+  if self._currentMusic == nil then
+    return
+  end
+  local bgm = self._provider:sequence(self._currentMusic)
+  local playerId = bgm.player.id
+  local fader = self:_faderFor(playerId)
+  if fader.ramp ~= nil and fader.ramp.kind == "music" then
     return
   end
   assert(spec.target ~= nil and spec.durationTicks, "fade-out spec requires a target and a duration")
   assert(spec.target >= 0 and spec.target <= 127, "fade-out target must be a level in 0..127")
   assert(spec.durationTicks > 0 and spec.durationTicks % 1 == 0, "fade-out duration must be a positive tick count")
-  self._musicFade = {
-    startingLevel = self._musicLevel,
-    target = spec.target,
-    totalDuration = spec.durationTicks,
-    elapsed = 0,
-  }
-  -- The fade starts from the current level in its start tick (the HGSS
-  -- command's first volume move happens immediately, not on the first
-  -- fixed tick): push the starting level so the player's fader matches.
-  self:_pushMusicLevel(self._musicLevel)
+  self:_replaceFaderRamp(playerId, spec.target, spec.durationTicks, "music", false)
 end
 
 -- Starts a fade-in: the BGM first snaps to silence, then ramps to full
@@ -267,19 +372,25 @@ function GameSound:fadeMusicIn(spec)
   end
   assert(spec.durationTicks, "fade-in spec requires a duration")
   assert(spec.durationTicks > 0 and spec.durationTicks % 1 == 0, "fade-in duration must be a positive tick count")
-  self._musicFade = {
-    startingLevel = 0,
-    target = 127,
-    totalDuration = spec.durationTicks,
-    elapsed = 0,
-  }
-  self._musicLevel = 0
-  self:_pushMusicLevel(0)
+  local bgm = self._provider:sequence(self._currentMusic)
+  local playerId = bgm.player.id
+  local fader = self:_faderFor(playerId)
+  -- The fade-in snap: the unified level becomes 0 immediately and the player
+  -- hears it before the ramp starts (the HGSS zero-length move). The ramp
+  -- creation pushes the snapped 0 as its start level.
+  fader.level = 0
+  fader.ramp = nil
+  self:_replaceFaderRamp(playerId, PLAYER_FADER_FULL, spec.durationTicks, "music", false)
 end
 
 ---@return boolean
 function GameSound:isMusicFadeActive()
-  return self._musicFade ~= nil
+  if self._currentMusic == nil then
+    return false
+  end
+  local bgm = self._provider:sequence(self._currentMusic)
+  local fader = self._faders[bgm.player.id]
+  return fader ~= nil and fader.ramp ~= nil and fader.ramp.kind == "music"
 end
 
 -- Plays the map-header music reference from the injected field-policy
@@ -306,18 +417,18 @@ end
 -- selection and future resetMusic).
 ---@param idOrSymbol integer|string
 function GameSound:temporaryMusic(idOrSymbol)
-  self._musicFade = nil
   local sequence = self:_startSequence(idOrSymbol)
   self._currentMusic = sequence.id
-  self._musicLevel = 127
 end
 
 -- Advances the game-semantic audio state once per 60 Hz sound frame: the
--- fanfare post-play wait (and the resume it ends with), the music fade
--- timer (which is frozen while a fanfare is active), and generic per-player
--- fader ramps used by soundplates and field policy. The HGSS DoSoundUpdateFrame
--- trace only decrements the fade timer while no fanfare is playing.
--- Called by FieldRuntime at 60 Hz frequency.
+-- fanfare post-play wait (and the resume it ends with) first, then the
+-- per-player fader ramps. The fanfare runs before the ramps so the
+-- fanfare-completion frame decides whether a script music fade stays frozen:
+-- while a fanfare is active the HGSS DoSoundUpdateFrame trace only
+-- decrements the fade timer when no fanfare is playing, so the music fade
+-- ramp is skipped while generic ramps keep advancing (only the script music
+-- fade carries the freeze). Called by FieldRuntime at 60 Hz frequency.
 function GameSound:updateSoundFrame()
   if self._fanfare ~= nil and not self._player:isPlayerPlaying(self._fanfare.playerId) then
     self._fanfare.frames = self._fanfare.frames - 1
@@ -325,37 +436,39 @@ function GameSound:updateSoundFrame()
       self:_completeFanfare()
     end
   end
-  if self._musicFade ~= nil and self._fanfare == nil then
-    self:_advanceMusicFade()
-  end
   self:_advanceFaderRamps()
 end
 
--- One field tick of the active fade: the level ramps linearly from the
--- starting level toward the target in the volume domain (the NNS fader's
--- s32 interpolation), the player's fader follows, and the fade completes --
--- and the script wait unblocks -- exactly when the elapsed reaches the
--- total duration. A fade never stops the BGM player: it keeps playing at
--- the faded level.
-function GameSound:_advanceMusicFade()
-  local fade = self._musicFade
-  fade.elapsed = fade.elapsed + 1
-  local level = fade.startingLevel
-    + NnsSoundMath.cDiv(fade.elapsed * (fade.target - fade.startingLevel), fade.totalDuration)
-  self:_pushMusicLevel(level)
-  if fade.elapsed >= fade.totalDuration then
-    self._musicFade = nil
-    self._musicLevel = fade.target
+-- Advances each player's single ramp once per sound frame. Iteration is in
+-- ascending player-id order (never pairs()) so simultaneous ramp
+-- completions/stops are deterministic. Each active ramp applies exactly one
+-- interpolated level per frame; a ramp completes -- and, when requested,
+-- stops the player -- only after its final frame has applied the target
+-- level. The script music fade freeze is the fanfare's: while a fanfare is
+-- active, ramps tagged as music fades do not advance.
+function GameSound:_advanceFaderRamps()
+  for playerId = 0, NNS_PLAYER_COUNT - 1 do
+    local fader = self._faders[playerId]
+    if fader ~= nil and fader.ramp ~= nil then
+      local ramp = fader.ramp
+      if not (self._fanfare ~= nil and ramp.kind == "music") then
+        ramp.elapsedFrames = ramp.elapsedFrames + 1
+        local level = ramp.start
+          + NnsSoundMath.cDiv(ramp.elapsedFrames * (ramp.target - ramp.start), ramp.durationFrames)
+        -- Store the level actually applied (a full-restore interpolation may
+        -- compute 128 on its final frame; the record keeps the normalized 127
+        -- so it always equals what SequencePlayer holds).
+        fader.level = self:_applyFader(playerId, level)
+        if ramp.elapsedFrames >= ramp.durationFrames then
+          fader.ramp = nil
+          if ramp.stopWhenDone then
+            self._player:stopPlayer(playerId)
+            self:_resetPlayerFader(playerId)
+          end
+        end
+      end
+    end
   end
-end
-
--- Moves the current BGM player's fader to the volume-domain level; the
--- player converts it to the dB-domain attenuation at its next control-step
--- push.
----@param level integer
-function GameSound:_pushMusicLevel(level)
-  local bgm = self._provider:sequence(self._currentMusic)
-  self._player:setFader(bgm.player.id, level)
 end
 
 -- Releases the fanfare player and lifts the current BGM's transport pause:
@@ -373,95 +486,37 @@ function GameSound:_completeFanfare()
   end
 end
 
--- Advances all active per-player fader ramps at 60 Hz: for each ramp with
--- elapsed < duration, interpolates the level using the source formula and
--- updates the player's fader. When a ramp completes, optionally stops the
--- sequence.
-function GameSound:_advanceFaderRamps()
-  for playerId, fader in pairs(self._faders) do
-    if fader.ramp ~= nil then
-      local ramp = fader.ramp
-      ramp.elapsed = ramp.elapsed + 1
-      local level = ramp.start + NnsSoundMath.cDiv(ramp.elapsed * (ramp.target - ramp.start), ramp.duration)
-      fader.level = level
-      self._player:setFader(playerId, level)
-      if ramp.elapsed >= ramp.duration then
-        fader.ramp = nil
-        fader.level = ramp.target
-        if ramp.stopWhenDone then
-          self._player:stopPlayer(playerId)
-        end
-      end
-    end
-  end
-end
-
 -- Moves a sequence's player fader to the target level over the duration in
--- 60 Hz sound frames using frame-exact linear interpolation. Starting a new
--- ramp replaces any active ramp on the same player, interpolating from the
--- current level rather than the original start.
+-- 60 Hz sound frames using frame-exact linear interpolation. The target is
+-- an integer in the source volume domain 0..128: the HGSS full-restore
+-- spelling 128 is accepted (and normalized to player level 127 at the apply
+-- boundary) while any other out-of-domain value is a programming-contract
+-- violation. Starting a new ramp replaces any active ramp on the same
+-- player from the current applied level, and replaces a script music fade
+-- ramp -- which also ends that fade's timer because no active script fade
+-- remains to poll.
 ---@param idOrSymbol integer|string
 ---@param target integer
 ---@param durationFrames integer
 function GameSound:moveSequenceVolume(idOrSymbol, target, durationFrames)
-  assert(durationFrames > 0, "fader ramp duration must be positive")
+  assert(target >= 0 and target <= SOURCE_FULL_RESTORE, "volume target must be an integer in 0..128")
+  assert(durationFrames > 0 and durationFrames % 1 == 0, "fader ramp duration must be a positive integer")
 
   local sequence = self._provider:sequence(idOrSymbol)
-  local playerId = sequence.player.id
-
-  -- Get or create fader state for this player
-  if self._faders[playerId] == nil then
-    self._faders[playerId] = { level = 127, ramp = nil }
-  end
-  local fader = self._faders[playerId]
-
-  -- When replacing a ramp, interpolate from current level
-  local start = fader.level
-  if fader.ramp ~= nil then
-    -- If a ramp is already active, get its current interpolated level
-    start = fader.ramp.start
-      + NnsSoundMath.cDiv(fader.ramp.elapsed * (fader.ramp.target - fader.ramp.start), fader.ramp.duration)
-  end
-
-  fader.ramp = {
-    start = start,
-    target = target,
-    duration = durationFrames,
-    elapsed = 0,
-    stopWhenDone = false,
-  }
+  self:_replaceFaderRamp(sequence.player.id, target, durationFrames, "generic", false)
 end
 
 -- Stops a sequence's player after fading to silence over the duration in
--- 60 Hz sound frames. This is used by soundplate environmental audio to
--- fade out before stopping.
+-- 60 Hz sound frames. The player stops only after the final ramp frame has
+-- applied level 0. Used by soundplate environmental audio to fade out
+-- before stopping.
 ---@param idOrSymbol integer|string
 ---@param durationFrames integer
 function GameSound:stopSequenceWithFade(idOrSymbol, durationFrames)
-  assert(durationFrames > 0, "fade-stop duration must be positive")
+  assert(durationFrames > 0 and durationFrames % 1 == 0, "fade-stop duration must be a positive integer")
 
   local sequence = self._provider:sequence(idOrSymbol)
-  local playerId = sequence.player.id
-
-  if self._faders[playerId] == nil then
-    self._faders[playerId] = { level = 127, ramp = nil }
-  end
-  local fader = self._faders[playerId]
-
-  -- Interpolate from current level to 0
-  local start = fader.level
-  if fader.ramp ~= nil then
-    start = fader.ramp.start
-      + NnsSoundMath.cDiv(fader.ramp.elapsed * (fader.ramp.target - fader.ramp.start), fader.ramp.duration)
-  end
-
-  fader.ramp = {
-    start = start,
-    target = 0,
-    duration = durationFrames,
-    elapsed = 0,
-    stopWhenDone = true,
-  }
+  self:_replaceFaderRamp(sequence.player.id, 0, durationFrames, "generic", true)
 end
 
 return GameSound

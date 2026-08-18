@@ -30,6 +30,7 @@ local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
 local GameSound = require("libs.engine.src.audio.GameSound")
+local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 
 local T = {}
 
@@ -172,7 +173,7 @@ local function newGameSound(sequences, opts)
   opts = opts or {}
   local provider = AudioAssetProvider.new(AudioFixture.readyCache(engineBundle(sequences or defaultSequences())))
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local spy = { readings = {} }
+  local spy = { readings = {}, faderWrites = {} }
   local realUpdateVoice = mixer.updateVoice
   -- The fader spy overrides the typed mixer's method to observe the per-voice
   -- fader the player pushes at its control cadence.
@@ -186,6 +187,15 @@ local function newGameSound(sequences, opts)
     mixer = mixer,
     provider = provider,
   })
+  -- The player-fader spy records every level GameSound asks the engine player
+  -- to apply, in application order, so the one-level-per-player contract is
+  -- observable as exact level sequences without rendering.
+  --[[@cast player any]]
+  local realSetFader = player.setFader
+  player.setFader = function(self, playerId, level)
+    spy.faderWrites[#spy.faderWrites + 1] = { playerId = playerId, level = level }
+    return realSetFader(self, playerId, level)
+  end
   local sound = GameSound.new({
     provider = provider,
     player = player,
@@ -735,6 +745,324 @@ function T.fanfare_completion_never_resumes_a_replaced_or_stopped_bgm()
   Assert.isFalse(stopped:isFanfarePlaying(), "the fanfare interval expired")
   Assert.isNil(stopped:currentMusic())
   Assert.isFalse(stopped:isEffectPlaying("SEQ_TEST_BGM"), "a stopped bgm is never resumed by the fanfare completion")
+end
+
+-- One applied fader authority per player: a script music fade and a generic
+-- volume move on the same player cannot both own the player. The script fade
+-- runs 20 frames from 127 toward 64; after 7 frames a generic move to 32 over
+-- 10 frames replaces it. The replacement ramp must start from the level the
+-- script fade applied after its 7th frame, reach its own target on its own
+-- final frame, and end the script fade's timer -- and the player must receive
+-- exactly one fader application per sound frame.
+function T.an_overlapping_bgm_fade_and_generic_move_have_one_winner_and_one_current_level()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  sound:fadeMusicOut({ target = 64, durationTicks = 20 })
+  -- Frames 1..7: the script fade owns the player. After 7 frames the applied
+  -- level is 127 + cDiv(7 * (64 - 127), 20).
+  local expected7 = 127 + NnsSoundMath.cDiv(7 * (64 - 127), 20)
+  for _ = 1, 7 do
+    sound:updateSoundFrame()
+  end
+  Assert.isTrue(sound:isMusicFadeActive(), "the script fade is mid-ramp after 7 frames")
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, expected7, "the script fade owns the level after 7 frames")
+  local before = #spy.faderWrites
+  -- The replacement generic move starts from the applied level after frame 7.
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 32, 10)
+  Assert.isFalse(sound:isMusicFadeActive(), "replacing the script fade ramp with a generic move ends the script fade")
+  local writes = spy.faderWrites
+  local first = before + 1
+  -- The replacement ramp starts from the level the replaced ramp had applied.
+  Assert.equal(writes[first].level, expected7, "the replacement ramp starts from the applied level")
+  -- Frames 8..17: the replacement ramp owns the player, reaching its target
+  -- exactly on its 10th frame.
+  for frame = 1, 9 do
+    sound:updateSoundFrame()
+    Assert.equal(
+      writes[first + frame].level,
+      expected7 + NnsSoundMath.cDiv(frame * (32 - expected7), 10),
+      "the replacement ramp owns every frame until its target"
+    )
+  end
+  sound:updateSoundFrame()
+  Assert.equal(writes[first + 10].level, 32, "the replacement ramp reaches its target on its final frame")
+  Assert.isFalse(sound:isMusicFadeActive(), "the replacement ramp completed; no script fade is active")
+  -- No frame ever received two fader applications for the same player.
+  for i = before + 1, #writes - 1 do
+    Assert.equal(writes[i].playerId, writes[i + 1].playerId, "every write is for the same player")
+  end
+  player:render(250)
+end
+
+-- The HGSS full-restore spelling: the pinned soundplate exit invokes
+-- GF_SndHandleMoveVolume(0, 128, 15), so target 128 is a real game-level
+-- source value that must normalize to the strict player full level 127 at the
+-- semantic boundary and never reach the 0..127 SequencePlayer fader contract.
+-- A restore from 64 to 128 over 15 frames would compute 123 on frame 14 and
+-- 128 on frame 15 -- the final frame is where the out-of-range value would
+-- trip the assertion, so that is the frame the scenario pins.
+function T.a_source_full_restore_target_completes_without_violating_the_player_range()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  player:render(250)
+  -- Duck the BGM player, then restore it with the source full-restore target.
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, 15)
+  for _ = 1, 15 do
+    sound:updateSoundFrame()
+  end
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, 64, "the player is ducked below full")
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 128, 15)
+  -- After 14 frames the ramp is still active and has not yet reached full.
+  for _ = 1, 14 do
+    sound:updateSoundFrame()
+  end
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, 123, "the 14th restore frame is still below full")
+  -- The 15th frame completes at 127 without ever pushing 128.
+  sound:updateSoundFrame()
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, 127, "the final frame applies the canonical full level")
+  for _, write in ipairs(spy.faderWrites) do
+    Assert.isTrue(
+      write.level >= 0 and write.level <= 127,
+      "SequencePlayer:setFader never receives a level outside 0..127"
+    )
+  end
+  player:render(250)
+end
+
+-- A target outside the source-backed domain is a programming-contract
+-- violation and fails before any state is mutated.
+function T.an_out_of_range_volume_target_fails_before_mutating_state()
+  local sound, player = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  local err = Assert.throws(function()
+    sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 129, 15)
+  end)
+  Assert.isTrue(err ~= nil, "a 129 target is rejected")
+  Assert.equal(sound:currentMusic(), 5, "the BGM reference is untouched by the rejected move")
+  player:render(250)
+end
+
+-- Sequence replacement is a synchronization boundary: the new SequencePlayer
+-- instance starts at fader 127, so GameSound's record for the player must be
+-- reset to full and idle immediately, and a volume move on the replacement
+-- must ramp from 127 -- never from the old sequence's ducked/partial level.
+function T.a_sequence_replacement_cannot_inherit_stale_ramp_state()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  -- Duck the first BGM well below full.
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 16, 10)
+  for _ = 1, 10 do
+    sound:updateSoundFrame()
+  end
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, 16, "the first BGM is ducked")
+  -- Replace it with a different BGM on the same NNS player.
+  sound:playMusic("SEQ_TEST_BGM_B")
+  local writes = #spy.faderWrites
+  -- A volume move on the replacement ramps from the fresh instance's full
+  -- level, not from the old sequence's 16.
+  sound:moveSequenceVolume("SEQ_TEST_BGM_B", 64, 8)
+  sound:updateSoundFrame()
+  Assert.equal(
+    spy.faderWrites[writes + 1].level,
+    127,
+    "the replacement ramp starts from full because the new instance starts at fader 127"
+  )
+  player:render(250)
+end
+
+-- A fade-stop owns the player's single ramp: the level interpolates to 0 over
+-- the requested frames and the player is stopped only after the final ramp
+-- frame has applied level 0 -- never early, never through a second engine.
+function T.a_stop_with_fade_applies_level_zero_then_stops_the_player()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  player:render(250)
+  sound:stopSequenceWithFade("SEQ_TEST_BGM_LONG", 10)
+  -- Frames 1..9: the fade-stop owns the level and the player keeps playing.
+  for frame = 1, 9 do
+    sound:updateSoundFrame()
+    Assert.equal(spy.faderWrites[#spy.faderWrites].level, 127 + NnsSoundMath.cDiv(frame * (0 - 127), 10))
+    Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM_LONG"), "the player still plays before the final frame")
+  end
+  -- Frame 10: level 0 is applied before the player stops.
+  sound:updateSoundFrame()
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, 0, "the final ramp frame applies level 0")
+  Assert.isFalse(sound:isEffectPlaying("SEQ_TEST_BGM_LONG"), "the player stops only after the final frame")
+  player:render(250)
+end
+
+-- A stop-after-fade must never stop the player early: after duration-1 frames
+-- the stop happens exactly on the frame that reaches level 0, and a later
+-- update finds the player already stopped with no further writes.
+function T.a_stop_with_fade_of_one_frame_stops_after_the_single_level_zero_frame()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  player:render(250)
+  sound:stopSequenceWithFade("SEQ_TEST_BGM_LONG", 1)
+  local writes = #spy.faderWrites
+  sound:updateSoundFrame()
+  Assert.equal(spy.faderWrites[writes + 1].level, 0, "the single frame applies level 0")
+  Assert.isFalse(sound:isEffectPlaying("SEQ_TEST_BGM_LONG"), "the player stopped on the level-zero frame")
+  sound:updateSoundFrame()
+  Assert.equal(#spy.faderWrites, writes + 1, "no fader is applied after the player stopped")
+end
+
+-- Exact integer interpolation for a rising ramp and for a falling ramp of
+-- duration 1, using the source cDiv formula.
+function T.ramps_interpolate_exactly_with_cdiv_for_rising_and_falling_levels()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  player:render(250)
+  -- Rising: from 64 back toward full over 3 frames.
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, 3)
+  for _ = 1, 3 do
+    sound:updateSoundFrame()
+  end
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 127, 3)
+  for frame = 1, 3 do
+    sound:updateSoundFrame()
+    Assert.equal(
+      spy.faderWrites[#spy.faderWrites].level,
+      64 + NnsSoundMath.cDiv(frame * (127 - 64), 3),
+      "rising ramp follows the source cDiv interpolation"
+    )
+  end
+  -- Duration 1: the single frame lands exactly on the target.
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 30, 1)
+  sound:updateSoundFrame()
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, 30, "a duration-1 ramp reaches its target on its only frame")
+  player:render(250)
+end
+
+-- Replacing a ramp while it is mid-flight starts from the level the replaced
+-- ramp has already applied (the record's current level), never from the
+-- original ramp's start or a stale field.
+function T.replacing_a_mid_ramp_starts_from_the_current_applied_level()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  player:render(250)
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, 20)
+  sound:updateSoundFrame()
+  sound:updateSoundFrame()
+  local expected2 = 127 + NnsSoundMath.cDiv(2 * (64 - 127), 20)
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, expected2, "the first ramp applied its 2nd-frame level")
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 32, 10)
+  sound:updateSoundFrame()
+  Assert.equal(
+    spy.faderWrites[#spy.faderWrites].level,
+    expected2 + NnsSoundMath.cDiv(1 * (32 - expected2), 10),
+    "the replacement starts from the level the replaced ramp applied"
+  )
+  player:render(250)
+end
+
+-- Invalid durations are programming-contract violations and fail before any
+-- ramp state is created.
+function T.invalid_fader_durations_fail_before_mutating_state()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  player:render(250)
+  Assert.throws(function()
+    sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, 0)
+  end)
+  Assert.throws(function()
+    sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, 10.5)
+  end)
+  Assert.throws(function()
+    sound:stopSequenceWithFade("SEQ_TEST_BGM_LONG", 0)
+  end)
+  -- No ramp was created: a subsequent valid move starts from full.
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 90, 1)
+  local writes = #spy.faderWrites
+  sound:updateSoundFrame()
+  Assert.equal(spy.faderWrites[writes + 1].level, 90, "the player level was untouched by the rejected calls")
+  player:render(250)
+end
+
+-- The fanfare freeze is a property of the script music fade: while a fanfare
+-- plays, an existing script-music fade ramp is frozen and resumes after the
+-- fanfare completes, exactly as the HGSS DoSoundUpdateFrame ordering requires.
+-- A generic ramp is not auto-frozen: it keeps interpolating from its own
+-- start through the fanfare.
+function T.a_generic_ramp_is_not_frozen_by_a_fanfare()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  player:render(250)
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 32, 20)
+  -- Frame 1 of the generic ramp, then a fanfare starts.
+  sound:updateSoundFrame()
+  local level1 = spy.faderWrites[#spy.faderWrites].level
+  Assert.equal(level1, 127 + NnsSoundMath.cDiv(1 * (32 - 127), 20), "the generic ramp applied its first frame")
+  sound:playFanfare("SEQ_TEST_FANFARE")
+  player:render(500)
+  Assert.isTrue(sound:isFanfarePlaying(), "the fanfare is in flight")
+  -- The generic ramp keeps advancing through the fanfare: it is not the
+  -- script music fade that the HGSS freeze protects, so its second frame
+  -- applies from its own start and never sits frozen at frame 1.
+  sound:updateSoundFrame()
+  Assert.equal(
+    spy.faderWrites[#spy.faderWrites].level,
+    127 + NnsSoundMath.cDiv(2 * (32 - 127), 20),
+    "the generic ramp advances during the fanfare"
+  )
+  player:render(250)
+end
+
+-- Deterministic iteration: when two players have ramps completing on the same
+-- sound frame, both are applied in ascending player-id order and a stop is
+-- issued for the player whose ramp requested it.
+function T.ramps_on_multiple_players_advance_in_deterministic_player_order()
+  local bgm = seq(0, "SEQ_TEST_BGM", 1, {
+    { op = "program", program = 0 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "jump", target = 2 },
+  })
+  local effect = seq(1, "SEQ_TEST_EFFECT", 2, {
+    { op = "program", program = 1 },
+    { op = "note", key = 60, velocity = 127, duration = 4 },
+    { op = "end" },
+  })
+  local sound, player, spy = newGameSound({ [0] = bgm, [1] = effect })
+  sound:playMusic("SEQ_TEST_BGM")
+  sound:play("SEQ_TEST_EFFECT")
+  player:render(250)
+  sound:moveSequenceVolume("SEQ_TEST_BGM", 64, 3)
+  sound:stopSequenceWithFade("SEQ_TEST_EFFECT", 3)
+  -- One frame advances both players; the lower player id is written first.
+  sound:updateSoundFrame()
+  Assert.equal(spy.faderWrites[#spy.faderWrites - 1].playerId, 1)
+  Assert.equal(spy.faderWrites[#spy.faderWrites].playerId, 2)
+  -- The two remaining frames complete both ramps and stop the effect player.
+  sound:updateSoundFrame()
+  sound:updateSoundFrame()
+  Assert.equal(spy.faderWrites[#spy.faderWrites].playerId, 2)
+  Assert.isFalse(sound:isEffectPlaying("SEQ_TEST_EFFECT"), "the fade-stop stopped its player")
+  Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the volume move left its player playing")
+  player:render(250)
+end
+
+-- After a full-restore ramp completes, the player record keeps the level that
+-- was actually applied (127), never the raw source target 128 -- so a later
+-- move on the same player ramps from the applied full level, and the record
+-- always equals what SequencePlayer holds.
+function T.after_a_full_restore_the_record_holds_the_applied_level_not_raw_128()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  player:render(250)
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 128, 15)
+  for _ = 1, 15 do
+    sound:updateSoundFrame()
+  end
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, 127, "the full restore applied 127")
+  -- A move issued after the restore ramps from 127, not from a stale 128.
+  sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, 4)
+  sound:updateSoundFrame()
+  Assert.equal(
+    spy.faderWrites[#spy.faderWrites].level,
+    127 + NnsSoundMath.cDiv(1 * (64 - 127), 4),
+    "the follow-up ramp starts from the applied full level"
+  )
+  player:render(250)
 end
 
 return { tests = T }
