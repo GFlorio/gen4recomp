@@ -143,41 +143,4 @@ function StartMenuPolicy.actions(value)
   return actions
 end
 
--- Builds the final interactive action list for one facts snapshot: all
--- source actions are processed in canonical insertion order, so
--- present-but-unimplemented actions keep their canonical display positions,
--- and an entry is interactive exactly when present AND unlocked AND its
--- destination application is registered. Fresh records per call; the facts
--- are never mutated.
----@param value table the seven unlock facts (asserted booleans, unknown keys tolerated)
----@param hasApplication fun(applicationId: string): boolean the application-capability predicate
----@return { id: string, targetApplication: string, displayPosition: integer }[]
-function StartMenuPolicy.availableActions(value, hasApplication)
-  assert(type(value) == "table", "the start menu policy requires the unlock facts")
-  for _, field in ipairs(FACT_FIELDS) do
-    assert(type(value[field]) == "boolean", "the start menu policy requires boolean unlock facts")
-  end
-  assert(type(hasApplication) == "function", "the start menu policy requires the application-capability predicate")
-  local actions = {}
-  local presentCount = 0
-  for _, definition in ipairs(ACTIONS) do
-    local inhibitedBy = definition.inhibitedBy
-    local present = inhibitedBy == nil or (inhibitedBy ~= true and value[inhibitedBy] == true)
-    local unlockedBy = definition.unlockedBy
-    local unlocked = unlockedBy == nil or value[unlockedBy] == true
-    local targetApplication = definition.targetApplication
-    if present and unlocked and targetApplication ~= nil and hasApplication(targetApplication) then
-      actions[#actions + 1] = {
-        id = definition.id,
-        targetApplication = targetApplication,
-        displayPosition = definition.displayPosition or presentCount,
-      }
-    end
-    if present then
-      presentCount = presentCount + 1
-    end
-  end
-  return actions
-end
-
 return StartMenuPolicy

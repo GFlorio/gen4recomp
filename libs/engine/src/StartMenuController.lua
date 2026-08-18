@@ -64,6 +64,7 @@ local function composeDisplay(entries, slotCount)
     display[position] = {
       id = entry.id,
       targetApplication = entry.targetApplication,
+      actionKind = entry.actionKind,
       position = position,
       slotId = position + StartMenuController.CANCEL_SLOT_ID + 1,
       enabled = entry.enabled ~= false, -- default to enabled if not specified
@@ -109,6 +110,7 @@ end
 ---@class StartMenuController.Action
 ---@field id string
 ---@field targetApplication string
+---@field actionKind string?
 ---@field position integer display position (0-based)
 ---@field slotId integer manifest slot id
 ---@field enabled boolean whether the action can be activated (source-enabled and implementation-available)
@@ -208,13 +210,18 @@ function StartMenuController:_moveSelection(direction)
 end
 
 -- Activation of the selected action. Disabled entries (enabled=false) are
--- a no-op; enabled entries produce a launch result. The launch result carries
+-- a no-op; an enabled "application" entry produces a launch result carrying
 -- the action id so the application host can restore the selection by id when
--- the child application returns.
+-- the child application returns. An enabled entry of any other kind has no
+-- implemented routing -- the runtime must never compose enabled=true for one
+-- -- so activating it is a programming fault, not a silent close.
 function StartMenuController:_activate(position)
   local action = assert(self._visibleActions[position], "activation requires a visible action")
   if not action.enabled then
     return -- disabled entry is a no-op
+  end
+  if action.actionKind ~= "application" then
+    error("enabled start menu action has no implemented routing: " .. tostring(action.id), 2)
   end
   self._result = {
     kind = "launch",

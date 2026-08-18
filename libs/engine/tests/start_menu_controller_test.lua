@@ -28,15 +28,20 @@ local CURSOR_FRAMES = FieldUiFixture.START_MENU_CURSOR_FRAMES
 -- reserved positions 7/8.
 local function fullEntries()
   return {
-    { id = "vanilla.pokedex", targetApplication = "pokedex", displayPosition = 0 },
-    { id = "vanilla.pokemon", targetApplication = "pokemon", displayPosition = 1 },
-    { id = "vanilla.bag", targetApplication = "bag", displayPosition = 2 },
-    { id = "vanilla.pokegear", targetApplication = "pokegear", displayPosition = 3 },
-    { id = "vanilla.trainer_card", targetApplication = "trainer_card", displayPosition = 4 },
-    { id = "vanilla.save", targetApplication = "save", displayPosition = 5 },
-    { id = "vanilla.options", targetApplication = "options", displayPosition = 6 },
-    { id = "vanilla.special_9", targetApplication = "pokegear", displayPosition = 7 },
-    { id = "vanilla.special_10", targetApplication = "pokegear", displayPosition = 8 },
+    { id = "vanilla.pokedex", targetApplication = "pokedex", actionKind = "application", displayPosition = 0 },
+    { id = "vanilla.pokemon", targetApplication = "pokemon", actionKind = "application", displayPosition = 1 },
+    { id = "vanilla.bag", targetApplication = "bag", actionKind = "application", displayPosition = 2 },
+    { id = "vanilla.pokegear", targetApplication = "pokegear", actionKind = "application", displayPosition = 3 },
+    {
+      id = "vanilla.trainer_card",
+      targetApplication = "trainer_card",
+      actionKind = "application",
+      displayPosition = 4,
+    },
+    { id = "vanilla.save", targetApplication = "save", actionKind = "application", displayPosition = 5 },
+    { id = "vanilla.options", targetApplication = "options", actionKind = "application", displayPosition = 6 },
+    { id = "vanilla.special_9", targetApplication = "pokegear", actionKind = "application", displayPosition = 7 },
+    { id = "vanilla.special_10", targetApplication = "pokegear", actionKind = "application", displayPosition = 8 },
   }
 end
 
@@ -405,6 +410,20 @@ function T.pointer_tap_on_disabled_entry_is_noop()
   controller:updateFixed({ { type = "pointer_up", pointerId = "touch:1", x = x, y = y, dragged = false } })
   Assert.isNil(controller:takeResult(), "tap on disabled entry produces no result")
   Assert.equal(controller:status().open, true, "menu remains open")
+end
+
+-- An enabled action whose kind has no implemented routing is a programming
+-- fault: the runtime must never compose enabled=true for a non-application
+-- action, so activating one is an error, never a silent close.
+function T.confirming_an_enabled_non_application_action_errors()
+  local controller = newController({
+    entries = {
+      { id = "vanilla.running_shoes", actionKind = "toggle", displayPosition = 0, enabled = true },
+    },
+  })
+  Assert.throws(function()
+    controller:updateFixed({ { type = "confirm" } })
+  end, "an enabled action with unimplemented routing must error, not silently close")
 end
 
 -- Status output includes enabled field for each action.
