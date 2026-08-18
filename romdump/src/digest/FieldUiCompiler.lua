@@ -405,12 +405,74 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
       }
     )
   end
+
+  -- v5: extract per-source-type 16-color palette banks from the palette member.
+  local function signPaletteBank(colors, sourceType)
+    local base = sourceType * 16
+    local bank = {}
+
+    for slot = 0, 15 do
+      local color = colors[base + slot + 1]
+      if not color then
+        Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "signpost palette does not contain the source type bank", {
+          sourceType = sourceType,
+          slot = slot,
+          requiredColorIndex = base + slot,
+          availableColors = #colors,
+        })
+      end
+
+      bank[slot] = {
+        r = color.r,
+        g = color.g,
+        b = color.b,
+      }
+    end
+
+    return bank
+  end
+
+  -- v5: render one frame strip row per source type using its own palette.
+  local frameRowYs = {}
+  local frameAtlasHeight = #cfg.sourceTypes * 8
+  local frameAtlasWidth = frameTiles * 8
+  local frameRgba = newRgba(frameAtlasWidth, frameAtlasHeight)
+
+  for rowIndex, sourceType in ipairs(cfg.sourceTypes) do
+    local palette = signPaletteBank(framePal.colors, sourceType)
+    local paletteOneBasedArray = {}
+    for slot = 0, 15 do
+      paletteOneBasedArray[slot + 1] = palette[slot]
+    end
+
+    for tile = 0, frameTiles - 1 do
+      blitTile(
+        frameRgba,
+        frameAtlasWidth,
+        tile * 8,
+        (rowIndex - 1) * 8,
+        frameChar,
+        tile,
+        0,
+        paletteOneBasedArray,
+        false,
+        false,
+        {
+          asset = "signpost frame",
+          member = cfg.frameMember,
+          sourceType = sourceType,
+        }
+      )
+    end
+
+    frameRowYs[sourceType] = (rowIndex - 1) * 8
+  end
+
   local framePath = FieldUiAssetCache.assetDir() .. "/signpost-tiles.png"
-  assets[framePath] = renderTiles(frameChar, framePal.colors, frameTiles, frameTiles * 8, {
-    asset = "signpost frame",
-    member = cfg.frameMember,
-  })
-  manifestAssets[FieldUiAssetCache.ASSET.SIGNPOST_TILES] = { image = framePath, width = frameTiles * 8, height = 8 }
+  assets[framePath] = PngWriter.encode(frameAtlasWidth, frameAtlasHeight, concatChars(frameRgba))
+  manifestAssets[FieldUiAssetCache.ASSET.SIGNPOST_TILES] =
+    { image = framePath, width = frameAtlasWidth, height = frameAtlasHeight }
+
   -- The whole-archive hash intentionally invalidates on any signpost member
   -- change; the per-wayfinding-member hashes below additionally pin each
   -- selected (type, map) row individually.
@@ -451,7 +513,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
           }
         )
       end
-      rows[#rows + 1] = { key = key, member = member, bytes = wfBytes, char = wfChar }
+      rows[#rows + 1] = { key = key, sourceType = sourceType, member = member, bytes = wfBytes, char = wfChar }
     end
   end
   local rowWidth = FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES * 8
@@ -459,8 +521,15 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   local rgba = newRgba(rowWidth, atlasHeight)
   for index, row in ipairs(rows) do
     local wfChar = row.char
+    -- v5: render wayfinding row with its source type's palette bank.
+    local palette = signPaletteBank(framePal.colors, row.sourceType)
+    local paletteOneBasedArray = {}
+    for slot = 0, 15 do
+      paletteOneBasedArray[slot + 1] = palette[slot]
+    end
+
     for tile = 0, FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES - 1 do
-      blitTile(rgba, rowWidth, tile * 8, (index - 1) * 8, wfChar, tile, 0, framePal.colors, false, false, {
+      blitTile(rgba, rowWidth, tile * 8, (index - 1) * 8, wfChar, tile, 0, paletteOneBasedArray, false, false, {
         asset = "wayfinding " .. row.key,
         member = row.member,
       })
@@ -476,8 +545,20 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
     { image = wayfindingPath, width = rowWidth, height = atlasHeight }
 
   local types = {}
-  for _, sourceType in ipairs(cfg.sourceTypes) do
+  for typeIndex, sourceType in ipairs(cfg.sourceTypes) do
     local typeEntry = { sourceType = sourceType }
+
+    -- v5: include per-type palette bank.
+    typeEntry.palette = signPaletteBank(framePal.colors, sourceType)
+
+    -- v5: include per-type frameTiles.
+    typeEntry.frameTiles = {
+      x = 0,
+      y = frameRowYs[sourceType],
+      width = frameAtlasWidth,
+      height = 8,
+    }
+
     local spec = cfg.wayfinding[sourceType]
     if spec then
       local mapRects = {}
@@ -489,7 +570,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
     types[sourceType] = typeEntry
   end
   return {
-    frame = { tiles = { x = 0, y = 0, width = frameTiles * 8, height = 8 } },
+    textColors = { foreground = 2, shadow = 10, background = 15 },
     types = types,
   }
 end

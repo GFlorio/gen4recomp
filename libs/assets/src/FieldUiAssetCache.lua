@@ -198,18 +198,51 @@ function FieldUiAssetCache.validateManifest(manifest)
   end
 
   local ok, err = section("signposts", function(s)
-    if type(s.frame) ~= "table" then
-      return false, Errors.new(MANIFEST_INVALID, "signposts.frame must be a table", {})
+    -- v5 schema requires textColors: the source palette slot assignments.
+    if type(s.textColors) ~= "table" then
+      return false, Errors.new(MANIFEST_INVALID, "signposts.textColors must be a table", {})
     end
-    local ok, err = stripInAtlas(
-      s.frame.tiles,
-      FieldUiAssetCache.ASSET.SIGNPOST_TILES,
-      "signpost frame tiles",
-      FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
-    )
+    local function validateSlot(slot, name)
+      if type(slot) ~= "number" or slot % 1 ~= 0 or slot < 0 or slot > 15 then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signposts.textColors." .. name .. " must be an integral slot 0..15", {
+            name = name,
+            value = slot,
+          })
+      end
+      return true
+    end
+    local ok, err = validateSlot(s.textColors.foreground, "foreground")
     if not ok then
       return false, err
     end
+    if s.textColors.foreground ~= 2 then
+      return false,
+        Errors.new(MANIFEST_INVALID, "signposts.textColors.foreground must be slot 2 (HGSS contract)", {
+          value = s.textColors.foreground,
+        })
+    end
+    local ok, err = validateSlot(s.textColors.shadow, "shadow")
+    if not ok then
+      return false, err
+    end
+    if s.textColors.shadow ~= 10 then
+      return false,
+        Errors.new(MANIFEST_INVALID, "signposts.textColors.shadow must be slot 10 (HGSS contract)", {
+          value = s.textColors.shadow,
+        })
+    end
+    local ok, err = validateSlot(s.textColors.background, "background")
+    if not ok then
+      return false, err
+    end
+    if s.textColors.background ~= 15 then
+      return false,
+        Errors.new(MANIFEST_INVALID, "signposts.textColors.background must be slot 15 (HGSS contract)", {
+          value = s.textColors.background,
+        })
+    end
+
     if type(s.types) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "signposts.types must be a table", {})
     end
@@ -223,6 +256,87 @@ function FieldUiAssetCache.validateManifest(manifest)
             key = key,
           })
       end
+
+      -- v5: per-type palette (16 colors, 0..15, each with r/g/b 0..255).
+      if type(typeEntry.palette) ~= "table" then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette must be a table", {
+            type = key,
+          })
+      end
+      local paletteCount = 0
+      for slot = 0, 15 do
+        local color = typeEntry.palette[slot]
+        if color == nil then
+          return false,
+            Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette slot " .. slot .. " is missing", {
+              type = key,
+              slot = slot,
+            })
+        end
+        if
+          type(color) ~= "table"
+          or type(color.r) ~= "number"
+          or type(color.g) ~= "number"
+          or type(color.b) ~= "number"
+        then
+          return false,
+            Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette slot " .. slot .. " must have r, g, b", {
+              type = key,
+              slot = slot,
+            })
+        end
+        local function checkComponent(val, comp)
+          return val % 1 == 0 and val >= 0 and val <= 255
+        end
+        if not checkComponent(color.r, "r") or not checkComponent(color.g, "g") or not checkComponent(color.b, "b") then
+          return false,
+            Errors.new(
+              MANIFEST_INVALID,
+              "signpost type " .. key .. " palette slot " .. slot .. " components must be integral 0..255",
+              {
+                type = key,
+                slot = slot,
+                r = color.r,
+                g = color.g,
+                b = color.b,
+              }
+            )
+        end
+        paletteCount = paletteCount + 1
+      end
+      if paletteCount ~= 16 then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette must have exactly 16 entries", {
+            type = key,
+            count = paletteCount,
+          })
+      end
+      -- Check for extra entries beyond slot 15.
+      if typeEntry.palette[16] ~= nil then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette must have exactly 16 entries (0..15)", {
+            type = key,
+          })
+      end
+
+      -- v5: per-type frameTiles (must be exactly 144x8 in the tiles atlas).
+      if type(typeEntry.frameTiles) ~= "table" then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " frameTiles must be a table", {
+            type = key,
+          })
+      end
+      local ok, err = stripInAtlas(
+        typeEntry.frameTiles,
+        FieldUiAssetCache.ASSET.SIGNPOST_TILES,
+        "signpost type " .. key .. " frameTiles",
+        FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
+      )
+      if not ok then
+        return false, err
+      end
+
       if typeEntry.wayfinding ~= nil then
         -- A type either has per-map wayfinding or none: the producer omits
         -- the field for types without a map graphic, so an empty table is a

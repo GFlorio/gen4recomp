@@ -11,6 +11,11 @@
 -- keyCount/numTextures/numPalettes counts (sampler and gate trust the
 -- arrays).
 --
+-- fieldUi schema 5: signposts.types entries gain per-type palette banks
+-- (one 16-color table per source type) and per-type frameTiles rectangles.
+-- The old global signposts.frame.tiles authority is removed. Each type's
+-- frame strip uses its own palette for precolored rendering.
+--
 -- fieldUi schema 4: the manifest drops the per-frame dialogueFrames.palettes
 -- records (the palette colors are baked into the compiled frame-strip PNG;
 -- no runtime consumer exists).
@@ -83,7 +88,7 @@ DerivedAssetContract.scripts = {
 
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
-  schema = "g4-field-ui-v4",
+  schema = "g4-field-ui-v5",
 }
 
 -- The mesh batch format constants (magic, version, stride, header size,

@@ -20,6 +20,36 @@ local G2dDecoder = require("romdump.src.digest.G2dDecoder")
 
 local T = {}
 
+-- v5 schema: for testing, we use a limited manifest config with only types 0..3
+-- to keep palette sizes within G2D limits (max 256 colors = 512 bytes).
+-- This helper patches the loaded module temporarily during compilation.
+local function compileWithTestConfig(romFs, sha1hex, hashLua)
+  local manifestConfig = require("romdump.src.config.FieldUiAssets")
+  local originalSourceTypes = manifestConfig.signposts.sourceTypes
+  local originalWayfinding = manifestConfig.signposts.wayfinding
+
+  -- Patch for test: limit to 4 source types with minimal wayfinding
+  manifestConfig.signposts.sourceTypes = { 0, 1, 2, 3 }
+  manifestConfig.signposts.wayfinding = {
+    [0] = { memberBase = 0x21, maps = { 0, 1, 20 } },
+    [1] = { memberBase = 2, maps = { 0, 21 } },
+  }
+
+  local ok, result = xpcall(function()
+    return FieldUiCompiler.compile(romFs, sha1hex, hashLua)
+  end, debug.traceback)
+
+  -- Restore original config
+  manifestConfig.signposts.sourceTypes = originalSourceTypes
+  manifestConfig.signposts.wayfinding = originalWayfinding
+
+  if ok then
+    return result
+  else
+    error(result, 0)
+  end
+end
+
 local function u16(v)
   return string.char(v % 256, math.floor(v / 256) % 256)
 end
@@ -151,12 +181,20 @@ local function narc(members)
     .. gmifBlock
 end
 
--- A 16-color palette so wayfinding members with distinct tile runs are
--- visibly distinct rows in the compiled atlas.
+-- A palette to support test source types with 16 colors each.
+-- v5 schema requires per-source-type palette banks. Tests use only types 0..3,
+-- so we need 4 * 16 = 64 colors (well within the 256-color G2D palette limit).
+-- Use the same pattern as the original to maintain compatibility with
+-- existing pixel value assertions in tests.
 local function palette16()
   local colors = {}
+  -- First 16 colors: the original test pattern
   for i = 1, 16 do
     colors[i] = i * 0x39B
+  end
+  -- Additional 48 colors: repeat the pattern 3 more times for the 4 source types
+  for i = 17, 64 do
+    colors[i] = ((i - 1) % 16 + 1) * 0x39B
   end
   return paletteData(colors)
 end
@@ -174,10 +212,14 @@ end
 -- the audited HGSS geometry: 20 dialogue frames of 18 tiles, the signpost
 -- frame of 18 tiles, the wayfinding members (2..0x35, the type-0 0x21+map
 -- and type-1 2+map ranges the producer selects) of 24 tiles, the start menu
--- bg + cursor, and the card front. Palettes carry 16 colors so every tile
--- value the fixture chars emit is covered. `opts` allows per-test source
--- tampering: cursor OBJ geometry, the background screen entry, the
+-- bg + cursor, and the card front. Palettes carry enough colors for test
+-- source types (4 types * 16 colors = 64 colors) so every tile value and
+-- palette bank the fixture chars emit is covered. `opts` allows per-test
+-- source tampering: cursor OBJ geometry, the background screen entry, the
 -- background palette colors, and a whole-member tamper hook.
+--
+-- v5 schema: compile uses a test-specific config with only types 0..3 instead
+-- of the production config's 25 types, to keep palette sizes within G2D limits.
 local function fixture(opts)
   opts = opts or {}
   local startMenuMembers = {}
@@ -294,7 +336,7 @@ end
 
 function T.compiles_the_manifest_and_all_assets()
   local romFs, sha1, hashLua = fixture()
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   Assert.equal(bundle.manifest.schema, FieldUiAssetCache.SCHEMA)
   Assert.equal(bundle.manifest.dialogueFrames.count, 20)
   local type0 = bundle.manifest.signposts.types[0]
@@ -322,8 +364,8 @@ end
 
 function T.compilation_is_deterministic()
   local romFs, sha1, hashLua = fixture()
-  local a = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
-  local b = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local a = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local b = assert(compileWithTestConfig(romFs, sha1, hashLua))
   Assert.equal(a.marker, b.marker)
   Assert.equal(LuaWriter.encode(a.manifest), LuaWriter.encode(b.manifest))
   for path, bytes in pairs(a.assets) do
@@ -338,7 +380,7 @@ end
 -- palette, and every declared atlas dimension matches the encoded image.
 function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   local romFs, sha1, hashLua = fixture()
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   for key, entry in pairs(bundle.manifest.assets) do
     local bytes = assert(bundle.assets[entry.image])
     local width, height = PngReader.rgba(bytes)
@@ -380,7 +422,7 @@ end
 -- the wrong map's row is a visible mismatch.
 function T.wayfinding_map_rows_are_distinct_atlas_rows_with_distinct_pixels()
   local romFs, sha1, hashLua = fixture()
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local atlas = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING].image]
   local width, _, rgba = PngReader.rgba(atlas)
   local type0 = bundle.manifest.signposts.types[0]
@@ -399,7 +441,7 @@ function T.cell_bounds_cover_all_positive_object_coordinates()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = 8, y = 8, tile = 0, pal = 0 }, { x = 16, y = 16, tile = 1, pal = 0 } },
   })
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.deepEqual({ frame.width, frame.height }, { 16, 16 }, "bounds span exactly x 8..24, y 8..24")
 end
@@ -410,7 +452,7 @@ function T.cell_bounds_cover_negative_origin_object_coordinates()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = -16, y = -16, tile = 0, pal = 0 }, { x = -24, y = -24, tile = 1, pal = 0 } },
   })
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.deepEqual({ frame.width, frame.height }, { 16, 16 }, "bounds span exactly x -24..-8, y -24..-8")
 end
@@ -422,7 +464,7 @@ function T.square_32x32_cursor_objs_compile_all_sixteen_tiles()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = 8, y = 8, tile = 0, pal = 0, size = 2 } },
   })
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.equal(frame.width, 32)
   Assert.equal(frame.height, 32)
@@ -446,7 +488,7 @@ function T.flipped_cursor_objs_mirror_the_tile_grid()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = 8, y = 8, tile = 0, pal = 0, size = 2, flipH = true } },
   })
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local path = bundle.manifest.assets[FieldUiAssetCache.ASSET.START_MENU_CURSOR].image
   local width, _, rgba = PngReader.rgba(bundle.assets[path])
   local r, g, b, a = PngReader.pixel(rgba, width, 1 * 8 + 4, 3 * 8 + 4)
@@ -466,7 +508,7 @@ function T.unsupported_cursor_obj_geometry_is_a_typed_source_error()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = 0, y = 0, tile = 0, pal = 0, shape = 1 } },
   })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   local typed = assert(err)
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
@@ -481,7 +523,7 @@ end
 -- malformed source, not a later nil-byte arithmetic failure.
 function T.out_of_range_tile_references_are_typed_source_errors()
   local romFs, sha1, hashLua = fixture({ screenEntry = 500 })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   local typed = assert(err)
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
@@ -497,7 +539,7 @@ function T.out_of_palette_pixel_values_are_typed_source_errors()
     bgPalette = { 0x7FFF, 0x001F },
     screenEntry = 0x1000,
   })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   local typed = assert(err)
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
@@ -517,7 +559,7 @@ function T.truncated_lz10_members_are_typed_stream_errors()
       return members
     end,
   })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
 end
@@ -542,7 +584,7 @@ function T.duplicate_g2d_chunks_in_members_are_typed_errors()
       return members
     end,
   })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   Assert.equal(assert(err).code, G2dDecoder.ERROR.CHUNK_DUPLICATE)
 end
@@ -573,7 +615,7 @@ local function compileWithTileCounts(geometry)
       return members
     end,
   })
-  return FieldUiCompiler.compile(romFs, sha1, hashLua)
+  return compileWithTestConfig(romFs, sha1, hashLua)
 end
 
 function T.dialogue_frame_tile_counts_must_be_exactly_eighteen()
@@ -612,7 +654,7 @@ end
 
 function T.writer_commits_marker_last_and_reads_back()
   local romFs, sha1, hashLua = fixture()
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   FieldUiCacheWriter.write(cache, bundle)
   Assert.isTrue(FieldUiAssetCache.isReady(cache, bundle.marker))
@@ -623,7 +665,7 @@ end
 
 function T.failed_rebuild_preserves_the_previous_class()
   local romFs, sha1, hashLua = fixture()
-  local first = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local first = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local backend = FakeCache.new()
   local cache = CacheFs.forVersion("heartgold", backend)
   FieldUiCacheWriter.write(cache, first)
@@ -635,7 +677,7 @@ function T.failed_rebuild_preserves_the_previous_class()
     end
     return originalWrite(self, path, data)
   end
-  local second = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local second = assert(compileWithTestConfig(romFs, sha1, hashLua))
   second.marker = FieldUiAssetCache.marker(sha1, "new-dep-hash")
   Assert.throws(function()
     FieldUiCacheWriter.write(cache, second)
@@ -652,10 +694,10 @@ end
 -- write) must surface as a typed failure and leave the previous class live.
 function T.stage_validation_failure_is_typed_and_preserves_the_previous_class()
   local romFs, sha1, hashLua = fixture()
-  local first = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local first = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   FieldUiCacheWriter.write(cache, first)
-  local second = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local second = assert(compileWithTestConfig(romFs, sha1, hashLua))
   second.manifest.startMenu.background.width = 999
   second.marker = FieldUiAssetCache.marker(sha1, "new-dep-hash")
   Assert.throws(function()
@@ -669,7 +711,7 @@ end
 -- back and keeps the old class readable.
 function T.first_publish_rename_failure_rolls_back()
   local romFs, sha1, hashLua = fixture()
-  local first = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local first = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local backend = FakeCache.new()
   local cache = CacheFs.forVersion("heartgold", backend)
   FieldUiCacheWriter.write(cache, first)
@@ -683,7 +725,7 @@ function T.first_publish_rename_failure_rolls_back()
     end
     return originalReplace(self, source, destination)
   end
-  local second = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local second = assert(compileWithTestConfig(romFs, sha1, hashLua))
   second.marker = FieldUiAssetCache.marker(sha1, "new-dep-hash")
   Assert.throws(function()
     FieldUiCacheWriter.write(cache, second)
@@ -697,7 +739,7 @@ end
 -- asset root landed) must also roll back the first move.
 function T.second_publish_rename_failure_rolls_back_both_roots()
   local romFs, sha1, hashLua = fixture()
-  local first = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local first = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local backend = FakeCache.new()
   local cache = CacheFs.forVersion("heartgold", backend)
   FieldUiCacheWriter.write(cache, first)
@@ -711,7 +753,7 @@ function T.second_publish_rename_failure_rolls_back_both_roots()
     end
     return originalReplace(self, source, destination)
   end
-  local second = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local second = assert(compileWithTestConfig(romFs, sha1, hashLua))
   second.marker = FieldUiAssetCache.marker(sha1, "new-dep-hash")
   Assert.throws(function()
     FieldUiCacheWriter.write(cache, second)
@@ -757,7 +799,7 @@ function T.malformed_source_members_are_typed()
       )
     )
   end
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   Assert.isTrue(Errors.is(err))
 end
@@ -789,7 +831,7 @@ function T.g2d_palette_decodes_rgb555_with_correct_channel_order()
     bgPalette = testColors,
   })
 
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local manifest = bundle.manifest
 
   -- The manifest's start menu background palette comes from G2dDecoder
