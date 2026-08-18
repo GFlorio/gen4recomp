@@ -127,9 +127,9 @@ function T.compiled_ui_assets_are_ready_and_stable(romFs, version)
   -- wide, independent of the synthetic fixture contract.
   Assert.equal(bundle.manifest.dialogueFrames.frameTiles[0].width, 144)
   Assert.equal(bundle.manifest.dialogueFrames.frameTiles[0].height, 8)
-  Assert.equal(bundle.manifest.signposts.frame.tiles.width, 144)
-  Assert.equal(bundle.manifest.signposts.frame.tiles.height, 8)
   local type0 = bundle.manifest.signposts.types[0]
+  Assert.equal(type0.frameTiles.width, 144)
+  Assert.equal(type0.frameTiles.height, 8)
   Assert.isTrue(type0.wayfinding ~= nil, "type 0 reserves the wayfinding region")
   Assert.equal(type0.wayfinding[0].width, 192)
   Assert.equal(type0.wayfinding[0].height, 8)

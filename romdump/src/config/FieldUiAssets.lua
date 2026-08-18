@@ -53,8 +53,12 @@ return {
       [1] = { memberBase = 2, maps = { 0, 1, 2, 3, 4, 5, 6, 8, 10, 13, 14, 15, 19, 21 } },
     },
     -- Every signpost source type found in the corpus, kept as raw numbers
-    -- (the style catalogue owns their semantics).
-    sourceTypes = { 0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 13, 15, 16, 17, 18, 19, 20, 21, 23, 28, 29, 30, 33, 34, 39 },
+    -- (the style catalogue owns their semantics). Palette member 1 decodes to
+    -- exactly 256 colors (16 banks of 16), so only types 0..15 have a real
+    -- palette bank; corpus types above that (16, 17, 18, 19, 20, 21, 23, 28,
+    -- 29, 30, 33, 34, 39) are scoped out pending research into whether retail
+    -- reads their palette from a different source for higher type values.
+    sourceTypes = { 0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 13, 15 },
   },
   trainerCard = {
     alias = "trainer_card_graphics",

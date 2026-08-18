@@ -208,6 +208,21 @@ local function paletteOr16(colors)
   return palette16()
 end
 
+-- A signpost palette whose bank for type `t` slot `s` is an unmistakable
+-- (r=t, g=s, b=0) RGB555 signature: with only 4 test types and 16 slots,
+-- both fit their own 5-bit channel exactly, so no two (type, slot) pairs
+-- ever share a signature and a bank mix-up is a visibly wrong color, never
+-- a coincidentally-matching one.
+local function distinctSignpostPalette(numTypes)
+  local colors = {}
+  for t = 0, numTypes - 1 do
+    for s = 0, 15 do
+      colors[t * 16 + s + 1] = t + s * 32
+    end
+  end
+  return colors
+end
+
 -- A synthetic RomFs whose four UI NARCs carry minimal valid members matching
 -- the audited HGSS geometry: 20 dialogue frames of 18 tiles, the signpost
 -- frame of 18 tiles, the wayfinding members (2..0x35, the type-0 0x21+map
@@ -237,7 +252,7 @@ local function fixture(opts)
 
   local signpostMembers = {}
   signpostMembers[1] = charData(18)
-  signpostMembers[2] = palette16()
+  signpostMembers[2] = opts.signpostPalette and paletteData(opts.signpostPalette) or palette16()
   for memberId = 2, 0x35 do
     signpostMembers[memberId + 1] = charData(24, memberId % 16)
   end
@@ -436,6 +451,128 @@ function T.wayfinding_map_rows_are_distinct_atlas_rows_with_distinct_pixels()
     return rgba:sub(rect.y * width * 4 + 1, (rect.y + rect.height) * width * 4)
   end
   Assert.isTrue(rowPixels(rect0) ~= rowPixels(rect1), "map 0 and map 1 rows must decode to distinct pixels")
+end
+
+-- Every configured source type gets its own 16-entry palette bank, and slot
+-- s of type n's bank is exactly the decoded palette color n*16+s: with the
+-- (r=type, g=slot, b=0) signature palette, a bank built from the wrong
+-- offset (e.g. always bank 0) would produce the wrong type's colors.
+function T.every_type_gets_its_own_bank_at_the_correct_slot_offset()
+  local Rgb555 = require("libs.codec.src.Rgb555")
+  local romFs, sha1, hashLua = fixture({ signpostPalette = distinctSignpostPalette(4) })
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  for sourceType = 0, 3 do
+    local typeEntry = assert(bundle.manifest.signposts.types[sourceType], "type " .. sourceType)
+    local count = 0
+    for slot = 0, 15 do
+      local expected = Rgb555.decode(sourceType + slot * 32)
+      Assert.deepEqual(
+        typeEntry.palette[slot],
+        expected,
+        "type " .. sourceType .. " slot " .. slot .. " must be decoded color " .. (sourceType * 16 + slot)
+      )
+      count = count + 1
+    end
+    Assert.equal(count, 16, "type " .. sourceType .. " palette has exactly 16 slots")
+  end
+end
+
+-- The frame strip row for source type t is rendered with bank t, not bank 0:
+-- the frame char is shared across every type row (same tile values), so
+-- comparing the same tile column across two rows isolates the palette.
+function T.frame_row_pixels_use_the_row_s_own_source_type_palette()
+  local Rgb555 = require("libs.codec.src.Rgb555")
+  local romFs, sha1, hashLua = fixture({ signpostPalette = distinctSignpostPalette(4) })
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local atlas = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_TILES].image]
+  local width, _, rgba = PngReader.rgba(atlas)
+  -- The signpost frame char is charData(18) (base 0): tile 0 carries pixel
+  -- value 1, which selects palette slot 1 (colors[base+v+1] = bank[v]).
+  for sourceType = 0, 3 do
+    local rect = assert(bundle.manifest.signposts.types[sourceType].frameTiles)
+    local r, g, b, a = PngReader.pixel(rgba, width, 0, rect.y)
+    local expected = Rgb555.decode(sourceType + 1 * 32)
+    Assert.equal(a, 255)
+    Assert.deepEqual({ r, g, b }, { expected.r, expected.g, expected.b }, "frame row " .. sourceType .. " tile 0 pixel")
+  end
+end
+
+-- The wayfinding row for a (type, map) pair renders with its own source
+-- type's bank, never a shared/default bank: type 0 and type 1 wayfinding
+-- rows carry visibly different tile values (from the source member's
+-- distinct base) and distinct palettes, so both the tile source and the
+-- palette selection must agree with the row's own type.
+function T.wayfinding_row_pixels_use_the_row_s_own_source_type_palette()
+  local Rgb555 = require("libs.codec.src.Rgb555")
+  local romFs, sha1, hashLua = fixture({ signpostPalette = distinctSignpostPalette(4) })
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local atlas = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING].image]
+  local width, _, rgba = PngReader.rgba(atlas)
+  -- type 0 map 0 -> member 0x21, tile 0 value ((0 + 0x21 % 16) % 15) + 1 = 2.
+  -- type 1 map 0 -> member 2, tile 0 value ((0 + 2 % 16) % 15) + 1 = 3.
+  local rect0 = assert(bundle.manifest.signposts.types[0].wayfinding[0])
+  local rect1 = assert(bundle.manifest.signposts.types[1].wayfinding[0])
+  local r0, g0, b0, a0 = PngReader.pixel(rgba, width, 0, rect0.y)
+  local r1, g1, b1, a1 = PngReader.pixel(rgba, width, 0, rect1.y)
+  local expected0 = Rgb555.decode(0 + 2 * 32)
+  local expected1 = Rgb555.decode(1 + 3 * 32)
+  Assert.equal(a0, 255)
+  Assert.equal(a1, 255)
+  Assert.deepEqual({ r0, g0, b0 }, { expected0.r, expected0.g, expected0.b }, "type 0 map 0 uses type 0's bank")
+  Assert.deepEqual({ r1, g1, b1 }, { expected1.r, expected1.g, expected1.b }, "type 1 map 0 uses type 1's bank")
+end
+
+-- A source type configured without a full 16-color bank in the palette
+-- member is a stop-and-report source defect, not a silently-dropped type.
+function T.missing_source_palette_bank_fails_with_source_invalid()
+  -- 3 full banks (types 0..2) only; the config still requests type 3.
+  local colors = distinctSignpostPalette(3)
+  local romFs, sha1, hashLua = fixture({ signpostPalette = colors })
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
+  Assert.isNil(bundle, "compilation must fail when a configured type has no palette bank")
+  local typed = assert(err)
+  Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
+  Assert.equal(typed.context.sourceType, 3)
+  Assert.equal(typed.context.slot, 0)
+  Assert.equal(typed.context.requiredColorIndex, 48)
+  Assert.equal(typed.context.availableColors, 48)
+end
+
+-- A source type without any wayfinding member selection still gets a real
+-- frame row and a full palette bank: absence of wayfinding is not absence
+-- of the type's other data.
+function T.source_type_without_wayfinding_still_has_frame_and_palette()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local type2 = assert(bundle.manifest.signposts.types[2])
+  Assert.isNil(type2.wayfinding, "type 2 has no wayfinding configured")
+  Assert.isTrue(type2.palette ~= nil and type2.frameTiles ~= nil, "type 2 still carries a palette and frame row")
+  local count = 0
+  for _ in pairs(type2.palette) do
+    count = count + 1
+  end
+  Assert.equal(count, 16, "type 2's palette is still the full 16-entry bank")
+end
+
+-- No source-archive detail (NARC alias, member id, palette member, byte
+-- offset) may leak into the runtime manifest: only the normalized RGB
+-- palette and pixel rects belong there.
+function T.source_member_ids_do_not_leak_into_the_runtime_manifest()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local forbiddenKeys = { member = true, memberId = true, narcId = true, alias = true, fileId = true }
+  local function scan(value, path)
+    if type(value) ~= "table" then
+      return
+    end
+    for k, v in pairs(value) do
+      if type(k) == "string" and forbiddenKeys[k] then
+        Assert.fail("manifest leaks source detail '" .. k .. "' at " .. path)
+      end
+      scan(v, path .. "." .. tostring(k))
+    end
+  end
+  scan(bundle.manifest.signposts, "signposts")
 end
 
 -- cellBounds must span the actual objects: with strictly positive object

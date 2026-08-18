@@ -184,14 +184,16 @@ function T.missing_wayfinding_atlas_is_a_typed_error()
   text:release()
 end
 
--- A quad failure after the strip and wayfinding images were created must
--- release every image this renderer acquired before the constructor
--- rethrows (the three glyph quads belong to the caller-owned text renderer
--- and succeed first).
+-- Frame-strip tile quads are built lazily per source type at draw time (like
+-- the wayfinding row cache), so construction itself performs no quad work of
+-- its own: the only remaining construction failure after both reads succeed
+-- is decoding the second (wayfinding) image, which must release the strip
+-- image already created before the constructor rethrows (the three glyph
+-- quads belong to the caller-owned text renderer and succeed first).
 function T.constructor_failure_releases_all_acquired_images()
   local lg = fakeGraphics({
     imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } },
-    failOnQuadCall = 4,
+    failOnImageCall = 4,
   })
   local text = withTextRenderer(uiCache(), lg)
   local err = Assert.throws(function()
@@ -203,12 +205,11 @@ function T.constructor_failure_releases_all_acquired_images()
       windowStyles = FieldSignpostFixture.styles(),
     })
   end)
-  Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil, "rethrows the quad failure")
-  Assert.equal(#lg.images, 4, "atlas, focus strip, strip, and wayfinding were created before the failure")
+  Assert.isTrue(tostring(err):find("injected newImage failure", 1, true) ~= nil, "rethrows the image decode failure")
+  Assert.equal(#lg.images, 3, "the atlas, focus strip, and strip were created before the wayfinding failure")
   Assert.equal(lg.images[1].released, false, "the caller-owned text renderer atlas stays alive")
   Assert.equal(lg.images[2].released, false, "the caller-owned text renderer focus strip stays alive")
   Assert.equal(lg.images[3].released, true, "the strip was released")
-  Assert.equal(lg.images[4].released, true, "the wayfinding atlas was released")
   text:release()
 end
 
@@ -224,6 +225,25 @@ function T.loads_exactly_the_shared_font_and_owned_assets()
     FieldViewport.new(256, 192, { mode = "expanded" })
   )
   Assert.equal(#lg.images, 4, "drawing creates no further images")
+  r:release()
+end
+
+-- Frame-strip quads are built lazily per source type and cached: a second
+-- draw of the same type must not rebuild them. Proven by injecting a quad
+-- failure at the call a rebuild would need (one past the 3 glyph quads the
+-- shared text renderer builds at construction plus every quad the strip's
+-- 144px/18-tile row legitimately builds on the first draw) and showing the
+-- second draw still succeeds.
+function T.frame_quads_are_cached_per_source_type()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } }, failOnQuadCall = 22 })
+  local r = renderer(lg)
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 })
+  r:draw(controller, viewport)
+  local firstDrawFrames = #frameDraws(lg)
+  Assert.isTrue(firstDrawFrames > 0, "the first draw draws the frame")
+  r:draw(controller, viewport)
+  Assert.equal(#frameDraws(lg), firstDrawFrames * 2, "the second draw reuses the cached quads without raising")
   r:release()
 end
 

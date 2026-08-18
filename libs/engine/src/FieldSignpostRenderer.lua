@@ -30,6 +30,13 @@ local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
+-- The frame/palette bank used when a window is shown without a source
+-- appearance (a bare SHOW): a degenerate script state the engine's own
+-- machinery can reach even though no real signpost print leaves the type
+-- unset. Every generated manifest carries type 0 (the corpus's baseline
+-- full-width type), so this is always resolvable.
+local DEFAULT_SOURCE_TYPE = 0
+
 ---@class FieldSignpostRenderer
 ---@field _graphics love.Graphics
 ---@field _windowStyles FieldWindowStyles
@@ -37,7 +44,7 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@field _manifest table the generated field-UI manifest
 ---@field _tilesImage love.Image? the signpost frame strip
 ---@field _wayfindingImage love.Image? the wayfinding atlas
----@field _tileQuads love.Quad[]? the 18 strip tile quads
+---@field _frameQuadCache table<integer, love.Quad[]>|nil per-source-type frame quads, built lazily
 ---@field _wayfindingQuadCache table<string, love.Quad[]>|nil per-(type,map) row quads, built lazily
 local FieldSignpostRenderer = {}
 FieldSignpostRenderer.__index = FieldSignpostRenderer
@@ -92,10 +99,8 @@ function FieldSignpostRenderer.new(opts)
   local tilesPath = assert(tilesAsset.image, "the signpost tiles asset must name an image path")
   local wayfindingPath = assert(wayfindingAsset.image, "the wayfinding asset must name an image path")
   assert(
-    type(manifest.signposts) == "table"
-      and type(manifest.signposts.frame) == "table"
-      and type(manifest.signposts.frame.tiles) == "table",
-    "the field-UI manifest must carry the signpost frame section"
+    type(manifest.signposts) == "table" and type(manifest.signposts.types) == "table",
+    "the field-UI manifest must carry the signpost type map"
   )
 
   local self = setmetatable({
@@ -105,7 +110,7 @@ function FieldSignpostRenderer.new(opts)
     _manifest = manifest,
     _tilesImage = nil,
     _wayfindingImage = nil,
-    _tileQuads = nil,
+    _frameQuadCache = nil,
     _wayfindingQuadCache = nil,
   }, FieldSignpostRenderer)
 
@@ -128,7 +133,6 @@ function FieldSignpostRenderer.new(opts)
     self._tilesImage:setFilter("nearest", "nearest")
     self._wayfindingImage = graphics.newImage(love.filesystem.newFileData(wayfindingData, wayfindingPath))
     self._wayfindingImage:setFilter("nearest", "nearest")
-    self:_buildQuads()
   end)
   if not ok then
     self:release()
@@ -137,15 +141,27 @@ function FieldSignpostRenderer.new(opts)
   return self
 end
 
-function FieldSignpostRenderer:_buildQuads()
-  local lg = assert(self._graphics)
-  local tiles = assert(self._tilesImage)
-  local rect = assert(self._manifest.signposts.frame.tiles)
-  local tileQuads = {}
-  for tile = 0, rect.width / 8 - 1 do
-    tileQuads[tile] = lg.newQuad(rect.x + tile * 8, rect.y, 8, 8, tiles:getWidth(), tiles:getHeight())
+-- The 18 frame-strip tile quads of one source type's row (the manifest's
+-- per-type `frameTiles` rect). Built lazily per type and cached, exactly like
+-- the wayfinding row cache below: a session that only ever shows one source
+-- type never materializes the others' quads.
+---@param sourceType integer
+---@param rect { x: integer, y: integer, width: integer, height: integer }
+---@return love.Quad[]
+function FieldSignpostRenderer:_frameQuads(sourceType, rect)
+  local cache = self._frameQuadCache or {}
+  local quads = cache[sourceType]
+  if quads == nil then
+    local lg = assert(self._graphics)
+    local image = assert(self._tilesImage)
+    quads = {}
+    for tile = 0, rect.width / 8 - 1 do
+      quads[tile] = lg.newQuad(rect.x + tile * 8, rect.y, 8, 8, image:getWidth(), image:getHeight())
+    end
+    cache[sourceType] = quads
   end
-  self._tileQuads = tileQuads
+  self._frameQuadCache = cache
+  return quads
 end
 
 -- The 24 tile quads of one wayfinding row (the manifest rect for the exact
@@ -195,11 +211,19 @@ end
 function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe)
   local lg = assert(self._graphics)
   local image = assert(self._tilesImage)
-  local tileQuads = assert(self._tileQuads)
+  local types =
+    assert(self._manifest.signposts and self._manifest.signposts.types, "the manifest must carry signpost types")
+  local appearance = status.sourceAppearance
+  local sourceType = appearance and appearance.type or DEFAULT_SOURCE_TYPE
+  local typeEntry = assert(types[sourceType], "the generated manifest has no signpost type " .. tostring(sourceType))
+  local frameQuads = self:_frameQuads(
+    sourceType,
+    assert(typeEntry.frameTiles, "signpost type " .. sourceType .. " carries no frameTiles")
+  )
   lg.setColor(1, 1, 1, 1)
   local kind = graphicRegion and "graphic" or "full"
   for _, placement in ipairs(FieldSignpostTheme.frameTilePlacements(kind)) do
-    local tile = assert(tileQuads[placement.tile])
+    local tile = assert(frameQuads[placement.tile])
     for row = 0, (placement.spanY or 1) - 1 do
       for col = 0, (placement.spanX or 1) - 1 do
         lg.draw(image, tile, placement.x + col * 8, placement.y + row * 8 + wipe)
@@ -207,9 +231,9 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe)
     end
   end
   if graphicRegion then
-    local appearance = assert(status.sourceAppearance)
-    local types =
-      assert(self._manifest.signposts and self._manifest.signposts.types, "the manifest must carry signpost types")
+    -- graphicRegion only ever comes from style.types[appearance.type], so a
+    -- real source appearance is guaranteed here.
+    assert(appearance)
     -- The exact (type, map) pair selects the row; a type requiring graphic
     -- art without a manifest row for its pair is a manifest/source-contract
     -- failure, never a fallback to another map's row.
@@ -308,7 +332,7 @@ function FieldSignpostRenderer:release()
     self._wayfindingImage:release()
   end
   self._tilesImage, self._wayfindingImage = nil, nil
-  self._tileQuads, self._wayfindingQuadCache = nil, nil
+  self._frameQuadCache, self._wayfindingQuadCache = nil, nil
 end
 
 return FieldSignpostRenderer

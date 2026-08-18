@@ -75,7 +75,7 @@ end
 local function registerBuiltins(self, manifest)
   local signposts = manifest.signposts
   assert(
-    type(signposts) == "table" and type(signposts.frame) == "table" and type(signposts.types) == "table",
+    type(signposts) == "table" and type(signposts.types) == "table",
     "the field-UI manifest must carry the signposts section"
   )
   local types = {}

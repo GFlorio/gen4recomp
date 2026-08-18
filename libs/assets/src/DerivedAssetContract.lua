@@ -24,7 +24,9 @@
 -- fieldUi schema 5: signposts.types entries gain per-type palette banks
 -- (one 16-color table per source type) and per-type frameTiles rectangles.
 -- The old global signposts.frame.tiles authority is removed. Each type's
--- frame strip uses its own palette for precolored rendering.
+-- frame strip uses its own palette for precolored rendering. signposts
+-- gains textColors (the foreground/shadow/background palette slots), so
+-- text rendering no longer has to hardcode the source's fixed 2/10/15 slots.
 --
 -- fieldUi schema 4: the manifest drops the per-frame dialogueFrames.palettes
 -- records (the palette colors are baked into the compiled frame-strip PNG;

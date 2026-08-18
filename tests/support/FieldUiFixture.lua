@@ -373,17 +373,40 @@ function FieldUiFixture.cardFontAtlasBytes()
   return PngWriter.encode(512, 32, table.concat(bytes))
 end
 
+-- A synthetic 16-color v5 palette bank for one source type: placeholder
+-- values distinct per type/slot (not source-decoded; deliverable 4's
+-- palette-driven glyph work is what actually consumes these).
+---@param sourceType integer
+---@return table<integer, {r: integer, g: integer, b: integer}>
+local function typePalette(sourceType)
+  local palette = {}
+  for slot = 0, 15 do
+    palette[slot] = {
+      r = (sourceType * 7 + slot * 13) % 256,
+      g = (sourceType * 11 + slot * 5) % 256,
+      b = (sourceType * 3 + slot * 17) % 256,
+    }
+  end
+  return palette
+end
+
 -- The signpost source-type map in the generated manifest shape: every corpus
--- type with its raw number preserved, types 0/1 carrying a per-map wayfinding
--- table (map -> atlas rect; each pair has its own atlas row, so the map-0 and
--- map-1 rects are visibly distinct). The on-screen 56px graphic region is NOT
--- the atlas rect; the style loader derives the region from the presence of
--- the table, never its pixels.
+-- type with its raw number preserved, its own v5 palette bank and frameTiles
+-- rect (every type shares the fixture's single-row 144x8 strip; the atlas
+-- shape, not per-type pixel distinctness, is this fixture's contract), and
+-- types 0/1 carrying a per-map wayfinding table (map -> atlas rect; each pair
+-- has its own atlas row, so the map-0 and map-1 rects are visibly distinct).
+-- The on-screen 56px graphic region is NOT the atlas rect; the style loader
+-- derives the region from the presence of the table, never its pixels.
 ---@return table
 function FieldUiFixture.signpostTypes()
   local types = {}
   for _, sourceType in ipairs(FieldUiFixture.CORPUS_SOURCE_TYPES) do
-    local entry = { sourceType = sourceType }
+    local entry = {
+      sourceType = sourceType,
+      palette = typePalette(sourceType),
+      frameTiles = { x = 0, y = 0, width = 144, height = 8 },
+    }
     if sourceType == 0 then
       entry.wayfinding = {
         [0] = { x = 0, y = 0, width = 192, height = 8 },
@@ -447,9 +470,7 @@ function FieldUiFixture.manifest()
       },
     },
     signposts = {
-      frame = {
-        tiles = { x = 0, y = 0, width = 144, height = 8 },
-      },
+      textColors = { foreground = 2, shadow = 10, background = 15 },
       types = FieldUiFixture.signpostTypes(),
     },
     startMenu = {
