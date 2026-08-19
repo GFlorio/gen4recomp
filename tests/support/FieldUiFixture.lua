@@ -163,32 +163,6 @@ function FieldUiFixture.wayfindingSurfacePixels(rectY)
   return table.concat(bytes)
 end
 
--- Legacy alias: return the raw bytes of one 8px atlas row through the
--- 48x32 surface so callers indexing by pixel row stay equivalent for the
--- 8px case.
-function FieldUiFixture.wayfindingRowPixels(rowY)
-  local surfaceIndex = math.floor(rowY / 32)
-  -- Extract row within the surface's 32px height.
-  local surfacePixels = FieldUiFixture.wayfindingSurfacePixels(surfaceIndex * 32)
-  local rowInSurface = rowY % 32
-  -- 48px wide, return 192x8 slice centered on the 48px surface padded to 192
-  -- The legacy contract expected 192x8 with only first 48px populated; pad
-  -- the rest with transparent to preserve size but callers sampling within 48
-  -- get the same tile colors.
-  local out = {}
-  for y = 0, 7 do
-    for x = 0, 191 do
-      if x < 48 then
-        local idx = ((rowInSurface + y) * 48 + x) * 4 + 1
-        out[#out + 1] = surfacePixels:sub(idx, idx + 3)
-      else
-        out[#out + 1] = string.char(0, 0, 0, 0)
-      end
-    end
-  end
-  return table.concat(out)
-end
-
 -- The wayfinding atlas: one 48x32 surface per (type, map) pair, stacked
 -- vertically. Type 0 at y=0 (map 0) and y=32 (map 1), type 1 at y=64
 -- (map 0) and y=96 (map 1).

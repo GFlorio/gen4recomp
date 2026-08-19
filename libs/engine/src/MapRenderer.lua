@@ -1181,10 +1181,10 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   -- FieldViewport:logicalPixelScale). FieldCamera always carries its effective
   -- zoom (FieldRuntime applies FieldZoom:effectiveZoom() via setZoom); the
   -- draw path treats a missing zoom as 1.0 only so zoom-less camera fakes in
-  -- tests render deterministically. Draw's viewport requirement is the
-  -- worldViewport rectangle (asserted above), so a viewport that also exposes
-  -- FieldViewport:logicalPixelScale drives the radius, and one that does not
-  -- falls back to the minimum radius of 1 -- the same neutral default.
+  -- tests render deterministically. Draw requires a FieldViewport in
+  -- production (logicalPixelScale); plain { worldViewport = ... } tables are
+  -- test-only fakes that intentionally fall back to the neutral minimum radius
+  -- of 1.
   local edgeRadiusPx = 1
   local cameraZoom = camera.zoom
   if cameraZoom == nil then
@@ -1192,6 +1192,9 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   end
   if type(cameraZoom) == "number" and cameraZoom > 0 and viewport.logicalPixelScale then
     edgeRadiusPx = math.max(1, math.floor(viewport:logicalPixelScale(cameraZoom) + 0.5))
+  else
+    -- Test-only fallback: plain viewport tables in libs/engine/tests/map_renderer_test lack logicalPixelScale; production FieldViewports always provide it.
+    edgeRadiusPx = 1
   end
 
   local function doDraw()

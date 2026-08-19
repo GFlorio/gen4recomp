@@ -2603,7 +2603,7 @@ local function opaqueItem(mesh, polygonId)
   }
 end
 
--- R01 observable boundary: the renderer-owned state targets are exactly the
+-- Observable boundary: the renderer-owned state targets are exactly the
 -- color targets' dimensions at every host size. 1280x720 must not allocate a
 -- 341x192 state raster; 2560x1440 stays one-to-one as well. This reads the
 -- real canvas objects on the real driver, so it is the honest boundary the
@@ -2637,7 +2637,7 @@ function T.state_canvas_dimensions_equal_color_dimensions_at_every_host_size(sco
   Assert.equal(renderer.renderState:getHeight(), 1440)
 end
 
--- R02 shader contract: the final pass declares the full-resolution state
+-- Shader contract: the final pass declares the full-resolution state
 -- uniforms (u_renderState/u_stateSize) and the integer edge-radius uniform
 -- (u_edgeRadiusPx). Presence is asserted by sending values; LÖVE errors for
 -- unknown names, exactly like the file's other uniform-presence tests.
@@ -2651,7 +2651,7 @@ function T.final_shader_has_full_resolution_state_and_edge_radius_uniforms(scope
   edgeShader:send("u_edgeRadiusPx", 4)
 end
 
--- R03 fixture: a 2-host-pixel-wide vertical white bar (polygonId 20) drawn in
+-- Fixture: a 2-host-pixel-wide vertical white bar (polygonId 20) drawn in
 -- front of the clear rear plane through the real color and state passes, plus
 -- a diagonal blade crossing the same rows. Identity camera at z=0 gives the
 -- drawn state depth 41943 < clear 16777215 (depth ordering only, never an
@@ -2783,7 +2783,7 @@ function T.thin_bar_and_blade_keep_their_attached_edge_state(scope)
   Assert.equal(lostRows, 0, "no state row the visible bar crosses loses its state")
 end
 
--- R03 mixed-alpha motion: a 5x1 texture (alpha5 0,1,15,30,31) on a ground
+-- Mixed-alpha motion: a 5x1 texture (alpha5 0,1,15,30,31) on a ground
 -- quad (id 3, fog-gated) rendered at two offsets whose visible 30->31
 -- boundary is essentially stationary while the old 192-line state raster's
 -- stamp cell flips. State changes must be confined to full-resolution opaque
