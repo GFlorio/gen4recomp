@@ -3,10 +3,10 @@
 // raster (MapRenderer.stateW/stateH, always equal to the color dimensions --
 // see MapRenderer:_ensureTargets), and writes only the DS state edge marking
 // and fog need: the opaque fragment's polygon ID, DS Z-buffer depth,
-// per-polygon fog gate, and validity. It owns no lighting RGB, no fog blend,
-// and no edge search -- those stay in map.glsl's color output and edge.glsl's
-// final resolve respectively (spec: the state pass's job is geometry/UV/
-// final-alpha/state only).
+// per-polygon fog gate, and last-translucent-ID encoding. It owns no lighting
+// RGB, no fog blend, and no edge search -- those stay in map.glsl's color
+// output and edge.glsl's final resolve respectively (the state pass's job is
+// geometry/UV/final-alpha/state only).
 //
 // Depth is the DS Z-buffer domain, not a linear/window-depth proxy: the
 // field camera selects GX_BUFFERMODE_Z (Camera_ApplyPerspectiveType in
@@ -34,8 +34,11 @@
 //   2 = mixed opaque:  discard unless alpha5 == 31 -- only a mixed material's
 //                      fully-opaque texels reach this pass's writes.
 // A surviving fragment writes vec4(polygonId/63, dsZbufferDepth, fogGate,
-// 1.0) into the single render-state canvas -- exactly finalState's old
-// packing (see map.glsl's prior header), now the only writer of that state.
+// 0.0) into the single render-state canvas -- the alpha channel is the
+// last-translucent-ID encoding: every opaque/cutout/mixed-opaque/wireframe
+// state write resets it to 0 (no accepted translucent overlay yet); the
+// translucent compositor owns nonzero values there (see MapRenderer's
+// compositor, source.glsl, and composite.glsl).
 
 varying vec2 v_stateUv;
 
@@ -130,6 +133,6 @@ void effect()
   }
 
   float dsDepth = dsZbufferDepth(gl_FragCoord.z);
-  love_Canvases[0] = vec4(u_polygonId, dsDepth, u_polygonFogEnabled ? 1.0 : 0.0, 1.0);
+  love_Canvases[0] = vec4(u_polygonId, dsDepth, u_polygonFogEnabled ? 1.0 : 0.0, 0.0);
 }
 #endif

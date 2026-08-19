@@ -11,13 +11,14 @@
 -- cutout, and mixed-opaque fragments (mixed-opaque-fragment predicate only)
 -- into renderState/stateDepth: every surviving fragment stamps its polygon
 -- ID, DS-quantized depth, and per-polygon fog gate. Ordinary translucent and
--- mixed-translucent fragments never touch the state target, matching real DS
--- behavior, which never updates its depth/attribute buffers for a
--- non-depth-writing translucent fragment. The color pass (map.glsl) draws the
--- same opaque/cutout/mixed-opaque items at full resolution, then the joint
--- `blended` list (ordinary translucent and mixed-translucent, already
--- depth-sorted by RenderQueue) with per-entry depth-write toggling, then
--- wireframe. The final resolve (edge.glsl) samples sceneColor as its own
+-- mixed-translucent fragments never touch the state target directly; their
+-- state (last translucent ID, fog-gate AND, optional DS Z depth) is
+-- maintained by the programmable ping-pong compositor. The color pass
+-- (map.glsl) draws the same opaque/cutout/mixed-opaque items at full
+-- resolution, then executes the compositor over the joint `blended` list
+-- (ordinary translucent and mixed-translucent, already depth-sorted by
+-- RenderQueue) with exact integer RGB6/alpha5 blend and same-ID rejection,
+-- then wireframe on the composited result. The final resolve (edge.glsl) samples sceneColor as its own
 -- texture and the same-resolution renderState through explicit snap/clamp to
 -- render-state pixel centers (never texture-clamp reliance), probing the four
 -- orthogonal neighbors at a distance of one integer edge radius (the rounded
@@ -61,12 +62,20 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field colorDepth love.Canvas?
 ---@field renderState love.Canvas?
 ---@field stateDepth love.Canvas?
+---@field _pingColorA love.Canvas?
+---@field _pingColorB love.Canvas?
+---@field _pingStateA love.Canvas?
+---@field _pingStateB love.Canvas?
+---@field _sourceColor love.Canvas?
+---@field _sourceMeta love.Canvas?
 ---@field colorW integer?
 ---@field colorH integer?
 ---@field stateW integer?
 ---@field stateH integer?
 ---@field _colorTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _stateTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
+---@field _pingTargets { colorA: love.Canvas, colorB: love.Canvas, stateA: love.Canvas, stateB: love.Canvas }
+---@field _sourceTargets { [1]: love.Canvas, [2]: love.Canvas }?
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
@@ -86,6 +95,8 @@ local SHADER_SOURCE_PATHS = {
   color = "libs/engine/src/shaders/map.glsl",
   resolve = "libs/engine/src/shaders/edge.glsl",
   state = "libs/engine/src/shaders/state.glsl",
+  source = "libs/engine/src/shaders/source.glsl",
+  composite = "libs/engine/src/shaders/composite.glsl",
 }
 
 ---@param path string
@@ -135,8 +146,10 @@ local FOG_OFFSET_TO_DEPTH_SCALE = 0x200
 -- CLEAR_POLYGON_ID domain maximum every real draw uses (63/63 == 1.0), so a
 -- real id-63 polygon is indistinguishable from the background, exactly as
 -- GBATEK specifies. This exact table is also edge.glsl's rearPlaneState
--- constant, hand-mirrored there (GLSL has no cross-source include).
-local DS_STATE_CLEAR = { 1, DS_DEPTH_MAX, 0, 1 }
+-- constant, hand-mirrored there (GLSL has no cross-source include). The alpha
+-- channel is the last-translucent-ID encoding: 0 means no accepted translucent
+-- overlay yet (the clear/rear plane never has one).
+local DS_STATE_CLEAR = { 1, DS_DEPTH_MAX, 0, 0 }
 
 -- Polygon-ID domain (GBATEK POLYGON_ATTR polygon ID, 6-bit 0..63). HGSS
 -- initializes the rear/clear plane's polygon ID to 0x3F (63) -- a real,
@@ -220,6 +233,8 @@ function MapRenderer.new(opts)
     renderer.shader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.color))
     renderer.edgeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.resolve))
     renderer.stateShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.state))
+    renderer.sourceShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.source))
+    renderer.compositeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.composite))
   end)
   if not ok then
     renderer:release()
@@ -241,10 +256,32 @@ function MapRenderer:_releaseTargets()
   if self.stateDepth then
     self.stateDepth:release()
   end
+  if self._pingColorA then
+    self._pingColorA:release()
+  end
+  if self._pingColorB then
+    self._pingColorB:release()
+  end
+  if self._pingStateA then
+    self._pingStateA:release()
+  end
+  if self._pingStateB then
+    self._pingStateB:release()
+  end
+  if self._sourceColor then
+    self._sourceColor:release()
+  end
+  if self._sourceMeta then
+    self._sourceMeta:release()
+  end
   self.sceneColor, self.colorDepth, self.renderState, self.stateDepth = nil, nil, nil, nil
+  self._pingColorA, self._pingColorB, self._pingStateA, self._pingStateB = nil, nil, nil, nil
+  self._sourceColor, self._sourceMeta = nil, nil
   self.colorW, self.colorH, self.stateW, self.stateH = nil, nil, nil, nil
   self._colorTargets = nil
   self._stateTargets = nil
+  self._pingTargets = nil
+  self._sourceTargets = nil
 end
 
 local function sendStateUniforms(shader, renderState, stateW, stateH)
@@ -252,7 +289,7 @@ local function sendStateUniforms(shader, renderState, stateW, stateH)
   shader:send("u_stateSize", { stateW, stateH })
 end
 
--- Recreate every render target at new dimensions. All four canvases are
+-- Recreate every render target at new dimensions. All canvases are
 -- allocated and configured into local staged variables before anything
 -- published is touched: on any failure, only the staged canvases are
 -- released, the edge shader's renderState/stateSize uniforms are restored to
@@ -272,6 +309,8 @@ function MapRenderer:_ensureTargets(colorW, colorH)
   end
   local lg = assert(self._graphics)
   local sceneColor, colorDepth, renderState, stateDepth, colorTargets, stateTargets
+  local pingColorA, pingColorB, pingStateA, pingStateB
+  local sourceColor, sourceMeta
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(colorW, colorH)
     -- Nearest sampling keeps the final composite draw (a 1:1 blit at
@@ -283,18 +322,41 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     -- renderState: red the normalized opaque edge polygon ID, green the
     -- DS Z-buffer depth (a 24-bit integer domain, stored as a
     -- float -- see dsZbufferDepth in state.glsl), blue the per-polygon fog
-    -- gate, alpha validity/reserved. The state canvas shares the color
-    -- canvas's exact dimensions: state classification is never deliberately
-    -- downsampled, and the final resolve probes this same-resolution state
-    -- at a sampling distance of one integer edge radius. The format must be
-    -- 32-bit float: the quantized depth spans the full 24-bit domain, which
-    -- 16-bit floats cannot resolve exactly.
+    -- gate, alpha the last-translucent-ID encoding (0 = none, (id+1)/64).
+    -- The state canvas shares the color canvas's exact dimensions: state
+    -- classification is never deliberately downsampled, and the final resolve
+    -- probes this same-resolution state at a sampling distance of one integer
+    -- edge radius. The format must be 32-bit float: the quantized depth spans
+    -- the full 24-bit domain, which 16-bit floats cannot resolve exactly.
     renderState = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
     renderState:setFilter("nearest", "nearest")
     stateDepth = lg.newCanvas(colorW, colorH, { format = "depth24stencil8", readable = false })
     stateTargets = { renderState, depthstencil = stateDepth }
 
     sendStateUniforms(self.edgeShader, renderState, colorW, colorH)
+
+    -- The translucent compositor's ping-pong destination pair: two full-res
+    -- color canvases and two full-res state canvases. One pair is the active
+    -- destination (read by the source pass's same-ID rejection and the
+    -- composite pass), the other receives the composite output, then they
+    -- swap. The color halves are rgba8 (the final composite quantizes to
+    -- RGB6/alpha5); the state halves are rgba32f for the exact 24-bit depth.
+    pingColorA = lg.newCanvas(colorW, colorH)
+    pingColorA:setFilter("nearest", "nearest")
+    pingColorB = lg.newCanvas(colorW, colorH)
+    pingColorB:setFilter("nearest", "nearest")
+    pingStateA = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
+    pingStateA:setFilter("nearest", "nearest")
+    pingStateB = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
+    pingStateB:setFilter("nearest", "nearest")
+
+    -- The source-fragment buffers: one item's accepted partial-alpha
+    -- fragments land here (sourceColor rgba8, sourceMeta rgba32f carrying the
+    -- valid flag, DS Z depth, fog flag, and source polygon ID).
+    sourceColor = lg.newCanvas(colorW, colorH)
+    sourceColor:setFilter("nearest", "nearest")
+    sourceMeta = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
+    sourceMeta:setFilter("nearest", "nearest")
   end)
   if not ok then
     if self.renderState then
@@ -312,13 +374,41 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     if stateDepth then
       stateDepth:release()
     end
+    if pingColorA then
+      pingColorA:release()
+    end
+    if pingColorB then
+      pingColorB:release()
+    end
+    if pingStateA then
+      pingStateA:release()
+    end
+    if pingStateB then
+      pingStateB:release()
+    end
+    if sourceColor then
+      sourceColor:release()
+    end
+    if sourceMeta then
+      sourceMeta:release()
+    end
     error(err)
   end
   self:_releaseTargets()
   self.sceneColor, self.colorDepth, self.renderState, self.stateDepth = sceneColor, colorDepth, renderState, stateDepth
+  self._pingColorA, self._pingColorB = pingColorA, pingColorB
+  self._pingStateA, self._pingStateB = pingStateA, pingStateB
+  self._sourceColor, self._sourceMeta = sourceColor, sourceMeta
   self.colorW, self.colorH, self.stateW, self.stateH = colorW, colorH, colorW, colorH
   self._colorTargets = colorTargets
   self._stateTargets = stateTargets
+  self._pingTargets = {
+    colorA = pingColorA,
+    colorB = pingColorB,
+    stateA = pingStateA,
+    stateB = pingStateB,
+  }
+  self._sourceTargets = { sourceColor, sourceMeta }
 end
 
 -- Decode every polygon 4-bit light mask (GBATEK POLYGON_ATTR bits 0-3) once.
@@ -925,6 +1015,117 @@ function MapRenderer:_drawStateWireframeMesh(item, projection, modelMatrix, mesh
   self.stats.stateDrawCalls = self.stats.stateDrawCalls + 1
 end
 
+-- Rasterize ONE blended item's partial-alpha fragments into the temporary
+-- source buffers for the compositor. Two passes over the same geometry:
+--   1. the ordinary color shader (map.glsl) with the translucent fragment
+--      pass renders the item's partial-alpha fragments into sourceColor --
+--      the exact combiner/lighting color, no duplication;
+--   2. source.glsl renders the same fragments into sourceMeta -- the
+--      valid/DS-Z-depth/fog/id metadata -- applying the DS same-ID rejection
+--      against the ACTIVE destination state BEFORE any depth write, so a
+--      rejected fragment can never poison later depth tests.
+-- Both passes depth-test against the current host depth attachment (the same
+-- one the opaque pass wrote) and use replace semantics. When `depthWrite` is
+-- true, host depth write is enabled so accepted fragments update the host
+-- depth buffer; the metadata pass records the accepted fragment's DS Z depth
+-- in sourceMeta.g, which the composite pass writes into state G.
+function MapRenderer:_drawSourceItem(
+  item,
+  projection,
+  fragmentPass,
+  viewMatrix,
+  activeState,
+  depthWrite,
+  stateW,
+  stateH
+)
+  local lg = assert(self._graphics)
+  local mat = item.material
+
+  -- Pass 1: source color through the ordinary color shader (the same
+  -- _drawItem dispatch the color pass uses, so straddle bending, lighting,
+  -- materials, and billboard projection are all identical).
+  lg.setCanvas(self._sourceColor)
+  lg.clear(0, 0, 0, 0, false, false)
+  lg.setShader(self.shader)
+  lg.setDepthMode("less", depthWrite == true)
+  lg.setBlendMode("replace", "premultiplied")
+  self:_drawItem(item, projection, fragmentPass, viewMatrix)
+
+  -- Pass 2: source metadata through source.glsl (same-ID rejection + DS Z
+  -- depth + fog flag + id).
+  lg.setCanvas(self._sourceMeta)
+  lg.clear(0, 0, 0, 0, false, false)
+  lg.setShader(self.sourceShader)
+  lg.setDepthMode("less", depthWrite == true)
+  lg.setBlendMode("replace", "premultiplied")
+  self.sourceShader:send("u_view", "column", viewMatrix)
+
+  if item.straddle then
+    self:_drawSourceStraddleMeta(item, projection, fragmentPass, viewMatrix, activeState, stateW, stateH)
+  else
+    sendStateTransformUniforms(self.sourceShader, projection, item.transform, item.billboardCenter, item.billboardScale)
+    self.sourceShader:send("u_texMatrix", "column", mat.texMatrix)
+    if mat and mat.image then
+      self.sourceShader:send("u_useTexture", true)
+      item.mesh:setTexture(mat.image)
+    else
+      self.sourceShader:send("u_useTexture", false)
+      item.mesh:setTexture()
+    end
+    self.sourceShader:send("u_fragmentPass", fragmentPass)
+    self.sourceShader:send("u_polygonAlpha", item.polygonAlpha)
+    self.sourceShader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
+    self.sourceShader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
+    self.sourceShader:send("u_polygonFogEnabled", item.fogEnabled == true)
+    self.sourceShader:send("u_depthWrite", depthWrite == true)
+    self.sourceShader:send("u_activeState", activeState)
+    self.sourceShader:send("u_stateSize", { stateW, stateH })
+    lg.setMeshCullMode(item.cullMode)
+    lg.draw(item.mesh)
+  end
+  self.stats.drawCalls = self.stats.drawCalls + 2
+  self.stats.colorDrawCalls = self.stats.colorDrawCalls + 2
+end
+
+-- A straddling blended item through the source metadata pass: the first
+-- `leading` vertices are baked under the straddle transform into a scratch
+-- mesh and the rest under the item transform, exactly like the color pass's
+-- straddle path (the source pass shares the same per-vertex bend dispatch).
+function MapRenderer:_drawSourceStraddleMeta(item, projection, fragmentPass, viewMatrix, activeState, stateW, stateH)
+  local lg = assert(self._graphics)
+  local scratch
+  local ok, err = pcall(function()
+    scratch = bakeStraddleMesh(lg, item, viewMatrix)
+    local shader = self.sourceShader
+    sendStateTransformUniforms(shader, projection, IDENTITY_MODEL, nil, nil)
+    shader:send("u_texMatrix", "column", item.material.texMatrix)
+    if item.material and item.material.image then
+      shader:send("u_useTexture", true)
+      scratch:setTexture(item.material.image)
+    else
+      shader:send("u_useTexture", false)
+      scratch:setTexture()
+    end
+    shader:send("u_fragmentPass", fragmentPass)
+    shader:send("u_polygonAlpha", item.polygonAlpha)
+    shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
+    shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
+    shader:send("u_polygonFogEnabled", item.fogEnabled == true)
+    shader:send("u_depthWrite", item.translucentDepthWrite == true)
+    shader:send("u_activeState", activeState)
+    shader:send("u_stateSize", { stateW, stateH })
+    lg.setMeshCullMode(item.cullMode)
+    lg.draw(scratch)
+  end)
+  if scratch then
+    scratch:release()
+  end
+  if not ok then
+    error(err)
+  end
+end
+
 -- `worldParts` contains ordered arrays of map geometry, building batches, the
 -- neighbour ring, and actors. Their traversal position is the queue's
 -- deterministic tie-breaker; the renderer draws exactly these parts and no
@@ -1038,50 +1239,100 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
       self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_MIXED_OPAQUE, viewMatrix)
     end
 
-    -- Blended: the joint translucent/mixed-translucent list, already
-    -- depth-sorted back-to-front by RenderQueue, with per-entry depth-write
-    -- toggling. DS blend contract vs. host blend state: host
-    -- `setBlendMode("alpha", "alphamultiply")` reproduces the DS RGB blend
-    -- equation exactly in shape (Dst' = Src*SrcAlpha + Dst*(1-SrcAlpha); only
-    -- the 5/6-bit vs. continuous-float quantization differs, which is
-    -- immaterial to the equation), so no shader/compositor replacement is
-    -- needed for RGB. The DS destination-alpha result (max(SrcAlpha,
-    -- DstAlpha)) has no host fixed-function blend-factor equivalent, and DS
-    -- self-blend rejection has no fixed-function equivalent at all -- both
-    -- would require an auxiliary compositor that reads the previously-written
-    -- pixel while writing the current one. Neither gap is closed here:
-    -- nothing downstream of this pass samples sceneColor's own alpha channel
-    -- (the final composite draws it through edgeShader at full opacity, and
-    -- 2D UI draws independently afterward), so destination alpha is provably
-    -- unobserved; self-blend rejection has no corpus evidence it is ever
-    -- exercised, so building the ping-pong compositor this would require
-    -- would add real complexity against a currently unproven need.
-    -- Depth-write policy is the one part of the contract with an observable
-    -- per-item effect, so it is the one part actually implemented below.
-    local lastDepthWrite = true
+    -- ---- translucent compositor ----
+    -- The DS translucent path needs per-pixel state that fixed-function host
+    -- blending cannot express: same-ID rejection against the pixel's last
+    -- translucent ID, max destination alpha, fog-gate AND, and
+    -- last-translucent-ID state mutation. The pipeline is a ping-pong
+    -- read-modify-write: each blended item's partial-alpha fragments are
+    -- rasterized into temporary source buffers (depth-tested against the
+    -- current host depth, same-ID-rejected against the active destination
+    -- state), then a full-screen composite applies the exact integer DS
+    -- blend/state equations into the INACTIVE destination pair, then the
+    -- pairs swap. No pass samples and writes the same target.
+    --
+    -- The active destination starts as the opaque color/state canvases
+    -- (sceneColor/renderState); after every blended item the composite output
+    -- is the new active pair, so wireframe and the final resolve below see the
+    -- fully composited color and state.
+    local activeColor, activeState = self.sceneColor, self.renderState
     if #queue.blended > 0 then
-      lg.setBlendMode("alpha", "alphamultiply")
-    end
-    for _, entry in ipairs(queue.blended) do
-      local d = entry.item
-      -- Depth-equal is a corpus-provable-absent DS state (see
-      -- PolygonState.validate's POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED
-      -- rejection): the renderer never branches on d.depthEqual and always
-      -- compares "less", even if a defensively-constructed item still
-      -- carries the field. Host `lequal` is retired, not merely unused.
-      local depthWrite = d.translucentDepthWrite
-      if depthWrite ~= lastDepthWrite then
-        lg.setDepthMode("less", depthWrite)
-        lastDepthWrite = depthWrite
+      local pingTargets = assert(self._pingTargets)
+      local sourceTargets = assert(self._sourceTargets)
+      local inactiveColor, inactiveState = pingTargets.colorA, pingTargets.stateA
+      local function swap()
+        activeColor, activeState, inactiveColor, inactiveState = inactiveColor, inactiveState, activeColor, activeState
       end
-      local fragmentPass = entry.fragmentPass == AlphaClassifier.MIXED and FRAGMENT_PASS_MIXED_TRANSLUCENT
-        or FRAGMENT_PASS_TRANSLUCENT
-      self:_drawItem(d, projectionFor(d), fragmentPass, viewMatrix)
+      -- Seed the inactive pair with the active pair's content so a composite
+      -- that leaves pixels untouched (no source fragment) carries the
+      -- destination through unchanged. The source and composite passes read
+      -- the active pair; the composite writes the inactive pair. The blits
+      -- run with NO shader bound (a canvas-to-canvas copy must not run the
+      -- state shader's effect on the source canvas's pixels).
+      lg.setShader()
+      lg.setCanvas(inactiveColor)
+      lg.setBlendMode("replace", "premultiplied")
+      lg.setColor(1, 1, 1, 1)
+      lg.draw(activeColor, 0, 0)
+      lg.setCanvas(inactiveState)
+      lg.draw(activeState, 0, 0)
+
+      for _, entry in ipairs(queue.blended) do
+        local d = entry.item
+        -- Depth-equal is a corpus-provable-absent DS state (see
+        -- PolygonState.validate's POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED
+        -- rejection): the renderer never branches on d.depthEqual and always
+        -- compares "less", even if a defensively-constructed item still
+        -- carries the field. Host `lequal` is retired, not merely unused.
+        local depthWrite = d.translucentDepthWrite
+        local fragmentPass = entry.fragmentPass == AlphaClassifier.MIXED and FRAGMENT_PASS_MIXED_TRANSLUCENT
+          or FRAGMENT_PASS_TRANSLUCENT
+        self:_drawSourceItem(d, projectionFor(d), fragmentPass, viewMatrix, activeState, depthWrite, colorW, colorH)
+
+        -- Full-screen composite from the source buffers + active pair into
+        -- the inactive pair, with replace semantics (no second host blend).
+        lg.setCanvas(inactiveColor, inactiveState)
+        lg.setDepthMode()
+        lg.setBlendMode("replace", "premultiplied")
+        lg.setColor(1, 1, 1, 1)
+        lg.setShader(self.compositeShader)
+        self.compositeShader:send("u_sourceColor", self._sourceColor)
+        self.compositeShader:send("u_sourceMeta", self._sourceMeta)
+        self.compositeShader:send("u_activeColor", activeColor)
+        self.compositeShader:send("u_activeState", activeState)
+        self.compositeShader:send("u_size", { colorW, colorH })
+        lg.draw(self._sourceColor, 0, 0)
+        lg.setShader()
+        swap()
+      end
+      -- Publish the composited pair as the renderer's public sceneColor/
+      -- renderState fields and its color/state target descriptors: the final
+      -- resolve, caller readbacks, and the NEXT frame's opaque pass must all
+      -- see the fully composited color and state, never a stale pre-
+      -- translucent canvas. The final inactive canvas (the pre-composite
+      -- opaque pair, or the alternate ping after an odd item count) becomes
+      -- the spare ping pair together with the untouched second ping canvas;
+      -- the next frame's loop re-seeds the inactive pair from the active one,
+      -- so no content is lost.
+      self.sceneColor, self.renderState = activeColor, activeState
+      self._colorTargets = { activeColor, depthstencil = self.colorDepth }
+      self._stateTargets = { activeState, depthstencil = self.stateDepth }
+      self._pingColorA, self._pingColorB = inactiveColor, pingTargets.colorB
+      self._pingStateA, self._pingStateB = inactiveState, pingTargets.stateB
+      self._pingTargets = {
+        colorA = self._pingColorA,
+        colorB = self._pingColorB,
+        stateA = self._pingStateA,
+        stateB = self._pingStateB,
+      }
     end
 
     -- Wireframe edges (polygon alpha zero): these count as opaque for edge
-    -- marking; the color pass draws them for their own visible RGB.
+    -- marking; the color pass draws them for their own visible RGB. They
+    -- target the ACTIVE color/state pair so the final resolve sees them
+    -- composited with any translucent overlays.
     if #queue.wireframe > 0 then
+      lg.setCanvas(activeColor, activeState)
       lg.setShader(self.shader)
       lg.setDepthMode("less", true)
       lg.setBlendMode("alpha")
@@ -1103,7 +1354,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     lg.setBlendMode("replace", "premultiplied")
     lg.setColor(1, 1, 1, 1)
     lg.setShader(self.edgeShader)
-    lg.draw(self.sceneColor, rectangle.x, rectangle.y, 0, rectangle.width / colorW, rectangle.height / colorH)
+    lg.draw(activeColor, rectangle.x, rectangle.y, 0, rectangle.width / colorW, rectangle.height / colorH)
     lg.setShader()
   end
 
@@ -1144,7 +1395,14 @@ function MapRenderer:release()
   if self.stateShader then
     self.stateShader:release()
   end
+  if self.sourceShader then
+    self.sourceShader:release()
+  end
+  if self.compositeShader then
+    self.compositeShader:release()
+  end
   self.shader, self.edgeShader, self.stateShader = nil, nil, nil
+  self.sourceShader, self.compositeShader = nil, nil
   self:_releaseTargets()
 end
 

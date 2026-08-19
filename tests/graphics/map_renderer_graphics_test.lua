@@ -2256,11 +2256,22 @@ function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque
     1,
     "a non-depth-writing translucent draw must not replace the opaque depth value underneath it"
   )
+  -- The fog gate is NOT preserved: the compositor ANDs the destination gate
+  -- with the source's own fog flag (the modeled DS rule). The translucent
+  -- source here has fog disabled, so the combined gate becomes 0 even though
+  -- the opaque destination's gate was 1.
   Assert.near(
     withTranslucentOnTop[3],
-    baseline[3],
+    0.0,
     1 / 255,
-    "a non-depth-writing translucent draw must not replace the opaque fog gate underneath it"
+    "a fog-disabled translucent draw ANDs the destination fog gate to 0"
+  )
+  -- The last-translucent-ID encoding records the accepted source's polygon id.
+  Assert.near(
+    withTranslucentOnTop[4],
+    6 / 64,
+    1 / 255,
+    "the accepted translucent source records its polygon id 5 as (5+1)/64 in state A"
   )
 end
 
@@ -3162,6 +3173,678 @@ function T.fog_boundary_consumes_the_ds_z_depth_without_camera_far_rescaling(sco
   Assert.near(finalSample[1], expectedRgb, 1 / 255, "the fogged RGB must follow DsFog at the DS Z depth")
   Assert.near(finalSample[2], expectedRgb, 1 / 255)
   Assert.near(finalSample[3], expectedRgb, 1 / 255)
+end
+
+-- ---------------------------------------------------------------------------
+-- Exact translucent compositor scenarios: the DS integer RGB6/alpha5 blend,
+-- max destination alpha, same-ID rejection, fog-gate AND, last-translucent-ID
+-- state, and depth-write preservation. Authored BEFORE the compositor
+-- implementation; every fixture below drives the real MapRenderer:draw
+-- (production composition) at a 640x480 identity-camera viewport and reads
+-- back the real sceneColor/renderState canvases, so the same red they observe
+-- on the fixed-function baseline is the missing-behavior signal the
+-- implementation must turn green.
+--
+-- Baseline facts these fixtures lean on:
+--  * the blended loop (MapRenderer.lua doDraw, ~1041-1080) draws
+--    queue.blended with host `setBlendMode("alpha", "alphamultiply")` and
+--    per-entry translucentDepthWrite depth toggling -- no same-ID rejection,
+--    no max-alpha, no state mutation;
+--  * renderState clears to DS_STATE_CLEAR {1, 0xFFFFFF, 0, 1} -- alpha
+--    (validity) is 1.0 everywhere, so the A channel carries NO last-ID
+--    encoding yet;
+--  * the state pass (state.glsl) writes A = 1.0 unconditionally and the
+--    blended loop never touches renderState at all.
+--
+-- Expected integers below are hand-derived from the deliverable's normative
+-- equations -- never computed by calling production code:
+--    rgb6    = floor(channel * 63 + 0.5)
+--    alpha5  = floor(alpha  * 31 + 0.5)
+--    dstA5==0            -> out = src (replace)
+--    else w = srcA5 + 1  -> out = ((src*w) + (dst*(32-w))) >> 5
+--    outA5  = max(srcA5, dstA5)
+-- with state A = (id + 1)/64 (0 = none), B = destFogGate AND srcFogEnabled.
+
+local ALPHA5_BYTE = {}
+for a5 = 0, 31 do
+  ALPHA5_BYTE[a5] = math.floor(a5 / 31 * 255 + 0.5)
+end
+
+-- The DS final alpha5 of a MODULATE fragment: texture alpha5 and polygon
+-- alpha5 combine as floor(((t+1)*(p+1)-1)/32) (map.glsl's outputAlpha5; the
+-- deliverable's quantizer). Deriving the fixture's own alpha5 here keeps the
+-- source byte and the resulting alpha5 in one independent place.
+local function modulateAlpha5(textureAlpha5, polygonAlpha5)
+  return math.floor(((textureAlpha5 + 1) * (polygonAlpha5 + 1) - 1) / 32)
+end
+
+-- The DS integer translucent blend on one RGB6 channel (deliverable rule 3).
+local function dsBlend6(src6, dst6, srcA5)
+  return math.floor((src6 * (srcA5 + 1) + dst6 * (32 - (srcA5 + 1))) / 32)
+end
+
+-- A fullscreen quad (identity camera, z = 0) carrying one solid-color texel
+-- whose byte decodes to texture alpha5 `alpha5Byte`. The item is a translucent
+-- MODULATE draw at polygon alpha 31, so the fragment's final alpha5 is exactly
+-- the texture's alpha5 (floor(((t+1)*(31+1)-1)/32) == t) and its source RGB6
+-- is the texture RGB6. `polygonId` defaults to 7; `fogEnabled` defaults to
+-- false; `translucentDepthWrite` defaults to false (the ordinary HGSS field
+-- shape). Returns the item; callers may override fields afterward.
+local function translucentQuad(scope, alpha5Byte, r6, g6, b6, polygonId, fogEnabled)
+  local mesh = scope:own(syntheticMesh({
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+  local image = solidAlphaImage(
+    scope,
+    math.floor(r6 / 63 * 255 + 0.5),
+    math.floor(g6 / 63 * 255 + 0.5),
+    math.floor(b6 / 63 * 255 + 0.5),
+    alpha5Byte
+  )
+  return {
+    mesh = mesh,
+    material = { alphaClass = "translucent", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, image = image },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "translucent",
+    cullMode = "none",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = polygonId or 7,
+    translucentDepthWrite = false,
+    depthEqual = false,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    fogEnabled = fogEnabled == true,
+    center = { 0.5, 0.5, 0 },
+  }
+end
+
+-- Read one pixel from a sceneColor readback, resolving the driver's Y-mirror
+-- by taking the brighter (non-black-clear) of the pixel and its mirror.
+local function scenePixel(renderer, colorImg, x, y)
+  local a, b = { colorImg:getPixel(x, y) }, { colorImg:getPixel(x, renderer.colorH - 1 - y) }
+  local function sum(p)
+    return p[1] + p[2] + p[3]
+  end
+  return sum(a) >= sum(b) and a or b
+end
+
+-- Read one pixel from a renderState readback: the sample whose red channel is
+-- not the rear-plane clear (id 63 -> 1.0) is the drawn pixel; when neither
+-- candidate is drawn state, the sample with the lower red channel (the
+-- clear's id-63 red == 1.0) is returned so callers can still detect "no state".
+local function statePixelAt(renderer, stateImg, x, y)
+  local a, b = { stateImg:getPixel(x, y) }, { stateImg:getPixel(x, renderer.stateH - 1 - y) }
+  -- A sample is "drawn" (not the rear plane) when it carries a real opaque
+  -- polygon ID (R < 1.0) OR a last-translucent-ID encoding (A > 0) -- the
+  -- compositor leaves the opaque R at the rear plane for translucent-only
+  -- pixels, so R alone cannot discriminate those.
+  local function isRear(p)
+    return p[1] >= 0.99 and p[4] <= 0.0005
+  end
+  if not isRear(a) then
+    return a
+  end
+  if not isRear(b) then
+    return b
+  end
+  return a[1] <= b[1] and a or b
+end
+
+local function sceneScale(color)
+  return color[1] > 1 and 255 or 1
+end
+
+-- Draw one parts list and return { color = {r,g,b,a}, state = {r,g,b,a} } at
+-- the 640x480 canvas center through the real MapRenderer. `runtime` may carry
+-- edge/fog overrides.
+local function centerReadback(scope, renderer, camera, runtime, parts)
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  renderer:draw(runtime, camera, parts, viewport)
+  local colorImg = renderer.sceneColor:newImageData()
+  local stateImg = renderer.renderState:newImageData()
+  local color = scenePixel(renderer, colorImg, 320, 240)
+  local sx, sy = statePixel(renderer, 320, 240)
+  local state = statePixelAt(renderer, stateImg, sx, sy)
+  return { color = color, state = state }
+end
+
+-- The fixture-specific hard-coded expected integer results for the DS-weight
+-- scenario. The destination is a fully opaque MODULATE quad (alpha byte 255,
+-- so the framebuffer destination is exactly its texture color) carrying the
+-- RGB6 values below; the source is a translucent MODULATE quad. Both quads
+-- are white-vertexed, so each channel's framebuffer RGB6 is the texture
+-- byte's expand5to6 decode: byte b -> texture5 = floor(b/255*31+0.5) ->
+-- rgb6 = 0 if 0 else 2*texture5+1. The expected DS blend is then
+-- ((src*(srcA+1)) + (dst*(31-srcA))) >> 5 with those actual framebuffer
+-- values; the host srcAlpha blend dst + (src-dst)*(srcA/31) lands one step
+-- higher on the red channel, which is the baseline's read -- the exact
+-- channel that discriminates the DS integer equation from the host float one.
+local function byteToRgb6(byte)
+  local c5 = math.floor(byte / 255 * 31 + 0.5)
+  if c5 <= 0 then
+    return 0
+  end
+  return c5 * 2 + 1
+end
+local DS_BLEND_DST6 = { 52, 41, 28 }
+local DS_BLEND_DST_A5 = 31
+local DS_BLEND_SRC6 = { 13, 26, 39 }
+local DS_BLEND_SRC_A5 = 10
+-- The actual framebuffer RGB6 after MODULATE's 5->6 expansion.
+local DS_BLEND_DST6_ACTUAL = {
+  byteToRgb6(math.floor(52 / 63 * 255 + 0.5)),
+  byteToRgb6(math.floor(41 / 63 * 255 + 0.5)),
+  byteToRgb6(math.floor(28 / 63 * 255 + 0.5)),
+}
+local DS_BLEND_SRC6_ACTUAL = {
+  byteToRgb6(math.floor(13 / 63 * 255 + 0.5)),
+  byteToRgb6(math.floor(26 / 63 * 255 + 0.5)),
+  byteToRgb6(math.floor(39 / 63 * 255 + 0.5)),
+}
+local DS_BLEND_EXPECTED6 = {
+  dsBlend6(DS_BLEND_SRC6_ACTUAL[1], DS_BLEND_DST6_ACTUAL[1], DS_BLEND_SRC_A5),
+  dsBlend6(DS_BLEND_SRC6_ACTUAL[2], DS_BLEND_DST6_ACTUAL[2], DS_BLEND_SRC_A5),
+  dsBlend6(DS_BLEND_SRC6_ACTUAL[3], DS_BLEND_DST6_ACTUAL[3], DS_BLEND_SRC_A5),
+}
+local DS_BLEND_HOST6 = {
+  math.floor(
+    DS_BLEND_DST6_ACTUAL[1] + (DS_BLEND_SRC6_ACTUAL[1] - DS_BLEND_DST6_ACTUAL[1]) * DS_BLEND_SRC_A5 / 31 + 0.5
+  ),
+  math.floor(
+    DS_BLEND_DST6_ACTUAL[2] + (DS_BLEND_SRC6_ACTUAL[2] - DS_BLEND_DST6_ACTUAL[2]) * DS_BLEND_SRC_A5 / 31 + 0.5
+  ),
+  math.floor(
+    DS_BLEND_DST6_ACTUAL[3] + (DS_BLEND_SRC6_ACTUAL[3] - DS_BLEND_DST6_ACTUAL[3]) * DS_BLEND_SRC_A5 / 31 + 0.5
+  ),
+}
+
+-- The exact DS RGB6 weight scenario: accepted translucency uses the DS
+-- integer weights
+-- ((src*(srcA+1) + dst*(32-srcA-1)) >> 5), not the host float srcAlpha. The
+-- destination is an opaque MODULATE quad with a known mid-range RGB6 and
+-- alpha5; the single translucent source carries a source alpha5 whose host
+-- `srcAlpha = a5/31` value produces a distinguishable result. Expected:
+-- every channel equals the hand-computed integer above. Baseline red: host
+-- alpha blending reads the host value, which differs on the red channel.
+function T.exact_ds_rgb_weight(scope)
+  local function opaqueItem6(mesh, r6, g6, b6, alphaByte, id, fogEnabled)
+    local image = solidAlphaImage(
+      scope,
+      math.floor(r6 / 63 * 255 + 0.5),
+      math.floor(g6 / 63 * 255 + 0.5),
+      math.floor(b6 / 63 * 255 + 0.5),
+      alphaByte
+    )
+    local item = opaqueFinalStateItem(mesh, id, fogEnabled)
+    item.material.image = image
+    return item
+  end
+
+  local opaqueMesh = scope:own(syntheticMesh({
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+  local renderer = scope:own(MapRenderer.new())
+  -- Self-check: the fixture must actually discriminate the DS integer blend
+  -- from the host float blend on at least one channel, or it can never be red.
+  local discriminating = false
+  for i = 1, 3 do
+    if DS_BLEND_EXPECTED6[i] ~= DS_BLEND_HOST6[i] then
+      discriminating = true
+    end
+  end
+  Assert.isTrue(discriminating, "fixture must discriminate DS integer from host float blending")
+
+  local opaque = opaqueItem6(
+    opaqueMesh,
+    DS_BLEND_DST6[1],
+    DS_BLEND_DST6[2],
+    DS_BLEND_DST6[3],
+    ALPHA5_BYTE[DS_BLEND_DST_A5],
+    20,
+    true
+  )
+  local translucent =
+    translucentQuad(scope, ALPHA5_BYTE[DS_BLEND_SRC_A5], DS_BLEND_SRC6[1], DS_BLEND_SRC6[2], DS_BLEND_SRC6[3])
+  local read = centerReadback(scope, renderer, fixedCamera(), emptyRuntime(), { { opaque, translucent } })
+
+  local scale = sceneScale(read.color)
+  local function assert6(channel, expected6, label)
+    Assert.near(
+      read.color[channel],
+      expected6 / 63 * scale,
+      0.5 * scale / 63,
+      label
+        .. " must be the DS integer blend ("
+        .. expected6
+        .. "/63), not the host float blend ("
+        .. DS_BLEND_HOST6[channel]
+        .. "/63)"
+    )
+  end
+  assert6(1, DS_BLEND_EXPECTED6[1], "red channel")
+  assert6(2, DS_BLEND_EXPECTED6[2], "green channel")
+  assert6(3, DS_BLEND_EXPECTED6[3], "blue channel")
+end
+
+-- The max-destination-alpha scenario: the destination alpha5 is the max of
+-- source and destination
+-- alpha5 -- never a source-over accumulation. The destination alpha5 is
+-- established by a first accepted translucent fragment (a semi-transparent
+-- draw over the alpha-1.0 clear leaves the framebuffer at alpha 1, so the
+-- opaque path cannot produce a sub-31 destination alpha); the second
+-- translucent fragment (different polygon ID, so it is not rejected) must
+-- leave the combined alpha at max. Setup per the deliverable: (dstA5 high 30,
+-- srcA5 low 1) and (dstA5 low 1, srcA5 high 30); expected output alpha5 = max
+-- in both cases (30). The baseline's alpha is the plain host srcAlpha
+-- (30/31 in the low-dst case, 1/31 in the high-dst case), so at least one
+-- case must diverge.
+function T.destination_alpha_is_max(scope)
+  -- The color canvas clears to alpha 0 (not the default opaque 1.0) so the
+  -- first translucent fragment's destination alpha5 is 0 and it REPLACES the
+  -- destination (rule 2), establishing the fixture's known destination
+  -- alpha5; the second fragment then composites with max.
+  local renderer = scope:own(MapRenderer.new({ clearColor = { 0, 0, 0, 0 } }))
+  local function readAlpha(renderer, dstA5, srcA5)
+    local mesh = scope:own(syntheticMesh({
+      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    }))
+    local first = translucentQuad(scope, ALPHA5_BYTE[dstA5], 51, 17, 17)
+    first.polygonId = 7
+    local second = translucentQuad(scope, ALPHA5_BYTE[srcA5], 17, 51, 17)
+    second.polygonId = 9
+    local read = centerReadback(scope, renderer, fixedCamera(), emptyRuntime(), { { first, second } })
+    return read.color[4]
+  end
+
+  -- Case 1: destination alpha5 high (30), source alpha5 low (1) -> max 30.
+  local highDst = readAlpha(renderer, 30, 1)
+  -- Case 2: destination alpha5 low (1), source alpha5 high (30) -> max 30.
+  local lowDst = readAlpha(renderer, 1, 30)
+
+  local scale = highDst > 1 and 255 or 1
+  Assert.near(highDst, 30 / 31 * scale, 0.5 * scale / 31, "high destination alpha5 must win: output alpha5 = 30")
+  Assert.near(lowDst, 30 / 31 * scale, 0.5 * scale / 31, "high source alpha5 must win: output alpha5 = 30")
+  Assert.isTrue(
+    math.abs(highDst - lowDst) <= 0.5 * scale / 31,
+    "both orderings must reach the same max alpha5 (30); the baseline's source-over alpha differs between them"
+  )
+end
+
+-- Shared fixture for the same-ID / different-ID rejection scenarios: an
+-- opaque mid-gray background quad
+-- (id 20) plus two overlapping fullscreen translucent quads with identical
+-- white UVs. RenderQueue sorts blended entries back-to-front by view-space Z
+-- then submission position; the two translucent items live in one parts list
+-- with the same center Z (0), so submission order is their deterministic
+-- order (first item drawn last / nearest). `ids` is {idFirst, idSecond};
+-- returns the center color/state readback. All RGB6 values are ODD so the
+-- MODULATE 5->6 expansion (0 -> 0, n -> 2n+1) reproduces them exactly in the
+-- framebuffer (an even value like 16 would land on 17).
+local function twoTranslucentOverOpaque(scope, renderer, ids, firstRgb6, secondRgb6)
+  local opaqueMesh = scope:own(syntheticMesh({
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+  -- Byte 123 -> texture5 15 -> RGB6 31 (an exactly-representable odd value).
+  local opaqueImage = solidAlphaImage(scope, 123, 123, 123, 255)
+  local opaque = opaqueFinalStateItem(opaqueMesh, 20, true)
+  opaque.material.image = opaqueImage
+
+  local first = translucentQuad(scope, ALPHA5_BYTE[8], firstRgb6[1], firstRgb6[2], firstRgb6[3])
+  first.polygonId = ids[1]
+  local second = translucentQuad(scope, ALPHA5_BYTE[8], secondRgb6[1], secondRgb6[2], secondRgb6[3])
+  second.polygonId = ids[2]
+
+  return centerReadback(scope, renderer, fixedCamera(), emptyRuntime(), { { opaque, first, second } })
+end
+
+-- The same-ID rejection scenario: two overlapping translucent draws with the
+-- SAME polygon ID must
+-- blend only once -- the first accepted fragment -- and the state A channel
+-- must encode that ID. Expected color: opaque id-20 (RGB6 31,31,31) blended
+-- once with the first (red 51,17,17 at alpha5 8) = RGB6 (21,25,25); state A
+-- = (7+1)/64. Baseline red: the fixed-function path blends both fragments
+-- (the second tint mixes in) and renderState's A channel is 1.0 (the
+-- clear/validity value), not (7+1)/64.
+function T.same_translucent_id_rejects_the_second_blend(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local first6, second6 = { 51, 17, 17 }, { 17, 51, 17 }
+  local read = twoTranslucentOverOpaque(scope, renderer, { 7, 7 }, first6, second6)
+
+  local expected6 = {
+    dsBlend6(first6[1], 31, 8),
+    dsBlend6(first6[2], 31, 8),
+    dsBlend6(first6[3], 31, 8),
+  }
+  local scale = sceneScale(read.color)
+  Assert.near(
+    read.color[1],
+    expected6[1] / 63 * scale,
+    0.5 * scale / 63,
+    "same-ID: red must be the background blended once (first fragment only)"
+  )
+  Assert.near(
+    read.color[2],
+    expected6[2] / 63 * scale,
+    0.5 * scale / 63,
+    "same-ID: green must be the background blended once"
+  )
+  Assert.near(
+    read.color[3],
+    expected6[3] / 63 * scale,
+    0.5 * scale / 63,
+    "same-ID: blue must be the background blended once"
+  )
+  Assert.isTrue(
+    math.abs(read.color[2] - read.color[3]) <= 0.5 * scale / 63,
+    "the second (green-tinted) fragment must not blend: the result must show no green tint"
+  )
+
+  -- State A: the accepted source polygon ID, encoded (id + 1)/64.
+  Assert.near(read.state[4], 8 / 64, 1 / 255, "state A must encode the accepted first polygon id 7 as (7+1)/64")
+end
+
+-- The different-ID scenario: the self-rejection is keyed to ID equality, not
+-- a blanket
+-- one-translucent-fragment rule: with DIFFERENT polygon IDs both fragments
+-- blend, in the deterministic order (second fragment drawn last), and state A
+-- encodes the second accepted ID. Expected color: bg blended with first
+-- (RGB6 51,17,17 at a5 8) then with second (RGB6 17,51,17 at a5 8); state A
+-- = (9+1)/64. Baseline red: the fixed-function path has no last-ID state at
+-- all (A reads the 1.0 clear/validity value), and it cannot deliver the
+-- max-alpha/state contract even though the two colors happen to blend.
+function T.different_translucent_ids_both_blend(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local first6, second6 = { 51, 17, 17 }, { 17, 51, 17 }
+  local read = twoTranslucentOverOpaque(scope, renderer, { 7, 9 }, first6, second6)
+
+  local step1 = {
+    dsBlend6(first6[1], 31, 8),
+    dsBlend6(first6[2], 31, 8),
+    dsBlend6(first6[3], 31, 8),
+  }
+  local step2 = {
+    dsBlend6(second6[1], step1[1], 8),
+    dsBlend6(second6[2], step1[2], 8),
+    dsBlend6(second6[3], step1[3], 8),
+  }
+  local scale = sceneScale(read.color)
+  Assert.near(
+    read.color[1],
+    step2[1] / 63 * scale,
+    0.5 * scale / 63,
+    "different-ID: red must show both blends in order"
+  )
+  Assert.near(
+    read.color[2],
+    step2[2] / 63 * scale,
+    0.5 * scale / 63,
+    "different-ID: green must show both blends in order"
+  )
+  Assert.near(
+    read.color[3],
+    step2[3] / 63 * scale,
+    0.5 * scale / 63,
+    "different-ID: blue must show both blends in order"
+  )
+
+  Assert.near(read.state[4], 10 / 64, 1 / 255, "state A must encode the second accepted polygon id 9 as (9+1)/64")
+end
+
+-- The non-depth-writing scenario: ordinary (depth-write false) translucency
+-- changes color/alpha and
+-- the translucent/fog attributes without replacing the opaque edge ID/depth
+-- ownership. Setup: opaque destination with known ID/depth/fog gate true,
+-- translucent source with a different ID, depth-write false, fog false.
+-- Expected: R/G stay the opaque values, B = dest AND src fog = 0, A encodes
+-- the source translucent ID. Repeat with the source fog true (B = 1).
+-- Baseline red: the blended loop never touches renderState at all, so B/A
+-- keep their clear/validity values (B 0, A 1.0) and no last-ID encoding
+-- exists.
+function T.non_depth_writing_preserves_opaque_id_and_depth_and_ands_fog(scope)
+  local function drawCase(renderer, srcFogEnabled)
+    local opaqueMesh = scope:own(syntheticMesh({
+      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    }))
+    local opaqueImage = solidAlphaImage(scope, 128, 128, 128, 255)
+    local opaque = opaqueFinalStateItem(opaqueMesh, 20, true)
+    opaque.material.image = opaqueImage
+    local translucent = translucentQuad(scope, ALPHA5_BYTE[8], 51, 16, 16)
+    translucent.fogEnabled = srcFogEnabled
+    return centerReadback(scope, renderer, fixedCamera(), emptyRuntime(), { { opaque, translucent } })
+  end
+
+  local renderer = scope:own(MapRenderer.new())
+  local fogFalse = drawCase(renderer, false)
+  local fogTrue = drawCase(renderer, true)
+
+  Assert.near(
+    fogFalse.state[1],
+    20 / 63,
+    1 / 255,
+    "the opaque polygon id must survive a non-depth-writing translucent draw"
+  )
+  Assert.near(fogTrue.state[1], 20 / 63, 1 / 255, "the opaque polygon id must survive in both fog cases")
+  Assert.near(fogFalse.state[3], 0.0, 1 / 255, "B must be dest fog (1) AND src fog (0) = 0")
+  Assert.near(fogTrue.state[3], 1.0, 1 / 255, "B must be dest fog (1) AND src fog (1) = 1")
+  Assert.near(fogFalse.state[4], 8 / 64, 1 / 255, "A must encode the source translucent id 7 in the fog-false case")
+  Assert.near(fogTrue.state[4], 8 / 64, 1 / 255, "A must encode the source translucent id 7 in the fog-true case")
+  Assert.near(fogFalse.state[2], fogTrue.state[2], 1, "the DS Z depth must be preserved identically in both cases")
+end
+
+-- The depth-write scenario: an accepted depth-writing translucent fragment
+-- updates BOTH the
+-- host depth buffer and state G; a later same-ID fragment (which would alter
+-- the depth if it were accepted) is rejected and writes neither. The
+-- assertions:
+--   * state G equals the accepted first source's DS Z depth (the second,
+--     nearer, same-ID source is rejected and cannot overwrite it);
+--   * a subsequent nearer fragment with a different ID passes the host depth
+--     test (its color shows) and updates state G to its own depth -- proving
+--     the accepted source's host depth write is coherent with state G;
+--   * a fragment at the opaque plane's depth stays visible (the near sources
+--     do not occlude it).
+-- Baseline red: the blended loop's per-item depth-write toggling honors the
+-- flag, so the first source DOES update host depth, but there is no same-ID
+-- rejection, so the second (nearer, same-ID) source overwrites both host
+-- depth and state G.
+function T.accepted_depth_write_updates_depth_rejected_same_id_does_not(scope)
+  local function makeParts(renderer, secondId, includeProbe)
+    local opaqueMesh = scope:own(syntheticMesh({
+      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+      { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    }))
+    local opaqueImage = solidAlphaImage(scope, 128, 128, 128, 255)
+    local opaque = opaqueFinalStateItem(opaqueMesh, 20, true)
+    opaque.material.image = opaqueImage
+
+    local function depthWriteTranslucent(z, id)
+      local mesh = scope:own(syntheticMesh({
+        { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+        { 3, -1, z, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+        { 3, 3, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+        { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+        { 3, 3, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+        { -1, 3, z, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+      }))
+      local item = nonDepthWritingTranslucentItem(mesh, id, false)
+      item.translucentDepthWrite = true
+      item.material.image = solidAlphaImage(scope, 40, 80, 120, 131)
+      return item
+    end
+
+    local first = depthWriteTranslucent(-0.5, 7)
+    local second = depthWriteTranslucent(-0.3, secondId)
+    local parts = { opaque, first, second }
+    if includeProbe then
+      -- A nearer, different-ID depth-writing fragment: accepted (passes the
+      -- host depth test against the first source's written depth) and updates
+      -- state G to its own depth.
+      local probe = depthWriteTranslucent(-0.45, 30)
+      probe.polygonAlpha = 0.5
+      probe.material.image = solidAlphaImage(scope, 255, 0, 0, 255)
+      parts[#parts + 1] = probe
+    end
+    return { parts }
+  end
+
+  local function sample(renderer, parts)
+    local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+    renderer:draw(emptyRuntime(), perspectiveCamera(), parts, viewport)
+    local colorImg = renderer.sceneColor:newImageData()
+    local stateImg = renderer.renderState:newImageData()
+    local color = scenePixel(renderer, colorImg, 320, 240)
+    local sx, sy = statePixel(renderer, 320, 240)
+    return { color = color, state = statePixelAt(renderer, stateImg, sx, sy) }
+  end
+
+  local renderer = scope:own(MapRenderer.new())
+  local opaqueOnly = sample(renderer, { { makeParts(renderer, 7)[1][1] } })
+  local withDepthWrite = sample(renderer, makeParts(renderer, 7))
+  local withProbe = sample(renderer, makeParts(renderer, 7, true))
+
+  -- State G without the probe: the second (rejected) fragment must not
+  -- overwrite the depth written by the accepted first fragment; the first's
+  -- own depth write replaced the opaque plane's depth, so state G equals the
+  -- first source's DS Z depth, not the opaque plane's.
+  local firstDepth = expectedDsDepth(projectedWindowZ(-0.5))
+  Assert.near(
+    withDepthWrite.state[2],
+    firstDepth,
+    1,
+    "state G must be the accepted depth-writing source's DS Z depth (0x" .. string.format("%X", firstDepth) .. ")"
+  )
+  Assert.isTrue(
+    math.abs(withDepthWrite.state[2] - opaqueOnly.state[2]) > 1,
+    "the accepted depth-writing source must have replaced the opaque plane's depth in state G"
+  )
+
+  -- The nearer, different-ID probe passes the host depth test: its red color
+  -- shows, and state G moves to its own accepted depth -- proving host and
+  -- state depth agree for accepted fragments.
+  local probeDepth = expectedDsDepth(projectedWindowZ(-0.45))
+  Assert.near(
+    withProbe.state[2],
+    probeDepth,
+    1,
+    "an accepted nearer depth-writing fragment updates state G to its own depth"
+  )
+  local scale = sceneScale(withProbe.color)
+  Assert.isTrue(
+    withProbe.color[1] > withProbe.color[2] + 0.3 * scale and withProbe.color[1] > withProbe.color[3] + 0.3 * scale,
+    "the nearer probe must pass the host depth test and render its red color"
+  )
+
+  -- A fragment at the opaque plane's depth stays visible (the near sources do
+  -- not occlude it) -- the opaque plane's own depth readback is unchanged.
+  Assert.isTrue(
+    opaqueOnly.state[2] > 0 and math.abs(opaqueOnly.state[2] - withDepthWrite.state[2]) > 1,
+    "the opaque plane depth readback differs from the depth-written value"
+  )
+end
+
+-- Lower-level mixed-alpha compositor contract (deliverable rule 10): a mixed
+-- material's partial-alpha texels must go through the compositor (they
+-- therefore become translucent state: state A records the source ID) while
+-- its fully-opaque texels keep the opaque state path (state A stays 0 -- no
+-- translucent overlay -- and the opaque ID/depth/fog-gate are stamped). This
+-- extends the existing mixed_modulate_splits_opaque_and_translucent test
+-- without weakening it: the partial texels' new state-A encoding is the
+-- compositor
+-- delta, asserted per column. Baseline red: state A is 1.0 (the validity
+-- clear) on every column, so both assertions fail.
+function T.mixed_partial_texels_use_the_compositor_and_opaque_texels_do_not(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local texture = mixedAlphaTexture(scope)
+  local item = mixedItem(unitSquareQuad(scope, 1, 1, 1), texture)
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+
+  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, viewport)
+
+  local colorImg = renderer.sceneColor:newImageData()
+  local stateImg = renderer.renderState:newImageData()
+  local alphas5 = { 0, 1, 15, 30, 31 }
+
+  for i, a5 in ipairs(alphas5) do
+    local u = (i - 0.5) / 5
+    local cx, cy = clipPixel(renderer.colorW, renderer.colorH, u, 0.5)
+    local color = interiorSample(colorImg, renderer.colorH, cx, cy)
+    local colorScale = color[1] > 1 and 255 or 1
+
+    local sx, sy = statePixel(renderer, cx, cy)
+    local mirrorX, mirrorY = statePixel(renderer, cx, renderer.colorH - 1 - cy)
+    local a = { stateImg:getPixel(sx, sy) }
+    local b = { stateImg:getPixel(mirrorX, mirrorY) }
+    -- The partial texel columns carry the rear-plane opaque R (1.0 -- a
+    -- translucent source never replaces it), so the R channel cannot
+    -- discriminate the drawn sample from its Y-mirror; prefer the sample that
+    -- is not the rear plane in R or A (the opaque column stamps R, the
+    -- partial columns stamp A). If both are rear-plane (a fully transparent
+    -- column), either is fine.
+    local function isRear(p)
+      return p[1] >= 0.99 and p[4] <= 0.0005
+    end
+    local stateValue
+    if not isRear(a) then
+      stateValue = a
+    elseif not isRear(b) then
+      stateValue = b
+    else
+      stateValue = a
+    end
+    local isOpaqueColumn = a5 == 31
+
+    if isOpaqueColumn then
+      -- Opaque texel: opaque state path only -- the existing contract.
+      Assert.near(color[1], 1.0 * colorScale, 0.08 * colorScale, "alpha5=31 texel stays fully opaque")
+      Assert.isTrue(stateValue[1] < 0.99, "alpha5=31 texel stamps opaque state (id " .. item.polygonId .. ")")
+      Assert.near(stateValue[4], 0.0, 1 / 255, "an opaque texel's state A must stay 0 (no translucent overlay)")
+    elseif a5 == 0 then
+      -- Fully transparent texel: discarded by the translucent predicate --
+      -- no color and no state A (it never reaches the compositor).
+      Assert.isTrue(color[1] <= 0.05 * colorScale, "alpha5=0 texel discards (black clear)")
+      Assert.near(stateValue[4], 0.0, 1 / 255, "a discarded texel's state A stays 0 (never accepted)")
+    else
+      -- Partial texel: compositor path -- state A must record this source
+      -- ID, exactly like any accepted translucent source.
+      Assert.near(
+        stateValue[4],
+        (item.polygonId + 1) / 64,
+        1 / 255,
+        "a partial-alpha mixed texel must record its translucent id in state A (a5=" .. a5 .. ")"
+      )
+    end
+  end
 end
 
 return GraphicsSmoke.suite(T)

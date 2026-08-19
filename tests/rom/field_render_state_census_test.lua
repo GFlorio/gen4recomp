@@ -22,9 +22,11 @@
 --
 -- Map/building materials additionally get three cross-tabs (alphaClass x
 -- fogEnabled, alphaClass x translucentDepthWrite, polygonMode x alphaClass)
--- to answer whether the target corpus ever requires a translucent-fog
--- read/modify/write compositor. Actors are out of scope for these
--- cross-tabs because they have no honest alphaClass (see above).
+-- to answer how the corpus exercises translucency and fog. The compositor is
+-- a renderer contract regardless of corpus frequency: it implements exact
+-- integer RGB/alpha blend, max alpha, same-ID rejection, and fog-gate state.
+-- Actors are out of scope for these cross-tabs because they have no honest
+-- alphaClass (see above).
 
 local Assert = require("tests.support.Assert")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
@@ -294,9 +296,11 @@ function T.field_render_state_corpus_facts(romFs)
     )
   end
 
-  -- Ordinary translucent + fog is common and expected in the corpus; it
-  -- needs no compositor because the per-fragment fog gate already handles
-  -- it. This also proves the alphaClassByFogEnabled cross-tab is observed.
+  -- Ordinary translucent + fog is common and expected in the corpus; its
+  -- fog contribution is handled by the per-fragment fog gate and the
+  -- compositor's fog-gate AND, so this fact does not by itself imply a
+  -- separate compositor requirement. This also proves the
+  -- alphaClassByFogEnabled cross-tab is observed.
   Assert.isTrue(
     tally.alphaClassByFogEnabled["translucent:true"] ~= nil,
     "translucent alpha class combined with fogEnabled must occur in the corpus"
@@ -304,8 +308,8 @@ function T.field_render_state_corpus_facts(romFs)
   Assert.isTrue(next(tally.polygonModeByAlphaClass) ~= nil, "polygonMode x alphaClass cross-tab must be observed")
 
   -- Fog is heavily used across the field corpus -- this is not a corner
-  -- case. This is a source/render-state fact only; it does not imply the
-  -- runtime schema or renderer carries fog (it does not).
+  -- case. This is a source/render-state fact only; the runtime schema and
+  -- final-pass fog consumption are separate contracts.
   Assert.isTrue(tally.fogEnabledTrue > 0, "fogEnabled must occur somewhere in the corpus")
 
   -- Wireframe (polygonAlpha == 0) occurs, though rarely.

@@ -114,6 +114,9 @@ vec2 statePixelCenter(vec2 uv)
 // sample that falls outside the logical screen -- a neighbor probe past the
 // screen edge must behave like the rear plane, not like a clamped copy of the
 // center pixel (which would suppress a silhouette at the screen boundary).
+// Only the RGB channels are read here (the edge/fog pass never samples the
+// last-translucent-ID encoding in A); the clear's alpha 0 is the compositor's
+// "no translucent overlay" value.
 vec3 rearPlaneState()
 {
   return vec3(1.0, 16777215.0, 0.0);

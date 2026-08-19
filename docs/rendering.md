@@ -259,16 +259,18 @@ value the shader also stores (see "Render-state depth" below); there is no
 RGB replacement (`vec4(edgeColor, scene.a)`), never an alpha-mix with the
 scene color, and there is no separate edge-opacity uniform.
 
-The opaque polygon ID, the DS-quantized depth, and the per-polygon fog gate
-are three independent logical attributes, carried as separate channels of one
-`rgba32f` attachment (`renderState`: R = polygon ID, G = depth, B = fog gate,
-A = validity) rather than one value overloaded to mean several things.
-Opaque, cutout, and mixed-opaque fragments write their own real 0..63 polygon
-ID into R -- there is no invented sentinel value. Ordinary translucent and
-mixed-translucent fragments never draw into the state pass at all (see
-"Shared full-resolution rasters" below), so the opaque/cutout state underneath
-a translucent fragment survives untouched, matching DS behavior for a fragment
-that never updates the depth/attribute buffers.
+The opaque polygon ID, the DS-quantized depth, the per-polygon fog gate, and
+the last translucent ID are carried as separate channels of one `rgba32f`
+attachment (`renderState`: R = opaque polygon ID / 63, G = DS Z depth as an
+integer-valued float, B = fog gate 0 or 1, A = last translucent ID encoding --
+0 means none, `(id + 1) / 64` means ID 0..63). The `1/64` steps are exactly
+representable in binary floating point, so the A encoding is exact. The
+clear/rear-plane state is `{63/63, 0xFFFFFF, 0, 0}`. Opaque, cutout,
+mixed-opaque, and wireframe fragments write their own real 0..63 polygon ID
+into R and reset A to 0, because the new top opaque pixel has no accepted
+translucent overlay yet; there is no invented sentinel value. Ordinary
+translucent state is maintained by the programmable compositor below, not by
+the state pass.
 
 ## Shared full-resolution rasters
 
@@ -324,17 +326,16 @@ worldProjection`) -- map geometry, buildings, the neighbour ring, and actor
 billboards are all ordinary shared queue items in both passes; no object
 class chooses its own raster resolution or skips a pass. The state pass
 draws opaque, then cutout, then mixed-opaque (discard-unless-alpha31), then
-wireframe; ordinary translucent and mixed-translucent items never touch it.
-The color pass draws the same opaque/cutout/mixed-opaque items at full
-resolution, then the joint back-to-front `blended` list (ordinary translucent
-and mixed-translucent, split by `AlphaClassifier.MIXED`'s exact final-alpha5
-discard predicates), then wireframe.
+wireframe. The color pass draws the same opaque/cutout/mixed-opaque items at
+full resolution, then executes the programmable translucent compositor
+(see below), then wireframe on the composited result.
 
 Both target sets are allocated transactionally by one `MapRenderer:_ensureTargets`
-call: all four canvases (`sceneColor`, `colorDepth`, `renderState`, `stateDepth`) are
-staged before anything published is touched, so a failed allocation or a
-failed size-uniform send releases only the staged canvases and leaves the
-previous live set (and its recorded dimensions) completely untouched.
+call: all ten canvases (`sceneColor`, `colorDepth`, `renderState`, `stateDepth`,
+the compositor ping-pong color/state pairs, and the source fragment color/meta
+buffers) are staged before anything published is touched, so a failed
+allocation or a failed size-uniform send releases only the staged canvases and
+leaves the previous live set (and its recorded dimensions) completely untouched.
 
 ### Mixed final-alpha materials
 
@@ -344,11 +345,45 @@ cannot be described as wholly opaque or wholly translucent by texture format
 alone -- texture storage format (e.g. A3I5/A5I3) describes capability, not the
 alpha distribution of a particular decoded texture, and DECAL ignores texture
 alpha for final alpha entirely. Such a material draws twice in the color pass
-(once as `mixedOpaque`, once in the joint `blended` list) and once in the
-state pass (`mixedOpaque` only): each fragment's own exact final alpha5
-(not a float-epsilon comparison) decides which pass's write, if any, survives
--- alpha 0 discards everywhere, alpha 31 is opaque in both color and state,
-and alpha 1-30 blends in color only, contributing no state.
+(once as `mixedOpaque`, once in the joint `blended` list via the compositor)
+and once in the state pass (`mixedOpaque` only): each fragment's own exact
+final alpha5 (not a float-epsilon comparison) decides which pass's write, if
+any, survives -- alpha 0 discards everywhere, alpha 31 is opaque in both
+color and state, and alpha 1-30 blends through the compositor in color and
+contributes translucent state, not opaque state.
+
+### Programmable translucent compositor
+
+Fixed-function host alpha blending cannot reproduce DS translucent semantics:
+a translucent fragment must read per-pixel state (the last translucent ID for
+same-ID rejection), blend with exact integer DS RGB6/alpha5 arithmetic
+(including `max` destination alpha), and mutate state (fog-gate `AND` and last
+translucent ID). The compositor is a ping-pong read-modify-write:
+
+* Two full-resolution destination color canvases and two full-resolution
+  destination state canvases (`rgba32f` for the 24-bit depth) form the active
+  and inactive pairs, plus the depth/stencil attachment and two temporary
+  source-fragment buffers (color `rgba8` and metadata `rgba32f` carrying the
+  valid flag, DS Z depth, fog flag, and source polygon ID).
+* For each `RenderQueue.blended` entry in its existing deterministic order,
+  the renderer rasterizes only that item's accepted translucent or
+  mixed-translucent fragments into the source buffers, depth-testing against
+  the active depth attachment and rejecting fragments before any optional
+  depth write when the destination's last translucent ID equals the source
+  polygon ID.
+* A full-screen composite shader then applies the exact integer blend/state
+  equations only where source valid is true (otherwise copying the destination
+  unchanged) into the inactive pair, then the pairs swap.
+* After the loop, wireframe drawing and the final resolve target the active
+  pair, so final color and state remain aligned. No pass samples and writes
+  the same target in one draw (no feedback hazard). The composite and the
+  source rasterization both use `replace` semantics -- the composite does not
+  apply a second host alpha blend to already-computed output, and ordinary
+  translucent/mixed-translucent entries share this same compositor path.
+
+Exact `GX_SORTMODE_AUTO` polygon ordering remains approximate: the compositor
+preserves the current deterministic `RenderQueue.blended` back-to-front order
+and does not implement the hardware's automatic translucent sort.
 
 ### Final resolve
 
@@ -502,34 +537,28 @@ actors draw with the world projection, exactly as on the DS.
 * Scene / G4M2 / cache explicit versioning and invalidation (see "Cache
   invalidation" below for the current version identities).
 
+### Implemented exactly
+
+* Same-ID translucent self-blend rejection, exact integer RGB6/alpha5 blend
+  with `w = srcAlpha5 + 1` and `max` destination alpha, fog-gate `AND`, and
+  last-translucent-ID state via the programmable ping-pong compositor
+  (see above) -- no host fixed-function alpha blend remains for
+  translucency; mixed-alpha partial texels use the same compositor.
+* Exact DS vertex lighting, MODULATE/DECAL combiner, render-state depth,
+  fog density, and the compositor's state contract described above.
+
 ### Deferred / approximate
 
 These are documented rather than silently approximated. If a target map needs
 one, the compiler raises a structured error instead of rendering incorrectly.
 
-* Polygon-ID same-ID translucent self-blend rejection: the DS rule (a
-  translucent fragment must not blend against a prior fragment sharing its
-  own polygon ID) is not implemented by the renderer (no auxiliary
-  compositor exists, and no corpus content has been found to produce that
-  overdraw pattern).
-* Bit-exact translucent RGB blend: the host's `"alpha"`/`"alphamultiply"`
-  blend mode reproduces the DS blend equation's shape
-  (`Dst' = Src*SrcAlpha + Dst*(1-SrcAlpha)`), but it weights with continuous
-  host alpha rather than the DS's 5-bit `(alpha5+1)/32` weighting and divide,
-  so the composited result is structurally equivalent, not bit-exact.
 * Exact DS automatic translucent Y sorting: HGSS field content is confirmed
   (via decomp) to genuinely use `GX_SORTMODE_AUTO`, but the exact hardware
   vertex-selection rule was never independently confirmed against melonDS, so
   the renderer keeps the pre-existing approximate object-center-Z
-  back-to-front sort rather than tuning an unconfirmed rule.
-* Destination-alpha accumulation (`max(SrcAlpha, DstAlpha)`) during the
-  translucent pass: the RGB blend equation matches the DS blend shape, but
-  successive translucent draws accumulate alpha with the host's ordinary
-  "over" blend, not the DS `max` rule. The final full-screen pass does read
-  and correctly fog-blend whatever alpha the scene canvas holds, and its own
-  RGB/alpha output is written verbatim to the screen -- that later step is
-  exact relative to the alpha value it receives, but is not proof that the
-  translucent pass's own destination-alpha accumulation was DS-exact.
+  back-to-front sort rather than tuning an unconfirmed rule. The programmable
+  compositor preserves this current-project ordering and does not claim
+  hardware-exact automatic sort.
 * Runtime weather-ID overrides: HGSS rewrites the map's base `weatherId`
   before resolving fog in four cases (Mt. Silver Cave Summit forces Diamond
   Dust on specific RTC calendar dates; a Lake of Rage save flag forces

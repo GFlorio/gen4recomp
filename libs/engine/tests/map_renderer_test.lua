@@ -305,8 +305,12 @@ local function assertResourcesReleased(lg)
   for _, canvas in ipairs(lg.canvases) do
     Assert.equal(canvas.releaseCount, 1, "renderer released every created canvas exactly once")
   end
-  Assert.equal(#lg.shaders, 3, "the three engine shaders were created (color, resolve, state)")
-  Assert.equal(#lg.canvases, 4, "the sceneColor, colorDepth, renderState, and stateDepth canvases were created")
+  Assert.equal(#lg.shaders, 5, "the five engine shaders were created (color, resolve, state, source, composite)")
+  Assert.equal(
+    #lg.canvases,
+    10,
+    "the sceneColor, colorDepth, renderState, stateDepth, pingColorA/B, pingStateA/B, sourceColor/sourceMeta canvases were created"
+  )
 end
 
 -- Six vertices in the project render layout
@@ -355,10 +359,11 @@ end
 -- Target recreation is transactional at equal color/state dimensions: a
 -- failure while building the replacement set leaves the previous targets and
 -- their recorded size fully usable, and every partial new canvas is released.
--- The first draw allocates canvases 1-4; a failure on canvas 5 (the new
--- sceneColor) must keep the old set published.
+-- The first draw allocates ten canvases (the color/state set plus the compositor's
+-- ping-pong and source targets); a failure on any of the next ten must keep the
+-- old set published.
 function T.state_target_recreation_failure_releases_partials_and_keeps_previous_set()
-  for _, failOnNewCanvas in ipairs({ 5, 6, 7, 8 }) do
+  for _, failOnNewCanvas in ipairs({ 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 }) do
     local lg = fakeGraphics({ failOnNewCanvas = failOnNewCanvas })
     local renderer = MapRenderer.new({ graphics = lg })
     local scene = emptySceneCamera()
@@ -366,14 +371,14 @@ function T.state_target_recreation_failure_releases_partials_and_keeps_previous_
     local oldColorW, oldColorH, oldStateW, oldStateH =
       renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
     local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
-    Assert.equal(#lg.canvases, 4, "the first target set was created")
+    Assert.equal(#lg.canvases, 10, "the first target set was created")
 
     local err = Assert.throws(function()
       renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
     end)
     Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
 
-    for i = 5, #lg.canvases do
+    for i = 11, #lg.canvases do
       Assert.equal(lg.canvases[i].releaseCount, 1, "partial canvas " .. i .. " was released")
     end
     Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
@@ -386,7 +391,7 @@ function T.state_target_recreation_failure_releases_partials_and_keeps_previous_
     Assert.equal(renderer.stateH, oldStateH, "the recorded state height survives")
     Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color target descriptor survives")
     Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state target descriptor survives")
-    for i = 1, 4 do
+    for i = 1, 10 do
       Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas " .. i .. " is still owned")
     end
 
@@ -534,8 +539,9 @@ function T.draw_failure_restores_exact_state_and_rethrows()
   assertResourcesReleased(lg)
 end
 
--- Construction is transactional: when the second shader fails, the first
--- must be released and the failure must reach the caller.
+-- Construction is transactional: when the Nth shader fails, the previous ones
+-- must be released and the failure must reach the caller. The renderer owns
+-- five shaders (color, resolve, state, source, composite).
 function T.new_releases_first_shader_when_second_shader_fails()
   local lg = fakeGraphics({ failOnNewShader = 2 })
   local err = Assert.throws(function()
@@ -557,6 +563,23 @@ function T.new_first_shader_failure_leaks_nothing()
   Assert.equal(#lg.shaders, 0, "no shader was created")
 end
 
+function T.new_releases_prior_shaders_when_compositor_shader_fails()
+  for _, failAt in ipairs({ 4, 5 }) do
+    local lg = fakeGraphics({ failOnNewShader = failAt })
+    local err = Assert.throws(function()
+      MapRenderer.new({ graphics = lg })
+    end)
+    Assert.isTrue(
+      tostring(err):find("injected shader failure", 1, true) ~= nil,
+      "rethrows the shader failure at " .. failAt
+    )
+    Assert.equal(#lg.shaders, failAt - 1, "only the prior shaders were created before failure at " .. failAt)
+    for i = 1, failAt - 1 do
+      Assert.equal(lg.shaders[i].releaseCount, 1, "shader " .. i .. " is released when shader " .. failAt .. " fails")
+    end
+  end
+end
+
 -- The renderer builds its shaders from the injected source reader -- the
 -- engine-resource boundary -- never from host paths: the reader is called
 -- with exactly the engine-owned shader paths, in construction order, and each
@@ -575,10 +598,14 @@ function T.new_reads_shader_sources_through_the_injected_reader()
     "libs/engine/src/shaders/map.glsl",
     "libs/engine/src/shaders/edge.glsl",
     "libs/engine/src/shaders/state.glsl",
+    "libs/engine/src/shaders/source.glsl",
+    "libs/engine/src/shaders/composite.glsl",
   })
   Assert.equal(lg.shaders[1].source, "source:libs/engine/src/shaders/map.glsl")
   Assert.equal(lg.shaders[2].source, "source:libs/engine/src/shaders/edge.glsl")
   Assert.equal(lg.shaders[3].source, "source:libs/engine/src/shaders/state.glsl")
+  Assert.equal(lg.shaders[4].source, "source:libs/engine/src/shaders/source.glsl")
+  Assert.equal(lg.shaders[5].source, "source:libs/engine/src/shaders/composite.glsl")
   renderer:release()
 end
 
@@ -597,7 +624,7 @@ function T.new_reads_real_shader_sources_by_default()
 end
 
 -- A source-read failure is a construction failure like any other: when the
--- reader fails for the second shader, the first is released and the error
+-- reader fails for the Nth shader, the prior ones are released and the error
 -- propagates (the transactional construction holds through the new boundary).
 function T.new_second_shader_source_failure_releases_first_shader()
   local lg = fakeGraphics()
@@ -617,6 +644,37 @@ function T.new_second_shader_source_failure_releases_first_shader()
   Assert.isTrue(tostring(err):find("injected read failure", 1, true) ~= nil, "rethrows the read failure")
   Assert.equal(#lg.shaders, 1, "only the first shader was created")
   Assert.equal(lg.shaders[1].releaseCount, 1, "the first shader is released when the second source read fails")
+end
+
+function T.new_compositor_source_read_failure_releases_prior_shaders()
+  for _, failAt in ipairs({ 4, 5 }) do
+    local lg = fakeGraphics()
+    local reads = 0
+    local err = Assert.throws(function()
+      MapRenderer.new({
+        graphics = lg,
+        readSource = function()
+          reads = reads + 1
+          if reads == failAt then
+            error("injected read failure")
+          end
+          return "source"
+        end,
+      })
+    end)
+    Assert.isTrue(
+      tostring(err):find("injected read failure", 1, true) ~= nil,
+      "rethrows the read failure at " .. failAt
+    )
+    Assert.equal(#lg.shaders, failAt - 1, "only the prior shaders were created before failure at " .. failAt)
+    for i = 1, failAt - 1 do
+      Assert.equal(
+        lg.shaders[i].releaseCount,
+        1,
+        "shader " .. i .. " is released when source read " .. failAt .. " fails"
+      )
+    end
+  end
 end
 
 -- The very first source read failing creates nothing and still reaches the
@@ -659,11 +717,11 @@ end
 -- Target reallocation builds the full replacement set before releasing the
 -- live one: when any new-canvas allocation fails, every partial new canvas is
 -- released, the previous targets and their recorded size survive, and the
--- failure reaches the caller. Each failOnNewCanvas value places the failure at
--- a different point in the new set of four (sceneColor, colorDepth,
--- renderState, stateDepth), which the first draw allocates as canvases 1-4.
+-- failure reaches the caller. The first draw allocates ten canvases (the
+-- color/state set plus the compositor ping-pong and source targets); each
+-- failOnNewCanvas value places the failure at a different point in the next ten.
 function T.canvas_recreation_failure_releases_partial_new_canvases()
-  for _, failOnNewCanvas in ipairs({ 5, 6, 7, 8 }) do
+  for _, failOnNewCanvas in ipairs({ 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 }) do
     local lg = fakeGraphics({ failOnNewCanvas = failOnNewCanvas })
     local renderer = MapRenderer.new({ graphics = lg })
     local scene = emptySceneCamera()
@@ -671,14 +729,14 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     local oldColorW, oldColorH, oldStateW, oldStateH =
       renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
     local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
-    Assert.equal(#lg.canvases, 4, "the first target set was created")
+    Assert.equal(#lg.canvases, 10, "the first target set was created")
 
     local err = Assert.throws(function()
       renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
     end)
     Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
 
-    for i = 5, #lg.canvases do
+    for i = 11, #lg.canvases do
       Assert.equal(lg.canvases[i].releaseCount, 1, "partial canvas " .. i .. " was released")
     end
     -- The previous target set survives untouched, at its recorded size.
@@ -692,7 +750,7 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     Assert.equal(renderer.stateH, oldStateH, "the recorded state size survives")
     Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color target descriptor survives")
     Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state target descriptor survives")
-    for i = 1, 4 do
+    for i = 1, 10 do
       Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas " .. i .. " is still owned")
     end
 
@@ -740,13 +798,15 @@ function T.canvas_recreation_send_failure_retains_previous_targets()
   Assert.equal(renderer.stateH, 480)
   Assert.equal(edgeShader.uniforms.u_renderState, lg.canvases[3], "the previous renderState binding is restored")
   Assert.deepEqual(edgeShader.uniforms.u_stateSize, { 640, 480 }, "the previous state size is restored")
-  for i = 1, 4 do
+  for i = 1, 10 do
     Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas remains owned")
-    Assert.equal(lg.canvases[i + 4].releaseCount, 1, "the unpublished replacement canvas is released")
+  end
+  for i = 11, 14 do
+    Assert.equal(lg.canvases[i].releaseCount, 1, "the unpublished replacement canvas is released")
   end
 
   renderer:draw(scene.runtime, scene.camera, nil, oldViewport)
-  Assert.equal(#lg.canvases, 8, "the retained target set remains usable without allocation")
+  Assert.equal(#lg.canvases, 14, "the retained target set remains usable without allocation")
   renderer:release()
   for _, canvas in ipairs(lg.canvases) do
     Assert.equal(canvas.releaseCount, 1, "release cleans up every canvas exactly once")
@@ -1012,11 +1072,12 @@ end
 
 -- After a failed recreation the renderer stays usable at the previous size,
 -- and a later successful recreation swaps in a full new set while releasing
--- the previous set exactly once. The first draw allocates canvases 1-4
--- (sceneColor, colorDepth, renderState, stateDepth); the failed recreation attempt
--- allocates canvas 5 (sceneColor) before failing on canvas 6 (colorDepth).
+-- the previous set exactly once. The first draw allocates ten canvases
+-- (sceneColor, colorDepth, renderState, stateDepth, ping pair, source pair);
+-- the failed recreation attempt allocates canvas 11 (sceneColor) before failing
+-- on canvas 12 (colorDepth).
 function T.canvas_recreation_failure_keeps_renderer_usable()
-  local lg = fakeGraphics({ failOnNewCanvas = 6 })
+  local lg = fakeGraphics({ failOnNewCanvas = 12 })
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
@@ -1028,20 +1089,20 @@ function T.canvas_recreation_failure_keeps_renderer_usable()
 
   -- Drawing at the retained size allocates nothing and still renders.
   renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
-  Assert.equal(#lg.canvases, 5, "the old-size draw reuses the retained canvases")
+  Assert.equal(#lg.canvases, 11, "the old-size draw reuses the retained canvases")
   Assert.equal(renderer.colorW, oldColorW)
   Assert.equal(renderer.colorH, oldColorH)
 
   -- The next successful recreation replaces the previous set, releasing it
   -- exactly once, and the renderer owns the new set.
   renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
-  Assert.equal(#lg.canvases, 9, "a full new set was created")
+  Assert.equal(#lg.canvases, 21, "a full new set was created")
   Assert.equal(lg.canvases[1].releaseCount, 1, "the old scene canvas is released exactly once")
   Assert.equal(lg.canvases[2].releaseCount, 1, "the old color-depth canvas is released exactly once")
   Assert.equal(lg.canvases[3].releaseCount, 1, "the old render-state canvas is released exactly once")
   Assert.equal(lg.canvases[4].releaseCount, 1, "the old state-depth canvas is released exactly once")
-  Assert.equal(lg.canvases[6].releaseCount, 0, "the new scene canvas is owned by the renderer")
-  Assert.equal(lg.canvases[9].releaseCount, 0, "the new state-depth canvas is owned by the renderer")
+  Assert.equal(lg.canvases[12].releaseCount, 0, "the new scene canvas is owned by the renderer")
+  Assert.equal(lg.canvases[21].releaseCount, 0, "the new state-depth canvas is owned by the renderer")
 
   renderer:release()
   for _, canvas in ipairs(lg.canvases) do
@@ -1356,7 +1417,7 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
   )
   Assert.equal(
     #lg.shaders,
-    3,
+    5,
     "the actor drew through the shared color/state shaders, no separate sprite shader was created"
   )
   renderer:release()
@@ -1451,18 +1512,21 @@ function T.draw_sets_wireframe_and_translucent_state_once_per_run()
 
   renderer:draw(scene.runtime, scene.camera, { items }, FieldViewport.new(640, 480, { mode = "strict" }))
 
-  -- The translucent RGB blend switch itself is a separate compositor-
-  -- architecture decision (see the implementation notes); this test only
-  -- pins depth-equal's retirement.
-  Assert.equal(callCount(lg.calls.blend, { mode = "alpha", alpha = "alphamultiply" }), 1)
-  Assert.equal(callCount(lg.calls.depth, { mode = "less", write = false }), 1)
+  -- The programmable ping-pong compositor uses replace semantics for both
+  -- source rasterization and composite; the fixed-function
+  -- alpha/alphamultiply translucent path is retired. Depth-equal remains
+  -- retired: every depth test compares "less".
+  Assert.equal(callCount(lg.calls.blend, { alpha = "alphamultiply" }), 0, "compositor is the only translucent path")
   Assert.equal(
-    callCount(lg.calls.depth, { mode = "less", write = true }),
-    4,
-    "state-pass start, color-pass start, translucent write-on, and color wireframe passes"
+    callCount(lg.calls.blend, { mode = "alpha", alpha = "alphamultiply" }),
+    0,
+    "compositor is the only translucent path"
   )
+  Assert.isTrue(callCount(lg.calls.blend, { mode = "replace" }) > 0, "compositor uses replace")
+  Assert.isTrue(callCount(lg.calls.blend, { mode = "replace", alpha = "premultiplied" }) > 0, "compositor uses replace")
   Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = false }), 0, "lequal is retired, not merely unused")
   Assert.equal(callCount(lg.calls.depth, { mode = "lequal", write = true }), 0, "lequal is retired, not merely unused")
+  Assert.equal(callCount(lg.calls.depth, { mode = "lequal" }), 0, "lequal is retired, not merely unused")
   local wireframeEnables = 0
   for _, enabled in ipairs(lg.calls.wireframe) do
     if enabled then
