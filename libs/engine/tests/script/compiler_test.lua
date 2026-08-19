@@ -170,6 +170,7 @@ local function allOpsScript()
     S.temporaryMusic({ music = "SEQ_GS_EVENT" }),
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),
     S.fadeMusicIn({ durationTicks = 30 }),
+    S.processSoundplate(),
     S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" }),
     S.waitFade(),
     S.warp({ map = "MAP_NEW_BARK", warp = 0, fieldX = 684, fieldZ = 393, facing = "south" }),
@@ -1308,6 +1309,39 @@ function T.reentrant_compile_does_not_contaminate_either_graph()
   Assert.deepEqual(graph.nodes["path:steps/0"], { op = "next" })
   Assert.deepEqual(graph.nodes["path:steps/1"], { op = "set_flag", flag = "FLAG_F" })
   Assert.deepEqual(captured.graph.nodes["path:steps/0"], { op = "set_var", variable = "VAR_A", value = 1 })
+end
+
+function T.process_soundplate_compiles_with_a_linear_next_edge()
+  local graph = compile(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      S.processSoundplate(),
+      S.setVar({ variable = "VAR_A", value = 1 }),
+      S.stop(),
+    },
+  }))
+  Assert.equal(graph.entry, "path:steps/0")
+  Assert.equal(graph.nodes["path:steps/0"].op, "process_soundplate")
+  Assert.equal(graph.nodes["path:steps/0"].next, "path:steps/1")
+  Assert.equal(graph.nodes["path:steps/1"].op, "set_var")
+end
+
+function T.process_soundplate_is_not_in_terminator_or_no_chain_tables()
+  -- process_soundplate must not be a terminator: it compiles with a next edge
+  -- like other same-tick audio ops, not like stop/signal_caller.
+  local graph = compile(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      S.setVar({ variable = "VAR_A", value = 1 }),
+      S.processSoundplate(),
+      S.setVar({ variable = "VAR_B", value = 2 }),
+      S.stop(),
+    },
+  }))
+  Assert.equal(graph.nodes["path:steps/1"].op, "process_soundplate")
+  Assert.notNil(graph.nodes["path:steps/1"].next, "process_soundplate must carry a next edge")
 end
 
 return { tests = T }

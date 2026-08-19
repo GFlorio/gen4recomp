@@ -5,7 +5,9 @@
 -- REACHABLE_EXCLUDED opcodes are observed at retail callsites but belong to
 -- systems outside the field-audio scope (battle, radio) and stay out of the
 -- field-audio semantic API. Any other sound-related reachable opcode fails
--- loudly, naming the opcode and up to three retail callsites.
+-- loudly, naming the opcode and up to three retail callsites. The semantic
+-- proof ties raw 726 reachability to emitted process_soundplate resources,
+-- walking nested occurrences so no translation gap escapes the corpus count.
 
 local Assert = require("tests.support.Assert")
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
@@ -129,6 +131,43 @@ T["retail sound-opcode census pins the closed partition"] = function(romFs)
     0,
     "sound-related field opcodes outside the closed partition: " .. table.concat(unexpected, " || ")
   )
+end
+
+T["raw 726 reachability survives semantic translation as process_soundplate"] = function(romFs)
+  local archive, memberIrs = FieldScripts.decode(romFs)
+  local reachable = 0
+  local unsupported726 = 0
+  for member = 0, archive:memberCount() - 1 do
+    local ir = memberIrs[member]
+    if ir ~= nil then
+      for _, script in pairs(ir.scripts) do
+        for _, ins in ipairs(script.instructions) do
+          if ins.opcode == 726 then
+            reachable = reachable + 1
+          end
+        end
+      end
+    end
+  end
+  Assert.isTrue(reachable >= 1, "retail corpus must reach opcode 726")
+  local semanticCount = 0
+  FieldScripts.eachScript(archive, memberIrs, function(_, _, steps, lowered)
+    if lowered.unsupported then
+      for _, node in ipairs(lowered.unsupported) do
+        if node.command == 726 then
+          unsupported726 = unsupported726 + 1
+        end
+      end
+    end
+    FieldScripts.eachStep(steps, function(step)
+      if step.op == "process_soundplate" then
+        semanticCount = semanticCount + 1
+      end
+    end)
+  end)
+  Assert.equal(unsupported726, 0, "no 726 callsite may lower as unsupported")
+  Assert.isTrue(semanticCount >= 1, "at least one semantic process_soundplate must originate from 726")
+  Assert.equal(semanticCount, reachable, "every raw 726 callsite must survive as a semantic process_soundplate")
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

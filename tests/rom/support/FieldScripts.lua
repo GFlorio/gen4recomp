@@ -47,6 +47,11 @@ function FieldScripts.eachStep(items, fn)
     if item.op == "if" then
       FieldScripts.eachStep(item.yes, fn)
       FieldScripts.eachStep(item.no, fn)
+    elseif item.op == "switch" then
+      for _, caseSteps in pairs(item.cases) do
+        FieldScripts.eachStep(caseSteps, fn)
+      end
+      FieldScripts.eachStep(item.default, fn)
     else
       fn(item)
     end

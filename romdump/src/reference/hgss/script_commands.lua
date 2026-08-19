@@ -4693,6 +4693,7 @@ return {
       },
     },
     [726] = {
+      classification = "continue_same_tick",
       name = "ScrCmd_ProcessSoundplate",
       widths = {},
     },

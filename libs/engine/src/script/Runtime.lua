@@ -1192,6 +1192,10 @@ end
 HANDLERS.fade_music_in = function(node, run)
   return blockOnTask(run, "music_fade", { node = node })
 end
+HANDLERS.process_soundplate = function(node, run)
+  requireService(run, "audio"):processSoundplate()
+  return Runtime.OUTCOME_CONTINUE
+end
 HANDLERS.shake_camera = function(node, run)
   requireService(run, "camera"):startShake(node)
   return Runtime.OUTCOME_CONTINUE
