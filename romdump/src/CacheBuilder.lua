@@ -23,6 +23,8 @@ local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontCacheWriter = require("romdump.src.digest.FieldFontCacheWriter")
 local FieldUiCompiler = require("romdump.src.digest.FieldUiCompiler")
 local FieldUiCacheWriter = require("romdump.src.digest.FieldUiCacheWriter")
+local FieldWeatherCompiler = require("romdump.src.digest.FieldWeatherCompiler")
+local FieldWeatherCacheWriter = require("romdump.src.digest.FieldWeatherCacheWriter")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
 local RomFs = require("romdump.src.source.RomFs")
@@ -180,6 +182,16 @@ function CacheBuilder.buildVersions(versionIds, options)
         log(string.format("build-cache: %s field ui compiled", version))
       else
         log(string.format("build-cache: %s field ui current", version))
+      end
+      local weatherBundle, weatherErr = FieldWeatherCompiler.compile(romFs)
+      if not weatherBundle then
+        return versionFailure(weatherErr)
+      end
+      if forced or not FieldWeatherCacheWriter.isReady(cacheFs, weatherBundle.marker) then
+        FieldWeatherCacheWriter.write(cacheFs, weatherBundle)
+        log(string.format("build-cache: %s field weather compiled", version))
+      else
+        log(string.format("build-cache: %s field weather current", version))
       end
       local messageBundle, messageErr = FieldMessageCompiler.compile(romFs)
       if not messageBundle then

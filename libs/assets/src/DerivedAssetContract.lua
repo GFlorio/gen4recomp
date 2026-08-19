@@ -102,6 +102,11 @@ DerivedAssetContract.scripts = {
   provenanceSchema = "g4-script-provenance-v1",
 }
 
+DerivedAssetContract.fieldWeather = {
+  cacheFormat = "field-weather-cache-v1",
+  schema = "g4-field-weather-v1",
+}
+
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
   schema = "g4-field-ui-v5",

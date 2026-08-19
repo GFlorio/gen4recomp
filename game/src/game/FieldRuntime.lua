@@ -47,6 +47,8 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
+local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local FieldWeatherResolver = require("libs.engine.src.FieldWeatherResolver")
 local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
@@ -69,6 +71,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field saveFs SaveFs?
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
+---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -177,10 +180,19 @@ local function spawnSurface(runtimeMap, localX, localZ)
   return best
 end
 
----@param versionId string
----@param mapIdOrSymbol string|integer|nil
----@param options FieldRuntimeOptions|nil
----@return FieldRuntime
+---@return table
+local function defaultWeatherClock()
+  return {
+    today = function()
+      local now = os.date("*t")
+      return { month = now.month, day = now.day }
+    end,
+    hasPenalty = function()
+      return false
+    end,
+  }
+end
+
 function FieldRuntime.new(versionId, mapIdOrSymbol, options)
   options = options or {}
   local self = setmetatable({
@@ -194,6 +206,7 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     saveFs = options.saveFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
+    weatherClock = options.weatherClock or defaultWeatherClock(),
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
   }, FieldRuntime)
@@ -263,6 +276,14 @@ function FieldRuntime:_load()
       assert(cacheFs:loadLua(CAMERA_PROFILES_PATH), "field camera cache is cold -- run `scripts/buildcache.sh` first")
     assert(profiles.schema == FieldCameraCache.SCHEMA, "unsupported field camera cache")
     self.cameraProfiles = profiles.profiles
+
+    -- The weather catalog: fourteen fog presets and ordered override rules.
+    local weatherCatalog = assert(
+      cacheFs:loadLua(FieldWeatherCache.catalogPath()),
+      "field weather cache is cold -- run `scripts/buildcache.sh` first"
+    )
+    assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
+    self.weatherCatalog = weatherCatalog
 
     -- FieldMapLoader owns the simulation assets (field data, collision,
     -- terrain) through the pure asset paths for every composition. The visual
@@ -564,6 +585,8 @@ function FieldRuntime:_load()
         end,
       },
     })
+
+    self:_applyEffectiveWeather(self.runtimeMap)
   end)
   -- Construction is binary: a failed boot releases everything acquired so
   -- far exactly once, then the original failure propagates to the caller.
@@ -772,6 +795,31 @@ function FieldRuntime:reset()
   self:_load()
 end
 
+-- Apply effective weather to a runtime map: resolve the catalog rules
+-- against the injected date/penalty and event state, store
+-- effectiveWeatherId for headless inspection, and select the fog preset
+-- (base scene fog when unchanged, catalog preset otherwise).
+function FieldRuntime:_applyEffectiveWeather(runtimeMap)
+  local base = runtimeMap.scene.weatherId
+  local date = self.weatherClock:today()
+  local hasPenalty = self.weatherClock:hasPenalty()
+  local effective = FieldWeatherResolver.resolve(self.weatherCatalog, {
+    mapId = runtimeMap.mapId,
+    baseWeatherId = base,
+    eventState = self.eventState,
+    date = date,
+    hasPenalty = hasPenalty,
+  })
+  runtimeMap.effectiveWeatherId = effective
+  if runtimeMap.sceneRuntime then
+    if effective == base then
+      runtimeMap.sceneRuntime.fog = runtimeMap.scene.fog
+    else
+      runtimeMap.sceneRuntime.fog = assert(self.weatherCatalog.presets[effective])
+    end
+  end
+end
+
 -- Fallible warp preparation, run by FieldTransition while the source map is
 -- still the authoritative current map: construct the destination player and
 -- camera and player visual, then enter the
@@ -784,6 +832,7 @@ end
 function FieldRuntime:_prepareSwap(resolution, facing)
   assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
   local runtimeMap = resolution.destinationMap
+  self:_applyEffectiveWeather(runtimeMap)
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
     fieldX = resolution.fieldX,
@@ -914,7 +963,7 @@ function FieldRuntime:_releaseAll()
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
-  self.windowStyles, self.uiManifest = nil, nil
+  self.windowStyles, self.uiManifest, self.weatherCatalog, self.weatherClock = nil, nil, nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then

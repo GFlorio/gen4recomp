@@ -573,13 +573,33 @@ one, the compiler raises a structured error instead of rendering incorrectly.
   compositor preserves this current-project ordering and does not claim
   hardware-exact automatic sort.
 * Runtime weather-ID overrides: HGSS rewrites the map's base `weatherId`
-  before resolving fog in four cases (Mt. Silver Cave Summit forces Diamond
-  Dust on specific RTC calendar dates; a Lake of Rage save flag forces
-  weather 0; Defog forces weather 9 to 0; an active Flash-move forces weather
-  11 to 12). `HgssFieldFog` implements only the steady-state
-  `weatherId -> FogPreset` table itself; none of the four overrides are wired,
-  since they need RTC/save-flag plumbing that does not exist yet in this
-  engine.
+  before resolving fog in four ordered cases, implemented here via the
+  generated `g4-field-weather-v1` catalog (`data/generated/field/weather/catalog.lua`,
+  `FieldWeatherCache` / `DerivedAssetContract.fieldWeather`):
+
+  1. Mt. Silver Cave Summit (map 465) on one of eight Diamond Dust dates
+     (Jan 1, Jan 31, Feb 1, Feb 29, Mar 15, Oct 10, Dec 3, Dec 31) with
+     `hasPenalty == false` becomes weather 8;
+  2. Lake of Rage (map 88) when event variable `0x4037 == 0xF229` becomes
+     weather 0;
+  3. when the current weather is 9 and `FLAG_SYS_DEFOG` (2420) is set,
+     becomes weather 0;
+  4. when the current weather is 11 and `FLAG_SYS_FLASH` (2419) is set,
+     becomes weather 12.
+
+  The resolver (`FieldWeatherResolver`) folds the catalog's `rules` array in
+  serialized order, applying each rule to the current weather (later rules
+  consume earlier rewrites, not the base independently). The effective
+  weather is computed once per map activation (fresh boot, resume, prepared
+  and committed warp destination) via an injected `weatherClock: { today(),
+  hasPenalty() }` sampled per activation, not per frame/draw/tick; the
+  production default reads the host local calendar and reports no RTC penalty
+  (broader anti-clock penalty detection is deferred). The selected fog is
+  `scene.fog` when the effective ID equals the base, otherwise the catalog
+  preset for the effective ID; `scene` remains `g4-map-scene-v7`. Weather
+  particles and screen effects (rain, snow, diamond-dust particles,
+  blizzard, sandstorm) are not implemented — only effective-weather
+  selection and fog state.
 * Fog's depth *input*: the final pass's density interpolation itself is exact
   melonDS sequencing (offset subtraction, the preset's own slope applied as
   the density shift exponent, `>>17` interval/fraction math, endpoint
@@ -620,7 +640,7 @@ Derived map caches carry the persisted format/schema identities:
 
 ```lua
 MapAssetCache.FORMAT              = "map-cache-v7"
-scene.schema                      = "g4-map-scene-v6"
+scene.schema                      = "g4-map-scene-v7"
 terrain.schema                    = "g4-terrain-surfaces-v1"
 collision version                 = 1
 VertexFormat.VERSION              = 2

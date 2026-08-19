@@ -54,6 +54,10 @@ function T.contract_pins_the_current_asset_identities()
       indexSchema = "g4-script-index-v1",
       provenanceSchema = "g4-script-provenance-v1",
     },
+    fieldWeather = {
+      cacheFormat = "field-weather-cache-v1",
+      schema = "g4-field-weather-v1",
+    },
     fieldUi = {
       cacheFormat = "field-ui-cache-v1",
       schema = "g4-field-ui-v5",
@@ -84,6 +88,9 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(ScriptCache.PROVENANCE_SCHEMA, DerivedAssetContract.scripts.provenanceSchema)
   Assert.equal(FieldUiAssetCache.FORMAT, DerivedAssetContract.fieldUi.cacheFormat)
   Assert.equal(FieldUiAssetCache.SCHEMA, DerivedAssetContract.fieldUi.schema)
+  local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+  Assert.equal(FieldWeatherCache.FORMAT, DerivedAssetContract.fieldWeather.cacheFormat)
+  Assert.equal(FieldWeatherCache.SCHEMA, DerivedAssetContract.fieldWeather.schema)
 end
 
 return { tests = T }
