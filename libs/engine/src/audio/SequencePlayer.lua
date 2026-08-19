@@ -1,6 +1,6 @@
 -- The g4 sequence-IR interpreter. It owns NNS-style players, active
--- sequences, tracks, program counters, track wait counters, call stacks,
--- loops, tempo, player variables, and track parameters, and drives a
+-- sequences, tracks, program counters, track wait counters, calls, loops,
+-- tempo, player variables, and track parameters, and drives a
 -- VoiceMixer with the semantic voice spec ({channel, generation} handles,
 -- trackVolume/playerVolume never folded, raw track pan offset, the clamped
 -- transposed midiKey, the TrackInit userPitch 0, and the TrackPlayNote
@@ -31,7 +31,7 @@
 -- (target 0, depth 0, range 1, speed 16, delay 0), sweepPitch 0,
 -- portamentoKey 60, portamentoTime 0, the portamento flag, nullable
 -- envelope stage overrides (0xD0-0xD3, applied to a note only when set),
--- and the call/loop stacks. Fresh tracks gate notes by their duration;
+-- and the call/loop control stack. Fresh tracks gate notes by their duration;
 -- 0xC7 note_wait clears the flag so composers pair notes with explicit
 -- 0x80 waits, and each ringing voice's own length bounds its ring
 -- independently of gates (the NNS channel length): only positive finite
@@ -54,12 +54,14 @@
 -- the count is positive, exits when it reaches zero, jumps forever while
 -- the count is zero (the SDK's loopCount 0 -- the real SEQ_GS_P_SAFARI_ROAD),
 -- and is a no-op with no active frame. A return with no active call is
--- likewise a no-op. Random amount operands resolve through the player's
--- injected or default RNG (created once at construction, never reseeded per
--- play) in the SDK u16 draw domain (SND_CalcRandom: state = state*1664525 +
--- 1013904223 mod 2^32, draw = state >> 16, initial state 0x12345678;
--- TrackParseValue scales min + ((draw * (max - min + 1)) >> 16)); variables
--- live in the SDK 16-local/16-global domain with s16
+-- likewise a no-op. Calls and loops share ONE ordered control stack of at
+-- most three frames (SND_seq.c posCallStack/callStackDepth): a push is a
+-- source no-op once the depth is full. Random amount operands resolve through
+-- the player's injected or default RNG (created once at construction, never
+-- reseeded per play) in the SDK u16 draw domain (SND_CalcRandom: state =
+-- state*1664525 + 1013904223 mod 2^32, draw = state >> 16, initial state
+-- 0x12345678; TrackParseValue scales lo + ((draw * (hi - lo + 1)) >> 16));
+-- variables live in the SDK 16-local/16-global domain with s16
 -- arithmetic (addvar/subvar/mulvar/divvar/shiftvar/randomvar, div-by-zero
 -- skips, negative shifts shift right). The mod commands set the LFO
 -- snapshot every noteOn spec carries and queue it to live voices; the
@@ -139,6 +141,10 @@ local SND_TIMER_RATE = 240
 -- global variables (SND_work_shared localVars[16] per player plus
 -- globalVars[16]).
 local LOCAL_VAR_COUNT = 16
+-- The one source control-flow stack shared by calls and loops
+-- (SND_seq.c SND_TRACK_MAX_CALL): at most three frames per track, consumed
+-- by both CALL and LOOP_BEGIN; a push beyond the depth is a source no-op.
+local CONTROL_STACK_MAX = 3
 -- The host safety budget: an upper bound on instructions executed without a
 -- wait gate. A program that exceeds it is an authored runaway (e.g. a jump
 -- to itself) and fails loudly instead of hanging the render loop.
@@ -154,10 +160,30 @@ local function clamp(value, low, high)
   return value
 end
 
+-- The four source storage widths (SND_seq.c fixed-width stores): a resolved
+-- dynamic operand is narrowed only after resolution, at the exact width of
+-- the command's C storage type. u8/s16 wrap by modulo; s8/u16 are the
+-- two's-complement interpretations of their wider forms.
+local function toU8(value)
+  return value % 256
+end
+
+local function toS8(value)
+  local value = toU8(value)
+  if value >= 128 then
+    value = value - 256
+  end
+  return value
+end
+
+local function toU16(value)
+  return value % 65536
+end
+
 -- The s16 domain of the SDK variables: values wrap to the signed 16-bit
 -- range on every store.
 local function toS16(value)
-  value = value % 65536
+  local value = toU16(value)
   if value >= 32768 then
     value = value - 65536
   end
@@ -177,12 +203,15 @@ local function newRng()
   end
 end
 
--- Reads an SDK variable: 0..15 player-local, 16..31 global.
+-- Reads an SDK variable: 0..15 player-local, 16..31 global. Every valid
+-- variable is explicitly initialized (-1) for the lifetime of its owning
+-- domain (locals per play, globals per player construction), so a read never
+-- infers a value from a missing entry.
 local function varRead(self, instance, var)
   if var < LOCAL_VAR_COUNT then
-    return instance.localVars[var] or 0
+    return instance.localVars[var]
   end
-  return self._globalVars[var - LOCAL_VAR_COUNT] or 0
+  return self._globalVars[var - LOCAL_VAR_COUNT]
 end
 
 -- Stores an SDK variable in its domain, wrapped to the s16 range.
@@ -200,11 +229,15 @@ end
 -- SDK u16 draw domain and scales with the TrackParseValue integer
 -- arithmetic (lo + arshift(draw * (hi - lo + 1), 16)), a variable record
 -- reads the SDK variable it names. The sequence validator admits only these
--- shapes, so anything else is a programmer fault.
+-- shapes (the retired min/max random pair is rejected at validation), so
+-- anything else is a programmer fault.
 local function toS32(value)
   return bit.tobit(value)
 end
 
+-- The exact signed 32-bit TrackParseValue arithmetic: the endpoints are the
+-- raw source pair, never sorted or renamed, so a descending lo > hi pair
+-- resolves through the same formula.
 local function randomOperand(draw, operand)
   local lo = operand.lo
   local hi = operand.hi
@@ -224,6 +257,17 @@ local function resolveAmount(self, amount, instance)
     return varRead(self, instance, assert(amount.var, "variable amount requires a var id"))
   end
   assert(false, "unsupported amount operand in sequence")
+end
+
+-- A fresh SDK variable domain: all LOCAL_VAR_COUNT entries explicitly
+-- initialized to -1 (the source PlayerInit value). Every valid variable is
+-- therefore always explicit; reads never infer a value from a missing entry.
+local function newVariableDomain()
+  local vars = {}
+  for index = 0, LOCAL_VAR_COUNT - 1 do
+    vars[index] = -1
+  end
+  return vars
 end
 
 local function newTrack(entry)
@@ -277,8 +321,11 @@ local function newTrack(entry)
     decay = nil,
     sustain = nil,
     release = nil,
-    callStack = {},
-    loopStack = {},
+    -- The one source control-flow stack shared by calls and loops
+    -- (SND_seq.c posCallStack/callStackDepth): ordered, at most
+    -- CONTROL_STACK_MAX frames, each holding a kind discriminator, the
+    -- return index, and a loop count when applicable.
+    controlStack = {},
   }
 end
 
@@ -493,7 +540,12 @@ local function execute(self, instance, track, instruction)
     -- from the just-played pitch.
     track.portamentoKey = midiKey
     if track.noteWait then
-      track.gated = true
+      -- The raw resolved length gates the track exactly like the source
+      -- wait: a positive length is the integer wait that decrements per
+      -- tick, zero is the note-finish hold (not a one-tick gate), and a
+      -- negative length never decrements toward zero, so the track stalls
+      -- while the physical voice is indefinite.
+      track.gated = length ~= 0
       track.wait = length
       if length == 0 then
         track.noteFinishWait = true
@@ -503,13 +555,13 @@ local function execute(self, instance, track, instruction)
   end
   if op == "wait" then
     -- 0x80: gate the track without releasing a ringing note (the note's own
-    -- voice length bounds its ring). A zero wait does not gate at all: the
-    -- next instruction runs in the same pass.
+    -- voice length bounds its ring). The raw resolved duration is the wait:
+    -- a positive value gates for that many ticks, zero does not gate at all
+    -- (the next instruction runs in the same pass), and a negative value
+    -- gates the track into a stall that never decrements toward zero.
     local duration = resolveAmount(self, instruction.duration, instance)
-    if duration > 0 then
-      track.gated = true
-      track.wait = duration
-    end
+    track.gated = duration ~= 0
+    track.wait = duration
     return track.pc + 1
   end
   if op == "end" then
@@ -517,20 +569,33 @@ local function execute(self, instance, track, instruction)
     return nil
   end
   if op == "program" then
-    -- The program operand is normalized (plain number, random, or variable):
-    -- variable-program references select the program the variable names.
-    track.program = resolveAmount(self, instruction.program, instance)
+    -- PROGRAM applies the source guard to the fully resolved integer BEFORE
+    -- u16 storage (SND_seq.c 0x81: if (par < 0x10000) program = (u16)par):
+    -- a negative dynamic value passes the guard and wraps (so -1 selects
+    -- program 65535), while 65536 and larger leave the previous program
+    -- unchanged.
+    local par = resolveAmount(self, instruction.program, instance)
+    if par < 65536 then
+      track.program = toU16(par)
+    end
   elseif op == "jump" then
     return instruction.target
   elseif op == "call" then
-    track.callStack[#track.callStack + 1] = track.pc + 1
-    return instruction.target
+    -- CALL shares the one control stack with LOOP_BEGIN: a push beyond the
+    -- depth-three capacity consumes the operand without pushing or jumping
+    -- (a source no-op, never a host error).
+    if #track.controlStack < CONTROL_STACK_MAX then
+      track.controlStack[#track.controlStack + 1] = { kind = "call", returnIndex = track.pc + 1 }
+      return instruction.target
+    end
   elseif op == "return" then
-    -- The SDK's 0xFD with an empty call stack (depth 0) is a no-op: real
-    -- tracks end with a top-level return, and mid-program top-level
-    -- returns fall through to the next instruction.
-    if #track.callStack > 0 then
-      return table.remove(track.callStack)
+    -- The SDK's 0xFD with an empty control stack (depth 0) is a no-op:
+    -- real tracks end with a top-level return, and mid-program top-level
+    -- returns fall through to the next instruction. With a nonzero depth the
+    -- top shared frame -- a call or loop frame -- pops and the player jumps
+    -- to its return position exactly like the source posCallStack.
+    if #track.controlStack > 0 then
+      return table.remove(track.controlStack).returnIndex
     end
   elseif op == "open_track" then
     -- Replacing a running track releases its voices; the new track starts
@@ -541,17 +606,20 @@ local function execute(self, instance, track, instruction)
     end
     instance.tracks[instruction.track] = newTrack(instruction.target)
   elseif op == "tempo" then
-    instance.tempo = resolveAmount(self, instruction.amount, instance)
+    -- 0xE1: the resolved value narrows to s16 (the source union cast) and
+    -- stores into the u16 destination domain, so a resolved -1 becomes the
+    -- interval increment 65535.
+    instance.tempo = toU16(toS16(resolveAmount(self, instruction.amount, instance)))
   elseif op == "pan" then
-    -- 0xC0 stores par-0x40: the raw track pan offset.
-    track.pan = resolveAmount(self, instruction.amount, instance) - 64
+    -- 0xC0: the u8 value stores as par-0x40 -- the raw track pan offset.
+    track.pan = toU8(resolveAmount(self, instruction.amount, instance)) - 64
     pushTrackValues(self, instance, track)
   elseif op == "volume" then
-    track.volume = resolveAmount(self, instruction.amount, instance)
+    track.volume = toU8(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "master_volume" then
     -- 0xC2 is the PLAYER volume: it changes every voice of the player.
-    instance.volume = resolveAmount(self, instruction.amount, instance)
+    instance.volume = toU8(resolveAmount(self, instruction.amount, instance))
     for trackId = 0, TRACK_COUNT - 1 do
       local track = instance.tracks[trackId]
       if track ~= nil then
@@ -559,35 +627,36 @@ local function execute(self, instance, track, instruction)
       end
     end
   elseif op == "expression" then
-    track.expression = resolveAmount(self, instruction.amount, instance)
+    track.expression = toU8(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "transpose" then
-    track.transpose = resolveAmount(self, instruction.amount, instance)
+    -- The transpose class is the signed byte: 0xFF lowers to -1.
+    track.transpose = toS8(resolveAmount(self, instruction.amount, instance))
   elseif op == "pitch_bend" then
     -- The signed bend maps to the voice's user pitch (never a key change);
     -- a change reaches the active voices as a queued userPitch partial.
-    track.bend = resolveAmount(self, instruction.amount, instance)
+    track.bend = toS8(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "pitch_bend_range" then
-    track.bendRange = resolveAmount(self, instruction.amount, instance)
+    track.bendRange = toU8(resolveAmount(self, instruction.amount, instance))
   elseif op == "note_wait" then
     -- 0xC7 sets/clears the note-gating flag (u8, nonzero = set).
-    track.noteWait = resolveAmount(self, instruction.amount, instance) ~= 0
+    track.noteWait = toU8(resolveAmount(self, instruction.amount, instance)) ~= 0
   elseif op == "priority" then
-    track.priority = resolveAmount(self, instruction.amount, instance)
+    track.priority = toU8(resolveAmount(self, instruction.amount, instance))
   elseif op == "tie" then
     -- 0xC8: the tie command always releases and frees the track's current
     -- voices, even when the new flag equals the previous flag (SND_seq.c:
     -- TrackReleaseChannels + TrackFreeChannels after setting the flag); a
     -- tied note over an active voice reuses it.
-    track.tie = resolveAmount(self, instruction.amount, instance) ~= 0
+    track.tie = toU8(resolveAmount(self, instruction.amount, instance)) ~= 0
     releaseTrackVoices(self, track)
   elseif op == "mute" then
     -- SDK TrackMute: 0 unmutes, 1 mutes future notes (they still gate the
     -- track), 2 additionally releases the track's voices, 3 releases and
     -- drops them (the SDK's fast release + free; our mixer's soft release
     -- keeps the ring-out). Other mode values are no-ops.
-    local mode = resolveAmount(self, instruction.amount, instance)
+    local mode = toU8(resolveAmount(self, instruction.amount, instance))
     if mode == 0 then
       track.mute = 0
     elseif mode == 1 then
@@ -602,47 +671,50 @@ local function execute(self, instance, track, instruction)
       releaseTrackVoices(self, track)
     end
   elseif op == "attack" then
-    track.attack = resolveAmount(self, instruction.amount, instance)
+    track.attack = toU8(resolveAmount(self, instruction.amount, instance))
   elseif op == "decay" then
-    track.decay = resolveAmount(self, instruction.amount, instance)
+    track.decay = toU8(resolveAmount(self, instruction.amount, instance))
   elseif op == "sustain" then
-    track.sustain = resolveAmount(self, instruction.amount, instance)
+    track.sustain = toU8(resolveAmount(self, instruction.amount, instance))
   elseif op == "release" then
-    track.release = resolveAmount(self, instruction.amount, instance)
+    track.release = toU8(resolveAmount(self, instruction.amount, instance))
   elseif op == "setvar" then
-    varWrite(self, instance, instruction.var, resolveAmount(self, instruction.amount, instance))
+    -- B-class variable operations: the resolved amount narrows to s16 before
+    -- the variable arithmetic uses it (the SDK union cast of the parsed
+    -- value), and every store wraps to the s16 variable domain.
+    varWrite(self, instance, instruction.var, toS16(resolveAmount(self, instruction.amount, instance)))
   elseif op == "addvar" then
     varWrite(
       self,
       instance,
       instruction.var,
-      varRead(self, instance, instruction.var) + resolveAmount(self, instruction.amount, instance)
+      varRead(self, instance, instruction.var) + toS16(resolveAmount(self, instruction.amount, instance))
     )
   elseif op == "subvar" then
     varWrite(
       self,
       instance,
       instruction.var,
-      varRead(self, instance, instruction.var) - resolveAmount(self, instruction.amount, instance)
+      varRead(self, instance, instruction.var) - toS16(resolveAmount(self, instruction.amount, instance))
     )
   elseif op == "mulvar" then
     varWrite(
       self,
       instance,
       instruction.var,
-      varRead(self, instance, instruction.var) * resolveAmount(self, instruction.amount, instance)
+      varRead(self, instance, instruction.var) * toS16(resolveAmount(self, instruction.amount, instance))
     )
   elseif op == "divvar" then
     -- The SDK skips the division by zero; the quotient truncates toward
     -- zero (C integer division, negative divisors included).
-    local divisor = resolveAmount(self, instruction.amount, instance)
+    local divisor = toS16(resolveAmount(self, instruction.amount, instance))
     if divisor ~= 0 then
       varWrite(self, instance, instruction.var, NnsSoundMath.cDiv(varRead(self, instance, instruction.var), divisor))
     end
   elseif op == "shiftvar" then
     -- A nonnegative shift moves left (wrapped to s16); a negative shift
     -- moves right (arithmetic).
-    local shift = resolveAmount(self, instruction.amount, instance)
+    local shift = toS16(resolveAmount(self, instruction.amount, instance))
     local value = varRead(self, instance, instruction.var)
     if shift >= 0 then
       varWrite(self, instance, instruction.var, bit.lshift(value, shift))
@@ -663,59 +735,79 @@ local function execute(self, instance, track, instruction)
     -- 0xF0-0xFB, 0xFE): the SDK consumes them without effect.
   elseif op == "mod_depth" then
     -- 0xCA-0xCD/0xE0: the mod fields are u8/u16 binary values stored as
-    -- their C types, so out-of-domain amounts wrap. A change reaches the
-    -- active voices as a queued partial carrying the live LFO parameters.
-    track.mod.depth = resolveAmount(self, instruction.amount, instance) % 256
+    -- their C types, so resolved out-of-domain amounts wrap. A change
+    -- reaches the active voices as a queued partial carrying the live LFO
+    -- parameters.
+    track.mod.depth = toU8(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "mod_speed" then
-    track.mod.speed = resolveAmount(self, instruction.amount, instance) % 256
+    track.mod.speed = toU8(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "mod_type" then
-    track.mod.target = resolveAmount(self, instruction.amount, instance) % 256
+    track.mod.target = toU8(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "mod_range" then
-    track.mod.range = resolveAmount(self, instruction.amount, instance) % 256
+    track.mod.range = toU8(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "mod_delay" then
-    track.mod.delay = resolveAmount(self, instruction.amount, instance) % 65536
+    -- 0xE0: the u16 delay stores through the source u16 destination domain,
+    -- so a resolved -1 becomes 65535.
+    track.mod.delay = toU16(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "sweep" then
     -- 0xE3: the s16 track sweep pitch.
     track.sweepPitch = toS16(resolveAmount(self, instruction.amount, instance))
   elseif op == "portamento_key" then
-    -- 0xC9: stores the u8 key plus transpose and sets the portamento flag.
-    track.portamentoKey = (resolveAmount(self, instruction.amount, instance) + track.transpose) % 256
+    -- 0xC9: the u8 key plus the track transpose, stored in the u8 domain;
+    -- the sum wraps on the store.
+    track.portamentoKey = toU8(toU8(resolveAmount(self, instruction.amount, instance)) + track.transpose)
     track.portamento = true
   elseif op == "portamento" then
     -- 0xCE: the flag is the operand's truthiness.
     track.portamento = resolveAmount(self, instruction.amount, instance) ~= 0
   elseif op == "portamento_time" then
     -- 0xCF: the u8 sweep time.
-    track.portamentoTime = resolveAmount(self, instruction.amount, instance) % 256
+    track.portamentoTime = toU8(resolveAmount(self, instruction.amount, instance))
   elseif op == "loop_begin" then
-    -- The frame carries the count and the return index (the instruction
-    -- after the begin), mirroring the SDK's loopCount/posCallStack pair.
-    track.loopStack[#track.loopStack + 1] = {
-      remaining = resolveAmount(self, instruction.count, instance),
-      returnIndex = track.pc + 1,
-    }
+    -- LOOP_BEGIN shares the one control stack with CALL: the frame carries
+    -- its kind, the count, and the return index (the instruction after the
+    -- begin, the SDK's posCallStack). A push beyond the depth-three
+    -- capacity consumes the count without pushing (a source no-op, never a
+    -- host error).
+    if #track.controlStack < CONTROL_STACK_MAX then
+      track.controlStack[#track.controlStack + 1] = {
+        kind = "loop",
+        remaining = resolveAmount(self, instruction.count, instance),
+        returnIndex = track.pc + 1,
+      }
+    end
   elseif op == "loop_end" then
-    local frame = track.loopStack[#track.loopStack]
+    local frame = track.controlStack[#track.controlStack]
     if frame == nil then
-      -- The SDK's 0xFC at call depth 0 is a no-op; the real corpus has
-      -- tracks whose loop code is never entered (dead bytes), so an
-      -- unmatched loop_end must never fault.
-    elseif frame.remaining > 0 then
-      frame.remaining = frame.remaining - 1
-      if frame.remaining == 0 then
-        table.remove(track.loopStack)
+      -- The SDK's 0xFC at depth 0 is a no-op; the real corpus has tracks
+      -- whose loop code is never entered (dead bytes), so an unmatched
+      -- loop_end must never fault.
+    else
+      -- A call frame on top of the shared stack at loop_end is an
+      -- impossible source nesting: the generated bytecode is the only
+      -- producer and its nesting is valid, so this is a programming/asset
+      -- invariant failure, never silently repaired.
+      assert(frame.kind == "loop", "loop_end over a call frame on the shared control stack")
+      if frame.remaining > 0 then
+        frame.remaining = frame.remaining - 1
+        if frame.remaining == 0 then
+          -- The count reached zero: pop the frame and fall through.
+          table.remove(track.controlStack)
+        else
+          -- The body runs again: jump back to the instruction after the
+          -- begin.
+          return frame.returnIndex
+        end
       else
+        -- Count 0 loops forever (the SDK's loopCount-0 branch; the real
+        -- SEQ_GS_P_SAFARI_ROAD rings until the game stops it).
         return frame.returnIndex
       end
-    else
-      -- Count 0 loops forever (the SDK's loopCount-0 branch; the real
-      -- SEQ_GS_P_SAFARI_ROAD rings until the game stops it).
-      return frame.returnIndex
     end
   else
     -- The sequence validator admits only the ops above, so an unknown op is
@@ -774,9 +866,11 @@ function SequencePlayer.new(opts)
     -- The player-scoped RNG (injected or the deterministic default): plays
     -- share it and never reseed, so random operands stay reproducible.
     _rng = opts.rng or newRng(),
-    -- The SDK shared global variables (vars 16..31); the player-local
-    -- variables live on each instance.
-    _globalVars = {},
+    -- The SDK shared global variables (vars 16..31), initialized to -1 once
+    -- for the lifetime of the player object (SND_seq.c SND_work_shared
+    -- globalVars): writes by any sequence persist across plays. The
+    -- player-local variables live on each instance and reset per play.
+    _globalVars = newVariableDomain(),
     -- The global 192 Hz sound phase accumulator (SND_main.c SndThread):
     -- each rendered output frame advances the phase by SOUND_INTERVAL_HZ
     -- units; when the phase reaches the sample rate a sound interval fires
@@ -837,7 +931,10 @@ function SequencePlayer:play(sequence, bank)
     -- timeline freezes and no control values are pushed; the pause release
     -- already freed the channels.
     paused = false,
-    localVars = {},
+    -- The 16 player-local SDK variables (vars 0..15), initialized to -1 on
+    -- every play/replacement (SND_seq.c PlayerInit localVars): writes do not
+    -- survive a sequence replacement, unlike the shared globals.
+    localVars = newVariableDomain(),
     tracks = { [0] = newTrack(sequence.program.entry) },
   }
   self._players[playerId] = instance
@@ -949,16 +1046,23 @@ local function stepSequenceTick(self, instance)
       if track.noteFinishWait and #track.voices == 0 then
         track.noteFinishWait = false
       end
-      -- The gate: decrement the integer wait while the track is waiting; a
-      -- gate that reaches zero opens and the track's command loop resumes in
-      -- the same tick.
+      -- The gate: the integer wait decrements only while positive (the SDK
+      -- TrackStepTicks `if (track->wait > 0) track->wait--`), so a negative
+      -- wait never moves toward zero and the track stays stalled. A gate
+      -- that reaches exactly zero opens and the track's command loop resumes
+      -- in the same tick.
       if track.gated then
-        track.wait = track.wait - 1
-        if track.wait <= 0 then
-          track.gated = false
+        if track.wait > 0 then
+          track.wait = track.wait - 1
+          if track.wait == 0 then
+            track.gated = false
+          end
         end
       end
-      if not track.ended and track.wait <= 0 and not track.noteFinishWait then
+      -- Commands execute only at the exact zero wait (never `<= 0`): a
+      -- negative wait never fetches, and a gated track whose wait is still
+      -- positive waits for its remaining ticks.
+      if not track.ended and not track.gated and track.wait == 0 and not track.noteFinishWait then
         fetch(self, instance, track)
       end
     end

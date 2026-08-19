@@ -109,13 +109,13 @@ function T.random_and_variable_prefixes_normalize_operands()
     {
       op = "prefix",
       kind = "random",
-      command = { op = "note", key = 50, velocity = 80, duration = { kind = "random", min = -12, max = 12 } },
+      command = { op = "note", key = 50, velocity = 80, duration = { kind = "random", lo = -12, hi = 12 } },
     },
     { op = "prefix", kind = "variable", command = { op = "program", program = { kind = "variable", var = 3 } } },
     {
       op = "prefix",
       kind = "random",
-      command = { op = "u8", command = 0xC0, amount = { kind = "random", min = 0, max = 127 } },
+      command = { op = "u8", command = 0xC0, amount = { kind = "random", lo = 0, hi = 127 } },
     },
     { op = "fin" },
   })
@@ -156,7 +156,7 @@ function T.setvar_family_carries_var_and_amount()
     {
       op = "prefix",
       kind = "random",
-      command = { op = "addvar", var = 1, amount = { kind = "random", min = -5, max = 5 } },
+      command = { op = "addvar", var = 1, amount = { kind = "random", lo = -5, hi = 5 } },
     },
     { op = "cmp_ne", var = 2, amount = 3 },
     { op = "fin" },

@@ -51,8 +51,8 @@
 -- resurrects old voices. Random amount operands resolve through the
 -- player's RNG in the SDK u16 draw domain (SND_CalcRandom: state =
 -- state*1664525 + 1013904223 mod 2^32, draw = state >> 16, initial state
--- 0x12345678; TrackParseValue scales min + ((draw * (max - min + 1)) >>
--- 16)); production creates the RNG once and never reseeds per play, and
+-- 0x12345678; TrackParseValue scales lo + ((draw * (hi - lo + 1)) >> 16));
+-- production creates the RNG once and never reseeds per play, and
 -- every completed sound interval additionally consumes one unconditional
 -- periodic draw after the sequence portion and the mixer control step.
 --
@@ -71,6 +71,8 @@ local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
 local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
+local AudioSequence = require("libs.assets.src.AudioSequence")
+local AssetAudioErrors = require("libs.assets.src.AudioErrors")
 
 local T = {}
 
@@ -519,10 +521,10 @@ end
 -- Random operands resolve through the default SDK RNG (SND_CalcRandom:
 -- state = state*1664525 + 1013904223 mod 2^32, initial state 0x12345678,
 -- draw = the high 16 bits of state) with the TrackParseValue integer
--- scaling min + ((draw * (max - min + 1)) >> 16). The player creates the
+-- scaling lo + ((draw * (hi - lo + 1)) >> 16). The player creates the
 -- RNG once at construction and never reseeds per play, so consecutive
 -- plays draw consecutive SDK values. Known vectors (computed from the SDK
--- formula): draws 0x7543, 0xCD30, 0x25DB for the pan range 0..127 map to
+-- formula): draws 0x7543, 0xCD30, 0x25DB for the range 0..127 map to
 -- pan 58, 102, 18 (offsets -6, 38, -46).
 function T.random_operands_draw_from_the_default_sdk_rng_without_reseeding()
   local mixer = stubMixer()
@@ -1601,7 +1603,8 @@ end
 -- and 0xC7 `note_wait` clears the note-gating flag (fresh tracks start with
 -- it set, per the NNS TrackInit), so composers pair every note with explicit
 -- waits. The note's own length bounds its ring independently of gates (the
--- NNS channel length).
+-- NNS channel length). A positive wait decrements per tick; a zero wait does
+-- not gate; a negative wait is a stall (never decremented), covered below.
 function T.wait_gates_the_track_while_the_note_rings_its_own_length()
   local mixer = stubMixer()
   local player, provider = engine({
@@ -1861,14 +1864,17 @@ function T.variable_arithmetic_wraps_and_truncates_like_the_sdk()
       [0] = seq({
         { op = "setvar", var = 0, amount = case.init },
         { op = case.op, var = 0, amount = case.amount },
-        { op = "pan", amount = { kind = "variable", var = 0 } },
+        -- The sweep command carries the stored s16 variable value straight
+        -- to the note spec, so the wrap/truncation result is observable
+        -- without any further width conversion.
+        { op = "sweep", amount = { kind = "variable", var = 0 } },
         { op = "note", key = 60, velocity = 127, duration = 1 },
         { op = "end" },
       }),
     }, { mixer = mixer, rng = case.rng })
     play(player, provider)
     player:render(100)
-    Assert.equal(mixer.log.noteOns[1].trackPanOffset, case.expected - 64, case.op .. ": " .. case.label)
+    Assert.equal(mixer.log.noteOns[1].sweepPitch, case.expected, case.op .. ": " .. case.label)
   end
 end
 
@@ -1997,6 +2003,560 @@ function T.the_player_fader_reaches_the_update_voice_push_in_the_db_domain()
   end
   Assert.notNil(push, "the player queues a fader update to its active voice")
   Assert.equal(push.partial.fader, NnsSoundMath.decibelSquare(42), "the level reaches the mixer in the dB domain")
+end
+
+-- The SDK variable domains (SND_seq.c PlayerInit): a fresh player instance
+-- initializes its 16 player-local variables to -1 at play() and the shared
+-- 16 global variables to -1 once at construction; locals reset on every
+-- play/replacement while globals persist across plays for the player's
+-- lifetime. The pan amount operand observes the initialized value through
+-- the note spec's raw track pan offset (value - 64).
+function T.local_variables_reset_to_minus_one_per_play_while_globals_persist()
+  local readProgram = function(var, marker)
+    return {
+      { op = "pan", amount = { kind = "variable", var = var } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = marker },
+    }
+  end
+  -- The write play observes the variable through a pan note BEFORE its own
+  -- write, so the same instance lifetime is visible.
+  local writeProgram = function(var, value)
+    return {
+      { op = "pan", amount = { kind = "variable", var = var } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "setvar", var = var, amount = value },
+      { op = "wait", duration = 1 },
+      { op = "end" },
+    }
+  end
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq(readProgram(0, { op = "end" }), { symbol = "SEQ_LOCAL_READ" }),
+    [1] = seq(writeProgram(0, 20000), { id = 1, symbol = "SEQ_LOCAL_WRITE" }),
+    [2] = seq(readProgram(16, { op = "end" }), { id = 2, symbol = "SEQ_GLOBAL_READ" }),
+    [3] = seq(writeProgram(16, -7), { id = 3, symbol = "SEQ_GLOBAL_WRITE" }),
+  }, { mixer = mixer })
+  -- The pan command stores u8 then subtracts 0x40, so the observable offset
+  -- of a variable reading -1 is u8(-1)=255 -> 191, not the raw -65.
+  -- A fresh local reads -1 on the first play.
+  player:play(provider:sequence(0), provider:bank(12))
+  player:render(250)
+  Assert.equal(
+    mixer.log.noteOns[1].trackPanOffset,
+    191,
+    "an unset player-local variable reads the source initialization -1"
+  )
+  -- The write play observes -1 before its own write (same instance
+  -- lifetime), then completes the write (setvar executes at the third tick).
+  player:play(provider:sequence(1), provider:bank(12))
+  player:render(1250)
+  Assert.equal(mixer.log.noteOns[2].trackPanOffset, 191, "the local still reads -1 at the start of the write play")
+  -- A fresh global reads -1 on the first play.
+  player:play(provider:sequence(2), provider:bank(12))
+  player:render(250)
+  Assert.equal(mixer.log.noteOns[3].trackPanOffset, 191, "an unset shared global reads the source initialization -1")
+  -- The write play observes -1 before its own write, then completes the
+  -- global write so the later read sees it.
+  player:play(provider:sequence(3), provider:bank(12))
+  player:render(1250)
+  Assert.equal(mixer.log.noteOns[4].trackPanOffset, 191, "the global still reads -1 at the start of the write play")
+  -- After replacement the local resets to -1; the global keeps its written
+  -- s16 value (-7 -> u8 249 -> offset 185).
+  player:play(provider:sequence(0), provider:bank(12))
+  player:render(250)
+  Assert.equal(
+    mixer.log.noteOns[5].trackPanOffset,
+    191,
+    "a replaced play resets the player-local variables to -1 again"
+  )
+  player:play(provider:sequence(2), provider:bank(12))
+  player:render(250)
+  Assert.equal(
+    mixer.log.noteOns[6].trackPanOffset,
+    185,
+    "a global written by an earlier sequence keeps its s16 value across plays"
+  )
+end
+
+-- Dynamic operands (variable and random) resolve first and only then narrow
+-- to the command's real storage width: transpose/pitch_bend store s8,
+-- B-class amounts store s16 before the variable arithmetic uses them, the
+-- pan command stores u8 minus 0x40, tempo/mod_delay store through the u16
+-- destination domain, and the variable domains wrap every store to s16. The
+-- spec pins these against values that would survive the plain-integer
+-- narrowing the lowering already applies to literals, so only the runtime
+-- post-resolution casts can produce them.
+function T.dynamic_operands_narrow_to_each_command_storage_width_after_resolution()
+  -- transpose: variable 255 lowers to -1 and shifts the note key down one
+  -- semitone (the s8 store), never up by 255.
+  local function transposeKey()
+    local mixer = stubMixer()
+    local player, provider = engine({
+      [0] = seq({
+        { op = "setvar", var = 0, amount = 255 },
+        { op = "transpose", amount = { kind = "variable", var = 0 } },
+        { op = "note", key = 60, velocity = 127, duration = 1 },
+        { op = "end" },
+      }),
+    }, { mixer = mixer })
+    play(player, provider)
+    player:render(100)
+    return mixer.log.noteOns[1].key
+  end
+  Assert.equal(transposeKey(), 59, "transpose stores s8: variable 255 becomes -1, key 60 -> 59")
+
+  -- pitch_bend: variable 128 lowers to -128, the full negative bend
+  -- (userPitch -128 at bend range 2), never +128.
+  local function bendPitch()
+    local mixer = stubMixer()
+    local player, provider = engine({
+      [0] = seq({
+        { op = "setvar", var = 0, amount = 128 },
+        { op = "pitch_bend", amount = { kind = "variable", var = 0 } },
+        { op = "note", key = 60, velocity = 127, duration = 1 },
+        { op = "end" },
+      }),
+    }, { mixer = mixer })
+    play(player, provider)
+    player:render(100)
+    return mixer.log.noteOns[1].userPitch
+  end
+  Assert.equal(bendPitch(), -128, "pitch_bend stores s8: variable 128 becomes -128")
+
+  -- B-class amount: a resolved amount narrows to s16 before the variable
+  -- arithmetic uses it. Division exposes the sign (modular addition would
+  -- not): 15 / 65535-as-s16(-1) = -15 while 15 / 65535 = 0. The stored
+  -- result is observed through transpose (s8): -15 shifts the note key
+  -- from 60 down to 45.
+  local function bClass()
+    local mixer = stubMixer()
+    local player, provider = engine({
+      [0] = seq({
+        { op = "setvar", var = 0, amount = 15 },
+        { op = "divvar", var = 0, amount = 65535 },
+        { op = "transpose", amount = { kind = "variable", var = 0 } },
+        { op = "note", key = 60, velocity = 127, duration = 1 },
+        { op = "end" },
+      }),
+    }, { mixer = mixer })
+    play(player, provider)
+    player:render(100)
+    return mixer.log.noteOns[1].key
+  end
+  Assert.equal(bClass(), 45, "a B-class amount 65535 narrows to s16 -1 before the arithmetic (15 / -1 = -15)")
+
+  -- tempo: variable -1 is stored through the u16 destination domain and
+  -- becomes the source interval increment 65535. The observable is the
+  -- interval cadence: with the default tempo 120 a fresh player ticks every
+  -- two intervals (frames 250, 750); after `tempo -1` the counter gains
+  -- (65535 * 256) >> 8 = 65535 per interval, so every interval after the
+  -- first produces ticks -- the second note fires at frame 500, not 750.
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "setvar", var = 0, amount = -1 },
+      { op = "tempo", amount = { kind = "variable", var = 0 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "note", key = 61, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider, true)
+  player:render(250) -- tick 1 at frame 250: tempo = -1 (u16 65535), note 1 gates
+  Assert.equal(#mixer.log.noteOns, 1, "the first interval runs one tick: the -1 tempo is stored and note 1 starts")
+  -- With the u16-stored tempo 65535 the counter gains 65535 per interval, so
+  -- the player ticks on every interval (frames 500, 750): the wait between
+  -- the notes expires at tick 3 (frame 750) and note 2 starts there. A raw
+  -- -1 tempo (no u16 wrap) drives the counter negative and no tick ever
+  -- fires again, so the sequence would stay stalled on note 1.
+  player:render(750)
+  Assert.equal(
+    #mixer.log.noteOns,
+    2,
+    "tempo -1 stored through the u16 domain keeps the player ticking every interval (note 2 at frame 750)"
+  )
+  Assert.isFalse(player:isPlaying(), "the sequence finishes normally after the -1 tempo")
+end
+
+-- The runtime recognizes only the v5 signed random pair and preserves the
+-- source signed 32-bit arithmetic: endpoints are never sorted and the
+-- result is the pinned TrackParseValue formula. A current-schema asset
+-- using the retired min/max shape must fail strict validation before
+-- playback, not be accepted by a compatibility branch.
+function T.random_operands_use_only_the_signed_v5_pair_and_keep_source_arithmetic()
+  -- lo > hi is preserved as a descending pair: for 127..-128 the signed
+  -- span is 127 - (-128) + 1 = -254, and draw 0xFFFF resolves to
+  -- 127 + arshift(65535 * -254, 16) = 127 + (-254) = -127 -- never a
+  -- sorted -128..127 range (which would give 127 for the same draw).
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "sweep", amount = { kind = "random", lo = 127, hi = -128 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer, rng = u16Draws({ 0xFFFF, 0xFFFF }) })
+  play(player, provider)
+  player:render(10)
+  Assert.equal(
+    mixer.log.noteOns[1].sweepPitch,
+    -127,
+    "lo > hi is a descending signed pair: draw 0xFFFF over 127..-128 resolves to -127"
+  )
+  -- A legacy min/max operand is malformed asset data: strict validation
+  -- rejects it with the structured sequence error before any playback.
+  local legacy = {
+    schema = AudioSequence.SCHEMA,
+    id = 77,
+    symbol = "SEQ_LEGACY_RANDOM",
+    bankId = 12,
+    player = { id = 1, initialVolume = 127, playerPriority = 64 },
+    program = {
+      entry = 1,
+      instructions = {
+        { op = "pan", amount = { kind = "random", min = 0, max = 127 } },
+        { op = "end" },
+      },
+    },
+  }
+  local ok, err = pcall(AudioSequence.validate, legacy)
+  Assert.isFalse(ok, "a legacy min/max random operand fails strict validation")
+  Assert.equal(err.code, AssetAudioErrors.AUDIO_SEQUENCE_INVALID, "the failure is the structured sequence error")
+end
+
+-- PROGRAM applies the source `< 0x10000` guard to the fully resolved
+-- integer BEFORE u16 storage: a negative dynamic value passes the guard and
+-- wraps to 65535, and a value of 65536 or larger leaves the previously
+-- selected program unchanged (no pre-guard u16 cast that would turn 65536
+-- into zero).
+function T.program_guards_below_65536_before_u16_storage()
+  local bank = AudioFixture.bank(12, "BANK_TEST", {
+    AudioFixture.key(1),
+    AudioFixture.key(2),
+    AudioFixture.key(3),
+  }, {
+    [0] = { kind = "direct", voice = voice(AudioFixture.key(1)) },
+    [1] = { kind = "direct", voice = voice(AudioFixture.key(2)) },
+    [65535] = { kind = "direct", voice = voice(AudioFixture.key(3)) },
+  })
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "setvar", var = 0, amount = -1 },
+      { op = "program", program = { kind = "variable", var = 0 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "program", program = 65536 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer, bank = bank })
+  play(player, provider)
+  -- Each note gates the track for one tick; at default tempo 120 the ticks
+  -- land at frames 250, 750, 1250 (the third note's tick), so 2000 frames
+  -- cover all three allocations.
+  player:render(2000)
+  -- The current player stores raw resolved program values (no u16 wrap and
+  -- no guard): program -1 and 65536 are not bank instruments, so only the
+  -- first note allocates. The guard+wrap contract must produce all three.
+  Assert.equal(#mixer.log.noteOns, 3, "all three notes allocate under the guard-before-wrap contract")
+  Assert.equal(
+    generatorOf(mixer.log.noteOns[1]).sample,
+    AudioFixture.key(1),
+    "the prior program 0 plays before the guard case"
+  )
+  -- var 0 is -1: it passes the `< 0x10000` guard and stores u16 65535.
+  Assert.equal(
+    generatorOf(mixer.log.noteOns[2]).sample,
+    AudioFixture.key(3),
+    "program -1 passes the guard and wraps to program 65535"
+  )
+  -- 65536 fails the guard: the prior program (still 65535) keeps playing.
+  Assert.equal(
+    generatorOf(mixer.log.noteOns[3]).sample,
+    AudioFixture.key(3),
+    "program 65536 fails the guard and leaves the previous program unchanged"
+  )
+end
+
+-- A negative WAIT or negative note-wait is a stalled gate, never a zero or
+-- immediate gate: the wait never decrements toward zero and the instruction
+-- after it never executes while the track remains active; the negative
+-- note-duration voice is indefinite; explicit stop/replacement terminates
+-- the stalled state normally and no host busy loop consumes the step budget
+-- within one tick.
+function T.negative_waits_and_negative_note_waits_stall_the_track()
+  -- WAIT from a variable set to -1: the marker note after it never starts.
+  local function negativeWait()
+    local mixer = stubMixer()
+    local player, provider = engine({
+      [0] = seq({
+        { op = "setvar", var = 0, amount = -1 },
+        { op = "wait", duration = { kind = "variable", var = 0 } },
+        { op = "note", key = 60, velocity = 127, duration = 1 },
+        { op = "end" },
+      }),
+    }, { mixer = mixer })
+    play(player, provider)
+    player:render(1000)
+    return player, mixer
+  end
+  local waitPlayer, waitMixer = negativeWait()
+  Assert.equal(#waitMixer.log.noteOns, 0, "the marker note after a negative WAIT never executes")
+  Assert.isTrue(waitPlayer:isPlaying(), "a negative WAIT keeps the track active and stalled")
+  waitPlayer:stop()
+  Assert.isFalse(waitPlayer:isPlaying(), "explicit stop terminates the stalled state")
+
+  -- Negative note-wait: the voice is indefinite and the instruction after
+  -- the note never executes. The negative duration comes from a variable
+  -- set to -1, so the case never collides with a zero-length note-finish
+  -- wait.
+  local function negativeNoteWait()
+    local mixer = stubMixer()
+    local player, provider = engine({
+      [0] = seq({
+        { op = "setvar", var = 0, amount = -1 },
+        { op = "note", key = 60, velocity = 127, duration = { kind = "variable", var = 0 } },
+        { op = "note", key = 61, velocity = 127, duration = 1 },
+        { op = "end" },
+      }),
+    }, { mixer = mixer })
+    play(player, provider)
+    player:render(2000)
+    return player, mixer
+  end
+  local notePlayer, noteMixer = negativeNoteWait()
+  Assert.equal(
+    #noteMixer.log.noteOns,
+    1,
+    "the negative-duration note starts its indefinite voice and the marker note never executes"
+  )
+  Assert.equal(#noteMixer.log.noteOffs, 0, "a negative-duration note is never released by the duration counter")
+  Assert.isTrue(notePlayer:isPlaying(), "the negative note-wait keeps the track active and stalled")
+  notePlayer:stop()
+  Assert.isFalse(notePlayer:isPlaying(), "explicit stop terminates the stalled note-wait")
+
+  -- A negative WAIT must not consume the runaway budget within one tick:
+  -- the same single tick does not refetch instructions. The runaway budget
+  -- guard is the host's contract (AUDIO_PLAYER_UNBOUNDED_EXECUTION), so a
+  -- stalled negative wait must render without ever raising it.
+  local runawayMixer = stubMixer()
+  local runawayPlayer, runawayProvider = engine({
+    [0] = seq({
+      { op = "setvar", var = 0, amount = -1 },
+      { op = "wait", duration = { kind = "variable", var = 0 } },
+      { op = "jump", target = 2 },
+    }),
+  }, { mixer = runawayMixer })
+  play(runawayPlayer, runawayProvider)
+  local ok = pcall(runawayPlayer.render, runawayPlayer, 1000)
+  Assert.isTrue(ok, "a stalled negative wait does not raise the host runaway budget")
+  Assert.isTrue(runawayPlayer:isPlaying(), "a stalled negative wait never refetches the jump")
+end
+
+-- CALL and LOOP_BEGIN share one ordered depth-three control-flow stack
+-- (SND_seq.c posCallStack/callStackDepth): a CALL followed by a nested
+-- LOOP_BEGIN consumes two entries, a second nested LOOP_BEGIN consumes the
+-- third, and any further CALL or LOOP_BEGIN consumes its instruction without
+-- pushing or jumping (a source no-op, not a host error); RETURN/LOOP_END pop
+-- the same stack; zero-depth RETURN/LOOP_END are no-ops. There is never a
+-- separate call and loop depth.
+function T.calls_and_loops_share_one_depth_three_control_stack()
+  local mixer = stubMixer()
+  -- The program nests CALL (depth 1) -> LOOP_BEGIN (depth 2) ->
+  -- LOOP_BEGIN (depth 3). The fourth push -- a CALL at depth 3 -- must be
+  -- consumed without pushing or jumping: the marker after it is the next
+  -- instruction and runs. With separate call/loop stacks the CALL would
+  -- push anyway and jump into the body at 17, running the marker there.
+  local program = {
+    { op = "call", target = 5 }, -- depth 1: call frame, jumps to the subprogram
+    { op = "note", key = 61, velocity = 127, duration = 1 }, -- marker A (after the call returns)
+    { op = "wait", duration = 1 },
+    { op = "end" },
+    -- The subprogram at 5.
+    { op = "loop_begin", count = 1 }, -- depth 2: loop frame
+    { op = "loop_begin", count = 1 }, -- depth 3: loop frame
+    { op = "note", key = 62, velocity = 127, duration = 1 }, -- marker B (inside depth 3)
+    { op = "wait", duration = 1 },
+    { op = "call", target = 17 }, -- depth 3 full: consumed, no push, no jump
+    { op = "note", key = 63, velocity = 127, duration = 1 }, -- marker C (must run)
+    { op = "wait", duration = 1 },
+    { op = "loop_end" }, -- pops the depth-3 loop frame (count 1 -> 0), falls through
+    { op = "note", key = 64, velocity = 127, duration = 1 }, -- marker D (must run)
+    { op = "wait", duration = 1 },
+    { op = "loop_end" }, -- pops the depth-2 loop frame, falls through
+    { op = "return" }, -- pops the call frame back to marker A
+    -- The depth-3 CALL target at 17: with a shared stack the CALL never
+    -- jumps here; with separate stacks it would, running this marker.
+    { op = "note", key = 65, velocity = 127, duration = 1 }, -- marker E (must never run)
+    { op = "wait", duration = 1 },
+    { op = "end" },
+  }
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
+  play(player, provider)
+  -- At default tempo 120 a player ticks every two intervals (250, 750,
+  -- ... at 48 kHz); the nested trace needs 8 ticks (B at 1, C at 3, D at 5,
+  -- A after the return at 8), so 5000 frames cover it.
+  player:render(5000)
+  -- The shared depth-three stack runs B, C, D inside the nested frames, then
+  -- A after the call returns. The marker E at the depth-3 CALL target never
+  -- runs: the CALL at depth 3 was a no-op.
+  local keys = {}
+  for _, spec in ipairs(mixer.log.noteOns) do
+    keys[#keys + 1] = spec.key
+  end
+  Assert.deepEqual(
+    keys,
+    { 62, 63, 64, 61 },
+    "the shared depth-three stack runs B -> C -> D inside the frames, then A after the call returns; the depth-3 CALL is a no-op"
+  )
+  Assert.isFalse(player:isPlaying(), "the shared-stack program ends cleanly")
+
+  -- Zero-depth RETURN and LOOP_END are no-ops: a top-level return falls
+  -- through and an unmatched loop_end is dead bytes, exactly like the
+  -- existing top-level-return and unmatched-loop_end contracts.
+  local mixer2 = stubMixer()
+  local player2, provider2 = engine({
+    [0] = seq({
+      { op = "loop_end" },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "return" },
+      { op = "end" },
+    }),
+  }, { mixer = mixer2 })
+  play(player2, provider2)
+  player2:render(500)
+  Assert.equal(#mixer2.log.noteOns, 1, "zero-depth loop_end and return both fall through as no-ops")
+  Assert.isFalse(player2:isPlaying())
+end
+
+-- The four source width conversions wrap at the exact two's-complement
+-- boundaries: u8 modulo 256 (0..255), s8 the signed interpretation of u8
+-- (-128..127), u16 modulo 65536 (0..65535), s16 the signed interpretation
+-- of u16 (-32768..32767). Each row observes the conversion through the
+-- command whose storage domain it is: u8 through the envelope attack
+-- override, s8 through pitch_bend (bend range 2 makes the recorded user
+-- pitch the stored byte exactly), u16 through mod_delay, s16 through sweep.
+function T.width_conversions_wrap_at_the_exact_boundaries()
+  local cases = {
+    { convert = "u8", value = -1, expected = 255 },
+    { convert = "u8", value = 0, expected = 0 },
+    { convert = "u8", value = 127, expected = 127 },
+    { convert = "u8", value = 128, expected = 128 },
+    { convert = "u8", value = 255, expected = 255 },
+    { convert = "u8", value = 256, expected = 0 },
+    { convert = "u8", value = 65535, expected = 255 },
+    { convert = "s8", value = -1, expected = -1 },
+    { convert = "s8", value = 0, expected = 0 },
+    { convert = "s8", value = 127, expected = 127 },
+    { convert = "s8", value = 128, expected = -128 },
+    { convert = "s8", value = 255, expected = -1 },
+    { convert = "s8", value = 256, expected = 0 },
+    { convert = "s8", value = 65535, expected = -1 },
+    { convert = "u16", value = -1, expected = 65535 },
+    { convert = "u16", value = 0, expected = 0 },
+    { convert = "u16", value = 32767, expected = 32767 },
+    { convert = "u16", value = 32768, expected = 32768 },
+    { convert = "u16", value = 65535, expected = 65535 },
+    { convert = "u16", value = 65536, expected = 0 },
+    { convert = "s16", value = -1, expected = -1 },
+    { convert = "s16", value = 0, expected = 0 },
+    { convert = "s16", value = 32767, expected = 32767 },
+    { convert = "s16", value = 32768, expected = -32768 },
+    { convert = "s16", value = 65535, expected = -1 },
+    { convert = "s16", value = 65536, expected = 0 },
+  }
+  for _, case in ipairs(cases) do
+    local mixer = stubMixer()
+    local op
+    if case.convert == "u8" then
+      op = "attack"
+    elseif case.convert == "s8" then
+      op = "pitch_bend"
+    elseif case.convert == "u16" then
+      op = "mod_delay"
+    else
+      op = "sweep"
+    end
+    local player, provider = engine({
+      [0] = seq({
+        { op = "setvar", var = 0, amount = case.value },
+        { op = op, amount = { kind = "variable", var = 0 } },
+        { op = "note", key = 60, velocity = 127, duration = 1 },
+        { op = "end" },
+      }),
+    }, { mixer = mixer })
+    play(player, provider)
+    player:render(100)
+    local spec = mixer.log.noteOns[1]
+    local observed
+    if case.convert == "u8" then
+      observed = spec.envelope.attack
+    elseif case.convert == "s8" then
+      observed = spec.userPitch
+    elseif case.convert == "u16" then
+      observed = spec.lfo.delay
+    else
+      observed = spec.sweepPitch
+    end
+    Assert.equal(observed, case.expected, case.convert .. "(" .. case.value .. ")")
+  end
+end
+
+-- Variable stores wrap to s16 after arithmetic, independent of operand
+-- conversion: a sum that overflows the s16 domain wraps on the store.
+function T.s16_variable_stores_wrap_after_arithmetic()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "setvar", var = 0, amount = 32767 },
+      { op = "addvar", var = 0, amount = 1 },
+      { op = "sweep", amount = { kind = "variable", var = 0 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(100)
+  Assert.equal(
+    mixer.log.noteOns[1].sweepPitch,
+    -32768,
+    "32767 + 1 wraps to -32768 on the s16 store (the sweep carries the stored s16 value)"
+  )
+end
+
+-- Random and variable operands read the same initialized variable domains:
+-- a randomvar target and a variable operand observe the same s16
+-- initialization (-1) before any write, so both resolve identically.
+function T.random_and_variable_operands_read_the_same_initialized_variable_domains()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "pan", amount = { kind = "random", lo = 0, hi = 0 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "pan", amount = { kind = "variable", var = 16 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer, rng = u16Draws({ 0x7FFF, 0x7FFF }) })
+  play(player, provider)
+  player:render(1250) -- ticks at frames 250 (note 1 + wait gate), 750 (wait), 1250 (note 2)
+  Assert.equal(
+    mixer.log.noteOns[1].trackPanOffset,
+    -64,
+    "a random operand over the zero span resolves to the lo endpoint 0"
+  )
+  Assert.equal(
+    mixer.log.noteOns[2].trackPanOffset,
+    191,
+    "a variable operand reads the same initialized -1 the random operand drew its domain from (u8(-1)=255 -> offset 191)"
+  )
 end
 
 -- The global 192 Hz sound interval (SND_main.c SndThread): `_soundPhase`
