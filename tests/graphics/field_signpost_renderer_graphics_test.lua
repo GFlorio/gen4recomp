@@ -91,26 +91,25 @@ local function pasteTile(reference, rgba, x, y)
   end
 end
 
--- Pastes one 8x8 tile out of a 192px-wide atlas row (6144 bytes); pixels
--- outside the canvas are skipped.
+-- Pastes the precomposed 48x32 wayfinding surface into the reference canvas;
+-- pixels outside the canvas are skipped (the GPU clips them the same way).
 ---@param reference love.ImageData
----@param row string rgba
----@param tile integer
+---@param rgba string 48*32*4 bytes
 ---@param x integer
 ---@param y integer
-local function pasteRowTile(reference, row, tile, x, y)
-  for ty = 0, 7 do
-    for tx = 0, 7 do
+local function pasteWayfindingSurface(reference, rgba, x, y)
+  for ty = 0, 31 do
+    for tx = 0, 47 do
       local px, py = x + tx, y + ty
       if px >= 0 and py >= 0 and px < CANONICAL_WIDTH and py < CANONICAL_HEIGHT then
-        local index = (ty * 192 + tile * 8 + tx) * 4 + 1
+        local index = (ty * 48 + tx) * 4 + 1
         reference:setPixel(
           px,
           py,
-          row:byte(index) / 255,
-          row:byte(index + 1) / 255,
-          row:byte(index + 2) / 255,
-          row:byte(index + 3) / 255
+          rgba:byte(index) / 255,
+          rgba:byte(index + 1) / 255,
+          rgba:byte(index + 2) / 255,
+          rgba:byte(index + 3) / 255
         )
       end
     end
@@ -194,13 +193,9 @@ local function goldenReference(sourceType, wipeOffset)
     end
   end
   if kind == "graphic" then
-    local rectY = sourceType == 0 and 0 or 16
-    local row = FieldUiFixture.wayfindingRowPixels(rectY)
-    for gridRow = 0, 3 do
-      for gridCol = 0, 5 do
-        pasteRowTile(reference, row, gridRow * 6 + gridCol, 16 + gridCol * 8, 152 + gridRow * 8 + wipe)
-      end
-    end
+    local surfaceY = sourceType == 0 and 0 or 64
+    local surface = FieldUiFixture.wayfindingSurfacePixels(surfaceY)
+    pasteWayfindingSurface(reference, surface, 16, 152 + wipe)
   end
   local textX = kind == "graphic" and 72 or 16
   local lines = FieldSignpostFixture.textLines()
@@ -264,8 +259,8 @@ function T.loads_the_shared_font_and_owned_assets(scope)
   Assert.notNil(signpost._tilesImage, "the signpost frame strip is loaded")
   Assert.equal(signpost._tilesImage:getWidth(), 144)
   Assert.notNil(signpost._wayfindingImage, "the wayfinding atlas is loaded")
-  Assert.equal(signpost._wayfindingImage:getWidth(), 192)
-  Assert.equal(signpost._wayfindingImage:getHeight(), 32)
+  Assert.equal(signpost._wayfindingImage:getWidth(), 48)
+  Assert.equal(signpost._wayfindingImage:getHeight(), 128)
 end
 
 function T.restores_graphics_state_after_draw(scope)

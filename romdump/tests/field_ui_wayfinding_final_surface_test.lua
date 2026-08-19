@@ -1,0 +1,328 @@
+-- Behavior: compiler arranges wayfinding tiles into final 48x32 surface 6x4 grid.
+-- Each tile distinguishable; rect 48x32, palette per source type.
+
+local Assert = require("tests.support.Assert")
+local FieldUiCompiler = require("romdump.src.digest.FieldUiCompiler")
+local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local PngReader = require("tests.support.PngReader")
+
+local T = {}
+
+local function compileWithTestConfig(romFs, sha1hex, hashLua)
+  local manifestConfig = require("romdump.src.config.FieldUiAssets")
+  local originalSourceTypes = manifestConfig.signposts.sourceTypes
+  local originalWayfinding = manifestConfig.signposts.wayfinding
+  manifestConfig.signposts.sourceTypes = { 0, 1, 2, 3 }
+  manifestConfig.signposts.wayfinding = {
+    [0] = { memberBase = 0x21, maps = { 0, 1 } },
+    [1] = { memberBase = 2, maps = { 0, 1 } },
+  }
+  local ok, bundle, err = xpcall(FieldUiCompiler.compile, debug.traceback, romFs, sha1hex, hashLua)
+  manifestConfig.signposts.sourceTypes = originalSourceTypes
+  manifestConfig.signposts.wayfinding = originalWayfinding
+  if ok then
+    return bundle, err
+  end
+  error(bundle, 0)
+end
+
+local function u16(v)
+  return string.char(v % 256, math.floor(v / 256) % 256)
+end
+local function u32(v)
+  return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+end
+local function swap4(s)
+  return s:reverse()
+end
+local function lz10Wrap(data)
+  local head = string.char(0x10, #data % 65536 % 256, math.floor(#data / 256) % 256, math.floor(#data / 65536) % 256)
+  local flags = string.char(0)
+  local chunks = {}
+  for i = 1, #data, 8 do
+    chunks[#chunks + 1] = flags .. data:sub(i, math.min(i + 7, #data))
+  end
+  return head .. table.concat(chunks)
+end
+local function container(magic, blocks)
+  local body = {}
+  local size = 0x10
+  for _, blk in ipairs(blocks) do
+    body[#body + 1] = blk
+    size = size + #blk
+  end
+  return magic .. string.char(0xFF, 0xFE) .. u16(0x0100) .. u32(size) .. u16(0x10) .. u16(#blocks) .. table.concat(body)
+end
+local function block(magic, payload)
+  return swap4(magic) .. u32(8 + #payload) .. payload
+end
+local function charData(tiles, base)
+  local payload = u16(8) .. u16(0x20) .. u32(3) .. u16(0) .. u16(0) .. u32(0) .. u32(tiles * 32) .. u32(0x18)
+  local body = {}
+  for t = 0, tiles - 1 do
+    body[#body + 1] = string.rep(string.char((((t + (base or 0)) % 15) + 1) * 0x11), 32)
+  end
+  return container("RGCN", { block("CHAR", payload .. table.concat(body)) })
+end
+local function screenData(entries)
+  local body = {}
+  for _, e in ipairs(entries) do
+    body[#body + 1] = u16(e)
+  end
+  return container("RCSN", { block("SCRN", u16(256) .. u16(192) .. u32(0) .. u32(#entries * 2) .. table.concat(body)) })
+end
+local function fullScreen(entry)
+  local entries = {}
+  for i = 1, 768 do
+    entries[i] = entry
+  end
+  return screenData(entries)
+end
+local function paletteData(colors)
+  local body = {}
+  for _, c in ipairs(colors) do
+    body[#body + 1] = u16(c)
+  end
+  local bodyBytes = table.concat(body)
+  local ttlp = "TTLP" .. u32(24 + #bodyBytes) .. u32(3) .. u32(0) .. u32(#colors * 2) .. u32(16) .. bodyBytes
+  return "RLCN" .. string.char(0xFF, 0xFE) .. u16(0x0100) .. u32(0x10 + #ttlp) .. u16(0x10) .. u16(1) .. ttlp
+end
+local function cellData(objs)
+  local metatile = u16(#objs) .. u16(0) .. u32(0)
+  local attr = {}
+  for _, o in ipairs(objs) do
+    attr[#attr + 1] = u16((o.y % 256) + (o.shape or 0) * 16384)
+      .. u16((o.x % 512) + (o.size or 0) * 16384)
+      .. u16(o.tile + o.pal * 4096)
+  end
+  return container(
+    "RECN",
+    { block("CEBK", u16(1) .. u16(0) .. u32(0x18) .. u32(0) .. string.rep("\0", 12) .. metatile .. table.concat(attr)) }
+  )
+end
+local function animData(frames)
+  local anims = u16(1) .. u16(#frames) .. u32(0x18) .. u32(0x28) .. u32(0x28 + 8 * #frames) .. string.rep("\0", 8)
+  local anim = u32(#frames) .. u16(0) .. u16(1) .. u32(1) .. u32(0)
+  local frameBlocks, frameData = {}, {}
+  for i, f in ipairs(frames) do
+    frameBlocks[#frameBlocks + 1] = u32((i - 1) * 2) .. u16(f.duration) .. u16(0)
+    frameData[#frameData + 1] = u16(f.cell)
+  end
+  return container("RNAN", { block("ABNK", anims .. anim .. table.concat(frameBlocks) .. table.concat(frameData)) })
+end
+local function narc(members)
+  local btaf = u16(#members) .. u16(0)
+  local running = 0
+  for _, size in
+    ipairs((function()
+      local s = {}
+      for _, b in ipairs(members) do
+        s[#s + 1] = #b
+      end
+      return s
+    end)())
+  do
+  end
+  local sizes = {}
+  for _, bytes in ipairs(members) do
+    sizes[#sizes + 1] = #bytes
+  end
+  for _, size in ipairs(sizes) do
+    btaf = btaf .. u32(running) .. u32(running + size)
+    running = running + size
+  end
+  local gmif = table.concat(members)
+  local function narcBlock(magic, payload)
+    return magic .. u32(8 + #payload) .. payload
+  end
+  local btafBlock = narcBlock("BTAF", btaf)
+  local gmifBlock = narcBlock("GMIF", gmif)
+  return "NARC"
+    .. string.char(0xFF, 0xFE)
+    .. u16(0x0100)
+    .. u32(0x10 + #btafBlock + #gmifBlock)
+    .. u16(0x10)
+    .. u16(2)
+    .. btafBlock
+    .. gmifBlock
+end
+local function palette16()
+  local colors = {}
+  for i = 1, 16 do
+    colors[i] = i * 0x39B
+  end
+  for i = 17, 64 do
+    colors[i] = ((i - 1) % 16 + 1) * 0x39B
+  end
+  return paletteData(colors)
+end
+local function distinctSignpostPalette(numTypes)
+  local colors = {}
+  for t = 0, numTypes - 1 do
+    for s = 0, 15 do
+      colors[t * 16 + s + 1] = t + s * 32
+    end
+  end
+  return colors
+end
+
+local function fixture(opts)
+  opts = opts or {}
+  local startMenuMembers = {}
+  startMenuMembers[13] = lz10Wrap(charData(128))
+  startMenuMembers[14] = lz10Wrap(fullScreen(0))
+  startMenuMembers[16] = lz10Wrap(palette16())
+  startMenuMembers[62] = lz10Wrap(palette16())
+  startMenuMembers[63] = lz10Wrap(cellData({ { x = 0, y = 0, tile = 0, pal = 0 } }))
+  startMenuMembers[64] = lz10Wrap(animData({ { duration = 3, cell = 0 }, { duration = 3, cell = 0 } }))
+  startMenuMembers[65] = lz10Wrap(charData(17))
+  local startMenu = {}
+  for i = 1, 65 do
+    startMenu[i] = startMenuMembers[i] or string.rep("\0", 4)
+  end
+  local signpostMembers = {}
+  signpostMembers[1] = charData(18)
+  signpostMembers[2] = opts.signpostPalette and paletteData(opts.signpostPalette) or palette16()
+  for memberId = 2, 0x35 do
+    signpostMembers[memberId + 1] = charData(24, memberId % 16)
+  end
+  local signposts = {}
+  for i = 1, 0x36 do
+    signposts[i] = signpostMembers[i] or string.rep("\0", 4)
+  end
+  local card = {}
+  for i = 1, 48 do
+    card[i] = string.rep("\0", 4)
+  end
+  card[42] = charData(128)
+  card[48] = fullScreen(0)
+  card[12] = paletteData({ 0x7FFF, 0x001F })
+  local function narcFile(alias)
+    local members
+    if alias == "start_menu" then
+      members = startMenu
+    elseif alias == "dialogue_frames" then
+      members = {}
+      for i = 1, 47 do
+        members[i] = string.rep("\0", 4)
+      end
+      for i = 1, 20 do
+        members[2 + i] = lz10Wrap(charData(18))
+      end
+      for i = 1, 20 do
+        members[26 + i] = lz10Wrap(palette16())
+      end
+    elseif alias == "signpost_graphics" then
+      members = signposts
+    else
+      members = card
+    end
+    if opts.tamper then
+      members = opts.tamper(alias, members)
+    end
+    return narc(members)
+  end
+  local archives = {
+    start_menu = { fileId = 10, narcId = 14, path = "a/0/1/4", symbol = "NARC_a_0_1_4", alias = "start_menu" },
+    dialogue_frames = { fileId = 11, narcId = 38, path = "a/0/3/8", symbol = "NARC_a_0_3_8", alias = "dialogue_frames" },
+    signpost_graphics = {
+      fileId = 12,
+      narcId = 36,
+      path = "a/0/3/6",
+      symbol = "NARC_a_0_3_6",
+      alias = "signpost_graphics",
+    },
+    trainer_card_graphics = {
+      fileId = 13,
+      narcId = 49,
+      path = "a/0/4/9",
+      symbol = "NARC_a_0_4_9",
+      alias = "trainer_card_graphics",
+    },
+  }
+  local romFs = {
+    resolvedNarc = function(_, alias)
+      return archives[alias]
+    end,
+    read = function(_, fileId)
+      if fileId == 10 then
+        return narcFile("start_menu")
+      end
+      if fileId == 11 then
+        return narcFile("dialogue_frames")
+      end
+      if fileId == 12 then
+        return narcFile("signpost_graphics")
+      end
+      if fileId == 13 then
+        return narcFile("trainer_card_graphics")
+      end
+      Assert.fail("unexpected read " .. tostring(fileId))
+    end,
+    openNarc = function(_, alias)
+      local Narc = require("romdump.src.source.Narc")
+      return assert(Narc.open(narcFile(alias), alias))
+    end,
+    metadata = function()
+      return { sha1 = "rom-sha" }
+    end,
+    version = function()
+      return "heartgold"
+    end,
+  }
+  return romFs, function()
+    return "member-sha"
+  end, function()
+    return "dependency-sha"
+  end
+end
+
+function T.compiled_wayfinding_is_48x32_with_6x4_tile_arrangement()
+  local romFs, sha1, hashLua = fixture({ signpostPalette = distinctSignpostPalette(4) })
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local wayfindingAsset = assert(bundle.manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING])
+  -- Must be final surface atlas: each entry 48x32, check type 0 map 0
+  local rect = assert(bundle.manifest.signposts.types[0].wayfinding[0])
+  Assert.equal(rect.width, 48, "final surface width must be 48")
+  Assert.equal(rect.height, 32, "final surface height must be 32")
+
+  -- Atlas dimensions: stacked 48x32 surfaces
+  -- With 4 rows (2 maps * 2 types with wayfinding), height = 4*32 = 128, width = 48
+  Assert.equal(wayfindingAsset.width, 48, "atlas width must be 48 for final surfaces")
+  Assert.equal(wayfindingAsset.height, 128, "atlas height must be 4 * 32 for 4 wayfinding entries")
+
+  -- Pixel equivalence: tile r*6+c at (c*8,r*8) with per-source-type palette
+  local Rgb555 = require("libs.codec.src.Rgb555")
+  local pngBytes = assert(bundle.assets[wayfindingAsset.image])
+  local width, height, rgba = PngReader.rgba(pngBytes)
+  Assert.equal(width, 48)
+  Assert.equal(height, 128)
+  -- Check a few positions for type 0 map 0 (first rect at y=0, sourceType 0)
+  -- Tile layout: source tile index tile maps to destination (col=tile%6, row=tile/6)
+  -- For type 0, wayfinding member 0x21, tile values are ((t + 0x21%16)%15)+1
+  -- Palette bank 0, slot = value -> Rgb555 decode of (0 + value*32)
+  -- Verify tile 0 at (0,0) and tile 6 at (0,8) etc.
+  local function expectedColor(sourceType, tileIndex)
+    local base = 0x21 % 16 -- for type 0 map 0
+    -- Actually map selection: type 0 maps 0,1 use memberBase 0x21 + map
+    -- So tile value = ((tile + base)%15)+1, slot = value
+    -- Use correct base per map
+    local value = ((tileIndex + base) % 15) + 1
+    return Rgb555.decode(sourceType + value * 32)
+  end
+  -- test tile 0 at (4,4) within first surface
+  local r, g, b, a = PngReader.pixel(rgba, width, 4, 4)
+  local exp = expectedColor(0, 0)
+  Assert.equal(a, 255)
+  Assert.deepEqual({ r, g, b }, { exp.r, exp.g, exp.b }, "tile 0 at (0,0) in final surface")
+  -- tile 1 at (12,4)
+  local r1, g1, b1, a1 = PngReader.pixel(rgba, width, 12, 4)
+  local exp1 = expectedColor(0, 1)
+  Assert.deepEqual({ r1, g1, b1 }, { exp1.r, exp1.g, exp1.b }, "tile 1 at (8,0)")
+  -- tile 6 should be at (0,8) second row
+  local r2, g2, b2, a2 = PngReader.pixel(rgba, width, 4, 12)
+  local exp2 = expectedColor(0, 6)
+  Assert.deepEqual({ r2, g2, b2 }, { exp2.r, exp2.g, exp2.b }, "tile 6 at (0,8) second row")
+end
+
+return { tests = T }

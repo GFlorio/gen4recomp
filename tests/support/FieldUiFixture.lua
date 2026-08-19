@@ -142,36 +142,68 @@ function FieldUiFixture.signpostTilesBytes()
   return PngWriter.encode(144, 8, table.concat(bytes))
 end
 
--- The raw RGBA bytes of one wayfinding atlas row (each (type, map) pair has
--- its own row): 24 distinct tiles in a 192x8 pixel row.
----@param rowY integer
----@return string rgba
-function FieldUiFixture.wayfindingRowPixels(rowY)
-  local row = math.floor(rowY / 8)
+-- The raw 8x8 RGBA bytes of one wayfinding 48x32 surface belonging to one
+-- (type, map) pair. Each surface is a 6x4 tile grid: tile row*6+col
+-- at (col*8, row*8) with a distinct color per row/tile, so a wrong-map
+-- sample or a wrong tile offset is a mismatch.
+---@param rectY integer top of the 48x32 rect in the atlas
+---@return string rgba 48*32*4 bytes
+function FieldUiFixture.wayfindingSurfacePixels(rectY)
+  local surfaceIndex = math.floor(rectY / 32)
   local bytes = {}
-  for y = 0, 7 do
-    for x = 0, 191 do
-      local r, g, b = wayfindingTileColor(row, math.floor(x / 8))
+  for y = 0, 31 do
+    local tileRow = math.floor(y / 8)
+    for x = 0, 47 do
+      local tileCol = math.floor(x / 8)
+      local tile = tileRow * 6 + tileCol
+      local r, g, b = wayfindingTileColor(surfaceIndex, tile)
       bytes[#bytes + 1] = string.char(r, g, b, 255)
     end
   end
   return table.concat(bytes)
 end
 
--- The wayfinding atlas: one row per (type, map) pair in the manifest --
--- type 0 at rows y=0 (map 0) and y=8 (map 1), type 1 at rows y=16 (map 0)
--- and y=24 (map 1). Every row has its own color family, so a wrong-row
--- sample is a mismatch.
----@return string png
-function FieldUiFixture.wayfindingBytes()
-  local rows = {}
-  for block = 0, 3 do
-    local rgba = FieldUiFixture.wayfindingRowPixels(block * 8)
-    for i = 0, 7 do
-      rows[#rows + 1] = rgba:sub(i * 768 + 1, (i + 1) * 768)
+-- Legacy alias: return the raw bytes of one 8px atlas row through the
+-- 48x32 surface so callers indexing by pixel row stay equivalent for the
+-- 8px case.
+function FieldUiFixture.wayfindingRowPixels(rowY)
+  local surfaceIndex = math.floor(rowY / 32)
+  -- Extract row within the surface's 32px height.
+  local surfacePixels = FieldUiFixture.wayfindingSurfacePixels(surfaceIndex * 32)
+  local rowInSurface = rowY % 32
+  -- 48px wide, return 192x8 slice centered on the 48px surface padded to 192
+  -- The legacy contract expected 192x8 with only first 48px populated; pad
+  -- the rest with transparent to preserve size but callers sampling within 48
+  -- get the same tile colors.
+  local out = {}
+  for y = 0, 7 do
+    for x = 0, 191 do
+      if x < 48 then
+        local idx = ((rowInSurface + y) * 48 + x) * 4 + 1
+        out[#out + 1] = surfacePixels:sub(idx, idx + 3)
+      else
+        out[#out + 1] = string.char(0, 0, 0, 0)
+      end
     end
   end
-  return PngWriter.encode(192, 32, table.concat(rows))
+  return table.concat(out)
+end
+
+-- The wayfinding atlas: one 48x32 surface per (type, map) pair, stacked
+-- vertically. Type 0 at y=0 (map 0) and y=32 (map 1), type 1 at y=64
+-- (map 0) and y=96 (map 1).
+---@return string png
+function FieldUiFixture.wayfindingBytes()
+  return PngWriter.encode(
+    48,
+    128,
+    table.concat({
+      FieldUiFixture.wayfindingSurfacePixels(0),
+      FieldUiFixture.wayfindingSurfacePixels(32),
+      FieldUiFixture.wayfindingSurfacePixels(64),
+      FieldUiFixture.wayfindingSurfacePixels(96),
+    })
+  )
 end
 
 -- The canonical Start Menu logical action-slot grid (the manifest's own
@@ -402,13 +434,14 @@ function FieldUiFixture.typePalette(sourceType)
 end
 
 -- The signpost source-type map in the generated manifest shape: every corpus
--- type with its raw number preserved, its own v5 palette bank and frameTiles
+-- type with its raw number preserved, its own palette bank and frameTiles
 -- rect (every type shares the fixture's single-row 144x8 strip; the atlas
 -- shape, not per-type pixel distinctness, is this fixture's contract), and
--- types 0/1 carrying a per-map wayfinding table (map -> atlas rect; each pair
--- has its own atlas row, so the map-0 and map-1 rects are visibly distinct).
--- The on-screen 56px graphic region is NOT the atlas rect; the style loader
--- derives the region from the presence of the table, never its pixels.
+-- types 0/1 carrying a per-map wayfinding table (map -> 48x32 atlas rect;
+-- each pair has its own surface, so the map-0 and map-1 rects are visibly
+-- distinct). The on-screen 56px graphic region is NOT the atlas rect; the
+-- style loader derives the region from the presence of the table, never its
+-- pixels.
 ---@return table
 function FieldUiFixture.signpostTypes()
   local types = {}
@@ -420,13 +453,13 @@ function FieldUiFixture.signpostTypes()
     }
     if sourceType == 0 then
       entry.wayfinding = {
-        [0] = { x = 0, y = 0, width = 192, height = 8 },
-        [1] = { x = 0, y = 8, width = 192, height = 8 },
+        [0] = { x = 0, y = 0, width = 48, height = 32 },
+        [1] = { x = 0, y = 32, width = 48, height = 32 },
       }
     elseif sourceType == 1 then
       entry.wayfinding = {
-        [0] = { x = 0, y = 16, width = 192, height = 8 },
-        [1] = { x = 0, y = 24, width = 192, height = 8 },
+        [0] = { x = 0, y = 64, width = 48, height = 32 },
+        [1] = { x = 0, y = 96, width = 48, height = 32 },
       }
     end
     types[sourceType] = entry
@@ -454,8 +487,8 @@ function FieldUiFixture.manifest()
       },
       [FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING] = {
         image = FieldUiFixture.WAYFINDING_PATH,
-        width = 192,
-        height = 32,
+        width = 48,
+        height = 128,
       },
       [FieldUiAssetCache.ASSET.START_MENU_BACKGROUND] = {
         image = FieldUiFixture.START_MENU_BACKGROUND_PATH,

@@ -2,29 +2,29 @@
 -- reference frame: the source window pixel buffer filled with the active
 -- source type's own palette slot 15 (FillWindowPixelBuffer(window, 15)), the
 -- HGSS signpost frame strip drawn by the audited DrawFrameAndWindow3 tilemap
--- (source types 0/1 additionally blit the wayfinding row as a 6x4 grid and
--- the divider tile 8), the shared FieldTextRenderer glyph text drawn through
--- the palette-driven path against the source's fixed MAKE_TEXT_COLOR(2, 10,
--- 15) slots of that same source-type palette (never the field font's own
--- baked default color bands, and never a type-0 fallback), all translated by
--- the logical wipe offset -- the whole signpost BG layer slides, and the
--- hidden -48 position sits below the screen. Per type geometry comes from
--- the window style catalogue; the strip, wayfinding rows, and per-type
--- palette banks are the generated field-UI manifest assets, with the
--- wayfinding row selected by the appearance's exact (type, map) pair.
--- Visibility is keyed on status().active, never on logicalYOffset alone, so
--- the wipe-out endpoint-check reset can never flash the cleared window at
--- the reset position. Interpolation between the previous and the current
--- fixed-tick offset uses the session render alpha, clamped into [0, 1], and
--- is a pure function of the controller's paired wipe history: the renderer
--- holds no interpolation state and never calls back into the controller.
--- Resolved style records are the catalogue's stored records (never copies),
--- so each draw resolves fresh without caching. Construction is
--- failure-safe: a missing strip or wayfinding atlas is a typed error, a
--- quad failure after the images were created releases them before
--- rethrowing, and draw() restores every graphics state it touched. The
--- runtime-validated manifest is injected explicitly; this renderer never
--- reloads it from the cache.
+-- (source types 0/1 additionally blit the precomposed 48x32 wayfinding
+-- surface and the divider tile 8), the shared FieldTextRenderer glyph text
+-- drawn through the palette-driven path against the source's fixed
+-- MAKE_TEXT_COLOR(2, 10, 15) slots of that same source-type palette (never
+-- the field font's own baked default color bands, and never a type-0
+-- fallback), all translated by the logical wipe offset -- the whole signpost
+-- BG layer slides, and the hidden -48 position sits below the screen. Per
+-- type geometry comes from the window style catalogue; the strip, wayfinding
+-- atlas, and per-type palette banks are the generated field-UI manifest
+-- assets, with the wayfinding surface selected by the appearance's exact
+-- (type, map) pair. Visibility is keyed on status().active, never on
+-- logicalYOffset alone, so the wipe-out endpoint-check reset can never flash
+-- the cleared window at the reset position. Interpolation between the
+-- previous and the current fixed-tick offset uses the session render alpha,
+-- clamped into [0, 1], and is a pure function of the controller's paired
+-- wipe history: the renderer holds no interpolation state and never calls
+-- back into the controller. Resolved style records are the catalogue's
+-- stored records (never copies), so each draw resolves fresh without
+-- caching. Construction is failure-safe: a missing strip or wayfinding atlas
+-- is a typed error, a quad failure after the images were created releases
+-- them before rethrowing, and draw() restores every graphics state it
+-- touched. The runtime-validated manifest is injected explicitly; this
+-- renderer never reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -59,7 +59,7 @@ end
 ---@field _tilesImage love.Image? the signpost frame strip
 ---@field _wayfindingImage love.Image? the wayfinding atlas
 ---@field _frameQuadCache table<integer, love.Quad[]>|nil per-source-type frame quads, built lazily
----@field _wayfindingQuadCache table<string, love.Quad[]>|nil per-(type,map) row quads, built lazily
+---@field _wayfindingQuadCache table<string, love.Quad>|nil per-(type,map) final-surface quad, built lazily
 local FieldSignpostRenderer = {}
 FieldSignpostRenderer.__index = FieldSignpostRenderer
 
@@ -178,26 +178,23 @@ function FieldSignpostRenderer:_frameQuads(sourceType, rect)
   return quads
 end
 
--- The 24 tile quads of one wayfinding row (the manifest rect for the exact
--- (type, map) pair). Built lazily per pair and cached, so a session that
--- only ever shows full-width signs never materializes the rows.
+-- One quad for the precomposed 48x32 wayfinding surface of one
+-- (type, map) pair. Built lazily per pair and cached, so a session that
+-- only ever shows full-width signs never materializes the surface.
 ---@param key string the "type.map" pair
 ---@param rect { x: integer, y: integer, width: integer, height: integer }
----@return love.Quad[]
-function FieldSignpostRenderer:_wayfindingQuads(key, rect)
+---@return love.Quad
+function FieldSignpostRenderer:_wayfindingQuad(key, rect)
   local cache = self._wayfindingQuadCache or {}
-  local quads = cache[key]
-  if quads == nil then
+  local quad = cache[key]
+  if quad == nil then
     local lg = assert(self._graphics)
     local image = assert(self._wayfindingImage)
-    quads = {}
-    for tile = 0, rect.width / 8 - 1 do
-      quads[tile] = lg.newQuad(rect.x + tile * 8, rect.y, 8, 8, image:getWidth(), image:getHeight())
-    end
-    cache[key] = quads
+    quad = lg.newQuad(rect.x, rect.y, rect.width, rect.height, image:getWidth(), image:getHeight())
+    cache[key] = quad
   end
   self._wayfindingQuadCache = cache
-  return quads
+  return quad
 end
 
 -- The wipe translation for this render: the current fixed-tick offset,
@@ -231,7 +228,7 @@ function FieldSignpostRenderer:_resolveType(status)
 end
 
 -- Draws the signpost frame strip by the audited tilemap, and for source
--- types with a graphic region the wayfinding row (24 tiles as a 6x4 grid)
+-- types with a graphic region the precomposed 48x32 wayfinding surface
 -- plus the divider tile. The whole surface is translated by the wipe.
 
 ---@param status FieldSignpostController.Status
@@ -263,9 +260,9 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe, typeEntry
     -- graphicRegion only ever comes from style.types[appearance.type], so a
     -- real source appearance is guaranteed here.
     assert(appearance)
-    -- The exact (type, map) pair selects the row; a type requiring graphic
-    -- art without a manifest row for its pair is a manifest/source-contract
-    -- failure, never a fallback to another map's row.
+    -- The exact (type, map) pair selects the manifest rect; a type requiring
+    -- graphic art without a manifest rect for its pair is a
+    -- manifest/source-contract failure, never a fallback to another map's rect.
     local manifestRect = types[appearance.type]
       and types[appearance.type].wayfinding
       and types[appearance.type].wayfinding[appearance.map]
@@ -278,10 +275,8 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe, typeEntry
     )
     local wayfinding = assert(self._wayfindingImage)
     local key = appearance.type .. ":" .. appearance.map
-    local quads = self:_wayfindingQuads(key, manifestRect)
-    for _, placement in ipairs(FieldSignpostTheme.wayfindingPlacements(graphicRegion)) do
-      lg.draw(wayfinding, assert(quads[placement.tile]), placement.x, placement.y + wipe)
-    end
+    local quad = self:_wayfindingQuad(key, manifestRect)
+    lg.draw(wayfinding, quad, graphicRegion.x, graphicRegion.y + wipe)
   end
 end
 

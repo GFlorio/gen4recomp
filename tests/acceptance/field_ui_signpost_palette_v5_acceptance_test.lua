@@ -125,8 +125,8 @@ function T.tests.v5_per_type_frame_tiles_geometry()
   end)
 end
 
--- Verify that if a type has wayfinding rows, they have the correct geometry
--- (width=192, height=8) and are accessible via mapId key.
+-- Verify that if a type has wayfinding surfaces, they have the correct geometry
+-- (width=48, height=32) and are accessible via mapId key.
 function T.tests.v5_per_type_wayfinding_geometry_if_present()
   withGame(function(game)
     local manifest = assert(game.runtime.uiManifest, "manifest must exist")
@@ -137,8 +137,8 @@ function T.tests.v5_per_type_wayfinding_geometry_if_present()
       -- Type 0 in HGSS has wayfinding for some maps
       for mapId, rect in pairs(wayfinding) do
         Assert.equal(type(mapId), "number", "wayfinding keys must be map IDs (numbers)")
-        Assert.equal(rect.width, 192, "wayfinding rect width must be 192 (24 tiles * 8 pixels)")
-        Assert.equal(rect.height, 8, "wayfinding rect height must be 8 (one tile row)")
+        Assert.equal(rect.width, 48, "wayfinding rect must be 48x32 final surface")
+        Assert.equal(rect.height, 32, "wayfinding rect must be 48x32 final surface")
         Assert.equal(type(rect.x), "number", "wayfinding rect must have x position")
         Assert.equal(type(rect.y), "number", "wayfinding rect must have y position")
       end

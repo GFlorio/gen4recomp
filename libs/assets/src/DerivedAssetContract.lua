@@ -21,6 +21,10 @@
 -- classification); the vocabulary a stale v1 cache could have baked in is
 -- no longer trustworthy.
 --
+-- fieldUi schema 6: wayfinding rects become final 48x32 surfaces. Each
+-- (type, map) rect is a 6x4 arrangement (48px wide, 32px tall) composed at
+-- build time from the original 24 8x8 tiles, instead of a raw 192x8 strip.
+--
 -- fieldUi schema 5: signposts.types entries gain per-type palette banks
 -- (one 16-color table per source type) and per-type frameTiles rectangles.
 -- The old global signposts.frame.tiles authority is removed. Each type's
@@ -109,7 +113,7 @@ DerivedAssetContract.fieldWeather = {
 
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
-  schema = "g4-field-ui-v5",
+  schema = "g4-field-ui-v6",
 }
 
 -- The mesh batch format constants (magic, version, stride, header size,

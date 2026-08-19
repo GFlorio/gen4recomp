@@ -16,15 +16,21 @@ local FieldUiAssetCache = {}
 FieldUiAssetCache.FORMAT = Contract.fieldUi.cacheFormat
 FieldUiAssetCache.SCHEMA = Contract.fieldUi.schema
 
--- The audited HGSS field-UI strip geometry is a generated-class invariant,
+-- The audited HGSS field-UI geometry is a generated-class invariant,
 -- not a tunable: dialogue and signpost frame members carry 18 tiles (a
--- 144x8 strip) and every wayfinding member carries 24 tiles (a 192x8
--- strip). The producer and the manifest validator consume these numbers
--- from this one protocol owner; renderers read the resulting rects from
--- the validated manifest.
+-- 144x8 strip) and every wayfinding member carries 24 tiles but is
+-- persisted as a precomposed 48x32 final surface (6 columns x 4 rows).
+-- The producer arranges the raw 24 tiles into that surface at build time;
+-- runtime draws a single rect. The validator enforces the final 48x32
+-- shape. The producer and validator consume these numbers from this one
+-- protocol owner.
 FieldUiAssetCache.GEOMETRY = {
   FRAME_TILES = 18,
   WAYFINDING_TILES = 24,
+  WAYFINDING_COLUMNS = 6,
+  WAYFINDING_ROWS = 4,
+  WAYFINDING_WIDTH = 48,
+  WAYFINDING_HEIGHT = 32,
 }
 
 -- The generated field-UI asset protocol ids: one constant table so the
@@ -142,11 +148,10 @@ function FieldUiAssetCache.validateManifest(manifest)
     return true
   end
 
-  -- A rect must be an exact HGSS strip (`width` x 8) inside its atlas. The
-  -- exact strip shape is the generated-class contract (dialogue/signpost
-  -- frames are the 18-tile 144x8 row, wayfinding rows the 24-tile 192x8
-  -- row); the atlas-bound check additionally proves the rect is addressable
-  -- in its PNG.
+  -- A rect must be an exact HGSS strip (`width` x 8) inside its atlas.
+  -- Dialogue/signpost frames are the 18-tile 144x8 row; wayfinding rects
+  -- are validated separately as 48x32 final surfaces. The atlas-bound check
+  -- additionally proves the rect is addressable in its PNG.
   local function stripInAtlas(rect, atlasKey, what, width)
     local ok, err = rectInAtlas(rect, atlasKey, what)
     if not ok then
@@ -327,7 +332,8 @@ function FieldUiAssetCache.validateManifest(manifest)
       if typeEntry.wayfinding ~= nil then
         -- A type either has per-map wayfinding or none: the producer omits
         -- the field for types without a map graphic, so an empty table is a
-        -- producer bug, not a plausible contract state.
+        -- producer bug, not a plausible contract state. Each wayfinding rect
+        -- is a precomposed final 48x32 surface, not the old 192x8 strip.
         if type(typeEntry.wayfinding) ~= "table" or next(typeEntry.wayfinding) == nil then
           return false, Errors.new(MANIFEST_INVALID, "signpost wayfinding must be a non-empty per-map table", {})
         end
@@ -338,14 +344,21 @@ function FieldUiAssetCache.validateManifest(manifest)
                 map = map,
               })
           end
-          local ok, err = stripInAtlas(
-            rect,
-            FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING,
-            "signpost wayfinding map " .. map,
-            FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES * 8
-          )
+          local ok, err =
+            rectInAtlas(rect, FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING, "signpost wayfinding map " .. map)
           if not ok then
             return false, err
+          end
+          if
+            rect.width ~= FieldUiAssetCache.GEOMETRY.WAYFINDING_WIDTH
+            or rect.height ~= FieldUiAssetCache.GEOMETRY.WAYFINDING_HEIGHT
+          then
+            return false,
+              Errors.new(MANIFEST_INVALID, "signpost wayfinding map " .. map .. " must be the 48x32 final surface", {
+                what = "signpost wayfinding map " .. map,
+                width = rect.width,
+                height = rect.height,
+              })
           end
         end
       end
