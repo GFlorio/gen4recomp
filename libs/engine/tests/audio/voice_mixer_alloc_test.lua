@@ -526,4 +526,133 @@ function T.natural_death_does_not_reuse_the_old_generation()
   mixer:render(600)
 end
 
+-- A tied re-note mutates one physical channel exactly as TrackPlayNote
+-- does: the semantic retarget applies the key/velocity and the envelope
+-- overrides without resetting the envelope stage or the sample phase, and
+-- the sweep counter reset restores the full sweep contribution -- all on
+-- the SAME voice generation, never a second allocation or a release. The
+-- pins mirror the proven retune/sweep rows of this suite; the reset and
+-- no-advance proofs are frame-exact comparisons between identical-length
+-- runs, so the observable is the read rate (which the sweep counter
+-- controls), never a hand-derived sample.
+local function tiedSweepSpec()
+  return spec({
+    pcm = WAVE16,
+    baseTimer = 512,
+    loop = { startFrame = 0, endFrame = 16 },
+    pan = 0,
+    sweepPitch = 768,
+    sweepLength = 4,
+    autoSweep = false,
+  })
+end
+
+-- Renders `frames` frames of a fresh tied sweep voice after the given
+-- sweep-counter setup: `advances` advanceTrackTick calls, then
+-- `syncs` control steps interleaved with 250-frame renders. The
+-- `retargetAtFirstSync` flag applies the common-tail reset (sweepCounter
+-- 0) before the first control step instead of leaving the counter at its
+-- advanced position.
+local function tiedSweepRun(advances, syncs, retargetAtFirstSync)
+  local mixer = newMixer()
+  local handle = mixer:noteOn(tiedSweepSpec()) --[[@as { channel: integer, generation: integer }]]
+  local out = {}
+  mixer:renderInto(out, 250) -- the noteOn's own step (counter 0)
+  for _ = 1, advances do
+    mixer:advanceTrackTick(handle)
+  end
+  for step = 1, syncs do
+    if retargetAtFirstSync and step == 1 then
+      mixer:retargetTiedVoice(handle, {
+        key = 60,
+        velocity = 127,
+        sweepPitch = 768,
+        sweepLength = 4,
+        autoSweep = false,
+        sweepCounter = 0,
+      })
+    end
+    mixer:controlStep()
+    mixer:renderInto(out, 250)
+  end
+  return out
+end
+
+local function sameRow(a, b)
+  if #a ~= #b then
+    return false
+  end
+  for i = 1, #a do
+    if a[i] ~= b[i] then
+      return false
+    end
+  end
+  return true
+end
+
+function T.retargeted_tied_voices_apply_the_full_common_tail_at_the_next_control_step()
+  -- The counter reset restores the counter-0 read rate: a run whose counter
+  -- was advanced to 2 and then retargeted back to 0 renders exactly like a
+  -- run whose counter never moved, while the un-retargeted advanced run
+  -- reads at the counter-2 rate (a different row).
+  local baseline = tiedSweepRun(0, 3, false)
+  local advanced = tiedSweepRun(2, 3, false)
+  local reset = tiedSweepRun(2, 3, true)
+  Assert.isFalse(sameRow(advanced, baseline), "the advanced counter reads at a different rate")
+  Assert.isTrue(sameRow(reset, baseline), "the counter reset restores the counter-0 contribution exactly")
+  -- The retarget never releases or reallocates: the voice stays alive on
+  -- its original generation across the retarget and the control steps.
+  local mixer = newMixer()
+  local handle = mixer:noteOn(tiedSweepSpec()) --[[@as { channel: integer, generation: integer }]]
+  local out = {}
+  mixer:renderInto(out, 250)
+  mixer:advanceTrackTick(handle)
+  mixer:controlStep()
+  mixer:retargetTiedVoice(handle, {
+    key = 60,
+    velocity = 127,
+    sweepPitch = 768,
+    sweepLength = 4,
+    autoSweep = false,
+    sweepCounter = 0,
+  })
+  mixer:controlStep()
+  mixer:renderInto(out, 250)
+  Assert.isTrue(mixer:isVoiceAlive(handle), "the retargeted voice stays alive on the same generation")
+  -- Envelope and wave continuity on a key retarget: the proven key-72
+  -- retune pins hold through the retarget -- the sample position continues
+  -- and the attack curve continues from the step it was on (the retarget
+  -- carries the same envelope overrides, so the coefficients are unchanged
+  -- and the stage never restarts).
+  local envMixer = newMixer()
+  local envHandle = envMixer:noteOn(spec({
+    -- A constant wave isolates the envelope register progression from the
+    -- key-72 retarget's doubled read rate (the pins mirror the retune
+    -- test's rows; the sample position never enters the expected values).
+    pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 },
+    baseTimer = 512,
+    loop = { startFrame = 0, endFrame = 8 },
+    pan = 0,
+    envelope = { attack = 100, decay = 127, sustain = 127, release = 127 },
+  })) --[[@as { channel: integer, generation: integer }]]
+  local first = {}
+  envMixer:renderInto(first, 250)
+  envMixer:controlStep()
+  envMixer:renderInto(first, 250)
+  envMixer:retargetTiedVoice(envHandle, {
+    key = 72,
+    velocity = 127,
+    envelope = { attack = 100, decay = 127, sustain = 127, release = 127 },
+  })
+  envMixer:controlStep()
+  local second = {}
+  drive(envMixer, second, 750)
+  Assert.equal(leftAt(first, 250), 13, "attack 100 step 1 holds register 0x30D through the first block")
+  Assert.equal(leftAt(first, 251), 96, "attack step 2 reaches register 0x360")
+  Assert.equal(leftAt(second, 250), 320, "the retarget leaves the step-3 register untouched")
+  Assert.equal(leftAt(second, 251), 664, "attack step 4 continues from the retargeted voice")
+  Assert.equal(leftAt(second, 750), 1040, "the attack continues toward the sustain register")
+  Assert.isTrue(envMixer:isVoiceAlive(envHandle), "the key-retargeted voice stays alive")
+end
+
 return { tests = T }

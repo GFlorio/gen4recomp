@@ -24,11 +24,11 @@
 -- zero-length note under note-wait is a note-FINISH wait, never a one-tick
 -- gate: the track stays blocked until its live channel handles are gone),
 -- note-wait (default true), a polyphonic voice collection of {handle,
--- length} pairs (never a single channel), tie, mute, program, priority
--- (default 64), volume/expression 127, the raw pan offset (default 0; the
--- 0xC0 pan command stores amount-64), transpose, bend 0 (the SDK TrackInit;
--- bend is user pitch, never a key fold), bend range 2, the mod snapshot
--- (target 0, depth 0, range 1, speed 16, delay 0), sweepPitch 0,
+-- length, releasing} records (never a single channel), tie, mute, program,
+-- priority (default 64), volume/expression 127, the raw pan offset (default
+-- 0; the 0xC0 pan command stores amount-64), transpose, bend 0 (the SDK
+-- TrackInit; bend is user pitch, never a key fold), bend range 2, the mod
+-- snapshot (target 0, depth 0, range 1, speed 16, delay 0), sweepPitch 0,
 -- portamentoKey 60, portamentoTime 0, the portamento flag, nullable
 -- envelope stage overrides (0xD0-0xD3, applied to a note only when set),
 -- and the call/loop control stack. Fresh tracks gate notes by their duration;
@@ -38,13 +38,22 @@
 -- lengths are decremented toward release, while tied and non-positive-
 -- duration channels are indefinite and never released by the duration
 -- counter. WAIT 0 does not gate: the next instruction runs in the same
--- pass. Releases happen on open_track replacement, the tie command (which
--- always releases and frees the current voices, even when the flag value
--- is unchanged), mute mode 2/3, sequence replacement, and stop; a tied
--- note over an active voice reuses it in place (updateVoice key/velocity,
--- no noteOn, no noteOff). The mixer owns voice liveness (isVoiceAlive):
--- the player prunes stolen/dead handles from its collections and waits on
--- real handle liveness for note-finish, never on a predicted release end.
+-- pass.
+--
+-- Voice attachment follows the SDK release/free split: a natural length
+-- expiry and mute mode 2 start an ordinary release (TrackReleaseChannels
+-- without TrackFreeChannels) that keeps the voice record attached -- marked
+-- `releasing` -- until the mixer reports the physical voice dead, and an
+-- attached releasing voice receives only the player fader contribution on
+-- later track updates (TrackUpdateChannel updates userDecay2 on linked
+-- channels after release status and skips every other field). Explicit
+-- detach paths -- the tie command, mute mode 3, pause, stop/player
+-- replacement, and open_track replacement -- release then immediately drop
+-- the handle (TrackReleaseChannels followed by TrackFreeChannels) while the
+-- physical release tail may continue in the mixer. The mixer owns voice
+-- liveness (isVoiceAlive): the player prunes dead/stolen handles from its
+-- collections and waits on real handle liveness for note-finish, never on a
+-- predicted release end.
 -- The transposed key is clamped to 0..127 before the bank leaf is selected
 -- (AudioBank.selectVoice), so key-split and drum-set selection run on the
 -- midi key, and pitch comes from the selected voice's root key. Loops
@@ -68,7 +77,15 @@
 -- sweep/portamento commands set the note's TrackPlayNote sweep fields (the
 -- track sweep plus the portamento contribution, and the sweep length
 -- derived from portamentoTime), and each note updates the track's
--- portamento key to the note's MIDI key.
+-- portamento key to the note's MIDI key. A tied re-note over a live head
+-- voice executes the full TrackPlayNote common tail on the same physical
+-- generation through the mixer's semantic retarget: key/velocity and the
+-- current track envelope overrides replace the coefficients, the sweep
+-- state is recomputed with the counter reset to zero, and the envelope
+-- stage and the generator/sample phase never restart; the retargeted voice
+-- stays indefinite. A pitch-bend-range command is a live channel control:
+-- it recomputes the user pitch and queues it to every attached
+-- non-releasing voice immediately, with no note restart.
 --
 -- Rendering is a span scheduler around the pure PCM mixer: the player owns
 -- the one global 192 Hz sound phase (`_soundPhase`), renders each span up
@@ -279,11 +296,15 @@ local function newTrack(entry)
     -- The note-finish hold: set by a zero-length note under note-wait; the
     -- track stays blocked until its live channel handles are gone.
     noteFinishWait = false,
-    -- The track's ringing voices (polyphonic): a list of {handle, length}
-    -- pairs -- the mixer {channel, generation} handle and the voice's
-    -- remaining length in ticks (the NNS per-channel length, -1 for an
-    -- indefinite tied or non-positive-duration voice), so a note never
-    -- rings past its own duration into a later wait.
+    -- The track's ringing voices (polyphonic): a list of
+    -- {handle, length, releasing} records -- the mixer {channel, generation}
+    -- handle, the voice's remaining length in ticks (the NNS per-channel
+    -- length, -1 for an indefinite tied or non-positive-duration voice), and
+    -- whether an ordinary source release has begun while the voice is still
+    -- attached. A record stays attached through its release tail until the
+    -- mixer reports the physical voice dead (pruneTrackVoices) or an
+    -- explicit detach path drops it; an attached releasing record receives
+    -- only the player fader contribution on later track updates.
     voices = {},
     -- Note gating: fresh tracks gate notes by their duration (the NNS
     -- TrackStart initialization sets noteWait); 0xC7 note_wait clears it so
@@ -337,7 +358,8 @@ local function userPitchFor(track)
 end
 
 -- The note's effective envelope: a set track override replaces exactly that
--- stage of the voice envelope.
+-- stage of the voice envelope (SND_seq.c TrackPlayNote applies each
+-- non-0xFF override to the channel after allocation).
 local function effectiveEnvelope(track, voice)
   return {
     attack = track.attack or voice.envelope.attack,
@@ -345,6 +367,31 @@ local function effectiveEnvelope(track, voice)
     sustain = track.sustain or voice.envelope.sustain,
     release = track.release or voice.envelope.release,
   }
+end
+
+-- The note's sweep pitch (TrackPlayNote): the track sweepPitch plus, under
+-- portamento, the (portamentoKey - midiKey) << 6 contribution (the sums
+-- stay in the s16 domain).
+local function sweepPitchFor(track, midiKey)
+  local sweepPitch = track.sweepPitch
+  if track.portamento then
+    sweepPitch = toS16(sweepPitch + (track.portamentoKey - midiKey) * 64)
+  end
+  return sweepPitch
+end
+
+-- The note's sweep length (TrackPlayNote): with no portamento time the
+-- sweep length is the note length and the sweep does not advance on its
+-- own (non-auto); with one it is time^2 * |sweepPitch| >> 11 over the
+-- note's own sweep pitch and the mixer advances it per control step
+-- (auto).
+local function sweepLengthFor(track, length, midiKey)
+  local sweepPitch = sweepPitchFor(track, midiKey)
+  if track.portamentoTime == 0 then
+    return length
+  end
+  local magnitude = sweepPitch < 0 and -sweepPitch or sweepPitch
+  return math.floor(track.portamentoTime * track.portamentoTime * magnitude / 2048)
 end
 
 -- Prunes the track's voice collection by mixer liveness: the mixer owns
@@ -364,6 +411,21 @@ local function pruneTrackVoices(self, track)
   end
   for index = write, count do
     track.voices[index] = nil
+  end
+end
+
+-- Starts the mixer release of one attached voice record and marks the
+-- record releasing: the handle STAYS attached (the SDK TrackReleaseChannels
+-- without TrackFreeChannels -- natural length expiry and mute mode 2), so
+-- the release tail keeps receiving fader-only updates and the note-finish
+-- hold keeps waiting on real liveness. `releaseOverride` (nil or an
+-- integer 0..127) is passed to the mixer noteOff -- the forced track-release
+-- path the transport pause uses. A voice already marked releasing is never
+-- released again when its sequence length bookkeeping is revisited.
+local function noteOff(self, voice, releaseOverride)
+  if not voice.releasing then
+    self._mixer:noteOff(voice.handle, releaseOverride)
+    voice.releasing = true
   end
 end
 
@@ -423,18 +485,9 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   -- the s16 domain). With no portamento time the sweep length is the note
   -- length and the sweep does not advance on its own; with one it is
   -- time^2 * |sweepPitch| >> 11 and the mixer advances it per control step.
-  spec.sweepPitch = track.sweepPitch
-  if track.portamento then
-    spec.sweepPitch = toS16(spec.sweepPitch + (track.portamentoKey - midiKey) * 64)
-  end
-  if track.portamentoTime == 0 then
-    spec.sweepLength = length
-    spec.autoSweep = false
-  else
-    local magnitude = spec.sweepPitch < 0 and -spec.sweepPitch or spec.sweepPitch
-    spec.sweepLength = math.floor(track.portamentoTime * track.portamentoTime * magnitude / 2048)
-    spec.autoSweep = true
-  end
+  spec.sweepPitch = sweepPitchFor(track, midiKey)
+  spec.sweepLength = sweepLengthFor(track, length, midiKey)
+  spec.autoSweep = track.portamentoTime ~= 0
   spec.sweepCounter = 0
   spec.lfo = {
     target = track.mod.target,
@@ -446,19 +499,6 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   return self._mixer:noteOn(spec)
 end
 
--- Releases every live voice handle of a track (a soft release; each voice
--- rings out its release tail) and clears the collection. Dead handles are
--- pruned first, so a stale handle never gets a release. `releaseOverride`
--- (nil or an integer 0..127) is passed to the mixer noteOffs -- the forced
--- track-release path the transport pause uses.
-local function releaseTrackVoices(self, track, releaseOverride)
-  pruneTrackVoices(self, track)
-  for index = 1, #track.voices do
-    self._mixer:noteOff(track.voices[index].handle, releaseOverride)
-  end
-  track.voices = {}
-end
-
 -- Queues the current track values to every live voice handle of a track
 -- (the NNS TrackUpdateChannel delivery): a track/player control command or
 -- a fader change delivers the current values as an event immediately, and
@@ -467,9 +507,12 @@ end
 -- and never rounds it. New notes already receive the current values in
 -- their noteOn spec. The partial carries the user pitch and the track's
 -- live LFO parameter table, so later modulation commands change the values
--- the mixer applies.
+-- the mixer applies. After release status an attached releasing voice
+-- receives ONLY the fader contribution (TrackUpdateChannel updates
+-- userDecay2 on linked channels and skips every other field); the full
+-- track values reach the still-non-releasing voices.
 local function pushTrackValues(self, instance, track)
-  local partial = {
+  local full = {
     trackVolume = clamp(track.volume, 0, 127),
     expression = clamp(track.expression, 0, 127),
     playerVolume = clamp(instance.volume, 0, 127),
@@ -480,8 +523,38 @@ local function pushTrackValues(self, instance, track)
     fader = NnsSoundMath.decibelSquare(instance.fader),
   }
   for index = 1, #track.voices do
-    self._mixer:updateVoice(track.voices[index].handle, partial)
+    local voice = track.voices[index]
+    if voice.releasing then
+      -- Attached releasing voices take the fader contribution only.
+      self._mixer:updateVoice(voice.handle, { fader = full.fader })
+    else
+      self._mixer:updateVoice(voice.handle, full)
+    end
   end
+end
+
+-- Releases every live voice handle of a track and clears the collection
+-- (the SDK TrackReleaseChannels + TrackFreeChannels -- the tie, mute-stop,
+-- pause, stop and open-track-replacement paths): the source release
+-- operation first delivers the current full non-release track values to
+-- the attached channels once (TrackReleaseChannels starts with
+-- TrackUpdateChannel(track, player, 0)), then starts the release on each
+-- live voice, then drops every handle -- the physical release tails may
+-- continue in the mixer. `releaseOverride` (nil or an integer 0..127) is
+-- passed to the mixer noteOffs -- the forced track-release path pause and
+-- mute mode 3 use. A voice already marked releasing is not released again.
+-- An empty collection makes this a no-op, so a replacement/pause over an
+-- already-freed instance releases nothing extra.
+local function releaseTrackVoices(self, instance, track, releaseOverride)
+  pruneTrackVoices(self, track)
+  if #track.voices == 0 then
+    return
+  end
+  pushTrackValues(self, instance, track)
+  for index = 1, #track.voices do
+    noteOff(self, track.voices[index], releaseOverride)
+  end
+  track.voices = {}
 end
 
 -- Executes one instruction, mutating the track, and returns the next
@@ -517,21 +590,47 @@ local function execute(self, instance, track, instruction)
         -- live voice a fresh tied channel starts, also indefinite.
         pruneTrackVoices(self, track)
         if #track.voices > 0 then
+          -- The full source common tail on the SAME physical generation
+          -- (SND_seq.c TrackPlayNote over the existing channelLLHead): the
+          -- key/velocity update in place, only the track's set envelope
+          -- overrides replace the channel's coefficients, and the sweep
+          -- state is recomputed with the counter reset to zero -- the
+          -- envelope stage and the generator/sample phase never restart.
           local head = track.voices[#track.voices]
-          self._mixer:updateVoice(head.handle, {
+          self._mixer:retargetTiedVoice(head.handle, {
             key = midiKey,
             velocity = instruction.velocity,
+            -- The current track envelope overrides: a set override replaces
+            -- exactly that stage of the voice envelope; unset stages keep
+            -- the channel's existing coefficients.
+            envelope = {
+              attack = track.attack,
+              decay = track.decay,
+              sustain = track.sustain,
+              release = track.release,
+            },
+            sweepPitch = sweepPitchFor(track, midiKey),
+            sweepLength = sweepLengthFor(track, length, midiKey),
+            autoSweep = track.portamentoTime ~= 0,
+            -- The source TrackPlayNote tail resets the sweep counter to
+            -- zero so the recomputed sweep runs its full length from the
+            -- re-note.
+            sweepCounter = 0,
           })
         else
           local handle = startNote(self, instance, track, midiKey, instruction.velocity, length)
           if handle ~= nil then
-            track.voices[#track.voices + 1] = { handle = handle, length = -1 }
+            track.voices[#track.voices + 1] = { handle = handle, length = -1, releasing = false }
           end
         end
       else
         local handle = startNote(self, instance, track, midiKey, instruction.velocity, length)
         if handle ~= nil then
-          track.voices[#track.voices + 1] = { handle = handle, length = length > 0 and length or -1 }
+          track.voices[#track.voices + 1] = {
+            handle = handle,
+            length = length > 0 and length or -1,
+            releasing = false,
+          }
         end
       end
     end
@@ -602,7 +701,7 @@ local function execute(self, instance, track, instruction)
     -- fresh at the target.
     local previous = instance.tracks[instruction.track]
     if previous ~= nil then
-      releaseTrackVoices(self, previous)
+      releaseTrackVoices(self, instance, previous)
     end
     instance.tracks[instruction.track] = newTrack(instruction.target)
   elseif op == "tempo" then
@@ -638,7 +737,14 @@ local function execute(self, instance, track, instruction)
     track.bend = toS8(resolveAmount(self, instruction.amount, instance))
     pushTrackValues(self, instance, track)
   elseif op == "pitch_bend_range" then
+    -- 0xC5: the bend range is a LIVE channel control: the recomputed user
+    -- pitch reaches every attached non-releasing voice immediately (the
+    -- source TrackUpdateChannel pitch = bend * (range << 6) >> 7), with no
+    -- note restart; attached releasing voices still receive the fader only.
+    -- With no attached voice the track state alone changes and the next
+    -- note starts at the new range.
     track.bendRange = toU8(resolveAmount(self, instruction.amount, instance))
+    pushTrackValues(self, instance, track)
   elseif op == "note_wait" then
     -- 0xC7 sets/clears the note-gating flag (u8, nonzero = set).
     track.noteWait = toU8(resolveAmount(self, instruction.amount, instance)) ~= 0
@@ -650,12 +756,15 @@ local function execute(self, instance, track, instruction)
     -- TrackReleaseChannels + TrackFreeChannels after setting the flag); a
     -- tied note over an active voice reuses it.
     track.tie = toU8(resolveAmount(self, instruction.amount, instance)) ~= 0
-    releaseTrackVoices(self, track)
+    releaseTrackVoices(self, instance, track)
   elseif op == "mute" then
     -- SDK TrackMute: 0 unmutes, 1 mutes future notes (they still gate the
-    -- track), 2 additionally releases the track's voices, 3 releases and
-    -- drops them (the SDK's fast release + free; our mixer's soft release
-    -- keeps the ring-out). Other mode values are no-ops.
+    -- track), 2 additionally releases the track's voices but leaves the
+    -- handles attached -- the releasing voices keep receiving fader-only
+    -- updates until the mixer reports them dead (release without free) --
+    -- and 3 is the fast release + free: it releases with the forced
+    -- override 127 and immediately detaches the handles while the physical
+    -- release tails may continue. Other mode values are no-ops.
     local mode = toU8(resolveAmount(self, instruction.amount, instance))
     if mode == 0 then
       track.mute = 0
@@ -663,12 +772,16 @@ local function execute(self, instance, track, instruction)
       track.mute = 1
     elseif mode == 2 then
       track.mute = 2
+      -- The SDK TrackMute release-without-free: TrackReleaseChannels first
+      -- delivers the current full track values to the attached channels,
+      -- then starts the ordinary release; the handles stay attached.
+      pushTrackValues(self, instance, track)
       for index = 1, #track.voices do
-        self._mixer:noteOff(track.voices[index].handle)
+        noteOff(self, track.voices[index])
       end
     elseif mode == 3 then
       track.mute = 3
-      releaseTrackVoices(self, track)
+      releaseTrackVoices(self, instance, track, 127)
     end
   elseif op == "attack" then
     track.attack = toU8(resolveAmount(self, instruction.amount, instance))
@@ -848,7 +961,7 @@ local function releaseInstance(self, instance)
   for trackId = 0, TRACK_COUNT - 1 do
     local track = instance.tracks[trackId]
     if track ~= nil then
-      releaseTrackVoices(self, track)
+      releaseTrackVoices(self, instance, track)
     end
   end
 end
@@ -980,7 +1093,7 @@ function SequencePlayer:pausePlayer(playerId)
   for trackId = 0, TRACK_COUNT - 1 do
     local track = instance.tracks[trackId]
     if track ~= nil then
-      releaseTrackVoices(self, track, 127)
+      releaseTrackVoices(self, instance, track, 127)
     end
   end
 end
@@ -1000,70 +1113,83 @@ end
 
 -- Executes one source sequence tick for one active, unpaused player
 -- (SND_seq.c PlayerStepTicks): every live track of the player steps
--- ascending track id 0..15, following the TrackStepTicks order -- each
--- ringing voice's remaining length expires (releasing at zero, independent
--- of gates), the note-finish hold clears once its live handles are all
--- gone, the gate's integer wait decrements, and a track whose wait reached
--- zero fetches its following instructions (its command loop runs until it
--- gates again or ends). `processSoundInterval` calls this once per tick the
--- player's tempoCounter produces; it owns no frame timing of its own.
+-- ascending track id 0..15, following the TrackStepTicks order -- dead
+-- handles are pruned first, then each attached voice's remaining length
+-- expires (ordinary release at zero, independent of gates) and its non-auto
+-- sweep advances once through the mixer, then the note-finish hold clears
+-- only once all attached handles are gone (an attached release tail keeps
+-- it blocked), then the gate's integer wait decrements, and a track whose
+-- wait reached exactly zero fetches its following instructions (its command
+-- loop runs until it gates again or ends). `processSoundInterval` calls
+-- this once per tick the player's tempoCounter produces; it owns no frame
+-- timing of its own.
 local function stepSequenceTick(self, instance)
   for trackId = 0, TRACK_COUNT - 1 do
     local track = instance.tracks[trackId]
     if track ~= nil then
-      -- Dead/stolen handles leave the collection first, so a release or a
-      -- later note never touches a stale handle.
+      -- 1. Dead/stolen handles leave the collection first, so a release or
+      -- a later note never touches a stale handle.
       pruneTrackVoices(self, track)
-      -- Each voice's own length expires at its tick boundary (the NNS
-      -- channel length): only positive finite lengths decrement, and an
-      -- expired voice is released and dropped from the collection. Tied and
-      -- non-positive-length voices are indefinite and are never released by
-      -- the counter.
-      local write = 1
-      local count = #track.voices
-      for index = 1, count do
+      -- 2. Each attached voice's own length expires at its tick boundary
+      -- (the NNS channel length): only positive finite lengths decrement,
+      -- and an expired voice starts an ordinary release at zero while its
+      -- record STAYS attached and marked releasing (TrackReleaseChannels
+      -- without TrackFreeChannels) until the mixer reports it dead. Tied
+      -- and non-positive-length voices are indefinite and are never
+      -- released by the counter. Every still-attached live voice also gets
+      -- exactly one non-auto sweep advancement through the mixer's
+      -- explicit track-tick operation (TrackStepTicks advances every linked
+      -- non-auto-sweep channel's counter once per tick); an auto-sweep
+      -- voice is untouched here, and a voice whose length just expired is
+      -- advanced once before its release starts.
+      for index = 1, #track.voices do
         local voice = track.voices[index]
+        -- Every still-attached live voice gets exactly one non-auto sweep
+        -- advancement through the mixer's explicit track-tick operation
+        -- (TrackStepTicks advances every linked non-auto-sweep channel's
+        -- counter once per tick, releasing voices included -- the release
+        -- keeps the channel linked, so its portamento slide continues
+        -- through the tail); an auto-sweep voice is untouched here. The
+        -- advance happens BEFORE the length expiry marks its release.
+        self._mixer:advanceTrackTick(voice.handle)
         if voice.length > 0 then
           voice.length = voice.length - 1
-          if voice.length > 0 then
-            track.voices[write] = voice
-            write = write + 1
-          else
-            self._mixer:noteOff(voice.handle)
+          if voice.length == 0 then
+            noteOff(self, voice)
           end
-        else
-          track.voices[write] = voice
-          write = write + 1
         end
       end
-      for index = write, count do
-        track.voices[index] = nil
-      end
-      -- The note-finish hold clears on the first tick whose live handles
+      -- 3. The note-finish hold clears on the first tick whose live handles
       -- are all gone (SND_seq.c TrackStepTicks: the note_finish_wait check
       -- runs per tick over the track's channel list; the wait clears when
-      -- the list is empty and the track resumes in the same tick).
-      if track.noteFinishWait and #track.voices == 0 then
-        track.noteFinishWait = false
-      end
-      -- The gate: the integer wait decrements only while positive (the SDK
-      -- TrackStepTicks `if (track->wait > 0) track->wait--`), so a negative
-      -- wait never moves toward zero and the track stays stalled. A gate
-      -- that reaches exactly zero opens and the track's command loop resumes
-      -- in the same tick.
-      if track.gated then
-        if track.wait > 0 then
-          track.wait = track.wait - 1
-          if track.wait == 0 then
-            track.gated = false
+      -- the list is empty and the track resumes in the same tick). An
+      -- attached release tail keeps the hold blocked even though the
+      -- sequence note length reached zero earlier; a voice the mixer
+      -- reported dead was already pruned and cannot keep the hold alive.
+      -- The hold blocks only THIS track's wait/fetch (the source returns
+      -- from the per-track TrackStepTicks); the other tracks of the player
+      -- still step in the same pass.
+      if not track.noteFinishWait or #track.voices == 0 then
+        if track.noteFinishWait then
+          track.noteFinishWait = false
+        end
+        -- 4. The gate: the integer wait decrements only while positive (the
+        -- SDK TrackStepTicks `if (track->wait > 0) track->wait--`), so a
+        -- negative wait never moves toward zero and the track stays stalled.
+        if track.gated then
+          if track.wait > 0 then
+            track.wait = track.wait - 1
+            if track.wait == 0 then
+              track.gated = false
+            end
           end
         end
-      end
-      -- Commands execute only at the exact zero wait (never `<= 0`): a
-      -- negative wait never fetches, and a gated track whose wait is still
-      -- positive waits for its remaining ticks.
-      if not track.ended and not track.gated and track.wait == 0 and not track.noteFinishWait then
-        fetch(self, instance, track)
+        -- 5. Commands execute only at the exact zero wait (never `<= 0`): a
+        -- negative wait never fetches, and a gated track whose wait is still
+        -- positive waits for its remaining ticks.
+        if not track.ended and not track.gated and track.wait == 0 and not track.noteFinishWait then
+          fetch(self, instance, track)
+        end
       end
     end
   end

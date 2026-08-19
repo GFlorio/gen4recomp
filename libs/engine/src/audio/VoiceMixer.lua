@@ -42,9 +42,13 @@
 --     noteOff/updateVoice/isVoiceAlive on a stale handle are harmless.
 --   * LFO (SND_UpdateLfo/SND_GetLfoValue/SND_SinIdx) and sweep
 --     (ExChannelSweepUpdate) state machines run per control step and feed
---     the pitch/volume/pan calculations; the sweep counter advances only
---     at control steps (a noteOn's own step contributes the full
---     sweepPitch without advancing the counter).
+--     the pitch/volume/pan calculations; the sweep counter has exactly one
+--     owner per auto flag (TrackStepTicks vs ExChannelMain): a non-auto
+--     voice advances it once per sequence tick through the explicit
+--     advanceTrackTick(handle) -- capped at the sweep length -- and an
+--     auto voice advances it at control steps only. The noteOn itself is
+--     the note's first control step and contributes the full sweepPitch
+--     without advancing the counter.
 --   * Square duty is the discrete integer 0..7 index consumed directly
 --     (8-sample cycle starting at LOW, HIGH=(d+1)*12.5%; duty 7 is the
 --     all-LOW special pattern); noise is the 15-bit LFSR from 7FFFh
@@ -66,6 +70,8 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field noteOn fun(self: VoiceMixer, spec: table): { channel: integer, generation: integer } | nil
 ---@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, releaseOverride: integer?)
 ---@field updateVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, partial: table)
+---@field advanceTrackTick fun(self: VoiceMixer, handle: { channel: integer, generation: integer })
+---@field retargetTiedVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, spec: table)
 ---@field isVoiceAlive fun(self: VoiceMixer, handle: { channel: integer, generation: integer }): boolean
 ---@field controlStep fun(self: VoiceMixer)
 ---@field renderInto fun(self: VoiceMixer, out: integer[], frames: integer)
@@ -628,6 +634,75 @@ function VoiceMixer:updateVoice(handle, partial)
   voice.pending.dirty = true
 end
 
+-- The sequence-owned non-auto sweep advancement (SND_seq.c TrackStepTicks:
+-- every linked non-auto-sweep channel's counter advances once per sequence
+-- tick while below the sweep length): increments the named live voice's
+-- sweep counter exactly once, capped at its sweep length. An auto-sweep
+-- voice is untouched -- its counter belongs to the 192 Hz control cadence
+-- (controlStep) -- and a stale/dead handle is a harmless no-op like the
+-- other handle operations. This is a pure counter advance: the envelope,
+-- the release status and the generator position never move here.
+---@param handle { channel: integer, generation: integer }
+function VoiceMixer:advanceTrackTick(handle)
+  local voice = self._channels[handle.channel]
+  if voice == nil or voice.generation ~= handle.generation then
+    return
+  end
+  if not voice.autoSweep and voice.sweepPitch ~= 0 and voice.sweepCounter < voice.sweepLength then
+    voice.sweepCounter = voice.sweepCounter + 1
+  end
+end
+
+-- The tied-note common-tail mutation (SND_seq.c TrackPlayNote over an
+-- existing channelLLHead): applies the key/velocity to the named live
+-- voice and recomputes the sweep configuration (sweep pitch, the sweep
+-- length, the auto-sweep choice) with the sweep counter reset to zero, all
+-- on the SAME voice generation: no allocation, no release, and no
+-- envelope-stage or generator/sample phase reset. The optional `envelope`
+-- carries only the track's set override stages -- nil keeps the channel's
+-- existing coefficient, mirroring the source's non-0xFF guards -- and a
+-- `sweepLength` of zero disables the sweep contribution (the non-auto
+-- counter can never reach a zero length). A stale/dead handle is a
+-- harmless no-op.
+---@param handle { channel: integer, generation: integer }
+---@param spec table
+function VoiceMixer:retargetTiedVoice(handle, spec)
+  local voice = self._channels[handle.channel]
+  if voice == nil or voice.generation ~= handle.generation then
+    return
+  end
+  if spec.key ~= nil then
+    voice.midiKey = spec.key
+  end
+  if spec.velocity ~= nil then
+    voice.velocity = spec.velocity
+  end
+  if spec.envelope ~= nil then
+    if spec.envelope.attack ~= nil then
+      voice.envAttack = NnsSoundMath.attackCoefficient(spec.envelope.attack)
+    end
+    if spec.envelope.decay ~= nil then
+      voice.envDecay = NnsSoundMath.decayCoefficient(spec.envelope.decay)
+    end
+    if spec.envelope.sustain ~= nil then
+      voice.envSustain = spec.envelope.sustain
+    end
+    if spec.envelope.release ~= nil then
+      voice.envRelease = NnsSoundMath.decayCoefficient(spec.envelope.release)
+    end
+  end
+  if spec.sweepPitch ~= nil then
+    voice.sweepPitch = spec.sweepPitch
+  end
+  if spec.sweepLength ~= nil then
+    voice.sweepLength = spec.sweepLength
+  end
+  if spec.autoSweep ~= nil then
+    voice.autoSweep = spec.autoSweep
+  end
+  voice.sweepCounter = 0
+end
+
 -- The mixer owns voice liveness: true from noteOn until the mixer removes
 -- the voice (a natural one-shot death or the release-stop step); false for
 -- an empty channel, a generation mismatch, and a removed voice. The
@@ -644,9 +719,12 @@ end
 -- first -- so the boundary frame's own PCM read hears the new registers and
 -- a releasing voice whose current inputs cross the stop threshold dies
 -- here -- then every live channel advances its envelope/sweep/LFO state
--- machines once and resyncs its registers. Deterministic ascending channel
--- order; the external scheduler calls this exactly once per completed
--- sound interval after all sequence ticks.
+-- machines once and resyncs its registers. The sweep counter advances only
+-- for auto-sweep voices at this step (ExChannelSweepUpdate); the non-auto
+-- counter is the sequence tick's property (advanceTrackTick) and never
+-- moves here. Deterministic ascending channel order; the external scheduler
+-- calls this exactly once per completed sound interval after all sequence
+-- ticks.
 function VoiceMixer:controlStep()
   for channel = 0, CHANNEL_COUNT - 1 do
     local voice = self._channels[channel]

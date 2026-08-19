@@ -219,7 +219,7 @@ end
 -- liveness-based pruning and finish waits are observable. Every call is
 -- logged for assertions.
 local function stubMixer()
-  local log = { noteOns = {}, noteHandles = {}, noteOffs = {}, updates = {}, renders = {} }
+  local log = { noteOns = {}, noteHandles = {}, noteOffs = {}, updates = {}, renders = {}, trackTicks = {} }
   local generation = 0
   local alive = {}
   local mixer = {
@@ -240,11 +240,23 @@ local function stubMixer()
     updateVoice = function(_, handle, partial)
       log.updates[#log.updates + 1] = { handle = handle, partial = partial }
     end,
+    -- The tied-note common-tail semantic operation (the target C05 mixer
+    -- boundary): recorded into the same update log as updateVoice so the
+    -- player-visible contract is one atomic update to the reused handle.
+    retargetTiedVoice = function(_, handle, partial)
+      log.updates[#log.updates + 1] = { handle = handle, partial = partial }
+    end,
     isVoiceAlive = function(_, handle)
       return alive[handle.generation] == true
     end,
     kill = function(_, handle)
       alive[handle.generation] = false
+    end,
+    -- The sequence-owned non-auto sweep advancement (the target C05
+    -- semantic operation): the recorder exposes the per-tick calls so the
+    -- sweep-ownership contract is observable at the player boundary.
+    advanceTrackTick = function(_, handle)
+      log.trackTicks[#log.trackTicks + 1] = handle
     end,
     controlStep = function(self)
       self.controlSteps[#self.controlSteps + 1] = true
@@ -1371,7 +1383,10 @@ function T.held_voices_receive_pitch_bend_updates_in_place()
   Assert.equal(mixer.log.noteOns[1].userPitch, 0, "the note starts at the unbent pitch")
   player:render(100)
   Assert.isTrue(#mixer.log.updates > 0, "the bend change is queued to the active voice")
-  local push = mixer.log.updates[1]
+  -- The pitch_bend_range command also pushes the recomputed user pitch
+  -- (bend 0 at the default range 2 -> 0), so the bend command's push is the
+  -- last update.
+  local push = mixer.log.updates[#mixer.log.updates]
   Assert.deepEqual(push.handle, { channel = 3, generation = 0 }, "the update targets the active voice's handle")
   Assert.equal(push.partial.userPitch, 64, "the bend reaches the held voice as user pitch (64*128>>7 = 64)")
   Assert.isNil(push.partial.key, "the update changes pitch without replacing the voice's midi key")
@@ -1904,11 +1919,15 @@ function T.pause_releases_channels_with_an_override_and_resume_does_not_resurrec
   player:render(6000)
   Assert.equal(#mixer.log.noteOns, 1, "no notes issue while paused")
   Assert.equal(#mixer.log.noteOffs, 1, "no voice expires while the timeline is frozen")
+  -- The pause release itself pre-pushed the current full track values once
+  -- (the source TrackReleaseChannels opens with TrackUpdateChannel) before
+  -- the forced release and free; nothing after that touches the old handle.
+  local updatesAtPause = #mixer.log.updates
   player:resumePlayer(1)
   player:render(4000)
   Assert.equal(
     #mixer.log.updates,
-    0,
+    updatesAtPause,
     "resume does not resurrect the released voice: its handle is gone from the tracks"
   )
   Assert.deepEqual(
@@ -1978,6 +1997,387 @@ function T.playing_on_a_paused_player_releases_and_replaces()
     { { handle = { channel = 3, generation = 0 }, releaseOverride = 127 } },
     "the pause release was the only release: the freed paused instance adds none"
   )
+end
+
+-- The natural-duration release is a release START, not a detach: when a
+-- positive note length reaches zero the player calls one ordinary noteOff
+-- and keeps the record attached while the mixer still reports the voice
+-- alive (the SDK's TrackReleaseChannels without TrackFreeChannels). A
+-- note-finish wait coexisting with such an attached release tail therefore
+-- stays blocked until the mixer reports the tail dead, even though the
+-- sequence note length reached zero earlier, and no second noteOff is
+-- issued merely because the tail remains alive. The recording mixer's
+-- kill() simulates the mixer removing a voice at its own death moment.
+function T.natural_release_stays_attached_until_the_mixer_reports_death()
+  local mixer = stubMixer()
+  -- The finite note A rings its own length; the zero-length note B (under
+  -- note-wait) sets the note-finish hold after A's length expires; the
+  -- marker C must not start until every attached voice -- including A's
+  -- release tail -- is dead.
+  local player, provider = engine({
+    [0] = seq({
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 2 },
+      { op = "note", key = 61, velocity = 127, duration = 0 },
+      { op = "note", key = 62, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider) -- tick 1 (frame 250): note A starts and gates the track
+  player:render(500) -- tick 2 (frame 750): A's wait decrements
+  player:render(500) -- tick 3 (frame 1250): A's length expires; B sets the finish hold
+  local handleA = mixer.log.noteHandles[1]
+  local handleB = mixer.log.noteHandles[2]
+  Assert.equal(#mixer.log.noteOns, 2, "the finite note and the zero-length note both allocated")
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "the length expiry calls one ordinary noteOff at length zero"
+  )
+  Assert.isTrue(mixer:isVoiceAlive(handleA), "the released voice is still alive in the mixer")
+  player:render(500) -- tick 4 (frame 1750): the finish hold is still blocked
+  Assert.equal(#mixer.log.noteOns, 2, "the finish hold stays blocked while the release tail lives")
+  Assert.equal(#mixer.log.noteOffs, 1, "no second noteOff is issued merely because the release tail remains alive")
+  -- The zero-length note's voice dies (stolen or naturally stopped), but
+  -- A's attached release tail is still alive: the finish hold must NOT
+  -- clear -- the attached releasing voice keeps the track blocked.
+  mixer:kill(handleB)
+  player:render(500) -- tick 5 (frame 2250)
+  Assert.equal(#mixer.log.noteOns, 2, "the finish hold does not clear while the attached release tail is still alive")
+  Assert.isTrue(mixer:isVoiceAlive(handleA), "the release tail is still alive")
+  -- Only when the mixer reports the tail dead does the hold clear and the
+  -- marker note run.
+  mixer:kill(handleA)
+  player:render(500) -- tick 6 (frame 2750): the finish hold clears; marker C starts
+  Assert.equal(#mixer.log.noteOns, 3, "the finish hold clears only when every attached voice is dead")
+  Assert.equal(mixer.log.noteOns[3].key, 62, "the marker note starts after the tail died")
+  -- Marker C gates the track for its own duration; the following tick runs
+  -- its `end`.
+  player:render(500) -- tick 7 (frame 3250)
+  Assert.isFalse(player:isPlaying())
+end
+
+-- Mute mode 2 (the SDK TrackMute release-without-free) starts an ordinary
+-- release on the track's attached voices but leaves the handles attached:
+-- a later fader move still reaches the releasing voices, while a
+-- non-fader track control (volume, pan, user pitch) must not be pushed to
+-- them after release status (source TrackUpdateChannel updates only
+-- userDecay2 on linked releasing channels). This is the explicit-detach
+-- contrast: tie/pause/stop drop the handle immediately.
+function T.mute_two_keeps_releasing_voices_attached_for_fader_updates()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 3 },
+      { op = "wait", duration = 1 },
+      { op = "mute", amount = 2 },
+      { op = "wait", duration = 1 },
+      { op = "pan", amount = 40 },
+      { op = "wait", duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  local handle = mixer.log.noteHandles[1]
+  player:render(500) -- tick 1 (frame 250): note + wait gate; tick 2 (frame 500): mute 2 executes
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "mute 2 releases the attached voice with the ordinary release (no override)"
+  )
+  Assert.isTrue(mixer:isVoiceAlive(handle), "mute 2 leaves the releasing voice attached and alive")
+  -- The mute-2 tick itself pre-pushes the current full track values once
+  -- (the source TrackReleaseChannels opens with TrackUpdateChannel, while
+  -- the voice is still non-releasing); from the release start on, only
+  -- fader changes may be queued. The pan command after mute 2 must reach
+  -- nothing.
+  local updatesAtMute2 = #mixer.log.updates
+  player:render(500) -- tick 3 (frame 750): the pan command runs
+  local pushedPan = false
+  for index = updatesAtMute2 + 1, #mixer.log.updates do
+    if mixer.log.updates[index].partial.trackPanOffset ~= nil then
+      pushedPan = true
+    end
+  end
+  Assert.isFalse(pushedPan, "a pan command after mute 2 must not reach the releasing voice")
+  -- A fader move still reaches the attached releasing voice (fader-only
+  -- post-release updates, source TrackUpdateChannel userDecay2).
+  player:setFader(1, 42)
+  player:render(10)
+  local faderPush
+  for _, update in ipairs(mixer.log.updates) do
+    if update.partial.fader ~= nil and update.partial.trackPanOffset == nil then
+      faderPush = update
+    end
+  end
+  Assert.notNil(faderPush, "a fader move still reaches the attached releasing voice")
+  Assert.deepEqual(faderPush.handle, { channel = 3, generation = 0 }, "the fader push targets the releasing handle")
+  Assert.equal(faderPush.partial.fader, NnsSoundMath.decibelSquare(42), "the fader reaches the mixer in the dB domain")
+  Assert.isNil(faderPush.partial.trackVolume, "the post-release push carries no non-fader track values")
+  Assert.isNil(faderPush.partial.userPitch, "the post-release push carries no pitch")
+  Assert.isNil(faderPush.partial.trackPanOffset, "the post-release push carries no pan")
+  -- The tie path is the detach contrast: releasing then dropping the
+  -- handle so a later command never updates it.
+  local tieMixer = stubMixer()
+  local tiePlayer, tieProvider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 3 },
+      { op = "wait", duration = 1 },
+      { op = "tie", amount = 1 },
+      { op = "wait", duration = 1 },
+      { op = "pan", amount = 40 },
+      { op = "end" },
+    }),
+  }, { mixer = tieMixer })
+  play(tiePlayer, tieProvider)
+  local tieHandle = tieMixer.log.noteHandles[1]
+  tiePlayer:render(500) -- the tie command releases and frees the handle
+  Assert.deepEqual(
+    tieMixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "the tie command releases the current voice"
+  )
+  -- The tie's own release pre-pushed the full track values once (the source
+  -- TrackReleaseChannels opens with TrackUpdateChannel); from the detach on,
+  -- the pan after the tie must reach nothing.
+  local updatesAtTie = #tieMixer.log.updates
+  tiePlayer:render(500) -- the pan after the tie runs on the empty collection
+  local tiePushes = 0
+  for index = updatesAtTie + 1, #tieMixer.log.updates do
+    if tieMixer.log.updates[index].partial.trackPanOffset ~= nil then
+      tiePushes = tiePushes + 1
+    end
+  end
+  Assert.equal(tiePushes, 0, "after the tie detaches the handle, a later pan never updates it")
+  Assert.isTrue(tieMixer:isVoiceAlive(tieHandle), "the mixer release tail may continue after the detach")
+end
+
+-- A tied re-note over a live head voice executes the source TrackPlayNote
+-- common tail on the SAME physical generation: no noteOn, no noteOff, the
+-- midi key and velocity update in place, the current track envelope
+-- overrides replace the voice's envelope coefficients (without resetting
+-- the attack stage or the sample phase), the sweep/portamento state is
+-- recomputed (sweep pitch plus the portamento contribution, the sweep
+-- length from portamentoTime, the auto-sweep choice) and the sweep
+-- counter resets to zero, and the track's portamento key updates to the
+-- new MIDI key after the note. The retargeted voice stays indefinite.
+function T.tied_renote_applies_the_full_common_tail_without_restarting()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "tie", amount = 1 },
+      { op = "note", key = 60, velocity = 96, duration = 1 },
+      { op = "sweep", amount = -100 },
+      { op = "portamento_key", amount = 65 },
+      { op = "portamento_time", amount = 8 },
+      { op = "attack", amount = 100 },
+      { op = "release", amount = 90 },
+      { op = "note", key = 61, velocity = 110, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "tie", amount = 0 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider) -- tick 1: the tie, re-note and wait all run
+  Assert.equal(#mixer.log.noteOns, 1, "the tied first note allocates one voice")
+  Assert.deepEqual(mixer.log.noteHandles[1], { channel = 3, generation = 0 })
+  Assert.equal(#mixer.log.noteOffs, 0, "the tied re-note never releases the reused voice")
+  Assert.equal(#mixer.log.updates, 1, "the common tail is one atomic update to the reused handle")
+  local tail = mixer.log.updates[1]
+  Assert.deepEqual(tail.handle, { channel = 3, generation = 0 }, "the update targets the same generation")
+  Assert.equal(tail.partial.key, 61, "the midi key updates in place")
+  Assert.equal(tail.partial.velocity, 110, "the velocity updates in place")
+  Assert.deepEqual(
+    tail.partial.envelope,
+    { attack = 100, decay = nil, sustain = nil, release = 90 },
+    "only the track's set envelope overrides reach the reused voice; unset stages keep the channel coefficients"
+  )
+  -- portamento_key 65 stores amount + transpose (65); the re-note's midi
+  -- key is 61, so the contribution is (65 - 61) << 6 = 256 added to the
+  -- track sweep -100: sweepPitch 156, sweepLength 8^2*156>>11 = 4, auto.
+  Assert.equal(tail.partial.sweepPitch, 156, "the sweep pitch is recomputed with the portamento contribution")
+  Assert.equal(tail.partial.sweepLength, 4, "the sweep length derives from portamentoTime")
+  Assert.equal(tail.partial.autoSweep, true, "nonzero portamento time selects the auto sweep")
+  Assert.equal(tail.partial.sweepCounter, 0, "the sweep counter resets to zero on the re-note")
+  player:render(500) -- tick 2: the wait expires; tie 0 releases and frees the reused voice
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "clearing the tie releases and frees the reused voice"
+  )
+  player:render(500) -- tick 3: end
+  Assert.equal(#mixer.log.noteOns, 1, "no voice was ever reallocated")
+  -- The portamento-key-after-note observable: the re-note updates the
+  -- track's portamento key to its own MIDI key, so a following re-note
+  -- slides from the just-played key. The first re-note (key 61) slides
+  -- from portamentoKey 64: sweep -100 + (64 - 61) << 6 = 92, sweep length
+  -- 8^2*92>>11 = 2; the second re-note (key 62) slides from the updated
+  -- portamentoKey 61: sweep -100 + (61 - 62) << 6 = -164, length 5.
+  local slideMixer = stubMixer()
+  local slidePlayer, slideProvider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "tie", amount = 1 },
+      { op = "note", key = 60, velocity = 96, duration = 1 },
+      { op = "sweep", amount = -100 },
+      { op = "portamento_key", amount = 64 },
+      { op = "portamento_time", amount = 8 },
+      { op = "note", key = 61, velocity = 96, duration = 1 },
+      { op = "note", key = 62, velocity = 96, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "tie", amount = 0 },
+      { op = "end" },
+    }),
+  }, { mixer = slideMixer })
+  play(slidePlayer, slideProvider)
+  Assert.equal(slideMixer.log.updates[1].partial.sweepPitch, 92, "the first re-note slides from portamentoKey 64")
+  Assert.equal(slideMixer.log.updates[1].partial.sweepLength, 2, "the first re-note's sweep length matches")
+  Assert.equal(
+    slideMixer.log.updates[2].partial.sweepPitch,
+    -164,
+    "the second re-note slides from the updated portamento key (61)"
+  )
+  Assert.equal(slideMixer.log.updates[2].partial.sweepLength, 5, "the recomputed sweep length matches the slide")
+end
+
+-- A pitch-bend-range command is a live channel control, not next-note-only
+-- state: the player recomputes the user pitch (bend * (range << 6) >> 7)
+-- and queues it to every attached non-releasing voice immediately, without
+-- any note restart. A releasing attached voice receives no pitch update
+-- (fader-only after release status).
+function T.bend_range_changes_retune_held_voices_immediately()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 4 },
+      { op = "pitch_bend", amount = 64 },
+      { op = "pitch_bend_range", amount = 3 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  Assert.equal(mixer.log.noteOns[1].userPitch, 0, "the note starts unbent")
+  player:render(100) -- tick 1 runs the bend then the range change
+  local pushed
+  for _, update in ipairs(mixer.log.updates) do
+    if update.partial.userPitch ~= nil then
+      pushed = update
+    end
+  end
+  Assert.notNil(pushed, "the range change queues a user pitch update to the held voice")
+  Assert.deepEqual(pushed.handle, { channel = 3, generation = 0 }, "the update targets the held voice's handle")
+  Assert.equal(pushed.partial.userPitch, 96, "bend 64 at range 3 recomputes (64*192)>>7 = 96")
+  Assert.isNil(pushed.partial.key, "the range change retunes pitch without replacing the midi key")
+  Assert.equal(#mixer.log.noteOffs, 0, "no note restart occurs")
+  Assert.equal(#mixer.log.noteOns, 1, "no new voice is allocated")
+end
+
+-- The sweep counter has exactly one owner per auto flag: the sequence tick
+-- advances each attached non-auto-sweep voice exactly once per tick
+-- through the mixer's explicit track-tick operation (once per source
+-- sequence tick, whatever the interval tempo), and the mixer's control
+-- steps never advance the non-auto counter. A voice attaches during its
+-- starting tick's command fetch -- after the tick's sweep pass -- so its
+-- first advancement is the FOLLOWING tick; a voice whose sequence length
+-- expires is advanced once on that tick before its release starts, and its
+-- still-attached release tail keeps advancing on later ticks (source
+-- TrackStepTicks walks every linked non-auto channel, releasing included).
+-- Tempo 240 keeps the 192 Hz interval at exactly one sequence tick per
+-- completed interval, so each 250-frame render advances the timeline by
+-- one tick and the counts below are per-tick totals.
+function T.sequence_ticks_advance_non_auto_sweep_once_per_attached_voice()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "tempo", amount = 240 },
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 2 },
+      { op = "wait", duration = 1 },
+      { op = "jump", target = 2 },
+    }),
+  }, { mixer = mixer })
+  play(player, provider) -- tick 1 (frame 250): the note starts (attaches in fetch)
+  Assert.equal(#mixer.log.trackTicks, 0, "the starting tick's fetch attaches the voice after the sweep pass")
+  player:render(250) -- tick 2 (frame 500): the length decrements to 1
+  Assert.equal(#mixer.log.trackTicks, 1, "the following tick advances the fresh voice's non-auto sweep once")
+  Assert.deepEqual(
+    mixer.log.trackTicks[1],
+    { channel = 3, generation = 0 },
+    "the track tick targets the started voice's handle"
+  )
+  player:render(250) -- tick 3 (frame 750): the length expires (advance, then release starts)
+  Assert.equal(#mixer.log.trackTicks, 2, "the expiry tick advances the sweep once before the release starts")
+  player:render(250) -- tick 4 (frame 1000): the releasing tail stays attached and keeps advancing
+  Assert.equal(#mixer.log.trackTicks, 3, "the releasing voice's attached tail keeps advancing once per tick")
+  player:render(250) -- tick 5 (frame 1250): the wait expires, the jump re-notes
+  Assert.equal(#mixer.log.noteOns, 2, "the jump re-notes after the voice expired")
+  Assert.equal(
+    #mixer.log.trackTicks,
+    5,
+    "the re-note tick advances the releasing tail and the fresh voice exactly once each"
+  )
+  player:render(250) -- tick 6 (frame 1500): the fresh voice's length decrements
+  Assert.equal(
+    #mixer.log.trackTicks,
+    7,
+    "the two attached voices (the releasing tail and the fresh voice) each advance once"
+  )
+  Assert.equal(#mixer.controlSteps, 6, "six completed intervals ran six control steps")
+  Assert.equal(
+    #mixer.log.trackTicks,
+    7,
+    "the control steps never advanced the non-auto sweep: only the sequence ticks did"
+  )
+end
+
+-- Mute mode 3 is the SDK fast release + free: it sets the muted state,
+-- performs the release with the forced override 127 on the track's
+-- attached voices, and immediately detaches the handles -- so a later
+-- fader move or track command never reaches the old handle even though the
+-- mixer release tail may still be alive. It must never be modeled as mute
+-- mode 2 plus a deferred cleanup.
+function T.mute_three_forces_release_127_and_detaches_immediately()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 3 },
+      { op = "wait", duration = 1 },
+      { op = "mute", amount = 3 },
+      { op = "wait", duration = 1 },
+      { op = "pan", amount = 40 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  local handle = mixer.log.noteHandles[1]
+  player:render(500) -- tick 2 (frame 500): the mute 3 command executes
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = 127 } },
+    "mute 3 releases with the forced override 127 exactly once"
+  )
+  Assert.isTrue(mixer:isVoiceAlive(handle), "the mixer release tail may still be alive after mute 3")
+  -- The release itself pre-pushed the current full track values once (the
+  -- source TrackReleaseChannels opens with TrackUpdateChannel); from the
+  -- detach on, no later command may reach the old handle.
+  local updatesAtDetach = #mixer.log.updates
+  player:render(500) -- tick 3: the pan command runs after the detach
+  local after = 0
+  for index = updatesAtDetach + 1, #mixer.log.updates do
+    local update = mixer.log.updates[index]
+    if update.partial.fader ~= nil or update.partial.trackPanOffset ~= nil or update.partial.trackVolume ~= nil then
+      after = after + 1
+    end
+  end
+  Assert.equal(after, 0, "no fader or control update reaches the detached handle after mute 3")
+  Assert.equal(#mixer.log.noteOns, 1, "the muted track allocates no new voice")
+  player:render(500)
+  Assert.equal(#mixer.log.noteOffs, 1, "the detached handle is never released again")
 end
 
 -- The per-player fader (the GameSound fade hook): setFader stores the
@@ -2631,6 +3031,10 @@ end
 function BoundaryMixer:noteOff() end
 
 function BoundaryMixer:updateVoice() end
+
+function BoundaryMixer:advanceTrackTick() end
+
+function BoundaryMixer:retargetTiedVoice() end
 
 function BoundaryMixer:isVoiceAlive()
   return true

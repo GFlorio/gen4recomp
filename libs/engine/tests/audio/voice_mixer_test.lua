@@ -924,4 +924,87 @@ function T.renderInto_never_runs_a_control_step_without_an_explicit_call()
   Assert.equal(leftAt(tail, 251), 520, "the explicit control step applies the queued value (track volume 64)")
 end
 
+-- The sweep counter has exactly one owner per auto flag
+-- (SND_seq.c TrackStepTicks vs SND_ExChannelMain): a non-auto-sweep voice
+-- advances its counter only through the sequence-owned
+-- `advanceTrackTick(handle)` -- once per sequence tick, capped at the sweep
+-- length -- and a controlStep must never advance it; an auto-sweep voice
+-- advances only at control steps and never through `advanceTrackTick`. A
+-- stale/dead handle is a no-op like the other handle operations.
+local function sweepMixer(autoSweep)
+  local mixer = newMixer()
+  local handle = mixer:noteOn(spec({
+    pcm = WAVE16,
+    baseTimer = 512,
+    loop = { startFrame = 0, endFrame = 16 },
+    sweepPitch = 768,
+    sweepLength = 4,
+    autoSweep = autoSweep,
+    pan = 0,
+  })) --[[@as { channel: integer, generation: integer }]]
+  return mixer, handle
+end
+
+function T.advance_track_tick_never_releases_and_is_a_no_op_for_a_stale_handle()
+  local mixer, handle = sweepMixer(false)
+  local out = {}
+  mixer:renderInto(out, 250)
+  mixer:advanceTrackTick(handle)
+  Assert.isTrue(mixer:isVoiceAlive(handle), "the track tick advances the sweep, never the envelope or release")
+  -- A stale handle (a dead voice) is a harmless no-op.
+  mixer:noteOff(handle)
+  local tail = {}
+  mixer:renderInto(tail, 250)
+  mixer:controlStep()
+  mixer:controlStep()
+  Assert.isFalse(mixer:isVoiceAlive(handle), "the release completed and removed the voice")
+  mixer:advanceTrackTick(handle)
+  mixer:advanceTrackTick({ channel = handle.channel, generation = handle.generation + 1 })
+end
+
+function T.non_auto_sweep_advances_only_on_sequence_ticks_and_auto_sweep_only_on_control_steps()
+  -- Non-auto: four explicit advanceTrackTick calls move the counter to the
+  -- cap; pure rendering and control steps must not move it.
+  local manual, h = sweepMixer(false)
+  local manualOut = {}
+  manual:renderInto(manualOut, 250)
+  manual:advanceTrackTick(h)
+  manual:controlStep()
+  manual:renderInto(manualOut, 250)
+  manual:advanceTrackTick(h)
+  manual:advanceTrackTick(h)
+  manual:advanceTrackTick(h)
+  manual:advanceTrackTick(h) -- past the length: capped at sweepLength 4
+  manual:controlStep()
+  manual:controlStep()
+  manual:controlStep()
+  manual:renderInto(manualOut, 750)
+  Assert.equal(
+    leftAt(manualOut, 1250),
+    300,
+    "the capped counter holds the final contribution: at counter 4 the sweep has run out (timer 512) and the read lands on sample 3"
+  )
+  -- Auto: each control step advances the counter; advanceTrackTick must
+  -- never move it. With base timer 512 and sweepLength 4 the contribution
+  -- falls to zero at the step after the fourth advance (the existing
+  -- sweep_ramps pins the PCM register rows).
+  local auto, ha = sweepMixer(true)
+  auto:advanceTrackTick(ha) -- must be a no-op for the auto voice
+  local autoOut = {}
+  auto:renderInto(autoOut, 250)
+  auto:controlStep()
+  auto:advanceTrackTick(ha) -- must be a no-op
+  auto:renderInto(autoOut, 250)
+  auto:controlStep()
+  auto:renderInto(autoOut, 250)
+  auto:controlStep()
+  auto:renderInto(autoOut, 250)
+  auto:controlStep()
+  auto:renderInto(autoOut, 250)
+  auto:controlStep()
+  auto:renderInto(autoOut, 1)
+  Assert.equal(leftAt(autoOut, 501), 500, "auto step 2 lands the doubled-rate timer (the auto counter advanced)")
+  Assert.equal(leftAt(autoOut, 1251), 1100, "the auto sweep completed at the capped counter")
+end
+
 return { tests = T }
