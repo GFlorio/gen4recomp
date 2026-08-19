@@ -616,6 +616,7 @@ Schema.OPERATIONS = {
     },
   },
   fade_music_in = { fields = { durationTicks = { type = "integer", required = true } } },
+  process_soundplate = { fields = {} },
   fade_screen = {
     fields = {
       kind = { type = "integer", required = true },
@@ -1116,6 +1117,7 @@ Schema.CONSTRUCTORS = {
       { signature = "S.temporaryMusic(spec)", canonical = "op=temporary_music", notes = "spec={music}." },
       { signature = "S.fadeMusicOut(spec)", canonical = "op=fade_music_out", notes = "spec={target=0,durationTicks}." },
       { signature = "S.fadeMusicIn(spec)", canonical = "op=fade_music_in", notes = "spec={durationTicks}." },
+      { signature = "S.processSoundplate(spec)", canonical = "op=process_soundplate", notes = "spec optional." },
     },
   },
   {

@@ -239,6 +239,28 @@ function T.trainer_tips_and_wait_signpost_validate_canonical_shapes()
   }))
 end
 
+function T.process_soundplate_validates_as_zero_field_operation()
+  valid(S.script({
+    api = 1,
+    id = "x",
+    steps = {
+      S.processSoundplate(),
+      { op = "process_soundplate" },
+      S.processSoundplate({}),
+    },
+  }))
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "process_soundplate", force = true } },
+  })
+  invalidCode("SCRIPT_SCHEMA_INVALID", {
+    api = 1,
+    id = "x",
+    steps = { { op = "process_soundplate", extra = 1 } },
+  })
+end
+
 -- Opcode 61's terminal request_start_menu operation: no fields, accepts no
 -- operands (an extra field is a schema error).
 function T.request_start_menu_operation_has_no_operands()

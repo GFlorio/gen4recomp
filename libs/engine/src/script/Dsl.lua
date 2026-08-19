@@ -635,6 +635,9 @@ end
 function M.fadeMusicIn(spec)
   return op("fade_music_in", spec)
 end
+function M.processSoundplate(spec)
+  return op("process_soundplate", spec)
+end
 
 -- Screen, camera, and map constructors
 

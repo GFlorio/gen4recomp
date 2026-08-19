@@ -788,6 +788,9 @@ local HANDLERS = {
   [748] = function(ins)
     return { op = "context_choice", result = varRef(ins.operands[1]) }
   end,
+  [726] = function()
+    return { op = "process_soundplate" }
+  end,
 }
 
 -- Fold a compare/flag instruction with a following GoToIf/CallIf into one

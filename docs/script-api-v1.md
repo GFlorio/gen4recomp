@@ -216,6 +216,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | `S.temporaryMusic(spec)` | `op=temporary_music` | spec={music}. |
 | `S.fadeMusicOut(spec)` | `op=fade_music_out` | spec={target=0,durationTicks}. |
 | `S.fadeMusicIn(spec)` | `op=fade_music_in` | spec={durationTicks}. |
+| `S.processSoundplate(spec)` | `op=process_soundplate` | spec optional. |
 
 ### Screen, camera, and map constructors
 
@@ -918,6 +919,13 @@ No fields.
 | `key` | string |  |  |
 | `provenance` | source_provenance |  |  |
 | `sound` | scalar_or_value | yes |  |
+
+### `process_soundplate`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `key` | string |  |  |
+| `provenance` | source_provenance |  |  |
 
 ### `random`
 

@@ -935,6 +935,70 @@ T["audio handlers evaluate value references before the service call"] = function
   Assert.equal(h.audio.calls[4].fanfare, 42, "play_fanfare resolves the fanfare reference")
 end
 
+T["process soundplate calls forced processing once and continues same tick"] = function()
+  local h = harness({ audio = true })
+  local processCalls = 0
+  h.audio.processSoundplate = function(self)
+    processCalls = processCalls + 1
+  end
+  local resource = script("test.soundplate", {
+    S.processSoundplate(),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(processCalls, 1, "forced soundplate must be called exactly once")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1, "following node must run in the same tick")
+  Assert.isTrue(assert(h.services.events:eventFor("script.ended", "script-00000001")).completed)
+  Assert.equal(#h.scheduler:tasks(), 0, "process_soundplate must not create a task")
+end
+
+T["consecutive process soundplate calls run twice in one tick"] = function()
+  local h = harness({ audio = true })
+  local processCalls = 0
+  h.audio.processSoundplate = function(self)
+    processCalls = processCalls + 1
+  end
+  local resource = script("test.double", {
+    S.processSoundplate(),
+    S.processSoundplate(),
+    S.setVar({ variable = "VAR_AFTER", value = 1 }),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(processCalls, 2, "consecutive forced processing must not be coalesced")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+T["process soundplate without audio service faults with attribution"] = function()
+  local h = harness({ audio = false })
+  local resource = script("test.missingsoundplate", {
+    S.processSoundplate(),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_SERVICE_MISSING")
+end
+
+T["process soundplate after flag change sees updated event state"] = function()
+  local h = harness({ audio = true })
+  local seenFlag = nil
+  h.audio.processSoundplate = function(self)
+    seenFlag = h.services.world:isFlagSet("FLAG_WATERFALL_DONE")
+  end
+  local resource = script("test.flagbefore", {
+    S.setFlag({ flag = "FLAG_WATERFALL_DONE" }),
+    S.processSoundplate(),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.isTrue(seenFlag, "forced processing must see flags set earlier in the same tick")
+end
+
 -- 12. stop_music takes no operand (the StopBGM operand is an erasure at
 -- lowering): the node calls the service's stopMusic with no arguments and
 -- the currently playing BGM is stopped.

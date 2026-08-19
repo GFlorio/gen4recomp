@@ -870,6 +870,18 @@ local CASES = {
     end,
     { op = "fade_music_in", durationTicks = 30 },
   },
+  process_soundplate = {
+    function()
+      return S.processSoundplate()
+    end,
+    { op = "process_soundplate" },
+  },
+  process_soundplate_explicit = {
+    function()
+      return S.processSoundplate({})
+    end,
+    { op = "process_soundplate" },
+  },
   play_sound_var = {
     function()
       return S.playSound({ sound = S.var("VAR_SE") })
