@@ -135,12 +135,18 @@ local function assertControlStepFrames(mixer, sampleRate, expectedIntervals)
   -- expectedIntervals = { frame1, frame2, ... } — absolute frame indices where
   -- controlStep should be called
   local steps = mixer._controlSteps
-  Assert.equal(#steps, #expectedIntervals,
-    string.format("expected %d controlStep calls, got %d", #expectedIntervals, #steps))
+  Assert.equal(
+    #steps,
+    #expectedIntervals,
+    string.format("expected %d controlStep calls, got %d", #expectedIntervals, #steps)
+  )
   for i, expectedFrame in ipairs(expectedIntervals) do
     local step = steps[i]
-    Assert.equal(step.frameIndex, expectedFrame,
-      string.format("controlStep %d: expected frame %d, got %d", i, expectedFrame, step.frameIndex))
+    Assert.equal(
+      step.frameIndex,
+      expectedFrame,
+      string.format("controlStep %d: expected frame %d, got %d", i, expectedFrame, step.frameIndex)
+    )
   end
 end
 
@@ -180,7 +186,7 @@ T.tests["P5.1: first sequence tick occurs on first 192 Hz interval after play, n
   })
 
   local bank = AudioFixture.bank(1, "BANK_TEST", { key1 }, {
-    [0] = { kind = "direct", voice = voice(key1) }
+    [0] = { kind = "direct", voice = voice(key1) },
   })
 
   local bundle = AudioFixture.bundle()
@@ -215,28 +221,26 @@ T.tests["P5.1: first sequence tick occurs on first 192 Hz interval after play, n
 
   -- At this point, no noteOn should have occurred yet
   local notesBeforeRender = #mixer._events
-  Assert.equal(notesBeforeRender, 0,
-    "play() must not execute entry program immediately; expected 0 events, got " .. notesBeforeRender)
+  Assert.equal(
+    notesBeforeRender,
+    0,
+    "play() must not execute entry program immediately; expected 0 events, got " .. notesBeforeRender
+  )
 
   -- Render up to but not including the first 192 Hz boundary
   player:render(249) -- just under 250 frames at 48kHz = 1 boundary
 
   -- Still no note
-  Assert.equal(#mixer._events, 0,
-    "rendering less than one 192 Hz interval should not trigger first tick")
+  Assert.equal(#mixer._events, 0, "rendering less than one 192 Hz interval should not trigger first tick")
 
   -- Render past the first boundary
   player:render(2) -- cross the 250-frame boundary
 
   -- Now we should have at least a noteOn from the entry program
-  Assert.isTrue(#mixer._events > 0,
-    "first 192 Hz boundary should trigger entry program execution and noteOn")
+  Assert.isTrue(#mixer._events > 0, "first 192 Hz boundary should trigger entry program execution and noteOn")
 
   local firstEvent = mixer._events[1]
-  Assert.equal(firstEvent.type, "noteOn",
-    "first event after 192 Hz boundary should be noteOn, got " .. firstEvent.type)
+  Assert.equal(firstEvent.type, "noteOn", "first event after 192 Hz boundary should be noteOn, got " .. firstEvent.type)
 end
-
-
 
 return T

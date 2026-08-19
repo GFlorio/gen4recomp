@@ -1,13 +1,13 @@
 -- FieldAudioController: the stateful field-audio policy service. Owns the
 -- current field map audio record, effective field-music selection (day/night
--- + flag overrides + traversal override + persisted override), soundplate
--- selection and environmental audio state, and delegating the script audio
--- facade (play, stop, playMusic, etc.) to the composed GameSound instance.
+-- + flag overrides + persisted override), soundplate selection and
+-- environmental audio state, and delegating the script audio facade (play,
+-- stop, playMusic, etc.) to the composed GameSound instance.
 --
 -- Field-music policy:
 -- 1. mapHeaderMusic(): day/night selection + flag-based map override
--- 2. effectiveMusic(): traversal override > map-header > persisted override
--- 3. resetMusic(): map-header only (ignores traversal and persisted)
+-- 2. effectiveMusic(): persisted override > map-header
+-- 3. resetMusic(): map-header only (ignores persisted)
 --
 -- Soundplate/environment policy:
 -- - Selection: iterate source-order records, keep last (highest) match
@@ -15,51 +15,58 @@
 -- - Volume ramps: BGM duck + ambient moves via GameSound:moveSequenceVolume
 -- - Exit: fade-stop environment, restore BGM to level 128
 
-local Errors = require("libs.errors.src.Errors")
+local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
 ---@class FieldAudioController
 ---@field private _sound GameSound
 ---@field private _provider AudioAssetProvider
 ---@field private _eventState any
----@field private _player any
+---@field private _fieldPosition fun(): integer, integer
 ---@field private _dayNight fun(): "day"|"night"
 ---@field private _fieldDataForMap fun(mapId: integer|string): any
 ---@field private _currentMap any
----@field private _fieldMusic integer|string|nil
----@field private _musicOverride integer|string|nil
----@field private _traversal "walking"|"surfing"
----@field private _environment any
+---@field private _fieldMusic integer|nil
+---@field private _musicOverride integer|nil
+---@field private _environment { sequence: integer }|nil
+---@field private _lastProcessed { map: any, fieldX: integer, fieldZ: integer }|nil
 
 local FieldAudioController = {}
 FieldAudioController.__index = FieldAudioController
 
----@param opts { sound: GameSound, provider: AudioAssetProvider, eventState: any, player: any, dayNight: fun(): "day"|"night", fieldDataForMap: fun(mapId: integer|string): any }
+---@param opts { sound: GameSound, provider: AudioAssetProvider, eventState: any, fieldPosition: fun():integer,integer, dayNight: fun(): "day"|"night", fieldDataForMap: fun(mapId: integer|string): any }
 ---@return FieldAudioController
 function FieldAudioController.new(opts)
   assert(
-    opts and opts.sound and opts.provider and opts.eventState and opts.player and opts.dayNight and opts.fieldDataForMap,
-    "FieldAudioController requires sound, provider, eventState, player, dayNight, and fieldDataForMap"
+    opts
+      and opts.sound
+      and opts.provider
+      and opts.eventState
+      and opts.fieldPosition
+      and opts.dayNight
+      and opts.fieldDataForMap,
+    "FieldAudioController requires sound, provider, eventState, fieldPosition, dayNight, and fieldDataForMap"
   )
+  assert(type(opts.fieldPosition) == "function", "fieldPosition must be a function")
   return setmetatable({
     _sound = opts.sound,
     _provider = opts.provider,
     _eventState = opts.eventState,
-    _player = opts.player,
+    _fieldPosition = opts.fieldPosition,
     _dayNight = opts.dayNight,
     _fieldDataForMap = opts.fieldDataForMap,
     _currentMap = nil,
     _fieldMusic = nil,
     _musicOverride = nil,
-    _traversal = "walking",
     _environment = nil,
+    _lastProcessed = nil,
   }, FieldAudioController)
 end
 
 -- Returns the map-header music reference: day/night selection + flag-based override.
--- Does NOT apply traversal or persisted overrides (those are part of effectiveMusic).
+-- Does NOT apply persisted overrides (those are part of effectiveMusic).
 -- Resolves string symbols to numeric IDs using the provider.
 -- @param fieldData optional field data; if omitted, uses current map's data
----@return integer|string|nil
+---@return integer|nil
 function FieldAudioController:mapHeaderMusic(fieldData)
   if fieldData == nil then
     if self._currentMap == nil then
@@ -94,42 +101,16 @@ function FieldAudioController:mapHeaderMusic(fieldData)
   return sequence
 end
 
--- Returns the effective field music: traversal > map-header > persisted override
--- Returns numeric ID (resolves persisted override string if needed).
+-- Returns the effective field music: persisted override > map-header
 ---@return integer|nil
 function FieldAudioController:effectiveMusic()
-  -- Check traversal overrides first (highest precedence)
-  if self._currentMap ~= nil and self._currentMap.fieldData and self._currentMap.fieldData.music then
-    local music = self._currentMap.fieldData.music
-    if music.traversalOverrides ~= nil then
-      for _, trav in ipairs(music.traversalOverrides) do
-        if trav.traversal == self._traversal then
-          -- Check the gating flag
-          if trav.unlessFlagId == nil or not self._eventState:isFlagSet(trav.unlessFlagId) then
-            -- Resolve string symbol to numeric ID
-            local sequence = trav.sequence
-            if type(sequence) == "string" then
-              sequence = self._provider:sequence(sequence).id
-            end
-            return sequence
-          end
-        end
-      end
-    end
-  end
-
-  -- Map-header music
-  local header = self:mapHeaderMusic()
-
-  -- Persisted override (lowest precedence)
   if self._musicOverride ~= nil then
     return self._musicOverride
   end
-
-  return header
+  return self:mapHeaderMusic()
 end
 
--- Plays the map-header music (not effective music; ignores traversal and persisted overrides).
+-- Plays the map-header music (not effective music; ignores persisted override).
 -- This is the source ResetBGM behavior.
 function FieldAudioController:resetMusic()
   local reference = self:mapHeaderMusic()
@@ -160,13 +141,6 @@ function FieldAudioController:musicOverride()
   return self._musicOverride
 end
 
--- Sets the traversal mode (walking or surfing)
----@param mode "walking"|"surfing"
-function FieldAudioController:setTraversalMode(mode)
-  assert(mode == "walking" or mode == "surfing", "traversal mode must be 'walking' or 'surfing'")
-  self._traversal = mode
-end
-
 -- Enters a map and optionally plays the effective music
 -- Options: { clearMusicOverride, restoredMusicOverride, play }
 ---@param runtimeMap any
@@ -174,8 +148,21 @@ end
 function FieldAudioController:enterMap(runtimeMap, options)
   options = options or {}
 
+  -- 1. Deactivate source environment BEFORE replacing state, using old identities
+  if self._environment ~= nil then
+    local oldSequence = self._environment.sequence
+    local oldFieldMusic = self._fieldMusic
+    self._sound:stopSequenceWithFade(oldSequence, 10)
+    if oldFieldMusic ~= nil then
+      self._sound:moveSequenceVolume(oldFieldMusic, 128, 15)
+    end
+    self._environment = nil
+  end
+
+  -- 2. Install new current map
   self._currentMap = runtimeMap
 
+  -- 3. Clear or restore persisted music override
   if options.clearMusicOverride then
     self._musicOverride = nil
   elseif options.restoredMusicOverride ~= nil then
@@ -186,19 +173,13 @@ function FieldAudioController:enterMap(runtimeMap, options)
     self._musicOverride = override
   end
 
-  -- Update field music (base map-header, used for soundplate bank selection)
+  -- 4. Compute/store new base _fieldMusic from new map-header policy
   self._fieldMusic = self:mapHeaderMusic()
 
-  -- Clear environment when entering new map
-  if self._environment ~= nil then
-    -- Fade-stop the environment if it was active
-    if self._currentMap.fieldData and self._currentMap.fieldData.soundplates then
-      -- Will be handled in updateField next call
-    end
-    self._environment = nil
-  end
+  -- 5. Invalidate ordinary soundplate position memory
+  self._lastProcessed = nil
 
-  -- Play effective music if requested
+  -- 6. When play=true, play new effective BGM
   if options.play then
     local effective = self:effectiveMusic()
     if effective == nil then
@@ -210,24 +191,94 @@ function FieldAudioController:enterMap(runtimeMap, options)
 end
 
 -- Pre-fade current BGM if destination map-header differs
--- This is the source FieldBGM_TryFadeIn behavior on warp start
 ---@param destinationMapId integer|string
 function FieldAudioController:beginWarp(destinationMapId)
   local destData = self._fieldDataForMap(destinationMapId)
-  if destData == nil then
-    return
+  if type(destData) ~= "table" then
+    error("missing field data for destination " .. tostring(destinationMapId))
+  end
+  if destData.schema ~= FieldMapDataCache.FIELD_SCHEMA then
+    error("field data schema mismatch for destination " .. tostring(destinationMapId))
+  end
+  if destData.mapId == nil then
+    error("field data missing mapId for destination " .. tostring(destinationMapId))
+  end
+  if type(destinationMapId) == "number" and destData.mapId ~= destinationMapId then
+    error("field data mapId mismatch for destination " .. tostring(destinationMapId))
   end
 
-  -- Get destination map-header music
+  -- Get destination map-header music using same policy as map entry
   local destFieldData = { music = destData.music, soundplates = destData.soundplates }
   local destMusic = self:mapHeaderMusic(destFieldData)
 
   -- If current BGM differs, start fade to 0 over 40 sound frames
   local currentMusic = self._sound:currentMusic()
   if destMusic ~= currentMusic then
-    -- Fade the current BGM if one is playing
     if currentMusic ~= nil and not self._sound:isMusicFadeActive() then
       self._sound:fadeMusicOut({ target = 0, durationTicks = 40 })
+    end
+  end
+end
+
+-- Internal: process soundplate selection for current coords
+---@param fieldX integer
+---@param fieldZ integer
+function FieldAudioController:_processSelection(fieldX, fieldZ)
+  if self._currentMap == nil or self._currentMap.fieldData == nil then
+    return
+  end
+
+  local fieldData = self._currentMap.fieldData
+  if fieldData.soundplates == nil or #fieldData.soundplates == 0 then
+    if self._environment ~= nil then
+      self:_deactivateSoundplate()
+    end
+    return
+  end
+
+  local localX = fieldX % 32
+  local localZ = fieldZ % 32
+
+  -- Iterate soundplates in source order, keep last matching
+  local selectedPlate = nil
+  for _, plate in ipairs(fieldData.soundplates) do
+    if localX >= plate.x and localX <= plate.xBounds and localZ >= plate.z and localZ <= plate.zBounds then
+      selectedPlate = plate
+    end
+  end
+
+  if selectedPlate ~= nil then
+    -- Test disabled flag (no fallback if disabled)
+    if selectedPlate.disabledWhenFlag ~= nil and self._eventState:isFlagSet(selectedPlate.disabledWhenFlag) then
+      return
+    end
+
+    -- Resolve selected sequence id
+    local seqRecord = self._provider:sequence(selectedPlate.sequence)
+    local seqId = seqRecord.id
+
+    local shouldStart = self._environment == nil or self._environment.sequence ~= seqId
+    if shouldStart then
+      if selectedPlate.useFieldMusicBank then
+        assert(self._fieldMusic ~= nil, "donor-bank soundplate requires base field music")
+        local fieldBgm = self._provider:sequence(self._fieldMusic)
+        self._sound:playWithBankOverride(selectedPlate.sequence, fieldBgm.bankId)
+      else
+        self._sound:play(selectedPlate.sequence)
+      end
+    end
+
+    self._environment = { sequence = seqId }
+
+    if selectedPlate.bgmTarget ~= nil and self._fieldMusic ~= nil then
+      self._sound:moveSequenceVolume(self._fieldMusic, selectedPlate.bgmTarget, 15)
+    end
+    if selectedPlate.ambientTarget ~= nil then
+      self._sound:moveSequenceVolume(selectedPlate.sequence, selectedPlate.ambientTarget, 5)
+    end
+  else
+    if self._environment ~= nil then
+      self:_deactivateSoundplate()
     end
   end
 end
@@ -238,93 +289,34 @@ function FieldAudioController:updateField()
     return
   end
 
-  local fieldData = self._currentMap.fieldData
-  if fieldData.soundplates == nil or #fieldData.soundplates == 0 then
-    -- No soundplates; clear environment if active
-    if self._environment ~= nil then
-      self:_deactivateSoundplate()
-    end
+  local fieldX, fieldZ = self._fieldPosition()
+  assert(type(fieldX) == "number" and type(fieldZ) == "number", "fieldPosition must return fieldX, fieldZ")
+
+  -- Coordinate dedup for ordinary processing
+  if
+    self._lastProcessed ~= nil
+    and self._lastProcessed.map == self._currentMap
+    and self._lastProcessed.fieldX == fieldX
+    and self._lastProcessed.fieldZ == fieldZ
+  then
     return
   end
+  self._lastProcessed = { map = self._currentMap, fieldX = fieldX, fieldZ = fieldZ }
 
-  -- Get player land-local coordinates (modulo 32)
-  local playerX = self._player.x or 0
-  local playerZ = self._player.z or 0
-  local localX = playerX % 32
-  local localZ = playerZ % 32
-
-  -- Iterate soundplates in source order, keep last matching
-  local selectedPlateIndex = nil
-  for i, plate in ipairs(fieldData.soundplates) do
-    -- Check inclusive rectangle match: x <= localX <= xBounds and z <= localZ <= zBounds
-    if localX >= plate.x and localX <= plate.xBounds and localZ >= plate.z and localZ <= plate.zBounds then
-      selectedPlateIndex = i
-    end
-  end
-
-  -- If a plate is selected, check its active flag
-  if selectedPlateIndex ~= nil then
-    local plate = fieldData.soundplates[selectedPlateIndex]
-
-    -- Test disabled flag (no fallback if disabled)
-    if plate.disabledWhenFlag ~= nil and self._eventState:isFlagSet(plate.disabledWhenFlag) then
-      -- Plate is disabled; deactivate environment
-      if self._environment ~= nil then
-        self:_deactivateSoundplate()
-      end
-      return
-    end
-
-    -- Activate/update this soundplate
-    if self._environment == nil or self._environment.plateIndex ~= selectedPlateIndex then
-      self:_activateSoundplate(plate, selectedPlateIndex)
-    end
-  else
-    -- No matching plate; deactivate environment
-    if self._environment ~= nil then
-      self:_deactivateSoundplate()
-    end
-  end
+  self:_processSelection(fieldX, fieldZ)
 end
 
--- Activates a soundplate: starts the environment sequence and schedules volume moves
----@param plate table
----@param plateIndex integer
-function FieldAudioController:_activateSoundplate(plate, plateIndex)
-  -- If there's an old environment, deactivate it first
-  if self._environment ~= nil then
-    self:_deactivateSoundplate()
+-- Forced soundplate processing for opcode 726: clear identity, bypass dedup, process immediately
+function FieldAudioController:processSoundplate()
+  self._environment = nil
+  self._lastProcessed = nil
+  if self._currentMap == nil or self._currentMap.fieldData == nil then
+    return
   end
-
-  -- Start the environment sequence
-  local sequence = self._provider:sequence(plate.sequence)
-
-  -- If useFieldMusicBank, use field-BGM's bank; otherwise use sequence's own bank
-  if plate.useFieldMusicBank and self._fieldMusic ~= nil then
-    local fieldBgm = self._provider:sequence(self._fieldMusic)
-    local fieldBank = self._provider:bank(fieldBgm.bankId)
-    self._player:play(sequence, fieldBank)
-  else
-    local bank = self._provider:bank(sequence.bankId)
-    self._player:play(sequence, bank)
-  end
-
-  -- Record environment state
-  self._environment = {
-    sequence = sequence.id,
-    plateIndex = plateIndex,
-  }
-
-  -- Schedule volume moves if targets are specified
-  if plate.bgmTarget ~= nil and self._fieldMusic ~= nil then
-    -- Move base field-BGM fader to bgmTarget over 15 frames
-    self._sound:moveSequenceVolume(self._fieldMusic, plate.bgmTarget, 15)
-  end
-
-  if plate.ambientTarget ~= nil then
-    -- Move environment sequence fader to ambientTarget over 5 frames
-    self._sound:moveSequenceVolume(plate.sequence, plate.ambientTarget, 5)
-  end
+  local fieldX, fieldZ = self._fieldPosition()
+  assert(type(fieldX) == "number" and type(fieldZ) == "number", "fieldPosition must return fieldX, fieldZ")
+  self._lastProcessed = { map = self._currentMap, fieldX = fieldX, fieldZ = fieldZ }
+  self:_processSelection(fieldX, fieldZ)
 end
 
 -- Deactivates the current soundplate: fades environment and restores BGM
@@ -333,10 +325,8 @@ function FieldAudioController:_deactivateSoundplate()
     return
   end
 
-  -- Fade-stop the environment sequence over 10 frames
   self._sound:stopSequenceWithFade(self._environment.sequence, 10)
 
-  -- Restore base field-BGM fader to 128 over 15 frames
   if self._fieldMusic ~= nil then
     self._sound:moveSequenceVolume(self._fieldMusic, 128, 15)
   end
