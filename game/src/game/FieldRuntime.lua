@@ -792,29 +792,35 @@ function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
       or function()
         return TimeOfDayProps.bandForHour(os.date("*t").hour) == "nite" and "night" or "day"
       end
+    local world =
+      assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
     local audio = FieldAudio.compose({
       cacheFs = cacheFs,
       outputRate = AUDIO_SAMPLE_RATE,
       eventState = self.eventState,
-      player = self.player,
+      fieldPosition = function()
+        return self.player.fieldX, self.player.fieldZ
+      end,
       dayNight = self.mapMusicDayNight,
       fieldDataForMap = function(mapIdOrSymbol)
-        -- Symbolic map ids resolve through the already loaded world
-        -- manifest's bySymbol index; the field-map record is then read from
-        -- the generated field cache (the one data authority for the audio
-        -- policy the warp pre-fade and soundplate lookups consume).
-        local world = cacheFs:loadLua(MapAssetCache.worldPath())
         local mapId = mapIdOrSymbol
         if type(mapIdOrSymbol) == "string" then
-          mapId = world and world.bySymbol and world.bySymbol[mapIdOrSymbol]
+          mapId = world.bySymbol and world.bySymbol[mapIdOrSymbol]
         end
-        local mapData = mapId ~= nil and cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) or nil
+        if mapId == nil then
+          error("unknown map symbol " .. tostring(mapIdOrSymbol))
+        end
+        local mapData = cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
+        if type(mapData) ~= "table" then
+          error("missing field data for map " .. tostring(mapIdOrSymbol) .. " (" .. tostring(mapId) .. ")")
+        end
+        if mapData.schema ~= FieldMapDataCache.FIELD_SCHEMA then
+          error("field data schema mismatch for map " .. tostring(mapId))
+        end
+        if mapData.mapId ~= mapId then
+          error("field data mapId mismatch for map " .. tostring(mapId))
+        end
         return mapData
-            and {
-              music = mapData.music,
-              soundplates = mapData.soundplates,
-            }
-          or nil
       end,
       outputHost = self.audioOutput,
     })

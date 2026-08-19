@@ -16,7 +16,7 @@ local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
 
 local FieldAudio = {}
 
----@param opts { cacheFs: table, outputRate: integer, eventState: any, player: any, dayNight: fun(): "day"|"night", fieldDataForMap: fun(mapIdOrSymbol: integer|string): any, outputHost: table|nil }
+---@param opts { cacheFs: table, outputRate: integer, eventState: any, fieldPosition: fun():integer,integer, dayNight: fun(): "day"|"night", fieldDataForMap: fun(mapIdOrSymbol: integer|string): any, outputHost: table|nil }
 ---@return { service: FieldAudioController, sink: LoveAudioSink|nil }
 function FieldAudio.compose(opts)
   assert(
@@ -24,10 +24,10 @@ function FieldAudio.compose(opts)
       and opts.cacheFs
       and opts.outputRate
       and opts.eventState
-      and opts.player
+      and opts.fieldPosition
       and opts.dayNight
       and opts.fieldDataForMap,
-    "FieldAudio.compose requires cacheFs, outputRate, eventState, player, dayNight, and fieldDataForMap"
+    "FieldAudio.compose requires cacheFs, outputRate, eventState, fieldPosition, dayNight, and fieldDataForMap"
   )
   ---@cast opts +{ outputHost: table|nil }
   local provider = AudioAssetProvider.new(opts.cacheFs)
@@ -65,7 +65,7 @@ function FieldAudio.compose(opts)
       sound = sound,
       provider = provider,
       eventState = opts.eventState,
-      player = opts.player,
+      fieldPosition = opts.fieldPosition,
       dayNight = opts.dayNight,
       fieldDataForMap = opts.fieldDataForMap,
     }),

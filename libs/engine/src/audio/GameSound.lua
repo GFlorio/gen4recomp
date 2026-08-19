@@ -519,4 +519,17 @@ function GameSound:stopSequenceWithFade(idOrSymbol, durationFrames)
   self:_replaceFaderRamp(sequence.player.id, 0, durationFrames, "generic", true)
 end
 
+-- Starts `sequenceRef` with an explicit donor bank `bankRef` whose id may
+-- differ from the sequence's declared bankId. This is the sole
+-- bank-mismatch exception for environmental donor-bank soundplates. The
+-- fader bookkeeping is reset exactly like any fresh sequence start.
+---@param sequenceRef integer|string
+---@param bankRef integer|string
+function GameSound:playWithBankOverride(sequenceRef, bankRef)
+  local sequence = self._provider:sequence(sequenceRef)
+  local bank = self._provider:bank(bankRef)
+  self._player:playWithBankOverride(sequence, bank)
+  self:_resetPlayerFader(sequence.player.id)
+end
+
 return GameSound

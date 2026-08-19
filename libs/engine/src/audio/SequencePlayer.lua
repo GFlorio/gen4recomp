@@ -994,18 +994,12 @@ function SequencePlayer.new(opts)
   }, SequencePlayer)
 end
 
--- Starts `sequence` on its player id with `bank`. The bank must be the
--- sequence's bankId; a sequence already running on the same player id is
--- replaced (its voices released) exactly once, so the new note never mixes
--- with the old one. The instance is initialized to the source PlayerInit
--- state (tempo 120, tempoRatio 256, tempoCounter 240) and the entry track
--- is armed, but play() does not fetch or execute the entry program: the
--- first source sequence tick runs on the first sound interval after play
--- (tempoCounter 240 naturally produces it). The global sound phase and the
--- shared RNG are never reset by a play.
-function SequencePlayer:play(sequence, bank)
+-- Shared instance creation for sequence starts. `enforceBank` controls
+-- whether a mismatched bank id is rejected (ordinary play) or allowed
+-- (explicit donor-bank override).
+local function startSequenceInstance(self, sequence, bank, enforceBank)
   assert(sequence and bank, "play requires a sequence and a bank")
-  if bank.id ~= sequence.bankId then
+  if enforceBank and bank.id ~= sequence.bankId then
     Errors.raise(
       AudioErrors.AUDIO_PLAYER_BANK_MISMATCH,
       "bank " .. tostring(bank.id) .. " does not match sequence bankId " .. tostring(sequence.bankId),
@@ -1051,6 +1045,27 @@ function SequencePlayer:play(sequence, bank)
     tracks = { [0] = newTrack(sequence.program.entry) },
   }
   self._players[playerId] = instance
+end
+
+-- Starts `sequence` on its player id with `bank`. The bank must be the
+-- sequence's bankId; a sequence already running on the same player id is
+-- replaced (its voices released) exactly once, so the new note never mixes
+-- with the old one. The instance is initialized to the source PlayerInit
+-- state (tempo 120, tempoRatio 256, tempoCounter 240) and the entry track
+-- is armed, but play() does not fetch or execute the entry program: the
+-- first source sequence tick runs on the first sound interval after play
+-- (tempoCounter 240 naturally produces it). The global sound phase and the
+-- shared RNG are never reset by a play.
+function SequencePlayer:play(sequence, bank)
+  startSequenceInstance(self, sequence, bank, true)
+end
+
+-- Starts `sequence` with an explicit donor bank whose id may differ from
+-- `sequence.bankId`. This is the sole bank-mismatch exception for
+-- environmental soundplates that use the base field BGM's bank. Every other
+-- player/channel/sequence invariant is identical to ordinary play.
+function SequencePlayer:playWithBankOverride(sequence, bank)
+  startSequenceInstance(self, sequence, bank, false)
 end
 
 -- Sets the player's fader level (0..127, the volume domain -- the NNS
