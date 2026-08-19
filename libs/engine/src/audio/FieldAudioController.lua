@@ -17,23 +17,29 @@
 
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
+---@class FieldAudioControllerOptions
+---@field sound GameSound
+---@field provider AudioAssetProvider
+---@field eventState any
+---@field fieldPosition fun(): integer, integer
+---@field dayNight fun(): "day"|"night"
+---@field fieldDataForMap fun(mapId: integer|string): any
+
 ---@class FieldAudioController
 ---@field private _sound GameSound
 ---@field private _provider AudioAssetProvider
----@field private _eventState any
 ---@field private _fieldPosition fun(): integer, integer
 ---@field private _dayNight fun(): "day"|"night"
 ---@field private _fieldDataForMap fun(mapId: integer|string): any
----@field private _currentMap any
----@field private _fieldMusic integer|nil
----@field private _musicOverride integer|nil
----@field private _environment { sequence: integer }|nil
----@field private _lastProcessed { map: any, fieldX: integer, fieldZ: integer }|nil
-
+---@field _currentMap any
+---@field _fieldMusic integer|nil
+---@field _musicOverride integer|nil
+---@field _environment { sequence: integer }|nil
+---@field _eventState any
 local FieldAudioController = {}
 FieldAudioController.__index = FieldAudioController
 
----@param opts { sound: GameSound, provider: AudioAssetProvider, eventState: any, fieldPosition: fun():integer,integer, dayNight: fun(): "day"|"night", fieldDataForMap: fun(mapId: integer|string): any }
+---@param opts FieldAudioControllerOptions
 ---@return FieldAudioController
 function FieldAudioController.new(opts)
   assert(
@@ -58,7 +64,6 @@ function FieldAudioController.new(opts)
     _fieldMusic = nil,
     _musicOverride = nil,
     _environment = nil,
-    _lastProcessed = nil,
   }, FieldAudioController)
 end
 
@@ -125,8 +130,9 @@ end
 ---@param sequenceRef integer|string|nil
 function FieldAudioController:setMusicOverride(sequenceRef)
   if sequenceRef ~= nil and type(sequenceRef) == "string" then
-    sequenceRef = self._provider:sequence(sequenceRef).id
+    sequenceRef = self._provider:sequence(sequenceRef --[[@as string]]).id
   end
+  ---@cast sequenceRef integer|nil
   self._musicOverride = sequenceRef
 end
 
@@ -168,18 +174,16 @@ function FieldAudioController:enterMap(runtimeMap, options)
   elseif options.restoredMusicOverride ~= nil then
     local override = options.restoredMusicOverride
     if type(override) == "string" then
-      override = self._provider:sequence(override).id
+      override = self._provider:sequence(override --[[@as string]]).id
     end
+    ---@cast override integer|nil
     self._musicOverride = override
   end
 
   -- 4. Compute/store new base _fieldMusic from new map-header policy
   self._fieldMusic = self:mapHeaderMusic()
 
-  -- 5. Invalidate ordinary soundplate position memory
-  self._lastProcessed = nil
-
-  -- 6. When play=true, play new effective BGM
+  -- 5. When play=true, play new effective BGM before ordinary soundplate selection
   if options.play then
     local effective = self:effectiveMusic()
     if effective == nil then
@@ -187,6 +191,14 @@ function FieldAudioController:enterMap(runtimeMap, options)
     else
       self._sound:playMusic(effective)
     end
+  end
+
+  -- 6. Ordinary soundplate selection on map entry, immediately after BGM (the
+  -- source FieldMap_Init ordering for initial environmental audio).
+  if options.play then
+    local fieldX, fieldZ = self._fieldPosition()
+    assert(type(fieldX) == "number" and type(fieldZ) == "number", "fieldPosition must return fieldX, fieldZ")
+    self:_processSelection(fieldX, fieldZ)
   end
 end
 
@@ -262,6 +274,7 @@ function FieldAudioController:_processSelection(fieldX, fieldZ)
       if selectedPlate.useFieldMusicBank then
         assert(self._fieldMusic ~= nil, "donor-bank soundplate requires base field music")
         local fieldBgm = self._provider:sequence(self._fieldMusic)
+        ---@diagnostic disable-next-line: undefined-field -- GameSound donor-bank surface is the contract under test
         self._sound:playWithBankOverride(selectedPlate.sequence, fieldBgm.bankId)
       else
         self._sound:play(selectedPlate.sequence)
@@ -283,39 +296,24 @@ function FieldAudioController:_processSelection(fieldX, fieldZ)
   end
 end
 
--- Updates field-policy state on 30 Hz ticks: soundplate selection
+-- Step-completion soundplate selection (the ordinary path).
 function FieldAudioController:updateField()
   if self._currentMap == nil or self._currentMap.fieldData == nil then
     return
   end
-
   local fieldX, fieldZ = self._fieldPosition()
   assert(type(fieldX) == "number" and type(fieldZ) == "number", "fieldPosition must return fieldX, fieldZ")
-
-  -- Coordinate dedup for ordinary processing
-  if
-    self._lastProcessed ~= nil
-    and self._lastProcessed.map == self._currentMap
-    and self._lastProcessed.fieldX == fieldX
-    and self._lastProcessed.fieldZ == fieldZ
-  then
-    return
-  end
-  self._lastProcessed = { map = self._currentMap, fieldX = fieldX, fieldZ = fieldZ }
-
   self:_processSelection(fieldX, fieldZ)
 end
 
--- Forced soundplate processing for opcode 726: clear identity, bypass dedup, process immediately
+-- Forced soundplate processing for opcode 726: clear identity and process immediately.
 function FieldAudioController:processSoundplate()
   self._environment = nil
-  self._lastProcessed = nil
   if self._currentMap == nil or self._currentMap.fieldData == nil then
     return
   end
   local fieldX, fieldZ = self._fieldPosition()
   assert(type(fieldX) == "number" and type(fieldZ) == "number", "fieldPosition must return fieldX, fieldZ")
-  self._lastProcessed = { map = self._currentMap, fieldX = fieldX, fieldZ = fieldZ }
   self:_processSelection(fieldX, fieldZ)
 end
 

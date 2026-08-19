@@ -174,15 +174,10 @@ function FieldSession:_advanceTick()
 end
 
 function FieldSession:updateFixed(inputSnapshot)
-  -- The audio service's field-policy work runs once per fixed field tick,
-  -- before every early return (transition, dialogue, script lock), so
-  -- soundplate selection and environmental state never stall behind modal
-  -- ownership. This is the 30 Hz field-policy update only: the 60 Hz
-  -- sound-frame clock (fades, fanfare post-wait, fader ramps) is owned by
-  -- the runtime, never by the session.
-  if self.audio then
-    self.audio:updateField()
-  end
+  -- Ordinary field-audio runs on its semantic events (step-completion and
+  -- map-entry), not at the top of every fixed tick. updateField is the
+  -- test/legacy entry for those events; see FieldPlayer step commit and
+  -- FieldAudioController:enterMap.
   inputSnapshot = inputSnapshot or self.input:snapshot()
   -- The door/stair choreography drives the player during the locked
   -- transition: the pose clock hears the walking state at tick start, the
@@ -396,6 +391,9 @@ function FieldSession:updateFixed(inputSnapshot)
 
   local stepCompleted = self.player:updateFixed(inputSnapshot) == true
   if stepCompleted then
+    if self.audio then
+      self.audio:updateField()
+    end
     -- Standing-trigger path: a completed step onto a warp tile
     -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
     -- behaviors only; direction-gated warps wait for the facing path above.

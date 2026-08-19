@@ -83,29 +83,34 @@ local function providerFor(sequences, banks)
 end
 
 local function recordingSound(provider, player)
-  local sound = GameSound.new({ provider = provider, player = player })
+  ---@class RecordingSound : GameSound
+  ---@field _spy { moves: table[], stops: table[], fades: table[], playWithBankCalls: table[] }
+  ---@diagnostic disable-next-line: missing-fields -- test double wraps real GameSound
+  local sound = GameSound.new({ provider = provider, player = player }) --[[@as RecordingSound]]
   local spy = { moves = {}, stops = {}, fades = {}, playWithBankCalls = {} }
   local origMove = sound.moveSequenceVolume
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
   sound.moveSequenceVolume = function(self, ref, target, duration)
     spy.moves[#spy.moves + 1] = { ref = ref, target = target, duration = duration }
     return origMove(self, ref, target, duration)
   end
   local origStop = sound.stopSequenceWithFade
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
   sound.stopSequenceWithFade = function(self, ref, duration)
     spy.stops[#spy.stops + 1] = { ref = ref, duration = duration }
     return origStop(self, ref, duration)
   end
   local origFadeOut = sound.fadeMusicOut
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
   sound.fadeMusicOut = function(self, spec)
     spy.fades[#spy.fades + 1] = spec
     return origFadeOut(self, spec)
   end
-  if sound.playWithBankOverride then
-    local orig = sound.playWithBankOverride
-    sound.playWithBankOverride = function(self, seqRef, bankRef)
-      spy.playWithBankCalls[#spy.playWithBankCalls + 1] = { seqRef = seqRef, bankRef = bankRef }
-      return orig(self, seqRef, bankRef)
-    end
+  local orig = sound.playWithBankOverride
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
+  sound.playWithBankOverride = function(self, seqRef, bankRef)
+    spy.playWithBankCalls[#spy.playWithBankCalls + 1] = { seqRef = seqRef, bankRef = bankRef }
+    return orig(self, seqRef, bankRef)
   end
   return sound, spy
 end
@@ -285,6 +290,7 @@ function T.ordinary_bank_validation_remains_strict_while_the_explicit_donor_path
   Assert.isTrue(player:isPlayerPlaying(2))
   local spy = { playWithBankCalls = {} }
   local orig = sound.playWithBankOverride
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
   sound.playWithBankOverride = function(self, seqRef, bankRef)
     spy.playWithBankCalls[#spy.playWithBankCalls + 1] = { seqRef = seqRef, bankRef = bankRef }
     return orig(self, seqRef, bankRef)
@@ -532,10 +538,10 @@ function T.temporary_music_does_not_change_the_environment_donor_bank()
     end,
   })
   controller:enterMap({ fieldData = fd }, { play = true })
+  spy.playWithBankCalls = {}
   sound:temporaryMusic(11)
   Assert.equal(sound:currentMusic(), 11)
-  spy.playWithBankCalls = {}
-  controller:updateField()
+  controller:processSoundplate()
   Assert.equal(#spy.playWithBankCalls, 1, "donor-bank plate must use explicit path")
   Assert.equal(spy.playWithBankCalls[1].bankRef, 12, "donor must be base field music bank, not temporary music bank")
   Assert.equal(controller._fieldMusic, 10, "controller base identity must remain base music")
@@ -696,6 +702,7 @@ function T.audio_owned_traversal_mutation_is_not_a_supported_operation()
       return fd
     end,
   })
+  ---@diagnostic disable-next-line: undefined-field -- negative test: traversal setter must not exist
   Assert.isTrue(controller.setTraversalMode == nil, "controller must not expose an audio-owned traversal setter")
 end
 

@@ -876,8 +876,8 @@ local function execute(self, instance, track, instruction)
     track.portamentoKey = toU8(toU8(resolveAmount(self, instruction.amount, instance)) + track.transpose)
     track.portamento = true
   elseif op == "portamento" then
-    -- 0xCE: the flag is the operand's truthiness.
-    track.portamento = resolveAmount(self, instruction.amount, instance) ~= 0
+    -- 0xCE: the u8 flag (truthiness after narrowing).
+    track.portamento = toU8(resolveAmount(self, instruction.amount, instance)) ~= 0
   elseif op == "portamento_time" then
     -- 0xCF: the u8 sweep time.
     track.portamentoTime = toU8(resolveAmount(self, instruction.amount, instance))
@@ -890,7 +890,7 @@ local function execute(self, instance, track, instruction)
     if #track.controlStack < CONTROL_STACK_MAX then
       track.controlStack[#track.controlStack + 1] = {
         kind = "loop",
-        remaining = resolveAmount(self, instruction.count, instance),
+        remaining = toU8(resolveAmount(self, instruction.count, instance)),
         returnIndex = track.pc + 1,
       }
     end

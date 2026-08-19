@@ -41,8 +41,8 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _player SequencePlayer
 ---@field private _cry table?
 ---@field private _mapMusic fun(): integer|string|nil?
----@field private _currentMusic integer?
----@field private _fanfare table?
+---@field private _currentMusic integer|nil
+---@field private _fanfare table|nil
 ---@field private _faders table<integer, GameSoundPlayerFader>
 ---@field private _cryActive boolean
 ---@field new fun(opts: { provider: AudioAssetProvider, player: SequencePlayer, cry: table?, mapMusic: fun(): integer|string|nil? }): GameSound
@@ -64,6 +64,7 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field updateSoundFrame fun(self: GameSound)
 ---@field moveSequenceVolume fun(self: GameSound, idOrSymbol: integer|string, target: integer, durationFrames: integer)
 ---@field stopSequenceWithFade fun(self: GameSound, idOrSymbol: integer|string, durationFrames: integer)
+---@field playWithBankOverride fun(self: GameSound, sequenceRef: integer|string, bankRef: integer|string)
 
 -- One applied fader timeline per NNS player. `level` is the level this
 -- module last asked SequencePlayer to apply (always 0..127 after the apply

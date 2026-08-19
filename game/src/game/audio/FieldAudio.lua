@@ -16,7 +16,16 @@ local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
 
 local FieldAudio = {}
 
----@param opts { cacheFs: table, outputRate: integer, eventState: any, fieldPosition: fun():integer,integer, dayNight: fun(): "day"|"night", fieldDataForMap: fun(mapIdOrSymbol: integer|string): any, outputHost: table|nil }
+---@class FieldAudioComposeOptions
+---@field cacheFs table
+---@field outputRate integer
+---@field eventState any
+---@field fieldPosition fun(): integer, integer
+---@field dayNight fun(): "day"|"night"
+---@field fieldDataForMap fun(mapIdOrSymbol: integer|string): any
+---@field outputHost table|nil
+
+---@param opts FieldAudioComposeOptions
 ---@return { service: FieldAudioController, sink: LoveAudioSink|nil }
 function FieldAudio.compose(opts)
   assert(

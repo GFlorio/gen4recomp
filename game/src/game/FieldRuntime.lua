@@ -637,27 +637,44 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
-  self.session:update(dt)
-  -- The application host retains factory/composition failures with the
-  -- original error; the runtime surfaces them on its fatal-error channel
-  -- and freezes instead of resuming field simulation.
-  if self.applicationHost:error() and not self.errorText then
-    self.errorText = tostring(self.applicationHost:error())
-  end
-
-  -- 60 Hz sound-frame advancement: FieldRuntime owns the wall-clock audio
-  -- accumulator independent of the field's 30 Hz simulation tick. Add dt to
-  -- the accumulator and invoke the production field-audio service's semantic
-  -- update once per complete 1/60-second interval; the residual fraction
-  -- stays in the accumulator, so identical elapsed time produces identical
-  -- semantic state under any dt chunking. The loop runs only when the
-  -- production audio composition exists (a recording script adapter without
-  -- an audio-output host has no 60 Hz service).
   if self.audio then
     self.audioFrameAccumulator = self.audioFrameAccumulator + dt
-    while self.audioFrameAccumulator >= AUDIO_FRAME_DT do
-      self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
-      self.audio:updateSoundFrame()
+    self.session.accumulator = self.session.accumulator + dt
+    local FIXED_DT = FieldSession.FIXED_DT
+    local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
+    local EPSILON = 1e-12
+    local fieldExecuted = 0
+    while true do
+      local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
+      local canAudio = self.audioFrameAccumulator + EPSILON >= AUDIO_FRAME_DT
+      if not canField and not canAudio then
+        break
+      end
+      local nextFieldDelta = FIXED_DT - self.session.accumulator
+      local nextAudioDelta = AUDIO_FRAME_DT - self.audioFrameAccumulator
+      if canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
+        self.session.accumulator = self.session.accumulator - FIXED_DT
+        self.session:updateFixed()
+        fieldExecuted = fieldExecuted + 1
+        if self.applicationHost:error() and not self.errorText then
+          self.errorText = tostring(self.applicationHost:error())
+        end
+        if self.errorText then
+          break
+        end
+      else
+        self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
+        self.audio:updateSoundFrame()
+      end
+    end
+    if self.session.accumulator + EPSILON >= FIXED_DT then
+      local discarded = math.floor((self.session.accumulator + EPSILON) / FIXED_DT)
+      self.session.accumulator = self.session.accumulator - discarded * FIXED_DT
+    end
+  else
+    self.session:update(dt)
+    if self.applicationHost:error() and not self.errorText then
+      self.errorText = tostring(self.applicationHost:error())
     end
   end
 
@@ -798,6 +815,7 @@ function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
       cacheFs = cacheFs,
       outputRate = AUDIO_SAMPLE_RATE,
       eventState = self.eventState,
+      ---@diagnostic disable-next-line: missing-return-value -- the narrower audio contract returns fieldX,fieldZ; the runtime provider is sufficient
       fieldPosition = function()
         return self.player.fieldX, self.player.fieldZ
       end,

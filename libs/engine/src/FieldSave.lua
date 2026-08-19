@@ -3,17 +3,17 @@
 -- id, the scenario id that explains initialization, the required player-data
 -- bucket (the strict profile/options model, validated through the injected
 -- font charmap and frame-index context), the `world` bucket
--- (project-owned serializable state: flags, variables, objects, rng), and
--- the serializable `scripts` bucket owned by ScriptSave. There is no older
--- format: a save that is not exactly this schema is rejected. The schema
--- boundary itself validates the world bucket through the authoritative
--- event-state and rng validators, so a save store cannot skip world
--- validation. Validation covers stable simulation state only; no dialogue,
--- facing override, or actor position is persisted. Validation also
--- canonicalizes the player-data bucket through the model, and the validated
--- record and restore keep that canonical copy: unknown bucket keys are
--- discarded (never rejected), and the deserialized input table never becomes
--- the runtime record. This is not a Nintendo DS save format.
+-- (project-owned serializable state: flags, variables, objects, rng, and
+-- the persisted field-music override), and the serializable `scripts` bucket
+-- owned by ScriptSave. There is no older format: a save that is not exactly
+-- this schema is rejected. The schema boundary itself validates the world
+-- bucket through the authoritative event-state and rng validators, so a save
+-- store cannot skip world validation. Validation covers stable simulation
+-- state only; no dialogue, facing override, or actor position is persisted.
+-- Validation also canonicalizes the player-data bucket through the model, and
+-- the validated record and restore keep that canonical copy: unknown bucket
+-- keys are discarded (never rejected), and the deserialized input table never
+-- becomes the runtime record. This is not a Nintendo DS save format.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -134,6 +134,22 @@ local function validateWorld(record)
   end
   if not pcall(ScriptRng.restore, world.rng) then
     Errors.raise(FieldErrors.FIELD_SAVE_WORLD_INVALID, "field save world rng state is malformed", { rng = world.rng })
+  end
+  if world.fieldMusicOverride ~= nil then
+    if
+      type(world.fieldMusicOverride) ~= "number"
+      or world.fieldMusicOverride ~= math.floor(world.fieldMusicOverride)
+      or world.fieldMusicOverride < 0
+      or world.fieldMusicOverride ~= world.fieldMusicOverride
+      or world.fieldMusicOverride == math.huge
+      or world.fieldMusicOverride == -math.huge
+    then
+      Errors.raise(
+        FieldErrors.FIELD_SAVE_WORLD_INVALID,
+        "field save world fieldMusicOverride must be a non-negative integer",
+        { fieldMusicOverride = world.fieldMusicOverride }
+      )
+    end
   end
 end
 

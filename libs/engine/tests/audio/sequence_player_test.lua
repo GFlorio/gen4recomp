@@ -2623,9 +2623,13 @@ function T.random_operands_use_only_the_signed_v5_pair_and_keep_source_arithmeti
       },
     },
   }
-  local ok, err = pcall(AudioSequence.validate, legacy)
+  local ok, result = pcall(AudioSequence.validate, legacy)
   Assert.isFalse(ok, "a legacy min/max random operand fails strict validation")
-  Assert.equal(err.code, AssetAudioErrors.AUDIO_SEQUENCE_INVALID, "the failure is the structured sequence error")
+  if not Errors.is(result) then
+    error("expected structured validation error, got " .. tostring(result))
+  end
+  ---@diagnostic disable-next-line: undefined-field -- Errors.is narrows result to Errors.Error
+  Assert.equal(result.code, AssetAudioErrors.AUDIO_SEQUENCE_INVALID, "the failure is the structured sequence error")
 end
 
 -- PROGRAM applies the source `< 0x10000` guard to the fully resolved

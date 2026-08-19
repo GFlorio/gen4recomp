@@ -938,6 +938,7 @@ end
 T["process soundplate calls forced processing once and continues same tick"] = function()
   local h = harness({ audio = true })
   local processCalls = 0
+  ---@diagnostic disable-next-line: inject-field -- test records forced processing
   h.audio.processSoundplate = function(self)
     processCalls = processCalls + 1
   end
@@ -957,6 +958,7 @@ end
 T["consecutive process soundplate calls run twice in one tick"] = function()
   local h = harness({ audio = true })
   local processCalls = 0
+  ---@diagnostic disable-next-line: inject-field -- test records forced processing
   h.audio.processSoundplate = function(self)
     processCalls = processCalls + 1
   end
@@ -986,6 +988,7 @@ end
 T["process soundplate after flag change sees updated event state"] = function()
   local h = harness({ audio = true })
   local seenFlag = nil
+  ---@diagnostic disable-next-line: inject-field -- test observes flag through forced processing
   h.audio.processSoundplate = function(self)
     seenFlag = h.services.world:isFlagSet("FLAG_WATERFALL_DONE")
   end
