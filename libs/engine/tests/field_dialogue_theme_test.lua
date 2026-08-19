@@ -54,7 +54,8 @@ end
 -- screen-mapped output there would be scaled twice and pushed off-screen.
 function T.reference_geometry_stays_in_reference_canvas()
   for _, size in ipairs({ { 960, 720 }, { 1280, 720 }, { 1920, 720 } }) do
-    local layout = FieldDialogueTheme.layout(frame(size[1], size[2]))
+    local ref = frame(size[1], size[2])
+    local layout = FieldDialogueTheme.layout(ref, ref.height / 192)
     Assert.isTrue(layout.box.x >= 0 and layout.box.y >= 0, "box in reference space")
     Assert.isTrue(layout.box.x + layout.box.width <= FieldDialogueTheme.referenceWidth + 1e-9)
     Assert.isTrue(layout.box.y + layout.box.height <= FieldDialogueTheme.referenceHeight + 1e-9)
@@ -66,7 +67,8 @@ function T.reference_geometry_stays_in_reference_canvas()
 end
 
 function T.layout_maps_inside_the_reference_frame_at_43()
-  local layout = FieldDialogueTheme.layout(frame(960, 720))
+  local ref = frame(960, 720)
+  local layout = FieldDialogueTheme.layout(ref, ref.height / 192)
   Assert.near(layout.scale, 720 / 192)
   Assert.deepEqual(layout.origin, { x = 0, y = 0 })
   assertBoxInsideReferenceCanvas(layout, "4:3")
@@ -76,18 +78,19 @@ function T.layout_maps_inside_the_centered_frame_at_169()
   local reference = frame(1280, 720)
   Assert.near(reference.width, 720 * 4 / 3)
   Assert.near(reference.x, (1280 - reference.width) / 2)
-  assertBoxInsideReferenceCanvas(FieldDialogueTheme.layout(reference), "16:9")
+  assertBoxInsideReferenceCanvas(FieldDialogueTheme.layout(reference, reference.height / 192), "16:9")
 end
 
 function T.layout_maps_inside_the_centered_frame_ultrawide()
   local reference = frame(1920, 720)
-  local layout = FieldDialogueTheme.layout(reference)
+  local layout = FieldDialogueTheme.layout(reference, reference.height / 192)
   Assert.near(reference.x, (1920 - reference.width) / 2)
   assertBoxInsideReferenceCanvas(layout, "ultrawide")
 end
 
 function T.text_area_fits_two_lines_of_font_height()
-  local layout = FieldDialogueTheme.layout(frame(960, 720))
+  local ref = frame(960, 720)
+  local layout = FieldDialogueTheme.layout(ref, ref.height / 192)
   local text = layout.text
   local box = layout.box
   Assert.isTrue(

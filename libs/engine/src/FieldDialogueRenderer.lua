@@ -200,24 +200,39 @@ function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
   end
 end
 
--- Draws the dialogue into viewport.referenceFrame. No-op (and no state
+-- Draws the dialogue into viewport.referenceFrame at the field logical pixel
+-- scale (viewport:logicalPixelScale(camera.zoom)). No-op (and no state
 -- touched) when the controller is closed or this renderer is disposed.
 -- Restores canvas, shader, scissor, blend, depth, wireframe, cull, and color
--- afterwards so the HUD and host overlays draw normally.
+-- afterwards so the HUD and host overlays draw normally. The fieldScale is
+-- presentation state, not controller state; it bottom-centers the 256x192
+-- surface and matches the world logical pixel scale.
 
 ---@param controller FieldDialogueController
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
-function FieldDialogueRenderer:draw(controller, viewport)
+---@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
+function FieldDialogueRenderer:draw(controller, viewport, fieldScale)
+  -- Inactive (closed) is a pure no-op and checks no scale precondition; an
+  -- inactive draw must not touch graphics state or require presentation
+  -- parameters. The scale is only required for the active path.
   if not controller or not controller:isModal() or not self._frameImage then
     return
   end
+  assert(
+    type(fieldScale) == "number"
+      and fieldScale > 0
+      and fieldScale == fieldScale
+      and fieldScale ~= math.huge
+      and fieldScale ~= -math.huge,
+    "FieldDialogueRenderer:draw requires a finite positive field scale"
+  )
   local lg = assert(self._graphics)
   local status = controller:status()
   FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the theme never returns
     -- screen-mapped rects, so nothing is scaled twice.
-    local layout = self._theme.layout(viewport.referenceFrame)
+    local layout = self._theme.layout(viewport.referenceFrame, fieldScale)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     self:_drawFrame(status, layout)

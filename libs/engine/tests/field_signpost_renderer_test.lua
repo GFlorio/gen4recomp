@@ -96,7 +96,8 @@ local function renderedDraws(opts)
       offset = opts.offset,
     })
   end
-  r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }), opts.alpha)
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  r:draw(controller, viewport, opts.alpha, viewport:logicalPixelScale(1))
   r:release()
   return lg
 end
@@ -229,9 +230,12 @@ function T.loads_exactly_the_shared_font_and_owned_assets()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   Assert.equal(#lg.images, 5, "only the five composed images are created")
+  local viewport0 = FieldViewport.new(256, 192, { mode = "expanded" })
   r:draw(
     FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
+    viewport0,
+    nil,
+    viewport0:logicalPixelScale(1)
   )
   Assert.equal(#lg.images, 5, "drawing creates no further images")
   r:release()
@@ -249,11 +253,12 @@ function T.frame_quads_are_cached_per_source_type()
     fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } }, failOnQuadCall = 24 })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local fieldScale = viewport:logicalPixelScale(1)
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 })
-  r:draw(controller, viewport)
+  r:draw(controller, viewport, nil, fieldScale)
   local firstDrawFrames = #frameDraws(lg)
   Assert.isTrue(firstDrawFrames > 0, "the first draw draws the frame")
-  r:draw(controller, viewport)
+  r:draw(controller, viewport, nil, fieldScale)
   Assert.equal(#frameDraws(lg), firstDrawFrames * 2, "the second draw reuses the cached quads without raising")
   r:release()
 end
@@ -285,7 +290,10 @@ function T.an_inactive_controller_draws_nothing_and_changes_no_state()
   local status = controller:status()
   Assert.equal(status.active, false, "the endpoint check cleared the window")
   Assert.equal(status.logicalYOffset, 0, "the stored offset reset to 0")
-  r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(controller, viewport, nil, viewport:logicalPixelScale(1))
+  end
   Assert.equal(#lg.draws, 0, "the cleared window never flashes at the reset position")
   FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
   r:release()
@@ -297,10 +305,15 @@ end
 function T.full_width_type_draws_the_full_frame_and_text_at_the_content_origin()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(
+      FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
+      viewport,
+      nil,
+      viewport:logicalPixelScale(1)
+    )
+  end
 
   local frames = frameDraws(lg)
   Assert.isTrue(#frames > 0, "the frame is drawn")
@@ -333,10 +346,15 @@ end
 function T.type_zero_draws_the_graphic_region_and_the_shifted_text()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, offset = 0 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(
+      FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, offset = 0 }),
+      viewport,
+      nil,
+      viewport:logicalPixelScale(1)
+    )
+  end
 
   local text = textDraws(lg)
   Assert.equal(text[1].x, 72, "type-0 text starts after the 56px graphic region")
@@ -375,10 +393,15 @@ end
 function T.type_one_samples_the_map_zero_row()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 1, offset = 0 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(
+      FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 1, offset = 0 }),
+      viewport,
+      nil,
+      viewport:logicalPixelScale(1)
+    )
+  end
   local wayfinding = wayfindingDraws(lg)
   Assert.equal(#wayfinding, 24)
   Assert.equal(wayfinding[1].quad.y, 16, "type 1 map 0 samples the atlas row at y=16")
@@ -390,10 +413,15 @@ end
 function T.type_zero_map_one_samples_the_map_one_row()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, map = 1, offset = 0 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(
+      FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, map = 1, offset = 0 }),
+      viewport,
+      nil,
+      viewport:logicalPixelScale(1)
+    )
+  end
   local wayfinding = wayfindingDraws(lg)
   Assert.equal(#wayfinding, 24)
   Assert.equal(wayfinding[1].quad.y, 8, "map 1 samples the map-1 atlas row, not the map-0 row")
@@ -408,7 +436,8 @@ function T.a_missing_type_map_pair_is_a_manifest_contract_failure()
   local r = renderer(lg)
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, map = 2, offset = 0 })
   Assert.throws(function()
-    r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(controller, viewport, nil, viewport:logicalPixelScale(1))
   end, "a missing (type, map) row must raise")
   r:release()
 end
@@ -450,7 +479,7 @@ function T.interpolation_is_stateless_over_the_paired_wipe_history()
     return text[#text].y
   end
   local function expect(alpha, y)
-    r:draw(controller, viewport, alpha)
+    r:draw(controller, viewport, alpha, viewport:logicalPixelScale(1))
     Assert.equal(lastY(), y, "alpha " .. string.format("%.2f", alpha) .. " lerps the paired history")
   end
   expect(0.00, 216)
@@ -479,7 +508,12 @@ function T.an_inactive_gap_leaves_the_next_draw_pure()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
-  r:draw(FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -48 }), viewport, 1)
+  r:draw(
+    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = -48 }),
+    viewport,
+    1,
+    viewport:logicalPixelScale(1)
+  )
 
   local fresh = FieldSignpostController.new({
     layout = function(msg)
@@ -488,16 +522,18 @@ function T.an_inactive_gap_leaves_the_next_draw_pure()
     end,
   })
   local before = #lg.draws
-  r:draw(fresh, viewport, 0)
+  do
+    r:draw(fresh, viewport, 0, 1)
+  end
   Assert.equal(#lg.draws, before, "the inactive controller draws nothing")
 
   local shown = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 })
   local status = shown:status()
   Assert.equal(status.previousLogicalYOffset, -16, "the wipe history pair of the shown controller")
   Assert.equal(status.logicalYOffset, 0)
-  r:draw(shown, viewport, 0)
+  r:draw(shown, viewport, 0, viewport:logicalPixelScale(1))
   Assert.equal(textDraws(lg)[#textDraws(lg)].y, 184, "alpha 0 draws the pair's previous offset, never a stale one")
-  r:draw(shown, viewport, 1)
+  r:draw(shown, viewport, 1, viewport:logicalPixelScale(1))
   Assert.equal(textDraws(lg)[#textDraws(lg)].y, 168, "alpha 1 draws the pair's current offset")
   r:release()
 end
@@ -509,17 +545,18 @@ function T.wipe_out_never_flashes_the_cleared_window()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local fieldScale = viewport:logicalPixelScale(1)
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 })
-  r:draw(controller, viewport)
+  r:draw(controller, viewport, nil, fieldScale)
   Assert.isTrue(#lg.draws > 0, "the shown window draws")
   controller:setCommand("wipe_out")
   for _ = 1, 4 do
     controller:updateFixed()
   end
   local before = #lg.draws
-  r:draw(controller, viewport)
+  r:draw(controller, viewport, nil, fieldScale)
   Assert.equal(#lg.draws, before, "no draw after the endpoint check cleared the window")
-  r:draw(controller, viewport)
+  r:draw(controller, viewport, nil, fieldScale)
   Assert.equal(#lg.draws, before, "staying inactive draws nothing")
   r:release()
 end
@@ -531,16 +568,17 @@ function T.typed_print_draws_only_the_revealed_glyphs()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local fieldScale = viewport:logicalPixelScale(1)
   local controller = FieldSignpostFixture.shown(lines, { type = 2, offset = 0, text = false })
   controller:printTyped(FieldSignpostFixture.message(lines))
   controller:updateFixed()
   controller:updateFixed()
-  r:draw(controller, viewport)
+  r:draw(controller, viewport, nil, fieldScale)
   Assert.equal(#textDraws(lg), 1, "cadence 2 reveals one glyph")
   for _ = 1, 6 do
     controller:updateFixed()
   end
-  r:draw(controller, viewport)
+  r:draw(controller, viewport, nil, fieldScale)
   Assert.equal(#textDraws(lg), 4, "the finished print adds the remaining two glyphs")
   r:release()
 end
@@ -563,7 +601,10 @@ function T.an_active_window_without_appearance_draws_the_full_width_box()
 
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(controller, viewport, nil, viewport:logicalPixelScale(1))
+  end
   Assert.equal(#wayfindingDraws(lg), 0, "no wayfinding without a source appearance")
   Assert.equal(textDraws(lg)[1].x, 16, "the style's own full-width geometry applies")
   r:release()
@@ -580,7 +621,10 @@ function T.a_style_without_a_per_type_map_uses_its_own_geometry()
     offset = 0,
     styleId = "hgss.trainer_tip",
   })
-  r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(controller, viewport, nil, viewport:logicalPixelScale(1))
+  end
   Assert.equal(#wayfindingDraws(lg), 0, "trainer_tip has no wayfinding area")
   Assert.equal(textDraws(lg)[1].x, 16, "trainer_tip text is full width")
   r:release()
@@ -614,7 +658,8 @@ function T.an_unknown_style_id_is_a_programming_error()
   controller:setCommand("show")
   controller:updateFixed()
   Assert.throws(function()
-    r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(controller, viewport, nil, viewport:logicalPixelScale(1))
   end, "unknown style ids must raise")
   FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
   r:release()
@@ -641,7 +686,8 @@ function T.draw_failure_balances_transform_stack_and_restores_state()
   local r = renderer(lg)
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, offset = 0 })
   local err = Assert.throws(function()
-    r:draw(controller, FieldViewport.new(256, 192, { mode = "expanded" }))
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(controller, viewport, nil, viewport:logicalPixelScale(1))
   end)
   Assert.isTrue(tostring(err):find("injected draw failure", 1, true) ~= nil, "rethrows the draw failure")
   Assert.equal(lg.pushDepth(), 0, "the transform stack is balanced after a failed draw")
@@ -665,7 +711,9 @@ function T.release_frees_all_owned_images_and_noops_drawing()
   Assert.equal(lg.images[5].released, true)
   r:draw(
     FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
+    FieldViewport.new(256, 192, { mode = "expanded" }),
+    0,
+    1
   )
   Assert.equal(#lg.draws, 0, "drawing after release is a no-op")
   text:release()
@@ -691,10 +739,15 @@ end
 function T.signpost_text_uses_the_active_type_palette_slots_2_10_15()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(
+      FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 }),
+      viewport,
+      nil,
+      viewport:logicalPixelScale(1)
+    )
+  end
   local palette = MANIFEST.signposts.types[2].palette
   local function norm(c)
     return { c.r / 255, c.g / 255, c.b / 255, 1 }
@@ -728,10 +781,10 @@ function T.signpost_text_ignores_token_color_index()
       },
     },
   }
-  r:draw(
-    FieldSignpostFixture.shown(lines, { type = 2, offset = 0 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(FieldSignpostFixture.shown(lines, { type = 2, offset = 0 }), viewport, nil, viewport:logicalPixelScale(1))
+  end
   local text = textDraws(lg)
   Assert.equal(#text, 2)
   Assert.equal(text[1].quad.y, 0, "colorIndex is ignored: the mask atlas has no color bands")
@@ -746,10 +799,15 @@ end
 function T.full_width_sign_fills_the_content_window_with_palette_slot_15()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(
+      FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 2, offset = 0 }),
+      viewport,
+      nil,
+      viewport:logicalPixelScale(1)
+    )
+  end
   Assert.equal(#lg.rectangles, 1, "the interior fill is the only rectangle primitive")
   local fill = lg.rectangles[1]
   Assert.equal(fill.mode, "fill")
@@ -768,10 +826,15 @@ end
 function T.graphic_sign_fills_only_the_text_window_right_of_the_graphic()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 192, 32 } } })
   local r = renderer(lg)
-  r:draw(
-    FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, offset = 0 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(
+      FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0, offset = 0 }),
+      viewport,
+      nil,
+      viewport:logicalPixelScale(1)
+    )
+  end
   Assert.equal(#lg.rectangles, 1)
   local fill = lg.rectangles[1]
   Assert.equal(fill.mode, "fill")
@@ -796,10 +859,10 @@ function T.visible_focus_indicator_draws_at_the_signpost_content_right_edge()
   local r = renderer(lg)
   local lines = FieldSignpostFixture.textLines()
   lines[#lines].tokens[#lines[#lines].tokens + 1] = focusToken(2)
-  r:draw(
-    FieldSignpostFixture.shown(lines, { type = 0, offset = 0 }),
-    FieldViewport.new(256, 192, { mode = "expanded" })
-  )
+  do
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    r:draw(FieldSignpostFixture.shown(lines, { type = 0, offset = 0 }), viewport, nil, viewport:logicalPixelScale(1))
+  end
   local focus = focusDraws(lg)
   Assert.equal(#focus, 1, "exactly one indicator frame is drawn")
   local x, y = contentRightEdge(0)
@@ -820,10 +883,15 @@ function T.focus_indicator_translates_with_the_signpost_wipe()
     local r = renderer(lg)
     local lines = FieldSignpostFixture.textLines()
     lines[#lines].tokens[#lines[#lines].tokens + 1] = focusToken(0)
-    r:draw(
-      FieldSignpostFixture.shown(lines, { type = 2, offset = offset }),
-      FieldViewport.new(256, 192, { mode = "expanded" })
-    )
+    do
+      local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+      r:draw(
+        FieldSignpostFixture.shown(lines, { type = 2, offset = offset }),
+        viewport,
+        nil,
+        viewport:logicalPixelScale(1)
+      )
+    end
     r:release()
     return focusDraws(lg)[1]
   end

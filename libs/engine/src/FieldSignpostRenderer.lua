@@ -285,32 +285,43 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe, typeEntry
   end
 end
 
--- Draws the signpost into viewport.referenceFrame. No-op (and no state
+-- Draws the signpost into viewport.referenceFrame at the field logical pixel
+-- scale (viewport:logicalPixelScale(camera.zoom)). No-op (and no state
 -- touched) when the controller is inactive or this renderer is disposed.
 -- Restores canvas, shader, scissor, blend, depth, wireframe, cull, and color
--- afterwards so the HUD and host overlays draw normally.
+-- afterwards so the HUD and host overlays draw normally. The fieldScale is
+-- presentation state, not controller state; it bottom-centers the 256x192
+-- surface and matches the world logical pixel scale. The wipe offset stays
+-- in logical pixels so it naturally scales with the surface.
 
 ---@param controller FieldSignpostController
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
 ---@param alpha number? session render interpolation factor, clamped into [0, 1]
-function FieldSignpostRenderer:draw(controller, viewport, alpha)
+---@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
+function FieldSignpostRenderer:draw(controller, viewport, alpha, fieldScale)
   if not controller or not self._tilesImage then
     return
   end
+  -- Inactive is a pure no-op and checks no scale precondition: the wipe-out
+  -- endpoint reset holds logicalYOffset 0 and must not touch graphics state.
   local status = controller:status()
-  -- The window is presented only while the controller owns it: keying on
-  -- status().active (never logicalYOffset alone) is what keeps the wipe-out
-  -- endpoint-check reset from flashing the cleared window at position 0.
-  -- An inactive draw touches no renderer state.
   if not status.active then
     return
   end
+  assert(
+    type(fieldScale) == "number"
+      and fieldScale > 0
+      and fieldScale == fieldScale
+      and fieldScale ~= math.huge
+      and fieldScale ~= -math.huge,
+    "FieldSignpostRenderer:draw requires a finite positive field scale"
+  )
   local lg = assert(self._graphics)
   FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the per-type geometry from the
     -- style catalogue is already reference-space, so nothing is scaled twice.
-    local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
+    local layout = FieldDialogueTheme.layout(viewport.referenceFrame, fieldScale)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local wipe = self:_wipeY(status, alpha)

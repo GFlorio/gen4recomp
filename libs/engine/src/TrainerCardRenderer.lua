@@ -141,7 +141,12 @@ function TrainerCardRenderer:draw(presentation, viewport)
   assert(type(presentation.name) == "string", "the card presentation requires the player name")
   assert(type(presentation.trainerId) == "number", "the card presentation requires the trainer id")
   FieldDrawState.protectedDraw(lg, function()
-    local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
+    -- Trainer Card is an application surface, not field-attached: it keeps
+    -- the existing placement contract (scale from the reference frame itself,
+    -- no camera zoom) so it stays independent of field zoom.
+    local ref = viewport.referenceFrame
+    local appScale = ref.width / FieldDialogueTheme.referenceWidth
+    local layout = FieldDialogueTheme.layout(ref, appScale)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     lg.setColor(1, 1, 1, 1)
