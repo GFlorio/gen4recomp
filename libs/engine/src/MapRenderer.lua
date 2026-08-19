@@ -23,7 +23,10 @@
 -- render-state pixel centers (never texture-clamp reliance), probing the four
 -- orthogonal neighbors at a distance of one integer edge radius (the rounded
 -- field logical pixel scale -- see FieldViewport:logicalPixelScale), and
--- applies, in order: edge marking, HGSS field anti-alias coverage, then fog.
+-- applies, in order: edge marking, fog, then the project's current antialias
+-- approximation (50% mix of fogged candidates -- not exact hardware
+-- lower-pixel coverage). Both candidates share the center state's single
+-- depth/fog state; fog alpha is resolved before the mix.
 --
 -- A straddling draw item (the first `leading` vertices submitted under a
 -- pre-boundary matrix, per the DS geometry engine) is bent per frame, in both
@@ -1343,7 +1346,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
       lg.setWireframe(false)
     end
 
-    -- ---- final resolve: edge marking, AA coverage, then fog ----
+    -- ---- final resolve: edge marking, fog, then the current AA approximation ----
     self:_sendEdgeColors(sceneRuntime)
     self:_sendFog(sceneRuntime)
     self.edgeShader:send("u_antialiasEnabled", true)

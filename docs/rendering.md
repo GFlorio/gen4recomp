@@ -400,10 +400,17 @@ derives each frame from the field logical pixel scale
 `(referenceFrame.height / 192) * zoom`, rounded to the nearest integer,
 minimum 1) -- so DS-relative edge width is a sampling distance over the
 full-resolution state, not a block of host pixels owned by one coarse state
-texel. Ordering is strictly: scene RGB -> edge detection -> HGSS field
-anti-alias coverage (`u_antialiasEnabled`: `mix(scene, edgeColor, 0.5)` when
-true, matching melonDS's 3D-AA edge-coverage approximation, or a flat
-replacement when false) -> fog -> output.
+texel. Ordering is strictly: scene RGB -> edge detection -> fog each candidate
+(scene candidate `S -> Sf` and, when marked, edge candidate
+`E = {edgeRGB, S.alpha} -> Ef` using the center state's single depth and fog
+gate with the existing integer RGB6/alpha5 fog arithmetic) -> current
+antialias approximation when marked (`u_antialiasEnabled`: `mix(Sf, Ef, 0.5)`
+when true, matching the project's current 50% approximation, or `Ef` when
+false). No-edge pixels receive `Sf`. Fog alpha is resolved before the mix.
+Both candidates share the center state -- a single depth/fog state limitation
+versus a future exact path that would fog distinct top and lower buffers
+before coverage. The approximation does not claim exact DS lower-pixel
+coverage -- output.
 
 ## Billboards
 
@@ -499,9 +506,9 @@ actors draw with the world projection, exactly as on the DS.
   invented sentinel), and the opaque-ID/depth/fog-gate `renderState` attribute
   split, rasterized at the same full resolution as the color raster (see
   "Edge marking" and "Shared full-resolution rasters" above).
-* HGSS field 3D anti-aliasing's edge-coverage approximation (50% coverage at
-  a marked edge, matching melonDS's software renderer -- see "Final resolve"
-  above).
+* HGSS field 3D anti-aliasing's current 50% edge-coverage approximation
+  (half of each fogged candidate at a marked edge -- the project's approximation,
+  not exact DS lower-pixel coverage -- see "Final resolve" above).
 * Sampler wrap normalization (clamp, repeat, and mirrored repeat via
   `TEXIMAGE_PARAM` flip bits, mapped to LÖVE's `mirroredrepeat` wrap mode)
   and nearest-neighbor texture/presentation filtering, matching the DS's own
@@ -510,7 +517,8 @@ actors draw with the world projection, exactly as on the DS.
   melonDS's exact slope-aware density-table interpolation (endpoint
   duplication, the `>>2`/shift/`>>17` sequencing, the 127->128 saturation),
   and the post-combiner RGB and alpha blend (`/128`, not `/127`), applied in
-  the final full-screen pass (`edge.glsl`, after edge marking) from the
+  the final full-screen pass (`edge.glsl`, per candidate before the current
+  50% approximation) from the
   DS Z-buffer depth the edge predicate also reads. The per-map/weather
   source of the fog color/table/offset/slope/alpha is real: `HgssFieldFog`
   resolves each map's HGSS `weatherId` (0-13) to the exact steady-state
@@ -552,6 +560,11 @@ actors draw with the world projection, exactly as on the DS.
 These are documented rather than silently approximated. If a target map needs
 one, the compiler raises a structured error instead of rendering incorrectly.
 
+* Exact DS antialias lower-pixel coverage: the final pass keeps the project's
+  current 50% approximation (half of each fogged candidate, both sharing the
+  center depth/fog state) rather than generating exact DS edge coverage from a
+  lower-pixel buffer. Future work can add a lower-pixel state buffer and fog
+  its candidates independently before coverage.
 * Exact DS automatic translucent Y sorting: HGSS field content is confirmed
   (via decomp) to genuinely use `GX_SORTMODE_AUTO`, but the exact hardware
   vertex-selection rule was never independently confirmed against melonDS, so

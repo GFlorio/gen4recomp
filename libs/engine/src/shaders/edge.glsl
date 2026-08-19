@@ -1,13 +1,19 @@
 // DS final composite pass, run as a full-screen pass over the full-resolution
 // sceneColor target (map.glsl's color-only output) and the same-resolution
 // renderState target (state.glsl's state output: red edge polygon ID, green
-// DS-quantized depth, blue per-polygon fog gate, alpha validity). It
-// performs, in order, edge marking (replacing scene RGB outright when a pixel
-// is a marked silhouette), then HGSS field anti-aliasing's coverage
-// approximation (mixing that replacement 50/50 with the underlying scene
-// color -- see u_antialiasEnabled below), then fog (blending the result
-// against the scene's global weather fog), matching GBATEK's "3D Display"
-// ordering: edge marking first, fog over the whole composited result second.
+// DS-quantized depth, blue per-polygon fog gate, alpha last-translucent-ID
+// encoding). It resolves each pixel through explicit fogged candidates:
+// scene candidate -> fog(scene) and, when marked, edge candidate
+// vec4(edgeColorFor(id), scene.a) -> fog(edge candidate), then the project's
+// current antialias approximation (50% mix of the two fogged candidates when
+// u_antialiasEnabled). Fog is therefore applied per candidate before any
+// mix, so fog alpha is also resolved before the AA interpolation.
+//
+// Both candidates share the center pixel's single depth and fog gate. A future
+// exact DS path would fog distinct top and lower buffers with their own depth
+// and fog state before coverage; this pass has only one depth/fog state and
+// cannot model that distinction, so the limitation is documented rather than
+// hidden. State A (last translucent ID) is not consumed by edge or fog.
 //
 // The color and state targets have identical dimensions and identical
 // screen-space coverage (see MapRenderer:_ensureTargets): state
@@ -56,17 +62,17 @@
 //
 // Edge compositing replaces scene RGB outright (hardware behavior) rather than
 // alpha-mixing with it; there is no alpha-mix uniform on this path. HGSS field
-// rendering additionally enables 3D anti-aliasing (G3X_AntiAlias(TRUE)), which
-// melonDS's software renderer approximates as 50% coverage at a marked edge
+// rendering additionally enables 3D antialiasing (G3X_AntiAlias(TRUE)), which
+// this project approximates as 50% coverage at a marked edge
 // (3DFinalPassEdgeFS.glsl); u_antialiasEnabled selects that coverage mix vs.
-// the flat replacement, per spec -- not a stylistic opacity tweak. This
-// 50%-coverage approximation is not exact DS lower-pixel coverage generation.
+// the flat replacement. This 50% mix is the project's current approximation,
+// not exact DS lower-pixel coverage generation.
 //
 // Fog (melonDS src/GPU3D_Soft.cpp, SoftRenderer3D::CalculateFogDensity and the
 // post-density blend in SoftRenderer3D::RenderPixel; see tests/support/DsFog.lua
 // for the independently hand-verified pure-Lua transcription this mirrors):
 // both the global gate (u_fogEnabled, DISP3DCNT) and this pixel's own
-// per-polygon gate (finalState's blue channel, POLYGON_ATTR FOG_ENABLE) must
+// per-polygon gate (center state's blue channel, POLYGON_ATTR FOG_ENABLE) must
 // be set. The density index derives from the depth (offset by
 // u_fogOffsetDepth, already converted from the raw G3X FOG_OFFSET register by
 // MapRenderer -- *0x200 -- once per frame, not per pixel), shifted by the
@@ -270,6 +276,33 @@ float fogBlendComponent(float component, float fogComponent, float density)
   return floor((fogComponent * density + component * (FOG_BLEND_DOMAIN - density)) / FOG_BLEND_DOMAIN);
 }
 
+// Fog a single candidate with the center state's depth and fog gate. Keeps
+// the existing integer RGB6/alpha5 conversion, density interpolation,
+// color-mode gate, alpha fog, and /128 arithmetic exactly -- only the
+// candidate's own RGB/alpha inputs vary. Both the scene and edge candidates
+// are fogged with the same center state; there is no per-candidate depth or
+// per-candidate fog gate in this single-buffer approximation. State A is not
+// read.
+vec4 applyFog(vec4 src, float fogGate, float depth)
+{
+  if (!u_fogEnabled || fogGate <= 0.5) {
+    return src;
+  }
+  float density = fogDensity(depth);
+  vec3 fogColor6 = expand5to6v(floor(u_fogColor * 31.0 + 0.5));
+  vec3 srcRgb6 = floor(src.rgb * 63.0 + 0.5);
+  vec3 blendedRgb6 = vec3(
+    fogBlendComponent(srcRgb6.x, fogColor6.x, density),
+    fogBlendComponent(srcRgb6.y, fogColor6.y, density),
+    fogBlendComponent(srcRgb6.z, fogColor6.z, density)
+  );
+  vec3 outRgb = blendedRgb6 / 63.0;
+  float srcAlpha5 = floor(src.a * 31.0 + 0.5);
+  float blendedAlpha5 = fogBlendComponent(srcAlpha5, u_fogAlpha, density);
+  float outA = blendedAlpha5 / 31.0;
+  return vec4(outRgb, outA);
+}
+
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
 {
   vec4 scene = Texel(tex, uv);
@@ -279,64 +312,46 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
   float centerFogGate = center.b;
   int centerPolygonId = int(floor(centerId * CLEAR_POLYGON_ID + 0.5));
 
-  vec4 outColor = scene;
-
   // Every legitimately encoded id (real draws and the clear/rear-plane entry
   // alike) decodes into 0..63; this is a cheap defensive guard against
   // malformed upstream data, not a sentinel check -- well-formed input can
   // never reach it. Malformed data skips both edge marking and fog.
-  if (centerPolygonId <= int(CLEAR_POLYGON_ID)) {
-    vec2 stateTexel = 1.0 / u_stateSize;
-    float radius = float(u_edgeRadiusPx);
-    vec2 dx = vec2(radius * stateTexel.x, 0.0);
-    vec2 dy = vec2(0.0, radius * stateTexel.y);
-    // The four orthogonal neighbor probes at one integer edge radius, never
-    // diagonals. In-bounds neighbor positions clamp to the state texture
-    // edge (the state sample itself snaps to the clamped pixel center);
-    // probes past the logical screen edge fall back to the rear-plane state
-    // in stateSample.
-    bool edge =
-      marked(uv, dx, centerId, centerDepth)
-      || marked(uv, -dx, centerId, centerDepth)
-      || marked(uv, dy, centerId, centerDepth)
-      || marked(uv, -dy, centerId, centerDepth);
-
-    if (edge) {
-      vec3 edgeColor = u_edgeColors[centerPolygonId / 8];
-      // DS hardware edge compositing replaces RGB outright, but HGSS field
-      // rendering's 3D anti-aliasing approximates 50% coverage at a marked
-      // edge (see file header); u_antialiasEnabled selects between the two,
-      // never a tuned/arbitrary blend factor.
-      vec3 replacedRgb = u_antialiasEnabled ? mix(scene.rgb, edgeColor, 0.5) : edgeColor;
-      outColor = vec4(replacedRgb, scene.a);
-    }
-
-    // Post-edge fog: both the global and per-polygon gates must be set,
-    // matching GBATEK's two-gate fog rule. Reads whatever outColor edge
-    // marking left behind -- fog composites on top of the edge-replaced
-    // color, never the pre-edge scene color. Alpha blends the same way as
-    // RGB, in the 5-bit domain (melonDS's RenderPixel); the source alpha is
-    // quantized to 5 bits before the blend, matching the DS's own alpha
-    // precision at this stage. See MapRenderer.lua's doDraw for why this
-    // draw's blend mode must be "replace"/"premultiplied" once this alpha is
-    // meaningful data rather than an always-1.0 pass-through.
-    if (u_fogEnabled && centerFogGate > 0.5) {
-      float density = fogDensity(centerDepth);
-      vec3 fogColor6 = expand5to6v(floor(u_fogColor * 31.0 + 0.5));
-      vec3 outRgb6 = floor(outColor.rgb * 63.0 + 0.5);
-      vec3 blendedRgb6 = vec3(
-        fogBlendComponent(outRgb6.x, fogColor6.x, density),
-        fogBlendComponent(outRgb6.y, fogColor6.y, density),
-        fogBlendComponent(outRgb6.z, fogColor6.z, density)
-      );
-      outColor.rgb = blendedRgb6 / 63.0;
-
-      float srcAlpha5 = floor(outColor.a * 31.0 + 0.5);
-      float blendedAlpha5 = fogBlendComponent(srcAlpha5, u_fogAlpha, density);
-      outColor.a = blendedAlpha5 / 31.0;
-    }
+  if (centerPolygonId > int(CLEAR_POLYGON_ID)) {
+    return scene;
   }
 
-  return outColor;
+  vec2 stateTexel = 1.0 / u_stateSize;
+  float radius = float(u_edgeRadiusPx);
+  vec2 dx = vec2(radius * stateTexel.x, 0.0);
+  vec2 dy = vec2(0.0, radius * stateTexel.y);
+  // The four orthogonal neighbor probes at one integer edge radius, never
+  // diagonals. In-bounds neighbor positions clamp to the state texture
+  // edge (the state sample itself snaps to the clamped pixel center);
+  // probes past the logical screen edge fall back to the rear-plane state
+  // in stateSample.
+  bool isMarked =
+    marked(uv, dx, centerId, centerDepth)
+    || marked(uv, -dx, centerId, centerDepth)
+    || marked(uv, dy, centerId, centerDepth)
+    || marked(uv, -dy, centerId, centerDepth);
+
+  // Candidate-based resolve: fog each candidate with the center state's
+  // single depth/fog gate, then mix the fogged candidates. No-edge pixels
+  // receive only the fogged scene; edge pixels with AA disabled receive the
+  // fogged edge candidate; edge pixels with AA enabled receive 50% of each
+  // fogged candidate. The 50% step is the project's current approximation,
+  // not exact hardware lower-pixel coverage; both candidates share the
+  // center depth/fog state, and fog alpha is resolved before the mix.
+  vec4 sceneFogged = applyFog(scene, centerFogGate, centerDepth);
+  if (!isMarked) {
+    return sceneFogged;
+  }
+  vec3 edgeColor = u_edgeColors[centerPolygonId / 8];
+  vec4 edgeCandidate = vec4(edgeColor, scene.a);
+  vec4 edgeFogged = applyFog(edgeCandidate, centerFogGate, centerDepth);
+  if (!u_antialiasEnabled) {
+    return edgeFogged;
+  }
+  return mix(sceneFogged, edgeFogged, 0.5);
 }
 #endif

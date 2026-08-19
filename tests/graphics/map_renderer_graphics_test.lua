@@ -3847,4 +3847,267 @@ function T.mixed_partial_texels_use_the_compositor_and_opaque_texels_do_not(scop
   end
 end
 
+-- Final-pass ordering: fog must apply to each candidate before the 50% mix.
+-- The center is edge-marked (different id and strictly nearer depth) with known
+-- scene and edge RGB6 values, a fog color and alpha, and a constant density
+-- chosen so integer fog truncation makes fog-before-AA differ from AA-before-fog.
+function T.final_pass_fogs_candidates_before_mixing(scope)
+  local scene6 = 19
+  local edge6 = 49
+  local fog6 = 29 -- 14 expanded (2*14+1)
+  local fogC5 = 14
+  local density = 64
+  local sceneNorm = scene6 / 63
+  local edgeNorm = edge6 / 63
+  local fogPacked = fogC5 + fogC5 * 32 + fogC5 * 1024 -- 14798
+  local sceneAlpha = 1.0
+  local fogAlpha = 0
+
+  local Sf = DsFog.blend(scene6, fog6, density) -- 24
+  local Ef = DsFog.blend(edge6, fog6, density) -- 39
+  local mixed6 = math.floor((scene6 + edge6) / 2 + 0.5) -- 34
+  local wrong6 = DsFog.blend(mixed6, fog6, density) -- 31
+  local correctMix6 = (Sf + Ef) / 2 -- 31.5
+  local correctAlpha5 = DsFog.blend(31, fogAlpha, density) -- 15
+
+  local edgeColors = {}
+  for i = 1, 8 do
+    edgeColors[i] = { 0, 0, 0 }
+  end
+  edgeColors[1] = { edgeNorm, edgeNorm, edgeNorm }
+
+  local out = runFinalPass(scope, {
+    { id = 10, depth = 1000, fogGate = 0, scene = { sceneNorm, sceneNorm, sceneNorm, sceneAlpha } },
+    { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, sceneAlpha } },
+    { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, sceneAlpha } },
+  }, {
+    enabled = true,
+    color = fogPacked,
+    offsetRaw = 0,
+    shift = 0,
+    table32 = constantDensityTable(density),
+    alpha = fogAlpha,
+  }, edgeColors, true)
+
+  local rgbScale = out[1] > 1 and 255 or 1
+  local alphaScale = out[4] > 1 and 255 or 1
+  local correctNorm = correctMix6 / 63
+  local wrongNorm = wrong6 / 63
+  Assert.near(
+    out[1],
+    correctNorm * rgbScale,
+    1.2 / 255 * rgbScale,
+    "fog must be applied to each candidate before mixing: red"
+  )
+  Assert.near(
+    out[2],
+    correctNorm * rgbScale,
+    1.2 / 255 * rgbScale,
+    "fog must be applied to each candidate before mixing: green"
+  )
+  Assert.near(
+    out[3],
+    correctNorm * rgbScale,
+    1.2 / 255 * rgbScale,
+    "fog must be applied to each candidate before mixing: blue"
+  )
+  Assert.isTrue(
+    math.abs(out[1] - wrongNorm * rgbScale) > 1.5 / 255 * rgbScale,
+    "result must differ from AA-before-fog (integer truncation discriminates)"
+  )
+  Assert.near(out[4], correctAlpha5 / 31 * alphaScale, 1.5 / 255 * alphaScale, "fog alpha is applied before AA")
+end
+
+-- Disabled-path identities: fog disabled, edge absent, and AA toggles must
+-- compose without side effects. Table-driven direct final-pass fixtures.
+function T.final_pass_disabled_paths_preserve_identities(scope)
+  local function customEdgeColors(edgeNorm)
+    local c = {}
+    for i = 1, 8 do
+      c[i] = { 0, 0, 0 }
+    end
+    c[1] = { edgeNorm, edgeNorm, edgeNorm }
+    return c
+  end
+
+  local scene6 = 19
+  local edge6 = 49
+  local fog6 = 29
+  local fogC5 = 14
+  local density = 64
+  local sceneNorm = scene6 / 63
+  local edgeNorm = edge6 / 63
+  local fogPacked = fogC5 + fogC5 * 32 + fogC5 * 1024
+  local Sf = DsFog.blend(scene6, fog6, density)
+  local Ef = DsFog.blend(edge6, fog6, density)
+  local sceneFoggedNorm = Sf / 63
+  local edgeFoggedNorm = Ef / 63
+  local mixNoFogNorm = (sceneNorm + edgeNorm) / 2
+  local mixFoggedNorm = (Sf + Ef) / 2 / 63
+
+  -- Fog disabled + edge marked + AA off => edge candidate (no fog)
+  do
+    local out = runFinalPass(scope, {
+      { id = 10, depth = 1000, fogGate = 0, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+    }, {
+      enabled = false,
+      color = fogPacked,
+      offsetRaw = 0,
+      shift = 0,
+      table32 = constantDensityTable(density),
+      alpha = 31,
+    }, customEdgeColors(edgeNorm), false)
+    local scale = out[1] > 1 and 255 or 1
+    Assert.near(
+      out[1],
+      edgeNorm * scale,
+      1 / 255 * scale,
+      "fog disabled + edge marked + AA off: fogged edge equals edge candidate: red"
+    )
+    Assert.near(
+      out[2],
+      edgeNorm * scale,
+      1 / 255 * scale,
+      "fog disabled + edge marked + AA off: fogged edge equals edge candidate: green"
+    )
+  end
+
+  -- Fog disabled + edge marked + AA on => 50/50 mix without fog
+  do
+    local out = runFinalPass(scope, {
+      { id = 10, depth = 1000, fogGate = 0, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+    }, {
+      enabled = false,
+      color = fogPacked,
+      offsetRaw = 0,
+      shift = 0,
+      table32 = constantDensityTable(density),
+      alpha = 31,
+    }, customEdgeColors(edgeNorm), true)
+    local scale = out[1] > 1 and 255 or 1
+    Assert.near(
+      out[1],
+      mixNoFogNorm * scale,
+      1 / 255 * scale,
+      "fog disabled + edge marked + AA on: 50/50 mix without fog: red"
+    )
+    Assert.near(
+      out[4],
+      1 * (out[4] > 1 and 255 or 1),
+      1 / 255 * (out[4] > 1 and 255 or 1),
+      "fog disabled preserves alpha"
+    )
+  end
+
+  -- Fog enabled + no edge + AA off => fogged scene
+  do
+    local outOff = runFinalPass(scope, {
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+    }, {
+      enabled = true,
+      color = fogPacked,
+      offsetRaw = 0,
+      shift = 0,
+      table32 = constantDensityTable(density),
+      alpha = 31,
+    }, customEdgeColors(edgeNorm), false)
+    local outOn = runFinalPass(scope, {
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+    }, {
+      enabled = true,
+      color = fogPacked,
+      offsetRaw = 0,
+      shift = 0,
+      table32 = constantDensityTable(density),
+      alpha = 31,
+    }, customEdgeColors(edgeNorm), true)
+    local scaleOff = outOff[1] > 1 and 255 or 1
+    local scaleOn = outOn[1] > 1 and 255 or 1
+    Assert.near(
+      outOff[1],
+      sceneFoggedNorm * scaleOff,
+      1 / 255 * scaleOff,
+      "fog enabled + no edge: fogged scene regardless of AA off: red"
+    )
+    Assert.near(
+      outOn[1],
+      sceneFoggedNorm * scaleOn,
+      1 / 255 * scaleOn,
+      "fog enabled + no edge: AA has no effect when no edge: red"
+    )
+    Assert.isTrue(math.abs(outOff[1] - outOn[1]) <= 1 / 255 * scaleOff, "edge absent => AA has no effect")
+  end
+
+  -- Fog disabled + no edge => scene unchanged
+  do
+    local out = runFinalPass(scope, {
+      { id = 0, depth = 500, fogGate = 0, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 0, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 0, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+    }, {
+      enabled = false,
+      color = fogPacked,
+      offsetRaw = 0,
+      shift = 0,
+      table32 = constantDensityTable(density),
+      alpha = 31,
+    }, customEdgeColors(edgeNorm), true)
+    local scale = out[1] > 1 and 255 or 1
+    Assert.near(out[1], sceneNorm * scale, 1 / 255 * scale, "fog disabled + no edge: scene unchanged: red")
+  end
+
+  -- Fog enabled + edge marked + AA off => fogged edge (not fogged scene)
+  do
+    local out = runFinalPass(scope, {
+      { id = 10, depth = 1000, fogGate = 0, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+    }, {
+      enabled = true,
+      color = fogPacked,
+      offsetRaw = 0,
+      shift = 0,
+      table32 = constantDensityTable(density),
+      alpha = 0,
+    }, customEdgeColors(edgeNorm), false)
+    local scale = out[1] > 1 and 255 or 1
+    local aScale = out[4] > 1 and 255 or 1
+    Assert.near(out[1], edgeFoggedNorm * scale, 1 / 255 * scale, "fog enabled + edge marked + AA off: fogged edge: red")
+    Assert.near(
+      out[4],
+      15 / 31 * aScale,
+      1.2 / 255 * aScale,
+      "fog alpha applies before AA: alpha fogged even when AA off"
+    )
+  end
+
+  -- Fog enabled + edge marked + AA on => fogged mix, fog alpha before AA
+  do
+    local out = runFinalPass(scope, {
+      { id = 10, depth = 1000, fogGate = 0, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+      { id = 0, depth = 500, fogGate = 1, scene = { sceneNorm, sceneNorm, sceneNorm, 1 } },
+    }, {
+      enabled = true,
+      color = fogPacked,
+      offsetRaw = 0,
+      shift = 0,
+      table32 = constantDensityTable(density),
+      alpha = 0,
+    }, customEdgeColors(edgeNorm), true)
+    local scale = out[1] > 1 and 255 or 1
+    local aScale = out[4] > 1 and 255 or 1
+    Assert.near(out[1], mixFoggedNorm * scale, 1.2 / 255 * scale, "fog enabled + edge marked + AA on: fogged mix: red")
+    Assert.near(out[4], 15 / 31 * aScale, 1.2 / 255 * aScale, "fog alpha before AA mix: alpha is fogged before mixing")
+  end
+end
+
 return GraphicsSmoke.suite(T)
