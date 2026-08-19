@@ -8,6 +8,7 @@
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
+local FieldViewport = require("libs.engine.src.FieldViewport")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {}
@@ -188,11 +189,8 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
           return 0.5
         end,
       },
-      viewport = {
-        width = 640,
-        height = 480,
-        worldViewport = { x = 0, y = 0, width = 640, height = 480 },
-      },
+      viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
+      camera = { zoom = 1 },
       transition = { fadeAlpha = 0 },
       dialogue = {
         isModal = function()
@@ -239,7 +237,7 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
   }, FieldState)
   state:draw()
   Assert.equal(received.scene, sceneRuntime, "the renderer receives the runtime map's scene runtime")
-  Assert.equal(received.camera, nil, "the draw path forwards the state's camera (absent in this fake)")
+  Assert.equal(received.camera, state.runtime.camera, "the draw path forwards the runtime camera")
   Assert.isTrue(received.worldParts == state.worldParts)
   Assert.isTrue(received.worldParts[1] == sceneRuntime.mapDraws)
   Assert.isTrue(received.worldParts[2] == sceneRuntime.staticBuildingDraws)
@@ -284,7 +282,8 @@ function T.draw_without_a_menu_host_is_a_programming_error()
           return 0.5
         end,
       },
-      viewport = { width = 640, height = 480, worldViewport = { x = 0, y = 0, width = 640, height = 480 } },
+      viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
+      camera = { zoom = 1 },
       transition = { fadeAlpha = 0 },
       dialogue = {
         isModal = function()

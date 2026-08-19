@@ -122,17 +122,17 @@ function T.compiled_ui_assets_are_ready_and_stable(romFs, version)
 
   -- The class covers every section the manifest contract requires.
   Assert.equal(bundle.manifest.dialogueFrames.count, 20)
-  -- Generated rows pin the audited HGSS strip geometry: the 18-tile frame
-  -- strips are 144 px wide and the wayfinding rows are 24 tiles = 192 px
-  -- wide, independent of the synthetic fixture contract.
+  -- Generated rows pin the audited HGSS geometry: the 18-tile frame strips
+  -- are 144 px wide and the wayfinding entries are 48x32 final surfaces,
+  -- independent of the synthetic fixture contract.
   Assert.equal(bundle.manifest.dialogueFrames.frameTiles[0].width, 144)
   Assert.equal(bundle.manifest.dialogueFrames.frameTiles[0].height, 8)
   local type0 = bundle.manifest.signposts.types[0]
   Assert.equal(type0.frameTiles.width, 144)
   Assert.equal(type0.frameTiles.height, 8)
   Assert.isTrue(type0.wayfinding ~= nil, "type 0 reserves the wayfinding region")
-  Assert.equal(type0.wayfinding[0].width, 192)
-  Assert.equal(type0.wayfinding[0].height, 8)
+  Assert.equal(type0.wayfinding[0].width, 48)
+  Assert.equal(type0.wayfinding[0].height, 32)
   Assert.isTrue(type0.wayfinding[11] ~= nil, "the real corpus pair (type 0, map 11) must carry a wayfinding row")
   Assert.isTrue(type0.wayfinding[20] ~= nil, "the real corpus pair (type 0, map 20) must carry a wayfinding row")
   Assert.isTrue(type0.wayfinding[0].y ~= type0.wayfinding[1].y, "the map-0 and map-1 rows are distinct atlas rows")

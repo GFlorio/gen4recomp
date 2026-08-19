@@ -5,6 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
+local FieldViewport = require("libs.engine.src.FieldViewport")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {}
@@ -38,8 +39,8 @@ local function drawableState(development)
           return 0.5
         end,
       },
-      viewport = { width = 640, height = 480, worldViewport = { x = 0, y = 0, width = 640, height = 480 } },
-      camera = {},
+      viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
+      camera = { zoom = 1 },
       transition = { fadeAlpha = 0 },
       dialogue = {
         isModal = function()

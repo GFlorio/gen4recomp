@@ -107,6 +107,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field applications FieldApplicationRegistry the immutable per-runtime destination application catalogue
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
 ---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share
+---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -963,7 +964,7 @@ function FieldRuntime:_releaseAll()
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
-  self.windowStyles, self.uiManifest, self.weatherCatalog, self.weatherClock = nil, nil, nil, nil
+  self.windowStyles, self.uiManifest, self.weatherCatalog = nil, nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then

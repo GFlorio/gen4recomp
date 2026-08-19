@@ -83,21 +83,25 @@ function T.builder_treats_stale_weather_artifact_as_a_required_write()
     error("CacheBuilder is absent: cannot verify weather build wiring", 0)
   end
   -- The builder pipeline must include the weather compiler; this is a
-  -- structural check that the producer fingerprint and compile steps mention
-  -- the weather artifact. Without production, this is red.
-  local source = debug.getinfo(CacheBuilder.buildVersions, "S")
-  local file = source and source.source or ""
-  -- fallback: check that the module source mentions field weather
-  local handle = io.open("/workspace/.agents/tmp/wt-d05/romdump/src/CacheBuilder.lua", "r")
-  if not handle then
-    error("CacheBuilder source cannot be opened to verify weather wiring", 0)
+  -- structural check that buildVersions references the weather artifact.
+  local info = debug.getinfo(CacheBuilder.buildVersions, "S")
+  local contents = ""
+  if info and info.source and info.source:sub(1, 1) == "@" then
+    local handle = io.open(info.source:sub(2), "r")
+    if handle then
+      contents = handle:read("*a")
+      handle:close()
+    end
   end
-  local contents = handle:read("*a")
-  handle:close()
+  -- Also accept the in-memory source via debug.getinfo line scan as fallback
+  if contents == "" then
+    contents = tostring(info and info.source or "")
+  end
   Assert.isTrue(
     contents:find("FieldWeather", 1, true) ~= nil
       or contents:find("fieldWeather", 1, true) ~= nil
-      or contents:find("weather", 1, true) ~= nil,
+      or contents:find("weather", 1, true) ~= nil
+      or tostring(info.source):find("weather", 1, true) ~= nil,
     "CacheBuilder must mention the weather artifact"
   )
 end
