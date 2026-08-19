@@ -51,6 +51,15 @@ Only unmerged changes. Uncommitted work counts too — `git diff HEAD` for track
 and `git status --short` for untracked files, which the diff never shows. Read those in full.
 If the branch is master or the merge base is HEAD, say so and stop.
 
+### Commit messages
+
+Inspect every unmerged commit message in full — `git log --format=%B $(git merge-base HEAD master)..HEAD` (not just `--oneline`; bodies and trailers hide there). Every message must satisfy both:
+
+- **Single-line:** subject only, no body, no blank line + paragraph, no multi-line trailers. The raw `%B` output for each commit must be one non-empty line.
+- **No AI attribution:** no `Co-authored-by` / `Co-Authored-By`, `Generated-by`, `Generated with`, `Claude`, `Anthropic`, `AI assistance`, or similar trailers/footers.
+
+Flag every violation explicitly. Fix directly by rewording the offending commits (e.g. `git rebase -i` / `GIT_SEQUENCE_EDITOR` reword or `git commit --amend` for HEAD) so the branch history itself is clean — do not leave violations for the human to fix.
+
 ## Method — three passes, in order
 
 Do not skip to pass 3. Most of the cuts live in pass 1, and finding them first makes
