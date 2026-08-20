@@ -56,6 +56,10 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _edgeColorsCache number[][]
 ---@field _edgeColorsProfile table<integer, integer>?
 ---@field _fogColorCache number[]
+---@field _fogTableCache number[][]
+---@field _fogFinalReference table?
+---@field _fogSpriteReference table?
+---@field _fogSynchronizedReference table?
 ---@field stats { drawCalls: integer, colorDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
 ---@field sceneColor love.Canvas?
 ---@field colorDepth love.Canvas?
@@ -227,6 +231,19 @@ function MapRenderer.new(opts)
     },
     _edgeColorsProfile = nil,
     _fogColorCache = { 0, 0, 0 },
+    _fogTableCache = {
+      { 0, 0, 0, 0 },
+      { 0, 0, 0, 0 },
+      { 0, 0, 0, 0 },
+      { 0, 0, 0, 0 },
+      { 0, 0, 0, 0 },
+      { 0, 0, 0, 0 },
+      { 0, 0, 0, 0 },
+      { 0, 0, 0, 0 },
+    },
+    _fogFinalReference = nil,
+    _fogSpriteReference = nil,
+    _fogSynchronizedReference = nil,
     stats = { drawCalls = 0, colorDrawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
     _lightMaterialColorCache = {
       diffuse = { 0, 0, 0 },
@@ -546,36 +563,24 @@ function MapRenderer:_sendEdgeColors(sceneRuntime)
   self._edgeColorsProfile = edgeColors
 end
 
--- The scene's resolved global HGSS weather fog preset (HgssFieldFog.
--- runtimePreset, compiled per map from the real weather field): enable,
--- RGB555-decoded color, the 32-entry density table, and the depth-domain
--- offset and density shift (the preset's own slope field) -- sent to the
--- final pass shader (edgeShader) every frame, unconditionally -- no
--- reference-equality resend cache, unlike _sendEdgeColors/_sendLighting,
--- since fog is not a large, rarely-changing lookup table shared across many
--- draws the way edge colors are (matches how u_view is already
--- sent per-frame from live scene/camera state). Every compiled HGSS field
--- scene carries this preset unconditionally (global fog is evaluated per map
--- regardless of whether it resolves to disabled), so a missing preset is a
--- collaborator gone missing, not a case to default around. Each draw's own
--- per-polygon fog gate still reaches state.glsl unconditionally and
--- independently, landing in renderState's blue channel for this pass to read
--- back. The preset's own `alpha` field is sent as `u_fogAlpha` (0..31, the
--- same 5-bit domain as melonDS's fog alpha register) and blended by
--- edge.glsl exactly like RGB; see doDraw's final composite draw for the
--- "replace"/"premultiplied" blend mode this requires so the computed alpha is
--- written as data instead of being consumed by the host's own compositing.
---
--- The raw G3X FOG_OFFSET register (fog.offset) is converted into the
--- depth-quantization domain once here (fogOffsetRaw * 0x200, melonDS's
--- RenderFogOffset latch), not recomputed per pixel in the shader.
-function MapRenderer:_sendFog(sceneRuntime)
-  local fog = assert(sceneRuntime.fog, "scene runtime requires a fog preset")
-  local shader = self.edgeShader
-  decodeRgb555(self._fogColorCache, fog.color)
+-- The scene's resolved global HGSS weather fog preset is delivered to both
+-- fog consumers only when its reference changes. The final shader can be
+-- synchronized before the lazily-created sprite shader, so each consumer
+-- records success independently and the combined reference is published only
+-- after both have accepted the complete payload.
+local function sendFogPayload(renderer, shader, fog)
+  decodeRgb555(renderer._fogColorCache, fog.color)
+  local groups = renderer._fogTableCache
+  for group = 0, 7 do
+    local values = groups[group + 1]
+    local first = group * 4 + 1
+    values[1], values[2], values[3], values[4] =
+      fog.table[first], fog.table[first + 1], fog.table[first + 2], fog.table[first + 3]
+  end
+
   local fogOffsetDepth = fog.offset * FOG_OFFSET_TO_DEPTH_SCALE
   shader:send("u_fogEnabled", fog.enabled)
-  shader:send("u_fogColor", self._fogColorCache)
+  shader:send("u_fogColor", renderer._fogColorCache)
   -- The 32-entry density table is delivered as 8 groups of 4 raw entries,
   -- one named uniform each: LÖVE 11.5 fills only the first vec4 of a
   -- `vec4[N]` array uniform from a flat table, so a single-array send could
@@ -583,33 +588,39 @@ function MapRenderer:_sendFog(sceneRuntime)
   -- is the 1-indexed 32-entry preset table; group i covers entries
   -- 4*i+1 .. 4*i+4.
   for group = 0, 7 do
-    shader:send(
-      "u_fogTable" .. group,
-      { fog.table[group * 4 + 1], fog.table[group * 4 + 2], fog.table[group * 4 + 3], fog.table[group * 4 + 4] }
-    )
+    shader:send("u_fogTable" .. group, groups[group + 1])
   end
   shader:send("u_fogOffsetDepth", fogOffsetDepth)
   shader:send("u_fogShift", fog.slope)
   shader:send("u_fogAlpha", fog.alpha)
 end
 
--- Presentation sprites use the same fog preset and DS depth conversion as the
--- resolved world, but evaluate fog from their own host fragment depth.
+function MapRenderer:_sendFog(sceneRuntime)
+  local fog = assert(sceneRuntime.fog, "scene runtime requires a fog preset")
+  if self._fogFinalReference == fog then
+    return
+  end
+  sendFogPayload(self, self.edgeShader, fog)
+  self._fogFinalReference = fog
+end
+
+-- Presentation sprites use the same fog payload and DS depth conversion as
+-- the resolved world, but evaluate fog from their own host fragment depth.
 function MapRenderer:_sendSpriteFog(sceneRuntime)
   local fog = assert(sceneRuntime.fog, "scene runtime requires a fog preset")
   local shader = self._activeShader or self.shader
-  decodeRgb555(self._fogColorCache, fog.color)
-  shader:send("u_fogEnabled", fog.enabled)
-  shader:send("u_fogColor", self._fogColorCache)
-  for group = 0, 7 do
-    shader:send(
-      "u_fogTable" .. group,
-      { fog.table[group * 4 + 1], fog.table[group * 4 + 2], fog.table[group * 4 + 3], fog.table[group * 4 + 4] }
-    )
+  if self._fogSpriteReference == fog then
+    return
   end
-  shader:send("u_fogOffsetDepth", fog.offset * FOG_OFFSET_TO_DEPTH_SCALE)
-  shader:send("u_fogShift", fog.slope)
-  shader:send("u_fogAlpha", fog.alpha)
+  local ok, err = pcall(sendFogPayload, self, shader, fog)
+  if not ok then
+    self._fogFinalReference = nil
+    error(err, 0)
+  end
+  self._fogSpriteReference = fog
+  if self._fogFinalReference == fog then
+    self._fogSynchronizedReference = fog
+  end
 end
 
 -- The effective DS material register for one channel of one draw item: the

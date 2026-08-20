@@ -143,6 +143,9 @@ local function fakeGraphics(opts)
     shaders = shaders,
     canvases = canvases,
     calls = calls,
+    setFailOnSend = function(value)
+      opts.failSend = value
+    end,
     setFailOnNewCanvas = function(value)
       opts.failOnNewCanvas = value
     end,
@@ -156,6 +159,10 @@ local function fakeGraphics(opts)
       end
       local shader = { source = source, releaseCount = 0, sends = {}, uniforms = {} }
       shader.send = function(_, name, ...)
+        if opts.failSend and opts.failSend.shader == shader and opts.failSend.name == name then
+          opts.failSend = nil
+          error("injected shader send failure")
+        end
         shader.sends[#shader.sends + 1] = { name = name, values = { ... } }
         shader.uniforms[name] = select(1, ...)
       end
@@ -1108,6 +1115,106 @@ function T.draw_requires_the_scenes_fog_preset()
   Assert.throws(function()
     renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   end)
+  renderer:release()
+end
+
+-- Fog is delivered to both consumers through their normal renderer send
+-- boundaries. Repeating the same resolved preset must not repeat either
+-- consumer's payload delivery.
+function T.stable_fog_reference_sends_once_to_each_consumer()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  renderer:_ensureSpriteShader()
+  local scene = emptySceneCamera()
+  scene.runtime.fog = fogFixture(true)
+
+  for _ = 1, 3 do
+    renderer:_sendFog(scene.runtime)
+    renderer._activeShader = renderer.spriteShader
+    renderer:_sendSpriteFog(scene.runtime)
+    renderer._activeShader = nil
+  end
+
+  local fogNames = { "u_fogEnabled", "u_fogColor", "u_fogOffsetDepth", "u_fogShift", "u_fogAlpha" }
+  for _, name in ipairs(fogNames) do
+    Assert.equal(shaderSendCount(renderer.edgeShader, name), 1, "stable fog sends once to the final consumer: " .. name)
+    Assert.equal(
+      shaderSendCount(renderer.spriteShader, name),
+      1,
+      "stable fog sends once to the sprite consumer: " .. name
+    )
+  end
+  for group = 0, 7 do
+    local name = "u_fogTable" .. group
+    Assert.equal(
+      shaderSendCount(renderer.edgeShader, name),
+      1,
+      "stable fog sends table group once to the final consumer"
+    )
+    Assert.equal(
+      shaderSendCount(renderer.spriteShader, name),
+      1,
+      "stable fog sends table group once to the sprite consumer"
+    )
+  end
+  renderer:release()
+end
+
+-- A preset change is published only after both consumers accept the complete
+-- payload. A failed second consumer therefore retries the changed preset, and
+-- the next unchanged frame is again a no-op.
+function T.changed_fog_reference_retries_after_partial_sync_failure()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  renderer:_ensureSpriteShader()
+  local scene = emptySceneCamera()
+  local presetA = fogFixture(false)
+  local presetB = fogFixture(true)
+  scene.runtime.fog = presetA
+
+  renderer:_sendFog(scene.runtime)
+  renderer._activeShader = renderer.spriteShader
+  renderer:_sendSpriteFog(scene.runtime)
+  renderer._activeShader = nil
+
+  scene.runtime.fog = presetB
+  lg.setFailOnSend({ shader = renderer.spriteShader, name = "u_fogEnabled" })
+  renderer:_sendFog(scene.runtime)
+  renderer._activeShader = renderer.spriteShader
+  local err = Assert.throws(function()
+    renderer:_sendSpriteFog(scene.runtime)
+  end)
+  renderer._activeShader = nil
+  Assert.isTrue(tostring(err):find("injected shader send failure", 1, true) ~= nil)
+
+  renderer:_sendFog(scene.runtime)
+  renderer._activeShader = renderer.spriteShader
+  renderer:_sendSpriteFog(scene.runtime)
+  renderer._activeShader = nil
+  renderer:_sendFog(scene.runtime)
+  renderer._activeShader = renderer.spriteShader
+  renderer:_sendSpriteFog(scene.runtime)
+  renderer._activeShader = nil
+
+  Assert.equal(shaderSendCount(renderer.edgeShader, "u_fogEnabled"), 3, "the final consumer retries the failed preset")
+  Assert.equal(
+    shaderSendCount(renderer.spriteShader, "u_fogEnabled"),
+    2,
+    "the sprite consumer retries after its failed send"
+  )
+  local edgeShader = lg.shaders[2]
+  Assert.deepEqual(edgeShader.uniforms.u_fogColor, decodeRgb555Float(presetB.color))
+  Assert.equal(edgeShader.uniforms.u_fogOffsetDepth, presetB.offset * 0x200)
+  Assert.equal(edgeShader.uniforms.u_fogShift, presetB.slope)
+  Assert.equal(edgeShader.uniforms.u_fogAlpha, presetB.alpha)
+  for group = 0, 7 do
+    Assert.deepEqual(edgeShader.uniforms["u_fogTable" .. group], {
+      presetB.table[group * 4 + 1],
+      presetB.table[group * 4 + 2],
+      presetB.table[group * 4 + 3],
+      presetB.table[group * 4 + 4],
+    })
+  end
   renderer:release()
 end
 
