@@ -721,7 +721,7 @@ local function execute(self, instance, track, instruction)
           -- state is recomputed with the counter reset to zero -- the
           -- envelope stage and the generator/sample phase never restart.
           local head = track.voices[#track.voices]
-          self._mixer:retargetTiedVoice(head.handle, {
+          local retarget = {
             key = midiKey,
             velocity = instruction.velocity,
             -- The current track envelope overrides: a set override replaces
@@ -735,12 +735,15 @@ local function execute(self, instance, track, instruction)
             },
             sweepPitch = sweepPitchFor(track, midiKey),
             sweepLength = sweepLengthFor(track, length, midiKey),
-            autoSweep = track.portamentoTime ~= 0,
             -- The source TrackPlayNote tail resets the sweep counter to
             -- zero so the recomputed sweep runs its full length from the
             -- re-note.
             sweepCounter = 0,
-          })
+          }
+          if track.portamentoTime == 0 then
+            retarget.autoSweep = false
+          end
+          self._mixer:retargetTiedVoice(head.handle, retarget)
         else
           local handle = startNote(self, instance, track, midiKey, instruction.velocity, length)
           if handle ~= nil then

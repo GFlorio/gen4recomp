@@ -529,8 +529,8 @@ end
 
 -- ExChannelSweepUpdate: the sweep contribution is sweepPitch*
 -- (sweepLength - sweepCounter)/sweepLength with the counter advancing per
--- control step while autoSweep is set (pitch 768, 576, 384, 192, 0 over
--- sweepLength 4 -> timers 256, 304, 362, 430, 512 from the 512 base timer);
+-- control step while autoSweep is set (pitch 768, 768, 576, 384, 192 over
+-- sweepLength 4 -> timers 256, 256, 304, 362, 430 from the 512 base timer);
 -- without autoSweep the counter stays and the pitch holds at the first
 -- contribution (timer 256).
 function T.sweep_ramps_pitch_over_its_length()
@@ -552,10 +552,10 @@ function T.sweep_ramps_pitch_over_its_length()
   local out = run(true, 1300)
   local pins = {
     { 251, 500, "step 2 reads at the doubled-rate position (timer 256)" },
-    { 501, 500, "step 3 (timer 304)" },
-    { 751, 600, "step 4 (timer 362)" },
-    { 1001, 100, "step 5 (timer 430)" },
-    { 1251, 1100, "the sweep completed (timer 512)" },
+    { 501, 1000, "step 3 (timer 304)" },
+    { 751, 900, "step 4 (timer 362)" },
+    { 1001, 1100, "step 5 (timer 430)" },
+    { 1251, 500, "the sweep completed (timer 512)" },
   }
   for _, pin in ipairs(pins) do
     Assert.equal(leftAt(out, pin[1]), pin[2], "sweep pin frame " .. pin[1] .. ": " .. pin[3])

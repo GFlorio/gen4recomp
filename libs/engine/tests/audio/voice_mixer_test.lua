@@ -297,8 +297,8 @@ end
 -- recurrence vectors: env -438, -266, -161, -5 at steps 1, 2, 3, 10,
 -- register 0x30D, 0x360, 0x250, 0x79). The first step applies at noteOn;
 -- the envelope never advances once per output sample and never advances
--- inside renderInto -- the external scheduler drives the cadence (the C03
--- contract), so this test renders 249 frames and control-steps at the
+-- inside renderInto -- the external scheduler drives the cadence, so this
+-- test renders 249 frames and control-steps at the
 -- 250-frame boundary the way the scheduler does.
 function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
   local function drive(mixer, frames)
@@ -384,7 +384,7 @@ end
 -- 0x306 and one more to stop; the noteOff itself never kills the voice --
 -- the first release step fires at the next control step. The mixer no
 -- longer owns a cadence: the external scheduler drives one controlStep per
--- 250-frame interval (the C03 contract), so each render block is followed
+-- 250-frame interval, so each render block is followed
 -- by an explicit step. In the pinned scenario the noteOff lands between
 -- steps 2 and 3 of the envelope (after frame 300 of the first 250-frame
 -- block, i.e. during the second interval), so the release's first step
@@ -777,7 +777,7 @@ function T.release_override_rejects_out_of_range_values()
   mixer:render(1)
 end
 
--- The 192 Hz cadence is owned by the external scheduler (the C03 contract),
+-- The 192 Hz cadence is owned by the external scheduler,
 -- not by the mixer: at the production 32768 Hz rate the scheduler's exact
 -- integer accumulator (phase += 192 per output frame, one interval when it
 -- reaches the output rate) places the interval boundaries at 171, 342, 512,
@@ -952,7 +952,7 @@ function T.square_duty_is_consumed_as_the_integer_index()
   rejects(-1)
 end
 
--- The external control cadence (the C03 contract): renderInto is a pure PCM
+-- The external control cadence: renderInto is a pure PCM
 -- span renderer and must never advance the 192 Hz control state on its own --
 -- no envelope step, no sweep/LFO advance, no pending-value application. One
 -- explicit controlStep() advances the channel-control state exactly once.
@@ -1008,6 +1008,32 @@ local function sweepMixer(autoSweep)
     pan = 0,
   })) --[[@as { channel: integer, generation: integer }]]
   return mixer, handle
+end
+
+function T.auto_sweep_uses_counter_zero_for_the_first_elapsed_control_step()
+  local state
+  local mixer = VoiceMixer.new({
+    sampleRate = SAMPLE_RATE,
+    observer = {
+      onChannelState = function(_, event)
+        if event.active then
+          state = event
+        end
+      end,
+    },
+  })
+  local handle = mixer:noteOn(spec({
+    pcm = WAVE16,
+    baseTimer = 512,
+    loop = { startFrame = 0, endFrame = 16 },
+    sweepPitch = 768,
+    sweepLength = 4,
+    autoSweep = true,
+    pan = 0,
+  }))
+  Assert.isTrue(handle ~= nil, "the sweep voice allocates")
+  mixer:controlStep(0)
+  Assert.equal(state.timer, 256, "the first control step uses sweep counter zero")
 end
 
 function T.advance_track_tick_never_releases_and_is_a_no_op_for_a_stale_handle()
@@ -1068,8 +1094,8 @@ function T.non_auto_sweep_advances_only_on_sequence_ticks_and_auto_sweep_only_on
   auto:renderInto(autoOut, 250)
   auto:controlStep()
   auto:renderInto(autoOut, 1)
-  Assert.equal(leftAt(autoOut, 501), 500, "auto step 2 lands the doubled-rate timer (the auto counter advanced)")
-  Assert.equal(leftAt(autoOut, 1251), 1100, "the auto sweep completed at the capped counter")
+  Assert.equal(leftAt(autoOut, 501), 1000, "auto step 2 uses the counter-zero contribution before advancing")
+  Assert.equal(leftAt(autoOut, 1251), 500, "the auto sweep completed at the capped counter")
 end
 
 return { tests = T }

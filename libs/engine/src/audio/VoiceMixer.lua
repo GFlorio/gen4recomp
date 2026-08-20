@@ -493,10 +493,16 @@ local function controlStep(voice, advanceSweep)
   elseif voice.envStatus == "release" then
     voice.envAttenuation = voice.envAttenuation - voice.envRelease
   end
-  if advanceSweep and voice.autoSweep and voice.sweepPitch ~= 0 and voice.sweepCounter < voice.sweepLength then
+  local alive = syncRegisters(voice)
+  if
+    alive
+    and advanceSweep
+    and voice.autoSweep
+    and voice.sweepPitch ~= 0
+    and voice.sweepCounter < voice.sweepLength
+  then
     voice.sweepCounter = voice.sweepCounter + 1
   end
-  local alive = syncRegisters(voice)
   if alive then
     advanceLfo(voice)
   end

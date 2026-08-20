@@ -248,7 +248,7 @@ local function stubMixer()
     updateVoice = function(_, handle, partial)
       log.updates[#log.updates + 1] = { handle = handle, partial = partial }
     end,
-    -- The tied-note common-tail semantic operation (the target C05 mixer
+    -- The tied-note common-tail semantic operation (the mixer
     -- boundary): recorded into the same update log as updateVoice so the
     -- player-visible contract is one atomic update to the reused handle.
     retargetTiedVoice = function(_, handle, partial)
@@ -260,7 +260,7 @@ local function stubMixer()
     kill = function(_, handle)
       alive[handle.generation] = false
     end,
-    -- The sequence-owned non-auto sweep advancement (the target C05
+    -- The sequence-owned non-auto sweep advancement (the
     -- semantic operation): the recorder exposes the per-tick calls so the
     -- sweep-ownership contract is observable at the player boundary.
     advanceTrackTick = function(_, handle)
@@ -2647,7 +2647,7 @@ function T.tied_renote_applies_the_full_common_tail_without_restarting()
   -- track sweep -100: sweepPitch 156, sweepLength 8^2*156>>11 = 4, auto.
   Assert.equal(tail.partial.sweepPitch, 156, "the sweep pitch is recomputed with the portamento contribution")
   Assert.equal(tail.partial.sweepLength, 4, "the sweep length derives from portamentoTime")
-  Assert.equal(tail.partial.autoSweep, true, "nonzero portamento time selects the auto sweep")
+  Assert.isNil(tail.partial.autoSweep, "nonzero tied portamento time omits the auto-sweep write")
   Assert.equal(tail.partial.sweepCounter, 0, "the sweep counter resets to zero on the re-note")
   player:render(500) -- tick 2: the wait expires; tie 0 releases and frees the reused voice
   Assert.deepEqual(
@@ -2688,6 +2688,70 @@ function T.tied_renote_applies_the_full_common_tail_without_restarting()
     "the second re-note slides from the updated portamento key (61)"
   )
   Assert.equal(slideMixer.log.updates[2].partial.sweepLength, 5, "the recomputed sweep length matches the slide")
+end
+
+function T.tied_renote_writes_false_only_for_zero_portamento_time()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "tie", amount = 1 },
+      { op = "portamento_time", amount = 0 },
+      { op = "note", key = 60, velocity = 96, duration = 1 },
+      { op = "portamento_time", amount = 8 },
+      { op = "note", key = 61, velocity = 96, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  Assert.isNil(mixer.log.updates[1].partial.autoSweep, "nonzero tied portamento preserves false by omission")
+
+  local zeroMixer = stubMixer()
+  local zeroPlayer, zeroProvider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "tie", amount = 1 },
+      { op = "portamento_time", amount = 8 },
+      { op = "note", key = 60, velocity = 96, duration = 1 },
+      { op = "portamento_time", amount = 0 },
+      { op = "note", key = 61, velocity = 96, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = zeroMixer })
+  play(zeroPlayer, zeroProvider)
+  Assert.equal(zeroMixer.log.updates[1].partial.autoSweep, false, "zero tied portamento explicitly clears auto-sweep")
+end
+
+function T.tied_false_voice_does_not_auto_advance_between_sequence_ticks()
+  local states = {}
+  local mixer = VoiceMixer.new({
+    sampleRate = SAMPLE_RATE,
+    observer = {
+      onChannelState = function(_, event)
+        if event.active then
+          states[#states + 1] = event
+        end
+      end,
+    },
+  })
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "tie", amount = 1 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "sweep", amount = 768 },
+      { op = "portamento_time", amount = 8 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 2 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  local first = states[#states]
+  player:render(250)
+  local second = states[#states]
+  Assert.equal(first.timer, second.timer, "a preserved non-auto tied voice holds its timer between ticks")
+  Assert.equal(first.generation, second.generation, "the tied re-note keeps the physical generation")
 end
 
 -- A pitch-bend-range command is a live channel control, not next-note-only
