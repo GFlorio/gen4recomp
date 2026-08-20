@@ -3790,6 +3790,203 @@ function T.logical_capacity_precedes_global_priority_arbitration()
   Assert.isFalse(crowdedPlayer:isPlayerPlaying(31), "the rejected global candidate is not active")
 end
 
+function T.logical_replacement_retires_only_the_group_victim()
+  local sequences = {
+    [0] = longLivedSequence(0, 1, 10),
+    [1] = longLivedSequence(1, 1, 20),
+  }
+  for logicalPlayerId = 2, 15 do
+    sequences[logicalPlayerId] = longLivedSequence(logicalPlayerId, logicalPlayerId, 30)
+  end
+  sequences[15] = longLivedSequence(15, 31, 5)
+  sequences[16] = longLivedSequence(16, 1, 20)
+
+  local allocations = {}
+  local retirements = {}
+  local eventOrder = {}
+  local player, provider = allocationEngine(sequences, {
+    maxSequences = 2,
+    observer = {
+      onSequenceAllocation = function(_, event)
+        allocations[#allocations + 1] = event
+        eventOrder[#eventOrder + 1] = "allocation"
+      end,
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+        eventOrder[#eventOrder + 1] = "retirement"
+      end,
+    },
+  })
+  for sequenceId = 0, 15 do
+    player:play(provider:sequence(sequenceId), provider:bank(12))
+  end
+
+  player:play(provider:sequence(16), provider:bank(12))
+
+  Assert.equal(#retirements, 1, "logical replacement retires exactly one instance")
+  Assert.equal(retirements[1].instanceId, 1, "the oldest lowest-priority group member retires")
+  Assert.equal(retirements[1].seqPlayerSlot, 0, "the logical victim's slot is released first")
+  Assert.isTrue(player:isPlayerPlaying(31), "the unrelated global low-priority instance survives")
+  Assert.equal(#allocations, 17, "the incoming sequence is accepted")
+  Assert.equal(allocations[17].seqPlayerSlot, 0, "the incoming sequence receives the released slot")
+  Assert.deepEqual(
+    { eventOrder[17], eventOrder[18] },
+    { "retirement", "allocation" },
+    "retirement is observed before replacement allocation"
+  )
+  local occupiedSlots = {}
+  for _, event in ipairs(allocations) do
+    if event.accepted then
+      occupiedSlots[event.seqPlayerSlot] = true
+    end
+  end
+  local occupiedCount = 0
+  for _ in pairs(occupiedSlots) do
+    occupiedCount = occupiedCount + 1
+  end
+  Assert.equal(occupiedCount, 16, "replacement preserves the full physical slot count")
+  Assert.isTrue(player:isPlayerPlaying(1), "the logical group remains active")
+end
+
+function T.retired_physical_slots_are_reused_in_shutdown_order()
+  local sequences = {}
+  for id = 0, 18 do
+    sequences[id] = longLivedSequence(id, id, 64)
+  end
+  local allocations = {}
+  local retirements = {}
+  local player, provider = allocationEngine(sequences, {
+    observer = {
+      onSequenceAllocation = function(_, event)
+        if event.accepted then
+          allocations[#allocations + 1] = event
+        end
+      end,
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
+  for id = 0, 15 do
+    player:play(provider:sequence(id), provider:bank(12))
+  end
+
+  player:stopPlayer(9)
+  player:stopPlayer(2)
+  player:stopPlayer(7)
+  Assert.deepEqual(
+    { retirements[1].seqPlayerSlot, retirements[2].seqPlayerSlot, retirements[3].seqPlayerSlot },
+    { 9, 2, 7 },
+    "retirements record the requested non-numeric shutdown order"
+  )
+
+  for id = 16, 18 do
+    player:play(provider:sequence(id), provider:bank(12))
+  end
+  Assert.deepEqual(
+    { allocations[17].seqPlayerSlot, allocations[18].seqPlayerSlot, allocations[19].seqPlayerSlot },
+    { 9, 2, 7 },
+    "new allocations consume retired slots in FIFO order"
+  )
+end
+
+function T.equal_priority_global_steal_retires_the_oldest_instance()
+  local sequences = {}
+  for id = 0, 15 do
+    local priority = 30
+    if id == 9 then
+      priority = 5
+    end
+    sequences[id] = longLivedSequence(id, id, priority)
+  end
+  sequences[16] = longLivedSequence(16, 9, 5)
+  sequences[17] = longLivedSequence(17, 2, 5)
+  sequences[18] = longLivedSequence(18, 16, 5)
+
+  local allocations = {}
+  local retirements = {}
+  local player, provider = allocationEngine(sequences, {
+    observer = {
+      onSequenceAllocation = function(_, event)
+        if event.accepted then
+          allocations[#allocations + 1] = event
+        end
+      end,
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
+  for id = 0, 15 do
+    player:play(provider:sequence(id), provider:bank(12))
+  end
+  player:stopPlayer(9)
+  player:play(provider:sequence(16), provider:bank(12))
+  player:stopPlayer(2)
+  player:play(provider:sequence(17), provider:bank(12))
+
+  player:play(provider:sequence(18), provider:bank(12))
+
+  Assert.equal(#retirements, 3, "full-pool replacement retires one global victim")
+  Assert.equal(retirements[3].instanceId, 17, "the older equal-priority instance is selected")
+  Assert.equal(retirements[3].seqPlayerSlot, 9, "the older candidate's physical slot is released")
+  Assert.equal(allocations[19].seqPlayerSlot, 9, "the incoming sequence receives the victim's slot")
+  Assert.isFalse(player:isPlayerPlaying(9), "the older candidate's logical player is retired")
+  Assert.isTrue(player:isPlayerPlaying(2), "the younger candidate's logical player remains active")
+end
+
+function T.rejected_logical_and_global_admissions_preserve_ownership()
+  local logicalAllocations = {}
+  local logicalRetirements = {}
+  local logicalPlayer, logicalProvider = allocationEngine({
+    [0] = longLivedSequence(0, 1, 20),
+    [1] = longLivedSequence(1, 1, 10),
+  }, {
+    maxSequences = 1,
+    observer = {
+      onSequenceAllocation = function(_, event)
+        logicalAllocations[#logicalAllocations + 1] = event
+      end,
+      onSequenceRetirement = function(_, event)
+        logicalRetirements[#logicalRetirements + 1] = event
+      end,
+    },
+  })
+  logicalPlayer:play(logicalProvider:sequence(0), logicalProvider:bank(12))
+  logicalPlayer:play(logicalProvider:sequence(1), logicalProvider:bank(12))
+  Assert.equal(#logicalRetirements, 0, "a rejected logical admission does not retire")
+  Assert.equal(#logicalAllocations, 2, "a rejected logical admission emits no accepted allocation")
+  Assert.isFalse(logicalAllocations[2].accepted, "the logical admission is rejected")
+  Assert.isTrue(logicalPlayer:isPlayerPlaying(1), "the existing logical instance remains active")
+
+  local globalAllocations = {}
+  local globalRetirements = {}
+  local globalSequences = {}
+  for id = 0, 15 do
+    globalSequences[id] = longLivedSequence(id, id, 30)
+  end
+  globalSequences[16] = longLivedSequence(16, 16, 20)
+  local globalPlayer, globalProvider = allocationEngine(globalSequences, {
+    observer = {
+      onSequenceAllocation = function(_, event)
+        globalAllocations[#globalAllocations + 1] = event
+      end,
+      onSequenceRetirement = function(_, event)
+        globalRetirements[#globalRetirements + 1] = event
+      end,
+    },
+  })
+  for id = 0, 15 do
+    globalPlayer:play(globalProvider:sequence(id), globalProvider:bank(12))
+  end
+  globalPlayer:play(globalProvider:sequence(16), globalProvider:bank(12))
+  Assert.equal(#globalRetirements, 0, "a rejected global admission does not retire")
+  Assert.equal(#globalAllocations, 17, "the rejected global admission emits no accepted allocation")
+  Assert.isFalse(globalAllocations[17].accepted, "the global admission is rejected")
+  Assert.isTrue(globalPlayer:isPlayerPlaying(0), "all existing global instances remain active")
+  Assert.isFalse(globalPlayer:isPlayerPlaying(16), "the rejected global instance is not active")
+end
+
 function T.logical_group_controls_cover_all_instances_in_the_group()
   local mixer = stubMixer()
   local player, provider = allocationEngine({

@@ -123,6 +123,7 @@ local bit = require("bit")
 ---@field private _provider AudioAssetProvider
 ---@field private _logicalPlayers table<integer, table>
 ---@field private _seqPlayers table<integer, table?>
+---@field private _freeSeqPlayerSlots integer[] FIFO of inactive physical slots
 ---@field private _trackPool table<integer, table?> concrete reusable track objects
 ---@field private _soundPhase integer the one global 192 Hz sound-interval phase accumulator
 ---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider, observer: table? }): SequencePlayer
@@ -179,6 +180,27 @@ local function observe(self, method, event)
       callback(observer, event)
     end
   end
+end
+
+-- NNS returns retired physical players to a free-list and allocates its head.
+-- Keep the ownership checks at this boundary so corruption cannot be repaired
+-- by silently reordering or duplicating a slot.
+local function appendFreeSeqPlayerSlot(self, slot)
+  assert(slot >= 0 and slot < PLAYER_COUNT, "physical slot must be in range")
+  assert(self._seqPlayers[slot] == nil, "free physical slot is still occupied")
+  for index = 1, #self._freeSeqPlayerSlots do
+    assert(self._freeSeqPlayerSlots[index] ~= slot, "free physical slot is duplicated")
+  end
+  self._freeSeqPlayerSlots[#self._freeSeqPlayerSlots + 1] = slot
+end
+
+local function popFreeSeqPlayerSlot(self)
+  local slot = table.remove(self._freeSeqPlayerSlots, 1)
+  if slot == nil then
+    return nil
+  end
+  assert(self._seqPlayers[slot] == nil, "free physical slot is occupied")
+  return slot
 end
 
 local function clamp(value, low, high)
@@ -1161,6 +1183,7 @@ retireInstance = function(self, instance, reason)
   assert(found, "logical player does not own instance")
   releaseInstance(self, instance)
   self._seqPlayers[instance.seqPlayerSlot] = nil
+  appendFreeSeqPlayerSlot(self, instance.seqPlayerSlot)
   instance.retired = true
   observe(self, "onSequenceRetirement", {
     logicalPlayerId = instance.logicalPlayerId,
@@ -1175,6 +1198,10 @@ function SequencePlayer.new(opts)
     opts and opts.sampleRate and opts.mixer and opts.provider,
     "SequencePlayer requires sampleRate, mixer and provider"
   )
+  local freeSeqPlayerSlots = {}
+  for slot = 0, PLAYER_COUNT - 1 do
+    freeSeqPlayerSlots[#freeSeqPlayerSlots + 1] = slot
+  end
   return setmetatable({
     _sampleRate = opts.sampleRate,
     _mixer = opts.mixer,
@@ -1182,6 +1209,7 @@ function SequencePlayer.new(opts)
     _observer = opts.observer,
     _logicalPlayers = {},
     _seqPlayers = {},
+    _freeSeqPlayerSlots = freeSeqPlayerSlots,
     _nextInstanceId = 1,
     _trackCount = 0,
     _trackPool = {},
@@ -1232,15 +1260,22 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
     self._logicalPlayers[logicalPlayerId] = logicalPlayer
   end
   local instances = logicalPlayer.instances
-  local victim
+  local logicalVictim
   if #instances >= playerRecord.maxSequences then
     for index = 1, #instances do
       local candidate = instances[index]
-      if victim == nil or candidate.sequence.player.playerPriority < victim.sequence.player.playerPriority then
-        victim = candidate
+      if
+        logicalVictim == nil
+        or candidate.sequence.player.playerPriority < logicalVictim.sequence.player.playerPriority
+        or (
+          candidate.sequence.player.playerPriority == logicalVictim.sequence.player.playerPriority
+          and candidate.id < logicalVictim.id
+        )
+      then
+        logicalVictim = candidate
       end
     end
-    if sequence.player.playerPriority < victim.sequence.player.playerPriority then
+    if sequence.player.playerPriority < logicalVictim.sequence.player.playerPriority then
       observe(self, "onSequenceAllocation", {
         playerId = logicalPlayerId,
         logicalPlayerId = logicalPlayerId,
@@ -1250,25 +1285,23 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
       })
       return
     end
+    retireInstance(self, logicalVictim, "logical_eviction")
   end
 
-  local seqPlayerSlot
-  for candidateSlot = 0, PLAYER_COUNT - 1 do
-    if self._seqPlayers[candidateSlot] == nil then
-      seqPlayerSlot = candidateSlot
-      break
-    end
-  end
-  local globalVictim
+  local seqPlayerSlot = popFreeSeqPlayerSlot(self)
   if seqPlayerSlot == nil then
+    local globalVictim
     for candidateSlot = 0, PLAYER_COUNT - 1 do
       local candidate = self._seqPlayers[candidateSlot]
       if
         globalVictim == nil
         or candidate.sequence.player.playerPriority < globalVictim.sequence.player.playerPriority
+        or (
+          candidate.sequence.player.playerPriority == globalVictim.sequence.player.playerPriority
+          and candidate.id < globalVictim.id
+        )
       then
         globalVictim = candidate
-        seqPlayerSlot = candidateSlot
       end
     end
     if sequence.player.playerPriority < globalVictim.sequence.player.playerPriority then
@@ -1281,13 +1314,9 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
       })
       return
     end
-  end
-
-  if victim ~= nil then
-    retireInstance(self, victim, "logical_eviction")
-  end
-  if globalVictim ~= nil and globalVictim ~= victim then
     retireInstance(self, globalVictim, "physical_eviction")
+    seqPlayerSlot = popFreeSeqPlayerSlot(self)
+    assert(seqPlayerSlot ~= nil, "retired global victim did not free a physical slot")
   end
 
   local instance = {
@@ -1325,6 +1354,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
 
   local entryTrack = allocateTrack(self, 0, channelMask)
   if entryTrack == nil then
+    appendFreeSeqPlayerSlot(self, seqPlayerSlot)
     observe(self, "onSequenceAllocation", {
       playerId = logicalPlayerId,
       logicalPlayerId = logicalPlayerId,
