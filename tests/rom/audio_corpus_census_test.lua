@@ -248,27 +248,27 @@ function T.corpus_census_classifies_every_reachable_construct()
         sdatBanks = sdatBanks + 1
         local bytes = assert(sdat:readFile(record.fileId))
         local ir, err = Sbnk.decode(bytes, "SBNK " .. id)
-        if ir == nil then
-          local expectedUnsupported = err ~= nil and (err.context.type == 4 or err.context.type == 5)
-          Assert.isTrue(expectedUnsupported, "SBNK decode failed for bank " .. id .. ": " .. Errors.format(err))
-        else
-          for program, inst in pairs(ir.instruments) do
-            countBankType(inst, string.format("bank %d program %s", id, tostring(program)))
-            local function checkParam(param, where)
-              if param and param.release == 0xFF then
-                releaseFF = releaseFF + 1
-                if #releaseFFLocations < 5 then
-                  releaseFFLocations[#releaseFFLocations + 1] = string.format("bank %d %s", id, where)
-                end
+        Assert.notNil(
+          ir,
+          "SBNK decode failed for bank " .. id .. ": " .. tostring(err and Errors.format(err) or "no error")
+        )
+        ir = assert(ir)
+        for program, inst in pairs(ir.instruments) do
+          countBankType(inst, string.format("bank %d program %s", id, tostring(program)))
+          local function checkParam(param, where)
+            if param and param.release == 0xFF then
+              releaseFF = releaseFF + 1
+              if #releaseFFLocations < 5 then
+                releaseFFLocations[#releaseFFLocations + 1] = string.format("bank %d %s", id, where)
               end
             end
-            if inst.param then
-              checkParam(inst.param, "program direct")
-            end
-            if inst.leaves then
-              for idx, leaf in pairs(inst.leaves) do
-                checkParam(leaf.param, "leaf " .. tostring(idx))
-              end
+          end
+          if inst.param then
+            checkParam(inst.param, "program direct")
+          end
+          if inst.leaves then
+            for idx, leaf in pairs(inst.leaves) do
+              checkParam(leaf.param, "leaf " .. tostring(idx))
             end
           end
         end

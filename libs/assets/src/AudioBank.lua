@@ -1,10 +1,11 @@
 -- Validator for the derived audio bank asset: numeric and symbolic identity,
 -- its wave-archive slot map, and a program-keyed instruments map. Instrument
 -- kinds are the semantic direct/key_split/drum_set (never SBNK record
--- types), and every leaf voice has the common shape {generator, originalKey,
+-- types). Playable leaves have the common shape {generator, originalKey,
 -- envelope, pan}: sample voices add the content-address key, square voices
 -- carry the discrete DS PSG duty index 0..7 (never a float fraction), and
 -- square/noise voices carry their source original key like every other leaf.
+-- The exact silent DUMMY leaf is the sole exception to that playable shape.
 -- `validate` and `sampleKeys` share one internal leaf traversal (walkVoices)
 -- that owns the instruments-map grammar; validation additionally enforces the
 -- strict leaf grammar, while `sampleKeys` collects the content-address keys

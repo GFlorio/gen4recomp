@@ -104,7 +104,8 @@ DerivedAssetContract.audio = {
   -- strictly invalidates deleted operations; v8 removes the synthetic
   -- channel-mask operation that had no producer.
   sequenceSchema = "g4-audio-sequence-v8",
-  bankSchema = "g4-audio-bank-v4",
+  -- v5 includes exact silent DUMMY leaves and the 0xFF release sentinel.
+  bankSchema = "g4-audio-bank-v5",
   sampleSchema = "g4-audio-sample-v4",
   provenanceSchema = "g4-audio-provenance-v1",
 }

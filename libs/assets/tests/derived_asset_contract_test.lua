@@ -73,7 +73,7 @@ function T.contract_pins_the_current_asset_identities()
       -- operations invalidate earlier sequence assets.
       indexSchema = "g4-audio-index-v5",
       sequenceSchema = "g4-audio-sequence-v8",
-      bankSchema = "g4-audio-bank-v4",
+      bankSchema = "g4-audio-bank-v5",
       sampleSchema = "g4-audio-sample-v4",
       provenanceSchema = "g4-audio-provenance-v1",
     },

@@ -36,6 +36,10 @@ function T.validates_schema_identity_and_symbol()
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
+  bank.schema = "g4-audio-bank-v4"
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
   bank.schema = AudioBank.SCHEMA
   bank.id = -1
   throwsCode("AUDIO_BANK_INVALID", function()
