@@ -1,13 +1,12 @@
--- Draws a loaded runtime scene through two world-raster passes and a native
+-- Draws a loaded runtime scene through one world-raster pass and a native
 -- presentation sprite stage (see docs/rendering.md). The color raster
--- (sceneColor/colorDepth) and render-state raster (renderState/stateDepth)
+-- (sceneColor/colorDepth) and render-state raster (renderState)
 -- share bounded world dimensions; actor sprites resolve the world first and
 -- draw directly to the host window.
 --
 -- The render queue is built exactly once per frame (RenderQueue.buildInto)
--- and both passes consume it. The state pass (state.glsl) draws opaque,
--- cutout, and mixed-opaque fragments (mixed-opaque-fragment predicate only)
--- into renderState/stateDepth: every surviving fragment stamps its polygon
+-- and the world MRT pass consumes it. Opaque, cutout, and mixed-opaque
+-- fragments stamp renderState atomically with color:
 -- ID, DS-quantized depth, and per-polygon fog gate. Ordinary translucent and
 -- mixed-translucent fragments never touch the state target directly; their
 -- state (last translucent ID, fog-gate AND, optional DS Z depth) is
@@ -55,16 +54,15 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field shader love.Shader
 ---@field spriteShader love.Shader
 ---@field _spriteShaderSource string
----@field stateShader love.Shader
+---@field worldShader love.Shader
 ---@field edgeShader love.Shader
 ---@field _edgeColorsCache number[][]
 ---@field _edgeColorsProfile table<integer, integer>?
 ---@field _fogColorCache number[]
----@field stats { drawCalls: integer, colorDrawCalls: integer, stateDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
+---@field stats { drawCalls: integer, colorDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
 ---@field sceneColor love.Canvas?
 ---@field colorDepth love.Canvas?
 ---@field renderState love.Canvas?
----@field stateDepth love.Canvas?
 ---@field _spareColor love.Canvas?
 ---@field _spareState love.Canvas?
 ---@field _sourceColor love.Canvas?
@@ -73,8 +71,7 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field colorH integer?
 ---@field stateW integer?
 ---@field stateH integer?
----@field _colorTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
----@field _stateTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
+---@field _colorTargets { [1]: love.Canvas, [2]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _sourceColorTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _sourceMetaTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
@@ -98,7 +95,6 @@ MapRenderer.__index = MapRenderer
 local SHADER_SOURCE_PATHS = {
   color = "libs/engine/src/shaders/map.glsl",
   resolve = "libs/engine/src/shaders/edge.glsl",
-  state = "libs/engine/src/shaders/state.glsl",
   source = "libs/engine/src/shaders/source.glsl",
   composite = "libs/engine/src/shaders/composite.glsl",
 }
@@ -132,7 +128,7 @@ local IDENTITY_MODEL = Matrix4.identity()
 local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
 -- 24-bit rear-plane depth: the maximum value the shader's quantized
--- depth domain can represent (see DS_DEPTH_MAX in state.glsl).
+-- depth domain can represent.
 local DS_DEPTH_MAX = 0xFFFFFF
 
 -- melonDS's RenderFogOffset latch (src/GPU3D.cpp): the raw G3X FOG_OFFSET
@@ -159,7 +155,7 @@ local DS_STATE_CLEAR = { 1, DS_DEPTH_MAX, 0, 0 }
 -- initializes the rear/clear plane's polygon ID to 0x3F (63) -- a real,
 -- reachable id, not a sentinel outside the domain. Every draw (opaque,
 -- cutout, mixed, and wireframe alike) sends its own real polygon ID,
--- normalized by this same domain maximum (id/63; state.glsl and edge.glsl
+-- normalized by this same domain maximum (id/63; map.glsl and edge.glsl
 -- document the encoding/decoding). PolygonState already validates that
 -- source polygon ids are integers in 0..63, so this module does not
 -- duplicate that validation with its own MAX_POLYGON_ID constant.
@@ -173,12 +169,7 @@ local FRAGMENT_PASS_TRANSLUCENT = 2
 local FRAGMENT_PASS_MIXED_OPAQUE = 3
 local FRAGMENT_PASS_MIXED_TRANSLUCENT = 4
 
--- State-pass fragment-pass ids (state.glsl's u_fragmentPass): only the
--- three passes that ever touch renderState/stateDepth.
-local STATE_PASS_OPAQUE = 0
-local STATE_PASS_CUTOUT = 1
-local STATE_PASS_MIXED_OPAQUE = 2
-
+-- World MRT uses the same fragment-pass ids as the color-only shader.
 local function validateWorldRasterScale(scale)
   assert(
     scale == nil
@@ -229,7 +220,7 @@ function MapRenderer.new(opts)
     },
     _edgeColorsProfile = nil,
     _fogColorCache = { 0, 0, 0 },
-    stats = { drawCalls = 0, colorDrawCalls = 0, stateDrawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
+    stats = { drawCalls = 0, colorDrawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
     _lightMaterialColorCache = {
       diffuse = { 0, 0, 0 },
       ambient = { 0, 0, 0 },
@@ -272,7 +263,7 @@ function MapRenderer.new(opts)
     renderer.shader = graphics.newShader(colorSource)
     renderer._spriteShaderSource = "#define PRESENTATION_SPRITE\n" .. colorSource
     renderer.edgeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.resolve))
-    renderer.stateShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.state))
+    renderer.worldShader = graphics.newShader("#define WORLD_MRT\n" .. colorSource)
     renderer.sourceShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.source))
     renderer.compositeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.composite))
   end)
@@ -302,9 +293,6 @@ function MapRenderer:_releaseTargets()
   if self.renderState then
     self.renderState:release()
   end
-  if self.stateDepth then
-    self.stateDepth:release()
-  end
   if self._spareColor then
     self._spareColor:release()
   end
@@ -317,12 +305,11 @@ function MapRenderer:_releaseTargets()
   if self._sourceMeta then
     self._sourceMeta:release()
   end
-  self.sceneColor, self.colorDepth, self.renderState, self.stateDepth = nil, nil, nil, nil
+  self.sceneColor, self.colorDepth, self.renderState = nil, nil, nil
   self._spareColor, self._spareState = nil, nil
   self._sourceColor, self._sourceMeta = nil, nil
   self.colorW, self.colorH, self.stateW, self.stateH = nil, nil, nil, nil
   self._colorTargets = nil
-  self._stateTargets = nil
   self._sourceColorTargets = nil
   self._sourceMetaTargets = nil
 end
@@ -347,20 +334,19 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     return
   end
   local lg = assert(self._graphics)
-  local sceneColor, colorDepth, renderState, stateDepth
+  local sceneColor, colorDepth, renderState
   local spareColor, spareState, sourceColor, sourceMeta
-  local colorTargets, stateTargets, sourceColorTargets, sourceMetaTargets
+  local colorTargets, sourceColorTargets, sourceMetaTargets
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(colorW, colorH)
     -- Nearest sampling keeps the final composite draw (a 1:1 blit at
     -- presentation resolution) from introducing interpolation of its own.
     sceneColor:setFilter("nearest", "nearest")
     colorDepth = lg.newCanvas(colorW, colorH, { format = "depth24stencil8", readable = false })
-    colorTargets = { sceneColor, depthstencil = colorDepth }
 
     -- renderState: red the normalized opaque edge polygon ID, green the
     -- DS Z-buffer depth (a 24-bit integer domain, stored as a
-    -- float -- see dsZbufferDepth in state.glsl), blue the per-polygon fog
+    -- float -- see dsZbufferDepth in map.glsl), blue the per-polygon fog
     -- gate, alpha the last-translucent-ID encoding (0 = none, (id+1)/64).
     -- The state canvas shares the color canvas's exact dimensions: state
     -- classification is never deliberately downsampled, and the final resolve
@@ -369,8 +355,7 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     -- the full 24-bit domain, which 16-bit floats cannot resolve exactly.
     renderState = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
     renderState:setFilter("nearest", "nearest")
-    stateDepth = lg.newCanvas(colorW, colorH, { format = "depth24stencil8", readable = false })
-    stateTargets = { renderState, depthstencil = stateDepth }
+    colorTargets = { sceneColor, renderState, depthstencil = colorDepth }
 
     -- The compositor's single spare destination pair alternates with the
     -- published active pair. The color halves are rgba8 (the final composite
@@ -395,7 +380,6 @@ function MapRenderer:_ensureTargets(colorW, colorH)
       sceneColor,
       colorDepth,
       renderState,
-      stateDepth,
       spareColor,
       spareState,
       sourceColor,
@@ -408,12 +392,11 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     error(err)
   end
   self:_releaseTargets()
-  self.sceneColor, self.colorDepth, self.renderState, self.stateDepth = sceneColor, colorDepth, renderState, stateDepth
+  self.sceneColor, self.colorDepth, self.renderState = sceneColor, colorDepth, renderState
   self._spareColor, self._spareState = spareColor, spareState
   self._sourceColor, self._sourceMeta = sourceColor, sourceMeta
   self.colorW, self.colorH, self.stateW, self.stateH = colorW, colorH, colorW, colorH
   self._colorTargets = colorTargets
-  self._stateTargets = stateTargets
   self._sourceColorTargets = sourceColorTargets
   self._sourceMetaTargets = sourceMetaTargets
 end
@@ -690,10 +673,8 @@ local function sendTransformUniforms(shader, projection, modelMatrix, modelNorma
   end
 end
 
--- The state shader's transform uniforms: the same billboard/world placement,
--- without the model-normal uniform the color shader's lighting needs (the
--- state pass computes no lit color).
-local function sendStateTransformUniforms(shader, projection, modelMatrix, billboardCenter, billboardScale)
+-- Bind placement for metadata shaders that do not perform vertex lighting.
+local function sendPlacementUniforms(shader, projection, modelMatrix, billboardCenter, billboardScale)
   shader:send("u_proj", "column", projection)
   local isBillboard = billboardCenter ~= nil
   shader:send("u_billboard", isBillboard)
@@ -849,6 +830,10 @@ function MapRenderer:_drawMesh(
   shader:send("u_polygonAlpha", item.polygonAlpha)
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
+  if shader == self.worldShader then
+    shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
+    shader:send("u_polygonFogEnabled", item.fogEnabled == true)
+  end
   lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
@@ -926,119 +911,15 @@ function MapRenderer:_drawWireframeMesh(
   shader:send("u_polygonAlpha", 1.0)
   shader:send("u_polygonMode", 0)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
+  if shader == self.worldShader then
+    shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
+    shader:send("u_polygonFogEnabled", item.fogEnabled == true)
+  end
   mesh:setTexture()
   lg.setMeshCullMode(item.cullMode)
   lg.draw(mesh)
   self.stats.drawCalls = self.stats.drawCalls + 1
   self.stats.colorDrawCalls = self.stats.colorDrawCalls + 1
-end
-
--- ---- state pass draw bodies ----
---
--- Mirror the color-pass draw bodies above (_drawItem/_drawStraddle/_drawMesh
--- and their wireframe counterparts), but through stateShader: no lighting, no
--- material registers, and the item's polygon id / fog-enable bit feed
--- state.glsl's state output instead of map.glsl's color combiner (depth comes
--- from the fragment's own window depth -- see dsZbufferDepth there).
-
-function MapRenderer:_drawStateItem(item, projection, fragmentPass, viewMatrix)
-  if item.straddle then
-    self:_drawStateStraddle(item, projection, fragmentPass, viewMatrix)
-    return
-  end
-  self:_drawStateMesh(
-    item,
-    projection,
-    item.transform,
-    item.mesh,
-    fragmentPass,
-    item.billboardCenter,
-    item.billboardScale
-  )
-end
-
-function MapRenderer:_drawStateStraddle(item, projection, fragmentPass, viewMatrix)
-  local lg = assert(self._graphics)
-  local scratch
-  local ok, err = pcall(function()
-    scratch = bakeStraddleMesh(lg, item, viewMatrix)
-    self:_drawStateMesh(item, projection, IDENTITY_MODEL, scratch, fragmentPass, nil, nil)
-  end)
-  if scratch then
-    scratch:release()
-  end
-  if not ok then
-    error(err)
-  end
-end
-
-function MapRenderer:_drawStateMesh(item, projection, modelMatrix, mesh, fragmentPass, billboardCenter, billboardScale)
-  local lg = assert(self._graphics)
-  local mat = item.material
-  local shader = self.stateShader
-
-  sendStateTransformUniforms(shader, projection, modelMatrix, billboardCenter, billboardScale)
-  shader:send("u_texMatrix", "column", mat.texMatrix)
-
-  if mat and mat.image then
-    shader:send("u_useTexture", true)
-    mesh:setTexture(mat.image)
-  else
-    shader:send("u_useTexture", false)
-    mesh:setTexture()
-  end
-
-  shader:send("u_fragmentPass", fragmentPass)
-  shader:send("u_polygonAlpha", item.polygonAlpha)
-  shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-  shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
-  shader:send("u_polygonFogEnabled", item.fogEnabled == true)
-  lg.setMeshCullMode(item.cullMode)
-  lg.draw(mesh)
-  self.stats.drawCalls = self.stats.drawCalls + 1
-  self.stats.stateDrawCalls = self.stats.stateDrawCalls + 1
-end
-
-function MapRenderer:_drawStateWireframe(item, projection, viewMatrix)
-  if item.straddle then
-    self:_drawStateWireframeStraddle(item, projection, viewMatrix)
-    return
-  end
-  self:_drawStateWireframeMesh(item, projection, item.transform, item.mesh, item.billboardCenter, item.billboardScale)
-end
-
-function MapRenderer:_drawStateWireframeStraddle(item, projection, viewMatrix)
-  local lg = assert(self._graphics)
-  local scratch
-  local ok, err = pcall(function()
-    scratch = bakeStraddleMesh(lg, item, viewMatrix)
-    self:_drawStateWireframeMesh(item, projection, IDENTITY_MODEL, scratch, nil, nil)
-  end)
-  if scratch then
-    scratch:release()
-  end
-  if not ok then
-    error(err)
-  end
-end
-
-function MapRenderer:_drawStateWireframeMesh(item, projection, modelMatrix, mesh, billboardCenter, billboardScale)
-  local lg = assert(self._graphics)
-  local shader = self.stateShader
-
-  sendStateTransformUniforms(shader, projection, modelMatrix, billboardCenter, billboardScale)
-  shader:send("u_texMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
-  shader:send("u_useTexture", false)
-  shader:send("u_fragmentPass", STATE_PASS_OPAQUE)
-  shader:send("u_polygonAlpha", 1.0)
-  shader:send("u_polygonMode", 0)
-  shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
-  shader:send("u_polygonFogEnabled", item.fogEnabled == true)
-  mesh:setTexture()
-  lg.setMeshCullMode(item.cullMode)
-  lg.draw(mesh)
-  self.stats.drawCalls = self.stats.drawCalls + 1
-  self.stats.stateDrawCalls = self.stats.stateDrawCalls + 1
 end
 
 -- Rasterize ONE blended item's partial-alpha fragments into the temporary
@@ -1077,7 +958,7 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
   if item.straddle then
     self:_drawSourceStraddleMeta(item, projection, fragmentPass, viewMatrix, activeState, stateW, stateH)
   else
-    sendStateTransformUniforms(self.sourceShader, projection, item.transform, item.billboardCenter, item.billboardScale)
+    sendPlacementUniforms(self.sourceShader, projection, item.transform, item.billboardCenter, item.billboardScale)
     self.sourceShader:send("u_texMatrix", "column", mat.texMatrix)
     if mat and mat.image then
       self.sourceShader:send("u_useTexture", true)
@@ -1110,7 +991,7 @@ function MapRenderer:_drawSourceStraddleMeta(item, projection, fragmentPass, vie
   local ok, err = pcall(function()
     scratch = bakeStraddleMesh(lg, item, viewMatrix)
     local shader = self.sourceShader
-    sendStateTransformUniforms(shader, projection, IDENTITY_MODEL, nil, nil)
+    sendPlacementUniforms(shader, projection, IDENTITY_MODEL, nil, nil)
     shader:send("u_texMatrix", "column", item.material.texMatrix)
     if item.material and item.material.image then
       shader:send("u_useTexture", true)
@@ -1150,8 +1031,8 @@ end
 ---@param alpha number
 function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
-  -- The state shader derives its depth from the host fragment's normalized
-  -- window depth (state.glsl's dsZbufferDepth, the HGSS field Z-buffer
+  -- The world MRT shader derives its depth from the host fragment's normalized
+  -- window depth (map.glsl's dsZbufferDepth, the HGSS field Z-buffer
   -- domain) -- no camera far plane is sent for depth normalization. The
   -- camera's far plane still participates in the frame through its own
   -- projection matrices (camera:projection()/camera:billboardProjection()),
@@ -1163,7 +1044,6 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
 
   self.stats.drawCalls = 0
   self.stats.colorDrawCalls = 0
-  self.stats.stateDrawCalls = 0
 
   local rectangle = viewport.worldViewport
   local colorW, colorH = MapRenderer.worldRasterDimensions(rectangle.width, rectangle.height, self.worldRasterScale)
@@ -1183,7 +1063,6 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
   end
 
   local colorTargets = assert(self._colorTargets)
-  local stateTargets = assert(self._stateTargets)
 
   -- The final pass samples neighbors in world-raster pixels, so edge width
   -- remains tied to the DS-relative world rather than host resolution.
@@ -1198,42 +1077,25 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
 
   local presentationCanvas = lg.getCanvas()
   local function doDraw()
-    -- The render queue is built exactly once per frame; both the state and
-    -- color passes below consume this same queue.
+    -- The render queue is built exactly once per frame.
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
-    -- ---- state pass: world-raster polygon ID/depth/fog-gate state ----
-    lg.setCanvas(stateTargets)
+    -- ---- world MRT pass: color and polygon state ----
+    ---@type { [1]: love.Canvas, depthstencil: love.Canvas }
+    local stateClearTargets = { self.renderState, depthstencil = self.colorDepth }
+    lg.setCanvas(stateClearTargets)
     lg.clear(DS_STATE_CLEAR, false, true)
-    lg.setShader(self.stateShader)
+    ---@type { [1]: love.Canvas, depthstencil: love.Canvas }
+    local colorClearTargets = { self.sceneColor, depthstencil = self.colorDepth }
+    lg.setCanvas(colorClearTargets)
+    lg.clear(self.clearColor, false, false)
+    lg.setCanvas(colorTargets)
+    lg.setShader(self.worldShader)
     lg.setDepthMode("less", true)
     lg.setBlendMode("replace", "premultiplied")
-    self.stateShader:send("u_view", "column", viewMatrix)
-
-    for _, d in ipairs(queue.opaque) do
-      self:_drawStateItem(d, projectionFor(d), STATE_PASS_OPAQUE, viewMatrix)
-    end
-    for _, d in ipairs(queue.cutout) do
-      self:_drawStateItem(d, projectionFor(d), STATE_PASS_CUTOUT, viewMatrix)
-    end
-    for _, d in ipairs(queue.mixedOpaque) do
-      self:_drawStateItem(d, projectionFor(d), STATE_PASS_MIXED_OPAQUE, viewMatrix)
-    end
-    if #queue.wireframe > 0 then
-      for _, d in ipairs(queue.wireframe) do
-        self:_drawStateWireframe(d, projectionFor(d), viewMatrix)
-      end
-    end
-
-    -- ---- color pass: full-presentation-resolution RGB ----
-    lg.setCanvas(colorTargets)
-    lg.clear(self.clearColor, false, true)
-    lg.setShader(self.shader)
-    lg.setDepthMode("less", true)
-    lg.setBlendMode("alpha")
-    self.shader:send("u_view", "column", viewMatrix)
-
-    self:_sendLighting(sceneRuntime)
+    self._activeShader = self.worldShader
+    self.worldShader:send("u_view", "column", viewMatrix)
+    self:_sendLighting(sceneRuntime, self.worldShader)
 
     for _, d in ipairs(queue.opaque) do
       self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_OPAQUE, viewMatrix)
@@ -1244,6 +1106,20 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     for _, d in ipairs(queue.mixedOpaque) do
       self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_MIXED_OPAQUE, viewMatrix)
     end
+    if #queue.wireframe > 0 then
+      for _, d in ipairs(queue.wireframe) do
+        self:_drawWireframe(d, projectionFor(d), viewMatrix)
+      end
+    end
+    self._activeShader = nil
+
+    -- ---- translucent color pass ----
+    lg.setShader(self.shader)
+    lg.setDepthMode("less", false)
+    lg.setBlendMode("alpha")
+    self.shader:send("u_view", "column", viewMatrix)
+
+    self:_sendLighting(sceneRuntime)
 
     -- ---- translucent compositor ----
     -- The DS translucent path needs per-pixel state that fixed-function host
@@ -1312,8 +1188,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       -- renderState fields and make the former active pair the spare. The
       -- next frame re-seeds that spare before its first composite.
       self.sceneColor, self.renderState = activeColor, activeState
-      self._colorTargets = { activeColor, depthstencil = self.colorDepth }
-      self._stateTargets = { activeState, depthstencil = self.stateDepth }
+      self._colorTargets = { activeColor, activeState, depthstencil = self.colorDepth }
       self._spareColor, self._spareState = inactiveColor, inactiveState
     end
 
@@ -1323,13 +1198,15 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     -- composited with any translucent overlays.
     if #queue.wireframe > 0 then
       lg.setCanvas(assert(self._colorTargets))
-      lg.setShader(self.shader)
+      lg.setShader(self.worldShader)
+      self._activeShader = self.worldShader
       lg.setDepthMode("less", true)
       lg.setBlendMode("alpha")
       lg.setWireframe(true)
       for _, d in ipairs(queue.wireframe) do
         self:_drawWireframe(d, projectionFor(d), viewMatrix)
       end
+      self._activeShader = nil
       lg.setWireframe(false)
     end
 
@@ -1430,8 +1307,8 @@ function MapRenderer:release()
   if self.edgeShader then
     self.edgeShader:release()
   end
-  if self.stateShader then
-    self.stateShader:release()
+  if self.worldShader then
+    self.worldShader:release()
   end
   if self.sourceShader then
     self.sourceShader:release()
@@ -1442,7 +1319,7 @@ function MapRenderer:release()
   if self.spriteShader then
     self.spriteShader:release()
   end
-  self.shader, self.spriteShader, self.edgeShader, self.stateShader = nil, nil, nil, nil
+  self.shader, self.worldShader, self.spriteShader, self.edgeShader = nil, nil, nil, nil
   self.sourceShader, self.compositeShader = nil, nil
   self:_releaseTargets()
 end

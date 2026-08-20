@@ -1,12 +1,12 @@
-// DS-shaped map/building shader. Color-only output: the vertex stage resolves
+// DS-shaped map/building shader. The vertex stage resolves
 // each vertex's color source (literal COLOR, field-profile diffuse, or NORMAL
 // lighting), computes DS lighting in camera/vector space, and forwards the
 // resulting RGB. The pixel stage samples the texture, applies the exact DS
 // MODULATE/DECAL combiner, and discards fragments per the exact-alpha5
-// fragment-pass predicate (u_fragmentPass). No fake directional light or
+// fragment-pass predicate (u_fragmentPass). In WORLD_MRT mode it also writes
+// the polygon state attachment atomically with the color output. No fake directional light or
 // second diffuse multiplication remains. This shader owns no DS render
-// state (polygon ID, quantized depth, fog gate) -- state.glsl's state pass
-// writes that independently, at the same full resolution, into its own target.
+// state (polygon ID, quantized depth, fog gate) outside WORLD_MRT mode.
 //
 // The vertex-lighting algebra below (computeDsLighting, dsLightContribution,
 // quantizeVectorFx, signExtend, dotDiscardingPerComponent) is a direct GLSL
@@ -44,8 +44,7 @@
 // Fog is entirely a final-pass concern (GBATEK "3D Display - Fog": edge
 // marking, then fog, over the whole composited scene) -- this shader owns no
 // fog uniform, and (since this refactor) no per-polygon fog-gate output
-// either; state.glsl's state pass carries POLYGON_ATTR FOG_ENABLE into its
-// own target instead.
+// either; WORLD_MRT carries POLYGON_ATTR FOG_ENABLE into its state attachment.
 
 varying vec3 v_dsColor;
 varying vec2 v_spriteUv;
@@ -255,6 +254,18 @@ uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
+#ifdef WORLD_MRT
+uniform float u_polygonId;
+uniform bool u_polygonFogEnabled;
+const float DS_DEPTH_MAX = 16777215.0;
+
+float dsZbufferDepth(float windowDepth)
+{
+  float ndc = windowDepth * 2.0 - 1.0;
+  int ndc14 = int(ndc * 16384.0);
+  return clamp(float(ndc14 + 16383) * 512.0, 0.0, DS_DEPTH_MAX);
+}
+#endif
 #ifdef PRESENTATION_SPRITE
 uniform bool u_presentationSprite;
 uniform bool u_spriteFogEnabled;
@@ -381,12 +392,7 @@ vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
   return floor((texture6 * textureAlpha5 + vertex6 * (31.0 - textureAlpha5)) / 32.0);
 }
 
-// The DS Z-buffer depth (formerly computed here for finalState's green
-// channel) is now exclusively state.glsl's concern -- see that shader's
-// dsZbufferDepth for the full derivation. Color output alone
-// has no use for it: the color pass's own depth test/write uses the host
-// depth buffer (colorDepth) directly via the ordinary rasterizer depth, not
-// this quantized value.
+// WORLD_MRT stores the DS Z-buffer depth in renderState's green channel.
 
 void effect()
 {
@@ -447,6 +453,11 @@ void effect()
   }
 #endif
 
+#ifdef WORLD_MRT
   love_Canvases[0] = vec4(outRgb, alpha);
+  love_Canvases[1] = vec4(u_polygonId, dsZbufferDepth(gl_FragCoord.z), u_polygonFogEnabled ? 1.0 : 0.0, 0.0);
+#else
+  love_Canvases[0] = vec4(outRgb, alpha);
+#endif
 }
 #endif

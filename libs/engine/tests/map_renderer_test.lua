@@ -300,7 +300,7 @@ local function assertResourcesReleased(lg)
   for _, canvas in ipairs(lg.canvases) do
     Assert.equal(canvas.releaseCount, 1, "renderer released every created canvas exactly once")
   end
-  Assert.equal(#lg.shaders, 5, "the five engine shaders were created (color, resolve, state, source, composite)")
+  Assert.equal(#lg.shaders, 5, "the five engine shaders were created (color, resolve, MRT world, source, composite)")
 end
 
 local function rendererCanvasRoles(renderer)
@@ -308,7 +308,6 @@ local function rendererCanvasRoles(renderer)
     sceneColor = renderer.sceneColor,
     colorDepth = renderer.colorDepth,
     renderState = renderer.renderState,
-    stateDepth = renderer.stateDepth,
     spareColor = renderer._spareColor,
     spareState = renderer._spareState,
     sourceColor = renderer._sourceColor,
@@ -322,7 +321,6 @@ local function assertPublishedCanvasRoles(renderer, lg)
     "sceneColor",
     "colorDepth",
     "renderState",
-    "stateDepth",
     "spareColor",
     "spareState",
     "sourceColor",
@@ -402,7 +400,7 @@ function T.world_raster_scale_bounds_only_the_world_targets()
     )
     Assert.equal(renderer.colorW, size.expectedW, "world raster width is DS-relative")
     Assert.equal(renderer.colorH, size.expectedH, "world raster height is DS-relative")
-    local sceneCanvas = lg.canvases[#lg.canvases - 7]
+    local sceneCanvas = lg.canvases[#lg.canvases - 6]
     Assert.equal(sceneCanvas.w, size.expectedW)
     Assert.equal(sceneCanvas.h, size.expectedH)
   end
@@ -437,7 +435,7 @@ function T.state_target_recreation_failure_releases_partials_and_keeps_previous_
     renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
     local oldColorW, oldColorH, oldStateW, oldStateH =
       renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
-    local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
+    local oldColorTargets = renderer._colorTargets
     local oldRoles = rendererCanvasRoles(renderer)
     local _, oldGenerationSize = assertPublishedCanvasRoles(renderer, lg)
     Assert.equal(oldGenerationSize, generationSize, "target generations use the same renderer roles")
@@ -459,7 +457,6 @@ function T.state_target_recreation_failure_releases_partials_and_keeps_previous_
     Assert.equal(renderer.stateW, oldStateW, "the recorded state width survives")
     Assert.equal(renderer.stateH, oldStateH, "the recorded state height survives")
     Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color target descriptor survives")
-    Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state target descriptor survives")
     for role, canvas in pairs(oldRoles) do
       Assert.equal(canvas.releaseCount, 0, "the previous " .. role .. " remains owned")
     end
@@ -542,7 +539,7 @@ end
 -- color is injected as opts.clearColor rather than hardcoded: the renderer
 -- clears the scene canvas to exactly the table it was given, and falls back
 -- to its own default when the caller (e.g. a test uninterested in
--- background color) omits it. The state pass clears first (its own
+-- background color) omits it. The render-state attachment clears first (its own
 -- DS_STATE_CLEAR rear-plane value, not the scene color), so the color clear
 -- is the draw's second clear call.
 function T.draw_clears_the_scene_canvas_to_the_injected_color()
@@ -566,7 +563,7 @@ end
 -- dirties cull mode and wireframe before the injected draw failure, so the
 -- captured caller state (including those two) is restored exactly and the
 -- original draw error is rethrown. The item's first draw call is the
--- state pass's own wireframe pass (which never touches host wireframe/cull
+-- world MRT's own wireframe pass (which never touches host wireframe/cull
 -- state), so the failure is injected on the second draw call -- the color
 -- pass's wireframe draw, issued after setWireframe(true)/setMeshCullMode.
 function T.draw_failure_restores_exact_state_and_rethrows()
@@ -610,7 +607,7 @@ end
 
 -- Construction is transactional: when the Nth shader fails, the previous ones
 -- must be released and the failure must reach the caller. The renderer owns
--- five shaders (color, resolve, state, source, composite).
+-- five shaders (color, resolve, world MRT, source, composite).
 function T.new_releases_first_shader_when_second_shader_fails()
   local lg = fakeGraphics({ failOnNewShader = 2 })
   local err = Assert.throws(function()
@@ -642,8 +639,9 @@ function T.new_releases_prior_shaders_when_compositor_shader_fails()
       tostring(err):find("injected shader failure", 1, true) ~= nil,
       "rethrows the shader failure at " .. failAt
     )
-    Assert.equal(#lg.shaders, failAt - 1, "only the prior shaders were created before failure at " .. failAt)
-    for i = 1, failAt - 1 do
+    local created = failAt - 1
+    Assert.equal(#lg.shaders, created, "only the prior shaders were created before failure at " .. failAt)
+    for i = 1, created do
       Assert.equal(lg.shaders[i].releaseCount, 1, "shader " .. i .. " is released when shader " .. failAt .. " fails")
     end
   end
@@ -666,13 +664,12 @@ function T.new_reads_shader_sources_through_the_injected_reader()
   Assert.deepEqual(calls, {
     "libs/engine/src/shaders/map.glsl",
     "libs/engine/src/shaders/edge.glsl",
-    "libs/engine/src/shaders/state.glsl",
     "libs/engine/src/shaders/source.glsl",
     "libs/engine/src/shaders/composite.glsl",
   })
   Assert.equal(lg.shaders[1].source, "source:libs/engine/src/shaders/map.glsl")
   Assert.equal(lg.shaders[2].source, "source:libs/engine/src/shaders/edge.glsl")
-  Assert.equal(lg.shaders[3].source, "source:libs/engine/src/shaders/state.glsl")
+  Assert.equal(lg.shaders[3].source, "#define WORLD_MRT\nsource:libs/engine/src/shaders/map.glsl")
   Assert.equal(lg.shaders[4].source, "source:libs/engine/src/shaders/source.glsl")
   Assert.equal(lg.shaders[5].source, "source:libs/engine/src/shaders/composite.glsl")
   renderer:release()
@@ -688,7 +685,7 @@ function T.new_reads_real_shader_sources_by_default()
   local renderer = MapRenderer.new({ graphics = lg })
   Assert.isTrue(lg.shaders[1].source:find("uniform", 1, true) ~= nil, "map shader source is real GLSL")
   Assert.isTrue(lg.shaders[2].source:find("uniform", 1, true) ~= nil, "edge shader source is real GLSL")
-  Assert.isTrue(lg.shaders[3].source:find("uniform", 1, true) ~= nil, "state shader source is real GLSL")
+  Assert.isTrue(lg.shaders[3].source:find("uniform", 1, true) ~= nil, "MRT world shader source is real GLSL")
   renderer:release()
 end
 
@@ -716,7 +713,7 @@ function T.new_second_shader_source_failure_releases_first_shader()
 end
 
 function T.new_compositor_source_read_failure_releases_prior_shaders()
-  for _, failAt in ipairs({ 4, 5 }) do
+  for _, failAt in ipairs({ 3, 4 }) do
     local lg = fakeGraphics()
     local reads = 0
     local err = Assert.throws(function()
@@ -735,8 +732,9 @@ function T.new_compositor_source_read_failure_releases_prior_shaders()
       tostring(err):find("injected read failure", 1, true) ~= nil,
       "rethrows the read failure at " .. failAt
     )
-    Assert.equal(#lg.shaders, failAt - 1, "only the prior shaders were created before failure at " .. failAt)
-    for i = 1, failAt - 1 do
+    local created = failAt
+    Assert.equal(#lg.shaders, created, "only the prior shaders were created before failure at " .. failAt)
+    for i = 1, created do
       Assert.equal(
         lg.shaders[i].releaseCount,
         1,
@@ -806,7 +804,7 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     lg.setFailOnNewCanvas(generationSize + failureOffset)
     local oldColorW, oldColorH, oldStateW, oldStateH =
       renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
-    local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
+    local oldColorTargets = renderer._colorTargets
 
     local err = Assert.throws(function()
       renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(1280, 720, { mode = "expanded" }), 0)
@@ -825,7 +823,6 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     Assert.equal(renderer.stateW, oldStateW, "the recorded state size survives")
     Assert.equal(renderer.stateH, oldStateH, "the recorded state size survives")
     Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color target descriptor survives")
-    Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state target descriptor survives")
     for role, canvas in pairs(oldRoles) do
       Assert.equal(canvas.releaseCount, 0, "the previous " .. role .. " is still owned")
     end
@@ -855,12 +852,10 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 0, "construction sends no scene-derived edge colors")
 
   renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
-  local colorTargets = assert(renderer._colorTargets, "successful canvas creation publishes the color descriptor")
-  local stateTargets = assert(renderer._stateTargets, "successful canvas creation publishes the state descriptor")
+  local colorTargets = assert(renderer._colorTargets, "successful canvas creation publishes the MRT descriptor")
   Assert.equal(colorTargets[1], renderer.sceneColor)
   Assert.equal(colorTargets.depthstencil, renderer.colorDepth)
-  Assert.equal(stateTargets[1], renderer.renderState)
-  Assert.equal(stateTargets.depthstencil, renderer.stateDepth)
+  Assert.equal(colorTargets[2], renderer.renderState)
   Assert.equal(renderer.stats, stats, "draw reuses the public stats table")
   Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 1)
   Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 1)
@@ -874,7 +869,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
 
   renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(renderer._colorTargets, colorTargets, "unchanged dimensions reuse the color descriptor")
-  Assert.equal(renderer._stateTargets, stateTargets, "unchanged dimensions reuse the state descriptor")
+  Assert.equal(renderer._colorTargets, colorTargets, "unchanged dimensions reuse the MRT descriptor")
   Assert.equal(renderer.stats, stats, "later draws retain stats identity")
   Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 2, "each final resolve binds its current state texture")
   Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 2, "each final resolve sends its current state size")
@@ -888,7 +883,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   viewport:resize(1280, 720)
   renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new color descriptor")
-  Assert.isTrue(renderer._stateTargets ~= stateTargets, "replacement publishes a new state descriptor")
+  Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new MRT descriptor")
   Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 3)
   Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 3)
   Assert.equal(
@@ -911,7 +906,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
 
   renderer:release()
   Assert.isNil(renderer._colorTargets, "release clears the color descriptor")
-  Assert.isNil(renderer._stateTargets, "release clears the state descriptor")
+  Assert.isNil(renderer._colorTargets, "release clears the MRT descriptor")
 end
 
 -- The decoded values MapRenderer sends for u_edgeColors are the scene's edge
@@ -1142,7 +1137,7 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
 
   -- Every draw() issues its own composite blit. Empty parts draw nothing
   -- beyond it, and each item in the given parts draws exactly twice -- once
-  -- into the state pass, once into the color pass.
+  -- into the world MRT pass, once into the translucent color path.
   renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   local emptyFrame = lg.getDrawCalls()
   renderer:draw(scene.runtime, scene.camera, {
@@ -1150,7 +1145,7 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
     { drawItem("b") },
   }, nil, viewport, 0)
   local itemFrame = lg.getDrawCalls() - emptyFrame
-  Assert.equal(itemFrame - emptyFrame, 4, "each given world item draws once per pass (state + color)")
+  Assert.equal(itemFrame - emptyFrame, 2, "each given world item draws once through the MRT pass")
 
   local scratch = renderer._queueScratch
   Assert.isTrue(type(scratch) == "table", "the renderer owns queue scratch")
@@ -1160,7 +1155,7 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
   local wireframe = scratch.wireframe
 
   renderer:draw(scene.runtime, scene.camera, { { drawItem("next") } }, nil, viewport, 0)
-  Assert.equal(renderer.stats.drawCalls, 2, "a smaller frame retains no stale draw items (1 item x 2 passes)")
+  Assert.equal(renderer.stats.drawCalls, 1, "a smaller frame retains no stale draw items")
   Assert.isTrue(renderer._queueScratch == scratch)
   Assert.isTrue(scratch.opaque == opaque)
   Assert.isTrue(scratch.cutout == cutout)
@@ -1285,6 +1280,54 @@ local function passItem(alphaClass, z, opts)
   }
 end
 
+-- One opaque world item is submitted once to the shared MRT target. The
+-- target's second color attachment carries render state, and the same depth
+-- attachment governs both outputs.
+function T.one_opaque_world_item_submits_once_to_the_shared_color_state_target()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local item = passItem("opaque", 0)
+  local scene = emptySceneCamera()
+
+  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, {
+    worldViewport = { x = 0, y = 0, width = 640, height = 480 },
+  }, 0)
+
+  Assert.equal(renderer.stats.drawCalls, 1, "one opaque item produces one geometry submission")
+  Assert.isNil(rawget(renderer.stats, "stateDrawCalls"), "state replay is not a separate draw counter")
+  Assert.equal(renderer._colorTargets[1], renderer.sceneColor, "MRT target 0 is scene color")
+  Assert.equal(renderer._colorTargets[2], renderer.renderState, "MRT target 1 is render state")
+  Assert.equal(renderer._colorTargets.depthstencil, renderer.colorDepth, "MRT uses one shared depth attachment")
+  renderer:release()
+end
+
+function T.mrt_target_ownership_has_no_state_shader_or_state_depth_and_rolls_back_resize_failure()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  Assert.isNil(rawget(renderer, "stateShader"), "the dedicated state shader is not owned")
+
+  local scene = emptySceneCamera()
+  local viewport = { worldViewport = { x = 0, y = 0, width = 640, height = 480 } }
+  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  local previousTargets = renderer._colorTargets
+  local previousColor = renderer.sceneColor
+  local previousCanvasCount = #lg.canvases
+
+  lg.setFailOnNewCanvas(#lg.canvases + 1)
+  viewport.worldViewport.width = 1280
+  viewport.worldViewport.height = 720
+  local err = Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  end)
+  Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "resize failure reaches the caller")
+  Assert.equal(renderer._colorTargets, previousTargets, "the previous MRT target set remains published")
+  Assert.equal(renderer.sceneColor, previousColor, "the previous scene color remains usable")
+  for index = previousCanvasCount + 1, #lg.canvases do
+    Assert.equal(lg.canvases[index].releaseCount, 1, "every staged canvas is released")
+  end
+  renderer:release()
+end
+
 -- HGSS initializes the clear/rear-plane polygon ID to the real, reachable DS
 -- polygon-id value 0x3F (63) -- it is not a value carved out of the 0..63
 -- domain (pokeheartgold: the field renderer's clear-buffer setup; GBATEK
@@ -1315,7 +1358,7 @@ function T.a_real_polygon_63_encodes_the_same_id_value_as_the_clear_background()
 
   renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
-  -- Only the state-pass shader (shaders[3]) carries a polygon-ID uniform.
+  -- Only the world MRT shader (shaders[3]) carries a polygon-ID uniform.
   local sentPolygonId
   for _, send in ipairs(lg.shaders[3].sends) do
     if send.name == "u_polygonId" then
@@ -1340,8 +1383,8 @@ end
 -- independent attribute -- it must send exactly the same normalization every
 -- opaque/cutout item sends, by the real domain maximum (63), never a value
 -- carved out of the polygon-ID domain to signal translucency.
--- An ordinary translucent item never reaches the state pass at all (only
--- opaque/cutout/mixed-opaque/wireframe touch renderState/stateDepth -- see
+-- An ordinary translucent item never reaches the world MRT pass at all (only
+-- opaque/cutout/mixed-opaque/wireframe touch renderState -- see
 -- MapRenderer:draw), so it sends no u_polygonId anywhere; this locks that it
 -- is not, for example, routed through the state pass with an invented
 -- sentinel ID merely because it is translucent.
@@ -1398,18 +1441,15 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
 
   renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
-  local colorShader, stateShader = lg.shaders[1], lg.shaders[3]
-  local sent, stateSent = {}, {}
-  for _, send in ipairs(colorShader.sends) do
+  local worldShader = lg.shaders[3]
+  local sent = {}
+  for _, send in ipairs(worldShader.sends) do
     sent[send.name] = send.values[1]
   end
-  for _, send in ipairs(stateShader.sends) do
-    stateSent[send.name] = send.values[1]
-  end
   Assert.equal(sent.u_polygonMode, 0, "the actor's modulation material sends the modulation combiner id")
-  Assert.equal(stateSent.u_polygonId, 0 / 63, "the actor's polygon id 0 rides the real id channel in the state pass")
+  Assert.equal(sent.u_polygonId, 0 / 63, "the actor's polygon id 0 rides the real id channel in the world MRT")
   Assert.equal(sent.u_fragmentPass, 1, "the actor's cutout class sends the color-pass cutout fragment-pass id")
-  Assert.equal(stateSent.u_fragmentPass, 1, "the actor's cutout class sends the state-pass cutout fragment-pass id")
+  Assert.equal(sent.u_fragmentPass, 1, "the actor's cutout class sends the world MRT cutout fragment-pass id")
   Assert.deepEqual(sent.u_lightMask, MapRenderer.lightMaskUniforms(1), "light mask 1 decodes to bit 0 only")
   Assert.notNil(
     sent.u_billboardCenter,
@@ -1440,7 +1480,7 @@ function T.billboard_draw_sends_change_driven_data_for_nonuniform_scale()
   renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local sentCenter, sentScale, sentModel
-  for _, send in ipairs(lg.shaders[1].sends) do
+  for _, send in ipairs(lg.shaders[3].sends) do
     if send.name == "u_billboardCenter" then
       sentCenter = send.values[1]
     elseif send.name == "u_billboardScale" then
@@ -1786,7 +1826,9 @@ function T.wireframe_straddle_bakes_into_a_released_scratch()
   local renderer = MapRenderer.new({ graphics = fake })
   local item = straddleDrawItem(sourceMesh())
 
+  renderer._activeShader = renderer.worldShader
   renderer:_drawWireframe(item, Matrix4.identity())
+  renderer._activeShader = nil
 
   Assert.equal(#fake.meshes, 1)
   local scratch = fake.meshes[1]
@@ -1835,15 +1877,17 @@ end
 -- real id, never a value invented to mean "this is a wireframe/rear-plane
 -- draw" (see MapRenderer.CLEAR_POLYGON_ID for the one real DS sentinel value,
 -- which is a legitimate polygon id, not a wireframe-specific one). Only the
--- state pass's wireframe draw carries a polygon-ID uniform at all -- the
--- color shader no longer owns any ID/fog-gate output.
+-- world MRT wireframe draw carries a polygon-ID uniform -- the color shader
+-- does not own any ID/fog-gate output.
 function T.wireframe_draw_sends_its_own_real_polygon_id_not_an_invented_sentinel()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local item = passItem("wireframe", 0)
   item.polygonId = 37
 
-  renderer:_drawStateWireframe(item, Matrix4.identity())
+  renderer._activeShader = renderer.worldShader
+  renderer:_drawWireframe(item, Matrix4.identity())
+  renderer._activeShader = nil
 
   local sent
   for _, send in ipairs(lg.shaders[3].sends) do
@@ -1868,17 +1912,11 @@ function T.wireframe_draw_is_opaque_classified_for_edge_marking()
   local item = passItem("wireframe", 0)
 
   renderer:_drawWireframe(item, Matrix4.identity())
-  renderer:_drawStateWireframe(item, Matrix4.identity())
-
-  local colorSent, stateSent = {}, {}
+  local colorSent = {}
   for _, send in ipairs(lg.shaders[1].sends) do
     colorSent[send.name] = send.values[1]
   end
-  for _, send in ipairs(lg.shaders[3].sends) do
-    stateSent[send.name] = send.values[1]
-  end
   Assert.equal(colorSent.u_fragmentPass, 0, "a color-pass wireframe draw sends the opaque fragment-pass id")
-  Assert.equal(stateSent.u_fragmentPass, 0, "a state-pass wireframe draw sends the opaque fragment-pass id")
   renderer:release()
 end
 
@@ -1952,10 +1990,8 @@ function T.draw_builds_the_render_queue_exactly_once_per_frame()
   renderer:release()
 end
 
--- Both the state and color passes must select projection identically per
--- item: an ordinary item always draws through camera:projection(), a
--- billboard item always through camera:billboardProjection() -- in both
--- passes, never mismatched between them.
+-- World items must select projection identically for ordinary and billboard
+-- geometry. The single MRT pass records both outputs with that projection.
 function T.projection_selection_matches_between_the_state_and_color_passes()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -1994,17 +2030,19 @@ function T.projection_selection_matches_between_the_state_and_color_passes()
     return sent
   end
 
-  local colorProjections = projectionsSentBy(lg.shaders[1])
-  local stateProjections = projectionsSentBy(lg.shaders[3])
-  Assert.deepEqual(colorProjections, { worldProjection, billboardProjection }, "color pass: ordinary then billboard")
-  Assert.deepEqual(stateProjections, { worldProjection, billboardProjection }, "state pass: ordinary then billboard")
+  local worldProjections = projectionsSentBy(lg.shaders[3])
+  Assert.deepEqual(
+    worldProjections,
+    { worldProjection, billboardProjection },
+    "MRT world pass: ordinary then billboard"
+  )
   renderer:release()
 end
 
--- The field camera selects DS Z buffering (GX_BUFFERMODE_Z), so the state
+-- The field camera selects DS Z buffering (GX_BUFFERMODE_Z), so the world MRT
 -- shader derives depth from the fragment's normalized window depth; the
 -- retired camera-far depth-normalization uniform must not be sent to the
--- state pass (or any pass) anymore. The state shader is lg.shaders[3] (the
+-- world MRT (or any pass) anymore. The world shader is lg.shaders[3] (the
 -- color/resolve shaders are shaders[1]/shaders[2]).
 function T.draw_never_sends_the_retired_depth_normalization_uniform()
   local lg = fakeGraphics()

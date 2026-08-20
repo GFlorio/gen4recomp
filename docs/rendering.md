@@ -226,14 +226,14 @@ position}`, never a field stamped onto the original item). `blended` holds
 both ordinary translucent items and a mixed item's translucent subpass,
 sorted together back-to-front in view space (submission position breaks
 ties) and honoring the polygon bit-11 translucent depth-write flag. Wireframe
-edges are drawn with opaque alpha after the filled passes, in both the color
-and state passes. `FieldState` supplies ordered arrays of map geometry,
-buildings, neighbour-ring draws, and actors. `RenderQueue` traverses those
+edges are drawn with opaque alpha after the filled passes. `FieldState` supplies
+ordered arrays of map geometry, buildings, neighbour-ring draws, and actors.
+`RenderQueue` traverses those
 parts with one monotonically increasing submission position, so cross-part
 tie ordering is established without flattening or stamping the draw items.
 `MapRenderer` owns and reuses the queue scratch arrays, and builds the queue
-exactly once per frame for both the state and color passes to share (see
-"Shared full-resolution rasters" above).
+exactly once per frame for the MRT and translucent stages to share (see
+"World raster targets and passes" above).
 
 ## Edge marking
 
@@ -272,25 +272,27 @@ translucent overlay yet; there is no invented sentinel value. Ordinary
 translucent state is maintained by the programmable compositor below, not by
 the state pass.
 
-## Shared full-resolution rasters
+## World raster targets and passes
 
-Color rendering and DS render state (the polygon ID/depth/fog-gate attribute
-above, plus edge-marking coverage/validity) are two separate geometry passes
-over one shared world-raster domain. The world raster is bounded independently
-of host presentation resolution:
+Color and DS render state (polygon ID, quantized depth, and fog gate) share one
+geometry pass over one bounded world-raster domain. The world raster is
+independent of host presentation resolution:
 
-* **`sceneColor` + `colorDepth`** (`map.glsl`): the world color raster. Production
+* **`sceneColor` + `renderState` + `colorDepth`** (`map.glsl` in `WORLD_MRT`
+  mode): the world raster. Production
   uses `WindowConfig.WORLD_3D_RASTER_SCALE = 2`, capping its height at 384
   DS-relative pixels while preserving the viewport aspect. The resolved world
-  is nearest-upscaled once into the presentation viewport. Every DS
-  RGB/alpha combiner and lighting computation happens here; the shader owns
-  no polygon-ID/fog-gate output at all.
-* **`renderState` + `stateDepth`** (`state.glsl`): the render-state raster,
-  allocated at the exact same dimensions and screen coverage as `sceneColor`
-  (`stateW = colorW`, `stateH = colorH`). This shader
-  computes the same exact final alpha5 as `map.glsl` (for the MODULATE/DECAL
-  discard predicates) but does no lighting, no fog, and no edge search -- only
-  geometry/UV/final-alpha/state.
+  is nearest-upscaled once into the presentation viewport. Opaque, cutout,
+  mixed-opaque, and wireframe fragments write color to target 0 and render
+  state to target 1 atomically, controlled by one depth attachment.
+* **Color-only `map.glsl` variant**: translucent source-color rasterization
+  and presentation sprites use the same combiner and lighting source without
+  declaring a second output, so these paths can target a single color canvas.
+
+The render queue is built once per frame. State-writing world geometry is
+submitted once through the MRT shader; translucent color and metadata remain
+separate because their compositor needs read-modify-write state semantics.
+There is no dedicated state shader or state depth canvas.
 
 ### Render-state depth
 
@@ -301,7 +303,7 @@ GX_BUFFERMODE_Z` for both the perspective and orthographic field cameras, and
 `G3_SwapBuffers`), so melonDS follows the non-W branch of
 `GPU3D::SubmitPolygon` for HGSS field polygons. The render state's green
 channel is therefore the DS Z-buffer conversion of the host fragment's
-normalized window depth (`state.glsl`'s `dsZbufferDepth`, evaluated from
+normalized window depth (`map.glsl`'s `dsZbufferDepth`, evaluated from
 `gl_FragCoord.z` in `[0,1]`):
 
 ```text
@@ -329,23 +331,19 @@ their DS-quantized depth with the low-resolution world state and use host depth
 ordering for sprite-versus-sprite occlusion. Sprites use their own depth for
 fog and intentionally skip world edge marking; actor atlases remain nearest.
 
-The world renderer builds the render queue exactly once per frame
-(`RenderQueue.buildInto`) and both passes consume it, selecting projection
-identically per item (`item.billboardProjection and billboardProjection or
-worldProjection`) -- map geometry, buildings, the neighbour ring, and actor
-static models are all ordinary shared queue items in both passes. The state pass
-draws opaque, then cutout, then mixed-opaque (discard-unless-alpha31), then
-wireframe. The color pass draws the same opaque/cutout/mixed-opaque items at
-full resolution, then executes the programmable translucent compositor
-(see below), then wireframe on the composited result.
+The world renderer selects projection identically for ordinary and billboard
+world items (`item.billboardProjection and billboardProjection or
+worldProjection`). It draws opaque, cutout, mixed-opaque, and wireframe items
+once through the MRT shader, then executes the programmable translucent
+compositor (see below) and draws wireframe on the composited result.
 
-Both target sets are allocated transactionally by one `MapRenderer:_ensureTargets`
-call: eight canvases (`sceneColor`, `colorDepth`, `renderState`, `stateDepth`,
-one spare color/state pair, and the source fragment color/meta buffers) are
-staged before anything published is touched. A failed allocation releases only
-the staged canvases and leaves the previous live set and its recorded
-dimensions completely untouched. Final-resolve state uniforms are sent when
-the active pair is known, not during target construction.
+Target generations are allocated transactionally by one
+`MapRenderer:_ensureTargets` call: the MRT color/state/depth set, one spare
+color/state pair, and the source fragment color/meta buffers are staged before
+anything published is touched. A failed allocation releases only the staged
+canvases and leaves the previous complete generation and its dimensions
+untouched. Final-resolve state uniforms are sent when the active pair is known,
+not during target construction.
 
 ### Mixed final-alpha materials
 
@@ -354,10 +352,10 @@ fully transparent, and partially transparent texels (`AlphaClassifier.MIXED`)
 cannot be described as wholly opaque or wholly translucent by texture format
 alone -- texture storage format (e.g. A3I5/A5I3) describes capability, not the
 alpha distribution of a particular decoded texture, and DECAL ignores texture
-alpha for final alpha entirely. Such a material draws twice in the color pass
-(once as `mixedOpaque`, once in the joint `blended` list via the compositor)
-and once in the state pass (`mixedOpaque` only): each fragment's own exact
-final alpha5 (not a float-epsilon comparison) decides which pass's write, if
+alpha for final alpha entirely. Such a material draws once in the MRT pass as
+`mixedOpaque`, then again only for its partial fragments in the joint `blended`
+list via the compositor: each fragment's own exact final alpha5 (not a
+float-epsilon comparison) decides which pass's write, if
 any, survives -- alpha 0 discards everywhere, alpha 31 is opaque in both
 color and state, and alpha 1-30 blends through the compositor in color and
 contributes translucent state, not opaque state.

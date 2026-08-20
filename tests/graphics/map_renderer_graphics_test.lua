@@ -72,6 +72,22 @@ local function syntheticMesh(vertices)
   return love.graphics.newMesh(VertexFormat.LAYOUT, vertices, "triangles", "static")
 end
 
+-- Read one pixel from a renderState readback, resolving the driver's Y-mirror
+-- while preserving rear-plane pixels when neither orientation contains draw state.
+local function statePixelAt(renderer, stateImg, x, y)
+  local a, b = { stateImg:getPixel(x, y) }, { stateImg:getPixel(x, renderer.stateH - 1 - y) }
+  local function isRear(p)
+    return p[1] >= 0.99 and p[4] <= 0.0005
+  end
+  if not isRear(a) then
+    return a
+  end
+  if not isRear(b) then
+    return b
+  end
+  return a[1] <= b[1] and a or b
+end
+
 function T.shader_compiles(scope)
   local renderer = scope:own(MapRenderer.new())
 
@@ -223,7 +239,7 @@ function T.color_and_state_targets_share_the_color_resolution_and_nearest_filter
   Assert.equal(stateMin, "nearest", "renderState is nearest-filtered")
   Assert.equal(stateMag, "nearest")
 
-  local stateTargets = renderer._stateTargets
+  local mrtTargets = renderer._colorTargets
   for _, size in ipairs({ { 1920, 1080 }, { 2560, 1440 } }) do
     viewport:resize(size[1], size[2])
     renderer:draw(runtime, camera, nil, nil, viewport, nil)
@@ -232,10 +248,10 @@ function T.color_and_state_targets_share_the_color_resolution_and_nearest_filter
     Assert.equal(renderer.stateW, size[1], "the state target follows the new display size exactly")
     Assert.equal(renderer.stateH, size[2])
     Assert.isTrue(
-      renderer._stateTargets ~= stateTargets,
+      renderer._colorTargets ~= mrtTargets,
       "the renderer replaces the whole atomic target set on any dimension change"
     )
-    stateTargets = renderer._stateTargets
+    mrtTargets = renderer._colorTargets
   end
 end
 
@@ -687,7 +703,7 @@ end
 -- DECAL final alpha is polygon alpha unconditionally -- a polygon-alpha-31
 -- DECAL material must be fully opaque, including a fully-transparent-texture
 -- texel, and the classifier already returns OPAQUE for it (not MIXED): the
--- renderer must draw it through the ordinary opaque state/color passes, never
+-- renderer must draw it through the ordinary opaque world pass, never
 -- split it into an opaque/translucent pair.
 function T.decal_polygon_alpha_31_is_opaque_regardless_of_texture_alpha(scope)
   local renderer = scope:own(MapRenderer.new())
@@ -732,7 +748,7 @@ function T.decal_polygon_alpha_below_31_is_translucent_and_never_stamps_semantic
   local ax, ay = statePixel(renderer, 416, 384)
   local bx, by = statePixel(renderer, 416, 95)
   local a, b = { stateImg:getPixel(ax, ay) }, { stateImg:getPixel(bx, by) }
-  Assert.near(a[1], 1.0, 1 / 255, "a translucent DECAL draw never reaches the state pass (rear-plane id survives)")
+  Assert.near(a[1], 1.0, 1 / 255, "a translucent DECAL draw never reaches the world MRT (rear-plane id survives)")
   Assert.near(b[1], 1.0, 1 / 255)
 end
 
@@ -1826,6 +1842,33 @@ function T.opaque_draw_writes_its_fog_gate_into_the_final_state_blue_channel(sco
   Assert.near(sampleUngated[3], 0.0, 1 / 255, "a fog-disabled opaque fragment's fog gate stays 0")
 end
 
+-- A single opaque triangle writes its visible combiner result and its
+-- polygon state atomically through the shared MRT submission.
+function T.opaque_world_geometry_writes_color_and_state_in_one_submission(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local image = solidAlphaImage(scope, 255, 0, 0, 255)
+  local item = decalItem(decalTriangle(scope), image)
+  item.polygonId = 17
+  item.fogEnabled = true
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+
+  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, viewport, nil)
+
+  Assert.equal(renderer.stats.drawCalls, 1, "one opaque triangle produces one mesh draw")
+  local color = decalInteriorSample(renderer)
+  local colorScale = color[1] > 1 and 255 or 1
+  Assert.isTrue(color[1] > 0.8 * colorScale, "the shared pass writes the current red combiner result")
+  Assert.isTrue(color[2] < 0.2 * colorScale, "the shared pass preserves the combiner green channel")
+
+  local state = renderer.renderState:newImageData()
+  local ax, ay = statePixel(renderer, 416, 384)
+  local bx, by = statePixel(renderer, 416, 95)
+  local a, b = { state:getPixel(ax, ay) }, { state:getPixel(bx, by) }
+  local sample = a[1] < 0.5 and a or b
+  Assert.near(sample[1], 17 / 63, 1 / 255, "the shared pass writes the polygon id")
+  Assert.near(sample[3], 1, 1 / 255, "the shared pass writes the polygon fog gate")
+end
+
 -- Shared 3x1 fixture for the edge-predicate anchors below: pixel 1 is
 -- always the center under test, pixels 0/2 its left/right neighbors (the
 -- edge shader always samples exactly one state texel in each direction).
@@ -2633,13 +2676,13 @@ function T.state_canvas_dimensions_equal_color_dimensions_at_every_host_size(sco
   Assert.equal(renderer.stateH, renderer.colorH, "state height equals color height at 1280x720")
   Assert.isTrue(renderer.stateW ~= 341, "1280x720 must not allocate the fixed 341-wide semantic raster")
   Assert.isTrue(renderer.stateH ~= 192, "1280x720 must not allocate the fixed 192-line semantic raster")
-  local stateCanvas, stateDepth = renderer.renderState, renderer.stateDepth
+  local stateCanvas, worldDepth = renderer.renderState, renderer.colorDepth
   Assert.notNil(stateCanvas, "the state canvas is published under its durable name")
-  Assert.notNil(stateDepth, "the state depth target is published under its durable name")
+  Assert.notNil(worldDepth, "the shared world depth target is published under its durable name")
   Assert.equal(stateCanvas:getWidth(), renderer.colorW)
   Assert.equal(stateCanvas:getHeight(), renderer.colorH)
-  Assert.equal(stateDepth:getWidth(), renderer.colorW)
-  Assert.equal(stateDepth:getHeight(), renderer.colorH)
+  Assert.equal(worldDepth:getWidth(), renderer.colorW)
+  Assert.equal(worldDepth:getHeight(), renderer.colorH)
 
   viewport:resize(2560, 1440)
   renderer:draw(runtime, camera, nil, nil, viewport, nil)
@@ -2666,7 +2709,7 @@ function T.final_shader_has_full_resolution_state_and_edge_radius_uniforms(scope
 end
 
 -- Fixture: a 2-host-pixel-wide vertical white bar (polygonId 20) drawn in
--- front of the clear rear plane through the real color and state passes, plus
+-- front of the clear rear plane through the real world MRT and resolve passes, plus
 -- a diagonal blade crossing the same rows. Identity camera at z=0 gives the
 -- drawn state depth 41943 < clear 16777215 (depth ordering only, never an
 -- absolute value). Every edge-colored output pixel must lie within the
@@ -2870,13 +2913,14 @@ function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
         break
       end
     end
-    -- State stamp edge: first state column carrying id 3 on the sampled row
-    -- (mapped through the renderer's own state dimensions, which are
-    -- one-to-one with the color dimensions).
+    -- State stamp edge: first state column carrying id 3 on the sampled row.
+    -- Read both canvas Y orientations because ImageData readback orientation
+    -- is driver-dependent.
     local stateStampLeft = nil
     for sx = 0, renderer.stateW - 1 do
-      local r = state:getPixel(sx, math.min(renderer.stateH - 1, math.floor(360 * renderer.stateH / renderer.colorH)))
-      if r < 0.9 * scale then
+      local sy = math.min(renderer.stateH - 1, math.floor(360 * renderer.stateH / renderer.colorH))
+      local sample = statePixelAt(renderer, state, sx, sy)
+      if sample[1] < 0.9 * scale then
         stateStampLeft = sx
         break
       end
@@ -2977,14 +3021,14 @@ local function projectedWindowZ(z)
   return (z * 400.1 + 80) / (z * 399.9) / 2 + 0.5
 end
 
--- Renders one fullscreen quad through the real state shader with a fixed
+-- Renders one fullscreen quad through the real world-MRT shader with a fixed
 -- normalized device depth, then reads the renderState G channel back.
--- Driving state.glsl directly (rather than through MapRenderer:draw) fixes
+-- Driving the world-MRT shader directly (rather than through MapRenderer:draw) fixes
 -- the fragment's NDC depth exactly, so the window-depth anchors are exact
--- rather than dependent on rasterization. The state pass output is the
+-- rather than dependent on rasterization. The MRT state output is the
 -- renderer-owned rgba32f canvas, so the readback is the real acceptance
 -- boundary (the state raster's green channel), not a fake: the same
--- stateShader/renderState object MapRenderer's state pass binds is driven
+-- worldShader/renderState pair MapRenderer's world pass binds is driven
 -- here directly, with the projection pinned so every fragment lands at the
 -- requested NDC depth (MapRenderer:draw would overwrite a custom u_proj with
 -- the camera's own projection on every draw item). Depth testing is disabled
@@ -3005,7 +3049,7 @@ local function stateDepthReadback(scope, ndcZ)
   -- ordinary MapRenderer:draw, then drive the same canvas directly below.
   renderer:draw(emptyRuntime(), fixedCamera(), { { opaqueFinalStateItem(mesh, 20, false) } }, nil, viewport, nil)
 
-  -- Rewrite the state shader's projection so every fragment lands at the
+  -- Rewrite the world shader's projection so every fragment lands at the
   -- requested normalized depth: a clip matrix mapping [x,y] to the unit
   -- square and every z to the chosen NDC depth. LÖVE's projection matrix
   -- uses row-vector convention, so this orthographic form's rows are the
@@ -3029,28 +3073,21 @@ local function stateDepthReadback(scope, ndcZ)
     1,
   }
   local lg = love.graphics
-  lg.setCanvas(renderer._stateTargets)
+  lg.setCanvas(renderer._colorTargets)
   -- Clear to the normalized id-63 sentinel (CLEAR_POLYGON_ID -> 1.0), not
   -- black: the readback below tells a drawn pixel (id 20 -> 20/63) from the
   -- untouched background by its red channel, and black would be
   -- indistinguishable from the drawn value.
   lg.clear(1, 0, 0, 1)
-  lg.setShader(renderer.stateShader)
+  lg.setShader(renderer.worldShader)
   lg.setDepthMode("always", false)
   lg.setBlendMode("replace", "premultiplied")
-  renderer.stateShader:send("u_proj", "column", proj)
-  renderer.stateShader:send("u_view", "column", IDENTITY)
-  renderer.stateShader:send("u_model", "column", IDENTITY)
-  renderer.stateShader:send("u_billboard", false)
-  renderer.stateShader:send("u_texMatrix", "column", { 1, 0, 0, 0, 1, 0, 0, 0, 1 })
-  renderer.stateShader:send("u_useTexture", false)
-  renderer.stateShader:send("u_fragmentPass", 0)
-  renderer.stateShader:send("u_polygonAlpha", 1.0)
-  renderer.stateShader:send("u_polygonMode", 0)
-  renderer.stateShader:send("u_polygonId", 20 / MapRenderer.CLEAR_POLYGON_ID)
-  renderer.stateShader:send("u_polygonFogEnabled", false)
+  renderer.worldShader:send("u_view", "column", IDENTITY)
+  renderer:_sendLighting(emptyRuntime(), renderer.worldShader)
+  renderer._activeShader = renderer.worldShader
+  renderer:_drawItem(opaqueFinalStateItem(mesh, 20, false), proj, 0, IDENTITY)
+  renderer._activeShader = nil
   lg.setMeshCullMode("none")
-  lg.draw(mesh)
   lg.setShader()
   lg.setCanvas()
 
@@ -3094,14 +3131,14 @@ function T.state_depth_truncates_negative_ndc_toward_zero(scope)
   Assert.isTrue(math.abs(sample[2] - floorDepth) > 1, "the readback must not match the floor-based conversion")
 end
 
--- The deprecated camera-far depth normalization is gone from the state
+-- The deprecated camera-far depth normalization is gone from the world MRT
 -- shader: its uniform must not exist after the change, so sending it must
 -- fail (the same presence/absence convention as this file's other shader
 -- uniform tests).
-function T.state_shader_has_no_depth_w_max_uniform(scope)
-  local stateShader = scope:own(MapRenderer.new()).stateShader
+function T.world_mrt_shader_has_no_depth_w_max_uniform(scope)
+  local worldShader = scope:own(MapRenderer.new()).worldShader
   Assert.throws(function()
-    stateShader:send("u_depthWMax", 400)
+    worldShader:send("u_depthWMax", 400)
   end)
 end
 
@@ -3317,28 +3354,12 @@ local function scenePixel(renderer, colorImg, x, y)
   return sum(a) >= sum(b) and a or b
 end
 
+-- Read one pixel from a renderState readback, resolving the driver's Y-mirror
+-- while preserving rear-plane pixels when neither orientation contains draw state.
 -- Read one pixel from a renderState readback: the sample whose red channel is
 -- not the rear-plane clear (id 63 -> 1.0) is the drawn pixel; when neither
 -- candidate is drawn state, the sample with the lower red channel (the
 -- clear's id-63 red == 1.0) is returned so callers can still detect "no state".
-local function statePixelAt(renderer, stateImg, x, y)
-  local a, b = { stateImg:getPixel(x, y) }, { stateImg:getPixel(x, renderer.stateH - 1 - y) }
-  -- A sample is "drawn" (not the rear plane) when it carries a real opaque
-  -- polygon ID (R < 1.0) OR a last-translucent-ID encoding (A > 0) -- the
-  -- compositor leaves the opaque R at the rear plane for translucent-only
-  -- pixels, so R alone cannot discriminate those.
-  local function isRear(p)
-    return p[1] >= 0.99 and p[4] <= 0.0005
-  end
-  if not isRear(a) then
-    return a
-  end
-  if not isRear(b) then
-    return b
-  end
-  return a[1] <= b[1] and a or b
-end
-
 local function sceneScale(color)
   return color[1] > 1 and 255 or 1
 end
@@ -3674,9 +3695,27 @@ function T.non_depth_writing_preserves_opaque_id_and_depth_and_ands_fog(scope)
     fogFalse.state[1],
     20 / 63,
     1 / 255,
-    "the opaque polygon id must survive a non-depth-writing translucent draw"
+    string.format(
+      "the opaque polygon id must survive a non-depth-writing translucent draw (got %.6f)",
+      fogFalse.state[1]
+    )
   )
-  Assert.near(fogTrue.state[1], 20 / 63, 1 / 255, "the opaque polygon id must survive in both fog cases")
+  Assert.near(
+    fogTrue.state[1],
+    20 / 63,
+    1 / 255,
+    string.format(
+      "the opaque polygon id must survive in both fog cases (got false %.6f/%.6f/%.6f/%.6f, true %.6f/%.6f/%.6f/%.6f)",
+      fogFalse.state[1],
+      fogFalse.state[2],
+      fogFalse.state[3],
+      fogFalse.state[4],
+      fogTrue.state[1],
+      fogTrue.state[2],
+      fogTrue.state[3],
+      fogTrue.state[4]
+    )
+  )
   Assert.near(fogFalse.state[3], 0.0, 1 / 255, "B must be dest fog (1) AND src fog (0) = 0")
   Assert.near(fogTrue.state[3], 1.0, 1 / 255, "B must be dest fog (1) AND src fog (1) = 1")
   Assert.near(fogFalse.state[4], 8 / 64, 1 / 255, "A must encode the source translucent id 7 in the fog-false case")
