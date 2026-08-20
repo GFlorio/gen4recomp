@@ -393,7 +393,7 @@ local function newTrack(slot)
     -- CONTROL_STACK_MAX frames, each holding a kind discriminator, the
     -- return index, and a loop count when applicable.
     controlStack = {},
-    compare = false,
+    compare = true,
   }
 end
 

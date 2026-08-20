@@ -575,6 +575,80 @@ function T.reopening_a_track_preserves_track_init_controls_and_pool_ownership()
   Assert.deepEqual(poolEvents, { 1, 2, 1 }, "reopen must retain the allocated track object")
 end
 
+function T.entry_track_conditionals_use_the_true_comparison_default()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "if", condition = "compare_result", instruction = { op = "program", program = 1 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+
+  play(player, provider)
+
+  Assert.equal(#mixer.log.noteOns, 1, "the entry conditional executes before any comparison")
+  Assert.equal(
+    generatorOf(mixer.log.noteOns[1]).sample,
+    AudioFixture.key(2),
+    "the true default selects the nested program"
+  )
+end
+
+function T.opened_reserved_track_starts_with_the_true_comparison_default()
+  local mixer = stubMixer()
+  local firstPlayer, firstProvider = engine({
+    [0] = seq({
+      { op = "open_track", track = 1, target = 5 },
+      { op = "end" },
+      { op = "end" },
+      { op = "end" },
+      { op = "if", condition = "compare_result", instruction = { op = "program", program = 1 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }, { initialTrackMask = 0x0003 }),
+  }, { mixer = mixer })
+
+  play(firstPlayer, firstProvider)
+  Assert.equal(
+    generatorOf(mixer.log.noteOns[1]).sample,
+    AudioFixture.key(2),
+    "a preallocated track starts with a true comparison latch"
+  )
+end
+
+function T.reopening_a_false_comparison_track_preserves_the_latch()
+  local reopenMixer = stubMixer()
+  local program = {
+    { op = "open_track", track = 1, target = 6 },
+    { op = "end" },
+    { op = "end" },
+    { op = "end" },
+    { op = "end" },
+    { op = "compare", condition = "eq", var = 0, amount = 1 },
+    { op = "wait", duration = 1 },
+    { op = "open_track", track = 1, target = 11 },
+    { op = "end" },
+    { op = "end" },
+    { op = "if", condition = "compare_result", instruction = { op = "program", program = 1 } },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "end" },
+  }
+  local reopenPlayer, reopenProvider = engine({
+    [0] = seq(program, { initialTrackMask = 0x0003 }),
+  }, { mixer = reopenMixer })
+
+  play(reopenPlayer, reopenProvider)
+  reopenPlayer:render(1500)
+  Assert.equal(#reopenMixer.log.noteOns, 1, "the reopened track reaches the note after its conditional")
+  Assert.isFalse(reopenPlayer:isPlaying(), "the reopened track reaches its end")
+  Assert.equal(
+    generatorOf(reopenMixer.log.noteOns[1]).sample,
+    AudioFixture.key(1),
+    "reopening preserves the false comparison latch"
+  )
+end
+
 function T.comparisons_and_conditionals_are_signed_and_track_local()
   local mixer = stubMixer()
   local program = {
