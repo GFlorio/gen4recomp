@@ -58,6 +58,16 @@ local ALPHA_MODES = { opaque = true, mask = true, blend = true }
 -- and shadow never reach an animated material.
 local DYNAMIC_POLYGON_MODES = { modulation = true, decal = true }
 
+local TEXTURE_FORMATS = {
+  [1] = true,
+  [2] = true,
+  [3] = true,
+  [4] = true,
+  [5] = true,
+  [6] = true,
+  [7] = true,
+}
+
 local function invalid(reason, context)
   Errors.raise(ModelAsset.ERROR_INVALID, "model descriptor is malformed: " .. reason, {
     reason = reason,
@@ -97,14 +107,18 @@ local function checkAlphaUsage(alphaUsage, where, desc)
   end
 end
 
+local function checkTextureFormat(textureFormat, where, desc)
+  if not (isInteger(textureFormat) and TEXTURE_FORMATS[textureFormat]) then
+    invalid(where .. " texture carries an unsupported textureFormat", desc.key)
+  end
+end
+
 local function checkTextureBinding(m, where, desc, requireAlphaUsage)
   if m.texture ~= nil then
     if type(m.texture) ~= "string" or #m.texture == 0 then
       invalid(where .. " material has a non-string texture path", desc.key)
     end
-    if not (isInteger(m.textureFormat) and m.textureFormat >= 0) then
-      invalid(where .. " material texture carries no textureFormat", desc.key)
-    end
+    checkTextureFormat(m.textureFormat, where, desc)
     if requireAlphaUsage then
       checkAlphaUsage(m.alphaUsage, where .. " material", desc)
     end
@@ -159,16 +173,18 @@ local function checkVariants(m, where, desc)
         if #variant.texture == 0 then
           invalid(variantWhere .. " has an empty texture path", desc.key)
         end
-        if not (isInteger(variant.textureFormat) and variant.textureFormat >= 0) then
-          invalid(variantWhere .. " texture carries no textureFormat", desc.key)
+        checkTextureFormat(variant.textureFormat, variantWhere, desc)
+        for _, field in ipairs({ "width", "height" }) do
+          if not (isInteger(variant[field]) and variant[field] > 0) then
+            invalid(variantWhere .. " " .. field .. " must be a positive integer", desc.key)
+          end
         end
         checkAlphaUsage(variant.alphaUsage, variantWhere, desc)
-      elseif variant.textureFormat ~= nil or variant.alphaUsage ~= nil then
-        invalid(variantWhere .. " carries texture metadata without a texture", desc.key)
-      end
-      for _, field in ipairs({ "width", "height" }) do
-        if variant[field] ~= nil and not (type(variant[field]) == "number" and variant[field] >= 0) then
-          invalid(where .. " material variant " .. variant.name .. " " .. field .. " must be non-negative", desc.key)
+      else
+        for _, field in ipairs({ "width", "height", "textureFormat", "alphaUsage" }) do
+          if variant[field] ~= nil then
+            invalid(variantWhere .. " carries texture metadata without a texture", desc.key)
+          end
         end
       end
     end

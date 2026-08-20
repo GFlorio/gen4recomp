@@ -166,6 +166,30 @@ function T.validate_rejects_an_incomplete_textured_variant()
     function(variant)
       variant.alphaUsage.hasOpaque = nil
     end,
+    function(variant)
+      variant.width = nil
+    end,
+    function(variant)
+      variant.height = nil
+    end,
+    function(variant)
+      variant.width = 0
+    end,
+    function(variant)
+      variant.height = 0
+    end,
+    function(variant)
+      variant.width = -1
+    end,
+    function(variant)
+      variant.height = -1
+    end,
+    function(variant)
+      variant.width = 1.5
+    end,
+    function(variant)
+      variant.height = 1.5
+    end,
   }
   for _, mutate in ipairs(cases) do
     local material = texturedDynamicMaterial()
@@ -179,15 +203,36 @@ function T.validate_rejects_an_incomplete_textured_variant()
 end
 
 function T.validate_rejects_an_untextured_variant_with_classifier_metadata()
-  for _, field in ipairs({ "textureFormat", "alphaUsage" }) do
+  for _, field in ipairs({ "width", "height", "textureFormat", "alphaUsage" }) do
     local material = texturedDynamicMaterial()
     local variant = { name = "mg08_r10.1" }
-    if field == "textureFormat" then
+    if field == "width" then
+      variant.width = 64
+    elseif field == "height" then
+      variant.height = 64
+    elseif field == "textureFormat" then
       variant.textureFormat = 3
     else
       variant.alphaUsage = { hasZero = true, hasPartial = false, hasOpaque = true }
     end
     material.variants = { variant }
+    throwsCode(ModelAsset.ERROR_INVALID, function()
+      ModelAsset.validate(dynamicDescriptor(material))
+    end)
+  end
+end
+
+function T.validate_rejects_unsupported_bound_texture_formats()
+  for _, format in ipairs({ 0, 8, 99 }) do
+    local material = texturedDynamicMaterial()
+    material.textureFormat = format
+    throwsCode(ModelAsset.ERROR_INVALID, function()
+      ModelAsset.validate(dynamicDescriptor(material))
+    end)
+
+    material = texturedDynamicMaterial()
+    material.variants = { texturedVariant("mg08_r10.1", "assets/generated/maps/textures/v1.png") }
+    material.variants[1].textureFormat = format
     throwsCode(ModelAsset.ERROR_INVALID, function()
       ModelAsset.validate(dynamicDescriptor(material))
     end)

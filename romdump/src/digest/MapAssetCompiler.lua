@@ -126,7 +126,7 @@ end
 -- untextured variant and an unresolved entry, mirroring the material
 -- bind failures the DS exhibits. Returns per material name:
 --   { { name, texture, width, height, textureFormat, alphaUsage } }
-local function resolvePatternVariants(model, embeddedTex, variantSets, textures, unresolved, context)
+local function resolvePatternVariants(embeddedTex, variantSets, textures, unresolved, context)
   local byMaterial = {}
   for materialName, set in pairs(variantSets) do
     local variants = {}
@@ -261,14 +261,8 @@ local function compileAnimatedModel(
   local embeddedTex = buildingNsbmd.embeddedTextures
   local variantsByName = {}
   if embeddedTex then
-    variantsByName = resolvePatternVariants(
-      buildingModel,
-      embeddedTex,
-      patternVariants(animResult.clips),
-      textures,
-      unresolved,
-      context
-    )
+    variantsByName =
+      resolvePatternVariants(embeddedTex, patternVariants(animResult.clips), textures, unresolved, context)
   elseif next(patternVariants(animResult.clips)) then
     -- A pattern animation on a model without an embedded texture block is
     -- an authoring anomaly; every variant stays untextured and reported.
