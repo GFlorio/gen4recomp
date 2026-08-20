@@ -99,17 +99,17 @@ DerivedAssetContract.audio = {
   -- the heap budget), and no stored payload path on sequence/bank records:
   -- every path derives from the numeric id (AudioCache.sequencePath/bankPath),
   -- so a redundant `file` field is malformed index data.
-  indexSchema = "g4-audio-index-v4",
+  indexSchema = "g4-audio-index-v5",
   -- The sequence asset carries a closed semantic instruction vocabulary
-  -- (signed operands, no conditional field, comparison commands consumed as
-  -- nop, exact instruction and nested-block shapes). Random operands are the
+  -- (signed operands, normalized comparisons and conditional nested commands,
+  -- exact instruction and nested-block shapes). Random operands are the
   -- exact signed source pair TrackParseValue consumes (never a min/max
   -- abstraction), which bumped the sequence schema from v4 to v5. The bank
   -- asset's square duty is the discrete index 0..7 and the sample asset
   -- carries no source rate and no stored payload path; the three change
   -- together because the compiler and the runtime consume them as one
   -- contract.
-  sequenceSchema = "g4-audio-sequence-v6",
+  sequenceSchema = "g4-audio-sequence-v7",
   bankSchema = "g4-audio-bank-v4",
   sampleSchema = "g4-audio-sample-v4",
   provenanceSchema = "g4-audio-provenance-v1",

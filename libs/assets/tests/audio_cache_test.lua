@@ -236,15 +236,20 @@ function T.sample_payload_with_wrong_byte_count_is_not_ready()
   Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "payload byte count must match the metadata frames")
 end
 
--- A compiled sequence can only reference a player the runtime can address:
--- the engine owns a fixed 16-player table (NNS SND_PLAYER_COUNT), so a player
--- record keyed at or beyond that bound is beyond the supported domain even
--- when no sequence references it.
-function T.player_id_outside_the_supported_range_is_not_ready()
+function T.logical_player_domain_accepts_thirty_one_and_rejects_thirty_two()
   local bundle = AudioFixture.bundle()
-  bundle.index.players[16] = { id = 16, maxSequences = 16, channelMask = 0xFFFF }
+  bundle.index.players[31] = { id = 31, maxSequences = 16, channelMask = 0xFFFF }
+  bundle.index.sequences[0].playerId = 31
+  bundle.sequences[0].player.id = 31
   local cache = AudioFixture.readyCache(bundle)
-  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "player ids are 0..15")
+  Assert.isTrue(AudioCache.isReady(cache, bundle.marker), "logical player 31 is valid")
+
+  bundle = AudioFixture.bundle()
+  bundle.index.players[32] = { id = 32, maxSequences = 16, channelMask = 0xFFFF }
+  bundle.index.sequences[0].playerId = 32
+  bundle.sequences[0].player.id = 32
+  cache = AudioFixture.readyCache(bundle)
+  Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "logical player 32 is outside the domain")
 end
 
 -- A used player (referenced by a compiled sequence) must declare at least one

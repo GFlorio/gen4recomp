@@ -97,14 +97,28 @@ function T.single_track_entry_is_the_first_command()
   })
   local program = lowerOrFail(bytes)
   Assert.equal(program.entry, 1)
+  Assert.equal(program.initialTrackMask, 0x0001)
   Assert.equal(program.instructions[1].op, "note")
+end
+
+function T.derives_the_preparation_track_mask_from_the_header()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 0x800A },
+    { op = "open_track", track = 1, target = { cmd = 5 } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(program.initialTrackMask, 0x800B)
 end
 
 -- The full semantic vocabulary lowers to lowercase semantic names, never raw
 -- opcodes or offsets, and reserved commands lower to explicit no-ops. The
--- comparison commands (0xB8..0xBD) have no runtime consumer once conditional
--- execution is gone, so they too lower to nop. The 0xD6 print_var diagnostic
--- is dropped entirely: it is never emitted into the closed IR.
+-- comparison commands (0xB8..0xBD) lower to normalized comparison records.
+-- The 0xD6 print_var diagnostic is dropped entirely: it is never emitted into
+-- the closed IR.
 function T.lowers_the_semantic_vocabulary()
   local bytes = SseqFixture.build({
     { op = "wait", duration = 1 },
@@ -339,6 +353,51 @@ function T.conditional_prefix_contains_the_complete_normalized_command()
     condition = "compare_result",
     instruction = { op = "volume", amount = 100 },
   })
+end
+
+function T.conditional_terminators_keep_false_fallthrough()
+  local conditionalOps = {
+    { op = "jump", target = { cmd = 4 } },
+    { op = "ret" },
+    { op = "fin" },
+  }
+  for _, nested in ipairs(conditionalOps) do
+    local commands = {
+      { op = "cmp_eq", var = 0, amount = 1 },
+      { op = "prefix", kind = "if", command = nested },
+      { op = "note", key = 60, velocity = 96, duration = 24 },
+      { op = "fin" },
+    }
+    if nested.op == "jump" then
+      commands[4] = { op = "note", key = 72, velocity = 80, duration = 8 }
+      commands[5] = { op = "fin" }
+    end
+    local bytes = SseqFixture.build(commands)
+    local program = lowerOrFail(bytes)
+    Assert.notNil(program.instructions[3], "conditional false fallthrough remains reachable")
+    Assert.equal(program.instructions[3].op, "note", "false fallthrough remains reachable")
+    Assert.equal(program.instructions[3].key, 60)
+    if nested.op == "jump" then
+      Assert.equal(program.instructions[4].op, "note", "the later target remains reachable")
+      Assert.equal(program.instructions[4].key, 72)
+      Assert.equal(program.instructions[2].instruction.target, 4)
+    end
+  end
+end
+
+function T.unconditional_terminators_still_stop_linear_fallthrough()
+  local bytes = SseqFixture.build({
+    { op = "jump", target = { cmd = 4 } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  for _, instruction in ipairs(program.instructions) do
+    Assert.isFalse(instruction.op == "note" and instruction.key == 60)
+  end
+  Assert.isTrue(#program.instructions >= 2)
 end
 
 function T.comparison_commands_lower_to_semantic_operations()

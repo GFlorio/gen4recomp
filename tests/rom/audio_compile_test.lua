@@ -59,8 +59,8 @@ local FORBIDDEN_INSTRUCTION_FIELDS = {
 -- handles with real behavior (or nop), mirroring the executor's branches --
 -- deliberately not AudioSequence.OPS, so "the validator says it is closed"
 -- is never treated as proof the runtime can play it. Comparison ops and
--- conditional instructions are compile-time rejections, so the runtime has
--- no comparison vocabulary.
+-- conditional instructions are normalized nested operations; the retail
+-- corpus gate below proves none reach the current runtime vocabulary.
 local SUPPORTED_RUNTIME_OPS = {
   note = true,
   wait = true,
@@ -514,11 +514,9 @@ function T.all_map_day_night_music_references_resolve()
 end
 
 -- No reachable SSEQ command in any ready version uses the 0xA2 conditional
--- prefix: the census walks every used sequence's raw bytes with the
--- lowering-identical fixpoint and counts zero conditional commands, so the
--- emitted corpus carries no conditional instruction either. The comparison
--- commands can only ever be semantic no-ops, and a reachable conditional
--- prefix is a compiler failure for the current project contract.
+-- prefix. The census walks every used sequence's raw bytes with the
+-- lowering-identical fixpoint and pins that retail corpus fact; the compiler
+-- still preserves conditional commands when a supported source contains one.
 function T.no_reachable_conditional_command()
   forEachVersion(function(ctx)
     local conditional = 0

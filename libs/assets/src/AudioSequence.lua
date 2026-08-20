@@ -13,11 +13,10 @@
 -- including on the nested operand records -- variables without a valid
 -- variable number (0..31: 16 player-local plus 16 global SDK variables),
 -- track numbers outside 0..15, out-of-range branch targets, note
--- key/velocity outside 0..127, conditional instructions (no reachable retail
--- command is conditional, so the field is forbidden at any value), and extra
+-- key/velocity outside 0..127, malformed conditional instructions, and extra
 -- instruction or nested-block fields (an instruction carries only its op
 -- and its exact semantic operands; player only its supported fields;
--- program only entry and instructions). Source provenance may ride along at
+-- program entry, initialTrackMask, and instructions). Source provenance may ride along at
 -- the sequence level for diagnostics but is never behavior-visible.
 
 local AudioSequence = {}
@@ -32,9 +31,8 @@ AudioSequence.SCHEMA = Contract.audio.sequenceSchema
 -- The closed semantic operation vocabulary shared by the lowering and the
 -- player. `rest` and `print_var` are deliberately absent: no producer emits
 -- a semantic rest (SSEQ WAIT models the behavior), and print_var is an NNS
--- diagnostic dropped during lowering. The comparison operations are absent
--- too: no reachable retail command is conditional, so no runtime comparison
--- state exists and the lowering consumes their opcodes as nop instructions.
+-- diagnostic dropped during lowering. Comparisons and conditional nested
+-- commands remain part of the normalized contract.
 local OPS = {
   note = { "key", "velocity", "duration" },
   wait = { "duration" },
@@ -203,6 +201,18 @@ local function validateNestedInstruction(instruction, field, instructionCount)
     if not isValidOperand(instruction.program, true) then
       fail({ field = field .. ".program" })
     end
+  elseif op == "open_track" then
+    if not isIntegerInRange(instruction.track, 0, TRACK_MAX) or not isTarget(instruction.target, instructionCount) then
+      fail({ field = field .. ".target" })
+    end
+  elseif op == "jump" or op == "call" then
+    if not isTarget(instruction.target, instructionCount) then
+      fail({ field = field .. ".target" })
+    end
+  elseif op == "loop_begin" then
+    if not isValidOperand(instruction.count, true) then
+      fail({ field = field .. ".count" })
+    end
   elseif operandSpec[1] == "var" then
     if not isIntegerInRange(instruction.var, 0, VARIABLE_MAX) or not isValidOperand(instruction.amount, false) then
       fail({ field = field .. ".operand" })
@@ -233,7 +243,7 @@ function AudioSequence.validate(sequence)
     fail({ field = "player" })
   end
   assertOnlyKeys(player, { id = true, initialVolume = true, playerPriority = true, channelPriority = true }, "player")
-  if not isIntegerInRange(player.id, 0, 0xFF) then
+  if not isIntegerInRange(player.id, 0, 31) then
     fail({ field = "player.id" })
   end
   if not isIntegerInRange(player.initialVolume, 0, 0xFF) then
@@ -249,7 +259,10 @@ function AudioSequence.validate(sequence)
   if type(program) ~= "table" then
     fail({ field = "program" })
   end
-  assertOnlyKeys(program, { entry = true, instructions = true }, "program")
+  assertOnlyKeys(program, { entry = true, initialTrackMask = true, instructions = true }, "program")
+  if not isIntegerInRange(program.initialTrackMask, 1, 0xFFFF) or program.initialTrackMask % 2 ~= 1 then
+    fail({ field = "program.initialTrackMask" })
+  end
   if not Validate.isArray(program.instructions) or #program.instructions == 0 then
     fail({ field = "program.instructions" })
   end

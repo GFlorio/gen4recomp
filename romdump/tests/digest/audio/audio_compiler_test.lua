@@ -260,6 +260,7 @@ function T.compiles_sequences_with_index_targets()
   Assert.equal(seq0.player.initialVolume, 120)
   Assert.equal(seq0.player.playerPriority, 64)
   Assert.equal(seq0.player.channelPriority, 127)
+  Assert.equal(seq0.program.initialTrackMask, 0x0003)
 
   Assert.equal(seq0.program.entry, 1, "entry is the header open-track record")
   local openTrack, jump, call
@@ -285,6 +286,7 @@ function T.compiles_sequences_with_index_targets()
   Assert.equal(seq2.player.id, 1)
   Assert.equal(seq2.program.instructions[1].op, "program")
   Assert.equal(seq2.program.instructions[1].program, 3)
+  Assert.equal(seq2.program.initialTrackMask, 0x0001)
 end
 
 -- Banks carry normalized instruments: sample voices reference content keys,

@@ -71,8 +71,8 @@ function T.contract_pins_the_current_asset_identities()
       cacheFormat = "g4-audio-cache-v1",
       -- v4 removed the redundant per-record index file paths; every path
       -- derives from the numeric id.
-      indexSchema = "g4-audio-index-v4",
-      sequenceSchema = "g4-audio-sequence-v6",
+      indexSchema = "g4-audio-index-v5",
+      sequenceSchema = "g4-audio-sequence-v7",
       bankSchema = "g4-audio-bank-v4",
       sampleSchema = "g4-audio-sample-v4",
       provenanceSchema = "g4-audio-provenance-v1",

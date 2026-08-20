@@ -25,7 +25,6 @@ local function censusSequence(bytes, dataOffset)
   local queue = { pos }
   local seen = {}
   local commands = {}
-  local openTracks = {}
   while #queue > 0 do
     local start = table.remove(queue)
     if not seen[start] and start < endPos then
@@ -38,16 +37,13 @@ local function censusSequence(bytes, dataOffset)
         if command.opcode == 0x93 or command.opcode == 0x94 or command.opcode == 0x95 then
           queue[#queue + 1] = dataOffset + command.target
         end
-        if command.opcode == 0x93 then
-          openTracks[#openTracks + 1] = command.track
-        end
-        if command.opcode == 0x94 or command.opcode == 0xFF or command.opcode == 0xFD then
+        if not command.conditional and (command.opcode == 0x94 or command.opcode == 0xFF or command.opcode == 0xFD) then
           break
         end
       end
     end
   end
-  return commands, mask, openTracks
+  return commands, mask
 end
 
 function T.beforeAll()
@@ -139,8 +135,6 @@ function T.corpus_census_classifies_every_reachable_construct()
     local opcodeSeen = {}
     local conditionalCount = 0
     local b8bdCount = 0
-    local openTrackTargets = 0
-    local openTrackRepeats = 0
     local maxTracksPerSequence = 0
     local sdatSequences = 0
 
@@ -156,18 +150,17 @@ function T.corpus_census_classifies_every_reachable_construct()
 
         local bytes = assert(sdat:readFile(record.fileId))
         local seq = assert(Sseq.open(bytes, "sequence " .. id))
-        local commands, mask, openTracks = censusSequence(bytes, seq.dataOffset)
+        local commands, mask = censusSequence(bytes, seq.dataOffset)
 
         -- Track allocation census.
-        local distinct = {}
-        for _, track in ipairs(openTracks) do
-          openTrackTargets = openTrackTargets + 1
-          if distinct[track] then
-            openTrackRepeats = openTrackRepeats + 1
+        local trackCount = 1
+        if mask ~= nil then
+          for track = 1, 15 do
+            if math.floor(mask / 2 ^ track) % 2 == 1 then
+              trackCount = trackCount + 1
+            end
           end
-          distinct[track] = true
         end
-        local trackCount = 1 + #openTracks -- track 0 plus opened tracks
         if trackCount > maxTracksPerSequence then
           maxTracksPerSequence = trackCount
         end
@@ -287,8 +280,6 @@ function T.corpus_census_classifies_every_reachable_construct()
       sdatWaveArchives = sdatWaveArchives,
       players = 0,
       maxTracksPerSequence = maxTracksPerSequence,
-      openTrackTargets = openTrackTargets,
-      openTrackRepeats = openTrackRepeats,
       conditional = conditionalCount,
       b8bd = b8bdCount,
       releaseFF = releaseFF,

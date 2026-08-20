@@ -168,7 +168,7 @@ local function commandBytes(cmd, offsets)
   if op == "prefix" then
     local kind = cmd.kind
     local prefix = kind == "random" and 0xA0 or (kind == "variable" and 0xA1 or 0xA2)
-    return u8(prefix) .. commandBytes(cmd.command)
+    return u8(prefix) .. commandBytes(cmd.command, offsets)
   end
   if op == "raw" then
     return cmd.bytes

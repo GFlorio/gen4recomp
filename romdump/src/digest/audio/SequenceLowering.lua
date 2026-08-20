@@ -20,9 +20,9 @@
 -- volume table. The semantic opcode table follows the ARM7 NitroSDK sequence
 -- player: known meaningful opcodes map to semantic names, the reserved SDK
 -- no-op classes lower declaratively to explicit nop instructions, the
--- comparison commands (0xB8..0xBD) have no runtime consumer and also lower to
--- nop, a reachable conditional (0xA2) prefix is a build failure (no reachable
--- retail command is conditional), the 0xD6 print_var diagnostic (no
+-- comparison commands (0xB8..0xBD) lower to semantic comparisons, a reachable
+-- conditional (0xA2) prefix is preserved as a normalized nested command, the
+-- 0xD6 print_var diagnostic (no
 -- runtime-observable game behavior) is dropped and never emitted, and a
 -- command outside the table is a build failure with source provenance (an
 -- unsupported reachable command is never a runtime placeholder). Unreachable
@@ -85,10 +85,8 @@ local SEMANTIC_OPS = {
 
 -- The reserved SDK no-op classes: the NitroSDK player consumes these
 -- opcodes without effect, so they lower to explicit nop instructions without
--- one table row per opcode. The comparison commands (0xB8..0xBD) live here
--- too: with no reachable conditional command, no runtime comparison state
--- exists, and the operand bytes are consumed without emitting operand
--- fields.
+-- one table row per opcode. Comparison commands are semantic operations in
+-- SEMANTIC_OPS and are therefore intentionally not included in these ranges.
 local NO_OP_RANGES = {
   { 0x82, 0x8F },
   { 0x90, 0x92 },
@@ -369,7 +367,7 @@ local function _lower(bytes, identity, context)
           local absoluteTarget = dataOffset + command.target
           queue[#queue + 1] = absoluteTarget
         end
-        if opcode == 0x94 or opcode == 0xFF or opcode == 0xFD then
+        if not command.conditional and (opcode == 0x94 or opcode == 0xFF or opcode == 0xFD) then
           break
         end
       end
@@ -415,6 +413,7 @@ local function _lower(bytes, identity, context)
 
   return {
     entry = entry,
+    initialTrackMask = 1 + (trackMask and math.floor(trackMask / 2) * 2 or 0),
     instructions = instructions,
   }
 end
