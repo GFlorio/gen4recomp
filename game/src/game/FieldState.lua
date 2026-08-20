@@ -43,6 +43,8 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _actorDrawStorage FieldActorDrawStorage
 ---@field _actorAssetLookup fun(spriteId: integer): table
 ---@field worldParts table[][] ordered map, static building, animated building, neighbor, and actor draw arrays
+---@field worldActorItems table[] persistent actor items kept in the world raster
+---@field spriteItems table[] persistent presentation-resolution actor sprites
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
 local FieldState = {}
@@ -86,9 +88,14 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     _actorRecords = {},
     _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
     worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
   }, FieldState)
   local ok, err = pcall(function()
-    self.renderer = MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR })
+    self.renderer = MapRenderer.new({
+      clearColor = WindowConfig.BACKGROUND_COLOR,
+      worldRasterScale = WindowConfig.WORLD_3D_RASTER_SCALE,
+    })
     -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
     -- text all draw through it; the state owns and releases it exactly once.
     self.textRenderer = FieldTextRenderer.new({ cacheFs = runtime.cacheFs })
@@ -238,7 +245,23 @@ function FieldState:_worldParts(alpha)
   worldParts[2] = sceneRuntime.staticBuildingDraws
   worldParts[3] = sceneRuntime.animatedBuildingDraws
   worldParts[4] = self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or NO_DRAWS
-  worldParts[5] = self:_actorDraws(alpha)
+  local actorItems = self:_actorDraws(alpha)
+  local worldActorItems = self.worldActorItems
+  local spriteItems = self.spriteItems
+  for index = #worldActorItems, 1, -1 do
+    worldActorItems[index] = nil
+  end
+  for index = #spriteItems, 1, -1 do
+    spriteItems[index] = nil
+  end
+  for _, item in ipairs(actorItems) do
+    if item.billboardProjection == true then
+      spriteItems[#spriteItems + 1] = item
+    else
+      worldActorItems[#worldActorItems + 1] = item
+    end
+  end
+  worldParts[5] = worldActorItems
   return worldParts
 end
 
@@ -294,6 +317,7 @@ function FieldState:draw()
     self.runtime.runtimeMap.sceneRuntime,
     self.runtime.camera,
     self:_worldParts(alpha),
+    self.spriteItems,
     self.runtime.viewport,
     alpha
   )
@@ -643,6 +667,8 @@ function FieldState:dispose()
   if self.worldParts then
     self.worldParts[5] = nil
   end
+  self.worldActorItems = nil
+  self.spriteItems = nil
   if self.presentationActorAssets then
     for spriteId in pairs(self._presentationSpriteRefs or {}) do
       self.presentationActorAssets:release(spriteId)

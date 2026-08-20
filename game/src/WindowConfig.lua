@@ -12,6 +12,10 @@ local WindowConfig = {}
 WindowConfig.REFERENCE_WIDTH = 640
 WindowConfig.REFERENCE_HEIGHT = 480
 
+-- The world raster's vertical budget in DS-relative pixels. Presentation
+-- sprites are drawn directly to the host window and do not use this scale.
+WindowConfig.WORLD_3D_RASTER_SCALE = 2
+
 -- The game's window/scene background color (RGBA, 0..1). Chosen to sit behind
 -- the field's rendered geometry, not a DS-authentic value.
 WindowConfig.BACKGROUND_COLOR = { 0.08, 0.09, 0.12, 1 }

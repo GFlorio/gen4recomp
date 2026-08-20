@@ -51,7 +51,7 @@ end
 local function drawInstance(renderer, runtime, instance, alpha)
   local items = instance:drawItems(instance.renderMeshesById)
   runtime.mapDraws = items
-  renderer:draw(runtime, identityCamera(), { items }, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
+  renderer:draw(runtime, identityCamera(), { items }, nil, FieldViewport.new(320, 240, { mode = "strict" }), alpha)
 end
 
 function T.nitro_animated_fixture_renders_through_map_renderer()

@@ -369,7 +369,7 @@ function T.state_target_dimensions_equal_color_dimensions()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local viewport = { worldViewport = { x = 0, y = 0, width = 1280, height = 720 } }
-  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(renderer.colorW, 1280)
   Assert.equal(renderer.colorH, 720)
   Assert.equal(renderer.stateW, renderer.colorW, "state width equals the color width, not a fixed semantic raster")
@@ -379,6 +379,47 @@ function T.state_target_dimensions_equal_color_dimensions()
   renderer:release()
 end
 
+function T.world_raster_scale_bounds_only_the_world_targets()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+  local scene = emptySceneCamera()
+  local sizes = {
+    { width = 640, height = 480, expectedW = 512, expectedH = 384 },
+    { width = 1280, height = 720, expectedW = 683, expectedH = 384 },
+    { width = 1920, height = 1080, expectedW = 683, expectedH = 384 },
+    { width = 2560, height = 1440, expectedW = 683, expectedH = 384 },
+    { width = 3440, height = 1440, expectedW = 917, expectedH = 384 },
+    { width = 800, height = 300, expectedW = 800, expectedH = 300 },
+  }
+  for _, size in ipairs(sizes) do
+    renderer:draw(
+      scene.runtime,
+      scene.camera,
+      nil,
+      nil,
+      { worldViewport = { x = 0, y = 0, width = size.width, height = size.height } },
+      0
+    )
+    Assert.equal(renderer.colorW, size.expectedW, "world raster width is DS-relative")
+    Assert.equal(renderer.colorH, size.expectedH, "world raster height is DS-relative")
+    local sceneCanvas = lg.canvases[#lg.canvases - 7]
+    Assert.equal(sceneCanvas.w, size.expectedW)
+    Assert.equal(sceneCanvas.h, size.expectedH)
+  end
+  renderer:release()
+end
+
+function T.world_raster_scale_rejects_non_positive_and_non_finite_values()
+  local lg = fakeGraphics()
+  for _, scale in ipairs({ 0, -1, math.huge, -math.huge, 0 / 0 }) do
+    local ok, renderer = pcall(MapRenderer.new, { graphics = lg, worldRasterScale = scale })
+    if ok then
+      renderer:release()
+    end
+    Assert.isFalse(ok, "invalid world raster scale is rejected")
+  end
+end
+
 -- Target recreation is transactional: a failure while building any staged
 -- role leaves the previous complete generation usable, and every partial new
 -- canvas is released.
@@ -386,14 +427,14 @@ function T.state_target_recreation_failure_releases_partials_and_keeps_previous_
   local probeGraphics = fakeGraphics()
   local probeRenderer = MapRenderer.new({ graphics = probeGraphics })
   local scene = emptySceneCamera()
-  probeRenderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  probeRenderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   local _, generationSize = assertPublishedCanvasRoles(probeRenderer, probeGraphics)
   probeRenderer:release()
 
   for failureOffset = 1, generationSize do
     local lg = fakeGraphics()
     local renderer = MapRenderer.new({ graphics = lg })
-    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
     local oldColorW, oldColorH, oldStateW, oldStateH =
       renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
     local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
@@ -403,7 +444,7 @@ function T.state_target_recreation_failure_releases_partials_and_keeps_previous_
     lg.setFailOnNewCanvas(generationSize + failureOffset)
 
     local err = Assert.throws(function()
-      renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
+      renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(1280, 720, { mode = "expanded" }), 0)
     end)
     Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
 
@@ -453,7 +494,7 @@ function T.draw_sends_the_rounded_field_pixel_scale_as_the_edge_radius()
 
   local function radiusSentFor(viewport, zoom)
     scene.camera.zoom = zoom
-    renderer:draw(scene.runtime, scene.camera, nil, viewport)
+    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
     local last
     for _, send in ipairs(edgeShader.sends) do
       if send.name == "u_edgeRadiusPx" then
@@ -491,7 +532,7 @@ function T.draw_restores_exact_caller_state()
   })
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   assertRestoredState(lg, canvas, shader)
   renderer:release()
   assertResourcesReleased(lg)
@@ -509,7 +550,7 @@ function T.draw_clears_the_scene_canvas_to_the_injected_color()
   local injected = { 0.5, 0.6, 0.7, 1 }
   local renderer = MapRenderer.new({ graphics = lg, clearColor = injected })
   local scene = emptySceneCamera()
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   Assert.equal(lg.calls.clear[2][1], injected, "scene canvas clears to the injected color")
 end
 
@@ -517,7 +558,7 @@ function T.draw_without_an_injected_color_uses_a_renderer_default()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   Assert.isTrue(lg.calls.clear[2][1] ~= nil, "scene canvas still clears when no color is injected")
 end
 
@@ -559,7 +600,7 @@ function T.draw_failure_restores_exact_state_and_rethrows()
           center = { 0, 0, 0 },
         },
       },
-    }, FieldViewport.new(640, 480, { mode = "strict" }))
+    }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   end)
   Assert.isTrue(tostring(err):find("injected draw failure", 1, true) ~= nil, "rethrows the draw failure")
   assertRestoredState(lg, canvas, shader)
@@ -730,7 +771,7 @@ function T.new_derives_equal_color_and_state_target_sizes_and_nearest_filters_sc
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local viewport = { worldViewport = { x = 0, y = 0, width = 1280, height = 720 } }
-  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(renderer.colorW, 1280, "the color target matches the display viewport width exactly")
   Assert.equal(renderer.colorH, 720, "the color target matches the display viewport height exactly")
   Assert.equal(renderer.stateW, 1280, "the state target matches the color target width exactly")
@@ -752,14 +793,14 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
   local probeGraphics = fakeGraphics()
   local probeRenderer = MapRenderer.new({ graphics = probeGraphics })
   local scene = emptySceneCamera()
-  probeRenderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  probeRenderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   local _, generationSize = assertPublishedCanvasRoles(probeRenderer, probeGraphics)
   probeRenderer:release()
 
   for failureOffset = 1, generationSize do
     local lg = fakeGraphics()
     local renderer = MapRenderer.new({ graphics = lg })
-    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
     local oldRoles = rendererCanvasRoles(renderer)
     Assert.equal(#lg.canvases, generationSize, "the first target set was created")
     lg.setFailOnNewCanvas(generationSize + failureOffset)
@@ -768,7 +809,7 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
 
     local err = Assert.throws(function()
-      renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
+      renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(1280, 720, { mode = "expanded" }), 0)
     end)
     Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
 
@@ -813,7 +854,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   -- before any scene exists.
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 0, "construction sends no scene-derived edge colors")
 
-  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   local colorTargets = assert(renderer._colorTargets, "successful canvas creation publishes the color descriptor")
   local stateTargets = assert(renderer._stateTargets, "successful canvas creation publishes the state descriptor")
   Assert.equal(colorTargets[1], renderer.sceneColor)
@@ -831,7 +872,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.deepEqual(recordedEdgeShader.uniforms.u_stateSize, { renderer.stateW, renderer.stateH })
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the first draw establishes the scene edge table")
 
-  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(renderer._colorTargets, colorTargets, "unchanged dimensions reuse the color descriptor")
   Assert.equal(renderer._stateTargets, stateTargets, "unchanged dimensions reuse the state descriptor")
   Assert.equal(renderer.stats, stats, "later draws retain stats identity")
@@ -845,7 +886,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the same edge table reference is not resent")
 
   viewport:resize(1280, 720)
-  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new color descriptor")
   Assert.isTrue(renderer._stateTargets ~= stateTargets, "replacement publishes a new state descriptor")
   Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 3)
@@ -860,7 +901,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   -- A different edge table (a new area's scene profile) resends, even though
   -- the raster size and target descriptors are unchanged.
   scene.runtime.edgeColors = edgeColorsFixture()
-  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 2, "a changed edge table resends")
 
   -- The DS composites edge color by RGB replacement, not an
@@ -883,7 +924,7 @@ function T.draw_sends_the_scene_edge_table_decoded_to_normalized_rgb6()
   local scene = emptySceneCamera()
   local edgeShader = renderer.edgeShader --[[@as any]]
 
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local sent
   for _, send in ipairs(edgeShader.sends) do
@@ -911,7 +952,7 @@ function T.edge_color_rgb555_4_4_4_expands_to_rgb6_9_63()
   local packed444 = 4 + 4 * 32 + 4 * 1024
   scene.runtime.edgeColors = { [0] = packed444, 0, 0, 0, 0, 0, 0, 0 }
 
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local sent
   for _, send in ipairs(edgeShader.sends) do
@@ -935,7 +976,7 @@ function T.draw_requires_the_scenes_edge_color_table()
   scene.runtime.edgeColors = nil
 
   Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   end)
   renderer:release()
 end
@@ -953,17 +994,17 @@ function T.draw_requires_a_positive_camera_far_plane()
 
   scene.camera.far = nil
   Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, viewport)
+    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   end)
 
   scene.camera.far = 0
   Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, viewport)
+    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   end)
 
   scene.camera.far = -10
   Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, viewport)
+    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   end)
   renderer:release()
 end
@@ -1007,7 +1048,7 @@ function T.draw_sends_the_scenes_resolved_fog_preset_when_enabled()
   scene.runtime.fog = fogFixture(true)
   local shader = lg.shaders[2]
 
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   Assert.equal(shader.uniforms.u_fogEnabled, true, "the resolved preset's enable reaches the final pass shader")
   Assert.deepEqual(
@@ -1036,7 +1077,7 @@ function T.draw_sends_the_scenes_resolved_fog_preset_when_disabled()
   scene.runtime.fog = fogFixture(false)
   local shader = lg.shaders[2]
 
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   Assert.equal(shader.uniforms.u_fogEnabled, false)
   Assert.deepEqual(shader.uniforms.u_fogColor, decodeRgb555Float(scene.runtime.fog.color))
@@ -1065,7 +1106,7 @@ function T.draw_requires_the_scenes_fog_preset()
   scene.runtime.fog = nil
 
   Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   end)
   renderer:release()
 end
@@ -1102,12 +1143,12 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
   -- Every draw() issues its own composite blit. Empty parts draw nothing
   -- beyond it, and each item in the given parts draws exactly twice -- once
   -- into the state pass, once into the color pass.
-  renderer:draw(scene.runtime, scene.camera, nil, viewport)
+  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   local emptyFrame = lg.getDrawCalls()
   renderer:draw(scene.runtime, scene.camera, {
     { drawItem("a") },
     { drawItem("b") },
-  }, viewport)
+  }, nil, viewport, 0)
   local itemFrame = lg.getDrawCalls() - emptyFrame
   Assert.equal(itemFrame - emptyFrame, 4, "each given world item draws once per pass (state + color)")
 
@@ -1118,7 +1159,7 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
   local blended = scratch.blended
   local wireframe = scratch.wireframe
 
-  renderer:draw(scene.runtime, scene.camera, { { drawItem("next") } }, viewport)
+  renderer:draw(scene.runtime, scene.camera, { { drawItem("next") } }, nil, viewport, 0)
   Assert.equal(renderer.stats.drawCalls, 2, "a smaller frame retains no stale draw items (1 item x 2 passes)")
   Assert.isTrue(renderer._queueScratch == scratch)
   Assert.isTrue(scratch.opaque == opaque)
@@ -1272,7 +1313,7 @@ function T.a_real_polygon_63_encodes_the_same_id_value_as_the_clear_background()
   local item = passItem("opaque", 0)
   item.polygonId = 63
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   -- Only the state-pass shader (shaders[3]) carries a polygon-ID uniform.
   local sentPolygonId
@@ -1311,7 +1352,7 @@ function T.translucent_draws_send_their_own_polygon_id_not_an_invented_sentinel(
   local item = passItem("translucent", -1)
   item.polygonId = 7
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   Assert.equal(
     shaderSendCount(lg.shaders[3], "u_polygonId"),
@@ -1355,7 +1396,7 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
   local item = FieldActorDraw.item(record, entry)
   Assert.equal(item.alphaClass, "cutout", "the fixture's actor material is the ROM's cutout class")
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local colorShader, stateShader = lg.shaders[1], lg.shaders[3]
   local sent, stateSent = {}, {}
@@ -1396,7 +1437,7 @@ function T.billboard_draw_sends_change_driven_data_for_nonuniform_scale()
   item.billboardCenter, item.billboardScale = BillboardTransform.components(item.billboardBase)
   local originalTransform = item.transform
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local sentCenter, sentScale, sentModel
   for _, send in ipairs(lg.shaders[1].sends) do
@@ -1469,7 +1510,7 @@ function T.draw_sets_wireframe_and_translucent_state_once_per_run()
     passItem("wireframe", 1),
   }
 
-  renderer:draw(scene.runtime, scene.camera, { items }, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, { items }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   -- The programmable ping-pong compositor uses replace semantics for both
   -- source rasterization and composite use replace semantics. Every depth
@@ -1861,7 +1902,9 @@ function T.draws_never_send_the_retired_translucent_attribute_uniform()
     scene.runtime,
     scene.camera,
     { { opaqueItem, cutoutItem, translucentItem, wireframeItem } },
-    FieldViewport.new(640, 480, { mode = "strict" })
+    nil,
+    FieldViewport.new(640, 480, { mode = "strict" }),
+    0
   )
 
   Assert.equal(
@@ -1895,7 +1938,9 @@ function T.draw_builds_the_render_queue_exactly_once_per_frame()
       scene.runtime,
       scene.camera,
       { { passItem("opaque", 0) } },
-      FieldViewport.new(640, 480, { mode = "strict" })
+      nil,
+      FieldViewport.new(640, 480, { mode = "strict" }),
+      0
     )
   end)
   RenderQueue.buildInto = original
@@ -1934,7 +1979,9 @@ function T.projection_selection_matches_between_the_state_and_color_passes()
     scene.runtime,
     scene.camera,
     { { ordinary, billboard } },
-    FieldViewport.new(640, 480, { mode = "strict" })
+    nil,
+    FieldViewport.new(640, 480, { mode = "strict" }),
+    0
   )
 
   local function projectionsSentBy(shader)
@@ -1965,7 +2012,7 @@ function T.draw_never_sends_the_retired_depth_normalization_uniform()
   local scene = emptySceneCamera()
   scene.camera.far = 123.5
 
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   Assert.equal(shaderSendCount(lg.shaders[1], "u_depthWMax"), 0, "the color shader never receives the retired uniform")
   Assert.equal(

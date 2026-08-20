@@ -74,6 +74,8 @@ local function drawableState(development)
       })
     end,
     worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
     renderer = { draw = function() end },
     _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
     _actorAssetLookup = function()

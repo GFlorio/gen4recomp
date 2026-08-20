@@ -150,6 +150,8 @@ local function drawableState(options)
       return topology
     end,
     worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
     renderer = recordingRenderer("world", sink),
     dialogueRenderer = recordingRenderer("dialogue", sink),
     signpostRenderer = recordingRenderer("signpost", sink),

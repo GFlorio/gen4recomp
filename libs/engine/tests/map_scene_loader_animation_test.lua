@@ -757,7 +757,14 @@ function T.animated_building_loads_advances_and_renders()
       return identity
     end,
   }
-  renderer:draw(runtime, camera, { runtime.animatedBuildingDraws }, FieldViewport.new(320, 240, { mode = "strict" }), 1)
+  renderer:draw(
+    runtime,
+    camera,
+    { runtime.animatedBuildingDraws },
+    nil,
+    FieldViewport.new(320, 240, { mode = "strict" }),
+    1
+  )
   Assert.isTrue(renderer.stats.drawCalls >= 1, "the animated door draws")
 
   -- The handle surface drives the semantic role on the loader-built

@@ -92,6 +92,8 @@ local function presentationState(assets, actorIds)
       return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
     end,
     worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
   }, FieldState),
     actors,
     runtime
@@ -103,6 +105,8 @@ local function stateWith(runtime)
   return setmetatable({
     runtime = runtime,
     worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
     renderer = {
       draw = function()
         error("renderer should be stubbed by the test")
@@ -137,7 +141,8 @@ function T.world_parts_refresh_replaced_scene_neighbor_and_actor_draws()
   Assert.isTrue(parts[2] == staticBuildingDraws)
   Assert.isTrue(parts[3] == animatedBuildingDraws)
   Assert.isTrue(parts[4] == neighborDraws)
-  Assert.isTrue(parts[5] == actorDraws)
+  Assert.isTrue(parts[5] == state.worldActorItems)
+  Assert.equal(parts[5][1], actorDraws[1])
 
   local nextMapDraws = { { kind = "next-map" } }
   local nextAnimatedBuildingDraws = { { kind = "next-animated-building" } }
@@ -156,7 +161,8 @@ function T.world_parts_refresh_replaced_scene_neighbor_and_actor_draws()
     "fixed-tick animated building replacement reaches the renderer"
   )
   Assert.deepEqual(refreshed[4], {})
-  Assert.isTrue(refreshed[5] == nextActorDraws)
+  Assert.isTrue(refreshed[5] == state.worldActorItems)
+  Assert.equal(refreshed[5][1], nextActorDraws[1])
 end
 
 -- A live presentation runtime always carries the transition, dialogue, and
@@ -234,6 +240,8 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
       error("no actor in this scenario is visible, so the asset lookup must not run")
     end,
     worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
   }, FieldState)
   state:draw()
   Assert.equal(received.scene, sceneRuntime, "the renderer receives the runtime map's scene runtime")
@@ -245,6 +253,86 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
   Assert.deepEqual(received.worldParts[4], {})
   Assert.deepEqual(received.worldParts[5], {})
   Assert.equal(presentations, 1, "draw always queries the menu host presentation")
+end
+
+function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentation()
+  local sceneRuntime = {
+    mapDraws = {},
+    staticBuildingDraws = {},
+    animatedBuildingDraws = {},
+  }
+  local staticModel = { kind = "actor", billboardProjection = false }
+  local sprite = { kind = "actor", billboardProjection = true }
+  local received
+  local state = setmetatable({
+    runtime = {
+      runtimeMap = { sceneRuntime = sceneRuntime },
+      playerVisual = {
+        drawRecord = function()
+          return { visible = false }
+        end,
+      },
+      actors = {
+        drawRecords = function()
+          return {}
+        end,
+      },
+      session = {
+        renderAlpha = function()
+          return 0.5
+        end,
+      },
+      viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
+      camera = { zoom = 1 },
+      transition = { fadeAlpha = 0 },
+      dialogue = {
+        isModal = function()
+          return false
+        end,
+      },
+      signpost = {
+        isModal = function()
+          return false
+        end,
+      },
+      applicationHost = {
+        status = function()
+          return { phase = "closed", fadeAlpha = 0 }
+        end,
+      },
+      menuHost = {
+        presentation = function()
+          return nil
+        end,
+      },
+      resizePresentation = function() end,
+    },
+    topologyProvider = function()
+      return ScreenTopology.oneDisplay({
+        id = "main",
+        rect = { x = 0, y = 0, width = 640, height = 480 },
+        touch = false,
+        role = "world",
+      })
+    end,
+    renderer = {
+      draw = function(_, _, _, worldParts, spriteItems)
+        received = { worldParts = worldParts, spriteItems = spriteItems }
+      end,
+    },
+    worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
+  }, FieldState)
+  state._actorDraws = function()
+    return { staticModel, sprite }
+  end
+
+  state:draw()
+  Assert.equal(received.worldParts[5][1], staticModel)
+  Assert.equal(received.spriteItems[1], sprite)
+  Assert.equal(#received.worldParts[5], 1)
+  Assert.equal(#received.spriteItems, 1)
 end
 
 function T.draw_hud_reads_the_player_state()
@@ -312,6 +400,8 @@ function T.draw_without_a_menu_host_is_a_programming_error()
       })
     end,
     worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
     renderer = { draw = function() end },
   }, FieldState)
   Assert.throws(function()

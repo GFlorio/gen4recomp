@@ -276,17 +276,18 @@ the state pass.
 
 Color rendering and DS render state (the polygon ID/depth/fog-gate attribute
 above, plus edge-marking coverage/validity) are two separate geometry passes
-over one shared full-resolution raster domain -- state classification is never
-deliberately downsampled:
+over one shared world-raster domain. The world raster is bounded independently
+of host presentation resolution:
 
-* **`sceneColor` + `colorDepth`** (`map.glsl`): the presentation color raster,
-  always exactly the viewport size (`colorW = displayW`, `colorH = displayH`
-  -- no reduced-resolution/nearest-upscaled world raster). Every DS
+* **`sceneColor` + `colorDepth`** (`map.glsl`): the world color raster. Production
+  uses `WindowConfig.WORLD_3D_RASTER_SCALE = 2`, capping its height at 384
+  DS-relative pixels while preserving the viewport aspect. The resolved world
+  is nearest-upscaled once into the presentation viewport. Every DS
   RGB/alpha combiner and lighting computation happens here; the shader owns
   no polygon-ID/fog-gate output at all.
 * **`renderState` + `stateDepth`** (`state.glsl`): the render-state raster,
   allocated at the exact same dimensions and screen coverage as `sceneColor`
-  (`stateW = colorW`, `stateH = colorH` at every host size). This shader
+  (`stateW = colorW`, `stateH = colorH`). This shader
   computes the same exact final alpha5 as `map.glsl` (for the MODULATE/DECAL
   discard predicates) but does no lighting, no fog, and no edge search -- only
   geometry/UV/final-alpha/state.
@@ -319,12 +320,20 @@ exact per the pinned melonDS formula, but projection, rasterization, and
 interpolation remain host-side -- this is not bit-exact DS rasterization (see
 "Exact versus approximate behavior" below).
 
-`MapRenderer:draw` builds the render queue exactly once per frame
+`FieldState` partitions only its actor list: `billboardProjection == true` items
+are presentation sprites, while actor static models remain world items. Map,
+building, neighbour, and map/building billboard items always remain world
+geometry. `MapRenderer:draw` resolves the world first, then draws sprites
+directly to the host at native presentation resolution. Sprite fragments compare
+their DS-quantized depth with the low-resolution world state and use host depth
+ordering for sprite-versus-sprite occlusion. Sprites use their own depth for
+fog and intentionally skip world edge marking; actor atlases remain nearest.
+
+The world renderer builds the render queue exactly once per frame
 (`RenderQueue.buildInto`) and both passes consume it, selecting projection
 identically per item (`item.billboardProjection and billboardProjection or
 worldProjection`) -- map geometry, buildings, the neighbour ring, and actor
-billboards are all ordinary shared queue items in both passes; no object
-class chooses its own raster resolution or skips a pass. The state pass
+static models are all ordinary shared queue items in both passes. The state pass
 draws opaque, then cutout, then mixed-opaque (discard-unless-alpha31), then
 wireframe. The color pass draws the same opaque/cutout/mixed-opaque items at
 full resolution, then executes the programmable translucent compositor

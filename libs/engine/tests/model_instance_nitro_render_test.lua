@@ -287,7 +287,7 @@ end
 local function drawInstance(renderer, rt, instance, alpha)
   local items = instance:drawItems(instance.renderMeshesById)
   rt.mapDraws = items
-  renderer:draw(rt, identityCamera(), { items }, FieldViewport.new(640, 480, { mode = "strict" }), alpha)
+  renderer:draw(rt, identityCamera(), { items }, nil, FieldViewport.new(640, 480, { mode = "strict" }), alpha)
   return items
 end
 

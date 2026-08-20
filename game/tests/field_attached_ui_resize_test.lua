@@ -100,6 +100,8 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
     end,
     renderer = { draw = function() end },
     worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
     _lastGeometrySignature = "1280:600:main:world:0:0:1280:600",
     _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
     _actorAssetLookup = function()

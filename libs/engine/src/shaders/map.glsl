@@ -48,6 +48,7 @@
 // own target instead.
 
 varying vec3 v_dsColor;
+varying vec2 v_spriteUv;
 
 #ifdef VERTEX
 // VertexColor is a LÖVE built-in attribute; do not redeclare it.
@@ -81,6 +82,9 @@ uniform vec3 u_matDiffuse;
 uniform vec3 u_matAmbient;
 uniform vec3 u_matSpecular;
 uniform vec3 u_matEmission;
+#ifdef PRESENTATION_SPRITE
+uniform bool u_presentationSprite;
+#endif
 
 // 1.0.9 domain scale shared by normals and the transformed light-direction
 // register (see DsLighting.lua's header for the full derivation this block
@@ -230,7 +234,14 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
   // custom projection bypasses LÖVE's compensating flip; negate clip Y so the
   // scene renders upright (and with correct winding) into the offscreen canvas.
   vec4 clip = u_proj * viewPosition;
+#ifdef PRESENTATION_SPRITE
+  if (!u_presentationSprite) {
+    clip.y = -clip.y;
+  }
+#else
   clip.y = -clip.y;
+#endif
+  v_spriteUv = clip.xy / clip.w * 0.5 + 0.5;
   return clip;
 }
 #endif
@@ -244,6 +255,88 @@ uniform float u_polygonAlpha;  // normalized 5-bit polygon alpha
 uniform int u_polygonMode;     // 0 modulation/toon, 1 decal
 uniform mat3 u_texMatrix;      // normalized-UV transform (NSBTA texture SRT)
 uniform sampler2D MainTex;
+#ifdef PRESENTATION_SPRITE
+uniform bool u_presentationSprite;
+uniform bool u_spriteFogEnabled;
+uniform Image u_renderState;
+uniform vec2 u_stateSize;
+uniform bool u_fogEnabled;
+uniform vec3 u_fogColor;
+uniform vec4 u_fogTable0;
+uniform vec4 u_fogTable1;
+uniform vec4 u_fogTable2;
+uniform vec4 u_fogTable3;
+uniform vec4 u_fogTable4;
+uniform vec4 u_fogTable5;
+uniform vec4 u_fogTable6;
+uniform vec4 u_fogTable7;
+uniform float u_fogOffsetDepth;
+uniform float u_fogShift;
+uniform float u_fogAlpha;
+#endif
+
+#ifdef PRESENTATION_SPRITE
+const float SPRITE_DEPTH_MAX = 16777215.0;
+
+float spriteExpand5(float value)
+{
+  return value <= 0.0 ? 0.0 : value * 2.0 + 1.0;
+}
+
+float spriteDepth(float windowDepth)
+{
+  float ndc = windowDepth * 2.0 - 1.0;
+  int ndc14 = int(ndc * 16384.0);
+  return clamp(float(ndc14 + 16383) * 512.0, 0.0, SPRITE_DEPTH_MAX);
+}
+
+float spriteFogTable(int index)
+{
+  int clamped = index;
+  if (clamped < 0) clamped = 0;
+  if (clamped > 31) clamped = 31;
+  int group = clamped / 4;
+  int component = clamped - group * 4;
+  vec4 value = u_fogTable0;
+  if (group == 1) value = u_fogTable1;
+  else if (group == 2) value = u_fogTable2;
+  else if (group == 3) value = u_fogTable3;
+  else if (group == 4) value = u_fogTable4;
+  else if (group == 5) value = u_fogTable5;
+  else if (group == 6) value = u_fogTable6;
+  else if (group == 7) value = u_fogTable7;
+  if (component == 0) return value.x;
+  if (component == 1) return value.y;
+  if (component == 2) return value.z;
+  return value.w;
+}
+
+float spriteFogDensity(float depth)
+{
+  if (depth < u_fogOffsetDepth) return spriteFogTable(0);
+  float shifted = floor((depth - u_fogOffsetDepth) / 4.0) * pow(2.0, u_fogShift);
+  float index = floor(shifted / 131072.0);
+  if (index >= 32.0) return 128.0;
+  float fraction = shifted - index * 131072.0;
+  float lo = spriteFogTable(int(index));
+  float hi = spriteFogTable(int(index) + 1);
+  float density = floor((lo * (131072.0 - fraction) + hi * fraction) / 131072.0);
+  return density >= 127.0 ? 128.0 : density;
+}
+
+vec4 fogSprite(vec4 source, float depth)
+{
+  if (!u_fogEnabled || !u_spriteFogEnabled) return source;
+  float density = spriteFogDensity(depth);
+  vec3 fog5 = floor(u_fogColor * 31.0 + 0.5);
+  vec3 fog6 = vec3(spriteExpand5(fog5.x), spriteExpand5(fog5.y), spriteExpand5(fog5.z));
+  vec3 source6 = floor(source.rgb * 63.0 + 0.5);
+  vec3 rgb6 = floor((fog6 * density + source6 * (128.0 - density)) / 128.0);
+  float alpha5 = floor(source.a * 31.0 + 0.5);
+  float outAlpha5 = floor((u_fogAlpha * density + alpha5 * (128.0 - density)) / 128.0);
+  return vec4(rgb6 / 63.0, outAlpha5 / 31.0);
+}
+#endif
 
 // 5-bit (0-31) color component -> the combiner's 6-bit (0-63) domain
 // (melonDS GPU3D_Soft.cpp color conversion): 0 stays 0, any non-zero n
@@ -337,6 +430,22 @@ void effect()
 
   vec3 outRgb = outRgb6 / 63.0;
   float alpha = float(outputAlpha5) / 31.0;
+
+#ifdef PRESENTATION_SPRITE
+  if (u_presentationSprite) {
+    // Render-state canvases use the canvas texture orientation while this
+    // stage is rasterized directly to the window, so presentation Y is
+    // inverted when looking up the corresponding world pixel.
+    vec2 stateUv = vec2(v_spriteUv.x, 1.0 - v_spriteUv.y);
+    stateUv = clamp(stateUv, vec2(0.0), vec2(1.0) - 0.5 / u_stateSize);
+    float worldDepth = Texel(u_renderState, stateUv).g;
+    float spriteDepthValue = spriteDepth(gl_FragCoord.z);
+    if (spriteDepthValue >= worldDepth) discard;
+    vec4 fogged = fogSprite(vec4(outRgb, alpha), spriteDepthValue);
+    outRgb = fogged.rgb;
+    alpha = fogged.a;
+  }
+#endif
 
   love_Canvases[0] = vec4(outRgb, alpha);
 }

@@ -1,10 +1,8 @@
--- Draws a loaded runtime scene in real 3D through two full-resolution raster
--- passes (see docs/rendering.md): a color raster (sceneColor/colorDepth) and
--- a render-state raster (renderState/stateDepth) that shares the color
--- raster's exact dimensions and screen coverage at every host size. Raster
--- resolution is a property of the pass, never of the object being drawn: map
--- geometry, buildings, the neighbour ring, and actor billboards all draw
--- through the identical shared item pipeline in both passes.
+-- Draws a loaded runtime scene through two world-raster passes and a native
+-- presentation sprite stage (see docs/rendering.md). The color raster
+-- (sceneColor/colorDepth) and render-state raster (renderState/stateDepth)
+-- share bounded world dimensions; actor sprites resolve the world first and
+-- draw directly to the host window.
 --
 -- The render queue is built exactly once per frame (RenderQueue.buildInto)
 -- and both passes consume it. The state pass (state.glsl) draws opaque,
@@ -55,6 +53,8 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _graphics love.Graphics
 ---@field clearColor number[]
 ---@field shader love.Shader
+---@field spriteShader love.Shader
+---@field _spriteShaderSource string
 ---@field stateShader love.Shader
 ---@field edgeShader love.Shader
 ---@field _edgeColorsCache number[][]
@@ -81,6 +81,9 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
 ---@field _queueScratch RenderQueueScratch
+---@field _spriteQueueScratch RenderQueueScratch
+---@field _spriteParts table[][]
+---@field worldRasterScale number?
 local MapRenderer = {}
 MapRenderer.__index = MapRenderer
 
@@ -176,7 +179,31 @@ local STATE_PASS_OPAQUE = 0
 local STATE_PASS_CUTOUT = 1
 local STATE_PASS_MIXED_OPAQUE = 2
 
----@param opts { graphics?: love.Graphics, clearColor?: number[], readSource?: fun(path: string): string }?
+local function validateWorldRasterScale(scale)
+  assert(
+    scale == nil
+      or (type(scale) == "number" and scale > 0 and scale == scale and scale ~= math.huge and scale ~= -math.huge),
+    "world raster scale must be finite and > 0, got " .. tostring(scale)
+  )
+  return scale
+end
+
+---@param displayWidth number
+---@param displayHeight number
+---@param scale number?
+---@return integer, integer
+function MapRenderer.worldRasterDimensions(displayWidth, displayHeight, scale)
+  assert(displayWidth > 0 and displayHeight > 0)
+  validateWorldRasterScale(scale)
+  if scale == nil then
+    return math.max(1, math.floor(displayWidth + 0.5)), math.max(1, math.floor(displayHeight + 0.5))
+  end
+  local worldH = math.min(displayHeight, scale * 192)
+  local worldW = math.min(displayWidth, math.floor(displayWidth * worldH / displayHeight + 0.5))
+  return math.max(1, worldW), math.max(1, math.floor(worldH + 0.5))
+end
+
+---@param opts table?
 function MapRenderer.new(opts)
   opts = opts or {}
   local graphics = opts.graphics
@@ -184,9 +211,11 @@ function MapRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics, "MapRenderer requires a graphics context")
+  local worldRasterScale = validateWorldRasterScale(opts.worldRasterScale)
   local readSource = opts.readSource or defaultReadSource
   local renderer = setmetatable({
     _graphics = graphics,
+    worldRasterScale = worldRasterScale,
     clearColor = opts.clearColor or DEFAULT_CLEAR_COLOR,
     _edgeColorsCache = {
       { 0, 0, 0 },
@@ -226,12 +255,22 @@ function MapRenderer.new(opts)
       wireframe = {},
       blended = {},
     },
+    _spriteQueueScratch = {
+      opaque = {},
+      cutout = {},
+      mixedOpaque = {},
+      wireframe = {},
+      blended = {},
+    },
+    _spriteParts = { {} },
   }, MapRenderer)
   -- Shader construction is transactional: a failure while creating a later
   -- shader (or reading its source) releases every one already created before
   -- the error propagates, so a failed renderer never leaks GPU resources.
   local ok, err = pcall(function()
-    renderer.shader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.color))
+    local colorSource = readSource(SHADER_SOURCE_PATHS.color)
+    renderer.shader = graphics.newShader(colorSource)
+    renderer._spriteShaderSource = "#define PRESENTATION_SPRITE\n" .. colorSource
     renderer.edgeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.resolve))
     renderer.stateShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.state))
     renderer.sourceShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.source))
@@ -242,6 +281,15 @@ function MapRenderer.new(opts)
     error(err)
   end
   return renderer
+end
+
+function MapRenderer:_ensureSpriteShader()
+  if self.spriteShader then
+    return self.spriteShader
+  end
+  local shader = self._graphics.newShader(self._spriteShaderSource)
+  self.spriteShader = shader
+  return shader
 end
 
 function MapRenderer:_releaseTargets()
@@ -435,11 +483,11 @@ local ZERO_COLOR = { 0, 0, 0 }
 -- inherit lights or material colors from a lit scene drawn earlier with the
 -- same renderer. (u_lightMask needs no reset: every draw path sends it
 -- before drawing.)
-function MapRenderer:_sendLighting(sceneRuntime)
-  local shader = self.shader
+function MapRenderer:_sendLighting(sceneRuntime, targetShader)
+  local shader = targetShader or self.shader
   local profile = sceneRuntime.lighting
   if not profile or not profile.records then
-    if not self._lightingLit then
+    if not targetShader and not self._lightingLit then
       return
     end
     for i = 0, 3 do
@@ -456,7 +504,7 @@ function MapRenderer:_sendLighting(sceneRuntime)
 
   local record =
     FieldLightProfile.select(profile, sceneRuntime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
-  if self._lightingLit and self._lightingProfile == profile and self._lightingRecord == record then
+  if not targetShader and self._lightingLit and self._lightingProfile == profile and self._lightingRecord == record then
     return
   end
 
@@ -550,6 +598,25 @@ function MapRenderer:_sendFog(sceneRuntime)
     )
   end
   shader:send("u_fogOffsetDepth", fogOffsetDepth)
+  shader:send("u_fogShift", fog.slope)
+  shader:send("u_fogAlpha", fog.alpha)
+end
+
+-- Presentation sprites use the same fog preset and DS depth conversion as the
+-- resolved world, but evaluate fog from their own host fragment depth.
+function MapRenderer:_sendSpriteFog(sceneRuntime)
+  local fog = assert(sceneRuntime.fog, "scene runtime requires a fog preset")
+  local shader = self._activeShader or self.shader
+  decodeRgb555(self._fogColorCache, fog.color)
+  shader:send("u_fogEnabled", fog.enabled)
+  shader:send("u_fogColor", self._fogColorCache)
+  for group = 0, 7 do
+    shader:send(
+      "u_fogTable" .. group,
+      { fog.table[group * 4 + 1], fog.table[group * 4 + 2], fog.table[group * 4 + 3], fog.table[group * 4 + 4] }
+    )
+  end
+  shader:send("u_fogOffsetDepth", fog.offset * FOG_OFFSET_TO_DEPTH_SCALE)
   shader:send("u_fogShift", fog.slope)
   shader:send("u_fogAlpha", fog.alpha)
 end
@@ -735,7 +802,7 @@ function MapRenderer:_drawMesh(
 )
   local lg = assert(self._graphics)
   local mat = item.material
-  local shader = self.shader
+  local shader = self._activeShader or self.shader
 
   sendTransformUniforms(shader, projection, modelMatrix, modelNormal, billboardCenter, billboardScale)
 
@@ -843,7 +910,7 @@ function MapRenderer:_drawWireframeMesh(
   billboardScale
 )
   local lg = assert(self._graphics)
-  local shader = self.shader
+  local shader = self._activeShader or self.shader
 
   sendTransformUniforms(shader, projection, modelMatrix, modelNormal, billboardCenter, billboardScale)
   -- Wireframe polygons are static field geometry: the effective registers
@@ -1078,7 +1145,10 @@ end
 -- state the actors render at. FieldViewport limits the render-target size and
 -- places the result inside the host drawable.
 ---@param worldParts table[][]?
-function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
+---@param spriteItems table[]?
+---@param viewport { worldViewport: { x: number, y: number, width: number, height: number } }
+---@param alpha number
+function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   -- The state shader derives its depth from the host fragment's normalized
   -- window depth (state.glsl's dsZbufferDepth, the HGSS field Z-buffer
@@ -1096,8 +1166,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   self.stats.stateDrawCalls = 0
 
   local rectangle = viewport.worldViewport
-  local colorW = math.max(1, math.floor(rectangle.width + 0.5))
-  local colorH = math.max(1, math.floor(rectangle.height + 0.5))
+  local colorW, colorH = MapRenderer.worldRasterDimensions(rectangle.width, rectangle.height, self.worldRasterScale)
   self:_ensureTargets(colorW, colorH)
 
   local viewMatrix = camera:view(alpha)
@@ -1116,34 +1185,24 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
   local colorTargets = assert(self._colorTargets)
   local stateTargets = assert(self._stateTargets)
 
-  -- The final pass's edge-neighbor sampling distance: one logical field
-  -- pixel at the camera's effective zoom (referenceFrame.height / 192 *
-  -- zoom), rounded to the nearest integer and floored at 1 (see
-  -- FieldViewport:logicalPixelScale). FieldCamera always carries its effective
-  -- zoom (FieldRuntime applies FieldZoom:effectiveZoom() via setZoom); the
-  -- draw path treats a missing zoom as 1.0 only so zoom-less camera fakes in
-  -- tests render deterministically. Draw requires a FieldViewport in
-  -- production (logicalPixelScale); plain { worldViewport = ... } tables are
-  -- test-only fakes that intentionally fall back to the neutral minimum radius
-  -- of 1.
+  -- The final pass samples neighbors in world-raster pixels, so edge width
+  -- remains tied to the DS-relative world rather than host resolution.
   local edgeRadiusPx = 1
   local cameraZoom = camera.zoom
   if cameraZoom == nil then
     cameraZoom = 1
   end
-  if type(cameraZoom) == "number" and cameraZoom > 0 and viewport.logicalPixelScale then
-    edgeRadiusPx = math.max(1, math.floor(viewport:logicalPixelScale(cameraZoom) + 0.5))
-  else
-    -- Test-only fallback: plain viewport tables in libs/engine/tests/map_renderer_test lack logicalPixelScale; production FieldViewports always provide it.
-    edgeRadiusPx = 1
+  if type(cameraZoom) == "number" and cameraZoom > 0 then
+    edgeRadiusPx = math.max(1, math.floor((colorH / 192) * cameraZoom + 0.5))
   end
 
+  local presentationCanvas = lg.getCanvas()
   local function doDraw()
     -- The render queue is built exactly once per frame; both the state and
     -- color passes below consume this same queue.
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
-    -- ---- state pass: full-resolution polygon ID/depth/fog-gate state ----
+    -- ---- state pass: world-raster polygon ID/depth/fog-gate state ----
     lg.setCanvas(stateTargets)
     lg.clear(DS_STATE_CLEAR, false, true)
     lg.setShader(self.stateShader)
@@ -1279,7 +1338,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     self:_sendFog(sceneRuntime)
     self.edgeShader:send("u_antialiasEnabled", true)
     self.edgeShader:send("u_edgeRadiusPx", edgeRadiusPx)
-    lg.setCanvas()
+    lg.setCanvas(presentationCanvas)
     lg.setDepthMode()
     lg.setBlendMode("replace", "premultiplied")
     lg.setColor(1, 1, 1, 1)
@@ -1287,6 +1346,53 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     sendStateUniforms(self.edgeShader, activeState, self.stateW, self.stateH)
     lg.draw(activeColor, rectangle.x, rectangle.y, 0, rectangle.width / colorW, rectangle.height / colorH)
     lg.setShader()
+
+    -- The world is now present at presentation resolution. The host depth
+    -- buffer is borrowed for actor ordering; it is cleared without changing
+    -- the resolved world color, then the presentation sprites draw directly
+    -- to the window. No sprite color or state canvas is allocated.
+    if spriteItems and #spriteItems > 0 then
+      lg.clear(nil, nil, nil, nil, false, true)
+      local spriteParts = self._spriteParts
+      spriteParts[1] = spriteItems
+      local spriteQueue = RenderQueue.buildInto(spriteParts, viewMatrix, self._spriteQueueScratch)
+      self._activeShader = self:_ensureSpriteShader()
+      local spriteShader = assert(self._activeShader)
+      spriteShader:send("u_presentationSprite", true)
+      spriteShader:send("u_view", "column", viewMatrix)
+      spriteShader:send("u_renderState", activeState)
+      spriteShader:send("u_stateSize", { self.stateW, self.stateH })
+      self:_sendSpriteFog(sceneRuntime)
+      self:_sendLighting(sceneRuntime, spriteShader)
+      lg.setShader(spriteShader)
+      lg.setBlendMode("alpha")
+
+      local function drawSprite(item, fragmentPass, depthWrite)
+        spriteShader:send("u_spriteFogEnabled", item.fogEnabled == true)
+        lg.setDepthMode("less", depthWrite)
+        self:_drawItem(item, billboardProjection, fragmentPass, viewMatrix)
+      end
+      for _, d in ipairs(spriteQueue.opaque) do
+        drawSprite(d, FRAGMENT_PASS_OPAQUE, true)
+      end
+      for _, d in ipairs(spriteQueue.cutout) do
+        drawSprite(d, FRAGMENT_PASS_CUTOUT, true)
+      end
+      for _, d in ipairs(spriteQueue.mixedOpaque) do
+        drawSprite(d, FRAGMENT_PASS_MIXED_OPAQUE, true)
+      end
+      for _, d in ipairs(spriteQueue.wireframe) do
+        drawSprite(d, FRAGMENT_PASS_OPAQUE, true)
+      end
+      for _, entry in ipairs(spriteQueue.blended) do
+        drawSprite(
+          entry.item,
+          entry.fragmentPass == AlphaClassifier.MIXED and FRAGMENT_PASS_MIXED_TRANSLUCENT or FRAGMENT_PASS_TRANSLUCENT,
+          false
+        )
+      end
+      self._activeShader = nil
+    end
   end
 
   -- Capture every caller state the draw modifies, restore the captured values
@@ -1303,6 +1409,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
 
   local ok, err = pcall(doDraw)
 
+  self._activeShader = nil
   lg.setCanvas(canvas)
   lg.setShader(shader)
   lg.setBlendMode(blendMode, blendAlpha)
@@ -1332,7 +1439,10 @@ function MapRenderer:release()
   if self.compositeShader then
     self.compositeShader:release()
   end
-  self.shader, self.edgeShader, self.stateShader = nil, nil, nil
+  if self.spriteShader then
+    self.spriteShader:release()
+  end
+  self.shader, self.spriteShader, self.edgeShader, self.stateShader = nil, nil, nil, nil
   self.sourceShader, self.compositeShader = nil, nil
   self:_releaseTargets()
 end

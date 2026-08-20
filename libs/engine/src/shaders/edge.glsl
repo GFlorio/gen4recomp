@@ -1,4 +1,5 @@
-// DS final composite pass, run as a full-screen pass over the full-resolution
+// DS final composite pass, run over the world raster before its nearest
+// upscale to presentation resolution.
 // sceneColor target (map.glsl's color-only output) and the same-resolution
 // renderState target (state.glsl's state output: red edge polygon ID, green
 // DS-quantized depth, blue per-polygon fog gate, alpha last-translucent-ID
@@ -25,7 +26,7 @@
 // integer render-state pixels -- the rounded field logical pixel scale
 // (referenceFrame.height / 192 * camera zoom, minimum 1; see
 // FieldViewport:logicalPixelScale and MapRenderer:draw) -- so DS-relative
-// edge width is now a sampling distance over the full-resolution state, not a
+// edge width is a sampling distance over the world-raster state, not a
 // block of host pixels owned by one coarse state texel.
 //
 // GBATEK ("4000330h..33Fh - EDGE_COLOR") defines the edge rule: a pixel is
