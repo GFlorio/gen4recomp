@@ -1915,6 +1915,46 @@ function T.contested_allocation_follows_physical_slot_order()
   end
 end
 
+function T.releases_expired_channel_before_the_next_physical_slot_runs()
+  local sequences = {
+    [0] = seq({
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 100 },
+    }, { id = 0, symbol = "SEQ_RELEASE", playerId = 1, channelPriority = 200 }),
+    [1] = seq({
+      { op = "wait", duration = 1 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 100 },
+    }, { id = 1, symbol = "SEQ_STEAL", playerId = 7, channelPriority = 0 }),
+  }
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local noteHandles = {}
+  local noteOn = mixer.noteOn
+  ---@diagnostic disable-next-line: duplicate-set-field
+  mixer.noteOn = function(self, noteSpec)
+    local handle = noteOn(self, noteSpec)
+    if handle ~= nil then
+      noteHandles[#noteHandles + 1] = handle
+    end
+    return handle
+  end
+  local player, provider = engine(sequences, { mixer = mixer, channelMask = 0x0010 })
+
+  player:play(provider:sequence(0), provider:bank(12))
+  player:play(provider:sequence(1), provider:bank(12))
+  player:render(250)
+  Assert.deepEqual(noteHandles[1], { channel = 4, generation = 0 })
+
+  player:render(500)
+  Assert.deepEqual(
+    noteHandles[2],
+    { channel = 4, generation = 1 },
+    "the later physical slot sees the earlier slot's released channel"
+  )
+  Assert.isFalse(mixer:isVoiceAlive(noteHandles[1]), "the old handle is stale after replacement")
+  Assert.isTrue(mixer:isVoiceAlive(noteHandles[2]), "the later slot's note remains live")
+end
+
 -- The full NNS track domain: all 16 tracks of a player run, and every note
 -- carries the semantic spec.
 function T.all_sixteen_tracks_play_in_parallel()

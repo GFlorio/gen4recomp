@@ -1594,19 +1594,16 @@ local function processSoundInterval(self)
         instance.tempoCounter = instance.tempoCounter - SND_TIMER_RATE
         stepSequenceTick(self, instance)
       end
-      instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)
+      if self._seqPlayers[seqPlayerSlot] == instance then
+        instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)
+        releaseExpiredVoices(self, instance)
+      end
     end
   end
   observe(self, "onSoundInterval", {
     ordinal = self._intervalOrdinal,
     phase = "after_sequence",
   })
-  for seqPlayerSlot = 0, PLAYER_COUNT - 1 do
-    local instance = self._seqPlayers[seqPlayerSlot]
-    if instance ~= nil and not instance.paused then
-      releaseExpiredVoices(self, instance)
-    end
-  end
   self._mixer:controlStep(self._intervalOrdinal)
   observe(self, "onSoundInterval", {
     ordinal = self._intervalOrdinal,

@@ -214,6 +214,74 @@ function T.allocation_uses_the_priority_sum_and_rejects_weak_notes()
   Assert.deepEqual(equal, { channel = 5, generation = 2 }, "priority 100 equals the victim's priority and steals")
 end
 
+function T.released_tails_are_immediately_stealable_at_priority_one()
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local old = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    channelPriority = 100,
+    trackPriority = 100,
+  })) --[[@as { channel: integer, generation: integer }]]
+  Assert.notNil(old, "the high-priority voice is allocated on channel 4")
+
+  mixer:noteOff(old)
+  local replacement = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    channelPriority = 0,
+    trackPriority = 2,
+  })) --[[@as { channel: integer, generation: integer }]]
+  Assert.deepEqual(
+    replacement,
+    { channel = 4, generation = old.generation + 1 },
+    "a released tail is demoted before the next allocation"
+  )
+  mixer:noteOff(old)
+  Assert.isTrue(mixer:isVoiceAlive(replacement), "a stale released handle cannot affect its replacement")
+end
+
+function T.admission_uses_full_priority_and_stores_the_low_u8_byte()
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local first = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    channelPriority = 200,
+    trackPriority = 100,
+  })) --[[@as { channel: integer, generation: integer }]]
+  Assert.notNil(first, "the full incoming priority admits the first voice")
+
+  local second = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    channelPriority = 50,
+    trackPriority = 0,
+  }))
+  Assert.deepEqual(
+    second,
+    { channel = 4, generation = first.generation + 1 },
+    "priority 50 steals the accepted priority-44 state"
+  )
+end
+
+function T.occupied_zero_volume_channels_join_free_candidate_ties()
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local first = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    velocity = 0,
+    channelPriority = 0,
+    trackPriority = 0,
+  }))
+  Assert.deepEqual(first, { channel = 4, generation = 0 })
+
+  local replacement = mixer:noteOn(spec({
+    channelMask = 0x0030,
+    velocity = 0,
+    channelPriority = 0,
+    trackPriority = 0,
+  }))
+  Assert.deepEqual(
+    replacement,
+    { channel = 4, generation = 1 },
+    "the occupied zero-volume channel wins the exact tie by allocation order"
+  )
+end
+
 -- Among equal priorities the SDK steals the quieter channel: the victim
 -- comparison uses the last-synced volume register
 -- (ExChannelVolumeCmp: mantissa<<4 shifted by sSampleDataShiftTable), so a

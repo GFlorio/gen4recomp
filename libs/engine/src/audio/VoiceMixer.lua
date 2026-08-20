@@ -185,11 +185,11 @@ local function volumeCmp(a, b)
   return 0
 end
 
--- SND_AllocExChannel: inside (generator range AND channelMask), the first
--- free channel in the fixed order wins; when all are occupied the victim
--- is the lowest (priority, then quieter last-synced register). An incoming
--- note below the chosen occupied channel's priority is rejected. Returns
--- the channel and the current occupant (nil when free).
+-- SND_AllocExChannel: inside (generator range AND channelMask), the victim
+-- is the lowest (priority, then quieter last-synced register), with free
+-- channels represented by priority and volume zero. An incoming note below
+-- the chosen candidate's priority is rejected. Returns the channel and the
+-- current occupant (nil when free).
 ---@param kind string
 ---@param channelMask integer
 ---@param priority integer
@@ -201,9 +201,7 @@ local function allocateChannel(self, kind, channelMask, priority)
     local candidateBit = bit.lshift(1, candidate)
     if bit.band(allowed, candidateBit) ~= 0 then
       local voice = self._channels[candidate]
-      if voice == nil then
-        return candidate, nil
-      elseif chosenChannel == nil then
+      if chosenChannel == nil then
         chosenChannel = candidate
         chosenVoice = voice
       else
@@ -222,7 +220,8 @@ local function allocateChannel(self, kind, channelMask, priority)
   if chosenChannel == nil then
     return nil
   end
-  if chosenVoice ~= nil and priority < chosenVoice.priority then
+  local chosenPriority = chosenVoice and chosenVoice.priority or 0
+  if priority < chosenPriority then
     return nil
   end
   return chosenChannel, chosenVoice
@@ -592,7 +591,7 @@ function VoiceMixer:noteOn(spec)
   end
   local voice = newVoice(spec)
   voice._outputRate = self._outputRate
-  voice.priority = priority
+  voice.priority = priority % 256
   -- The generation is the channel's persistent counter, not the victim's:
   -- a channel freed by a natural death keeps its count so a stale handle
   -- can never alias a later allocation of the same channel.
@@ -627,6 +626,7 @@ function VoiceMixer:noteOff(handle, releaseOverride)
   if voice == nil or voice.generation ~= handle.generation or voice.released then
     return
   end
+  voice.priority = 1
   if releaseOverride ~= nil then
     voice.envRelease = NnsSoundMath.decayCoefficient(releaseOverride)
   end
