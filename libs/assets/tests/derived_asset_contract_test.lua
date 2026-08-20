@@ -69,10 +69,10 @@ function T.contract_pins_the_current_asset_identities()
     },
     audio = {
       cacheFormat = "g4-audio-cache-v1",
-      -- v4 removed the redundant per-record index file paths; every path
-      -- derives from the numeric id.
+      -- The sequence vocabulary is a strict current contract; deleted
+      -- operations invalidate earlier sequence assets.
       indexSchema = "g4-audio-index-v5",
-      sequenceSchema = "g4-audio-sequence-v7",
+      sequenceSchema = "g4-audio-sequence-v8",
       bankSchema = "g4-audio-bank-v4",
       sampleSchema = "g4-audio-sample-v4",
       provenanceSchema = "g4-audio-provenance-v1",

@@ -5,7 +5,7 @@
 --   * Allocation is SND_AllocExChannel: the fixed order
 --     {4,5,6,7,2,0,3,1,8,9,10,11,14,12,15,13} inside (generator range AND
 --     channelMask); the victim is the lowest effective priority
---     (playerPriority + trackPriority, one sum) and among equals the
+--     (channelPriority + trackPriority, one sum) and among equals the
 --     quieter last-synced volume register; an incoming note below the
 --     victim's priority is rejected; a stolen channel revokes the previous
 --     voice handle so a later noteOff cannot kill the replacement.
@@ -85,7 +85,7 @@ end
 
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
 -- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
--- channelMask, trackPriority, playerPriority, and the optional channel-side
+-- channelMask, trackPriority, channelPriority, and the optional channel-side
 -- controls (userPitch 0, trackPanOffset 0, panRange 127, fader 0,
 -- sweepPitch 0, sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/
 -- 2=pan, depth 0, range 1, speed 16, delay 0}). Sample voices carry no
@@ -108,7 +108,6 @@ local function spec(overrides)
     pan = 64,
     channelMask = 0xFFFF,
     trackPriority = 64,
-    playerPriority = 64,
     channelPriority = 64,
   }
   for key, value in pairs(overrides or {}) do
@@ -186,32 +185,32 @@ function T.allocation_follows_the_sdk_channel_order_and_generator_masks()
   )
 end
 
--- Effective priority is the single sum playerPriority + trackPriority
+-- Effective priority is the single sum channelPriority + trackPriority
 -- (TrackPlayNote); the victim is the occupied channel with the lowest sum
--- (not the lowest player priority), an incoming note below the victim's
+-- (not a separate SeqPlayer priority), an incoming note below the victim's
 -- priority is rejected (SND_AllocExChannel), and an equal priority passes.
 -- The contested notes carry a mask covering only the already-occupied
 -- channels so the victim selection is observable (a free channel is always
 -- the lowest-priority candidate and would win instead).
 function T.allocation_uses_the_priority_sum_and_rejects_weak_notes()
   local mixer = newMixer()
-  local v1 = mixer:noteOn(spec({ playerPriority = 10, trackPriority = 100 }))
-  local v2 = mixer:noteOn(spec({ playerPriority = 50, trackPriority = 40 }))
-  local v3 = mixer:noteOn(spec({ playerPriority = 60, trackPriority = 60 }))
+  local v1 = mixer:noteOn(spec({ channelPriority = 10, trackPriority = 100 }))
+  local v2 = mixer:noteOn(spec({ channelPriority = 50, trackPriority = 40 }))
+  local v3 = mixer:noteOn(spec({ channelPriority = 60, trackPriority = 60 }))
   Assert.deepEqual(v1, { channel = 4, generation = 0 }, "the first voice is at channel 4")
   Assert.deepEqual(v2, { channel = 5, generation = 0 }, "the second voice is at channel 5")
   Assert.deepEqual(v3, { channel = 6, generation = 0 }, "the third voice is at channel 6")
-  local stolen = mixer:noteOn(spec({ playerPriority = 20, trackPriority = 80, channelMask = 0x0030 }))
+  local stolen = mixer:noteOn(spec({ channelPriority = 20, trackPriority = 80, channelMask = 0x0030 }))
   Assert.deepEqual(
     stolen,
     { channel = 5, generation = 1 },
-    "priority 100 steals the lowest sum 90 voice on channel 5, not the lexicographic lowest player priority on channel 4"
+    "priority 100 steals the lowest sum 90 voice on channel 5, not channel 4"
   )
   Assert.isNil(
-    mixer:noteOn(spec({ playerPriority = 5, trackPriority = 5, channelMask = 0x0030 })),
+    mixer:noteOn(spec({ channelPriority = 5, trackPriority = 5, channelMask = 0x0030 })),
     "priority 10 is below the occupied channel's priority and is rejected"
   )
-  local equal = mixer:noteOn(spec({ playerPriority = 1, trackPriority = 80, channelMask = 0x0030 }))
+  local equal = mixer:noteOn(spec({ channelPriority = 20, trackPriority = 80, channelMask = 0x0030 }))
   Assert.deepEqual(equal, { channel = 5, generation = 2 }, "priority 100 equals the victim's priority and steals")
 end
 
@@ -248,7 +247,7 @@ function T.stolen_channels_revoke_the_previous_voice_handle()
   local pcmA = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
   local pcmB = { 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 }
   local old = mixer:noteOn(spec({ pcm = pcmA, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
-  local replacement = mixer:noteOn(spec({ pcm = pcmB, pan = 0, playerPriority = 80, channelMask = 0x0010 })) --[[@as { channel: integer, generation: integer }]]
+  local replacement = mixer:noteOn(spec({ pcm = pcmB, pan = 0, channelPriority = 80, channelMask = 0x0010 })) --[[@as { channel: integer, generation: integer }]]
   Assert.deepEqual(
     replacement,
     { channel = old.channel, generation = old.generation + 1 },
@@ -664,15 +663,6 @@ function T.retargeted_tied_voices_apply_the_full_common_tail_at_the_next_control
   Assert.equal(leftAt(second, 251), 664, "attack step 4 continues from the retargeted voice")
   Assert.equal(leftAt(second, 750), 1040, "the attack continues toward the sustain register")
   Assert.isTrue(envMixer:isVoiceAlive(envHandle), "the key-retargeted voice stays alive")
-end
-
-function T.channel_locks_exclude_strong_and_weak_channels_from_allocation()
-  local mixer = newMixer()
-  mixer:setChannelLocks({ strongMask = 0x0010, weakMask = 0x0020 })
-  local strongExcluded = mixer:noteOn(spec({ channelMask = 0x0030 }))
-  Assert.deepEqual(strongExcluded, { channel = 5, generation = 0 }, "a strong lock excludes channel 4")
-  local weakExcluded = mixer:noteOn(spec({ channelMask = 0x0030 }))
-  Assert.isNil(weakExcluded, "a weak lock excludes the remaining candidate")
 end
 
 return { tests = T }

@@ -70,7 +70,7 @@ end
 
 function T.sequence_with_wrong_schema_is_not_ready()
   local bundle = AudioFixture.bundle()
-  bundle.sequences[0].schema = "g4-audio-sequence-v9"
+  bundle.sequences[0].schema = "g4-audio-sequence-v7"
   local cache = AudioFixture.readyCache(bundle)
   Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "indexed sequence must carry the expected schema")
 end

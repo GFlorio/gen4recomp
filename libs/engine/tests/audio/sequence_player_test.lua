@@ -812,14 +812,14 @@ function T.the_inner_volume_starts_full_independently_of_initial_volume()
     }, { mixer = mixer })
     play(player, provider)
     player:render(100)
-    return mixer.log.noteOns[1].sequenceVolume, mixer.log.noteOns[1].outerPlayerVolume
+    return mixer.log.noteOns[1].sequenceVolume, mixer.log.noteOns[1].fader
   end
-  local inner, outer = sequenceVolume(127)
+  local inner, outerFader = sequenceVolume(127)
   Assert.equal(inner, 127)
-  Assert.equal(outer, 127)
-  inner, outer = sequenceVolume(64)
+  Assert.equal(outerFader, NnsSoundMath.decibel(127))
+  inner, outerFader = sequenceVolume(64)
   Assert.equal(inner, 127)
-  Assert.equal(outer, 64)
+  Assert.equal(outerFader, NnsSoundMath.decibel(64))
 end
 
 -- The default fixture player has maxSequences=1, so this test pins the
@@ -1586,7 +1586,7 @@ function T.tied_envelope_override_sentinel_does_not_write_a_coefficient()
 end
 
 -- The voice spec is the semantic mixer contract: trackVolume + playerVolume
--- (never folded), trackPriority + playerPriority, the raw trackPanOffset,
+-- (never folded), physical channel priority + track priority, the raw trackPanOffset,
 -- the instrument pan, the clamped transposed key, the TrackInit defaults
 -- (bend 0 -> userPitch 0), the TrackPlayNote sweep fields, the
 -- TrackUpdateChannel lfo snapshot, and a {channel, generation} handle
@@ -1617,13 +1617,13 @@ function T.note_spec_carries_the_semantic_mixer_contract()
   Assert.equal(spec.trackVolume, 127, "the track volume passes through unfettered")
   Assert.equal(spec.expression, 127)
   Assert.equal(spec.sequenceVolume, 127, "the inner sequence volume starts at 127")
-  Assert.equal(spec.outerPlayerVolume, 100, "the SDAT volume remains outer state")
+  Assert.isNil(spec.outerPlayerVolume, "outer player volume remains player-owned state")
   Assert.deepEqual(spec.envelope, { attack = 127, decay = 0, sustain = 127, release = 127 })
   Assert.equal(spec.pan, 0, "the spec carries the instrument pan, not a folded track pan")
   Assert.equal(spec.trackPanOffset, 0, "the raw track pan offset defaults to 0")
   Assert.equal(spec.channelMask, 0xFFFF)
   Assert.equal(spec.trackPriority, 64, "the track priority starts from TrackInit")
-  Assert.equal(spec.playerPriority, 16)
+  Assert.isNil(spec.playerPriority, "SeqPlayer priority does not cross into the mixer")
   Assert.isNil(spec.volume, "the old folded volume field is gone")
   Assert.equal(spec.channelPriority, 37)
   Assert.isNil(spec.bend, "bend is userPitch; the mixer spec has no bend field")
@@ -1643,8 +1643,7 @@ function T.note_spec_carries_the_semantic_mixer_contract()
 end
 
 -- The 0xC6 priority command changes the TRACK priority (SDK TrackInit
--- default 64); the note priority is playerPriority + trackPriority, so the
--- priority command never reaches the player record's fields.
+-- default 64); physical channel priority remains separate SeqPlayer state.
 function T.priority_is_track_state_defaulting_to_64()
   local mixer = stubMixer()
   local player, provider = engine({
@@ -1659,7 +1658,7 @@ function T.priority_is_track_state_defaulting_to_64()
   play(player, provider)
   player:render(100)
   Assert.equal(mixer.log.noteOns[1].trackPriority, 64, "a fresh track starts at TrackInit priority")
-  Assert.equal(mixer.log.noteOns[1].playerPriority, 16, "the player priority is untouched by the command")
+  Assert.isNil(mixer.log.noteOns[1].playerPriority, "the player priority stays at the SeqPlayer boundary")
   Assert.equal(mixer.log.noteOns[2].trackPriority, 12, "the priority command changes the track priority")
 end
 
@@ -2793,7 +2792,7 @@ function T.master_volume_and_outer_fader_remain_independent()
   play(player, provider)
   player:render(250)
   Assert.equal(mixer.log.noteOns[1].sequenceVolume, 127)
-  Assert.equal(mixer.log.noteOns[1].outerPlayerVolume, 80)
+  Assert.isNil(mixer.log.noteOns[1].outerPlayerVolume, "outer volume stays player-owned")
   local master
   for _, update in ipairs(mixer.log.updates) do
     if update.partial.sequenceVolume == 40 then
@@ -2801,11 +2800,11 @@ function T.master_volume_and_outer_fader_remain_independent()
     end
   end
   Assert.notNil(master, "the SSEQ master-volume command reaches the inner volume domain")
-  Assert.equal(master.outerPlayerVolume, 80)
+  Assert.isNil(master.outerPlayerVolume, "outer volume is not sent with inner volume updates")
   player:setFader(1, 0)
   local fade = mixer.log.updates[#mixer.log.updates].partial
   Assert.equal(fade.sequenceVolume, 40)
-  Assert.equal(fade.outerPlayerVolume, 80)
+  Assert.isNil(fade.outerPlayerVolume, "outer volume is not sent with fader updates")
   Assert.equal(fade.fader, -40 + -32768, "outer initial volume and fader remain additive ARM9 contributions")
 end
 

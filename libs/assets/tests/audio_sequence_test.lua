@@ -61,6 +61,10 @@ function T.rejects_unknown_and_deleted_operations()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
+  sequence.program.instructions[2] = { op = "channel_mask", amount = 0xFFFF }
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
   -- Comparison operations are part of the normalized semantic vocabulary;
   -- unrelated operation names remain closed and invalid.
   sequence.program.instructions[2] = { op = "cmp_eq", var = 0, amount = 42 }

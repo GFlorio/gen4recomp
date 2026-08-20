@@ -66,8 +66,6 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _outputRate integer
 ---@field private _channels table<integer, table>
 ---@field private _channelGeneration table<integer, integer>
----@field private _strongLockMask integer
----@field private _weakLockMask integer
 ---@field new fun(opts: { sampleRate: integer, observer: table? }): VoiceMixer
 ---@field noteOn fun(self: VoiceMixer, spec: table): { channel: integer, generation: integer } | nil
 ---@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, releaseOverride: integer?)
@@ -197,19 +195,17 @@ end
 ---@return integer?, table?
 local function allocateChannel(self, kind, channelMask, priority)
   local allowed = bit.band(GENERATOR_MASK[kind], channelMask)
-  local freeAllowed = bit.band(allowed, bit.bnot(self._strongLockMask))
-  local stealAllowed = bit.band(allowed, bit.bnot(bit.bor(self._strongLockMask, self._weakLockMask)))
   local chosenChannel, chosenVoice
   for _, candidate in ipairs(ALLOCATION_ORDER) do
     local candidateBit = bit.lshift(1, candidate)
     if bit.band(allowed, candidateBit) ~= 0 then
       local voice = self._channels[candidate]
-      if voice == nil and bit.band(freeAllowed, candidateBit) ~= 0 then
+      if voice == nil then
         return candidate, nil
-      elseif voice ~= nil and bit.band(stealAllowed, candidateBit) ~= 0 and chosenChannel == nil then
+      elseif chosenChannel == nil then
         chosenChannel = candidate
         chosenVoice = voice
-      elseif voice ~= nil and bit.band(stealAllowed, candidateBit) ~= 0 then
+      else
         local voicePriority = voice and voice.priority or 0
         local chosenPriority = chosenVoice and chosenVoice.priority or 0
         if
@@ -562,18 +558,7 @@ function VoiceMixer.new(opts)
     -- generation while an old handle may still exist (doubles hold the
     -- count exactly; no wrap is needed).
     _channelGeneration = {},
-    _strongLockMask = 0,
-    _weakLockMask = 0,
   }, VoiceMixer)
-end
-
----@param locks { strongMask: integer, weakMask: integer }
-function VoiceMixer:setChannelLocks(locks)
-  assert(locks and locks.strongMask ~= nil and locks.weakMask ~= nil, "channel locks require both masks")
-  assert(locks.strongMask >= 0 and locks.strongMask <= 0xFFFF and locks.strongMask % 1 == 0)
-  assert(locks.weakMask >= 0 and locks.weakMask <= 0xFFFF and locks.weakMask % 1 == 0)
-  self._strongLockMask = locks.strongMask
-  self._weakLockMask = bit.band(locks.weakMask, bit.bnot(locks.strongMask))
 end
 
 -- Starts a voice for `spec` (the NNS spec: trackVolume/trackPriority,

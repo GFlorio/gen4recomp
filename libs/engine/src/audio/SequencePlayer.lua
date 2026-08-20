@@ -2,7 +2,7 @@
 -- sequences, tracks, program counters, track wait counters, calls, loops,
 -- tempo, player variables, and track parameters, and drives a
 -- VoiceMixer with the semantic voice spec ({channel, generation} handles,
--- trackVolume/sequenceVolume/outerPlayerVolume never folded, raw track pan offset, the clamped
+-- trackVolume/sequenceVolume never folded, raw track pan offset, the clamped
 -- transposed midiKey, the TrackInit userPitch 0, and the TrackPlayNote
 -- sweep/LFO fields). It interprets project instruction IR, never SSEQ. The
 -- tick clock is the NNS relationship verified from GBATEK ("DS Sound Files
@@ -581,13 +581,11 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   spec.trackVolume = clamp(track.volume, 0, 127)
   spec.expression = clamp(track.expression, 0, 127)
   spec.sequenceVolume = clamp(instance.sequenceVolume, 0, 127)
-  spec.outerPlayerVolume = instance.outerPlayerVolume
   spec.fader = NnsSoundMath.decibel(instance.outerPlayerVolume) + instance.outerFaderDb
   spec.envelope = envelope
   spec.pan = voice.pan
   spec.trackPanOffset = track.pan
   spec.trackPriority = track.priority
-  spec.playerPriority = sequence.player.playerPriority
   spec.channelPriority = channelPriorityFor(sequence)
   spec.channelMask = instance.channelMask
   spec.channelMask = bit.band(spec.channelMask, track.channelMask)
@@ -644,7 +642,6 @@ local function pushTrackValues(self, instance, track)
     trackVolume = clamp(track.volume, 0, 127),
     expression = clamp(track.expression, 0, 127),
     sequenceVolume = clamp(instance.sequenceVolume, 0, 127),
-    outerPlayerVolume = instance.outerPlayerVolume,
     trackPanOffset = track.pan,
     userPitch = userPitchFor(track),
     lfo = track.mod,
@@ -907,8 +904,6 @@ local function execute(self, instance, track, instruction)
     track.noteWait = toU8(resolveAmount(self, instruction.amount, instance)) ~= 0
   elseif op == "priority" then
     track.priority = toU8(resolveAmount(self, instruction.amount, instance))
-  elseif op == "channel_mask" then
-    track.channelMask = bit.band(track.channelMask, toU16(resolveAmount(self, instruction.amount, instance)))
   elseif op == "tie" then
     -- 0xC8: the tie command always releases and frees the track's current
     -- voices, even when the new flag equals the previous flag (SND_seq.c:

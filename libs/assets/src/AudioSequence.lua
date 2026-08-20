@@ -57,7 +57,6 @@ local OPS = {
   pitch_bend = { "amount" },
   pitch_bend_range = { "amount" },
   priority = { "amount" },
-  channel_mask = { "amount" },
   note_wait = { "amount" },
   tie = { "amount" },
   portamento_key = { "amount" },
