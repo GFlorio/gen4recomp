@@ -8,6 +8,8 @@
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
 local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
+local AudioBank = require("libs.assets.src.AudioBank")
+local AudioSequence = require("libs.assets.src.AudioSequence")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
 local CryPlayer = require("libs.engine.src.audio.CryPlayer")
@@ -70,6 +72,28 @@ local function newCryPlayer()
     provider = provider,
   })
   return CryPlayer.new({ player = player }), player
+end
+
+function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
+  local capturedSequence
+  local capturedBank
+  local player = {
+    play = function(_, sequence, bank)
+      capturedSequence = sequence
+      capturedBank = bank
+    end,
+    isPlayerPlaying = function()
+      return false
+    end,
+  }
+  local cry = CryPlayer.new({ player = player })
+
+  cry:play(25, 0)
+
+  Assert.isTrue(AudioSequence.validate(capturedSequence))
+  Assert.isTrue(AudioBank.validate(capturedBank))
+  Assert.equal(0x0001, capturedSequence.program.initialTrackMask)
+  Assert.equal(64, capturedSequence.player.channelPriority)
 end
 
 function T.play_starts_the_cry_slot_and_finishes_when_the_sequence_ends()

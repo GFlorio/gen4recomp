@@ -63,6 +63,7 @@ local function standinSequence(species)
     },
     program = {
       entry = 1,
+      initialTrackMask = 0x0001,
       instructions = {
         { op = "program", program = 0 },
         { op = "note", key = key, velocity = 127, duration = 3 },

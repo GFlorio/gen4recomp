@@ -323,14 +323,6 @@ local function newVariableDomain()
   return vars
 end
 
--- Generated sequences always carry channelPriority. The cry stand-in is an
--- engine-owned sequence outside that generated contract, so its omitted value
--- has the neutral physical-channel priority rather than borrowing the player
--- allocation priority.
-local function channelPriorityFor(sequence)
-  return sequence.player.channelPriority or 0
-end
-
 local function newTrack(slot)
   return {
     slot = slot,
@@ -586,7 +578,7 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   spec.pan = voice.pan
   spec.trackPanOffset = track.pan
   spec.trackPriority = track.priority
-  spec.channelPriority = channelPriorityFor(sequence)
+  spec.channelPriority = sequence.player.channelPriority
   spec.channelMask = instance.channelMask
   spec.channelMask = bit.band(spec.channelMask, track.channelMask)
   spec.ownerPlayerId = instance.logicalPlayerId
@@ -617,8 +609,8 @@ local function observeNote(self, instance, track, key, velocity, length)
     key = key,
     velocity = velocity,
     length = length,
-    effectiveChannelPriority = channelPriorityFor(instance.sequence) + track.priority,
-    channelPriority = channelPriorityFor(instance.sequence),
+    effectiveChannelPriority = instance.sequence.player.channelPriority + track.priority,
+    channelPriority = instance.sequence.player.channelPriority,
     sequenceVolume = instance.sequenceVolume,
     outerPlayerVolume = instance.outerPlayerVolume,
     outerFaderDb = instance.outerFaderDb,
@@ -1244,9 +1236,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   end
   local logicalPlayerId = sequence.player.id
   assert(logicalPlayerId >= 0 and logicalPlayerId < LOGICAL_PLAYER_COUNT, "logical player id must be in 0..31")
-  -- CryPlayer supplies an engine-owned sequence outside the generated asset
-  -- contract; its omitted reservation mask has the source default track 0.
-  local initialTrackMask = sequence.program.initialTrackMask or 0x0001
+  local initialTrackMask = sequence.program.initialTrackMask
   local playerRecord = self._provider:player(logicalPlayerId)
   local channelMask = playerRecord.channelMask == 0 and 0xFFFF or playerRecord.channelMask
   local logicalPlayer = self._logicalPlayers[logicalPlayerId]
