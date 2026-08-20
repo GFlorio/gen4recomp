@@ -91,15 +91,6 @@ function AudioTrace:onChannelState(event)
   self.channelStates[#self.channelStates + 1] = copyTable(event)
 end
 
--- Compatibility aliases for alternative naming used by the spec draft.
-function AudioTrace:onTrackEvent(event)
-  return self:onTrackStep(event)
-end
-
-function AudioTrace:onChannelEvent(event)
-  return self:onChannelState(event)
-end
-
 function AudioTrace:normalized()
   local out = AudioTrace.new()
   out.intervals = sortedIntervals(self.intervals)

@@ -128,7 +128,6 @@ function T.corpus_census_classifies_every_reachable_construct()
     local playerPriorities = {}
     local channelPriorities = {}
     local initialVolumes = {}
-    local players = {}
     local channelMaskZero = 0
     local channelMaskNonZero = 0
     local opcodeSeen = {}
@@ -143,6 +142,7 @@ function T.corpus_census_classifies_every_reachable_construct()
         sdatSequences = sdatSequences + 1
         sequenceCount = sequenceCount + 1
         playerIds[record.playerId] = true
+        Assert.isTrue(record.playerId >= 0 and record.playerId < 32, "sequence player IDs must use 0..31")
         playerPriorities[record.playerPriority] = true
         channelPriorities[record.channelPriority] = true
         initialVolumes[record.volume] = true
@@ -151,13 +151,23 @@ function T.corpus_census_classifies_every_reachable_construct()
         local seq = assert(Sseq.open(bytes, "sequence " .. id))
         local commands, mask = censusSequence(bytes, seq.dataOffset)
 
-        -- Track allocation census.
-        local trackCount = 1
-        if mask ~= nil then
-          for track = 1, 15 do
-            if math.floor(mask / 2 ^ track) % 2 == 1 then
-              trackCount = trackCount + 1
-            end
+        local compiled = assert(bundle.sequences[id], "compiled sequence " .. id .. " is missing")
+        local semanticMask = compiled.program.initialTrackMask
+        Assert.isTrue(
+          type(semanticMask) == "number" and semanticMask >= 1 and semanticMask <= 0xFFFF,
+          "sequence " .. id .. " must carry a semantic u16 reservation mask"
+        )
+        Assert.equal(semanticMask % 2, 1, "track 0 is always reserved")
+        if mask == nil then
+          Assert.equal(semanticMask, 1, "a sequence without FE reserves only track 0")
+        else
+          Assert.equal(semanticMask, mask, "compiled reservation mask preserves the FE track set")
+        end
+
+        local trackCount = 0
+        for track = 0, 15 do
+          if math.floor(semanticMask / 2 ^ track) % 2 == 1 then
+            trackCount = trackCount + 1
           end
         end
         if trackCount > maxTracksPerSequence then
@@ -179,7 +189,7 @@ function T.corpus_census_classifies_every_reachable_construct()
     for id = 0, sdat.counts.players - 1 do
       local record = sdat.players[id]
       if record ~= nil then
-        players[id] = record
+        Assert.isTrue(id >= 0 and id < 32, "SDAT player IDs must use the logical 0..31 domain")
         if record.channelMask == 0 then
           channelMaskZero = channelMaskZero + 1
         else
@@ -199,6 +209,7 @@ function T.corpus_census_classifies_every_reachable_construct()
     local directPcmLocations = {}
 
     local function countBankType(inst, location)
+      bankTypes[inst.type] = (bankTypes[inst.type] or 0) + 1
       if inst.type == Sbnk.TYPE_DIRECTPCM then
         directPcmCount = directPcmCount + 1
         if #directPcmLocations < 5 then
@@ -219,29 +230,13 @@ function T.corpus_census_classifies_every_reachable_construct()
       if record ~= nil and record.fileId ~= nil then
         sdatBanks = sdatBanks + 1
         local bytes = assert(sdat:readFile(record.fileId))
-        local instrumentCount = string.byte(bytes, 0x39)
-          + string.byte(bytes, 0x3A) * 256
-          + string.byte(bytes, 0x3B) * 65536
-          + string.byte(bytes, 0x3C) * 16777216
-        for program = 0, instrumentCount - 1 do
-          local typeOffset = 0x3D + program * 4
-          local instrumentType = string.byte(bytes, typeOffset)
-          if instrumentType == 4 or instrumentType == 5 then
-            bankTypes[instrumentType] = (bankTypes[instrumentType] or 0) + 1
-          end
-        end
         local ir, err = Sbnk.decode(bytes, "SBNK " .. id)
         if ir == nil then
           local expectedUnsupported = err ~= nil and (err.context.type == 4 or err.context.type == 5)
           Assert.isTrue(expectedUnsupported, "SBNK decode failed for bank " .. id .. ": " .. Errors.format(err))
         else
-          for _, inst in pairs(ir.instruments) do
-            bankTypes[inst.type] = (bankTypes[inst.type] or 0) + 1
-          end
-        end
-        if ir ~= nil then
-          for _, inst in pairs(ir.instruments) do
-            countBankType(inst, string.format("bank %d program %s", id, tostring(_)))
+          for program, inst in pairs(ir.instruments) do
+            countBankType(inst, string.format("bank %d program %s", id, tostring(program)))
             local function checkParam(param, where)
               if param and param.release == 0xFF then
                 releaseFF = releaseFF + 1
@@ -351,6 +346,16 @@ function T.corpus_census_classifies_every_reachable_construct()
 
     -- Bank type classification: require that supported types are counted.
     Assert.isTrue(next(bankTypes) ~= nil, "census: SBNK instrument types counted")
+    Assert.equal(
+      bankTypes[Sbnk.TYPE_DIRECTPCM] or 0,
+      directPcmCount,
+      "census: DIRECTPCM is counted separately from supported bank types"
+    )
+    Assert.equal(
+      bankTypes[Sbnk.TYPE_DUMMY] or 0,
+      dummyCount,
+      "census: DUMMY is counted separately and remains a silent selectable leaf"
+    )
 
     Assert.equal(
       directPcmCount,

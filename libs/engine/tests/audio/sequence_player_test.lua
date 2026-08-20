@@ -748,7 +748,10 @@ function T.the_inner_volume_starts_full_independently_of_initial_volume()
   Assert.equal(outer, 64)
 end
 
-function T.playing_on_the_same_player_replaces_the_sequence()
+-- The default fixture player has maxSequences=1, so this test pins the
+-- capacity-one eviction rule. Separate tests cover overlap when capacity is
+-- greater than one.
+function T.capacity_one_replaces_the_existing_sequence()
   local mixer = stubMixer()
   local first =
     { { op = "program", program = 0 }, { op = "note", key = 60, velocity = 127, duration = 2 }, { op = "end" } }

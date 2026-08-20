@@ -198,6 +198,31 @@ function T.tests.a_scripted_play_sound_overlaps_the_map_bgm()
   end)
 end
 
+-- The map-header composition must remain alive through a sustained production
+-- window after its accompaniment has had time to open and execute. This is
+-- intentionally driven by semantic runtime steps rather than a fixed short
+-- render probe: a late reservation/lifecycle regression can pass the first
+-- audible chunk while losing the map music afterward.
+function T.tests.new_bark_music_survives_a_sustained_production_window()
+  withProductionAudio(TOWN, day, function(game, fake)
+    local audio = requireAudio(game)
+    local wakaba = musicId(game, NEW_BARK_MUSIC)
+    Assert.equal(audio:currentMusic(), wakaba, "New Bark must start its map-header music")
+
+    game:advanceUntil("New Bark music becomes audible", function()
+      return fake:anyNonSilent()
+    end, 120)
+
+    for _ = 1, 600 do
+      game:step()
+    end
+
+    Assert.equal(audio:currentMusic(), wakaba, "the sustained New Bark run must retain its music identity")
+    Assert.isTrue(audio:isEffectPlaying(NEW_BARK_MUSIC), "the sustained New Bark run must retain active music")
+    Assert.isTrue(fake:anyNonSilent(), "the sustained New Bark run must remain audible")
+  end)
+end
+
 -- An effect started through the production service stays playing until
 -- the engine player finishes it (the poll the WaitSE task blocks on) while
 -- the map BGM continues underneath.
