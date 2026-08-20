@@ -65,10 +65,8 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field colorDepth love.Canvas?
 ---@field renderState love.Canvas?
 ---@field stateDepth love.Canvas?
----@field _pingColorA love.Canvas?
----@field _pingColorB love.Canvas?
----@field _pingStateA love.Canvas?
----@field _pingStateB love.Canvas?
+---@field _spareColor love.Canvas?
+---@field _spareState love.Canvas?
 ---@field _sourceColor love.Canvas?
 ---@field _sourceMeta love.Canvas?
 ---@field colorW integer?
@@ -77,8 +75,8 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field stateH integer?
 ---@field _colorTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _stateTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
----@field _pingTargets { colorA: love.Canvas, colorB: love.Canvas, stateA: love.Canvas, stateB: love.Canvas }
----@field _sourceTargets { [1]: love.Canvas, [2]: love.Canvas }?
+---@field _sourceColorTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
+---@field _sourceMetaTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
@@ -259,17 +257,11 @@ function MapRenderer:_releaseTargets()
   if self.stateDepth then
     self.stateDepth:release()
   end
-  if self._pingColorA then
-    self._pingColorA:release()
+  if self._spareColor then
+    self._spareColor:release()
   end
-  if self._pingColorB then
-    self._pingColorB:release()
-  end
-  if self._pingStateA then
-    self._pingStateA:release()
-  end
-  if self._pingStateB then
-    self._pingStateB:release()
+  if self._spareState then
+    self._spareState:release()
   end
   if self._sourceColor then
     self._sourceColor:release()
@@ -278,13 +270,13 @@ function MapRenderer:_releaseTargets()
     self._sourceMeta:release()
   end
   self.sceneColor, self.colorDepth, self.renderState, self.stateDepth = nil, nil, nil, nil
-  self._pingColorA, self._pingColorB, self._pingStateA, self._pingStateB = nil, nil, nil, nil
+  self._spareColor, self._spareState = nil, nil
   self._sourceColor, self._sourceMeta = nil, nil
   self.colorW, self.colorH, self.stateW, self.stateH = nil, nil, nil, nil
   self._colorTargets = nil
   self._stateTargets = nil
-  self._pingTargets = nil
-  self._sourceTargets = nil
+  self._sourceColorTargets = nil
+  self._sourceMetaTargets = nil
 end
 
 local function sendStateUniforms(shader, renderState, stateW, stateH)
@@ -292,14 +284,10 @@ local function sendStateUniforms(shader, renderState, stateW, stateH)
   shader:send("u_stateSize", { stateW, stateH })
 end
 
--- Recreate every render target at new dimensions. All canvases are
--- allocated and configured into local staged variables before anything
--- published is touched: on any failure, only the staged canvases are
--- released, the edge shader's renderState/stateSize uniforms are restored to
--- the still-live previous values if a partial send had already changed them,
--- and the previously published target set and its recorded dimensions are
--- left completely untouched. Only once every staged resource is valid does
--- the previous set get released (exactly once) and the staged set published.
+-- Recreate every render target at new dimensions. All canvases are allocated
+-- and configured into local staged variables before anything published is
+-- touched. A failure releases only that incomplete generation and leaves the
+-- previous target set and its recorded dimensions untouched.
 function MapRenderer:_ensureTargets(colorW, colorH)
   if
     self.sceneColor
@@ -311,9 +299,9 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     return
   end
   local lg = assert(self._graphics)
-  local sceneColor, colorDepth, renderState, stateDepth, colorTargets, stateTargets
-  local pingColorA, pingColorB, pingStateA, pingStateB
-  local sourceColor, sourceMeta
+  local sceneColor, colorDepth, renderState, stateDepth
+  local spareColor, spareState, sourceColor, sourceMeta
+  local colorTargets, stateTargets, sourceColorTargets, sourceMetaTargets
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(colorW, colorH)
     -- Nearest sampling keeps the final composite draw (a 1:1 blit at
@@ -336,22 +324,13 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     stateDepth = lg.newCanvas(colorW, colorH, { format = "depth24stencil8", readable = false })
     stateTargets = { renderState, depthstencil = stateDepth }
 
-    sendStateUniforms(self.edgeShader, renderState, colorW, colorH)
-
-    -- The translucent compositor's ping-pong destination pair: two full-res
-    -- color canvases and two full-res state canvases. One pair is the active
-    -- destination (read by the source pass's same-ID rejection and the
-    -- composite pass), the other receives the composite output, then they
-    -- swap. The color halves are rgba8 (the final composite quantizes to
-    -- RGB6/alpha5); the state halves are rgba32f for the exact 24-bit depth.
-    pingColorA = lg.newCanvas(colorW, colorH)
-    pingColorA:setFilter("nearest", "nearest")
-    pingColorB = lg.newCanvas(colorW, colorH)
-    pingColorB:setFilter("nearest", "nearest")
-    pingStateA = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
-    pingStateA:setFilter("nearest", "nearest")
-    pingStateB = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
-    pingStateB:setFilter("nearest", "nearest")
+    -- The compositor's single spare destination pair alternates with the
+    -- published active pair. The color halves are rgba8 (the final composite
+    -- quantizes to RGB6/alpha5); the state halves are rgba32f for exact depth.
+    spareColor = lg.newCanvas(colorW, colorH)
+    spareColor:setFilter("nearest", "nearest")
+    spareState = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
+    spareState:setFilter("nearest", "nearest")
 
     -- The source-fragment buffers: one item's accepted partial-alpha
     -- fragments land here (sourceColor rgba8, sourceMeta rgba32f carrying the
@@ -360,58 +339,35 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     sourceColor:setFilter("nearest", "nearest")
     sourceMeta = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
     sourceMeta:setFilter("nearest", "nearest")
+    sourceColorTargets = { sourceColor, depthstencil = colorDepth }
+    sourceMetaTargets = { sourceMeta, depthstencil = colorDepth }
   end)
   if not ok then
-    if self.renderState then
-      pcall(sendStateUniforms, self.edgeShader, self.renderState, self.stateW, self.stateH)
-    end
-    if sceneColor then
-      sceneColor:release()
-    end
-    if colorDepth then
-      colorDepth:release()
-    end
-    if renderState then
-      renderState:release()
-    end
-    if stateDepth then
-      stateDepth:release()
-    end
-    if pingColorA then
-      pingColorA:release()
-    end
-    if pingColorB then
-      pingColorB:release()
-    end
-    if pingStateA then
-      pingStateA:release()
-    end
-    if pingStateB then
-      pingStateB:release()
-    end
-    if sourceColor then
-      sourceColor:release()
-    end
-    if sourceMeta then
-      sourceMeta:release()
+    for _, canvas in ipairs({
+      sceneColor,
+      colorDepth,
+      renderState,
+      stateDepth,
+      spareColor,
+      spareState,
+      sourceColor,
+      sourceMeta,
+    }) do
+      if canvas then
+        pcall(canvas.release, canvas)
+      end
     end
     error(err)
   end
   self:_releaseTargets()
   self.sceneColor, self.colorDepth, self.renderState, self.stateDepth = sceneColor, colorDepth, renderState, stateDepth
-  self._pingColorA, self._pingColorB = pingColorA, pingColorB
-  self._pingStateA, self._pingStateB = pingStateA, pingStateB
+  self._spareColor, self._spareState = spareColor, spareState
   self._sourceColor, self._sourceMeta = sourceColor, sourceMeta
   self.colorW, self.colorH, self.stateW, self.stateH = colorW, colorH, colorW, colorH
   self._colorTargets = colorTargets
   self._stateTargets = stateTargets
-  self._pingTargets = {
-    colorA = pingColorA,
-    colorB = pingColorB,
-    stateA = pingStateA,
-    stateB = pingStateB,
-  }
-  self._sourceTargets = { sourceColor, sourceMeta }
+  self._sourceColorTargets = sourceColorTargets
+  self._sourceMetaTargets = sourceMetaTargets
 end
 
 -- Decode every polygon 4-bit light mask (GBATEK POLYGON_ATTR bits 0-3) once.
@@ -1048,16 +1004,16 @@ function MapRenderer:_drawSourceItem(
   -- Pass 1: source color through the ordinary color shader (the same
   -- _drawItem dispatch the color pass uses, so straddle bending, lighting,
   -- materials, and billboard projection are all identical).
-  lg.setCanvas(self._sourceColor)
+  lg.setCanvas(assert(self._sourceColorTargets))
   lg.clear(0, 0, 0, 0, false, false)
   lg.setShader(self.shader)
-  lg.setDepthMode("less", depthWrite == true)
+  lg.setDepthMode("less", false)
   lg.setBlendMode("replace", "premultiplied")
   self:_drawItem(item, projection, fragmentPass, viewMatrix)
 
   -- Pass 2: source metadata through source.glsl (same-ID rejection + DS Z
   -- depth + fog flag + id).
-  lg.setCanvas(self._sourceMeta)
+  lg.setCanvas(assert(self._sourceMetaTargets))
   lg.clear(0, 0, 0, 0, false, false)
   lg.setShader(self.sourceShader)
   lg.setDepthMode("less", depthWrite == true)
@@ -1263,9 +1219,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     -- fully composited color and state.
     local activeColor, activeState = self.sceneColor, self.renderState
     if #queue.blended > 0 then
-      local pingTargets = assert(self._pingTargets)
-      local sourceTargets = assert(self._sourceTargets)
-      local inactiveColor, inactiveState = pingTargets.colorA, pingTargets.stateA
+      local inactiveColor, inactiveState = assert(self._spareColor), assert(self._spareState)
       local function swap()
         activeColor, activeState, inactiveColor, inactiveState = inactiveColor, inactiveState, activeColor, activeState
       end
@@ -1312,25 +1266,12 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
         swap()
       end
       -- Publish the composited pair as the renderer's public sceneColor/
-      -- renderState fields and its color/state target descriptors: the final
-      -- resolve, caller readbacks, and the NEXT frame's opaque pass must all
-      -- see the fully composited color and state, never a stale pre-
-      -- translucent canvas. The final inactive canvas (the pre-composite
-      -- opaque pair, or the alternate ping after an odd item count) becomes
-      -- the spare ping pair together with the untouched second ping canvas;
-      -- the next frame's loop re-seeds the inactive pair from the active one,
-      -- so no content is lost.
+      -- renderState fields and make the former active pair the spare. The
+      -- next frame re-seeds that spare before its first composite.
       self.sceneColor, self.renderState = activeColor, activeState
       self._colorTargets = { activeColor, depthstencil = self.colorDepth }
       self._stateTargets = { activeState, depthstencil = self.stateDepth }
-      self._pingColorA, self._pingColorB = inactiveColor, pingTargets.colorB
-      self._pingStateA, self._pingStateB = inactiveState, pingTargets.stateB
-      self._pingTargets = {
-        colorA = self._pingColorA,
-        colorB = self._pingColorB,
-        stateA = self._pingStateA,
-        stateB = self._pingStateB,
-      }
+      self._spareColor, self._spareState = inactiveColor, inactiveState
     end
 
     -- Wireframe edges (polygon alpha zero): these count as opaque for edge
@@ -1338,7 +1279,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     -- target the ACTIVE color/state pair so the final resolve sees them
     -- composited with any translucent overlays.
     if #queue.wireframe > 0 then
-      lg.setCanvas(activeColor, activeState)
+      lg.setCanvas(assert(self._colorTargets))
       lg.setShader(self.shader)
       lg.setDepthMode("less", true)
       lg.setBlendMode("alpha")
@@ -1354,12 +1295,12 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
     self:_sendFog(sceneRuntime)
     self.edgeShader:send("u_antialiasEnabled", true)
     self.edgeShader:send("u_edgeRadiusPx", edgeRadiusPx)
-
     lg.setCanvas()
     lg.setDepthMode()
     lg.setBlendMode("replace", "premultiplied")
     lg.setColor(1, 1, 1, 1)
     lg.setShader(self.edgeShader)
+    sendStateUniforms(self.edgeShader, activeState, self.stateW, self.stateH)
     lg.draw(activeColor, rectangle.x, rectangle.y, 0, rectangle.width / colorW, rectangle.height / colorH)
     lg.setShader()
   end

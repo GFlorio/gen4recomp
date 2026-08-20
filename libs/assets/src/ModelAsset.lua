@@ -84,8 +84,19 @@ local function checkFlip(m, where, desc)
 end
 
 -- The texture binding metadata: a bound texture carries its format (both
--- paths) and, for dynamic materials, its alpha usage; untextured materials
--- carry none (the compiler emits the trio together).
+-- paths) and, for dynamic materials, its alpha usage; untextured dynamic
+-- materials carry none (the compiler emits the trio together).
+local function checkAlphaUsage(alphaUsage, where, desc)
+  if type(alphaUsage) ~= "table" then
+    invalid(where .. " texture requires alphaUsage", desc.key)
+  end
+  for _, field in ipairs({ "hasZero", "hasPartial", "hasOpaque" }) do
+    if type(alphaUsage[field]) ~= "boolean" then
+      invalid(where .. " texture alphaUsage." .. field .. " must be a boolean", desc.key)
+    end
+  end
+end
+
 local function checkTextureBinding(m, where, desc, requireAlphaUsage)
   if m.texture ~= nil then
     if type(m.texture) ~= "string" or #m.texture == 0 then
@@ -94,11 +105,16 @@ local function checkTextureBinding(m, where, desc, requireAlphaUsage)
     if not (isInteger(m.textureFormat) and m.textureFormat >= 0) then
       invalid(where .. " material texture carries no textureFormat", desc.key)
     end
-    if requireAlphaUsage and (type(m.alphaUsage) ~= "table" or type(m.alphaUsage.hasZero) ~= "boolean") then
-      invalid(where .. " material texture carries no alphaUsage", desc.key)
+    if requireAlphaUsage then
+      checkAlphaUsage(m.alphaUsage, where .. " material", desc)
     end
-  elseif m.textureFormat ~= nil then
-    invalid(where .. " material carries a textureFormat without a texture", desc.key)
+  else
+    if m.textureFormat ~= nil then
+      invalid(where .. " material carries a textureFormat without a texture", desc.key)
+    end
+    if requireAlphaUsage and m.alphaUsage ~= nil then
+      invalid(where .. " material carries alphaUsage without a texture", desc.key)
+    end
   end
 end
 
@@ -137,6 +153,18 @@ local function checkVariants(m, where, desc)
       -- untextured exactly as the DS does.
       if variant.texture ~= nil and type(variant.texture) ~= "string" then
         invalid(where .. " material variant has a non-string texture path", desc.key)
+      end
+      local variantWhere = where .. " material variant " .. variant.name
+      if variant.texture ~= nil then
+        if #variant.texture == 0 then
+          invalid(variantWhere .. " has an empty texture path", desc.key)
+        end
+        if not (isInteger(variant.textureFormat) and variant.textureFormat >= 0) then
+          invalid(variantWhere .. " texture carries no textureFormat", desc.key)
+        end
+        checkAlphaUsage(variant.alphaUsage, variantWhere, desc)
+      elseif variant.textureFormat ~= nil or variant.alphaUsage ~= nil then
+        invalid(variantWhere .. " carries texture metadata without a texture", desc.key)
       end
       for _, field in ipairs({ "width", "height" }) do
         if variant[field] ~= nil and not (type(variant[field]) == "number" and variant[field] >= 0) then

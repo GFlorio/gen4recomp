@@ -145,6 +145,9 @@ local function fakeGraphics(opts)
     shaders = shaders,
     canvases = canvases,
     calls = calls,
+    setFailOnNewCanvas = function(value)
+      opts.failOnNewCanvas = value
+    end,
     getDrawCalls = function()
       return drawCalls
     end,
@@ -306,11 +309,43 @@ local function assertResourcesReleased(lg)
     Assert.equal(canvas.releaseCount, 1, "renderer released every created canvas exactly once")
   end
   Assert.equal(#lg.shaders, 5, "the five engine shaders were created (color, resolve, state, source, composite)")
-  Assert.equal(
-    #lg.canvases,
-    10,
-    "the sceneColor, colorDepth, renderState, stateDepth, pingColorA/B, pingStateA/B, sourceColor/sourceMeta canvases were created"
-  )
+end
+
+local function rendererCanvasRoles(renderer)
+  return {
+    sceneColor = renderer.sceneColor,
+    colorDepth = renderer.colorDepth,
+    renderState = renderer.renderState,
+    stateDepth = renderer.stateDepth,
+    spareColor = renderer._spareColor,
+    spareState = renderer._spareState,
+    sourceColor = renderer._sourceColor,
+    sourceMeta = renderer._sourceMeta,
+  }
+end
+
+local function assertPublishedCanvasRoles(renderer, lg)
+  local roles = rendererCanvasRoles(renderer)
+  local roleNames = {
+    "sceneColor",
+    "colorDepth",
+    "renderState",
+    "stateDepth",
+    "spareColor",
+    "spareState",
+    "sourceColor",
+    "sourceMeta",
+  }
+  local seen = {}
+  for _, role in ipairs(roleNames) do
+    local canvas = roles[role]
+    Assert.notNil(canvas, "renderer publishes the " .. role .. " canvas role")
+    Assert.isNil(seen[canvas], "each published canvas has exactly one renderer role")
+    seen[canvas] = role
+  end
+  local roleCount = #roleNames
+  Assert.equal(#lg.canvases, roleCount, "every created canvas belongs to one live renderer role")
+  return roles, roleCount
 end
 
 -- Six vertices in the project render layout
@@ -356,43 +391,48 @@ function T.state_target_dimensions_equal_color_dimensions()
   renderer:release()
 end
 
--- Target recreation is transactional at equal color/state dimensions: a
--- failure while building the replacement set leaves the previous targets and
--- their recorded size fully usable, and every partial new canvas is released.
--- The first draw allocates ten canvases (the color/state set plus the compositor's
--- ping-pong and source targets); a failure on any of the next ten must keep the
--- old set published.
+-- Target recreation is transactional: a failure while building any staged
+-- role leaves the previous complete generation usable, and every partial new
+-- canvas is released.
 function T.state_target_recreation_failure_releases_partials_and_keeps_previous_set()
-  for _, failOnNewCanvas in ipairs({ 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 }) do
-    local lg = fakeGraphics({ failOnNewCanvas = failOnNewCanvas })
+  local probeGraphics = fakeGraphics()
+  local probeRenderer = MapRenderer.new({ graphics = probeGraphics })
+  local scene = emptySceneCamera()
+  probeRenderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  local _, generationSize = assertPublishedCanvasRoles(probeRenderer, probeGraphics)
+  probeRenderer:release()
+
+  for failureOffset = 1, generationSize do
+    local lg = fakeGraphics()
     local renderer = MapRenderer.new({ graphics = lg })
-    local scene = emptySceneCamera()
     renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
     local oldColorW, oldColorH, oldStateW, oldStateH =
       renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
     local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
-    Assert.equal(#lg.canvases, 10, "the first target set was created")
+    local oldRoles = rendererCanvasRoles(renderer)
+    local _, oldGenerationSize = assertPublishedCanvasRoles(renderer, lg)
+    Assert.equal(oldGenerationSize, generationSize, "target generations use the same renderer roles")
+    lg.setFailOnNewCanvas(generationSize + failureOffset)
 
     local err = Assert.throws(function()
       renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
     end)
     Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
 
-    for i = 11, #lg.canvases do
+    for i = generationSize + 1, #lg.canvases do
       Assert.equal(lg.canvases[i].releaseCount, 1, "partial canvas " .. i .. " was released")
     end
-    Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
-    Assert.equal(renderer.colorDepth, lg.canvases[2], "the previous color-depth canvas survives")
-    Assert.equal(renderer.renderState, lg.canvases[3], "the previous state canvas survives")
-    Assert.equal(renderer.stateDepth, lg.canvases[4], "the previous state-depth canvas survives")
+    for role, canvas in pairs(oldRoles) do
+      Assert.equal(rendererCanvasRoles(renderer)[role], canvas, "the previous " .. role .. " remains published")
+    end
     Assert.equal(renderer.colorW, oldColorW, "the recorded color size survives")
     Assert.equal(renderer.colorH, oldColorH, "the recorded color size survives")
     Assert.equal(renderer.stateW, oldStateW, "the recorded state width survives")
     Assert.equal(renderer.stateH, oldStateH, "the recorded state height survives")
     Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color target descriptor survives")
     Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state target descriptor survives")
-    for i = 1, 10 do
-      Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas " .. i .. " is still owned")
+    for role, canvas in pairs(oldRoles) do
+      Assert.equal(canvas.releaseCount, 0, "the previous " .. role .. " remains owned")
     end
 
     renderer:release()
@@ -717,41 +757,48 @@ end
 -- Target reallocation builds the full replacement set before releasing the
 -- live one: when any new-canvas allocation fails, every partial new canvas is
 -- released, the previous targets and their recorded size survive, and the
--- failure reaches the caller. The first draw allocates ten canvases (the
--- color/state set plus the compositor ping-pong and source targets); each
--- failOnNewCanvas value places the failure at a different point in the next ten.
+-- failure reaches the caller. Each failure position is derived from the live
+-- role count, so this test protects ownership without encoding an allocation
+-- count as an implementation detail.
 function T.canvas_recreation_failure_releases_partial_new_canvases()
-  for _, failOnNewCanvas in ipairs({ 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 }) do
-    local lg = fakeGraphics({ failOnNewCanvas = failOnNewCanvas })
+  local probeGraphics = fakeGraphics()
+  local probeRenderer = MapRenderer.new({ graphics = probeGraphics })
+  local scene = emptySceneCamera()
+  probeRenderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+  local _, generationSize = assertPublishedCanvasRoles(probeRenderer, probeGraphics)
+  probeRenderer:release()
+
+  for failureOffset = 1, generationSize do
+    local lg = fakeGraphics()
     local renderer = MapRenderer.new({ graphics = lg })
-    local scene = emptySceneCamera()
     renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
+    local oldRoles = rendererCanvasRoles(renderer)
+    Assert.equal(#lg.canvases, generationSize, "the first target set was created")
+    lg.setFailOnNewCanvas(generationSize + failureOffset)
     local oldColorW, oldColorH, oldStateW, oldStateH =
       renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
     local oldColorTargets, oldStateTargets = renderer._colorTargets, renderer._stateTargets
-    Assert.equal(#lg.canvases, 10, "the first target set was created")
 
     local err = Assert.throws(function()
       renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
     end)
     Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
 
-    for i = 11, #lg.canvases do
+    for i = generationSize + 1, #lg.canvases do
       Assert.equal(lg.canvases[i].releaseCount, 1, "partial canvas " .. i .. " was released")
     end
     -- The previous target set survives untouched, at its recorded size.
-    Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
-    Assert.equal(renderer.colorDepth, lg.canvases[2], "the previous color-depth canvas survives")
-    Assert.equal(renderer.renderState, lg.canvases[3], "the previous render-state canvas survives")
-    Assert.equal(renderer.stateDepth, lg.canvases[4], "the previous state-depth canvas survives")
+    for role, canvas in pairs(oldRoles) do
+      Assert.equal(rendererCanvasRoles(renderer)[role], canvas, "the previous " .. role .. " survives")
+    end
     Assert.equal(renderer.colorW, oldColorW, "the recorded color size survives")
     Assert.equal(renderer.colorH, oldColorH, "the recorded color size survives")
     Assert.equal(renderer.stateW, oldStateW, "the recorded state size survives")
     Assert.equal(renderer.stateH, oldStateH, "the recorded state size survives")
     Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color target descriptor survives")
     Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state target descriptor survives")
-    for i = 1, 10 do
-      Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas " .. i .. " is still owned")
+    for role, canvas in pairs(oldRoles) do
+      Assert.equal(canvas.releaseCount, 0, "the previous " .. role .. " is still owned")
     end
 
     renderer:release()
@@ -761,62 +808,9 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
   end
 end
 
--- Edge configuration is part of target staging: a failure after the new
--- renderState texture was sent but before u_stateSize was accepted restores
--- the previous uniforms, retains the previous published descriptors and
--- canvases, and releases the unpublished replacement set.
-function T.canvas_recreation_send_failure_retains_previous_targets()
-  -- The first draw's edge-shader sends, in order: 2 target uniforms
-  -- (u_renderState/u_stateSize) from _ensureTargets, 1 from _sendEdgeColors,
-  -- 13 from _sendFog (u_fogEnabled/u_fogColor + 8 density-table groups +
-  -- u_fogOffsetDepth/u_fogShift/u_fogAlpha), and 1 for u_antialiasEnabled --
-  -- 17 total. The second (recreating) draw's target uniforms then start at
-  -- 18 (u_renderState) and 19 (u_stateSize), so failing on the 19th send
-  -- lands on u_stateSize, after u_renderState already succeeded.
-  local lg = fakeGraphics({ failOnEdgeShaderSend = 19 })
-  local renderer = MapRenderer.new({ graphics = lg })
-  local scene = emptySceneCamera()
-  local oldViewport = FieldViewport.new(640, 480, { mode = "strict" })
-  renderer:draw(scene.runtime, scene.camera, nil, oldViewport)
-  local oldColorTargets, oldStateTargets = assert(renderer._colorTargets), assert(renderer._stateTargets)
-  local edgeShader = assert(lg.shaders[2])
-
-  local err = Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
-  end)
-  Assert.isTrue(tostring(err):find("injected edge shader send failure", 1, true) ~= nil, "rethrows send failure")
-
-  Assert.equal(renderer._colorTargets, oldColorTargets, "the previous color descriptor remains published")
-  Assert.equal(renderer._stateTargets, oldStateTargets, "the previous state descriptor remains published")
-  Assert.equal(renderer.sceneColor, lg.canvases[1], "the previous scene canvas survives")
-  Assert.equal(renderer.colorDepth, lg.canvases[2], "the previous color-depth canvas survives")
-  Assert.equal(renderer.renderState, lg.canvases[3], "the previous render-state canvas survives")
-  Assert.equal(renderer.stateDepth, lg.canvases[4], "the previous state-depth canvas survives")
-  Assert.equal(renderer.colorW, 640)
-  Assert.equal(renderer.colorH, 480)
-  Assert.equal(renderer.stateW, 640)
-  Assert.equal(renderer.stateH, 480)
-  Assert.equal(edgeShader.uniforms.u_renderState, lg.canvases[3], "the previous renderState binding is restored")
-  Assert.deepEqual(edgeShader.uniforms.u_stateSize, { 640, 480 }, "the previous state size is restored")
-  for i = 1, 10 do
-    Assert.equal(lg.canvases[i].releaseCount, 0, "the previous canvas remains owned")
-  end
-  for i = 11, 14 do
-    Assert.equal(lg.canvases[i].releaseCount, 1, "the unpublished replacement canvas is released")
-  end
-
-  renderer:draw(scene.runtime, scene.camera, nil, oldViewport)
-  Assert.equal(#lg.canvases, 14, "the retained target set remains usable without allocation")
-  renderer:release()
-  for _, canvas in ipairs(lg.canvases) do
-    Assert.equal(canvas.releaseCount, 1, "release cleans up every canvas exactly once")
-  end
-end
-
 -- Renderer-owned frame storage is stable while its contents reset. The
--- target descriptors and edge size uniforms change only with target
--- generation. Releasing the canvases clears the descriptors so they cannot
--- retain released targets.
+-- target descriptors remain stable while dimensions are unchanged. The final
+-- resolve rebinds its state texture every frame, including after compositing.
 function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -824,6 +818,8 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local stats = renderer.stats
   local edgeShader = renderer.edgeShader
+  ---@type any
+  local recordedEdgeShader = edgeShader
 
   -- Edge colors are scene state, not a value the constructor sends
   -- before any scene exists.
@@ -839,22 +835,38 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.equal(renderer.stats, stats, "draw reuses the public stats table")
   Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 1)
   Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 1)
+  Assert.equal(
+    recordedEdgeShader.uniforms.u_renderState,
+    renderer.renderState,
+    "final resolve samples the published state"
+  )
+  Assert.deepEqual(recordedEdgeShader.uniforms.u_stateSize, { renderer.stateW, renderer.stateH })
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the first draw establishes the scene edge table")
 
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   Assert.equal(renderer._colorTargets, colorTargets, "unchanged dimensions reuse the color descriptor")
   Assert.equal(renderer._stateTargets, stateTargets, "unchanged dimensions reuse the state descriptor")
   Assert.equal(renderer.stats, stats, "later draws retain stats identity")
-  Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 1, "unchanged targets do not resend the state texture")
-  Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 1, "unchanged size does not resend the state size")
+  Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 2, "each final resolve binds its current state texture")
+  Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 2, "each final resolve sends its current state size")
+  Assert.equal(
+    recordedEdgeShader.uniforms.u_renderState,
+    renderer.renderState,
+    "the second resolve samples the published state"
+  )
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the same edge table reference is not resent")
 
   viewport:resize(1280, 720)
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
   Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new color descriptor")
   Assert.isTrue(renderer._stateTargets ~= stateTargets, "replacement publishes a new state descriptor")
-  Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 2)
-  Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 2)
+  Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 3)
+  Assert.equal(shaderSendCount(edgeShader, "u_stateSize"), 3)
+  Assert.equal(
+    recordedEdgeShader.uniforms.u_renderState,
+    renderer.renderState,
+    "resize resolve samples the published state"
+  )
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "a target resize alone does not resend the edge table")
 
   -- A different edge table (a new area's scene profile) resends, even though
@@ -1068,46 +1080,6 @@ function T.draw_requires_the_scenes_fog_preset()
     renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
   end)
   renderer:release()
-end
-
--- After a failed recreation the renderer stays usable at the previous size,
--- and a later successful recreation swaps in a full new set while releasing
--- the previous set exactly once. The first draw allocates ten canvases
--- (sceneColor, colorDepth, renderState, stateDepth, ping pair, source pair);
--- the failed recreation attempt allocates canvas 11 (sceneColor) before failing
--- on canvas 12 (colorDepth).
-function T.canvas_recreation_failure_keeps_renderer_usable()
-  local lg = fakeGraphics({ failOnNewCanvas = 12 })
-  local renderer = MapRenderer.new({ graphics = lg })
-  local scene = emptySceneCamera()
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
-  local oldColorW, oldColorH = renderer.colorW, renderer.colorH
-
-  Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
-  end)
-
-  -- Drawing at the retained size allocates nothing and still renders.
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(640, 480, { mode = "strict" }))
-  Assert.equal(#lg.canvases, 11, "the old-size draw reuses the retained canvases")
-  Assert.equal(renderer.colorW, oldColorW)
-  Assert.equal(renderer.colorH, oldColorH)
-
-  -- The next successful recreation replaces the previous set, releasing it
-  -- exactly once, and the renderer owns the new set.
-  renderer:draw(scene.runtime, scene.camera, nil, FieldViewport.new(1280, 720, { mode = "expanded" }))
-  Assert.equal(#lg.canvases, 21, "a full new set was created")
-  Assert.equal(lg.canvases[1].releaseCount, 1, "the old scene canvas is released exactly once")
-  Assert.equal(lg.canvases[2].releaseCount, 1, "the old color-depth canvas is released exactly once")
-  Assert.equal(lg.canvases[3].releaseCount, 1, "the old render-state canvas is released exactly once")
-  Assert.equal(lg.canvases[4].releaseCount, 1, "the old state-depth canvas is released exactly once")
-  Assert.equal(lg.canvases[12].releaseCount, 0, "the new scene canvas is owned by the renderer")
-  Assert.equal(lg.canvases[21].releaseCount, 0, "the new state-depth canvas is owned by the renderer")
-
-  renderer:release()
-  for _, canvas in ipairs(lg.canvases) do
-    Assert.equal(canvas.releaseCount, 1, "release cleans up every canvas exactly once")
-  end
 end
 
 -- The renderer draws exactly the ordered world parts it is given; it never

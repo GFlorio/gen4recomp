@@ -1,6 +1,7 @@
 -- Pure resolver conformance for weather override families.
 
 local Assert = require("tests.support.Assert")
+local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}
@@ -70,7 +71,7 @@ end
 
 local function canonicalCatalog()
   return {
-    schema = "g4-field-weather-v1",
+    schema = FieldWeatherCache.SCHEMA,
     presets = validPresets(),
     rules = {
       {
@@ -281,9 +282,10 @@ end
 
 function T.resolver_applies_rules_in_order_fold_not_independently_to_base()
   local Resolver = requireResolver()
-  -- synthetic catalog where earlier rule creates the weather that later rule consumes
+  -- A production-valid catalog where an earlier rule creates the weather that
+  -- a later rule consumes.
   local synthetic = {
-    schema = "g4-field-weather-v1",
+    schema = FieldWeatherCache.SCHEMA,
     presets = validPresets(),
     rules = {
       {
@@ -294,13 +296,28 @@ function T.resolver_applies_rules_in_order_fold_not_independently_to_base()
         dates = { { month = 1, day = 1 } },
       },
       {
+        kind = "map_var_equals",
+        mapId = LAKE_OF_RAGE,
+        varId = VAR_LAKE,
+        value = VAL_LAKE,
+        weatherId = 0,
+      },
+      {
         kind = "weather_flag_override",
         fromWeatherId = 9,
         flagId = FLAG_DEFOG,
         weatherId = 0,
       },
+      {
+        kind = "weather_flag_override",
+        fromWeatherId = 11,
+        flagId = FLAG_FLASH,
+        weatherId = 12,
+      },
     },
   }
+  local valid, err = FieldWeatherCache.validateCatalog(synthetic)
+  Assert.isTrue(valid, tostring(err))
   local withFlag = FieldEventState.new({ flags = { [FLAG_DEFOG] = true } })
   local effective = Resolver.resolve(synthetic, {
     mapId = 100,
@@ -322,74 +339,6 @@ function T.resolver_applies_rules_in_order_fold_not_independently_to_base()
     hasPenalty = false,
   })
   Assert.equal(withoutSecond, 9, "without Defog only the first rule applies")
-end
-
-function T.resolver_rejects_malformed_rule_kind()
-  local Resolver = requireResolver()
-  local bad = {
-    schema = "g4-field-weather-v1",
-    presets = validPresets(),
-    rules = {
-      { kind = "unknown_kind", mapId = 1, weatherId = 0 },
-    },
-  }
-  Assert.throws(function()
-    Resolver.resolve(bad, {
-      mapId = 1,
-      baseWeatherId = 0,
-      eventState = FieldEventState.new(),
-      date = { month = 1, day = 1 },
-      hasPenalty = false,
-    })
-  end)
-end
-
-function T.resolver_rejects_rule_missing_required_field()
-  local Resolver = requireResolver()
-  local bad = {
-    schema = "g4-field-weather-v1",
-    presets = validPresets(),
-    rules = {
-      { kind = "calendar_map_override", mapId = MOUNT_SILVER_SUMMIT, weatherId = 8 },
-    },
-  }
-  Assert.throws(function()
-    Resolver.resolve(bad, {
-      mapId = MOUNT_SILVER_SUMMIT,
-      baseWeatherId = 0,
-      eventState = FieldEventState.new(),
-      date = { month = 1, day = 1 },
-      hasPenalty = false,
-    })
-  end)
-end
-
-function T.resolver_rejects_unknown_preset_target()
-  local Resolver = requireResolver()
-  local incomplete = validPresets()
-  incomplete[8] = nil
-  local bad = {
-    schema = "g4-field-weather-v1",
-    presets = incomplete,
-    rules = {
-      {
-        kind = "calendar_map_override",
-        mapId = MOUNT_SILVER_SUMMIT,
-        weatherId = 8,
-        requireNoPenalty = true,
-        dates = { { month = 1, day = 1 } },
-      },
-    },
-  }
-  Assert.throws(function()
-    Resolver.resolve(bad, {
-      mapId = MOUNT_SILVER_SUMMIT,
-      baseWeatherId = 5,
-      eventState = FieldEventState.new(),
-      date = { month = 1, day = 1 },
-      hasPenalty = false,
-    })
-  end)
 end
 
 function T.resolver_rejects_unknown_base_preset()

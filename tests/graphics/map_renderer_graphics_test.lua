@@ -3223,21 +3223,25 @@ local function dsBlend6(src6, dst6, srcA5)
   return math.floor((src6 * (srcA5 + 1) + dst6 * (32 - (srcA5 + 1))) / 32)
 end
 
--- A fullscreen quad (identity camera, z = 0) carrying one solid-color texel
+-- A fullscreen quad carrying one solid-color texel in front of the opaque
+-- depth plane used by the compositor fixtures. Keeping the default away from
+-- the camera's near plane makes the shared strict-less depth contract
+-- observable instead of relying on coplanar depth behavior.
 -- whose byte decodes to texture alpha5 `alpha5Byte`. The item is a translucent
 -- MODULATE draw at polygon alpha 31, so the fragment's final alpha5 is exactly
 -- the texture's alpha5 (floor(((t+1)*(31+1)-1)/32) == t) and its source RGB6
 -- is the texture RGB6. `polygonId` defaults to 7; `fogEnabled` defaults to
 -- false; `translucentDepthWrite` defaults to false (the ordinary HGSS field
 -- shape). Returns the item; callers may override fields afterward.
-local function translucentQuad(scope, alpha5Byte, r6, g6, b6, polygonId, fogEnabled)
+local function translucentQuad(scope, alpha5Byte, r6, g6, b6, polygonId, fogEnabled, z)
+  z = z or -1
   local mesh = scope:own(syntheticMesh({
-    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, -1, z, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 3, z, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
   }))
   local image = solidAlphaImage(
     scope,
@@ -3263,6 +3267,53 @@ local function translucentQuad(scope, alpha5Byte, r6, g6, b6, polygonId, fogEnab
     fogEnabled = fogEnabled == true,
     center = { 0.5, 0.5, 0 },
   }
+end
+
+local function depthQuadMesh(scope, z)
+  return scope:own(syntheticMesh({
+    { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, -1, z, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 3, 3, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 3, z, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+end
+
+local function depthTranslucentQuad(scope, z, alpha5Byte, r6, g6, b6, polygonId, fogEnabled)
+  return {
+    mesh = depthQuadMesh(scope, z),
+    material = {
+      alphaClass = "translucent",
+      texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+      image = solidAlphaImage(
+        scope,
+        math.floor(r6 / 63 * 255 + 0.5),
+        math.floor(g6 / 63 * 255 + 0.5),
+        math.floor(b6 / 63 * 255 + 0.5),
+        alpha5Byte
+      ),
+    },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "translucent",
+    cullMode = "none",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = polygonId or 7,
+    translucentDepthWrite = false,
+    depthEqual = false,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    fogEnabled = fogEnabled == true,
+    center = { 0.5, 0.5, 0 },
+  }
+end
+
+local function depthOpaqueQuad(scope, z, r, g, b, polygonId, fogEnabled)
+  local item = opaqueFinalStateItem(depthQuadMesh(scope, z), polygonId, fogEnabled)
+  item.material.image = solidAlphaImage(scope, r, g, b, 255)
+  return item
 end
 
 -- Read one pixel from a sceneColor readback, resolving the driver's Y-mirror
@@ -3418,7 +3469,6 @@ function T.exact_ds_rgb_weight(scope)
   local translucent =
     translucentQuad(scope, ALPHA5_BYTE[DS_BLEND_SRC_A5], DS_BLEND_SRC6[1], DS_BLEND_SRC6[2], DS_BLEND_SRC6[3])
   local read = centerReadback(scope, renderer, fixedCamera(), emptyRuntime(), { { opaque, translucent } })
-
   local scale = sceneScale(read.color)
   local function assert6(channel, expected6, label)
     Assert.near(
@@ -3675,7 +3725,7 @@ end
 -- rejection, so the second (nearer, same-ID) source overwrites both host
 -- depth and state G.
 function T.accepted_depth_write_updates_depth_rejected_same_id_does_not(scope)
-  local function makeParts(renderer, secondId, includeProbe)
+  local function makeParts(renderer, secondId, includeProbe, includeFarProbe)
     local opaqueMesh = scope:own(syntheticMesh({
       { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
       { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
@@ -3715,6 +3765,14 @@ function T.accepted_depth_write_updates_depth_rejected_same_id_does_not(scope)
       probe.material.image = solidAlphaImage(scope, 255, 0, 0, 255)
       parts[#parts + 1] = probe
     end
+    if includeFarProbe then
+      -- Keep the queue tie-breaker after the accepted source while putting
+      -- the actual geometry farther away. A correct shared host depth buffer
+      -- rejects this probe after the first source commits depth.
+      local farProbe = depthWriteTranslucent(-0.6, 30)
+      farProbe.material.image = solidAlphaImage(scope, 255, 0, 0, 255)
+      parts[#parts + 1] = farProbe
+    end
     return { parts }
   end
 
@@ -3732,6 +3790,7 @@ function T.accepted_depth_write_updates_depth_rejected_same_id_does_not(scope)
   local opaqueOnly = sample(renderer, { { makeParts(renderer, 7)[1][1] } })
   local withDepthWrite = sample(renderer, makeParts(renderer, 7))
   local withProbe = sample(renderer, makeParts(renderer, 7, true))
+  local withFarProbe = sample(renderer, makeParts(renderer, 7, false, true))
 
   -- State G without the probe: the second (rejected) fragment must not
   -- overwrite the depth written by the accepted first fragment; the first's
@@ -3765,11 +3824,123 @@ function T.accepted_depth_write_updates_depth_rejected_same_id_does_not(scope)
     "the nearer probe must pass the host depth test and render its red color"
   )
 
+  Assert.near(
+    withFarProbe.state[2],
+    firstDepth,
+    1,
+    "a farther different-ID probe must fail against the accepted host depth"
+  )
+  Assert.near(
+    withFarProbe.color[1],
+    withDepthWrite.color[1],
+    1 / 255,
+    "a farther probe cannot replace the accepted source's color"
+  )
+
   -- A fragment at the opaque plane's depth stays visible (the near sources do
   -- not occlude it) -- the opaque plane's own depth readback is unchanged.
   Assert.isTrue(
     opaqueOnly.state[2] > 0 and math.abs(opaqueOnly.state[2] - withDepthWrite.state[2]) > 1,
     "the opaque plane depth readback differs from the depth-written value"
+  )
+end
+
+local function wireframeTriangleAtDepth(scope, z, polygonId, r, g, b)
+  local function vertex(x, y)
+    return { x, y, z, 0, 0, 0, 0, 1, r, g, b, 1, 0 }
+  end
+  return {
+    mesh = scope:own(syntheticMesh({ vertex(-1, -1), vertex(1, 1), vertex(-1, 1) })),
+    material = { alphaClass = "wireframe", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "wireframe",
+    cullMode = "none",
+    polygonAlpha = 1.0,
+    polygonMode = "modulation",
+    polygonId = polygonId,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    fogEnabled = false,
+    center = { 0, 0, z },
+  }
+end
+
+function T.final_resolve_uses_the_state_paired_with_an_odd_composite_result(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local runtime = emptyRuntime()
+  local fogTable = {}
+  for i = 1, 32 do
+    fogTable[i] = i % 2 == 0 and 64 or 0
+  end
+  runtime.fog = { enabled = true, color = 0, offset = 0x4000, slope = 0, alpha = 31, table = fogTable }
+
+  local opaque = depthOpaqueQuad(scope, 0.8, 255, 255, 255, 20, true)
+  local translucent = depthTranslucentQuad(scope, -1, ALPHA5_BYTE[15], 63, 63, 63, 7, true)
+  translucent.translucentDepthWrite = true
+  translucent.center = { 0.5, 0.5, 0 }
+
+  renderer:draw(runtime, perspectiveCamera(), { { opaque } }, viewport)
+  local initialState = renderer.renderState
+  local harness = compositeReadback(scope, renderer, viewport)
+  renderer:draw(runtime, perspectiveCamera(), { { opaque, translucent } }, viewport)
+  harness.restore()
+  love.graphics.setCanvas()
+
+  Assert.isTrue(renderer.renderState ~= initialState, "an odd composite publishes the spare state target")
+  local final = scenePixel(renderer, harness.canvas:newImageData(), 320, 240)
+  Assert.isTrue(final[1] >= 0 and final[1] <= 1, "final resolve produces a valid color")
+end
+
+function T.translucent_geometry_behind_opaque_geometry_is_rejected_by_shared_depth(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local camera = perspectiveCamera()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local opaque = depthOpaqueQuad(scope, -0.2, 0, 128, 255, 20, true)
+  local translucent = depthTranslucentQuad(scope, -0.5, ALPHA5_BYTE[15], 255, 0, 0, 7, true)
+
+  local opaqueOnly = centerReadback(scope, renderer, camera, emptyRuntime(), { { opaque } })
+  local withFarTranslucency = centerReadback(scope, renderer, camera, emptyRuntime(), { { opaque, translucent } })
+
+  for channel = 1, 3 do
+    Assert.near(
+      withFarTranslucency.color[channel],
+      opaqueOnly.color[channel],
+      1 / 255,
+      "farther translucent geometry must not contribute to the opaque center color"
+    )
+  end
+  Assert.near(withFarTranslucency.state[4], 0, 1 / 255, "rejected translucency must not record a translucent ID")
+  Assert.near(
+    withFarTranslucency.state[2],
+    opaqueOnly.state[2],
+    1,
+    "rejected translucency must not change the opaque DS depth"
+  )
+end
+
+function T.post_composite_wireframe_respects_the_shared_color_depth(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local camera = perspectiveCamera()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local translucent = depthTranslucentQuad(scope, -0.2, ALPHA5_BYTE[15], 0, 0, 255, 7, false)
+  translucent.translucentDepthWrite = true
+  local fartherWireframe = wireframeTriangleAtDepth(scope, -0.5, 12, 255, 0, 0)
+  local nearerWireframe = wireframeTriangleAtDepth(scope, -0.15, 12, 255, 0, 0)
+
+  local blocked = centerReadback(scope, renderer, camera, emptyRuntime(), { { translucent, fartherWireframe } })
+  local control = centerReadback(scope, renderer, camera, emptyRuntime(), { { translucent, nearerWireframe } })
+  local blockedScale = sceneScale(blocked.color)
+  local controlScale = sceneScale(control.color)
+
+  Assert.isTrue(
+    blocked.color[3] > blocked.color[1] + 0.2 * blockedScale,
+    "farther wireframe must not overwrite the nearer composited color"
+  )
+  Assert.isTrue(
+    control.color[1] > control.color[3] + 0.2 * controlScale,
+    "a nearer wireframe still renders through the color pass"
   )
 end
 

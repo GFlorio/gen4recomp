@@ -66,20 +66,29 @@ local function dynamicDescriptor(material)
   }
 end
 
-function T.validate_accepts_untextured_variant()
+local function texturedDynamicMaterial()
   local material = dynamicMaterial()
   material.texture = "assets/generated/maps/textures/base.png"
   material.textureFormat = 3
-  material.alphaUsage = { hasZero = true }
+  material.alphaUsage = { hasZero = true, hasPartial = false, hasOpaque = true }
+  return material
+end
+
+local function texturedVariant(name, path)
+  return {
+    name = name,
+    texture = path,
+    width = 64,
+    height = 64,
+    textureFormat = 3,
+    alphaUsage = { hasZero = true, hasPartial = false, hasOpaque = true },
+  }
+end
+
+function T.validate_accepts_untextured_variant()
+  local material = texturedDynamicMaterial()
   material.variants = {
-    {
-      name = "mg08_r10.1",
-      texture = "assets/generated/maps/textures/v1.png",
-      width = 64,
-      height = 64,
-      textureFormat = 3,
-      alphaUsage = { hasZero = true },
-    },
+    texturedVariant("mg08_r10.1", "assets/generated/maps/textures/v1.png"),
     { name = "mg08_r10.2" },
     {
       name = "mg08_r10.3",
@@ -87,10 +96,102 @@ function T.validate_accepts_untextured_variant()
       width = 32,
       height = 32,
       textureFormat = 7,
+      alphaUsage = { hasZero = false, hasPartial = true, hasOpaque = true },
     },
   }
   local desc = dynamicDescriptor(material)
   Assert.equal(ModelAsset.validate(desc), desc)
+end
+
+function T.validate_accepts_complete_dynamic_texture_alpha_usage()
+  local desc = dynamicDescriptor(texturedDynamicMaterial())
+  Assert.equal(ModelAsset.validate(desc), desc)
+end
+
+function T.validate_rejects_dynamic_texture_missing_alpha_usage_fields()
+  for _, field in ipairs({ "hasPartial", "hasOpaque", "hasZero" }) do
+    local material = texturedDynamicMaterial()
+    material.alphaUsage[field] = nil
+    throwsCode(ModelAsset.ERROR_INVALID, function()
+      ModelAsset.validate(dynamicDescriptor(material))
+    end)
+  end
+end
+
+function T.validate_rejects_dynamic_texture_with_non_boolean_alpha_usage()
+  local material = texturedDynamicMaterial()
+  material.alphaUsage.hasPartial = 1
+  throwsCode(ModelAsset.ERROR_INVALID, function()
+    ModelAsset.validate(dynamicDescriptor(material))
+  end)
+end
+
+function T.validate_rejects_untextured_dynamic_material_with_alpha_usage()
+  local material = dynamicMaterial()
+  material.alphaUsage = { hasZero = true, hasPartial = false, hasOpaque = true }
+  throwsCode(ModelAsset.ERROR_INVALID, function()
+    ModelAsset.validate(dynamicDescriptor(material))
+  end)
+end
+
+function T.validate_rejects_untextured_dynamic_material_with_texture_metadata()
+  local material = dynamicMaterial()
+  material.textureFormat = 3
+  throwsCode(ModelAsset.ERROR_INVALID, function()
+    ModelAsset.validate(dynamicDescriptor(material))
+  end)
+end
+
+function T.validate_accepts_a_complete_textured_variant()
+  local material = texturedDynamicMaterial()
+  material.variants = { texturedVariant("mg08_r10.1", "assets/generated/maps/textures/v1.png") }
+  local desc = dynamicDescriptor(material)
+  Assert.equal(ModelAsset.validate(desc), desc)
+end
+
+function T.validate_rejects_an_incomplete_textured_variant()
+  local cases = {
+    function(variant)
+      variant.textureFormat = nil
+    end,
+    function(variant)
+      variant.alphaUsage = nil
+    end,
+    function(variant)
+      variant.alphaUsage.hasZero = nil
+    end,
+    function(variant)
+      variant.alphaUsage.hasPartial = nil
+    end,
+    function(variant)
+      variant.alphaUsage.hasOpaque = nil
+    end,
+  }
+  for _, mutate in ipairs(cases) do
+    local material = texturedDynamicMaterial()
+    local variant = texturedVariant("mg08_r10.1", "assets/generated/maps/textures/v1.png")
+    mutate(variant)
+    material.variants = { variant }
+    throwsCode(ModelAsset.ERROR_INVALID, function()
+      ModelAsset.validate(dynamicDescriptor(material))
+    end)
+  end
+end
+
+function T.validate_rejects_an_untextured_variant_with_classifier_metadata()
+  for _, field in ipairs({ "textureFormat", "alphaUsage" }) do
+    local material = texturedDynamicMaterial()
+    local variant = { name = "mg08_r10.1" }
+    if field == "textureFormat" then
+      variant.textureFormat = 3
+    else
+      variant.alphaUsage = { hasZero = true, hasPartial = false, hasOpaque = true }
+    end
+    material.variants = { variant }
+    throwsCode(ModelAsset.ERROR_INVALID, function()
+      ModelAsset.validate(dynamicDescriptor(material))
+    end)
+  end
 end
 
 function T.validate_rejects_non_string_variant_texture()
@@ -103,18 +204,9 @@ function T.validate_rejects_non_string_variant_texture()
 end
 
 function T.referenced_paths_cover_only_textured_variants()
-  local material = dynamicMaterial()
-  material.texture = "assets/generated/maps/textures/base.png"
-  material.textureFormat = 3
-  material.alphaUsage = { hasZero = true }
+  local material = texturedDynamicMaterial()
   material.variants = {
-    {
-      name = "mg08_r10.1",
-      texture = "assets/generated/maps/textures/v1.png",
-      width = 64,
-      height = 64,
-      textureFormat = 3,
-    },
+    texturedVariant("mg08_r10.1", "assets/generated/maps/textures/v1.png"),
     { name = "mg08_r10.2" },
   }
   local desc = dynamicDescriptor(material)

@@ -331,11 +331,12 @@ full resolution, then executes the programmable translucent compositor
 (see below), then wireframe on the composited result.
 
 Both target sets are allocated transactionally by one `MapRenderer:_ensureTargets`
-call: all ten canvases (`sceneColor`, `colorDepth`, `renderState`, `stateDepth`,
-the compositor ping-pong color/state pairs, and the source fragment color/meta
-buffers) are staged before anything published is touched, so a failed
-allocation or a failed size-uniform send releases only the staged canvases and
-leaves the previous live set (and its recorded dimensions) completely untouched.
+call: eight canvases (`sceneColor`, `colorDepth`, `renderState`, `stateDepth`,
+one spare color/state pair, and the source fragment color/meta buffers) are
+staged before anything published is touched. A failed allocation releases only
+the staged canvases and leaves the previous live set and its recorded
+dimensions completely untouched. Final-resolve state uniforms are sent when
+the active pair is known, not during target construction.
 
 ### Mixed final-alpha materials
 
@@ -360,24 +361,26 @@ same-ID rejection), blend with exact integer DS RGB6/alpha5 arithmetic
 (including `max` destination alpha), and mutate state (fog-gate `AND` and last
 translucent ID). The compositor is a ping-pong read-modify-write:
 
-* Two full-resolution destination color canvases and two full-resolution
-  destination state canvases (`rgba32f` for the 24-bit depth) form the active
-  and inactive pairs, plus the depth/stencil attachment and two temporary
+* The published color/state pair and one spare full-resolution color/state pair
+  (`rgba32f` for state and the 24-bit depth) alternate as active and inactive
+  destinations, plus the shared `colorDepth` attachment and two temporary
   source-fragment buffers (color `rgba8` and metadata `rgba32f` carrying the
   valid flag, DS Z depth, fog flag, and source polygon ID).
 * For each `RenderQueue.blended` entry in its existing deterministic order,
   the renderer rasterizes only that item's accepted translucent or
-  mixed-translucent fragments into the source buffers, depth-testing against
-  the active depth attachment and rejecting fragments before any optional
-  depth write when the destination's last translucent ID equals the source
-  polygon ID.
+  mixed-translucent fragments into the source buffers. Both source passes
+  depth-test against the opaque pass's shared `colorDepth`; source color uses
+  `less` with depth writes disabled, while source metadata uses `less` and
+  enables depth writes only for `translucentDepthWrite` after same-ID rejection.
 * A full-screen composite shader then applies the exact integer blend/state
   equations only where source valid is true (otherwise copying the destination
   unchanged) into the inactive pair, then the pairs swap.
-* After the loop, wireframe drawing and the final resolve target the active
-  pair, so final color and state remain aligned. No pass samples and writes
-  the same target in one draw (no feedback hazard). The composite and the
-  source rasterization both use `replace` semantics -- the composite does not
+* After the loop, wireframe color drawing binds the active color with the
+  shared `colorDepth` attachment; the active state is not a second color
+  target. The final resolve then samples the same active pair, so final color
+  and state remain aligned. No pass samples and writes the same target in one
+  draw (no feedback hazard). The composite and the source rasterization both
+  use `replace` semantics -- the composite does not
   apply a second host alpha blend to already-computed output, and ordinary
   translucent/mixed-translucent entries share this same compositor path.
 
