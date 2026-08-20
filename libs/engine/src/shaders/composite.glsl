@@ -46,7 +46,6 @@ void effect()
 {
   vec2 uv = gl_FragCoord.xy / u_size;
   vec4 meta = Texel(u_sourceMeta, uv);
-  vec4 srcColor = Texel(u_sourceColor, uv);
   vec4 dstColor = Texel(u_activeColor, uv);
   vec4 dstState = Texel(u_activeState, uv);
 
@@ -54,6 +53,7 @@ void effect()
   vec4 outState = dstState;
 
   if (meta.r > 0.5) {
+    vec4 srcColor = Texel(u_sourceColor, uv);
     int srcA5 = int(floor(srcColor.a * 31.0 + 0.5));
     int dstA5 = int(floor(dstColor.a * 31.0 + 0.5));
     int srcId = sourceId(meta);

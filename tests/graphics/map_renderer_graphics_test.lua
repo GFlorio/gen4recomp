@@ -395,6 +395,40 @@ local function decalInteriorSample(renderer)
   return sum(a) >= sum(b) and a or b
 end
 
+function T.wireframe_rasterizes_edges_without_filling_the_interior(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local mesh = scope:own(syntheticMesh({
+    { 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+  local item = {
+    mesh = mesh,
+    material = { alphaClass = "wireframe", texMatrix = IDENTITY_NORMAL },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "wireframe",
+    cullMode = "none",
+    polygonAlpha = 1,
+    polygonMode = "modulation",
+    polygonId = 1,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    center = { 0.5, 0.5, 0 },
+  }
+
+  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  local image = renderer.sceneColor:newImageData()
+  local function brightness(x, y)
+    local a = { image:getPixel(x, y) }
+    local b = { image:getPixel(x, renderer.colorH - 1 - y) }
+    return math.max(a[1] + a[2] + a[3], b[1] + b[2] + b[3])
+  end
+
+  Assert.isTrue(brightness(480, 180) < 0.1, "wireframe interior preserves the underlying scene")
+  Assert.isTrue(brightness(480, 120) > 0.5, "wireframe edge remains visible")
+end
+
 -- DS DECAL keeps the texture RGB only where the texel is fully opaque
 -- (texture alpha 31/31); a fully transparent decal texel (alpha 0) must
 -- render the vertex color untouched instead (GBATEK DECAL texel format).
@@ -3303,6 +3337,77 @@ local function translucentQuad(scope, alpha5Byte, r6, g6, b6, polygonId, fogEnab
   }
 end
 
+local centerReadback
+
+local function normalLitTranslucentQuad(scope)
+  local mesh = scope:own(syntheticMesh({
+    { -1, -1, -1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 3, -1, -1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 3, 3, -1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { -1, -1, -1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { 3, 3, -1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 3 },
+    { -1, 3, -1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 3 },
+  }))
+  return {
+    mesh = mesh,
+    material = {
+      alphaClass = "translucent",
+      texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+      image = solidAlphaImage(scope, 255, 255, 255, 255),
+    },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    alphaClass = "translucent",
+    cullMode = "none",
+    polygonAlpha = 0.5,
+    polygonMode = "modulation",
+    polygonId = 7,
+    translucentDepthWrite = false,
+    depthEqual = false,
+    lightMask = 1,
+    alphaCutoff = 0.5 / 255,
+    fogEnabled = false,
+    center = { 0.5, 0.5, -1 },
+  }
+end
+
+local function litRuntimeForRenderer()
+  local white = 31 + 31 * 32 + 31 * 1024
+  local runtime = emptyRuntime()
+  runtime.lighting = {
+    records = {
+      {
+        startHalfSeconds = 0,
+        lights = {
+          { enabled = true, colorRgb555 = white, vectorFx12 = { 0, 0, -4096 } },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+          { enabled = false, colorRgb555 = 0, vectorFx12 = { 0, 0, 0 } },
+        },
+        diffuseRgb555 = white,
+        ambientRgb555 = 0,
+        specularRgb555 = 0,
+        emissionRgb555 = 0,
+      },
+    },
+  }
+  return runtime
+end
+
+function T.approximate_translucent_normal_lighting_reaches_the_color_shader(scope)
+  local renderer = scope:own(MapRenderer.new({ translucencyMode = MapRenderer.TRANSLUCENCY_APPROXIMATE }))
+  local item = normalLitTranslucentQuad(scope)
+  local result = centerReadback(scope, renderer, fixedCamera(), litRuntimeForRenderer(), { { item } })
+  Assert.isTrue(result.color[1] > 0.1, "approximate translucent NORMAL lighting is visible")
+end
+
+function T.exact_translucent_normal_lighting_reaches_source_color_rasterization(scope)
+  local renderer = scope:own(MapRenderer.new({ translucencyMode = MapRenderer.TRANSLUCENCY_EXACT }))
+  local item = normalLitTranslucentQuad(scope)
+  local result = centerReadback(scope, renderer, fixedCamera(), litRuntimeForRenderer(), { { item } })
+  Assert.isTrue(result.color[1] > 0.1, "exact translucent NORMAL lighting is visible")
+end
+
 local function depthQuadMesh(scope, z)
   return scope:own(syntheticMesh({
     { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
@@ -3373,7 +3478,7 @@ end
 -- Draw one parts list and return { color = {r,g,b,a}, state = {r,g,b,a} } at
 -- the 640x480 canvas center through the real MapRenderer. `runtime` may carry
 -- edge/fog overrides.
-local function centerReadback(scope, renderer, camera, runtime, parts)
+centerReadback = function(scope, renderer, camera, runtime, parts)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   renderer:draw(runtime, camera, parts, nil, viewport, 0)
   local colorImg = renderer.sceneColor:newImageData()
@@ -4188,6 +4293,134 @@ function T.presentation_sprites_use_native_resolution_fog_and_no_edge_pass(scope
   local r, g, b = host:newImageData():getPixel(320, 240)
   Assert.isTrue(r < 1 and g < 1 and b < 1, "sprite color is fogged at its own depth")
   Assert.isTrue(math.abs(r - g) < 1 / 255 and math.abs(g - b) < 1 / 255, "sprite has no edge-color outline")
+end
+
+local function presentationQuadMesh(scope, z)
+  return scope:own(syntheticMesh({
+    { -1, -1, z, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, -1, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 1, z, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, z, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 1, z, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+end
+
+local function presentationSprite(scope, mesh, image)
+  return {
+    mesh = mesh,
+    material = { alphaClass = "cutout", texMatrix = IDENTITY_NORMAL, image = image },
+    transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
+    billboardProjection = true,
+    billboardCenter = { 0, 0, 0 },
+    billboardScale = { 1, 1, 1 },
+    alphaClass = "cutout",
+    cullMode = "none",
+    polygonAlpha = 1,
+    polygonMode = "modulation",
+    polygonId = 0,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    fogEnabled = false,
+    center = { 0, 0, 0 },
+  }
+end
+
+local function readPresentationPixel(image, width, height, x, y)
+  local a = { image:getPixel(x, y) }
+  local b = { image:getPixel(x, height - 1 - y) }
+  local function brightness(pixel)
+    return pixel[1] + pixel[2] + pixel[3]
+  end
+  return brightness(a) >= brightness(b) and a or b
+end
+
+function T.presentation_sprites_stay_inside_a_wide_strict_world_viewport(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local host = scope:own(love.graphics.newCanvas(1280, 720))
+  local image = solidAlphaImage(scope, 255, 0, 0, 255)
+  local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), image)
+  local viewport = FieldViewport.new(1280, 720, { mode = "strict" })
+
+  love.graphics.setCanvas(host)
+  love.graphics.clear(0, 0, 0, 1)
+  renderer:draw(emptyRuntime(), fixedCamera(), {}, { sprite }, viewport, 0)
+  love.graphics.setCanvas()
+
+  local pixels = host:newImageData()
+  local center = readPresentationPixel(pixels, 1280, 720, 640, 360)
+  local bar = readPresentationPixel(pixels, 1280, 720, 32, 360)
+  Assert.isTrue(center[1] > 0.5, "the centered actor remains visible")
+  Assert.isTrue(bar[1] < 0.05 and bar[2] < 0.05 and bar[3] < 0.05, "pillarbox bars remain untouched")
+end
+
+function T.presentation_sprites_stay_inside_a_narrow_expanded_viewport_fallback(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local host = scope:own(love.graphics.newCanvas(600, 720))
+  local image = solidAlphaImage(scope, 0, 255, 0, 255)
+  local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), image)
+  local viewport = FieldViewport.new(600, 720, { mode = "expanded" })
+
+  love.graphics.setCanvas(host)
+  love.graphics.clear(0, 0, 0, 1)
+  renderer:draw(emptyRuntime(), fixedCamera(), {}, { sprite }, viewport, 0)
+  love.graphics.setCanvas()
+
+  local pixels = host:newImageData()
+  local center = readPresentationPixel(pixels, 600, 720, 300, 360)
+  local bar = readPresentationPixel(pixels, 600, 720, 300, 32)
+  Assert.isTrue(center[2] > 0.5, "the centered actor remains visible in the fitted world")
+  Assert.isTrue(bar[1] < 0.05 and bar[2] < 0.05 and bar[3] < 0.05, "top/bottom bars remain untouched")
+end
+
+function T.presentation_sprite_fog_uses_the_world_endpoint_density_rules(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local host = scope:own(love.graphics.newCanvas(640, 480))
+  local image = solidAlphaImage(scope, 255, 0, 0, 255)
+  local sprite = presentationSprite(scope, presentationQuadMesh(scope, -300), image)
+  sprite.billboardCenter = nil
+  sprite.billboardScale = nil
+  sprite.fogEnabled = true
+  local normalRamp = {}
+  local saturatingRamp = {}
+  for index = 1, 31 do
+    normalRamp[index] = (index - 1) * 4
+    saturatingRamp[index] = (index - 1) * 4
+  end
+  normalRamp[32] = 124
+  saturatingRamp[32] = 255
+  local function runtime(table32)
+    local value = emptyRuntime()
+    value.fog = {
+      enabled = true,
+      color = 31 + 31 * 32 + 31 * 1024,
+      offset = -0x10000,
+      slope = 0,
+      alpha = 31,
+      table = table32,
+    }
+    return value
+  end
+  local function render(table32)
+    love.graphics.setCanvas(host)
+    love.graphics.clear(0, 0, 0, 1)
+    renderer:draw(
+      runtime(table32),
+      perspectiveCamera(),
+      {},
+      { sprite },
+      FieldViewport.new(640, 480, { mode = "strict" }),
+      0
+    )
+    love.graphics.setCanvas()
+    return readPresentationPixel(host:newImageData(), 640, 480, 320, 240)
+  end
+
+  local normal = render(normalRamp)
+  local saturating = render(saturatingRamp)
+  Assert.isTrue(normal[2] < 0.99, "the ordinary fog ramp preserves its final density of 124")
+  Assert.isTrue(saturating[2] > 0.99, "a final raw density at or above 127 saturates to 128")
 end
 
 return GraphicsSmoke.suite(T)

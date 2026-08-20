@@ -127,6 +127,7 @@ local function fakeGraphics(opts)
     depth = {},
     wireframe = {},
     clear = {},
+    draw = {},
   }
   local state = {
     canvas = opts.canvas,
@@ -235,8 +236,17 @@ local function fakeGraphics(opts)
     setColor = function(r, g, b, a)
       state.color = { r, g, b, a }
     end,
-    draw = function()
+    draw = function(mesh, ...)
       drawCalls = drawCalls + 1
+      calls.draw[#calls.draw + 1] = {
+        mesh = mesh,
+        args = { ... },
+        wireframe = state.wireframe,
+        depthMode = state.depthMode,
+        depthWrite = state.depthWrite,
+        blendMode = state.blendMode,
+        blendAlpha = state.blendAlpha,
+      }
       if opts.failOnDrawCall == drawCalls then
         error("injected draw failure")
       end
@@ -588,7 +598,7 @@ function T.draw_failure_restores_exact_state_and_rethrows()
     wireframe = false,
     cullMode = "back",
     color = { 0.2, 0.4, 0.6, 0.8 },
-    failOnDrawCall = 2,
+    failOnDrawCall = 1,
   })
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
@@ -1196,7 +1206,7 @@ function T.changed_fog_reference_retries_after_partial_sync_failure()
   renderer:_sendSpriteFog(scene.runtime)
   renderer._activeShader = nil
 
-  Assert.equal(shaderSendCount(renderer.edgeShader, "u_fogEnabled"), 3, "the final consumer retries the failed preset")
+  Assert.equal(shaderSendCount(renderer.edgeShader, "u_fogEnabled"), 2, "the successful edge consumer does not resend")
   Assert.equal(
     shaderSendCount(renderer.spriteShader, "u_fogEnabled"),
     2,
@@ -1334,41 +1344,87 @@ function T.lighting_cache_tracks_profile_record_and_unlit_transitions()
   local profile = { records = { morning, evening } }
   local runtime = { lighting = profile, fieldTimeSeconds = 0 }
 
-  renderer:_sendLighting(runtime)
+  renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 12, "first lit record sends four light uniform groups")
   local colors = renderer._lightMaterialColors
   local diffuse = colors.diffuse
   Assert.deepEqual(diffuse, { 1, 0, 0 })
 
-  renderer:_sendLighting(runtime)
+  renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 12, "same profile and record sends nothing")
   Assert.equal(renderer._lightMaterialColors, colors)
   Assert.equal(renderer._lightMaterialColors.diffuse, diffuse)
 
   runtime.fieldTimeSeconds = 20
-  renderer:_sendLighting(runtime)
+  renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 24, "time selection moving records resends lighting")
   Assert.equal(renderer._lightMaterialColors, colors, "decoded material storage is persistent")
   Assert.equal(renderer._lightMaterialColors.diffuse, diffuse)
   Assert.deepEqual(diffuse, { 0, 1, 0 })
 
   runtime.lighting = { records = { evening } }
-  renderer:_sendLighting(runtime)
+  renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 36, "profile identity participates in the cache key")
 
   runtime.lighting = nil
-  renderer:_sendLighting(runtime)
+  renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 48, "lit to unlit clears every light uniform once")
   Assert.isNil(renderer._lightMaterialColors, "unlit scenes expose no profile material colors")
-  renderer:_sendLighting(runtime)
+  renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 48, "stable unlit state sends nothing")
 
   runtime.lighting = profile
   runtime.fieldTimeSeconds = 0
-  renderer:_sendLighting(runtime)
+  renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 60, "unlit to lit restores the selected record")
   Assert.equal(renderer._lightMaterialColors, colors)
   Assert.deepEqual(renderer._lightMaterialColors.diffuse, { 1, 0, 0 })
+  renderer:release()
+end
+
+local function litRuntime()
+  local white = 31 + 31 * 32 + 31 * 1024
+  return {
+    mapDraws = {},
+    buildingDraws = {},
+    stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
+    edgeColors = edgeColorsFixture(),
+    fog = disabledFogFixture(),
+    lighting = { records = { lightingRecord(0, white, 0) } },
+    fieldTimeSeconds = 0,
+  }
+end
+
+function T.lighting_delivery_retries_only_the_shader_that_failed()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local runtime = litRuntime()
+  local colorShader, worldShader = lg.shaders[1], lg.shaders[3]
+
+  renderer:_sendLighting(runtime, colorShader)
+  lg.setFailOnSend({ shader = worldShader, name = "u_lightEnabled0" })
+  Assert.throws(function()
+    renderer:_sendLighting(runtime, worldShader)
+  end, "a failed light upload propagates")
+
+  renderer:_sendLighting(runtime, worldShader)
+  Assert.equal(#colorShader.sends, 12, "a different shader remains cached after the failure")
+  Assert.equal(#worldShader.sends, 12, "the failed shader retries its complete payload")
+  renderer:release()
+end
+
+function T.lighting_cache_hit_restores_material_colors_after_another_shader_unlights()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local runtime = litRuntime()
+  local colorShader, worldShader = lg.shaders[1], lg.shaders[3]
+
+  renderer:_sendLighting(runtime, colorShader)
+  renderer:_sendLighting({ lighting = nil }, worldShader)
+  Assert.isNil(renderer._lightMaterialColors)
+
+  renderer:_sendLighting(runtime, colorShader)
+  Assert.equal(renderer._lightMaterialColors, renderer._lightMaterialColorCache)
   renderer:release()
 end
 
@@ -1390,6 +1446,151 @@ local function passItem(alphaClass, z, opts)
     depthEqual = opts.depthEqual or false,
     translucentDepthWrite = opts.translucentDepthWrite or false,
   }
+end
+
+function T.exact_compositor_sends_invariant_bindings_once_per_blended_frame()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local scene = emptySceneCamera()
+  local parts = {
+    { passItem("translucent", 0) },
+    { passItem("translucent", 1) },
+  }
+
+  renderer:draw(litRuntime(), scene.camera, parts, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+
+  local compositeShader = renderer.compositeShader
+  Assert.equal(shaderSendCount(compositeShader, "u_sourceColor"), 1)
+  Assert.equal(shaderSendCount(compositeShader, "u_sourceMeta"), 1)
+  Assert.equal(shaderSendCount(compositeShader, "u_size"), 1)
+  Assert.equal(shaderSendCount(compositeShader, "u_activeColor"), 2)
+  Assert.equal(shaderSendCount(compositeShader, "u_activeState"), 2)
+  renderer:release()
+end
+
+function T.target_descriptors_retain_identity_through_steady_draws_and_exact_swaps()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local scene = emptySceneCamera()
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+  local oneBlended = { { passItem("translucent", 0) } }
+  local twoBlended = {
+    { passItem("translucent", 0) },
+    { passItem("translucent", 1) },
+  }
+
+  renderer:draw(scene.runtime, scene.camera, oneBlended, nil, viewport, 0)
+  local colorTargets = assert(renderer._colorTargets)
+  local stateClearTargets = assert(renderer._stateClearTargets)
+  local colorClearTargets = assert(renderer._colorClearTargets)
+  local sourceColorTargets = assert(renderer._sourceColorTargets)
+  local sourceMetaTargets = assert(renderer._sourceMetaTargets)
+  renderer:draw(scene.runtime, scene.camera, oneBlended, nil, viewport, 0)
+  Assert.equal(renderer._colorTargets, colorTargets)
+  Assert.equal(renderer._stateClearTargets, stateClearTargets)
+  Assert.equal(renderer._colorClearTargets, colorClearTargets)
+  Assert.equal(renderer._sourceColorTargets, sourceColorTargets)
+  Assert.equal(renderer._sourceMetaTargets, sourceMetaTargets)
+  local startingSceneColor = renderer.sceneColor
+  local startingRenderState = renderer.renderState
+
+  renderer:draw(scene.runtime, scene.camera, twoBlended, nil, viewport, 0)
+  Assert.equal(renderer._colorTargets, colorTargets)
+  Assert.equal(renderer._stateClearTargets, stateClearTargets)
+  Assert.equal(renderer._colorClearTargets, colorClearTargets)
+  Assert.equal(renderer._sourceColorTargets, sourceColorTargets)
+  Assert.equal(renderer._sourceMetaTargets, sourceMetaTargets)
+  Assert.equal(renderer._colorTargets[1], renderer.sceneColor)
+  Assert.equal(renderer._colorTargets[2], renderer.renderState)
+  Assert.equal(renderer._colorTargets.depthstencil, renderer.colorDepth)
+  Assert.equal(renderer.sceneColor, startingSceneColor, "an even exact swap preserves the active color canvas")
+  Assert.equal(renderer.renderState, startingRenderState, "an even exact swap preserves the active state canvas")
+  Assert.equal(stateClearTargets[1], renderer.renderState)
+  Assert.equal(colorClearTargets[1], renderer.sceneColor)
+  Assert.equal(sourceColorTargets[1], renderer._sourceColor)
+  Assert.equal(sourceMetaTargets[1], renderer._sourceMeta)
+  renderer:release()
+end
+
+function T.wireframe_is_submitted_once_with_edge_only_state()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local item = passItem("wireframe", 0)
+
+  renderer:draw(
+    litRuntime(),
+    emptySceneCamera().camera,
+    { { item } },
+    nil,
+    FieldViewport.new(640, 480, { mode = "strict" }),
+    0
+  )
+
+  Assert.equal(renderer.stats.drawCalls, 1, "one wireframe item produces one mesh submission")
+  Assert.equal(#lg.calls.draw, 2, "one mesh submission plus the final resolve")
+  local meshDraw = lg.calls.draw[1]
+  Assert.equal(meshDraw.mesh, item.mesh)
+  Assert.isTrue(meshDraw.wireframe, "wireframe rasterization is enabled for the mesh")
+  Assert.equal(meshDraw.depthMode, "less")
+  Assert.equal(meshDraw.depthWrite, true)
+  Assert.equal(meshDraw.blendMode, "replace")
+  Assert.equal(meshDraw.blendAlpha, "premultiplied")
+  renderer:release()
+end
+
+function T.lighting_delivery_is_independent_for_approximate_world_and_color_shaders()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  renderer:draw(
+    litRuntime(),
+    emptySceneCamera().camera,
+    { { passItem("translucent", 0) } },
+    nil,
+    FieldViewport.new(640, 480, { mode = "strict" }),
+    0
+  )
+
+  Assert.equal(shaderSendCount(lg.shaders[3], "u_lightEnabled0"), 1, "world shader receives the lit profile")
+  Assert.equal(shaderSendCount(lg.shaders[1], "u_lightEnabled0"), 1, "color shader receives the lit profile")
+  renderer:release()
+end
+
+function T.lighting_delivery_is_independent_for_exact_source_color_shader()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  renderer:draw(
+    litRuntime(),
+    emptySceneCamera().camera,
+    { { passItem("translucent", 0) } },
+    nil,
+    FieldViewport.new(640, 480, { mode = "strict" }),
+    0
+  )
+
+  Assert.equal(shaderSendCount(lg.shaders[3], "u_lightEnabled0"), 1, "world shader receives the lit profile")
+  Assert.equal(
+    shaderSendCount(lg.shaders[1], "u_lightEnabled0"),
+    1,
+    "exact source-color shader receives the lit profile"
+  )
+  renderer:release()
+end
+
+function T.lighting_delivery_clears_each_shader_on_lit_to_unlit_transition()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg })
+  local runtime = litRuntime()
+  local camera = emptySceneCamera().camera
+  local parts = { { passItem("translucent", 0) } }
+  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
+
+  renderer:draw(runtime, camera, parts, nil, viewport, 0)
+  runtime.lighting = nil
+  renderer:draw(runtime, camera, parts, nil, viewport, 0)
+
+  Assert.equal(shaderSendCount(lg.shaders[3], "u_lightEnabled0"), 2, "world shader receives its unlit clear")
+  Assert.equal(shaderSendCount(lg.shaders[1], "u_lightEnabled0"), 2, "color shader receives its unlit clear")
+  renderer:release()
 end
 
 -- One opaque world item is submitted once to the shared MRT target. The

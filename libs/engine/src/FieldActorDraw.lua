@@ -99,6 +99,12 @@ local function writeItem(record, entry, partIndex, item)
   end
 
   local polygon = part.polygon
+  if isBillboard then
+    assert(
+      part.alphaClass == "opaque" or part.alphaClass == "cutout",
+      "ordinary billboard has unsupported alpha class: " .. tostring(part.alphaClass)
+    )
+  end
   local image = entry.image
   if part.textured == false then
     image = nil

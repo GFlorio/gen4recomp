@@ -83,6 +83,8 @@ uniform vec3 u_matSpecular;
 uniform vec3 u_matEmission;
 #ifdef PRESENTATION_SPRITE
 uniform bool u_presentationSprite;
+uniform vec2 u_presentationScale;
+uniform vec2 u_presentationOffset;
 #endif
 
 // 1.0.9 domain scale shared by normals and the transformed light-direction
@@ -241,6 +243,11 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
   clip.y = -clip.y;
 #endif
   v_spriteUv = clip.xy / clip.w * 0.5 + 0.5;
+#ifdef PRESENTATION_SPRITE
+  if (u_presentationSprite) {
+    clip.xy = clip.xy * u_presentationScale + u_presentationOffset;
+  }
+#endif
   return clip;
 }
 #endif
@@ -327,7 +334,10 @@ float spriteFogDensity(float depth)
   if (depth < u_fogOffsetDepth) return spriteFogTable(0);
   float shifted = floor((depth - u_fogOffsetDepth) / 4.0) * pow(2.0, u_fogShift);
   float index = floor(shifted / 131072.0);
-  if (index >= 32.0) return 128.0;
+  if (index >= 32.0) {
+    index = 32.0;
+    shifted = 32.0 * 131072.0;
+  }
   float fraction = shifted - index * 131072.0;
   float lo = spriteFogTable(int(index));
   float hi = spriteFogTable(int(index) + 1);
@@ -442,6 +452,7 @@ void effect()
     // Render-state canvases use the canvas texture orientation while this
     // stage is rasterized directly to the window, so presentation Y is
     // inverted when looking up the corresponding world pixel.
+    if (v_spriteUv.x < 0.0 || v_spriteUv.x > 1.0 || v_spriteUv.y < 0.0 || v_spriteUv.y > 1.0) discard;
     vec2 stateUv = vec2(v_spriteUv.x, 1.0 - v_spriteUv.y);
     stateUv = clamp(stateUv, vec2(0.0), vec2(1.0) - 0.5 / u_stateSize);
     float worldDepth = Texel(u_renderState, stateUv).g;

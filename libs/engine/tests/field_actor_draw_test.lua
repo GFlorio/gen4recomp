@@ -142,6 +142,29 @@ function T.carries_the_source_polygon_state()
   Assert.isFalse(item.depthEqual)
 end
 
+function T.ordinary_billboards_reject_unsupported_alpha_classes_but_static_parts_do_not()
+  for _, alphaClass in ipairs({ "translucent", "mixed", "wireframe" }) do
+    local visualEntry = entry(99)
+    visualEntry.visual.render.alphaClass = alphaClass
+    local err = Assert.throws(function()
+      FieldActorDraw.item(record(), visualEntry)
+    end)
+    Assert.isTrue(
+      string.find(tostring(err), alphaClass, 1, true) ~= nil,
+      "the unsupported billboard error names its alpha class"
+    )
+  end
+
+  local staticEntry = staticModelEntry(183, function(render)
+    return {
+      { geometry = render.geometry, polygon = render.polygon, alphaClass = "translucent", textured = false },
+    }
+  end)
+  local item = FieldActorDraw.item(record({ spriteId = 183 }), staticEntry)
+  Assert.isFalse(item.billboardProjection, "static-model parts remain world-rendered")
+  Assert.equal(item.alphaClass, "translucent")
+end
+
 function T.selects_the_mesh_of_the_posed_frame()
   local idle = FieldActorDraw.item(record({ facing = "west" }), entry(99))
   Assert.equal(idle.frameIndex, 3)

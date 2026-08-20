@@ -225,8 +225,9 @@ when the final 5-bit alpha is zero, implemented as `alpha < 0.5 / 255`.
 position}`, never a field stamped onto the original item). `blended` holds
 both ordinary translucent items and a mixed item's translucent subpass,
 sorted together back-to-front in view space (submission position breaks
-ties) and honoring the polygon bit-11 translucent depth-write flag. Wireframe
-edges are drawn with opaque alpha after the filled passes. `FieldState` supplies
+ties) and honoring the polygon bit-11 translucent depth-write flag. The pass
+order is filled world MRT geometry, selected translucency, then one edge-only
+wireframe pass. `FieldState` supplies
 ordered arrays of map geometry, buildings, neighbour-ring draws, and actors.
 `RenderQueue` traverses those
 parts with one monotonically increasing submission position, so cross-part
@@ -282,9 +283,10 @@ independent of host presentation resolution:
   mode): the world raster. Production
   uses `WindowConfig.WORLD_3D_RASTER_SCALE = 2`, capping its height at 384
   DS-relative pixels while preserving the viewport aspect. The resolved world
-  is nearest-upscaled once into the presentation viewport. Opaque, cutout,
-  mixed-opaque, and wireframe fragments write color to target 0 and render
-  state to target 1 atomically, controlled by one depth attachment.
+  is nearest-upscaled once into the presentation viewport. Opaque, cutout, and
+  mixed-opaque fragments write color to target 0 and render state to target 1
+  atomically, controlled by one depth attachment. Wireframe edges are drawn
+  afterward against the active MRT pair with real wireframe rasterization.
 * **Color-only `map.glsl` variant**: translucent source-color rasterization
   and presentation sprites use the same combiner and lighting source without
   declaring a second output, so these paths can target a single color canvas.
@@ -326,16 +328,20 @@ interpolation remain host-side -- this is not bit-exact DS rasterization (see
 are presentation sprites, while actor static models remain world items. Map,
 building, neighbour, and map/building billboard items always remain world
 geometry. `MapRenderer:draw` resolves the world first, then draws sprites
-directly to the host at native presentation resolution. Sprite fragments compare
-their DS-quantized depth with the low-resolution world state and use host depth
-ordering for sprite-versus-sprite occlusion. Sprites use their own depth for
-fog and intentionally skip world edge marking; actor atlases remain nearest.
+directly to the host at native presentation resolution. Their camera NDC is
+affinely mapped into `worldViewport`, so pillarbox and letterbox bars remain
+world-only; the unscaled camera UV still drives world-state lookup and rejects
+fragments outside the world coverage. The stream is deliberately limited to
+ordered opaque/cutout billboards and writes host depth for sprite-versus-sprite
+occlusion. Sprite fragments compare their DS-quantized depth with the
+low-resolution world state, use the same fog density endpoint sequence as the
+world, and intentionally skip world edge marking; actor atlases remain nearest.
 
 The world renderer selects projection identically for ordinary and billboard
 world items (`item.billboardProjection and billboardProjection or
-worldProjection`). It draws opaque, cutout, mixed-opaque, and wireframe items
-once through the MRT shader, then applies the selected translucency mode and
-draws wireframe on the resulting active pair.
+worldProjection`). It draws opaque, cutout, and mixed-opaque items through the
+MRT shader, applies the selected translucency mode, then draws each wireframe
+item once as an edge-only pass on the resulting active pair.
 
 Target generations are allocated transactionally by one
 `MapRenderer:_ensureTargets` call. The MRT color/state/depth set is always
@@ -378,6 +384,9 @@ composite per blended entry. Exact-only shaders, spare canvases, and source
 buffers are allocated only in exact mode. The source metadata buffer is `rgba8`
 and encodes IDs as `(id + 1) / 64`; no source-color clear or initial destination
 seed blits are required because invalid-source pixels copy the active destination.
+This exactness applies to world-raster blending and state only. Native
+presentation actors are composed after the world has resolved, so they do not
+participate in exact translucent ordering with world polygons.
 
 ### Programmable translucent compositor
 

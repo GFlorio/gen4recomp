@@ -4,7 +4,7 @@
 -- share bounded world dimensions; actor sprites resolve the world first and
 -- draw directly to the host window.
 --
--- The render queue is built exactly once per frame (RenderQueue.buildInto)
+-- The world render queue is built exactly once per frame (RenderQueue.buildInto)
 -- and the world MRT pass consumes it. Opaque, cutout, and mixed-opaque
 -- fragments stamp renderState atomically with color:
 -- ID, DS-quantized depth, and per-polygon fog gate. Ordinary translucent and
@@ -59,7 +59,6 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _fogTableCache number[][]
 ---@field _fogFinalReference table?
 ---@field _fogSpriteReference table?
----@field _fogSynchronizedReference table?
 ---@field stats { drawCalls: integer, colorDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
 ---@field sceneColor love.Canvas?
 ---@field colorDepth love.Canvas?
@@ -73,14 +72,17 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field stateW integer?
 ---@field stateH integer?
 ---@field _colorTargets { [1]: love.Canvas, [2]: love.Canvas, depthstencil: love.Canvas }?
+---@field _stateClearTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
+---@field _colorClearTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _sourceColorTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _sourceMetaTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
+---@field _lightingDelivery table<love.Shader, { lit: boolean, profile: table?, record: table? }>
 ---@field _queueScratch RenderQueueScratch
----@field _spriteQueueScratch RenderQueueScratch
----@field _spriteParts table[][]
+---@field _presentationScale number[]
+---@field _presentationOffset number[]
 ---@field worldRasterScale number?
 ---@field translucencyMode "approximate"|"exact"
 local MapRenderer = {}
@@ -243,7 +245,6 @@ function MapRenderer.new(opts)
     },
     _fogFinalReference = nil,
     _fogSpriteReference = nil,
-    _fogSynchronizedReference = nil,
     stats = { drawCalls = 0, colorDrawCalls = 0, triangles = 0, meshCount = 0, textureCount = 0 },
     _lightMaterialColorCache = {
       diffuse = { 0, 0, 0 },
@@ -263,6 +264,7 @@ function MapRenderer.new(opts)
       { 0, 0, 0 },
       { 0, 0, 0 },
     },
+    _lightingDelivery = {},
     _queueScratch = {
       opaque = {},
       cutout = {},
@@ -270,14 +272,8 @@ function MapRenderer.new(opts)
       wireframe = {},
       blended = {},
     },
-    _spriteQueueScratch = {
-      opaque = {},
-      cutout = {},
-      mixedOpaque = {},
-      wireframe = {},
-      blended = {},
-    },
-    _spriteParts = { {} },
+    _presentationScale = { 1, 1 },
+    _presentationOffset = { 0, 0 },
   }, MapRenderer)
   -- Shader construction is transactional: a failure while creating a later
   -- shader (or reading its source) releases every one already created before
@@ -336,6 +332,8 @@ function MapRenderer:_releaseTargets()
   self._sourceColor, self._sourceMeta = nil, nil
   self.colorW, self.colorH, self.stateW, self.stateH = nil, nil, nil, nil
   self._colorTargets = nil
+  self._stateClearTargets = nil
+  self._colorClearTargets = nil
   self._sourceColorTargets = nil
   self._sourceMetaTargets = nil
 end
@@ -362,7 +360,8 @@ function MapRenderer:_ensureTargets(colorW, colorH)
   local lg = assert(self._graphics)
   local sceneColor, colorDepth, renderState
   local spareColor, spareState, sourceColor, sourceMeta
-  local colorTargets, sourceColorTargets, sourceMetaTargets
+  local colorTargets, stateClearTargets, colorClearTargets
+  local sourceColorTargets, sourceMetaTargets
   local ok, err = pcall(function()
     sceneColor = lg.newCanvas(colorW, colorH)
     -- Nearest sampling keeps the final composite draw (a 1:1 blit at
@@ -382,6 +381,8 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     renderState = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
     renderState:setFilter("nearest", "nearest")
     colorTargets = { sceneColor, renderState, depthstencil = colorDepth }
+    stateClearTargets = { renderState, depthstencil = colorDepth }
+    colorClearTargets = { sceneColor, depthstencil = colorDepth }
 
     if self.translucencyMode == MapRenderer.TRANSLUCENCY_EXACT then
       -- Exact mode alternates one spare destination pair with the active pair.
@@ -422,6 +423,8 @@ function MapRenderer:_ensureTargets(colorW, colorH)
   self._sourceColor, self._sourceMeta = sourceColor, sourceMeta
   self.colorW, self.colorH, self.stateW, self.stateH = colorW, colorH, colorW, colorH
   self._colorTargets = colorTargets
+  self._stateClearTargets = stateClearTargets
+  self._colorClearTargets = colorClearTargets
   self._sourceColorTargets = sourceColorTargets
   self._sourceMetaTargets = sourceMetaTargets
 end
@@ -492,10 +495,17 @@ local ZERO_COLOR = { 0, 0, 0 }
 -- same renderer. (u_lightMask needs no reset: every draw path sends it
 -- before drawing.)
 function MapRenderer:_sendLighting(sceneRuntime, targetShader)
-  local shader = targetShader or self.shader
+  assert(targetShader, "lighting delivery requires an explicit shader")
+  assert(
+    targetShader == self.shader or targetShader == self.worldShader or targetShader == self.spriteShader,
+    "lighting target is not owned by this renderer"
+  )
+  local shader = targetShader
   local profile = sceneRuntime.lighting
   if not profile or not profile.records then
-    if not targetShader and not self._lightingLit then
+    local delivery = self._lightingDelivery[shader]
+    if delivery and not delivery.lit and delivery.profile == nil and delivery.record == nil then
+      self._lightMaterialColors = nil
       return
     end
     for i = 0, 3 do
@@ -503,16 +513,16 @@ function MapRenderer:_sendLighting(sceneRuntime, targetShader)
       shader:send("u_lightVector" .. i, ZERO_COLOR)
       shader:send("u_lightColor" .. i, ZERO_COLOR)
     end
-    self._lightingLit = false
-    self._lightingProfile = nil
-    self._lightingRecord = nil
+    self._lightingDelivery[shader] = { lit = false, profile = nil, record = nil }
     self._lightMaterialColors = nil
     return
   end
 
   local record =
     FieldLightProfile.select(profile, sceneRuntime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
-  if not targetShader and self._lightingLit and self._lightingProfile == profile and self._lightingRecord == record then
+  local delivery = self._lightingDelivery[shader]
+  if delivery and delivery.lit and delivery.profile == profile and delivery.record == record then
+    self._lightMaterialColors = self._lightMaterialColorCache
     return
   end
 
@@ -537,9 +547,7 @@ function MapRenderer:_sendLighting(sceneRuntime, targetShader)
     shader:send("u_lightVector" .. (i - 1), vector)
     shader:send("u_lightColor" .. (i - 1), color)
   end
-  self._lightingLit = true
-  self._lightingProfile = profile
-  self._lightingRecord = record
+  self._lightingDelivery[shader] = { lit = true, profile = profile, record = record }
   self._lightMaterialColors = materialColors
 end
 
@@ -563,11 +571,9 @@ function MapRenderer:_sendEdgeColors(sceneRuntime)
   self._edgeColorsProfile = edgeColors
 end
 
--- The scene's resolved global HGSS weather fog preset is delivered to both
--- fog consumers only when its reference changes. The final shader can be
--- synchronized before the lazily-created sprite shader, so each consumer
--- records success independently and the combined reference is published only
--- after both have accepted the complete payload.
+-- The scene's resolved global HGSS weather fog preset is delivered to each
+-- consumer only when that consumer's reference changes. Each reference is
+-- advanced only after that consumer accepts the complete payload.
 local function sendFogPayload(renderer, shader, fog)
   decodeRgb555(renderer._fogColorCache, fog.color)
   local groups = renderer._fogTableCache
@@ -614,13 +620,9 @@ function MapRenderer:_sendSpriteFog(sceneRuntime)
   end
   local ok, err = pcall(sendFogPayload, self, shader, fog)
   if not ok then
-    self._fogFinalReference = nil
     error(err, 0)
   end
   self._fogSpriteReference = fog
-  if self._fogFinalReference == fog then
-    self._fogSynchronizedReference = fog
-  end
 end
 
 -- The effective DS material register for one channel of one draw item: the
@@ -1100,13 +1102,9 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
     -- ---- world MRT pass: color and polygon state ----
-    ---@type { [1]: love.Canvas, depthstencil: love.Canvas }
-    local stateClearTargets = { self.renderState, depthstencil = self.colorDepth }
-    lg.setCanvas(stateClearTargets)
+    lg.setCanvas(assert(self._stateClearTargets))
     lg.clear(DS_STATE_CLEAR, false, true)
-    ---@type { [1]: love.Canvas, depthstencil: love.Canvas }
-    local colorClearTargets = { self.sceneColor, depthstencil = self.colorDepth }
-    lg.setCanvas(colorClearTargets)
+    lg.setCanvas(assert(self._colorClearTargets))
     lg.clear(self.clearColor, false, false)
     lg.setCanvas(colorTargets)
     lg.setShader(self.worldShader)
@@ -1125,15 +1123,9 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     for _, d in ipairs(queue.mixedOpaque) do
       self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_MIXED_OPAQUE, viewMatrix)
     end
-    if #queue.wireframe > 0 then
-      for _, d in ipairs(queue.wireframe) do
-        self:_drawWireframe(d, projectionFor(d), viewMatrix)
-      end
-    end
     self._activeShader = nil
 
     -- ---- translucent compositor ----
-    self:_sendLighting(sceneRuntime)
     -- The DS translucent path needs per-pixel state that fixed-function host
     -- blending cannot express: same-ID rejection against the pixel's last
     -- translucent ID, max destination alpha, fog-gate AND, and
@@ -1152,6 +1144,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     local activeColor, activeState = self.sceneColor, self.renderState
     if self.translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE then
       if #queue.blended > 0 then
+        self:_sendLighting(sceneRuntime, self.shader)
         ---@type { [1]: love.Canvas, depthstencil: love.Canvas }
         local approximateTargets = { assert(self.sceneColor), depthstencil = assert(self.colorDepth) }
         lg.setCanvas(approximateTargets)
@@ -1159,7 +1152,6 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
         lg.setDepthMode("less", false)
         lg.setBlendMode("alpha", "alphamultiply")
         self.shader:send("u_view", "column", viewMatrix)
-        self:_sendLighting(sceneRuntime)
         for _, entry in ipairs(queue.blended) do
           local fragmentPass = entry.fragmentPass == AlphaClassifier.MIXED and FRAGMENT_PASS_MIXED_TRANSLUCENT
             or FRAGMENT_PASS_TRANSLUCENT
@@ -1167,10 +1159,14 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
         end
       end
     elseif #queue.blended > 0 then
+      self:_sendLighting(sceneRuntime, self.shader)
       local inactiveColor, inactiveState = assert(self._spareColor), assert(self._spareState)
       local function swap()
         activeColor, activeState, inactiveColor, inactiveState = inactiveColor, inactiveState, activeColor, activeState
       end
+      self.compositeShader:send("u_sourceColor", self._sourceColor)
+      self.compositeShader:send("u_sourceMeta", self._sourceMeta)
+      self.compositeShader:send("u_size", { colorW, colorH })
       for _, entry in ipairs(queue.blended) do
         local d = entry.item
         -- Depth-equal is a corpus-provable-absent DS state (see
@@ -1189,11 +1185,8 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
         lg.setBlendMode("replace", "premultiplied")
         lg.setColor(1, 1, 1, 1)
         lg.setShader(self.compositeShader)
-        self.compositeShader:send("u_sourceColor", self._sourceColor)
-        self.compositeShader:send("u_sourceMeta", self._sourceMeta)
         self.compositeShader:send("u_activeColor", activeColor)
         self.compositeShader:send("u_activeState", activeState)
-        self.compositeShader:send("u_size", { colorW, colorH })
         lg.draw(self._sourceColor, 0, 0)
         lg.setShader()
         swap()
@@ -1203,7 +1196,10 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       -- next frame's composite reads the active pair and copies invalid
       -- source pixels directly from it.
       self.sceneColor, self.renderState = activeColor, activeState
-      self._colorTargets = { activeColor, activeState, depthstencil = self.colorDepth }
+      local publishedTargets = assert(self._colorTargets)
+      publishedTargets[1], publishedTargets[2] = activeColor, activeState
+      assert(self._stateClearTargets)[1] = activeState
+      assert(self._colorClearTargets)[1] = activeColor
       self._spareColor, self._spareState = inactiveColor, inactiveState
     end
 
@@ -1216,7 +1212,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       lg.setShader(self.worldShader)
       self._activeShader = self.worldShader
       lg.setDepthMode("less", true)
-      lg.setBlendMode("alpha")
+      lg.setBlendMode("replace", "premultiplied")
       lg.setWireframe(true)
       for _, d in ipairs(queue.wireframe) do
         self:_drawWireframe(d, projectionFor(d), viewMatrix)
@@ -1245,12 +1241,29 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     -- to the window. No sprite color or state canvas is allocated.
     if spriteItems and #spriteItems > 0 then
       lg.clear(nil, nil, nil, nil, false, true)
-      local spriteParts = self._spriteParts
-      spriteParts[1] = spriteItems
-      local spriteQueue = RenderQueue.buildInto(spriteParts, viewMatrix, self._spriteQueueScratch)
       self._activeShader = self:_ensureSpriteShader()
       local spriteShader = assert(self._activeShader)
       spriteShader:send("u_presentationSprite", true)
+      local targetWidth, targetHeight
+      if presentationCanvas then
+        ---@diagnostic disable-next-line: undefined-field
+        targetWidth, targetHeight = presentationCanvas:getWidth(), presentationCanvas:getHeight()
+      else
+        targetWidth, targetHeight = lg.getDimensions()
+      end
+      assert(targetWidth > 0 and targetHeight > 0, "MapRenderer requires positive presentation target dimensions")
+      local scale = self._presentationScale
+      local offset = self._presentationOffset
+      scale[1] = rectangle.width / targetWidth
+      scale[2] = rectangle.height / targetHeight
+      offset[1] = (2 * rectangle.x + rectangle.width) / targetWidth - 1
+      offset[2] = 1 - (2 * rectangle.y + rectangle.height) / targetHeight
+      if presentationCanvas then
+        scale[2] = -scale[2]
+        offset[2] = -offset[2]
+      end
+      spriteShader:send("u_presentationScale", scale)
+      spriteShader:send("u_presentationOffset", offset)
       spriteShader:send("u_view", "column", viewMatrix)
       spriteShader:send("u_renderState", activeState)
       spriteShader:send("u_stateSize", { self.stateW, self.stateH })
@@ -1259,29 +1272,21 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       lg.setShader(spriteShader)
       lg.setBlendMode("alpha")
 
-      local function drawSprite(item, fragmentPass, depthWrite)
+      local function drawSprite(item, fragmentPass)
         spriteShader:send("u_spriteFogEnabled", item.fogEnabled == true)
-        lg.setDepthMode("less", depthWrite)
+        lg.setDepthMode("less", true)
         self:_drawItem(item, billboardProjection, fragmentPass, viewMatrix)
       end
-      for _, d in ipairs(spriteQueue.opaque) do
-        drawSprite(d, FRAGMENT_PASS_OPAQUE, true)
-      end
-      for _, d in ipairs(spriteQueue.cutout) do
-        drawSprite(d, FRAGMENT_PASS_CUTOUT, true)
-      end
-      for _, d in ipairs(spriteQueue.mixedOpaque) do
-        drawSprite(d, FRAGMENT_PASS_MIXED_OPAQUE, true)
-      end
-      for _, d in ipairs(spriteQueue.wireframe) do
-        drawSprite(d, FRAGMENT_PASS_OPAQUE, true)
-      end
-      for _, entry in ipairs(spriteQueue.blended) do
-        drawSprite(
-          entry.item,
-          entry.fragmentPass == AlphaClassifier.MIXED and FRAGMENT_PASS_MIXED_TRANSLUCENT or FRAGMENT_PASS_TRANSLUCENT,
-          false
-        )
+      for _, item in ipairs(spriteItems) do
+        local fragmentPass
+        if item.alphaClass == AlphaClassifier.OPAQUE then
+          fragmentPass = FRAGMENT_PASS_OPAQUE
+        elseif item.alphaClass == AlphaClassifier.CUTOUT then
+          fragmentPass = FRAGMENT_PASS_CUTOUT
+        else
+          error("ordinary billboard has unsupported alpha class: " .. tostring(item.alphaClass))
+        end
+        drawSprite(item, fragmentPass)
       end
       self._activeShader = nil
     end
