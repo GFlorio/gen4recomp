@@ -358,16 +358,6 @@ end
 function T.resolver_does_not_mutate_catalog()
   local Resolver = requireResolver()
   local catalog = canonicalCatalog()
-  local copy = {
-    schema = catalog.schema,
-    presets = catalog.presets,
-    rules = {
-      catalog.rules[1],
-      catalog.rules[2],
-      catalog.rules[3],
-      catalog.rules[4],
-    },
-  }
   Resolver.resolve(catalog, {
     mapId = MOUNT_SILVER_SUMMIT,
     baseWeatherId = 5,
