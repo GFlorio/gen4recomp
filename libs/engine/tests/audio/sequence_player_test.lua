@@ -61,8 +61,8 @@
 -- releases, sequence replacement); the exact PCM/register hardware math is
 -- pinned in the VoiceMixer suite. The mixer's {channel, generation} handles
 -- are opaque to the player: the stub mixer models the persistent-generation
--- contract. Players process ascending player number and tracks ascending
--- track number over the fixed NNS domains (16 players x 16 tracks).
+-- contract. Physical SeqPlayer slots process ascending slot number and tracks
+-- ascending track number over the fixed NNS domains (16 slots x 16 tracks).
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -1529,9 +1529,9 @@ function T.track_value_changes_reach_active_voices_promptly()
   Assert.equal(push.partial.sequenceVolume, 127, "the push carries the inner sequence volume")
 end
 
--- Deterministic scheduling: the player processes players ascending and each
--- player's tracks ascending over the fixed NNS domains (16 players x 16
--- tracks per player). Within every processing pass the lower track numbers
+-- Deterministic scheduling: the player processes physical slots ascending and
+-- each slot's tracks ascending over the fixed NNS domains (16 slots x 16
+-- tracks per slot). Within every processing pass the lower track numbers
 -- issue their noteOn first.
 function T.contested_allocation_follows_ascending_track_order()
   local bank = AudioFixture.bank(12, "BANK_TEST", {
@@ -1579,12 +1579,10 @@ function T.contested_allocation_follows_ascending_track_order()
   end
 end
 
--- Deterministic scheduling across players: different play orders must not
--- change the per-tick processing order, which is ascending player number
--- over the fixed NNS domain, never Lua table order. Only the initial play()
--- pass follows the call order; from the first tick on every pass is
--- identical.
-function T.contested_allocation_is_identical_across_player_play_orders()
+-- Deterministic scheduling across physical slots: play order determines the
+-- first-free slot, and slots then process in ascending order. The initial
+-- play() pass follows the call order; each later pass follows slot order.
+function T.contested_allocation_follows_physical_slot_order()
   local bank = AudioFixture.bank(12, "BANK_TEST", {
     AudioFixture.key(1),
     AudioFixture.key(2),
@@ -1634,13 +1632,13 @@ function T.contested_allocation_is_identical_across_player_play_orders()
     local expected = ({ AudioFixture.key(1), AudioFixture.key(2) })[((i - 5) % 2) + 1]
     Assert.equal(
       generatorOf(forward.log.noteOns[i]).sample,
-      generatorOf(backward.log.noteOns[i]).sample,
-      "from the first tick on, the per-pass player order is identical regardless of play order"
+      expected,
+      "the physical-slot order follows allocation order"
     )
     Assert.equal(
-      generatorOf(forward.log.noteOns[i]).sample,
-      expected,
-      "the ascending player order hands the pass to players 1, 7, 13, 15"
+      generatorOf(backward.log.noteOns[i]).sample,
+      ({ AudioFixture.key(2), AudioFixture.key(1) })[((i - 5) % 2) + 1],
+      "the reversed allocation order reverses physical-slot execution"
     )
   end
 end
@@ -3459,6 +3457,150 @@ function T.global_track_pool_rejects_the_thirty_third_track_and_reuses_after_sto
   Assert.equal(poolEvents[#poolEvents].allocated, 32, "the shared pool never grows past 32 tracks")
   player:stopPlayer(1)
   Assert.equal(poolEvents[#poolEvents].allocated, 0, "stopping a player returns every track object")
+end
+
+local function longLivedSequence(id, playerId, priority)
+  return seq({
+    { op = "note", key = 60, velocity = 127, duration = 1000 },
+    { op = "wait", duration = 1000 },
+  }, {
+    id = id,
+    symbol = "SEQ_ALLOCATION_" .. id,
+    playerId = playerId,
+    playerPriority = priority,
+  })
+end
+
+local function allocationEngine(sequences, opts)
+  local mixer = (opts and opts.mixer) or stubMixer()
+  local observer = (opts and opts.observer) or {}
+  local player, provider = engine(sequences, {
+    mixer = mixer,
+    observer = observer,
+    maxSequences = opts and opts.maxSequences or 1,
+  })
+  return player, provider, mixer, observer
+end
+
+function T.logical_player_thirty_one_executes_on_a_physical_slot()
+  local player, provider, mixer, observer = allocationEngine({
+    [0] = longLivedSequence(0, 31, 64),
+  })
+  local allocations = {}
+  observer.onSequenceAllocation = function(_, event)
+    allocations[#allocations + 1] = event
+  end
+
+  player:play(provider:sequence(0), provider:bank(12))
+  player:render(250)
+
+  Assert.equal(#mixer.log.noteOns, 1, "logical player 31 reaches sequence execution")
+  Assert.isTrue(player:isPlayerPlaying(31), "logical player 31 remains active")
+  Assert.equal(allocations[1].logicalPlayerId, 31, "allocation reports the logical group")
+  Assert.isTrue(
+    allocations[1].seqPlayerSlot >= 0 and allocations[1].seqPlayerSlot < 16,
+    "allocation reports a physical slot"
+  )
+end
+
+function T.physical_sequence_slots_are_shared_across_logical_groups()
+  local sequences = {}
+  for logicalPlayerId = 0, 16 do
+    sequences[logicalPlayerId] = longLivedSequence(logicalPlayerId, logicalPlayerId, 64)
+  end
+  local allocations = {}
+  local player, provider = allocationEngine(sequences, {
+    observer = {
+      onSequenceAllocation = function(_, event)
+        allocations[#allocations + 1] = event
+      end,
+    },
+  })
+
+  for sequenceId = 0, 16 do
+    player:play(provider:sequence(sequenceId), provider:bank(12))
+  end
+
+  local slots = {}
+  for _, event in ipairs(allocations) do
+    if event.accepted then
+      Assert.isTrue(
+        type(event.seqPlayerSlot) == "number" and event.seqPlayerSlot >= 0 and event.seqPlayerSlot < 16,
+        "accepted allocation identifies one physical slot"
+      )
+      slots[event.seqPlayerSlot] = true
+    end
+  end
+  local distinctSlots = 0
+  for _ in pairs(slots) do
+    distinctSlots = distinctSlots + 1
+  end
+  Assert.equal(distinctSlots, 16, "accepted instances occupy distinct physical slots")
+end
+
+function T.logical_capacity_precedes_global_priority_arbitration()
+  local program = {
+    [0] = longLivedSequence(0, 1, 10),
+    [1] = longLivedSequence(1, 1, 20),
+    [2] = longLivedSequence(2, 1, 5),
+    [3] = longLivedSequence(3, 1, 15),
+  }
+  local player, provider, mixer = allocationEngine(program, { maxSequences = 2 })
+  player:play(provider:sequence(0), provider:bank(12))
+  player:play(provider:sequence(1), provider:bank(12))
+  player:render(250)
+  player:play(provider:sequence(2), provider:bank(12))
+  Assert.equal(#mixer.log.noteOffs, 0, "a weak local candidate does not disturb the group")
+  player:play(provider:sequence(3), provider:bank(12))
+  Assert.equal(#mixer.log.noteOffs, 1, "an eligible local candidate replaces the weakest group instance")
+
+  local crowded = {}
+  for logicalPlayerId = 1, 15 do
+    crowded[logicalPlayerId - 1] = longLivedSequence(logicalPlayerId - 1, logicalPlayerId, 30)
+  end
+  crowded[15] = longLivedSequence(15, 30, 30)
+  crowded[16] = longLivedSequence(16, 31, 25)
+  local crowdedAllocations = {}
+  local crowdedPlayer, crowdedProvider, crowdedMixer = allocationEngine(crowded, {
+    observer = {
+      onSequenceAllocation = function(_, event)
+        crowdedAllocations[#crowdedAllocations + 1] = event
+      end,
+    },
+  })
+  for sequenceId = 0, 15 do
+    crowdedPlayer:play(crowdedProvider:sequence(sequenceId), crowdedProvider:bank(12))
+  end
+  crowdedPlayer:play(crowdedProvider:sequence(16), crowdedProvider:bank(12))
+  Assert.equal(#crowdedMixer.log.noteOffs, 0, "a lower global priority is rejected without eviction")
+  local accepted = 0
+  for _, event in ipairs(crowdedAllocations) do
+    if event.accepted then
+      accepted = accepted + 1
+    end
+  end
+  Assert.equal(accepted, 16, "the global allocator rejects the seventeenth lower-priority instance")
+  Assert.isFalse(crowdedPlayer:isPlayerPlaying(31), "the rejected global candidate is not active")
+end
+
+function T.logical_group_controls_cover_all_instances_in_the_group()
+  local mixer = stubMixer()
+  local player, provider = allocationEngine({
+    [0] = longLivedSequence(0, 20, 64),
+    [1] = longLivedSequence(1, 20, 64),
+  }, { mixer = mixer, maxSequences = 2 })
+  player:play(provider:sequence(0), provider:bank(12))
+  player:play(provider:sequence(1), provider:bank(12))
+  player:render(250)
+  Assert.equal(#mixer.log.noteOns, 2, "both logical-group instances execute")
+
+  player:setFader(20, 42)
+  Assert.isTrue(#mixer.log.updates >= 2, "group fader updates reach both instances")
+  player:pausePlayer(20)
+  Assert.isTrue(player:isPlayerPlaying(20), "paused group remains allocated")
+  player:resumePlayer(20)
+  player:stopPlayer(20)
+  Assert.isFalse(player:isPlayerPlaying(20), "stopping a logical group removes every instance")
 end
 
 return { tests = T }

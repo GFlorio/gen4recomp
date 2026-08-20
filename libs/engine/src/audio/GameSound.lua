@@ -102,9 +102,9 @@ local FANFARE_POST_WAIT_FRAMES = 15
 -- boundary (HGSS GF_SndHandleMoveVolume(0, 128, 15) on soundplate exit).
 local PLAYER_FADER_FULL = 127
 local SOURCE_FULL_RESTORE = 128
--- The fixed NNS player domain (SequencePlayer's PLAYER_COUNT): fader ramps
+-- The fixed NNS logical-player domain: fader ramps
 -- iterate ascending over these ids, never in Lua table order.
-local NNS_PLAYER_COUNT = 16
+local NNS_PLAYER_COUNT = 32
 
 ---@param opts { provider: AudioAssetProvider, player: SequencePlayer, cry: table?, mapMusic: fun(): integer|string|nil? }
 ---@return GameSound

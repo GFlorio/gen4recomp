@@ -98,9 +98,9 @@
 -- release tails keep the clock running. The mixer renders spans that end
 -- at the next sound-interval boundary or the requested window end -- never
 -- one frame at a time and never on a per-player tick distance, so chunk
--- sizes never change the result. Players process ascending player number
--- and tracks ascending track number over the fixed NNS domains (16 players
--- x 16 tracks), so contested allocation is deterministic. Control values
+-- sizes never change the result. Physical SeqPlayer slots process ascending
+-- slot number and tracks ascending track number over the fixed NNS domains
+-- (16 slots x 16 tracks), so contested allocation is deterministic. Control values
 -- reach the active voices as events: a track/player control command
 -- (volume, pan, expression, master volume, pitch bend, modulation) or a
 -- fader change queues the current values -- including the user pitch and
@@ -121,7 +121,8 @@ local bit = require("bit")
 ---@field private _sampleRate integer
 ---@field private _mixer VoiceMixer
 ---@field private _provider AudioAssetProvider
----@field private _players table<integer, table>
+---@field private _logicalPlayers table<integer, table>
+---@field private _seqPlayers table<integer, table?>
 ---@field private _soundPhase integer the one global 192 Hz sound-interval phase accumulator
 ---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider, observer: table? }): SequencePlayer
 ---@field play fun(self: SequencePlayer, sequence: table, bank: table)
@@ -146,6 +147,7 @@ local SOUND_INTERVAL_HZ = 192
 -- SND_TRACK_COUNT): players and tracks iterate ascending over these bounds,
 -- never in Lua table order, so contested allocation is deterministic.
 local PLAYER_COUNT = 16
+local LOGICAL_PLAYER_COUNT = 32
 local TRACK_COUNT = 16
 local TRACK_POOL_CAPACITY = 32
 -- The Nitro sequence tick relationship at the 192 Hz sound interval
@@ -544,7 +546,7 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   spec.channelPriority = channelPriorityFor(sequence)
   spec.channelMask = instance.channelMask
   spec.channelMask = bit.band(spec.channelMask, track.channelMask)
-  spec.ownerPlayerId = instance.playerId
+  spec.ownerPlayerId = instance.logicalPlayerId
   spec.ownerTrackSlot = track.slot
   -- TrackPlayNote: the sweep starts from the track sweepPitch; a note under
   -- portamento adds (portamentoKey - midiKey) << 6 units (the sums stay in
@@ -567,7 +569,7 @@ end
 
 local function observeNote(self, instance, track, key, velocity, length)
   observe(self, "onNoteEvent", {
-    playerId = instance.playerId,
+    playerId = instance.logicalPlayerId,
     trackSlot = track.slot,
     key = key,
     velocity = velocity,
@@ -1067,7 +1069,7 @@ local function fetch(self, instance, track)
     track.pc = execute(self, instance, track, instruction)
     observe(self, "onTrackStep", {
       ordinal = self._intervalOrdinal,
-      playerId = instance.playerId,
+      playerId = instance.logicalPlayerId,
       trackSlot = track.slot,
       pc = pc,
       op = instruction.op,
@@ -1081,7 +1083,7 @@ local function fetch(self, instance, track)
         AudioErrors.AUDIO_PLAYER_UNBOUNDED_EXECUTION,
         "sequence executed too many instructions without a wait",
         {
-          playerId = instance.playerId,
+          playerId = instance.logicalPlayerId,
         }
       )
     end
@@ -1098,15 +1100,33 @@ local function releaseInstance(self, instance)
   end
 end
 
-local function eachInstance(self, callback)
-  for playerId = 0, PLAYER_COUNT - 1 do
-    local instances = self._players[playerId]
-    if instances ~= nil then
-      for index = 1, #instances do
-        callback(instances[index])
-      end
+-- Retires one instance from both ownership structures. Callers must pass an
+-- active instance; the assertions make an ownership split fail immediately.
+local function retireInstance(self, instance, reason)
+  assert(instance ~= nil and not instance.retired, "instance must be active")
+  local slot = self._seqPlayers[instance.seqPlayerSlot]
+  assert(slot == instance, "physical slot does not own instance")
+  local logicalPlayer = self._logicalPlayers[instance.logicalPlayerId]
+  assert(logicalPlayer ~= nil, "logical player record is missing")
+  local instances = logicalPlayer.instances
+  local found = false
+  for index = 1, #instances do
+    if instances[index] == instance then
+      table.remove(instances, index)
+      found = true
+      break
     end
   end
+  assert(found, "logical player does not own instance")
+  releaseInstance(self, instance)
+  self._seqPlayers[instance.seqPlayerSlot] = nil
+  instance.retired = true
+  observe(self, "onSequenceRetirement", {
+    logicalPlayerId = instance.logicalPlayerId,
+    seqPlayerSlot = instance.seqPlayerSlot,
+    instanceId = instance.id,
+    reason = reason,
+  })
 end
 
 function SequencePlayer.new(opts)
@@ -1119,7 +1139,8 @@ function SequencePlayer.new(opts)
     _mixer = opts.mixer,
     _provider = opts.provider,
     _observer = opts.observer,
-    _players = {},
+    _logicalPlayers = {},
+    _seqPlayers = {},
     _nextInstanceId = 1,
     _trackCount = 0,
     -- The player-scoped RNG (injected or the deterministic default): plays
@@ -1156,10 +1177,16 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
       }
     )
   end
-  local playerId = sequence.player.id
-  local playerRecord = self._provider:player(playerId)
+  local logicalPlayerId = sequence.player.id
+  assert(logicalPlayerId >= 0 and logicalPlayerId < LOGICAL_PLAYER_COUNT, "logical player id must be in 0..31")
+  local playerRecord = self._provider:player(logicalPlayerId)
   local channelMask = playerRecord.channelMask == 0 and 0xFFFF or playerRecord.channelMask
-  local instances = self._players[playerId] or {}
+  local logicalPlayer = self._logicalPlayers[logicalPlayerId]
+  if logicalPlayer == nil then
+    logicalPlayer = { instances = {} }
+    self._logicalPlayers[logicalPlayerId] = logicalPlayer
+  end
+  local instances = logicalPlayer.instances
   local victim
   if #instances >= playerRecord.maxSequences then
     for index = 1, #instances do
@@ -1169,25 +1196,71 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
       end
     end
     if sequence.player.playerPriority < victim.sequence.player.playerPriority then
-      observe(self, "onSequenceAllocation", { playerId = playerId, accepted = false })
+      observe(self, "onSequenceAllocation", {
+        playerId = logicalPlayerId,
+        logicalPlayerId = logicalPlayerId,
+        accepted = false,
+        playerPriority = sequence.player.playerPriority,
+        reason = "logical_priority",
+      })
       return
     end
-    releaseInstance(self, victim)
-    for index = 1, #instances do
-      if instances[index] == victim then
-        table.remove(instances, index)
-        break
-      end
+  end
+
+  local seqPlayerSlot
+  for candidateSlot = 0, PLAYER_COUNT - 1 do
+    if self._seqPlayers[candidateSlot] == nil then
+      seqPlayerSlot = candidateSlot
+      break
     end
   end
+  local globalVictim
+  if seqPlayerSlot == nil then
+    for candidateSlot = 0, PLAYER_COUNT - 1 do
+      local candidate = self._seqPlayers[candidateSlot]
+      if
+        globalVictim == nil
+        or candidate.sequence.player.playerPriority < globalVictim.sequence.player.playerPriority
+      then
+        globalVictim = candidate
+        seqPlayerSlot = candidateSlot
+      end
+    end
+    if sequence.player.playerPriority < globalVictim.sequence.player.playerPriority then
+      observe(self, "onSequenceAllocation", {
+        playerId = logicalPlayerId,
+        logicalPlayerId = logicalPlayerId,
+        accepted = false,
+        playerPriority = sequence.player.playerPriority,
+        reason = "physical_priority",
+      })
+      return
+    end
+  end
+
+  if victim ~= nil then
+    retireInstance(self, victim, "logical_eviction")
+  end
+  if globalVictim ~= nil and globalVictim ~= victim then
+    retireInstance(self, globalVictim, "physical_eviction")
+  end
+
   local entryTrack = allocateTrack(self, sequence.program.entry, 0, channelPriorityFor(sequence), channelMask)
   if entryTrack == nil then
-    observe(self, "onSequenceAllocation", { playerId = playerId, accepted = false })
+    observe(self, "onSequenceAllocation", {
+      playerId = logicalPlayerId,
+      logicalPlayerId = logicalPlayerId,
+      seqPlayerSlot = seqPlayerSlot,
+      accepted = false,
+      playerPriority = sequence.player.playerPriority,
+      reason = "track_capacity",
+    })
     return
   end
   local instance = {
     id = self._nextInstanceId,
-    playerId = playerId,
+    logicalPlayerId = logicalPlayerId,
+    seqPlayerSlot = seqPlayerSlot,
     sequence = sequence,
     bank = bank,
     channelMask = channelMask,
@@ -1218,8 +1291,15 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   }
   self._nextInstanceId = self._nextInstanceId + 1
   instances[#instances + 1] = instance
-  self._players[playerId] = instances
-  observe(self, "onSequenceAllocation", { playerId = playerId, instanceId = instance.id, accepted = true })
+  self._seqPlayers[seqPlayerSlot] = instance
+  observe(self, "onSequenceAllocation", {
+    playerId = logicalPlayerId,
+    logicalPlayerId = logicalPlayerId,
+    seqPlayerSlot = seqPlayerSlot,
+    instanceId = instance.id,
+    playerPriority = sequence.player.playerPriority,
+    accepted = true,
+  })
 end
 
 -- Starts `sequence` on its player id with `bank`. The bank must be the
@@ -1251,10 +1331,11 @@ end
 ---@param level integer
 function SequencePlayer:setFader(playerId, level)
   assert(level >= 0 and level <= 127 and level % 1 == 0, "fader level must be an integer in 0..127")
-  local instances = self._players[playerId]
-  if instances == nil then
+  local logicalPlayer = self._logicalPlayers[playerId]
+  if logicalPlayer == nil then
     return
   end
+  local instances = logicalPlayer.instances
   for index = 1, #instances do
     local instance = instances[index]
     instance.outerFaderDb = NnsSoundMath.decibelSquare(level)
@@ -1277,10 +1358,11 @@ end
 -- paused, is a no-op.
 ---@param playerId integer
 function SequencePlayer:pausePlayer(playerId)
-  local instances = self._players[playerId]
-  if instances == nil then
+  local logicalPlayer = self._logicalPlayers[playerId]
+  if logicalPlayer == nil then
     return
   end
+  local instances = logicalPlayer.instances
   for index = 1, #instances do
     local instance = instances[index]
     if not instance.paused then
@@ -1301,10 +1383,11 @@ end
 -- active instance, or one not paused, is a no-op.
 ---@param playerId integer
 function SequencePlayer:resumePlayer(playerId)
-  local instances = self._players[playerId]
-  if instances == nil then
+  local logicalPlayer = self._logicalPlayers[playerId]
+  if logicalPlayer == nil then
     return
   end
+  local instances = logicalPlayer.instances
   for index = 1, #instances do
     instances[index].paused = false
   end
@@ -1417,25 +1500,23 @@ local function retireEndedTracks(self, instance)
       end
     end
   end
-end
-
-local function retireEndedTracks(self, instance)
+  local hasTrack = false
   for trackId = 0, TRACK_COUNT - 1 do
-    local track = instance.tracks[trackId]
-    if track ~= nil and track.ended then
-      pruneTrackVoices(self, track)
-      if #track.voices == 0 then
-        releaseTrackObject(self, track)
-        instance.tracks[trackId] = nil
-      end
+    if instance.tracks[trackId] ~= nil then
+      hasTrack = true
+      break
     end
+  end
+  if not hasTrack then
+    retireInstance(self, instance, "natural_completion")
   end
 end
 
 -- Processes one completed 192 Hz sound interval in source order
 -- (SND_main.c SndThread: SND_SeqMain, then SND_ExChannelMain, then the
 -- unconditional SND_CalcRandom draw):
---   1. each active, unpaused player in ascending player id 0..15 executes
+--   1. each active, unpaused physical SeqPlayer slot in ascending slot order
+--      0..15 executes
 --      one sequence tick per 240 subtracted from its tempoCounter while the
 --      counter is at least 240, then adds tempoInc = (tempo * tempoRatio)
 --      >> 8 exactly once after all of that interval's ticks (PlayerSeqMain);
@@ -1452,19 +1533,16 @@ local function processSoundInterval(self)
     ordinal = self._intervalOrdinal,
     phase = "before_sequence",
   })
-  for playerId = 0, PLAYER_COUNT - 1 do
-    local instances = self._players[playerId]
-    if instances ~= nil then
-      for index = 1, #instances do
-        local instance = instances[index]
-        if not instance.paused then
-          while instance.tempoCounter >= SND_TIMER_RATE do
-            instance.tempoCounter = instance.tempoCounter - SND_TIMER_RATE
-            stepSequenceTick(self, instance)
-          end
-          instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)
-          retireEndedTracks(self, instance)
-        end
+  for seqPlayerSlot = 0, PLAYER_COUNT - 1 do
+    local instance = self._seqPlayers[seqPlayerSlot]
+    if instance ~= nil and not instance.paused then
+      while instance.tempoCounter >= SND_TIMER_RATE do
+        instance.tempoCounter = instance.tempoCounter - SND_TIMER_RATE
+        stepSequenceTick(self, instance)
+      end
+      instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)
+      if self._seqPlayers[seqPlayerSlot] ~= nil then
+        retireEndedTracks(self, instance)
       end
     end
   end
@@ -1472,15 +1550,10 @@ local function processSoundInterval(self)
     ordinal = self._intervalOrdinal,
     phase = "after_sequence",
   })
-  for playerId = 0, PLAYER_COUNT - 1 do
-    local instances = self._players[playerId]
-    if instances ~= nil then
-      for index = 1, #instances do
-        local instance = instances[index]
-        if not instance.paused then
-          releaseExpiredVoices(self, instance)
-        end
-      end
+  for seqPlayerSlot = 0, PLAYER_COUNT - 1 do
+    local instance = self._seqPlayers[seqPlayerSlot]
+    if instance ~= nil and not instance.paused then
+      releaseExpiredVoices(self, instance)
     end
   end
   self._mixer:controlStep(self._intervalOrdinal)
@@ -1510,8 +1583,8 @@ end
 -- one mixer control step, then the periodic RNG draw). The mixer is asked
 -- for PCM even when no active sequence exists, so idle frames and detached
 -- release tails keep the global clock and the periodic RNG running (the
--- mixer renders silence when no voices exist). Players and tracks process
--- ascending over the fixed NNS domains. Instance-carried tempoCounter/wait
+-- mixer renders silence when no voices exist). Physical slots and tracks
+-- process ascending over the fixed NNS domains. Instance-carried tempoCounter/wait
 -- state and the global phase keep rendering independent of chunk size.
 ---@param frames integer
 ---@return integer[]
@@ -1536,24 +1609,32 @@ end
 
 -- Releases every voice of every active sequence and clears the players.
 function SequencePlayer:stop()
-  eachInstance(self, function(instance)
-    releaseInstance(self, instance)
-  end)
-  self._players = {}
+  while true do
+    local instance
+    for seqPlayerSlot = 0, PLAYER_COUNT - 1 do
+      instance = self._seqPlayers[seqPlayerSlot]
+      if instance ~= nil then
+        break
+      end
+    end
+    if instance == nil then
+      break
+    end
+    retireInstance(self, instance, "stop")
+  end
 end
 
 -- Releases the voices of the sequence on `playerId` and removes it; a
 -- player with no active instance is a no-op.
 ---@param playerId integer
 function SequencePlayer:stopPlayer(playerId)
-  local instances = self._players[playerId]
-  if instances == nil then
+  local logicalPlayer = self._logicalPlayers[playerId]
+  if logicalPlayer == nil then
     return
   end
-  for index = 1, #instances do
-    releaseInstance(self, instances[index])
+  while #logicalPlayer.instances > 0 do
+    retireInstance(self, logicalPlayer.instances[1], "stop_player")
   end
-  self._players[playerId] = nil
 end
 
 -- True while the sequence on `playerId` still has a running track; a player
@@ -1561,10 +1642,11 @@ end
 ---@param playerId integer
 ---@return boolean
 function SequencePlayer:isPlayerPlaying(playerId)
-  local instances = self._players[playerId]
-  if instances == nil then
+  local logicalPlayer = self._logicalPlayers[playerId]
+  if logicalPlayer == nil then
     return false
   end
+  local instances = logicalPlayer.instances
   for index = 1, #instances do
     for trackId = 0, TRACK_COUNT - 1 do
       local track = instances[index].tracks[trackId]
@@ -1578,15 +1660,13 @@ end
 
 -- True while any track of any active sequence is still running.
 function SequencePlayer:isPlaying()
-  for playerId = 0, PLAYER_COUNT - 1 do
-    local instances = self._players[playerId]
-    if instances ~= nil then
-      for index = 1, #instances do
-        for trackId = 0, TRACK_COUNT - 1 do
-          local track = instances[index].tracks[trackId]
-          if track ~= nil and not track.ended then
-            return true
-          end
+  for seqPlayerSlot = 0, PLAYER_COUNT - 1 do
+    local instance = self._seqPlayers[seqPlayerSlot]
+    if instance ~= nil then
+      for trackId = 0, TRACK_COUNT - 1 do
+        local track = instance.tracks[trackId]
+        if track ~= nil and not track.ended then
+          return true
         end
       end
     end
