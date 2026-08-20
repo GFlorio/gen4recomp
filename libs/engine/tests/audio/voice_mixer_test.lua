@@ -89,7 +89,7 @@ end
 
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
 -- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
--- channelMask, trackPriority, playerPriority, and the optional channel-side
+-- channelMask, trackPriority, channelPriority, and the optional channel-side
 -- controls (userPitch 0, trackPanOffset 0, panRange 127, fader 0,
 -- sweepPitch 0, sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/
 -- 2=pan, depth 0, range 1, speed 16, delay 0}). Sample voices carry no
@@ -112,7 +112,6 @@ local function spec(overrides)
     pan = 64,
     channelMask = 0xFFFF,
     trackPriority = 64,
-    playerPriority = 64,
     channelPriority = 64,
   }
   for key, value in pairs(overrides or {}) do
