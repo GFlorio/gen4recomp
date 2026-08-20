@@ -442,6 +442,15 @@ local function effectiveEnvelope(track, voice)
   }
 end
 
+-- TrackPlayNote stores 0xFF as the source-level unset marker. Track state
+-- keeps that marker semantic: only concrete values are override coefficients.
+local function envelopeOverride(value)
+  if value == 0xFF then
+    return nil
+  end
+  return value
+end
+
 -- The note's sweep pitch (TrackPlayNote): the track sweepPitch plus, under
 -- portamento, the (portamentoKey - midiKey) << 6 contribution (the sums
 -- stay in the s16 domain).
@@ -912,13 +921,13 @@ local function execute(self, instance, track, instruction)
       releaseTrackVoices(self, instance, track, 127)
     end
   elseif op == "attack" then
-    track.attack = toU8(resolveAmount(self, instruction.amount, instance))
+    track.attack = envelopeOverride(toU8(resolveAmount(self, instruction.amount, instance)))
   elseif op == "decay" then
-    track.decay = toU8(resolveAmount(self, instruction.amount, instance))
+    track.decay = envelopeOverride(toU8(resolveAmount(self, instruction.amount, instance)))
   elseif op == "sustain" then
-    track.sustain = toU8(resolveAmount(self, instruction.amount, instance))
+    track.sustain = envelopeOverride(toU8(resolveAmount(self, instruction.amount, instance)))
   elseif op == "release" then
-    track.release = toU8(resolveAmount(self, instruction.amount, instance))
+    track.release = envelopeOverride(toU8(resolveAmount(self, instruction.amount, instance)))
   elseif op == "setvar" then
     -- B-class variable operations: the resolved amount narrows to s16 before
     -- the variable arithmetic uses it (the SDK union cast of the parsed

@@ -1344,6 +1344,170 @@ function T.envelope_overrides_apply_only_when_set_and_persist()
   )
 end
 
+function T.envelope_override_sentinel_clears_each_stage()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "attack", amount = 44 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "attack", amount = 255 },
+      { op = "decay", amount = 55 },
+      { op = "sustain", amount = 66 },
+      { op = "release", amount = 77 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "decay", amount = 255 },
+      { op = "sustain", amount = 255 },
+      { op = "release", amount = 255 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, {
+    mixer = mixer,
+    bank = AudioFixture.bank(12, "BANK_TEST", {
+      AudioFixture.key(1),
+    }, {
+      [0] = {
+        kind = "direct",
+        voice = {
+          generator = { kind = "sample", sample = AudioFixture.key(1) },
+          originalKey = 60,
+          envelope = { attack = 11, decay = 22, sustain = 33, release = 100 },
+          pan = 0,
+        },
+      },
+    }),
+  })
+  play(player, provider)
+  player:render(750)
+
+  Assert.deepEqual(mixer.log.noteOns[1].envelope, {
+    attack = 44,
+    decay = 22,
+    sustain = 33,
+    release = 100,
+  })
+  Assert.deepEqual(mixer.log.noteOns[2].envelope, {
+    attack = 11,
+    decay = 55,
+    sustain = 66,
+    release = 77,
+  })
+  Assert.deepEqual(mixer.log.noteOns[3].envelope, {
+    attack = 11,
+    decay = 22,
+    sustain = 33,
+    release = 100,
+  })
+end
+
+function T.envelope_override_sentinel_normalizes_resolved_operands()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "setvar", var = 0, amount = 255 },
+      { op = "attack", amount = { kind = "variable", var = 0 } },
+      { op = "release", amount = { kind = "random", lo = 255, hi = 255 } },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer, rng = u16Draws({ 0xFFFF }) })
+  play(player, provider)
+  Assert.deepEqual(mixer.log.noteOns[1].envelope, {
+    attack = 127,
+    decay = 0,
+    sustain = 127,
+    release = 127,
+  })
+end
+
+function T.instrument_release_sentinel_remains_indefinite_without_track_override()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note", key = 60, velocity = 127, duration = 3 },
+      { op = "end" },
+    }),
+  }, {
+    mixer = mixer,
+    bank = AudioFixture.bank(12, "BANK_TEST", {
+      AudioFixture.key(1),
+    }, {
+      [0] = {
+        kind = "direct",
+        voice = {
+          generator = { kind = "sample", sample = AudioFixture.key(1) },
+          originalKey = 60,
+          envelope = { attack = 11, decay = 22, sustain = 33, release = 255 },
+          pan = 0,
+        },
+      },
+    }),
+  })
+  play(player, provider)
+
+  Assert.equal(mixer.log.noteOns[1].envelope.release, 255)
+  Assert.equal(mixer.log.noteOns[1].length, -1)
+end
+
+function T.concrete_release_override_replaces_instrument_sentinel()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "release", amount = 10 },
+      { op = "note", key = 60, velocity = 127, duration = 3 },
+      { op = "end" },
+    }),
+  }, {
+    mixer = mixer,
+    bank = AudioFixture.bank(12, "BANK_TEST", {
+      AudioFixture.key(1),
+    }, {
+      [0] = {
+        kind = "direct",
+        voice = {
+          generator = { kind = "sample", sample = AudioFixture.key(1) },
+          originalKey = 60,
+          envelope = { attack = 11, decay = 22, sustain = 33, release = 255 },
+          pan = 0,
+        },
+      },
+    }),
+  })
+  play(player, provider)
+
+  Assert.equal(mixer.log.noteOns[1].envelope.release, 10)
+  Assert.equal(mixer.log.noteOns[1].length, 3)
+end
+
+function T.tied_envelope_override_sentinel_does_not_write_a_coefficient()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "tie", amount = 1 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "release", amount = 20 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "wait", duration = 1 },
+      { op = "release", amount = 255 },
+      { op = "note", key = 61, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(1250)
+
+  local envelopeUpdates = {}
+  for _, update in ipairs(mixer.log.updates) do
+    if update.partial.envelope ~= nil then
+      envelopeUpdates[#envelopeUpdates + 1] = update.partial.envelope
+    end
+  end
+  Assert.equal(envelopeUpdates[1].release, 20)
+  Assert.isNil(envelopeUpdates[2].release)
+end
+
 -- The voice spec is the semantic mixer contract: trackVolume + playerVolume
 -- (never folded), trackPriority + playerPriority, the raw trackPanOffset,
 -- the instrument pan, the clamped transposed key, the TrackInit defaults
@@ -3007,7 +3171,7 @@ end
 -- (-128..127), u16 modulo 65536 (0..65535), s16 the signed interpretation
 -- of u16 (-32768..32767). Each row observes the conversion through the
 -- command whose storage domain it is: u8 through the envelope attack
--- override, s8 through pitch_bend (bend range 2 makes the recorded user
+-- track priority, s8 through pitch_bend (bend range 2 makes the recorded user
 -- pitch the stored byte exactly), u16 through mod_delay, s16 through sweep.
 function T.width_conversions_wrap_at_the_exact_boundaries()
   local cases = {
@@ -3042,7 +3206,7 @@ function T.width_conversions_wrap_at_the_exact_boundaries()
     local mixer = stubMixer()
     local op
     if case.convert == "u8" then
-      op = "attack"
+      op = "priority"
     elseif case.convert == "s8" then
       op = "pitch_bend"
     elseif case.convert == "u16" then
@@ -3063,7 +3227,7 @@ function T.width_conversions_wrap_at_the_exact_boundaries()
     local spec = mixer.log.noteOns[1]
     local observed
     if case.convert == "u8" then
-      observed = spec.envelope.attack
+      observed = spec.trackPriority
     elseif case.convert == "s8" then
       observed = spec.userPitch
     elseif case.convert == "u16" then
