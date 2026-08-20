@@ -2245,7 +2245,7 @@ function T.mute_two_keeps_releasing_voices_attached_for_fader_updates()
   end
   Assert.notNil(faderPush, "a fader move still reaches the attached releasing voice")
   Assert.deepEqual(faderPush.handle, { channel = 3, generation = 0 }, "the fader push targets the releasing handle")
-  Assert.equal(faderPush.partial.fader, NnsSoundMath.decibelSquare(42), "the fader reaches the mixer in the dB domain")
+  Assert.equal(faderPush.partial.fader, -96, "the outer fader uses the ARM9 dB domain")
   Assert.isNil(faderPush.partial.trackVolume, "the post-release push carries no non-fader track values")
   Assert.isNil(faderPush.partial.userPitch, "the post-release push carries no pitch")
   Assert.isNil(faderPush.partial.trackPanOffset, "the post-release push carries no pan")
@@ -2536,7 +2536,7 @@ function T.the_player_fader_reaches_the_update_voice_push_in_the_db_domain()
     end
   end
   Assert.notNil(push, "the player queues a fader update to its active voice")
-  Assert.equal(push.partial.fader, NnsSoundMath.decibelSquare(42), "the level reaches the mixer in the dB domain")
+  Assert.equal(push.partial.fader, -96, "the outer fader uses the ARM9 dB domain")
 end
 
 function T.master_volume_and_outer_fader_remain_independent()
@@ -2565,7 +2565,7 @@ function T.master_volume_and_outer_fader_remain_independent()
   local fade = mixer.log.updates[#mixer.log.updates].partial
   Assert.equal(fade.sequenceVolume, 40)
   Assert.equal(fade.outerPlayerVolume, 80)
-  Assert.equal(fade.fader, NnsSoundMath.decibelSquare(80) + NnsSoundMath.decibelSquare(0))
+  Assert.equal(fade.fader, -40 + -32768, "outer initial volume and fader remain additive ARM9 contributions")
 end
 
 -- The SDK variable domains (SND_seq.c PlayerInit): a fresh player instance

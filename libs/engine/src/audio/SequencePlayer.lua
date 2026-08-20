@@ -551,7 +551,7 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   spec.expression = clamp(track.expression, 0, 127)
   spec.sequenceVolume = clamp(instance.sequenceVolume, 0, 127)
   spec.outerPlayerVolume = instance.outerPlayerVolume
-  spec.fader = NnsSoundMath.decibelSquare(instance.outerPlayerVolume) + instance.outerFaderDb
+  spec.fader = NnsSoundMath.decibel(instance.outerPlayerVolume) + instance.outerFaderDb
   spec.envelope = envelope
   spec.pan = voice.pan
   spec.trackPanOffset = track.pan
@@ -618,7 +618,7 @@ local function pushTrackValues(self, instance, track)
     userPitch = userPitchFor(track),
     lfo = track.mod,
     -- The player fader rides the same queue as a dB-domain attenuation.
-    fader = NnsSoundMath.decibelSquare(instance.outerPlayerVolume) + instance.outerFaderDb,
+    fader = NnsSoundMath.decibel(instance.outerPlayerVolume) + instance.outerFaderDb,
   }
   for index = 1, #track.voices do
     local voice = track.voices[index]
@@ -1302,7 +1302,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
     -- drives): a volume-domain level, full by default; GameSound's fade
     -- state moves it and the control-step push delivers its dB-domain
     -- attenuation to the player's voices.
-    outerFaderDb = NnsSoundMath.decibelSquare(127),
+    outerFaderDb = NnsSoundMath.decibel(127),
     -- The transport pause flag (NNS SND_PlayerPause): while paused the
     -- timeline freezes and no control values are pushed; the pause release
     -- already freed the channels.
@@ -1373,7 +1373,7 @@ end
 -- Sets the player's fader level (0..127, the volume domain -- the NNS
 -- player fader NNS_SndPlayerMoveVolume drives). The attenuation reaches the
 -- player's voices immediately as a queued dB-domain fader event
--- (NnsSoundMath.decibelSquare; the mixer clamps at -0x8000). The GameSound
+-- (NnsSoundMath.decibel; the mixer clamps at -0x8000). The GameSound
 -- fade state is the caller; a player with no active instance is a no-op.
 ---@param playerId integer
 ---@param level integer
@@ -1386,7 +1386,7 @@ function SequencePlayer:setFader(playerId, level)
   local instances = logicalPlayer.instances
   for index = 1, #instances do
     local instance = instances[index]
-    instance.outerFaderDb = NnsSoundMath.decibelSquare(level)
+    instance.outerFaderDb = NnsSoundMath.decibel(level)
     for trackId = 0, TRACK_COUNT - 1 do
       local track = instance.tracks[trackId]
       if track ~= nil then

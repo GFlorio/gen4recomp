@@ -1,4 +1,4 @@
--- The exact integer sound math of the ARM7 NitroSDK sound system
+-- The exact integer sound math of the NitroSDK ARM7 and ARM9 sound systems
 -- (SND_util.c: SND_CalcTimer, SND_CalcChannelVolume, SND_SinIdx; wram2.s:
 -- SNDi_DecibelSquareTable, sAttackCoeffTable, sLfoSinTable;
 -- SND_exChannel.c: CalcDecayCoeff), backed by the NDS ARM7 BIOS pitch and
@@ -1642,6 +1642,140 @@ local DECIBEL_SQUARE = {
   0,
 }
 
+-- SNDi_DecibelTable from the ARM9 NitroSDK SND_util.c: outer player volume
+-- and fader levels use this table, while ARM7 inner volume uses the square
+-- table above.
+local DECIBEL = {
+  -32768,
+  -421,
+  -361,
+  -325,
+  -300,
+  -281,
+  -265,
+  -252,
+  -240,
+  -230,
+  -221,
+  -212,
+  -205,
+  -198,
+  -192,
+  -186,
+  -180,
+  -175,
+  -170,
+  -165,
+  -161,
+  -156,
+  -152,
+  -148,
+  -145,
+  -141,
+  -138,
+  -134,
+  -131,
+  -128,
+  -125,
+  -122,
+  -120,
+  -117,
+  -114,
+  -112,
+  -110,
+  -107,
+  -105,
+  -103,
+  -100,
+  -98,
+  -96,
+  -94,
+  -92,
+  -90,
+  -88,
+  -86,
+  -85,
+  -83,
+  -81,
+  -79,
+  -78,
+  -76,
+  -74,
+  -73,
+  -71,
+  -70,
+  -68,
+  -67,
+  -65,
+  -64,
+  -62,
+  -61,
+  -60,
+  -58,
+  -57,
+  -56,
+  -54,
+  -53,
+  -52,
+  -51,
+  -49,
+  -48,
+  -47,
+  -46,
+  -45,
+  -43,
+  -42,
+  -41,
+  -40,
+  -39,
+  -38,
+  -37,
+  -36,
+  -35,
+  -34,
+  -33,
+  -32,
+  -31,
+  -30,
+  -29,
+  -28,
+  -27,
+  -26,
+  -25,
+  -24,
+  -23,
+  -23,
+  -22,
+  -21,
+  -20,
+  -19,
+  -18,
+  -17,
+  -17,
+  -16,
+  -15,
+  -14,
+  -13,
+  -12,
+  -12,
+  -11,
+  -10,
+  -9,
+  -9,
+  -8,
+  -7,
+  -6,
+  -6,
+  -5,
+  -4,
+  -3,
+  -3,
+  -2,
+  -1,
+  -1,
+  0,
+}
+
 -- sAttackCoeffTable: the high-range attack coefficients
 -- (SND_SetExChannelAttack: attack 109..127 indexes 127-attack).
 local ATTACK_COEFF = {
@@ -1788,6 +1922,14 @@ end
 ---@return integer
 function NnsSoundMath.decibelSquare(index)
   return DECIBEL_SQUARE[index + 1]
+end
+
+-- SNDi_DecibelTable lookup for ARM9 outer player volume and fader levels.
+---@param level integer
+---@return integer
+function NnsSoundMath.decibel(level)
+  assert(level >= 0 and level <= 127 and level % 1 == 0, "decibel input must be an integer 0..127")
+  return DECIBEL[level + 1]
 end
 
 -- SND_SetExChannelAttack: below 109 the coefficient is 255 - attack; the
