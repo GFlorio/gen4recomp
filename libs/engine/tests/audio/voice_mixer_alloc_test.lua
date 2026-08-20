@@ -14,7 +14,7 @@
 --     reuses the old generation) or nil; noteOff/updateVoice/isVoiceAlive on
 --     a stale handle are harmless.
 --   * TrackUpdateChannel per-main control values (track volume, expression,
---     player volume, fader, pan offset) reach the channel at the next
+--     sequence volume, fader, pan offset) reach the channel at the next
 --     control step -- 192 Hz, i.e. one step per 250 output frames at 48 kHz
 --     (SND_TIMER_RATE 240 at the 192 Hz sound interval, the cadence the
 --     sequence player already derives its tick clock from). The noteOn
@@ -84,7 +84,7 @@ local function drive(mixer, out, frames)
 end
 
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
--- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
+-- envelope, pan, key, velocity, trackVolume/expression/sequenceVolume,
 -- channelMask, trackPriority, channelPriority, and the optional channel-side
 -- controls (userPitch 0, trackPanOffset 0, panRange 127, fader 0,
 -- sweepPitch 0, sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/
@@ -263,7 +263,7 @@ function T.stolen_channels_revoke_the_previous_voice_handle()
 end
 
 -- TrackUpdateChannel per-main control values reach the channel at the next
--- control step: a track volume, expression, player volume, fader or pan
+-- control step: a track volume, expression, sequence volume, fader or pan
 -- offset pushed after the first block changes the volume register or the
 -- hardware pan register from the following 250-frame block on.
 function T.track_control_updates_apply_at_the_next_control_step()

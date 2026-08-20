@@ -1585,8 +1585,8 @@ function T.tied_envelope_override_sentinel_does_not_write_a_coefficient()
   Assert.isNil(envelopeUpdates[2].release)
 end
 
--- The voice spec is the semantic mixer contract: trackVolume + playerVolume
--- (never folded), physical channel priority + track priority, the raw trackPanOffset,
+-- The voice spec is the semantic mixer contract: trackVolume + sequenceVolume
+-- (never folded), channel priority + track priority, the raw trackPanOffset,
 -- the instrument pan, the clamped transposed key, the TrackInit defaults
 -- (bend 0 -> userPitch 0), the TrackPlayNote sweep fields, the
 -- TrackUpdateChannel lfo snapshot, and a {channel, generation} handle
@@ -2985,7 +2985,7 @@ function T.dynamic_operands_narrow_to_each_command_storage_width_after_resolutio
   Assert.isFalse(player:isPlaying(), "the sequence finishes normally after the -1 tempo")
 end
 
--- The runtime recognizes only the v5 signed random pair and preserves the
+-- The runtime recognizes only the signed random pair and preserves the
 -- source signed 32-bit arithmetic: endpoints are never sorted and the
 -- result is the pinned TrackParseValue formula. A current-schema asset
 -- using the retired min/max shape must fail strict validation before
