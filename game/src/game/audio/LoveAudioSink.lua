@@ -19,6 +19,7 @@
 ---@field private _renderer { render: fun(self: table, frames: integer): integer[] }
 ---@field private _sampleRate integer
 ---@field private _source table|nil
+---@field private _pendingPcm integer[]|nil
 ---@field private _started boolean
 ---@field private _underrunCount integer
 ---@field private _released boolean
@@ -55,14 +56,16 @@ function LoveAudioSink.new(opts)
     _renderer = opts.renderer,
     _sampleRate = opts.sampleRate,
     _source = nil,
+    _pendingPcm = nil,
     _started = false,
     _underrunCount = 0,
     _released = false,
   }, LoveAudioSink)
 end
 
--- Pumps PCM from the renderer into the host source: one render + queue per
--- free host buffer, then restarts the source when the host stopped it.
+-- Pumps PCM from the renderer into the host source: one pending or newly
+-- rendered chunk per free host buffer, then restarts the source when the host
+-- stopped it. Rendering creates pending PCM; queue success publishes it.
 -- After release the pump is a no-op. Host failures follow one policy: a
 -- failure anywhere in the pump -- the free-buffer query, a render, SoundData
 -- construction, a queue, or the start step -- propagates from the update,
@@ -88,26 +91,30 @@ function LoveAudioSink:update()
   local live = source
   local chunk
   local queueStep = false
+  local publishedToAcquiredSource = false
   local ok, err = pcall(function()
     local free = live:getFreeBufferCount()
     for _ = 1, free do
-      local pcm = self._renderer:render(CHUNK_FRAMES)
-      assert(
-        #pcm == CHUNK_FRAMES * CHANNELS,
-        string.format(
-          "renderer must return exactly %d stereo samples for %d frames",
-          CHUNK_FRAMES * CHANNELS,
-          CHUNK_FRAMES
+      if self._pendingPcm == nil then
+        local pcm = self._renderer:render(CHUNK_FRAMES)
+        assert(
+          #pcm == CHUNK_FRAMES * CHANNELS,
+          string.format(
+            "renderer must return exactly %d stereo samples for %d frames",
+            CHUNK_FRAMES * CHANNELS,
+            CHUNK_FRAMES
+          )
         )
-      )
+        self._pendingPcm = pcm
+      end
       -- SoundData's first argument is the per-channel FRAME count, not the
       -- total interleaved scalar count: a 512-frame stereo render is 1024
       -- scalars that build a 512-frame buffer with getSampleCount() == 512.
-      local frameCount = #pcm / CHANNELS
+      local frameCount = #self._pendingPcm / CHANNELS
       chunk = self._sound.newSoundData(frameCount, self._sampleRate, BIT_DEPTH, CHANNELS)
       for i = 0, frameCount - 1 do
         for channel = 1, CHANNELS do
-          chunk:setSample(i, channel, sampleValue(pcm[i * CHANNELS + channel]))
+          chunk:setSample(i, channel, sampleValue(self._pendingPcm[i * CHANNELS + channel]))
         end
       end
       -- The real binding returns a success boolean from queue: an explicit
@@ -120,8 +127,11 @@ function LoveAudioSink:update()
         error("the host queue refused the rendered chunk", 0)
       end
       queueStep = false
-      chunk:release()
+      publishedToAcquiredSource = true
+      self._pendingPcm = nil
+      local queuedChunk = chunk
       chunk = nil
+      queuedChunk:release()
     end
     if not live:isPlaying() then
       if self._started then
@@ -132,15 +142,14 @@ function LoveAudioSink:update()
     end
   end)
   if not ok then
-    -- The uniform failure policy: release the update's in-flight SoundData
-    -- (non-nil only while constructed but not yet handed off). A queue-step
+    -- Release only an in-flight SoundData that was not handed off. A queue
     -- failure leaves the healthy source in place for the next update; any
-    -- other failure on a source this update constructed releases that source
-    -- exactly once before the update propagates.
+    -- other pre-publication failure on a source this update constructed
+    -- releases that source exactly once before the update propagates.
     if chunk ~= nil then
       chunk:release()
     end
-    if acquiredSource and not queueStep then
+    if acquiredSource and not queueStep and not publishedToAcquiredSource then
       live:release()
       self._source = nil
     end
@@ -156,6 +165,7 @@ end
 -- Releases the host source exactly once; later updates are no-ops.
 function LoveAudioSink:release()
   self._released = true
+  self._pendingPcm = nil
   if self._source ~= nil then
     self._source:release()
     self._source = nil
