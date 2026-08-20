@@ -14,10 +14,11 @@
 --     with the 127/126 special cases, DecibelSquare[sustain]<<7 target,
 --     release stopped at the control step whose current pre-register dB sum
 --     crosses the vol <= -723 threshold (SND_VOL_DB_MIN)), advanced once per
---     control step -- exactly 192 Hz through the integer phase accumulator
---     (phase += 192 per output frame, one step when it reaches the output
---     rate): 250-frame boundaries at 48 kHz and the 170/171 alternation at
---     32768 Hz. The noteOn itself is the note's first control step.
+--     control step -- exactly 192 Hz through the external integer phase
+--     accumulator (phase += 192 per output frame, one step when it reaches
+--     the output rate): 250-frame boundaries at 48 kHz and the 170/171
+--     alternation at 32768 Hz. noteOn synchronizes initial registers without
+--     consuming elapsed control time; controlStep advances the elapsed state.
 --   * Pitch is the integer domain (key - originalKey)*0x40 with
 --     SND_CalcTimer(baseTimer, pitch) (BIOS pitch table); PSG timers are
 --     masked with 0xFFFC; PSG/noise use the 8006 base timer. The host phase
@@ -409,8 +410,8 @@ function T.envelope_release_decays_to_the_sdk_stop_threshold()
       velocity = velocity,
       envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
     })) --[[@as { channel: integer, generation: integer }]]
-    -- The first 250-frame block renders, then the first control step runs
-    -- (the note's step 2), then the noteOff lands mid-interval (old frame
+    -- The first 250-frame block renders, then the first elapsed control step
+    -- runs, then the noteOff lands mid-interval (old frame
     -- 300) -- the release's first step therefore fires at the next control
     -- step, at frame 500.
     local out = {}
@@ -785,8 +786,8 @@ end
 -- at each exact boundary reproduces the known attack-100 register vectors
 -- 0x30D/0x360/0x250/0x20E (13/96/320/664) on exactly those boundary frames,
 -- with the step's registers applying from the frame after the boundary.
--- The noteOn itself stays the note's first control step (frame 1 reads the
--- step-1 register).
+-- noteOn synchronizes the initial registers (frame 1 reads the initial
+-- register); each explicit controlStep advances elapsed state.
 function T.control_steps_follow_the_external_boundary_cadence_at_32768_hz()
   local mixer = newMixer(32768)
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
@@ -800,7 +801,7 @@ function T.control_steps_follow_the_external_boundary_cadence_at_32768_hz()
     mixer:controlStep()
   end
   mixer:renderInto(out, 1)
-  Assert.equal(leftAt(out, 1), 13, "the noteOn is the note's first control step (step 1, register 0x30D)")
+  Assert.equal(leftAt(out, 1), 13, "noteOn synchronizes the initial register 0x30D")
   Assert.equal(leftAt(out, 171), 13, "step 2 fires at the end of frame 171, not at 170 (register 0x30D)")
   Assert.equal(leftAt(out, 172), 96, "step 2 registers apply from frame 172 (register 0x360)")
   Assert.equal(leftAt(out, 341), 96, "frame 341 still reads the step-2 register (0x360)")
@@ -956,10 +957,9 @@ end
 -- no envelope step, no sweep/LFO advance, no pending-value application. One
 -- explicit controlStep() advances the channel-control state exactly once.
 -- Proof without a phase spy: an instant-attack (attack 127) constant voice
--- reaches the full register on the noteOn's own first control step and holds
--- it while rendering across what used to be control boundaries, so the
--- register sampled after 500 frames must be unchanged; only the explicit
--- control step can change it.
+-- reaches the full initial register on noteOn and holds it while rendering
+-- across what used to be control boundaries, so the register sampled after
+-- 500 frames must be unchanged; only the explicit control step can change it.
 function T.renderInto_never_runs_a_control_step_without_an_explicit_call()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local function run(chunks)

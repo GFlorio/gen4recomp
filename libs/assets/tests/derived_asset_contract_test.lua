@@ -24,9 +24,9 @@ local T = {}
 function T.contract_pins_the_current_asset_identities()
   -- The audio contracts moved to explicit class schemas while the global
   -- revision stayed put: the per-class schemas fully identify the changed
-  -- contracts, so unrelated derived classes must not invalidate. The random
-  -- operand shape change (sorted min/max -> exact signed lo/hi pair) bumps
-  -- the sequence schema from v4 to v5.
+  -- contracts, so unrelated derived classes must not invalidate. The closed
+  -- sequence vocabulary removed the non-produced synthetic channel_mask
+  -- operation, so the current sequence schema is v8.
   Assert.deepEqual(DerivedAssetContract, {
     revision = 5,
     map = {

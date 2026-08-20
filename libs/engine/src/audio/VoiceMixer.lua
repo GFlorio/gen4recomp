@@ -16,7 +16,9 @@
 --     stops at the control step whose current pre-register dB sum crosses
 --     SND_VOL_DB_MIN (vol <= -723), the SDK's death moment -- never a
 --     noteOff-time prediction. The envelope advances once per external
---     control step. The noteOn itself is the note's first control step.
+--     control step. noteOn synchronizes the initial registers without
+--     consuming elapsed control time; external controlStep owns the first
+--     elapsed 192 Hz advancement.
 --   * Pitch is the integer domain (key - originalKey)*0x40 + userPitch
 --     (the note's user pitch, default 0) + sweep + pitch LFO through
 --     SND_CalcTimer (BIOS pitch table); square timers are masked with
@@ -46,9 +48,9 @@
 --     owner per auto flag (TrackStepTicks vs ExChannelMain): a non-auto
 --     voice advances it once per sequence tick through the explicit
 --     advanceTrackTick(handle) -- capped at the sweep length -- and an
---     auto voice advances it at control steps only. The noteOn itself is
---     the note's first control step and contributes the full sweepPitch
---     without advancing the counter.
+--     auto voice advances it at control steps only. noteOn contributes the
+--     full initial sweepPitch without advancing elapsed control time or the
+--     sweep counter.
 --   * Square duty is the discrete integer 0..7 index consumed directly
 --     (8-sample cycle starting at LOW, HIGH=(d+1)*12.5%; duty 7 is the
 --     all-LOW special pattern); noise is the 15-bit LFSR from 7FFFh
@@ -128,9 +130,8 @@ local RELEASE_STOP_DB = -723
 
 -- The 192 Hz sound interval (SND_main.c SndThread) is owned by the
 -- external scheduler: the mixer exposes one controlStep per interval and
--- keeps no phase accumulator of its own. The noteOn itself is the note's
--- first control step (ExChannelStart), so a controlStep never re-applies
--- a fresh note's own step.
+-- keeps no phase accumulator of its own. ExChannelStart synchronizes a fresh
+-- note's initial registers; controlStep owns elapsed 192 Hz advancement.
 
 -- Phase snap for square/noise: the pinned duty and LFSR boundaries sit on
 -- exact frame multiples of the timer, and the float phase accumulation may

@@ -10,14 +10,13 @@
 -- runs once per ready game version in beforeAll and the scenarios assert the
 -- resulting bundle; playback over these assets is the engine runtime suites'
 -- and the acceptance field-music scenarios' contract, not asserted here.
--- The suite also pins the retail corpus facts the runtime contracts rely on:
--- no reachable conditional command, every reachable open_track inside its FE
--- track mask, one active sequence per field player id, the field-script
--- BGM/fanfare/effect player roles never colliding with the BGM players, every
--- emitted op inside the actual runtime playback vocabulary, and the derived
--- sample metadata carrying no source rate or payload path. Counts are derived
--- from the dump, never guessed, and the suite runs for every ready version
--- (soulsilver included when its dump lands).
+-- The suite also pins the compiled runtime vocabulary, one active sequence per
+-- field player id, field-script BGM/fanfare/effect player roles never
+-- colliding with the BGM players, and derived sample metadata carrying no
+-- source rate or payload path. Counts are derived from the dump, never
+-- guessed, and the suite runs for every ready version (soulsilver included
+-- when its dump lands). Retail source-distribution facts belong to the corpus
+-- census suite.
 
 local Assert = require("tests.support.Assert")
 local AudioCache = require("libs.assets.src.AudioCache")
@@ -25,7 +24,6 @@ local AudioSequence = require("libs.assets.src.AudioSequence")
 local AudioBank = require("libs.assets.src.AudioBank")
 local AudioSample = require("libs.assets.src.AudioSample")
 local Sdat = require("romdump.src.digest.audio.Sdat")
-local Sseq = require("romdump.src.digest.audio.Sseq")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
@@ -153,48 +151,6 @@ local function forEachVersion(fn)
       error(ctx.versionId .. ": " .. tostring(err), 0)
     end
   end
-end
-
--- The retail SSEQ census walk: the fixpoint scan over a sequence's raw bytes
--- that the compiler's reachability must stay equivalent to. The walk starts
--- at the data offset, skips the optional FE track-mask header, queues the
--- 0x93/0x94/0x95 branch targets, and stops at a jump/return/end like the
--- lowering walk. Returns the decoded commands in walk order, the FE track
--- mask (nil when absent), and every reachable open_track destination track.
-local function censusSequence(bytes, dataOffset)
-  local endPos = #bytes
-  local pos = dataOffset
-  local mask = nil
-  if pos < endPos and string.byte(bytes, pos + 1) == 0xFE then
-    mask = string.byte(bytes, pos + 2) + string.byte(bytes, pos + 3) * 256
-    pos = pos + 3
-  end
-  local queue = { pos }
-  local seen = {}
-  local commands = {}
-  local openTracks = {}
-  while #queue > 0 do
-    local start = table.remove(queue)
-    if not seen[start] and start < endPos then
-      pos = start
-      while pos < endPos and not seen[pos] do
-        seen[pos] = true
-        local command = assert(Sseq.decodeCommand(bytes, pos, endPos, "census"))
-        commands[#commands + 1] = command
-        pos = command.next
-        if command.opcode == 0x93 or command.opcode == 0x94 or command.opcode == 0x95 then
-          queue[#queue + 1] = command.target
-        end
-        if command.opcode == 0x93 then
-          openTracks[#openTracks + 1] = command.track
-        end
-        if command.opcode == 0x94 or command.opcode == 0xFF or command.opcode == 0xFD then
-          break
-        end
-      end
-    end
-  end
-  return commands, mask, openTracks
 end
 
 -- Every structured step of every field script of the version context,
@@ -513,73 +469,6 @@ function T.all_map_day_night_music_references_resolve()
   end)
 end
 
--- No reachable SSEQ command in any ready version uses the 0xA2 conditional
--- prefix. The census walks every used sequence's raw bytes with the
--- lowering-identical fixpoint and pins that retail corpus fact; the compiler
--- still preserves conditional commands when a supported source contains one.
-function T.no_reachable_conditional_command()
-  forEachVersion(function(ctx)
-    local conditional = 0
-    local checked = 0
-    for id = 0, ctx.sdat.counts.sequences - 1 do
-      local record = ctx.sdat.sequences[id]
-      if record ~= nil and record.fileId ~= nil then
-        checked = checked + 1
-        local bytes = assert(ctx.sdat:readFile(record.fileId))
-        local seq = assert(Sseq.open(bytes, "sequence " .. id))
-        local commands = censusSequence(bytes, seq.dataOffset)
-        for _, command in ipairs(commands) do
-          if command.conditional then
-            conditional = conditional + 1
-          end
-        end
-      end
-      local sequence = ctx.bundle.sequences[id]
-      if sequence ~= nil then
-        for _, instruction in ipairs(sequence.program.instructions) do
-          Assert.isNil(instruction.conditional, "sequence " .. id .. " emits a conditional instruction")
-        end
-      end
-    end
-    Assert.isTrue(checked >= 1, "the census walked used sequences")
-    Assert.equal(conditional, 0, "no reachable 0xA2 conditional prefix")
-  end)
-end
-
--- Every reachable open_track destination of every retail sequence is
--- allocated by that sequence's FE track mask, and a sequence without an FE
--- header never opens a track. The retail invariant proves that no reachable
--- open_track can fail allocation, so no runtime allocation-failure or
--- global track-pool contention path is ever exercised by the supported
--- corpus.
-function T.reachable_open_track_targets_stay_inside_the_fe_mask()
-  forEachVersion(function(ctx)
-    local checked = 0
-    for id = 0, ctx.sdat.counts.sequences - 1 do
-      local record = ctx.sdat.sequences[id]
-      if record ~= nil and record.fileId ~= nil then
-        checked = checked + 1
-        local bytes = assert(ctx.sdat:readFile(record.fileId))
-        local seq = assert(Sseq.open(bytes, "sequence " .. id))
-        local _, mask, openTracks = censusSequence(bytes, seq.dataOffset)
-        for _, track in ipairs(openTracks) do
-          Assert.notNil(mask, "sequence " .. id .. " opens track " .. track .. " without an FE mask")
-          Assert.isTrue(
-            math.floor(mask / 2 ^ track) % 2 == 1,
-            "sequence "
-              .. id
-              .. " opens track "
-              .. track
-              .. " not allocated by its FE mask 0x"
-              .. string.format("%04X", mask)
-          )
-        end
-      end
-    end
-    Assert.isTrue(checked >= 1, "the census walked used sequences")
-  end)
-end
-
 -- Every player record a used sequence references exists and declares at
 -- least one playable sequence; the only player declaring more than one is
 -- the intro/PV player (it hosts the opening movie sequences and the
@@ -713,8 +602,6 @@ return {
     every_referenced_bank_resolves = T.every_referenced_bank_resolves,
     every_referenced_sample_resolves = T.every_referenced_sample_resolves,
     all_map_day_night_music_references_resolve = T.all_map_day_night_music_references_resolve,
-    no_reachable_conditional_command = T.no_reachable_conditional_command,
-    reachable_open_track_targets_stay_inside_the_fe_mask = T.reachable_open_track_targets_stay_inside_the_fe_mask,
     only_the_intro_player_declares_multiple_sequence_slots = T.only_the_intro_player_declares_multiple_sequence_slots,
     field_script_audio_roles_never_collide_with_the_bgm_player = T.field_script_audio_roles_never_collide_with_the_bgm_player,
   },

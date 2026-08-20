@@ -25,6 +25,7 @@ local function censusSequence(bytes, dataOffset)
   local queue = { pos }
   local seen = {}
   local commands = {}
+  local openTracks = {}
   while #queue > 0 do
     local start = table.remove(queue)
     if not seen[start] and start < endPos then
@@ -34,6 +35,9 @@ local function censusSequence(bytes, dataOffset)
         local command = assert(Sseq.decodeCommand(bytes, pos, endPos, "census"))
         commands[#commands + 1] = command
         pos = command.next
+        if command.opcode == 0x93 then
+          openTracks[#openTracks + 1] = command.track
+        end
         if command.opcode == 0x93 or command.opcode == 0x94 or command.opcode == 0x95 then
           queue[#queue + 1] = dataOffset + command.target
         end
@@ -43,7 +47,7 @@ local function censusSequence(bytes, dataOffset)
       end
     end
   end
-  return commands, mask
+  return commands, mask, openTracks
 end
 
 function T.beforeAll()
@@ -149,7 +153,20 @@ function T.corpus_census_classifies_every_reachable_construct()
 
         local bytes = assert(sdat:readFile(record.fileId))
         local seq = assert(Sseq.open(bytes, "sequence " .. id))
-        local commands, mask = censusSequence(bytes, seq.dataOffset)
+        local commands, mask, openTracks = censusSequence(bytes, seq.dataOffset)
+
+        for _, track in ipairs(openTracks) do
+          Assert.notNil(mask, "sequence " .. id .. " opens track " .. track .. " without an FE mask")
+          Assert.isTrue(
+            math.floor(mask / 2 ^ track) % 2 == 1,
+            "sequence "
+              .. id
+              .. " opens track "
+              .. track
+              .. " not allocated by its FE mask 0x"
+              .. string.format("%04X", mask)
+          )
+        end
 
         local compiled = assert(bundle.sequences[id], "compiled sequence " .. id .. " is missing")
         local semanticMask = compiled.program.initialTrackMask
@@ -338,6 +355,11 @@ function T.corpus_census_classifies_every_reachable_construct()
     Assert.isTrue(next(initialVolumes) ~= nil, "census: initial volumes enumerated")
     Assert.isTrue(channelMaskZero + channelMaskNonZero >= 1, "census: channel masks enumerated")
     Assert.isTrue(maxTracksPerSequence >= 1, "census: track allocation enumerated")
+    Assert.equal(
+      conditionalCount,
+      0,
+      "census: no reachable 0xA2 conditional prefix (" .. compactSummary(summary) .. ")"
+    )
 
     -- If release 0xFF occurs, record evidence; otherwise pass.
     if releaseFF > 0 then
