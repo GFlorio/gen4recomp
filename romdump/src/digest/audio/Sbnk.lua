@@ -139,6 +139,7 @@ local function _decode(bytes, context)
         param = readParam(bytes, offset, size, source, recordType == Sbnk.TYPE_DIRECTPCM),
       }
     elseif recordType == Sbnk.TYPE_DUMMY then
+      readParam(bytes, offset, size, source, false)
       instruments[program] = { type = recordType }
     elseif recordType == Sbnk.TYPE_DRUM_SET then
       if offset + 2 > size then

@@ -10,6 +10,7 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local Sbnk = require("romdump.src.digest.audio.Sbnk")
 local SbnkFixture = require("tests.support.SbnkFixture")
+local FntWriter = require("tests.support.FntWriter")
 
 local T = {}
 
@@ -159,6 +160,16 @@ end
 function T.rejects_records_past_end()
   local bytes = SbnkFixture.build({ { type = 1, param = PCM } })
   local corrupted = bytes:sub(1, #bytes - 5)
+  decodeRejects(corrupted, "SBNK_TRUNCATED")
+end
+
+-- Direct DUMMY records still occupy a complete 10-byte parameter region.
+function T.rejects_direct_dummy_record_past_end()
+  local bytes = SbnkFixture.build({ { type = Sbnk.TYPE_DUMMY, param = PCM } })
+  local recordOffset = #bytes + 1
+  local packed = Sbnk.TYPE_DUMMY + recordOffset * 256
+  local corrupted = bytes:sub(1, 0x3C) .. FntWriter.u32(packed) .. bytes:sub(0x41)
+  Assert.equal(string.byte(corrupted, 62), recordOffset % 256)
   decodeRejects(corrupted, "SBNK_TRUNCATED")
 end
 
