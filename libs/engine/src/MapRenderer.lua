@@ -10,12 +10,9 @@
 -- ID, DS-quantized depth, and per-polygon fog gate. Ordinary translucent and
 -- mixed-translucent fragments never touch the state target directly; their
 -- state (last translucent ID, fog-gate AND, optional DS Z depth) is
--- maintained by the programmable ping-pong compositor. The color pass
--- (map.glsl) draws the same opaque/cutout/mixed-opaque items at full
--- resolution, then executes the compositor over the joint `blended` list
--- (ordinary translucent and mixed-translucent, already depth-sorted by
--- RenderQueue) with exact integer RGB6/alpha5 blend and same-ID rejection,
--- then wireframe on the composited result. The final resolve (edge.glsl) samples sceneColor as its own
+-- maintained by the exact programmable compositor. Approximate mode instead
+-- draws the joint `blended` list directly with host alpha blending. The final
+-- resolve (edge.glsl) samples sceneColor as its own
 -- texture and the same-resolution renderState through explicit snap/clamp to
 -- render-state pixel centers (never texture-clamp reliance), probing the four
 -- orthogonal neighbors at a distance of one integer edge radius (the rounded
@@ -81,8 +78,12 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _spriteQueueScratch RenderQueueScratch
 ---@field _spriteParts table[][]
 ---@field worldRasterScale number?
+---@field translucencyMode "approximate"|"exact"
 local MapRenderer = {}
 MapRenderer.__index = MapRenderer
+
+MapRenderer.TRANSLUCENCY_APPROXIMATE = "approximate"
+MapRenderer.TRANSLUCENCY_EXACT = "exact"
 
 -- Shader sources are engine assets colocated with this module, addressed by
 -- repo-relative path -- the same namespace as every `require`. They are read
@@ -202,10 +203,16 @@ function MapRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics, "MapRenderer requires a graphics context")
+  local translucencyMode = opts.translucencyMode or MapRenderer.TRANSLUCENCY_APPROXIMATE
+  assert(
+    translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE or translucencyMode == MapRenderer.TRANSLUCENCY_EXACT,
+    "invalid translucency mode: " .. tostring(translucencyMode)
+  )
   local worldRasterScale = validateWorldRasterScale(opts.worldRasterScale)
   local readSource = opts.readSource or defaultReadSource
   local renderer = setmetatable({
     _graphics = graphics,
+    translucencyMode = translucencyMode,
     worldRasterScale = worldRasterScale,
     clearColor = opts.clearColor or DEFAULT_CLEAR_COLOR,
     _edgeColorsCache = {
@@ -264,8 +271,10 @@ function MapRenderer.new(opts)
     renderer._spriteShaderSource = "#define PRESENTATION_SPRITE\n" .. colorSource
     renderer.edgeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.resolve))
     renderer.worldShader = graphics.newShader("#define WORLD_MRT\n" .. colorSource)
-    renderer.sourceShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.source))
-    renderer.compositeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.composite))
+    if translucencyMode == MapRenderer.TRANSLUCENCY_EXACT then
+      renderer.sourceShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.source))
+      renderer.compositeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.composite))
+    end
   end)
   if not ok then
     renderer:release()
@@ -357,23 +366,22 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     renderState:setFilter("nearest", "nearest")
     colorTargets = { sceneColor, renderState, depthstencil = colorDepth }
 
-    -- The compositor's single spare destination pair alternates with the
-    -- published active pair. The color halves are rgba8 (the final composite
-    -- quantizes to RGB6/alpha5); the state halves are rgba32f for exact depth.
-    spareColor = lg.newCanvas(colorW, colorH)
-    spareColor:setFilter("nearest", "nearest")
-    spareState = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
-    spareState:setFilter("nearest", "nearest")
+    if self.translucencyMode == MapRenderer.TRANSLUCENCY_EXACT then
+      -- Exact mode alternates one spare destination pair with the active pair.
+      spareColor = lg.newCanvas(colorW, colorH)
+      spareColor:setFilter("nearest", "nearest")
+      spareState = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
+      spareState:setFilter("nearest", "nearest")
 
-    -- The source-fragment buffers: one item's accepted partial-alpha
-    -- fragments land here (sourceColor rgba8, sourceMeta rgba32f carrying the
-    -- valid flag, DS Z depth, fog flag, and source polygon ID).
-    sourceColor = lg.newCanvas(colorW, colorH)
-    sourceColor:setFilter("nearest", "nearest")
-    sourceMeta = lg.newCanvas(colorW, colorH, { format = "rgba32f" })
-    sourceMeta:setFilter("nearest", "nearest")
-    sourceColorTargets = { sourceColor, depthstencil = colorDepth }
-    sourceMetaTargets = { sourceMeta, depthstencil = colorDepth }
+      -- Exact source metadata uses rgba8. The ID encoding in source.glsl is
+      -- (id + 1) / 64, so every 6-bit ID survives normalized storage.
+      sourceColor = lg.newCanvas(colorW, colorH)
+      sourceColor:setFilter("nearest", "nearest")
+      sourceMeta = lg.newCanvas(colorW, colorH, { format = "rgba8" })
+      sourceMeta:setFilter("nearest", "nearest")
+      sourceColorTargets = { sourceColor, depthstencil = colorDepth }
+      sourceMetaTargets = { sourceMeta, depthstencil = colorDepth }
+    end
   end)
   if not ok then
     for _, canvas in ipairs({
@@ -940,10 +948,10 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
   -- _drawItem dispatch the color pass uses, so straddle bending, lighting,
   -- materials, and billboard projection are all identical).
   lg.setCanvas(assert(self._sourceColorTargets))
-  lg.clear(0, 0, 0, 0, false, false)
   lg.setShader(self.shader)
   lg.setDepthMode("less", false)
   lg.setBlendMode("replace", "premultiplied")
+  self.shader:send("u_view", "column", viewMatrix)
   self:_drawItem(item, projection, fragmentPass, viewMatrix)
 
   -- Pass 2: source metadata through source.glsl (same-ID rejection + fog flag
@@ -1113,15 +1121,8 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     end
     self._activeShader = nil
 
-    -- ---- translucent color pass ----
-    lg.setShader(self.shader)
-    lg.setDepthMode("less", false)
-    lg.setBlendMode("alpha")
-    self.shader:send("u_view", "column", viewMatrix)
-
-    self:_sendLighting(sceneRuntime)
-
     -- ---- translucent compositor ----
+    self:_sendLighting(sceneRuntime)
     -- The DS translucent path needs per-pixel state that fixed-function host
     -- blending cannot express: same-ID rejection against the pixel's last
     -- translucent ID, max destination alpha, fog-gate AND, and
@@ -1138,25 +1139,27 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     -- is the new active pair, so wireframe and the final resolve below see the
     -- fully composited color and state.
     local activeColor, activeState = self.sceneColor, self.renderState
-    if #queue.blended > 0 then
+    if self.translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE then
+      if #queue.blended > 0 then
+        ---@type { [1]: love.Canvas, depthstencil: love.Canvas }
+        local approximateTargets = { assert(self.sceneColor), depthstencil = assert(self.colorDepth) }
+        lg.setCanvas(approximateTargets)
+        lg.setShader(self.shader)
+        lg.setDepthMode("less", false)
+        lg.setBlendMode("alpha", "alphamultiply")
+        self.shader:send("u_view", "column", viewMatrix)
+        self:_sendLighting(sceneRuntime)
+        for _, entry in ipairs(queue.blended) do
+          local fragmentPass = entry.fragmentPass == AlphaClassifier.MIXED and FRAGMENT_PASS_MIXED_TRANSLUCENT
+            or FRAGMENT_PASS_TRANSLUCENT
+          self:_drawItem(entry.item, projectionFor(entry.item), fragmentPass, viewMatrix)
+        end
+      end
+    elseif #queue.blended > 0 then
       local inactiveColor, inactiveState = assert(self._spareColor), assert(self._spareState)
       local function swap()
         activeColor, activeState, inactiveColor, inactiveState = inactiveColor, inactiveState, activeColor, activeState
       end
-      -- Seed the inactive pair with the active pair's content so a composite
-      -- that leaves pixels untouched (no source fragment) carries the
-      -- destination through unchanged. The source and composite passes read
-      -- the active pair; the composite writes the inactive pair. The blits
-      -- run with NO shader bound (a canvas-to-canvas copy must not run the
-      -- state shader's effect on the source canvas's pixels).
-      lg.setShader()
-      lg.setCanvas(inactiveColor)
-      lg.setBlendMode("replace", "premultiplied")
-      lg.setColor(1, 1, 1, 1)
-      lg.draw(activeColor, 0, 0)
-      lg.setCanvas(inactiveState)
-      lg.draw(activeState, 0, 0)
-
       for _, entry in ipairs(queue.blended) do
         local d = entry.item
         -- Depth-equal is a corpus-provable-absent DS state (see
@@ -1186,7 +1189,8 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       end
       -- Publish the composited pair as the renderer's public sceneColor/
       -- renderState fields and make the former active pair the spare. The
-      -- next frame re-seeds that spare before its first composite.
+      -- next frame's composite reads the active pair and copies invalid
+      -- source pixels directly from it.
       self.sceneColor, self.renderState = activeColor, activeState
       self._colorTargets = { activeColor, activeState, depthstencil = self.colorDepth }
       self._spareColor, self._spareState = inactiveColor, inactiveState

@@ -35,10 +35,11 @@ uniform Image u_activeColor;
 uniform Image u_activeState;
 uniform vec2 u_size;
 
-// Decode the source polygon ID from sourceMeta.a (normalized id / 63).
+// Decode the source polygon ID from sourceMeta.a ((id + 1) / 64). The
+// encoding is chosen so all 6-bit IDs survive normalized rgba8 storage.
 int sourceId(vec4 meta)
 {
-  return int(floor(meta.a * 63.0 + 0.5));
+  return int(floor(meta.a * 64.0 + 0.5)) - 1;
 }
 
 void effect()

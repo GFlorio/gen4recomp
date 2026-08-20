@@ -334,16 +334,16 @@ fog and intentionally skip world edge marking; actor atlases remain nearest.
 The world renderer selects projection identically for ordinary and billboard
 world items (`item.billboardProjection and billboardProjection or
 worldProjection`). It draws opaque, cutout, mixed-opaque, and wireframe items
-once through the MRT shader, then executes the programmable translucent
-compositor (see below) and draws wireframe on the composited result.
+once through the MRT shader, then applies the selected translucency mode and
+draws wireframe on the resulting active pair.
 
 Target generations are allocated transactionally by one
-`MapRenderer:_ensureTargets` call: the MRT color/state/depth set, one spare
-color/state pair, and the source fragment color/meta buffers are staged before
-anything published is touched. A failed allocation releases only the staged
-canvases and leaves the previous complete generation and its dimensions
-untouched. Final-resolve state uniforms are sent when the active pair is known,
-not during target construction.
+`MapRenderer:_ensureTargets` call. The MRT color/state/depth set is always
+staged; exact mode additionally stages one spare color/state pair and source
+fragment color/meta buffers before anything published is touched. A failed
+allocation releases only the staged canvases and leaves the previous complete
+generation and its dimensions untouched. Final-resolve state uniforms are sent
+when the active pair is known, not during target construction.
 
 ### Mixed final-alpha materials
 
@@ -354,11 +354,30 @@ alone -- texture storage format (e.g. A3I5/A5I3) describes capability, not the
 alpha distribution of a particular decoded texture, and DECAL ignores texture
 alpha for final alpha entirely. Such a material draws once in the MRT pass as
 `mixedOpaque`, then again only for its partial fragments in the joint `blended`
-list via the compositor: each fragment's own exact final alpha5 (not a
+list via the selected translucency mode: each fragment's own exact final alpha5 (not a
 float-epsilon comparison) decides which pass's write, if
 any, survives -- alpha 0 discards everywhere, alpha 31 is opaque in both
-color and state, and alpha 1-30 blends through the compositor in color and
+  color and state, and alpha 1-30 blends through the selected translucency mode in color and
 contributes translucent state, not opaque state.
+
+### Translucency modes
+
+The renderer defaults to `MapRenderer.TRANSLUCENCY_APPROXIMATE`. It draws the
+sorted `blended` entries directly into the world color target with fixed-function
+alpha blending, so translucent geometry adds geometry submissions but no
+per-entry full-screen work. Approximate mode intentionally does not reproduce
+same-ID rejection, integer RGB6/alpha5 destination blending, maximum destination
+alpha, fog-gate AND, or last-translucent-ID state; this is the deliberate
+low-end production tradeoff.
+
+`MapRenderer.TRANSLUCENCY_EXACT` remains a normal supported construction mode for
+a future graphics-quality selector. It retains the programmable compositor and
+its exact same-ID, integer blend, maximum-alpha, fog-gate, and last-ID semantics.
+Exact mode is higher cost: it performs one source raster and one full-screen
+composite per blended entry. Exact-only shaders, spare canvases, and source
+buffers are allocated only in exact mode. The source metadata buffer is `rgba8`
+and encodes IDs as `(id + 1) / 64`; no source-color clear or initial destination
+seed blits are required because invalid-source pixels copy the active destination.
 
 ### Programmable translucent compositor
 
@@ -368,10 +387,10 @@ same-ID rejection), blend with exact integer DS RGB6/alpha5 arithmetic
 (including `max` destination alpha), and mutate state (fog-gate `AND` and last
 translucent ID). The compositor is a ping-pong read-modify-write:
 
-* The published color/state pair and one spare full-resolution color/state pair
+* The published world-raster color/state pair and one spare world-raster color/state pair
   (`rgba32f` for state and the 24-bit depth) alternate as active and inactive
   destinations, plus the shared `colorDepth` attachment and two temporary
-  source-fragment buffers (color `rgba8` and metadata `rgba32f` carrying the
+  source-fragment buffers (color `rgba8` and metadata `rgba8` carrying the
   valid flag, fog flag, and source polygon ID).
 * For each `RenderQueue.blended` entry in its existing deterministic order,
   the renderer rasterizes only that item's accepted translucent or
@@ -558,11 +577,12 @@ actors draw with the world projection, exactly as on the DS.
 
 ### Implemented exactly
 
-* Same-ID translucent self-blend rejection, exact integer RGB6/alpha5 blend
+* Exact-mode same-ID translucent self-blend rejection, exact integer RGB6/alpha5 blend
   with `w = srcAlpha5 + 1` and `max` destination alpha, fog-gate `AND`, and
   last-translucent-ID state via the programmable ping-pong compositor
-  (see above) -- no host fixed-function alpha blend remains for
-  translucency; mixed-alpha partial texels use the same compositor.
+  (see above). Approximate mode intentionally uses host fixed-function alpha
+  blending and omits those exact state semantics; mixed-alpha partial texels
+  use the selected mode.
 * Exact DS vertex lighting, MODULATE/DECAL combiner, render-state depth,
   fog density, and the compositor's state contract described above.
 

@@ -95,6 +95,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     self.renderer = MapRenderer.new({
       clearColor = WindowConfig.BACKGROUND_COLOR,
       worldRasterScale = WindowConfig.WORLD_3D_RASTER_SCALE,
+      translucencyMode = MapRenderer.TRANSLUCENCY_APPROXIMATE,
     })
     -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
     -- text all draw through it; the state owns and releases it exactly once.

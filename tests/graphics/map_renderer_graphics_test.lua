@@ -21,6 +21,12 @@ local DsFog = require("tests.support.DsFog")
 
 local T = {}
 
+local function exactRenderer(options)
+  options = options or {}
+  options.translucencyMode = MapRenderer.TRANSLUCENCY_EXACT
+  return MapRenderer.new(options)
+end
+
 -- Spelled explicitly to keep these smokes independent of Matrix4.
 local IDENTITY = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
 local IDENTITY_NORMAL = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
@@ -89,7 +95,7 @@ local function statePixelAt(renderer, stateImg, x, y)
 end
 
 function T.shader_compiles(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
 
   Assert.notNil(renderer.shader)
 end
@@ -110,7 +116,7 @@ function T.shader_has_required_lighting_uniforms(scope)
 end
 
 function T.shader_has_model_normal_uniform(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
 
   -- Sent as a 3x3 column-major matrix (nine values).
   renderer.shader:send("u_modelNormal", "column", IDENTITY_NORMAL)
@@ -2287,7 +2293,7 @@ function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque
     return a[1] < 0.99 and a or b
   end
 
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
 
   local opaqueOnly = opaqueFinalStateItem(literalTriangleAtDepth(scope, -2, 1), 20, true)
   local baseline = stateInterior(renderer, { { opaqueOnly } })
@@ -3455,7 +3461,7 @@ function T.exact_ds_rgb_weight(scope)
     { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
     { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
   }))
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
   -- Self-check: the fixture must actually discriminate the DS integer blend
   -- from the host float blend on at least one channel, or it can never be red.
   local discriminating = false
@@ -3512,7 +3518,7 @@ function T.destination_alpha_is_max(scope)
   -- first translucent fragment's destination alpha5 is 0 and it REPLACES the
   -- destination (rule 2), establishing the fixture's known destination
   -- alpha5; the second fragment then composites with max.
-  local renderer = scope:own(MapRenderer.new({ clearColor = { 0, 0, 0, 0 } }))
+  local renderer = scope:own(exactRenderer({ clearColor = { 0, 0, 0, 0 } }))
   local function readAlpha(renderer, dstA5, srcA5)
     local mesh = scope:own(syntheticMesh({
       { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
@@ -3580,7 +3586,7 @@ end
 -- once with the first (red 51,17,17 at alpha5 8) = RGB6 (21,25,25); state A
 -- = (7+1)/64.
 function T.same_translucent_id_rejects_the_second_blend(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
   local first6, second6 = { 51, 17, 17 }, { 17, 51, 17 }
   local read = twoTranslucentOverOpaque(scope, renderer, { 7, 7 }, first6, second6)
 
@@ -3625,7 +3631,7 @@ end
 -- (RGB6 51,17,17 at a5 8) then with second (RGB6 17,51,17 at a5 8); state A
 -- = (9+1)/64.
 function T.different_translucent_ids_both_blend(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
   local first6, second6 = { 51, 17, 17 }, { 17, 51, 17 }
   local read = twoTranslucentOverOpaque(scope, renderer, { 7, 9 }, first6, second6)
 
@@ -3687,7 +3693,7 @@ function T.non_depth_writing_preserves_opaque_id_and_depth_and_ands_fog(scope)
     return centerReadback(scope, renderer, fixedCamera(), emptyRuntime(), { { opaque, translucent } })
   end
 
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
   local fogFalse = drawCase(renderer, false)
   local fogTrue = drawCase(renderer, true)
 
@@ -3724,7 +3730,7 @@ function T.non_depth_writing_preserves_opaque_id_and_depth_and_ands_fog(scope)
 end
 
 function T.final_resolve_uses_the_state_paired_with_an_odd_composite_result(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local runtime = emptyRuntime()
   local fogTable = {}
@@ -3764,7 +3770,7 @@ function T.final_resolve_uses_the_state_paired_with_an_odd_composite_result(scop
 end
 
 function T.translucent_geometry_behind_opaque_geometry_is_rejected_by_shared_depth(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
   local camera = perspectiveCamera()
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local opaque = depthOpaqueQuad(scope, -0.2, 0, 128, 255, 20, true)
@@ -3800,7 +3806,7 @@ end
 -- compositor
 -- delta, asserted per column.
 function T.mixed_partial_texels_use_the_compositor_and_opaque_texels_do_not(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(exactRenderer())
   local texture = mixedAlphaTexture(scope)
   local item = mixedItem(unitSquareQuad(scope, 1, 1, 1), texture)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })

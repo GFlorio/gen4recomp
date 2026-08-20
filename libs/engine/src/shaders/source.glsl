@@ -21,9 +21,8 @@
 //   sourceMeta: R = valid flag 1.0 (0.0 = no source fragment at this pixel)
 //               G = 0.0 (reserved; translucent source does not write depth)
 //               B = the source polygon's fog-enable bit
-//               A = the source polygon ID normalized (id / 63) -- the
-//                   composite re-encodes it into the last-translucent-ID
-//                   state channel
+//               A = (source polygon ID + 1) / 64. This encoding round-trips
+//                   every 6-bit ID through normalized rgba8 storage.
 //
 // The depth test against the current opaque host depth attachment happens in
 // the ordinary rasterizer; source fragments never write that depth buffer.
@@ -123,6 +122,6 @@ void effect()
     discard;
   }
 
-  love_Canvases[0] = vec4(1.0, 0.0, u_polygonFogEnabled ? 1.0 : 0.0, u_polygonId);
+  love_Canvases[0] = vec4(1.0, 0.0, u_polygonFogEnabled ? 1.0 : 0.0, float(sourceId + 1) / 64.0);
 }
 #endif
