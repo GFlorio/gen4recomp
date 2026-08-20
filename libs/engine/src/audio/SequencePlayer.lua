@@ -123,6 +123,7 @@ local bit = require("bit")
 ---@field private _provider AudioAssetProvider
 ---@field private _logicalPlayers table<integer, table>
 ---@field private _seqPlayers table<integer, table?>
+---@field private _trackPool table<integer, table?> concrete reusable track objects
 ---@field private _soundPhase integer the one global 192 Hz sound-interval phase accumulator
 ---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider, observer: table? }): SequencePlayer
 ---@field play fun(self: SequencePlayer, sequence: table, bank: table)
@@ -308,10 +309,10 @@ local function channelPriorityFor(sequence)
   return sequence.player.channelPriority or 0
 end
 
-local function newTrack(entry, slot, channelPriority, channelMask)
+local function newTrack(slot)
   return {
     slot = slot,
-    pc = entry,
+    pc = nil,
     ended = false,
     gated = false,
     wait = 0,
@@ -335,8 +336,8 @@ local function newTrack(entry, slot, channelPriority, channelMask)
     tie = false,
     mute = 0,
     program = 0,
-    priority = channelPriority,
-    channelMask = channelMask,
+    priority = 64,
+    channelMask = 0xFFFF,
     volume = 127,
     expression = 127,
     -- The raw track pan offset (the NNS 0xC0 pan command stores amount-64;
@@ -379,34 +380,47 @@ end
 local function startTrack(track, entry)
   track.pc = entry
   track.ended = false
-  track.gated = false
-  track.wait = 0
-  track.noteFinishWait = false
-  track.noteWait = true
-  track.controlStack = {}
-  track.compare = false
 end
 
-local function allocateTrack(self, entry, slot, channelPriority, channelMask)
-  if self._trackCount >= TRACK_POOL_CAPACITY then
+local function allocateTrack(self, slot, channelMask)
+  local poolIndex
+  for candidate = 0, TRACK_POOL_CAPACITY - 1 do
+    if self._trackPool[candidate] == nil then
+      poolIndex = candidate
+      break
+    end
+  end
+  if poolIndex == nil then
     observe(self, "onTrackPool", { allocated = self._trackCount, capacity = TRACK_POOL_CAPACITY })
     return nil
   end
-  self._trackCount = self._trackCount + 1
-  observe(self, "onTrackPool", { allocated = self._trackCount, capacity = TRACK_POOL_CAPACITY })
-  local track = newTrack(entry, slot, channelPriority, channelMask)
-  startTrack(track, entry)
+
+  local track = newTrack(slot)
+  track.poolIndex = poolIndex
   track.poolOwned = true
+  track.channelMask = bit.band(track.channelMask, channelMask)
+  self._trackPool[poolIndex] = track
+  self._trackCount = self._trackCount + 1
+  observe(self, "onTrackPool", {
+    allocated = self._trackCount,
+    capacity = TRACK_POOL_CAPACITY,
+    poolIndex = poolIndex,
+  })
   return track
 end
 
 local function releaseTrackObject(self, track)
-  if track ~= nil and track.poolOwned then
-    track.poolOwned = false
-    self._trackCount = self._trackCount - 1
-    assert(self._trackCount >= 0, "track pool count cannot be negative")
-    observe(self, "onTrackPool", { allocated = self._trackCount, capacity = TRACK_POOL_CAPACITY })
-  end
+  assert(track ~= nil and track.poolOwned, "track must own a concrete pool object")
+  assert(self._trackPool[track.poolIndex] == track, "track pool ownership is inconsistent")
+  self._trackPool[track.poolIndex] = nil
+  track.poolOwned = false
+  self._trackCount = self._trackCount - 1
+  assert(self._trackCount >= 0, "track pool count cannot be negative")
+  observe(self, "onTrackPool", {
+    allocated = self._trackCount,
+    capacity = TRACK_POOL_CAPACITY,
+    poolIndex = track.poolIndex,
+  })
 end
 
 -- The SDK user pitch (SND_seq.c TrackUpdateChannel): pitchBend *
@@ -797,14 +811,6 @@ local function execute(self, instance, track, instruction)
       if previous == track then
         return instruction.target
       end
-    else
-      instance.tracks[instruction.track] = allocateTrack(
-        self,
-        instruction.target,
-        instruction.track,
-        channelPriorityFor(instance.sequence),
-        instance.channelMask
-      )
     end
   elseif op == "compare" then
     local left = toS16(varRead(self, instance, instruction.var))
@@ -1100,9 +1106,35 @@ local function releaseInstance(self, instance)
   end
 end
 
+local retireInstance
+
+local function retireTrack(self, instance, trackId, reason)
+  local track = instance.tracks[trackId]
+  assert(track ~= nil, "track must be attached before retirement")
+  releaseTrackVoices(self, instance, track)
+  releaseTrackObject(self, track)
+  instance.tracks[trackId] = nil
+  observe(self, "onTrackRetirement", {
+    logicalPlayerId = instance.logicalPlayerId,
+    seqPlayerSlot = instance.seqPlayerSlot,
+    trackSlot = trackId,
+    poolIndex = track.poolIndex,
+    reason = reason,
+  })
+
+  for remaining = 0, TRACK_COUNT - 1 do
+    local remainingTrack = instance.tracks[remaining]
+    if remainingTrack ~= nil and remainingTrack.pc ~= nil and not remainingTrack.ended then
+      return true
+    end
+  end
+  retireInstance(self, instance, "natural_completion")
+  return false
+end
+
 -- Retires one instance from both ownership structures. Callers must pass an
 -- active instance; the assertions make an ownership split fail immediately.
-local function retireInstance(self, instance, reason)
+retireInstance = function(self, instance, reason)
   assert(instance ~= nil and not instance.retired, "instance must be active")
   local slot = self._seqPlayers[instance.seqPlayerSlot]
   assert(slot == instance, "physical slot does not own instance")
@@ -1143,6 +1175,7 @@ function SequencePlayer.new(opts)
     _seqPlayers = {},
     _nextInstanceId = 1,
     _trackCount = 0,
+    _trackPool = {},
     -- The player-scoped RNG (injected or the deterministic default): plays
     -- share it and never reseed, so random operands stay reproducible.
     _rng = opts.rng or newRng(),
@@ -1179,6 +1212,9 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   end
   local logicalPlayerId = sequence.player.id
   assert(logicalPlayerId >= 0 and logicalPlayerId < LOGICAL_PLAYER_COUNT, "logical player id must be in 0..31")
+  -- CryPlayer supplies an engine-owned sequence outside the generated asset
+  -- contract; its omitted reservation mask has the source default track 0.
+  local initialTrackMask = sequence.program.initialTrackMask or 0x0001
   local playerRecord = self._provider:player(logicalPlayerId)
   local channelMask = playerRecord.channelMask == 0 and 0xFFFF or playerRecord.channelMask
   local logicalPlayer = self._logicalPlayers[logicalPlayerId]
@@ -1245,18 +1281,6 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
     retireInstance(self, globalVictim, "physical_eviction")
   end
 
-  local entryTrack = allocateTrack(self, sequence.program.entry, 0, channelPriorityFor(sequence), channelMask)
-  if entryTrack == nil then
-    observe(self, "onSequenceAllocation", {
-      playerId = logicalPlayerId,
-      logicalPlayerId = logicalPlayerId,
-      seqPlayerSlot = seqPlayerSlot,
-      accepted = false,
-      playerPriority = sequence.player.playerPriority,
-      reason = "track_capacity",
-    })
-    return
-  end
   local instance = {
     id = self._nextInstanceId,
     logicalPlayerId = logicalPlayerId,
@@ -1287,8 +1311,32 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
     -- every play/replacement (SND_seq.c PlayerInit localVars): writes do not
     -- survive a sequence replacement, unlike the shared globals.
     localVars = newVariableDomain(),
-    tracks = { [0] = entryTrack },
+    tracks = {},
   }
+
+  local entryTrack = allocateTrack(self, 0, channelMask)
+  if entryTrack == nil then
+    observe(self, "onSequenceAllocation", {
+      playerId = logicalPlayerId,
+      logicalPlayerId = logicalPlayerId,
+      seqPlayerSlot = seqPlayerSlot,
+      accepted = false,
+      playerPriority = sequence.player.playerPriority,
+      reason = "track_capacity",
+    })
+    return
+  end
+  instance.tracks[0] = entryTrack
+  startTrack(entryTrack, sequence.program.entry)
+  for trackSlot = 1, TRACK_COUNT - 1 do
+    if bit.band(initialTrackMask, bit.lshift(1, trackSlot)) ~= 0 then
+      local track = allocateTrack(self, trackSlot, channelMask)
+      if track == nil then
+        break
+      end
+      instance.tracks[trackSlot] = track
+    end
+  end
   self._nextInstanceId = self._nextInstanceId + 1
   instances[#instances + 1] = instance
   self._seqPlayers[seqPlayerSlot] = instance
@@ -1408,7 +1456,7 @@ end
 local function stepSequenceTick(self, instance)
   for trackId = 0, TRACK_COUNT - 1 do
     local track = instance.tracks[trackId]
-    if track ~= nil then
+    if track ~= nil and track.pc ~= nil then
       -- 1. Dead/stolen handles leave the collection first, so a release or
       -- a later note never touches a stale handle.
       pruneTrackVoices(self, track)
@@ -1470,6 +1518,11 @@ local function stepSequenceTick(self, instance)
           fetch(self, instance, track)
         end
       end
+      if self._seqPlayers[instance.seqPlayerSlot] == instance and track.ended then
+        if not retireTrack(self, instance, trackId, "track_end") then
+          return
+        end
+      end
     end
   end
 end
@@ -1486,29 +1539,6 @@ local function releaseExpiredVoices(self, instance)
         end
       end
     end
-  end
-end
-
-local function retireEndedTracks(self, instance)
-  for trackId = 0, TRACK_COUNT - 1 do
-    local track = instance.tracks[trackId]
-    if track ~= nil and track.ended then
-      pruneTrackVoices(self, track)
-      if #track.voices == 0 then
-        releaseTrackObject(self, track)
-        instance.tracks[trackId] = nil
-      end
-    end
-  end
-  local hasTrack = false
-  for trackId = 0, TRACK_COUNT - 1 do
-    if instance.tracks[trackId] ~= nil then
-      hasTrack = true
-      break
-    end
-  end
-  if not hasTrack then
-    retireInstance(self, instance, "natural_completion")
   end
 end
 
@@ -1541,9 +1571,6 @@ local function processSoundInterval(self)
         stepSequenceTick(self, instance)
       end
       instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)
-      if self._seqPlayers[seqPlayerSlot] ~= nil then
-        retireEndedTracks(self, instance)
-      end
     end
   end
   observe(self, "onSoundInterval", {
@@ -1650,7 +1677,7 @@ function SequencePlayer:isPlayerPlaying(playerId)
   for index = 1, #instances do
     for trackId = 0, TRACK_COUNT - 1 do
       local track = instances[index].tracks[trackId]
-      if track ~= nil and not track.ended then
+      if track ~= nil and track.pc ~= nil and not track.ended then
         return true
       end
     end
@@ -1665,7 +1692,7 @@ function SequencePlayer:isPlaying()
     if instance ~= nil then
       for trackId = 0, TRACK_COUNT - 1 do
         local track = instance.tracks[trackId]
-        if track ~= nil and not track.ended then
+        if track ~= nil and track.pc ~= nil and not track.ended then
           return true
         end
       end

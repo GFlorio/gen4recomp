@@ -128,7 +128,7 @@ end
 
 local function seq(instructions, opts)
   opts = opts or {}
-  return AudioFixture.sequence(opts.id or 0, opts.symbol or "SEQ_TEST", 12, opts.playerId or 1, {
+  local sequence = AudioFixture.sequence(opts.id or 0, opts.symbol or "SEQ_TEST", 12, opts.playerId or 1, {
     entry = 1,
     instructions = instructions,
   }, {
@@ -137,6 +137,10 @@ local function seq(instructions, opts)
     playerPriority = opts.playerPriority or 64,
     channelPriority = opts.channelPriority or 64,
   })
+  if opts.initialTrackMask ~= nil then
+    sequence.program.initialTrackMask = opts.initialTrackMask
+  end
+  return sequence
 end
 
 local function buildBundle(sequences, opts)
@@ -332,8 +336,8 @@ function T.natural_release_waits_until_sequence_work_finishes()
     "after_sequence",
     "after_channels",
     "before_sequence",
-    "after_sequence",
     "natural_release",
+    "after_sequence",
     "after_channels",
   }, "natural release begins after sequence work and before channel control")
 end
@@ -495,7 +499,7 @@ function T.open_track_plays_a_second_voice_in_parallel()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
+  local player, provider = engine({ [0] = seq(program, { initialTrackMask = 0x0003 }) }, { mixer = mixer })
   -- play() renders through the first interval: the first source tick runs
   -- the entry program, which opens track 1 and notes the main track, and
   -- the opened track notes in the same tick's ascending-track pass.
@@ -505,6 +509,34 @@ function T.open_track_plays_a_second_voice_in_parallel()
   Assert.equal(#mixer.log.noteOns, 2, "the one-tick notes gate both tracks until they end")
   Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(2))
   Assert.isFalse(player:isPlaying(), "the sequence ends when every track ends")
+end
+
+function T.prepares_every_reserved_track_before_the_first_tick()
+  local sequence = seq({ { op = "wait", duration = 10 } })
+  sequence.program.initialTrackMask = 0x000B
+  local poolEvents = {}
+  local player, provider = engine({ [0] = sequence }, {
+    observer = {
+      onTrackPool = function(_, event)
+        poolEvents[#poolEvents + 1] = event.allocated
+      end,
+    },
+  })
+
+  player:play(provider:sequence(0), provider:bank(12))
+
+  Assert.deepEqual(poolEvents, { 1, 2, 3 }, "all reserved tracks are acquired during preparation")
+end
+
+function T.unopened_reserved_tracks_do_not_keep_a_finished_sequence_alive()
+  local player, provider = engine({
+    [0] = seq({ { op = "end" } }, { initialTrackMask = 0x0003 }),
+  })
+
+  player:play(provider:sequence(0), provider:bank(12))
+  player:render(500)
+
+  Assert.isFalse(player:isPlaying(), "inactive reservations are released with the finished sequence")
 end
 
 function T.reopening_a_track_preserves_track_init_controls_and_pool_ownership()
@@ -526,7 +558,7 @@ function T.reopening_a_track_preserves_track_init_controls_and_pool_ownership()
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
-  local player, provider = engine({ [0] = seq(program) }, {
+  local player, provider = engine({ [0] = seq(program, { initialTrackMask = 0x0003 }) }, {
     mixer = mixer,
     observer = {
       onTrackPool = function(_, event)
@@ -559,7 +591,7 @@ function T.comparisons_and_conditionals_are_signed_and_track_local()
     { op = "end" },
   }
   -- Track 1 has the opposite result and must not observe track 0's compare.
-  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
+  local player, provider = engine({ [0] = seq(program, { initialTrackMask = 0x0003 }) }, { mixer = mixer })
   play(player, provider)
   Assert.equal(#mixer.log.noteOns, 2)
   Assert.equal(generatorOf(mixer.log.noteOns[1]).sample, AudioFixture.key(2))
@@ -1125,6 +1157,7 @@ function T.the_track_keeps_polyphonic_voice_handles_and_releases_them_individual
       { op = "note_wait", amount = 0 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "note", key = 61, velocity = 127, duration = 2 },
+      { op = "wait", duration = 1 },
       { op = "end" },
     }),
   }, { mixer = mixer })
@@ -1132,11 +1165,10 @@ function T.the_track_keeps_polyphonic_voice_handles_and_releases_them_individual
   Assert.equal(#mixer.log.noteOns, 2, "both notes allocated in the first pass")
   Assert.equal(#mixer.log.noteOffs, 0, "no voice is replaced while the collection is polyphonic")
   player:render(500)
-  Assert.deepEqual(
-    mixer.log.noteOffs,
-    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
-    "the first voice's length expires at its own tick"
-  )
+  Assert.deepEqual(mixer.log.noteOffs, {
+    { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
+    { handle = { channel = 3, generation = 1 }, releaseOverride = nil },
+  }, "the first voice expires and END immediately releases the remaining voice")
   player:render(500)
   Assert.deepEqual(mixer.log.noteOffs, {
     { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
@@ -1349,7 +1381,7 @@ function T.note_spec_carries_the_semantic_mixer_contract()
   Assert.equal(spec.pan, 0, "the spec carries the instrument pan, not a folded track pan")
   Assert.equal(spec.trackPanOffset, 0, "the raw track pan offset defaults to 0")
   Assert.equal(spec.channelMask, 0xFFFF)
-  Assert.equal(spec.trackPriority, 37, "the track priority starts from channelPriority")
+  Assert.equal(spec.trackPriority, 64, "the track priority starts from TrackInit")
   Assert.equal(spec.playerPriority, 16)
   Assert.isNil(spec.volume, "the old folded volume field is gone")
   Assert.equal(spec.channelPriority, 37)
@@ -1385,7 +1417,7 @@ function T.priority_is_track_state_defaulting_to_64()
   }, { mixer = mixer })
   play(player, provider)
   player:render(100)
-  Assert.equal(mixer.log.noteOns[1].trackPriority, 37, "a fresh track starts at channel priority")
+  Assert.equal(mixer.log.noteOns[1].trackPriority, 64, "a fresh track starts at TrackInit priority")
   Assert.equal(mixer.log.noteOns[1].playerPriority, 16, "the player priority is untouched by the command")
   Assert.equal(mixer.log.noteOns[2].trackPriority, 12, "the priority command changes the track priority")
 end
@@ -1560,7 +1592,7 @@ function T.contested_allocation_follows_ascending_track_order()
     { op = "jump", target = 12 },
   }
   local mixer = stubMixer()
-  local player, provider = engine({ [0] = seq(program, { symbol = "SEQ_CONTEST" }) }, {
+  local player, provider = engine({ [0] = seq(program, { symbol = "SEQ_CONTEST", initialTrackMask = 0x8201 }) }, {
     bank = bank,
     channelMask = 0x0010,
     mixer = mixer,
@@ -1658,7 +1690,7 @@ function T.all_sixteen_tracks_play_in_parallel()
     instructions[#instructions + 1] = { op = "note", key = 60, velocity = 127, duration = 1 }
     instructions[#instructions + 1] = { op = "end" }
   end
-  local player, provider = engine({ [0] = seq(instructions) }, { mixer = mixer })
+  local player, provider = engine({ [0] = seq(instructions, { initialTrackMask = 0xFFFF }) }, { mixer = mixer })
   play(player, provider)
   player:render(100)
   Assert.equal(#mixer.log.noteOns, 16, "all sixteen tracks note in the first pass")
@@ -1832,6 +1864,7 @@ function T.mod_commands_wire_the_note_lfo_spec()
       { op = "mod_range", amount = 3 },
       { op = "mod_delay", amount = 16 },
       { op = "note", key = 60, velocity = 127, duration = 2 },
+      { op = "wait", duration = 1 },
       { op = "end" },
     }),
   }, { mixer = mixer })
@@ -1849,11 +1882,10 @@ function T.mod_commands_wire_the_note_lfo_spec()
     "mod_depth/mod_speed/mod_type/mod_range/mod_delay wire the lfo snapshot"
   )
   player:render(500)
-  Assert.deepEqual(
-    mixer.log.noteOffs,
-    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
-    "the first voice's own length expires at its tick"
-  )
+  Assert.deepEqual(mixer.log.noteOffs, {
+    { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
+    { handle = { channel = 3, generation = 1 }, releaseOverride = nil },
+  }, "the first voice expires and END immediately releases the remaining voice")
   player:render(500)
   Assert.deepEqual(mixer.log.noteOffs, {
     { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
@@ -2356,6 +2388,7 @@ function T.bend_range_changes_retune_held_voices_immediately()
       { op = "note", key = 60, velocity = 127, duration = 4 },
       { op = "pitch_bend", amount = 64 },
       { op = "pitch_bend_range", amount = 3 },
+      { op = "wait", duration = 1 },
       { op = "end" },
     }),
   }, { mixer = mixer })
@@ -2489,6 +2522,7 @@ function T.the_player_fader_reaches_the_update_voice_push_in_the_db_domain()
     [0] = seq({
       { op = "note_wait", amount = 0 },
       { op = "note", key = 60, velocity = 127, duration = 8 },
+      { op = "wait", duration = 1 },
       { op = "end" },
     }),
   }, { mixer = mixer })
@@ -3430,7 +3464,13 @@ function T.global_track_pool_rejects_the_thirty_third_track_and_reuses_after_sto
     end
     instructions[#instructions + 1] = { op = "note", key = 60, velocity = 127, duration = 8 }
     instructions[#instructions + 1] = { op = "wait", duration = 8 }
-    return seq(instructions, { id = id, symbol = "SEQ_CROWDED_" .. id, playerId = 1, playerPriority = priority })
+    return seq(instructions, {
+      id = id,
+      symbol = "SEQ_CROWDED_" .. id,
+      playerId = 1,
+      playerPriority = priority,
+      initialTrackMask = 0xFFFF,
+    })
   end
   local poolEvents = {}
   local observer = {
@@ -3444,7 +3484,7 @@ function T.global_track_pool_rejects_the_thirty_third_track_and_reuses_after_sto
     [2] = seq({
       { op = "open_track", track = 1, target = 2 },
       { op = "wait", duration = 4 },
-    }, { id = 2, symbol = "SEQ_THIRD", playerId = 1, playerPriority = 30 }),
+    }, { id = 2, symbol = "SEQ_THIRD", playerId = 1, playerPriority = 30, initialTrackMask = 0x0003 }),
   }, {
     maxSequences = 3,
     observer = observer,
