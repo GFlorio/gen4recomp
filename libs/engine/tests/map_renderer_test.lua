@@ -42,9 +42,7 @@ end
 
 -- The raw 5-bit RGB555 decode (each channel normalized /31, no six-bit
 -- expansion): still the correct expected domain for material/light color
--- registers and, until a separate deliverable fixes it, the fog color this
--- file's fog-preset tests assert against -- MapRenderer's DsLighting-facing
--- and fog decode paths are out of this deliverable's scope.
+-- registers and the fog color this file's fog-preset tests assert against.
 local function decodeRgb555Float(packed)
   return {
     (packed % 32) / 31,
@@ -156,14 +154,8 @@ local function fakeGraphics(opts)
       if opts.failOnNewShader == shaderCount then
         error("injected shader failure")
       end
-      local shaderIndex = shaderCount
-      local sendCount = 0
       local shader = { source = source, releaseCount = 0, sends = {}, uniforms = {} }
       shader.send = function(_, name, ...)
-        sendCount = sendCount + 1
-        if shaderIndex == 2 and opts.failOnEdgeShaderSend == sendCount then
-          error("injected edge shader send failure")
-        end
         shader.sends[#shader.sends + 1] = { name = name, values = { ... } }
         shader.uniforms[name] = select(1, ...)
       end
@@ -370,12 +362,8 @@ function T.rejects_stale_scene_schema()
   )
 end
 
--- The fixed-192-line semantic raster is gone: state coverage is one-to-one
--- with color coverage, so the renderer's state dimensions equal the color
--- dimensions after any draw. The durable names carry the new meaning
--- (renderState/stateDepth/stateW/stateH/_stateTargets); on this baseline they
--- did not exist yet, so the pre-implementation red was the actual size
--- mismatch (341 vs 1280), not a nil-index crash.
+-- State coverage is one-to-one with color coverage, so the renderer's state
+-- dimensions equal the color dimensions after any draw.
 function T.state_target_dimensions_equal_color_dimensions()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
@@ -450,7 +438,7 @@ function T.no_fixed_semantic_size_helper_remains()
   Assert.isNil(MapRenderer.semanticTargetSize, "the fixed-192 semantic-size helper is removed")
 end
 
--- R02 renderer contract: the edge radius the renderer sends on the real draw
+-- The renderer sends the edge radius on the real draw
 -- path is the nearest integer of the viewport's field-pixel scale
 -- (referenceFrame.height / 192 * zoom), minimum 1. At 1280x720 expanded
 -- (referenceFrame.height 720) with zoom 1, the scale is 720/192 = 3.75, so
@@ -1111,8 +1099,7 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
   scene.runtime.mapDraws = { drawItem("map") }
   scene.runtime.buildingDraws = { drawItem("building") }
 
-  -- Every draw() also issues its own composite blit, so the empty frame's
-  -- call count is the per-frame composite baseline: empty parts draw nothing
+  -- Every draw() issues its own composite blit. Empty parts draw nothing
   -- beyond it, and each item in the given parts draws exactly twice -- once
   -- into the state pass, once into the color pass.
   renderer:draw(scene.runtime, scene.camera, nil, viewport)
@@ -1477,7 +1464,7 @@ function T.draw_sets_wireframe_and_translucent_state_once_per_run()
     passItem("translucent", -4),
     passItem("translucent", -3),
     passItem("translucent", -2, { depthEqual = true }),
-    passItem("translucent", -1, { depthEqual = true, translucentDepthWrite = true }),
+    passItem("translucent", -1, { depthEqual = true }),
     passItem("wireframe", 0),
     passItem("wireframe", 1),
   }
@@ -1485,9 +1472,8 @@ function T.draw_sets_wireframe_and_translucent_state_once_per_run()
   renderer:draw(scene.runtime, scene.camera, { items }, FieldViewport.new(640, 480, { mode = "strict" }))
 
   -- The programmable ping-pong compositor uses replace semantics for both
-  -- source rasterization and composite; the fixed-function
-  -- alpha/alphamultiply translucent path is retired. Depth-equal remains
-  -- retired: every depth test compares "less".
+  -- source rasterization and composite use replace semantics. Every depth
+  -- test compares "less".
   Assert.equal(callCount(lg.calls.blend, { alpha = "alphamultiply" }), 0, "compositor is the only translucent path")
   Assert.equal(
     callCount(lg.calls.blend, { mode = "alpha", alpha = "alphamultiply" }),

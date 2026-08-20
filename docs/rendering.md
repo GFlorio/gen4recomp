@@ -365,13 +365,14 @@ translucent ID). The compositor is a ping-pong read-modify-write:
   (`rgba32f` for state and the 24-bit depth) alternate as active and inactive
   destinations, plus the shared `colorDepth` attachment and two temporary
   source-fragment buffers (color `rgba8` and metadata `rgba32f` carrying the
-  valid flag, DS Z depth, fog flag, and source polygon ID).
+  valid flag, fog flag, and source polygon ID).
 * For each `RenderQueue.blended` entry in its existing deterministic order,
   the renderer rasterizes only that item's accepted translucent or
   mixed-translucent fragments into the source buffers. Both source passes
-  depth-test against the opaque pass's shared `colorDepth`; source color uses
-  `less` with depth writes disabled, while source metadata uses `less` and
-  enables depth writes only for `translucentDepthWrite` after same-ID rejection.
+  depth-test against the opaque pass's shared `colorDepth`; both source passes
+  use `less` with depth writes disabled. The supported field contract rejects
+  `translucentDepthWrite=true` at asset validation, so translucent source never
+  mutates host depth.
 * A full-screen composite shader then applies the exact integer blend/state
   equations only where source valid is true (otherwise copying the destination
   unchanged) into the inactive pair, then the pairs swap.
@@ -617,10 +618,11 @@ one, the compiler raises a structured error instead of rendering incorrectly.
   density) can still differ from the DS by a rounding step even though the
   depth-domain conversion itself is exact and the interpolation math applied
   to it is.
-* `depthEqual`/`translucentDepthWrite`: never exercised anywhere in the
-  target field corpus; `PolygonState.validate` raises
-  `POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED` rather than approximating the DS
-  Z/W "equal" tolerance with the host's `lequal` compare.
+* `depthEqual` and `translucentDepthWrite`: never exercised anywhere in the
+  target field corpus. `PolygonState.validate` rejects both true values with
+  dedicated unsupported-state errors rather than approximating them with host
+  depth behavior. The compositor preserves state G and updates only fog gate B
+  and last-translucent-ID A.
 * Shadow polygons and the `toon`/`highlight` polygon modes: absent from the
   full HeartGold field corpus census (every material resolves to
   `modulation`); compilation fails with `MAP_COMPILE_UNSUPPORTED_POLYGON_MODE`

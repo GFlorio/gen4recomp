@@ -17,8 +17,8 @@
 //      out = ((src * w) + (dst * (32 - w))) >> 5;
 //   4. output alpha5 = max(srcAlpha5, dstAlpha5);
 //   5. the opaque polygon ID (R) is never replaced by a translucent draw;
-//   6. the DS Z depth (G) is preserved when the source did not write depth
-//      (sourceMeta.g carries the source depth only when depth-write was on);
+//   6. the DS Z depth (G) is always preserved; supported translucent source
+//      never writes depth;
 //   7. the new fog gate B = destination fog gate AND source fog flag;
 //   8. the new last-translucent-ID A = the accepted source polygon ID,
 //      encoded (id + 1) / 64 (0 = none).
@@ -71,13 +71,7 @@ void effect()
       outColor.a = float(max(srcA5, dstA5)) / 31.0;
     }
 
-    // State: opaque polygon ID R is preserved (rule 5). G is preserved
-    // unless the source wrote depth (sourceMeta.g carries the source DS Z
-    // depth only for depth-writing items -- the source pass enabled host
-    // depth write and wrote this metadata only for accepted fragments).
-    if (meta.g > 0.0) {
-      outState.g = meta.g;
-    }
+    // State: opaque polygon ID R and DS Z depth G are preserved.
     // B = destination fog gate AND source fog flag (rule 7).
     outState.b = dstState.b > 0.5 && meta.b > 0.5 ? 1.0 : 0.0;
     // A = the accepted source polygon ID, encoded (id + 1) / 64 (rule 8).

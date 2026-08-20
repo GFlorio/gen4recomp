@@ -980,24 +980,11 @@ end
 --      pass renders the item's partial-alpha fragments into sourceColor --
 --      the exact combiner/lighting color, no duplication;
 --   2. source.glsl renders the same fragments into sourceMeta -- the
---      valid/DS-Z-depth/fog/id metadata -- applying the DS same-ID rejection
---      against the ACTIVE destination state BEFORE any depth write, so a
---      rejected fragment can never poison later depth tests.
--- Both passes depth-test against the current host depth attachment (the same
--- one the opaque pass wrote) and use replace semantics. When `depthWrite` is
--- true, host depth write is enabled so accepted fragments update the host
--- depth buffer; the metadata pass records the accepted fragment's DS Z depth
--- in sourceMeta.g, which the composite pass writes into state G.
-function MapRenderer:_drawSourceItem(
-  item,
-  projection,
-  fragmentPass,
-  viewMatrix,
-  activeState,
-  depthWrite,
-  stateW,
-  stateH
-)
+--      valid/fog/id metadata -- applying the DS same-ID rejection against the
+--      ACTIVE destination state. Both passes depth-test against the current
+--      opaque host depth attachment and use replace semantics without writing
+--      it.
+function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix, activeState, stateW, stateH)
   local lg = assert(self._graphics)
   local mat = item.material
 
@@ -1011,12 +998,12 @@ function MapRenderer:_drawSourceItem(
   lg.setBlendMode("replace", "premultiplied")
   self:_drawItem(item, projection, fragmentPass, viewMatrix)
 
-  -- Pass 2: source metadata through source.glsl (same-ID rejection + DS Z
-  -- depth + fog flag + id).
+  -- Pass 2: source metadata through source.glsl (same-ID rejection + fog flag
+  -- + id).
   lg.setCanvas(assert(self._sourceMetaTargets))
   lg.clear(0, 0, 0, 0, false, false)
   lg.setShader(self.sourceShader)
-  lg.setDepthMode("less", depthWrite == true)
+  lg.setDepthMode("less", false)
   lg.setBlendMode("replace", "premultiplied")
   self.sourceShader:send("u_view", "column", viewMatrix)
 
@@ -1037,7 +1024,6 @@ function MapRenderer:_drawSourceItem(
     self.sourceShader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
     self.sourceShader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
     self.sourceShader:send("u_polygonFogEnabled", item.fogEnabled == true)
-    self.sourceShader:send("u_depthWrite", depthWrite == true)
     self.sourceShader:send("u_activeState", activeState)
     self.sourceShader:send("u_stateSize", { stateW, stateH })
     lg.setMeshCullMode(item.cullMode)
@@ -1071,7 +1057,6 @@ function MapRenderer:_drawSourceStraddleMeta(item, projection, fragmentPass, vie
     shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
     shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
     shader:send("u_polygonFogEnabled", item.fogEnabled == true)
-    shader:send("u_depthWrite", item.translucentDepthWrite == true)
     shader:send("u_activeState", activeState)
     shader:send("u_stateSize", { stateW, stateH })
     lg.setMeshCullMode(item.cullMode)
@@ -1244,10 +1229,9 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, viewport, alpha)
         -- rejection): the renderer never branches on d.depthEqual and always
         -- compares "less", even if a defensively-constructed item still
         -- carries the field. Host `lequal` is retired, not merely unused.
-        local depthWrite = d.translucentDepthWrite
         local fragmentPass = entry.fragmentPass == AlphaClassifier.MIXED and FRAGMENT_PASS_MIXED_TRANSLUCENT
           or FRAGMENT_PASS_TRANSLUCENT
-        self:_drawSourceItem(d, projectionFor(d), fragmentPass, viewMatrix, activeState, depthWrite, colorW, colorH)
+        self:_drawSourceItem(d, projectionFor(d), fragmentPass, viewMatrix, activeState, colorW, colorH)
 
         -- Full-screen composite from the source buffers + active pair into
         -- the inactive pair, with replace semantics (no second host blend).

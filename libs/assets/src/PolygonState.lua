@@ -17,6 +17,7 @@ local PolygonState = {}
 PolygonState.ERROR_MISSING_FIELD = "POLYGON_STATE_MISSING_FIELD"
 PolygonState.ERROR_INVALID = "POLYGON_STATE_INVALID"
 PolygonState.ERROR_DEPTH_EQUAL_UNSUPPORTED = "POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED"
+PolygonState.ERROR_TRANSLUCENT_DEPTH_WRITE_UNSUPPORTED = "POLYGON_STATE_TRANSLUCENT_DEPTH_WRITE_UNSUPPORTED"
 
 -- The polygon draw-state fields every serialized batch record carries (the
 -- shape DsPolygonAttr.decode normalizes the DS POLYGON_ATTR word into).
@@ -98,6 +99,13 @@ function PolygonState.validate(record, context)
     Errors.raise(
       PolygonState.ERROR_DEPTH_EQUAL_UNSUPPORTED,
       "batch depthEqual = true is not supported: the HGSS field corpus never exercises DS depth-equal",
+      { where = context }
+    )
+  end
+  if record.translucentDepthWrite then
+    Errors.raise(
+      PolygonState.ERROR_TRANSLUCENT_DEPTH_WRITE_UNSUPPORTED,
+      "batch translucentDepthWrite = true is not supported: the HGSS field corpus never exercises translucent depth writes",
       { where = context }
     )
   end

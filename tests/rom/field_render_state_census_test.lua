@@ -75,8 +75,8 @@ local function newTally()
     colorSource = {},
     -- map/building cross-tabs: whether the corpus ever pairs a
     -- translucent-ordered alpha class with fog, or sets
-    -- translucentDepthWrite at all, which determines whether a translucent
-    -- fog read/modify/write compositor is required.
+    -- translucentDepthWrite at all, which determines whether the supported
+    -- non-depth-writing field contract still matches the corpus.
     alphaClassByFogEnabled = {},
     alphaClassByTranslucentDepthWrite = {},
     polygonModeByAlphaClass = {},
@@ -280,15 +280,13 @@ function T.field_render_state_corpus_facts(romFs)
   Assert.deepEqual(sortedKeys(tally.polygonMode), { "modulation" })
 
   -- Depth-equal and translucent-depth-write are never exercised anywhere in
-  -- the corpus. This file is the sole corpus authority for both facts.
+  -- the corpus. A nonzero count means the supported field contract needs an
+  -- explicit review; it is not dormant runtime support.
   Assert.equal(tally.depthEqualTrue, 0, "no material in the corpus sets depthEqual")
   Assert.equal(tally.translucentDepthWriteTrue, 0, "no material in the corpus sets translucentDepthWrite")
 
-  -- Evidence gate: a translucent-fog read/modify/write compositor is only
-  -- required if translucentDepthWrite==true ever pairs with fog. This loop
-  -- is what would catch a future dump/compiler change that starts producing
-  -- that combination (translucentDepthWriteTrue is already 0 corpus-wide,
-  -- asserted above, so no key here can end in ":true" today).
+  -- Keep the cross-tab visible so a future census cannot hide a new
+  -- unsupported combination behind the aggregate count.
   for key in pairs(tally.alphaClassByTranslucentDepthWrite) do
     Assert.isNil(
       key:match(":true$"),

@@ -1389,7 +1389,7 @@ end
 -- the separate 5->6 expansion fix), and 16 is deliberately in the [16,31]
 -- band where the old and corrected expand5to6 rules already agree (2*16+1 =
 -- 33 either way), so this fixture is sensitive only to vertex-lighting
--- arithmetic, never to the fragment-combiner deliverable owned elsewhere.
+-- arithmetic, never to the fragment combiner.
 -- Expected normalized scene color: 33/63.
 function T.ambient_lit_triangle_matches_the_hand_derived_melonds_rgb6(scope)
   local renderer = scope:own(MapRenderer.new())
@@ -2202,14 +2202,7 @@ end
 -- Proven by comparing two independent draws through the real MapRenderer
 -- pipeline: one with only the opaque triangle, one with the identical opaque
 -- triangle plus a translucent triangle in front of it covering the same
--- pixel. On the old baseline the translucent draw could still reach the
--- state target (the state pass left it bound across the translucent draws),
--- so the two readbacks diverged to the translucent item's own
--- id/depth/fog-gate values -- the scenario's red. Today the state pass
--- binds renderState for its opaque/cutout/mixed-opaque/wireframe draws and
--- the color pass draws translucent items to sceneColor only, so a
--- non-depth-writing translucent draw cannot overwrite renderState and the
--- two readbacks must be identical.
+-- pixel. The two readbacks must be identical.
 function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque_geometry(scope)
   local camera = perspectiveCamera()
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
@@ -2293,7 +2286,7 @@ end
 -- synthetic renderState/sceneColor pair and a fog preset -- the same
 -- real-GLSL, real-canvas, no-MapRenderer:draw technique runEdgePass above
 -- uses for the pure edge-predicate anchors, extended with the fog inputs
--- E.3-E.7 add to the final pass. `pixels` is the same 3-wide
+-- These fog cases exercise the final pass. `pixels` is the same 3-wide
 -- (left/center/right) fixture shape runEdgePass uses, each entry optionally
 -- carrying `fogGate` (renderState's blue channel, default 0) and `scene` (the
 -- pixel's pre-fog RGB, default opaque white -- RGB6 63/63/63, so an unfogged
@@ -2371,7 +2364,7 @@ local function runFinalPass(scope, pixels, fog, edgeColors, antialiasEnabled)
   return { out:getPixel(1, 1) }
 end
 
--- E.9 real graphics fixture 1: fog visibly changes an opaque fragment at a
+-- Fog visibly changes an opaque fragment at a
 -- known synthetic depth. A constant density-64 table makes the exact
 -- expected output independent of the depth value itself (see
 -- constantDensityTable): outRgb6 = floor((63*64 + 0*64)/128) = 31 against a
@@ -2389,7 +2382,7 @@ function T.fog_visibly_changes_an_opaque_fragment_at_a_known_synthetic_depth(sco
   Assert.near(out[3], 31 / 63, 1 / 255)
 end
 
--- E.9 real graphics fixture 2: disabling the global fog gate leaves the
+-- Disabling the global fog gate leaves the
 -- identical fragment/depth/polygon-gate setup entirely unchanged (the scene
 -- color, 1.0 white, passes through untouched).
 function T.disabled_global_fog_leaves_the_fragment_unchanged(scope)
@@ -2403,9 +2396,9 @@ function T.disabled_global_fog_leaves_the_fragment_unchanged(scope)
   Assert.near(out[3], 1.0, 1 / 255)
 end
 
--- E.9 real graphics fixture 3: the global gate alone is not sufficient --
+-- The global gate alone is not sufficient --
 -- this draw's own polygon fog gate (renderState's blue channel,
--- already wired end to end since deliverable 6) must also be set. With the
+-- also be set. With the
 -- global gate enabled but this pixel's own gate 0, the fragment must stay
 -- unchanged, exactly like GBATEK's two-gate fog rule the retired per-object
 -- map.glsl path already enforced.
@@ -2420,7 +2413,7 @@ function T.polygon_fog_gate_false_leaves_the_fragment_unchanged(scope)
   Assert.near(out[3], 1.0, 1 / 255)
 end
 
--- E.9 real graphics fixture 4: an edge-marked pixel is fogged AFTER edge RGB
+-- An edge-marked pixel is fogged AFTER edge RGB
 -- replacement, not fogged-then-overwritten. The center (id 20, depth 500,
 -- fog-gated) sits strictly in front of its differently-id'd left neighbor
 -- (id 10, depth 1000, farther), so it marks and its RGB is first replaced by
@@ -2495,7 +2488,7 @@ function T.edge_marking_preserves_scene_alpha_unchanged(scope)
   Assert.near(out[4], 0.5, 1 / 255, "edge marking must not modify alpha -- it stays the prior scene alpha")
 end
 
--- E.9 real graphics fixture 5: changing the scene's fog preset changes the
+-- Changing the scene's fog preset changes the
 -- final pass's output between two draws with identical geometry/depth/gate
 -- state, proving the uniforms are actually resent and consumed each frame,
 -- not cached from the first draw. Preset A (black fog, as fixture 1) reads
@@ -2527,7 +2520,7 @@ function T.scene_change_between_two_fog_presets_updates_the_final_output(scope)
   )
 end
 
--- E.7: fog alpha blends the same way as RGB, in the 5-bit domain, and this
+-- Fog alpha blends the same way as RGB, in the 5-bit domain, and this
 -- draw's own "replace"/"premultiplied" blend mode (see MapRenderer.lua's
 -- doDraw) must write that computed alpha as data rather than let the host's
 -- default alpha compositing consume it. A fully opaque white scene fragment
@@ -2567,11 +2560,11 @@ local function compositeReadback(scope, renderer, viewport)
   out:setFilter("nearest", "nearest")
   local realSetCanvas = lg.setCanvas
   local patched = true
-  lg.setCanvas = function(c)
+  lg.setCanvas = function(c, ...)
     if c == nil then
       realSetCanvas(out)
     else
-      realSetCanvas(c)
+      realSetCanvas(c, ...)
     end
   end
   return {
@@ -2659,9 +2652,6 @@ end
 -- configured radius (4 at 1280x720) of a visibly present object pixel, and
 -- the bar must not lose state over stretches that are visibly present.
 --
--- On the baseline the bar sits at world x = -0.08 (color columns 588-589) but
--- the 341x192 state raster stamps no id-20 state anywhere on the canvas, so
--- the whole visible bar loses its attached edge -- the scenario's red.
 local function thinBarParts(scope)
   local function v(x, y)
     return { x, y, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 }
@@ -2888,10 +2878,6 @@ function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
     }
   end
 
-  -- Tuned on the baseline: from offset 0.75 to 2.75 px the visible boundary
-  -- moves 1153 -> 1155 while the old state raster's id-3 stamp cell jumps
-  -- from color-1154 to color-1158 -- a 2-px visible shift against a 4-px
-  -- state jump.
   local a = scan(0.75)
   local b = scan(2.75)
   Assert.notNil(a.visibleBoundary, "the mixed quad is visible at the first offset")
@@ -3162,9 +3148,7 @@ function T.fog_boundary_consumes_the_ds_z_depth_without_camera_far_rescaling(sco
   Assert.near(depthSample[2], expectedDepth, 1, "the fragment's state G must be the DS Z depth of its real projection")
 
   -- Final pixel readback: fog density must follow the oracle at the DS Z
-  -- depth. The retired camera-far proxy (only a few 0x200 quanta for this
-  -- fragment, i.e. density 0) sat below the boundary, so this assertion is
-  -- the red for the old depth source.
+  -- depth.
   local final = harness.canvas:newImageData()
   local fx, fy = 320, math.min(479, math.floor(240 * 480 / viewport.worldViewport.height))
   local fSample = { final:getPixel(fx, fy) }
@@ -3176,28 +3160,14 @@ function T.fog_boundary_consumes_the_ds_z_depth_without_camera_far_rescaling(sco
 end
 
 -- ---------------------------------------------------------------------------
--- Exact translucent compositor scenarios: the DS integer RGB6/alpha5 blend,
--- max destination alpha, same-ID rejection, fog-gate AND, last-translucent-ID
--- state, and depth-write preservation. Authored BEFORE the compositor
--- implementation; every fixture below drives the real MapRenderer:draw
--- (production composition) at a 640x480 identity-camera viewport and reads
--- back the real sceneColor/renderState canvases, so the same red they observe
--- on the fixed-function baseline is the missing-behavior signal the
--- implementation must turn green.
+-- Exact translucent compositor scenarios cover the DS integer RGB6/alpha5
+-- blend, max destination alpha, same-ID rejection, fog-gate AND,
+-- last-translucent-ID state, and depth preservation. Every fixture drives the
+-- real MapRenderer:draw at a 640x480 identity-camera viewport and reads back
+-- the real sceneColor/renderState canvases.
 --
--- Baseline facts these fixtures lean on:
---  * the blended loop (MapRenderer.lua doDraw, ~1041-1080) draws
---    queue.blended with host `setBlendMode("alpha", "alphamultiply")` and
---    per-entry translucentDepthWrite depth toggling -- no same-ID rejection,
---    no max-alpha, no state mutation;
---  * renderState clears to DS_STATE_CLEAR {1, 0xFFFFFF, 0, 1} -- alpha
---    (validity) is 1.0 everywhere, so the A channel carries NO last-ID
---    encoding yet;
---  * the state pass (state.glsl) writes A = 1.0 unconditionally and the
---    blended loop never touches renderState at all.
---
--- Expected integers below are hand-derived from the deliverable's normative
--- equations -- never computed by calling production code:
+-- Expected integers below are hand-derived from the compositor's equations,
+-- never computed by calling production code:
 --    rgb6    = floor(channel * 63 + 0.5)
 --    alpha5  = floor(alpha  * 31 + 0.5)
 --    dstA5==0            -> out = src (replace)
@@ -3212,13 +3182,13 @@ end
 
 -- The DS final alpha5 of a MODULATE fragment: texture alpha5 and polygon
 -- alpha5 combine as floor(((t+1)*(p+1)-1)/32) (map.glsl's outputAlpha5; the
--- deliverable's quantizer). Deriving the fixture's own alpha5 here keeps the
+-- quantizer). Deriving the fixture's own alpha5 here keeps the
 -- source byte and the resulting alpha5 in one independent place.
 local function modulateAlpha5(textureAlpha5, polygonAlpha5)
   return math.floor(((textureAlpha5 + 1) * (polygonAlpha5 + 1) - 1) / 32)
 end
 
--- The DS integer translucent blend on one RGB6 channel (deliverable rule 3).
+-- The DS integer translucent blend on one RGB6 channel.
 local function dsBlend6(src6, dst6, srcA5)
   return math.floor((src6 * (srcA5 + 1) + dst6 * (32 - (srcA5 + 1))) / 32)
 end
@@ -3374,9 +3344,7 @@ end
 -- byte's expand5to6 decode: byte b -> texture5 = floor(b/255*31+0.5) ->
 -- rgb6 = 0 if 0 else 2*texture5+1. The expected DS blend is then
 -- ((src*(srcA+1)) + (dst*(31-srcA))) >> 5 with those actual framebuffer
--- values; the host srcAlpha blend dst + (src-dst)*(srcA/31) lands one step
--- higher on the red channel, which is the baseline's read -- the exact
--- channel that discriminates the DS integer equation from the host float one.
+-- values.
 local function byteToRgb6(byte)
   local c5 = math.floor(byte / 255 * 31 + 0.5)
   if c5 <= 0 then
@@ -3421,9 +3389,8 @@ local DS_BLEND_HOST6 = {
 -- ((src*(srcA+1) + dst*(32-srcA-1)) >> 5), not the host float srcAlpha. The
 -- destination is an opaque MODULATE quad with a known mid-range RGB6 and
 -- alpha5; the single translucent source carries a source alpha5 whose host
--- `srcAlpha = a5/31` value produces a distinguishable result. Expected:
--- every channel equals the hand-computed integer above. Baseline red: host
--- alpha blending reads the host value, which differs on the red channel.
+-- `srcAlpha = a5/31` value produces a distinguishable result. Every channel
+-- equals the hand-computed integer above.
 function T.exact_ds_rgb_weight(scope)
   local function opaqueItem6(mesh, r6, g6, b6, alphaByte, id, fogEnabled)
     local image = solidAlphaImage(
@@ -3495,11 +3462,9 @@ end
 -- draw over the alpha-1.0 clear leaves the framebuffer at alpha 1, so the
 -- opaque path cannot produce a sub-31 destination alpha); the second
 -- translucent fragment (different polygon ID, so it is not rejected) must
--- leave the combined alpha at max. Setup per the deliverable: (dstA5 high 30,
+-- leave the combined alpha at max. Setup: (dstA5 high 30,
 -- srcA5 low 1) and (dstA5 low 1, srcA5 high 30); expected output alpha5 = max
--- in both cases (30). The baseline's alpha is the plain host srcAlpha
--- (30/31 in the low-dst case, 1/31 in the high-dst case), so at least one
--- case must diverge.
+-- in both cases (30).
 function T.destination_alpha_is_max(scope)
   -- The color canvas clears to alpha 0 (not the default opaque 1.0) so the
   -- first translucent fragment's destination alpha5 is 0 and it REPLACES the
@@ -3531,10 +3496,7 @@ function T.destination_alpha_is_max(scope)
   local scale = highDst > 1 and 255 or 1
   Assert.near(highDst, 30 / 31 * scale, 0.5 * scale / 31, "high destination alpha5 must win: output alpha5 = 30")
   Assert.near(lowDst, 30 / 31 * scale, 0.5 * scale / 31, "high source alpha5 must win: output alpha5 = 30")
-  Assert.isTrue(
-    math.abs(highDst - lowDst) <= 0.5 * scale / 31,
-    "both orderings must reach the same max alpha5 (30); the baseline's source-over alpha differs between them"
-  )
+  Assert.isTrue(math.abs(highDst - lowDst) <= 0.5 * scale / 31, "both orderings must reach the same max alpha5 (30)")
 end
 
 -- Shared fixture for the same-ID / different-ID rejection scenarios: an
@@ -3574,9 +3536,7 @@ end
 -- blend only once -- the first accepted fragment -- and the state A channel
 -- must encode that ID. Expected color: opaque id-20 (RGB6 31,31,31) blended
 -- once with the first (red 51,17,17 at alpha5 8) = RGB6 (21,25,25); state A
--- = (7+1)/64. Baseline red: the fixed-function path blends both fragments
--- (the second tint mixes in) and renderState's A channel is 1.0 (the
--- clear/validity value), not (7+1)/64.
+-- = (7+1)/64.
 function T.same_translucent_id_rejects_the_second_blend(scope)
   local renderer = scope:own(MapRenderer.new())
   local first6, second6 = { 51, 17, 17 }, { 17, 51, 17 }
@@ -3621,9 +3581,7 @@ end
 -- blend, in the deterministic order (second fragment drawn last), and state A
 -- encodes the second accepted ID. Expected color: bg blended with first
 -- (RGB6 51,17,17 at a5 8) then with second (RGB6 17,51,17 at a5 8); state A
--- = (9+1)/64. Baseline red: the fixed-function path has no last-ID state at
--- all (A reads the 1.0 clear/validity value), and it cannot deliver the
--- max-alpha/state contract even though the two colors happen to blend.
+-- = (9+1)/64.
 function T.different_translucent_ids_both_blend(scope)
   local renderer = scope:own(MapRenderer.new())
   local first6, second6 = { 51, 17, 17 }, { 17, 51, 17 }
@@ -3669,9 +3627,6 @@ end
 -- translucent source with a different ID, depth-write false, fog false.
 -- Expected: R/G stay the opaque values, B = dest AND src fog = 0, A encodes
 -- the source translucent ID. Repeat with the source fog true (B = 1).
--- Baseline red: the blended loop never touches renderState at all, so B/A
--- keep their clear/validity values (B 0, A 1.0) and no last-ID encoding
--- exists.
 function T.non_depth_writing_preserves_opaque_id_and_depth_and_ands_fog(scope)
   local function drawCase(renderer, srcFogEnabled)
     local opaqueMesh = scope:own(syntheticMesh({
@@ -3708,189 +3663,44 @@ function T.non_depth_writing_preserves_opaque_id_and_depth_and_ands_fog(scope)
   Assert.near(fogFalse.state[2], fogTrue.state[2], 1, "the DS Z depth must be preserved identically in both cases")
 end
 
--- The depth-write scenario: an accepted depth-writing translucent fragment
--- updates BOTH the
--- host depth buffer and state G; a later same-ID fragment (which would alter
--- the depth if it were accepted) is rejected and writes neither. The
--- assertions:
---   * state G equals the accepted first source's DS Z depth (the second,
---     nearer, same-ID source is rejected and cannot overwrite it);
---   * a subsequent nearer fragment with a different ID passes the host depth
---     test (its color shows) and updates state G to its own depth -- proving
---     the accepted source's host depth write is coherent with state G;
---   * a fragment at the opaque plane's depth stays visible (the near sources
---     do not occlude it).
--- Baseline red: the blended loop's per-item depth-write toggling honors the
--- flag, so the first source DOES update host depth, but there is no same-ID
--- rejection, so the second (nearer, same-ID) source overwrites both host
--- depth and state G.
-function T.accepted_depth_write_updates_depth_rejected_same_id_does_not(scope)
-  local function makeParts(renderer, secondId, includeProbe, includeFarProbe)
-    local opaqueMesh = scope:own(syntheticMesh({
-      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-    }))
-    local opaqueImage = solidAlphaImage(scope, 128, 128, 128, 255)
-    local opaque = opaqueFinalStateItem(opaqueMesh, 20, true)
-    opaque.material.image = opaqueImage
-
-    local function depthWriteTranslucent(z, id)
-      local mesh = scope:own(syntheticMesh({
-        { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-        { 3, -1, z, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-        { 3, 3, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-        { -1, -1, z, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-        { 3, 3, z, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-        { -1, 3, z, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-      }))
-      local item = nonDepthWritingTranslucentItem(mesh, id, false)
-      item.translucentDepthWrite = true
-      item.material.image = solidAlphaImage(scope, 40, 80, 120, 131)
-      return item
-    end
-
-    local first = depthWriteTranslucent(-0.5, 7)
-    local second = depthWriteTranslucent(-0.3, secondId)
-    local parts = { opaque, first, second }
-    if includeProbe then
-      -- A nearer, different-ID depth-writing fragment: accepted (passes the
-      -- host depth test against the first source's written depth) and updates
-      -- state G to its own depth.
-      local probe = depthWriteTranslucent(-0.45, 30)
-      probe.polygonAlpha = 0.5
-      probe.material.image = solidAlphaImage(scope, 255, 0, 0, 255)
-      parts[#parts + 1] = probe
-    end
-    if includeFarProbe then
-      -- Keep the queue tie-breaker after the accepted source while putting
-      -- the actual geometry farther away. A correct shared host depth buffer
-      -- rejects this probe after the first source commits depth.
-      local farProbe = depthWriteTranslucent(-0.6, 30)
-      farProbe.material.image = solidAlphaImage(scope, 255, 0, 0, 255)
-      parts[#parts + 1] = farProbe
-    end
-    return { parts }
-  end
-
-  local function sample(renderer, parts)
-    local viewport = FieldViewport.new(640, 480, { mode = "strict" })
-    renderer:draw(emptyRuntime(), perspectiveCamera(), parts, viewport)
-    local colorImg = renderer.sceneColor:newImageData()
-    local stateImg = renderer.renderState:newImageData()
-    local color = scenePixel(renderer, colorImg, 320, 240)
-    local sx, sy = statePixel(renderer, 320, 240)
-    return { color = color, state = statePixelAt(renderer, stateImg, sx, sy) }
-  end
-
-  local renderer = scope:own(MapRenderer.new())
-  local opaqueOnly = sample(renderer, { { makeParts(renderer, 7)[1][1] } })
-  local withDepthWrite = sample(renderer, makeParts(renderer, 7))
-  local withProbe = sample(renderer, makeParts(renderer, 7, true))
-  local withFarProbe = sample(renderer, makeParts(renderer, 7, false, true))
-
-  -- State G without the probe: the second (rejected) fragment must not
-  -- overwrite the depth written by the accepted first fragment; the first's
-  -- own depth write replaced the opaque plane's depth, so state G equals the
-  -- first source's DS Z depth, not the opaque plane's.
-  local firstDepth = expectedDsDepth(projectedWindowZ(-0.5))
-  Assert.near(
-    withDepthWrite.state[2],
-    firstDepth,
-    1,
-    "state G must be the accepted depth-writing source's DS Z depth (0x" .. string.format("%X", firstDepth) .. ")"
-  )
-  Assert.isTrue(
-    math.abs(withDepthWrite.state[2] - opaqueOnly.state[2]) > 1,
-    "the accepted depth-writing source must have replaced the opaque plane's depth in state G"
-  )
-
-  -- The nearer, different-ID probe passes the host depth test: its red color
-  -- shows, and state G moves to its own accepted depth -- proving host and
-  -- state depth agree for accepted fragments.
-  local probeDepth = expectedDsDepth(projectedWindowZ(-0.45))
-  Assert.near(
-    withProbe.state[2],
-    probeDepth,
-    1,
-    "an accepted nearer depth-writing fragment updates state G to its own depth"
-  )
-  local scale = sceneScale(withProbe.color)
-  Assert.isTrue(
-    withProbe.color[1] > withProbe.color[2] + 0.3 * scale and withProbe.color[1] > withProbe.color[3] + 0.3 * scale,
-    "the nearer probe must pass the host depth test and render its red color"
-  )
-
-  Assert.near(
-    withFarProbe.state[2],
-    firstDepth,
-    1,
-    "a farther different-ID probe must fail against the accepted host depth"
-  )
-  Assert.near(
-    withFarProbe.color[1],
-    withDepthWrite.color[1],
-    1 / 255,
-    "a farther probe cannot replace the accepted source's color"
-  )
-
-  -- A fragment at the opaque plane's depth stays visible (the near sources do
-  -- not occlude it) -- the opaque plane's own depth readback is unchanged.
-  Assert.isTrue(
-    opaqueOnly.state[2] > 0 and math.abs(opaqueOnly.state[2] - withDepthWrite.state[2]) > 1,
-    "the opaque plane depth readback differs from the depth-written value"
-  )
-end
-
-local function wireframeTriangleAtDepth(scope, z, polygonId, r, g, b)
-  local function vertex(x, y)
-    return { x, y, z, 0, 0, 0, 0, 1, r, g, b, 1, 0 }
-  end
-  return {
-    mesh = scope:own(syntheticMesh({ vertex(-1, -1), vertex(1, 1), vertex(-1, 1) })),
-    material = { alphaClass = "wireframe", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
-    transform = IDENTITY,
-    modelNormal = IDENTITY_NORMAL,
-    alphaClass = "wireframe",
-    cullMode = "none",
-    polygonAlpha = 1.0,
-    polygonMode = "modulation",
-    polygonId = polygonId,
-    lightMask = 0,
-    alphaCutoff = 0.5 / 255,
-    fogEnabled = false,
-    center = { 0, 0, z },
-  }
-end
-
 function T.final_resolve_uses_the_state_paired_with_an_odd_composite_result(scope)
   local renderer = scope:own(MapRenderer.new())
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local runtime = emptyRuntime()
   local fogTable = {}
   for i = 1, 32 do
-    fogTable[i] = i % 2 == 0 and 64 or 0
+    fogTable[i] = 64
   end
   runtime.fog = { enabled = true, color = 0, offset = 0x4000, slope = 0, alpha = 31, table = fogTable }
 
-  local opaque = depthOpaqueQuad(scope, 0.8, 255, 255, 255, 20, true)
-  local translucent = depthTranslucentQuad(scope, -1, ALPHA5_BYTE[15], 63, 63, 63, 7, true)
-  translucent.translucentDepthWrite = true
+  local opaque = opaqueFinalStateItem(depthQuadMesh(scope, 0), 20, true)
+  opaque.material.image = solidAlphaImage(scope, 255, 255, 255, 255)
+  local translucent = translucentQuad(scope, ALPHA5_BYTE[15], 63, 63, 63, 7, true)
+  translucent.fogEnabled = false
   translucent.center = { 0.5, 0.5, 0 }
 
-  renderer:draw(runtime, perspectiveCamera(), { { opaque } }, viewport)
-  local initialState = renderer.renderState
   local harness = compositeReadback(scope, renderer, viewport)
-  renderer:draw(runtime, perspectiveCamera(), { { opaque, translucent } }, viewport)
+  renderer:draw(runtime, fixedCamera(), { { opaque, translucent } }, viewport)
+  local scene = scenePixel(renderer, renderer.sceneColor:newImageData(), 320, 240)
+  local sx, sy = statePixel(renderer, 320, 240)
+  local state = statePixelAt(renderer, renderer.renderState:newImageData(), sx, sy)
   harness.restore()
   love.graphics.setCanvas()
 
-  Assert.isTrue(renderer.renderState ~= initialState, "an odd composite publishes the spare state target")
   local final = scenePixel(renderer, harness.canvas:newImageData(), 320, 240)
-  Assert.isTrue(final[1] >= 0 and final[1] <= 1, "final resolve produces a valid color")
+  local scale = sceneScale(scene)
+  local scene6 = math.floor(scene[1] / scale * 63 + 0.5)
+  local density = DsFog.density(state[2], runtime.fog.offset, runtime.fog.slope, fogTable)
+  local fogged = DsFog.blend(scene6, 0, density) / 63 * scale
+
+  Assert.near(state[3], 0, 1 / 255, "accepted translucency ANDs the destination and source fog gates")
+  Assert.near(final[1], scene[1], 1 / 255 * scale, "final resolve uses the active post-composite fog state")
+  Assert.near(final[2], scene[2], 1 / 255 * scale)
+  Assert.near(final[3], scene[3], 1 / 255 * scale)
+  Assert.isTrue(
+    math.abs(fogged - scene[1]) > 0.1 * scale,
+    "the selected fog density would visibly change the scene if stale state enabled fog"
+  )
 end
 
 function T.translucent_geometry_behind_opaque_geometry_is_rejected_by_shared_depth(scope)
@@ -3920,31 +3730,7 @@ function T.translucent_geometry_behind_opaque_geometry_is_rejected_by_shared_dep
   )
 end
 
-function T.post_composite_wireframe_respects_the_shared_color_depth(scope)
-  local renderer = scope:own(MapRenderer.new())
-  local camera = perspectiveCamera()
-  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
-  local translucent = depthTranslucentQuad(scope, -0.2, ALPHA5_BYTE[15], 0, 0, 255, 7, false)
-  translucent.translucentDepthWrite = true
-  local fartherWireframe = wireframeTriangleAtDepth(scope, -0.5, 12, 255, 0, 0)
-  local nearerWireframe = wireframeTriangleAtDepth(scope, -0.15, 12, 255, 0, 0)
-
-  local blocked = centerReadback(scope, renderer, camera, emptyRuntime(), { { translucent, fartherWireframe } })
-  local control = centerReadback(scope, renderer, camera, emptyRuntime(), { { translucent, nearerWireframe } })
-  local blockedScale = sceneScale(blocked.color)
-  local controlScale = sceneScale(control.color)
-
-  Assert.isTrue(
-    blocked.color[3] > blocked.color[1] + 0.2 * blockedScale,
-    "farther wireframe must not overwrite the nearer composited color"
-  )
-  Assert.isTrue(
-    control.color[1] > control.color[3] + 0.2 * controlScale,
-    "a nearer wireframe still renders through the color pass"
-  )
-end
-
--- Lower-level mixed-alpha compositor contract (deliverable rule 10): a mixed
+-- Mixed-alpha compositor contract: a mixed
 -- material's partial-alpha texels must go through the compositor (they
 -- therefore become translucent state: state A records the source ID) while
 -- its fully-opaque texels keep the opaque state path (state A stays 0 -- no
@@ -3952,8 +3738,7 @@ end
 -- extends the existing mixed_modulate_splits_opaque_and_translucent test
 -- without weakening it: the partial texels' new state-A encoding is the
 -- compositor
--- delta, asserted per column. Baseline red: state A is 1.0 (the validity
--- clear) on every column, so both assertions fail.
+-- delta, asserted per column.
 function T.mixed_partial_texels_use_the_compositor_and_opaque_texels_do_not(scope)
   local renderer = scope:own(MapRenderer.new())
   local texture = mixedAlphaTexture(scope)

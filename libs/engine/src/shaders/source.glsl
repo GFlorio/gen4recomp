@@ -1,8 +1,8 @@
 // DS translucent source-metadata shader. Rasterizes exactly one blended
 // draw's partial-alpha fragments into the sourceMeta buffer for the
 // compositor (composite.glsl), carrying the per-fragment state the composite
-// needs to apply the exact DS equations: a valid/accepted flag, the fragment's
-// DS Z depth, the source polygon's fog-enable bit, and the source polygon ID.
+// needs to apply the exact DS equations: a valid/accepted flag, the source
+// polygon's fog-enable bit, and the source polygon ID.
 // The source COLOR is produced by the ordinary color shader (map.glsl) into a
 // separate sourceColor buffer with the same translucent fragment pass, so the
 // combiner/lighting equations are not duplicated here.
@@ -19,17 +19,14 @@
 // -- before any depth write -- so a rejected fragment can never poison later
 // depth tests. Accepted fragments write:
 //   sourceMeta: R = valid flag 1.0 (0.0 = no source fragment at this pixel)
-//               G = the fragment's DS Z depth (dsZbufferDepth, the same
-//                   domain as state.glsl's G channel)
+//               G = 0.0 (reserved; translucent source does not write depth)
 //               B = the source polygon's fog-enable bit
 //               A = the source polygon ID normalized (id / 63) -- the
 //                   composite re-encodes it into the last-translucent-ID
 //                   state channel
 //
-// The depth test against the current host depth attachment happens in the
-// ordinary rasterizer; when the item is depth-writing, the renderer enables
-// host depth write for this pass so accepted fragments also update the host
-// depth buffer (rejected fragments discard before writing).
+// The depth test against the current opaque host depth attachment happens in
+// the ordinary rasterizer; source fragments never write that depth buffer.
 
 varying vec2 v_sourceUv;
 
@@ -69,8 +66,6 @@ uniform float u_polygonAlpha; // normalized 5-bit polygon alpha
 uniform int u_polygonMode;    // 0 modulation, 1 decal
 uniform float u_polygonId;    // normalized 6-bit polygon ID (id / 63)
 uniform bool u_polygonFogEnabled;
-uniform bool u_depthWrite;    // item.translucentDepthWrite: whether an accepted
-                              // fragment writes host depth and state G
 uniform sampler2D MainTex;
 // The active destination state, sampled to apply same-ID rejection before any
 // depth write. Full-resolution, nearest-filtered (the renderState contract).
@@ -78,20 +73,6 @@ uniform Image u_activeState;
 uniform vec2 u_stateSize;
 
 const float CLEAR_POLYGON_ID = 63.0;
-const float DS_DEPTH_MAX = 16777215.0; // 0xFFFFFF
-
-// The DS Z-buffer depth conversion (state.glsl's dsZbufferDepth):
-// window depth -> NDC, truncated toward zero to 14 bits, +0x3FFF, *0x200,
-// clamped to the 24-bit domain.
-float dsZbufferDepth(float windowDepth)
-{
-  float ndc = windowDepth * 2.0 - 1.0;
-  int ndc14 = int(ndc * 16384.0);
-  float zf = float(ndc14 + 16383) * 512.0;
-  zf = clamp(zf, 0.0, DS_DEPTH_MAX);
-  return zf;
-}
-
 // Decode the destination's last-translucent-ID encoding (state A):
 // 0 -> none (-1), otherwise id = round(encoded * 64) - 1.
 int lastTranslucentId(vec4 dstState)
@@ -142,11 +123,6 @@ void effect()
     discard;
   }
 
-  float dsDepth = dsZbufferDepth(gl_FragCoord.z);
-
-  // G carries the accepted fragment's DS Z depth only when the item writes
-  // depth; a non-depth-writing item leaves meta.g 0 so the composite pass
-  // preserves the destination's stored DS Z depth (rule 6).
-  love_Canvases[0] = vec4(1.0, u_depthWrite ? dsDepth : 0.0, u_polygonFogEnabled ? 1.0 : 0.0, u_polygonId);
+  love_Canvases[0] = vec4(1.0, 0.0, u_polygonFogEnabled ? 1.0 : 0.0, u_polygonId);
 }
 #endif
