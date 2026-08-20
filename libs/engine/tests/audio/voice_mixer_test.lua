@@ -670,14 +670,23 @@ function T.is_voice_alive_tracks_liveness_until_removal()
   mixer:controlStep() -- release 127 step 2: vol <= -723 removes the voice
   Assert.isFalse(mixer:isVoiceAlive(handle), "the release completed and the voice was removed")
 
-  local oneShot = newMixer()
+  local oneShot = newMixer(16756991)
   local shot = oneShot:noteOn(spec({ loopEnabled = false, pan = 0, baseTimer = 16 })) --[[@as { channel: integer, generation: integer }]]
   oneShot:controlStep()
   Assert.isTrue(oneShot:isVoiceAlive(shot), "the one-shot voice is alive before its window ends")
-  oneShot:render(12)
-  Assert.isFalse(oneShot:isVoiceAlive(shot), "a one-shot voice is dead once the window ended")
+  local oneShotPcm = oneShot:render(140)
+  Assert.equal(leftAt(oneShotPcm, 128), 800, "the one-shot boundary sample still sounds")
+  Assert.equal(leftAt(oneShotPcm, 129), 0, "frames after physical completion are silent")
+  Assert.isTrue(
+    oneShot:isVoiceAlive(shot),
+    "physical one-shot completion keeps the logical channel alive until controlStep"
+  )
+  oneShot:controlStep()
+  Assert.isFalse(oneShot:isVoiceAlive(shot), "the next control step retires the completed one-shot")
+  local replacement = oneShot:noteOn(spec({ loopEnabled = false, pan = 0, baseTimer = 16 })) --[[@as { channel: integer, generation: integer }]]
+  Assert.equal(replacement.generation, shot.generation + 1, "retirement preserves generation history")
   Assert.isFalse(
-    oneShot:isVoiceAlive({ channel = shot.channel, generation = shot.generation + 1 }),
+    oneShot:isVoiceAlive({ channel = shot.channel, generation = shot.generation }),
     "a generation mismatch is not alive"
   )
   Assert.isFalse(oneShot:isVoiceAlive({ channel = 15, generation = 0 }), "an empty channel is not alive")
@@ -759,6 +768,32 @@ function T.release_override_applies_the_coefficient_before_release()
   local forced = run(20, 127, 801)
   Assert.equal(leftAt(forced, 251), 6, "override 127 replaces the instrument release 20 (register 0x306)")
   Assert.equal(leftAt(forced, 501), 0, "override 127 stops on the second release step")
+end
+
+-- An explicit forced release replaces the coefficient of an already-releasing
+-- current-generation voice without restarting its envelope or generator.
+function T.forced_release_replaces_an_existing_release_coefficient()
+  local mixer = newMixer()
+  local handle = mixer:noteOn(spec({
+    pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 },
+    pan = 0,
+    envelope = { attack = 127, decay = 127, sustain = 127, release = 20 },
+  })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
+  mixer:noteOff(handle)
+  mixer:render(250)
+  mixer:controlStep()
+  Assert.isTrue(mixer:isVoiceAlive(handle), "the ordinary slow release is still alive")
+
+  mixer:noteOff(handle, 127)
+  mixer:render(250)
+  mixer:controlStep()
+  Assert.isTrue(mixer:isVoiceAlive(handle), "forced release keeps the same generation alive for its first step")
+  mixer:render(250)
+  mixer:controlStep()
+  Assert.isFalse(mixer:isVoiceAlive(handle), "forced release 127 accelerates the existing release tail")
+
+  mixer:noteOff({ channel = handle.channel, generation = handle.generation - 1 }, 127)
 end
 
 -- The release override contract is nil or an integer 0..127; anything else

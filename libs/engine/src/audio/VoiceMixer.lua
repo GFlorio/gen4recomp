@@ -308,6 +308,7 @@ local function newVoice(spec)
     hardwarePan = 0,
     ratio = 0,
     released = false,
+    physicalInactive = false,
     dead = false,
     length = spec.envelope.release == 0xFF and -1 or spec.length,
     ownerPlayerId = spec.ownerPlayerId,
@@ -515,6 +516,9 @@ end
 ---@return integer
 local function sampleAt(voice)
   if voice.generator.kind == "sample" then
+    if voice.physicalInactive then
+      return 0
+    end
     local sample = voice.pcm[math.floor(voice.pos) + 1]
     voice.pos = voice.pos + voice.ratio
     if voice.pos >= voice.loop.endFrame then
@@ -524,7 +528,7 @@ local function sampleAt(voice)
           voice.pos = voice.pos - span
         end
       else
-        voice.dead = true
+        voice.physicalInactive = true
       end
     end
     return sample
@@ -611,14 +615,13 @@ function VoiceMixer:noteOn(spec)
   return { channel = channel, generation = voice.generation }
 end
 
--- Starts the release of the voice a handle names. A stale handle (channel
--- stolen, generation replaced) and a dead voice are harmless no-ops, as is
--- a note-off for a voice already releasing. `releaseOverride` (nil or an
--- integer 0..127) replaces the voice's instrument release coefficient
--- before entering release -- the forced track-release path (pause/mute
--- stop) the SDK distinguishes from an ordinary release. The voice then
--- stops at the control step whose current pre-register dB sum crosses
--- SND_VOL_DB_MIN; the death moment is the mixer's, never precomputed.
+-- Starts or updates the release of the voice a handle names. A stale handle
+-- (channel stolen, generation replaced) and a dead voice are harmless no-ops.
+-- `releaseOverride` (nil or an integer 0..127) replaces the voice's instrument
+-- release coefficient; this lets the forced track-release path (pause/mute
+-- stop) accelerate an already-running ordinary release without restarting it.
+-- The voice then stops at the control step whose current pre-register dB sum
+-- crosses SND_VOL_DB_MIN; the death moment is the mixer's, never precomputed.
 ---@param handle { channel: integer, generation: integer }
 ---@param releaseOverride integer?
 function VoiceMixer:noteOff(handle, releaseOverride)
@@ -629,15 +632,17 @@ function VoiceMixer:noteOff(handle, releaseOverride)
     )
   end
   local voice = self._channels[handle.channel]
-  if voice == nil or voice.generation ~= handle.generation or voice.released then
+  if voice == nil or voice.generation ~= handle.generation or voice.dead then
     return
   end
   voice.priority = 1
   if releaseOverride ~= nil then
     voice.envRelease = NnsSoundMath.decayCoefficient(releaseOverride)
   end
-  voice.released = true
-  voice.envStatus = "release"
+  if not voice.released then
+    voice.released = true
+    voice.envStatus = "release"
+  end
 end
 
 -- Queues track-level control values for the voice a handle names; they are
@@ -731,9 +736,9 @@ function VoiceMixer:retargetTiedVoice(handle, spec)
 end
 
 -- The mixer owns voice liveness: true from noteOn until the mixer removes
--- the voice (a natural one-shot death or the release-stop step); false for
--- an empty channel, a generation mismatch, and a removed voice. The
--- sequencer prunes its voice collections with this query.
+-- the voice (one-shot retirement at channel control or the release-stop
+-- step); false for an empty channel, a generation mismatch, and a removed
+-- voice. The sequencer prunes its voice collections with this query.
 ---@param handle { channel: integer, generation: integer }
 ---@return boolean
 function VoiceMixer:isVoiceAlive(handle)
@@ -756,11 +761,9 @@ function VoiceMixer:controlStep(ordinal)
   for channel = 0, CHANNEL_COUNT - 1 do
     local voice = self._channels[channel]
     if voice ~= nil then
-      if voice.pending.dirty then
-        applyPending(voice)
-        syncRegisters(voice)
-      end
-      if not voice.dead then
+      if voice.physicalInactive then
+        voice.dead = true
+      else
         controlStep(voice, true)
       end
       if voice.dead then
@@ -810,15 +813,10 @@ function VoiceMixer:renderInto(out, frames)
       local voice = self._channels[channel]
       if voice ~= nil then
         local sample = sampleAt(voice)
-        -- The one-shot boundary sample still sounds; the voice is
-        -- removed after this frame.
         local gain = registerGain(voice.volume)
         local panLeft, panRight = panMix(voice.hardwarePan)
         left = left + math.floor(sample * gain * panLeft + 0.5)
         right = right + math.floor(sample * gain * panRight + 0.5)
-        if voice.dead then
-          self._channels[channel] = nil
-        end
       end
     end
     out[#out + 1] = saturate(left)

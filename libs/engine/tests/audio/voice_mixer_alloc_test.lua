@@ -571,24 +571,27 @@ function T.sweep_ramps_pitch_over_its_length()
 end
 
 -- The generation is persistent per-channel state, not victim-derived:
--- a naturally dead one-shot frees the channel entry, but the next
--- allocation on that channel keeps incrementing the generation, so the
--- stale handle from before the death can never alias the new voice. The
--- reuse-after-steal tests above cover the occupied-victim path.
+-- a physically completed one-shot frees the channel entry at the next
+-- control step, but the next allocation on that channel keeps incrementing
+-- the generation, so the stale handle from before the death can never alias
+-- the new voice. The reuse-after-steal tests above cover the occupied-victim
+-- path.
 function T.natural_death_does_not_reuse_the_old_generation()
   local mixer = newMixer()
   -- Base timer 16 advances the read fast (CLK/(16*48000) ~= 21.8 samples per
-  -- frame), so the one-shot dies within the first rendered frame and the
-  -- channel is free for the next allocation.
+  -- frame), so the one-shot completes within the first rendered frame. The
+  -- following control step retires it and frees the channel for allocation.
   local oneShot = { loopEnabled = false, loop = { startFrame = 0, endFrame = 8 }, baseTimer = 16 }
   local h1 = mixer:noteOn(spec(oneShot)) --[[@as { channel: integer, generation: integer }]]
   mixer:controlStep()
   mixer:render(12)
+  mixer:controlStep()
   local h2 = mixer:noteOn(spec(oneShot)) --[[@as { channel: integer, generation: integer }]]
   mixer:controlStep()
   Assert.equal(h2.channel, h1.channel, "the second voice reuses the naturally freed channel")
   Assert.isTrue(h2.generation ~= h1.generation, "a freed channel never reuses the old generation")
   mixer:render(12)
+  mixer:controlStep()
   local h3 = mixer:noteOn(spec({ pcm = CONST_4096, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
   mixer:controlStep()
   Assert.equal(h3.channel, h1.channel, "the third voice reuses the same channel again")

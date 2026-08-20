@@ -1,6 +1,6 @@
 -- Conformance harness: interval phase ordering and trace stability.
 -- Validates the optional semantic observer shared by SequencePlayer and VoiceMixer
--- and the normalized AudioTrace recorder. Production behavior with no observer
+-- and the AudioTrace recorder. Production behavior with no observer
 -- remains unchanged; with an observer, each 192 Hz interval emits
 -- before_sequence -> after_sequence -> after_channels and traces are
 -- invariant to PCM render chunking.
@@ -136,7 +136,7 @@ function T.trace_is_stable_across_render_chunk_sizes()
       player:render(frames)
     end
     -- Also collect track and channel snapshots for stability.
-    return trace:normalized()
+    return trace
   end
 
   local a = collect({ 1000 })
@@ -145,7 +145,6 @@ function T.trace_is_stable_across_render_chunk_sizes()
 
   Assert.isTrue(#a.intervals > 0, "trace must be non-empty when observer is enabled (chunk 1000): " .. a:summary())
   Assert.isTrue(#b.intervals > 0, "trace must be non-empty when observer is enabled (chunk 250*4): " .. b:summary())
-
   local ab = a:diagnostics(b)
   Assert.isTrue(ab == nil, "1000 vs 250*4 traces must be identical: " .. tostring(ab))
 
@@ -155,11 +154,8 @@ end
 
 function T.trace_determinism_is_identical_for_one_large_chunk_and_several_uneven_chunks()
   local program = {
-    { op = "tempo", amount = 120 },
-    { op = "note", key = 60, velocity = 100, duration = 3 },
-    { op = "wait", duration = 2 },
-    { op = "note", key = 64, velocity = 100, duration = 1 },
-    { op = "end" },
+    { op = "note", key = 60, velocity = 100, duration = 1 },
+    { op = "jump", target = 1 },
   }
 
   local function collect(chunks)
@@ -168,7 +164,7 @@ function T.trace_determinism_is_identical_for_one_large_chunk_and_several_uneven
     for _, frames in ipairs(chunks) do
       player:render(frames)
     end
-    return trace:normalized()
+    return trace
   end
 
   local one = collect({ 2000 })
@@ -177,21 +173,23 @@ function T.trace_determinism_is_identical_for_one_large_chunk_and_several_uneven
 
   Assert.isTrue(#one.intervals > 0, "determinism trace must be non-empty (one chunk): " .. one:summary())
   Assert.isTrue(#uneven.intervals > 0, "determinism trace must be non-empty (uneven): " .. uneven:summary())
+  Assert.isTrue(#one.noteEvents >= 2, "determinism program emits notes in multiple intervals: " .. one:summary())
+  for index, event in ipairs(one.noteEvents) do
+    Assert.isTrue(type(event.ordinal) == "number", "note event " .. index .. " has a numeric interval ordinal")
+  end
+  Assert.isTrue(
+    one.noteEvents[1].ordinal < one.noteEvents[2].ordinal,
+    "note events retain occurrence order across intervals"
+  )
 
   local d1 = one:diagnostics(uneven)
   Assert.isTrue(d1 == nil, "one large chunk vs uneven chunks must be identical: " .. tostring(d1))
 
   local d2 = one:diagnostics(many)
   Assert.isTrue(d2 == nil, "one large chunk vs eight small chunks must be identical: " .. tostring(d2))
-
-  -- Exact semantic comparison of integers/booleans: filter to one player must keep equality.
-  local filteredOne = one:filterByPlayer(1)
-  local filteredUneven = uneven:filterByPlayer(1)
-  local d3 = filteredOne:diagnostics(filteredUneven)
-  Assert.isTrue(d3 == nil, "filtered determinism traces must remain identical: " .. tostring(d3))
 end
 
-function T.observer_does_not_mutate_player_state_and_is_allocation_free_when_absent()
+function T.observer_absence_does_not_change_playback_behavior()
   -- With no observer, rendering must remain unchanged and not error.
   local bundle = buildBundle({ [0] = seq({ { op = "note", key = 60, velocity = 100, duration = 1 }, { op = "end" } }) })
   local provider = AudioAssetProvider.new(AudioFixture.readyCache(bundle))
@@ -202,14 +200,27 @@ function T.observer_does_not_mutate_player_state_and_is_allocation_free_when_abs
   Assert.isTrue(#pcm > 0, "rendering without observer must produce pcm")
   player:stop()
   Assert.isFalse(player:isPlaying(), "stop clears the short sequence without an observer")
+
+  local partialObserver = {
+    onSoundInterval = function() end,
+  }
+  local partialPlayer = SequencePlayer.new({
+    sampleRate = SAMPLE_RATE,
+    mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE }),
+    provider = provider,
+    observer = partialObserver,
+  })
+  partialPlayer:play(provider:sequence(0), provider:bank(12))
+  local partialPcm = partialPlayer:render(500)
+  Assert.isTrue(#partialPcm > 0, "rendering with a partial observer must produce pcm")
 end
 
-function T.trace_recorder_normalizes_ordering_and_renders_mismatch_diagnostics()
+function T.trace_recorder_treats_chronology_as_semantic_and_renders_mismatch_diagnostics()
   local a = AudioTrace.new()
-  a:onSoundInterval({ ordinal = 1, phase = "after_channels" })
   a:onSoundInterval({ ordinal = 0, phase = "before_sequence" })
   a:onSoundInterval({ ordinal = 0, phase = "after_sequence" })
   a:onSoundInterval({ ordinal = 0, phase = "after_channels" })
+  a:onSoundInterval({ ordinal = 1, phase = "after_channels" })
   a:onSoundInterval({ ordinal = 1, phase = "before_sequence" })
   a:onSoundInterval({ ordinal = 1, phase = "after_sequence" })
 
@@ -221,8 +232,20 @@ function T.trace_recorder_normalizes_ordering_and_renders_mismatch_diagnostics()
   b:onSoundInterval({ ordinal = 1, phase = "after_sequence" })
   b:onSoundInterval({ ordinal = 1, phase = "after_channels" })
 
-  -- Normalized comparison must succeed despite insertion order.
-  Assert.isTrue(a:normalized():equals(b:normalized()), "normalized ordering must be stable")
+  local chronological = AudioTrace.new()
+  chronological:onSoundInterval({ ordinal = 0, phase = "before_sequence" })
+  chronological:onSoundInterval({ ordinal = 0, phase = "after_sequence" })
+  chronological:onSoundInterval({ ordinal = 0, phase = "after_channels" })
+  chronological:onSoundInterval({ ordinal = 1, phase = "after_channels" })
+  chronological:onSoundInterval({ ordinal = 1, phase = "before_sequence" })
+  chronological:onSoundInterval({ ordinal = 1, phase = "after_sequence" })
+
+  Assert.isTrue(a:equals(chronological), "identical chronological insertions must compare equal")
+  local reordered = a:diagnostics(b)
+  Assert.isTrue(
+    reordered ~= nil and reordered:find("intervals mismatch at 4") ~= nil,
+    "reordered chronology must be a mismatch at the first event, got " .. tostring(reordered)
+  )
 
   local c = AudioTrace.new()
   c:onSoundInterval({ ordinal = 0, phase = "before_sequence" })

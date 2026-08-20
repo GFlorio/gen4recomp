@@ -171,12 +171,13 @@ local function buildBundle(sequences, opts)
   bundle.sequences = sequences
   bundle.banks = { [12] = opts.bank or testBank() }
   bundle.samples = {
-    [keyA] = AudioFixture.pcm16le(WAVE_A),
+    [keyA] = AudioFixture.pcm16le(opts.sampleA or WAVE_A),
     [keyB] = AudioFixture.pcm16le(WAVE_B),
     [keyC] = AudioFixture.pcm16le(WAVE_C),
   }
   bundle.sampleMetadata = {
-    [keyA] = AudioFixture.sampleMetadata(keyA, { frames = 8, loop = { startFrame = 0, endFrame = 8 } }),
+    [keyA] = opts.sampleAMetadata
+      or AudioFixture.sampleMetadata(keyA, { frames = 8, loop = { startFrame = 0, endFrame = 8 } }),
     [keyB] = AudioFixture.sampleMetadata(keyB, { frames = 4, loop = { startFrame = 0, endFrame = 4 } }),
     [keyC] = AudioFixture.sampleMetadata(keyC, { frames = 6, loop = { startFrame = 0, endFrame = 6 } }),
   }
@@ -511,6 +512,29 @@ function T.open_track_plays_a_second_voice_in_parallel()
   Assert.isFalse(player:isPlaying(), "the sequence ends when every track ends")
 end
 
+function T.self_open_track_falls_through_without_releasing_the_current_voice()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 0 },
+      { op = "open_track", track = 0, target = 5 },
+      { op = "wait", duration = 1 },
+      { op = "note", key = 61, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, { mixer = mixer })
+
+  play(player, provider)
+  Assert.equal(#mixer.log.noteOns, 1, "self-open falls through instead of jumping to its target")
+  Assert.equal(#mixer.log.noteOffs, 0, "self-open does not release the current ringing voice")
+  Assert.equal(mixer.log.noteOns[1].key, 60)
+
+  player:render(500)
+  Assert.equal(#mixer.log.noteOns, 2, "the target-area note executes after the ordinary wait")
+  Assert.equal(mixer.log.noteOns[2].key, 61)
+end
+
 function T.prepares_every_reserved_track_before_the_first_tick()
   local sequence = seq({ { op = "wait", duration = 10 } })
   sequence.program.initialTrackMask = 0x000B
@@ -552,9 +576,6 @@ function T.reopening_a_track_preserves_track_init_controls_and_pool_ownership()
     { op = "volume", amount = 42 },
     { op = "expression", amount = 37 },
     { op = "pan", amount = 81 },
-    { op = "open_track", track = 1, target = 13 },
-    { op = "end" },
-    { op = "end" },
     { op = "note", key = 60, velocity = 127, duration = 1 },
     { op = "end" },
   }
@@ -572,7 +593,7 @@ function T.reopening_a_track_preserves_track_init_controls_and_pool_ownership()
   Assert.equal(spec.trackVolume, 42)
   Assert.equal(spec.expression, 37)
   Assert.equal(spec.trackPanOffset, 17)
-  Assert.deepEqual(poolEvents, { 1, 2, 1 }, "reopen must retain the allocated track object")
+  Assert.deepEqual(poolEvents, { 1, 2, 1 }, "opening a reserved track retains its allocated object")
 end
 
 function T.entry_track_conditionals_use_the_true_comparison_default()
@@ -621,13 +642,12 @@ function T.reopening_a_false_comparison_track_preserves_the_latch()
   local reopenMixer = stubMixer()
   local program = {
     { op = "open_track", track = 1, target = 6 },
-    { op = "end" },
-    { op = "end" },
+    { op = "wait", duration = 1 },
+    { op = "open_track", track = 1, target = 11 },
     { op = "end" },
     { op = "end" },
     { op = "compare", condition = "eq", var = 0, amount = 1 },
     { op = "wait", duration = 1 },
-    { op = "open_track", track = 1, target = 11 },
     { op = "end" },
     { op = "end" },
     { op = "if", condition = "compare_result", instruction = { op = "program", program = 1 } },
@@ -1178,10 +1198,9 @@ function T.zero_length_notes_wait_for_real_handle_liveness()
   local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
-      { op = "program", program = 0 },
       { op = "note", key = 60, velocity = 127, duration = 0 },
       { op = "program", program = 1 },
-      { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "note", key = 60, velocity = 127, duration = 2 },
       { op = "end" },
     }),
   }, { mixer = mixer })
@@ -1977,7 +1996,7 @@ function T.releases_expired_channel_before_the_next_physical_slot_runs()
 
   player:play(provider:sequence(0), provider:bank(12))
   player:play(provider:sequence(1), provider:bank(12))
-  player:render(250)
+  player:render(500)
   Assert.deepEqual(noteHandles[1], { channel = 4, generation = 0 })
 
   player:render(500)
@@ -2319,6 +2338,14 @@ function T.variable_arithmetic_wraps_and_truncates_like_the_sdk()
       rng = u16Draws({ 30019 }),
       label = "randomvar negates the draw for a negative par",
     },
+    {
+      op = "randomvar",
+      init = 0,
+      amount = -32768,
+      expected = 15010,
+      rng = u16Draws({ 30019 }),
+      label = "randomvar preserves the signed-minimum cast before scaling",
+    },
   }
   for _, case in ipairs(cases) do
     local mixer = stubMixer()
@@ -2420,6 +2447,33 @@ function T.pause_and_resume_guards_are_no_ops()
   Assert.isFalse(player:isPlaying())
 end
 
+-- Pause escalates a still-attached natural release to the forced coefficient;
+-- a second pause remains a no-op after the track handles are detached.
+function T.pause_escalates_an_attached_natural_release()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note", key = 60, velocity = 127, duration = 2 },
+      { op = "wait", duration = 10 },
+    }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(1000)
+  Assert.deepEqual(
+    mixer.log.noteOffs,
+    { { handle = { channel = 3, generation = 0 }, releaseOverride = nil } },
+    "natural expiry starts the ordinary release"
+  )
+  player:pausePlayer(1)
+  player:pausePlayer(1)
+  Assert.deepEqual(mixer.log.noteOffs, {
+    { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
+    { handle = { channel = 3, generation = 0 }, releaseOverride = 127 },
+  }, "pause forwards forced release 127 for the still-live attached voice once")
+  player:resumePlayer(1)
+  player:render(3000)
+end
+
 -- A new sequence on a paused player replaces the released one: the paused
 -- instance's handles were already freed, so the replacement releases
 -- nothing extra and the fresh sequence starts cleanly.
@@ -2502,6 +2556,41 @@ function T.natural_release_stays_attached_until_the_mixer_reports_death()
   -- its `end`.
   player:render(500) -- tick 7 (frame 3250)
   Assert.isFalse(player:isPlaying())
+end
+
+-- The real SequencePlayer and VoiceMixer observe the same boundary ordering:
+-- sequence work sees a physically completed one-shot before channel control
+-- retires its logical handle.
+function T.note_finish_wait_observes_real_one_shot_liveness_until_control_step()
+  local noteEvents = {}
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note", key = 60, velocity = 127, duration = 0 },
+      { op = "note", key = 61, velocity = 127, duration = 1 },
+      { op = "end" },
+    }),
+  }, {
+    mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE }),
+    sampleA = { 1000, 2000 },
+    sampleAMetadata = AudioFixture.sampleMetadata(AudioFixture.key(1), {
+      frames = 2,
+      baseTimer = 65535,
+      loopEnabled = false,
+      loop = { startFrame = 0, endFrame = 2 },
+    }),
+    observer = {
+      onNoteEvent = function(_, event)
+        noteEvents[#noteEvents + 1] = event.key
+      end,
+    },
+  })
+  play(player, provider)
+  player:render(250)
+  Assert.deepEqual(noteEvents, { 60 }, "the first note remains the only note through the 500 boundary")
+  player:render(250)
+  Assert.deepEqual(noteEvents, { 60 }, "the finish hold remains blocked at the physical end boundary")
+  player:render(500)
+  Assert.deepEqual(noteEvents, { 60, 61 }, "the next note starts after control retires the one-shot")
 end
 
 -- Mute mode 2 (the SDK TrackMute release-without-free) starts an ordinary
@@ -2859,6 +2948,8 @@ function T.mute_three_forces_release_127_and_detaches_immediately()
       { op = "note_wait", amount = 0 },
       { op = "note", key = 60, velocity = 127, duration = 3 },
       { op = "wait", duration = 1 },
+      { op = "mute", amount = 2 },
+      { op = "wait", duration = 1 },
       { op = "mute", amount = 3 },
       { op = "wait", duration = 1 },
       { op = "pan", amount = 40 },
@@ -2867,18 +2958,17 @@ function T.mute_three_forces_release_127_and_detaches_immediately()
   }, { mixer = mixer })
   play(player, provider)
   local handle = mixer.log.noteHandles[1]
-  player:render(500) -- tick 2 (frame 500): the mute 3 command executes
-  Assert.deepEqual(
-    mixer.log.noteOffs,
-    { { handle = { channel = 3, generation = 0 }, releaseOverride = 127 } },
-    "mute 3 releases with the forced override 127 exactly once"
-  )
+  player:render(1000) -- mute 2 starts ordinary release; mute 3 escalates it
+  Assert.deepEqual(mixer.log.noteOffs, {
+    { handle = { channel = 3, generation = 0 }, releaseOverride = nil },
+    { handle = { channel = 3, generation = 0 }, releaseOverride = 127 },
+  }, "mute 3 escalates the attached mute-2 release with override 127")
   Assert.isTrue(mixer:isVoiceAlive(handle), "the mixer release tail may still be alive after mute 3")
   -- The release itself pre-pushed the current full track values once (the
   -- source TrackReleaseChannels opens with TrackUpdateChannel); from the
   -- detach on, no later command may reach the old handle.
   local updatesAtDetach = #mixer.log.updates
-  player:render(500) -- tick 3: the pan command runs after the detach
+  player:render(500) -- the pan command runs after the detach
   local after = 0
   for index = updatesAtDetach + 1, #mixer.log.updates do
     local update = mixer.log.updates[index]
@@ -2889,7 +2979,7 @@ function T.mute_three_forces_release_127_and_detaches_immediately()
   Assert.equal(after, 0, "no fader or control update reaches the detached handle after mute 3")
   Assert.equal(#mixer.log.noteOns, 1, "the muted track allocates no new voice")
   player:render(500)
-  Assert.equal(#mixer.log.noteOffs, 1, "the detached handle is never released again")
+  Assert.equal(#mixer.log.noteOffs, 2, "the detached handle is never released again")
 end
 
 -- The per-player fader (the GameSound fade hook): setFader stores the

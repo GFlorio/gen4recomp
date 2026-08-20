@@ -172,14 +172,16 @@ local CONTROL_STACK_MAX = 3
 -- to itself) and fails loudly instead of hanging the render loop.
 local HOST_SAFETY_STEP_BUDGET = 1024
 
-local function observe(self, method, event)
+local function observerCallback(self, method)
   local observer = self._observer
-  if observer ~= nil then
-    local callback = observer[method]
-    if callback ~= nil then
-      callback(observer, event)
-    end
+  if observer == nil then
+    return nil, nil
   end
+  local callback = observer[method]
+  if callback == nil then
+    return nil, nil
+  end
+  return observer, callback
 end
 
 -- NNS returns retired physical players to a free-list and allocates its head.
@@ -404,7 +406,10 @@ local function allocateTrack(self, slot)
     end
   end
   if poolIndex == nil then
-    observe(self, "onTrackPool", { allocated = self._trackCount, capacity = TRACK_POOL_CAPACITY })
+    local observer, callback = observerCallback(self, "onTrackPool")
+    if callback ~= nil then
+      callback(observer, { allocated = self._trackCount, capacity = TRACK_POOL_CAPACITY })
+    end
     return nil
   end
 
@@ -413,11 +418,14 @@ local function allocateTrack(self, slot)
   track.poolOwned = true
   self._trackPool[poolIndex] = track
   self._trackCount = self._trackCount + 1
-  observe(self, "onTrackPool", {
-    allocated = self._trackCount,
-    capacity = TRACK_POOL_CAPACITY,
-    poolIndex = poolIndex,
-  })
+  local observer, callback = observerCallback(self, "onTrackPool")
+  if callback ~= nil then
+    callback(observer, {
+      allocated = self._trackCount,
+      capacity = TRACK_POOL_CAPACITY,
+      poolIndex = poolIndex,
+    })
+  end
   return track
 end
 
@@ -428,11 +436,14 @@ local function releaseTrackObject(self, track)
   track.poolOwned = false
   self._trackCount = self._trackCount - 1
   assert(self._trackCount >= 0, "track pool count cannot be negative")
-  observe(self, "onTrackPool", {
-    allocated = self._trackCount,
-    capacity = TRACK_POOL_CAPACITY,
-    poolIndex = track.poolIndex,
-  })
+  local observer, callback = observerCallback(self, "onTrackPool")
+  if callback ~= nil then
+    callback(observer, {
+      allocated = self._trackCount,
+      capacity = TRACK_POOL_CAPACITY,
+      poolIndex = track.poolIndex,
+    })
+  end
 end
 
 -- The SDK user pitch (SND_seq.c TrackUpdateChannel): pitchBend *
@@ -512,15 +523,15 @@ end
 -- record releasing: the handle STAYS attached (the SDK TrackReleaseChannels
 -- without TrackFreeChannels -- natural length expiry and mute mode 2), so
 -- the release tail keeps receiving fader-only updates and the note-finish
--- hold keeps waiting on real liveness. `releaseOverride` (nil or an
--- integer 0..127) is passed to the mixer noteOff -- the forced track-release
--- path the transport pause uses. A voice already marked releasing is never
--- released again when its sequence length bookkeeping is revisited.
+-- hold keeps waiting on real liveness. Ordinary nil-override bookkeeping is
+-- suppressed after release starts; an explicit override is forwarded so the
+-- forced track-release path can accelerate an existing release.
 local function noteOff(self, voice, releaseOverride)
-  if not voice.releasing then
-    self._mixer:noteOff(voice.handle, releaseOverride)
-    voice.releasing = true
+  if releaseOverride == nil and voice.releasing then
+    return
   end
+  self._mixer:noteOff(voice.handle, releaseOverride)
+  voice.releasing = true
 end
 
 -- Starts the note's voice on the mixer and returns its {channel, generation}
@@ -600,7 +611,12 @@ local function startNote(self, instance, track, midiKey, velocity, length)
 end
 
 local function observeNote(self, instance, track, key, velocity, length)
-  observe(self, "onNoteEvent", {
+  local observer, callback = observerCallback(self, "onNoteEvent")
+  if callback == nil then
+    return
+  end
+  callback(observer, {
+    ordinal = self._intervalOrdinal,
     playerId = instance.logicalPlayerId,
     trackSlot = track.slot,
     key = key,
@@ -657,7 +673,8 @@ end
 -- live voice, then drops every handle -- the physical release tails may
 -- continue in the mixer. `releaseOverride` (nil or an integer 0..127) is
 -- passed to the mixer noteOffs -- the forced track-release path pause and
--- mute mode 3 use. A voice already marked releasing is not released again.
+-- mute mode 3 use. Explicit forced overrides are forwarded even when a voice
+-- is already marked releasing; ordinary repeats are suppressed.
 -- An empty collection makes this a no-op, so a replacement/pause over an
 -- already-freed instance releases nothing extra.
 local function releaseTrackVoices(self, instance, track, releaseOverride)
@@ -825,12 +842,9 @@ local function execute(self, instance, track, instruction)
     -- Reopening releases channels and restarts the existing track object;
     -- allocation defaults belong only to a newly acquired pool object.
     local previous = instance.tracks[instruction.track]
-    if previous ~= nil then
+    if previous ~= nil and previous ~= track then
       releaseTrackVoices(self, instance, previous)
       startTrack(previous, instruction.target)
-      if previous == track then
-        return instruction.target
-      end
     end
   elseif op == "compare" then
     local left = toS16(varRead(self, instance, instruction.var))
@@ -985,9 +999,14 @@ local function execute(self, instance, track, instruction)
     -- integer scaling and negates for a negative par.
     local par = toS16(resolveAmount(self, instruction.amount, instance))
     local neg = par < 0
-    local magnitude = neg and -par or par
-    local random = math.floor(self._rng() * (magnitude + 1) / 65536)
-    varWrite(self, instance, instruction.var, neg and -random or random)
+    if neg then
+      par = toS16(-par)
+    end
+    local random = bit.arshift(toS32(self._rng() * (par + 1)), 16)
+    if neg then
+      random = -random
+    end
+    varWrite(self, instance, instruction.var, random)
   elseif op == "nop" then
     -- The reserved no-op opcodes of the corpus (0x82-0x8F, 0x90-0x92,
     -- 0x96-0x9F, 0xA3-0xAF, 0xB7, 0xBE-0xBF, 0xD8-0xDF, 0xE2, 0xE4-0xEF,
@@ -1091,16 +1110,19 @@ local function fetch(self, instance, track)
     end
     local pc = track.pc
     track.pc = execute(self, instance, track, instruction)
-    observe(self, "onTrackStep", {
-      ordinal = self._intervalOrdinal,
-      playerId = instance.logicalPlayerId,
-      trackSlot = track.slot,
-      pc = pc,
-      op = instruction.op,
-      wait = track.wait,
-      program = track.program,
-      compare = track.compare,
-    })
+    local observer, callback = observerCallback(self, "onTrackStep")
+    if callback ~= nil then
+      callback(observer, {
+        ordinal = self._intervalOrdinal,
+        playerId = instance.logicalPlayerId,
+        trackSlot = track.slot,
+        pc = pc,
+        op = instruction.op,
+        wait = track.wait,
+        program = track.program,
+        compare = track.compare,
+      })
+    end
     steps = steps + 1
     if steps > HOST_SAFETY_STEP_BUDGET then
       Errors.raise(
@@ -1132,13 +1154,16 @@ local function retireTrack(self, instance, trackId, reason)
   releaseTrackVoices(self, instance, track)
   releaseTrackObject(self, track)
   instance.tracks[trackId] = nil
-  observe(self, "onTrackRetirement", {
-    logicalPlayerId = instance.logicalPlayerId,
-    seqPlayerSlot = instance.seqPlayerSlot,
-    trackSlot = trackId,
-    poolIndex = track.poolIndex,
-    reason = reason,
-  })
+  local observer, callback = observerCallback(self, "onTrackRetirement")
+  if callback ~= nil then
+    callback(observer, {
+      logicalPlayerId = instance.logicalPlayerId,
+      seqPlayerSlot = instance.seqPlayerSlot,
+      trackSlot = trackId,
+      poolIndex = track.poolIndex,
+      reason = reason,
+    })
+  end
 
   for remaining = 0, TRACK_COUNT - 1 do
     local remainingTrack = instance.tracks[remaining]
@@ -1172,12 +1197,15 @@ retireInstance = function(self, instance, reason)
   self._seqPlayers[instance.seqPlayerSlot] = nil
   appendFreeSeqPlayerSlot(self, instance.seqPlayerSlot)
   instance.retired = true
-  observe(self, "onSequenceRetirement", {
-    logicalPlayerId = instance.logicalPlayerId,
-    seqPlayerSlot = instance.seqPlayerSlot,
-    instanceId = instance.id,
-    reason = reason,
-  })
+  local observer, callback = observerCallback(self, "onSequenceRetirement")
+  if callback ~= nil then
+    callback(observer, {
+      logicalPlayerId = instance.logicalPlayerId,
+      seqPlayerSlot = instance.seqPlayerSlot,
+      instanceId = instance.id,
+      reason = reason,
+    })
+  end
 end
 
 function SequencePlayer.new(opts)
@@ -1261,13 +1289,16 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
       end
     end
     if sequence.player.playerPriority < logicalVictim.sequence.player.playerPriority then
-      observe(self, "onSequenceAllocation", {
-        playerId = logicalPlayerId,
-        logicalPlayerId = logicalPlayerId,
-        accepted = false,
-        playerPriority = sequence.player.playerPriority,
-        reason = "logical_priority",
-      })
+      local observer, callback = observerCallback(self, "onSequenceAllocation")
+      if callback ~= nil then
+        callback(observer, {
+          playerId = logicalPlayerId,
+          logicalPlayerId = logicalPlayerId,
+          accepted = false,
+          playerPriority = sequence.player.playerPriority,
+          reason = "logical_priority",
+        })
+      end
       return
     end
     retireInstance(self, logicalVictim, "logical_eviction")
@@ -1290,13 +1321,16 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
       end
     end
     if sequence.player.playerPriority < globalVictim.sequence.player.playerPriority then
-      observe(self, "onSequenceAllocation", {
-        playerId = logicalPlayerId,
-        logicalPlayerId = logicalPlayerId,
-        accepted = false,
-        playerPriority = sequence.player.playerPriority,
-        reason = "physical_priority",
-      })
+      local observer, callback = observerCallback(self, "onSequenceAllocation")
+      if callback ~= nil then
+        callback(observer, {
+          playerId = logicalPlayerId,
+          logicalPlayerId = logicalPlayerId,
+          accepted = false,
+          playerPriority = sequence.player.playerPriority,
+          reason = "physical_priority",
+        })
+      end
       return
     end
     retireInstance(self, globalVictim, "physical_eviction")
@@ -1340,14 +1374,17 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   local entryTrack = allocateTrack(self, 0)
   if entryTrack == nil then
     appendFreeSeqPlayerSlot(self, seqPlayerSlot)
-    observe(self, "onSequenceAllocation", {
-      playerId = logicalPlayerId,
-      logicalPlayerId = logicalPlayerId,
-      seqPlayerSlot = seqPlayerSlot,
-      accepted = false,
-      playerPriority = sequence.player.playerPriority,
-      reason = "track_capacity",
-    })
+    local observer, callback = observerCallback(self, "onSequenceAllocation")
+    if callback ~= nil then
+      callback(observer, {
+        playerId = logicalPlayerId,
+        logicalPlayerId = logicalPlayerId,
+        seqPlayerSlot = seqPlayerSlot,
+        accepted = false,
+        playerPriority = sequence.player.playerPriority,
+        reason = "track_capacity",
+      })
+    end
     return
   end
   instance.tracks[0] = entryTrack
@@ -1364,14 +1401,17 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   self._nextInstanceId = self._nextInstanceId + 1
   instances[#instances + 1] = instance
   self._seqPlayers[seqPlayerSlot] = instance
-  observe(self, "onSequenceAllocation", {
-    playerId = logicalPlayerId,
-    logicalPlayerId = logicalPlayerId,
-    seqPlayerSlot = seqPlayerSlot,
-    instanceId = instance.id,
-    playerPriority = sequence.player.playerPriority,
-    accepted = true,
-  })
+  local observer, callback = observerCallback(self, "onSequenceAllocation")
+  if callback ~= nil then
+    callback(observer, {
+      playerId = logicalPlayerId,
+      logicalPlayerId = logicalPlayerId,
+      seqPlayerSlot = seqPlayerSlot,
+      instanceId = instance.id,
+      playerPriority = sequence.player.playerPriority,
+      accepted = true,
+    })
+  end
 end
 
 -- Starts `sequence` on its player id with `bank`. The bank must be the
@@ -1583,10 +1623,13 @@ end
 -- the interval did not complete, so mixer control and the periodic draw
 -- are skipped and the render call fails.
 local function processSoundInterval(self)
-  observe(self, "onSoundInterval", {
-    ordinal = self._intervalOrdinal,
-    phase = "before_sequence",
-  })
+  local observer, callback = observerCallback(self, "onSoundInterval")
+  if callback ~= nil then
+    callback(observer, {
+      ordinal = self._intervalOrdinal,
+      phase = "before_sequence",
+    })
+  end
   for seqPlayerSlot = 0, PLAYER_COUNT - 1 do
     local instance = self._seqPlayers[seqPlayerSlot]
     if instance ~= nil and not instance.paused then
@@ -1603,15 +1646,21 @@ local function processSoundInterval(self)
       end
     end
   end
-  observe(self, "onSoundInterval", {
-    ordinal = self._intervalOrdinal,
-    phase = "after_sequence",
-  })
+  observer, callback = observerCallback(self, "onSoundInterval")
+  if callback ~= nil then
+    callback(observer, {
+      ordinal = self._intervalOrdinal,
+      phase = "after_sequence",
+    })
+  end
   self._mixer:controlStep(self._intervalOrdinal)
-  observe(self, "onSoundInterval", {
-    ordinal = self._intervalOrdinal,
-    phase = "after_channels",
-  })
+  observer, callback = observerCallback(self, "onSoundInterval")
+  if callback ~= nil then
+    callback(observer, {
+      ordinal = self._intervalOrdinal,
+      phase = "after_channels",
+    })
+  end
   self._rng()
   self._intervalOrdinal = self._intervalOrdinal + 1
 end
