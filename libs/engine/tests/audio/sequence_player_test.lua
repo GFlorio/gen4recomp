@@ -1527,7 +1527,7 @@ function T.instrument_release_sentinel_remains_indefinite_without_track_override
   Assert.equal(mixer.log.noteOns[1].length, -1)
 end
 
-function T.concrete_release_override_replaces_instrument_sentinel()
+function T.concrete_release_override_preserves_instrument_sentinel_lifetime()
   local mixer = stubMixer()
   local player, provider = engine({
     [0] = seq({
@@ -1554,7 +1554,42 @@ function T.concrete_release_override_replaces_instrument_sentinel()
   play(player, provider)
 
   Assert.equal(mixer.log.noteOns[1].envelope.release, 10)
-  Assert.equal(mixer.log.noteOns[1].length, 3)
+  Assert.equal(mixer.log.noteOns[1].length, -1)
+end
+
+function T.instrument_sentinel_does_not_naturally_release_at_authored_duration()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "release", amount = 10 },
+      { op = "note", key = 60, velocity = 127, duration = 3 },
+      { op = "wait", duration = 10 },
+    }),
+  }, {
+    mixer = mixer,
+    bank = AudioFixture.bank(12, "BANK_TEST", {
+      AudioFixture.key(1),
+    }, {
+      [0] = {
+        kind = "direct",
+        voice = {
+          generator = { kind = "sample", sample = AudioFixture.key(1) },
+          originalKey = 60,
+          envelope = { attack = 11, decay = 22, sustain = 33, release = 255 },
+          pan = 0,
+        },
+      },
+    }),
+  })
+  play(player, provider)
+  player:render(2500)
+
+  Assert.equal(#mixer.log.noteOffs, 0, "the sentinel voice does not release at its authored duration")
+  Assert.isTrue(player:isPlaying(), "the long wait keeps the sequence active")
+
+  player:stop()
+  Assert.equal(#mixer.log.noteOffs, 1, "explicit stop releases the still-attached sentinel voice")
 end
 
 function T.tied_envelope_override_sentinel_does_not_write_a_coefficient()

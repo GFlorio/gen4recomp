@@ -564,8 +564,8 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   -- the voice by TrackUpdateChannel): bend 0 is no bend.
   spec.userPitch = userPitchFor(track)
   spec.velocity = velocity
+  local indefinite = voice.envelope.release == 0xFF
   local envelope = effectiveEnvelope(track, voice)
-  local indefinite = envelope.release == 0xFF
   spec.length = indefinite and -1 or length
   -- The dB table domain is 0..127 while the asset schemas carry u8 volumes,
   -- so the player bounds them at the mixer boundary (the SDK reads past its
