@@ -151,7 +151,10 @@ function AudioBank.selectVoice(instrument, midiKey)
   if instrument.kind == "key_split" then
     for _, range in ipairs(instrument.ranges) do
       if midiKey >= range.lowKey and midiKey <= range.highKey then
-        return range.voice.kind == "dummy" and nil or range.voice
+        if range.voice.kind == "dummy" then
+          return nil
+        end
+        return range.voice
       end
     end
     return nil
@@ -161,7 +164,10 @@ function AudioBank.selectVoice(instrument, midiKey)
       return nil
     end
     local voice = instrument.voices[midiKey - instrument.lowKey + 1]
-    return voice.kind == "dummy" and nil or voice
+    if voice.kind == "dummy" then
+      return nil
+    end
+    return voice
   end
   assert(false, "unknown instrument kind")
 end

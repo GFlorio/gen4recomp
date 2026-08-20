@@ -98,7 +98,6 @@ local function forEachVersion(fn)
   local list = assert(contexts, "corpus census has no open contexts")
   if #list == 0 then
     -- No dump available: explicitly skip rather than silently passing.
-    local Assert2 = require("tests.support.Assert")
     -- Use a failure that makes the capability requirement visible.
     error("missing capability: rom_dump (no ready dump for corpus census)", 0)
   end
@@ -195,7 +194,25 @@ function T.corpus_census_classifies_every_reachable_construct()
     local bankTypes = {}
     local releaseFF = 0
     local releaseFFLocations = {}
-    local directPcmOrDummy = 0
+    local directPcmCount = 0
+    local dummyCount = 0
+    local directPcmLocations = {}
+
+    local function countBankType(inst, location)
+      if inst.type == Sbnk.TYPE_DIRECTPCM then
+        directPcmCount = directPcmCount + 1
+        if #directPcmLocations < 5 then
+          directPcmLocations[#directPcmLocations + 1] = location
+        end
+      elseif inst.type == Sbnk.TYPE_DUMMY then
+        dummyCount = dummyCount + 1
+      end
+      if inst.leaves then
+        for leafId, leaf in pairs(inst.leaves) do
+          countBankType(leaf, location .. " leaf " .. tostring(leafId))
+        end
+      end
+    end
 
     for id = 0, sdat.counts.banks - 1 do
       local record = sdat.banks[id]
@@ -210,7 +227,6 @@ function T.corpus_census_classifies_every_reachable_construct()
           local typeOffset = 0x3D + program * 4
           local instrumentType = string.byte(bytes, typeOffset)
           if instrumentType == 4 or instrumentType == 5 then
-            directPcmOrDummy = directPcmOrDummy + 1
             bankTypes[instrumentType] = (bankTypes[instrumentType] or 0) + 1
           end
         end
@@ -225,6 +241,7 @@ function T.corpus_census_classifies_every_reachable_construct()
         end
         if ir ~= nil then
           for _, inst in pairs(ir.instruments) do
+            countBankType(inst, string.format("bank %d program %s", id, tostring(_)))
             local function checkParam(param, where)
               if param and param.release == 0xFF then
                 releaseFF = releaseFF + 1
@@ -283,7 +300,8 @@ function T.corpus_census_classifies_every_reachable_construct()
       conditional = conditionalCount,
       b8bd = b8bdCount,
       releaseFF = releaseFF,
-      directPcmOrDummy = directPcmOrDummy,
+      directPcmCount = directPcmCount,
+      dummyCount = dummyCount,
       rejected = rejected,
       channelMaskZero = channelMaskZero,
       channelMaskNonZero = channelMaskNonZero,
@@ -334,13 +352,15 @@ function T.corpus_census_classifies_every_reachable_construct()
     -- Bank type classification: require that supported types are counted.
     Assert.isTrue(next(bankTypes) ~= nil, "census: SBNK instrument types counted")
 
-    -- The HGSS corpus audit reports no unsupported reachable SSEQ/SBNK construct.
-    -- DIRECTPCM/DUMMY occurrence is recorded and classified as supported or
-    -- explicitly not required; either way the census completes.
-    if directPcmOrDummy > 0 then
-      Assert.isTrue(directPcmOrDummy >= 1, "census: DIRECTPCM/DUMMY occurrence recorded")
-    end
-
+    Assert.equal(
+      directPcmCount,
+      0,
+      "census: DIRECTPCM is unsupported; locations must be removed from supported retail archives ("
+        .. table.concat(directPcmLocations, "; ")
+        .. "; "
+        .. compactSummary(summary)
+        .. ")"
+    )
     -- Ensure symbol coverage for census sequences where present.
     local namedSequences = 0
     for id = 0, sdat.counts.sequences - 1 do

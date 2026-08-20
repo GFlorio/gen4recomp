@@ -144,7 +144,6 @@ local function buildArchive(overrides)
     { type = 0 },
     { type = 2, param = PSG_A },
     { type = 3, param = NOISE_A },
-    { type = 4, param = PCM_A },
     { type = 5, param = PCM_A },
   })
   local sbnk1 = SbnkFixture.build({
@@ -195,6 +194,73 @@ local function compileOrFail(bytes)
   local bundle, err = AudioCompiler.compile(fakeRomFs(bytes))
   Assert.notNil(bundle, "expected compile to succeed: " .. tostring(err and Errors.format(err) or "no error"))
   return assert(bundle)
+end
+
+local function directPcmArchive(instruments)
+  local spec = {
+    sequences = { [0] = { bankId = 0, volume = 120, channelPriority = 127, playerPriority = 64, playerId = 0 } },
+    banks = { [0] = { waveArchives = { 0, 0xFFFF, 0xFFFF, 0xFFFF } } },
+    waveArchives = { [0] = {} },
+    players = { [0] = { maxSequences = 2, channelMask = 0xC000, heapSize = 0x5E88 } },
+    extraFiles = 0,
+  }
+  local _, layout = SdatFixture.build(spec)
+  spec.payloads = {
+    [layout.fileIds.sequences[0]] = SseqFixture.build({ { op = "fin" } }),
+    [layout.fileIds.banks[0]] = SbnkFixture.build(instruments),
+    [layout.fileIds.waveArchives[0]] = SwarFixture.build({ pcm8Member() }),
+  }
+  return SdatFixture.build(spec)
+end
+
+local function assertUnsupportedDirectPcm(bytes)
+  local bundle, err = AudioCompiler.compile(fakeRomFs(bytes))
+  Assert.isNil(bundle, "DIRECTPCM must not compile as a SWAR sample")
+  Assert.isTrue(Errors.is(err), "DIRECTPCM failure must be structured")
+  err = assert(err)
+  Assert.equal(err.code, "SBNK_UNSUPPORTED_INSTRUMENT")
+  Assert.equal(err.context.bankId, 0)
+  Assert.equal(err.context.type, 4)
+end
+
+function T.rejects_directpcm_before_wave_resolution()
+  local direct = { type = 4, param = PCM_A }
+  assertUnsupportedDirectPcm(directPcmArchive({ direct }))
+  assertUnsupportedDirectPcm(directPcmArchive({
+    {
+      type = 0x10,
+      minKey = 35,
+      maxKey = 35,
+      leaves = { direct },
+    },
+  }))
+  assertUnsupportedDirectPcm(directPcmArchive({
+    {
+      type = 0x11,
+      keys = { 35 },
+      leaves = { direct },
+    },
+  }))
+end
+
+function T.keeps_dummy_leaves_silent_and_sample_free()
+  local bundle = compileOrFail(directPcmArchive({
+    { type = 1, param = PCM_A },
+    { type = 5, param = PCM_A },
+    {
+      type = 0x10,
+      minKey = 35,
+      maxKey = 35,
+      leaves = { { type = 5, param = PCM_A } },
+    },
+  }))
+  local bank = bundle.banks[0]
+  AudioBank.validate(bank)
+  Assert.equal(bank.instruments[1].voice.kind, "dummy")
+  Assert.equal(bank.instruments[2].voices[1].kind, "dummy")
+  Assert.isNil(AudioBank.selectVoice(bank.instruments[1], 60))
+  Assert.isNil(AudioBank.selectVoice(bank.instruments[2], 35))
+  Assert.equal(next(bundle.samples) ~= nil, true, "ordinary PCM remains compiled")
 end
 
 -- The full writer-shaped bundle: marker, index, dependencies, and the four
@@ -330,11 +396,7 @@ function T.compiles_banks_with_semantic_instruments()
   Assert.equal(bank0.instruments[4].voice.originalKey, 48)
   Assert.equal(bank0.instruments[5].voice.generator.kind, "noise")
   Assert.equal(bank0.instruments[5].voice.originalKey, 60)
-  Assert.equal(bank0.instruments[6].voice.generator.kind, "sample")
-  Assert.equal(bank0.instruments[6].voice.generator.sample, PCM8_KEY)
-  Assert.equal(bank0.instruments[6].voice.originalKey, 60)
-  Assert.deepEqual(bank0.instruments[7].voice, { kind = "dummy" })
-  Assert.isNil(AudioBank.selectVoice(bank0.instruments[7], 60))
+  Assert.deepEqual(bank0.instruments[6].voice, { kind = "dummy" })
 
   local bank1 = bundle.banks[1]
   AudioBank.validate(bank1)

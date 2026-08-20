@@ -170,14 +170,17 @@ function T.rejects_table_past_end()
   decodeRejects(corrupted, "SBNK_TRUNCATED")
 end
 
--- Instrument types the offline compiler cannot represent (direct-memory PCM,
--- dummy records, or silent leaves inside composites) are build failures with
--- provenance, never silent guesses.
+-- DIRECTPCM remains decodable for census/provenance, but its first two words
+-- are raw direct-memory parameters rather than SWAR identity. DUMMY remains
+-- an explicitly silent record.
 function T.decodes_directpcm_and_dummy_instruments()
   local direct = SbnkFixture.build({ { type = 4, param = PCM } })
   local directBank = decodeOrFail(direct)
   Assert.equal(directBank.instruments[0].type, Sbnk.TYPE_DIRECTPCM)
-  Assert.deepEqual(directBank.instruments[0].param, PCM)
+  Assert.equal(directBank.instruments[0].param.directWord0, PCM.swav)
+  Assert.equal(directBank.instruments[0].param.directWord1, PCM.swarSlot)
+  Assert.isNil(directBank.instruments[0].param.swav)
+  Assert.isNil(directBank.instruments[0].param.swarSlot)
 
   local dummy = SbnkFixture.build({ { type = 5, param = PCM } })
   local dummyBank = decodeOrFail(dummy)
@@ -195,6 +198,21 @@ function T.decodes_directpcm_and_dummy_instruments()
   local drumBank = decodeOrFail(drumWithSilentLeaf)
   Assert.equal(drumBank.instruments[0].leaves[1].type, Sbnk.TYPE_DUMMY)
   Assert.isNil(drumBank.instruments[0].leaves[1].param)
+
+  local directLeaf = SbnkFixture.build({
+    {
+      type = 0x10,
+      minKey = 35,
+      maxKey = 35,
+      leaves = { { type = 4, param = PCM } },
+    },
+  })
+  local directLeafBank = decodeOrFail(directLeaf)
+  local leafParam = directLeafBank.instruments[0].leaves[0].param
+  Assert.equal(leafParam.directWord0, PCM.swav)
+  Assert.equal(leafParam.directWord1, PCM.swarSlot)
+  Assert.isNil(leafParam.swav)
+  Assert.isNil(leafParam.swarSlot)
 end
 
 -- A key split whose first key byte is zero has no playable leaves; like a

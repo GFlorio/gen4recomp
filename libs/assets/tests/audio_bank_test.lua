@@ -209,6 +209,15 @@ function T.accepts_a_dummy_leaf_and_selects_no_voice()
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
+
+  bank.instruments[0] = {
+    kind = "drum_set",
+    lowKey = 35,
+    highKey = 35,
+    voices = { { kind = "dummy" } },
+  }
+  Assert.isTrue(AudioBank.validate(bank))
+  Assert.isNil(AudioBank.selectVoice(bank.instruments[0], 35))
 end
 
 function T.preserves_the_release_sentinel_in_every_leaf_shape()

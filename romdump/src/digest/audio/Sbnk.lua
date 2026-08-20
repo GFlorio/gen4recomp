@@ -3,8 +3,9 @@
 -- SND_ReadInstData) interprets them: a u32 instrument count at 0x38, packed
 -- u32 entries at 0x3C whose low byte is the record type and upper 24 bits the
 -- record offset from the bank start; direct records (types 1 PCM, 2 PSG,
--- 3 noise, 4 DIRECTPCM) are a 10-byte SNDInstParam (swav u16, wave-archive slot u16, root
--- key u8, four ADSR u8s, pan u8); drum sets (0x10) are min/max keys plus one
+-- 3 noise, 4 DIRECTPCM) are a 10-byte SNDInstParam (two u16 words, root
+-- key u8, four ADSR u8s, pan u8); DIRECTPCM's two words remain raw direct-memory
+-- parameters, never SWAR/member identity. Drum sets (0x10) are min/max keys plus one
 -- 12-byte SNDInstData leaf per key; key splits (0x11) are eight split-key
 -- bytes plus leaves that stop at the first zero key. Type-0 records are
 -- illegal instruments (the player fails notes on them) and are dropped;
@@ -47,16 +48,14 @@ local function u32At(bytes, offset, source)
 end
 
 -- The 10-byte SNDInstParam starting at `offset`.
-local function readParam(bytes, offset, size, source)
+local function readParam(bytes, offset, size, source, directPcm)
   if offset + PARAM_SIZE > size then
     fail("SBNK_TRUNCATED", "instrument parameter extends past the end of the bank", {
       source = source,
       offset = offset,
     })
   end
-  return {
-    swav = u16At(bytes, offset, source),
-    swarSlot = u16At(bytes, offset + 2, source),
+  local param = {
     rootKey = u8At(bytes, offset + 4, source),
     attack = u8At(bytes, offset + 5, source),
     decay = u8At(bytes, offset + 6, source),
@@ -64,6 +63,14 @@ local function readParam(bytes, offset, size, source)
     release = u8At(bytes, offset + 8, source),
     pan = u8At(bytes, offset + 9, source),
   }
+  if directPcm then
+    param.directWord0 = u16At(bytes, offset, source)
+    param.directWord1 = u16At(bytes, offset + 2, source)
+  else
+    param.swav = u16At(bytes, offset, source)
+    param.swarSlot = u16At(bytes, offset + 2, source)
+  end
+  return param
 end
 
 -- The 12-byte SNDInstData leaf starting at `offset`.
@@ -91,7 +98,10 @@ local function readLeaf(bytes, offset, size, source)
   if recordType == Sbnk.TYPE_DUMMY then
     return { type = recordType }
   end
-  return { type = recordType, param = readParam(bytes, offset + 2, size, source) }
+  return {
+    type = recordType,
+    param = readParam(bytes, offset + 2, size, source, recordType == Sbnk.TYPE_DIRECTPCM),
+  }
 end
 
 local function _decode(bytes, context)
@@ -126,7 +136,7 @@ local function _decode(bytes, context)
     then
       instruments[program] = {
         type = recordType,
-        param = readParam(bytes, offset, size, source),
+        param = readParam(bytes, offset, size, source, recordType == Sbnk.TYPE_DIRECTPCM),
       }
     elseif recordType == Sbnk.TYPE_DUMMY then
       instruments[program] = { type = recordType }

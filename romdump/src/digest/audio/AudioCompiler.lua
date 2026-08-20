@@ -33,13 +33,23 @@ local function must(value, err)
 end
 
 local function leafKind(recordType)
-  if recordType == Sbnk.TYPE_PCM or recordType == Sbnk.TYPE_DIRECTPCM then
+  if recordType == Sbnk.TYPE_PCM then
     return "sample"
   end
   if recordType == Sbnk.TYPE_PSG then
     return "square"
   end
   return "noise"
+end
+
+local function rejectUnsupportedLeaf(leaf, bankId, location)
+  if leaf.type == Sbnk.TYPE_DIRECTPCM then
+    Errors.raise("SBNK_UNSUPPORTED_INSTRUMENT", "DIRECTPCM instruments are not supported", {
+      bankId = bankId,
+      location = location,
+      type = Sbnk.TYPE_DIRECTPCM,
+    })
+  end
 end
 
 -- The semantic sample key: the canonical deterministic hash of the complete
@@ -236,17 +246,19 @@ local function compileBank(sdat, symbols, id, record, waveCache)
       inst.type == Sbnk.TYPE_PCM
       or inst.type == Sbnk.TYPE_PSG
       or inst.type == Sbnk.TYPE_NOISE
-      or inst.type == Sbnk.TYPE_DIRECTPCM
       or inst.type == Sbnk.TYPE_DUMMY
     then
       instruments[program] = {
         kind = "direct",
         voice = voiceFromLeaf(inst, leafKind(inst.type), waveCache, id, record.waveArchives),
       }
+    elseif inst.type == Sbnk.TYPE_DIRECTPCM then
+      rejectUnsupportedLeaf(inst, id, "program " .. tostring(program))
     elseif inst.type == Sbnk.TYPE_DRUM_SET then
       local voices = {}
       for key = inst.minKey, inst.maxKey do
         local leaf = inst.leaves[key - inst.minKey]
+        rejectUnsupportedLeaf(leaf, id, "program " .. tostring(program) .. " key " .. tostring(key))
         voices[#voices + 1] = voiceFromLeaf(leaf, leafKind(leaf.type), waveCache, id, record.waveArchives)
       end
       instruments[program] = {
@@ -266,6 +278,7 @@ local function compileBank(sdat, symbols, id, record, waveCache)
         local leaf = inst.leaves[i]
         local high = inst.keys[i]
         if high > prevHigh then
+          rejectUnsupportedLeaf(leaf, id, "program " .. tostring(program) .. " leaf " .. tostring(i))
           ranges[#ranges + 1] = {
             lowKey = prevHigh + 1,
             highKey = high,
