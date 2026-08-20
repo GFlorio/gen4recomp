@@ -34,6 +34,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field trainerCardRenderer TrainerCardRenderer?
 ---@field textRenderer FieldTextRenderer? the one shared glyph atlas the UI renderers draw through
 ---@field _lastGeometrySignature string? the structural presentation-geometry signature the last sync consumed
+---@field _pollPresentationTopology boolean whether injected topology changes are polled during draw
 ---@field presentationActorAssets FieldActorAssetProvider?
 ---@field _presentationSpriteRefs table<integer, boolean>
 ---@field _lastActorManager any?
@@ -81,6 +82,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     runtime = runtime,
     development = options.development == true,
     topologyProvider = options.topologyProvider or defaultScreenTopology,
+    _pollPresentationTopology = options.topologyProvider ~= nil,
     _presentationSpriteRefs = {},
     _lastActorManager = nil,
     _lastActorVisualRevision = nil,
@@ -132,9 +134,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     -- before the user has resized the window, so the runtime computes and
     -- stores the Start Menu placement as soon as the graphics dimensions are
     -- known.
-    local topology = self.topologyProvider(width, height)
-    runtime:resizePresentation(width, height, topology)
-    self:_recordGeometrySignature(width, height, topology)
+    self:resize(width, height)
     runtime.menuHost:setPresentationMetrics(function(text)
       return love.graphics.getFont():getWidth(text)
     end)
@@ -296,6 +296,14 @@ function FieldState:_recordGeometrySignature(width, height, topology)
   self._lastGeometrySignature = self:_geometrySignature(width, height, topology)
 end
 
+function FieldState:resize(width, height)
+  local topology = self.topologyProvider(width, height)
+  self.runtime:resizePresentation(width, height, topology)
+  if self._pollPresentationTopology then
+    self:_recordGeometrySignature(width, height, topology)
+  end
+end
+
 function FieldState:draw()
   local lg = love.graphics
   if self.runtime.errorText then
@@ -304,14 +312,20 @@ function FieldState:draw()
     lg.printf(self.runtime.errorText, 24, 48, lg.getWidth() - 48)
     return
   end
-  local width, height = lg.getDimensions()
-  local topology = self.topologyProvider(width, height)
-  if self:_geometrySignature(width, height, topology) ~= self._lastGeometrySignature then
-    -- The one geometry sync point: the runtime recomputes the shared Start
-    -- Menu placement record (rendering and the host's pointer mapper consume
-    -- the same value) and cancels any held menu pointer capture.
-    self.runtime:resizePresentation(width, height, topology)
-    self:_recordGeometrySignature(width, height, topology)
+  local pollTopology = self._pollPresentationTopology
+  if pollTopology == nil then
+    pollTopology = self.topologyProvider ~= nil
+  end
+  if pollTopology then
+    local width, height = lg.getDimensions()
+    assert(width and height, "graphics dimensions are required for topology polling")
+    local topology = self.topologyProvider(width, height)
+    if self:_geometrySignature(width, height, topology) ~= self._lastGeometrySignature then
+      -- Injected providers remain polling-enabled so same-size structural
+      -- topology changes still reach the runtime geometry owner.
+      self.runtime:resizePresentation(width, height, topology)
+      self:_recordGeometrySignature(width, height, topology)
+    end
   end
   local alpha = self.runtime.session:renderAlpha()
   self.renderer:draw(

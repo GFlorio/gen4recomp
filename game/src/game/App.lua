@@ -164,6 +164,12 @@ function App.update(dt)
   end
 end
 
+function App.resize(width, height)
+  if App.state and App.state.resize then
+    App.state:resize(width, height)
+  end
+end
+
 function App.draw()
   if App.state and App.state.draw then
     App.state:draw()

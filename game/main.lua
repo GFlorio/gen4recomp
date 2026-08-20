@@ -52,6 +52,12 @@ function love.draw()
   end
 end
 
+function love.resize(width, height)
+  if App then
+    App.resize(width, height)
+  end
+end
+
 function love.filedropped(file)
   if App then
     App.filedropped(file)

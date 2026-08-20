@@ -212,6 +212,22 @@ function T.input_callbacks_preserve_the_complete_host_argument_tuple()
   end)
 end
 
+function T.resize_forwards_the_exact_tuple_only_to_resize_capable_states()
+  fresh()
+  local calls = {}
+  App.setState({
+    resize = function(_, width, height)
+      calls[#calls + 1] = { width, height }
+    end,
+  })
+  App.resize(1280, 720)
+  Assert.deepEqual(calls, { { 1280, 720 } })
+
+  App.setState({})
+  Assert.isTrue(pcall(App.resize, 1280, 720), "states without resize remain a no-op")
+  App.setState(nil)
+end
+
 function T.actor_preview_dispose_releases_exactly_once_and_is_repeat_safe()
   fresh()
   local released = {}
