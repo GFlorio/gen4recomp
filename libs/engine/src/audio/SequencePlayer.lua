@@ -351,7 +351,6 @@ local function newTrack(slot)
     mute = 0,
     program = 0,
     priority = 64,
-    channelMask = 0xFFFF,
     volume = 127,
     expression = 127,
     -- The raw track pan offset (the NNS 0xC0 pan command stores amount-64;
@@ -396,7 +395,7 @@ local function startTrack(track, entry)
   track.ended = false
 end
 
-local function allocateTrack(self, slot, channelMask)
+local function allocateTrack(self, slot)
   local poolIndex
   for candidate = 0, TRACK_POOL_CAPACITY - 1 do
     if self._trackPool[candidate] == nil then
@@ -412,7 +411,6 @@ local function allocateTrack(self, slot, channelMask)
   local track = newTrack(slot)
   track.poolIndex = poolIndex
   track.poolOwned = true
-  track.channelMask = bit.band(track.channelMask, channelMask)
   self._trackPool[poolIndex] = track
   self._trackCount = self._trackCount + 1
   observe(self, "onTrackPool", {
@@ -580,7 +578,6 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   spec.trackPriority = track.priority
   spec.channelPriority = sequence.player.channelPriority
   spec.channelMask = instance.channelMask
-  spec.channelMask = bit.band(spec.channelMask, track.channelMask)
   spec.ownerPlayerId = instance.logicalPlayerId
   spec.ownerTrackSlot = track.slot
   -- TrackPlayNote: the sweep starts from the track sweepPitch; a note under
@@ -1340,7 +1337,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
     tracks = {},
   }
 
-  local entryTrack = allocateTrack(self, 0, channelMask)
+  local entryTrack = allocateTrack(self, 0)
   if entryTrack == nil then
     appendFreeSeqPlayerSlot(self, seqPlayerSlot)
     observe(self, "onSequenceAllocation", {
@@ -1357,7 +1354,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   startTrack(entryTrack, sequence.program.entry)
   for trackSlot = 1, TRACK_COUNT - 1 do
     if bit.band(initialTrackMask, bit.lshift(1, trackSlot)) ~= 0 then
-      local track = allocateTrack(self, trackSlot, channelMask)
+      local track = allocateTrack(self, trackSlot)
       if track == nil then
         break
       end
@@ -1596,6 +1593,9 @@ local function processSoundInterval(self)
       while instance.tempoCounter >= SND_TIMER_RATE do
         instance.tempoCounter = instance.tempoCounter - SND_TIMER_RATE
         stepSequenceTick(self, instance)
+        if self._seqPlayers[seqPlayerSlot] ~= instance then
+          break
+        end
       end
       if self._seqPlayers[seqPlayerSlot] == instance then
         instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)

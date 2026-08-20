@@ -54,17 +54,7 @@ end
 local CONST_4096 = { 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 }
 
 local function newMixer(rate)
-  local mixer = VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
-  local noteOn = mixer.noteOn
-  ---@diagnostic disable-next-line: duplicate-set-field
-  rawset(mixer, "noteOn", function(self, noteSpec)
-    local handle = noteOn(self, noteSpec)
-    if handle ~= nil then
-      self:controlStep()
-    end
-    return handle
-  end)
-  return mixer
+  return VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
 end
 
 -- Renders `frames` through the external-drive contract: one 250-frame span
@@ -316,6 +306,7 @@ function T.stolen_channels_revoke_the_previous_voice_handle()
   local pcmB = { 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 }
   local old = mixer:noteOn(spec({ pcm = pcmA, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
   local replacement = mixer:noteOn(spec({ pcm = pcmB, pan = 0, channelPriority = 80, channelMask = 0x0010 })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   Assert.deepEqual(
     replacement,
     { channel = old.channel, generation = old.generation + 1 },
@@ -339,6 +330,7 @@ function T.track_control_updates_apply_at_the_next_control_step()
   local function run(overrides, update)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec(overrides)) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     local first = mixer:render(CONTROL)
     mixer:updateVoice(handle, update)
     -- The queued values apply at the next external control step (the
@@ -375,6 +367,7 @@ function T.update_voice_retunes_the_key_at_the_next_control_step()
   local function run(overrides, firstLength, secondLength)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec(overrides)) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     -- Drive the first block at the external 250-frame control cadence (the
     -- envelope/sweep advance at the boundaries), then apply the retune at
     -- the next control step so the second block reads the new pitch.
@@ -427,6 +420,7 @@ function T.update_voice_user_pitch_changes_a_held_voice_at_the_next_control_step
     loop = { startFrame = 0, endFrame = 16 },
     pan = 0,
   })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   local first = mixer:render(CONTROL)
   mixer:updateVoice(handle, { userPitch = 768 })
   -- The user pitch applies at the next external control step (the 250-frame
@@ -447,6 +441,7 @@ function T.update_voice_velocity_changes_the_volume_at_the_next_control_step()
   local pcm = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
   local mixer = newMixer()
   local handle = mixer:noteOn(spec({ pcm = pcm, pan = 0, loop = { startFrame = 0, endFrame = 8 } })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   local first = mixer:render(CONTROL)
   mixer:updateVoice(handle, { velocity = 64 })
   -- The velocity applies at the next external control step.
@@ -468,6 +463,7 @@ function T.lfo_pan_target_moves_the_hardware_register()
     pcm = { 6400, 6400, 6400, 6400, 6400, 6400, 6400, 6400 },
     lfo = { target = 2, depth = 127, range = 1, speed = 16, delay = 2 },
   }))
+  mixer:controlStep()
   local out = {}
   drive(mixer, out, 1750)
   local pins = {
@@ -500,6 +496,7 @@ function T.lfo_pitch_and_volume_targets_affect_their_calculations()
     lfo = { target = 0, depth = 127, range = 1, speed = 16, delay = 0 },
     pan = 0,
   }))
+  pitchMixer:controlStep()
   local out = {}
   drive(pitchMixer, out, 560)
   Assert.equal(leftAt(out, 342), 1000, "the drift from step 2 leaves the read at sample 10 by frame 342")
@@ -513,6 +510,7 @@ function T.lfo_pitch_and_volume_targets_affect_their_calculations()
     velocity = 100,
     lfo = { target = 1, depth = 127, range = 1, speed = 16, delay = 0 },
   }))
+  volumeMixer:controlStep()
   local vout = {}
   drive(volumeMixer, vout, 1250)
   local pins = {
@@ -584,12 +582,15 @@ function T.natural_death_does_not_reuse_the_old_generation()
   -- channel is free for the next allocation.
   local oneShot = { loopEnabled = false, loop = { startFrame = 0, endFrame = 8 }, baseTimer = 16 }
   local h1 = mixer:noteOn(spec(oneShot)) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   mixer:render(12)
   local h2 = mixer:noteOn(spec(oneShot)) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   Assert.equal(h2.channel, h1.channel, "the second voice reuses the naturally freed channel")
   Assert.isTrue(h2.generation ~= h1.generation, "a freed channel never reuses the old generation")
   mixer:render(12)
   local h3 = mixer:noteOn(spec({ pcm = CONST_4096, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   Assert.equal(h3.channel, h1.channel, "the third voice reuses the same channel again")
   Assert.isTrue(h3.generation ~= h1.generation, "the generation keeps moving after the second natural death")
   Assert.isTrue(h3.generation ~= h2.generation, "the generation keeps moving after the second natural death")
@@ -634,8 +635,9 @@ end
 local function tiedSweepRun(advances, syncs, retargetAtFirstSync)
   local mixer = newMixer()
   local handle = mixer:noteOn(tiedSweepSpec()) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   local out = {}
-  mixer:renderInto(out, 250) -- the noteOn's own step (counter 0)
+  mixer:renderInto(out, 250) -- the explicit initial step (counter 0)
   for _ = 1, advances do
     mixer:advanceTrackTick(handle)
   end
@@ -713,6 +715,7 @@ function T.retargeted_tied_voices_apply_the_full_common_tail_at_the_next_control
     pan = 0,
     envelope = { attack = 100, decay = 127, sustain = 127, release = 127 },
   })) --[[@as { channel: integer, generation: integer }]]
+  envMixer:controlStep()
   local first = {}
   envMixer:renderInto(first, 250)
   envMixer:controlStep()

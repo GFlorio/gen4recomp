@@ -69,23 +69,8 @@ end
 local CONST_5120 = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
 local CONST_6400 = { 6400, 6400, 6400, 6400, 6400, 6400, 6400, 6400 }
 
-local function newMixer(rate, prime)
-  local mixer = VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
-  -- Existing rendering vectors begin by sampling immediately after noteOn;
-  -- keep those vectors focused on their stated math while the lifecycle tests
-  -- below opt out and drive the first interval explicitly.
-  if prime ~= false then
-    local noteOn = mixer.noteOn
-    ---@diagnostic disable-next-line: duplicate-set-field
-    rawset(mixer, "noteOn", function(self, noteSpec)
-      local handle = noteOn(self, noteSpec)
-      if handle ~= nil then
-        self:controlStep()
-      end
-      return handle
-    end)
-  end
-  return mixer
+local function newMixer(rate)
+  return VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
 end
 
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
@@ -130,7 +115,7 @@ local function rightAt(pcm, frame)
 end
 
 function T.renders_silence_without_voices()
-  local mixer = newMixer(nil, false)
+  local mixer = newMixer()
   local pcm = mixer:render(32)
   Assert.equal(#pcm, 64)
   for i = 1, 64 do
@@ -142,7 +127,7 @@ end
 -- envelope. The first elapsed control interval performs the only attack/LFO
 -- transition for that interval.
 function T.note_on_initializes_without_consuming_the_first_control_interval()
-  local mixer = newMixer(nil, false)
+  local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({
     pcm = pcm,
@@ -203,6 +188,7 @@ function T.volume_path_sums_the_nns_decibel_domain()
       merged[key] = value
     end
     mixer:noteOn(spec(merged))
+    mixer:controlStep()
     return mixer:render(frames)
   end
   local cases = {
@@ -247,6 +233,7 @@ function T.pan_registers_combine_instrument_track_and_hardware_domains()
       merged[key] = value
     end
     mixer:noteOn(spec(merged))
+    mixer:controlStep()
     return mixer:render(1)
   end
   local cases = {
@@ -317,6 +304,7 @@ function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
   local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
+  mixer:controlStep()
   local out = drive(mixer, 5750)
   local pins = {
     { 250, 13, "step 1 (env -438, register 0x30D)" },
@@ -332,6 +320,7 @@ function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
 
   local fast = newMixer()
   fast:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 120, decay = 127, sustain = 127, release = 127 } }))
+  fast:controlStep()
   local fastOut = drive(fast, 2000)
   Assert.equal(leftAt(fastOut, 250), 264, "attack 120 uses the high-range table coefficient 63 (register 0x242)")
   Assert.equal(leftAt(fastOut, 500), 1232, "attack 120 step 2 (register 0x4D)")
@@ -362,6 +351,7 @@ function T.envelope_decay_clamps_to_the_sustain_target()
   local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 127, decay = 100, sustain = 64, release = 127 } }))
+  mixer:controlStep()
   local out = drive(mixer, 13500)
   local pins = {
     { 250, 2048, "attack 127 is instant" },
@@ -410,6 +400,7 @@ function T.envelope_release_decays_to_the_sdk_stop_threshold()
       velocity = velocity,
       envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
     })) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     -- The first 250-frame block renders, then the first elapsed control step
     -- runs, then the noteOff lands mid-interval (old frame
     -- 300) -- the release's first step therefore fires at the next control
@@ -447,6 +438,7 @@ function T.sample_voices_pitch_through_the_calculated_timer()
   local function renderAt(key, frames)
     local mixer = newMixer(DS_RATE)
     mixer:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, key = key, pan = 0 }))
+    mixer:controlStep()
     return mixer:render(frames)
   end
   local unity = renderAt(60, 24018)
@@ -476,6 +468,7 @@ function T.user_pitch_offsets_the_timer_at_note_on()
   local function renderAt(userPitch, frames)
     local mixer = newMixer(DS_RATE)
     mixer:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, userPitch = userPitch, pan = 0 }))
+    mixer:controlStep()
     return mixer:render(frames)
   end
   local bent = renderAt(64, 15200)
@@ -487,6 +480,7 @@ function T.user_pitch_offsets_the_timer_at_note_on()
   Assert.equal(leftAt(down, 32200), 300, "userPitch -768 reads sample 3 at frame 32200")
   local absent = newMixer(DS_RATE)
   absent:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, pan = 0 }))
+  absent:controlStep()
   Assert.deepEqual(absent:render(24018), renderAt(0, 24018), "userPitch defaults to 0 when absent")
 end
 
@@ -502,6 +496,7 @@ function T.psg_and_noise_use_the_base_timer_masks_and_lfsr()
   local function squareAt(duty, key, frames)
     local mixer = newMixer(DS_RATE)
     mixer:noteOn(spec({ generator = { kind = "square", duty = duty }, key = key, channelMask = 0x3F00, pan = 0 }))
+    mixer:controlStep()
     return mixer:render(frames)
   end
   local out = squareAt(0, 60, 64033)
@@ -517,6 +512,7 @@ function T.psg_and_noise_use_the_base_timer_masks_and_lfsr()
   Assert.equal(leftAt(masked, 59361), 32767, "key 59: the masked timer 8480 turns HIGH at frame 7*8480+1")
   local noise = newMixer(DS_RATE)
   noise:noteOn(spec({ generator = { kind = "noise" }, key = 60, channelMask = 0xC000, pan = 0 }))
+  noise:controlStep()
   local noisePcm = noise:render(128097)
   Assert.equal(leftAt(noisePcm, 112084), -32767, "noise: 14 LOW LFSR states through frame 14*8006")
   Assert.equal(leftAt(noisePcm, 112085), 32767, "noise: the HIGH run starts at frame 14*8006+1")
@@ -536,6 +532,7 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
   local DS_RATE = 16756991
   local loopMixer = newMixer(DS_RATE)
   loopMixer:noteOn(spec({ baseTimer = 16, loop = { startFrame = 2, endFrame = 6 }, pan = 0 }))
+  loopMixer:controlStep()
   local pcm = loopMixer:render(120)
   Assert.equal(leftAt(pcm, 16), 100, "the pre-loop region plays sample 1 first")
   Assert.equal(leftAt(pcm, 32), 200, "the pre-loop region plays sample 2")
@@ -545,6 +542,7 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
 
   local oneShot = newMixer(DS_RATE)
   oneShot:noteOn(spec({ baseTimer = 16, loopEnabled = false, pan = 0 }))
+  oneShot:controlStep()
   local shot = oneShot:render(140)
   Assert.equal(leftAt(shot, 128), 800, "the one-shot wave plays its window")
   Assert.equal(leftAt(shot, 129), 0, "the one-shot stops at the window end")
@@ -552,6 +550,7 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
   local held = newMixer()
   local pcm2048 = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local handle = held:noteOn(spec({ pcm = pcm2048, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  held:controlStep()
   local before = held:render(12)
   Assert.equal(leftAt(before, 12), 2048, "the looping voice holds")
   held:noteOff(handle)
@@ -576,6 +575,7 @@ function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
   local loud = { 30000, -30000, 30000, -30000, 30000, -30000, 30000, -30000 }
   mixer:noteOn(spec({ pcm = loud, pan = 0 }))
   mixer:noteOn(spec({ pcm = loud, pan = 0 }))
+  mixer:controlStep()
   local pcm = mixer:render(24018)
   Assert.equal(leftAt(pcm, 8006), 32767, "two sample-1 voices saturate at +32767")
   Assert.equal(leftAt(pcm, 16012), -32768, "two sample-2 voices saturate at -32768")
@@ -657,6 +657,7 @@ function T.is_voice_alive_tracks_liveness_until_removal()
   local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local handle = mixer:noteOn(spec({ pcm = pcm, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   Assert.isTrue(mixer:isVoiceAlive(handle), "a fresh voice is alive")
   mixer:render(4)
   Assert.isTrue(mixer:isVoiceAlive(handle), "a sounding voice stays alive")
@@ -671,6 +672,7 @@ function T.is_voice_alive_tracks_liveness_until_removal()
 
   local oneShot = newMixer()
   local shot = oneShot:noteOn(spec({ loopEnabled = false, pan = 0, baseTimer = 16 })) --[[@as { channel: integer, generation: integer }]]
+  oneShot:controlStep()
   Assert.isTrue(oneShot:isVoiceAlive(shot), "the one-shot voice is alive before its window ends")
   oneShot:render(12)
   Assert.isFalse(oneShot:isVoiceAlive(shot), "a one-shot voice is dead once the window ended")
@@ -742,6 +744,7 @@ function T.release_override_applies_the_coefficient_before_release()
       pan = 0,
       envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
     })) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     mixer:noteOff(handle, override)
     local out = {}
     driveBlock(mixer, out, frames)
@@ -792,6 +795,7 @@ function T.control_steps_follow_the_external_boundary_cadence_at_32768_hz()
   local mixer = newMixer(32768)
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
+  mixer:controlStep()
   local out = {}
   local prev = 0
   local boundaries = { 171, 342, 512, 683, 854 }
@@ -834,6 +838,7 @@ function T.exactly_one_envelope_advance_per_external_control_step_at_32768_hz()
     pan = 0,
     envelope = { attack = 127, decay = 127, sustain = 127, release = 100 },
   })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   mixer:noteOff(handle)
   local out = {}
   local remaining = 53600
@@ -902,12 +907,14 @@ function T.sample_voices_play_from_the_ds_clock_and_timer_without_a_source_rate(
   end
   local dsRate = newMixer(16756991)
   dsRate:noteOn(rateSpec(8006))
+  dsRate:controlStep()
   local out = dsRate:render(8020)
   Assert.equal(leftAt(out, 8006), 100, "at the DS clock the wave advances one sample per 8006 frames (sample 1)")
   Assert.equal(leftAt(out, 8007), 200, "frame 8007 reads the second sample")
 
   local production = newMixer(32768)
   production:noteOn(rateSpec(512))
+  production:controlStep()
   local prod = production:render(32769)
   Assert.equal(leftAt(prod, 32769), 900, "at 32768 Hz the clock-derived rate reads sample 9 by frame 32769")
 end
@@ -918,6 +925,7 @@ end
 function T.square_duty_seven_is_all_low()
   local mixer = newMixer(16756991)
   mixer:noteOn(spec({ generator = { kind = "square", duty = 7 }, key = 60, channelMask = 0x3F00, pan = 0 }))
+  mixer:controlStep()
   local out = mixer:render(8005)
   for frame = 1, 8005 do
     Assert.equal(leftAt(out, frame), -32767, "duty 7 stays LOW through the full cycle at frame " .. frame)
@@ -931,6 +939,7 @@ function T.square_duty_is_consumed_as_the_integer_index()
   local DS_RATE = 16756991
   local six = newMixer(DS_RATE)
   six:noteOn(spec({ generator = { kind = "square", duty = 6 }, key = 60, channelMask = 0x3F00, pan = 0 }))
+  six:controlStep()
   local out = six:render(64040)
   Assert.equal(leftAt(out, 8004), -32767, "duty 6 starts with one LOW step (7-6, masked timer 8004)")
   Assert.equal(leftAt(out, 8005), 32767, "duty 6 turns HIGH for seven steps")
@@ -969,6 +978,7 @@ function T.renderInto_never_runs_a_control_step_without_an_explicit_call()
       pan = 0,
       envelope = { attack = 127, decay = 127, sustain = 127, release = 127 },
     })) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     local out = {}
     for _, frames in ipairs(chunks) do
       mixer:renderInto(out, frames)
@@ -997,7 +1007,7 @@ end
 -- advances only at control steps and never through `advanceTrackTick`. A
 -- stale/dead handle is a no-op like the other handle operations.
 local function sweepMixer(autoSweep)
-  local mixer = newMixer(nil, false)
+  local mixer = newMixer()
   local handle = mixer:noteOn(spec({
     pcm = WAVE16,
     baseTimer = 512,
