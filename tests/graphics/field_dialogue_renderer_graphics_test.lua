@@ -61,10 +61,11 @@ local function canonicalRender(scope, frameIndex)
   local controller = FieldDialogueFixture.openDialogue("AB", frameIndex)
   settleDialogue(controller)
   local viewport = FieldViewport.new(CANONICAL_WIDTH, CANONICAL_HEIGHT, { mode = "expanded" })
+  local fieldScale = viewport:logicalPixelScale(1)
   local canvas = scope:own(lg.newCanvas(CANONICAL_WIDTH, CANONICAL_HEIGHT))
   lg.setCanvas(canvas)
   lg.clear(0, 0, 0, 0)
-  dialogue:draw(controller, viewport)
+  dialogue:draw(controller, viewport, fieldScale)
   lg.setCanvas()
   return scope:own(canvas:newImageData())
 end
@@ -104,7 +105,10 @@ local function goldenReference(frameIndex)
   end
   -- Text: glyph A (atlas columns 0..7, red) then glyph B (columns 8..15,
   -- green), both 8x16 at the layout text origin with advance 6.
-  local layout = FieldDialogueTheme.layout({ x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT })
+  local layout = FieldDialogueTheme.layout(
+    { x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT },
+    CANONICAL_WIDTH / 192
+  )
   local glyphs = {
     { x = layout.text.x, red = true },
     { x = layout.text.x + 6, red = false },
@@ -188,7 +192,7 @@ function T.restores_graphics_state_after_draw(scope)
   lg.setColor(0.2, 0.4, 0.6, 0.8)
   lg.setScissor(4, 8, 32, 16)
 
-  dialogue:draw(controller, viewport)
+  dialogue:draw(controller, viewport, viewport:logicalPixelScale(1))
 
   FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
 end
@@ -215,12 +219,12 @@ function T.draws_inside_the_reference_frame_at_every_host_aspect(scope)
   for _, size in ipairs({ { 960, 720 }, { 1280, 720 }, { 1920, 720 }, { 640, 480 } }) do
     local controller = FieldDialogueFixture.openDialogue("AB", 0)
     local viewport = FieldViewport.new(size[1], size[2], { mode = "expanded" })
-    dialogue:draw(controller, viewport)
+    dialogue:draw(controller, viewport, viewport:logicalPixelScale(1))
 
     -- Layout geometry stays in reference-canvas coordinates (the draw
     -- applies the single origin+scale transform), so the box must fit the
     -- reference canvas at every host aspect.
-    local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
+    local layout = FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1))
     local box = layout.box
     Assert.isTrue(box.x >= 0, "box in reference space at " .. size[1] .. "x" .. size[2])
     Assert.isTrue(box.x + box.width <= FieldDialogueTheme.referenceWidth + 1e-9)

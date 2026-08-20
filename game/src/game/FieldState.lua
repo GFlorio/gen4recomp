@@ -88,8 +88,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     worldParts = {},
   }, FieldState)
   local ok, err = pcall(function()
-    self.renderer =
-      MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR, rasterScale = WindowConfig.WORLD_RASTER_SCALE })
+    self.renderer = MapRenderer.new({ clearColor = WindowConfig.BACKGROUND_COLOR })
     -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
     -- text all draw through it; the state owns and releases it exactly once.
     self.textRenderer = FieldTextRenderer.new({ cacheFs = runtime.cacheFs })
@@ -313,13 +312,17 @@ function FieldState:draw()
   -- Dialogue or signpost attached to the world surface, and only while the
   -- application host presents no modal surface: during a full application
   -- neither is drawn underneath it. The session's at-most-one-owner assert
-  -- keeps at most one of the two live in a tick.
+  -- keeps at most one of the two live in a tick. Both field-attached
+  -- surfaces share the same field logical pixel scale (the viewport's
+  -- logicalPixelScale of the runtime's effective camera zoom), computed once
+  -- per frame and bottom-centered via FieldDialogueTheme.layout.
   if not hostStatus.menu and not hostStatus.application then
+    local fieldScale = self.runtime.viewport:logicalPixelScale(self.runtime.camera.zoom)
     if self.runtime.dialogue:isModal() then
-      self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport)
+      self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale)
     end
     if self.runtime.signpost:isModal() then
-      self.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha)
+      self.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha, fieldScale)
     end
   end
   -- The one active application surface: the Start Menu through the runtime's

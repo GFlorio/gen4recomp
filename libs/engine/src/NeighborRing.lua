@@ -30,7 +30,6 @@ local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator")
 
@@ -106,7 +105,6 @@ local function buildRing(pool, descriptors, clip)
       draw.material = materials[batch.material]
       draw.transform = transform
       draw.modelNormal = IDENTITY_MODEL_NORMAL
-      draw.alphaCutoff = AlphaClassifier.CUTOUT_EPSILON
       draw.center = c
       draws[#draws + 1] = draw
     end

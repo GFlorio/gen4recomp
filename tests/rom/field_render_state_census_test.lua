@@ -22,9 +22,11 @@
 --
 -- Map/building materials additionally get three cross-tabs (alphaClass x
 -- fogEnabled, alphaClass x translucentDepthWrite, polygonMode x alphaClass)
--- to answer whether the target corpus ever requires a translucent-fog
--- read/modify/write compositor. Actors are out of scope for these
--- cross-tabs because they have no honest alphaClass (see above).
+-- to answer how the corpus exercises translucency and fog. The compositor is
+-- a renderer contract regardless of corpus frequency: it implements exact
+-- integer RGB/alpha blend, max alpha, same-ID rejection, and fog-gate state.
+-- Actors are out of scope for these cross-tabs because they have no honest
+-- alphaClass (see above).
 
 local Assert = require("tests.support.Assert")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
@@ -73,8 +75,8 @@ local function newTally()
     colorSource = {},
     -- map/building cross-tabs: whether the corpus ever pairs a
     -- translucent-ordered alpha class with fog, or sets
-    -- translucentDepthWrite at all, which determines whether a translucent
-    -- fog read/modify/write compositor is required.
+    -- translucentDepthWrite at all, which determines whether the supported
+    -- non-depth-writing field contract still matches the corpus.
     alphaClassByFogEnabled = {},
     alphaClassByTranslucentDepthWrite = {},
     polygonModeByAlphaClass = {},
@@ -130,7 +132,8 @@ local function foldFieldMaterials(tally, materials, texPack)
       tally.mirroredRepeatCount = tally.mirroredRepeatCount + 1
     end
     local alphaUsage = compiledMat.texture and compiled.textures[compiledMat.texture].alphaUsage or nil
-    local alphaClass = AlphaClassifier.classify(poly.polygonAlpha, compiledMat.textureFormat or 0, alphaUsage)
+    local alphaClass =
+      AlphaClassifier.classify(poly.polygonAlpha, poly.polygonMode, compiledMat.textureFormat or 0, alphaUsage)
     bump(tally.alphaClass, alphaClass)
     bump(tally.alphaClassByFogEnabled, alphaClass .. ":" .. tostring(poly.fogEnabled))
     bump(tally.alphaClassByTranslucentDepthWrite, alphaClass .. ":" .. tostring(poly.translucentDepthWrite))
@@ -277,15 +280,13 @@ function T.field_render_state_corpus_facts(romFs)
   Assert.deepEqual(sortedKeys(tally.polygonMode), { "modulation" })
 
   -- Depth-equal and translucent-depth-write are never exercised anywhere in
-  -- the corpus. This file is the sole corpus authority for both facts.
+  -- the corpus. A nonzero count means the supported field contract needs an
+  -- explicit review; it is not dormant runtime support.
   Assert.equal(tally.depthEqualTrue, 0, "no material in the corpus sets depthEqual")
   Assert.equal(tally.translucentDepthWriteTrue, 0, "no material in the corpus sets translucentDepthWrite")
 
-  -- Evidence gate: a translucent-fog read/modify/write compositor is only
-  -- required if translucentDepthWrite==true ever pairs with fog. This loop
-  -- is what would catch a future dump/compiler change that starts producing
-  -- that combination (translucentDepthWriteTrue is already 0 corpus-wide,
-  -- asserted above, so no key here can end in ":true" today).
+  -- Keep the cross-tab visible so a future census cannot hide a new
+  -- unsupported combination behind the aggregate count.
   for key in pairs(tally.alphaClassByTranslucentDepthWrite) do
     Assert.isNil(
       key:match(":true$"),
@@ -293,9 +294,11 @@ function T.field_render_state_corpus_facts(romFs)
     )
   end
 
-  -- Ordinary translucent + fog is common and expected in the corpus; it
-  -- needs no compositor because the per-fragment fog gate already handles
-  -- it. This also proves the alphaClassByFogEnabled cross-tab is observed.
+  -- Ordinary translucent + fog is common and expected in the corpus; its
+  -- fog contribution is handled by the per-fragment fog gate and the
+  -- compositor's fog-gate AND, so this fact does not by itself imply a
+  -- separate compositor requirement. This also proves the
+  -- alphaClassByFogEnabled cross-tab is observed.
   Assert.isTrue(
     tally.alphaClassByFogEnabled["translucent:true"] ~= nil,
     "translucent alpha class combined with fogEnabled must occur in the corpus"
@@ -303,8 +306,8 @@ function T.field_render_state_corpus_facts(romFs)
   Assert.isTrue(next(tally.polygonModeByAlphaClass) ~= nil, "polygonMode x alphaClass cross-tab must be observed")
 
   -- Fog is heavily used across the field corpus -- this is not a corner
-  -- case. This is a source/render-state fact only; it does not imply the
-  -- runtime schema or renderer carries fog (it does not).
+  -- case. This is a source/render-state fact only; the runtime schema and
+  -- final-pass fog consumption are separate contracts.
   Assert.isTrue(tally.fogEnabledTrue > 0, "fogEnabled must occur somewhere in the corpus")
 
   -- Wireframe (polygonAlpha == 0) occurs, though rarely.

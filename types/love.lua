@@ -52,7 +52,7 @@
 ---@field setColor fun(...: number)
 ---@field setBackgroundColor fun(...: number)
 ---@field setShader fun(shader: love.Shader?)
----@field setCanvas fun(canvas: love.Canvas?)
+---@field setCanvas fun(canvas?: love.Canvas, ...: love.Canvas?)
 ---@field setBlendMode fun(mode: string, alpha?: string)
 ---@field setDepthMode fun(mode: string?, write: boolean?)
 ---@field setMeshCullMode fun(mode: string?)

@@ -20,6 +20,36 @@ local G2dDecoder = require("romdump.src.digest.G2dDecoder")
 
 local T = {}
 
+-- v5 schema: for testing, we use a limited manifest config with only types 0..3
+-- to keep palette sizes within G2D limits (max 256 colors = 512 bytes).
+-- This helper patches the loaded module temporarily during compilation.
+local function compileWithTestConfig(romFs, sha1hex, hashLua)
+  local manifestConfig = require("romdump.src.config.FieldUiAssets")
+  local originalSourceTypes = manifestConfig.signposts.sourceTypes
+  local originalWayfinding = manifestConfig.signposts.wayfinding
+
+  -- Patch for test: limit to 4 source types with minimal wayfinding
+  manifestConfig.signposts.sourceTypes = { 0, 1, 2, 3 }
+  manifestConfig.signposts.wayfinding = {
+    [0] = { memberBase = 0x21, maps = { 0, 1, 20 } },
+    [1] = { memberBase = 2, maps = { 0, 21 } },
+  }
+
+  -- xpcall forwards every return value of a successful call; capture both
+  -- `compile`'s bundle and its typed nil,err failure return so callers see
+  -- the real error instead of a silently dropped second value.
+  local ok, bundle, err = xpcall(FieldUiCompiler.compile, debug.traceback, romFs, sha1hex, hashLua)
+
+  -- Restore original config
+  manifestConfig.signposts.sourceTypes = originalSourceTypes
+  manifestConfig.signposts.wayfinding = originalWayfinding
+
+  if ok then
+    return bundle, err
+  end
+  error(bundle, 0)
+end
+
 local function u16(v)
   return string.char(v % 256, math.floor(v / 256) % 256)
 end
@@ -151,12 +181,20 @@ local function narc(members)
     .. gmifBlock
 end
 
--- A 16-color palette so wayfinding members with distinct tile runs are
--- visibly distinct rows in the compiled atlas.
+-- A palette to support test source types with 16 colors each.
+-- v5 schema requires per-source-type palette banks. Tests use only types 0..3,
+-- so we need 4 * 16 = 64 colors (well within the 256-color G2D palette limit).
+-- Use the same pattern as the original to maintain compatibility with
+-- existing pixel value assertions in tests.
 local function palette16()
   local colors = {}
+  -- First 16 colors: the original test pattern
   for i = 1, 16 do
     colors[i] = i * 0x39B
+  end
+  -- Additional 48 colors: repeat the pattern 3 more times for the 4 source types
+  for i = 17, 64 do
+    colors[i] = ((i - 1) % 16 + 1) * 0x39B
   end
   return paletteData(colors)
 end
@@ -170,14 +208,33 @@ local function paletteOr16(colors)
   return palette16()
 end
 
+-- A signpost palette whose bank for type `t` slot `s` is an unmistakable
+-- (r=t, g=s, b=0) RGB555 signature: with only 4 test types and 16 slots,
+-- both fit their own 5-bit channel exactly, so no two (type, slot) pairs
+-- ever share a signature and a bank mix-up is a visibly wrong color, never
+-- a coincidentally-matching one.
+local function distinctSignpostPalette(numTypes)
+  local colors = {}
+  for t = 0, numTypes - 1 do
+    for s = 0, 15 do
+      colors[t * 16 + s + 1] = t + s * 32
+    end
+  end
+  return colors
+end
+
 -- A synthetic RomFs whose four UI NARCs carry minimal valid members matching
 -- the audited HGSS geometry: 20 dialogue frames of 18 tiles, the signpost
 -- frame of 18 tiles, the wayfinding members (2..0x35, the type-0 0x21+map
 -- and type-1 2+map ranges the producer selects) of 24 tiles, the start menu
--- bg + cursor, and the card front. Palettes carry 16 colors so every tile
--- value the fixture chars emit is covered. `opts` allows per-test source
--- tampering: cursor OBJ geometry, the background screen entry, the
+-- bg + cursor, and the card front. Palettes carry enough colors for test
+-- source types (4 types * 16 colors = 64 colors) so every tile value and
+-- palette bank the fixture chars emit is covered. `opts` allows per-test
+-- source tampering: cursor OBJ geometry, the background screen entry, the
 -- background palette colors, and a whole-member tamper hook.
+--
+-- v5 schema: compile uses a test-specific config with only types 0..3 instead
+-- of the production config's 25 types, to keep palette sizes within G2D limits.
 local function fixture(opts)
   opts = opts or {}
   local startMenuMembers = {}
@@ -195,7 +252,7 @@ local function fixture(opts)
 
   local signpostMembers = {}
   signpostMembers[1] = charData(18)
-  signpostMembers[2] = palette16()
+  signpostMembers[2] = opts.signpostPalette and paletteData(opts.signpostPalette) or palette16()
   for memberId = 2, 0x35 do
     signpostMembers[memberId + 1] = charData(24, memberId % 16)
   end
@@ -294,7 +351,7 @@ end
 
 function T.compiles_the_manifest_and_all_assets()
   local romFs, sha1, hashLua = fixture()
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   Assert.equal(bundle.manifest.schema, FieldUiAssetCache.SCHEMA)
   Assert.equal(bundle.manifest.dialogueFrames.count, 20)
   local type0 = bundle.manifest.signposts.types[0]
@@ -322,8 +379,8 @@ end
 
 function T.compilation_is_deterministic()
   local romFs, sha1, hashLua = fixture()
-  local a = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
-  local b = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local a = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local b = assert(compileWithTestConfig(romFs, sha1, hashLua))
   Assert.equal(a.marker, b.marker)
   Assert.equal(LuaWriter.encode(a.manifest), LuaWriter.encode(b.manifest))
   for path, bytes in pairs(a.assets) do
@@ -338,7 +395,7 @@ end
 -- palette, and every declared atlas dimension matches the encoded image.
 function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   local romFs, sha1, hashLua = fixture()
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   for key, entry in pairs(bundle.manifest.assets) do
     local bytes = assert(bundle.assets[entry.image])
     local width, height = PngReader.rgba(bytes)
@@ -349,26 +406,33 @@ function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   local frameWidth, _, frameRgba =
     PngReader.rgba(bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES].image])
   local r, g, b, a = PngReader.pixel(frameRgba, frameWidth, 0, 0)
-  Assert.equal(r, 8)
+  -- Frame tile 0 carries pixel value 1; a 4bpp pixel value v selects the
+  -- decoded bank's entry v (entry 0 is the reserved transparent slot), which
+  -- is colors[v+1] in the 1-based decoded array: colors[2] = 2*0x39B = 0x736
+  -- -> RGB555(r5=22, g5=25, b5=1).
+  Assert.equal(r, 181)
   Assert.equal(g, 206)
-  Assert.equal(b, 181)
+  Assert.equal(b, 8)
   Assert.equal(a, 255)
   -- Tile 1 carries value 2 and tile 14 value 15; the 16-color palette covers
   -- both, each through its own distinct entry.
   local r2, g2, b2, a2 = PngReader.pixel(frameRgba, frameWidth, 8, 0)
+  -- Frame tile 1 value 2 -> colors[3] = 3*0x39B = 0xAD1 -> RGB555(r5=17, g5=22, b5=2)
   Assert.equal(a2, 255)
-  Assert.deepEqual({ r2, g2, b2 }, { 16, 181, 140 })
+  Assert.deepEqual({ r2, g2, b2 }, { 140, 181, 16 })
   local r3, g3, b3, a3 = PngReader.pixel(frameRgba, frameWidth, 14 * 8, 0)
+  -- Frame tile 14 value 15 -> colors[16] = 16*0x39B = 0x39B0 -> RGB555(r5=16, g5=13, b5=14)
   Assert.equal(a3, 255)
-  Assert.deepEqual({ r3, g3, b3 }, { 115, 107, 132 })
+  Assert.deepEqual({ r3, g3, b3 }, { 132, 107, 115 })
 
   -- The start menu background screen references tile 0 of palette bank 0,
   -- which the fixture palette covers: every pixel is the value-1 color.
   local bgWidth, _, bgRgba =
     PngReader.rgba(bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND].image])
   local rB, gB, bB, aB = PngReader.pixel(bgRgba, bgWidth, 10, 10)
+  -- Same tile 0 / value 1 mapping as the dialogue frame above -> colors[2].
   Assert.equal(aB, 255)
-  Assert.deepEqual({ rB, gB, bB }, { 8, 206, 181 })
+  Assert.deepEqual({ rB, gB, bB }, { 181, 206, 8 })
 end
 
 -- Every (type, map) pair gets its own atlas row, and the map-0 and map-1
@@ -376,7 +440,7 @@ end
 -- the wrong map's row is a visible mismatch.
 function T.wayfinding_map_rows_are_distinct_atlas_rows_with_distinct_pixels()
   local romFs, sha1, hashLua = fixture()
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local atlas = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING].image]
   local width, _, rgba = PngReader.rgba(atlas)
   local type0 = bundle.manifest.signposts.types[0]
@@ -389,13 +453,135 @@ function T.wayfinding_map_rows_are_distinct_atlas_rows_with_distinct_pixels()
   Assert.isTrue(rowPixels(rect0) ~= rowPixels(rect1), "map 0 and map 1 rows must decode to distinct pixels")
 end
 
+-- Every configured source type gets its own 16-entry palette bank, and slot
+-- s of type n's bank is exactly the decoded palette color n*16+s: with the
+-- (r=type, g=slot, b=0) signature palette, a bank built from the wrong
+-- offset (e.g. always bank 0) would produce the wrong type's colors.
+function T.every_type_gets_its_own_bank_at_the_correct_slot_offset()
+  local Rgb555 = require("libs.codec.src.Rgb555")
+  local romFs, sha1, hashLua = fixture({ signpostPalette = distinctSignpostPalette(4) })
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  for sourceType = 0, 3 do
+    local typeEntry = assert(bundle.manifest.signposts.types[sourceType], "type " .. sourceType)
+    local count = 0
+    for slot = 0, 15 do
+      local expected = Rgb555.decode(sourceType + slot * 32)
+      Assert.deepEqual(
+        typeEntry.palette[slot],
+        expected,
+        "type " .. sourceType .. " slot " .. slot .. " must be decoded color " .. (sourceType * 16 + slot)
+      )
+      count = count + 1
+    end
+    Assert.equal(count, 16, "type " .. sourceType .. " palette has exactly 16 slots")
+  end
+end
+
+-- The frame strip row for source type t is rendered with bank t, not bank 0:
+-- the frame char is shared across every type row (same tile values), so
+-- comparing the same tile column across two rows isolates the palette.
+function T.frame_row_pixels_use_the_row_s_own_source_type_palette()
+  local Rgb555 = require("libs.codec.src.Rgb555")
+  local romFs, sha1, hashLua = fixture({ signpostPalette = distinctSignpostPalette(4) })
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local atlas = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_TILES].image]
+  local width, _, rgba = PngReader.rgba(atlas)
+  -- The signpost frame char is charData(18) (base 0): tile 0 carries pixel
+  -- value 1, which selects palette slot 1 (colors[base+v+1] = bank[v]).
+  for sourceType = 0, 3 do
+    local rect = assert(bundle.manifest.signposts.types[sourceType].frameTiles)
+    local r, g, b, a = PngReader.pixel(rgba, width, 0, rect.y)
+    local expected = Rgb555.decode(sourceType + 1 * 32)
+    Assert.equal(a, 255)
+    Assert.deepEqual({ r, g, b }, { expected.r, expected.g, expected.b }, "frame row " .. sourceType .. " tile 0 pixel")
+  end
+end
+
+-- The wayfinding row for a (type, map) pair renders with its own source
+-- type's bank, never a shared/default bank: type 0 and type 1 wayfinding
+-- rows carry visibly different tile values (from the source member's
+-- distinct base) and distinct palettes, so both the tile source and the
+-- palette selection must agree with the row's own type.
+function T.wayfinding_row_pixels_use_the_row_s_own_source_type_palette()
+  local Rgb555 = require("libs.codec.src.Rgb555")
+  local romFs, sha1, hashLua = fixture({ signpostPalette = distinctSignpostPalette(4) })
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local atlas = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING].image]
+  local width, _, rgba = PngReader.rgba(atlas)
+  -- type 0 map 0 -> member 0x21, tile 0 value ((0 + 0x21 % 16) % 15) + 1 = 2.
+  -- type 1 map 0 -> member 2, tile 0 value ((0 + 2 % 16) % 15) + 1 = 3.
+  local rect0 = assert(bundle.manifest.signposts.types[0].wayfinding[0])
+  local rect1 = assert(bundle.manifest.signposts.types[1].wayfinding[0])
+  local r0, g0, b0, a0 = PngReader.pixel(rgba, width, 0, rect0.y)
+  local r1, g1, b1, a1 = PngReader.pixel(rgba, width, 0, rect1.y)
+  local expected0 = Rgb555.decode(0 + 2 * 32)
+  local expected1 = Rgb555.decode(1 + 3 * 32)
+  Assert.equal(a0, 255)
+  Assert.equal(a1, 255)
+  Assert.deepEqual({ r0, g0, b0 }, { expected0.r, expected0.g, expected0.b }, "type 0 map 0 uses type 0's bank")
+  Assert.deepEqual({ r1, g1, b1 }, { expected1.r, expected1.g, expected1.b }, "type 1 map 0 uses type 1's bank")
+end
+
+-- A source type configured without a full 16-color bank in the palette
+-- member is a stop-and-report source defect, not a silently-dropped type.
+function T.missing_source_palette_bank_fails_with_source_invalid()
+  -- 3 full banks (types 0..2) only; the config still requests type 3.
+  local colors = distinctSignpostPalette(3)
+  local romFs, sha1, hashLua = fixture({ signpostPalette = colors })
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
+  Assert.isNil(bundle, "compilation must fail when a configured type has no palette bank")
+  local typed = assert(err)
+  Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
+  Assert.equal(typed.context.sourceType, 3)
+  Assert.equal(typed.context.slot, 0)
+  Assert.equal(typed.context.requiredColorIndex, 48)
+  Assert.equal(typed.context.availableColors, 48)
+end
+
+-- A source type without any wayfinding member selection still gets a real
+-- frame row and a full palette bank: absence of wayfinding is not absence
+-- of the type's other data.
+function T.source_type_without_wayfinding_still_has_frame_and_palette()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local type2 = assert(bundle.manifest.signposts.types[2])
+  Assert.isNil(type2.wayfinding, "type 2 has no wayfinding configured")
+  Assert.isTrue(type2.palette ~= nil and type2.frameTiles ~= nil, "type 2 still carries a palette and frame row")
+  local count = 0
+  for _ in pairs(type2.palette) do
+    count = count + 1
+  end
+  Assert.equal(count, 16, "type 2's palette is still the full 16-entry bank")
+end
+
+-- No source-archive detail (NARC alias, member id, palette member, byte
+-- offset) may leak into the runtime manifest: only the normalized RGB
+-- palette and pixel rects belong there.
+function T.source_member_ids_do_not_leak_into_the_runtime_manifest()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local forbiddenKeys = { member = true, memberId = true, narcId = true, alias = true, fileId = true }
+  local function scan(value, path)
+    if type(value) ~= "table" then
+      return
+    end
+    for k, v in pairs(value) do
+      if type(k) == "string" and forbiddenKeys[k] then
+        Assert.fail("manifest leaks source detail '" .. k .. "' at " .. path)
+      end
+      scan(v, path .. "." .. tostring(k))
+    end
+  end
+  scan(bundle.manifest.signposts, "signposts")
+end
+
 -- cellBounds must span the actual objects: with strictly positive object
 -- coordinates the zero-origin initialization would widen every extent.
 function T.cell_bounds_cover_all_positive_object_coordinates()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = 8, y = 8, tile = 0, pal = 0 }, { x = 16, y = 16, tile = 1, pal = 0 } },
   })
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.deepEqual({ frame.width, frame.height }, { 16, 16 }, "bounds span exactly x 8..24, y 8..24")
 end
@@ -406,7 +592,7 @@ function T.cell_bounds_cover_negative_origin_object_coordinates()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = -16, y = -16, tile = 0, pal = 0 }, { x = -24, y = -24, tile = 1, pal = 0 } },
   })
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.deepEqual({ frame.width, frame.height }, { 16, 16 }, "bounds span exactly x -24..-8, y -24..-8")
 end
@@ -418,7 +604,7 @@ function T.square_32x32_cursor_objs_compile_all_sixteen_tiles()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = 8, y = 8, tile = 0, pal = 0, size = 2 } },
   })
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local frame = bundle.manifest.startMenu.cursor.frames[1]
   Assert.equal(frame.width, 32)
   Assert.equal(frame.height, 32)
@@ -426,11 +612,13 @@ function T.square_32x32_cursor_objs_compile_all_sixteen_tiles()
   local width, height, rgba = PngReader.rgba(bundle.assets[path])
   Assert.equal(width, 32)
   Assert.equal(height, 32)
-  -- Tile 14 (row 3, col 2 of the 4x4 layout) carries value 15 -> the
-  -- fixture's sixteenth palette color.
+  -- Tile 14 (row 3, col 2 of the 4x4 layout) carries value 15 -> colors[16]
+  -- (entry 0 is the reserved transparent slot, so pixel value v selects the
+  -- decoded array's colors[v+1]).
   local r, g, b, a = PngReader.pixel(rgba, width, 2 * 8 + 4, 3 * 8 + 4)
+  -- value 15 -> colors[16] = 16*0x39B = 0x39B0 -> RGB555(r5=16, g5=13, b5=14)
   Assert.equal(a, 255)
-  Assert.deepEqual({ r, g, b }, { 115, 107, 132 })
+  Assert.deepEqual({ r, g, b }, { 132, 107, 115 })
 end
 
 -- A flipped OBJ mirrors the whole object per the OAM layout: the tile grid
@@ -441,15 +629,17 @@ function T.flipped_cursor_objs_mirror_the_tile_grid()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = 8, y = 8, tile = 0, pal = 0, size = 2, flipH = true } },
   })
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local path = bundle.manifest.assets[FieldUiAssetCache.ASSET.START_MENU_CURSOR].image
   local width, _, rgba = PngReader.rgba(bundle.assets[path])
   local r, g, b, a = PngReader.pixel(rgba, width, 1 * 8 + 4, 3 * 8 + 4)
   Assert.equal(a, 255)
-  Assert.deepEqual({ r, g, b }, { 115, 107, 132 }, "tile 14 renders mirrored at grid column 1")
+  -- Tile 14 value 15 -> colors[16] = 16*0x39B = 0x39B0 -> RGB555(r5=16, g5=13, b5=14)
+  Assert.deepEqual({ r, g, b }, { 132, 107, 115 }, "tile 14 renders mirrored at grid column 1")
   local r2, g2, b2, a2 = PngReader.pixel(rgba, width, 2 * 8 + 4, 3 * 8 + 4)
   Assert.equal(a2, 255)
-  Assert.deepEqual({ r2, g2, b2 }, { 107, 132, 173 }, "tile 13 renders at the mirrored tile 14 position")
+  -- Tile 13 value 14 -> colors[15] = 15*0x39B = 0x3615 -> RGB555(r5=21, g5=16, b5=13)
+  Assert.deepEqual({ r2, g2, b2 }, { 173, 132, 107 }, "tile 13 renders at the mirrored tile 14 position")
 end
 
 -- A wide or tall OBJ is a geometry this compiler does not support: the
@@ -459,7 +649,7 @@ function T.unsupported_cursor_obj_geometry_is_a_typed_source_error()
   local romFs, sha1, hashLua = fixture({
     cursor = { { x = 0, y = 0, tile = 0, pal = 0, shape = 1 } },
   })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   local typed = assert(err)
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
@@ -474,7 +664,7 @@ end
 -- malformed source, not a later nil-byte arithmetic failure.
 function T.out_of_range_tile_references_are_typed_source_errors()
   local romFs, sha1, hashLua = fixture({ screenEntry = 500 })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   local typed = assert(err)
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
@@ -490,7 +680,7 @@ function T.out_of_palette_pixel_values_are_typed_source_errors()
     bgPalette = { 0x7FFF, 0x001F },
     screenEntry = 0x1000,
   })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   local typed = assert(err)
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
@@ -510,7 +700,7 @@ function T.truncated_lz10_members_are_typed_stream_errors()
       return members
     end,
   })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   Assert.equal(assert(err).code, Lz10.ERROR.STREAM_INVALID)
 end
@@ -535,7 +725,7 @@ function T.duplicate_g2d_chunks_in_members_are_typed_errors()
       return members
     end,
   })
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   Assert.equal(assert(err).code, G2dDecoder.ERROR.CHUNK_DUPLICATE)
 end
@@ -566,7 +756,7 @@ local function compileWithTileCounts(geometry)
       return members
     end,
   })
-  return FieldUiCompiler.compile(romFs, sha1, hashLua)
+  return compileWithTestConfig(romFs, sha1, hashLua)
 end
 
 function T.dialogue_frame_tile_counts_must_be_exactly_eighteen()
@@ -605,7 +795,7 @@ end
 
 function T.writer_commits_marker_last_and_reads_back()
   local romFs, sha1, hashLua = fixture()
-  local bundle = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   FieldUiCacheWriter.write(cache, bundle)
   Assert.isTrue(FieldUiAssetCache.isReady(cache, bundle.marker))
@@ -616,7 +806,7 @@ end
 
 function T.failed_rebuild_preserves_the_previous_class()
   local romFs, sha1, hashLua = fixture()
-  local first = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local first = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local backend = FakeCache.new()
   local cache = CacheFs.forVersion("heartgold", backend)
   FieldUiCacheWriter.write(cache, first)
@@ -628,7 +818,7 @@ function T.failed_rebuild_preserves_the_previous_class()
     end
     return originalWrite(self, path, data)
   end
-  local second = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local second = assert(compileWithTestConfig(romFs, sha1, hashLua))
   second.marker = FieldUiAssetCache.marker(sha1, "new-dep-hash")
   Assert.throws(function()
     FieldUiCacheWriter.write(cache, second)
@@ -645,10 +835,10 @@ end
 -- write) must surface as a typed failure and leave the previous class live.
 function T.stage_validation_failure_is_typed_and_preserves_the_previous_class()
   local romFs, sha1, hashLua = fixture()
-  local first = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local first = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   FieldUiCacheWriter.write(cache, first)
-  local second = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local second = assert(compileWithTestConfig(romFs, sha1, hashLua))
   second.manifest.startMenu.background.width = 999
   second.marker = FieldUiAssetCache.marker(sha1, "new-dep-hash")
   Assert.throws(function()
@@ -662,7 +852,7 @@ end
 -- back and keeps the old class readable.
 function T.first_publish_rename_failure_rolls_back()
   local romFs, sha1, hashLua = fixture()
-  local first = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local first = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local backend = FakeCache.new()
   local cache = CacheFs.forVersion("heartgold", backend)
   FieldUiCacheWriter.write(cache, first)
@@ -676,7 +866,7 @@ function T.first_publish_rename_failure_rolls_back()
     end
     return originalReplace(self, source, destination)
   end
-  local second = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local second = assert(compileWithTestConfig(romFs, sha1, hashLua))
   second.marker = FieldUiAssetCache.marker(sha1, "new-dep-hash")
   Assert.throws(function()
     FieldUiCacheWriter.write(cache, second)
@@ -690,7 +880,7 @@ end
 -- asset root landed) must also roll back the first move.
 function T.second_publish_rename_failure_rolls_back_both_roots()
   local romFs, sha1, hashLua = fixture()
-  local first = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local first = assert(compileWithTestConfig(romFs, sha1, hashLua))
   local backend = FakeCache.new()
   local cache = CacheFs.forVersion("heartgold", backend)
   FieldUiCacheWriter.write(cache, first)
@@ -704,7 +894,7 @@ function T.second_publish_rename_failure_rolls_back_both_roots()
     end
     return originalReplace(self, source, destination)
   end
-  local second = assert(FieldUiCompiler.compile(romFs, sha1, hashLua))
+  local second = assert(compileWithTestConfig(romFs, sha1, hashLua))
   second.marker = FieldUiAssetCache.marker(sha1, "new-dep-hash")
   Assert.throws(function()
     FieldUiCacheWriter.write(cache, second)
@@ -750,9 +940,85 @@ function T.malformed_source_members_are_typed()
       )
     )
   end
-  local bundle, err = FieldUiCompiler.compile(romFs, sha1, hashLua)
+  local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle)
   Assert.isTrue(Errors.is(err))
+end
+
+-- RGB555 decoder integration: G2dDecoder correctly decodes palette colors using
+-- the Nintendo DS RGB555 channel layout (red 0..4, green 5..9, blue 10..14).
+-- The fixture palette16() uses values that would expose a red/blue swap.
+-- A correct decoder produces the expected 8-bit RGBA; a swapped decoder
+-- produces inverted R and B values.
+function T.g2d_palette_decodes_rgb555_with_correct_channel_order()
+  local function expand5(value)
+    return math.floor((value * 255 + 15) / 31)
+  end
+
+  -- Build a fixture with a test palette containing known RGB555 values.
+  -- colors[1] is unused padding: pixel value 0 is the reserved transparent
+  -- slot and a 4bpp pixel value v otherwise selects the decoded bank's entry
+  -- v, i.e. colors[v+1] in this 1-based array.
+  -- Pair 0: r=0x1F (31, red max), g=0x00 (0), b=0x00 (0) -> pure red
+  -- Pair 1: r=0x00 (0), g=0x1F (31), b=0x00 (0) -> pure green
+  -- Pair 2: r=0x00 (0), g=0x00 (0), b=0x1F (31) -> pure blue
+  -- Pair 3: r=0x1F (31), g=0x14 (20), b=0x00 (0) -> amber/gold (HGSS signpost)
+  local testColors = {
+    0x0000, -- padding: never referenced (value 0 is transparent)
+    0x001F, -- red: r5=31, g5=0, b5=0
+    0x03E0, -- green: r5=0, g5=31, b5=0
+    0x7C00, -- blue: r5=0, g5=0, b5=31
+    0x1F + (0x14 * 32), -- amber: r5=31, g5=20, b5=0
+  }
+
+  -- The background char's default tile t carries pixel value (t % 15) + 1, so
+  -- tiles 0..3 carry values 1..4 -> colors[2..5]. Point screen columns 0..3
+  -- at those tiles so each probed pixel samples a distinct test color; every
+  -- other screen position stays tile 0.
+  local entries = {}
+  for i = 1, 768 do
+    entries[i] = 0
+  end
+  for tile = 0, 3 do
+    entries[tile + 1] = tile
+  end
+
+  local romFs, sha1, hashLua = fixture({
+    bgPalette = testColors,
+    tamper = function(alias, members)
+      if alias == "start_menu" then
+        members[14] = lz10Wrap(screenData(entries))
+      end
+      return members
+    end,
+  })
+
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local manifest = bundle.manifest
+
+  -- The manifest's start menu background palette comes from G2dDecoder
+  -- applied to the test palette. Verify the decoded values are correct.
+  local expectedColors = {
+    { r = 255, g = 0, b = 0 }, -- red
+    { r = 0, g = 255, b = 0 }, -- green
+    { r = 0, g = 0, b = 255 }, -- blue
+    { r = 255, g = expand5(20), b = 0 }, -- amber
+  }
+
+  -- The background palette was compiled through G2dDecoder. Extract it from
+  -- the start menu asset to validate the color expansion.
+  local bgAssetPath = manifest.assets[FieldUiAssetCache.ASSET.START_MENU_BACKGROUND].image
+  local bgBytes = assert(bundle.assets[bgAssetPath])
+  local width, _, rgba = PngReader.rgba(bgBytes)
+
+  for tileIndex, expected in ipairs(expectedColors) do
+    local pixelX = (tileIndex - 1) * 8
+    local r, g, b, a = PngReader.pixel(rgba, width, pixelX, 0)
+    Assert.equal(r, expected.r, "palette " .. tileIndex .. " red channel")
+    Assert.equal(g, expected.g, "palette " .. tileIndex .. " green channel")
+    Assert.equal(b, expected.b, "palette " .. tileIndex .. " blue channel")
+    Assert.equal(a, 255, "palette " .. tileIndex .. " alpha")
+  end
 end
 
 return { tests = T }

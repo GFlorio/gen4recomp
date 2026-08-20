@@ -376,7 +376,17 @@ function T.tests.multibyte_player_name_validates_and_reaches_the_trainer_card_pr
     pressMenuEdge(resumed)
     advanceToPhase(resumed, "menu", 16)
     local actions = hostStatus(resumed).menu.actions
-    Assert.equal(#actions, 1, "the resumed field must keep the trainer card action available")
+    local enabledActions = {}
+    for _, action in ipairs(actions) do
+      if action.enabled then
+        enabledActions[#enabledActions + 1] = action
+      end
+    end
+    Assert.equal(
+      #enabledActions,
+      1,
+      "the resumed field must keep the trainer card as the only enabled action available"
+    )
     resumed.runtime:pressAction()
     resumed:step()
     resumed.runtime:releaseAction()

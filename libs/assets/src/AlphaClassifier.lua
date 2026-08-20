@@ -1,52 +1,61 @@
 -- The alpha-class contract of a compiled batch: classification of the
--- effective polygon alpha and the bound texture's alpha usage into one of
--- four ordering classes, plus the alpha vocabulary shared by the digest
--- compilers and the runtime. Follows the DS fragment alpha contract: polygon
--- alpha below 31 is translucent, A3I5/A5I3 textures are always translucent,
--- binary zero-alpha textures are cutout, and polygon alpha zero marks a
--- wireframe draw rather than an invisible filled polygon. Pure domain
--- module; no LÖVE.
+-- effective polygon alpha, polygon mode, and texture's alpha usage into one of
+-- five ordering classes, plus the alpha vocabulary shared by the digest
+-- compilers and the runtime. Follows the DS fragment alpha contract: the final
+-- composed alpha is authoritative. Polygon alpha below 31 is translucent.
+-- DECAL at polygon alpha 31 is opaque (texture alpha irrelevant). MODULATE at
+-- polygon alpha 31 with mixed texture alpha (opaque and partial) is split into
+-- opaque and translucent subpasses. Pure domain module; no LÖVE.
 
 local FixedPoint = require("libs.math.src.FixedPoint")
 
 local AlphaClassifier = {}
 
 -- Bumped whenever the classification rules change in a cache-breaking way.
-local VERSION = "alpha-classifier-v1"
+local VERSION = "alpha-classifier-v2"
 
--- The four alpha classes and the strings that serialize into compiled batch
+-- The five alpha classes and the strings that serialize into compiled batch
 -- records; every production and comparison site uses a named constant.
 AlphaClassifier.OPAQUE = "opaque"
 AlphaClassifier.TRANSLUCENT = "translucent"
 AlphaClassifier.CUTOUT = "cutout"
 AlphaClassifier.WIREFRAME = "wireframe"
+AlphaClassifier.MIXED = "mixed"
 
--- The texture format ids that force translucency (raw NSBTX format ids,
--- GBATEK TEXIMAGE_PARAM; the classifier needs only the two alpha formats).
-AlphaClassifier.A3I5 = 1
-AlphaClassifier.A5I3 = 6
-
--- The fragment alpha cutoff for cutout draws: a 5-bit alpha of zero becomes
--- a normalized value just below half of one 8-bit step. Shared by the
--- renderer (per-draw default), the model draw path, and the neighbor ring.
-AlphaClassifier.CUTOUT_EPSILON = 0.5 / 255
-
--- Classify an effective polygon state against a texture. `textureFormat` is the
--- raw NSBTX format (0 for untextured); `alphaUsage` comes from
--- TextureDecoder.decode (nil when untextured).
-function AlphaClassifier.classify(polygonAlpha, textureFormat, alphaUsage)
+-- Classify an effective polygon state against a texture and polygon mode.
+-- `polygonMode` is a string ("decal" or "modulation" per DS semantics).
+-- `textureFormat` is the raw NSBTX format (0 for untextured); `alphaUsage`
+-- comes from TextureDecoder.decode (nil when untextured). Classification is
+-- final-alpha-aware: a MODULATE polygon at alpha 31 with mixed texture alpha
+-- (both opaque and partial texels) returns MIXED; DECAL at alpha 31 always
+-- returns OPAQUE regardless of texture alpha distribution.
+function AlphaClassifier.classify(polygonAlpha, polygonMode, textureFormat, alphaUsage)
   if polygonAlpha == 0 then
     return AlphaClassifier.WIREFRAME
   end
+
+  -- Any nonzero alpha below 31 cannot produce an opaque final alpha.
   if polygonAlpha < FixedPoint.RGB5_MAX then
     return AlphaClassifier.TRANSLUCENT
   end
-  if textureFormat == AlphaClassifier.A3I5 or textureFormat == AlphaClassifier.A5I3 then
+
+  -- DECAL final alpha is polygon alpha, not texture alpha.
+  if polygonMode == "decal" then
+    return AlphaClassifier.OPAQUE
+  end
+
+  -- For MODULATE at polygon alpha 31, final alpha equals texture alpha.
+  if alphaUsage and alphaUsage.hasPartial then
+    if alphaUsage.hasOpaque then
+      return AlphaClassifier.MIXED
+    end
     return AlphaClassifier.TRANSLUCENT
   end
+
   if alphaUsage and alphaUsage.hasZero then
     return AlphaClassifier.CUTOUT
   end
+
   return AlphaClassifier.OPAQUE
 end
 

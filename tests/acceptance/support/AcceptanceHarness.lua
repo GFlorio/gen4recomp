@@ -291,6 +291,7 @@ function Game:snapshot()
       end
     end
   end
+  local appHostStatus = runtime.applicationHost and runtime.applicationHost:status() or {}
   return {
     versionId = runtime.versionId,
     mapId = runtime.runtimeMap and runtime.runtimeMap.mapId,
@@ -305,7 +306,7 @@ function Game:snapshot()
       motion = player.motion,
     },
     dialogue = dialogue and dialogue:status() or { modal = false },
-    menu = runtime.menuHost and runtime.menuHost:snapshot() or nil,
+    menu = appHostStatus.menu or (runtime.menuHost and runtime.menuHost:snapshot()) or nil,
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
     transition = { phase = runtime.transition and runtime.transition.phase },
     avatarId = runtime.avatar and runtime.avatar.id,

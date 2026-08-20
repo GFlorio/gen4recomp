@@ -142,36 +142,42 @@ function FieldUiFixture.signpostTilesBytes()
   return PngWriter.encode(144, 8, table.concat(bytes))
 end
 
--- The raw RGBA bytes of one wayfinding atlas row (each (type, map) pair has
--- its own row): 24 distinct tiles in a 192x8 pixel row.
----@param rowY integer
----@return string rgba
-function FieldUiFixture.wayfindingRowPixels(rowY)
-  local row = math.floor(rowY / 8)
+-- The raw 8x8 RGBA bytes of one wayfinding 48x32 surface belonging to one
+-- (type, map) pair. Each surface is a 6x4 tile grid: tile row*6+col
+-- at (col*8, row*8) with a distinct color per row/tile, so a wrong-map
+-- sample or a wrong tile offset is a mismatch.
+---@param rectY integer top of the 48x32 rect in the atlas
+---@return string rgba 48*32*4 bytes
+function FieldUiFixture.wayfindingSurfacePixels(rectY)
+  local surfaceIndex = math.floor(rectY / 32)
   local bytes = {}
-  for y = 0, 7 do
-    for x = 0, 191 do
-      local r, g, b = wayfindingTileColor(row, math.floor(x / 8))
+  for y = 0, 31 do
+    local tileRow = math.floor(y / 8)
+    for x = 0, 47 do
+      local tileCol = math.floor(x / 8)
+      local tile = tileRow * 6 + tileCol
+      local r, g, b = wayfindingTileColor(surfaceIndex, tile)
       bytes[#bytes + 1] = string.char(r, g, b, 255)
     end
   end
   return table.concat(bytes)
 end
 
--- The wayfinding atlas: one row per (type, map) pair in the manifest --
--- type 0 at rows y=0 (map 0) and y=8 (map 1), type 1 at rows y=16 (map 0)
--- and y=24 (map 1). Every row has its own color family, so a wrong-row
--- sample is a mismatch.
+-- The wayfinding atlas: one 48x32 surface per (type, map) pair, stacked
+-- vertically. Type 0 at y=0 (map 0) and y=32 (map 1), type 1 at y=64
+-- (map 0) and y=96 (map 1).
 ---@return string png
 function FieldUiFixture.wayfindingBytes()
-  local rows = {}
-  for block = 0, 3 do
-    local rgba = FieldUiFixture.wayfindingRowPixels(block * 8)
-    for i = 0, 7 do
-      rows[#rows + 1] = rgba:sub(i * 768 + 1, (i + 1) * 768)
-    end
-  end
-  return PngWriter.encode(192, 32, table.concat(rows))
+  return PngWriter.encode(
+    48,
+    128,
+    table.concat({
+      FieldUiFixture.wayfindingSurfacePixels(0),
+      FieldUiFixture.wayfindingSurfacePixels(32),
+      FieldUiFixture.wayfindingSurfacePixels(64),
+      FieldUiFixture.wayfindingSurfacePixels(96),
+    })
+  )
 end
 
 -- The canonical Start Menu logical action-slot grid (the manifest's own
@@ -315,6 +321,7 @@ function FieldUiFixture.cardFontDef()
   return {
     schema = FieldFontCache.SCHEMA,
     fontId = 0,
+    maskAtlasPath = FieldFontCache.maskAtlasPath(0),
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
@@ -373,26 +380,60 @@ function FieldUiFixture.cardFontAtlasBytes()
   return PngWriter.encode(512, 32, table.concat(bytes))
 end
 
+-- The card font's semantic glyph mask atlas: the Trainer Card path never
+-- draws through the palette-driven text method, so the fixture only needs a
+-- valid decodable PNG at the manifest's mask path, not per-glyph class
+-- fidelity.
+---@return string png
+function FieldUiFixture.cardMaskAtlasBytes()
+  return PngWriter.encode(16, 16, string.rep(string.char(255, 0, 0, 255), 16 * 16))
+end
+
+-- A synthetic 16-color v5 palette bank for one source type: placeholder
+-- values distinct per type/slot (not source-decoded), consumed both by the
+-- generated manifest fixture below and directly by tests computing the
+-- expected palette-driven fill/text colors for a given source type.
+---@param sourceType integer
+---@return table<integer, {r: integer, g: integer, b: integer}>
+function FieldUiFixture.typePalette(sourceType)
+  local palette = {}
+  for slot = 0, 15 do
+    palette[slot] = {
+      r = (sourceType * 7 + slot * 13) % 256,
+      g = (sourceType * 11 + slot * 5) % 256,
+      b = (sourceType * 3 + slot * 17) % 256,
+    }
+  end
+  return palette
+end
+
 -- The signpost source-type map in the generated manifest shape: every corpus
--- type with its raw number preserved, types 0/1 carrying a per-map wayfinding
--- table (map -> atlas rect; each pair has its own atlas row, so the map-0 and
--- map-1 rects are visibly distinct). The on-screen 56px graphic region is NOT
--- the atlas rect; the style loader derives the region from the presence of
--- the table, never its pixels.
+-- type with its raw number preserved, its own palette bank and frameTiles
+-- rect (every type shares the fixture's single-row 144x8 strip; the atlas
+-- shape, not per-type pixel distinctness, is this fixture's contract), and
+-- types 0/1 carrying a per-map wayfinding table (map -> 48x32 atlas rect;
+-- each pair has its own surface, so the map-0 and map-1 rects are visibly
+-- distinct). The on-screen 56px graphic region is NOT the atlas rect; the
+-- style loader derives the region from the presence of the table, never its
+-- pixels.
 ---@return table
 function FieldUiFixture.signpostTypes()
   local types = {}
   for _, sourceType in ipairs(FieldUiFixture.CORPUS_SOURCE_TYPES) do
-    local entry = { sourceType = sourceType }
+    local entry = {
+      sourceType = sourceType,
+      palette = FieldUiFixture.typePalette(sourceType),
+      frameTiles = { x = 0, y = 0, width = 144, height = 8 },
+    }
     if sourceType == 0 then
       entry.wayfinding = {
-        [0] = { x = 0, y = 0, width = 192, height = 8 },
-        [1] = { x = 0, y = 8, width = 192, height = 8 },
+        [0] = { x = 0, y = 0, width = 48, height = 32 },
+        [1] = { x = 0, y = 32, width = 48, height = 32 },
       }
     elseif sourceType == 1 then
       entry.wayfinding = {
-        [0] = { x = 0, y = 16, width = 192, height = 8 },
-        [1] = { x = 0, y = 24, width = 192, height = 8 },
+        [0] = { x = 0, y = 64, width = 48, height = 32 },
+        [1] = { x = 0, y = 96, width = 48, height = 32 },
       }
     end
     types[sourceType] = entry
@@ -420,8 +461,8 @@ function FieldUiFixture.manifest()
       },
       [FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING] = {
         image = FieldUiFixture.WAYFINDING_PATH,
-        width = 192,
-        height = 32,
+        width = 48,
+        height = 128,
       },
       [FieldUiAssetCache.ASSET.START_MENU_BACKGROUND] = {
         image = FieldUiFixture.START_MENU_BACKGROUND_PATH,
@@ -447,9 +488,7 @@ function FieldUiFixture.manifest()
       },
     },
     signposts = {
-      frame = {
-        tiles = { x = 0, y = 0, width = 144, height = 8 },
-      },
+      textColors = { foreground = 2, shadow = 10, background = 15 },
       types = FieldUiFixture.signpostTypes(),
     },
     startMenu = {
@@ -484,6 +523,7 @@ function FieldUiFixture.trainerCardCache(fontDef)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   cache:writeLua("data/generated/field/font/font-0.lua", fontDef or FieldUiFixture.cardFontDef())
   cache:write("assets/generated/field/font/font-0.png", FieldUiFixture.cardFontAtlasBytes())
+  cache:write(FieldFontCache.maskAtlasPath(0), FieldUiFixture.cardMaskAtlasBytes())
   cache:write(FieldDialogueFixture.FOCUS_INDICATOR_PATH, FieldDialogueFixture.focusIndicatorBytes())
   cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
   cache:write(FieldUiFixture.TRAINER_CARD_PATH, FieldUiFixture.cardBytes())

@@ -1,10 +1,11 @@
 -- Loads the compiled dialogue font definition for runtime text layout. This
 -- deliberately owns no atlas or graphics objects; presentation loads those
 -- separately when it creates the dialogue renderer. A loaded definition must
--- satisfy the v2 codec contract before presentation construction: the seven
+-- satisfy the v3 codec contract before presentation construction: the seven
 -- color bands over a positive base-band stride, an atlas tall enough for every
--- band, and the four 24x32 focus-indicator frame rects. A stale or malformed
--- pre-change definition is rejected here, not at individual draw calls.
+-- band, a named semantic glyph mask atlas path, and the four 24x32
+-- focus-indicator frame rects. A stale or malformed pre-change definition is
+-- rejected here, not at individual draw calls.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -34,6 +35,9 @@ local function definitionValid(definition)
   end
   if type(atlas.height) ~= "number" or atlas.height < atlas.baseHeight * variants.count then
     return nil, "atlas height must fit every color band"
+  end
+  if type(definition.maskAtlasPath) ~= "string" or definition.maskAtlasPath == "" then
+    return nil, "maskAtlasPath must name the semantic glyph mask atlas"
   end
   local focus = definition.focusIndicators
   if

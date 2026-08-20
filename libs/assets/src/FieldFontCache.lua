@@ -2,8 +2,9 @@
 -- of the independently rebuildable derived classes (map geometry, actor
 -- visuals, messages/font): changing the font compiler must not disturb the raw
 -- ROM dump, compiled maps, or message banks. A font is ready only when the
--- completion marker matches exactly and the definition, the glyph atlas, and
--- the focus-indicator PNG are present. Paths are cache-relative; all IO goes
+-- completion marker matches exactly and the definition, the glyph atlas, the
+-- semantic glyph mask atlas, and the focus-indicator PNG are present. Paths
+-- are cache-relative; all IO goes
 -- through a CacheFs (PNG binaries live under the derived assets root).
 
 local FieldFontCache = {}
@@ -34,6 +35,15 @@ function FieldFontCache.atlasPath(fontId)
   return string.format("%s/font-%d.png", ASSET_DIR, fontId)
 end
 
+-- The semantic glyph mask atlas: the same base-band glyph-layout geometry as
+-- the composited atlas, but encoding the raw categorical glyph class per
+-- pixel (transparent/foreground/shadow/background) instead of baked colors,
+-- so a palette-driven draw path can recolor glyphs against any runtime
+-- palette.
+function FieldFontCache.maskAtlasPath(fontId)
+  return string.format("%s/font-%d-mask.png", ASSET_DIR, fontId)
+end
+
 function FieldFontCache.focusIndicatorsPath(fontId)
   return string.format("%s/font-%d-focus-indicators.png", ASSET_DIR, fontId)
 end
@@ -56,6 +66,9 @@ function FieldFontCache.isReady(cacheFs, fontId, expectedMarker)
     return false
   end
   if not cacheFs:exists(FieldFontCache.atlasPath(fontId), "file") then
+    return false
+  end
+  if not cacheFs:exists(FieldFontCache.maskAtlasPath(fontId), "file") then
     return false
   end
   if not cacheFs:exists(FieldFontCache.focusIndicatorsPath(fontId), "file") then

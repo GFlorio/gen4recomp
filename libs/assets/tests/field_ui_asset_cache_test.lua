@@ -12,8 +12,9 @@ local FakeCache = require("tests.support.FakeCache")
 local T = {}
 
 -- A valid manifest models the audited HGSS geometry: every dialogue frame
--- strip and the signpost frame are 18 tiles (144x8), every wayfinding row is
--- 24 tiles (192x8).
+-- strip and the signpost frame are 18 tiles (144x8), every wayfinding
+-- surface is 24 tiles precomposed as a 48x32 final rect. v6 schema
+-- includes per-type signpost palettes and per-type frame geometry.
 local function validManifest()
   local frameTiles = {}
   for frame = 0, 19 do
@@ -23,6 +24,15 @@ local function validManifest()
   for id = 1, 10 do
     slots[id] = { x = (id % 2 == 1 and 0 or 128), y = math.floor((id - 1) / 2) * 38, width = 128, height = 38 }
   end
+
+  local function validPalette()
+    local palette = {}
+    for slot = 0, 15 do
+      palette[slot] = { r = slot * 16, g = slot * 16, b = slot * 16 }
+    end
+    return palette
+  end
+
   return {
     schema = FieldUiAssetCache.SCHEMA,
     reference = { width = 256, height = 192 },
@@ -32,11 +42,11 @@ local function validManifest()
         width = 144,
         height = 160,
       },
-      ["hgss.signpost.tiles"] = { image = "assets/generated/field/ui/signpost-tiles.png", width = 144, height = 8 },
+      ["hgss.signpost.tiles"] = { image = "assets/generated/field/ui/signpost-tiles.png", width = 288, height = 16 },
       ["hgss.signpost.wayfinding"] = {
         image = "assets/generated/field/ui/wayfinding-tiles.png",
-        width = 192,
-        height = 16,
+        width = 48,
+        height = 64,
       },
       ["hgss.start_menu.background"] = { image = "assets/generated/field/ui/start-menu.png", width = 256, height = 192 },
       ["hgss.start_menu.cursor"] = {
@@ -51,16 +61,22 @@ local function validManifest()
       frameTiles = frameTiles,
     },
     signposts = {
-      frame = { tiles = { x = 0, y = 0, width = 144, height = 8 } },
+      textColors = { foreground = 2, shadow = 10, background = 15 },
       types = {
         [0] = {
           sourceType = 0,
+          palette = validPalette(),
+          frameTiles = { x = 0, y = 0, width = 144, height = 8 },
           wayfinding = {
-            [0] = { x = 0, y = 0, width = 192, height = 8 },
-            [1] = { x = 0, y = 8, width = 192, height = 8 },
+            [0] = { x = 0, y = 0, width = 48, height = 32 },
+            [1] = { x = 0, y = 32, width = 48, height = 32 },
           },
         },
-        [2] = { sourceType = 2 },
+        [2] = {
+          sourceType = 2,
+          palette = validPalette(),
+          frameTiles = { x = 144, y = 0, width = 144, height = 8 },
+        },
       },
     },
     startMenu = {
@@ -189,19 +205,18 @@ function T.signpost_type_and_wayfinding_validation_is_strict()
     m.signposts.types[2].wayfinding = {}
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    m.signposts.types[0].wayfinding[-1] = { x = 0, y = 0, width = 192, height = 8 }
+    m.signposts.types[0].wayfinding[-1] = { x = 0, y = 0, width = 48, height = 32 }
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    m.signposts.types[0].wayfinding[1] = { x = 0, y = 0, width = 193, height = 8 }
+    m.signposts.types[0].wayfinding[1] = { x = 0, y = 0, width = 49, height = 32 }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
--- The generated class is pinned to the audited HGSS strip
--- geometry — every dialogue frame strip and the signpost frame are the
--- 18-tile 144x8 row, every wayfinding row is the 24-tile 192x8 row. A
--- corrupted row dimension must be rejected by manifest validation before any
--- renderer draw, even when the wrong rect still fits inside its atlas (136
--- and 184 are the wrong-but-in-atlas sizes of the 17-tile and 23-tile rows).
+-- The generated class is pinned to the audited HGSS geometry — every
+-- dialogue frame strip and the signpost frame are the 18-tile 144x8 row,
+-- every wayfinding surface is the 24-tile 48x32 final rect. A corrupted
+-- dimension must be rejected by manifest validation before any renderer
+-- draw, even when the wrong rect still fits inside its atlas.
 function T.ui_row_geometry_must_match_the_hgss_strip_contract()
   reject(function(m)
     m.dialogueFrames.frameTiles[0].width = 136
@@ -210,13 +225,118 @@ function T.ui_row_geometry_must_match_the_hgss_strip_contract()
     m.dialogueFrames.frameTiles[1].height = 16
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    m.signposts.frame.tiles.width = 136
+    m.signposts.types[0].frameTiles.width = 136
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    m.signposts.types[0].wayfinding[0].width = 184
+    m.signposts.types[0].wayfinding[0].width = 47
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    m.signposts.types[0].wayfinding[0].height = 16
+    m.signposts.types[0].wayfinding[0].height = 31
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+-- v5 schema: signposts section requires textColors and per-type palettes.
+-- v4 manifests without these new required fields must be rejected.
+function T.v5_rejects_v4_manifest_missing_text_colors()
+  reject(function(m)
+    m.signposts.textColors = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_wrong_text_color_foreground()
+  reject(function(m)
+    m.signposts.textColors.foreground = 1
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_wrong_text_color_shadow()
+  reject(function(m)
+    m.signposts.textColors.shadow = 9
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_wrong_text_color_background()
+  reject(function(m)
+    m.signposts.textColors.background = 14
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_non_integral_text_color_slot()
+  reject(function(m)
+    m.signposts.textColors.foreground = 2.5
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_text_color_out_of_range()
+  reject(function(m)
+    m.signposts.textColors.foreground = 16
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.textColors.shadow = -1
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+-- Per-type palette validation: must have exactly 16 entries (0..15), each
+-- with r/g/b components as integers in 0..255.
+function T.v5_rejects_type_missing_palette()
+  reject(function(m)
+    m.signposts.types[0].palette = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_palette_with_fewer_than_16_entries()
+  reject(function(m)
+    m.signposts.types[0].palette[15] = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_palette_with_more_than_16_entries()
+  reject(function(m)
+    m.signposts.types[0].palette[16] = { r = 0, g = 0, b = 0 }
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_palette_color_missing_components()
+  reject(function(m)
+    m.signposts.types[0].palette[0] = { r = 0, g = 0 }
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_palette_color_non_integral_component()
+  reject(function(m)
+    m.signposts.types[0].palette[0] = { r = 0.5, g = 0, b = 0 }
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_palette_color_out_of_range()
+  reject(function(m)
+    m.signposts.types[0].palette[0] = { r = 256, g = 0, b = 0 }
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.types[0].palette[5].b = -1
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+-- Per-type frameTiles validation: must exist, be exactly 144x8, and fit in
+-- the signpost tiles atlas.
+function T.v5_rejects_type_missing_frame_tiles()
+  reject(function(m)
+    m.signposts.types[0].frameTiles = nil
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_frame_tiles_wrong_dimensions()
+  reject(function(m)
+    m.signposts.types[0].frameTiles.width = 136
+  end, "FIELD_UI_MANIFEST_INVALID")
+  reject(function(m)
+    m.signposts.types[0].frameTiles.height = 16
+  end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+function T.v5_rejects_frame_tiles_outside_atlas()
+  reject(function(m)
+    m.signposts.types[0].frameTiles = { x = 200, y = 0, width = 144, height = 8 }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 

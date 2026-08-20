@@ -1,0 +1,218 @@
+-- Runtime weather tests exercise activation-time sampling and fog selection
+-- through FieldRuntime methods without constructing a cache-backed session.
+
+local Assert = require("tests.support.Assert")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+
+local T = {}
+
+local WEATHER_MAP = 999
+local BASE_MAP = 1000
+
+local function rampTable()
+  local values = {}
+  for i = 1, 32 do
+    values[i] = (i - 1) * 4
+  end
+  return values
+end
+
+local function validCatalog()
+  local presets = {}
+  for id = 0, 13 do
+    local enabled = id ~= 0 and id ~= 7
+    presets[id] = {
+      enabled = enabled,
+      color = 0,
+      offset = 0,
+      slope = 0,
+      alpha = enabled and 31 or 0,
+      table = rampTable(),
+    }
+  end
+  return {
+    schema = FieldWeatherCache.SCHEMA,
+    presets = presets,
+    rules = {
+      {
+        kind = "calendar_map_override",
+        mapId = WEATHER_MAP,
+        weatherId = 8,
+        requireNoPenalty = true,
+        dates = { { month = 1, day = 1 } },
+      },
+      {
+        kind = "map_var_equals",
+        mapId = BASE_MAP,
+        varId = 0x4037,
+        value = 0xF229,
+        weatherId = 0,
+      },
+      {
+        kind = "weather_flag_override",
+        fromWeatherId = 9,
+        flagId = 2420,
+        weatherId = 0,
+      },
+      {
+        kind = "weather_flag_override",
+        fromWeatherId = 11,
+        flagId = 2419,
+        weatherId = 12,
+      },
+    },
+  }
+end
+
+local function cameraProfile()
+  return {
+    projectionType = "perspective",
+    distanceTiles = 10,
+    angleXRaw = 4096,
+    angleYRaw = 0,
+    halfFovRadians = math.pi / 6,
+    fullVerticalFovRadians = math.pi / 3,
+    nearTiles = 0.1,
+    farTiles = 100,
+    targetOffsetTiles = { x = 0, y = 0, z = 0 },
+  }
+end
+
+local function terrain()
+  local plate = { id = 0 }
+  return {
+    candidatesAt = function()
+      return { plate }
+    end,
+    contains = function(_, surfaceId)
+      return surfaceId == 0
+    end,
+    plate = function(_, surfaceId)
+      return surfaceId == 0 and plate or nil
+    end,
+    sample = function(_, surfaceId)
+      return { worldY = 0, surfaceId = surfaceId }
+    end,
+    sampleHeight = function()
+      return 0
+    end,
+  }
+end
+
+local function destinationMap(mapId, weatherId, fog)
+  return {
+    mapId = mapId,
+    cameraType = "field",
+    coordinateOrigin = { x = 0, z = 0 },
+    collision = {
+      containsLocal = function()
+        return true
+      end,
+    },
+    terrain = terrain(),
+    scene = { weatherId = weatherId, fog = fog },
+    sceneRuntime = {},
+  }
+end
+
+local function runtimeWithClock(catalog, calls, currentMap)
+  local clock = {
+    today = function()
+      calls.today = calls.today + 1
+      return { month = 1, day = 1 }
+    end,
+    hasPenalty = function()
+      calls.penalty = calls.penalty + 1
+      return false
+    end,
+  }
+  return setmetatable({
+    weatherCatalog = catalog,
+    weatherClock = clock,
+    eventState = FieldEventState.new(),
+    runtimeMap = currentMap,
+    cameraProfiles = { field = cameraProfile() },
+    viewport = {
+      worldAspect = function()
+        return 4 / 3
+      end,
+    },
+    zoom = {
+      effectiveZoom = function()
+        return 1
+      end,
+    },
+    avatar = { spriteId = 1 },
+    actors = {
+      getAt = function()
+        return nil
+      end,
+      enterMap = function()
+        calls.enterMap = calls.enterMap + 1
+      end,
+    },
+    scripts = {},
+    session = { update = function() end },
+    applicationHost = {
+      error = function()
+        return nil
+      end,
+    },
+    transition = {
+      error = nil,
+      fadeAlpha = 1,
+      consumeCompleted = function()
+        return false
+      end,
+    },
+  }, FieldRuntime)
+end
+
+function T.runtime_samples_weather_on_activation_and_selects_the_matching_fog()
+  local catalog = validCatalog()
+  local valid, err = FieldWeatherCache.validateCatalog(catalog)
+  Assert.isTrue(valid, tostring(err))
+
+  local calls = { today = 0, penalty = 0, enterMap = 0 }
+  local currentMap = destinationMap(1, 5, {})
+  local runtime = runtimeWithClock(catalog, calls, currentMap)
+  local overrideMap = destinationMap(WEATHER_MAP, 5, {})
+  local baseFog = { name = "compiled base fog" }
+  local baseMap = destinationMap(BASE_MAP, 5, baseFog)
+
+  local prepared = runtime:_prepareSwap({
+    destinationMap = overrideMap,
+    fieldX = 0,
+    fieldZ = 0,
+    surfaceId = 0,
+  }, "south")
+  Assert.notNil(prepared)
+  Assert.equal(calls.today, 1)
+  Assert.equal(calls.penalty, 1)
+  Assert.equal(overrideMap.effectiveWeatherId, 8)
+  Assert.equal(overrideMap.sceneRuntime.fog, catalog.presets[8])
+  Assert.equal(calls.enterMap, 1)
+
+  runtime:update(1 / 30)
+  runtime:update(1 / 30)
+  runtime:update(1 / 30)
+  Assert.equal(calls.today, 1, "ordinary updates must not resample the weather date")
+  Assert.equal(calls.penalty, 1, "ordinary updates must not resample the penalty state")
+
+  local preparedAgain = runtime:_prepareSwap({
+    destinationMap = baseMap,
+    fieldX = 0,
+    fieldZ = 0,
+    surfaceId = 0,
+  }, "south")
+  Assert.notNil(preparedAgain)
+  Assert.equal(calls.today, 2)
+  Assert.equal(calls.penalty, 2)
+  Assert.equal(baseMap.effectiveWeatherId, 5)
+  Assert.equal(baseMap.sceneRuntime.fog, baseFog, "unchanged weather must preserve compiled base fog")
+  Assert.equal(calls.enterMap, 2)
+end
+
+return { tests = T, metadata = { tags = { "field", "weather" } } }

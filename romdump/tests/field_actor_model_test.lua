@@ -84,12 +84,14 @@ function T.an_opaque_texture_stays_opaque()
   Assert.equal(result.alphaClass, "opaque")
 end
 
-function T.rejects_a_translucent_actor_texture()
-  -- Format 1 is A3I5, which the DS always blends; the actor pass draws neither
-  -- translucent nor wireframe geometry.
-  throwsCode("FIELD_ACTOR_MODEL_ALPHA_UNSUPPORTED", function()
-    compile(NsbmdFixture.buildBillboardQuad(), { textureFormat = 1 })
-  end)
+function T.a3i5_with_mixed_alpha_classifies_as_cutout()
+  -- Format 1 is A3I5 (raw NSBTX format). With the final-alpha-aware
+  -- classifier (v2), the classification depends on the texture's actual alpha
+  -- distribution, not the format alone. A3I5 with binary alpha (hasZero only)
+  -- is cutout, not translucent.
+  local result =
+    compile(NsbmdFixture.buildBillboardQuad(), { textureFormat = 1, alphaUsage = { hasZero = true, hasOpaque = true } })
+  Assert.equal(result.alphaClass, "cutout")
 end
 
 function T.rejects_a_non_billboard_draw()

@@ -49,7 +49,9 @@ parity/crop comparisons. Normal gameplay uses the current aspect and zoom.
 
 ## Configurable zoom
 
-The tuning lives in `data/manifests/field_presentation.lua`. Both orthographic
+The tuning lives in `data/manifests/field_presentation.lua` (current values:
+`referenceHeight = 600`, `resizeCompensation = 0.7`, `minZoom = 0.5`,
+`maxZoom = 1.5`, `step = 0.1`, default `manualZoom = 1`). Both orthographic
 and perspective cameras apply zoom to projection X/Y scale only. The effective
 zoom is:
 
@@ -65,10 +67,36 @@ revealing more world vertically:
 - `1` keeps approximate object pixel size until a zoom bound is reached;
 - an intermediate value shares the change between both effects.
 
-The default is `0.5` with a 720-pixel reference height. Going from 720 to 1080
-therefore changes object pixel size by about `sqrt(1.5)` instead of `1.5`.
-`-` and `=` adjust manual zoom; `0` restores its configured default. Coverage
-planning uses effective zoom, so zooming out requests the newly visible cells.
+With the current `0.7` compensation, going from 600 to 900 therefore changes
+object pixel size by about `1.5^0.3` instead of `1.5`. `-` and `=` adjust
+manual zoom; `0` restores its configured default. Coverage planning uses
+effective zoom, so zooming out requests the newly visible cells.
+
+## Field-attached UI scale
+
+Field-attached dialogue and signpost presentation follow the same effective
+zoom as the world:
+
+```text
+fieldScale = FieldViewport:logicalPixelScale(camera.zoom)
+           = (referenceFrame.height / 192) * effectiveZoom
+```
+
+The logical 256x192 surface is bottom-centered in `referenceFrame`:
+
+```text
+originX = referenceFrame.x + (referenceFrame.width  - 256 * fieldScale) / 2
+originY = referenceFrame.y + referenceFrame.height - 192 * fieldScale
+```
+
+Logical geometry (box at `16,152,216,32`, text rects, cursor, wipe offset)
+stays in canonical 256x192 pixels; renderers translate by `origin` and scale
+by `fieldScale` exactly once. Zoom and resize compensation therefore affect
+world and field-attached UI through the same `camera.zoom` value, and wider
+expanded hosts still center the UI in the 4:3 `referenceFrame`, not across the
+extra revealed world width. Start Menu, Trainer Card, script menu, and other
+application surfaces keep their existing placement contracts and do not follow
+field zoom.
 
 ## Validation and known gaps
 

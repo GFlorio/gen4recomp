@@ -47,6 +47,8 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
+local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local FieldWeatherResolver = require("libs.engine.src.FieldWeatherResolver")
 local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
@@ -73,6 +75,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
 ---@field audioOutput table? { audio: table, sound: table } audio-output host namespaces for the LÖVE sink (defaults to love.audio + love.sound)
+---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -113,6 +116,7 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field audio FieldAudioController? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
+---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -194,10 +198,19 @@ local function spawnSurface(runtimeMap, localX, localZ)
   return best
 end
 
----@param versionId string
----@param mapIdOrSymbol string|integer|nil
----@param options FieldRuntimeOptions|nil
----@return FieldRuntime
+---@return table
+local function defaultWeatherClock()
+  return {
+    today = function()
+      local now = os.date("*t")
+      return { month = now.month, day = now.day }
+    end,
+    hasPenalty = function()
+      return false
+    end,
+  }
+end
+
 function FieldRuntime.new(versionId, mapIdOrSymbol, options)
   options = options or {}
   local self = setmetatable({
@@ -213,6 +226,7 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     scriptHosts = options.scriptHosts,
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
+    weatherClock = options.weatherClock or defaultWeatherClock(),
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
     -- The 60 Hz sound-frame accumulator: wall-clock elapsed time the update
@@ -290,6 +304,14 @@ function FieldRuntime:_load()
       assert(cacheFs:loadLua(CAMERA_PROFILES_PATH), "field camera cache is cold -- run `scripts/buildcache.sh` first")
     assert(profiles.schema == FieldCameraCache.SCHEMA, "unsupported field camera cache")
     self.cameraProfiles = profiles.profiles
+
+    -- The weather catalog: fourteen fog presets and ordered override rules.
+    local weatherCatalog = assert(
+      cacheFs:loadLua(FieldWeatherCache.catalogPath()),
+      "field weather cache is cold -- run `scripts/buildcache.sh` first"
+    )
+    assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
+    self.weatherCatalog = weatherCatalog
 
     -- FieldMapLoader owns the simulation assets (field data, collision,
     -- terrain) through the pure asset paths for every composition. The visual
@@ -616,6 +638,8 @@ function FieldRuntime:_load()
         end,
       },
     })
+
+    self:_applyEffectiveWeather(self.runtimeMap)
   end)
   -- Construction is binary: a failed boot releases everything acquired so
   -- far exactly once, then the original failure propagates to the caller.
@@ -747,20 +771,33 @@ function FieldRuntime:releaseMenu()
   requireLiveInput(self):releaseMenu("runtime")
 end
 
--- The Start Menu composition step: build the final interactive action list
--- from the authoritative world-state unlock flags (read through
--- FieldScriptSymbols, never raw numbers) and the registered destination
--- capabilities, and construct the controller with the selection remembered
--- across a child-application round trip. With no interactive action the
--- menu is unavailable and the factory returns nil -- a zero-action Start
--- Menu is never constructed -- so the application host treats the open as a
--- no-op and the field continues.
+-- Helper: determine if this port has implemented the destination application
+-- for an action kind.
+local function implementationAvailable(self, entry)
+  if entry.actionKind == "application" then
+    return entry.targetApplication ~= nil and self.applications:has(entry.targetApplication)
+  end
+  -- Non-application actions (toggle, field_action, removed) are not yet
+  -- implemented in this port.
+  return false
+end
+
+-- The Start Menu composition step: build the final action list from the
+-- authoritative world-state unlock flags (read through FieldScriptSymbols,
+-- never raw numbers) and the registered destination capabilities. The source
+-- policy produces source-present entries; the runtime separates source
+-- enablement from implementation capability and combines them to set the final
+-- enabled state. Construct the controller with the selection remembered
+-- across a child-application round trip. Return nil only when no source-present
+-- actions exist; disabled entries are visible and remain in the menu.
 ---@param rememberedActionId string?
----@return StartMenuController? nil when no action is interactive
+---@return StartMenuController? nil when the source has no present actions
 function FieldRuntime:_composeStartMenu(rememberedActionId)
   local world = self.scripts.worldState
   local flags = FieldScriptSymbols.flagsByName
-  local entries = StartMenuPolicy.availableActions({
+
+  -- Source policy: returns all present actions (regardless of implementation)
+  local sourceEntries = StartMenuPolicy.actions({
     hasPokedex = world:isFlagSet(flags.FLAG_GOT_POKEDEX),
     hasStarter = world:isFlagSet(flags.FLAG_GOT_STARTER),
     bagUnlocked = world:isFlagSet(flags.FLAG_GOT_BAG),
@@ -768,12 +805,25 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
     trainerCardUnlocked = world:isFlagSet(flags.FLAG_GOT_TRAINER_CARD),
     saveUnlocked = world:isFlagSet(flags.FLAG_GOT_SAVE_BUTTON),
     optionsUnlocked = world:isFlagSet(flags.FLAG_GOT_OPTIONS_BUTTON),
-  }, function(applicationId)
-    return self.applications:has(applicationId)
-  end)
-  if #entries == 0 then
+  })
+
+  if #sourceEntries == 0 then
     return nil
   end
+
+  -- Compose source policy with implementation capability: set enabled to
+  -- true only when both source-enabled AND implementation-available.
+  local entries = {}
+  for index, source in ipairs(sourceEntries) do
+    entries[index] = {
+      id = source.id,
+      displayPosition = source.displayPosition,
+      actionKind = source.actionKind,
+      targetApplication = source.targetApplication,
+      enabled = source.sourceEnabled and implementationAvailable(self, source),
+    }
+  end
+
   return StartMenuController.new({
     entries = entries,
     slots = self.uiManifest.startMenu.slots,
@@ -920,6 +970,31 @@ function FieldRuntime:reset()
   self:_load()
 end
 
+-- Apply effective weather to a runtime map: resolve the catalog rules
+-- against the injected date/penalty and event state, store
+-- effectiveWeatherId for headless inspection, and select the fog preset
+-- (base scene fog when unchanged, catalog preset otherwise).
+function FieldRuntime:_applyEffectiveWeather(runtimeMap)
+  local base = runtimeMap.scene.weatherId
+  local date = self.weatherClock:today()
+  local hasPenalty = self.weatherClock:hasPenalty()
+  local effective = FieldWeatherResolver.resolve(self.weatherCatalog, {
+    mapId = runtimeMap.mapId,
+    baseWeatherId = base,
+    eventState = self.eventState,
+    date = date,
+    hasPenalty = hasPenalty,
+  })
+  runtimeMap.effectiveWeatherId = effective
+  if runtimeMap.sceneRuntime then
+    if effective == base then
+      runtimeMap.sceneRuntime.fog = runtimeMap.scene.fog
+    else
+      runtimeMap.sceneRuntime.fog = assert(self.weatherCatalog.presets[effective])
+    end
+  end
+end
+
 -- Fallible warp preparation, run by FieldTransition while the source map is
 -- still the authoritative current map: construct the destination player and
 -- camera and player visual, then enter the
@@ -932,6 +1007,7 @@ end
 function FieldRuntime:_prepareSwap(resolution, facing)
   assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
   local runtimeMap = resolution.destinationMap
+  self:_applyEffectiveWeather(runtimeMap)
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
     fieldX = resolution.fieldX,
@@ -1072,7 +1148,7 @@ function FieldRuntime:_releaseAll()
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
-  self.windowStyles, self.uiManifest = nil, nil
+  self.windowStyles, self.uiManifest, self.weatherCatalog = nil, nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then

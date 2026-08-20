@@ -16,15 +16,21 @@ local FieldUiAssetCache = {}
 FieldUiAssetCache.FORMAT = Contract.fieldUi.cacheFormat
 FieldUiAssetCache.SCHEMA = Contract.fieldUi.schema
 
--- The audited HGSS field-UI strip geometry is a generated-class invariant,
+-- The audited HGSS field-UI geometry is a generated-class invariant,
 -- not a tunable: dialogue and signpost frame members carry 18 tiles (a
--- 144x8 strip) and every wayfinding member carries 24 tiles (a 192x8
--- strip). The producer and the manifest validator consume these numbers
--- from this one protocol owner; renderers read the resulting rects from
--- the validated manifest.
+-- 144x8 strip) and every wayfinding member carries 24 tiles but is
+-- persisted as a precomposed 48x32 final surface (6 columns x 4 rows).
+-- The producer arranges the raw 24 tiles into that surface at build time;
+-- runtime draws a single rect. The validator enforces the final 48x32
+-- shape. The producer and validator consume these numbers from this one
+-- protocol owner.
 FieldUiAssetCache.GEOMETRY = {
   FRAME_TILES = 18,
   WAYFINDING_TILES = 24,
+  WAYFINDING_COLUMNS = 6,
+  WAYFINDING_ROWS = 4,
+  WAYFINDING_WIDTH = 48,
+  WAYFINDING_HEIGHT = 32,
 }
 
 -- The generated field-UI asset protocol ids: one constant table so the
@@ -142,11 +148,10 @@ function FieldUiAssetCache.validateManifest(manifest)
     return true
   end
 
-  -- A rect must be an exact HGSS strip (`width` x 8) inside its atlas. The
-  -- exact strip shape is the generated-class contract (dialogue/signpost
-  -- frames are the 18-tile 144x8 row, wayfinding rows the 24-tile 192x8
-  -- row); the atlas-bound check additionally proves the rect is addressable
-  -- in its PNG.
+  -- A rect must be an exact HGSS strip (`width` x 8) inside its atlas.
+  -- Dialogue/signpost frames are the 18-tile 144x8 row; wayfinding rects
+  -- are validated separately as 48x32 final surfaces. The atlas-bound check
+  -- additionally proves the rect is addressable in its PNG.
   local function stripInAtlas(rect, atlasKey, what, width)
     local ok, err = rectInAtlas(rect, atlasKey, what)
     if not ok then
@@ -198,18 +203,51 @@ function FieldUiAssetCache.validateManifest(manifest)
   end
 
   local ok, err = section("signposts", function(s)
-    if type(s.frame) ~= "table" then
-      return false, Errors.new(MANIFEST_INVALID, "signposts.frame must be a table", {})
+    -- v5 schema requires textColors: the source palette slot assignments.
+    if type(s.textColors) ~= "table" then
+      return false, Errors.new(MANIFEST_INVALID, "signposts.textColors must be a table", {})
     end
-    local ok, err = stripInAtlas(
-      s.frame.tiles,
-      FieldUiAssetCache.ASSET.SIGNPOST_TILES,
-      "signpost frame tiles",
-      FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
-    )
+    local function validateSlot(slot, name)
+      if type(slot) ~= "number" or slot % 1 ~= 0 or slot < 0 or slot > 15 then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signposts.textColors." .. name .. " must be an integral slot 0..15", {
+            name = name,
+            value = slot,
+          })
+      end
+      return true
+    end
+    local ok, err = validateSlot(s.textColors.foreground, "foreground")
     if not ok then
       return false, err
     end
+    if s.textColors.foreground ~= 2 then
+      return false,
+        Errors.new(MANIFEST_INVALID, "signposts.textColors.foreground must be slot 2 (HGSS contract)", {
+          value = s.textColors.foreground,
+        })
+    end
+    local ok, err = validateSlot(s.textColors.shadow, "shadow")
+    if not ok then
+      return false, err
+    end
+    if s.textColors.shadow ~= 10 then
+      return false,
+        Errors.new(MANIFEST_INVALID, "signposts.textColors.shadow must be slot 10 (HGSS contract)", {
+          value = s.textColors.shadow,
+        })
+    end
+    local ok, err = validateSlot(s.textColors.background, "background")
+    if not ok then
+      return false, err
+    end
+    if s.textColors.background ~= 15 then
+      return false,
+        Errors.new(MANIFEST_INVALID, "signposts.textColors.background must be slot 15 (HGSS contract)", {
+          value = s.textColors.background,
+        })
+    end
+
     if type(s.types) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "signposts.types must be a table", {})
     end
@@ -223,10 +261,79 @@ function FieldUiAssetCache.validateManifest(manifest)
             key = key,
           })
       end
+
+      -- v5: per-type palette (16 colors, 0..15, each with r/g/b 0..255).
+      if type(typeEntry.palette) ~= "table" then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette must be a table", {
+            type = key,
+          })
+      end
+      local function isValidComponent(val)
+        return type(val) == "number" and val % 1 == 0 and val >= 0 and val <= 255
+      end
+      for slot = 0, 15 do
+        local color = typeEntry.palette[slot]
+        if color == nil then
+          return false,
+            Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette slot " .. slot .. " is missing", {
+              type = key,
+              slot = slot,
+            })
+        end
+        if
+          type(color) ~= "table"
+          or not isValidComponent(color.r)
+          or not isValidComponent(color.g)
+          or not isValidComponent(color.b)
+        then
+          return false,
+            Errors.new(
+              MANIFEST_INVALID,
+              "signpost type " .. key .. " palette slot " .. slot .. " must have integral r/g/b 0..255",
+              {
+                type = key,
+                slot = slot,
+              }
+            )
+        end
+      end
+      -- Every slot 0..15 was checked above; any other key means the table
+      -- carries more than the exact 16-entry palette the schema requires.
+      local paletteKeyCount = 0
+      for _ in pairs(typeEntry.palette) do
+        paletteKeyCount = paletteKeyCount + 1
+      end
+      if paletteKeyCount ~= 16 then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette must have exactly 16 entries (0..15)", {
+            type = key,
+            count = paletteKeyCount,
+          })
+      end
+
+      -- v5: per-type frameTiles (must be exactly 144x8 in the tiles atlas).
+      if type(typeEntry.frameTiles) ~= "table" then
+        return false,
+          Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " frameTiles must be a table", {
+            type = key,
+          })
+      end
+      local ok, err = stripInAtlas(
+        typeEntry.frameTiles,
+        FieldUiAssetCache.ASSET.SIGNPOST_TILES,
+        "signpost type " .. key .. " frameTiles",
+        FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
+      )
+      if not ok then
+        return false, err
+      end
+
       if typeEntry.wayfinding ~= nil then
         -- A type either has per-map wayfinding or none: the producer omits
         -- the field for types without a map graphic, so an empty table is a
-        -- producer bug, not a plausible contract state.
+        -- producer bug, not a plausible contract state. Each wayfinding rect
+        -- is a precomposed final 48x32 surface, not the old 192x8 strip.
         if type(typeEntry.wayfinding) ~= "table" or next(typeEntry.wayfinding) == nil then
           return false, Errors.new(MANIFEST_INVALID, "signpost wayfinding must be a non-empty per-map table", {})
         end
@@ -237,14 +344,21 @@ function FieldUiAssetCache.validateManifest(manifest)
                 map = map,
               })
           end
-          local ok, err = stripInAtlas(
-            rect,
-            FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING,
-            "signpost wayfinding map " .. map,
-            FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES * 8
-          )
+          local ok, err =
+            rectInAtlas(rect, FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING, "signpost wayfinding map " .. map)
           if not ok then
             return false, err
+          end
+          if
+            rect.width ~= FieldUiAssetCache.GEOMETRY.WAYFINDING_WIDTH
+            or rect.height ~= FieldUiAssetCache.GEOMETRY.WAYFINDING_HEIGHT
+          then
+            return false,
+              Errors.new(MANIFEST_INVALID, "signpost wayfinding map " .. map .. " must be the 48x32 final surface", {
+                what = "signpost wayfinding map " .. map,
+                width = rect.width,
+                height = rect.height,
+              })
           end
         end
       end

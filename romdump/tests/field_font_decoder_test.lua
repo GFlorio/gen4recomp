@@ -180,14 +180,14 @@ function T.member_validation_is_typed()
 end
 
 function T.decodes_rlcn_palette_and_expands_5bit_colors()
-  local colors = { 0x0000, 0x296B, 0x5EF5, 0x7FFF }
+  local colors = { 0x0000, 0x29AB, 0x5EF5, 0x7FFF }
   local member = buildPalette(colors)
   local palette = assert(FieldFontDecoder.decodePalette(member, {}))
   Assert.equal(palette.colorCount, 4)
   Assert.deepEqual(palette.colors[1], { r = 0, g = 0, b = 0 })
   Assert.deepEqual(palette.colors[4], { r = 255, g = 255, b = 255 })
-  -- 0x296B = B11 G11 R10 -> ~(82, 90, 90)
-  Assert.deepEqual(palette.colors[2], { r = 82, g = 90, b = 90 })
+  -- 0x29AB = r5=11 g5=13 b5=10 -> (90, 107, 82)
+  Assert.deepEqual(palette.colors[2], { r = 90, g = 107, b = 82 })
 end
 
 function T.palette_validation_is_typed()
@@ -204,6 +204,49 @@ function T.palette_validation_is_typed()
     local member = buildPalette({ 0x0000, 0x0000, 0x0000, 0x0000, 0x0000 })
     return FieldFontDecoder.decodePalette(member:sub(1, #member - 2), {})
   end)
+end
+
+-- RGB555 decoder integration: FieldFontDecoder correctly decodes RLCN palette
+-- colors using the Nintendo DS RGB555 channel layout (red 0..4, green 5..9,
+-- blue 10..14). Test vectors chosen to expose a red/blue swap: if decoder has
+-- R and B inverted, red becomes blue and vice versa.
+function T.palette_decodes_rgb555_with_correct_channel_order()
+  local function expand5(value)
+    return math.floor((value * 255 + 15) / 31)
+  end
+
+  -- Test colors with distinct R and B to catch swaps:
+  -- 0x001F: r5=31, g5=0, b5=0 -> pure red (255,0,0)
+  -- 0x7C00: r5=0, g5=0, b5=31 -> pure blue (0,0,255)
+  -- 0x0000 + (0x14 * 32): r5=0, g5=20, b5=0 -> green (0,~160,0)
+  -- Amber: r5=31, g5=20, b5=0 -> (255,~160,0) - HGSS field colors
+  local colors = {
+    0x001F, -- red
+    0x7C00, -- blue
+    0x03E0, -- green
+    0x001F + (0x14 * 32), -- amber (r=31, g=20, b=0)
+  }
+  local member = buildPalette(colors)
+  local palette = assert(FieldFontDecoder.decodePalette(member, {}))
+
+  Assert.equal(palette.colorCount, 4)
+
+  -- Entry 1: pure red (r5=31, g5=0, b5=0)
+  Assert.deepEqual(palette.colors[1], { r = 255, g = 0, b = 0 })
+
+  -- Entry 2: pure blue (r5=0, g5=0, b5=31)
+  Assert.deepEqual(palette.colors[2], { r = 0, g = 0, b = 255 })
+
+  -- Entry 3: pure green (r5=0, g5=31, b5=0)
+  Assert.deepEqual(palette.colors[3], { r = 0, g = 255, b = 0 })
+
+  -- Entry 4: amber (r5=31, g5=20, b5=0) - the critical test for HGSS correctness
+  local amberExpectedG = expand5(20)
+  Assert.deepEqual(
+    palette.colors[4],
+    { r = 255, g = amberExpectedG, b = 0 },
+    "amber palette must be red+green, not red+blue"
+  )
 end
 
 return { tests = T }

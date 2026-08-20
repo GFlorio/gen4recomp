@@ -228,7 +228,7 @@ end
 -- clips. Built fresh per call so a test can corrupt one field in isolation.
 local function nitroDescriptor()
   return {
-    schema = "g4-model-v3",
+    schema = "g4-model-v4",
     key = "outdoor:26:door",
     memberId = 26,
     kind = "nitro-dynamic",

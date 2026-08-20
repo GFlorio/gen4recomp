@@ -1,25 +1,30 @@
 -- Renders the signpost controller snapshot into the viewport's centered 4:3
--- reference frame: the HGSS signpost frame strip drawn by the audited
--- DrawFrameAndWindow3 tilemap (source types 0/1 additionally blit the
--- wayfinding row as a 6x4 grid and the divider tile 8), the shared
--- FieldTextRenderer glyph text, all translated by the logical wipe offset --
--- the whole signpost BG layer slides, and the hidden -48 position sits below
--- the screen. Per type geometry comes from the window style catalogue;
--- the strip and wayfinding rows are the generated field-UI manifest assets,
--- with the wayfinding row selected by the appearance's exact (type, map)
--- pair. Visibility is keyed on status().active, never on logicalYOffset
--- alone, so the wipe-out endpoint-check reset can never flash the cleared
--- window at the reset position. Interpolation between the previous and the
--- current fixed-tick offset uses the session render alpha, clamped into
--- [0, 1], and is a pure function of the controller's paired wipe history:
--- the renderer holds no interpolation state and never calls back into the
--- controller. Resolved style records are the catalogue's stored records
--- (never copies), so each draw resolves fresh without caching. Construction
--- is failure-safe: a missing strip or wayfinding atlas is a typed error, a
--- quad failure after the images were created releases them before
--- rethrowing, and draw() restores every graphics state it touched. The
--- runtime-validated manifest is injected explicitly; this renderer never
--- reloads it from the cache.
+-- reference frame: the source window pixel buffer filled with the active
+-- source type's own palette slot 15 (FillWindowPixelBuffer(window, 15)), the
+-- HGSS signpost frame strip drawn by the audited DrawFrameAndWindow3 tilemap
+-- (source types 0/1 additionally blit the precomposed 48x32 wayfinding
+-- surface and the divider tile 8), the shared FieldTextRenderer glyph text
+-- drawn through the palette-driven path against the source's fixed
+-- MAKE_TEXT_COLOR(2, 10, 15) slots of that same source-type palette (never
+-- the field font's own baked default color bands, and never a type-0
+-- fallback), all translated by the logical wipe offset -- the whole signpost
+-- BG layer slides, and the hidden -48 position sits below the screen. Per
+-- type geometry comes from the window style catalogue; the strip, wayfinding
+-- atlas, and per-type palette banks are the generated field-UI manifest
+-- assets, with the wayfinding surface selected by the appearance's exact
+-- (type, map) pair. Visibility is keyed on status().active, never on
+-- logicalYOffset alone, so the wipe-out endpoint-check reset can never flash
+-- the cleared window at the reset position. Interpolation between the
+-- previous and the current fixed-tick offset uses the session render alpha,
+-- clamped into [0, 1], and is a pure function of the controller's paired
+-- wipe history: the renderer holds no interpolation state and never calls
+-- back into the controller. Resolved style records are the catalogue's
+-- stored records (never copies), so each draw resolves fresh without
+-- caching. Construction is failure-safe: a missing strip or wayfinding atlas
+-- is a typed error, a quad failure after the images were created releases
+-- them before rethrowing, and draw() restores every graphics state it
+-- touched. The runtime-validated manifest is injected explicitly; this
+-- renderer never reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -30,6 +35,22 @@ local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
+-- The frame/palette bank used when a window is shown without a source
+-- appearance (a bare SHOW): a degenerate script state the engine's own
+-- machinery can reach even though no real signpost print leaves the type
+-- unset. Every generated manifest carries type 0 (the corpus's baseline
+-- full-width type), so this is always resolvable.
+local DEFAULT_SOURCE_TYPE = 0
+
+-- Sets the draw color from a generated 0..255 palette entry, at the given
+-- alpha (defaulting to opaque).
+---@param lg love.Graphics
+---@param color { r: integer, g: integer, b: integer }
+---@param alpha number?
+local function setColor255(lg, color, alpha)
+  lg.setColor(color.r / 255, color.g / 255, color.b / 255, alpha or 1)
+end
+
 ---@class FieldSignpostRenderer
 ---@field _graphics love.Graphics
 ---@field _windowStyles FieldWindowStyles
@@ -37,8 +58,8 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@field _manifest table the generated field-UI manifest
 ---@field _tilesImage love.Image? the signpost frame strip
 ---@field _wayfindingImage love.Image? the wayfinding atlas
----@field _tileQuads love.Quad[]? the 18 strip tile quads
----@field _wayfindingQuadCache table<string, love.Quad[]>|nil per-(type,map) row quads, built lazily
+---@field _frameQuadCache table<integer, love.Quad[]>|nil per-source-type frame quads, built lazily
+---@field _wayfindingQuadCache table<string, love.Quad>|nil per-(type,map) final-surface quad, built lazily
 local FieldSignpostRenderer = {}
 FieldSignpostRenderer.__index = FieldSignpostRenderer
 
@@ -70,7 +91,7 @@ function FieldSignpostRenderer.new(opts)
   )
   local text = opts.text
   assert(
-    text and type(text.drawLine) == "function" and type(text.drawFocusIndicator) == "function",
+    text and type(text.drawLineWithPalette) == "function" and type(text.drawFocusIndicator) == "function",
     "FieldSignpostRenderer requires the shared FieldTextRenderer"
   )
   local cacheFs = opts.cacheFs
@@ -92,10 +113,8 @@ function FieldSignpostRenderer.new(opts)
   local tilesPath = assert(tilesAsset.image, "the signpost tiles asset must name an image path")
   local wayfindingPath = assert(wayfindingAsset.image, "the wayfinding asset must name an image path")
   assert(
-    type(manifest.signposts) == "table"
-      and type(manifest.signposts.frame) == "table"
-      and type(manifest.signposts.frame.tiles) == "table",
-    "the field-UI manifest must carry the signpost frame section"
+    type(manifest.signposts) == "table" and type(manifest.signposts.types) == "table",
+    "the field-UI manifest must carry the signpost type map"
   )
 
   local self = setmetatable({
@@ -105,7 +124,7 @@ function FieldSignpostRenderer.new(opts)
     _manifest = manifest,
     _tilesImage = nil,
     _wayfindingImage = nil,
-    _tileQuads = nil,
+    _frameQuadCache = nil,
     _wayfindingQuadCache = nil,
   }, FieldSignpostRenderer)
 
@@ -128,7 +147,6 @@ function FieldSignpostRenderer.new(opts)
     self._tilesImage:setFilter("nearest", "nearest")
     self._wayfindingImage = graphics.newImage(love.filesystem.newFileData(wayfindingData, wayfindingPath))
     self._wayfindingImage:setFilter("nearest", "nearest")
-    self:_buildQuads()
   end)
   if not ok then
     self:release()
@@ -137,37 +155,46 @@ function FieldSignpostRenderer.new(opts)
   return self
 end
 
-function FieldSignpostRenderer:_buildQuads()
-  local lg = assert(self._graphics)
-  local tiles = assert(self._tilesImage)
-  local rect = assert(self._manifest.signposts.frame.tiles)
-  local tileQuads = {}
-  for tile = 0, rect.width / 8 - 1 do
-    tileQuads[tile] = lg.newQuad(rect.x + tile * 8, rect.y, 8, 8, tiles:getWidth(), tiles:getHeight())
-  end
-  self._tileQuads = tileQuads
-end
-
--- The 24 tile quads of one wayfinding row (the manifest rect for the exact
--- (type, map) pair). Built lazily per pair and cached, so a session that
--- only ever shows full-width signs never materializes the rows.
----@param key string the "type.map" pair
+-- The 18 frame-strip tile quads of one source type's row (the manifest's
+-- per-type `frameTiles` rect). Built lazily per type and cached, exactly like
+-- the wayfinding row cache below: a session that only ever shows one source
+-- type never materializes the others' quads.
+---@param sourceType integer
 ---@param rect { x: integer, y: integer, width: integer, height: integer }
 ---@return love.Quad[]
-function FieldSignpostRenderer:_wayfindingQuads(key, rect)
-  local cache = self._wayfindingQuadCache or {}
-  local quads = cache[key]
+function FieldSignpostRenderer:_frameQuads(sourceType, rect)
+  local cache = self._frameQuadCache or {}
+  local quads = cache[sourceType]
   if quads == nil then
     local lg = assert(self._graphics)
-    local image = assert(self._wayfindingImage)
+    local image = assert(self._tilesImage)
     quads = {}
     for tile = 0, rect.width / 8 - 1 do
       quads[tile] = lg.newQuad(rect.x + tile * 8, rect.y, 8, 8, image:getWidth(), image:getHeight())
     end
-    cache[key] = quads
+    cache[sourceType] = quads
+  end
+  self._frameQuadCache = cache
+  return quads
+end
+
+-- One quad for the precomposed 48x32 wayfinding surface of one
+-- (type, map) pair. Built lazily per pair and cached, so a session that
+-- only ever shows full-width signs never materializes the surface.
+---@param key string the "type.map" pair
+---@param rect { x: integer, y: integer, width: integer, height: integer }
+---@return love.Quad
+function FieldSignpostRenderer:_wayfindingQuad(key, rect)
+  local cache = self._wayfindingQuadCache or {}
+  local quad = cache[key]
+  if quad == nil then
+    local lg = assert(self._graphics)
+    local image = assert(self._wayfindingImage)
+    quad = lg.newQuad(rect.x, rect.y, rect.width, rect.height, image:getWidth(), image:getHeight())
+    cache[key] = quad
   end
   self._wayfindingQuadCache = cache
-  return quads
+  return quad
 end
 
 -- The wipe translation for this render: the current fixed-tick offset,
@@ -185,21 +212,44 @@ function FieldSignpostRenderer:_wipeY(status, alpha)
   return FieldSignpostTheme.wipeY(previous + (current - previous) * a)
 end
 
+-- The active source type's generated manifest entry (palette + frameTiles +
+-- optional wayfinding): a bare SHOW without a source appearance resolves the
+-- baseline DEFAULT_SOURCE_TYPE, exactly like the style-geometry fallback. No
+-- fallback to type 0 ever happens for a real appearance whose type the
+-- manifest cannot resolve -- that is a manifest/source-contract failure.
+---@param status FieldSignpostController.Status
+---@return table
+function FieldSignpostRenderer:_resolveType(status)
+  local types =
+    assert(self._manifest.signposts and self._manifest.signposts.types, "the manifest must carry signpost types")
+  local appearance = status.sourceAppearance
+  local sourceType = appearance and appearance.type or DEFAULT_SOURCE_TYPE
+  return assert(types[sourceType], "the generated manifest has no signpost type " .. tostring(sourceType))
+end
+
 -- Draws the signpost frame strip by the audited tilemap, and for source
--- types with a graphic region the wayfinding row (24 tiles as a 6x4 grid)
+-- types with a graphic region the precomposed 48x32 wayfinding surface
 -- plus the divider tile. The whole surface is translated by the wipe.
 
 ---@param status FieldSignpostController.Status
 ---@param graphicRegion FieldDialogueTheme.Rect? the type's wayfinding region
 ---@param wipe number
-function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe)
+---@param typeEntry table the active source type's generated manifest entry
+function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe, typeEntry)
   local lg = assert(self._graphics)
   local image = assert(self._tilesImage)
-  local tileQuads = assert(self._tileQuads)
+  local types =
+    assert(self._manifest.signposts and self._manifest.signposts.types, "the manifest must carry signpost types")
+  local appearance = status.sourceAppearance
+  local sourceType = typeEntry.sourceType
+  local frameQuads = self:_frameQuads(
+    sourceType,
+    assert(typeEntry.frameTiles, "signpost type " .. sourceType .. " carries no frameTiles")
+  )
   lg.setColor(1, 1, 1, 1)
   local kind = graphicRegion and "graphic" or "full"
   for _, placement in ipairs(FieldSignpostTheme.frameTilePlacements(kind)) do
-    local tile = assert(tileQuads[placement.tile])
+    local tile = assert(frameQuads[placement.tile])
     for row = 0, (placement.spanY or 1) - 1 do
       for col = 0, (placement.spanX or 1) - 1 do
         lg.draw(image, tile, placement.x + col * 8, placement.y + row * 8 + wipe)
@@ -207,12 +257,12 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe)
     end
   end
   if graphicRegion then
-    local appearance = assert(status.sourceAppearance)
-    local types =
-      assert(self._manifest.signposts and self._manifest.signposts.types, "the manifest must carry signpost types")
-    -- The exact (type, map) pair selects the row; a type requiring graphic
-    -- art without a manifest row for its pair is a manifest/source-contract
-    -- failure, never a fallback to another map's row.
+    -- graphicRegion only ever comes from style.types[appearance.type], so a
+    -- real source appearance is guaranteed here.
+    assert(appearance)
+    -- The exact (type, map) pair selects the manifest rect; a type requiring
+    -- graphic art without a manifest rect for its pair is a
+    -- manifest/source-contract failure, never a fallback to another map's rect.
     local manifestRect = types[appearance.type]
       and types[appearance.type].wayfinding
       and types[appearance.type].wayfinding[appearance.map]
@@ -225,39 +275,48 @@ function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe)
     )
     local wayfinding = assert(self._wayfindingImage)
     local key = appearance.type .. ":" .. appearance.map
-    local quads = self:_wayfindingQuads(key, manifestRect)
-    for _, placement in ipairs(FieldSignpostTheme.wayfindingPlacements(graphicRegion)) do
-      lg.draw(wayfinding, assert(quads[placement.tile]), placement.x, placement.y + wipe)
-    end
+    local quad = self:_wayfindingQuad(key, manifestRect)
+    lg.draw(wayfinding, quad, graphicRegion.x, graphicRegion.y + wipe)
   end
 end
 
--- Draws the signpost into viewport.referenceFrame. No-op (and no state
+-- Draws the signpost into viewport.referenceFrame at the field logical pixel
+-- scale (viewport:logicalPixelScale(camera.zoom)). No-op (and no state
 -- touched) when the controller is inactive or this renderer is disposed.
 -- Restores canvas, shader, scissor, blend, depth, wireframe, cull, and color
--- afterwards so the HUD and host overlays draw normally.
+-- afterwards so the HUD and host overlays draw normally. The fieldScale is
+-- presentation state, not controller state; it bottom-centers the 256x192
+-- surface and matches the world logical pixel scale. The wipe offset stays
+-- in logical pixels so it naturally scales with the surface.
 
 ---@param controller FieldSignpostController
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
 ---@param alpha number? session render interpolation factor, clamped into [0, 1]
-function FieldSignpostRenderer:draw(controller, viewport, alpha)
+---@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
+function FieldSignpostRenderer:draw(controller, viewport, alpha, fieldScale)
   if not controller or not self._tilesImage then
     return
   end
+  -- Inactive is a pure no-op and checks no scale precondition: the wipe-out
+  -- endpoint reset holds logicalYOffset 0 and must not touch graphics state.
   local status = controller:status()
-  -- The window is presented only while the controller owns it: keying on
-  -- status().active (never logicalYOffset alone) is what keeps the wipe-out
-  -- endpoint-check reset from flashing the cleared window at position 0.
-  -- An inactive draw touches no renderer state.
   if not status.active then
     return
   end
+  assert(
+    type(fieldScale) == "number"
+      and fieldScale > 0
+      and fieldScale == fieldScale
+      and fieldScale ~= math.huge
+      and fieldScale ~= -math.huge,
+    "FieldSignpostRenderer:draw requires a finite positive field scale"
+  )
   local lg = assert(self._graphics)
   FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the per-type geometry from the
     -- style catalogue is already reference-space, so nothing is scaled twice.
-    local layout = FieldDialogueTheme.layout(viewport.referenceFrame)
+    local layout = FieldDialogueTheme.layout(viewport.referenceFrame, fieldScale)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local wipe = self:_wipeY(status, alpha)
@@ -269,10 +328,34 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha)
     local typeRecord = appearance and style.types and style.types[appearance.type]
     local contentGeometry = (typeRecord and typeRecord.contentGeometry) or style.contentGeometry
     assert(contentGeometry ~= nil, "window style " .. tostring(status.styleId) .. " carries no content geometry")
-    self:_drawFrame(status, typeRecord and typeRecord.graphicRegion, wipe)
+
+    -- The active source type's own palette (never the field font's baked
+    -- default), resolved once and shared by the interior fill and the
+    -- palette-driven text below.
+    local typeEntry = self:_resolveType(status)
+    local textColors = assert(self._manifest.signposts.textColors, "the manifest must carry signposts.textColors")
+    local background = assert(typeEntry.palette[textColors.background], "signpost type has no background slot")
+
+    -- The source window pixel buffer is filled with the sign's own palette
+    -- slot 15 before anything else draws (DialogBox_DrawFrameWithWayfindingGraphic:
+    -- FillWindowPixelBuffer(window, 15)); contentGeometry already excludes the
+    -- left wayfinding graphic region for source types 0/1, so the fill never
+    -- overwrites it.
+    setColor255(lg, background, 1)
+    lg.rectangle("fill", contentGeometry.x, contentGeometry.y + wipe, contentGeometry.width, contentGeometry.height)
+
+    self:_drawFrame(status, typeRecord and typeRecord.graphicRegion, wipe, typeEntry)
+
+    -- Sign text sources MAKE_TEXT_COLOR(2, 10, 15) against the active sign
+    -- palette, never the field font's own baked color bands.
+    local textPalette = {
+      foreground = assert(typeEntry.palette[textColors.foreground], "signpost type has no foreground slot"),
+      shadow = assert(typeEntry.palette[textColors.shadow], "signpost type has no shadow slot"),
+      background = background,
+    }
     local lineY = contentGeometry.y + wipe
     for _, tokens in ipairs(status.visibleLines) do
-      self._text:drawLine(tokens, contentGeometry.x, lineY)
+      self._text:drawLineWithPalette(tokens, contentGeometry.x, lineY, textPalette)
       lineY = lineY + FieldSignpostTheme.LINE_HEIGHT
     end
     self:_drawFocusIndicator(status, contentGeometry, wipe)
@@ -308,7 +391,7 @@ function FieldSignpostRenderer:release()
     self._wayfindingImage:release()
   end
   self._tilesImage, self._wayfindingImage = nil, nil
-  self._tileQuads, self._wayfindingQuadCache = nil, nil
+  self._frameQuadCache, self._wayfindingQuadCache = nil, nil
 end
 
 return FieldSignpostRenderer

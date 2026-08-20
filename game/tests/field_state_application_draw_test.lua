@@ -11,6 +11,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
+local FieldViewport = require("libs.engine.src.FieldViewport")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 
@@ -91,6 +92,8 @@ local function drawableState(options)
   -- The runtime owns the one Start Menu placement record the draw path
   -- consumes; the fake supplies it exactly like the production runtime does.
   local placement = StartMenuLayout.resolve(topology, { x = 0, y = 0, width = 640, height = 480 })
+  local viewport = FieldViewport.new(640, 480, { mode = "expanded" })
+  viewport.worldViewport = worldViewport
   local runtime = {
     errorText = nil,
     runtimeMap = {
@@ -114,8 +117,8 @@ local function drawableState(options)
         return 0.5
       end,
     },
-    viewport = { width = 640, height = 480, worldViewport = worldViewport },
-    camera = {},
+    viewport = viewport,
+    camera = { zoom = 1 },
     transition = { fadeAlpha = 0 },
     dialogue = {
       isModal = function()

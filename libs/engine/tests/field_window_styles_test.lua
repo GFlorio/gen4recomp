@@ -71,7 +71,7 @@ end
 -- not hard-coded source types.
 function T.tests.wayfinding_presence_in_the_manifest_drives_the_graphic_region()
   local manifest = FieldUiFixture.manifest()
-  manifest.signposts.types[5].wayfinding = { [0] = { x = 0, y = 24, width = 192, height = 8 } }
+  manifest.signposts.types[5].wayfinding = { [0] = { x = 0, y = 24, width = 48, height = 32 } }
   local signpost = assert(stylesFromManifest(manifest):resolve(FieldWindowStyles.BUILTIN.SIGNPOST))
   Assert.deepEqual(
     signpost.types[5].contentGeometry,

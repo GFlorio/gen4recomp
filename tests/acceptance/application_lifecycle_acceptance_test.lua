@@ -158,9 +158,19 @@ function T.tests.the_production_trainer_card_journey_runs_without_injected_appli
     waitForMenu(game, 16)
     Assert.equal(FieldSave.canCapture(runtime.session), false, "the open menu must block save capture")
     local actions = menuActions(game)
-    Assert.equal(#actions, 1, "the unlocked trainer card must be the only interactive destination")
-    Assert.equal(actions[1].id, CARD_ACTION, "the visible action must be the production trainer card")
-    Assert.equal(actions[1].targetApplication, CARD_APPLICATION, "the action must target the production trainer card")
+    local enabledActions = {}
+    for _, action in ipairs(actions) do
+      if action.enabled then
+        enabledActions[#enabledActions + 1] = action
+      end
+    end
+    Assert.equal(#enabledActions, 1, "the unlocked trainer card must be the only enabled interactive destination")
+    Assert.equal(enabledActions[1].id, CARD_ACTION, "the enabled action must be the production trainer card")
+    Assert.equal(
+      enabledActions[1].targetApplication,
+      CARD_APPLICATION,
+      "the action must target the production trainer card"
+    )
     Assert.equal(#audioEffects(game), 0, "opening the menu must not request any UI sound")
     local pausedAtOpen = game:snapshot().player
     assertPausedAt(pausedAtOpen, game, "the open menu")
@@ -215,8 +225,18 @@ function T.tests.the_production_trainer_card_journey_runs_without_injected_appli
     waitForMenu(game, 64)
     Assert.equal(#audioEffects(game), 0, "the menu rebuild must not request any UI sound")
     local rebuilt = menuActions(game)
-    Assert.equal(#rebuilt, 1, "the rebuilt menu must present the trainer card action again")
-    Assert.equal(rebuilt[1].id, CARD_ACTION, "the rebuilt action must still be the production trainer card")
+    local rebuiltEnabled = {}
+    for _, action in ipairs(rebuilt) do
+      if action.enabled then
+        rebuiltEnabled[#rebuiltEnabled + 1] = action
+      end
+    end
+    Assert.equal(#rebuiltEnabled, 1, "the rebuilt menu must have the trainer card as the only enabled action")
+    Assert.equal(
+      rebuiltEnabled[1].id,
+      CARD_ACTION,
+      "the rebuilt enabled action must still be the production trainer card"
+    )
     assertPausedAt(pausedAtOpen, game, "the rebuilt menu")
 
     -- The menu-key close: no cancel sound fires, the host returns to the

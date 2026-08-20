@@ -12,9 +12,9 @@ The pipeline has four stages:
 1. **Parse** raw Nitro formats (`Nsbmd`, `Nsbtx`, `GxDisplayList`) independently
    of LÖVE.
 2. **Compile** a map + its placed buildings into derived, content-addressed
-   assets: `g4-map-scene-v6` descriptors, `G4M2` mesh batches, and PNG textures.
+   assets: `g4-map-scene-v7` descriptors, `G4M2` mesh batches, and PNG textures.
 3. **Load** the derived cache into runtime GPU objects (`MapSceneLoader`).
-4. **Draw** with the DS-shaped shader and render queue (`MapRenderer`).
+4. **Draw** with the DS-shaped shaders and render queue (`MapRenderer`).
 
 A field-time change updates only uniforms; it never reparses, recompiles, or
 rebuilds meshes.
@@ -172,15 +172,26 @@ The `G4M2` batch format stores this in a 40-byte stride:
 
 ## Alpha classification and fragment contract
 
-A batch is classified into one of four ordering classes:
+`AlphaClassifier.classify(polygonAlpha, polygonMode, textureFormat,
+alphaUsage)` classifies a batch into one of five ordering classes, driven by
+the fragment's own exact final alpha5, never by texture storage format alone
+(a texture format such as A3I5/A5I3 describes storage capability, not the
+alpha distribution of a particular decoded texture, and DECAL ignores texture
+alpha for final alpha entirely):
 
 | condition | class |
 | --- | --- |
 | `polygonAlpha == 0` | `wireframe` |
 | `polygonAlpha < 31` | `translucent` |
-| texture format 1 (A3I5) or 6 (A5I3) | `translucent` |
-| texture alpha has zero and no partial | `cutout` |
+| `polygonMode == decal` (final alpha is polygon alpha, texture alpha irrelevant) | `opaque` |
+| MODULATE, texture alpha usage has both partial and fully-opaque texels | `mixed` |
+| MODULATE, texture alpha usage has partial but no fully-opaque texels | `translucent` |
+| MODULATE, texture alpha usage has a zero texel (no partial) | `cutout` |
 | otherwise | `opaque` |
+
+A `mixed` batch draws through both the opaque and translucent subpasses (see
+"Shared full-resolution rasters" below): each fragment's own exact final alpha5 decides
+which subpass's write, if any, survives at that fragment.
 
 The RGB fragment combiner is the DS integer-domain equation (GBATEK's
 MODULATE/DECAL blending modes, transcribed in `map.glsl`'s
@@ -208,15 +219,21 @@ when the final 5-bit alpha is zero, implemented as `alpha < 0.5 / 255`.
 
 ## Render passes
 
-`RenderQueue` partitions draws into opaque / cutout / translucent / wireframe.
-Opaque and cutout keep submission order with depth test/write. Translucent draws
-are sorted back-to-front in view space (submission position breaks ties) and honor
-the polygon bit-11 translucent depth-write flag. Wireframe edges are drawn with
-opaque alpha after the filled passes. `FieldState` supplies ordered arrays of
-map geometry, buildings, neighbour-ring draws, and actors. `RenderQueue`
-traverses those parts with one monotonically increasing submission position,
-so cross-part tie ordering is established without flattening or stamping the
-draw items. `MapRenderer` owns and reuses the queue scratch arrays.
+`RenderQueue` partitions draws into opaque / cutout / mixedOpaque / wireframe
+(each an array of original items, submission order preserved) plus one joint
+`blended` list of decorated pass records (`{item, fragmentPass, viewZ,
+position}`, never a field stamped onto the original item). `blended` holds
+both ordinary translucent items and a mixed item's translucent subpass,
+sorted together back-to-front in view space (submission position breaks
+ties) and honoring the polygon bit-11 translucent depth-write flag. Wireframe
+edges are drawn with opaque alpha after the filled passes, in both the color
+and state passes. `FieldState` supplies ordered arrays of map geometry,
+buildings, neighbour-ring draws, and actors. `RenderQueue` traverses those
+parts with one monotonically increasing submission position, so cross-part
+tie ordering is established without flattening or stamping the draw items.
+`MapRenderer` owns and reuses the queue scratch arrays, and builds the queue
+exactly once per frame for both the state and color passes to share (see
+"Shared full-resolution rasters" above).
 
 ## Edge marking
 
@@ -236,23 +253,168 @@ The edge predicate is the DS rule, not a linear-eye-space heuristic: a pixel
 is an edge when an orthogonal neighbor's polygon ID differs from the
 center's AND the center is strictly in front of that neighbor
 (`edge.glsl`'s `marked` test, table-indexed by `centerPolygonId >> 3`). The
-compared depth is a quantized 24-bit domain, derived from the same
-W-buffer-shaped value the shader also stores; there is no
+compared depth is the DS 24-bit Z-buffer domain, derived from the same
+value the shader also stores (see "Render-state depth" below); there is no
 `DEPTH_STEP_TOLERANCE` fudge factor. An edge pixel's output is hardware-style
 RGB replacement (`vec4(edgeColor, scene.a)`), never an alpha-mix with the
 scene color, and there is no separate edge-opacity uniform.
 
-The opaque polygon ID, the DS-quantized depth, and the per-polygon fog gate
-are three independent logical attributes, carried as separate channels of one
-`rgba32f` attachment (`finalState`: R = polygon ID, G = depth, B = fog gate,
-A = validity) rather than one value overloaded to mean several things.
-Opaque, cutout, and wireframe fragments write their own real 0..63 polygon ID
-into R -- there is no invented sentinel value. Ordinary non-depth-writing
-translucent fragments do not write `finalState` at all: `MapRenderer` binds a
-narrower render-target set for the translucent pass (scene color plus the
-shared depth buffer, omitting `finalState`), so the opaque/cutout state
-underneath a translucent fragment survives untouched, matching DS behavior
-for a fragment that never updates the depth/attribute buffers.
+The opaque polygon ID, the DS-quantized depth, the per-polygon fog gate, and
+the last translucent ID are carried as separate channels of one `rgba32f`
+attachment (`renderState`: R = opaque polygon ID / 63, G = DS Z depth as an
+integer-valued float, B = fog gate 0 or 1, A = last translucent ID encoding --
+0 means none, `(id + 1) / 64` means ID 0..63). The `1/64` steps are exactly
+representable in binary floating point, so the A encoding is exact. The
+clear/rear-plane state is `{63/63, 0xFFFFFF, 0, 0}`. Opaque, cutout,
+mixed-opaque, and wireframe fragments write their own real 0..63 polygon ID
+into R and reset A to 0, because the new top opaque pixel has no accepted
+translucent overlay yet; there is no invented sentinel value. Ordinary
+translucent state is maintained by the programmable compositor below, not by
+the state pass.
+
+## Shared full-resolution rasters
+
+Color rendering and DS render state (the polygon ID/depth/fog-gate attribute
+above, plus edge-marking coverage/validity) are two separate geometry passes
+over one shared full-resolution raster domain -- state classification is never
+deliberately downsampled:
+
+* **`sceneColor` + `colorDepth`** (`map.glsl`): the presentation color raster,
+  always exactly the viewport size (`colorW = displayW`, `colorH = displayH`
+  -- no reduced-resolution/nearest-upscaled world raster). Every DS
+  RGB/alpha combiner and lighting computation happens here; the shader owns
+  no polygon-ID/fog-gate output at all.
+* **`renderState` + `stateDepth`** (`state.glsl`): the render-state raster,
+  allocated at the exact same dimensions and screen coverage as `sceneColor`
+  (`stateW = colorW`, `stateH = colorH` at every host size). This shader
+  computes the same exact final alpha5 as `map.glsl` (for the MODULATE/DECAL
+  discard predicates) but does no lighting, no fog, and no edge search -- only
+  geometry/UV/final-alpha/state.
+
+### Render-state depth
+
+The field camera selects DS Z buffering: `Camera_ApplyPerspectiveType`
+(pokeheartgold `src/camera.c`) sets `gG3dDepthBufferingMode =
+GX_BUFFERMODE_Z` for both the perspective and orthographic field cameras, and
+`fieldmap.c` passes that mode to the buffer swap (`RequestSwap3DBuffers`/
+`G3_SwapBuffers`), so melonDS follows the non-W branch of
+`GPU3D::SubmitPolygon` for HGSS field polygons. The render state's green
+channel is therefore the DS Z-buffer conversion of the host fragment's
+normalized window depth (`state.glsl`'s `dsZbufferDepth`, evaluated from
+`gl_FragCoord.z` in `[0,1]`):
+
+```text
+ndcZ   = 2 * windowZ - 1
+ndc14  = trunc_toward_zero(ndcZ * 0x4000)
+dsZ    = clamp((ndc14 + 0x3FFF) * 0x200, 0, 0xFFFFFF)
+```
+
+GLSL's float-to-int conversion truncates toward zero, matching the signed
+quotient behavior of the formula's NDC scale. The clear/rear plane remains
+the 24-bit maximum `0xFFFFFF` even though a geometry fragment at
+`windowZ == 1` maps to `0xFFFE00` under the formula (see "Edge marking"
+above); edge marking and fog consume these integer-valued G-channel depths
+directly, with no camera-far rescaling. This depth-domain conversion is
+exact per the pinned melonDS formula, but projection, rasterization, and
+interpolation remain host-side -- this is not bit-exact DS rasterization (see
+"Exact versus approximate behavior" below).
+
+`MapRenderer:draw` builds the render queue exactly once per frame
+(`RenderQueue.buildInto`) and both passes consume it, selecting projection
+identically per item (`item.billboardProjection and billboardProjection or
+worldProjection`) -- map geometry, buildings, the neighbour ring, and actor
+billboards are all ordinary shared queue items in both passes; no object
+class chooses its own raster resolution or skips a pass. The state pass
+draws opaque, then cutout, then mixed-opaque (discard-unless-alpha31), then
+wireframe. The color pass draws the same opaque/cutout/mixed-opaque items at
+full resolution, then executes the programmable translucent compositor
+(see below), then wireframe on the composited result.
+
+Both target sets are allocated transactionally by one `MapRenderer:_ensureTargets`
+call: eight canvases (`sceneColor`, `colorDepth`, `renderState`, `stateDepth`,
+one spare color/state pair, and the source fragment color/meta buffers) are
+staged before anything published is touched. A failed allocation releases only
+the staged canvases and leaves the previous live set and its recorded
+dimensions completely untouched. Final-resolve state uniforms are sent when
+the active pair is known, not during target construction.
+
+### Mixed final-alpha materials
+
+A MODULATE material at polygon alpha 31 whose texture mixes fully opaque,
+fully transparent, and partially transparent texels (`AlphaClassifier.MIXED`)
+cannot be described as wholly opaque or wholly translucent by texture format
+alone -- texture storage format (e.g. A3I5/A5I3) describes capability, not the
+alpha distribution of a particular decoded texture, and DECAL ignores texture
+alpha for final alpha entirely. Such a material draws twice in the color pass
+(once as `mixedOpaque`, once in the joint `blended` list via the compositor)
+and once in the state pass (`mixedOpaque` only): each fragment's own exact
+final alpha5 (not a float-epsilon comparison) decides which pass's write, if
+any, survives -- alpha 0 discards everywhere, alpha 31 is opaque in both
+color and state, and alpha 1-30 blends through the compositor in color and
+contributes translucent state, not opaque state.
+
+### Programmable translucent compositor
+
+Fixed-function host alpha blending cannot reproduce DS translucent semantics:
+a translucent fragment must read per-pixel state (the last translucent ID for
+same-ID rejection), blend with exact integer DS RGB6/alpha5 arithmetic
+(including `max` destination alpha), and mutate state (fog-gate `AND` and last
+translucent ID). The compositor is a ping-pong read-modify-write:
+
+* The published color/state pair and one spare full-resolution color/state pair
+  (`rgba32f` for state and the 24-bit depth) alternate as active and inactive
+  destinations, plus the shared `colorDepth` attachment and two temporary
+  source-fragment buffers (color `rgba8` and metadata `rgba32f` carrying the
+  valid flag, fog flag, and source polygon ID).
+* For each `RenderQueue.blended` entry in its existing deterministic order,
+  the renderer rasterizes only that item's accepted translucent or
+  mixed-translucent fragments into the source buffers. Both source passes
+  depth-test against the opaque pass's shared `colorDepth`; both source passes
+  use `less` with depth writes disabled. The supported field contract rejects
+  `translucentDepthWrite=true` at asset validation, so translucent source never
+  mutates host depth.
+* A full-screen composite shader then applies the exact integer blend/state
+  equations only where source valid is true (otherwise copying the destination
+  unchanged) into the inactive pair, then the pairs swap.
+* After the loop, wireframe color drawing binds the active color with the
+  shared `colorDepth` attachment; the active state is not a second color
+  target. The final resolve then samples the same active pair, so final color
+  and state remain aligned. No pass samples and writes the same target in one
+  draw (no feedback hazard). The composite and the source rasterization both
+  use `replace` semantics -- the composite does not
+  apply a second host alpha blend to already-computed output, and ordinary
+  translucent/mixed-translucent entries share this same compositor path.
+
+Exact `GX_SORTMODE_AUTO` polygon ordering remains approximate: the compositor
+preserves the current deterministic `RenderQueue.blended` back-to-front order
+and does not implement the hardware's automatic translucent sort.
+
+### Final resolve
+
+`edge.glsl` samples `sceneColor` (its full-resolution `tex` input) and
+`renderState` (a same-resolution sampler) together: because the two rasters
+share one-to-one screen coverage, every fragment's state sample snaps/clamps
+to the render-state pixel center via an explicit `statePixelCenter` -- never
+texture-clamp behavior -- and an out-of-bounds neighbour probe returns the
+same rear-plane state (`MapRenderer.DS_STATE_CLEAR`) a real off-screen sample
+would. The four orthogonal neighbour probes (never diagonals) sit at a
+distance of one integer edge radius, `u_edgeRadiusPx`, which `MapRenderer`
+derives each frame from the field logical pixel scale
+(`FieldViewport:logicalPixelScale(camera.zoom)` =
+`(referenceFrame.height / 192) * zoom`, rounded to the nearest integer,
+minimum 1) -- so DS-relative edge width is a sampling distance over the
+full-resolution state, not a block of host pixels owned by one coarse state
+texel. Ordering is strictly: scene RGB -> edge detection -> fog each candidate
+(scene candidate `S -> Sf` and, when marked, edge candidate
+`E = {edgeRGB, S.alpha} -> Ef` using the center state's single depth and fog
+gate with the existing integer RGB6/alpha5 fog arithmetic) -> current
+antialias approximation when marked (`u_antialiasEnabled`: `mix(Sf, Ef, 0.5)`
+when true, matching the project's current 50% approximation, or `Ef` when
+false). No-edge pixels receive `Sf`. Fog alpha is resolved before the mix.
+Both candidates share the center state -- a single depth/fog state limitation
+versus a future exact path that would fog distinct top and lower buffers
+before coverage. The approximation does not claim exact DS lower-pixel
+coverage -- output.
 
 ## Billboards
 
@@ -335,7 +497,9 @@ actors draw with the world projection, exactly as on the DS.
 * `COLOR` bypasses lighting; `NORMAL` triggers it; `DIF_AMB` bit 15 seeds the
   current color from diffuse.
 * Polygon alpha zero → wireframe; alpha 1-30 → translucent.
-* A3I5/A5I3 → translucent; binary zero-alpha → cutout.
+* Final-alpha-aware classification (opaque/cutout/translucent/mixed), never
+  texture storage format alone (see "Alpha classification and fragment
+  contract" above).
 * Culling from polygon bits 6-7.
 * Translucent bit-11 depth writes.
 * MODULATE/DECAL fragment combiner in the DS integer domain, not floating
@@ -343,8 +507,12 @@ actors draw with the world projection, exactly as on the DS.
 * The real HGSS field edge-color tables, per-area table selection, the
   strict DS edge predicate/depth representation, RGB-replacement edge
   compositing, the clear/rear-plane polygon ID (63, HGSS's real value, not an
-  invented sentinel), and the opaque-ID/depth/fog-gate `finalState` attribute
-  split (see "Edge marking" above).
+  invented sentinel), and the opaque-ID/depth/fog-gate `renderState` attribute
+  split, rasterized at the same full resolution as the color raster (see
+  "Edge marking" and "Shared full-resolution rasters" above).
+* HGSS field 3D anti-aliasing's current 50% edge-coverage approximation
+  (half of each fogged candidate at a marked edge -- the project's approximation,
+  not exact DS lower-pixel coverage -- see "Final resolve" above).
 * Sampler wrap normalization (clamp, repeat, and mirrored repeat via
   `TEXIMAGE_PARAM` flip bits, mapped to LÖVE's `mirroredrepeat` wrap mode)
   and nearest-neighbor texture/presentation filtering, matching the DS's own
@@ -353,8 +521,9 @@ actors draw with the world projection, exactly as on the DS.
   melonDS's exact slope-aware density-table interpolation (endpoint
   duplication, the `>>2`/shift/`>>17` sequencing, the 127->128 saturation),
   and the post-combiner RGB and alpha blend (`/128`, not `/127`), applied in
-  the final full-screen pass (`edge.glsl`, after edge marking) from the
-  DS-quantized depth the edge predicate also reads. The per-map/weather
+  the final full-screen pass (`edge.glsl`, per candidate before the current
+  50% approximation) from the
+  DS Z-buffer depth the edge predicate also reads. The per-map/weather
   source of the fog color/table/offset/slope/alpha is real: `HgssFieldFog`
   resolves each map's HGSS `weatherId` (0-13) to the exact steady-state
   overlay-01 preset (`ov01_021EC94C`/`ov01_021ECD08`/`ov01_021ED0F0`/
@@ -380,62 +549,80 @@ actors draw with the world projection, exactly as on the DS.
 * Scene / G4M2 / cache explicit versioning and invalidation (see "Cache
   invalidation" below for the current version identities).
 
+### Implemented exactly
+
+* Same-ID translucent self-blend rejection, exact integer RGB6/alpha5 blend
+  with `w = srcAlpha5 + 1` and `max` destination alpha, fog-gate `AND`, and
+  last-translucent-ID state via the programmable ping-pong compositor
+  (see above) -- no host fixed-function alpha blend remains for
+  translucency; mixed-alpha partial texels use the same compositor.
+* Exact DS vertex lighting, MODULATE/DECAL combiner, render-state depth,
+  fog density, and the compositor's state contract described above.
+
 ### Deferred / approximate
 
 These are documented rather than silently approximated. If a target map needs
 one, the compiler raises a structured error instead of rendering incorrectly.
 
-* Polygon-ID same-ID translucent self-blend rejection: the DS rule (a
-  translucent fragment must not blend against a prior fragment sharing its
-  own polygon ID) is not implemented by the renderer (no auxiliary
-  compositor exists, and no corpus content has been found to produce that
-  overdraw pattern).
-* Bit-exact translucent RGB blend: the host's `"alpha"`/`"alphamultiply"`
-  blend mode reproduces the DS blend equation's shape
-  (`Dst' = Src*SrcAlpha + Dst*(1-SrcAlpha)`), but it weights with continuous
-  host alpha rather than the DS's 5-bit `(alpha5+1)/32` weighting and divide,
-  so the composited result is structurally equivalent, not bit-exact.
+* Exact DS antialias lower-pixel coverage: the final pass keeps the project's
+  current 50% approximation (half of each fogged candidate, both sharing the
+  center depth/fog state) rather than generating exact DS edge coverage from a
+  lower-pixel buffer. Future work can add a lower-pixel state buffer and fog
+  its candidates independently before coverage.
 * Exact DS automatic translucent Y sorting: HGSS field content is confirmed
   (via decomp) to genuinely use `GX_SORTMODE_AUTO`, but the exact hardware
   vertex-selection rule was never independently confirmed against melonDS, so
   the renderer keeps the pre-existing approximate object-center-Z
-  back-to-front sort rather than tuning an unconfirmed rule.
-* Destination-alpha accumulation (`max(SrcAlpha, DstAlpha)`) during the
-  translucent pass: the RGB blend equation matches the DS blend shape, but
-  successive translucent draws accumulate alpha with the host's ordinary
-  "over" blend, not the DS `max` rule. The final full-screen pass does read
-  and correctly fog-blend whatever alpha the scene canvas holds, and its own
-  RGB/alpha output is written verbatim to the screen -- that later step is
-  exact relative to the alpha value it receives, but is not proof that the
-  translucent pass's own destination-alpha accumulation was DS-exact.
+  back-to-front sort rather than tuning an unconfirmed rule. The programmable
+  compositor preserves this current-project ordering and does not claim
+  hardware-exact automatic sort.
 * Runtime weather-ID overrides: HGSS rewrites the map's base `weatherId`
-  before resolving fog in four cases (Mt. Silver Cave Summit forces Diamond
-  Dust on specific RTC calendar dates; a Lake of Rage save flag forces
-  weather 0; Defog forces weather 9 to 0; an active Flash-move forces weather
-  11 to 12). `HgssFieldFog` implements only the steady-state
-  `weatherId -> FogPreset` table itself; none of the four overrides are wired,
-  since they need RTC/save-flag plumbing that does not exist yet in this
-  engine.
+  before resolving fog in four ordered cases, implemented here via the
+  generated `g4-field-weather-v1` catalog (`data/generated/field/weather/catalog.lua`,
+  `FieldWeatherCache` / `DerivedAssetContract.fieldWeather`):
+
+  1. Mt. Silver Cave Summit (map 465) on one of eight Diamond Dust dates
+     (Jan 1, Jan 31, Feb 1, Feb 29, Mar 15, Oct 10, Dec 3, Dec 31) with
+     `hasPenalty == false` becomes weather 8;
+  2. Lake of Rage (map 88) when event variable `0x4037 == 0xF229` becomes
+     weather 0;
+  3. when the current weather is 9 and `FLAG_SYS_DEFOG` (2420) is set,
+     becomes weather 0;
+  4. when the current weather is 11 and `FLAG_SYS_FLASH` (2419) is set,
+     becomes weather 12.
+
+  The resolver (`FieldWeatherResolver`) folds the catalog's `rules` array in
+  serialized order, applying each rule to the current weather (later rules
+  consume earlier rewrites, not the base independently). The effective
+  weather is computed once per map activation (fresh boot, resume, prepared
+  and committed warp destination) via an injected `weatherClock: { today(),
+  hasPenalty() }` sampled per activation, not per frame/draw/tick; the
+  production default reads the host local calendar and reports no RTC penalty
+  (broader anti-clock penalty detection is deferred). The selected fog is
+  `scene.fog` when the effective ID equals the base, otherwise the catalog
+  preset for the effective ID; `scene` remains `g4-map-scene-v7`. Weather
+  particles and screen effects (rain, snow, diamond-dust particles,
+  blizzard, sandstorm) are not implemented — only effective-weather
+  selection and fog state.
 * Fog's depth *input*: the final pass's density interpolation itself is exact
   melonDS sequencing (offset subtraction, the preset's own slope applied as
   the density shift exponent, `>>17` interval/fraction math, endpoint
-  duplication, 127->128 saturation) -- there is no more fixed 32-way split.
-  What remains approximate is the depth *value* fed into that interpolation:
-  it is this engine's existing camera-far-normalized W-buffer proxy
-  (`dsWbufferDepth`, shared with edge marking), not melonDS's real per-polygon
-  W-buffer value. melonDS normalizes `DepthBuffer` per polygon by that
-  polygon's own clip-space W bit-width (`GPU3D::SubmitPolygon`'s `wsize`), a
-  data-dependent quantity with no camera/scene-level constant equivalent
-  reachable from this engine's host-float projection pipeline; reproducing it
-  exactly would mean tracking each mesh's own clip-space W range and deriving
-  a matching per-draw normalization, which is a generic DS geometry-engine
-  feature this renderer does not implement. Absolute fog boundaries (how far
-  away fog visibly starts/reaches full density) are therefore approximate,
-  not exact, even though the interpolation math applied to that depth is.
-* `depthEqual`/`translucentDepthWrite`: never exercised anywhere in the
-  target field corpus; `PolygonState.validate` raises
-  `POLYGON_STATE_DEPTH_EQUAL_UNSUPPORTED` rather than approximating the DS
-  Z/W "equal" tolerance with the host's `lequal` compare.
+  duplication, 127->128 saturation) -- there is no more fixed 32-way split,
+  and the depth fed into that interpolation is the state G channel's DS
+  Z-buffer value (see "Render-state depth" above), consumed directly with no
+  camera-far rescaling. What remains approximate is the depth's *production*,
+  not its domain: the host projects, rasterizes, and interpolates in float,
+  and the DS Z conversion is applied to the host fragment's window depth --
+  it is not bit-exact DS fixed-point clipping and subpixel rasterization, so
+  absolute fog boundaries (how far away fog visibly starts/reaches full
+  density) can still differ from the DS by a rounding step even though the
+  depth-domain conversion itself is exact and the interpolation math applied
+  to it is.
+* `depthEqual` and `translucentDepthWrite`: never exercised anywhere in the
+  target field corpus. `PolygonState.validate` rejects both true values with
+  dedicated unsupported-state errors rather than approximating them with host
+  depth behavior. The compositor preserves state G and updates only fog gate B
+  and last-translucent-ID A.
 * Shadow polygons and the `toon`/`highlight` polygon modes: absent from the
   full HeartGold field corpus census (every material resolves to
   `modulation`); compilation fails with `MAP_COMPILE_UNSUPPORTED_POLYGON_MODE`
@@ -458,7 +645,7 @@ Derived map caches carry the persisted format/schema identities:
 
 ```lua
 MapAssetCache.FORMAT              = "map-cache-v7"
-scene.schema                      = "g4-map-scene-v6"
+scene.schema                      = "g4-map-scene-v7"
 terrain.schema                    = "g4-terrain-surfaces-v1"
 collision version                 = 1
 VertexFormat.VERSION              = 2

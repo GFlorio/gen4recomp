@@ -95,7 +95,7 @@ function T.palette_chunk_decodes_15bit_colors()
   Assert.equal(#pal.colors, 3)
   Assert.deepEqual(pal.colors[1], { r = 255, g = 255, b = 255 })
   Assert.deepEqual(pal.colors[2], { r = 0, g = 0, b = 0 })
-  Assert.deepEqual(pal.colors[3], { r = 0, g = 0, b = 255 })
+  Assert.deepEqual(pal.colors[3], { r = 255, g = 0, b = 0 })
 end
 
 -- KBEC: one metatile with two OBJs. Payload: numCells(2), entrySize(2),

@@ -1,11 +1,12 @@
 -- Pure FieldSignpostTheme tests: the signpost frame tilemap (the
 -- DrawFrameAndWindow3 composition; the graphic kind adds the divider tile 8
--- to the full-width frame), the wayfinding 6x4 grid blit, and the wipe
--- translation sign -- the hidden -48 BG offset shifts the surface 48px below
--- the bottom of the screen (DS BG y-scroll sign), so the renderer translates
--- by the negation. The full-width placements are the shared DrawFrameAndWindow2
--- tilemap already pinned by field_dialogue_theme_test.lua; this suite pins
--- only what is signpost-specific.
+-- to the full-width frame), and the wipe translation sign -- the hidden -48
+-- BG offset shifts the surface 48px below the bottom of the screen (DS BG
+-- y-scroll sign), so the renderer translates by the negation. The full-width
+-- placements are the shared DrawFrameAndWindow2 tilemap already pinned by
+-- field_dialogue_theme_test.lua; this suite pins only what is signpost-specific.
+-- The precomposed wayfinding graphic is a single 48x32 surface; the theme
+-- owns its graphic width for the divider placement.
 
 local Assert = require("tests.support.Assert")
 local FieldSignpostTheme = require("libs.engine.src.FieldSignpostTheme")
@@ -54,27 +55,23 @@ function T.rejects_an_unknown_frame_kind()
   end, "unknown frame kinds must be rejected")
 end
 
--- The wayfinding row (24 tiles, sub_0200EF84) blits as a 6x4 grid: atlas
--- tile row*6+col lands at (region.x + col*8, region.y + row*8).
-function T.wayfinding_placements_blit_the_24_tile_row_as_a_6x4_grid()
-  local region = { x = 16, y = 152, width = 56, height = 32 }
-  local placements = FieldSignpostTheme.wayfindingPlacements(region)
-  Assert.equal(#placements, 24)
-  for _, placement in ipairs(placements) do
-    local row = math.floor(placement.tile / 6)
-    local col = placement.tile % 6
-    Assert.equal(placement.x, region.x + col * 8, "grid column placement")
-    Assert.equal(placement.y, region.y + row * 8, "grid row placement")
-  end
-  Assert.equal(placements[1].tile, 0)
-  Assert.equal(placements[7].tile, 6, "row 1 starts after the six row-0 tiles")
-  Assert.equal(placements[24].tile, 23)
+function T.wayfinding_graphic_width_is_48()
+  Assert.equal(FieldSignpostTheme.WAYFINDING_WIDTH, 48, "precomposed surface is 48px wide")
+  Assert.equal(FieldSignpostTheme.WAYFINDING_HEIGHT, 32, "precomposed surface is 32px tall")
 end
 
-function T.wayfinding_placements_require_a_region_big_enough_for_the_grid()
-  Assert.throws(function()
-    FieldSignpostTheme.wayfindingPlacements({ x = 16, y = 152, width = 40, height = 32 })
-  end, "a region narrower than the 48px grid must be rejected")
+function T.divider_sits_right_of_the_48px_wayfinding_graphic()
+  local box = FieldSignpostTheme.WINDOW_BOX
+  local graphic = FieldSignpostTheme.frameTilePlacements("graphic")
+  local divider = nil
+  for _, placement in ipairs(graphic) do
+    if placement.tile == 8 then
+      divider = placement
+      break
+    end
+  end
+  divider = assert(divider)
+  Assert.equal(divider.x, box.x + FieldSignpostTheme.WAYFINDING_WIDTH, "divider at graphic x+48")
 end
 
 -- The wipe translation sign: the BG y-scroll register is set to the logical

@@ -28,7 +28,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field cursor { width: integer, height: integer, offsetX: integer, offsetY: integer, blinkTicks: integer }
 ---@field colors { cursor: number[] }
 ---@field frameTilePlacements fun(box: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
----@field layout fun(referenceFrame: FieldDialogueTheme.Rect): FieldDialogueTheme.Layout
+---@field layout fun(referenceFrame: FieldDialogueTheme.Rect, fieldScale: number): FieldDialogueTheme.Layout
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
 ---@field measureText fun(fontDef: FieldFontDef): fun(text: string): number
 local FieldDialogueTheme = {}
@@ -114,21 +114,43 @@ function FieldDialogueTheme.frameTilePlacements(box)
   }
 end
 
--- Reference-to-screen mapping for one viewport. The reference canvas scales
--- uniformly into the centered 4:3 referenceFrame, so wide hosts keep the box
--- inside the canonical frame. All geometry is returned in
+-- Reference-to-screen mapping for one viewport. The canonical 256x192
+-- surface is scaled by the field logical pixel scale — the same
+-- FieldViewport:logicalPixelScale(camera.zoom) used for world presentation —
+-- and bottom-centered in the 4:3 referenceFrame, so zoom and resize
+-- compensation affect world and field-attached UI together and wide hosts
+-- keep the UI inside the canonical frame. All geometry is returned in
 -- reference-canvas coordinates; the renderer applies origin + scale once.
 -- Never return screen-mapped rects here: draw() applies the transform, and
 -- double mapping pushes the box off-screen.
 
 ---@param referenceFrame FieldDialogueTheme.Rect
+---@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom)), must be finite > 0
 ---@return FieldDialogueTheme.Layout
-function FieldDialogueTheme.layout(referenceFrame)
+function FieldDialogueTheme.layout(referenceFrame, fieldScale)
   assert(
-    type(referenceFrame) == "table" and referenceFrame.width > 0,
+    type(referenceFrame) == "table"
+      and type(referenceFrame.x) == "number"
+      and type(referenceFrame.y) == "number"
+      and type(referenceFrame.width) == "number"
+      and type(referenceFrame.height) == "number"
+      and referenceFrame.width > 0
+      and referenceFrame.height > 0,
     "FieldDialogueTheme.layout requires a reference frame"
   )
-  local scale = referenceFrame.width / FieldDialogueTheme.referenceWidth
+  assert(
+    type(fieldScale) == "number"
+      and fieldScale > 0
+      and fieldScale == fieldScale
+      and fieldScale ~= math.huge
+      and fieldScale ~= -math.huge,
+    "FieldDialogueTheme.layout requires a finite positive field scale"
+  )
+  local scale = fieldScale
+  local origin = {
+    x = referenceFrame.x + (referenceFrame.width - FieldDialogueTheme.referenceWidth * scale) / 2,
+    y = referenceFrame.y + referenceFrame.height - FieldDialogueTheme.referenceHeight * scale,
+  }
   local box = {
     x = FieldDialogueTheme.box.x,
     y = FieldDialogueTheme.box.y,
@@ -143,7 +165,7 @@ function FieldDialogueTheme.layout(referenceFrame)
   }
   return {
     scale = scale,
-    origin = { x = referenceFrame.x, y = referenceFrame.y },
+    origin = origin,
     box = box,
     text = text,
     cursor = {

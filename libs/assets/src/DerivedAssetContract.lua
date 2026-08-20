@@ -7,6 +7,31 @@
 -- constant; compiler implementation versions are deliberately absent (producer
 -- freshness belongs to the romdump source fingerprint).
 --
+-- revision 2: the compiled NSBTP payload drops the redundant
+-- keyCount/numTextures/numPalettes counts (sampler and gate trust the
+-- arrays).
+--
+-- map sceneSchema 7: map/neighbor terrain batches can now serialize
+-- alphaClass = "mixed" (AlphaClassifier v2: a MODULATE polygon at alpha 31
+-- with both opaque and partial texture alpha texels splits into an opaque
+-- and a translucent subpass instead of being forced wholly translucent).
+--
+-- fieldActors schema 2: the visual definition's render.alphaClass now comes
+-- from AlphaClassifier v2 (polygon-mode-aware, final-alpha-driven
+-- classification); the vocabulary a stale v1 cache could have baked in is
+-- no longer trustworthy.
+--
+-- fieldUi schema 6: wayfinding rects become final 48x32 surfaces. Each
+-- (type, map) rect is a 6x4 arrangement (48px wide, 32px tall) composed at
+-- build time from the original 24 8x8 tiles, instead of a raw 192x8 strip.
+--
+-- fieldUi schema 5: signposts.types entries gain per-type palette banks
+-- (one 16-color table per source type) and per-type frameTiles rectangles.
+-- The old global signposts.frame.tiles authority is removed. Each type's
+-- frame strip uses its own palette for precolored rendering. signposts
+-- gains textColors (the foreground/shadow/background palette slots), so
+-- text rendering no longer has to hardcode the source's fixed 2/10/15 slots.
+--
 -- fieldUi schema 4: the manifest drops the per-frame dialogueFrames.palettes
 -- records (the palette colors are baked into the compiled frame-strip PNG;
 -- no runtime consumer exists).
@@ -38,14 +63,14 @@ DerivedAssetContract.map = {
   -- the per-polygon fog gate (fogEnabled, PolygonState.FIELDS), and scenes
   -- carry the map's base weather ID plus its resolved global HGSS fog preset
   -- (scene.weatherId, scene.fog).
-  sceneSchema = "g4-map-scene-v6",
+  sceneSchema = "g4-map-scene-v7",
   terrainSchema = "g4-terrain-surfaces-v1",
   collisionVersion = 1,
 }
 
 DerivedAssetContract.fieldActors = {
   cacheFormat = "field-actor-cache-v1",
-  schema = "g4-field-actor-v1",
+  schema = "g4-field-actor-v2",
   indexSchema = "g4-field-actor-index-v1",
 }
 
@@ -75,9 +100,13 @@ DerivedAssetContract.messages = {
   provenanceSchema = "g4-field-message-provenance-v1",
 }
 
+-- v3: the font class gains a required semantic glyph mask atlas (categorical
+-- foreground/shadow/background classes, distinct from the composited RGB
+-- atlas) so palette-driven presentation can recolor glyphs against an
+-- arbitrary runtime palette instead of the font's own baked color bands.
 DerivedAssetContract.font = {
-  cacheFormat = "field-font-cache-v2",
-  schema = "g4-field-font-v2",
+  cacheFormat = "field-font-cache-v3",
+  schema = "g4-field-font-v3",
 }
 
 DerivedAssetContract.scripts = {
@@ -86,9 +115,14 @@ DerivedAssetContract.scripts = {
   provenanceSchema = "g4-script-provenance-v1",
 }
 
+DerivedAssetContract.fieldWeather = {
+  cacheFormat = "field-weather-cache-v1",
+  schema = "g4-field-weather-v1",
+}
+
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
-  schema = "g4-field-ui-v4",
+  schema = "g4-field-ui-v6",
 }
 
 DerivedAssetContract.audio = {

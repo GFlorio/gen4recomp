@@ -1,5 +1,10 @@
 -- Compiles the HGSS field font (font 0) into a private glyph atlas PNG, a
--- focus-indicator PNG, and the g4-field-font-v2 definition. Glyph tiles and
+-- semantic glyph mask atlas PNG, a focus-indicator PNG, and the
+-- g4-field-font-v3 definition. The mask atlas repeats the composited atlas's
+-- base-band glyph geometry once, encoding each glyph pixel's raw 0..3 class
+-- categorically (0 transparent, 1 red foreground, 2 green shadow, 3 blue
+-- background) instead of a baked color, so a palette-driven draw path can
+-- recolor glyphs against any runtime palette. Glyph tiles and
 -- the width table come from NARC_graphic_font member 0 (src/font_data.c); the
 -- screen-focus indicator set the YESNO printer control blits comes from member
 -- 6 (the GfGfxLoader_GetCharData payload, decoded as NCGR char data); colors
@@ -27,6 +32,25 @@ local GLYPH_SIZE = 16
 local FOCUS_FRAME_WIDTH = FieldFontCache.FOCUS_FRAME_WIDTH
 local FOCUS_FRAME_HEIGHT = FieldFontCache.FOCUS_FRAME_HEIGHT
 local FOCUS_TILES_PER_FRAME = math.floor(FOCUS_FRAME_WIDTH / 8) * math.floor(FOCUS_FRAME_HEIGHT / 8)
+
+-- Categorical (never colorimetric) encoding of one raw glyph pixel value for
+-- the semantic mask atlas: 0 transparent, 1 foreground (red marker), 2 shadow
+-- (green marker), 3 background (blue marker). A palette-driven draw path
+-- reads these exact channels, never a fuzzy RGB match.
+---@param value integer
+---@return integer, integer, integer, integer
+local function glyphMaskRgba(value)
+  if value == 0 then
+    return 0, 0, 0, 0
+  elseif value == 1 then
+    return 255, 0, 0, 255
+  elseif value == 2 then
+    return 0, 255, 0, 255
+  elseif value == 3 then
+    return 0, 0, 255, 255
+  end
+  error("glyph mask value outside 0..3")
+end
 
 local function must(value, err)
   if value == nil then
@@ -177,6 +201,32 @@ local function compileFont(romFs, source, sha1hex, hashLua)
   end
   local atlasBytes = PngWriter.encode(width, height, concatRgba(rgba))
 
+  -- The semantic glyph mask atlas: one copy of the base glyph geometry (no
+  -- stacked color bands -- glyph class is source-fixed, not color-band
+  -- dependent) encoding the raw 0..3 pixel value categorically rather than
+  -- colorimetrically, so a palette-driven draw path can recover which class
+  -- each pixel belongs to regardless of any baked RGB.
+  local maskRgba = {}
+  for i = 1, width * baseHeight * 4 do
+    maskRgba[i] = 0
+  end
+  for glyphIndex = 0, font.numGlyphs - 1 do
+    local glyph = glyphPixels[glyphIndex + 1]
+    local baseX = (glyphIndex % perRow) * GLYPH_SIZE
+    local baseY = math.floor(glyphIndex / perRow) * GLYPH_SIZE
+    for y = 0, 15 do
+      for x = 0, 15 do
+        local r, g, b, a = glyphMaskRgba(glyph.values[y + 1][x + 1])
+        local offset = ((baseY + y) * width + baseX + x) * 4
+        maskRgba[offset + 1] = r
+        maskRgba[offset + 2] = g
+        maskRgba[offset + 3] = b
+        maskRgba[offset + 4] = a
+      end
+    end
+  end
+  local maskAtlasBytes = PngWriter.encode(width, baseHeight, concatRgba(maskRgba))
+
   -- Indicator frames composite from the same palette: pixel value 0 is the
   -- shape's empty background (and the field-window background slot stays
   -- transparent, mirroring the glyph atlas), every other value keeps its
@@ -281,6 +331,7 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     schema = FieldFontCache.SCHEMA,
     fontId = fontId,
     atlasPath = FieldFontCache.atlasPath(fontId),
+    maskAtlasPath = FieldFontCache.maskAtlasPath(fontId),
     lineHeight = font.fixedHeight,
     maxLetterHeight = font.fixedHeight,
     letterSpacing = 0,
@@ -331,6 +382,7 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     marker = marker,
     font = fontDef,
     atlas = atlasBytes,
+    maskAtlas = maskAtlasBytes,
     focusIndicators = focusIndicatorsBytes,
     dependencies = dependencies,
   }
@@ -363,22 +415,24 @@ function FieldFontCompiler.compile(romFs, sha1hex, hashLua)
   error(result)
 end
 
--- The compiled font class: the g4-field-font-v2 definition, the glyph atlas
--- PNG, the focus-indicator PNG, and the cache marker derived from every
--- source dependency.
+-- The compiled font class: the g4-field-font-v3 definition, the glyph atlas
+-- PNG, the semantic glyph mask atlas PNG, the focus-indicator PNG, and the
+-- cache marker derived from every source dependency.
 
 ---@class FieldFontCompiler.Bundle
 ---@field fontId integer
 ---@field marker string
 ---@field font FieldFontDef
 ---@field atlas string
+---@field maskAtlas string
 ---@field focusIndicators string
 ---@field dependencies table
 
--- The g4-field-font-v2 runtime definition consumed by the dialogue layout and
+-- The g4-field-font-v3 runtime definition consumed by the dialogue layout and
 -- renderer: geometry, per-code glyph quads/advances, the stacked color-band
--- metadata, the focus-indicator frame rects, the text-to-code charmap, the
--- 16-color palette, and source provenance.
+-- metadata, the semantic glyph mask atlas path, the focus-indicator frame
+-- rects, the text-to-code charmap, the 16-color palette, and source
+-- provenance.
 
 ---@class FieldFontDef
 ---@field schema string
@@ -388,6 +442,8 @@ end
 ---@field letterSpacing integer
 ---@field glyphCount integer
 ---@field fallbackCode integer
+---@field atlasPath string
+---@field maskAtlasPath string
 ---@field atlas { width: integer, height: integer, baseHeight: integer, glyphsPerRow: integer, glyphWidth: integer, glyphHeight: integer }
 ---@field colorVariants { count: integer, strideY: integer }
 ---@field focusIndicators { imagePath: string, count: integer, width: integer, height: integer, frames: table<integer, { x: integer, y: integer, width: integer, height: integer }> }

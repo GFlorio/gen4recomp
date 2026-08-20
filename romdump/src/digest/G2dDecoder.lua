@@ -10,6 +10,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
+local Rgb555 = require("libs.codec.src.Rgb555")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 
 local G2dDecoder = {}
@@ -294,14 +295,7 @@ function G2dDecoder.decodePalette(data, opts)
     local colors = {}
     for i = 0, colorCount - 1 do
       local word = reader:u16le(blk.payload + dataOffset + i * 2)
-      local function expand(v)
-        return math.floor((v * 255 + 15) / 31)
-      end
-      colors[i + 1] = {
-        r = expand(math.floor(word / 1024) % 32),
-        g = expand(math.floor(word / 32) % 32),
-        b = expand(word % 32),
-      }
+      colors[i + 1] = Rgb555.decode(word)
     end
     return { colors = colors }
   end)

@@ -32,7 +32,11 @@ local ModelAsset = {}
 
 -- v3: every batch record carries fogEnabled (PolygonState.FIELDS), the
 -- per-polygon fog gate the map shader now reads.
-ModelAsset.SCHEMA = "g4-model-v3"
+--
+-- v4: every dynamic material record carries polygonMode (the real decoded DS
+-- polygon mode), so the runtime evaluator can classify final alpha
+-- (AlphaClassifier v2) without a placeholder mode.
+ModelAsset.SCHEMA = "g4-model-v4"
 ModelAsset.KINDS = { static = true, ["nitro-dynamic"] = true }
 
 -- Structured error code owned by this module.
@@ -49,6 +53,20 @@ local WRAP_MODES = { clamp = true, ["repeat"] = true }
 
 -- The render classification vocabulary of the dynamic material contract.
 local ALPHA_MODES = { opaque = true, mask = true, blend = true }
+
+-- The DS polygon modes the dynamic compiler emits (NsbmdDynamicModel); toon
+-- and shadow never reach an animated material.
+local DYNAMIC_POLYGON_MODES = { modulation = true, decal = true }
+
+local TEXTURE_FORMATS = {
+  [1] = true,
+  [2] = true,
+  [3] = true,
+  [4] = true,
+  [5] = true,
+  [6] = true,
+  [7] = true,
+}
 
 local function invalid(reason, context)
   Errors.raise(ModelAsset.ERROR_INVALID, "model descriptor is malformed: " .. reason, {
@@ -76,21 +94,41 @@ local function checkFlip(m, where, desc)
 end
 
 -- The texture binding metadata: a bound texture carries its format (both
--- paths) and, for dynamic materials, its alpha usage; untextured materials
--- carry none (the compiler emits the trio together).
+-- paths) and, for dynamic materials, its alpha usage; untextured dynamic
+-- materials carry none (the compiler emits the trio together).
+local function checkAlphaUsage(alphaUsage, where, desc)
+  if type(alphaUsage) ~= "table" then
+    invalid(where .. " texture requires alphaUsage", desc.key)
+  end
+  for _, field in ipairs({ "hasZero", "hasPartial", "hasOpaque" }) do
+    if type(alphaUsage[field]) ~= "boolean" then
+      invalid(where .. " texture alphaUsage." .. field .. " must be a boolean", desc.key)
+    end
+  end
+end
+
+local function checkTextureFormat(textureFormat, where, desc)
+  if not (isInteger(textureFormat) and TEXTURE_FORMATS[textureFormat]) then
+    invalid(where .. " texture carries an unsupported textureFormat", desc.key)
+  end
+end
+
 local function checkTextureBinding(m, where, desc, requireAlphaUsage)
   if m.texture ~= nil then
     if type(m.texture) ~= "string" or #m.texture == 0 then
       invalid(where .. " material has a non-string texture path", desc.key)
     end
-    if not (isInteger(m.textureFormat) and m.textureFormat >= 0) then
-      invalid(where .. " material texture carries no textureFormat", desc.key)
+    checkTextureFormat(m.textureFormat, where, desc)
+    if requireAlphaUsage then
+      checkAlphaUsage(m.alphaUsage, where .. " material", desc)
     end
-    if requireAlphaUsage and (type(m.alphaUsage) ~= "table" or type(m.alphaUsage.hasZero) ~= "boolean") then
-      invalid(where .. " material texture carries no alphaUsage", desc.key)
+  else
+    if m.textureFormat ~= nil then
+      invalid(where .. " material carries a textureFormat without a texture", desc.key)
     end
-  elseif m.textureFormat ~= nil then
-    invalid(where .. " material carries a textureFormat without a texture", desc.key)
+    if requireAlphaUsage and m.alphaUsage ~= nil then
+      invalid(where .. " material carries alphaUsage without a texture", desc.key)
+    end
   end
 end
 
@@ -130,9 +168,23 @@ local function checkVariants(m, where, desc)
       if variant.texture ~= nil and type(variant.texture) ~= "string" then
         invalid(where .. " material variant has a non-string texture path", desc.key)
       end
-      for _, field in ipairs({ "width", "height" }) do
-        if variant[field] ~= nil and not (type(variant[field]) == "number" and variant[field] >= 0) then
-          invalid(where .. " material variant " .. variant.name .. " " .. field .. " must be non-negative", desc.key)
+      local variantWhere = where .. " material variant " .. variant.name
+      if variant.texture ~= nil then
+        if #variant.texture == 0 then
+          invalid(variantWhere .. " has an empty texture path", desc.key)
+        end
+        checkTextureFormat(variant.textureFormat, variantWhere, desc)
+        for _, field in ipairs({ "width", "height" }) do
+          if not (isInteger(variant[field]) and variant[field] > 0) then
+            invalid(variantWhere .. " " .. field .. " must be a positive integer", desc.key)
+          end
+        end
+        checkAlphaUsage(variant.alphaUsage, variantWhere, desc)
+      else
+        for _, field in ipairs({ "width", "height", "textureFormat", "alphaUsage" }) do
+          if variant[field] ~= nil then
+            invalid(variantWhere .. " carries texture metadata without a texture", desc.key)
+          end
         end
       end
     end
@@ -220,6 +272,9 @@ local function checkDynamicMaterial(m, where, desc)
   checkColors(m, where, desc, true)
   if not ALPHA_MODES[m.alphaMode] then
     invalid(where .. " material alphaMode must be opaque, mask, or blend", desc.key)
+  end
+  if not DYNAMIC_POLYGON_MODES[m.polygonMode] then
+    invalid(where .. " material polygonMode must be modulation or decal", desc.key)
   end
   if type(m.doubleSided) ~= "boolean" then
     invalid(where .. " material doubleSided must be a boolean", desc.key)

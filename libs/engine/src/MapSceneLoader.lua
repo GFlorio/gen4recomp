@@ -39,7 +39,6 @@
 -- renderable the moment load returns.
 
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
@@ -186,7 +185,6 @@ local function buildScene(pool, cacheFs, scene, opts)
       lightMask = batch.lightMask,
       polygonAlpha = batch.polygonAlpha / FixedPoint.RGB5_MAX,
       alphaClass = batch.alphaClass,
-      alphaCutoff = AlphaClassifier.CUTOUT_EPSILON,
       fogEnabled = batch.fogEnabled,
     }
   end
@@ -225,7 +223,6 @@ local function buildScene(pool, cacheFs, scene, opts)
       billboardScale = billboardScale,
       alphaClass = state.alphaClass,
       cullMode = state.cullMode,
-      alphaCutoff = state.alphaCutoff,
       polygonAlpha = state.polygonAlpha,
       polygonMode = state.polygonMode,
       lightMask = state.lightMask,

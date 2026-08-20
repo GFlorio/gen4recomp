@@ -281,7 +281,12 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
       -- format, not a fabricated zero).
       local alphaClass
       if material.textureFormat ~= nil then
-        alphaClass = AlphaClassifier.classify(baseState.polygonAlpha, material.textureFormat, material.alphaUsage)
+        alphaClass = AlphaClassifier.classify(
+          baseState.polygonAlpha,
+          material.polygonMode,
+          material.textureFormat,
+          material.alphaUsage
+        )
       end
       materialState[materialIndex] = {
         texture = nil,
@@ -302,7 +307,7 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
         colorAnimated = colorAnimated,
         polygonAlpha = baseState.polygonAlpha,
         texMatrix = texMatrix,
-        alphaClass = AlphaClassifier.classify(baseState.polygonAlpha, tex.format, tex.alphaUsage),
+        alphaClass = AlphaClassifier.classify(baseState.polygonAlpha, material.polygonMode, tex.format, tex.alphaUsage),
       }
     end
   end

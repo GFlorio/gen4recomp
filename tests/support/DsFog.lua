@@ -35,14 +35,14 @@
 -- `expandedEntry` below.
 --
 -- `z` (the function's sole numeric input besides the offset/shift/table) is
--- the renderer's `dsWbufferDepth` quantized value -- a camera.far-normalized
--- proxy for real DS W-buffer depth, not an exact reproduction of it (see
--- libs/engine/src/shaders/map.glsl's dsWbufferDepth header and
--- docs/rendering.md's approximate-features table for why an exact
--- per-polygon W-buffer scale cannot be established without a full DS
--- fixed-point geometry-engine emulation). This module only reproduces the
--- density/blend arithmetic that consumes that proxy; it takes no position on
--- what the proxy itself should be.
+-- the renderer's DS Z-buffer depth: the integer-valued 24-bit state G value
+-- state.glsl derives from the host fragment's normalized window depth using
+-- the HGSS field Z-buffer mapping (windowZ -> ndcZ = 2*windowZ - 1, ndcZ
+-- scaled by 0x4000 with truncation toward zero, +0x3FFF, *0x200, clamped to
+-- 0..0xFFFFFF). The fog offset/shift/table domains all use this same 24-bit
+-- Z domain directly. This module only reproduces the density/blend
+-- arithmetic that consumes that depth; it takes no position on how the depth
+-- itself is produced.
 --
 -- The final RGB/alpha blend (SoftRenderer3D::RenderPixel's post-density
 -- step) divides by 128 (density is 0..128), not 127:
@@ -65,11 +65,11 @@ local function expandedEntry(table32, idx)
   return table32[clamped]
 end
 
--- `z`: the fragment's dsWbufferDepth-domain quantized depth (see module
--- header). `fogOffsetRaw`: the preset's raw G3X FOG_OFFSET field, not yet
--- multiplied by 0x200. `fogShift`: the preset's slope field, used directly as
--- the RenderFogShift exponent. `table32`: the preset's 32-entry raw density
--- bytes (0..255), 1-indexed.
+-- `z`: the fragment's DS Z-buffer depth, the integer-valued 24-bit state G
+-- value (see module header). `fogOffsetRaw`: the preset's raw G3X FOG_OFFSET
+-- field, not yet multiplied by 0x200. `fogShift`: the preset's slope field,
+-- used directly as the RenderFogShift exponent. `table32`: the preset's
+-- 32-entry raw density bytes (0..255), 1-indexed.
 ---@param z number
 ---@param fogOffsetRaw number
 ---@param fogShift number

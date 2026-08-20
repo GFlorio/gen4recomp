@@ -12,16 +12,6 @@ local T = {
   tests = {},
 }
 
-local ALL_APPLICATIONS = {
-  pokedex = true,
-  pokemon = true,
-  bag = true,
-  pokegear = true,
-  trainer_card = true,
-  save = true,
-  options = true,
-}
-
 local FULL_FACTS = {
   hasPokedex = true,
   hasStarter = true,
@@ -42,25 +32,30 @@ function T.tests.the_id_table_carries_exactly_the_implemented_destination_set()
 end
 
 -- Every destination the policy routes is drawn from the centralized table:
--- with all applications registered, the final action list's targetApplication
--- values are exactly the FieldApplicationIds set.
+-- with full source facts, every "application" action's targetApplication is
+-- a member of the FieldApplicationIds set (the seven application actions
+-- plus the two pokegear specials; non-application actions have no target).
 function T.tests.policy_routes_only_centralized_application_ids()
-  local actions = StartMenuPolicy.availableActions(FULL_FACTS, function(applicationId)
-    return ALL_APPLICATIONS[applicationId] == true
-  end)
-  Assert.equal(#actions, 9, "the seven application actions plus the two pokegear specials are interactive")
+  local actions = StartMenuPolicy.actions(FULL_FACTS)
+  local applicationActions = 0
   for _, action in ipairs(actions) do
-    local centralized = false
-    for _, id in pairs(FieldApplicationIds) do
-      if id == action.targetApplication then
-        centralized = true
+    if action.actionKind == "application" then
+      applicationActions = applicationActions + 1
+      local centralized = false
+      for _, id in pairs(FieldApplicationIds) do
+        if id == action.targetApplication then
+          centralized = true
+        end
       end
+      Assert.isTrue(
+        centralized,
+        "the policy must route only centralized application ids, got: " .. tostring(action.targetApplication)
+      )
+    else
+      Assert.isNil(action.targetApplication, "a non-application action has no target application")
     end
-    Assert.isTrue(
-      centralized,
-      "the policy must route only centralized application ids, got: " .. tostring(action.targetApplication)
-    )
   end
+  Assert.equal(applicationActions, 9, "the seven application actions plus the two pokegear specials route somewhere")
 end
 
 return T

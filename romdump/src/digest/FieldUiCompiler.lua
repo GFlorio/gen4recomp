@@ -1,11 +1,12 @@
 -- Compiles the generated HGSS field-UI class: the Start Menu background and
 -- cursor, the twenty user dialogue frames, the corpus signpost frame and
 -- wayfinding graphics, and the Trainer Card front — all as decoded PNG
--- atlases and the strict g4-field-ui-v3 manifest. Source member selection
--- lives in romdump/src/config/FieldUiAssets.lua; this module owns the HGSS
--- decode and the normalized bundle. The runtime consumes only the manifest
--- and the generated files, never this module. Pure module: no love
--- dependency.
+-- atlases and the strict manifest. Wayfinding members are precomposed
+-- into final 48x32 surfaces (6 by 4 tiles) at build time so runtime draws
+-- a single rect. Source member selection lives in
+-- romdump/src/config/FieldUiAssets.lua; this module owns the HGSS decode
+-- and the normalized bundle. The runtime consumes only the manifest and
+-- the generated files, never this module. Pure module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
@@ -145,15 +146,6 @@ local function renderScreen(charData, palette, screen, source)
     end
   end
   return PngWriter.encode(width, height, concatChars(rgba))
-end
-
--- Render a tile run (e.g. a frame's 18 tiles) into a strip atlas.
-local function renderTiles(charData, palette, tileCount, atlasWidth, source)
-  local rgba = newRgba(atlasWidth, 8)
-  for tile = 0, tileCount - 1 do
-    blitTile(rgba, atlasWidth, tile * 8, 0, charData, tile, 0, palette, false, false, source)
-  end
-  return PngWriter.encode(atlasWidth, 8, concatChars(rgba))
 end
 
 local function cellBounds(cell)
@@ -405,21 +397,90 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
       }
     )
   end
+
+  -- v5: extract per-source-type 16-color palette banks from the palette member.
+  local function signPaletteBank(colors, sourceType)
+    local base = sourceType * 16
+    local bank = {}
+
+    for slot = 0, 15 do
+      local color = colors[base + slot + 1]
+      if not color then
+        Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "signpost palette does not contain the source type bank", {
+          sourceType = sourceType,
+          slot = slot,
+          requiredColorIndex = base + slot,
+          availableColors = #colors,
+        })
+      end
+
+      bank[slot] = {
+        r = color.r,
+        g = color.g,
+        b = color.b,
+      }
+    end
+
+    return bank
+  end
+
+  -- blitTile's palette argument is a 1-based array; the generated manifest
+  -- keeps the clear zero-based slot map, so callers convert at the point of
+  -- use.
+  local function paletteAsOneBasedArray(bank)
+    local array = {}
+    for slot = 0, 15 do
+      array[slot + 1] = bank[slot]
+    end
+    return array
+  end
+
+  -- v5: render one frame strip row per source type using its own palette.
+  local frameRowYs = {}
+  local frameAtlasHeight = #cfg.sourceTypes * 8
+  local frameAtlasWidth = frameTiles * 8
+  local frameRgba = newRgba(frameAtlasWidth, frameAtlasHeight)
+
+  for rowIndex, sourceType in ipairs(cfg.sourceTypes) do
+    local paletteOneBasedArray = paletteAsOneBasedArray(signPaletteBank(framePal.colors, sourceType))
+
+    for tile = 0, frameTiles - 1 do
+      blitTile(
+        frameRgba,
+        frameAtlasWidth,
+        tile * 8,
+        (rowIndex - 1) * 8,
+        frameChar,
+        tile,
+        0,
+        paletteOneBasedArray,
+        false,
+        false,
+        {
+          asset = "signpost frame",
+          member = cfg.frameMember,
+          sourceType = sourceType,
+        }
+      )
+    end
+
+    frameRowYs[sourceType] = (rowIndex - 1) * 8
+  end
+
   local framePath = FieldUiAssetCache.assetDir() .. "/signpost-tiles.png"
-  assets[framePath] = renderTiles(frameChar, framePal.colors, frameTiles, frameTiles * 8, {
-    asset = "signpost frame",
-    member = cfg.frameMember,
-  })
-  manifestAssets[FieldUiAssetCache.ASSET.SIGNPOST_TILES] = { image = framePath, width = frameTiles * 8, height = 8 }
+  assets[framePath] = PngWriter.encode(frameAtlasWidth, frameAtlasHeight, concatChars(frameRgba))
+  manifestAssets[FieldUiAssetCache.ASSET.SIGNPOST_TILES] =
+    { image = framePath, width = frameAtlasWidth, height = frameAtlasHeight }
+
   -- The whole-archive hash intentionally invalidates on any signpost member
   -- change; the per-wayfinding-member hashes below additionally pin each
   -- selected (type, map) row individually.
   deps[#deps + 1] = { name = manifestConfig.signposts.alias .. ":narc", sha1 = sha1hex(archiveBytes) }
 
-  -- Wayfinding: the selected (type, map) members stacked in a shared atlas,
-  -- one row per pair. Every member is pinned to the fixed 24-tile contract
-  -- (the real dump's 24 tiles = 192 px wide), so the row width is fixed, not
-  -- derived from the first member.
+  -- Wayfinding: each selected (type, map) member precomposed into a
+  -- final 48x32 surface (6 columns x 4 rows, 8px per tile). Every member
+  -- is pinned to the fixed 24-tile contract, so the final geometry is
+  -- fixed and the atlas stacks one 48x32 entry per pair.
   local wayfindingPath = FieldUiAssetCache.assetDir() .. "/wayfinding-tiles.png"
   local wayfinding = {}
   local rows = {}
@@ -451,33 +512,62 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
           }
         )
       end
-      rows[#rows + 1] = { key = key, member = member, bytes = wfBytes, char = wfChar }
+      rows[#rows + 1] = { key = key, sourceType = sourceType, member = member, bytes = wfBytes, char = wfChar }
     end
   end
-  local rowWidth = FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES * 8
-  local atlasHeight = #rows * 8
-  local rgba = newRgba(rowWidth, atlasHeight)
+  local finalWidth = FieldUiAssetCache.GEOMETRY.WAYFINDING_WIDTH
+  local finalHeight = FieldUiAssetCache.GEOMETRY.WAYFINDING_HEIGHT
+  local atlasHeight = #rows * finalHeight
+  local rgba = newRgba(finalWidth, atlasHeight)
   for index, row in ipairs(rows) do
     local wfChar = row.char
+    local paletteOneBasedArray = paletteAsOneBasedArray(signPaletteBank(framePal.colors, row.sourceType))
+
     for tile = 0, FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES - 1 do
-      blitTile(rgba, rowWidth, tile * 8, (index - 1) * 8, wfChar, tile, 0, framePal.colors, false, false, {
-        asset = "wayfinding " .. row.key,
-        member = row.member,
-      })
+      local destCol = tile % FieldUiAssetCache.GEOMETRY.WAYFINDING_COLUMNS
+      local destRow = math.floor(tile / FieldUiAssetCache.GEOMETRY.WAYFINDING_COLUMNS)
+      blitTile(
+        rgba,
+        finalWidth,
+        destCol * 8,
+        (index - 1) * finalHeight + destRow * 8,
+        wfChar,
+        tile,
+        0,
+        paletteOneBasedArray,
+        false,
+        false,
+        {
+          asset = "wayfinding " .. row.key,
+          member = row.member,
+        }
+      )
     end
-    wayfinding[row.key] = { x = 0, y = (index - 1) * 8, width = rowWidth, height = 8 }
+    wayfinding[row.key] = { x = 0, y = (index - 1) * finalHeight, width = finalWidth, height = finalHeight }
     deps[#deps + 1] = {
       name = manifestConfig.signposts.alias .. ":wayfinding:" .. row.key,
       sha1 = sha1hex(row.bytes),
     }
   end
-  assets[wayfindingPath] = PngWriter.encode(rowWidth, atlasHeight, concatChars(rgba))
+  assets[wayfindingPath] = PngWriter.encode(finalWidth, atlasHeight, concatChars(rgba))
   manifestAssets[FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING] =
-    { image = wayfindingPath, width = rowWidth, height = atlasHeight }
+    { image = wayfindingPath, width = finalWidth, height = atlasHeight }
 
   local types = {}
-  for _, sourceType in ipairs(cfg.sourceTypes) do
+  for typeIndex, sourceType in ipairs(cfg.sourceTypes) do
     local typeEntry = { sourceType = sourceType }
+
+    -- v5: include per-type palette bank.
+    typeEntry.palette = signPaletteBank(framePal.colors, sourceType)
+
+    -- v5: include per-type frameTiles.
+    typeEntry.frameTiles = {
+      x = 0,
+      y = frameRowYs[sourceType],
+      width = frameAtlasWidth,
+      height = 8,
+    }
+
     local spec = cfg.wayfinding[sourceType]
     if spec then
       local mapRects = {}
@@ -489,7 +579,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
     types[sourceType] = typeEntry
   end
   return {
-    frame = { tiles = { x = 0, y = 0, width = frameTiles * 8, height = 8 } },
+    textColors = { foreground = 2, shadow = 10, background = 15 },
     types = types,
   }
 end

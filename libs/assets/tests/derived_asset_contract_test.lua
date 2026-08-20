@@ -16,6 +16,7 @@ local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 
@@ -31,13 +32,13 @@ function T.contract_pins_the_current_asset_identities()
     revision = 5,
     map = {
       cacheFormat = "map-cache-v7",
-      sceneSchema = "g4-map-scene-v6",
+      sceneSchema = "g4-map-scene-v7",
       terrainSchema = "g4-terrain-surfaces-v1",
       collisionVersion = 1,
     },
     fieldActors = {
       cacheFormat = "field-actor-cache-v1",
-      schema = "g4-field-actor-v1",
+      schema = "g4-field-actor-v2",
       indexSchema = "g4-field-actor-index-v1",
     },
     fieldCamera = {
@@ -55,17 +56,21 @@ function T.contract_pins_the_current_asset_identities()
       provenanceSchema = "g4-field-message-provenance-v1",
     },
     font = {
-      cacheFormat = "field-font-cache-v2",
-      schema = "g4-field-font-v2",
+      cacheFormat = "field-font-cache-v3",
+      schema = "g4-field-font-v3",
     },
     scripts = {
       cacheFormat = "script-cache-v1",
       indexSchema = "g4-script-index-v1",
       provenanceSchema = "g4-script-provenance-v1",
     },
+    fieldWeather = {
+      cacheFormat = "field-weather-cache-v1",
+      schema = "g4-field-weather-v1",
+    },
     fieldUi = {
       cacheFormat = "field-ui-cache-v1",
-      schema = "g4-field-ui-v4",
+      schema = "g4-field-ui-v6",
     },
     audio = {
       cacheFormat = "g4-audio-cache-v1",
@@ -112,6 +117,8 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(AudioSequence.SCHEMA, DerivedAssetContract.audio.sequenceSchema)
   Assert.equal(AudioBank.SCHEMA, DerivedAssetContract.audio.bankSchema)
   Assert.equal(AudioSample.SCHEMA, DerivedAssetContract.audio.sampleSchema)
+  Assert.equal(FieldWeatherCache.FORMAT, DerivedAssetContract.fieldWeather.cacheFormat)
+  Assert.equal(FieldWeatherCache.SCHEMA, DerivedAssetContract.fieldWeather.schema)
 end
 
 return { tests = T }

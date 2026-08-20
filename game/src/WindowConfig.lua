@@ -16,11 +16,6 @@ WindowConfig.REFERENCE_HEIGHT = 480
 -- the field's rendered geometry, not a DS-authentic value.
 WindowConfig.BACKGROUND_COLOR = { 0.08, 0.09, 0.12, 1 }
 
--- The DS-relative world raster scale FieldState passes into MapRenderer.new:
--- 2 means a 384-line field framebuffer (2x the DS's 192-line field
--- framebuffer), nearest-upscaled to the presentation viewport.
-WindowConfig.WORLD_RASTER_SCALE = 2
-
 -- Parses one environment-provided window dimension (positive integer) or
 -- reports a clear rejection. `raw` is the raw env value: nil means the
 -- variable is unset and is not an error. The returned message names the

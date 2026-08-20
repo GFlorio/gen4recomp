@@ -63,6 +63,14 @@ function T.validate_accepts_a_valid_record()
   PolygonState.validate(validRecord(), "batch")
 end
 
+function T.validate_rejects_translucent_depth_write_true()
+  local record = validRecord()
+  record.translucentDepthWrite = true
+  throwsCode(PolygonState.ERROR_TRANSLUCENT_DEPTH_WRITE_UNSUPPORTED, function()
+    PolygonState.validate(record, "batch")
+  end)
+end
+
 -- Range and vocabulary branches are distinct checks over distinct fields,
 -- so each invalid value is one case in the sweep.
 function T.validate_rejects_out_of_range_values()

@@ -137,12 +137,11 @@ end
 
 -- The zero-action production composition: with no unlock flag set the
 -- runtime's start-menu composition returns no interactive actions, so the
--- menu edge opens nothing -- the host stays closed with no menu surface, no
--- modal input lifetime, and no error -- and the field keeps simulating;
--- unlocking the trainer card makes the same edge open the real menu. The
--- nil-factory no-op itself is the FieldApplicationHost/FieldSession unit
--- contract; this test proves the production flag -> policy -> nil menu
--- composition path.
+-- Source-present entries appear in the menu even when no implementations are
+-- registered. The menu opens with disabled entries. Confirming a disabled
+-- entry is a no-op; unlocking a destination with an implementation makes it
+-- enabled and interactive. This test proves the production flag -> policy ->
+-- menu-with-disabled-entries composition path.
 function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_field_continues()
   local game = harness():boot({
     versionId = "heartgold",
@@ -159,41 +158,49 @@ function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_fiel
       Assert.equal(world:isFlagSet(flag), false, "the fresh boot must leave every menu unlock flag unset")
     end
 
-    -- Zero interactive destinations: the menu edge is a no-op. The host
-    -- stays closed and presents no menu surface, no UI lifetime is acquired,
-    -- the save gate stays open, and no failure is recorded.
+    -- With no implementations available, the menu opens with source-present
+    -- entries, all disabled. The host acquires the modal input lifetime and
+    -- the menu surface appears.
     pressMenuEdge(game)
     local status = runtime.applicationHost:status()
-    Assert.equal(status.menu, nil, "a zero-action menu press must not present a menu surface")
-    Assert.equal(runtime.errorText, nil, "a zero-action menu press must not fail the runtime")
-    Assert.equal(runtime.input.uiActive, false, "a zero-action menu press must not acquire the modal input lifetime")
-    Assert.equal(
-      FieldSave.canCapture(runtime.session),
-      true,
-      "a zero-action menu press must leave the field capturable"
-    )
+    Assert.notNil(status.menu, "the menu must open with source-present entries")
+    Assert.equal(status.menu.open, true, "the menu must be in open state")
+    Assert.equal(runtime.errorText, nil, "opening the menu must not fail the runtime")
+    Assert.equal(runtime.input.uiActive, true, "opening the menu must acquire the modal input lifetime")
 
-    -- The field continues normally: the world keeps simulating and the
-    -- player can still move.
-    local before = game:snapshot()
-    game:move("west")
-    game:advanceUntil("the no-op walk completes", function(snapshot)
-      return snapshot.player.motion == "idle"
-    end, 24)
-    Assert.equal(
-      game:snapshot().player.fieldX,
-      before.player.fieldX - 1,
-      "the field simulation must continue after the zero-action menu press"
-    )
+    -- All menu entries are disabled, so confirming a selection is a no-op.
+    -- The menu stays open. Pressing the menu key again to close it.
+    runtime:pressAction()
+    game:step()
+    runtime:releaseAction()
+    game:step()
+    Assert.equal(runtime.applicationHost:status().menu.open, true, "confirming a disabled entry keeps menu open")
 
-    -- The same open edge composes the real menu once a destination becomes
-    -- interactive: unlocking the trainer card makes the next press open it.
+    -- Close the menu by pressing cancel.
+    runtime:pressCancel()
+    game:step()
+    runtime:releaseCancel()
+    advanceToPhase(game, "closed", 16)
+
+    -- Unlock the trainer card and open the menu again: now it has an enabled
+    -- action. The menu should reach the menu phase successfully.
     game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
     pressMenuEdge(game)
     advanceToPhase(game, "menu", 16)
     local actions = runtime.applicationHost:status().menu.actions
-    Assert.equal(#actions, 1, "the unlocked trainer card must be the only interactive destination")
-    Assert.equal(actions[1].id, "vanilla.trainer_card", "the unlocked destination must be the trainer card")
+    local enabledCount = 0
+    local trainerCardFound = false
+    for _, action in ipairs(actions) do
+      if action.enabled then
+        enabledCount = enabledCount + 1
+      end
+      if action.id == "vanilla.trainer_card" then
+        trainerCardFound = true
+        Assert.equal(action.enabled, true, "the trainer card action must be enabled")
+      end
+    end
+    Assert.equal(enabledCount, 1, "the unlocked trainer card must be the only enabled interactive destination")
+    Assert.equal(trainerCardFound, true, "the menu must include the trainer card action")
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
     Assert.equal(FieldSave.canCapture(runtime.session), true, "closing the menu must restore the capturable boundary")
@@ -221,8 +228,22 @@ function T.tests.the_runtime_registers_production_destinations_only()
     pressMenuEdge(game)
     advanceToPhase(game, "menu", 16)
     local actions = game.runtime.applicationHost:status().menu.actions
-    Assert.equal(#actions, 1, "the save unlock flag must not add an unregistered destination")
-    Assert.equal(actions[1].id, "vanilla.trainer_card", "the trainer card stays the only interactive action")
+    local enabledActions = {}
+    for _, action in ipairs(actions) do
+      if action.enabled then
+        enabledActions[#enabledActions + 1] = action
+      end
+    end
+    Assert.equal(
+      #enabledActions,
+      1,
+      "the save unlock flag must not add an enabled destination when save is unregistered"
+    )
+    Assert.equal(
+      enabledActions[1].id,
+      "vanilla.trainer_card",
+      "the trainer card stays the only enabled interactive action"
+    )
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
     Assert.equal(

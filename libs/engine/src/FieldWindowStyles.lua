@@ -2,12 +2,15 @@
 -- built-in styles are built from the generated field-UI manifest at
 -- construction, and the catalogue is immutable afterwards -- resolve()
 -- returns the stored record, never a copy. A style carries presentation
--- information only (id, contentGeometry, per-source-type signpost
--- geometry) -- never frame/mapGraphic asset replacement ids, text colors,
--- input, script wait behavior, result values, or message sources: the
--- renderer loads the fixed generated HGSS assets itself, and no renderer
--- consumes text colors. The catalogue holds production-owned built-ins
--- only; there is no external descriptor registration.
+-- geometry only (id, contentGeometry, per-source-type signpost geometry) --
+-- never frame/mapGraphic asset replacement ids, input, script wait behavior,
+-- result values, or message sources: the renderer loads the fixed generated
+-- HGSS assets itself. Signpost text palette colors are not geometry: they
+-- come from the generated signpost type records (manifest.signposts.types[
+-- sourceType].palette, keyed by manifest.signposts.textColors), resolved
+-- directly by FieldSignpostRenderer, never duplicated into this catalogue.
+-- The catalogue holds production-owned built-ins only; there is no external
+-- descriptor registration.
 -- Signpost content geometry follows the HGSS signpost window: source types
 -- 0/1 reserve a seven-tile (56px) wayfinding graphic on the left of the
 -- ordinary 27x4-tile window (`LoadMapSignpostFrameAndGraphic`,
@@ -75,7 +78,7 @@ end
 local function registerBuiltins(self, manifest)
   local signposts = manifest.signposts
   assert(
-    type(signposts) == "table" and type(signposts.frame) == "table" and type(signposts.types) == "table",
+    type(signposts) == "table" and type(signposts.types) == "table",
     "the field-UI manifest must carry the signposts section"
   )
   local types = {}

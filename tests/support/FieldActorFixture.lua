@@ -168,7 +168,7 @@ function FieldActorFixture.sampleOverlay(opts)
   return bytes, { ramAddress = RAM }, manifest
 end
 
--- A synthetic `g4-field-actor-v1` visual definition: the runtime-facing shape
+-- A synthetic `g4-field-actor-v2` visual definition: the runtime-facing shape
 -- the actor compiler emits. One atlas frame per direction plus one extra, so a
 -- direction, a pose clock, and an atlas offset are all distinguishable.
 -- opts.frameCount widens the strip; opts.omitWalk drops the walk clips so the
@@ -211,7 +211,7 @@ function FieldActorFixture.visual(spriteId, opts)
   end
 
   return {
-    schema = "g4-field-actor-v1",
+    schema = "g4-field-actor-v2",
     spriteId = spriteId,
     render = {
       kind = "atlas",

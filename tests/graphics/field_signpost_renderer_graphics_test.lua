@@ -5,8 +5,12 @@
 -- graphic region, and every fixed-tick wipe position (-48, -32, -16, 0; the
 -- hidden -48 render is fully transparent because the surface sits below the
 -- screen), and every graphics state the draw touched is proven restored
--- against the real driver. The construction/draw failure paths are injected
--- fakes and stay in field_signpost_renderer_test.lua.
+-- against the real driver. The reference composes the interior fill and the
+-- palette-driven glyph text from the active source type's own generated
+-- palette (slots 2/10/15), through the real palette shader and mask atlas --
+-- never a hardcoded RGB stand-in -- so a wrong bank, a wrong slot, or a stray
+-- fallback to type 0 is a pixel mismatch. The construction/draw failure paths
+-- are injected fakes and stay in field_signpost_renderer_test.lua.
 
 local Assert = require("tests.support.Assert")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
@@ -53,10 +57,11 @@ local function canonicalRender(scope, sourceType, wipeOffset)
     offset = wipeOffset,
   })
   local viewport = FieldViewport.new(CANONICAL_WIDTH, CANONICAL_HEIGHT, { mode = "expanded" })
+  local fieldScale = viewport:logicalPixelScale(1)
   local canvas = scope:own(lg.newCanvas(CANONICAL_WIDTH, CANONICAL_HEIGHT))
   lg.setCanvas(canvas)
   lg.clear(0, 0, 0, 0)
-  signpost:draw(controller, viewport)
+  signpost:draw(controller, viewport, nil, fieldScale)
   lg.setCanvas()
   return scope:own(canvas:newImageData())
 end
@@ -86,51 +91,77 @@ local function pasteTile(reference, rgba, x, y)
   end
 end
 
--- Pastes one 8x8 tile out of a 192px-wide atlas row (6144 bytes); pixels
--- outside the canvas are skipped.
+-- Pastes the precomposed 48x32 wayfinding surface into the reference canvas;
+-- pixels outside the canvas are skipped (the GPU clips them the same way).
 ---@param reference love.ImageData
----@param row string rgba
----@param tile integer
+---@param rgba string 48*32*4 bytes
 ---@param x integer
 ---@param y integer
-local function pasteRowTile(reference, row, tile, x, y)
-  for ty = 0, 7 do
-    for tx = 0, 7 do
+local function pasteWayfindingSurface(reference, rgba, x, y)
+  for ty = 0, 31 do
+    for tx = 0, 47 do
       local px, py = x + tx, y + ty
       if px >= 0 and py >= 0 and px < CANONICAL_WIDTH and py < CANONICAL_HEIGHT then
-        local index = (ty * 192 + tile * 8 + tx) * 4 + 1
+        local index = (ty * 48 + tx) * 4 + 1
         reference:setPixel(
           px,
           py,
-          row:byte(index) / 255,
-          row:byte(index + 1) / 255,
-          row:byte(index + 2) / 255,
-          row:byte(index + 3) / 255
+          rgba:byte(index) / 255,
+          rgba:byte(index + 1) / 255,
+          rgba:byte(index + 2) / 255,
+          rgba:byte(index + 3) / 255
         )
       end
     end
   end
 end
 
--- Pastes one 8x16 glyph of the fixture font (A red, B green) at its
--- position; pixels outside the canvas are skipped.
+-- Pastes one 8x16 glyph of the fixture mask font (code 1 all foreground
+-- class, code 2 all shadow class) at its position, recolored through the
+-- caller's own palette color -- exactly the palette shader's job -- so a
+-- wrong slot or a fallback to another type's bank is a pixel mismatch.
+-- Pixels outside the canvas are skipped.
 ---@param reference love.ImageData
----@param red boolean
+---@param color { r: integer, g: integer, b: integer }
 ---@param x integer
 ---@param y integer
-local function pasteGlyph(reference, red, x, y)
+local function pasteGlyph(reference, color, x, y)
   for ty = 0, 15 do
     for tx = 0, 7 do
       local px, py = x + tx, y + ty
       if px >= 0 and py >= 0 and px < CANONICAL_WIDTH and py < CANONICAL_HEIGHT then
-        if red then
-          reference:setPixel(px, py, 200 / 255, 40 / 255, 40 / 255, 1)
-        else
-          reference:setPixel(px, py, 40 / 255, 200 / 255, 40 / 255, 1)
-        end
+        reference:setPixel(px, py, color.r / 255, color.g / 255, color.b / 255, 1)
       end
     end
   end
+end
+
+-- Fills one rectangle solid at the wipe-translated position; pixels outside
+-- the canvas are skipped.
+---@param reference love.ImageData
+---@param rect { x: integer, y: integer, width: integer, height: integer }
+---@param color { r: integer, g: integer, b: integer }
+---@param wipe integer
+local function fillRect(reference, rect, color, wipe)
+  for y = rect.y + wipe, rect.y + rect.height - 1 + wipe do
+    for x = rect.x, rect.x + rect.width - 1 do
+      if x >= 0 and y >= 0 and x < CANONICAL_WIDTH and y < CANONICAL_HEIGHT then
+        reference:setPixel(x, y, color.r / 255, color.g / 255, color.b / 255, 1)
+      end
+    end
+  end
+end
+
+-- The interior text-window rectangle for one frame kind, matching
+-- FieldSignpostRenderer's own contentGeometry contract exactly: the graphic
+-- kind reserves the left 56px for the wayfinding art.
+---@param kind "full"|"graphic"
+---@return { x: integer, y: integer, width: integer, height: integer }
+local function contentGeometryFor(kind)
+  if kind == "graphic" then
+    return { x = 72, y = 152, width = 160, height = 32 }
+  end
+  return { x = 16, y = 152, width = 216, height = 32 }
 end
 
 -- The independent reference for the canonical render, composed from the
@@ -147,6 +178,8 @@ local function goldenReference(sourceType, wipeOffset)
   local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
   local wipe = -wipeOffset
   local kind = (sourceType == 0 or sourceType == 1) and "graphic" or "full"
+  local palette = FieldUiFixture.typePalette(sourceType)
+  fillRect(reference, contentGeometryFor(kind), palette[15], wipe)
   for _, placement in ipairs(FieldSignpostTheme.frameTilePlacements(kind)) do
     for row = 0, (placement.spanY or 1) - 1 do
       for col = 0, (placement.spanX or 1) - 1 do
@@ -160,13 +193,9 @@ local function goldenReference(sourceType, wipeOffset)
     end
   end
   if kind == "graphic" then
-    local rectY = sourceType == 0 and 0 or 16
-    local row = FieldUiFixture.wayfindingRowPixels(rectY)
-    for gridRow = 0, 3 do
-      for gridCol = 0, 5 do
-        pasteRowTile(reference, row, gridRow * 6 + gridCol, 16 + gridCol * 8, 152 + gridRow * 8 + wipe)
-      end
-    end
+    local surfaceY = sourceType == 0 and 0 or 64
+    local surface = FieldUiFixture.wayfindingSurfacePixels(surfaceY)
+    pasteWayfindingSurface(reference, surface, 16, 152 + wipe)
   end
   local textX = kind == "graphic" and 72 or 16
   local lines = FieldSignpostFixture.textLines()
@@ -174,7 +203,10 @@ local function goldenReference(sourceType, wipeOffset)
     local x = textX
     for _, token in ipairs(ln.tokens) do
       if token.kind == "glyph" then
-        pasteGlyph(reference, token.code == 1, x, 152 + (lineIndex - 1) * 16 + wipe)
+        -- The fixture mask font: code 1 is entirely the foreground class
+        -- (palette slot 2), code 2 entirely the shadow class (slot 10).
+        local color = token.code == 1 and palette[2] or palette[10]
+        pasteGlyph(reference, color, x, 152 + (lineIndex - 1) * 16 + wipe)
         x = x + 6
       end
     end
@@ -227,8 +259,8 @@ function T.loads_the_shared_font_and_owned_assets(scope)
   Assert.notNil(signpost._tilesImage, "the signpost frame strip is loaded")
   Assert.equal(signpost._tilesImage:getWidth(), 144)
   Assert.notNil(signpost._wayfindingImage, "the wayfinding atlas is loaded")
-  Assert.equal(signpost._wayfindingImage:getWidth(), 192)
-  Assert.equal(signpost._wayfindingImage:getHeight(), 32)
+  Assert.equal(signpost._wayfindingImage:getWidth(), 48)
+  Assert.equal(signpost._wayfindingImage:getHeight(), 128)
 end
 
 function T.restores_graphics_state_after_draw(scope)
@@ -236,6 +268,7 @@ function T.restores_graphics_state_after_draw(scope)
   local signpost = renderer(scope)
   local controller = FieldSignpostFixture.shown(FieldSignpostFixture.textLines(), { type = 0 })
   local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
+  local fieldScale = viewport:logicalPixelScale(1)
 
   local canvas = scope:own(lg.newCanvas(64, 64))
   local shader = lg.getShader()
@@ -247,7 +280,7 @@ function T.restores_graphics_state_after_draw(scope)
   lg.setColor(0.2, 0.4, 0.6, 0.8)
   lg.setScissor(4, 8, 32, 16)
 
-  signpost:draw(controller, viewport)
+  signpost:draw(controller, viewport, nil, fieldScale)
 
   FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
 end
@@ -262,7 +295,10 @@ function T.an_inactive_controller_draws_nothing_and_changes_no_state(scope)
   end
 
   lg.setColor(0.1, 0.2, 0.3, 0.4)
-  signpost:draw(controller, FieldViewport.new(960, 720, { mode = "expanded" }))
+  do
+    local viewport = FieldViewport.new(960, 720, { mode = "expanded" })
+    signpost:draw(controller, viewport, nil, viewport:logicalPixelScale(1))
+  end
 
   Assert.near(lg.getColor(), 0.1, 1e-6)
   Assert.isNil(lg.getShader())

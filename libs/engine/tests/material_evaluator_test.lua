@@ -140,6 +140,7 @@ local function texturedDefinition(opts)
         name = "wall",
         baseColor = { r = 255, g = 255, b = 255, a = 255 },
         alphaMode = "opaque",
+        polygonMode = "modulation",
         doubleSided = false,
         texture = "base.png",
         texWidth = 64,
