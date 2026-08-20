@@ -59,6 +59,7 @@ local function standinSequence(species)
       id = CRY_PLAYER_ID,
       initialVolume = 127,
       playerPriority = 64,
+      channelPriority = 64,
     },
     program = {
       entry = 1,

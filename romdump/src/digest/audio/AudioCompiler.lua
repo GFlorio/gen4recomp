@@ -33,7 +33,7 @@ local function must(value, err)
 end
 
 local function leafKind(recordType)
-  if recordType == Sbnk.TYPE_PCM then
+  if recordType == Sbnk.TYPE_PCM or recordType == Sbnk.TYPE_DIRECTPCM then
     return "sample"
   end
   if recordType == Sbnk.TYPE_PSG then
@@ -73,6 +73,9 @@ end
 -- pattern); noise is a bare generator. Every leaf carries its source
 -- original key, so the common voice shape never drops it for square/noise.
 local function voiceFromLeaf(leaf, kind, waveCache, bankId, waveArchives)
+  if leaf.type == Sbnk.TYPE_DUMMY then
+    return { kind = "dummy" }
+  end
   local voice = {
     originalKey = leaf.param.rootKey,
     envelope = {
@@ -213,6 +216,7 @@ local function compileSequence(sdat, symbols, id, record)
       id = record.playerId,
       initialVolume = record.volume,
       playerPriority = record.playerPriority,
+      channelPriority = record.channelPriority,
     },
     program = program,
   }
@@ -228,7 +232,13 @@ local function compileBank(sdat, symbols, id, record, waveCache)
   end
   local instruments = {}
   for program, inst in pairs(ir.instruments) do
-    if inst.type == Sbnk.TYPE_PCM or inst.type == Sbnk.TYPE_PSG or inst.type == Sbnk.TYPE_NOISE then
+    if
+      inst.type == Sbnk.TYPE_PCM
+      or inst.type == Sbnk.TYPE_PSG
+      or inst.type == Sbnk.TYPE_NOISE
+      or inst.type == Sbnk.TYPE_DIRECTPCM
+      or inst.type == Sbnk.TYPE_DUMMY
+    then
       instruments[program] = {
         kind = "direct",
         voice = voiceFromLeaf(inst, leafKind(inst.type), waveCache, id, record.waveArchives),

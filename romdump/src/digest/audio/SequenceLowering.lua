@@ -46,6 +46,12 @@ local SEMANTIC_OPS = {
   [0xB4] = "divvar",
   [0xB5] = "shiftvar",
   [0xB6] = "randomvar",
+  [0xB8] = "compare",
+  [0xB9] = "compare",
+  [0xBA] = "compare",
+  [0xBB] = "compare",
+  [0xBC] = "compare",
+  [0xBD] = "compare",
   [0xC0] = "pan",
   [0xC1] = "volume",
   [0xC2] = "master_volume",
@@ -89,7 +95,6 @@ local NO_OP_RANGES = {
   { 0x96, 0x9F },
   { 0xA3, 0xAF },
   { 0xB7, 0xB7 },
-  { 0xB8, 0xBD },
   { 0xBE, 0xBF },
   { 0xD8, 0xDF },
   { 0xE2, 0xE2 },
@@ -188,14 +193,20 @@ local function normalizeValue(value)
 end
 
 -- Maps a decoded command to its instruction record, or nil when the command
--- is a dropped diagnostic (0xD6 print_var). `indexOf` resolves source
--- offsets to instruction indices for branch targets. Operands are emitted per
+-- is a dropped diagnostic (0xD6 print_var). `indexOf` resolves absolute source
+-- offsets to instruction indices for branch targets. Branch operands are
+-- sequence-data-relative in the decoded SSEQ and are rebased here.
+-- Operands are emitted per
 -- semantic op, so reserved no-op forms never carry operand fields; the
 -- signed operand classes narrow plain values to their semantic signed
 -- number. `trackMask` is the FE header's u16 mask (nil without an FE
 -- header): a reachable open_track whose destination the mask does not
 -- allocate is a build failure with provenance.
-local function toInstruction(command, indexOf, identity, trackMask)
+local function toInstruction(command, indexOf, identity, trackMask, dataOffset)
+  local conditional = command.conditional
+  if conditional then
+    command = setmetatable({ conditional = false }, { __index = command })
+  end
   local opcode = command.opcode
   if isDroppedDiagnostic(opcode) then
     return nil
@@ -242,31 +253,45 @@ local function toInstruction(command, indexOf, identity, trackMask)
         }
       )
     end
-    local target = indexOf[command.target]
+    local absoluteTarget = dataOffset + command.target
+    local target = indexOf[absoluteTarget]
     if target == nil then
       Errors.raise("AUDIO_SEQUENCE_BAD_TARGET", "open-track target is not an instruction boundary", {
         sequenceId = identity.sequenceId,
         sequenceSymbol = identity.symbol,
         sourceOffset = command.offset,
-        target = command.target,
+        target = absoluteTarget,
+        encodedTarget = command.target,
       })
     end
     instruction.track = command.track
     instruction.target = target
   elseif op == "jump" or op == "call" then
-    local target = indexOf[command.target]
+    local absoluteTarget = dataOffset + command.target
+    local target = indexOf[absoluteTarget]
     if target == nil then
       Errors.raise("AUDIO_SEQUENCE_BAD_TARGET", "branch target is not an instruction boundary", {
         sequenceId = identity.sequenceId,
         sequenceSymbol = identity.symbol,
         sourceOffset = command.offset,
-        target = command.target,
+        target = absoluteTarget,
+        encodedTarget = command.target,
       })
     end
     instruction.target = target
   elseif op ~= "nop" and opcode >= 0xB0 and opcode <= 0xBF then
     instruction.var = command.var
     instruction.amount = toS16(normalizeValue(command.value))
+    if op == "compare" then
+      instruction.condition = ({
+        [0xB8] = "eq",
+        [0xB9] = "ge",
+        [0xBA] = "gt",
+        [0xBB] = "le",
+        [0xBC] = "lt",
+        [0xBD] = "ne",
+      })[opcode]
+    end
   elseif op ~= "nop" and opcode >= 0xC0 and opcode <= 0xEF then
     if op == "loop_begin" then
       -- 0xD4 loop_begin: the u8 loop count is a value operand (the player's
@@ -279,6 +304,9 @@ local function toInstruction(command, indexOf, identity, trackMask)
     else
       instruction.amount = normalizeValue(command.value)
     end
+  end
+  if conditional then
+    return { op = "if", condition = "compare_result", instruction = instruction }
   end
   return instruction
 end
@@ -334,22 +362,12 @@ local function _lower(bytes, identity, context)
         if command == nil then
           error(cmdErr)
         end
-        -- A reachable conditional (0xA2) prefix is a compiler failure: the
-        -- retail census proves no reachable conditional command exists, so
-        -- the derived IR carries no conditional field and the runtime needs
-        -- no comparison state.
-        if command.conditional then
-          Errors.raise("AUDIO_SEQUENCE_CONDITIONAL_UNSUPPORTED", "conditional commands are unsupported", {
-            sequenceId = identity.sequenceId,
-            sequenceSymbol = identity.symbol,
-            sourceOffset = command.offset,
-          })
-        end
         commands[pos] = command
         pos = command.next
         local opcode = command.opcode
         if opcode == 0x93 or opcode == 0x94 or opcode == 0x95 then
-          queue[#queue + 1] = command.target
+          local absoluteTarget = dataOffset + command.target
+          queue[#queue + 1] = absoluteTarget
         end
         if opcode == 0x94 or opcode == 0xFF or opcode == 0xFD then
           break
@@ -379,7 +397,7 @@ local function _lower(bytes, identity, context)
   end
   local instructions = {}
   for index, offset in ipairs(emitted) do
-    instructions[index] = toInstruction(commands[offset], indexOf, identity, trackMask)
+    instructions[index] = toInstruction(commands[offset], indexOf, identity, trackMask, dataOffset)
   end
 
   -- The track-0 entry is always walked, but a dropped diagnostic at the

@@ -2,7 +2,7 @@
 -- sequences, tracks, program counters, track wait counters, calls, loops,
 -- tempo, player variables, and track parameters, and drives a
 -- VoiceMixer with the semantic voice spec ({channel, generation} handles,
--- trackVolume/playerVolume never folded, raw track pan offset, the clamped
+-- trackVolume/sequenceVolume/outerPlayerVolume never folded, raw track pan offset, the clamped
 -- transposed midiKey, the TrackInit userPitch 0, and the TrackPlayNote
 -- sweep/LFO fields). It interprets project instruction IR, never SSEQ. The
 -- tick clock is the NNS relationship verified from GBATEK ("DS Sound Files
@@ -107,9 +107,9 @@
 -- the live LFO parameters -- to its live voice handles
 -- immediately (the NNS TrackUpdateChannel delivery), and the mixer applies
 -- them at the next control step after the sequence portion of the same
--- sound interval. play(sequence, bank) starts the sequence on its player id
--- without executing its entry program; the same player id replaces the
--- running sequence (releasing its voices), different player ids mix.
+-- sound interval. play(sequence, bank) starts an ordered sequence instance
+-- in its SDAT player's capacity without executing its entry program. Instances
+-- share the global track pool and physical mixer.
 
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.engine.src.audio.AudioErrors")
@@ -123,7 +123,7 @@ local bit = require("bit")
 ---@field private _provider AudioAssetProvider
 ---@field private _players table<integer, table>
 ---@field private _soundPhase integer the one global 192 Hz sound-interval phase accumulator
----@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider }): SequencePlayer
+---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider, observer: table? }): SequencePlayer
 ---@field play fun(self: SequencePlayer, sequence: table, bank: table)
 ---@field render fun(self: SequencePlayer, frames: integer): integer[]
 ---@field stop fun(self: SequencePlayer)
@@ -147,6 +147,7 @@ local SOUND_INTERVAL_HZ = 192
 -- never in Lua table order, so contested allocation is deterministic.
 local PLAYER_COUNT = 16
 local TRACK_COUNT = 16
+local TRACK_POOL_CAPACITY = 32
 -- The Nitro sequence tick relationship at the 192 Hz sound interval
 -- (SND_seq.c PlayerSeqMain): SND_TIMER_RATE 240; per interval the player
 -- consumes one tick per 240 subtracted from tempoCounter while it is at
@@ -166,6 +167,16 @@ local CONTROL_STACK_MAX = 3
 -- wait gate. A program that exceeds it is an authored runaway (e.g. a jump
 -- to itself) and fails loudly instead of hanging the render loop.
 local HOST_SAFETY_STEP_BUDGET = 1024
+
+local function observe(self, method, event)
+  local observer = self._observer
+  if observer ~= nil then
+    local callback = observer[method]
+    if callback ~= nil then
+      callback(observer, event)
+    end
+  end
+end
 
 local function clamp(value, low, high)
   if value < low then
@@ -287,8 +298,17 @@ local function newVariableDomain()
   return vars
 end
 
-local function newTrack(entry)
+-- Generated sequences always carry channelPriority. The cry stand-in is an
+-- engine-owned sequence outside that generated contract, so its omitted value
+-- has the neutral physical-channel priority rather than borrowing the player
+-- allocation priority.
+local function channelPriorityFor(sequence)
+  return sequence.player.channelPriority or 0
+end
+
+local function newTrack(entry, slot, channelPriority, channelMask)
   return {
+    slot = slot,
     pc = entry,
     ended = false,
     gated = false,
@@ -313,7 +333,8 @@ local function newTrack(entry)
     tie = false,
     mute = 0,
     program = 0,
-    priority = 64,
+    priority = channelPriority,
+    channelMask = channelMask,
     volume = 127,
     expression = 127,
     -- The raw track pan offset (the NNS 0xC0 pan command stores amount-64;
@@ -347,7 +368,43 @@ local function newTrack(entry)
     -- CONTROL_STACK_MAX frames, each holding a kind discriminator, the
     -- return index, and a loop count when applicable.
     controlStack = {},
+    compare = false,
   }
+end
+
+-- Resets only TrackStart-owned execution state. TrackInit-owned musical
+-- controls remain on an allocated track object when OPEN_TRACK reopens it.
+local function startTrack(track, entry)
+  track.pc = entry
+  track.ended = false
+  track.gated = false
+  track.wait = 0
+  track.noteFinishWait = false
+  track.noteWait = true
+  track.controlStack = {}
+  track.compare = false
+end
+
+local function allocateTrack(self, entry, slot, channelPriority, channelMask)
+  if self._trackCount >= TRACK_POOL_CAPACITY then
+    observe(self, "onTrackPool", { allocated = self._trackCount, capacity = TRACK_POOL_CAPACITY })
+    return nil
+  end
+  self._trackCount = self._trackCount + 1
+  observe(self, "onTrackPool", { allocated = self._trackCount, capacity = TRACK_POOL_CAPACITY })
+  local track = newTrack(entry, slot, channelPriority, channelMask)
+  startTrack(track, entry)
+  track.poolOwned = true
+  return track
+end
+
+local function releaseTrackObject(self, track)
+  if track ~= nil and track.poolOwned then
+    track.poolOwned = false
+    self._trackCount = self._trackCount - 1
+    assert(self._trackCount >= 0, "track pool count cannot be negative")
+    observe(self, "onTrackPool", { allocated = self._trackCount, capacity = TRACK_POOL_CAPACITY })
+  end
 end
 
 -- The SDK user pitch (SND_seq.c TrackUpdateChannel): pitchBend *
@@ -468,18 +525,27 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   -- the voice by TrackUpdateChannel): bend 0 is no bend.
   spec.userPitch = userPitchFor(track)
   spec.velocity = velocity
+  local envelope = effectiveEnvelope(track, voice)
+  local indefinite = envelope.release == 0xFF
+  spec.length = indefinite and -1 or length
   -- The dB table domain is 0..127 while the asset schemas carry u8 volumes,
   -- so the player bounds them at the mixer boundary (the SDK reads past its
   -- 128-entry table here).
   spec.trackVolume = clamp(track.volume, 0, 127)
   spec.expression = clamp(track.expression, 0, 127)
-  spec.playerVolume = clamp(instance.volume, 0, 127)
-  spec.envelope = effectiveEnvelope(track, voice)
+  spec.sequenceVolume = clamp(instance.sequenceVolume, 0, 127)
+  spec.outerPlayerVolume = instance.outerPlayerVolume
+  spec.fader = NnsSoundMath.decibelSquare(instance.outerPlayerVolume) + instance.outerFaderDb
+  spec.envelope = envelope
   spec.pan = voice.pan
   spec.trackPanOffset = track.pan
   spec.trackPriority = track.priority
   spec.playerPriority = sequence.player.playerPriority
+  spec.channelPriority = channelPriorityFor(sequence)
   spec.channelMask = instance.channelMask
+  spec.channelMask = bit.band(spec.channelMask, track.channelMask)
+  spec.ownerPlayerId = instance.playerId
+  spec.ownerTrackSlot = track.slot
   -- TrackPlayNote: the sweep starts from the track sweepPitch; a note under
   -- portamento adds (portamentoKey - midiKey) << 6 units (the sums stay in
   -- the s16 domain). With no portamento time the sweep length is the note
@@ -496,7 +562,22 @@ local function startNote(self, instance, track, midiKey, velocity, length)
     speed = track.mod.speed,
     delay = track.mod.delay,
   }
-  return self._mixer:noteOn(spec)
+  return self._mixer:noteOn(spec), indefinite
+end
+
+local function observeNote(self, instance, track, key, velocity, length)
+  observe(self, "onNoteEvent", {
+    playerId = instance.playerId,
+    trackSlot = track.slot,
+    key = key,
+    velocity = velocity,
+    length = length,
+    effectiveChannelPriority = channelPriorityFor(instance.sequence) + track.priority,
+    channelPriority = channelPriorityFor(instance.sequence),
+    sequenceVolume = instance.sequenceVolume,
+    outerPlayerVolume = instance.outerPlayerVolume,
+    outerFaderDb = instance.outerFaderDb,
+  })
 end
 
 -- Queues the current track values to every live voice handle of a track
@@ -515,12 +596,13 @@ local function pushTrackValues(self, instance, track)
   local full = {
     trackVolume = clamp(track.volume, 0, 127),
     expression = clamp(track.expression, 0, 127),
-    playerVolume = clamp(instance.volume, 0, 127),
+    sequenceVolume = clamp(instance.sequenceVolume, 0, 127),
+    outerPlayerVolume = instance.outerPlayerVolume,
     trackPanOffset = track.pan,
     userPitch = userPitchFor(track),
     lfo = track.mod,
     -- The player fader rides the same queue as a dB-domain attenuation.
-    fader = NnsSoundMath.decibelSquare(instance.fader),
+    fader = NnsSoundMath.decibelSquare(instance.outerPlayerVolume) + instance.outerFaderDb,
   }
   for index = 1, #track.voices do
     local voice = track.voices[index]
@@ -565,6 +647,12 @@ end
 -- when the count reaches zero.
 local function execute(self, instance, track, instruction)
   local op = instruction.op
+  if op == "if" then
+    if track.compare then
+      return execute(self, instance, track, instruction.instruction)
+    end
+    return track.pc + 1
+  end
   if op == "note" then
     -- Polyphonic: a new note never releases a ringing one; every note
     -- appends its own voice (or reuses the tied head) and each voice's
@@ -624,11 +712,11 @@ local function execute(self, instance, track, instruction)
           end
         end
       else
-        local handle = startNote(self, instance, track, midiKey, instruction.velocity, length)
+        local handle, indefinite = startNote(self, instance, track, midiKey, instruction.velocity, length)
         if handle ~= nil then
           track.voices[#track.voices + 1] = {
             handle = handle,
-            length = length > 0 and length or -1,
+            length = indefinite and -1 or (length > 0 and length or -1),
             releasing = false,
           }
         end
@@ -638,6 +726,7 @@ local function execute(self, instance, track, instruction)
     -- portamento key, so the next note's portamento contribution slides
     -- from the just-played pitch.
     track.portamentoKey = midiKey
+    observeNote(self, instance, track, midiKey, instruction.velocity, length)
     if track.noteWait then
       -- The raw resolved length gates the track exactly like the source
       -- wait: a positive length is the integer wait that decrements per
@@ -697,13 +786,42 @@ local function execute(self, instance, track, instruction)
       return table.remove(track.controlStack).returnIndex
     end
   elseif op == "open_track" then
-    -- Replacing a running track releases its voices; the new track starts
-    -- fresh at the target.
+    -- Reopening releases channels and restarts the existing track object;
+    -- allocation defaults belong only to a newly acquired pool object.
     local previous = instance.tracks[instruction.track]
     if previous ~= nil then
       releaseTrackVoices(self, instance, previous)
+      startTrack(previous, instruction.target)
+      if previous == track then
+        return instruction.target
+      end
+    else
+      instance.tracks[instruction.track] = allocateTrack(
+        self,
+        instruction.target,
+        instruction.track,
+        channelPriorityFor(instance.sequence),
+        instance.channelMask
+      )
     end
-    instance.tracks[instruction.track] = newTrack(instruction.target)
+  elseif op == "compare" then
+    local left = toS16(varRead(self, instance, instruction.var))
+    local right = toS16(resolveAmount(self, instruction.amount, instance))
+    if instruction.condition == "eq" then
+      track.compare = left == right
+    elseif instruction.condition == "ge" then
+      track.compare = left >= right
+    elseif instruction.condition == "gt" then
+      track.compare = left > right
+    elseif instruction.condition == "le" then
+      track.compare = left <= right
+    elseif instruction.condition == "lt" then
+      track.compare = left < right
+    elseif instruction.condition == "ne" then
+      track.compare = left ~= right
+    else
+      assert(false, "unsupported comparison condition " .. tostring(instruction.condition))
+    end
   elseif op == "tempo" then
     -- 0xE1: the resolved value narrows to s16 (the source union cast) and
     -- stores into the u16 destination domain, so a resolved -1 becomes the
@@ -718,7 +836,7 @@ local function execute(self, instance, track, instruction)
     pushTrackValues(self, instance, track)
   elseif op == "master_volume" then
     -- 0xC2 is the PLAYER volume: it changes every voice of the player.
-    instance.volume = toU8(resolveAmount(self, instruction.amount, instance))
+    instance.sequenceVolume = toU8(resolveAmount(self, instruction.amount, instance))
     for trackId = 0, TRACK_COUNT - 1 do
       local track = instance.tracks[trackId]
       if track ~= nil then
@@ -750,6 +868,8 @@ local function execute(self, instance, track, instruction)
     track.noteWait = toU8(resolveAmount(self, instruction.amount, instance)) ~= 0
   elseif op == "priority" then
     track.priority = toU8(resolveAmount(self, instruction.amount, instance))
+  elseif op == "channel_mask" then
+    track.channelMask = bit.band(track.channelMask, toU16(resolveAmount(self, instruction.amount, instance)))
   elseif op == "tie" then
     -- 0xC8: the tie command always releases and frees the track's current
     -- voices, even when the new flag equals the previous flag (SND_seq.c:
@@ -943,14 +1063,25 @@ local function fetch(self, instance, track)
       track.ended = true
       break
     end
+    local pc = track.pc
     track.pc = execute(self, instance, track, instruction)
+    observe(self, "onTrackStep", {
+      ordinal = self._intervalOrdinal,
+      playerId = instance.playerId,
+      trackSlot = track.slot,
+      pc = pc,
+      op = instruction.op,
+      wait = track.wait,
+      program = track.program,
+      compare = track.compare,
+    })
     steps = steps + 1
     if steps > HOST_SAFETY_STEP_BUDGET then
       Errors.raise(
         AudioErrors.AUDIO_PLAYER_UNBOUNDED_EXECUTION,
         "sequence executed too many instructions without a wait",
         {
-          playerId = instance.id,
+          playerId = instance.playerId,
         }
       )
     end
@@ -962,6 +1093,18 @@ local function releaseInstance(self, instance)
     local track = instance.tracks[trackId]
     if track ~= nil then
       releaseTrackVoices(self, instance, track)
+      releaseTrackObject(self, track)
+    end
+  end
+end
+
+local function eachInstance(self, callback)
+  for playerId = 0, PLAYER_COUNT - 1 do
+    local instances = self._players[playerId]
+    if instances ~= nil then
+      for index = 1, #instances do
+        callback(instances[index])
+      end
     end
   end
 end
@@ -975,7 +1118,10 @@ function SequencePlayer.new(opts)
     _sampleRate = opts.sampleRate,
     _mixer = opts.mixer,
     _provider = opts.provider,
+    _observer = opts.observer,
     _players = {},
+    _nextInstanceId = 1,
+    _trackCount = 0,
     -- The player-scoped RNG (injected or the deterministic default): plays
     -- share it and never reseed, so random operands stay reproducible.
     _rng = opts.rng or newRng(),
@@ -991,6 +1137,7 @@ function SequencePlayer.new(opts)
     -- player; plays and stops never reset it, so the clock is continuous
     -- across idle frames and sequence replacements.
     _soundPhase = 0,
+    _intervalOrdinal = 0,
   }, SequencePlayer)
 end
 
@@ -1011,15 +1158,39 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   end
   local playerId = sequence.player.id
   local playerRecord = self._provider:player(playerId)
-  local previous = self._players[playerId]
-  if previous ~= nil then
-    releaseInstance(self, previous)
+  local channelMask = playerRecord.channelMask == 0 and 0xFFFF or playerRecord.channelMask
+  local instances = self._players[playerId] or {}
+  local victim
+  if #instances >= playerRecord.maxSequences then
+    for index = 1, #instances do
+      local candidate = instances[index]
+      if victim == nil or candidate.sequence.player.playerPriority < victim.sequence.player.playerPriority then
+        victim = candidate
+      end
+    end
+    if sequence.player.playerPriority < victim.sequence.player.playerPriority then
+      observe(self, "onSequenceAllocation", { playerId = playerId, accepted = false })
+      return
+    end
+    releaseInstance(self, victim)
+    for index = 1, #instances do
+      if instances[index] == victim then
+        table.remove(instances, index)
+        break
+      end
+    end
+  end
+  local entryTrack = allocateTrack(self, sequence.program.entry, 0, channelPriorityFor(sequence), channelMask)
+  if entryTrack == nil then
+    observe(self, "onSequenceAllocation", { playerId = playerId, accepted = false })
+    return
   end
   local instance = {
-    id = playerId,
+    id = self._nextInstanceId,
+    playerId = playerId,
     sequence = sequence,
     bank = bank,
-    channelMask = playerRecord.channelMask,
+    channelMask = channelMask,
     -- The source PlayerInit fields (SND_seq.c): tempo 120, tempoRatio 256,
     -- tempoCounter 240 -- the counter that produces the first sequence tick
     -- on the first sound interval after play.
@@ -1028,12 +1199,13 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
     tempoCounter = SND_TIMER_RATE,
     -- The player-level volume (the NNS player->volume): starts at the
     -- sequence's initial volume; master_volume commands change it.
-    volume = sequence.player.initialVolume,
+    sequenceVolume = 127,
+    outerPlayerVolume = sequence.player.initialVolume,
     -- The player-level fader (the NNS player fader NNS_SndPlayerMoveVolume
     -- drives): a volume-domain level, full by default; GameSound's fade
     -- state moves it and the control-step push delivers its dB-domain
     -- attenuation to the player's voices.
-    fader = 127,
+    outerFaderDb = NnsSoundMath.decibelSquare(127),
     -- The transport pause flag (NNS SND_PlayerPause): while paused the
     -- timeline freezes and no control values are pushed; the pause release
     -- already freed the channels.
@@ -1042,15 +1214,17 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
     -- every play/replacement (SND_seq.c PlayerInit localVars): writes do not
     -- survive a sequence replacement, unlike the shared globals.
     localVars = newVariableDomain(),
-    tracks = { [0] = newTrack(sequence.program.entry) },
+    tracks = { [0] = entryTrack },
   }
-  self._players[playerId] = instance
+  self._nextInstanceId = self._nextInstanceId + 1
+  instances[#instances + 1] = instance
+  self._players[playerId] = instances
+  observe(self, "onSequenceAllocation", { playerId = playerId, instanceId = instance.id, accepted = true })
 end
 
 -- Starts `sequence` on its player id with `bank`. The bank must be the
--- sequence's bankId; a sequence already running on the same player id is
--- replaced (its voices released) exactly once, so the new note never mixes
--- with the old one. The instance is initialized to the source PlayerInit
+-- sequence's bankId; a full player steals only an eligible lower/equal
+-- priority instance. The instance is initialized to the source PlayerInit
 -- state (tempo 120, tempoRatio 256, tempoCounter 240) and the entry track
 -- is armed, but play() does not fetch or execute the entry program: the
 -- first source sequence tick runs on the first sound interval after play
@@ -1077,15 +1251,18 @@ end
 ---@param level integer
 function SequencePlayer:setFader(playerId, level)
   assert(level >= 0 and level <= 127 and level % 1 == 0, "fader level must be an integer in 0..127")
-  local instance = self._players[playerId]
-  if instance == nil then
+  local instances = self._players[playerId]
+  if instances == nil then
     return
   end
-  instance.fader = level
-  for trackId = 0, TRACK_COUNT - 1 do
-    local track = instance.tracks[trackId]
-    if track ~= nil then
-      pushTrackValues(self, instance, track)
+  for index = 1, #instances do
+    local instance = instances[index]
+    instance.outerFaderDb = NnsSoundMath.decibelSquare(level)
+    for trackId = 0, TRACK_COUNT - 1 do
+      local track = instance.tracks[trackId]
+      if track ~= nil then
+        pushTrackValues(self, instance, track)
+      end
     end
   end
 end
@@ -1100,15 +1277,20 @@ end
 -- paused, is a no-op.
 ---@param playerId integer
 function SequencePlayer:pausePlayer(playerId)
-  local instance = self._players[playerId]
-  if instance == nil or instance.paused then
+  local instances = self._players[playerId]
+  if instances == nil then
     return
   end
-  instance.paused = true
-  for trackId = 0, TRACK_COUNT - 1 do
-    local track = instance.tracks[trackId]
-    if track ~= nil then
-      releaseTrackVoices(self, instance, track, 127)
+  for index = 1, #instances do
+    local instance = instances[index]
+    if not instance.paused then
+      instance.paused = true
+      for trackId = 0, TRACK_COUNT - 1 do
+        local track = instance.tracks[trackId]
+        if track ~= nil then
+          releaseTrackVoices(self, instance, track, 127)
+        end
+      end
     end
   end
 end
@@ -1119,11 +1301,13 @@ end
 -- active instance, or one not paused, is a no-op.
 ---@param playerId integer
 function SequencePlayer:resumePlayer(playerId)
-  local instance = self._players[playerId]
-  if instance == nil or not instance.paused then
+  local instances = self._players[playerId]
+  if instances == nil then
     return
   end
-  instance.paused = false
+  for index = 1, #instances do
+    instances[index].paused = false
+  end
 end
 
 -- Executes one source sequence tick for one active, unpaused player
@@ -1169,9 +1353,6 @@ local function stepSequenceTick(self, instance)
         self._mixer:advanceTrackTick(voice.handle)
         if voice.length > 0 then
           voice.length = voice.length - 1
-          if voice.length == 0 then
-            noteOff(self, voice)
-          end
         end
       end
       -- 3. The note-finish hold clears on the first tick whose live handles
@@ -1210,6 +1391,47 @@ local function stepSequenceTick(self, instance)
   end
 end
 
+local function releaseExpiredVoices(self, instance)
+  for trackId = 0, TRACK_COUNT - 1 do
+    local track = instance.tracks[trackId]
+    if track ~= nil then
+      pruneTrackVoices(self, track)
+      for index = 1, #track.voices do
+        local voice = track.voices[index]
+        if voice.length == 0 and not voice.releasing then
+          noteOff(self, voice)
+        end
+      end
+    end
+  end
+end
+
+local function retireEndedTracks(self, instance)
+  for trackId = 0, TRACK_COUNT - 1 do
+    local track = instance.tracks[trackId]
+    if track ~= nil and track.ended then
+      pruneTrackVoices(self, track)
+      if #track.voices == 0 then
+        releaseTrackObject(self, track)
+        instance.tracks[trackId] = nil
+      end
+    end
+  end
+end
+
+local function retireEndedTracks(self, instance)
+  for trackId = 0, TRACK_COUNT - 1 do
+    local track = instance.tracks[trackId]
+    if track ~= nil and track.ended then
+      pruneTrackVoices(self, track)
+      if #track.voices == 0 then
+        releaseTrackObject(self, track)
+        instance.tracks[trackId] = nil
+      end
+    end
+  end
+end
+
 -- Processes one completed 192 Hz sound interval in source order
 -- (SND_main.c SndThread: SND_SeqMain, then SND_ExChannelMain, then the
 -- unconditional SND_CalcRandom draw):
@@ -1226,20 +1448,48 @@ end
 -- the interval did not complete, so mixer control and the periodic draw
 -- are skipped and the render call fails.
 local function processSoundInterval(self)
+  observe(self, "onSoundInterval", {
+    ordinal = self._intervalOrdinal,
+    phase = "before_sequence",
+  })
   for playerId = 0, PLAYER_COUNT - 1 do
-    local instance = self._players[playerId]
-    if instance ~= nil and not instance.paused then
-      while instance.tempoCounter >= SND_TIMER_RATE do
-        instance.tempoCounter = instance.tempoCounter - SND_TIMER_RATE
-        stepSequenceTick(self, instance)
+    local instances = self._players[playerId]
+    if instances ~= nil then
+      for index = 1, #instances do
+        local instance = instances[index]
+        if not instance.paused then
+          while instance.tempoCounter >= SND_TIMER_RATE do
+            instance.tempoCounter = instance.tempoCounter - SND_TIMER_RATE
+            stepSequenceTick(self, instance)
+          end
+          instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)
+          retireEndedTracks(self, instance)
+        end
       end
-      -- The end-of-interval increment uses the tempo after any tempo
-      -- command executed during this interval's ticks (PlayerSeqMain).
-      instance.tempoCounter = instance.tempoCounter + math.floor(instance.tempo * instance.tempoRatio / 256)
     end
   end
-  self._mixer:controlStep()
+  observe(self, "onSoundInterval", {
+    ordinal = self._intervalOrdinal,
+    phase = "after_sequence",
+  })
+  for playerId = 0, PLAYER_COUNT - 1 do
+    local instances = self._players[playerId]
+    if instances ~= nil then
+      for index = 1, #instances do
+        local instance = instances[index]
+        if not instance.paused then
+          releaseExpiredVoices(self, instance)
+        end
+      end
+    end
+  end
+  self._mixer:controlStep(self._intervalOrdinal)
+  observe(self, "onSoundInterval", {
+    ordinal = self._intervalOrdinal,
+    phase = "after_channels",
+  })
   self._rng()
+  self._intervalOrdinal = self._intervalOrdinal + 1
 end
 
 -- The frames until the next global sound-interval boundary from the
@@ -1286,12 +1536,9 @@ end
 
 -- Releases every voice of every active sequence and clears the players.
 function SequencePlayer:stop()
-  for playerId = 0, PLAYER_COUNT - 1 do
-    local instance = self._players[playerId]
-    if instance ~= nil then
-      releaseInstance(self, instance)
-    end
-  end
+  eachInstance(self, function(instance)
+    releaseInstance(self, instance)
+  end)
   self._players = {}
 end
 
@@ -1299,11 +1546,13 @@ end
 -- player with no active instance is a no-op.
 ---@param playerId integer
 function SequencePlayer:stopPlayer(playerId)
-  local instance = self._players[playerId]
-  if instance == nil then
+  local instances = self._players[playerId]
+  if instances == nil then
     return
   end
-  releaseInstance(self, instance)
+  for index = 1, #instances do
+    releaseInstance(self, instances[index])
+  end
   self._players[playerId] = nil
 end
 
@@ -1312,14 +1561,16 @@ end
 ---@param playerId integer
 ---@return boolean
 function SequencePlayer:isPlayerPlaying(playerId)
-  local instance = self._players[playerId]
-  if instance == nil then
+  local instances = self._players[playerId]
+  if instances == nil then
     return false
   end
-  for trackId = 0, TRACK_COUNT - 1 do
-    local track = instance.tracks[trackId]
-    if track ~= nil and not track.ended then
-      return true
+  for index = 1, #instances do
+    for trackId = 0, TRACK_COUNT - 1 do
+      local track = instances[index].tracks[trackId]
+      if track ~= nil and not track.ended then
+        return true
+      end
     end
   end
   return false
@@ -1328,12 +1579,14 @@ end
 -- True while any track of any active sequence is still running.
 function SequencePlayer:isPlaying()
   for playerId = 0, PLAYER_COUNT - 1 do
-    local instance = self._players[playerId]
-    if instance ~= nil then
-      for trackId = 0, TRACK_COUNT - 1 do
-        local track = instance.tracks[trackId]
-        if track ~= nil and not track.ended then
-          return true
+    local instances = self._players[playerId]
+    if instances ~= nil then
+      for index = 1, #instances do
+        for trackId = 0, TRACK_COUNT - 1 do
+          local track = instances[index].tracks[trackId]
+          if track ~= nil and not track.ended then
+            return true
+          end
         end
       end
     end

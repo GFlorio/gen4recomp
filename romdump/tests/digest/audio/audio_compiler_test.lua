@@ -144,6 +144,8 @@ local function buildArchive(overrides)
     { type = 0 },
     { type = 2, param = PSG_A },
     { type = 3, param = NOISE_A },
+    { type = 4, param = PCM_A },
+    { type = 5, param = PCM_A },
   })
   local sbnk1 = SbnkFixture.build({
     {
@@ -257,6 +259,7 @@ function T.compiles_sequences_with_index_targets()
   Assert.equal(seq0.player.id, 0)
   Assert.equal(seq0.player.initialVolume, 120)
   Assert.equal(seq0.player.playerPriority, 64)
+  Assert.equal(seq0.player.channelPriority, 127)
 
   Assert.equal(seq0.program.entry, 1, "entry is the header open-track record")
   local openTrack, jump, call
@@ -325,6 +328,11 @@ function T.compiles_banks_with_semantic_instruments()
   Assert.equal(bank0.instruments[4].voice.originalKey, 48)
   Assert.equal(bank0.instruments[5].voice.generator.kind, "noise")
   Assert.equal(bank0.instruments[5].voice.originalKey, 60)
+  Assert.equal(bank0.instruments[6].voice.generator.kind, "sample")
+  Assert.equal(bank0.instruments[6].voice.generator.sample, PCM8_KEY)
+  Assert.equal(bank0.instruments[6].voice.originalKey, 60)
+  Assert.deepEqual(bank0.instruments[7].voice, { kind = "dummy" })
+  Assert.isNil(AudioBank.selectVoice(bank0.instruments[7], 60))
 
   local bank1 = bundle.banks[1]
   AudioBank.validate(bank1)

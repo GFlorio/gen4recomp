@@ -3,12 +3,12 @@
 -- SND_ReadInstData) interprets them: a u32 instrument count at 0x38, packed
 -- u32 entries at 0x3C whose low byte is the record type and upper 24 bits the
 -- record offset from the bank start; direct records (types 1 PCM, 2 PSG,
--- 3 noise) are a 10-byte SNDInstParam (swav u16, wave-archive slot u16, root
+-- 3 noise, 4 DIRECTPCM) are a 10-byte SNDInstParam (swav u16, wave-archive slot u16, root
 -- key u8, four ADSR u8s, pan u8); drum sets (0x10) are min/max keys plus one
 -- 12-byte SNDInstData leaf per key; key splits (0x11) are eight split-key
 -- bytes plus leaves that stop at the first zero key. Type-0 records are
 -- illegal instruments (the player fails notes on them) and are dropped;
--- types 4/5 (direct-memory/dummy) and unsupported leaf types are build
+-- type 5 DUMMY has no playable parameters; unsupported types are build
 -- failures with provenance. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
@@ -18,6 +18,8 @@ local Sbnk = {}
 Sbnk.TYPE_PCM = 1
 Sbnk.TYPE_PSG = 2
 Sbnk.TYPE_NOISE = 3
+Sbnk.TYPE_DIRECTPCM = 4
+Sbnk.TYPE_DUMMY = 5
 Sbnk.TYPE_DRUM_SET = 0x10
 Sbnk.TYPE_KEY_SPLIT = 0x11
 
@@ -73,12 +75,21 @@ local function readLeaf(bytes, offset, size, source)
     })
   end
   local recordType = u8At(bytes, offset, source)
-  if recordType ~= Sbnk.TYPE_PCM and recordType ~= Sbnk.TYPE_PSG and recordType ~= Sbnk.TYPE_NOISE then
+  if
+    recordType ~= Sbnk.TYPE_PCM
+    and recordType ~= Sbnk.TYPE_PSG
+    and recordType ~= Sbnk.TYPE_NOISE
+    and recordType ~= Sbnk.TYPE_DIRECTPCM
+    and recordType ~= Sbnk.TYPE_DUMMY
+  then
     fail("SBNK_UNSUPPORTED_INSTRUMENT", "unsupported instrument leaf type", {
       source = source,
       sourceOffset = offset,
       type = recordType,
     })
+  end
+  if recordType == Sbnk.TYPE_DUMMY then
+    return { type = recordType }
   end
   return { type = recordType, param = readParam(bytes, offset + 2, size, source) }
 end
@@ -107,11 +118,18 @@ local function _decode(bytes, context)
     local offset = math.floor(packed / 256)
     if recordType == 0 then
       -- illegal record: notes on this program are silent
-    elseif recordType == Sbnk.TYPE_PCM or recordType == Sbnk.TYPE_PSG or recordType == Sbnk.TYPE_NOISE then
+    elseif
+      recordType == Sbnk.TYPE_PCM
+      or recordType == Sbnk.TYPE_PSG
+      or recordType == Sbnk.TYPE_NOISE
+      or recordType == Sbnk.TYPE_DIRECTPCM
+    then
       instruments[program] = {
         type = recordType,
         param = readParam(bytes, offset, size, source),
       }
+    elseif recordType == Sbnk.TYPE_DUMMY then
+      instruments[program] = { type = recordType }
     elseif recordType == Sbnk.TYPE_DRUM_SET then
       if offset + 2 > size then
         fail("SBNK_TRUNCATED", "drum set header extends past the end of the bank", {

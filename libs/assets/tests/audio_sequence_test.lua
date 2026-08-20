@@ -119,7 +119,7 @@ function T.validates_the_player_block()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.player = { id = 1, initialVolume = 127, playerPriority = 64 }
+  sequence.player = { id = 1, initialVolume = 127, playerPriority = 64, channelPriority = 64 }
   sequence.player.id = 0.5
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
@@ -454,17 +454,15 @@ function T.validates_note_key_and_velocity()
   end)
 end
 
--- The derived IR carries no conditional field: the retail census proves no
--- reachable conditional command exists, so a conditional instruction is
--- malformed asset data at any value -- the key itself is forbidden, not
--- merely its type.
-function T.conditional_instructions_are_rejected()
+function T.conditional_instruction_requires_a_complete_nested_command()
   local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
-  sequence.program.instructions[2] = { op = "pan", amount = 64, conditional = true }
-  throwsCode("AUDIO_SEQUENCE_INVALID", function()
-    AudioSequence.validate(sequence)
-  end)
-  sequence.program.instructions[2].conditional = false
+  sequence.program.instructions[2] = {
+    op = "if",
+    condition = "compare_result",
+    instruction = { op = "pan", amount = 64 },
+  }
+  Assert.isTrue(AudioSequence.validate(sequence))
+  sequence.program.instructions[2].instruction = { op = "pan", amount = 64, extra = true }
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)

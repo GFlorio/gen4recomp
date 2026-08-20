@@ -14,8 +14,8 @@
 -- SoundData's first argument is the per-channel frame count, NOT the total
 -- interleaved scalar count: a render of 512 frames returns 1024 scalars and
 -- must build a 512-frame SoundData (getSampleCount() == 512). The queue depth
--- is equally explicit: two 512-frame buffers at the 32768 Hz output rate is
--- 31.25 ms of queued PCM, within the 70 ms project budget, and the source is
+-- is equally explicit: four 512-frame buffers at the 32768 Hz output rate is
+-- 62.5 ms of queued PCM, within the 70 ms project budget, and the source is
 -- constructed with that buffer count instead of LÖVE's accidental default
 -- depth. A refused queue (the real binding returns false rather than throwing)
 -- must fail the update -- a rendered chunk is never silently discarded. The
@@ -31,12 +31,12 @@ local SAMPLE_RATE = 32768
 local CHANNELS = 2
 local BIT_DEPTH = 16
 
--- The explicit low-latency queue budget the sink must configure: two 512-frame
--- stereo chunks at 32768 Hz are 31.25 ms of queued PCM, within the project
+-- The explicit low-latency queue budget the sink must configure: four 512-frame
+-- stereo chunks at 32768 Hz are 62.5 ms of queued PCM, within the project
 -- budget. The chunk size is a FRAME count; the renderer returns twice that
 -- many interleaved scalar values.
 local CHUNK_FRAMES = 512
-local QUEUE_BUFFER_COUNT = 2
+local QUEUE_BUFFER_COUNT = 4
 local MAX_LATENCY_MS = 70
 
 -- A SoundData-shaped recording object mirroring the LÖVE contract the sink
@@ -335,7 +335,7 @@ end
 -- brand-new source with two free buffers renders exactly two chunks, a full
 -- source causes no renderer calls, and a single freed buffer yields exactly
 -- one new chunk.
-function T.a_brand_new_source_pumps_two_chunks_a_full_source_none_and_one_free_buffer_one()
+function T.a_brand_new_source_pumps_one_chunk_per_free_buffer()
   local host = fakeHost(2)
   local renderer = rendererReturning(function(index)
     return index
@@ -343,7 +343,7 @@ function T.a_brand_new_source_pumps_two_chunks_a_full_source_none_and_one_free_b
   local sink = sinkFor(host, renderer)
   sink:update()
   local source = host.sources[1]
-  Assert.equal(renderer:calls(), 2, "a brand-new source with two free buffers must queue exactly two chunks")
+  Assert.equal(renderer:calls(), 2, "a source with two free buffers must queue exactly two chunks")
   Assert.equal(#source.queueCalls, 2)
   sink:update()
   Assert.equal(renderer:calls(), 2, "a full source must cause no renderer calls")

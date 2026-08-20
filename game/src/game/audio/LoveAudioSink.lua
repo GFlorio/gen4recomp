@@ -19,20 +19,18 @@
 ---@field private _renderer { render: fun(self: table, frames: integer): integer[] }
 ---@field private _sampleRate integer
 ---@field private _source table|nil
+---@field private _started boolean
+---@field private _underrunCount integer
 ---@field private _released boolean
 local LoveAudioSink = {}
 LoveAudioSink.__index = LoveAudioSink
 
 local CHANNELS = 2
 local BIT_DEPTH = 16
--- One chunk is 512 stereo frames. Two queued buffers at the DS output rate
--- (32768 Hz) are 31.25 ms of queued PCM -- an explicit low-latency budget for
--- interactive audio, kept well short of the project's 70 ms ceiling instead
--- of LÖVE's accidental default queue depth (8 buffers). The pump renders one
--- chunk per free host buffer, so the audio clock cannot run far ahead of the
--- host playback head.
+-- Four queued buffers at the DS output rate (32768 Hz) are 62.5 ms of queued
+-- PCM, below the project's 70 ms transport-latency ceiling.
 local CHUNK_FRAMES = 512
-local QUEUE_BUFFER_COUNT = 2
+local QUEUE_BUFFER_COUNT = 4
 
 -- The render contract is int16 and exact: the returned PCM is
 -- requestedFrames * 2 interleaved stereo samples, checked before any host
@@ -57,6 +55,8 @@ function LoveAudioSink.new(opts)
     _renderer = opts.renderer,
     _sampleRate = opts.sampleRate,
     _source = nil,
+    _started = false,
+    _underrunCount = 0,
     _released = false,
   }, LoveAudioSink)
 end
@@ -124,7 +124,11 @@ function LoveAudioSink:update()
       chunk = nil
     end
     if not live:isPlaying() then
+      if self._started then
+        self._underrunCount = self._underrunCount + 1
+      end
       live:play()
+      self._started = true
     end
   end)
   if not ok then
@@ -142,6 +146,11 @@ function LoveAudioSink:update()
     end
     error(err, 0)
   end
+end
+
+---@return integer count number of unexpected stops after playback started
+function LoveAudioSink:getUnderrunCount()
+  return self._underrunCount
 end
 
 -- Releases the host source exactly once; later updates are no-ops.

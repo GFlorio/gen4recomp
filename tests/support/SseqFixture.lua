@@ -97,7 +97,8 @@ local function resolveTarget(value, offsets)
     if offsets == nil then
       return 0
     end
-    return assert(offsets[value.cmd], "no command " .. value.cmd .. " in the fixture layout")
+    local offset = assert(offsets[value.cmd], "no command " .. value.cmd .. " in the fixture layout")
+    return offset - 0x1C
   end
   return value
 end
@@ -187,7 +188,7 @@ function SseqFixture.build(commands)
   local cursor = 0x1C
   for index, cmd in ipairs(commands) do
     offsets[index] = cursor
-    cursor = cursor + #commandBytes(cmd, nil)
+    cursor = cursor + #commandBytes(cmd)
   end
   local body = {}
   for index, cmd in ipairs(commands) do
@@ -196,7 +197,11 @@ function SseqFixture.build(commands)
   local content = u32(0x1C) .. table.concat(body)
   local dataBlock = "DATA" .. u32(#content + 8) .. content
   local file = "SSEQ" .. u16(0xFEFF) .. u16(0x0100) .. u32(16 + #dataBlock) .. u16(0x10) .. u16(1) .. dataBlock
-  return file, { offsets = offsets, dataOffset = 0x1C }
+  local dataOffsets = {}
+  for index, offset in ipairs(offsets) do
+    dataOffsets[index] = offset - 0x1C
+  end
+  return file, { offsets = offsets, dataOffsets = dataOffsets, dataOffset = 0x1C }
 end
 
 -- Overwrites the u24 at `offset` (a little-endian 24-bit value).

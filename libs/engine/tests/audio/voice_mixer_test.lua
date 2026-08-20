@@ -49,6 +49,7 @@
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
+local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 
 local T = {}
 
@@ -67,8 +68,22 @@ end
 local CONST_5120 = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
 local CONST_6400 = { 6400, 6400, 6400, 6400, 6400, 6400, 6400, 6400 }
 
-local function newMixer(rate)
-  return VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
+local function newMixer(rate, prime)
+  local mixer = VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
+  -- Existing rendering vectors begin by sampling immediately after noteOn;
+  -- keep those vectors focused on their stated math while the lifecycle tests
+  -- below opt out and drive the first interval explicitly.
+  if prime ~= false then
+    local noteOn = mixer.noteOn
+    mixer.noteOn = function(self, noteSpec)
+      local handle = noteOn(self, noteSpec)
+      if handle ~= nil then
+        self:controlStep()
+      end
+      return handle
+    end
+  end
+  return mixer
 end
 
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
@@ -91,12 +106,13 @@ local function spec(overrides)
     velocity = 127,
     trackVolume = 127,
     expression = 127,
-    playerVolume = 127,
+    sequenceVolume = 127,
     envelope = { attack = 127, decay = 127, sustain = 127, release = 127 },
     pan = 64,
     channelMask = 0xFFFF,
     trackPriority = 64,
     playerPriority = 64,
+    channelPriority = 64,
   }
   for key, value in pairs(overrides or {}) do
     s[key] = value
@@ -113,12 +129,60 @@ local function rightAt(pcm, frame)
 end
 
 function T.renders_silence_without_voices()
-  local mixer = newMixer()
+  local mixer = newMixer(nil, false)
   local pcm = mixer:render(32)
   Assert.equal(#pcm, 64)
   for i = 1, 64 do
     Assert.equal(pcm[i], 0, "no voices, no sound")
   end
+end
+
+-- Nitro initializes a new ExChannel's registers without advancing its
+-- envelope. The first elapsed control interval performs the only attack/LFO
+-- transition for that interval.
+function T.note_on_initializes_without_consuming_the_first_control_interval()
+  local mixer = newMixer(nil, false)
+  local pcm = { 2048, 2048, 2048, 2048 }
+  mixer:noteOn(spec({
+    pcm = pcm,
+    pan = 0,
+    envelope = { attack = 100, decay = 127, sustain = 127, release = 127 },
+  }))
+
+  local before = mixer:render(1)
+  Assert.equal(leftAt(before, 1), 0, "a fresh voice remains at the initialized envelope")
+
+  mixer:controlStep()
+  local after = mixer:render(1)
+  Assert.equal(leftAt(after, 1), 13, "the first interval advances the attack exactly once")
+end
+
+function T.decay_coefficient_rejects_the_release_sentinel()
+  Assert.throws(function()
+    NnsSoundMath.decayCoefficient(255)
+  end)
+end
+
+function T.release_sentinel_initializes_an_indefinite_voice()
+  local state
+  local mixer = VoiceMixer.new({
+    sampleRate = SAMPLE_RATE,
+    observer = {
+      onChannelState = function(_, event)
+        if event.active then
+          state = event
+        end
+      end,
+    },
+  })
+  local handle = mixer:noteOn(spec({
+    envelope = { attack = 127, decay = 127, sustain = 127, release = 255 },
+    length = 12,
+  }))
+  Assert.isTrue(handle ~= nil, "release sentinel note allocates")
+  mixer:controlStep()
+  Assert.isTrue(mixer:isVoiceAlive(handle), "release sentinel voice remains alive")
+  Assert.equal(state.length, -1, "release sentinel uses an indefinite channel length")
 end
 
 -- The exact NNS volume path: velocity through SNDi_DecibelSquareTable, the
@@ -144,16 +208,16 @@ function T.volume_path_sums_the_nns_decibel_domain()
     { name = "velocity 64 (db[64] = -119 -> 0x141)", overrides = { velocity = 64 }, expected = 1300 },
     { name = "track volume 64 is the same decibel point", overrides = { trackVolume = 64 }, expected = 1300 },
     { name = "expression 100 (db[100] = -42 -> 0x4F)", overrides = { expression = 100 }, expected = 3160 },
-    { name = "player volume 100 is the same decibel point", overrides = { playerVolume = 100 }, expected = 3160 },
+    { name = "sequence volume 100 is the same decibel point", overrides = { sequenceVolume = 100 }, expected = 3160 },
     {
       name = "all 100 sums four equal -42 terms (-168 -> 0x24A)",
-      overrides = { velocity = 100, trackVolume = 100, expression = 100, playerVolume = 100 },
+      overrides = { velocity = 100, trackVolume = 100, expression = 100, sequenceVolume = 100 },
       expected = 740,
     },
     { name = "velocity 0 (db[0] = -32768 -> 0x300 silence)", overrides = { velocity = 0 }, expected = 0 },
     {
       name = "all 0 is silence",
-      overrides = { velocity = 0, trackVolume = 0, expression = 0, playerVolume = 0 },
+      overrides = { velocity = 0, trackVolume = 0, expression = 0, sequenceVolume = 0 },
       expected = 0,
     },
     { name = "fader -200 (-200 -> 0x233)", overrides = { fader = -200 }, expected = 510 },
@@ -932,7 +996,7 @@ end
 -- advances only at control steps and never through `advanceTrackTick`. A
 -- stale/dead handle is a no-op like the other handle operations.
 local function sweepMixer(autoSweep)
-  local mixer = newMixer()
+  local mixer = newMixer(nil, false)
   local handle = mixer:noteOn(spec({
     pcm = WAVE16,
     baseTimer = 512,

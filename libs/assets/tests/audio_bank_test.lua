@@ -199,6 +199,26 @@ function T.every_voice_carries_envelope_and_pan()
   end)
 end
 
+function T.accepts_a_dummy_leaf_and_selects_no_voice()
+  local bank = AudioFixture.bank(12, "BANK_TEST")
+  bank.instruments[0].voice = { kind = "dummy" }
+  Assert.isTrue(AudioBank.validate(bank))
+  Assert.isNil(AudioBank.selectVoice(bank.instruments[0], 60))
+
+  bank.instruments[0].voice = { kind = "dummy", generator = { kind = "noise" } }
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
+end
+
+function T.preserves_the_release_sentinel_in_every_leaf_shape()
+  local bank = AudioFixture.bank(12, "BANK_TEST")
+  bank.instruments[0].voice.envelope.release = 0xFF
+  Assert.isTrue(AudioBank.validate(bank))
+  bank.instruments[2].voices[1].envelope.release = 0xFF
+  Assert.isTrue(AudioBank.validate(bank))
+end
+
 -- The square duty is the discrete DS PSG duty index 0..7 (GBATEK): an
 -- integer, never a float fraction. Every index is valid, index 7 is the
 -- hardware special all-LOW pattern (0% HIGH, not 100%), and a float or an

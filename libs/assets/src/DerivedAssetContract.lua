@@ -109,7 +109,7 @@ DerivedAssetContract.audio = {
   -- carries no source rate and no stored payload path; the three change
   -- together because the compiler and the runtime consume them as one
   -- contract.
-  sequenceSchema = "g4-audio-sequence-v5",
+  sequenceSchema = "g4-audio-sequence-v6",
   bankSchema = "g4-audio-bank-v4",
   sampleSchema = "g4-audio-sample-v4",
   provenanceSchema = "g4-audio-provenance-v1",

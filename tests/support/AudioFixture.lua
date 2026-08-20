@@ -77,6 +77,7 @@ function AudioFixture.sequence(id, symbol, bankId, playerId, program, player)
       id = playerId,
       initialVolume = 127,
       playerPriority = 64,
+      channelPriority = 64,
     },
     program = program or {
       entry = 1,

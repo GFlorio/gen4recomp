@@ -39,6 +39,17 @@ local function lowerRejects(bytes, code, identity)
   return assert(err)
 end
 
+function T.resolves_zero_target_from_the_sequence_data_base()
+  local bytes = SseqFixture.build({
+    { op = "jump", target = 0 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(program.entry, 1)
+  Assert.equal(program.instructions[1].op, "jump")
+  Assert.equal(program.instructions[1].target, 1)
+end
+
 -- A two-track sequence: the FE header's open-track record is an ordinary
 -- instruction (track 0's first command), the entry points at it, and
 -- jump/call/open_track targets are instruction indices into the same list.
@@ -165,7 +176,7 @@ function T.lowers_the_semantic_vocabulary()
     "tempo",
     "sweep",
     "setvar",
-    "nop",
+    "compare",
     "nop",
     "nop",
     "loop_end",
@@ -317,58 +328,28 @@ function T.random_duration_keeps_its_exact_signed_pair()
   Assert.deepEqual(program.instructions[1].duration, { kind = "random", lo = -16163, hi = 0 })
 end
 
--- A reachable 0xA2 conditional prefix is a compiler failure: the retail
--- census proves no reachable conditional command exists, so the derived IR
--- never carries a conditional field and the runtime needs no comparison
--- state. The rejection carries the sequence provenance like every other
--- lowering failure.
-function T.reachable_conditional_prefix_is_a_compiler_failure()
+function T.conditional_prefix_contains_the_complete_normalized_command()
   local bytes = SseqFixture.build({
     { op = "prefix", kind = "if", command = { op = "u8", command = 0xC1, amount = 100 } },
     { op = "fin" },
   })
-  local err = lowerRejects(bytes, "AUDIO_SEQUENCE_CONDITIONAL_UNSUPPORTED")
-  Assert.equal(err.context.sequenceId, 7)
-  Assert.equal(err.context.sequenceSymbol, "SEQ_TEST")
-  Assert.notNil(err.context.sourceOffset)
+  local program = lowerOrFail(bytes)
+  Assert.deepEqual(program.instructions[1], {
+    op = "if",
+    condition = "compare_result",
+    instruction = { op = "volume", amount = 100 },
+  })
 end
 
--- The comparison commands (0xB8..0xBD) lower to semantic nop instructions:
--- with no reachable conditional command to gate, no runtime comparison state
--- exists, and the operand bytes are consumed without emitting operand fields.
-function T.comparison_commands_lower_to_nop()
+function T.comparison_commands_lower_to_semantic_operations()
   local bytes = SseqFixture.build({
     { op = "cmp_eq", var = 0, amount = 42 },
     { op = "cmp_ge", var = 3, amount = -7 },
     { op = "fin" },
   })
   local program = lowerOrFail(bytes)
-  Assert.equal(program.instructions[1].op, "nop")
-  Assert.isNil(program.instructions[1].var)
-  Assert.isNil(program.instructions[1].amount)
-  Assert.equal(program.instructions[2].op, "nop")
-  Assert.isNil(program.instructions[2].var)
-  Assert.isNil(program.instructions[2].amount)
-end
-
--- Targets pointing before the data offset (into the SSEQ header region) are
--- ordinary targets; the walk treats header bytes as code exactly like the
--- inventory scanner, and the index mapping still holds.
-function T.resolves_targets_into_the_header_region()
-  local bytes = SseqFixture.build({
-    { op = "wait", duration = 1 },
-    { op = "jump", target = 0x0D },
-    { op = "fin" },
-  })
-  local program = lowerOrFail(bytes)
-  local jump
-  for _, instruction in ipairs(program.instructions) do
-    if instruction.op == "jump" then
-      jump = instruction
-    end
-  end
-  Assert.notNil(jump, "the jump instruction is present")
-  Assert.equal(jump.target, 1, "header-region target maps to the walked instruction")
+  Assert.deepEqual(program.instructions[1], { op = "compare", condition = "eq", var = 0, amount = 42 })
+  Assert.deepEqual(program.instructions[2], { op = "compare", condition = "ge", var = 3, amount = -7 })
 end
 
 -- Unreachable trailing bytes are never decoded: a truncated command past the

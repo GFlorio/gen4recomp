@@ -135,6 +135,7 @@ local function seq(instructions, opts)
     id = opts.playerId or 1,
     initialVolume = opts.initialVolume or 127,
     playerPriority = opts.playerPriority or 64,
+    channelPriority = opts.channelPriority or 64,
   })
 end
 
@@ -154,7 +155,7 @@ local function buildBundle(sequences, opts)
     sequenceBySymbol[sequence.symbol] = id
     indexPlayers[sequence.player.id] = {
       id = sequence.player.id,
-      maxSequences = 16,
+      maxSequences = opts.maxSequences or 1,
       channelMask = opts.channelMask or 0xFFFF,
     }
   end
@@ -186,6 +187,9 @@ local function engine(sequences, opts)
   local playerOpts = { sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider }
   if opts.rng ~= nil then
     playerOpts.rng = opts.rng
+  end
+  if opts.observer ~= nil then
+    playerOpts.observer = opts.observer
   end
   local player = SequencePlayer.new(playerOpts)
   return player, provider
@@ -298,6 +302,40 @@ function T.plays_a_note_and_ends_the_sequence()
     "the 1-tick note releases at its own tick boundary"
   )
   Assert.isFalse(player:isPlaying(), "the end terminates the sequence")
+end
+
+function T.natural_release_waits_until_sequence_work_finishes()
+  local events = {}
+  local observer = {
+    onSoundInterval = function(_, event)
+      events[#events + 1] = event.phase
+    end,
+  }
+  local mixer = stubMixer()
+  local originalNoteOff = mixer.noteOff
+  mixer.noteOff = function(self, handle, releaseOverride)
+    events[#events + 1] = "natural_release"
+    originalNoteOff(self, handle, releaseOverride)
+  end
+  local player, provider = engine(
+    { [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } }) },
+    { mixer = mixer, observer = observer }
+  )
+  play(player, provider)
+  player:render(500)
+
+  Assert.deepEqual(events, {
+    "before_sequence",
+    "after_sequence",
+    "after_channels",
+    "before_sequence",
+    "after_sequence",
+    "after_channels",
+    "before_sequence",
+    "after_sequence",
+    "natural_release",
+    "after_channels",
+  }, "natural release begins after sequence work and before channel control")
 end
 
 function T.a_note_occupies_the_track_for_its_whole_duration()
@@ -469,6 +507,65 @@ function T.open_track_plays_a_second_voice_in_parallel()
   Assert.isFalse(player:isPlaying(), "the sequence ends when every track ends")
 end
 
+function T.reopening_a_track_preserves_track_init_controls_and_pool_ownership()
+  local mixer = stubMixer()
+  local poolEvents = {}
+  local program = {
+    { op = "open_track", track = 1, target = 7 },
+    { op = "end" },
+    { op = "end" },
+    { op = "end" },
+    { op = "end" },
+    { op = "end" },
+    { op = "volume", amount = 42 },
+    { op = "expression", amount = 37 },
+    { op = "pan", amount = 81 },
+    { op = "open_track", track = 1, target = 13 },
+    { op = "end" },
+    { op = "end" },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "end" },
+  }
+  local player, provider = engine({ [0] = seq(program) }, {
+    mixer = mixer,
+    observer = {
+      onTrackPool = function(_, event)
+        poolEvents[#poolEvents + 1] = event.allocated
+      end,
+    },
+  })
+  play(player, provider)
+  Assert.equal(#mixer.log.noteOns, 1)
+  local spec = mixer.log.noteOns[1]
+  Assert.equal(spec.trackVolume, 42)
+  Assert.equal(spec.expression, 37)
+  Assert.equal(spec.trackPanOffset, 17)
+  Assert.deepEqual(poolEvents, { 1, 2, 1 }, "reopen must retain the allocated track object")
+end
+
+function T.comparisons_and_conditionals_are_signed_and_track_local()
+  local mixer = stubMixer()
+  local program = {
+    { op = "open_track", track = 1, target = 7 },
+    { op = "setvar", var = 0, amount = -1 },
+    { op = "compare", condition = "eq", var = 0, amount = -1 },
+    { op = "if", condition = "compare_result", instruction = { op = "program", program = 1 } },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "end" },
+    { op = "setvar", var = 0, amount = 1 },
+    { op = "compare", condition = "ne", var = 0, amount = 1 },
+    { op = "if", condition = "compare_result", instruction = { op = "program", program = 1 } },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "end" },
+  }
+  -- Track 1 has the opposite result and must not observe track 0's compare.
+  local player, provider = engine({ [0] = seq(program) }, { mixer = mixer })
+  play(player, provider)
+  Assert.equal(#mixer.log.noteOns, 2)
+  Assert.equal(generatorOf(mixer.log.noteOns[1]).sample, AudioFixture.key(2))
+  Assert.equal(generatorOf(mixer.log.noteOns[2]).sample, AudioFixture.key(1))
+end
+
 -- The volume/expression commands ride the note spec as the SDK fields; the
 -- dB-domain register conversion they feed is VoiceMixer contract (the
 -- player never folds them together).
@@ -598,8 +695,8 @@ function T.random_operands_scale_the_u16_draw_with_sdk_integer_arithmetic()
   Assert.equal(mixer.log.noteOns[4].trackPanOffset, -56, "draw 0x1000 = 4096 scales to pan 8")
 end
 
-function T.the_player_initial_volume_passes_through_as_player_volume()
-  local function playerVolume(initialVolume)
+function T.the_inner_volume_starts_full_independently_of_initial_volume()
+  local function sequenceVolume(initialVolume)
     local mixer = stubMixer()
     local player, provider = engine({
       [0] = seq(
@@ -609,10 +706,14 @@ function T.the_player_initial_volume_passes_through_as_player_volume()
     }, { mixer = mixer })
     play(player, provider)
     player:render(100)
-    return mixer.log.noteOns[1].playerVolume
+    return mixer.log.noteOns[1].sequenceVolume, mixer.log.noteOns[1].outerPlayerVolume
   end
-  Assert.equal(playerVolume(127), 127, "the player volume passes through, never folded into the track volume")
-  Assert.equal(playerVolume(64), 64)
+  local inner, outer = sequenceVolume(127)
+  Assert.equal(inner, 127)
+  Assert.equal(outer, 127)
+  inner, outer = sequenceVolume(64)
+  Assert.equal(inner, 127)
+  Assert.equal(outer, 64)
 end
 
 function T.playing_on_the_same_player_replaces_the_sequence()
@@ -1223,7 +1324,7 @@ function T.note_spec_carries_the_semantic_mixer_contract()
   local player, provider = engine({
     [0] = seq(
       { { op = "note", key = 64, velocity = 96, duration = 1 }, { op = "end" } },
-      { initialVolume = 100, playerPriority = 16 }
+      { initialVolume = 100, playerPriority = 16, channelPriority = 37 }
     ),
   }, { mixer = mixer })
   play(player, provider)
@@ -1242,15 +1343,16 @@ function T.note_spec_carries_the_semantic_mixer_contract()
   Assert.equal(spec.velocity, 96)
   Assert.equal(spec.trackVolume, 127, "the track volume passes through unfettered")
   Assert.equal(spec.expression, 127)
-  Assert.equal(spec.playerVolume, 100, "the player volume passes separately, never folded into the track volume")
+  Assert.equal(spec.sequenceVolume, 127, "the inner sequence volume starts at 127")
+  Assert.equal(spec.outerPlayerVolume, 100, "the SDAT volume remains outer state")
   Assert.deepEqual(spec.envelope, { attack = 127, decay = 0, sustain = 127, release = 127 })
   Assert.equal(spec.pan, 0, "the spec carries the instrument pan, not a folded track pan")
   Assert.equal(spec.trackPanOffset, 0, "the raw track pan offset defaults to 0")
   Assert.equal(spec.channelMask, 0xFFFF)
-  Assert.equal(spec.trackPriority, 64, "the track priority defaults to 64")
+  Assert.equal(spec.trackPriority, 37, "the track priority starts from channelPriority")
   Assert.equal(spec.playerPriority, 16)
   Assert.isNil(spec.volume, "the old folded volume field is gone")
-  Assert.isNil(spec.channelPriority, "the old channelPriority field is gone")
+  Assert.equal(spec.channelPriority, 37)
   Assert.isNil(spec.bend, "bend is userPitch; the mixer spec has no bend field")
   Assert.deepEqual(
     spec.lfo,
@@ -1279,11 +1381,11 @@ function T.priority_is_track_state_defaulting_to_64()
       { op = "priority", amount = 12 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
-    }, { playerPriority = 16 }),
+    }, { playerPriority = 16, channelPriority = 37 }),
   }, { mixer = mixer })
   play(player, provider)
   player:render(100)
-  Assert.equal(mixer.log.noteOns[1].trackPriority, 64, "a fresh track's priority defaults to 64")
+  Assert.equal(mixer.log.noteOns[1].trackPriority, 37, "a fresh track starts at channel priority")
   Assert.equal(mixer.log.noteOns[1].playerPriority, 16, "the player priority is untouched by the command")
   Assert.equal(mixer.log.noteOns[2].trackPriority, 12, "the priority command changes the track priority")
 end
@@ -1424,7 +1526,7 @@ function T.track_value_changes_reach_active_voices_promptly()
   end
   Assert.notNil(push, "the push carries the current track volume, expression and raw pan offset")
   Assert.deepEqual(push.handle, { channel = 3, generation = 0 }, "the push targets the active voice's handle")
-  Assert.equal(push.partial.playerVolume, 127, "the push carries the player volume too")
+  Assert.equal(push.partial.sequenceVolume, 127, "the push carries the inner sequence volume")
 end
 
 -- Deterministic scheduling: the player processes players ascending and each
@@ -2405,6 +2507,35 @@ function T.the_player_fader_reaches_the_update_voice_push_in_the_db_domain()
   Assert.equal(push.partial.fader, NnsSoundMath.decibelSquare(42), "the level reaches the mixer in the dB domain")
 end
 
+function T.master_volume_and_outer_fader_remain_independent()
+  local mixer = stubMixer()
+  local player, provider = engine({
+    [0] = seq({
+      { op = "note_wait", amount = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 100 },
+      { op = "master_volume", amount = 40 },
+      { op = "wait", duration = 4 },
+    }, { initialVolume = 80 }),
+  }, { mixer = mixer })
+  play(player, provider)
+  player:render(250)
+  Assert.equal(mixer.log.noteOns[1].sequenceVolume, 127)
+  Assert.equal(mixer.log.noteOns[1].outerPlayerVolume, 80)
+  local master
+  for _, update in ipairs(mixer.log.updates) do
+    if update.partial.sequenceVolume == 40 then
+      master = update.partial
+    end
+  end
+  Assert.notNil(master, "the SSEQ master-volume command reaches the inner volume domain")
+  Assert.equal(master.outerPlayerVolume, 80)
+  player:setFader(1, 0)
+  local fade = mixer.log.updates[#mixer.log.updates].partial
+  Assert.equal(fade.sequenceVolume, 40)
+  Assert.equal(fade.outerPlayerVolume, 80)
+  Assert.equal(fade.fader, NnsSoundMath.decibelSquare(80) + NnsSoundMath.decibelSquare(0))
+end
+
 -- The SDK variable domains (SND_seq.c PlayerInit): a fresh player instance
 -- initializes its 16 player-local variables to -1 at play() and the shared
 -- 16 global variables to -1 once at construction; locals reset on every
@@ -3271,6 +3402,63 @@ function T.idle_rendering_advances_the_global_interval_and_rng()
   player:render(1) -- completes the third interval at absolute frame 512
   Assert.equal(#mixer.log.noteOns, 1, "the first tick lands on the next global boundary after play")
   Assert.equal(#rng.calls, 3, "the completed interval draws the periodic RNG once more")
+end
+
+function T.player_capacity_keeps_higher_priority_and_rejects_lower_priority_starts()
+  local mixer = stubMixer()
+  local program = { { op = "note", key = 60, velocity = 127, duration = 4 }, { op = "wait", duration = 4 } }
+  local player, provider = engine({
+    [0] = seq(program, { playerId = 1, playerPriority = 10 }),
+    [1] = seq(program, { id = 1, symbol = "SEQ_TEST_B", playerId = 1, playerPriority = 20 }),
+    [2] = seq(program, { id = 2, symbol = "SEQ_TEST_C", playerId = 1, playerPriority = 30 }),
+    [3] = seq(program, { id = 3, symbol = "SEQ_TEST_D", playerId = 1, playerPriority = 5 }),
+  }, { mixer = mixer, maxSequences = 2 })
+  player:play(provider:sequence(0), provider:bank(12))
+  player:play(provider:sequence(1), provider:bank(12))
+  player:render(250)
+  Assert.equal(#mixer.log.noteOns, 2, "two sequence instances coexist within capacity")
+  player:play(provider:sequence(3), provider:bank(12))
+  Assert.equal(#mixer.log.noteOffs, 0, "a lower-priority start is rejected without releasing a live instance")
+  player:play(provider:sequence(2), provider:bank(12))
+  Assert.equal(#mixer.log.noteOffs, 1, "a full player releases one victim")
+  Assert.equal(mixer.log.noteOffs[1].handle.generation, 0, "the oldest lowest-priority instance is the victim")
+end
+
+function T.global_track_pool_rejects_the_thirty_third_track_and_reuses_after_stop()
+  local function crowded(id, priority)
+    local instructions = {}
+    for track = 1, 15 do
+      instructions[#instructions + 1] = { op = "open_track", track = track, target = 16 }
+    end
+    instructions[#instructions + 1] = { op = "note", key = 60, velocity = 127, duration = 8 }
+    instructions[#instructions + 1] = { op = "wait", duration = 8 }
+    return seq(instructions, { id = id, symbol = "SEQ_CROWDED_" .. id, playerId = 1, playerPriority = priority })
+  end
+  local poolEvents = {}
+  local observer = {
+    onTrackPool = function(_, event)
+      poolEvents[#poolEvents + 1] = event
+    end,
+  }
+  local player, provider = engine({
+    [0] = crowded(0, 10),
+    [1] = crowded(1, 20),
+    [2] = seq({
+      { op = "open_track", track = 1, target = 2 },
+      { op = "wait", duration = 4 },
+    }, { id = 2, symbol = "SEQ_THIRD", playerId = 1, playerPriority = 30 }),
+  }, {
+    maxSequences = 3,
+    observer = observer,
+  })
+  player:play(provider:sequence(0), provider:bank(12))
+  player:play(provider:sequence(1), provider:bank(12))
+  player:render(250)
+  player:play(provider:sequence(2), provider:bank(12))
+  player:render(250)
+  Assert.equal(poolEvents[#poolEvents].allocated, 32, "the shared pool never grows past 32 tracks")
+  player:stopPlayer(1)
+  Assert.equal(poolEvents[#poolEvents].allocated, 0, "stopping a player returns every track object")
 end
 
 return { tests = T }

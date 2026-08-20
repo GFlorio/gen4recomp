@@ -143,12 +143,15 @@ end
 ---@return table?
 function AudioBank.selectVoice(instrument, midiKey)
   if instrument.kind == "direct" then
+    if instrument.voice.kind == "dummy" then
+      return nil
+    end
     return instrument.voice
   end
   if instrument.kind == "key_split" then
     for _, range in ipairs(instrument.ranges) do
       if midiKey >= range.lowKey and midiKey <= range.highKey then
-        return range.voice
+        return range.voice.kind == "dummy" and nil or range.voice
       end
     end
     return nil
@@ -157,7 +160,8 @@ function AudioBank.selectVoice(instrument, midiKey)
     if midiKey < instrument.lowKey or midiKey > instrument.highKey then
       return nil
     end
-    return instrument.voices[midiKey - instrument.lowKey + 1]
+    local voice = instrument.voices[midiKey - instrument.lowKey + 1]
+    return voice.kind == "dummy" and nil or voice
   end
   assert(false, "unknown instrument kind")
 end
@@ -165,6 +169,17 @@ end
 local function validateVoice(voice)
   if type(voice) ~= "table" then
     fail({ field = "voice" })
+  end
+  if voice.kind == "dummy" then
+    for key in pairs(voice) do
+      if key ~= "kind" then
+        fail({ field = "voice" })
+      end
+    end
+    return
+  end
+  if voice.kind ~= nil then
+    fail({ field = "voice.kind" })
   end
   local generator = voice.generator
   if type(generator) ~= "table" then
@@ -195,7 +210,7 @@ local function validateVoice(voice)
     fail({ field = "voice.envelope" })
   end
   for _, field in ipairs({ "attack", "decay", "sustain", "release" }) do
-    if not isIntegerInRange(envelope[field], 0, 0x7F) then
+    if not isIntegerInRange(envelope[field], 0, 0x7F) and not (field == "release" and envelope[field] == 0xFF) then
       fail({ field = "voice.envelope." .. field })
     end
   end

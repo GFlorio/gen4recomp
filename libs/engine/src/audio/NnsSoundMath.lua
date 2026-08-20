@@ -1806,6 +1806,7 @@ end
 ---@param vol integer
 ---@return integer
 function NnsSoundMath.decayCoefficient(vol)
+  assert(vol >= 0 and vol <= 127 and vol % 1 == 0, "decay coefficient input must be an integer 0..127")
   if vol == 127 then
     return 0xFFFF
   elseif vol == 126 then

@@ -3,7 +3,8 @@
 -- TrackParseValue) interprets it: a u32 data offset at file offset 0x18, then
 -- commands starting with an optional FE track-mask byte. Notes 0x00-0x7F
 -- carry a velocity byte and a variable-length duration; 0x80-0x8F a
--- variable-length value; 0x90-0x9F branches (0x93 track+u24, 0x94/0x95 u24)
+-- variable-length value; 0x90-0x9F branches (0x93 track+data-relative u24,
+-- 0x94/0x95 data-relative u24)
 -- and reserved forms; 0xA0 random / 0xA1 variable / 0xA2 conditional
 -- prefixes; 0xB0-0xBF a var number plus u16; 0xC0-0xDF a u8; 0xE0-0xEF a
 -- u16; 0xF0-0xFF nothing. Random operands (u16 lo, u16 hi) and variable
@@ -142,6 +143,8 @@ local function decodeCommandImpl(bytes, offset, endPos, source)
   elseif cmd <= 0x9F then
     if cmd == 0x93 then
       command.track = byteAt(bytes, pos, endPos, source)
+      -- Nitro adds this operand to the sequence DATA payload base. Keep the
+      -- raw relative value here; lowering rebases it before lookup.
       command.target = u24At(bytes, pos + 1, endPos, source)
       pos = pos + 4
     elseif cmd == 0x94 or cmd == 0x95 then

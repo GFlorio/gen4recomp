@@ -45,6 +45,7 @@ local function seq(id, symbol, bankId, playerId, instructions)
     id = playerId,
     initialVolume = 127,
     playerPriority = 64,
+    channelPriority = 64,
   })
 end
 

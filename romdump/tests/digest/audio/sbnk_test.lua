@@ -173,22 +173,28 @@ end
 -- Instrument types the offline compiler cannot represent (direct-memory PCM,
 -- dummy records, or silent leaves inside composites) are build failures with
 -- provenance, never silent guesses.
-function T.rejects_unsupported_instrument_types()
+function T.decodes_directpcm_and_dummy_instruments()
   local direct = SbnkFixture.build({ { type = 4, param = PCM } })
-  decodeRejects(direct, "SBNK_UNSUPPORTED_INSTRUMENT")
+  local directBank = decodeOrFail(direct)
+  Assert.equal(directBank.instruments[0].type, Sbnk.TYPE_DIRECTPCM)
+  Assert.deepEqual(directBank.instruments[0].param, PCM)
 
   local dummy = SbnkFixture.build({ { type = 5, param = PCM } })
-  decodeRejects(dummy, "SBNK_UNSUPPORTED_INSTRUMENT")
+  local dummyBank = decodeOrFail(dummy)
+  Assert.equal(dummyBank.instruments[0].type, Sbnk.TYPE_DUMMY)
+  Assert.isNil(dummyBank.instruments[0].param, "dummy has no playable note parameters")
 
   local drumWithSilentLeaf = SbnkFixture.build({
     {
       type = 0x10,
       minKey = 35,
       maxKey = 36,
-      leaves = { { type = 1, param = PCM }, { type = 0, param = PCM } },
+      leaves = { { type = 1, param = PCM }, { type = 5, param = PCM } },
     },
   })
-  decodeRejects(drumWithSilentLeaf, "SBNK_UNSUPPORTED_INSTRUMENT")
+  local drumBank = decodeOrFail(drumWithSilentLeaf)
+  Assert.equal(drumBank.instruments[0].leaves[1].type, Sbnk.TYPE_DUMMY)
+  Assert.isNil(drumBank.instruments[0].leaves[1].param)
 end
 
 -- A key split whose first key byte is zero has no playable leaves; like a

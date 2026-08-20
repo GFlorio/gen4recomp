@@ -50,6 +50,8 @@ local OPS = {
   divvar = { "var", "amount" },
   shiftvar = { "var", "amount" },
   randomvar = { "var", "amount" },
+  compare = { "condition", "var", "amount" },
+  ["if"] = { "condition", "instruction" },
   pan = { "amount" },
   volume = { "amount" },
   master_volume = { "amount" },
@@ -57,6 +59,7 @@ local OPS = {
   pitch_bend = { "amount" },
   pitch_bend_range = { "amount" },
   priority = { "amount" },
+  channel_mask = { "amount" },
   note_wait = { "amount" },
   tie = { "amount" },
   portamento_key = { "amount" },
@@ -87,6 +90,7 @@ local OPS = {
 local VARIABLE_MAX = 31
 -- The SDK track domain: 16 tracks per player (the u16 FE track mask).
 local TRACK_MAX = 15
+local COMPARE_CONDITIONS = { eq = true, ge = true, gt = true, le = true, lt = true, ne = true }
 
 local function fail(context)
   Errors.raise(AudioErrors.AUDIO_SEQUENCE_INVALID, "malformed audio sequence asset", context)
@@ -156,6 +160,58 @@ local function isValidOperand(amount, nonNegative)
   return false
 end
 
+local function validateNestedInstruction(instruction, field, instructionCount)
+  if type(instruction) ~= "table" or type(instruction.op) ~= "string" then
+    fail({ field = field .. ".op" })
+  end
+  local op = instruction.op
+  local operandSpec = OPS[op]
+  if operandSpec == nil or op == "if" then
+    fail({ field = field .. ".op", op = op })
+  end
+  operandSpec = operandSpec --[[@as table]]
+  local allowed = { op = true }
+  for _, operand in ipairs(operandSpec) do
+    allowed[operand] = true
+  end
+  assertOnlyKeys(instruction, allowed, field)
+  for _, operand in ipairs(operandSpec) do
+    if instruction[operand] == nil then
+      fail({ field = field .. "." .. operand, op = op })
+    end
+  end
+  if op == "compare" then
+    if not COMPARE_CONDITIONS[instruction.condition] then
+      fail({ field = field .. ".condition" })
+    end
+    if not isIntegerInRange(instruction.var, 0, VARIABLE_MAX) or not isValidOperand(instruction.amount, false) then
+      fail({ field = field .. ".compare" })
+    end
+  elseif op == "note" then
+    if
+      not isKey(instruction.key)
+      or not isIntegerInRange(instruction.velocity, 0, 0x7F)
+      or not isValidOperand(instruction.duration, true)
+    then
+      fail({ field = field .. ".note" })
+    end
+  elseif op == "wait" then
+    if not isValidOperand(instruction.duration, true) then
+      fail({ field = field .. ".duration" })
+    end
+  elseif op == "program" then
+    if not isValidOperand(instruction.program, true) then
+      fail({ field = field .. ".program" })
+    end
+  elseif operandSpec[1] == "var" then
+    if not isIntegerInRange(instruction.var, 0, VARIABLE_MAX) or not isValidOperand(instruction.amount, false) then
+      fail({ field = field .. ".operand" })
+    end
+  elseif operandSpec[1] == "amount" and not isValidOperand(instruction.amount, false) then
+    fail({ field = field .. ".amount" })
+  end
+end
+
 function AudioSequence.validate(sequence)
   if type(sequence) ~= "table" then
     fail({})
@@ -176,7 +232,7 @@ function AudioSequence.validate(sequence)
   if type(player) ~= "table" then
     fail({ field = "player" })
   end
-  assertOnlyKeys(player, { id = true, initialVolume = true, playerPriority = true }, "player")
+  assertOnlyKeys(player, { id = true, initialVolume = true, playerPriority = true, channelPriority = true }, "player")
   if not isIntegerInRange(player.id, 0, 0xFF) then
     fail({ field = "player.id" })
   end
@@ -185,6 +241,9 @@ function AudioSequence.validate(sequence)
   end
   if not isIntegerInRange(player.playerPriority, 0, 0xFF) then
     fail({ field = "player.playerPriority" })
+  end
+  if not isIntegerInRange(player.channelPriority, 0, 0xFF) then
+    fail({ field = "player.channelPriority" })
   end
   local program = sequence.program
   if type(program) ~= "table" then
@@ -208,9 +267,8 @@ function AudioSequence.validate(sequence)
     end
     operandSpec = operandSpec --[[@as table]]
     -- Exact instruction shapes: the record carries its op and exactly its
-    -- semantic operands. The conditional field is forbidden at any value --
-    -- no reachable retail command is conditional, so a conditional
-    -- instruction is malformed asset data, not a boolean option.
+    -- Conditional execution owns a complete nested instruction so variable-
+    -- length source commands cannot be split by the runtime.
     local allowed = { op = true }
     for _, operand in ipairs(operandSpec) do
       allowed[operand] = true
@@ -221,7 +279,24 @@ function AudioSequence.validate(sequence)
         fail({ field = "program.instructions[" .. index .. "]." .. operand, op = op })
       end
     end
-    if op == "note" then
+    if op == "if" then
+      if instruction.condition ~= "compare_result" then
+        fail({ field = "program.instructions[" .. index .. "].condition" })
+      end
+      validateNestedInstruction(
+        instruction.instruction,
+        "program.instructions[" .. index .. "].instruction",
+        #program.instructions
+      )
+    elseif op == "compare" then
+      if
+        not COMPARE_CONDITIONS[instruction.condition]
+        or not isIntegerInRange(instruction.var, 0, VARIABLE_MAX)
+        or not isValidOperand(instruction.amount, false)
+      then
+        fail({ field = "program.instructions[" .. index .. "].compare" })
+      end
+    elseif op == "note" then
       if not isKey(instruction.key) then
         fail({ field = "program.instructions[" .. index .. "].key" })
       end

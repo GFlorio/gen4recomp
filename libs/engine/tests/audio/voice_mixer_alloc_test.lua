@@ -18,7 +18,7 @@
 --     control step -- 192 Hz, i.e. one step per 250 output frames at 48 kHz
 --     (SND_TIMER_RATE 240 at the 192 Hz sound interval, the cadence the
 --     sequence player already derives its tick clock from). The noteOn
---     itself is the note's first control step; subsequent steps fire every
+--     noteOn initializes the channel; subsequent steps fire every
 --     CONTROL_PERIOD frames on the mixer's absolute frame count.
 --   * LFO (SND_UpdateLfo/SND_GetLfoValue/SND_SinIdx) and sweep
 --     (ExChannelSweepUpdate) state machines run per control step and feed
@@ -54,7 +54,16 @@ end
 local CONST_4096 = { 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 }
 
 local function newMixer(rate)
-  return VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
+  local mixer = VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
+  local noteOn = mixer.noteOn
+  mixer.noteOn = function(self, noteSpec)
+    local handle = noteOn(self, noteSpec)
+    if handle ~= nil then
+      self:controlStep()
+    end
+    return handle
+  end
+  return mixer
 end
 
 -- Renders `frames` through the external-drive contract: one 250-frame span
@@ -93,12 +102,13 @@ local function spec(overrides)
     velocity = 127,
     trackVolume = 127,
     expression = 127,
-    playerVolume = 127,
+    sequenceVolume = 127,
     envelope = { attack = 127, decay = 127, sustain = 127, release = 127 },
     pan = 64,
     channelMask = 0xFFFF,
     trackPriority = 64,
     playerPriority = 64,
+    channelPriority = 64,
   }
   for key, value in pairs(overrides or {}) do
     s[key] = value
@@ -200,7 +210,7 @@ function T.allocation_uses_the_priority_sum_and_rejects_weak_notes()
     mixer:noteOn(spec({ playerPriority = 5, trackPriority = 5, channelMask = 0x0030 })),
     "priority 10 is below the occupied channel's priority and is rejected"
   )
-  local equal = mixer:noteOn(spec({ playerPriority = 64, trackPriority = 36, channelMask = 0x0030 }))
+  local equal = mixer:noteOn(spec({ playerPriority = 1, trackPriority = 80, channelMask = 0x0030 }))
   Assert.deepEqual(equal, { channel = 5, generation = 2 }, "priority 100 equals the victim's priority and steals")
 end
 
@@ -274,7 +284,7 @@ function T.track_control_updates_apply_at_the_next_control_step()
   Assert.equal(leftAt(second, CONTROL), 1300, "track volume 64 reaches register 0x141 at the next control step")
   first, second = run({ pcm = pcm, pan = 0 }, { expression = 100 })
   Assert.equal(leftAt(second, CONTROL), 3160, "expression 100 reaches register 0x4F")
-  first, second = run({ pcm = pcm, pan = 0 }, { playerVolume = 100 })
+  first, second = run({ pcm = pcm, pan = 0 }, { sequenceVolume = 100 })
   Assert.equal(leftAt(second, CONTROL), 3160, "player volume 100 reaches register 0x4F")
   first, second = run({ pcm = pcm, pan = 0 }, { fader = -200 })
   Assert.equal(leftAt(second, CONTROL), 510, "the fader reaches register 0x233")
@@ -457,7 +467,7 @@ end
 -- contribution (timer 256).
 function T.sweep_ramps_pitch_over_its_length()
   local function run(autoSweep, frames)
-    local mixer = newMixer()
+    local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
     mixer:noteOn(spec({
       pcm = WAVE16,
       baseTimer = 512,
@@ -653,6 +663,15 @@ function T.retargeted_tied_voices_apply_the_full_common_tail_at_the_next_control
   Assert.equal(leftAt(second, 251), 664, "attack step 4 continues from the retargeted voice")
   Assert.equal(leftAt(second, 750), 1040, "the attack continues toward the sustain register")
   Assert.isTrue(envMixer:isVoiceAlive(envHandle), "the key-retargeted voice stays alive")
+end
+
+function T.channel_locks_exclude_strong_and_weak_channels_from_allocation()
+  local mixer = newMixer()
+  mixer:setChannelLocks({ strongMask = 0x0010, weakMask = 0x0020 })
+  local strongExcluded = mixer:noteOn(spec({ channelMask = 0x0030 }))
+  Assert.deepEqual(strongExcluded, { channel = 5, generation = 0 }, "a strong lock excludes channel 4")
+  local weakExcluded = mixer:noteOn(spec({ channelMask = 0x0030 }))
+  Assert.isNil(weakExcluded, "a weak lock excludes the remaining candidate")
 end
 
 return { tests = T }
