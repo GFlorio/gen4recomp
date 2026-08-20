@@ -75,13 +75,14 @@ local function newMixer(rate, prime)
   -- below opt out and drive the first interval explicitly.
   if prime ~= false then
     local noteOn = mixer.noteOn
-    mixer.noteOn = function(self, noteSpec)
+    ---@diagnostic disable-next-line: duplicate-set-field
+    rawset(mixer, "noteOn", function(self, noteSpec)
       local handle = noteOn(self, noteSpec)
       if handle ~= nil then
         self:controlStep()
       end
       return handle
-    end
+    end)
   end
   return mixer
 end
@@ -180,8 +181,9 @@ function T.release_sentinel_initializes_an_indefinite_voice()
     length = 12,
   }))
   Assert.isTrue(handle ~= nil, "release sentinel note allocates")
+  local liveHandle = assert(handle)
   mixer:controlStep()
-  Assert.isTrue(mixer:isVoiceAlive(handle), "release sentinel voice remains alive")
+  Assert.isTrue(mixer:isVoiceAlive(liveHandle), "release sentinel voice remains alive")
   Assert.equal(state.length, -1, "release sentinel uses an indefinite channel length")
 end
 

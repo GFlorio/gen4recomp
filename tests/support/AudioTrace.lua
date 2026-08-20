@@ -43,7 +43,7 @@ local function sortedIntervals(intervals)
   return copy
 end
 
-local function sortedBy(keys, entries, comparator)
+local function sortedBy(entries, comparator)
   local copy = {}
   for index, entry in ipairs(entries) do
     copy[index] = entry
@@ -94,7 +94,7 @@ end
 function AudioTrace:normalized()
   local out = AudioTrace.new()
   out.intervals = sortedIntervals(self.intervals)
-  out.trackSteps = sortedBy(nil, self.trackSteps, function(a, b)
+  out.trackSteps = sortedBy(self.trackSteps, function(a, b)
     if a.ordinal ~= b.ordinal then
       return (a.ordinal or 0) < (b.ordinal or 0)
     end
@@ -106,7 +106,7 @@ function AudioTrace:normalized()
     end
     return (a.pc or 0) < (b.pc or 0)
   end)
-  out.noteEvents = sortedBy(nil, self.noteEvents, function(a, b)
+  out.noteEvents = sortedBy(self.noteEvents, function(a, b)
     if a.playerId ~= b.playerId then
       return a.playerId < b.playerId
     end
@@ -118,7 +118,7 @@ function AudioTrace:normalized()
     end
     return false
   end)
-  out.channelStates = sortedBy(nil, self.channelStates, function(a, b)
+  out.channelStates = sortedBy(self.channelStates, function(a, b)
     if a.channel ~= b.channel then
       return a.channel < b.channel
     end
@@ -182,10 +182,6 @@ function AudioTrace:filterByTrack(playerId, trackSlot)
     end
     if entry.trackSlot ~= nil and entry.trackSlot ~= trackSlot then
       return false
-    end
-    -- Keep intervals which have no player/track scope.
-    if entry.playerId == nil and entry.trackSlot == nil then
-      return true
     end
     return true
   end)

@@ -200,7 +200,8 @@ function T.observer_does_not_mutate_player_state_and_is_allocation_free_when_abs
   player:play(provider:sequence(0), provider:bank(12))
   local pcm = player:render(500)
   Assert.isTrue(#pcm > 0, "rendering without observer must produce pcm")
-  Assert.isTrue(player:isPlaying() == false or player:isPlaying() == true, "isPlaying remains callable")
+  player:stop()
+  Assert.isFalse(player:isPlaying(), "stop clears the short sequence without an observer")
 end
 
 function T.trace_recorder_normalizes_ordering_and_renders_mismatch_diagnostics()

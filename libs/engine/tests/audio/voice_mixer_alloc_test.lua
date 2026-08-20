@@ -56,13 +56,14 @@ local CONST_4096 = { 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 }
 local function newMixer(rate)
   local mixer = VoiceMixer.new({ sampleRate = rate or SAMPLE_RATE })
   local noteOn = mixer.noteOn
-  mixer.noteOn = function(self, noteSpec)
+  ---@diagnostic disable-next-line: duplicate-set-field
+  rawset(mixer, "noteOn", function(self, noteSpec)
     local handle = noteOn(self, noteSpec)
     if handle ~= nil then
       self:controlStep()
     end
     return handle
-  end
+  end)
   return mixer
 end
 
