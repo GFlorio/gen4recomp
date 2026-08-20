@@ -7,7 +7,7 @@
 --   * Volume is a dB-like integer sum per control step
 --     (SNDi_DecibelSquareTable[velocity] + envAttenuation>>7
 --     + DecibelSquare[trackVolume] + DecibelSquare[expression]
---     + DecibelSquare[playerVolume] + fader), converted once per step by
+--     + DecibelSquare[sequenceVolume] + fader), converted once per step by
 --     SND_CalcChannelVolume; no per-stage float gain.
 --   * The envelope is the SDK state machine (SND_SetExChannelAttack
 --     coefficients and the 19-entry high table, CalcDecayCoeff decay/release
@@ -89,7 +89,7 @@ local function newMixer(rate, prime)
 end
 
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
--- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
+-- envelope, pan, key, velocity, trackVolume/expression/sequenceVolume,
 -- channelMask, trackPriority, channelPriority, and the optional channel-side
 -- controls (userPitch 0, trackPanOffset 0, panRange 127, fader 0,
 -- sweepPitch 0, sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/
@@ -189,7 +189,7 @@ end
 
 -- The exact NNS volume path: velocity through SNDi_DecibelSquareTable, the
 -- envelope attenuation (0 after the instant attack), the track volume, the
--- expression (second volume) and the player volume, all summed in the
+-- expression (second volume) and the sequence volume, all summed in the
 -- dB-like integer domain (SND_seq.c TrackUpdateChannel), plus the external
 -- fader, converted once by SND_CalcChannelVolume. Expected values are the
 -- volume register mantissa N/128 (register 127 = N 128) divided by

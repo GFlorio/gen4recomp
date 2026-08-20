@@ -531,7 +531,7 @@ end
 -- rides the spec as the voice's key, and the pitch is the selected voice's
 -- (midiKey - rootMidiKey) * 0x40 in the mixer -- never the source note key.
 -- The voice spec carries the decoded PCM and loop window from the provider,
--- the raw track pan offset, the track/player priorities and channel mask
+-- the raw track pan offset, the channel/track priorities and channel mask
 -- from the sequence's player record (nothing is folded into the track
 -- volume), the TrackInit userPitch 0, the TrackPlayNote sweep fields (the
 -- track sweep plus the portamento contribution, the sweep length from
