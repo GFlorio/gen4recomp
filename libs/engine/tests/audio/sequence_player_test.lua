@@ -4322,7 +4322,7 @@ function T.logical_group_controls_cover_all_instances_in_the_group()
   Assert.isFalse(player:isPlayerPlaying(20), "stopping a logical group removes every instance")
 end
 
-function T.same_handle_replaces_before_logical_priority_arbitration()
+function T.reusing_a_handle_detaches_without_retiring_the_former_sequence()
   local allocations, retirements, order = {}, {}, {}
   local mixer = stubMixer()
   local player, provider = allocationEngine({
@@ -4349,11 +4349,100 @@ function T.same_handle_replaces_before_logical_priority_arbitration()
   Assert.isTrue(player:play(handle, provider:sequence(1), provider:bank(12)))
   player:render(250)
 
-  Assert.equal(#retirements, 1, "same-handle replacement retires one attachment")
-  Assert.equal(#mixer.log.noteOffs, 1, "the replaced voice is released exactly once")
-  Assert.deepEqual({ order[2], order[3] }, { "retirement", "allocation" })
-  Assert.isTrue(player:isHandlePlaying(handle), "the handle owns the replacement")
-  Assert.isTrue(player:isPlayerPlaying(1), "the logical group remains active")
+  Assert.equal(#retirements, 0, "handle reuse does not retire the former sequence")
+  Assert.equal(#mixer.log.noteOffs, 0, "handle reuse does not release the former voice")
+  Assert.deepEqual(order, { "allocation", "allocation" }, "detachment emits no retirement event")
+  Assert.isTrue(player:isHandlePlaying(handle), "the handle owns the new sequence")
+  Assert.isTrue(player:isPlayerPlaying(1), "both sequences remain in the logical group")
+
+  player:stopHandle(handle)
+  Assert.isTrue(player:isPlayerPlaying(1), "the detached former sequence remains active")
+  player:stopPlayer(1)
+  Assert.equal(#retirements, 2, "both sequence instances retire independently")
+end
+
+function T.reusing_a_handle_before_logical_rejection_leaves_it_empty()
+  local allocations, retirements = {}, {}
+  local mixer = stubMixer()
+  local player, provider = allocationEngine({
+    [0] = longLivedSequence(0, 1, 80),
+    [1] = longLivedSequence(1, 1, 10),
+  }, {
+    maxSequences = 1,
+    mixer = mixer,
+    observer = {
+      onSequenceAllocation = function(_, event)
+        allocations[#allocations + 1] = event
+      end,
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
+  local handle = player:createHandle()
+
+  Assert.isTrue(player:play(handle, provider:sequence(0), provider:bank(12)))
+  player:render(250)
+  Assert.isFalse(player:play(handle, provider:sequence(1), provider:bank(12)))
+
+  Assert.isFalse(allocations[2].accepted, "the lower-priority admission is rejected")
+  Assert.equal(allocations[2].reason, "logical_priority", "rejection reports logical priority")
+  Assert.equal(#retirements, 0, "logical rejection does not retire the former sequence")
+  Assert.equal(#mixer.log.noteOffs, 0, "logical rejection does not release the former voice")
+  Assert.isFalse(player:isHandlePlaying(handle), "the rejected start leaves the reused handle empty")
+  Assert.isTrue(player:isPlayerPlaying(1), "the detached former sequence remains active")
+end
+
+function T.retiring_a_detached_instance_does_not_clear_a_new_attachment()
+  local player, provider = allocationEngine({
+    [0] = longLivedSequence(0, 1, 64),
+    [1] = longLivedSequence(1, 2, 64),
+  }, { maxSequences = 1 })
+  local handle = player:createHandle()
+
+  Assert.isTrue(player:play(handle, provider:sequence(0), provider:bank(12)))
+  Assert.isTrue(player:play(handle, provider:sequence(1), provider:bank(12)))
+  player:stopPlayer(1)
+
+  Assert.isTrue(player:isHandlePlaying(handle), "retiring the detached instance preserves the current attachment")
+  player:stopHandle(handle)
+end
+
+function T.reusing_a_handle_does_not_create_a_physical_slot()
+  local allocations, retirements = {}, {}
+  local mixer = stubMixer()
+  local sequences = {}
+  for id = 0, 15 do
+    sequences[id] = longLivedSequence(id, id, 30)
+  end
+  sequences[16] = longLivedSequence(16, 16, 20)
+  local player, provider = allocationEngine(sequences, {
+    mixer = mixer,
+    observer = {
+      onSequenceAllocation = function(_, event)
+        allocations[#allocations + 1] = event
+      end,
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
+  local handle = player:createHandle()
+  Assert.isTrue(player:play(handle, provider:sequence(0), provider:bank(12)))
+  for id = 1, 15 do
+    Assert.isTrue(player:play(player:createHandle(), provider:sequence(id), provider:bank(12)))
+  end
+  local firstSlot = allocations[1].seqPlayerSlot
+
+  Assert.isFalse(player:play(handle, provider:sequence(16), provider:bank(12)))
+
+  Assert.isFalse(allocations[17].accepted, "the lower-priority admission is rejected")
+  Assert.equal(allocations[17].reason, "physical_priority", "rejection reports physical priority")
+  Assert.equal(#retirements, 0, "full-pool rejection does not retire an incumbent")
+  Assert.equal(#mixer.log.noteOffs, 0, "full-pool rejection does not release an incumbent voice")
+  Assert.isFalse(player:isHandlePlaying(handle), "the reused handle is empty after rejection")
+  Assert.isTrue(player:isPlayerPlaying(0), "the former attachment remains active")
+  Assert.equal(allocations[1].seqPlayerSlot, firstSlot, "the former attachment keeps its slot")
 end
 
 function T.distinct_handles_isolate_controls_within_one_logical_group()

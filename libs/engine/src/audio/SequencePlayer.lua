@@ -1157,6 +1157,19 @@ end
 
 local retireInstance
 
+-- Releases only the bidirectional handle attachment. The active instance keeps
+-- its logical membership, physical slot, tracks, voices, and priority until a
+-- separate retirement path disposes it.
+local function detachHandle(self, handle)
+  local instance = self._handleAttachments[handle]
+  if instance == nil then
+    return
+  end
+  assert(instance.handle == handle, "handle attachment is not reciprocal")
+  self._handleAttachments[handle] = nil
+  instance.handle = nil
+end
+
 local function retireTrack(self, instance, trackId, reason)
   local track = instance.tracks[trackId]
   assert(track ~= nil, "track must be attached before retirement")
@@ -1206,9 +1219,11 @@ retireInstance = function(self, instance, reason)
   self._seqPlayers[instance.seqPlayerSlot] = nil
   appendFreeSeqPlayerSlot(self, instance.seqPlayerSlot)
   instance.retired = true
-  if instance.handle ~= nil and self._handleAttachments[instance.handle] == instance then
-    self._handleAttachments[instance.handle] = nil
+  local handle = instance.handle
+  if handle ~= nil and self._handleAttachments[handle] == instance then
+    self._handleAttachments[handle] = nil
   end
+  instance.handle = nil
   local observer, callback = observerCallback(self, "onSequenceRetirement")
   if callback ~= nil then
     callback(observer, {
@@ -1288,10 +1303,7 @@ local function startSequenceInstance(self, handle, sequence, bank, enforceBank)
   local initialTrackMask = sequence.program.initialTrackMask
   local playerRecord = self._provider:player(logicalPlayerId)
   local channelMask = playerRecord.channelMask == 0 and 0xFFFF or playerRecord.channelMask
-  local attached = self._handleAttachments[handle]
-  if attached ~= nil then
-    retireInstance(self, attached, "handle_replacement")
-  end
+  detachHandle(self, handle)
   local logicalPlayer = self._logicalPlayers[logicalPlayerId]
   if logicalPlayer == nil then
     logicalPlayer = { instances = {} }

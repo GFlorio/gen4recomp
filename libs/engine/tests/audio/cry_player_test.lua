@@ -91,6 +91,7 @@ function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
       return false
     end,
   }
+  rawset(player, "stopHandle", function() end)
   local cry = CryPlayer.new({ player = player })
 
   cry:play(25, 0)
@@ -123,7 +124,7 @@ function T.play_replaces_an_active_cry_without_a_stale_wait()
   Assert.isTrue(cry:isFinished(), "the replacement ends")
 end
 
-function T.repeated_cries_reuse_one_private_attachment_in_a_multi_sequence_group()
+function T.repeated_cries_explicitly_stop_the_previous_private_attachment()
   local retirements = {}
   local cry, player = newCryPlayer({
     maxSequences = 2,
@@ -133,10 +134,18 @@ function T.repeated_cries_reuse_one_private_attachment_in_a_multi_sequence_group
       end,
     },
   })
+  local stopCalls = 0
+  local stopHandle = player.stopHandle
+  rawset(player, "stopHandle", function(self, handle)
+    stopCalls = stopCalls + 1
+    return stopHandle(self, handle)
+  end)
   cry:play(25, 0)
   player:render(250)
+  stopCalls = 0
   cry:play(133, 0)
-  Assert.equal(#retirements, 1, "a second cry retires the persistent private attachment")
+  Assert.equal(stopCalls, 1, "cry replacement explicitly stops the private attachment")
+  Assert.equal(#retirements, 1, "a second cry retires the previous private attachment")
   Assert.isFalse(cry:isFinished(), "the replacement cry remains active")
 end
 

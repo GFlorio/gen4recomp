@@ -89,11 +89,13 @@ function CryPlayer.new(opts)
   }, CryPlayer)
 end
 
--- Starts the referenced cry as a stand-in on the cry slot; a cry already
--- playing on the private handle is replaced by the engine player.
+-- Starts the referenced cry as a stand-in on the cry slot. Cry replacement is
+-- an explicit policy of this subsystem, so an active prior cry is stopped
+-- before the private handle is reused.
 ---@param species integer
 ---@param form integer
 function CryPlayer:play(species, form)
+  self._player:stopHandle(self._handle)
   self._player:play(self._handle, standinSequence(species), CRY_BANK)
 end
 
