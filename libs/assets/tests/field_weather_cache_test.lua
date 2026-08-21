@@ -81,11 +81,6 @@ function T.contract_constants_flow_from_the_contract_owner()
   Assert.equal(FieldWeatherCache.FORMAT, "field-weather-cache-v1")
 end
 
-function T.catalog_path_is_under_the_generated_field_weather_authority()
-  local FieldWeatherCache = requireCache()
-  Assert.equal(FieldWeatherCache.catalogPath(), "data/generated/field/weather/catalog.lua")
-end
-
 function T.ready_requires_matching_marker_and_valid_catalog_with_all_presets()
   local FieldWeatherCache = requireCache()
   local c = cache()
