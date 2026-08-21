@@ -89,6 +89,7 @@ uniform vec3 u_matEmission;
 uniform bool u_presentationSprite;
 uniform vec2 u_presentationScale;
 uniform vec2 u_presentationOffset;
+uniform vec2 u_stateSize;
 #endif
 
 // 1.0.9 domain scale shared by normals and the transformed light-direction
@@ -213,9 +214,10 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
   vec3 modelNormal;
   vec3 normal;
   vec4 viewPosition;
+  vec3 viewCenter = vec3(0.0);
   if (u_billboard) {
     modelNormal = VertexNormal / u_billboardScale;
-    vec3 viewCenter = (u_view * vec4(u_billboardCenter, 1.0)).xyz;
+    viewCenter = (u_view * vec4(u_billboardCenter, 1.0)).xyz;
     viewPosition = vec4(viewCenter + vertex_position.xyz * u_billboardScale, 1.0);
     normal = normalize(modelNormal);
   } else {
@@ -246,10 +248,21 @@ vec4 position(mat4 transform_projection, vec4 vertex_position)
 #else
   clip.y = -clip.y;
 #endif
+#ifdef PRESENTATION_SPRITE
+  if (u_presentationSprite) {
+    vec4 centerClip = u_proj * vec4(viewCenter, 1.0);
+    if (centerClip.w > 0.0) {
+      vec2 centerNdc = centerClip.xy / centerClip.w;
+      vec2 rasterCoord = (centerNdc * 0.5 + 0.5) * u_stateSize;
+      vec2 rasterCenterNdc = ((floor(rasterCoord) + 0.5) / u_stateSize) * 2.0 - 1.0;
+      clip.xy += (rasterCenterNdc - centerNdc) * clip.w;
+    }
+  }
+#endif
   v_spriteUv = clip.xy / clip.w * 0.5 + 0.5;
 #ifdef PRESENTATION_SPRITE
   if (u_presentationSprite) {
-    clip.xy = clip.xy * u_presentationScale + u_presentationOffset;
+    clip.xy = clip.xy * u_presentationScale + u_presentationOffset * clip.w;
   }
 #endif
   return clip;

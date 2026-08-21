@@ -4390,6 +4390,176 @@ local function presentationSprite(scope, mesh, image)
   }
 end
 
+local function registrationCamera(width, height)
+  local far = 400
+  local projection = Matrix4.perspective(math.rad(60), width / height, 0.1, far)
+  return {
+    distance = 26,
+    far = far,
+    view = function()
+      return IDENTITY
+    end,
+    projection = function()
+      return projection
+    end,
+    billboardProjection = function()
+      return projection
+    end,
+  }
+end
+
+local function projectedCenter(projection, center)
+  local clipX = projection[1] * center[1] + projection[5] * center[2] + projection[9] * center[3] + projection[13]
+  local clipY = projection[2] * center[1] + projection[6] * center[2] + projection[10] * center[3] + projection[14]
+  local clipW = projection[4] * center[1] + projection[8] * center[2] + projection[12] * center[3] + projection[16]
+  return { x = clipX / clipW, y = clipY / clipW, w = clipW }
+end
+
+local function registeredCenter(renderer, viewport, camera, center, targetWidth, targetHeight)
+  local projected = projectedCenter(camera.billboardProjection(), center)
+  Assert.isTrue(projected.w > 1.5, "the registration fixture keeps perspective clip.w materially above one")
+  local rasterX = (projected.x * 0.5 + 0.5) * renderer.stateW
+  local rasterY = (projected.y * 0.5 + 0.5) * renderer.stateH
+  local registered = {
+    x = (math.floor(rasterX) + 0.5) / renderer.stateW * 2 - 1,
+    y = (math.floor(rasterY) + 0.5) / renderer.stateH * 2 - 1,
+  }
+  local rectangle = viewport.worldViewport
+  local scaleX = rectangle.width / targetWidth
+  local scaleY = -rectangle.height / targetHeight
+  local offsetX = (2 * rectangle.x + rectangle.width) / targetWidth - 1
+  local offsetY = -(1 - (2 * rectangle.y + rectangle.height) / targetHeight)
+  return {
+    x = (registered.x * scaleX + offsetX + 1) * targetWidth / 2,
+    y = (1 - (registered.y * scaleY + offsetY)) * targetHeight / 2,
+    continuousX = (projected.x * scaleX + offsetX + 1) * targetWidth / 2,
+    continuousY = (1 - (projected.y * scaleY + offsetY)) * targetHeight / 2,
+    homogeneousWrongX = (projected.x * scaleX + offsetX / projected.w + 1) * targetWidth / 2,
+  }
+end
+
+local function presentationCenter(image, width, height)
+  local sumX, sumY, count = 0, 0, 0
+  for y = 0, height - 1 do
+    for x = 0, width - 1 do
+      local r, g, b = image:getPixel(x, y)
+      if r > 0.75 and g < 0.1 and b < 0.1 then
+        sumX, sumY, count = sumX + x, sumY + y, count + 1
+      end
+    end
+  end
+  Assert.isTrue(count >= 4, "the diagnostic sprite leaves a readable red center region")
+  return sumX / count, sumY / count
+end
+
+local function renderRegistration(scope, renderer, width, height, center, viewport)
+  local target, color = presentationTarget(scope, width, height)
+  local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), solidAlphaImage(scope, 255, 0, 0, 255))
+  sprite.billboardCenter = center
+  sprite.billboardScale = { 0.06, 0.06, 1 }
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 0, 0, 1)
+  local camera = registrationCamera(width, height)
+  renderer:draw(emptyRuntime(), camera, {}, { sprite }, viewport, 0)
+  love.graphics.setCanvas()
+  local image = color:newImageData()
+  local actualX, actualY = presentationCenter(image, width, height)
+  return camera, actualX, actualY
+end
+
+function T.presentation_billboard_center_uses_the_current_world_raster_lattice(scope)
+  local width, height = 1280, 720
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local viewport = FieldViewport.new(width, height, { mode = "strict" })
+  local center = { 0.3683, 0.21, -2.0 }
+  local camera, actualX, actualY = renderRegistration(scope, renderer, width, height, center, viewport)
+  local expected = registeredCenter(renderer, viewport, camera, center, width, height)
+
+  Assert.isTrue(renderer.stateW < width and renderer.stateH < height, "the fixture uses a bounded world raster")
+  Assert.isTrue(
+    math.abs(expected.x - expected.continuousX) >= 0.75,
+    "registered and continuous host X coordinates differ by readable pixels"
+  )
+  Assert.near(actualX, expected.x, 1.5, "the sprite center is registered to the containing world-raster texel")
+  Assert.isTrue(
+    math.abs(actualX - expected.continuousX) > 1.0,
+    "the diagnostic sprite does not remain at the continuous presentation coordinate"
+  )
+  Assert.isTrue(
+    math.abs(actualY - expected.y) <= 2 or math.abs(actualY - (height - 1 - expected.y)) <= 2,
+    "the sprite Y center is registered"
+  )
+end
+
+function T.presentation_billboard_registration_survives_grow_and_shrink(scope)
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local center = { 0.3683, 0.21, -2.0 }
+  local observations = {}
+  for _, size in ipairs({ { 1280, 720 }, { 2560, 1440 }, { 1280, 720 } }) do
+    local width, height = size[1], size[2]
+    local viewport = FieldViewport.new(width, height, { mode = "expanded" })
+    local camera, actualX, actualY = renderRegistration(scope, renderer, width, height, center, viewport)
+    local expected = registeredCenter(renderer, viewport, camera, center, width, height)
+    Assert.near(actualX, expected.x, 1.5, "registration follows the current raster after resize")
+    Assert.isTrue(
+      math.abs(actualY - expected.y) <= 2 or math.abs(actualY - (height - 1 - expected.y)) <= 2,
+      "Y registration follows the current raster"
+    )
+    observations[#observations + 1] =
+      { x = actualX, y = actualY, expected = expected, stateW = renderer.stateW, stateH = renderer.stateH }
+  end
+  Assert.near(observations[3].x, observations[1].x, 1.0, "returning to the original size restores X registration")
+  Assert.near(observations[3].y, observations[1].y, 1.0, "returning to the original size restores Y registration")
+end
+
+function T.presentation_billboard_registration_crosses_the_world_raster_cap(scope)
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local center = { 0.3683, 0.21, -2.0 }
+  local observations = {}
+  for _, size in ipairs({ { 320, 240 }, { 1280, 720 }, { 320, 240 } }) do
+    local width, height = size[1], size[2]
+    local viewport = FieldViewport.new(width, height, { mode = "expanded" })
+    local camera, actualX, actualY = renderRegistration(scope, renderer, width, height, center, viewport)
+    local expected = registeredCenter(renderer, viewport, camera, center, width, height)
+    Assert.near(actualX, expected.x, 1.5, "registration uses the current capped or uncapped raster")
+    Assert.isTrue(
+      math.abs(actualY - expected.y) <= 2 or math.abs(actualY - (height - 1 - expected.y)) <= 2,
+      "cap transition preserves Y registration"
+    )
+    observations[#observations + 1] = { x = actualX, y = actualY, stateW = renderer.stateW, stateH = renderer.stateH }
+  end
+  Assert.equal(observations[2].stateH, 384, "the large target uses the production 384-line world cap")
+  Assert.isTrue(
+    observations[2].stateH > observations[1].stateH,
+    "the sequence crosses from uncapped to capped dimensions"
+  )
+  Assert.near(observations[3].x, observations[1].x, 1.0, "returning below the cap restores X registration")
+  Assert.near(observations[3].y, observations[1].y, 1.0, "returning below the cap restores Y registration")
+end
+
+function T.presentation_billboard_registration_uses_homogeneous_offset_and_state_position(scope)
+  local width, height = 1280, 720
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local viewport = FieldViewport.new(width, height, { mode = "strict", x = 50, y = 30 })
+  local center = { 0.3683, 0.17, -3.0 }
+  local camera, actualX, actualY = renderRegistration(scope, renderer, width, height, center, viewport)
+  local expected = registeredCenter(renderer, viewport, camera, center, width, height)
+
+  Assert.isTrue(
+    math.abs(expected.x - expected.homogeneousWrongX) >= 10,
+    "the non-centered offset fixture is homogeneous-diagnostic"
+  )
+  Assert.near(actualX, expected.x, 1.5, "non-centered presentation placement uses homogeneous offset")
+  Assert.isTrue(
+    math.abs(actualX - expected.homogeneousWrongX) > 10,
+    "non-centered placement does not use raw clip-space offset"
+  )
+  Assert.isTrue(
+    math.abs(actualY - expected.y) <= 2 or math.abs(actualY - (height - 1 - expected.y)) <= 2,
+    "non-centered Y placement remains visible"
+  )
+end
+
 local function flashFogRuntime()
   local values = {}
   for index = 1, 32 do
