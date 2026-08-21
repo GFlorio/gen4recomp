@@ -354,6 +354,28 @@ local function solidAlphaImage(scope, r, g, b, alpha)
   return scope:own(love.graphics.newImage(data))
 end
 
+-- Presentation depth tests must exercise the same explicit depth attachment
+-- used by the renderer on a real offscreen target, rather than relying on a
+-- window-provided depth buffer.
+local function presentationTarget(scope, width, height)
+  local color = scope:own(love.graphics.newCanvas(width, height))
+  local depth = scope:own(love.graphics.newCanvas(width, height, {
+    format = "depth24stencil8",
+    readable = false,
+  }))
+  local target = { color, depthstencil = depth }
+  -- MapRenderer treats its presentation target as a Canvas when calculating
+  -- viewport mapping, while LÖVE accepts the explicit color/depth descriptor
+  -- for setCanvas. Keep both contracts on the same test-owned target.
+  function target:getWidth()
+    return color:getWidth()
+  end
+  function target:getHeight()
+    return color:getHeight()
+  end
+  return target, color
+end
+
 -- A green literal-color triangle (colorSource 0) covering the same screen
 -- area polygon_light_mask_changes_the_rendered_result samples: interior at
 -- canvas (416, 384) or its Y-mirror (416, 95), whichever the driver's
@@ -4327,6 +4349,39 @@ local function presentationSprite(scope, mesh, image)
   }
 end
 
+local function flashFogRuntime()
+  local values = {}
+  for index = 1, 32 do
+    values[index] = 255
+  end
+  local runtime = emptyRuntime()
+  runtime.fog = {
+    enabled = true,
+    color = 31 * 1024,
+    offset = 0,
+    slope = 0,
+    alpha = 0,
+    table = values,
+  }
+  return runtime
+end
+
+local function renderPresentationCase(scope, renderer, runtime, worldParts, spriteItems)
+  local target, color = presentationTarget(scope, 640, 480)
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 220 / 255, 0, 1)
+  renderer:draw(
+    runtime,
+    perspectiveCamera(),
+    worldParts,
+    spriteItems,
+    FieldViewport.new(640, 480, { mode = "strict" }),
+    0
+  )
+  love.graphics.setCanvas()
+  return color:newImageData()
+end
+
 local function readPresentationPixel(image, width, height, x, y)
   local a = { image:getPixel(x, y) }
   local b = { image:getPixel(x, height - 1 - y) }
@@ -4421,6 +4476,34 @@ function T.presentation_sprite_fog_uses_the_world_endpoint_density_rules(scope)
   local saturating = render(saturatingRamp)
   Assert.isTrue(normal[2] < 0.99, "the ordinary fog ramp preserves its final density of 124")
   Assert.isTrue(saturating[2] > 0.99, "a final raw density at or above 127 saturates to 128")
+end
+
+function T.fogged_presentation_rgb_survives_zero_result_alpha(scope)
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local world = depthOpaqueQuad(scope, -0.5, 0, 220, 0, 3, false)
+  local sprite = presentationSprite(scope, depthQuadMesh(scope, -0.25), solidAlphaImage(scope, 255, 0, 0, 255))
+  sprite.fogEnabled = true
+
+  local pixel =
+    { renderPresentationCase(scope, renderer, flashFogRuntime(), { { world } }, { sprite }):getPixel(320, 240) }
+  Assert.near(pixel[1], 0, 1 / 255, "full fog removes the source red channel")
+  Assert.near(pixel[2], 0, 1 / 255, "full fog leaves no source green channel")
+  Assert.near(pixel[3], 1, 1 / 255, "full fog stores the blue fog RGB")
+  Assert.near(pixel[4], 0, 1 / 255, "the DS fog result alpha remains zero")
+end
+
+function T.presentation_depth_writes_keep_the_near_fogged_sprite_visible(scope)
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local near = presentationSprite(scope, depthQuadMesh(scope, -0.25), solidAlphaImage(scope, 255, 0, 0, 255))
+  near.fogEnabled = true
+  local far = presentationSprite(scope, depthQuadMesh(scope, -0.75), solidAlphaImage(scope, 255, 255, 0, 255))
+
+  local pixels = renderPresentationCase(scope, renderer, flashFogRuntime(), {}, { near, far })
+  local pixel = { pixels:getPixel(320, 240) }
+  Assert.near(pixel[1], 0, 1 / 255, "the near fogged sprite has no red")
+  Assert.near(pixel[2], 0, 1 / 255, "the far sprite cannot overwrite the near depth")
+  Assert.near(pixel[3], 1, 1 / 255, "the near fogged sprite remains blue despite zero alpha")
+  Assert.near(pixel[4], 0, 1 / 255, "the near fog result alpha is preserved")
 end
 
 return GraphicsSmoke.suite(T)

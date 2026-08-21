@@ -1098,6 +1098,20 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
 
   local presentationCanvas = lg.getCanvas()
   local function doDraw()
+    local presentationColorCanvas = presentationCanvas
+    ---@diagnostic disable-next-line: undefined-field
+    if
+      type(presentationCanvas) == "table"
+      and (presentationCanvas[1] ~= nil or rawget(presentationCanvas, "color") ~= nil)
+    then
+      ---@diagnostic disable-next-line: undefined-field
+      presentationColorCanvas = presentationCanvas[1] or rawget(presentationCanvas, "color")
+      if type(presentationColorCanvas) == "table" then
+        presentationColorCanvas = presentationColorCanvas[1] or presentationColorCanvas.canvas
+      end
+      assert(presentationColorCanvas, "MapRenderer requires a color presentation target")
+    end
+
     -- The render queue is built exactly once per frame.
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
@@ -1246,8 +1260,10 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       spriteShader:send("u_presentationSprite", true)
       local targetWidth, targetHeight
       if presentationCanvas then
+        ---@type love.Canvas & { getWidth: fun(self: love.Canvas): integer, getHeight: fun(self: love.Canvas): integer }
+        local colorCanvas = assert(presentationColorCanvas)
         ---@diagnostic disable-next-line: undefined-field
-        targetWidth, targetHeight = presentationCanvas:getWidth(), presentationCanvas:getHeight()
+        targetWidth, targetHeight = colorCanvas:getWidth(), colorCanvas:getHeight()
       else
         targetWidth, targetHeight = lg.getDimensions()
       end
@@ -1270,7 +1286,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       self:_sendSpriteFog(sceneRuntime)
       self:_sendLighting(sceneRuntime, spriteShader)
       lg.setShader(spriteShader)
-      lg.setBlendMode("alpha")
+      lg.setBlendMode("replace", "premultiplied")
 
       local function drawSprite(item, fragmentPass)
         spriteShader:send("u_spriteFogEnabled", item.fogEnabled == true)

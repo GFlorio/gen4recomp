@@ -310,7 +310,8 @@ end
 
 -- The renderer owns everything it created through the injected graphics: every
 -- shader and canvas it built must be released when the renderer is released.
-local function assertResourcesReleased(lg, renderer)
+---@param extraShaderCount integer|nil
+local function assertResourcesReleased(lg, renderer, extraShaderCount)
   for _, shader in ipairs(lg.shaders) do
     Assert.equal(shader.releaseCount, 1, "renderer released every created shader exactly once")
   end
@@ -318,6 +319,7 @@ local function assertResourcesReleased(lg, renderer)
     Assert.equal(canvas.releaseCount, 1, "renderer released every created canvas exactly once")
   end
   local expectedShaderCount = renderer.translucencyMode == MapRenderer.TRANSLUCENCY_EXACT and 5 or 3
+  expectedShaderCount = expectedShaderCount + (extraShaderCount or 0)
   Assert.equal(#lg.shaders, expectedShaderCount, "shader ownership matches the renderer translucency mode")
 end
 
@@ -553,6 +555,84 @@ function T.draw_restores_exact_caller_state()
   assertRestoredState(lg, canvas, shader)
   renderer:release()
   assertResourcesReleased(lg, renderer)
+end
+
+function T.invalid_presentation_descriptor_restores_exact_caller_state()
+  local canvas, shader = { color = {} }, {}
+  local lg = fakeGraphics({
+    canvas = canvas,
+    shader = shader,
+    blendMode = "add",
+    blendAlpha = "alphamultiply",
+    depthMode = "lequal",
+    depthWrite = true,
+    wireframe = false,
+    cullMode = "back",
+    color = { 0.2, 0.4, 0.6, 0.8 },
+  })
+  local renderer = MapRenderer.new({ graphics = lg })
+  local scene = emptySceneCamera()
+  local err = Assert.throws(function()
+    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  end)
+  Assert.isTrue(tostring(err):find("color presentation target", 1, true) ~= nil)
+  assertRestoredState(lg, canvas, shader)
+  renderer:release()
+  assertResourcesReleased(lg, renderer)
+end
+
+function T.presentation_sprites_use_direct_replace_with_depth_writes()
+  local canvas, shader = {}, {}
+  canvas.getWidth = function()
+    return 640
+  end
+  canvas.getHeight = function()
+    return 480
+  end
+  local lg = fakeGraphics({
+    canvas = canvas,
+    shader = shader,
+    blendMode = "add",
+    blendAlpha = "alphamultiply",
+    depthMode = "lequal",
+    depthWrite = true,
+    wireframe = false,
+    cullMode = "back",
+    color = { 0.2, 0.4, 0.6, 0.8 },
+  })
+  local renderer = MapRenderer.new({ graphics = lg })
+  local item = {
+    mesh = { setTexture = function() end },
+    material = { texMatrix = Matrix4.identity() },
+    transform = Matrix4.identity(),
+    modelNormal = Matrix3.identity(),
+    billboardProjection = true,
+    alphaClass = "opaque",
+    cullMode = "back",
+    polygonAlpha = 1,
+    polygonMode = "modulation",
+    polygonId = 0,
+    lightMask = 0,
+    alphaCutoff = 0.5 / 255,
+    center = { 0, 0, 0 },
+  }
+  local scene = emptySceneCamera()
+  renderer:draw(scene.runtime, scene.camera, nil, { item }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  local spriteDraw
+  for _, draw in ipairs(lg.calls.draw) do
+    if draw.mesh == item.mesh then
+      spriteDraw = draw
+      break
+    end
+  end
+  Assert.notNil(spriteDraw, "the presentation item reaches the renderer draw boundary")
+  Assert.equal(spriteDraw.blendMode, "replace")
+  Assert.equal(spriteDraw.blendAlpha, "premultiplied")
+  Assert.equal(spriteDraw.depthMode, "less")
+  Assert.equal(spriteDraw.depthWrite, true)
+  assertRestoredState(lg, canvas, shader)
+  renderer:release()
+  assertResourcesReleased(lg, renderer, 1)
 end
 
 -- libs/engine must not import a game-level config, so the game's background
