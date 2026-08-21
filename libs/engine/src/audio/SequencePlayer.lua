@@ -879,8 +879,8 @@ local function execute(self, instance, track, instruction)
     -- interval increment 65535.
     instance.tempo = toU16(toS16(resolveAmount(self, instruction.amount, instance)))
   elseif op == "pan" then
-    -- 0xC0: the u8 value stores as par-0x40 -- the raw track pan offset.
-    track.pan = toU8(resolveAmount(self, instruction.amount, instance)) - 64
+    -- 0xC0: resolve as u8, subtract 0x40, then store the raw offset as s8.
+    track.pan = toS8(toU8(resolveAmount(self, instruction.amount, instance)) - 64)
     pushTrackValues(self, instance, track)
   elseif op == "volume" then
     track.volume = toU8(resolveAmount(self, instruction.amount, instance))

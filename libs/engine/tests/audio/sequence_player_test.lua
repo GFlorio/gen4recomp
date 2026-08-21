@@ -1732,6 +1732,8 @@ function T.pan_commands_pass_the_raw_track_pan_offset()
       { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "pan", amount = 127 },
       { op = "note", key = 60, velocity = 127, duration = 1 },
+      { op = "pan", amount = 128 },
+      { op = "note", key = 60, velocity = 127, duration = 1 },
       { op = "end" },
     }),
   }, { mixer = mixer })
@@ -1741,7 +1743,8 @@ function T.pan_commands_pass_the_raw_track_pan_offset()
   Assert.equal(mixer.log.noteOns[2].trackPanOffset, 0, "pan 64 is the zero offset")
   Assert.equal(mixer.log.noteOns[3].trackPanOffset, -64, "pan 0 is the full-left offset")
   Assert.equal(mixer.log.noteOns[4].trackPanOffset, 63, "pan 127 is the full-right offset")
-  for i = 1, 4 do
+  Assert.equal(mixer.log.noteOns[5].trackPanOffset, 64, "pan 128 wraps after subtracting the center")
+  for i = 1, 5 do
     Assert.equal(mixer.log.noteOns[i].pan, 0, "the instrument pan is never folded into the track offset")
   end
 end
@@ -3078,44 +3081,44 @@ function T.local_variables_reset_to_minus_one_per_play_while_globals_persist()
     [2] = seq(readProgram(16, { op = "end" }), { id = 2, symbol = "SEQ_GLOBAL_READ" }),
     [3] = seq(writeProgram(16, -7), { id = 3, symbol = "SEQ_GLOBAL_WRITE" }),
   }, { mixer = mixer })
-  -- The pan command stores u8 then subtracts 0x40, so the observable offset
-  -- of a variable reading -1 is u8(-1)=255 -> 191, not the raw -65.
+  -- The pan command stores u8, subtracts 0x40, then stores s8, so the
+  -- observable offset of a variable reading -1 is 255 - 64 = 191 -> -65.
   -- A fresh local reads -1 on the first play.
   player:play(player:createHandle(), provider:sequence(0), provider:bank(12))
   player:render(250)
   Assert.equal(
     mixer.log.noteOns[1].trackPanOffset,
-    191,
+    -65,
     "an unset player-local variable reads the source initialization -1"
   )
   -- The write play observes -1 before its own write (same instance
   -- lifetime), then completes the write (setvar executes at the third tick).
   player:play(player:createHandle(), provider:sequence(1), provider:bank(12))
   player:render(1250)
-  Assert.equal(mixer.log.noteOns[2].trackPanOffset, 191, "the local still reads -1 at the start of the write play")
+  Assert.equal(mixer.log.noteOns[2].trackPanOffset, -65, "the local still reads -1 at the start of the write play")
   -- A fresh global reads -1 on the first play.
   player:play(player:createHandle(), provider:sequence(2), provider:bank(12))
   player:render(250)
-  Assert.equal(mixer.log.noteOns[3].trackPanOffset, 191, "an unset shared global reads the source initialization -1")
+  Assert.equal(mixer.log.noteOns[3].trackPanOffset, -65, "an unset shared global reads the source initialization -1")
   -- The write play observes -1 before its own write, then completes the
   -- global write so the later read sees it.
   player:play(player:createHandle(), provider:sequence(3), provider:bank(12))
   player:render(1250)
-  Assert.equal(mixer.log.noteOns[4].trackPanOffset, 191, "the global still reads -1 at the start of the write play")
+  Assert.equal(mixer.log.noteOns[4].trackPanOffset, -65, "the global still reads -1 at the start of the write play")
   -- After replacement the local resets to -1; the global keeps its written
-  -- s16 value (-7 -> u8 249 -> offset 185).
+  -- s16 value -7 (u8 249 -> 185, then s8 -71 after subtracting 64).
   player:play(player:createHandle(), provider:sequence(0), provider:bank(12))
   player:render(250)
   Assert.equal(
     mixer.log.noteOns[5].trackPanOffset,
-    191,
+    -65,
     "a replaced play resets the player-local variables to -1 again"
   )
   player:play(player:createHandle(), provider:sequence(2), provider:bank(12))
   player:render(250)
   Assert.equal(
     mixer.log.noteOns[6].trackPanOffset,
-    185,
+    -71,
     "a global written by an earlier sequence keeps its s16 value across plays"
   )
 end
@@ -3123,7 +3126,7 @@ end
 -- Dynamic operands (variable and random) resolve first and only then narrow
 -- to the command's real storage width: transpose/pitch_bend store s8,
 -- B-class amounts store s16 before the variable arithmetic uses them, the
--- pan command stores u8 minus 0x40, tempo/mod_delay store through the u16
+-- pan command stores u8, subtracts 0x40, then stores s8; tempo/mod_delay store through the u16
 -- destination domain, and the variable domains wrap every store to s16. The
 -- spec pins these against values that would survive the plain-integer
 -- narrowing the lowering already applies to literals, so only the runtime
@@ -3597,8 +3600,8 @@ function T.random_and_variable_operands_read_the_same_initialized_variable_domai
   )
   Assert.equal(
     mixer.log.noteOns[2].trackPanOffset,
-    191,
-    "a variable operand reads the same initialized -1 the random operand drew its domain from (u8(-1)=255 -> offset 191)"
+    -65,
+    "a variable operand reads the same initialized -1 the random operand drew its domain from (u8(-1)=255, minus 64, stored as s8)"
   )
 end
 
