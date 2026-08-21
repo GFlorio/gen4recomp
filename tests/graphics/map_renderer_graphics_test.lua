@@ -4259,30 +4259,71 @@ function T.final_pass_disabled_paths_preserve_identities(scope)
   end
 end
 
-function T.presentation_sprites_respect_world_and_actor_depth(scope)
+function T.presentation_world_depth_rejects_behind_sprite(scope)
   local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
   local world = depthOpaqueQuad(scope, -0.5, 220, 20, 20, 3, false)
   local behind = depthOpaqueQuad(scope, -1.0, 20, 220, 20, 4, false)
-  local front = depthOpaqueQuad(scope, -0.25, 20, 20, 220, 5, false)
   behind.billboardProjection = true
-  front.billboardProjection = true
 
-  local host = scope:own(love.graphics.newCanvas(640, 480))
-  love.graphics.setCanvas(host)
+  local target, color = presentationTarget(scope, 640, 480)
+  love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
   renderer:draw(
     emptyRuntime(),
     perspectiveCamera(),
     { { world } },
-    { behind, front },
+    { behind },
     FieldViewport.new(640, 480, { mode = "strict" }),
     0
   )
   love.graphics.setCanvas()
 
-  local r, g, b = host:newImageData():getPixel(320, 240)
-  Assert.isTrue(b > r and b > g, "nearer sprite remains visible")
-  Assert.isTrue(g <= r, "sprite behind world geometry is rejected")
+  local r, g, b = color:newImageData():getPixel(320, 240)
+  Assert.isTrue(r > g and r > b, "world geometry remains visible over the behind sprite")
+  Assert.isTrue(g < 0.2 and b < 0.2, "the behind sprite does not leak through world depth")
+end
+
+function T.presentation_host_depth_keeps_near_sprite_when_far_submitted_later(scope)
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local near = depthOpaqueQuad(scope, -0.25, 20, 20, 220, 5, false)
+  local far = depthOpaqueQuad(scope, -0.75, 220, 20, 20, 6, false)
+  near.billboardProjection = true
+  far.billboardProjection = true
+
+  local target, color = presentationTarget(scope, 640, 480)
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 0, 0, 1)
+  renderer:draw(
+    emptyRuntime(),
+    perspectiveCamera(),
+    {},
+    { near, far },
+    FieldViewport.new(640, 480, { mode = "strict" }),
+    0
+  )
+  love.graphics.setCanvas()
+
+  local r, g, b = color:newImageData():getPixel(320, 240)
+  Assert.isTrue(b > r and b > g, "near sprite remains visible after the far sprite")
+  Assert.isTrue(r < 0.2 and g < 0.2, "the later far sprite does not replace the near sprite")
+end
+
+function T.presentation_host_depth_is_cleared_between_frames(scope)
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local near = depthOpaqueQuad(scope, -0.25, 20, 20, 220, 5, false)
+  local far = depthOpaqueQuad(scope, -0.75, 220, 20, 20, 6, false)
+  near.billboardProjection = true
+  far.billboardProjection = true
+
+  local target, color = presentationTarget(scope, 640, 480)
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 0, 0, 1)
+  renderer:draw(emptyRuntime(), perspectiveCamera(), {}, { near }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  renderer:draw(emptyRuntime(), perspectiveCamera(), {}, { far }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  love.graphics.setCanvas()
+
+  local r, g, b = color:newImageData():getPixel(320, 240)
+  Assert.isTrue(r > g and r > b, "the next frame can draw through the prior frame's host depth")
 end
 
 function T.presentation_sprites_use_native_resolution_fog_and_no_edge_pass(scope)
@@ -4305,14 +4346,14 @@ function T.presentation_sprites_use_native_resolution_fog_and_no_edge_pass(scope
       return values
     end)(),
   }
-  local host = scope:own(love.graphics.newCanvas(640, 480))
-  love.graphics.setCanvas(host)
+  local target, color = presentationTarget(scope, 640, 480)
+  love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
   renderer:draw(runtime, perspectiveCamera(), {}, { sprite }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   love.graphics.setCanvas()
 
   Assert.equal(renderer.colorW, 512, "world target remains independent of presentation sprite resolution")
-  local r, g, b = host:newImageData():getPixel(320, 240)
+  local r, g, b = color:newImageData():getPixel(320, 240)
   Assert.isTrue(r < 1 and g < 1 and b < 1, "sprite color is fogged at its own depth")
   Assert.isTrue(math.abs(r - g) < 1 / 255 and math.abs(g - b) < 1 / 255, "sprite has no edge-color outline")
 end
@@ -4382,56 +4423,47 @@ local function renderPresentationCase(scope, renderer, runtime, worldParts, spri
   return color:newImageData()
 end
 
-local function readPresentationPixel(image, width, height, x, y)
-  local a = { image:getPixel(x, y) }
-  local b = { image:getPixel(x, height - 1 - y) }
-  local function brightness(pixel)
-    return pixel[1] + pixel[2] + pixel[3]
-  end
-  return brightness(a) >= brightness(b) and a or b
-end
-
 function T.presentation_sprites_stay_inside_a_wide_strict_world_viewport(scope)
   local renderer = scope:own(MapRenderer.new())
-  local host = scope:own(love.graphics.newCanvas(1280, 720))
+  local target, color = presentationTarget(scope, 1280, 720)
   local image = solidAlphaImage(scope, 255, 0, 0, 255)
   local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), image)
   local viewport = FieldViewport.new(1280, 720, { mode = "strict" })
 
-  love.graphics.setCanvas(host)
+  love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
   renderer:draw(emptyRuntime(), fixedCamera(), {}, { sprite }, viewport, 0)
   love.graphics.setCanvas()
 
-  local pixels = host:newImageData()
-  local center = readPresentationPixel(pixels, 1280, 720, 640, 360)
-  local bar = readPresentationPixel(pixels, 1280, 720, 32, 360)
+  local pixels = color:newImageData()
+  local center = { pixels:getPixel(640, 360) }
+  local bar = { pixels:getPixel(32, 360) }
   Assert.isTrue(center[1] > 0.5, "the centered actor remains visible")
   Assert.isTrue(bar[1] < 0.05 and bar[2] < 0.05 and bar[3] < 0.05, "pillarbox bars remain untouched")
 end
 
 function T.presentation_sprites_stay_inside_a_narrow_expanded_viewport_fallback(scope)
   local renderer = scope:own(MapRenderer.new())
-  local host = scope:own(love.graphics.newCanvas(600, 720))
+  local target, color = presentationTarget(scope, 600, 720)
   local image = solidAlphaImage(scope, 0, 255, 0, 255)
   local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), image)
   local viewport = FieldViewport.new(600, 720, { mode = "expanded" })
 
-  love.graphics.setCanvas(host)
+  love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
   renderer:draw(emptyRuntime(), fixedCamera(), {}, { sprite }, viewport, 0)
   love.graphics.setCanvas()
 
-  local pixels = host:newImageData()
-  local center = readPresentationPixel(pixels, 600, 720, 300, 360)
-  local bar = readPresentationPixel(pixels, 600, 720, 300, 32)
+  local pixels = color:newImageData()
+  local center = { pixels:getPixel(300, 360) }
+  local bar = { pixels:getPixel(300, 32) }
   Assert.isTrue(center[2] > 0.5, "the centered actor remains visible in the fitted world")
   Assert.isTrue(bar[1] < 0.05 and bar[2] < 0.05 and bar[3] < 0.05, "top/bottom bars remain untouched")
 end
 
 function T.presentation_sprite_fog_uses_the_world_endpoint_density_rules(scope)
   local renderer = scope:own(MapRenderer.new())
-  local host = scope:own(love.graphics.newCanvas(640, 480))
+  local target, color = presentationTarget(scope, 640, 480)
   local image = solidAlphaImage(scope, 255, 0, 0, 255)
   local sprite = presentationSprite(scope, presentationQuadMesh(scope, -300), image)
   sprite.billboardCenter = nil
@@ -4458,7 +4490,7 @@ function T.presentation_sprite_fog_uses_the_world_endpoint_density_rules(scope)
     return value
   end
   local function render(table32)
-    love.graphics.setCanvas(host)
+    love.graphics.setCanvas(target)
     love.graphics.clear(0, 0, 0, 1)
     renderer:draw(
       runtime(table32),
@@ -4469,13 +4501,38 @@ function T.presentation_sprite_fog_uses_the_world_endpoint_density_rules(scope)
       0
     )
     love.graphics.setCanvas()
-    return readPresentationPixel(host:newImageData(), 640, 480, 320, 240)
+    return { color:newImageData():getPixel(320, 240) }
   end
 
   local normal = render(normalRamp)
   local saturating = render(saturatingRamp)
   Assert.isTrue(normal[2] < 0.99, "the ordinary fog ramp preserves its final density of 124")
   Assert.isTrue(saturating[2] > 0.99, "a final raw density at or above 127 saturates to 128")
+end
+
+function T.presentation_orientation_is_exact_at_an_off_center_coordinate(scope)
+  local renderer = scope:own(MapRenderer.new())
+  local target, color = presentationTarget(scope, 640, 480)
+  local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), solidAlphaImage(scope, 255, 0, 0, 255))
+  sprite.billboardCenter = { 0, 0.5, 0 }
+  sprite.billboardScale = { 0.25, 0.25, 1 }
+
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 0, 0, 1)
+  renderer:draw(emptyRuntime(), fixedCamera(), {}, { sprite }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  love.graphics.setCanvas()
+
+  local pixels = color:newImageData()
+  local expected = { pixels:getPixel(320, 120) }
+  local mirrored = { pixels:getPixel(320, 359) }
+  Assert.isTrue(
+    expected[1] > 0.5 and expected[2] < 0.1 and expected[3] < 0.1,
+    "off-center actor has the expected vertical orientation"
+  )
+  Assert.isTrue(
+    mirrored[1] < 0.05 and mirrored[2] < 0.05 and mirrored[3] < 0.05,
+    "the mirrored coordinate remains background"
+  )
 end
 
 function T.fogged_presentation_rgb_survives_zero_result_alpha(scope)

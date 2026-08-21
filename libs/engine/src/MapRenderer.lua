@@ -1241,6 +1241,11 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     self.edgeShader:send("u_antialiasEnabled", true)
     self.edgeShader:send("u_edgeRadiusPx", edgeRadiusPx)
     lg.setCanvas(presentationCanvas)
+    if spriteItems and #spriteItems > 0 then
+      -- Clear the presentation depth before resolving the world. The resolve
+      -- must remain the first color write on the target.
+      lg.clear(false, false, true)
+    end
     lg.setDepthMode()
     lg.setBlendMode("replace", "premultiplied")
     lg.setColor(1, 1, 1, 1)
@@ -1250,11 +1255,9 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     lg.setShader()
 
     -- The world is now present at presentation resolution. The host depth
-    -- buffer is borrowed for actor ordering; it is cleared without changing
-    -- the resolved world color, then the presentation sprites draw directly
-    -- to the window. No sprite color or state canvas is allocated.
+    -- buffer is borrowed for actor ordering; presentation sprites draw
+    -- directly to the window. No sprite color or state canvas is allocated.
     if spriteItems and #spriteItems > 0 then
-      lg.clear(nil, nil, nil, nil, false, true)
       self._activeShader = self:_ensureSpriteShader()
       local spriteShader = assert(self._activeShader)
       spriteShader:send("u_presentationSprite", true)
