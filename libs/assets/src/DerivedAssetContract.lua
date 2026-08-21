@@ -125,6 +125,12 @@ DerivedAssetContract.fieldUi = {
   schema = "g4-field-ui-v6",
 }
 
+DerivedAssetContract.intro = {
+  cacheFormat = "intro-cache-v1",
+  schema = "g4-intro-assets-v1",
+  provenanceSchema = "g4-intro-provenance-v1",
+}
+
 DerivedAssetContract.audio = {
   cacheFormat = "g4-audio-cache-v1",
   -- The index carries the per-class symbol maps sequenceBySymbol and

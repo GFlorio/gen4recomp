@@ -43,6 +43,7 @@ local ALIAS_TO_SYMBOL = {
   land_data = "NARC_fielddata_landdata_land_data",
   field_actor_models = "NARC_data_mmodel_mmodel",
   start_menu = "NARC_a_0_1_4",
+  intro = "NARC_demo_intro_intro",
   dialogue_frames = "NARC_a_0_3_8",
   signpost_graphics = "NARC_a_0_3_6",
   trainer_card_graphics = "NARC_a_0_4_9",

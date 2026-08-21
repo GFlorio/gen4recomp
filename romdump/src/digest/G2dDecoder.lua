@@ -443,9 +443,20 @@ function G2dDecoder.decodeAnimation(data, opts)
       local abase = blk.payload + animsOffset + a * 16
       local numFrames = reader:u32le(abase)
       local firstFrame = reader:u32le(abase + 12)
-      -- firstFrame is a frame index and numFrames a frame count: the range
-      -- must fit the frame table total, then its actual byte span must fit
-      -- the chunk. Never mix frame indexes with chunk-byte sizes.
+      -- The HGSS exporter stores this field as a byte offset into the frame
+      -- table. Normalize it once at the source-format boundary; treating the
+      -- same value as either bytes or an index would make valid resources
+      -- decode differently based on the total frame count.
+      if firstFrame % 8 ~= 0 then
+        Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM first frame offset is not frame-aligned", {
+          firstFrame = firstFrame,
+          frameCount = frameCount,
+        })
+      end
+      firstFrame = firstFrame / 8
+      -- firstFrame is now a frame index and numFrames a frame count: the
+      -- range must fit the frame table total, then its actual byte span must
+      -- fit the chunk. Never mix frame indexes with chunk-byte sizes.
       if firstFrame + numFrames > frameCount then
         Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM animation frame range exceeds the frame table", {
           numFrames = numFrames,

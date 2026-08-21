@@ -23,6 +23,9 @@ local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontCacheWriter = require("romdump.src.digest.FieldFontCacheWriter")
 local FieldUiCompiler = require("romdump.src.digest.FieldUiCompiler")
 local FieldUiCacheWriter = require("romdump.src.digest.FieldUiCacheWriter")
+local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+local IntroAssetCacheWriter = require("romdump.src.digest.IntroAssetCacheWriter")
+local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
 local FieldWeatherCompiler = require("romdump.src.digest.FieldWeatherCompiler")
 local FieldWeatherCacheWriter = require("romdump.src.digest.FieldWeatherCacheWriter")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
@@ -184,6 +187,16 @@ function CacheBuilder.buildVersions(versionIds, options)
         log(string.format("build-cache: %s field ui compiled", version))
       else
         log(string.format("build-cache: %s field ui current", version))
+      end
+      local introBundle, introErr = IntroAssetCompiler.compile(romFs)
+      if not introBundle then
+        return versionFailure(introErr)
+      end
+      if forced or not IntroAssetCacheWriter.isReady(cacheFs, introBundle.marker) then
+        IntroAssetCacheWriter.write(cacheFs, introBundle)
+        log(string.format("build-cache: %s intro assets compiled", version))
+      else
+        log(string.format("build-cache: %s intro assets current", version))
       end
       local weatherBundle, weatherErr = FieldWeatherCompiler.compile(romFs)
       if not weatherBundle then
