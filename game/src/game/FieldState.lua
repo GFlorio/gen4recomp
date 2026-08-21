@@ -312,9 +312,14 @@ function FieldState:draw()
     lg.printf(self.runtime.errorText, 24, 48, lg.getWidth() - 48)
     return
   end
-  if self._pollPresentationTopology then
-    local width, height = lg.getDimensions()
-    assert(width and height, "graphics dimensions are required for topology polling")
+  local width, height = lg.getDimensions()
+  assert(width and height, "graphics dimensions are required for field presentation")
+  local resized = false
+  if width ~= self.runtime.viewport.width or height ~= self.runtime.viewport.height then
+    self:resize(width, height)
+    resized = true
+  end
+  if self._pollPresentationTopology and not resized then
     local topology = self.topologyProvider(width, height)
     if self:_geometrySignature(width, height, topology) ~= self._lastGeometrySignature then
       -- Injected providers remain polling-enabled so same-size structural
