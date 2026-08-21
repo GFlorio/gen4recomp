@@ -96,7 +96,7 @@ end
 ---@param form integer
 function CryPlayer:play(species, form)
   self._player:stopHandle(self._handle)
-  self._player:play(self._handle, standinSequence(species), CRY_BANK)
+  self._player:playSynthetic(self._handle, standinSequence(species), CRY_BANK)
 end
 
 -- True once the cry slot's sequence has ended.

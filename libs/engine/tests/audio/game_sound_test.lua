@@ -1170,6 +1170,18 @@ function T.rejected_bgm_detaches_without_retiring_and_claims_requested_identity(
   Assert.equal(#spy.faderWrites, faderWritesBefore, "rejection does not write an accepted-start fader reset")
 end
 
+function T.stopping_rejected_bgm_preserves_the_detached_incumbent()
+  local sound, player = newGameSound(rejectedBgmSequences(), { maxSequences = { [1] = 1 } })
+  sound:playMusic("SEQ_TEST_BGM")
+  player:render(250)
+  sound:playMusic("SEQ_TEST_BGM_B")
+
+  sound:stopMusic()
+
+  Assert.isNil(sound:currentMusic())
+  Assert.isTrue(player:isPlayerPlaying(1), "stopping the rejected sequence preserves the detached incumbent")
+end
+
 function T.rejected_temporary_music_claims_requested_identity_without_fader_reset()
   local sound, player, spy = newGameSound(rejectedBgmSequences(), { maxSequences = { [1] = 1 } })
   sound:playMusic("SEQ_TEST_BGM")

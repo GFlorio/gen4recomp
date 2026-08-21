@@ -131,6 +131,7 @@ local bit = require("bit")
 ---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider, observer: table? }): SequencePlayer
 ---@field createHandle fun(self: SequencePlayer): table
 ---@field play fun(self: SequencePlayer, handle: table, sequence: table, bank: table): boolean
+---@field playSynthetic fun(self: SequencePlayer, handle: table, sequence: table, bank: table): boolean
 ---@field render fun(self: SequencePlayer, frames: integer): integer[]
 ---@field stop fun(self: SequencePlayer)
 ---@field isPlaying fun(self: SequencePlayer): boolean
@@ -138,6 +139,7 @@ local bit = require("bit")
 ---@field pauseHandle fun(self: SequencePlayer, handle: table)
 ---@field resumeHandle fun(self: SequencePlayer, handle: table)
 ---@field stopHandle fun(self: SequencePlayer, handle: table)
+---@field releaseHandle fun(self: SequencePlayer, handle: table)
 ---@field isHandlePlaying fun(self: SequencePlayer, handle: table): boolean
 ---@field stopSequence fun(self: SequencePlayer, sequenceId: integer)
 
@@ -1286,7 +1288,7 @@ end
 -- Shared instance creation for sequence starts. `enforceBank` controls
 -- whether a mismatched bank id is rejected (ordinary play) or allowed
 -- (explicit donor-bank override).
-local function startSequenceInstance(self, handle, sequence, bank, enforceBank)
+local function startSequenceInstance(self, handle, sequence, bank, enforceBank, ordinarySequence)
   validateHandle(self, handle)
   assert(sequence and bank, "play requires a sequence and a bank")
   if enforceBank and bank.id ~= sequence.bankId then
@@ -1382,6 +1384,7 @@ local function startSequenceInstance(self, handle, sequence, bank, enforceBank)
     handle = handle,
     seqPlayerSlot = seqPlayerSlot,
     sequence = sequence,
+    ordinarySequenceId = ordinarySequence and sequence.id or nil,
     bank = bank,
     channelMask = channelMask,
     -- The source PlayerInit fields (SND_seq.c): tempo 120, tempoRatio 256,
@@ -1463,7 +1466,13 @@ end
 -- (tempoCounter 240 naturally produces it). The global sound phase and the
 -- shared RNG are never reset by a play.
 function SequencePlayer:play(handle, sequence, bank)
-  return startSequenceInstance(self, handle, sequence, bank, true)
+  return startSequenceInstance(self, handle, sequence, bank, true, true)
+end
+
+-- Starts a provider-independent sequence without assigning it an SDAT
+-- sequence number. Synthetic callers must not collide with ordinary IDs.
+function SequencePlayer:playSynthetic(handle, sequence, bank)
+  return startSequenceInstance(self, handle, sequence, bank, true, false)
 end
 
 -- Starts `sequence` with an explicit donor bank whose id may differ from
@@ -1471,7 +1480,7 @@ end
 -- environmental soundplates that use the base field BGM's bank. Every other
 -- player/channel/sequence invariant is identical to ordinary play.
 function SequencePlayer:playWithBankOverride(handle, sequence, bank)
-  return startSequenceInstance(self, handle, sequence, bank, false)
+  return startSequenceInstance(self, handle, sequence, bank, false, true)
 end
 
 -- Sets the player's fader level (0..127, the volume domain -- the NNS
@@ -1536,6 +1545,13 @@ function SequencePlayer:stopHandle(handle)
   if instance ~= nil then
     retireInstance(self, instance, "stop_handle")
   end
+end
+
+-- Releases only the handle attachment. The active instance remains owned by
+-- its logical player and physical slot.
+function SequencePlayer:releaseHandle(handle)
+  validateHandle(self, handle)
+  detachHandle(self, handle)
 end
 
 function SequencePlayer:isHandlePlaying(handle)
@@ -1793,7 +1809,7 @@ function SequencePlayer:stopSequence(sequenceId)
   assert(sequenceId >= 0 and sequenceId % 1 == 0, "sequence id must be a non-negative integer")
   for seqPlayerSlot = 0, PLAYER_COUNT - 1 do
     local instance = self._seqPlayers[seqPlayerSlot]
-    if instance ~= nil and instance.sequence.id == sequenceId then
+    if instance ~= nil and instance.ordinarySequenceId == sequenceId then
       retireInstance(self, instance, "stop_sequence")
     end
   end

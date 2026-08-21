@@ -83,7 +83,7 @@ function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
     createHandle = function()
       return {}
     end,
-    play = function(_, _, sequence, bank)
+    playSynthetic = function(_, _, sequence, bank)
       capturedSequence = sequence
       capturedBank = bank
     end,
@@ -100,6 +100,20 @@ function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
   Assert.isTrue(AudioBank.validate(capturedBank))
   Assert.equal(0x0001, capturedSequence.program.initialTrackMask)
   Assert.equal(64, capturedSequence.player.channelPriority)
+end
+
+function T.stopping_ordinary_sequence_2000_does_not_stop_the_cry_standin()
+  local cry, player = newCryPlayer()
+  local provider = player._provider --[[@as AudioAssetProvider]]
+  local handle = player:createHandle()
+  local sequence = AudioFixture.sequence(2000, "SEQ_TEST_2000", 12, 1)
+  player:play(handle, sequence, provider:bank(12))
+
+  cry:play(25, 0)
+  player:stopSequence(2000)
+
+  Assert.isFalse(player:isHandlePlaying(handle), "the ordinary sequence is stopped")
+  Assert.isFalse(cry:isFinished(), "the cry stand-in is not an ordinary sequence")
 end
 
 function T.play_starts_the_cry_slot_and_finishes_when_the_sequence_ends()

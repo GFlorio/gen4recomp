@@ -473,6 +473,30 @@ function T.called_return_reaches_the_saved_continuation_only()
   Assert.deepEqual(names, { "call", "note", "end", "return" })
 end
 
+function T.reopened_track_preserves_its_control_stack()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 3 },
+    { op = "open_track", track = 1, target = { cmd = 6 } },
+    { op = "open_track", track = 1, target = { cmd = 11 } },
+    { op = "fin" },
+    { op = "wait", duration = 1 },
+    { op = "call", target = { cmd = 9 } },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+    { op = "wait", duration = 1 },
+    { op = "jump", target = { cmd = 9 } },
+    { op = "ret" },
+  })
+  local program = lowerOrFail(bytes)
+  local continuation
+  for index, instruction in ipairs(program.instructions) do
+    if instruction.op == "note" and instruction.key == 72 then
+      continuation = index
+    end
+  end
+  Assert.notNil(continuation, "the retained CALL continuation remains reachable")
+end
+
 -- CALL and LOOP_BEGIN share the three-entry continuation stack. A CALL made
 -- at saturation falls through without making its target reachable; placing a
 -- marker after a terminating command makes an offset-only queue observably

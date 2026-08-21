@@ -233,17 +233,18 @@ function GameSound:_replaceFaderRamp(playerId, target, durationFrames, kind, sto
   }
 end
 
--- Stops the player the current BGM runs on; no-op while no BGM reference
--- is held. Stopping a player drops its stale fader bookkeeping so a future
--- sequence on that player cannot inherit a record that no longer matches a
--- SequencePlayer instance.
+-- Stops only the recorded BGM sequence and releases its canonical handle;
+-- detached siblings in the same logical player remain active.
 function GameSound:_stopBgmPlayer()
   if self._currentMusic == nil then
     return
   end
   local bgm = self._provider:sequence(self._currentMusic)
-  self._player:stopPlayer(bgm.player.id)
-  self:_resetPlayerFader(bgm.player.id)
+  self._player:stopSequence(bgm.id)
+  self._player:releaseHandle(self:_handleForPlayer(bgm.player.id))
+  if not self._player:isPlayerPlaying(bgm.player.id) then
+    self:_resetPlayerFader(bgm.player.id)
+  end
 end
 
 -- `play` is the effect (SE) path: the sequence runs on its own player id,

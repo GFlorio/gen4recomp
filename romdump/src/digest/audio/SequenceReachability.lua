@@ -47,7 +47,32 @@ local function addSuccessor(queue, offset, stack, trackSlot)
   queue[#queue + 1] = { offset = offset, stack = stack, trackSlot = trackSlot }
 end
 
-local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
+local function rememberTrackStack(trackStacks, trackSlot, stack, queue, reopenTargets)
+  local stacks = trackStacks[trackSlot]
+  if stacks == nil then
+    stacks = {}
+    trackStacks[trackSlot] = stacks
+  end
+  local key = stackKey(stack)
+  if stacks[key] ~= nil then
+    return
+  end
+  stacks[key] = copyStack(stack)
+  for _, target in ipairs(reopenTargets[trackSlot] or {}) do
+    addSuccessor(queue, target.offset, copyStack(stack), trackSlot)
+  end
+end
+
+local function visitSuccessors(
+  command,
+  state,
+  dataOffset,
+  queue,
+  branchTargets,
+  trackStarted,
+  trackStacks,
+  reopenTargets
+)
   local opcode = command.opcode
   local stack = state.stack
   local nextOffset = command.next
@@ -59,7 +84,19 @@ local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
     addSuccessor(queue, nextOffset, stack, state.trackSlot)
     if command.track ~= state.trackSlot then
       branchTargets[command.offset] = true
-      addSuccessor(queue, dataOffset + command.target, {}, command.track)
+      local retained = trackStarted[command.track] == true
+      trackStarted[command.track] = true
+      if retained then
+        for _, destinationStack in pairs(trackStacks[command.track] or {}) do
+          addSuccessor(queue, dataOffset + command.target, copyStack(destinationStack), command.track)
+        end
+        reopenTargets[command.track] = reopenTargets[command.track] or {}
+        reopenTargets[command.track][#reopenTargets[command.track] + 1] = {
+          offset = dataOffset + command.target,
+        }
+      else
+        addSuccessor(queue, dataOffset + command.target, {}, command.track)
+      end
     end
   elseif opcode == 0x94 then
     if command.conditional then
@@ -174,6 +211,9 @@ local function _analyze(bytes, context)
   end
 
   local queue = { { offset = entryOffset, stack = {}, trackSlot = 0 } }
+  local trackStarted = { [0] = true }
+  local trackStacks = { [0] = { [""] = {} } }
+  local reopenTargets = {}
   local seenStates = {}
   local commandsByOffset = {}
   local branchTargets = {}
@@ -183,6 +223,7 @@ local function _analyze(bytes, context)
       local key = state.offset .. "|" .. state.trackSlot .. "|" .. stackKey(state.stack)
       if not seenStates[key] then
         seenStates[key] = true
+        rememberTrackStack(trackStacks, state.trackSlot, state.stack, queue, reopenTargets)
         local command = commandsByOffset[state.offset]
         if command == nil then
           command, err = Sseq.decodeCommand(bytes, state.offset, endPos, source)
@@ -191,7 +232,7 @@ local function _analyze(bytes, context)
           end
           commandsByOffset[state.offset] = command
         end
-        visitSuccessors(command, state, dataOffset, queue, branchTargets)
+        visitSuccessors(command, state, dataOffset, queue, branchTargets, trackStarted, trackStacks, reopenTargets)
       end
     end
   end
