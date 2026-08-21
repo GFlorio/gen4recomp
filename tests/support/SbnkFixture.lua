@@ -29,6 +29,8 @@ local u16, u32 = FntWriter.u16, FntWriter.u32
 local INST_PCM = 1
 local INST_PSG = 2
 local INST_NOISE = 3
+local INST_DIRECTPCM = 4
+local INST_DUMMY = 5
 local INST_DRUM_SET = 0x10
 local INST_KEY_SPLIT = 0x11
 
@@ -49,7 +51,12 @@ end
 
 local function leafBytes(leaf)
   assert(
-    leaf.type == INST_PCM or leaf.type == INST_PSG or leaf.type == INST_NOISE or leaf.type == 0,
+    leaf.type == INST_PCM
+      or leaf.type == INST_PSG
+      or leaf.type == INST_NOISE
+      or leaf.type == INST_DIRECTPCM
+      or leaf.type == INST_DUMMY
+      or leaf.type == 0,
     "leaves must be PCM/PSG/noise or silent"
   )
   return u8(leaf.type) .. u8(0) .. paramBytes(leaf.param)

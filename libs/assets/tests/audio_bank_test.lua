@@ -36,6 +36,10 @@ function T.validates_schema_identity_and_symbol()
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
+  bank.schema = "g4-audio-bank-v4"
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
   bank.schema = AudioBank.SCHEMA
   bank.id = -1
   throwsCode("AUDIO_BANK_INVALID", function()
@@ -197,6 +201,35 @@ function T.every_voice_carries_envelope_and_pan()
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
+end
+
+function T.accepts_a_dummy_leaf_and_selects_no_voice()
+  local bank = AudioFixture.bank(12, "BANK_TEST")
+  bank.instruments[0].voice = { kind = "dummy" }
+  Assert.isTrue(AudioBank.validate(bank))
+  Assert.isNil(AudioBank.selectVoice(bank.instruments[0], 60))
+
+  bank.instruments[0].voice = { kind = "dummy", generator = { kind = "noise" } }
+  throwsCode("AUDIO_BANK_INVALID", function()
+    AudioBank.validate(bank)
+  end)
+
+  bank.instruments[0] = {
+    kind = "drum_set",
+    lowKey = 35,
+    highKey = 35,
+    voices = { { kind = "dummy" } },
+  }
+  Assert.isTrue(AudioBank.validate(bank))
+  Assert.isNil(AudioBank.selectVoice(bank.instruments[0], 35))
+end
+
+function T.preserves_the_release_sentinel_in_every_leaf_shape()
+  local bank = AudioFixture.bank(12, "BANK_TEST")
+  bank.instruments[0].voice.envelope.release = 0xFF
+  Assert.isTrue(AudioBank.validate(bank))
+  bank.instruments[2].voices[1].envelope.release = 0xFF
+  Assert.isTrue(AudioBank.validate(bank))
 end
 
 -- The square duty is the discrete DS PSG duty index 0..7 (GBATEK): an

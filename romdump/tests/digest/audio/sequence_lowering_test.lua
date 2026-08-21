@@ -11,6 +11,7 @@
 -- build.
 
 local Assert = require("tests.support.Assert")
+local AudioSequence = require("libs.assets.src.AudioSequence")
 local Errors = require("libs.errors.src.Errors")
 local SequenceLowering = require("romdump.src.digest.audio.SequenceLowering")
 local SseqFixture = require("tests.support.SseqFixture")
@@ -37,6 +38,17 @@ local function lowerRejects(bytes, code, identity)
   Assert.isTrue(Errors.is(err), "expected a structured error, got " .. tostring(err))
   Assert.equal(asError(err).code, code)
   return assert(err)
+end
+
+function T.resolves_zero_target_from_the_sequence_data_base()
+  local bytes = SseqFixture.build({
+    { op = "jump", target = 0 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(program.entry, 1)
+  Assert.equal(program.instructions[1].op, "jump")
+  Assert.equal(program.instructions[1].target, 1)
 end
 
 -- A two-track sequence: the FE header's open-track record is an ordinary
@@ -86,14 +98,28 @@ function T.single_track_entry_is_the_first_command()
   })
   local program = lowerOrFail(bytes)
   Assert.equal(program.entry, 1)
+  Assert.equal(program.initialTrackMask, 0x0001)
   Assert.equal(program.instructions[1].op, "note")
+end
+
+function T.derives_the_preparation_track_mask_from_the_header()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 0x800A },
+    { op = "open_track", track = 1, target = { cmd = 5 } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(program.initialTrackMask, 0x800B)
 end
 
 -- The full semantic vocabulary lowers to lowercase semantic names, never raw
 -- opcodes or offsets, and reserved commands lower to explicit no-ops. The
--- comparison commands (0xB8..0xBD) have no runtime consumer once conditional
--- execution is gone, so they too lower to nop. The 0xD6 print_var diagnostic
--- is dropped entirely: it is never emitted into the closed IR.
+-- comparison commands (0xB8..0xBD) lower to normalized comparison records.
+-- The 0xD6 print_var diagnostic is dropped entirely: it is never emitted into
+-- the closed IR.
 function T.lowers_the_semantic_vocabulary()
   local bytes = SseqFixture.build({
     { op = "wait", duration = 1 },
@@ -165,7 +191,7 @@ function T.lowers_the_semantic_vocabulary()
     "tempo",
     "sweep",
     "setvar",
-    "nop",
+    "compare",
     "nop",
     "nop",
     "loop_end",
@@ -317,70 +343,253 @@ function T.random_duration_keeps_its_exact_signed_pair()
   Assert.deepEqual(program.instructions[1].duration, { kind = "random", lo = -16163, hi = 0 })
 end
 
--- A reachable 0xA2 conditional prefix is a compiler failure: the retail
--- census proves no reachable conditional command exists, so the derived IR
--- never carries a conditional field and the runtime needs no comparison
--- state. The rejection carries the sequence provenance like every other
--- lowering failure.
-function T.reachable_conditional_prefix_is_a_compiler_failure()
+function T.conditional_prefix_contains_the_complete_normalized_command()
   local bytes = SseqFixture.build({
     { op = "prefix", kind = "if", command = { op = "u8", command = 0xC1, amount = 100 } },
     { op = "fin" },
   })
-  local err = lowerRejects(bytes, "AUDIO_SEQUENCE_CONDITIONAL_UNSUPPORTED")
-  Assert.equal(err.context.sequenceId, 7)
-  Assert.equal(err.context.sequenceSymbol, "SEQ_TEST")
-  Assert.notNil(err.context.sourceOffset)
+  local program = lowerOrFail(bytes)
+  Assert.deepEqual(program.instructions[1], {
+    op = "if",
+    condition = "compare_result",
+    instruction = { op = "volume", amount = 100 },
+  })
 end
 
--- The comparison commands (0xB8..0xBD) lower to semantic nop instructions:
--- with no reachable conditional command to gate, no runtime comparison state
--- exists, and the operand bytes are consumed without emitting operand fields.
-function T.comparison_commands_lower_to_nop()
+function T.conditional_terminators_keep_false_fallthrough()
+  local conditionalOps = {
+    { op = "jump", target = { cmd = 4 } },
+    { op = "ret" },
+    { op = "fin" },
+  }
+  for _, nested in ipairs(conditionalOps) do
+    local commands = {
+      { op = "cmp_eq", var = 0, amount = 1 },
+      { op = "prefix", kind = "if", command = nested },
+      { op = "note", key = 60, velocity = 96, duration = 24 },
+      { op = "fin" },
+    }
+    if nested.op == "jump" then
+      commands[4] = { op = "note", key = 72, velocity = 80, duration = 8 }
+      commands[5] = { op = "fin" }
+    end
+    local bytes = SseqFixture.build(commands)
+    local program = lowerOrFail(bytes)
+    Assert.notNil(program.instructions[3], "conditional false fallthrough remains reachable")
+    Assert.equal(program.instructions[3].op, "note", "false fallthrough remains reachable")
+    Assert.equal(program.instructions[3].key, 60)
+    if nested.op == "jump" then
+      Assert.equal(program.instructions[4].op, "note", "the later target remains reachable")
+      Assert.equal(program.instructions[4].key, 72)
+      Assert.equal(program.instructions[2].instruction.target, 4)
+    end
+  end
+end
+
+function T.conditional_cross_track_open_keeps_fallthrough_and_valid_target()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 3 },
+    { op = "cmp_eq", var = 0, amount = 1 },
+    { op = "prefix", kind = "if", command = { op = "open_track", track = 1, target = { cmd = 6 } } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(#program.instructions, 6)
+  Assert.equal(program.instructions[3].op, "note", "conditional false fallthrough remains reachable")
+  Assert.equal(program.instructions[3].key, 60)
+  Assert.equal(program.instructions[4].op, "end")
+  Assert.equal(program.instructions[5].op, "note", "conditional true target remains reachable")
+  Assert.equal(program.instructions[5].key, 72)
+  Assert.equal(program.instructions[6].op, "end")
+  Assert.deepEqual(program.instructions[2], {
+    op = "if",
+    condition = "compare_result",
+    instruction = { op = "open_track", track = 1, target = 5 },
+  })
+
+  local sequence = {
+    schema = AudioSequence.SCHEMA,
+    id = IDENTITY.sequenceId,
+    symbol = IDENTITY.symbol,
+    bankId = 0,
+    player = {
+      id = 0,
+      initialVolume = 127,
+      playerPriority = 64,
+      channelPriority = 64,
+    },
+    program = program,
+  }
+  Assert.isTrue(AudioSequence.validate(sequence), "lowered cross-track open is a valid asset")
+end
+
+function T.self_open_does_not_decode_its_malformed_target()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 1 },
+    { op = "open_track", track = 0, target = { cmd = 4 } },
+    { op = "fin" },
+    { op = "raw", bytes = "\x60\x80" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(#program.instructions, 2)
+  Assert.deepEqual(program.instructions[1], { op = "nop" })
+  Assert.equal(program.instructions[2].op, "end")
+end
+
+-- RETURN with no active CALL/LOOP frame is a fallthrough in the ARM7
+-- interpreter, so commands after it remain part of the source program.
+function T.zero_depth_return_falls_through()
+  local bytes = SseqFixture.build({
+    { op = "ret" },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(#program.instructions, 3)
+  Assert.equal(program.instructions[1].op, "return")
+  Assert.equal(program.instructions[2].op, "note")
+  Assert.equal(program.instructions[3].op, "end")
+end
+
+-- A called RETURN transfers to the saved caller continuation. Bytes after
+-- the subroutine's RETURN are not a physical fallthrough path and may be
+-- malformed without affecting lowering.
+function T.called_return_reaches_the_saved_continuation_only()
+  local bytes = SseqFixture.build({
+    { op = "call", target = { cmd = 4 } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+    { op = "ret" },
+    { op = "raw", bytes = "\x60\x80" },
+  })
+  local program = lowerOrFail(bytes)
+  local names = {}
+  for index, instruction in ipairs(program.instructions) do
+    names[index] = instruction.op
+  end
+  Assert.deepEqual(names, { "call", "note", "end", "return" })
+end
+
+function T.reopened_track_preserves_its_control_stack()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 3 },
+    { op = "open_track", track = 1, target = { cmd = 6 } },
+    { op = "open_track", track = 1, target = { cmd = 11 } },
+    { op = "fin" },
+    { op = "wait", duration = 1 },
+    { op = "call", target = { cmd = 9 } },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+    { op = "wait", duration = 1 },
+    { op = "jump", target = { cmd = 9 } },
+    { op = "ret" },
+  })
+  local program = lowerOrFail(bytes)
+  local continuation
+  for index, instruction in ipairs(program.instructions) do
+    if instruction.op == "note" and instruction.key == 72 then
+      continuation = index
+    end
+  end
+  Assert.notNil(continuation, "the retained CALL continuation remains reachable")
+end
+
+-- CALL and LOOP_BEGIN share the three-entry continuation stack. A CALL made
+-- at saturation falls through without making its target reachable; placing a
+-- marker after a terminating command makes an offset-only queue observably
+-- over-approximate the source program.
+function T.saturated_call_target_is_not_reachable()
+  local bytes = SseqFixture.build({
+    { op = "call", target = { cmd = 4 } },
+    { op = "fin" },
+    { op = "raw", bytes = "\x60\x80" },
+    { op = "u8", command = 0xD4, amount = 1 },
+    { op = "call", target = { cmd = 8 } },
+    { op = "fin" },
+    { op = "raw", bytes = "\x60\x80" },
+    { op = "call", target = { cmd = 10 } },
+    { op = "ret" },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  local callCount = 0
+  for _, instruction in ipairs(program.instructions) do
+    Assert.isFalse(instruction.op == "note" and instruction.key == 72)
+    if instruction.op == "call" then
+      callCount = callCount + 1
+      Assert.notNil(instruction.target, "reachable CALLs must retain a valid target")
+    end
+  end
+  Assert.equal(callCount, 2)
+end
+
+function T.unconditional_terminators_still_stop_linear_fallthrough()
+  local bytes = SseqFixture.build({
+    { op = "jump", target = { cmd = 4 } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  for _, instruction in ipairs(program.instructions) do
+    Assert.isFalse(instruction.op == "note" and instruction.key == 60)
+  end
+  Assert.isTrue(#program.instructions >= 2)
+end
+
+function T.comparison_commands_lower_to_semantic_operations()
   local bytes = SseqFixture.build({
     { op = "cmp_eq", var = 0, amount = 42 },
     { op = "cmp_ge", var = 3, amount = -7 },
     { op = "fin" },
   })
   local program = lowerOrFail(bytes)
-  Assert.equal(program.instructions[1].op, "nop")
-  Assert.isNil(program.instructions[1].var)
-  Assert.isNil(program.instructions[1].amount)
-  Assert.equal(program.instructions[2].op, "nop")
-  Assert.isNil(program.instructions[2].var)
-  Assert.isNil(program.instructions[2].amount)
-end
-
--- Targets pointing before the data offset (into the SSEQ header region) are
--- ordinary targets; the walk treats header bytes as code exactly like the
--- inventory scanner, and the index mapping still holds.
-function T.resolves_targets_into_the_header_region()
-  local bytes = SseqFixture.build({
-    { op = "wait", duration = 1 },
-    { op = "jump", target = 0x0D },
-    { op = "fin" },
-  })
-  local program = lowerOrFail(bytes)
-  local jump
-  for _, instruction in ipairs(program.instructions) do
-    if instruction.op == "jump" then
-      jump = instruction
-    end
-  end
-  Assert.notNil(jump, "the jump instruction is present")
-  Assert.equal(jump.target, 1, "header-region target maps to the walked instruction")
+  Assert.deepEqual(program.instructions[1], { op = "compare", condition = "eq", var = 0, amount = 42 })
+  Assert.deepEqual(program.instructions[2], { op = "compare", condition = "ge", var = 3, amount = -7 })
 end
 
 -- Unreachable trailing bytes are never decoded: a truncated command past the
 -- last end cannot fail the build, and it never appears in the program.
-function T.ignores_unreachable_trailing_bytes()
-  local bytes = SseqFixture.build({
-    { op = "fin" },
-  })
-  local corrupted = bytes .. "\x60\x80"
-  local program = lowerOrFail(corrupted)
-  Assert.equal(#program.instructions, 1)
-  Assert.equal(program.instructions[1].op, "end")
+function T.ignores_malformed_bytes_after_true_transfers()
+  local cases = {
+    {
+      commands = {
+        { op = "fin" },
+      },
+      expected = { "end" },
+    },
+    {
+      commands = {
+        { op = "jump", target = { cmd = 3 } },
+        { op = "raw", bytes = "\x60\x80" },
+        { op = "fin" },
+      },
+      expected = { "jump", "end" },
+    },
+    {
+      commands = {
+        { op = "call", target = { cmd = 4 } },
+        { op = "fin" },
+        { op = "raw", bytes = "\x60\x80" },
+        { op = "ret" },
+      },
+      expected = { "call", "end", "return" },
+    },
+  }
+  for _, case in ipairs(cases) do
+    local bytes = SseqFixture.build(case.commands)
+    local program = lowerOrFail(bytes .. "\x60\x80")
+    local names = {}
+    for index, instruction in ipairs(program.instructions) do
+      names[index] = instruction.op
+    end
+    Assert.deepEqual(names, case.expected)
+  end
 end
 
 -- A branch target at or past the end of the file is malformed data with

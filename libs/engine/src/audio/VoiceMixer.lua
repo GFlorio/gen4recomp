@@ -7,7 +7,7 @@
 --   * Volume is a dB-like integer sum per control step
 --     (SNDi_DecibelSquareTable[velocity] + envAttenuation>>7 +
 --     DecibelSquare[trackVolume] + DecibelSquare[expression] +
---     DecibelSquare[playerVolume] + fader), converted once per step by
+--     DecibelSquare[sequenceVolume] + fader), converted once per step by
 --     SND_CalcChannelVolume; the host gain is the register mantissa N/128
 --     (127 -> 128) >> sSampleDataShiftTable.
 --   * The envelope is the SDK state machine (SND_SetExChannelAttack
@@ -16,7 +16,9 @@
 --     stops at the control step whose current pre-register dB sum crosses
 --     SND_VOL_DB_MIN (vol <= -723), the SDK's death moment -- never a
 --     noteOff-time prediction. The envelope advances once per external
---     control step. The noteOn itself is the note's first control step.
+--     control step. noteOn synchronizes the initial registers without
+--     consuming elapsed control time; external controlStep owns the first
+--     elapsed 192 Hz advancement.
 --   * Pitch is the integer domain (key - originalKey)*0x40 + userPitch
 --     (the note's user pitch, default 0) + sweep + pitch LFO through
 --     SND_CalcTimer (BIOS pitch table); square timers are masked with
@@ -32,7 +34,7 @@
 --   * Allocation is SND_AllocExChannel: the fixed order
 --     {4,5,6,7,2,0,3,1,8,9,10,11,14,12,15,13} inside (generator range AND
 --     channelMask); the victim is the lowest effective priority
---     (playerPriority + trackPriority, one sum) and among equals the
+--     channel/track priority and among equals the
 --     quieter last-synced volume register; an incoming note below the
 --     victim's priority is rejected; a stolen channel revokes the previous
 --     voice handle. noteOn returns {channel, generation} with the
@@ -46,9 +48,9 @@
 --     owner per auto flag (TrackStepTicks vs ExChannelMain): a non-auto
 --     voice advances it once per sequence tick through the explicit
 --     advanceTrackTick(handle) -- capped at the sweep length -- and an
---     auto voice advances it at control steps only. The noteOn itself is
---     the note's first control step and contributes the full sweepPitch
---     without advancing the counter.
+--     auto voice advances it at control steps only. noteOn contributes the
+--     full initial sweepPitch without advancing elapsed control time or the
+--     sweep counter.
 --   * Square duty is the discrete integer 0..7 index consumed directly
 --     (8-sample cycle starting at LOW, HIGH=(d+1)*12.5%; duty 7 is the
 --     all-LOW special pattern); noise is the 15-bit LFSR from 7FFFh
@@ -66,7 +68,7 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _outputRate integer
 ---@field private _channels table<integer, table>
 ---@field private _channelGeneration table<integer, integer>
----@field new fun(opts: { sampleRate: integer }): VoiceMixer
+---@field new fun(opts: { sampleRate: integer, observer: table? }): VoiceMixer
 ---@field noteOn fun(self: VoiceMixer, spec: table): { channel: integer, generation: integer } | nil
 ---@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, releaseOverride: integer?)
 ---@field updateVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, partial: table)
@@ -79,6 +81,16 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 
 local VoiceMixer = {}
 VoiceMixer.__index = VoiceMixer
+
+local function observe(self, event)
+  local observer = self._observer
+  if observer ~= nil then
+    local callback = observer.onChannelState
+    if callback ~= nil then
+      callback(observer, event)
+    end
+  end
+end
 
 -- DS hardware channel count; the PSG ranges live inside the generator
 -- masks below.
@@ -118,9 +130,8 @@ local RELEASE_STOP_DB = -723
 
 -- The 192 Hz sound interval (SND_main.c SndThread) is owned by the
 -- external scheduler: the mixer exposes one controlStep per interval and
--- keeps no phase accumulator of its own. The noteOn itself is the note's
--- first control step (ExChannelStart), so a controlStep never re-applies
--- a fresh note's own step.
+-- keeps no phase accumulator of its own. ExChannelStart synchronizes a fresh
+-- note's initial registers; controlStep owns elapsed 192 Hz advancement.
 
 -- Phase snap for square/noise: the pinned duty and LFSR boundaries sit on
 -- exact frame multiples of the timer, and the float phase accumulation may
@@ -174,11 +185,11 @@ local function volumeCmp(a, b)
   return 0
 end
 
--- SND_AllocExChannel: inside (generator range AND channelMask), the first
--- free channel in the fixed order wins; when all are occupied the victim
--- is the lowest (priority, then quieter last-synced register). An incoming
--- note below the chosen occupied channel's priority is rejected. Returns
--- the channel and the current occupant (nil when free).
+-- SND_AllocExChannel: inside (generator range AND channelMask), the victim
+-- is the lowest (priority, then quieter last-synced register), with free
+-- channels represented by priority and volume zero. An incoming note below
+-- the chosen candidate's priority is rejected. Returns the channel and the
+-- current occupant (nil when free).
 ---@param kind string
 ---@param channelMask integer
 ---@param priority integer
@@ -187,7 +198,8 @@ local function allocateChannel(self, kind, channelMask, priority)
   local allowed = bit.band(GENERATOR_MASK[kind], channelMask)
   local chosenChannel, chosenVoice
   for _, candidate in ipairs(ALLOCATION_ORDER) do
-    if bit.band(allowed, bit.lshift(1, candidate)) ~= 0 then
+    local candidateBit = bit.lshift(1, candidate)
+    if bit.band(allowed, candidateBit) ~= 0 then
       local voice = self._channels[candidate]
       if chosenChannel == nil then
         chosenChannel = candidate
@@ -208,7 +220,8 @@ local function allocateChannel(self, kind, channelMask, priority)
   if chosenChannel == nil then
     return nil
   end
-  if chosenVoice ~= nil and priority < chosenVoice.priority then
+  local chosenPriority = chosenVoice and chosenVoice.priority or 0
+  if priority < chosenPriority then
     return nil
   end
   return chosenChannel, chosenVoice
@@ -257,6 +270,7 @@ end
 local function newVoice(spec)
   local generator = spec.generator
   assert(spec.originalKey ~= nil, "voice spec requires the original key")
+  local release = spec.envelope.release == 0xFF and 0 or spec.envelope.release
   local voice = {
     generator = generator,
     midiKey = spec.key,
@@ -270,12 +284,12 @@ local function newVoice(spec)
     envAttack = NnsSoundMath.attackCoefficient(spec.envelope.attack),
     envDecay = NnsSoundMath.decayCoefficient(spec.envelope.decay),
     envSustain = spec.envelope.sustain,
-    envRelease = NnsSoundMath.decayCoefficient(spec.envelope.release),
+    envRelease = NnsSoundMath.decayCoefficient(release),
     initPan = spec.pan - PAN_CENTER,
     pending = {
       trackVolume = spec.trackVolume,
       expression = spec.expression,
-      playerVolume = spec.playerVolume,
+      sequenceVolume = spec.sequenceVolume,
       fader = spec.fader or 0,
       trackPanOffset = spec.trackPanOffset or 0,
       panRange = spec.panRange or 127,
@@ -294,7 +308,11 @@ local function newVoice(spec)
     hardwarePan = 0,
     ratio = 0,
     released = false,
+    physicalInactive = false,
     dead = false,
+    length = spec.envelope.release == 0xFF and -1 or spec.length,
+    ownerPlayerId = spec.ownerPlayerId,
+    ownerTrackSlot = spec.ownerTrackSlot,
     baseTimer = PSG_BASE_TIMER,
   }
   if generator.kind == "sample" then
@@ -325,7 +343,7 @@ local function applyPending(voice)
   local pending = voice.pending
   local vol = NnsSoundMath.decibelSquare(pending.trackVolume)
     + NnsSoundMath.decibelSquare(pending.expression)
-    + NnsSoundMath.decibelSquare(pending.playerVolume)
+    + NnsSoundMath.decibelSquare(pending.sequenceVolume)
   if vol < -0x8000 then
     vol = -0x8000
   end
@@ -476,10 +494,16 @@ local function controlStep(voice, advanceSweep)
   elseif voice.envStatus == "release" then
     voice.envAttenuation = voice.envAttenuation - voice.envRelease
   end
-  if advanceSweep and voice.autoSweep and voice.sweepPitch ~= 0 and voice.sweepCounter < voice.sweepLength then
+  local alive = syncRegisters(voice)
+  if
+    alive
+    and advanceSweep
+    and voice.autoSweep
+    and voice.sweepPitch ~= 0
+    and voice.sweepCounter < voice.sweepLength
+  then
     voice.sweepCounter = voice.sweepCounter + 1
   end
-  local alive = syncRegisters(voice)
   if alive then
     advanceLfo(voice)
   end
@@ -492,6 +516,9 @@ end
 ---@return integer
 local function sampleAt(voice)
   if voice.generator.kind == "sample" then
+    if voice.physicalInactive then
+      return 0
+    end
     local sample = voice.pcm[math.floor(voice.pos) + 1]
     voice.pos = voice.pos + voice.ratio
     if voice.pos >= voice.loop.endFrame then
@@ -501,7 +528,7 @@ local function sampleAt(voice)
           voice.pos = voice.pos - span
         end
       else
-        voice.dead = true
+        voice.physicalInactive = true
       end
     end
     return sample
@@ -534,6 +561,7 @@ function VoiceMixer.new(opts)
   assert(opts and opts.sampleRate, "VoiceMixer requires a sampleRate")
   return setmetatable({
     _outputRate = opts.sampleRate,
+    _observer = opts.observer,
     _channels = {},
     -- The persistent per-channel generation counter: every allocation of a
     -- channel increments it, so two distinct allocations never share a
@@ -551,15 +579,15 @@ end
 function VoiceMixer:noteOn(spec)
   assert(spec and spec.generator and spec.envelope, "voice spec requires a generator and envelope")
   assert(
-    spec.key ~= nil and spec.velocity ~= nil and spec.playerPriority ~= nil and spec.channelMask ~= nil,
-    "voice spec requires key/velocity/playerPriority/channelMask"
+    spec.key ~= nil and spec.velocity ~= nil and spec.channelPriority ~= nil and spec.channelMask ~= nil,
+    "voice spec requires key/velocity/channelPriority/channelMask"
   )
   assert(
-    spec.trackVolume ~= nil and spec.expression ~= nil and spec.playerVolume ~= nil,
-    "voice spec requires trackVolume/expression/playerVolume"
+    spec.trackVolume ~= nil and spec.expression ~= nil and spec.sequenceVolume ~= nil,
+    "voice spec requires trackVolume/expression/sequenceVolume"
   )
   assert(spec.pan ~= nil and spec.trackPriority ~= nil, "voice spec requires pan/trackPriority")
-  local priority = spec.playerPriority + spec.trackPriority
+  local priority = spec.channelPriority + spec.trackPriority
   local channel = allocateChannel(self, spec.generator.kind, spec.channelMask, priority)
   if channel == nil then
     return nil
@@ -573,27 +601,27 @@ function VoiceMixer:noteOn(spec)
   end
   local voice = newVoice(spec)
   voice._outputRate = self._outputRate
-  voice.priority = priority
+  voice.priority = priority % 256
   -- The generation is the channel's persistent counter, not the victim's:
   -- a channel freed by a natural death keeps its count so a stale handle
   -- can never alias a later allocation of the same channel.
   voice.generation = (self._channelGeneration[channel] or -1) + 1
   self._channelGeneration[channel] = voice.generation
-  -- The noteOn itself is the note's first control step; the sweep counter
-  -- does not advance on it (the contribution is the full sweepPitch).
-  controlStep(voice, false)
+  -- ExChannelStart synchronizes the initial registers without advancing
+  -- envelope, LFO, or sweep time. The scheduler owns the first elapsed step.
+  applyPending(voice)
+  syncRegisters(voice)
   self._channels[channel] = voice
   return { channel = channel, generation = voice.generation }
 end
 
--- Starts the release of the voice a handle names. A stale handle (channel
--- stolen, generation replaced) and a dead voice are harmless no-ops, as is
--- a note-off for a voice already releasing. `releaseOverride` (nil or an
--- integer 0..127) replaces the voice's instrument release coefficient
--- before entering release -- the forced track-release path (pause/mute
--- stop) the SDK distinguishes from an ordinary release. The voice then
--- stops at the control step whose current pre-register dB sum crosses
--- SND_VOL_DB_MIN; the death moment is the mixer's, never precomputed.
+-- Starts or updates the release of the voice a handle names. A stale handle
+-- (channel stolen, generation replaced) and a dead voice are harmless no-ops.
+-- `releaseOverride` (nil or an integer 0..127) replaces the voice's instrument
+-- release coefficient; this lets the forced track-release path (pause/mute
+-- stop) accelerate an already-running ordinary release without restarting it.
+-- The voice then stops at the control step whose current pre-register dB sum
+-- crosses SND_VOL_DB_MIN; the death moment is the mixer's, never precomputed.
 ---@param handle { channel: integer, generation: integer }
 ---@param releaseOverride integer?
 function VoiceMixer:noteOff(handle, releaseOverride)
@@ -604,14 +632,17 @@ function VoiceMixer:noteOff(handle, releaseOverride)
     )
   end
   local voice = self._channels[handle.channel]
-  if voice == nil or voice.generation ~= handle.generation or voice.released then
+  if voice == nil or voice.generation ~= handle.generation or voice.dead then
     return
   end
+  voice.priority = 1
   if releaseOverride ~= nil then
     voice.envRelease = NnsSoundMath.decayCoefficient(releaseOverride)
   end
-  voice.released = true
-  voice.envStatus = "release"
+  if not voice.released then
+    voice.released = true
+    voice.envStatus = "release"
+  end
 end
 
 -- Queues track-level control values for the voice a handle names; they are
@@ -688,7 +719,8 @@ function VoiceMixer:retargetTiedVoice(handle, spec)
       voice.envSustain = spec.envelope.sustain
     end
     if spec.envelope.release ~= nil then
-      voice.envRelease = NnsSoundMath.decayCoefficient(spec.envelope.release)
+      local release = spec.envelope.release == 0xFF and 0 or spec.envelope.release
+      voice.envRelease = NnsSoundMath.decayCoefficient(release)
     end
   end
   if spec.sweepPitch ~= nil then
@@ -704,9 +736,9 @@ function VoiceMixer:retargetTiedVoice(handle, spec)
 end
 
 -- The mixer owns voice liveness: true from noteOn until the mixer removes
--- the voice (a natural one-shot death or the release-stop step); false for
--- an empty channel, a generation mismatch, and a removed voice. The
--- sequencer prunes its voice collections with this query.
+-- the voice (one-shot retirement at channel control or the release-stop
+-- step); false for an empty channel, a generation mismatch, and a removed
+-- voice. The sequencer prunes its voice collections with this query.
 ---@param handle { channel: integer, generation: integer }
 ---@return boolean
 function VoiceMixer:isVoiceAlive(handle)
@@ -725,20 +757,40 @@ end
 -- moves here. Deterministic ascending channel order; the external scheduler
 -- calls this exactly once per completed sound interval after all sequence
 -- ticks.
-function VoiceMixer:controlStep()
+function VoiceMixer:controlStep(ordinal)
   for channel = 0, CHANNEL_COUNT - 1 do
     local voice = self._channels[channel]
     if voice ~= nil then
-      if voice.pending.dirty then
-        applyPending(voice)
-        syncRegisters(voice)
-      end
-      if not voice.dead then
+      if voice.physicalInactive then
+        voice.dead = true
+      else
         controlStep(voice, true)
       end
       if voice.dead then
         self._channels[channel] = nil
       end
+    end
+  end
+  if self._observer ~= nil then
+    for channel = 0, CHANNEL_COUNT - 1 do
+      local voice = self._channels[channel]
+      observe(self, {
+        ordinal = ordinal,
+        channel = channel,
+        generation = (voice and voice.generation) or self._channelGeneration[channel] or 0,
+        active = voice ~= nil and not voice.dead,
+        ownerPlayerId = voice and voice.ownerPlayerId or nil,
+        ownerTrackSlot = voice and voice.ownerTrackSlot or nil,
+        priority = voice and voice.priority or 0,
+        key = voice and voice.midiKey or nil,
+        envStatus = voice and voice.envStatus or nil,
+        envAttenuation = voice and voice.envAttenuation or nil,
+        timer = voice and voice.timer or 0,
+        volumeRegister = voice and voice.volume or 0,
+        panRegister = voice and voice.hardwarePan or 0,
+        released = voice ~= nil and voice.released or false,
+        length = voice and voice.length or nil,
+      })
     end
   end
 end
@@ -761,15 +813,10 @@ function VoiceMixer:renderInto(out, frames)
       local voice = self._channels[channel]
       if voice ~= nil then
         local sample = sampleAt(voice)
-        -- The one-shot boundary sample still sounds; the voice is
-        -- removed after this frame.
         local gain = registerGain(voice.volume)
         local panLeft, panRight = panMix(voice.hardwarePan)
         left = left + math.floor(sample * gain * panLeft + 0.5)
         right = right + math.floor(sample * gain * panRight + 0.5)
-        if voice.dead then
-          self._channels[channel] = nil
-        end
       end
     end
     out[#out + 1] = saturate(left)

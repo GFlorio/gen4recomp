@@ -68,6 +68,9 @@ end
 -- tests can author hand-written programs over the frozen
 -- instruction shapes; `player` overrides the player block fields.
 function AudioFixture.sequence(id, symbol, bankId, playerId, program, player)
+  if program ~= nil and program.initialTrackMask == nil then
+    program.initialTrackMask = 0x0001
+  end
   local sequence = {
     schema = AudioCache.SEQUENCE_SCHEMA,
     id = id,
@@ -77,9 +80,11 @@ function AudioFixture.sequence(id, symbol, bankId, playerId, program, player)
       id = playerId,
       initialVolume = 127,
       playerPriority = 64,
+      channelPriority = 64,
     },
     program = program or {
       entry = 1,
+      initialTrackMask = 0x0001,
       instructions = {
         { op = "program", program = 4 },
         { op = "note", key = 60, velocity = 96, duration = 24 },

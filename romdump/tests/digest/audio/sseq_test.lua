@@ -74,16 +74,16 @@ function T.decodes_notes_waits_programs_and_branches()
 
   local jump = commandAt(bytes, layout.offsets[4])
   Assert.equal(jump.opcode, 0x94)
-  Assert.equal(jump.target, layout.offsets[1])
+  Assert.equal(jump.target, layout.dataOffsets[1])
 
   local call = commandAt(bytes, layout.offsets[5])
   Assert.equal(call.opcode, 0x95)
-  Assert.equal(call.target, layout.offsets[1])
+  Assert.equal(call.target, layout.dataOffsets[1])
 
   local openTrack = commandAt(bytes, layout.offsets[6])
   Assert.equal(openTrack.opcode, 0x93)
   Assert.equal(openTrack.track, 1)
-  Assert.equal(openTrack.target, layout.offsets[1])
+  Assert.equal(openTrack.target, layout.dataOffsets[1])
 
   Assert.equal(commandAt(bytes, layout.offsets[7]).opcode, 0xFD)
   Assert.equal(commandAt(bytes, layout.offsets[8]).opcode, 0xFF)

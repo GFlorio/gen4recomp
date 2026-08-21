@@ -7,17 +7,18 @@
 --   * Volume is a dB-like integer sum per control step
 --     (SNDi_DecibelSquareTable[velocity] + envAttenuation>>7
 --     + DecibelSquare[trackVolume] + DecibelSquare[expression]
---     + DecibelSquare[playerVolume] + fader), converted once per step by
+--     + DecibelSquare[sequenceVolume] + fader), converted once per step by
 --     SND_CalcChannelVolume; no per-stage float gain.
 --   * The envelope is the SDK state machine (SND_SetExChannelAttack
 --     coefficients and the 19-entry high table, CalcDecayCoeff decay/release
 --     with the 127/126 special cases, DecibelSquare[sustain]<<7 target,
 --     release stopped at the control step whose current pre-register dB sum
 --     crosses the vol <= -723 threshold (SND_VOL_DB_MIN)), advanced once per
---     control step -- exactly 192 Hz through the integer phase accumulator
---     (phase += 192 per output frame, one step when it reaches the output
---     rate): 250-frame boundaries at 48 kHz and the 170/171 alternation at
---     32768 Hz. The noteOn itself is the note's first control step.
+--     control step -- exactly 192 Hz through the external integer phase
+--     accumulator (phase += 192 per output frame, one step when it reaches
+--     the output rate): 250-frame boundaries at 48 kHz and the 170/171
+--     alternation at 32768 Hz. noteOn synchronizes initial registers without
+--     consuming elapsed control time; controlStep advances the elapsed state.
 --   * Pitch is the integer domain (key - originalKey)*0x40 with
 --     SND_CalcTimer(baseTimer, pitch) (BIOS pitch table); PSG timers are
 --     masked with 0xFFFC; PSG/noise use the 8006 base timer. The host phase
@@ -49,6 +50,7 @@
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
+local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 
 local T = {}
 
@@ -72,8 +74,8 @@ local function newMixer(rate)
 end
 
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
--- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
--- channelMask, trackPriority, playerPriority, and the optional channel-side
+-- envelope, pan, key, velocity, trackVolume/expression/sequenceVolume,
+-- channelMask, trackPriority, channelPriority, and the optional channel-side
 -- controls (userPitch 0, trackPanOffset 0, panRange 127, fader 0,
 -- sweepPitch 0, sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/
 -- 2=pan, depth 0, range 1, speed 16, delay 0}). Sample voices carry no
@@ -91,12 +93,12 @@ local function spec(overrides)
     velocity = 127,
     trackVolume = 127,
     expression = 127,
-    playerVolume = 127,
+    sequenceVolume = 127,
     envelope = { attack = 127, decay = 127, sustain = 127, release = 127 },
     pan = 64,
     channelMask = 0xFFFF,
     trackPriority = 64,
-    playerPriority = 64,
+    channelPriority = 64,
   }
   for key, value in pairs(overrides or {}) do
     s[key] = value
@@ -121,9 +123,58 @@ function T.renders_silence_without_voices()
   end
 end
 
+-- Nitro initializes a new ExChannel's registers without advancing its
+-- envelope. The first elapsed control interval performs the only attack/LFO
+-- transition for that interval.
+function T.note_on_initializes_without_consuming_the_first_control_interval()
+  local mixer = newMixer()
+  local pcm = { 2048, 2048, 2048, 2048 }
+  mixer:noteOn(spec({
+    pcm = pcm,
+    pan = 0,
+    envelope = { attack = 100, decay = 127, sustain = 127, release = 127 },
+  }))
+
+  local before = mixer:render(1)
+  Assert.equal(leftAt(before, 1), 0, "a fresh voice remains at the initialized envelope")
+
+  mixer:controlStep()
+  local after = mixer:render(1)
+  Assert.equal(leftAt(after, 1), 13, "the first interval advances the attack exactly once")
+end
+
+function T.decay_coefficient_rejects_the_release_sentinel()
+  Assert.throws(function()
+    NnsSoundMath.decayCoefficient(255)
+  end)
+end
+
+function T.release_sentinel_initializes_an_indefinite_voice()
+  local state
+  local mixer = VoiceMixer.new({
+    sampleRate = SAMPLE_RATE,
+    observer = {
+      onChannelState = function(_, event)
+        if event.active then
+          state = event
+        end
+      end,
+    },
+  })
+  local handle = mixer:noteOn(spec({
+    envelope = { attack = 127, decay = 127, sustain = 127, release = 255 },
+    length = 12,
+  }))
+  Assert.isTrue(handle ~= nil, "release sentinel note allocates")
+  local liveHandle = assert(handle)
+  mixer:controlStep()
+  Assert.isTrue(mixer:isVoiceAlive(liveHandle), "release sentinel voice remains alive")
+  Assert.equal(state.length, -1, "release sentinel uses an indefinite channel length")
+end
+
 -- The exact NNS volume path: velocity through SNDi_DecibelSquareTable, the
 -- envelope attenuation (0 after the instant attack), the track volume, the
--- expression (second volume) and the player volume, all summed in the
+-- expression (second volume) and the sequence volume, all summed in the
 -- dB-like integer domain (SND_seq.c TrackUpdateChannel), plus the external
 -- fader, converted once by SND_CalcChannelVolume. Expected values are the
 -- volume register mantissa N/128 (register 127 = N 128) divided by
@@ -137,6 +188,7 @@ function T.volume_path_sums_the_nns_decibel_domain()
       merged[key] = value
     end
     mixer:noteOn(spec(merged))
+    mixer:controlStep()
     return mixer:render(frames)
   end
   local cases = {
@@ -144,16 +196,16 @@ function T.volume_path_sums_the_nns_decibel_domain()
     { name = "velocity 64 (db[64] = -119 -> 0x141)", overrides = { velocity = 64 }, expected = 1300 },
     { name = "track volume 64 is the same decibel point", overrides = { trackVolume = 64 }, expected = 1300 },
     { name = "expression 100 (db[100] = -42 -> 0x4F)", overrides = { expression = 100 }, expected = 3160 },
-    { name = "player volume 100 is the same decibel point", overrides = { playerVolume = 100 }, expected = 3160 },
+    { name = "sequence volume 100 is the same decibel point", overrides = { sequenceVolume = 100 }, expected = 3160 },
     {
       name = "all 100 sums four equal -42 terms (-168 -> 0x24A)",
-      overrides = { velocity = 100, trackVolume = 100, expression = 100, playerVolume = 100 },
+      overrides = { velocity = 100, trackVolume = 100, expression = 100, sequenceVolume = 100 },
       expected = 740,
     },
     { name = "velocity 0 (db[0] = -32768 -> 0x300 silence)", overrides = { velocity = 0 }, expected = 0 },
     {
       name = "all 0 is silence",
-      overrides = { velocity = 0, trackVolume = 0, expression = 0, playerVolume = 0 },
+      overrides = { velocity = 0, trackVolume = 0, expression = 0, sequenceVolume = 0 },
       expected = 0,
     },
     { name = "fader -200 (-200 -> 0x233)", overrides = { fader = -200 }, expected = 510 },
@@ -181,6 +233,7 @@ function T.pan_registers_combine_instrument_track_and_hardware_domains()
       merged[key] = value
     end
     mixer:noteOn(spec(merged))
+    mixer:controlStep()
     return mixer:render(1)
   end
   local cases = {
@@ -231,8 +284,8 @@ end
 -- recurrence vectors: env -438, -266, -161, -5 at steps 1, 2, 3, 10,
 -- register 0x30D, 0x360, 0x250, 0x79). The first step applies at noteOn;
 -- the envelope never advances once per output sample and never advances
--- inside renderInto -- the external scheduler drives the cadence (the C03
--- contract), so this test renders 249 frames and control-steps at the
+-- inside renderInto -- the external scheduler drives the cadence, so this
+-- test renders 249 frames and control-steps at the
 -- 250-frame boundary the way the scheduler does.
 function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
   local function drive(mixer, frames)
@@ -251,6 +304,7 @@ function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
   local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
+  mixer:controlStep()
   local out = drive(mixer, 5750)
   local pins = {
     { 250, 13, "step 1 (env -438, register 0x30D)" },
@@ -266,6 +320,7 @@ function T.envelope_attack_uses_the_sdk_recurrence_at_the_control_cadence()
 
   local fast = newMixer()
   fast:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 120, decay = 127, sustain = 127, release = 127 } }))
+  fast:controlStep()
   local fastOut = drive(fast, 2000)
   Assert.equal(leftAt(fastOut, 250), 264, "attack 120 uses the high-range table coefficient 63 (register 0x242)")
   Assert.equal(leftAt(fastOut, 500), 1232, "attack 120 step 2 (register 0x4D)")
@@ -296,6 +351,7 @@ function T.envelope_decay_clamps_to_the_sustain_target()
   local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 127, decay = 100, sustain = 64, release = 127 } }))
+  mixer:controlStep()
   local out = drive(mixer, 13500)
   local pins = {
     { 250, 2048, "attack 127 is instant" },
@@ -318,7 +374,7 @@ end
 -- 0x306 and one more to stop; the noteOff itself never kills the voice --
 -- the first release step fires at the next control step. The mixer no
 -- longer owns a cadence: the external scheduler drives one controlStep per
--- 250-frame interval (the C03 contract), so each render block is followed
+-- 250-frame interval, so each render block is followed
 -- by an explicit step. In the pinned scenario the noteOff lands between
 -- steps 2 and 3 of the envelope (after frame 300 of the first 250-frame
 -- block, i.e. during the second interval), so the release's first step
@@ -344,8 +400,9 @@ function T.envelope_release_decays_to_the_sdk_stop_threshold()
       velocity = velocity,
       envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
     })) --[[@as { channel: integer, generation: integer }]]
-    -- The first 250-frame block renders, then the first control step runs
-    -- (the note's step 2), then the noteOff lands mid-interval (old frame
+    mixer:controlStep()
+    -- The first 250-frame block renders, then the first elapsed control step
+    -- runs, then the noteOff lands mid-interval (old frame
     -- 300) -- the release's first step therefore fires at the next control
     -- step, at frame 500.
     local out = {}
@@ -381,6 +438,7 @@ function T.sample_voices_pitch_through_the_calculated_timer()
   local function renderAt(key, frames)
     local mixer = newMixer(DS_RATE)
     mixer:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, key = key, pan = 0 }))
+    mixer:controlStep()
     return mixer:render(frames)
   end
   local unity = renderAt(60, 24018)
@@ -410,6 +468,7 @@ function T.user_pitch_offsets_the_timer_at_note_on()
   local function renderAt(userPitch, frames)
     local mixer = newMixer(DS_RATE)
     mixer:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, userPitch = userPitch, pan = 0 }))
+    mixer:controlStep()
     return mixer:render(frames)
   end
   local bent = renderAt(64, 15200)
@@ -421,6 +480,7 @@ function T.user_pitch_offsets_the_timer_at_note_on()
   Assert.equal(leftAt(down, 32200), 300, "userPitch -768 reads sample 3 at frame 32200")
   local absent = newMixer(DS_RATE)
   absent:noteOn(spec({ pcm = WAVE16, loop = { startFrame = 0, endFrame = 16 }, pan = 0 }))
+  absent:controlStep()
   Assert.deepEqual(absent:render(24018), renderAt(0, 24018), "userPitch defaults to 0 when absent")
 end
 
@@ -436,6 +496,7 @@ function T.psg_and_noise_use_the_base_timer_masks_and_lfsr()
   local function squareAt(duty, key, frames)
     local mixer = newMixer(DS_RATE)
     mixer:noteOn(spec({ generator = { kind = "square", duty = duty }, key = key, channelMask = 0x3F00, pan = 0 }))
+    mixer:controlStep()
     return mixer:render(frames)
   end
   local out = squareAt(0, 60, 64033)
@@ -451,6 +512,7 @@ function T.psg_and_noise_use_the_base_timer_masks_and_lfsr()
   Assert.equal(leftAt(masked, 59361), 32767, "key 59: the masked timer 8480 turns HIGH at frame 7*8480+1")
   local noise = newMixer(DS_RATE)
   noise:noteOn(spec({ generator = { kind = "noise" }, key = 60, channelMask = 0xC000, pan = 0 }))
+  noise:controlStep()
   local noisePcm = noise:render(128097)
   Assert.equal(leftAt(noisePcm, 112084), -32767, "noise: 14 LOW LFSR states through frame 14*8006")
   Assert.equal(leftAt(noisePcm, 112085), 32767, "noise: the HIGH run starts at frame 14*8006+1")
@@ -470,6 +532,7 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
   local DS_RATE = 16756991
   local loopMixer = newMixer(DS_RATE)
   loopMixer:noteOn(spec({ baseTimer = 16, loop = { startFrame = 2, endFrame = 6 }, pan = 0 }))
+  loopMixer:controlStep()
   local pcm = loopMixer:render(120)
   Assert.equal(leftAt(pcm, 16), 100, "the pre-loop region plays sample 1 first")
   Assert.equal(leftAt(pcm, 32), 200, "the pre-loop region plays sample 2")
@@ -479,6 +542,7 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
 
   local oneShot = newMixer(DS_RATE)
   oneShot:noteOn(spec({ baseTimer = 16, loopEnabled = false, pan = 0 }))
+  oneShot:controlStep()
   local shot = oneShot:render(140)
   Assert.equal(leftAt(shot, 128), 800, "the one-shot wave plays its window")
   Assert.equal(leftAt(shot, 129), 0, "the one-shot stops at the window end")
@@ -486,6 +550,7 @@ function T.loops_wrap_inside_the_window_and_one_shots_stop()
   local held = newMixer()
   local pcm2048 = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local handle = held:noteOn(spec({ pcm = pcm2048, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  held:controlStep()
   local before = held:render(12)
   Assert.equal(leftAt(before, 12), 2048, "the looping voice holds")
   held:noteOff(handle)
@@ -510,6 +575,7 @@ function T.mixing_sums_saturates_and_rendering_is_chunk_independent()
   local loud = { 30000, -30000, 30000, -30000, 30000, -30000, 30000, -30000 }
   mixer:noteOn(spec({ pcm = loud, pan = 0 }))
   mixer:noteOn(spec({ pcm = loud, pan = 0 }))
+  mixer:controlStep()
   local pcm = mixer:render(24018)
   Assert.equal(leftAt(pcm, 8006), 32767, "two sample-1 voices saturate at +32767")
   Assert.equal(leftAt(pcm, 16012), -32768, "two sample-2 voices saturate at -32768")
@@ -591,6 +657,7 @@ function T.is_voice_alive_tracks_liveness_until_removal()
   local mixer = newMixer()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local handle = mixer:noteOn(spec({ pcm = pcm, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   Assert.isTrue(mixer:isVoiceAlive(handle), "a fresh voice is alive")
   mixer:render(4)
   Assert.isTrue(mixer:isVoiceAlive(handle), "a sounding voice stays alive")
@@ -603,13 +670,23 @@ function T.is_voice_alive_tracks_liveness_until_removal()
   mixer:controlStep() -- release 127 step 2: vol <= -723 removes the voice
   Assert.isFalse(mixer:isVoiceAlive(handle), "the release completed and the voice was removed")
 
-  local oneShot = newMixer()
+  local oneShot = newMixer(16756991)
   local shot = oneShot:noteOn(spec({ loopEnabled = false, pan = 0, baseTimer = 16 })) --[[@as { channel: integer, generation: integer }]]
+  oneShot:controlStep()
   Assert.isTrue(oneShot:isVoiceAlive(shot), "the one-shot voice is alive before its window ends")
-  oneShot:render(12)
-  Assert.isFalse(oneShot:isVoiceAlive(shot), "a one-shot voice is dead once the window ended")
+  local oneShotPcm = oneShot:render(140)
+  Assert.equal(leftAt(oneShotPcm, 128), 800, "the one-shot boundary sample still sounds")
+  Assert.equal(leftAt(oneShotPcm, 129), 0, "frames after physical completion are silent")
+  Assert.isTrue(
+    oneShot:isVoiceAlive(shot),
+    "physical one-shot completion keeps the logical channel alive until controlStep"
+  )
+  oneShot:controlStep()
+  Assert.isFalse(oneShot:isVoiceAlive(shot), "the next control step retires the completed one-shot")
+  local replacement = oneShot:noteOn(spec({ loopEnabled = false, pan = 0, baseTimer = 16 })) --[[@as { channel: integer, generation: integer }]]
+  Assert.equal(replacement.generation, shot.generation + 1, "retirement preserves generation history")
   Assert.isFalse(
-    oneShot:isVoiceAlive({ channel = shot.channel, generation = shot.generation + 1 }),
+    oneShot:isVoiceAlive({ channel = shot.channel, generation = shot.generation }),
     "a generation mismatch is not alive"
   )
   Assert.isFalse(oneShot:isVoiceAlive({ channel = 15, generation = 0 }), "an empty channel is not alive")
@@ -676,6 +753,7 @@ function T.release_override_applies_the_coefficient_before_release()
       pan = 0,
       envelope = { attack = 127, decay = 127, sustain = 127, release = releaseByte },
     })) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     mixer:noteOff(handle, override)
     local out = {}
     driveBlock(mixer, out, frames)
@@ -690,6 +768,32 @@ function T.release_override_applies_the_coefficient_before_release()
   local forced = run(20, 127, 801)
   Assert.equal(leftAt(forced, 251), 6, "override 127 replaces the instrument release 20 (register 0x306)")
   Assert.equal(leftAt(forced, 501), 0, "override 127 stops on the second release step")
+end
+
+-- An explicit forced release replaces the coefficient of an already-releasing
+-- current-generation voice without restarting its envelope or generator.
+function T.forced_release_replaces_an_existing_release_coefficient()
+  local mixer = newMixer()
+  local handle = mixer:noteOn(spec({
+    pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 },
+    pan = 0,
+    envelope = { attack = 127, decay = 127, sustain = 127, release = 20 },
+  })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
+  mixer:noteOff(handle)
+  mixer:render(250)
+  mixer:controlStep()
+  Assert.isTrue(mixer:isVoiceAlive(handle), "the ordinary slow release is still alive")
+
+  mixer:noteOff(handle, 127)
+  mixer:render(250)
+  mixer:controlStep()
+  Assert.isTrue(mixer:isVoiceAlive(handle), "forced release keeps the same generation alive for its first step")
+  mixer:render(250)
+  mixer:controlStep()
+  Assert.isFalse(mixer:isVoiceAlive(handle), "forced release 127 accelerates the existing release tail")
+
+  mixer:noteOff({ channel = handle.channel, generation = handle.generation - 1 }, 127)
 end
 
 -- The release override contract is nil or an integer 0..127; anything else
@@ -711,7 +815,7 @@ function T.release_override_rejects_out_of_range_values()
   mixer:render(1)
 end
 
--- The 192 Hz cadence is owned by the external scheduler (the C03 contract),
+-- The 192 Hz cadence is owned by the external scheduler,
 -- not by the mixer: at the production 32768 Hz rate the scheduler's exact
 -- integer accumulator (phase += 192 per output frame, one interval when it
 -- reaches the output rate) places the interval boundaries at 171, 342, 512,
@@ -720,12 +824,13 @@ end
 -- at each exact boundary reproduces the known attack-100 register vectors
 -- 0x30D/0x360/0x250/0x20E (13/96/320/664) on exactly those boundary frames,
 -- with the step's registers applying from the frame after the boundary.
--- The noteOn itself stays the note's first control step (frame 1 reads the
--- step-1 register).
+-- noteOn synchronizes the initial registers (frame 1 reads the initial
+-- register); each explicit controlStep advances elapsed state.
 function T.control_steps_follow_the_external_boundary_cadence_at_32768_hz()
   local mixer = newMixer(32768)
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   mixer:noteOn(spec({ pcm = pcm, pan = 0, envelope = { attack = 100, decay = 127, sustain = 127, release = 127 } }))
+  mixer:controlStep()
   local out = {}
   local prev = 0
   local boundaries = { 171, 342, 512, 683, 854 }
@@ -735,7 +840,7 @@ function T.control_steps_follow_the_external_boundary_cadence_at_32768_hz()
     mixer:controlStep()
   end
   mixer:renderInto(out, 1)
-  Assert.equal(leftAt(out, 1), 13, "the noteOn is the note's first control step (step 1, register 0x30D)")
+  Assert.equal(leftAt(out, 1), 13, "noteOn synchronizes the initial register 0x30D")
   Assert.equal(leftAt(out, 171), 13, "step 2 fires at the end of frame 171, not at 170 (register 0x30D)")
   Assert.equal(leftAt(out, 172), 96, "step 2 registers apply from frame 172 (register 0x360)")
   Assert.equal(leftAt(out, 341), 96, "frame 341 still reads the step-2 register (0x360)")
@@ -768,6 +873,7 @@ function T.exactly_one_envelope_advance_per_external_control_step_at_32768_hz()
     pan = 0,
     envelope = { attack = 127, decay = 127, sustain = 127, release = 100 },
   })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   mixer:noteOff(handle)
   local out = {}
   local remaining = 53600
@@ -836,12 +942,14 @@ function T.sample_voices_play_from_the_ds_clock_and_timer_without_a_source_rate(
   end
   local dsRate = newMixer(16756991)
   dsRate:noteOn(rateSpec(8006))
+  dsRate:controlStep()
   local out = dsRate:render(8020)
   Assert.equal(leftAt(out, 8006), 100, "at the DS clock the wave advances one sample per 8006 frames (sample 1)")
   Assert.equal(leftAt(out, 8007), 200, "frame 8007 reads the second sample")
 
   local production = newMixer(32768)
   production:noteOn(rateSpec(512))
+  production:controlStep()
   local prod = production:render(32769)
   Assert.equal(leftAt(prod, 32769), 900, "at 32768 Hz the clock-derived rate reads sample 9 by frame 32769")
 end
@@ -852,6 +960,7 @@ end
 function T.square_duty_seven_is_all_low()
   local mixer = newMixer(16756991)
   mixer:noteOn(spec({ generator = { kind = "square", duty = 7 }, key = 60, channelMask = 0x3F00, pan = 0 }))
+  mixer:controlStep()
   local out = mixer:render(8005)
   for frame = 1, 8005 do
     Assert.equal(leftAt(out, frame), -32767, "duty 7 stays LOW through the full cycle at frame " .. frame)
@@ -865,6 +974,7 @@ function T.square_duty_is_consumed_as_the_integer_index()
   local DS_RATE = 16756991
   local six = newMixer(DS_RATE)
   six:noteOn(spec({ generator = { kind = "square", duty = 6 }, key = 60, channelMask = 0x3F00, pan = 0 }))
+  six:controlStep()
   local out = six:render(64040)
   Assert.equal(leftAt(out, 8004), -32767, "duty 6 starts with one LOW step (7-6, masked timer 8004)")
   Assert.equal(leftAt(out, 8005), 32767, "duty 6 turns HIGH for seven steps")
@@ -886,15 +996,14 @@ function T.square_duty_is_consumed_as_the_integer_index()
   rejects(-1)
 end
 
--- The external control cadence (the C03 contract): renderInto is a pure PCM
+-- The external control cadence: renderInto is a pure PCM
 -- span renderer and must never advance the 192 Hz control state on its own --
 -- no envelope step, no sweep/LFO advance, no pending-value application. One
 -- explicit controlStep() advances the channel-control state exactly once.
 -- Proof without a phase spy: an instant-attack (attack 127) constant voice
--- reaches the full register on the noteOn's own first control step and holds
--- it while rendering across what used to be control boundaries, so the
--- register sampled after 500 frames must be unchanged; only the explicit
--- control step can change it.
+-- reaches the full initial register on noteOn and holds it while rendering
+-- across what used to be control boundaries, so the register sampled after
+-- 500 frames must be unchanged; only the explicit control step can change it.
 function T.renderInto_never_runs_a_control_step_without_an_explicit_call()
   local pcm = { 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048 }
   local function run(chunks)
@@ -904,6 +1013,7 @@ function T.renderInto_never_runs_a_control_step_without_an_explicit_call()
       pan = 0,
       envelope = { attack = 127, decay = 127, sustain = 127, release = 127 },
     })) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     local out = {}
     for _, frames in ipairs(chunks) do
       mixer:renderInto(out, frames)
@@ -943,6 +1053,32 @@ local function sweepMixer(autoSweep)
     pan = 0,
   })) --[[@as { channel: integer, generation: integer }]]
   return mixer, handle
+end
+
+function T.auto_sweep_uses_counter_zero_for_the_first_elapsed_control_step()
+  local state
+  local mixer = VoiceMixer.new({
+    sampleRate = SAMPLE_RATE,
+    observer = {
+      onChannelState = function(_, event)
+        if event.active then
+          state = event
+        end
+      end,
+    },
+  })
+  local handle = mixer:noteOn(spec({
+    pcm = WAVE16,
+    baseTimer = 512,
+    loop = { startFrame = 0, endFrame = 16 },
+    sweepPitch = 768,
+    sweepLength = 4,
+    autoSweep = true,
+    pan = 0,
+  }))
+  Assert.isTrue(handle ~= nil, "the sweep voice allocates")
+  mixer:controlStep(0)
+  Assert.equal(state.timer, 256, "the first control step uses sweep counter zero")
 end
 
 function T.advance_track_tick_never_releases_and_is_a_no_op_for_a_stale_handle()
@@ -1003,8 +1139,8 @@ function T.non_auto_sweep_advances_only_on_sequence_ticks_and_auto_sweep_only_on
   auto:renderInto(autoOut, 250)
   auto:controlStep()
   auto:renderInto(autoOut, 1)
-  Assert.equal(leftAt(autoOut, 501), 500, "auto step 2 lands the doubled-rate timer (the auto counter advanced)")
-  Assert.equal(leftAt(autoOut, 1251), 1100, "the auto sweep completed at the capped counter")
+  Assert.equal(leftAt(autoOut, 501), 1000, "auto step 2 uses the counter-zero contribution before advancing")
+  Assert.equal(leftAt(autoOut, 1251), 500, "the auto sweep completed at the capped counter")
 end
 
 return { tests = T }

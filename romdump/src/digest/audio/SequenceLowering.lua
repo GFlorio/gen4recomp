@@ -1,6 +1,5 @@
 -- Lowers decoded SSEQ commands into the project-owned sequence program IR:
--- a fixpoint walk over the command stream (entry points from every branch
--- target, exactly like the inventory scanner) collects the reachable
+-- the shared raw reachability analysis collects the reachable
 -- instruction boundaries, branch targets map to instruction indices (never
 -- source offsets), and packed operand encodings normalize into asset fields.
 -- The FE track-mask byte and its u16 mask are header bytes; the FE header's
@@ -20,9 +19,9 @@
 -- volume table. The semantic opcode table follows the ARM7 NitroSDK sequence
 -- player: known meaningful opcodes map to semantic names, the reserved SDK
 -- no-op classes lower declaratively to explicit nop instructions, the
--- comparison commands (0xB8..0xBD) have no runtime consumer and also lower to
--- nop, a reachable conditional (0xA2) prefix is a build failure (no reachable
--- retail command is conditional), the 0xD6 print_var diagnostic (no
+-- comparison commands (0xB8..0xBD) lower to semantic comparisons, a reachable
+-- conditional (0xA2) prefix is preserved as a normalized nested command, the
+-- 0xD6 print_var diagnostic (no
 -- runtime-observable game behavior) is dropped and never emitted, and a
 -- command outside the table is a build failure with source provenance (an
 -- unsupported reachable command is never a runtime placeholder). Unreachable
@@ -30,7 +29,7 @@
 -- cannot fail a build. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
-local Sseq = require("romdump.src.digest.audio.Sseq")
+local SequenceReachability = require("romdump.src.digest.audio.SequenceReachability")
 
 local SequenceLowering = {}
 
@@ -46,6 +45,12 @@ local SEMANTIC_OPS = {
   [0xB4] = "divvar",
   [0xB5] = "shiftvar",
   [0xB6] = "randomvar",
+  [0xB8] = "compare",
+  [0xB9] = "compare",
+  [0xBA] = "compare",
+  [0xBB] = "compare",
+  [0xBC] = "compare",
+  [0xBD] = "compare",
   [0xC0] = "pan",
   [0xC1] = "volume",
   [0xC2] = "master_volume",
@@ -79,17 +84,14 @@ local SEMANTIC_OPS = {
 
 -- The reserved SDK no-op classes: the NitroSDK player consumes these
 -- opcodes without effect, so they lower to explicit nop instructions without
--- one table row per opcode. The comparison commands (0xB8..0xBD) live here
--- too: with no reachable conditional command, no runtime comparison state
--- exists, and the operand bytes are consumed without emitting operand
--- fields.
+-- one table row per opcode. Comparison commands are semantic operations in
+-- SEMANTIC_OPS and are therefore intentionally not included in these ranges.
 local NO_OP_RANGES = {
   { 0x82, 0x8F },
   { 0x90, 0x92 },
   { 0x96, 0x9F },
   { 0xA3, 0xAF },
   { 0xB7, 0xB7 },
-  { 0xB8, 0xBD },
   { 0xBE, 0xBF },
   { 0xD8, 0xDF },
   { 0xE2, 0xE2 },
@@ -188,14 +190,20 @@ local function normalizeValue(value)
 end
 
 -- Maps a decoded command to its instruction record, or nil when the command
--- is a dropped diagnostic (0xD6 print_var). `indexOf` resolves source
--- offsets to instruction indices for branch targets. Operands are emitted per
+-- is a dropped diagnostic (0xD6 print_var). `indexOf` resolves absolute source
+-- offsets to instruction indices for branch targets. Branch operands are
+-- sequence-data-relative in the decoded SSEQ and are rebased here. Operands
+-- are emitted per
 -- semantic op, so reserved no-op forms never carry operand fields; the
 -- signed operand classes narrow plain values to their semantic signed
 -- number. `trackMask` is the FE header's u16 mask (nil without an FE
 -- header): a reachable open_track whose destination the mask does not
 -- allocate is a build failure with provenance.
-local function toInstruction(command, indexOf, identity, trackMask)
+local function toInstruction(command, indexOf, identity, trackMask, dataOffset, targetExecutable)
+  local conditional = command.conditional
+  if conditional then
+    command = setmetatable({ conditional = false }, { __index = command })
+  end
   local opcode = command.opcode
   if isDroppedDiagnostic(opcode) then
     return nil
@@ -230,6 +238,12 @@ local function toInstruction(command, indexOf, identity, trackMask)
   elseif op == "program" then
     instruction.program = normalizeValue(command.value)
   elseif op == "open_track" then
+    if not targetExecutable then
+      if conditional then
+        return { op = "if", condition = "compare_result", instruction = { op = "nop" } }
+      end
+      return { op = "nop" }
+    end
     if trackMask == nil or not trackAllocated(trackMask, command.track) then
       Errors.raise(
         "AUDIO_SEQUENCE_TRACK_NOT_ALLOCATED",
@@ -242,31 +256,52 @@ local function toInstruction(command, indexOf, identity, trackMask)
         }
       )
     end
-    local target = indexOf[command.target]
+    local absoluteTarget = dataOffset + command.target
+    local target = indexOf[absoluteTarget]
     if target == nil then
       Errors.raise("AUDIO_SEQUENCE_BAD_TARGET", "open-track target is not an instruction boundary", {
         sequenceId = identity.sequenceId,
         sequenceSymbol = identity.symbol,
         sourceOffset = command.offset,
-        target = command.target,
+        target = absoluteTarget,
+        encodedTarget = command.target,
       })
     end
+    instruction.target = target
     instruction.track = command.track
-    instruction.target = target
   elseif op == "jump" or op == "call" then
-    local target = indexOf[command.target]
-    if target == nil then
-      Errors.raise("AUDIO_SEQUENCE_BAD_TARGET", "branch target is not an instruction boundary", {
-        sequenceId = identity.sequenceId,
-        sequenceSymbol = identity.symbol,
-        sourceOffset = command.offset,
-        target = command.target,
-      })
+    if targetExecutable then
+      local absoluteTarget = dataOffset + command.target
+      local target = indexOf[absoluteTarget]
+      if target == nil then
+        Errors.raise("AUDIO_SEQUENCE_BAD_TARGET", "branch target is not an instruction boundary", {
+          sequenceId = identity.sequenceId,
+          sequenceSymbol = identity.symbol,
+          sourceOffset = command.offset,
+          target = absoluteTarget,
+          encodedTarget = command.target,
+        })
+      end
+      instruction.target = target
+    elseif op == "call" then
+      -- A saturated CALL is a source no-op. Its target is intentionally not
+      -- decoded, so preserve the runtime fallthrough without emitting an
+      -- invalid call instruction with no target.
+      instruction.op = "nop"
     end
-    instruction.target = target
   elseif op ~= "nop" and opcode >= 0xB0 and opcode <= 0xBF then
     instruction.var = command.var
     instruction.amount = toS16(normalizeValue(command.value))
+    if op == "compare" then
+      instruction.condition = ({
+        [0xB8] = "eq",
+        [0xB9] = "ge",
+        [0xBA] = "gt",
+        [0xBB] = "le",
+        [0xBC] = "lt",
+        [0xBD] = "ne",
+      })[opcode]
+    end
   elseif op ~= "nop" and opcode >= 0xC0 and opcode <= 0xEF then
     if op == "loop_begin" then
       -- 0xD4 loop_begin: the u8 loop count is a value operand (the player's
@@ -280,93 +315,28 @@ local function toInstruction(command, indexOf, identity, trackMask)
       instruction.amount = normalizeValue(command.value)
     end
   end
+  if conditional then
+    return { op = "if", condition = "compare_result", instruction = instruction }
+  end
   return instruction
 end
 
 local function _lower(bytes, identity, context)
   local source = context or "SSEQ"
-  local seq, err = Sseq.open(bytes, source)
-  if seq == nil then
-    error(err)
+  local analysis, reachabilityErr = SequenceReachability.analyze(bytes, source)
+  if analysis == nil then
+    error(reachabilityErr)
   end
-  seq = assert(seq)
-  local endPos = #bytes
-  local dataOffset = seq.dataOffset
-
-  -- The FE byte and its u16 track mask are header bytes; everything after
-  -- them (including the FE header's open-track records, which are track 0's
-  -- first commands) is code. Branch targets queued while walking make every
-  -- reachable instruction an entry point, so targets before the data offset
-  -- (into the header region) are ordinary targets that decode header bytes
-  -- as code exactly like the inventory scanner. `trackMask` stays nil when
-  -- there is no FE header: an open_track in such a sequence is then a build
-  -- failure, never a runtime allocation.
-  local pos = dataOffset
-  local trackMask = nil
-  if pos < endPos and string.byte(bytes, pos + 1) == 0xFE then
-    if pos + 3 > endPos then
-      Errors.raise("SSEQ_TRUNCATED", "track mask runs past the end of the sequence", {
-        source = source,
-        offset = dataOffset,
-      })
-    end
-    trackMask = string.byte(bytes, pos + 2) + string.byte(bytes, pos + 3) * 256
-    pos = pos + 3
-  end
-  local entryOffset = pos
-  if entryOffset >= endPos then
-    Errors.raise("SSEQ_TRUNCATED", "sequence contains no commands", {
-      source = source,
-      offset = entryOffset,
-    })
-  end
-
-  local queue = { pos }
-  local seen = {}
-  local commands = {}
-  while #queue > 0 do
-    local start = table.remove(queue)
-    if not seen[start] and start < endPos then
-      pos = start
-      while pos < endPos and not seen[pos] do
-        seen[pos] = true
-        local command, cmdErr = Sseq.decodeCommand(bytes, pos, endPos, source)
-        if command == nil then
-          error(cmdErr)
-        end
-        -- A reachable conditional (0xA2) prefix is a compiler failure: the
-        -- retail census proves no reachable conditional command exists, so
-        -- the derived IR carries no conditional field and the runtime needs
-        -- no comparison state.
-        if command.conditional then
-          Errors.raise("AUDIO_SEQUENCE_CONDITIONAL_UNSUPPORTED", "conditional commands are unsupported", {
-            sequenceId = identity.sequenceId,
-            sequenceSymbol = identity.symbol,
-            sourceOffset = command.offset,
-          })
-        end
-        commands[pos] = command
-        pos = command.next
-        local opcode = command.opcode
-        if opcode == 0x93 or opcode == 0x94 or opcode == 0x95 then
-          queue[#queue + 1] = command.target
-        end
-        if opcode == 0x94 or opcode == 0xFF or opcode == 0xFD then
-          break
-        end
-      end
-    end
-  end
+  local dataOffset = analysis.dataOffset
+  local entryOffset = analysis.entryOffset
+  local trackMask = analysis.trackMask
+  local commands = analysis.commandsByOffset
 
   -- Instruction indices in source-offset order over the emitted instructions
   -- only: dropped diagnostics (print_var) are walked but are not boundaries,
   -- so a branch target landing on one is a build failure with provenance
   -- rather than a silent no-op instruction.
-  local offsets = {}
-  for offset in pairs(seen) do
-    offsets[#offsets + 1] = offset
-  end
-  table.sort(offsets)
+  local offsets = analysis.offsets
   local emitted = {}
   for _, offset in ipairs(offsets) do
     if not isDroppedDiagnostic(commands[offset].opcode) then
@@ -379,7 +349,8 @@ local function _lower(bytes, identity, context)
   end
   local instructions = {}
   for index, offset in ipairs(emitted) do
-    instructions[index] = toInstruction(commands[offset], indexOf, identity, trackMask)
+    instructions[index] =
+      toInstruction(commands[offset], indexOf, identity, trackMask, dataOffset, analysis.branchTargets[offset])
   end
 
   -- The track-0 entry is always walked, but a dropped diagnostic at the
@@ -397,6 +368,7 @@ local function _lower(bytes, identity, context)
 
   return {
     entry = entry,
+    initialTrackMask = 1 + (trackMask and math.floor(trackMask / 2) * 2 or 0),
     instructions = instructions,
   }
 end

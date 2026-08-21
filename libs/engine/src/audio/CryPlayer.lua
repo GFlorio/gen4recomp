@@ -59,9 +59,11 @@ local function standinSequence(species)
       id = CRY_PLAYER_ID,
       initialVolume = 127,
       playerPriority = 64,
+      channelPriority = 64,
     },
     program = {
       entry = 1,
+      initialTrackMask = 0x0001,
       instructions = {
         { op = "program", program = 0 },
         { op = "note", key = key, velocity = 127, duration = 3 },
@@ -83,16 +85,18 @@ function CryPlayer.new(opts)
   assert(opts and opts.player, "cry player requires the engine player")
   return setmetatable({
     _player = opts.player,
+    _handle = opts.player:createHandle(),
   }, CryPlayer)
 end
 
--- Starts the referenced cry as a stand-in on the cry slot; a cry already
--- playing on the slot is replaced by the engine player's same-slot
--- replacement.
+-- Starts the referenced cry as a stand-in on the cry slot. Cry replacement is
+-- an explicit policy of this subsystem, so an active prior cry is stopped
+-- before the private handle is reused.
 ---@param species integer
 ---@param form integer
 function CryPlayer:play(species, form)
-  self._player:play(standinSequence(species), CRY_BANK)
+  self._player:stopHandle(self._handle)
+  self._player:playSynthetic(self._handle, standinSequence(species), CRY_BANK)
 end
 
 -- True once the cry slot's sequence has ended.

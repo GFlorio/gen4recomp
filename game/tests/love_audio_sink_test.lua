@@ -15,7 +15,7 @@
 -- interleaved scalar count: a render of 512 frames returns 1024 scalars and
 -- must build a 512-frame SoundData (getSampleCount() == 512). The queue depth
 -- is equally explicit: two 512-frame buffers at the 32768 Hz output rate is
--- 31.25 ms of queued PCM, within the 70 ms project budget, and the source is
+-- 62.5 ms of queued PCM, within the 70 ms project budget, and the source is
 -- constructed with that buffer count instead of LÖVE's accidental default
 -- depth. A refused queue (the real binding returns false rather than throwing)
 -- must fail the update -- a rendered chunk is never silently discarded. The
@@ -32,11 +32,11 @@ local CHANNELS = 2
 local BIT_DEPTH = 16
 
 -- The explicit low-latency queue budget the sink must configure: two 512-frame
--- stereo chunks at 32768 Hz are 31.25 ms of queued PCM, within the project
+-- stereo chunks at 32768 Hz are 62.5 ms of queued PCM, within the project
 -- budget. The chunk size is a FRAME count; the renderer returns twice that
 -- many interleaved scalar values.
 local CHUNK_FRAMES = 512
-local QUEUE_BUFFER_COUNT = 2
+local QUEUE_BUFFER_COUNT = 4
 local MAX_LATENCY_MS = 70
 
 -- A SoundData-shaped recording object mirroring the LÖVE contract the sink
@@ -90,6 +90,10 @@ local function newFakeSoundData(frames, sampleRate, bitDepth, channels)
   end
   function data:setSample(i, channel, sample)
     assert(i >= 0 and channel >= 1 and channel <= self.channels and i < self.sampleCount, "sample out of range")
+    if self.failSetSample then
+      self.failSetSample = false
+      error("injected SoundData population failure")
+    end
     self.samples[i * self.channels + (channel - 1)] = sample
     self.frameWrites[i] = (self.frameWrites[i] or 0) + 1
   end
@@ -114,6 +118,7 @@ local function fakeHost(freeBufferCount)
     free = freeBufferCount,
     failSource = false,
     failSoundData = false,
+    failSetSampleOnSoundData = nil,
     failQueue = false,
     refuseQueue = false,
     failFreeBufferCount = false,
@@ -126,6 +131,7 @@ local function fakeHost(freeBufferCount)
     end
     local data = newFakeSoundData(frames, sampleRate, bitDepth, channels)
     host.soundData[#host.soundData + 1] = data
+    data.failSetSample = #host.soundData == host.failSetSampleOnSoundData
     return data
   end
   function host.newQueueableSource(sampleRate, bitDepth, channels, bufferCount)
@@ -217,6 +223,31 @@ local function rendererReturning(pattern)
       return out
     end,
   }
+end
+
+local function rendererReturningChunkMarkers()
+  local renderer = rendererReturning(function(index)
+    return index
+  end)
+  local originalRender = renderer.render
+  local chunk = 0
+  renderer.render = function(self, frames)
+    chunk = chunk + 1
+    local pcm = originalRender(self, frames)
+    for index = 1, #pcm do
+      pcm[index] = chunk
+    end
+    return pcm
+  end
+  return renderer
+end
+
+local function queuedChunkMarkers(source)
+  local markers = {}
+  for _, data in ipairs(source.queueCalls) do
+    markers[#markers + 1] = data:getSample(0, 1) * 32768
+  end
+  return markers
 end
 
 -- A renderer whose returned PCM length is offset from the exact stereo frame
@@ -335,7 +366,7 @@ end
 -- brand-new source with two free buffers renders exactly two chunks, a full
 -- source causes no renderer calls, and a single freed buffer yields exactly
 -- one new chunk.
-function T.a_brand_new_source_pumps_two_chunks_a_full_source_none_and_one_free_buffer_one()
+function T.a_brand_new_source_pumps_one_chunk_per_free_buffer()
   local host = fakeHost(2)
   local renderer = rendererReturning(function(index)
     return index
@@ -343,7 +374,7 @@ function T.a_brand_new_source_pumps_two_chunks_a_full_source_none_and_one_free_b
   local sink = sinkFor(host, renderer)
   sink:update()
   local source = host.sources[1]
-  Assert.equal(renderer:calls(), 2, "a brand-new source with two free buffers must queue exactly two chunks")
+  Assert.equal(renderer:calls(), 2, "a source with two free buffers must queue exactly two chunks")
   Assert.equal(#source.queueCalls, 2)
   sink:update()
   Assert.equal(renderer:calls(), 2, "a full source must cause no renderer calls")
@@ -389,9 +420,7 @@ end
 function T.a_sound_data_construction_failure_releases_the_partially_acquired_source()
   local host = fakeHost(1)
   host.failSoundData = true
-  local renderer = rendererReturning(function(index)
-    return index
-  end)
+  local renderer = rendererReturningChunkMarkers()
   local sink = sinkFor(host, renderer)
   local err = Assert.throws(function()
     sink:update()
@@ -406,6 +435,8 @@ function T.a_sound_data_construction_failure_releases_the_partially_acquired_sou
   Assert.equal(#host.sources, 2, "the sink must stay usable and reacquire the source after the failure")
   Assert.equal(host.sources[2].releaseCalls, 0)
   Assert.equal(host.sources[2].playCalls, 1)
+  Assert.equal(renderer:calls(), 1, "a rendered chunk must be retried after construction failure")
+  Assert.equal(queuedChunkMarkers(host.sources[2])[1], 1, "retry must publish the original rendered chunk")
 end
 
 function T.a_queue_failure_releases_the_unqueued_sound_data()
@@ -447,6 +478,44 @@ function T.a_refused_queue_is_never_silently_delivered_and_fails_fast()
   Assert.equal(host.soundData[1].releaseCalls, 1, "the unqueued SoundData must not leak")
   sink:update()
   Assert.equal(#host.sources[1].queueCalls, 1, "the sink must stay usable and queue on the next update")
+end
+
+function T.a_refused_chunk_is_retried_without_rendering_a_replacement()
+  local host = fakeHost(1)
+  host.refuseQueue = true
+  local renderer = rendererReturningChunkMarkers()
+  local sink = sinkFor(host, renderer)
+  Assert.throws(function()
+    sink:update()
+  end)
+  Assert.equal(renderer:calls(), 1, "a refused chunk must be retained instead of rendering a replacement")
+  Assert.equal(host.soundData[1].releaseCalls, 1, "the refused attempt's SoundData must be released once")
+
+  sink:update()
+  Assert.equal(renderer:calls(), 1, "retrying publication must not advance the renderer")
+  Assert.equal(#host.sources[1].queueCalls, 1)
+  Assert.equal(queuedChunkMarkers(host.sources[1])[1], 1, "retry must publish the original chunk marker")
+end
+
+function T.a_later_population_failure_keeps_published_source_and_pending_timeline()
+  local host = fakeHost(3)
+  host.failSetSampleOnSoundData = 2
+  local renderer = rendererReturningChunkMarkers()
+  local sink = sinkFor(host, renderer)
+  Assert.throws(function()
+    sink:update()
+  end)
+
+  local source = host.sources[1]
+  Assert.equal(renderer:calls(), 2, "the failed update must stop after the second rendered chunk")
+  Assert.equal(#source.queueCalls, 1, "the first chunk must already be published")
+  Assert.equal(source.releaseCalls, 0, "a source that published audio must not be released")
+  Assert.equal(host.soundData[2].releaseCalls, 1, "the failed transient SoundData must be released once")
+
+  sink:update()
+  Assert.equal(#host.sources, 1, "recovery must reuse the source that published the first chunk")
+  Assert.equal(renderer:calls(), 3, "recovery must publish the pending chunk before rendering the next one")
+  Assert.deepEqual(queuedChunkMarkers(source), { 1, 2, 3 })
 end
 
 -- The render contract is int16; an out-of-range sample is a programming fault
@@ -515,10 +584,9 @@ function T.a_free_buffer_query_failure_releases_the_acquired_source()
   Assert.equal(host.sources[2].playCalls, 1)
 end
 
--- The same policy reaches the start step: a play failure on a source acquired
--- by this update propagates and releases that source, and the sink reacquires
--- on the next update.
-function T.a_play_failure_releases_the_acquired_source()
+-- A play failure after publication propagates, but the source remains owned by
+-- the sink so the next update can retry starting the same queued source.
+function T.a_play_failure_after_publication_keeps_the_queued_source()
   local host = fakeHost(1)
   host.failPlay = true
   local renderer = rendererReturning(function(index)
@@ -533,10 +601,11 @@ function T.a_play_failure_releases_the_acquired_source()
     "the play failure must propagate: " .. tostring(err)
   )
   Assert.equal(#host.sources[1].queueCalls, 1, "the chunk was queued before the start step")
-  Assert.equal(host.sources[1].releaseCalls, 1, "the source acquired by the failed update must not leak")
+  Assert.equal(host.sources[1].releaseCalls, 0, "a source with published audio must not be released")
   sink:update()
-  Assert.equal(#host.sources, 2, "the sink must stay usable and reacquire the source")
-  Assert.equal(host.sources[2].playCalls, 1)
+  Assert.equal(#host.sources, 1, "the sink must retry the same source")
+  Assert.equal(host.sources[1].playCalls, 1)
+  Assert.equal(renderer:calls(), 1, "a failed start must not re-render already queued audio")
 end
 
 -- The failure policy releases exactly what the failed update acquired: a

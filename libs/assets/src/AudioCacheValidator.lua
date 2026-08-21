@@ -22,10 +22,9 @@ local AudioSample = require("libs.assets.src.AudioSample")
 
 local AudioCacheValidator = {}
 
--- The runtime player table is a fixed 0..NNS SND_PLAYER_COUNT-1 slot array:
--- a player record at or beyond that bound is an id the engine can never
--- address, even when no compiled sequence references it.
-local SND_PLAYER_COUNT = 16
+-- The logical SDAT player table contains 32 groups. Physical sequence-player
+-- slots are a separate runtime namespace and do not constrain this index.
+local LOGICAL_PLAYER_COUNT = 32
 
 -- Runs a leaf validator that raises on malformed assets, reporting failure as
 -- a problem instead of propagating.
@@ -142,7 +141,7 @@ function AudioCacheValidator.validate(cacheFs)
   end
   for id, entry in pairs(index.players) do
     -- sectionProblem proved id is a nonnegative integer and entry.id == id.
-    if id >= SND_PLAYER_COUNT then
+    if id >= LOGICAL_PLAYER_COUNT then
       return "player id is outside the supported range"
     end
     if not isU16(entry.channelMask) then

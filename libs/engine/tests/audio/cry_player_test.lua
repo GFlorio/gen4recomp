@@ -8,6 +8,8 @@
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
 local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
+local AudioBank = require("libs.assets.src.AudioBank")
+local AudioSequence = require("libs.assets.src.AudioSequence")
 local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
 local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
 local CryPlayer = require("libs.engine.src.audio.CryPlayer")
@@ -41,7 +43,8 @@ local function defaultSequences()
   }
 end
 
-local function newCryPlayer()
+local function newCryPlayer(opts)
+  opts = opts or {}
   local bundle = AudioFixture.bundle()
   local indexSequences, indexPlayers, sequenceBySymbol = {}, {}, {}
   for id, sequence in pairs(defaultSequences()) do
@@ -55,7 +58,7 @@ local function newCryPlayer()
     if indexPlayers[sequence.player.id] == nil then
       indexPlayers[sequence.player.id] = {
         id = sequence.player.id,
-        maxSequences = 16,
+        maxSequences = opts.maxSequences or 16,
         channelMask = 0xFFFF,
       }
     end
@@ -68,8 +71,49 @@ local function newCryPlayer()
     sampleRate = SAMPLE_RATE,
     mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE }),
     provider = provider,
+    observer = opts.observer,
   })
   return CryPlayer.new({ player = player }), player
+end
+
+function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
+  local capturedSequence
+  local capturedBank
+  local player = {
+    createHandle = function()
+      return {}
+    end,
+    playSynthetic = function(_, _, sequence, bank)
+      capturedSequence = sequence
+      capturedBank = bank
+    end,
+    isPlayerPlaying = function()
+      return false
+    end,
+  }
+  rawset(player, "stopHandle", function() end)
+  local cry = CryPlayer.new({ player = player })
+
+  cry:play(25, 0)
+
+  Assert.isTrue(AudioSequence.validate(capturedSequence))
+  Assert.isTrue(AudioBank.validate(capturedBank))
+  Assert.equal(0x0001, capturedSequence.program.initialTrackMask)
+  Assert.equal(64, capturedSequence.player.channelPriority)
+end
+
+function T.stopping_ordinary_sequence_2000_does_not_stop_the_cry_standin()
+  local cry, player = newCryPlayer()
+  local provider = player._provider --[[@as AudioAssetProvider]]
+  local handle = player:createHandle()
+  local sequence = AudioFixture.sequence(2000, "SEQ_TEST_2000", 12, 1)
+  player:play(handle, sequence, provider:bank(12))
+
+  cry:play(25, 0)
+  player:stopSequence(2000)
+
+  Assert.isFalse(player:isHandlePlaying(handle), "the ordinary sequence is stopped")
+  Assert.isFalse(cry:isFinished(), "the cry stand-in is not an ordinary sequence")
 end
 
 function T.play_starts_the_cry_slot_and_finishes_when_the_sequence_ends()
@@ -92,6 +136,31 @@ function T.play_replaces_an_active_cry_without_a_stale_wait()
   Assert.isFalse(cry:isFinished(), "the replacement cry is active")
   player:render(4000)
   Assert.isTrue(cry:isFinished(), "the replacement ends")
+end
+
+function T.repeated_cries_explicitly_stop_the_previous_private_attachment()
+  local retirements = {}
+  local cry, player = newCryPlayer({
+    maxSequences = 2,
+    observer = {
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
+  local stopCalls = 0
+  local stopHandle = player.stopHandle
+  rawset(player, "stopHandle", function(self, handle)
+    stopCalls = stopCalls + 1
+    return stopHandle(self, handle)
+  end)
+  cry:play(25, 0)
+  player:render(250)
+  stopCalls = 0
+  cry:play(133, 0)
+  Assert.equal(stopCalls, 1, "cry replacement explicitly stops the private attachment")
+  Assert.equal(#retirements, 1, "a second cry retires the previous private attachment")
+  Assert.isFalse(cry:isFinished(), "the replacement cry remains active")
 end
 
 function T.construction_requires_the_engine_player()

@@ -5,7 +5,7 @@
 --   * Allocation is SND_AllocExChannel: the fixed order
 --     {4,5,6,7,2,0,3,1,8,9,10,11,14,12,15,13} inside (generator range AND
 --     channelMask); the victim is the lowest effective priority
---     (playerPriority + trackPriority, one sum) and among equals the
+--     (channelPriority + trackPriority, one sum) and among equals the
 --     quieter last-synced volume register; an incoming note below the
 --     victim's priority is rejected; a stolen channel revokes the previous
 --     voice handle so a later noteOff cannot kill the replacement.
@@ -14,11 +14,11 @@
 --     reuses the old generation) or nil; noteOff/updateVoice/isVoiceAlive on
 --     a stale handle are harmless.
 --   * TrackUpdateChannel per-main control values (track volume, expression,
---     player volume, fader, pan offset) reach the channel at the next
+--     sequence volume, fader, pan offset) reach the channel at the next
 --     control step -- 192 Hz, i.e. one step per 250 output frames at 48 kHz
 --     (SND_TIMER_RATE 240 at the 192 Hz sound interval, the cadence the
 --     sequence player already derives its tick clock from). The noteOn
---     itself is the note's first control step; subsequent steps fire every
+--     noteOn initializes the channel; subsequent steps fire every
 --     CONTROL_PERIOD frames on the mixer's absolute frame count.
 --   * LFO (SND_UpdateLfo/SND_GetLfoValue/SND_SinIdx) and sweep
 --     (ExChannelSweepUpdate) state machines run per control step and feed
@@ -74,8 +74,8 @@ local function drive(mixer, out, frames)
 end
 
 -- The frozen voice shape plus the per-note inputs: generator, originalKey,
--- envelope, pan, key, velocity, trackVolume/expression/playerVolume,
--- channelMask, trackPriority, playerPriority, and the optional channel-side
+-- envelope, pan, key, velocity, trackVolume/expression/sequenceVolume,
+-- channelMask, trackPriority, channelPriority, and the optional channel-side
 -- controls (userPitch 0, trackPanOffset 0, panRange 127, fader 0,
 -- sweepPitch 0, sweepLength 0, autoSweep true, lfo {target 0=pitch/1=volume/
 -- 2=pan, depth 0, range 1, speed 16, delay 0}). Sample voices carry no
@@ -93,12 +93,12 @@ local function spec(overrides)
     velocity = 127,
     trackVolume = 127,
     expression = 127,
-    playerVolume = 127,
+    sequenceVolume = 127,
     envelope = { attack = 127, decay = 127, sustain = 127, release = 127 },
     pan = 64,
     channelMask = 0xFFFF,
     trackPriority = 64,
-    playerPriority = 64,
+    channelPriority = 64,
   }
   for key, value in pairs(overrides or {}) do
     s[key] = value
@@ -175,33 +175,101 @@ function T.allocation_follows_the_sdk_channel_order_and_generator_masks()
   )
 end
 
--- Effective priority is the single sum playerPriority + trackPriority
+-- Effective priority is the single sum channelPriority + trackPriority
 -- (TrackPlayNote); the victim is the occupied channel with the lowest sum
--- (not the lowest player priority), an incoming note below the victim's
+-- (not a separate SeqPlayer priority), an incoming note below the victim's
 -- priority is rejected (SND_AllocExChannel), and an equal priority passes.
 -- The contested notes carry a mask covering only the already-occupied
 -- channels so the victim selection is observable (a free channel is always
 -- the lowest-priority candidate and would win instead).
 function T.allocation_uses_the_priority_sum_and_rejects_weak_notes()
   local mixer = newMixer()
-  local v1 = mixer:noteOn(spec({ playerPriority = 10, trackPriority = 100 }))
-  local v2 = mixer:noteOn(spec({ playerPriority = 50, trackPriority = 40 }))
-  local v3 = mixer:noteOn(spec({ playerPriority = 60, trackPriority = 60 }))
+  local v1 = mixer:noteOn(spec({ channelPriority = 10, trackPriority = 100 }))
+  local v2 = mixer:noteOn(spec({ channelPriority = 50, trackPriority = 40 }))
+  local v3 = mixer:noteOn(spec({ channelPriority = 60, trackPriority = 60 }))
   Assert.deepEqual(v1, { channel = 4, generation = 0 }, "the first voice is at channel 4")
   Assert.deepEqual(v2, { channel = 5, generation = 0 }, "the second voice is at channel 5")
   Assert.deepEqual(v3, { channel = 6, generation = 0 }, "the third voice is at channel 6")
-  local stolen = mixer:noteOn(spec({ playerPriority = 20, trackPriority = 80, channelMask = 0x0030 }))
+  local stolen = mixer:noteOn(spec({ channelPriority = 20, trackPriority = 80, channelMask = 0x0030 }))
   Assert.deepEqual(
     stolen,
     { channel = 5, generation = 1 },
-    "priority 100 steals the lowest sum 90 voice on channel 5, not the lexicographic lowest player priority on channel 4"
+    "priority 100 steals the lowest sum 90 voice on channel 5, not channel 4"
   )
   Assert.isNil(
-    mixer:noteOn(spec({ playerPriority = 5, trackPriority = 5, channelMask = 0x0030 })),
+    mixer:noteOn(spec({ channelPriority = 5, trackPriority = 5, channelMask = 0x0030 })),
     "priority 10 is below the occupied channel's priority and is rejected"
   )
-  local equal = mixer:noteOn(spec({ playerPriority = 64, trackPriority = 36, channelMask = 0x0030 }))
+  local equal = mixer:noteOn(spec({ channelPriority = 20, trackPriority = 80, channelMask = 0x0030 }))
   Assert.deepEqual(equal, { channel = 5, generation = 2 }, "priority 100 equals the victim's priority and steals")
+end
+
+function T.released_tails_are_immediately_stealable_at_priority_one()
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local old = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    channelPriority = 100,
+    trackPriority = 100,
+  })) --[[@as { channel: integer, generation: integer }]]
+  Assert.notNil(old, "the high-priority voice is allocated on channel 4")
+
+  mixer:noteOff(old)
+  local replacement = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    channelPriority = 0,
+    trackPriority = 2,
+  })) --[[@as { channel: integer, generation: integer }]]
+  Assert.deepEqual(
+    replacement,
+    { channel = 4, generation = old.generation + 1 },
+    "a released tail is demoted before the next allocation"
+  )
+  mixer:noteOff(old)
+  Assert.isTrue(mixer:isVoiceAlive(replacement), "a stale released handle cannot affect its replacement")
+end
+
+function T.admission_uses_full_priority_and_stores_the_low_u8_byte()
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local first = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    channelPriority = 200,
+    trackPriority = 100,
+  })) --[[@as { channel: integer, generation: integer }]]
+  Assert.notNil(first, "the full incoming priority admits the first voice")
+
+  local second = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    channelPriority = 50,
+    trackPriority = 0,
+  }))
+  Assert.deepEqual(
+    second,
+    { channel = 4, generation = first.generation + 1 },
+    "priority 50 steals the accepted priority-44 state"
+  )
+end
+
+function T.occupied_zero_volume_channels_join_free_candidate_ties()
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local first = mixer:noteOn(spec({
+    channelMask = 0x0010,
+    velocity = 0,
+    channelPriority = 0,
+    trackPriority = 0,
+  }))
+  Assert.deepEqual(first, { channel = 4, generation = 0 })
+
+  local replacement = mixer:noteOn(spec({
+    channelMask = 0x0030,
+    velocity = 0,
+    channelPriority = 0,
+    trackPriority = 0,
+  }))
+  Assert.deepEqual(
+    replacement,
+    { channel = 4, generation = 1 },
+    "the occupied zero-volume channel wins the exact tie by allocation order"
+  )
 end
 
 -- Among equal priorities the SDK steals the quieter channel: the victim
@@ -237,7 +305,8 @@ function T.stolen_channels_revoke_the_previous_voice_handle()
   local pcmA = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
   local pcmB = { 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096 }
   local old = mixer:noteOn(spec({ pcm = pcmA, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
-  local replacement = mixer:noteOn(spec({ pcm = pcmB, pan = 0, playerPriority = 80, channelMask = 0x0010 })) --[[@as { channel: integer, generation: integer }]]
+  local replacement = mixer:noteOn(spec({ pcm = pcmB, pan = 0, channelPriority = 80, channelMask = 0x0010 })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   Assert.deepEqual(
     replacement,
     { channel = old.channel, generation = old.generation + 1 },
@@ -253,7 +322,7 @@ function T.stolen_channels_revoke_the_previous_voice_handle()
 end
 
 -- TrackUpdateChannel per-main control values reach the channel at the next
--- control step: a track volume, expression, player volume, fader or pan
+-- control step: a track volume, expression, sequence volume, fader or pan
 -- offset pushed after the first block changes the volume register or the
 -- hardware pan register from the following 250-frame block on.
 function T.track_control_updates_apply_at_the_next_control_step()
@@ -261,6 +330,7 @@ function T.track_control_updates_apply_at_the_next_control_step()
   local function run(overrides, update)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec(overrides)) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     local first = mixer:render(CONTROL)
     mixer:updateVoice(handle, update)
     -- The queued values apply at the next external control step (the
@@ -274,7 +344,7 @@ function T.track_control_updates_apply_at_the_next_control_step()
   Assert.equal(leftAt(second, CONTROL), 1300, "track volume 64 reaches register 0x141 at the next control step")
   first, second = run({ pcm = pcm, pan = 0 }, { expression = 100 })
   Assert.equal(leftAt(second, CONTROL), 3160, "expression 100 reaches register 0x4F")
-  first, second = run({ pcm = pcm, pan = 0 }, { playerVolume = 100 })
+  first, second = run({ pcm = pcm, pan = 0 }, { sequenceVolume = 100 })
   Assert.equal(leftAt(second, CONTROL), 3160, "player volume 100 reaches register 0x4F")
   first, second = run({ pcm = pcm, pan = 0 }, { fader = -200 })
   Assert.equal(leftAt(second, CONTROL), 510, "the fader reaches register 0x233")
@@ -297,6 +367,7 @@ function T.update_voice_retunes_the_key_at_the_next_control_step()
   local function run(overrides, firstLength, secondLength)
     local mixer = newMixer()
     local handle = mixer:noteOn(spec(overrides)) --[[@as { channel: integer, generation: integer }]]
+    mixer:controlStep()
     -- Drive the first block at the external 250-frame control cadence (the
     -- envelope/sweep advance at the boundaries), then apply the retune at
     -- the next control step so the second block reads the new pitch.
@@ -349,6 +420,7 @@ function T.update_voice_user_pitch_changes_a_held_voice_at_the_next_control_step
     loop = { startFrame = 0, endFrame = 16 },
     pan = 0,
   })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   local first = mixer:render(CONTROL)
   mixer:updateVoice(handle, { userPitch = 768 })
   -- The user pitch applies at the next external control step (the 250-frame
@@ -369,6 +441,7 @@ function T.update_voice_velocity_changes_the_volume_at_the_next_control_step()
   local pcm = { 5120, 5120, 5120, 5120, 5120, 5120, 5120, 5120 }
   local mixer = newMixer()
   local handle = mixer:noteOn(spec({ pcm = pcm, pan = 0, loop = { startFrame = 0, endFrame = 8 } })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   local first = mixer:render(CONTROL)
   mixer:updateVoice(handle, { velocity = 64 })
   -- The velocity applies at the next external control step.
@@ -390,6 +463,7 @@ function T.lfo_pan_target_moves_the_hardware_register()
     pcm = { 6400, 6400, 6400, 6400, 6400, 6400, 6400, 6400 },
     lfo = { target = 2, depth = 127, range = 1, speed = 16, delay = 2 },
   }))
+  mixer:controlStep()
   local out = {}
   drive(mixer, out, 1750)
   local pins = {
@@ -422,6 +496,7 @@ function T.lfo_pitch_and_volume_targets_affect_their_calculations()
     lfo = { target = 0, depth = 127, range = 1, speed = 16, delay = 0 },
     pan = 0,
   }))
+  pitchMixer:controlStep()
   local out = {}
   drive(pitchMixer, out, 560)
   Assert.equal(leftAt(out, 342), 1000, "the drift from step 2 leaves the read at sample 10 by frame 342")
@@ -435,6 +510,7 @@ function T.lfo_pitch_and_volume_targets_affect_their_calculations()
     velocity = 100,
     lfo = { target = 1, depth = 127, range = 1, speed = 16, delay = 0 },
   }))
+  volumeMixer:controlStep()
   local vout = {}
   drive(volumeMixer, vout, 1250)
   local pins = {
@@ -451,13 +527,13 @@ end
 
 -- ExChannelSweepUpdate: the sweep contribution is sweepPitch*
 -- (sweepLength - sweepCounter)/sweepLength with the counter advancing per
--- control step while autoSweep is set (pitch 768, 576, 384, 192, 0 over
--- sweepLength 4 -> timers 256, 304, 362, 430, 512 from the 512 base timer);
+-- control step while autoSweep is set (pitch 768, 768, 576, 384, 192 over
+-- sweepLength 4 -> timers 256, 256, 304, 362, 430 from the 512 base timer);
 -- without autoSweep the counter stays and the pitch holds at the first
 -- contribution (timer 256).
 function T.sweep_ramps_pitch_over_its_length()
   local function run(autoSweep, frames)
-    local mixer = newMixer()
+    local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
     mixer:noteOn(spec({
       pcm = WAVE16,
       baseTimer = 512,
@@ -474,10 +550,10 @@ function T.sweep_ramps_pitch_over_its_length()
   local out = run(true, 1300)
   local pins = {
     { 251, 500, "step 2 reads at the doubled-rate position (timer 256)" },
-    { 501, 500, "step 3 (timer 304)" },
-    { 751, 600, "step 4 (timer 362)" },
-    { 1001, 100, "step 5 (timer 430)" },
-    { 1251, 1100, "the sweep completed (timer 512)" },
+    { 501, 1000, "step 3 (timer 304)" },
+    { 751, 900, "step 4 (timer 362)" },
+    { 1001, 1100, "step 5 (timer 430)" },
+    { 1251, 500, "the sweep completed (timer 512)" },
   }
   for _, pin in ipairs(pins) do
     Assert.equal(leftAt(out, pin[1]), pin[2], "sweep pin frame " .. pin[1] .. ": " .. pin[3])
@@ -495,23 +571,29 @@ function T.sweep_ramps_pitch_over_its_length()
 end
 
 -- The generation is persistent per-channel state, not victim-derived:
--- a naturally dead one-shot frees the channel entry, but the next
--- allocation on that channel keeps incrementing the generation, so the
--- stale handle from before the death can never alias the new voice. The
--- reuse-after-steal tests above cover the occupied-victim path.
+-- a physically completed one-shot frees the channel entry at the next
+-- control step, but the next allocation on that channel keeps incrementing
+-- the generation, so the stale handle from before the death can never alias
+-- the new voice. The reuse-after-steal tests above cover the occupied-victim
+-- path.
 function T.natural_death_does_not_reuse_the_old_generation()
   local mixer = newMixer()
   -- Base timer 16 advances the read fast (CLK/(16*48000) ~= 21.8 samples per
-  -- frame), so the one-shot dies within the first rendered frame and the
-  -- channel is free for the next allocation.
+  -- frame), so the one-shot completes within the first rendered frame. The
+  -- following control step retires it and frees the channel for allocation.
   local oneShot = { loopEnabled = false, loop = { startFrame = 0, endFrame = 8 }, baseTimer = 16 }
   local h1 = mixer:noteOn(spec(oneShot)) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   mixer:render(12)
+  mixer:controlStep()
   local h2 = mixer:noteOn(spec(oneShot)) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   Assert.equal(h2.channel, h1.channel, "the second voice reuses the naturally freed channel")
   Assert.isTrue(h2.generation ~= h1.generation, "a freed channel never reuses the old generation")
   mixer:render(12)
+  mixer:controlStep()
   local h3 = mixer:noteOn(spec({ pcm = CONST_4096, pan = 0 })) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   Assert.equal(h3.channel, h1.channel, "the third voice reuses the same channel again")
   Assert.isTrue(h3.generation ~= h1.generation, "the generation keeps moving after the second natural death")
   Assert.isTrue(h3.generation ~= h2.generation, "the generation keeps moving after the second natural death")
@@ -556,8 +638,9 @@ end
 local function tiedSweepRun(advances, syncs, retargetAtFirstSync)
   local mixer = newMixer()
   local handle = mixer:noteOn(tiedSweepSpec()) --[[@as { channel: integer, generation: integer }]]
+  mixer:controlStep()
   local out = {}
-  mixer:renderInto(out, 250) -- the noteOn's own step (counter 0)
+  mixer:renderInto(out, 250) -- the explicit initial step (counter 0)
   for _ = 1, advances do
     mixer:advanceTrackTick(handle)
   end
@@ -635,6 +718,7 @@ function T.retargeted_tied_voices_apply_the_full_common_tail_at_the_next_control
     pan = 0,
     envelope = { attack = 100, decay = 127, sustain = 127, release = 127 },
   })) --[[@as { channel: integer, generation: integer }]]
+  envMixer:controlStep()
   local first = {}
   envMixer:renderInto(first, 250)
   envMixer:controlStep()

@@ -13,9 +13,8 @@
 -- including on the nested operand records -- variables without a valid
 -- variable number (0..31: 16 player-local plus 16 global SDK variables),
 -- invalid track numbers (0..15), out-of-range branch targets, note
--- key/velocity outside 0..127, conditional instructions (no reachable
--- retail command is conditional, so the field is forbidden at any value),
--- and extra instruction or nested-block fields (an instruction carries
+-- key/velocity outside 0..127, malformed conditional instructions, and extra
+-- instruction or nested-block fields (an instruction carries
 -- only its op and its exact semantic operands; player carries only its
 -- supported fields; program only entry and instructions).
 
@@ -62,9 +61,12 @@ function T.rejects_unknown_and_deleted_operations()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  -- The comparison operations are deleted with the conditional execution
-  -- they served: no reachable retail command is conditional, so no runtime
-  -- comparison state exists and no producer emits them.
+  sequence.program.instructions[2] = { op = "channel_mask", amount = 0xFFFF }
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+  -- Comparison operations are part of the normalized semantic vocabulary;
+  -- unrelated operation names remain closed and invalid.
   sequence.program.instructions[2] = { op = "cmp_eq", var = 0, amount = 42 }
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
@@ -77,7 +79,7 @@ function T.validates_schema_and_identity()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.schema = "g4-audio-sequence-v9"
+  sequence.schema = "g4-audio-sequence-v8"
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -119,21 +121,55 @@ function T.validates_the_player_block()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.player = { id = 1, initialVolume = 127, playerPriority = 64 }
+  sequence.player = { id = 1, initialVolume = 127, playerPriority = 64, channelPriority = 64 }
+  sequence.player.id = 31
+  Assert.isTrue(AudioSequence.validate(sequence))
+  sequence.player.id = 32
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+  sequence.player.id = 1
   sequence.player.id = 0.5
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
   sequence.player.id = 1
-  sequence.player.initialVolume = 256
-  throwsCode("AUDIO_SEQUENCE_INVALID", function()
-    AudioSequence.validate(sequence)
-  end)
+  local function rejectsInitialVolume(value)
+    sequence.player.initialVolume = value
+    local err = Assert.throws(function()
+      AudioSequence.validate(sequence)
+    end)
+    Assert.equal(err.code, "AUDIO_SEQUENCE_INVALID")
+    Assert.equal(err.context.field, "player.initialVolume")
+  end
+  sequence.player.initialVolume = 127
+  Assert.isTrue(AudioSequence.validate(sequence))
+  rejectsInitialVolume(128)
+  rejectsInitialVolume(255)
+  rejectsInitialVolume(-1)
+  rejectsInitialVolume(1.5)
+  rejectsInitialVolume(nil)
   sequence.player.initialVolume = 127
   sequence.player.playerPriority = -1
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
+end
+
+function T.rejects_a_track_mask_without_track_zero()
+  local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
+  for _, mask in ipairs({ 0, -1, 0x10000, 2 }) do
+    sequence.program.initialTrackMask = mask
+    local err = Assert.throws(function()
+      AudioSequence.validate(sequence)
+    end)
+    Assert.equal(err.code, "AUDIO_SEQUENCE_INVALID")
+    Assert.equal(err.context.field, "program.initialTrackMask")
+  end
+  for _, mask in ipairs({ 0x0001, 0x0003, 0x8001, 0xFFFF }) do
+    sequence.program.initialTrackMask = mask
+    Assert.isTrue(AudioSequence.validate(sequence))
+  end
 end
 
 function T.validates_the_program_control_flow()
@@ -142,7 +178,7 @@ function T.validates_the_program_control_flow()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.program = { entry = 0, instructions = { { op = "wait", duration = 1 } } }
+  sequence.program = { entry = 0, initialTrackMask = 0x0001, instructions = { { op = "wait", duration = 1 } } }
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -454,17 +490,31 @@ function T.validates_note_key_and_velocity()
   end)
 end
 
--- The derived IR carries no conditional field: the retail census proves no
--- reachable conditional command exists, so a conditional instruction is
--- malformed asset data at any value -- the key itself is forbidden, not
--- merely its type.
-function T.conditional_instructions_are_rejected()
+function T.conditional_instruction_requires_a_complete_nested_command()
   local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
-  sequence.program.instructions[2] = { op = "pan", amount = 64, conditional = true }
+  sequence.program.instructions[2] = {
+    op = "if",
+    condition = "compare_result",
+    instruction = { op = "pan", amount = 64 },
+  }
+  Assert.isTrue(AudioSequence.validate(sequence))
+  sequence.program.instructions[2].instruction = { op = "pan", amount = 64, extra = true }
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.program.instructions[2].conditional = false
+end
+
+function T.validates_nested_control_flow_operands()
+  local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
+  local nested = sequence.program.instructions[2]
+  nested = { op = "if", condition = "compare_result", instruction = { op = "open_track", track = 1, target = 2 } }
+  sequence.program.instructions[2] = nested
+  Assert.isTrue(AudioSequence.validate(sequence))
+  nested.instruction.target = 0
+  throwsCode("AUDIO_SEQUENCE_INVALID", function()
+    AudioSequence.validate(sequence)
+  end)
+  nested.instruction = { op = "loop_begin", count = -1 }
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)

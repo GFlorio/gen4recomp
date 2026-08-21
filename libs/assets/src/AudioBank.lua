@@ -1,10 +1,11 @@
 -- Validator for the derived audio bank asset: numeric and symbolic identity,
 -- its wave-archive slot map, and a program-keyed instruments map. Instrument
 -- kinds are the semantic direct/key_split/drum_set (never SBNK record
--- types), and every leaf voice has the common shape {generator, originalKey,
+-- types). Playable leaves have the common shape {generator, originalKey,
 -- envelope, pan}: sample voices add the content-address key, square voices
 -- carry the discrete DS PSG duty index 0..7 (never a float fraction), and
 -- square/noise voices carry their source original key like every other leaf.
+-- The exact silent DUMMY leaf is the sole exception to that playable shape.
 -- `validate` and `sampleKeys` share one internal leaf traversal (walkVoices)
 -- that owns the instruments-map grammar; validation additionally enforces the
 -- strict leaf grammar, while `sampleKeys` collects the content-address keys
@@ -143,11 +144,17 @@ end
 ---@return table?
 function AudioBank.selectVoice(instrument, midiKey)
   if instrument.kind == "direct" then
+    if instrument.voice.kind == "dummy" then
+      return nil
+    end
     return instrument.voice
   end
   if instrument.kind == "key_split" then
     for _, range in ipairs(instrument.ranges) do
       if midiKey >= range.lowKey and midiKey <= range.highKey then
+        if range.voice.kind == "dummy" then
+          return nil
+        end
         return range.voice
       end
     end
@@ -157,7 +164,11 @@ function AudioBank.selectVoice(instrument, midiKey)
     if midiKey < instrument.lowKey or midiKey > instrument.highKey then
       return nil
     end
-    return instrument.voices[midiKey - instrument.lowKey + 1]
+    local voice = instrument.voices[midiKey - instrument.lowKey + 1]
+    if voice.kind == "dummy" then
+      return nil
+    end
+    return voice
   end
   assert(false, "unknown instrument kind")
 end
@@ -165,6 +176,17 @@ end
 local function validateVoice(voice)
   if type(voice) ~= "table" then
     fail({ field = "voice" })
+  end
+  if voice.kind == "dummy" then
+    for key in pairs(voice) do
+      if key ~= "kind" then
+        fail({ field = "voice" })
+      end
+    end
+    return
+  end
+  if voice.kind ~= nil then
+    fail({ field = "voice.kind" })
   end
   local generator = voice.generator
   if type(generator) ~= "table" then
@@ -195,7 +217,7 @@ local function validateVoice(voice)
     fail({ field = "voice.envelope" })
   end
   for _, field in ipairs({ "attack", "decay", "sustain", "release" }) do
-    if not isIntegerInRange(envelope[field], 0, 0x7F) then
+    if not isIntegerInRange(envelope[field], 0, 0x7F) and not (field == "release" and envelope[field] == 0xFF) then
       fail({ field = "voice.envelope." .. field })
     end
   end

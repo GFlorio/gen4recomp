@@ -45,6 +45,7 @@ local function seq(id, symbol, bankId, playerId, instructions)
     id = playerId,
     initialVolume = 127,
     playerPriority = 64,
+    channelPriority = 64,
   })
 end
 
@@ -279,10 +280,10 @@ function T.ordinary_bank_validation_remains_strict_while_the_explicit_donor_path
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
   local player = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   throwsCode("AUDIO_PLAYER_BANK_MISMATCH", function()
-    player:play(provider:sequence(20), provider:bank(12))
+    player:play(player:createHandle(), provider:sequence(20), provider:bank(12))
   end)
   Assert.isTrue(type(player.playWithBankOverride) == "function", "explicit donor-bank start must exist")
-  player:playWithBankOverride(provider:sequence(20), provider:bank(12))
+  player:playWithBankOverride(player:createHandle(), provider:sequence(20), provider:bank(12))
   Assert.isTrue(player:isPlayerPlaying(2))
   local sound = GameSound.new({ provider = provider, player = player })
   Assert.isTrue(type(sound.playWithBankOverride) == "function", "GameSound explicit donor path must exist")

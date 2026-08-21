@@ -39,7 +39,18 @@ local function leafKind(recordType)
   if recordType == Sbnk.TYPE_PSG then
     return "square"
   end
+  assert(recordType == Sbnk.TYPE_NOISE, "leaf kind requires a playable leaf")
   return "noise"
+end
+
+local function rejectUnsupportedLeaf(leaf, bankId, location)
+  if leaf.type == Sbnk.TYPE_DIRECTPCM then
+    Errors.raise("SBNK_UNSUPPORTED_INSTRUMENT", "DIRECTPCM instruments are not supported", {
+      bankId = bankId,
+      location = location,
+      type = Sbnk.TYPE_DIRECTPCM,
+    })
+  end
 end
 
 -- The semantic sample key: the canonical deterministic hash of the complete
@@ -72,7 +83,11 @@ end
 -- field selects the hardware duty pattern, index 7 the all-LOW special
 -- pattern); noise is a bare generator. Every leaf carries its source
 -- original key, so the common voice shape never drops it for square/noise.
-local function voiceFromLeaf(leaf, kind, waveCache, bankId, waveArchives)
+local function voiceFromLeaf(leaf, waveCache, bankId, waveArchives)
+  if leaf.type == Sbnk.TYPE_ILLEGAL or leaf.type == Sbnk.TYPE_DUMMY then
+    return { kind = "dummy" }
+  end
+  local kind = leafKind(leaf.type)
   local voice = {
     originalKey = leaf.param.rootKey,
     envelope = {
@@ -213,6 +228,7 @@ local function compileSequence(sdat, symbols, id, record)
       id = record.playerId,
       initialVolume = record.volume,
       playerPriority = record.playerPriority,
+      channelPriority = record.channelPriority,
     },
     program = program,
   }
@@ -228,16 +244,24 @@ local function compileBank(sdat, symbols, id, record, waveCache)
   end
   local instruments = {}
   for program, inst in pairs(ir.instruments) do
-    if inst.type == Sbnk.TYPE_PCM or inst.type == Sbnk.TYPE_PSG or inst.type == Sbnk.TYPE_NOISE then
+    if
+      inst.type == Sbnk.TYPE_PCM
+      or inst.type == Sbnk.TYPE_PSG
+      or inst.type == Sbnk.TYPE_NOISE
+      or inst.type == Sbnk.TYPE_DUMMY
+    then
       instruments[program] = {
         kind = "direct",
-        voice = voiceFromLeaf(inst, leafKind(inst.type), waveCache, id, record.waveArchives),
+        voice = voiceFromLeaf(inst, waveCache, id, record.waveArchives),
       }
+    elseif inst.type == Sbnk.TYPE_DIRECTPCM then
+      rejectUnsupportedLeaf(inst, id, "program " .. tostring(program))
     elseif inst.type == Sbnk.TYPE_DRUM_SET then
       local voices = {}
       for key = inst.minKey, inst.maxKey do
         local leaf = inst.leaves[key - inst.minKey]
-        voices[#voices + 1] = voiceFromLeaf(leaf, leafKind(leaf.type), waveCache, id, record.waveArchives)
+        rejectUnsupportedLeaf(leaf, id, "program " .. tostring(program) .. " key " .. tostring(key))
+        voices[#voices + 1] = voiceFromLeaf(leaf, waveCache, id, record.waveArchives)
       end
       instruments[program] = {
         kind = "drum_set",
@@ -256,10 +280,11 @@ local function compileBank(sdat, symbols, id, record, waveCache)
         local leaf = inst.leaves[i]
         local high = inst.keys[i]
         if high > prevHigh then
+          rejectUnsupportedLeaf(leaf, id, "program " .. tostring(program) .. " leaf " .. tostring(i))
           ranges[#ranges + 1] = {
             lowKey = prevHigh + 1,
             highKey = high,
-            voice = voiceFromLeaf(leaf, leafKind(leaf.type), waveCache, id, record.waveArchives),
+            voice = voiceFromLeaf(leaf, waveCache, id, record.waveArchives),
           }
           prevHigh = high
         end
