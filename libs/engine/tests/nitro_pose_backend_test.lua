@@ -481,17 +481,15 @@ function T.straddling_meshes_resolve_both_sources()
   Assert.equal(draw.straddle.leading, 2)
   Assert.equal(draw.straddle.position[14], 2)
   Assert.equal(draw.straddle.direction[1], 1)
-  -- The draw item carries both transforms and the split, so the renderer
-  -- can reproduce the DS per-vertex bend (leading vertices under the old
-  -- matrix, trailing under the new).
-  ---@type { transform: number[], modelNormal: number[], straddle?: { leading: integer, transform: number[] } }[]
+  -- Presentation keeps the current draw transform and deliberately drops
+  -- the source split from the renderer-facing item.
   local items = instance:drawItems({ m = {} })
-  Assert.equal(items[1].straddle.leading, 2)
-  Assert.equal(items[1].straddle.transform[14], 2)
+  ---@diagnostic disable-next-line: undefined-field -- presentation drops source provenance
+  Assert.isNil(items[1].straddle)
   Assert.equal(items[1].transform[13], 1)
   Assert.deepEqual(items[1].modelNormal, identity9())
   local nextItems = instance:drawItems({ m = {} })
-  Assert.equal(items[1].modelNormal, nextItems[1].modelNormal, "straddles share the baked-path identity normal")
+  Assert.equal(items[1].modelNormal, nextItems[1].modelNormal, "translation-only draws share the identity normal")
 end
 
 -- The pose guard is defense in depth: the artifact gate rejects a serialized
