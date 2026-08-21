@@ -63,11 +63,11 @@ local function bank()
   })
 end
 
-local function seq(id, symbol, playerId, instructions)
+local function seq(id, symbol, playerId, instructions, playerPriority)
   return AudioFixture.sequence(id, symbol, 12, playerId, { entry = 1, instructions = instructions }, {
     id = playerId,
     initialVolume = 127,
-    playerPriority = 64,
+    playerPriority = playerPriority or 64,
     channelPriority = 64,
   })
 end
@@ -112,7 +112,8 @@ local function defaultSequences()
   }
 end
 
-local function engineBundle(sequences)
+local function engineBundle(sequences, opts)
+  opts = opts or {}
   local keyA, keyB, keyC = AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3)
   local bundle = AudioFixture.bundle()
   local indexSequences, indexPlayers, indexBanks, sequenceBySymbol = {}, {}, {}, {}
@@ -127,7 +128,7 @@ local function engineBundle(sequences)
     if indexPlayers[sequence.player.id] == nil then
       indexPlayers[sequence.player.id] = {
         id = sequence.player.id,
-        maxSequences = 16,
+        maxSequences = (opts.maxSequences or {})[sequence.player.id] or 16,
         channelMask = 0xFFFF,
       }
     end
@@ -172,7 +173,7 @@ end
 -- Returns sound, player, spy.
 local function newGameSound(sequences, opts)
   opts = opts or {}
-  local provider = AudioAssetProvider.new(AudioFixture.readyCache(engineBundle(sequences or defaultSequences())))
+  local provider = AudioAssetProvider.new(AudioFixture.readyCache(engineBundle(sequences or defaultSequences(), opts)))
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
   local spy = { readings = {}, faderWrites = {} }
   local realUpdateVoice = mixer.updateVoice
@@ -285,7 +286,7 @@ function T.bgm_plays_tracks_current_music_and_stops()
 end
 
 function T.play_music_replaces_the_running_bgm_on_its_player()
-  local sound, player = newGameSound()
+  local sound, player = newGameSound(nil, { maxSequences = { [1] = 1 } })
   sound:playMusic("SEQ_TEST_BGM")
   player:render(250)
   sound:playMusic("SEQ_TEST_BGM_B")
@@ -618,10 +619,9 @@ function T.temporary_music_starts_the_referenced_sequence()
 end
 
 -- The retail BGM role spans two player ids (the fixed field-music slot and
--- the special scripted-music slot), so replacing the current BGM can switch
--- active player slots: the replacement must explicitly stop the previous
--- BGM instead of relying on same-player replacement.
-function T.play_music_across_player_slots_stops_the_previous_bgm()
+-- the special scripted-music slot), so a replacement can switch active player
+-- slots without stopping the prior detached sequence as a transaction step.
+function T.play_music_across_player_slots_preserves_the_previous_sequence()
   local bgm = seq(0, "SEQ_TEST_BGM", 1, {
     { op = "program", program = 0 },
     { op = "note", key = 60, velocity = 127, duration = 1 },
@@ -636,7 +636,7 @@ function T.play_music_across_player_slots_stops_the_previous_bgm()
   sound:playMusic("SEQ_TEST_BGM")
   Assert.isTrue(player:isPlayerPlaying(1), "the field BGM plays on its slot")
   sound:playMusic("SEQ_TEST_BGM_SPECIAL")
-  Assert.isFalse(player:isPlayerPlaying(1), "replacing the BGM stops the previous player slot")
+  Assert.isTrue(player:isPlayerPlaying(1), "the previous BGM remains active after detachment")
   Assert.isTrue(player:isPlayerPlaying(7), "the replacement plays on its own slot")
   Assert.equal(sound:currentMusic(), 1)
 end
@@ -760,6 +760,20 @@ function T.fanfare_completion_never_resumes_a_replaced_or_stopped_bgm()
     { op = "end" },
   })
   local sound, player = newGameSound({ [0] = bgm, [1] = special, [2] = fanfare })
+  local resumedHandles, stopHandleCalls, stopPlayerCalls = {}, 0, 0
+  local realResumeHandle, realStopHandle, realStopPlayer = player.resumeHandle, player.stopHandle, player.stopPlayer
+  player.resumeHandle = function(self, handle)
+    resumedHandles[#resumedHandles + 1] = handle
+    return realResumeHandle(self, handle)
+  end
+  player.stopHandle = function(self, handle)
+    stopHandleCalls = stopHandleCalls + 1
+    return realStopHandle(self, handle)
+  end
+  player.stopPlayer = function(self, playerId)
+    stopPlayerCalls = stopPlayerCalls + 1
+    return realStopPlayer(self, playerId)
+  end
   sound:playMusic("SEQ_TEST_BGM")
   player:render(200)
   sound:playFanfare("SEQ_TEST_FANFARE")
@@ -774,9 +788,12 @@ function T.fanfare_completion_never_resumes_a_replaced_or_stopped_bgm()
     sound:updateSoundFrame()
   end
   Assert.isFalse(sound:isFanfarePlaying(), "the fanfare interval expired")
-  Assert.isFalse(sound:isEffectPlaying("SEQ_TEST_BGM"), "the replaced bgm is never resumed by the fanfare completion")
+  Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the detached BGM remains paused and is not rediscovered")
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM_SPECIAL"), "the replacement keeps playing through the completion")
   Assert.equal(sound:currentMusic(), 1)
+  Assert.equal(stopHandleCalls, 1, "fanfare completion stops its canonical handle")
+  Assert.equal(stopPlayerCalls, 0, "fanfare completion never stops a logical player")
+  Assert.equal(#resumedHandles, 1, "fanfare completion resumes only the current BGM handle")
 
   -- The stop-during-fanfare path: the stopped bgm is not resumed either.
   local stopped, stoppedPlayer = newGameSound({ [0] = bgm, [2] = fanfare })
@@ -1112,29 +1129,120 @@ function T.after_a_full_restore_the_record_holds_the_applied_level_not_raw_128()
   player:render(250)
 end
 
-function T.rejected_facade_starts_leave_music_fanfare_and_fader_state_unchanged()
-  local sound, player, spy = newGameSound()
+local function rejectedBgmSequences()
+  local a = seq(0, "SEQ_TEST_BGM", 1, {
+    { op = "program", program = 0 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "jump", target = 2 },
+  }, 100)
+  local b = seq(4, "SEQ_TEST_BGM_B", 1, {
+    { op = "program", program = 1 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "jump", target = 2 },
+  }, 1)
+  return { [0] = a, [4] = b }
+end
+
+function T.rejected_bgm_detaches_without_retiring_and_claims_requested_identity()
+  local retirements = {}
+  local sound, player, spy = newGameSound(rejectedBgmSequences(), {
+    maxSequences = { [1] = 1 },
+    observer = {
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
   sound:playMusic("SEQ_TEST_BGM")
   player:render(250)
-  local current = sound:currentMusic()
-  player.play = function()
-    return false
-  end
-  sound:temporaryMusic("SEQ_TEST_BGM_B")
-  Assert.equal(sound:currentMusic(), current, "a rejected temporary start keeps the prior music identity")
-  sound:playMusic("SEQ_TEST_BGM_B")
-  Assert.isNil(sound:currentMusic(), "a rejected BGM start is not claimed as current")
   local internalSound = sound --[[@as any]]
-  local faderBeforeFanfare = internalSound._faders[1]
+  local handle = internalSound._handles[1]
+  local faderBefore = internalSound._faders[1]
+  local faderWritesBefore = #spy.faderWrites
 
-  local paused = false
-  player.pauseHandle = function()
-    paused = true
+  sound:playMusic("SEQ_TEST_BGM_B")
+
+  Assert.equal(sound:currentMusic(), 4, "a rejected start still claims the requested BGM")
+  Assert.isTrue(player:isPlayerPlaying(1), "the detached incumbent remains active")
+  Assert.isFalse(player:isHandlePlaying(handle), "the canonical handle is detached")
+  Assert.equal(#retirements, 0, "rejection does not retire the incumbent")
+  Assert.equal(internalSound._faders[1], faderBefore, "rejection does not reset the fader record")
+  Assert.equal(#spy.faderWrites, faderWritesBefore, "rejection does not write an accepted-start fader reset")
+end
+
+function T.rejected_temporary_music_claims_requested_identity_without_fader_reset()
+  local sound, player, spy = newGameSound(rejectedBgmSequences(), { maxSequences = { [1] = 1 } })
+  sound:playMusic("SEQ_TEST_BGM")
+  player:render(250)
+  local internalSound = sound --[[@as any]]
+  local faderBefore = internalSound._faders[1]
+  local faderWritesBefore = #spy.faderWrites
+
+  sound:temporaryMusic("SEQ_TEST_BGM_B")
+
+  Assert.equal(sound:currentMusic(), 4, "a rejected temporary start claims the requested identity")
+  Assert.isTrue(player:isPlayerPlaying(1), "the detached incumbent remains active")
+  Assert.equal(internalSound._faders[1], faderBefore, "rejection does not reset the fader record")
+  Assert.equal(#spy.faderWrites, faderWritesBefore, "rejection does not write an accepted-start fader reset")
+end
+
+function T.rejected_fanfare_pauses_bgm_and_completes_its_idle_wait()
+  local sequences = defaultSequences()
+  sequences[2] = seq(2, "SEQ_TEST_FANFARE", 3, {
+    { op = "program", program = 2 },
+    { op = "note", key = 60, velocity = 127, duration = 1 },
+    { op = "end" },
+  }, 1)
+  for id = 6, 20 do
+    sequences[id] = seq(id, "SEQ_TEST_FILLER_" .. id, id + 3, {
+      { op = "program", program = 0 },
+      { op = "note", key = 60, velocity = 127, duration = 0 },
+      { op = "jump", target = 2 },
+    }, 100)
+  end
+
+  local sound, player = newGameSound(sequences, {
+    maxSequences = {
+      [3] = 1,
+    },
+  })
+  local pauseCalls, resumeCalls, stopHandleCalls, stopPlayerCalls = 0, 0, 0, 0
+  local realPauseHandle, realResumeHandle = player.pauseHandle, player.resumeHandle
+  local realStopHandle, realStopPlayer = player.stopHandle, player.stopPlayer
+  player.pauseHandle = function(self, handle)
+    pauseCalls = pauseCalls + 1
+    return realPauseHandle(self, handle)
+  end
+  player.resumeHandle = function(self, handle)
+    resumeCalls = resumeCalls + 1
+    return realResumeHandle(self, handle)
+  end
+  player.stopHandle = function(self, handle)
+    stopHandleCalls = stopHandleCalls + 1
+    return realStopHandle(self, handle)
+  end
+  player.stopPlayer = function(self, playerId)
+    stopPlayerCalls = stopPlayerCalls + 1
+    return realStopPlayer(self, playerId)
+  end
+
+  sound:playMusic("SEQ_TEST_BGM")
+  for id = 6, 20 do
+    sound:play(id)
   end
   sound:playFanfare("SEQ_TEST_FANFARE")
-  Assert.isFalse(paused, "a rejected fanfare does not pause the BGM")
-  Assert.isFalse(sound:isFanfarePlaying(), "a rejected fanfare does not claim fanfare state")
-  Assert.equal(internalSound._faders[1], faderBeforeFanfare, "a rejected start does not reset the facade fader")
+
+  Assert.isTrue(sound:isFanfarePlaying(), "rejected fanfare still claims fanfare state")
+  Assert.equal(pauseCalls, 1, "fanfare pauses the current BGM before admission")
+  for _ = 1, FANFARE_POST_WAIT_TICKS - 1 do
+    sound:updateSoundFrame()
+  end
+  Assert.isTrue(sound:isFanfarePlaying(), "the 15-frame wait is still active after 14 idle frames")
+  sound:updateSoundFrame()
+  Assert.isFalse(sound:isFanfarePlaying(), "the 15th idle frame completes the fanfare")
+  Assert.equal(stopHandleCalls, 1, "completion stops only the canonical fanfare handle")
+  Assert.equal(stopPlayerCalls, 0, "completion does not stop the whole fanfare player group")
+  Assert.equal(resumeCalls, 1, "completion resumes the current BGM handle")
 end
 
 function T.facade_effects_replace_canonical_handles_and_fades_do_not_touch_direct_handles()
