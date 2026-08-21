@@ -1100,15 +1100,10 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
   local presentationCanvas = lg.getCanvas()
   local function doDraw()
     local presentationColorCanvas = presentationCanvas
-    ---@diagnostic disable-next-line: undefined-field
-    if
-      type(presentationCanvas) == "table"
-      and (presentationCanvas[1] ~= nil or rawget(presentationCanvas, "color") ~= nil)
-    then
-      ---@diagnostic disable-next-line: undefined-field
-      presentationColorCanvas = presentationCanvas[1] or rawget(presentationCanvas, "color")
+    if type(presentationCanvas) == "table" and presentationCanvas[1] ~= nil then
+      presentationColorCanvas = presentationCanvas[1]
       if type(presentationColorCanvas) == "table" then
-        presentationColorCanvas = presentationColorCanvas[1] or presentationColorCanvas.canvas
+        presentationColorCanvas = presentationColorCanvas[1]
       end
       assert(presentationColorCanvas, "MapRenderer requires a color presentation target")
     end

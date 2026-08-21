@@ -312,11 +312,7 @@ function FieldState:draw()
     lg.printf(self.runtime.errorText, 24, 48, lg.getWidth() - 48)
     return
   end
-  local pollTopology = self._pollPresentationTopology
-  if pollTopology == nil then
-    pollTopology = self.topologyProvider ~= nil
-  end
-  if pollTopology then
+  if self._pollPresentationTopology then
     local width, height = lg.getDimensions()
     assert(width and height, "graphics dimensions are required for topology polling")
     local topology = self.topologyProvider(width, height)

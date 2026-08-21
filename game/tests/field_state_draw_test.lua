@@ -104,6 +104,7 @@ end
 local function stateWith(runtime)
   return setmetatable({
     runtime = runtime,
+    _pollPresentationTopology = false,
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
@@ -222,6 +223,7 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
       startMenuPlacement = nil,
       resizePresentation = function() end,
     },
+    _pollPresentationTopology = true,
     topologyProvider = function()
       return ScreenTopology.oneDisplay({
         id = "main",
@@ -307,6 +309,7 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
       },
       resizePresentation = function() end,
     },
+    _pollPresentationTopology = true,
     topologyProvider = function()
       return ScreenTopology.oneDisplay({
         id = "main",
@@ -391,6 +394,7 @@ function T.draw_without_a_menu_host_is_a_programming_error()
       startMenuPlacement = nil,
       resizePresentation = function() end,
     },
+    _pollPresentationTopology = true,
     topologyProvider = function()
       return ScreenTopology.oneDisplay({
         id = "main",

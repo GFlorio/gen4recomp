@@ -558,7 +558,7 @@ function T.draw_restores_exact_caller_state()
 end
 
 function T.invalid_presentation_descriptor_restores_exact_caller_state()
-  local canvas, shader = { color = {} }, {}
+  local canvas, shader = { [1] = {} }, {}
   local lg = fakeGraphics({
     canvas = canvas,
     shader = shader,
