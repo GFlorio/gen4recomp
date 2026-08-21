@@ -385,6 +385,70 @@ function T.conditional_terminators_keep_false_fallthrough()
   end
 end
 
+-- RETURN with no active CALL/LOOP frame is a fallthrough in the ARM7
+-- interpreter, so commands after it remain part of the source program.
+function T.zero_depth_return_falls_through()
+  local bytes = SseqFixture.build({
+    { op = "ret" },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(#program.instructions, 3)
+  Assert.equal(program.instructions[1].op, "return")
+  Assert.equal(program.instructions[2].op, "note")
+  Assert.equal(program.instructions[3].op, "end")
+end
+
+-- A called RETURN transfers to the saved caller continuation. Bytes after
+-- the subroutine's RETURN are not a physical fallthrough path and may be
+-- malformed without affecting lowering.
+function T.called_return_reaches_the_saved_continuation_only()
+  local bytes = SseqFixture.build({
+    { op = "call", target = { cmd = 4 } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+    { op = "ret" },
+    { op = "raw", bytes = "\x60\x80" },
+  })
+  local program = lowerOrFail(bytes)
+  local names = {}
+  for index, instruction in ipairs(program.instructions) do
+    names[index] = instruction.op
+  end
+  Assert.deepEqual(names, { "call", "note", "end", "return" })
+end
+
+-- CALL and LOOP_BEGIN share the three-entry continuation stack. A CALL made
+-- at saturation falls through without making its target reachable; placing a
+-- marker after a terminating command makes an offset-only queue observably
+-- over-approximate the source program.
+function T.saturated_call_target_is_not_reachable()
+  local bytes = SseqFixture.build({
+    { op = "call", target = { cmd = 4 } },
+    { op = "fin" },
+    { op = "raw", bytes = "\x60\x80" },
+    { op = "u8", command = 0xD4, amount = 1 },
+    { op = "call", target = { cmd = 8 } },
+    { op = "fin" },
+    { op = "raw", bytes = "\x60\x80" },
+    { op = "call", target = { cmd = 10 } },
+    { op = "ret" },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
+  })
+  local program = lowerOrFail(bytes)
+  local callCount = 0
+  for _, instruction in ipairs(program.instructions) do
+    Assert.isFalse(instruction.op == "note" and instruction.key == 72)
+    if instruction.op == "call" then
+      callCount = callCount + 1
+      Assert.notNil(instruction.target, "reachable CALLs must retain a valid target")
+    end
+  end
+  Assert.equal(callCount, 2)
+end
+
 function T.unconditional_terminators_still_stop_linear_fallthrough()
   local bytes = SseqFixture.build({
     { op = "jump", target = { cmd = 4 } },
@@ -413,14 +477,41 @@ end
 
 -- Unreachable trailing bytes are never decoded: a truncated command past the
 -- last end cannot fail the build, and it never appears in the program.
-function T.ignores_unreachable_trailing_bytes()
-  local bytes = SseqFixture.build({
-    { op = "fin" },
-  })
-  local corrupted = bytes .. "\x60\x80"
-  local program = lowerOrFail(corrupted)
-  Assert.equal(#program.instructions, 1)
-  Assert.equal(program.instructions[1].op, "end")
+function T.ignores_malformed_bytes_after_true_transfers()
+  local cases = {
+    {
+      commands = {
+        { op = "fin" },
+      },
+      expected = { "end" },
+    },
+    {
+      commands = {
+        { op = "jump", target = { cmd = 3 } },
+        { op = "raw", bytes = "\x60\x80" },
+        { op = "fin" },
+      },
+      expected = { "jump", "end" },
+    },
+    {
+      commands = {
+        { op = "call", target = { cmd = 4 } },
+        { op = "fin" },
+        { op = "raw", bytes = "\x60\x80" },
+        { op = "ret" },
+      },
+      expected = { "call", "end", "return" },
+    },
+  }
+  for _, case in ipairs(cases) do
+    local bytes = SseqFixture.build(case.commands)
+    local program = lowerOrFail(bytes .. "\x60\x80")
+    local names = {}
+    for index, instruction in ipairs(program.instructions) do
+      names[index] = instruction.op
+    end
+    Assert.deepEqual(names, case.expected)
+  end
 end
 
 -- A branch target at or past the end of the file is malformed data with

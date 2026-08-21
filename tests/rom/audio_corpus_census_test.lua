@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local Sdat = require("romdump.src.digest.audio.Sdat")
-local Sseq = require("romdump.src.digest.audio.Sseq")
+local SequenceReachability = require("romdump.src.digest.audio.SequenceReachability")
 local Sbnk = require("romdump.src.digest.audio.Sbnk")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local Errors = require("libs.errors.src.Errors")
@@ -13,42 +13,6 @@ local SDAT_PATH = "data/sound/gs_sound_data.sdat"
 
 local T = {}
 local contexts = nil
-
-local function censusSequence(bytes, dataOffset)
-  local endPos = #bytes
-  local pos = dataOffset
-  local mask = nil
-  if pos < endPos and string.byte(bytes, pos + 1) == 0xFE then
-    mask = string.byte(bytes, pos + 2) + string.byte(bytes, pos + 3) * 256
-    pos = pos + 3
-  end
-  local queue = { pos }
-  local seen = {}
-  local commands = {}
-  local openTracks = {}
-  while #queue > 0 do
-    local start = table.remove(queue)
-    if not seen[start] and start < endPos then
-      pos = start
-      while pos < endPos and not seen[pos] do
-        seen[pos] = true
-        local command = assert(Sseq.decodeCommand(bytes, pos, endPos, "census"))
-        commands[#commands + 1] = command
-        pos = command.next
-        if command.opcode == 0x93 then
-          openTracks[#openTracks + 1] = command.track
-        end
-        if command.opcode == 0x93 or command.opcode == 0x94 or command.opcode == 0x95 then
-          queue[#queue + 1] = dataOffset + command.target
-        end
-        if not command.conditional and (command.opcode == 0x94 or command.opcode == 0xFF or command.opcode == 0xFD) then
-          break
-        end
-      end
-    end
-  end
-  return commands, mask, openTracks
-end
 
 function T.beforeAll()
   local GameVersion = require("romdump.src.source.GameVersion")
@@ -151,8 +115,17 @@ function T.corpus_census_classifies_every_reachable_construct()
         initialVolumes[record.volume] = true
 
         local bytes = assert(sdat:readFile(record.fileId))
-        local seq = assert(Sseq.open(bytes, "sequence " .. id))
-        local commands, mask, openTracks = censusSequence(bytes, seq.dataOffset)
+        local analysis = SequenceReachability.analyze(bytes, "sequence " .. id)
+        local commands = {}
+        local openTracks = {}
+        for _, offset in ipairs(analysis.offsets) do
+          local command = analysis.commandsByOffset[offset]
+          commands[#commands + 1] = command
+          if command.opcode == 0x93 then
+            openTracks[#openTracks + 1] = command.track
+          end
+        end
+        local mask = analysis.trackMask
 
         for _, track in ipairs(openTracks) do
           Assert.notNil(mask, "sequence " .. id .. " opens track " .. track .. " without an FE mask")
