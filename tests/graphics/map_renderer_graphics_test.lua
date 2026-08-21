@@ -1302,7 +1302,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   Assert.isFalse(anyBright(unlitImg, diffuseSamples, threshold), "unlit frame inherits the previous material state")
 end
 
-function T.a_straddling_item_bends_its_leading_vertices(scope)
+function T.a_straddling_item_uses_its_current_transform_for_the_whole_mesh(scope)
   -- An arbitrary injected clear color distinguishable from the drawn
   -- triangles: this test asserts against it directly, not against
   -- MapRenderer's fallback default (libs/engine carries no opinion about
@@ -1312,9 +1312,9 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
   local lg = love.graphics
 
   -- Leading triangle (green) at y in [0.2, 0.5]; trailing triangle (red) at
-  -- y in [-0.5, -0.2]. The straddle transform translates the leading half
-  -- DOWN one world unit, so the baked green triangle lands at y in [-0.8,
-  -- -0.5] -- clearly apart from the red one.
+  -- y in [-0.5, -0.2]. The current renderer presents the resident mesh as a
+  -- whole under the item's current transform, so the straddle transform does
+  -- not move the leading triangle.
   local mesh = scope:own(syntheticMesh({
     { -0.8, 0.2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
     { 0, 0.5, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
@@ -1328,6 +1328,7 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
     mesh = mesh,
     material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
     alphaClass = "opaque",
     cullMode = "none",
     polygonAlpha = 1.0,
@@ -1354,22 +1355,24 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
     return data:getPixel(cx, cy)
   end
 
-  -- The baked leading triangle (world y in [-0.8, -0.5]): centroid green.
-  local gr, gg, gb = pixelAt(0, -0.65)
-  Assert.near(gr, 0, 0.05, "baked leading red")
-  Assert.near(gg, 1, 0.05, "baked leading green")
-  Assert.near(gb, 0, 0.05, "baked leading blue")
+  -- The leading triangle remains under the item's current transform (world y
+  -- in [0.2, 0.5]): centroid green.
+  local gr, gg, gb = pixelAt(0, 0.35)
+  Assert.near(gr, 0, 0.05, "current leading red")
+  Assert.near(gg, 1, 0.05, "current leading green")
+  Assert.near(gb, 0, 0.05, "current leading blue")
   -- The trailing triangle (world y in [-0.5, -0.2]): centroid red.
   local rr, rg, rb = pixelAt(0, -0.35)
   Assert.near(rr, 1, 0.05, "trailing red")
   Assert.near(rg, 0, 0.05, "trailing green")
   Assert.near(rb, 0, 0.05, "trailing blue")
-  -- Where the unbaked leading triangle would have drawn (world y in
-  -- [0.2, 0.5]): nothing but the background color.
-  local br, bg, bb = pixelAt(0, 0.35)
-  Assert.near(br, clearColor[1], 0.05, "unbaked position red")
-  Assert.near(bg, clearColor[2], 0.05, "unbaked position green")
-  Assert.near(bb, clearColor[3], 0.05, "unbaked position blue")
+  -- The discarded exact split's translated position (world y in [-0.8,
+  -- -0.5]) remains background because the whole mesh uses the current
+  -- transform.
+  local br, bg, bb = pixelAt(0, -0.65)
+  Assert.near(br, clearColor[1], 0.05, "translated position red")
+  Assert.near(bg, clearColor[2], 0.05, "translated position green")
+  Assert.near(bb, clearColor[3], 0.05, "translated position blue")
 end
 
 -- A lighting profile with one white light and a specular-only material
