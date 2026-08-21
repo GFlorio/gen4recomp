@@ -188,7 +188,7 @@ function FieldAudioController:enterMap(runtimeMap, options)
     local effective = self:effectiveMusic()
     if effective == nil then
       self._sound:stopMusic()
-    else
+    elseif effective ~= self._sound:currentMusic() then
       self._sound:playMusic(effective)
     end
   end

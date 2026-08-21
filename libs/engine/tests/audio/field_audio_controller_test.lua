@@ -85,10 +85,16 @@ end
 
 local function recordingSound(provider, player)
   ---@class RecordingSound : GameSound
-  ---@field _spy { moves: table[], stops: table[], fades: table[], playWithBankCalls: table[] }
+  ---@field _spy { moves: table[], stops: table[], fades: table[], plays: table[], playWithBankCalls: table[] }
   ---@diagnostic disable-next-line: missing-fields -- test double wraps real GameSound
   local sound = GameSound.new({ provider = provider, player = player }) --[[@as RecordingSound]]
-  local spy = { moves = {}, stops = {}, fades = {}, playWithBankCalls = {} }
+  local spy = { moves = {}, stops = {}, fades = {}, plays = {}, playWithBankCalls = {} }
+  local origPlayMusic = sound.playMusic
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
+  sound.playMusic = function(self, idOrSymbol)
+    spy.plays[#spy.plays + 1] = idOrSymbol
+    return origPlayMusic(self, idOrSymbol)
+  end
   local origMove = sound.moveSequenceVolume
   ---@diagnostic disable-next-line: duplicate-set-field -- test spy
   sound.moveSequenceVolume = function(self, ref, target, duration)
@@ -147,6 +153,106 @@ local function gameplayPlayer(fieldX, fieldZ)
     fieldX = fieldX,
     fieldZ = fieldZ,
   }
+end
+
+local function musicScenario()
+  local keyA = AudioFixture.key(1)
+  local bgmA =
+    seq(10, "SEQ_GS_T_WAKABA", 12, 1, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
+  local bgmB =
+    seq(11, "SEQ_GS_UTSUGI_RABO", 12, 1, { { op = "note", key = 62, velocity = 127, duration = 1 }, { op = "end" } })
+  local provider = providerFor({ [10] = bgmA, [11] = bgmB }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local player = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local sound, spy = recordingSound(provider, player)
+  local fdA = fieldDataWithSoundplates(
+    {},
+    { day = "SEQ_GS_T_WAKABA", night = "SEQ_GS_T_WAKABA", flagOverrides = {}, traversalOverrides = {} }
+  )
+  fdA.mapId = 111
+  local fdB = fieldDataWithSoundplates(
+    {},
+    { day = "SEQ_GS_UTSUGI_RABO", night = "SEQ_GS_UTSUGI_RABO", flagOverrides = {}, traversalOverrides = {} }
+  )
+  fdB.mapId = 112
+  local destination = fdB
+  local controller = FieldAudioController.new({
+    sound = sound,
+    provider = provider,
+    eventState = eventState(),
+    fieldPosition = function()
+      return 0, 0
+    end,
+    dayNight = function()
+      return "day"
+    end,
+    fieldDataForMap = function()
+      return destination
+    end,
+  })
+  return controller, sound, spy, fdA, fdB, function(fieldData)
+    destination = fieldData
+  end
+end
+
+function T.same_map_music_entry_preserves_the_running_sequence()
+  local controller, sound, spy, fdA, fdB, setDestination = musicScenario()
+  fdB.music.day = "SEQ_GS_T_WAKABA"
+  fdB.music.night = "SEQ_GS_T_WAKABA"
+  controller:enterMap({ fieldData = fdA }, { play = true })
+  spy.plays = {}
+  spy.fades = {}
+  setDestination(fdB)
+  controller:beginWarp(fdB.mapId)
+  controller:enterMap({ fieldData = fdB }, { clearMusicOverride = true, play = true })
+  Assert.equal(#spy.plays, 0, "map entry must not restart the current effective BGM")
+  Assert.equal(#spy.fades, 0, "same-BGM map entry must not start a warp fade")
+  Assert.equal(sound:currentMusic(), 10)
+end
+
+function T.different_map_music_entry_starts_the_destination_once()
+  local controller, sound, spy, fdA, fdB = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { play = true })
+  spy.plays = {}
+  controller:beginWarp(fdB.mapId)
+  controller:enterMap({ fieldData = fdB }, { clearMusicOverride = true, play = true })
+  Assert.equal(#spy.plays, 1, "different destination BGM must start exactly once")
+  Assert.equal(spy.plays[1], 11)
+  Assert.equal(#spy.fades, 1, "different destination BGM must retain the pre-fade")
+  Assert.equal(sound:currentMusic(), 11)
+end
+
+function T.clearing_an_override_compares_against_actual_playback()
+  local controller, sound, spy, fdA, fdB = musicScenario()
+  fdA.music.day = "SEQ_GS_UTSUGI_RABO"
+  fdA.music.night = "SEQ_GS_UTSUGI_RABO"
+  controller:enterMap({ fieldData = fdA }, { restoredMusicOverride = 10, play = true })
+  Assert.equal(sound:currentMusic(), 10)
+  spy.plays = {}
+  controller:enterMap({ fieldData = fdB }, { clearMusicOverride = true, play = true })
+  Assert.equal(#spy.plays, 1, "clearing an override must start a different effective destination BGM")
+  Assert.equal(spy.plays[1], 11)
+  Assert.equal(sound:currentMusic(), 11)
+end
+
+function T.explicit_same_music_command_restarts_through_the_generic_service()
+  local controller, sound, spy, fdA = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { play = true })
+  spy.plays = {}
+  sound:playMusic(10)
+  Assert.equal(#spy.plays, 1, "explicit same-ID playMusic must remain restart-capable")
+  Assert.equal(sound:currentMusic(), 10)
+end
+
+function T.map_entry_with_play_disabled_does_not_change_music()
+  local controller, sound, spy, fdA, fdB = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { play = true })
+  spy.plays = {}
+  spy.stops = {}
+  controller:enterMap({ fieldData = fdB }, { clearMusicOverride = true, play = false })
+  Assert.equal(#spy.plays, 0, "play=false map entry must not start music")
+  Assert.equal(#spy.stops, 0, "play=false map entry must not stop music")
+  Assert.equal(sound:currentMusic(), 10)
 end
 
 function T.production_position_is_read_through_a_narrow_fieldX_fieldZ_provider()
