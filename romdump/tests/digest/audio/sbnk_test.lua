@@ -2,8 +2,9 @@
 -- structures (SND_bank_shared.h: packed u32 entries at 0x3C with the type in
 -- the low byte and the record offset in the upper 24 bits; 10-byte
 -- SNDInstParam for direct records; 12-byte SNDInstData leaves for drum sets
--- and key splits) into source IR. Illegal type-0 records are silent and are
--- dropped by the decoder; every malformed read and every unsupported
+-- and key splits) into source IR. Direct illegal type-0 records are dropped
+-- by the decoder, while nested type-0 leaves are valid silent selections;
+-- every malformed read and every unsupported
 -- instrument type fails with a structured SBNK_* error.
 
 local Assert = require("tests.support.Assert")
@@ -123,6 +124,26 @@ function T.decodes_drum_sets()
   Assert.equal(drums.leaves[2].type, 2)
 end
 
+function T.decodes_nested_type0_drum_leaf_as_bounded_silence()
+  local bytes = SbnkFixture.build({
+    {
+      type = 0x10,
+      minKey = 35,
+      maxKey = 36,
+      leaves = {
+        { type = 1, param = PCM },
+        { type = 0, param = PCM },
+      },
+    },
+  })
+  local bank = decodeOrFail(bytes)
+  local leaves = bank.instruments[0].leaves
+  Assert.equal(leaves[0].type, Sbnk.TYPE_PCM)
+  Assert.equal(leaves[0].param.swav, PCM.swav)
+  Assert.equal(leaves[1].type, 0)
+  Assert.isNil(leaves[1].param)
+end
+
 -- Key splits decode their split keys and the leaves that stop at the first
 -- zero key byte.
 function T.decodes_key_splits()
@@ -156,11 +177,44 @@ function T.decodes_key_splits()
   Assert.equal(split.leaves[1].param.swav, 5)
 end
 
+function T.decodes_nested_type0_key_split_leaf_as_bounded_silence()
+  local bytes = SbnkFixture.build({
+    {
+      type = 0x11,
+      keys = { 48, 72 },
+      leaves = {
+        { type = 0, param = PCM },
+        { type = 2, param = PSG },
+      },
+    },
+  })
+  local split = decodeOrFail(bytes).instruments[0]
+  Assert.equal(split.leaves[0].type, 0)
+  Assert.isNil(split.leaves[0].param)
+  Assert.equal(split.leaves[1].type, Sbnk.TYPE_PSG)
+  Assert.equal(split.leaves[1].param.swav, PSG.swav)
+end
+
 -- A direct record pointing past the end of the bank is truncated data.
 function T.rejects_records_past_end()
   local bytes = SbnkFixture.build({ { type = 1, param = PCM } })
   local corrupted = bytes:sub(1, #bytes - 5)
   decodeRejects(corrupted, "SBNK_TRUNCATED")
+end
+
+function T.rejects_truncated_nested_type0_leaf()
+  local bytes = SbnkFixture.build({
+    {
+      type = 0x10,
+      minKey = 35,
+      maxKey = 36,
+      leaves = {
+        { type = 1, param = PCM },
+        { type = 0, param = PCM },
+      },
+    },
+  })
+  decodeRejects(bytes:sub(1, #bytes - 1), "SBNK_TRUNCATED")
 end
 
 -- Direct DUMMY records still occupy a complete 10-byte parameter region.

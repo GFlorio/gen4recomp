@@ -250,17 +250,32 @@ function T.keeps_dummy_leaves_silent_and_sample_free()
     {
       type = 0x10,
       minKey = 35,
-      maxKey = 35,
-      leaves = { { type = 5, param = PCM_A } },
+      maxKey = 36,
+      leaves = { { type = 5, param = PCM_A }, { type = 0, param = PCM_A } },
+    },
+    {
+      type = 0x11,
+      keys = { 35, 72 },
+      leaves = { { type = 0, param = PCM_A }, { type = 1, param = PCM_A } },
     },
   }))
   local bank = bundle.banks[0]
   AudioBank.validate(bank)
   Assert.equal(bank.instruments[1].voice.kind, "dummy")
   Assert.equal(bank.instruments[2].voices[1].kind, "dummy")
+  Assert.equal(bank.instruments[2].voices[2].kind, "dummy")
+  Assert.equal(bank.instruments[3].ranges[1].voice.kind, "dummy")
+  Assert.equal(bank.instruments[3].ranges[2].voice.generator.kind, "sample")
   Assert.isNil(AudioBank.selectVoice(bank.instruments[1], 60))
   Assert.isNil(AudioBank.selectVoice(bank.instruments[2], 35))
-  Assert.equal(next(bundle.samples) ~= nil, true, "ordinary PCM remains compiled")
+  Assert.isNil(AudioBank.selectVoice(bank.instruments[2], 36))
+  Assert.isNil(AudioBank.selectVoice(bank.instruments[3], 35))
+  Assert.notNil(AudioBank.selectVoice(bank.instruments[3], 60))
+  local sampleCount = 0
+  for _ in pairs(bundle.samples) do
+    sampleCount = sampleCount + 1
+  end
+  Assert.equal(sampleCount, 1, "silent leaves add no sample references")
 end
 
 -- The full writer-shaped bundle: marker, index, dependencies, and the four

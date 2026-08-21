@@ -39,6 +39,7 @@ local function leafKind(recordType)
   if recordType == Sbnk.TYPE_PSG then
     return "square"
   end
+  assert(recordType == Sbnk.TYPE_NOISE, "leaf kind requires a playable leaf")
   return "noise"
 end
 
@@ -82,10 +83,11 @@ end
 -- field selects the hardware duty pattern, index 7 the all-LOW special
 -- pattern); noise is a bare generator. Every leaf carries its source
 -- original key, so the common voice shape never drops it for square/noise.
-local function voiceFromLeaf(leaf, kind, waveCache, bankId, waveArchives)
-  if leaf.type == Sbnk.TYPE_DUMMY then
+local function voiceFromLeaf(leaf, waveCache, bankId, waveArchives)
+  if leaf.type == Sbnk.TYPE_ILLEGAL or leaf.type == Sbnk.TYPE_DUMMY then
     return { kind = "dummy" }
   end
+  local kind = leafKind(leaf.type)
   local voice = {
     originalKey = leaf.param.rootKey,
     envelope = {
@@ -250,7 +252,7 @@ local function compileBank(sdat, symbols, id, record, waveCache)
     then
       instruments[program] = {
         kind = "direct",
-        voice = voiceFromLeaf(inst, leafKind(inst.type), waveCache, id, record.waveArchives),
+        voice = voiceFromLeaf(inst, waveCache, id, record.waveArchives),
       }
     elseif inst.type == Sbnk.TYPE_DIRECTPCM then
       rejectUnsupportedLeaf(inst, id, "program " .. tostring(program))
@@ -259,7 +261,7 @@ local function compileBank(sdat, symbols, id, record, waveCache)
       for key = inst.minKey, inst.maxKey do
         local leaf = inst.leaves[key - inst.minKey]
         rejectUnsupportedLeaf(leaf, id, "program " .. tostring(program) .. " key " .. tostring(key))
-        voices[#voices + 1] = voiceFromLeaf(leaf, leafKind(leaf.type), waveCache, id, record.waveArchives)
+        voices[#voices + 1] = voiceFromLeaf(leaf, waveCache, id, record.waveArchives)
       end
       instruments[program] = {
         kind = "drum_set",
@@ -282,7 +284,7 @@ local function compileBank(sdat, symbols, id, record, waveCache)
           ranges[#ranges + 1] = {
             lowKey = prevHigh + 1,
             highKey = high,
-            voice = voiceFromLeaf(leaf, leafKind(leaf.type), waveCache, id, record.waveArchives),
+            voice = voiceFromLeaf(leaf, waveCache, id, record.waveArchives),
           }
           prevHigh = high
         end

@@ -7,15 +7,17 @@
 -- key u8, four ADSR u8s, pan u8); DIRECTPCM's two words remain raw direct-memory
 -- parameters, never SWAR/member identity. Drum sets (0x10) are min/max keys plus one
 -- 12-byte SNDInstData leaf per key; key splits (0x11) are eight split-key
--- bytes plus leaves that stop at the first zero key. Type-0 records are
--- illegal instruments (the player fails notes on them) and are dropped;
--- type 5 DUMMY has no playable parameters; unsupported types are build
--- failures with provenance. Pure domain module.
+-- bytes plus leaves that stop at the first zero key. Direct type-0 records
+-- are illegal instruments and are dropped, while nested type-0 leaves are
+-- structurally valid silent selections. Type 5 DUMMY has no playable
+-- parameters; unsupported types are build failures with provenance. Pure
+-- domain module.
 
 local Errors = require("libs.errors.src.Errors")
 
 local Sbnk = {}
 
+Sbnk.TYPE_ILLEGAL = 0
 Sbnk.TYPE_PCM = 1
 Sbnk.TYPE_PSG = 2
 Sbnk.TYPE_NOISE = 3
@@ -88,6 +90,7 @@ local function readLeaf(bytes, offset, size, source)
     and recordType ~= Sbnk.TYPE_NOISE
     and recordType ~= Sbnk.TYPE_DIRECTPCM
     and recordType ~= Sbnk.TYPE_DUMMY
+    and recordType ~= Sbnk.TYPE_ILLEGAL
   then
     fail("SBNK_UNSUPPORTED_INSTRUMENT", "unsupported instrument leaf type", {
       source = source,
@@ -95,7 +98,7 @@ local function readLeaf(bytes, offset, size, source)
       type = recordType,
     })
   end
-  if recordType == Sbnk.TYPE_DUMMY then
+  if recordType == Sbnk.TYPE_DUMMY or recordType == Sbnk.TYPE_ILLEGAL then
     return { type = recordType }
   end
   return {
@@ -126,7 +129,7 @@ local function _decode(bytes, context)
     local packed = u32At(bytes, ENTRY_TABLE_OFFSET + program * 4, source)
     local recordType = packed % 256
     local offset = math.floor(packed / 256)
-    if recordType == 0 then
+    if recordType == Sbnk.TYPE_ILLEGAL then
       -- illegal record: notes on this program are silent
     elseif
       recordType == Sbnk.TYPE_PCM
