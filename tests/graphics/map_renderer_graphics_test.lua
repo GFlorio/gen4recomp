@@ -699,7 +699,7 @@ local function mixedItem(mesh, image)
   }
 end
 
--- The central turbine-diagnosis regression (spec: a MODULATE polygon at
+-- The central regression (a MODULATE polygon at
 -- polygon alpha 31 whose texture mixes fully opaque, fully transparent, and
 -- partial texels must split into an opaque semantic/color subpass and a
 -- translucent color-only subpass by the fragment's own exact final alpha5,
@@ -2560,7 +2560,7 @@ function T.edge_marked_pixel_is_fogged_after_edge_rgb_replacement(scope)
   Assert.near(out[3], 6 / 63, 1 / 255)
 end
 
--- The exact ordering contract (spec: fog(mix(scene, edge, coverage)), never
+-- The exact ordering contract (fog(mix(scene, edge, coverage)), never
 -- mix(fog(scene), edge, coverage) or mix(scene, fog(edge), coverage)) needs
 -- AA coverage enabled (a real 0.5 mix, not a flat replacement) and three
 -- mutually distinct scene/edge/fog colors to tell all three candidate
@@ -4504,6 +4504,31 @@ function T.presentation_depth_writes_keep_the_near_fogged_sprite_visible(scope)
   Assert.near(pixel[2], 0, 1 / 255, "the far sprite cannot overwrite the near depth")
   Assert.near(pixel[3], 1, 1 / 255, "the near fogged sprite remains blue despite zero alpha")
   Assert.near(pixel[4], 0, 1 / 255, "the near fog result alpha is preserved")
+end
+
+function T.presentation_cutout_holes_remain_world_pixels_under_direct_replace(scope)
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local backdrop = presentationSprite(scope, presentationQuadMesh(scope, -0.75), solidAlphaImage(scope, 0, 220, 0, 255))
+  local mesh = scope:own(syntheticMesh({
+    { -1, -1, -0.25, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, -1, -0.25, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 1, -0.25, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, -1, -0.25, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 1, 1, -0.25, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { -1, 1, -0.25, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+  local data = love.image.newImageData(2, 1)
+  data:setPixel(0, 0, 1, 0, 0, 0)
+  data:setPixel(1, 0, 1, 0, 0, 1)
+  local image = scope:own(love.graphics.newImage(data))
+  image:setFilter("nearest", "nearest")
+  local sprite = presentationSprite(scope, mesh, image)
+
+  local pixels = renderPresentationCase(scope, renderer, emptyRuntime(), {}, { backdrop, sprite })
+  local holeR, holeG = pixels:getPixel(300, 240)
+  local solidR, solidG = pixels:getPixel(340, 240)
+  Assert.isTrue(holeG > 0.7 and holeR < 0.1, "an alpha5-zero cutout texel leaves the world untouched")
+  Assert.isTrue(solidR > 0.7 and solidG < 0.1, "an accepted cutout texel replaces the world")
 end
 
 return GraphicsSmoke.suite(T)
