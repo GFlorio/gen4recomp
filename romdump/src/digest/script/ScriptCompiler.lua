@@ -19,6 +19,7 @@ local Coverage = require("romdump.src.digest.script.Coverage")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
 local Hashing = require("romdump.src.digest.Hashing")
 local ScriptCache = require("libs.assets.src.ScriptCache")
+local ScriptIdentity = require("libs.assets.src.ScriptIdentity")
 local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 
 local ScriptCompiler = {}
@@ -44,21 +45,15 @@ end
 -- under romdump/src forces a full derived rebuild, so generated script output
 -- changes never need a manual version bump.
 
--- The public resource id for one script index : the
--- curated ids live in the data manifest; standard-script members resolve
--- through the std catalog to `common.<name>`; everything else stays
--- mechanical.
-local CURATED_IDS = require("romdump.src.reference.hgss.script_ids")
+-- The public resource id for one script index: standard-script members
+-- resolve through the std catalog to `common.<name>`; ordinary scripts use
+-- the shared mechanical identity.
 
 ---@param member integer
 ---@param scriptIndex integer
 ---@param stdCatalog table|nil
 ---@return string
 function ScriptCompiler.publicId(member, scriptIndex, stdCatalog)
-  local curated = CURATED_IDS[member] and CURATED_IDS[member][scriptIndex]
-  if curated ~= nil then
-    return curated
-  end
   if stdCatalog ~= nil then
     for _, group in ipairs(stdCatalog.groups) do
       if group.member == member then
@@ -69,7 +64,7 @@ function ScriptCompiler.publicId(member, scriptIndex, stdCatalog)
       end
     end
   end
-  return string.format("vanilla.hgss.scr_seq.%04d.script_%03d", member, scriptIndex)
+  return ScriptIdentity.formatVanilla(member, scriptIndex)
 end
 
 -- Translate one script into a DSL resource.

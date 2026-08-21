@@ -61,7 +61,6 @@ local FieldScenarioManifest = require("data.manifests.field_scenario")
 local FieldPlayerManifest = require("data.manifests.field_player")
 local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
-local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
 ---@class FieldRuntimeOptions
 ---@field resumeSave boolean?
@@ -565,16 +564,14 @@ function FieldRuntime:_load()
     local audioService = self:_composeAudio(cacheFs, restoredWorld)
 
     -- The field-script platform (the script override system): registry over
-    -- the compiled cache + data/scripts/overrides, composition, bindings,
-    -- scheduler, and interaction client. Bound interactions run through the
-    -- scheduler; the binding audit rejects unbound interactable events at
-    -- construction. A resumed save reattaches its script bucket.
+    -- the compiled cache + data/scripts/overrides, composition, mechanical
+    -- bindings, scheduler, and interaction client. A resumed save reattaches
+    -- its script bucket.
     -- The override files live in the repo tree outside the LÖVE source dir,
     -- so the loader reads them through the io-backed repo filesystem.
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
       overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),
-      bindingsManifest = BindingsManifest,
       eventState = self.eventState,
       actors = self.actors,
       player = self.player,

@@ -1,14 +1,9 @@
--- Game-side field-script platform construction (the script override system):
--- builds the registry from the compiled script cache plus the checked-in
--- `data/scripts/overrides` layer, the composition, the bindings manifest, the
--- full task registry, the service adapters over the game's field objects, and
--- the scheduler + interaction client the session steps. FieldState wires the
--- result into FieldSession. Every interactable event of the bound maps is
--- audited against the manifest at construction; there is no runtime fallback
--- for unmapped intents.
+-- Game-side field-script platform construction: builds the registry from the
+-- compiled script cache plus explicit overrides, composition, the full task
+-- registry, service adapters, and the scheduler + interaction client the
+-- session steps. FieldState wires the result into FieldSession.
 
 local Bindings = require("libs.engine.src.script.Bindings")
-local BindingAudit = require("libs.engine.src.script.BindingAudit")
 local Composition = require("libs.engine.src.script.Composition")
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -24,7 +19,6 @@ local RegistryWarmup = require("libs.engine.src.script.RegistryWarmup")
 local WorldState = require("libs.engine.src.script.WorldState")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 
 -- Every task implementation the runtime can create, registered into the
@@ -144,7 +138,6 @@ end
 ---@class FieldScriptsOptions
 ---@field cacheFs CacheFs
 ---@field overrideFs table read-shaped filesystem for data/scripts/overrides
----@field bindingsManifest table
 ---@field eventState FieldEventState
 ---@field actors FieldActorManager
 ---@field player FieldPlayer
@@ -191,20 +184,13 @@ local FieldScripts = {}
 FieldScripts.__index = FieldScripts
 
 -- opts.overrideFs: love.filesystem-shaped read access for the repo
--- `data/scripts/overrides` tree (the game mounts `data` before calling);
--- the loader enumerates overrides through the checked-in manifest.
+-- `data/scripts/overrides` tree (the game mounts `data` before calling).
 ---@param opts FieldScriptsOptions
 ---@return FieldScripts
 function FieldScripts.new(opts)
   assert(
-    type(opts) == "table"
-      and opts.cacheFs
-      and opts.overrideFs
-      and opts.bindingsManifest
-      and opts.eventState
-      and opts.actors
-      and opts.player,
-    "field scripts require cache, overrides, bindings, world, and actors"
+    type(opts) == "table" and opts.cacheFs and opts.overrideFs and opts.eventState and opts.actors and opts.player,
+    "field scripts require cache, overrides, world, and actors"
   )
   assert(
     opts.dialogue and opts.messageProvider and opts.layout and opts.fontDef,
@@ -243,13 +229,7 @@ function FieldScripts.new(opts)
     })
   end
   local composition = Composition.new(registry)
-  local bindings = Bindings.new(opts.bindingsManifest)
-  -- Load-time audit: every interactable event of every bound map must be
-  -- bound by the manifest (or be noninteractive by the zone-event data).
-  -- There is no runtime fallback for an unbound interaction.
-  BindingAudit.check(opts.bindingsManifest, function(mapId)
-    return opts.cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-  end)
+  local bindings = Bindings.new()
 
   local worldState = WorldState.new({
     eventState = opts.eventState,

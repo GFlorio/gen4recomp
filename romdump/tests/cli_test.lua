@@ -16,7 +16,6 @@ local COMMANDS = {
   { flag = "--inspect", argv = { "--inspect" }, command = "inspect" },
   { flag = "--inspect-sbc", argv = { "--inspect-sbc" }, command = "inspect-sbc" },
   { flag = "--inspect-actors", argv = { "--inspect-actors" }, command = "inspect-actors" },
-  { flag = "--gen-script-overrides", argv = { "--gen-script-overrides" }, command = "gen-script-overrides" },
 }
 
 function T.defaults_are_all_off()

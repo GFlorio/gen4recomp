@@ -1,11 +1,8 @@
--- Interaction binding tests : the binding
--- manifest, trigger descriptors, interaction resolution order, the
--- interaction client's started/blocked/unmapped outcomes, the actor world
--- adapter contract, and the session-level script phase. The contract:
--- the target script IDs start from actual field interactions.
+-- Interaction binding tests: mechanical script identity derivation, trigger
+-- descriptors, interaction client outcomes, actor-world adaptation, and the
+-- session-level script phase.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -20,29 +17,7 @@ local FieldSession = require("libs.engine.src.FieldSession")
 
 local T = {}
 
-local MANIFEST = {
-  maps = {
-    [57] = {
-      objects = { obj_T20_gswoman1 = "new_bark.npc.woman_1" },
-      backgrounds = {},
-    },
-    [58] = {
-      objects = { obj_T20R0101_doctor = "elms_lab.elm" },
-      backgrounds = { [9] = "new_bark.lab_sign" },
-    },
-  },
-}
-
-local function throwsCode(code, fn)
-  local ok, err = pcall(fn)
-  Assert.isFalse(ok, "expected a raised error")
-  Assert.isTrue(Errors.is(err), "expected Errors object, got: " .. tostring(err))
-  ---@cast err Errors.Error
-  Assert.equal(err.code, code)
-  return err
-end
-
-local function objectIntent(mapId, actorId, playerFacing)
+local function objectIntent(mapId, actorId, playerFacing, rawScriptId)
   return {
     kind = "object",
     mapId = mapId,
@@ -51,11 +26,13 @@ local function objectIntent(mapId, actorId, playerFacing)
     targetFieldX = 4,
     targetFieldZ = 5,
     playerFacing = playerFacing or "north",
+    scriptBankId = 842,
+    scriptId = rawScriptId == nil and 2 or rawScriptId,
     object = { actorId = actorId, objectEventId = 3, spriteId = 1 },
   }
 end
 
-local function backgroundIntent(mapId, eventIndex, playerFacing)
+local function backgroundIntent(mapId, eventIndex, playerFacing, rawScriptId)
   return {
     kind = "background",
     mapId = mapId,
@@ -64,6 +41,8 @@ local function backgroundIntent(mapId, eventIndex, playerFacing)
     targetFieldX = 6,
     targetFieldZ = 3,
     playerFacing = playerFacing or "south",
+    scriptBankId = 842,
+    scriptId = rawScriptId == nil and 2 or rawScriptId,
     background = { eventIndex = eventIndex, type = 1, direction = 4 },
   }
 end
@@ -88,139 +67,48 @@ local function script(id, steps)
   return S.script({ api = 1, id = id, steps = steps })
 end
 
--- 1. Object binding resolves to the stable public script id and builds the
--- trigger descriptor.
+-- Object binding derives the stable public script id from the raw source
+-- identity carried by the intent.
 T["object binding and trigger"] = function()
-  local bindings = Bindings.new(MANIFEST)
-  Assert.equal(bindings:scriptFor(57, "object", "obj_T20_gswoman1"), "new_bark.npc.woman_1")
+  local bindings = Bindings.new()
   local hit = bindings:resolveIntent(objectIntent(57, "obj_T20_gswoman1", "north"), "north")
   local trigger = assert(hit).trigger
   Assert.equal(trigger.kind, "object")
   Assert.equal(trigger.mapId, 57)
   Assert.equal(trigger.objectId, "obj_T20_gswoman1")
-  Assert.equal(trigger.scriptId, "new_bark.npc.woman_1")
+  Assert.equal(trigger.scriptId, "vanilla.hgss.scr_seq.0842.script_001")
   Assert.equal(trigger.selfActor, "obj_T20_gswoman1")
   Assert.equal(trigger.playerFacing, "north")
 end
 
--- 2. Background binding: the exact background array index lives in the
--- manifest; public code uses the stable id.
+-- Background binding uses the same mechanical identity rule.
 T["background binding and trigger"] = function()
-  local bindings = Bindings.new(MANIFEST)
-  Assert.equal(bindings:scriptFor(58, "background", 9), "new_bark.lab_sign")
+  local bindings = Bindings.new()
   local hit = bindings:resolveIntent(backgroundIntent(58, 9, "south"), "south")
   local trigger = assert(hit).trigger
   Assert.equal(trigger.kind, "background")
   Assert.equal(trigger.backgroundId, 9)
   Assert.equal(trigger.selfActor, nil)
-  Assert.equal(trigger.scriptId, "new_bark.lab_sign")
+  Assert.equal(trigger.scriptId, "vanilla.hgss.scr_seq.0842.script_001")
 end
 
--- 3. Unbound events resolve to nil (no-script event).
-T["unbound event"] = function()
-  local bindings = Bindings.new(MANIFEST)
-  Assert.isNil(bindings:resolveIntent(objectIntent(58, "obj_unknown", "north"), "north"))
-  Assert.isNil(bindings:resolveIntent(backgroundIntent(58, 0, "south"), "south"))
-  Assert.isNil(bindings:scriptFor(57, "background", 0))
-end
-
--- 4. All bound ids are enumerable.
-T["bound script ids"] = function()
-  local bindings = Bindings.new(MANIFEST)
-  Assert.deepEqual(bindings:allScriptIds(), {
-    "elms_lab.elm",
-    "new_bark.lab_sign",
-    "new_bark.npc.woman_1",
-  })
-end
-
--- 5. The manifest loader is strict: a missing maps array is a schema error,
--- never an empty binding set.
-T["manifest without maps is rejected"] = function()
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({})
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = "not a table" })
-  end)
-end
-
--- 6. Every bound map must carry its required objects and backgrounds arrays:
--- a missing array is a schema error, never an implicit empty one.
-T["map without required binding arrays is rejected"] = function()
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { backgrounds = {} } } })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {} } } })
-  end)
-end
-
--- 7. Only dispatched trigger kinds may be bound. The coordinate and
--- map-lifecycle kinds have no dispatcher: carrying one is a schema error at
--- load, not data the loader silently accepts.
-T["undispatched trigger kinds are rejected at load"] = function()
-  for _, section in ipairs({ "coordinates", "map_init", "map_enter", "map_resume" }) do
-    throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-      Bindings.new({ maps = { [57] = { objects = {}, backgrounds = {}, [section] = {} } } })
-    end)
-  end
-end
-
--- 8. Binding keys and targets must have the required types: string object
--- keys, non-negative integer background keys, string targets, integer map
--- ids.
-T["invalid binding key and target types are rejected"] = function()
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = { [0] = "a" }, backgrounds = {} } } })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [-1] = "a" } } } })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [0.5] = "a" } } } })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = { ["map:57:object:0"] = 7 }, backgrounds = {} } } })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { ["57"] = { objects = {}, backgrounds = {} } } })
-  end)
-end
-
--- 9. An object binding key identifies one event and may not repeat across the
--- manifest: the same key bound twice is a duplicate, the same key bound to
--- two targets is a conflict.
-T["duplicate and conflicting bindings are rejected"] = function()
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      maps = {
-        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
-        [60] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
-      },
-    })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      maps = {
-        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
-        [60] = { objects = { ["map:57:object:0"] = "b" }, backgrounds = {} },
-      },
-    })
-  end)
+-- Raw script id zero remains noninteractive.
+T["zero raw script id is unbound"] = function()
+  local bindings = Bindings.new()
+  Assert.isNil(bindings:resolveIntent(objectIntent(57, "obj_unknown", "north", 0), "north"))
 end
 
 -- 10. The interaction client starts a bound script in the trigger tick.
 T["client starts script in trigger tick"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.setVar({ variable = "VAR_SCENE", value = 1 }),
     S.waitTicks({ ticks = 1 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
   local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
+    bindings = Bindings.new(),
     compose = function(id)
       return p.composition:effective(id)
     end,
@@ -234,20 +122,20 @@ T["client starts script in trigger tick"] = function()
     "a newly resolved interaction may execute during its trigger tick"
   )
   local instance = assert(p.scheduler:instances()[1])
-  Assert.equal(instance.trigger.scriptId, "new_bark.npc.woman_1")
+  Assert.equal(instance.trigger.scriptId, "vanilla.hgss.scr_seq.0842.script_001")
   Assert.equal(instance.trigger.selfActor, "obj_T20_gswoman1")
 end
 
 -- 11. A second interaction while a foreground root owns the field is blocked.
 T["interaction while locked"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.waitTicks({ ticks = 5 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
   local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
+    bindings = Bindings.new(),
     compose = function(id)
       return p.composition:effective(id)
     end,
@@ -268,7 +156,7 @@ end
 T["unmapped intent falls through"] = function()
   local p = platform()
   local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
+    bindings = Bindings.new(),
     compose = function(id)
       return p.composition:effective(id)
     end,
@@ -412,7 +300,7 @@ end
 -- releasing locks and tasks.
 T["map transition cancels scripts"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.lockAll(),
     S.waitTicks({ ticks = 5 }),
     S.stop(),
@@ -440,14 +328,14 @@ end
 -- foreground script owns the field (player movement suppressed).
 T["session script phase"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.setVar({ variable = "VAR_SCENE", value = 1 }),
     S.waitTicks({ ticks = 1 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
   local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
+    bindings = Bindings.new(),
     compose = function(id)
       return p.composition:effective(id)
     end,
@@ -559,7 +447,7 @@ end
 -- has issued any explicit lock: foreground ownership is field ownership.
 T["foreground root locks movement without an explicit lock"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.waitTicks({ ticks = 2 }),
     S.stop(),
   })

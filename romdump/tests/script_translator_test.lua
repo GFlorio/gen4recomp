@@ -90,7 +90,7 @@ T["emitter determinism and validation"] = function()
   local _, steps, report = translate(labSignMember(), 843, 0)
   local resource = {
     api = 1,
-    id = "new_bark.lab_sign",
+    id = "vanilla.hgss.scr_seq.0843.script_009",
     metadata = { coverage = { complete = report.complete, unsupportedCount = report.unsupportedCount } },
     steps = steps,
   }

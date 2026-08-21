@@ -208,16 +208,13 @@ event whose raw direction passes the pinned assembly's compatibility table
 (raw 4 wildcard; 0/1/2/3 accept {0,6}/{3,6}/{2,5}/{1,5}), then nothing.
 Type-2 background events (hidden items) are skipped because their collection
 flags are not tracked yet, and script-id-0 events are noninteractive (the
-bank-script-0 no-interaction marker, matching the binding audit). A resolved
-intent goes to
-`ScriptInteractionClient`, which looks the intent up in the bindings manifest,
-composes the bound script, and starts it as the foreground root on the scheduler
-so it runs during the trigger tick. There is no fallback client: a load-time
-binding audit (`BindingAudit`, run in `FieldScripts` construction) validates
-every interactable object/background event of every bound map against the
-manifest and rejects the composition when any event is unbound or the manifest
-names a map with no compiled data. An unmapped intent at runtime is therefore
-a composition fault, never a silently absorbed Action press.
+bank-script-0 no-interaction marker). A resolved intent goes to
+`ScriptInteractionClient`, which derives the canonical generated script id from
+the intent's script bank and raw script id, composes the result, and starts it
+as the foreground root on the scheduler so it runs during the trigger tick.
+There is no fallback client: a missing generated composition is a runtime
+composition fault, never a silently absorbed Action press. Explicit test or
+future overrides remain a separate last-mile Registry layer.
 
 ## Raw dump vs. derived data
 

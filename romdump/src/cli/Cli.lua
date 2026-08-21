@@ -14,7 +14,7 @@ Cli.EXIT_USAGE = 2
 
 Cli.USAGE = "usage: love romdump/ [--import-rom <path>] [--forcedump <path>] [--build-cache [path]]"
   .. " [--check-dump] [--check-derived-cache] [--inspect] [--inspect-sbc] [--inspect-actors]"
-  .. " [--gen-script-overrides] [--allow-compile-exclusions]"
+  .. " [--allow-compile-exclusions]"
 
 -- Every command flag maps to the command it selects; --import-rom,
 -- --build-cache, and --forcedump have their own loop branches because they
@@ -28,7 +28,6 @@ local COMMAND_FLAGS = {
   ["--inspect"] = "inspect",
   ["--inspect-sbc"] = "inspect-sbc",
   ["--inspect-actors"] = "inspect-actors",
-  ["--gen-script-overrides"] = "gen-script-overrides",
 }
 
 -- The value-taking flags require the next token to be a path, not another

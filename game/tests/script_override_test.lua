@@ -1,93 +1,188 @@
--- Checked-in generated overrides must retain newly supported source commands
--- as semantic operations instead of hiding them behind placeholder dialogue.
+-- Script composition contracts : production uses generated vanilla resources,
+-- ordinary map intents derive their ids from source identity, explicit
+-- test-owned overrides retain precedence, and unsupported generated nodes
+-- remain scheduler faults.
 
 local Assert = require("tests.support.Assert")
+local CacheFs = require("libs.storage.src.CacheFs")
+local FakeCache = require("tests.support.FakeCache")
+local ScriptCache = require("libs.assets.src.ScriptCache")
+local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
+local Registry = require("libs.engine.src.script.Registry")
+local Composition = require("libs.engine.src.script.Composition")
+local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
+local Bindings = require("libs.engine.src.script.Bindings")
+local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
+local Scheduler = require("libs.engine.src.script.Scheduler")
+local FakeServices = require("tests.support.script.FakeServices")
+local RepoFs = require("game.src.game.RepoFs")
+local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
+local S = require("gen4.script")
 
-local T = {}
-
-local OVERRIDE_PATHS = {
-  "data/scripts/overrides/vanilla.hgss.scr_seq.0842.script_017.lua",
-  "data/scripts/overrides/vanilla.hgss.scr_seq.0843.script_012.lua",
-  "data/scripts/overrides/vanilla.hgss.scr_seq.0843.script_013.lua",
-  "data/scripts/overrides/vanilla.hgss.scr_seq.0845.script_001.lua",
+local T = {
+  metadata = { tags = { "script", "composition", "vanilla" } },
+  tests = {},
 }
 
-local VISIBILITY_BY_OPCODE = { [746] = false, [747] = true }
-
-local function assertAuxiliaryUiOperations(value, moduleName, seen)
-  if type(value) ~= "table" then
-    return
-  end
-  local opcodes = value.provenance and value.provenance.opcodes
-  if opcodes then
-    for _, opcode in pairs(opcodes) do
-      if VISIBILITY_BY_OPCODE[opcode] ~= nil or opcode == 746 then
-        Assert.equal(value.op, "set_auxiliary_ui_visible", moduleName .. " has an incorrect auxiliary UI operation")
-        Assert.equal(
-          value.visible,
-          VISIBILITY_BY_OPCODE[opcode],
-          moduleName .. " has an incorrect auxiliary UI visibility"
-        )
-        seen[opcode] = true
-      end
-    end
-  end
-  for _, child in pairs(value) do
-    assertAuxiliaryUiOperations(child, moduleName, seen)
-  end
-end
-
-function T.supported_auxiliary_ui_opcodes_are_semantic_operations_in_overrides()
-  local seen = {}
-  for _, path in ipairs(OVERRIDE_PATHS) do
-    local chunk = assert(loadfile(path))
-    assertAuxiliaryUiOperations(chunk(), path, seen)
-  end
-  Assert.isTrue(seen[746])
-  Assert.isTrue(seen[747])
-end
-
--- The signpost overrides' std_signpost call must be the real call_common
--- node: with opcode 61 classified, common.signpost is fully supported, so
--- the generator must not collapse the call into an unsupported node
--- (coverage complete, zero unsupported nodes).
-local SIGNPOST_OVERRIDE_PATHS = {
-  "data/scripts/overrides/vanilla.hgss.scr_seq.0842.script_007.lua",
-  "data/scripts/overrides/vanilla.hgss.scr_seq.0842.script_013.lua",
-  "data/scripts/overrides/vanilla.hgss.scr_seq.0842.script_014.lua",
-  "data/scripts/overrides/vanilla.hgss.scr_seq.0842.script_016.lua",
+local PRODUCTION_IDS = {
+  "demo.signpost",
+  "elms_lab.elm",
+  "vanilla.hgss.scr_seq.0842.script_017",
 }
 
-local function assertSignpostCallUncollapsed(value, moduleName, seen)
-  if type(value) ~= "table" then
-    return
+local function productionFs()
+  return RepoFs.new(love.filesystem.getSourceBaseDirectory())
+end
+
+local function generatedResource(id)
+  return S.script({ api = 1, id = id, steps = { S.stop() } })
+end
+
+local function scriptText(id, step)
+  return string.format(
+    'local S = require("gen4.script")\nreturn S.script { api = 1, id = %q, steps = { %s } }\n',
+    id,
+    step
+  )
+end
+
+local function cacheWithScripts(files)
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  cache:write(ScriptCache.markerPath(), "synthetic-script-cache")
+  local resources = {}
+  for id in pairs(files) do
+    resources[#resources + 1] = { id = id }
   end
-  local opcodes = value.provenance and value.provenance.opcodes
-  if opcodes then
-    for _, opcode in pairs(opcodes) do
-      if opcode == 20 then
-        Assert.equal(value.op, "call_common", moduleName .. " must keep the real std_signpost call")
-        Assert.equal(value.target, "common.signpost", moduleName .. " must target the real common script")
-        Assert.isNil(value.originalName, moduleName .. " must not collapse the std_signpost call")
-        seen[#seen + 1] = value.target
+  table.sort(resources, function(a, b)
+    return a.id < b.id
+  end)
+  cache:writeLua(ScriptCache.indexPath(), {
+    schema = ScriptCache.INDEX_SCHEMA,
+    resources = resources,
+  })
+  for id, content in pairs(files) do
+    cache:write(ScriptCache.scriptPath(id), content)
+  end
+  return cache
+end
+
+local function overrideFs(files)
+  local ids = {}
+  for id in pairs(files) do
+    ids[#ids + 1] = id
+  end
+  table.sort(ids)
+  local manifest = "return {"
+  for _, id in ipairs(ids) do
+    manifest = manifest .. string.format(" %q,", id)
+  end
+  manifest = manifest .. " }\n"
+  return {
+    read = function(_, path)
+      if path == ScriptOverrides.MANIFEST then
+        return manifest
       end
-    end
+      local id = path:match("^data/scripts/overrides/(.+)%.lua$")
+      return id and files[id] or nil
+    end,
+  }
+end
+
+function T.tests.production_registry_uses_generated_resources()
+  local registry = Registry.new()
+  for _, id in ipairs(PRODUCTION_IDS) do
+    registry:installBase(id, generatedResource(id), "generated")
   end
-  for _, child in pairs(value) do
-    assertSignpostCallUncollapsed(child, moduleName, seen)
+
+  local installed = ScriptLoader.installOverrides(registry, productionFs())
+  Assert.equal(#installed, 0, "production must not install checked-in script overrides")
+  for _, id in ipairs(PRODUCTION_IDS) do
+    local resource = assert(registry:base(id))
+    Assert.isFalse(resource.metadata ~= nil and resource.metadata.override == true)
   end
 end
 
-function T.signpost_overrides_keep_the_real_std_signpost_call()
-  local seen = {}
-  for _, path in ipairs(SIGNPOST_OVERRIDE_PATHS) do
-    local chunk = assert(loadfile(path))
-    local resource = chunk()
-    assertSignpostCallUncollapsed(resource, path, seen)
-    Assert.equal(resource.metadata.coverage.complete, true, path .. " must report complete coverage")
-    Assert.equal(resource.metadata.coverage.unsupportedCount, 0, path .. " must have no unsupported nodes")
-  end
-  Assert.equal(#seen, 4, "every signpost override must keep its std_signpost call")
+function T.tests.map_intents_match_the_compiler_canonical_id()
+  local expected = "vanilla.hgss.scr_seq.0842.script_001"
+  Assert.equal(ScriptCompiler.publicId(842, 1), expected)
+
+  local bindings = Bindings.new()
+  local intent = {
+    kind = "object",
+    mapId = 60,
+    scriptBankId = 842,
+    scriptId = 2,
+    playerFacing = "north",
+    object = { actorId = "map:60:object:1", objectEventId = 1, spriteId = 1 },
+  }
+  local hit = assert(bindings:resolveIntent(intent, intent.playerFacing), "map intent must resolve mechanically")
+  Assert.equal(hit.scriptId, expected)
+  Assert.equal(hit.trigger.scriptId, expected)
 end
 
-return { tests = T }
+function T.tests.zero_raw_script_id_is_not_interactive()
+  local bindings = Bindings.new()
+  local intent = {
+    kind = "background",
+    mapId = 60,
+    scriptBankId = 842,
+    scriptId = 0,
+    playerFacing = "north",
+    background = { eventIndex = 0, type = 1, direction = 4 },
+  }
+  Assert.isNil(bindings:resolveIntent(intent, intent.playerFacing))
+end
+
+function T.tests.synthetic_override_keeps_explicit_precedence()
+  local id = "test.generated.script"
+  local generated = cacheWithScripts({
+    [id] = scriptText(id, "S.stop()"),
+  })
+  local withoutOverride = ScriptLoader.buildRegistry(generated, overrideFs({}))
+  Assert.equal(assert(withoutOverride:base(id)).steps[1].op, "stop")
+
+  local withOverride = ScriptLoader.buildRegistry(
+    generated,
+    overrideFs({
+      [id] = scriptText(id, "S.yieldTick()"),
+    })
+  )
+  Assert.equal(assert(withOverride:base(id)).steps[1].op, "yield_tick")
+end
+
+function T.tests.generated_unsupported_node_is_a_scheduler_fault()
+  local id = "vanilla.hgss.scr_seq.0842.script_016"
+  local cache = cacheWithScripts({
+    [id] = scriptText(id, 'S.unsupported({ command = 999, originalName = "SyntheticUnsupported" })'),
+  })
+  local registry = ScriptLoader.buildRegistry(cache, productionFs())
+  local composition = Composition.new(registry)
+  local services = FakeServices.new()
+  ---@diagnostic disable-next-line: missing-fields -- focused scheduler test double
+  services.signpost = {
+    setSourceAppearance = function() end,
+    setCommand = function() end,
+    isCommandIdle = function()
+      return true
+    end,
+  }
+  local scheduler = Scheduler.new({
+    services = services,
+    taskRegistry = TaskRegistry.new(),
+    resolveComposition = function(scriptId)
+      return composition:effective(scriptId)
+    end,
+  })
+  local composed = assert(composition:effective(id))
+  local instanceId = scheduler:createForeground(composed, nil, 100)
+  scheduler:step(100, nil)
+
+  local fault = assert(services.events:eventFor("script.error", instanceId))
+  Assert.equal(fault.code, "SCRIPT_UNSUPPORTED_REACHABLE")
+  Assert.equal(fault.context.scriptId, id)
+  Assert.isNil(scheduler:foregroundEnvironmentId(), "unsupported execution must release foreground ownership")
+  Assert.equal(#scheduler:instances(), 0, "faulted root must be cleaned up")
+  Assert.equal(#scheduler:tasks(), 0, "unsupported execution must not leave tasks behind")
+end
+
+return T
