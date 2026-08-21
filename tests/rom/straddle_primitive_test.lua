@@ -1,10 +1,9 @@
 -- ROM-conformance census behind the straddling-primitive contract: the real
 -- HGSS field corpus contains primitives that span a mid-run matrix boundary,
--- so the dynamic path carries their per-vertex source provenance instead of
--- rendering them rigidly under the boundary's new source. The census pins
+-- so the dynamic compiler records their source provenance. The census pins
 -- the exact straddle population of the heartgold dump (identified by
--- checksum), and every straddling mesh record must carry the per-vertex
--- source provenance the runtime needs to reproduce the DS per-vertex bend.
+-- checksum), and every straddling mesh record must carry the source-boundary
+-- metadata.
 
 local Assert = require("tests.support.Assert")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
@@ -32,8 +31,8 @@ local function censusStraddles(romFs, alias)
         assert(Nsbmd.decode(assert(modelNarc:readMember(memberId)), { alias = alias, memberId = memberId })).models[1]
       local meshes, straddling = MeshCompiler.compileDynamic(model)
       -- Every straddle a shape reports is represented by exactly one
-      -- per-vertex provenance record on the compiled mesh that carries its
-      -- leading vertices: the leading count and the pre-boundary source.
+      -- source-boundary provenance record on the compiled mesh: the leading
+      -- count and the pre-boundary source.
       local records = 0
       local sum = 0
       ---@type { straddle?: { leading: integer, source: table|string } }[]

@@ -31,15 +31,12 @@ PoseContract.DRAW = "draw"
 
 -- The per-mesh draw record of a Nitro pose (PoseState.drawMatrices): the
 -- tile-space matrix, its linear part, the transform mode, and the captured
--- billboard base. A straddling mesh additionally carries the pre-boundary
--- matrix its leading vertices were submitted under (`straddle`: the draw
--- path bends the first `leading` vertices per-vertex, exactly like the DS
--- geometry engine).
+-- billboard base. Compiled source-boundary provenance remains in backend
+-- mesh records, but is not part of the evaluated pose.
 ---@class PoseDrawMatrix
 ---@field position number[]
 ---@field direction number[]
 ---@field transformMode TransformMode
 ---@field baseTransform number[]|nil
----@field straddle { leading: integer, position: number[], direction: number[] }|nil
 
 return PoseContract

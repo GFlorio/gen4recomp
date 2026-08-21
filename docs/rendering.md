@@ -468,8 +468,9 @@ Dynamic geometry whose source provenance straddles a matrix submission boundary
 is presented as a whole resident mesh under its current/post-boundary transform.
 This deliberately gives up the DS-exact split transform for that exceptional
 geometry, but preserves ordinary billboard placement and avoids per-frame vertex
-readback and temporary mesh allocation. The pose backend may retain the exact
-source provenance; it is not part of the renderer-facing item contract.
+readback and temporary mesh allocation. Compiled backend records retain the
+source provenance for the asset boundary; evaluated poses and renderer-facing
+items do not resolve or carry it.
 
 Following NitroSystem `sbc.c`, the resolved matrix keeps the base translation and
 the magnitude of each base basis vector and discards the base rotation:

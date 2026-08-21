@@ -22,8 +22,8 @@
 -- lower-pixel coverage). Both candidates share the center state's single
 -- depth/fog state; fog alpha is resolved before the mix.
 --
--- A straddling draw item retains its exact source-side provenance but is
--- presented as a whole resident mesh under its current transform. Resource
+-- A straddling draw is presented as a whole resident mesh under its current
+-- transform. Resource
 -- construction is transactional: a failed shader,
 -- canvas allocation, or target configuration releases everything already
 -- created, and a canvas recreation keeps the previous target set usable until
@@ -35,7 +35,6 @@
 
 local RenderQueue = require("libs.engine.src.RenderQueue")
 local Matrix3 = require("libs.math.src.Matrix3")
-local Matrix4 = require("libs.math.src.Matrix4")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
