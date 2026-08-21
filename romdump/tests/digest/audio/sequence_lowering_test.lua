@@ -385,6 +385,21 @@ function T.conditional_terminators_keep_false_fallthrough()
   end
 end
 
+function T.conditional_open_track_does_not_decode_a_false_target()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 3 },
+    { op = "cmp_eq", var = 0, amount = 1 },
+    { op = "prefix", kind = "if", command = { op = "open_track", track = 1, target = { cmd = 5 } } },
+    { op = "fin" },
+    { op = "raw", bytes = "\x80\x80" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(#program.instructions, 3)
+  Assert.equal(program.instructions[2].op, "if")
+  Assert.equal(program.instructions[2].instruction.op, "open_track")
+  Assert.isNil(program.instructions[2].instruction.target)
+end
+
 -- RETURN with no active CALL/LOOP frame is a fallthrough in the ARM7
 -- interpreter, so commands after it remain part of the source program.
 function T.zero_depth_return_falls_through()

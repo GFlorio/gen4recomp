@@ -319,7 +319,10 @@ end
 
 local function _lower(bytes, identity, context)
   local source = context or "SSEQ"
-  local analysis = SequenceReachability.analyze(bytes, source)
+  local analysis, reachabilityErr = SequenceReachability.analyze(bytes, source)
+  if analysis == nil then
+    error(reachabilityErr)
+  end
   local dataOffset = analysis.dataOffset
   local entryOffset = analysis.entryOffset
   local trackMask = analysis.trackMask

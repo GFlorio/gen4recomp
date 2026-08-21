@@ -57,8 +57,10 @@ local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
 
   if opcode == 0x93 then
     addSuccessor(queue, nextOffset, stack)
-    branchTargets[command.offset] = true
-    addSuccessor(queue, dataOffset + command.target, {})
+    if not command.conditional then
+      branchTargets[command.offset] = true
+      addSuccessor(queue, dataOffset + command.target, {})
+    end
   elseif opcode == 0x94 then
     if command.conditional then
       skipped()
@@ -209,14 +211,15 @@ end
 
 ---@param bytes string
 ---@param context string?
----@return table
+---@return table?|nil
+---@return Errors.Error?|nil
 function SequenceReachability.analyze(bytes, context)
   local ok, result = pcall(_analyze, bytes, context)
   if ok then
     return result
   end
   if Errors.is(result) then
-    error(result)
+    return nil, result
   end
   error(result)
 end

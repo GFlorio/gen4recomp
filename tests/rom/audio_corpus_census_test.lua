@@ -115,7 +115,8 @@ function T.corpus_census_classifies_every_reachable_construct()
         initialVolumes[record.volume] = true
 
         local bytes = assert(sdat:readFile(record.fileId))
-        local analysis = SequenceReachability.analyze(bytes, "sequence " .. id)
+        local analysis, err = SequenceReachability.analyze(bytes, "sequence " .. id)
+        analysis = assert(analysis, Errors.format(err))
         local commands = {}
         local openTracks = {}
         for _, offset in ipairs(analysis.offsets) do
