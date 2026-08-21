@@ -107,7 +107,7 @@
 -- the live LFO parameters -- to its live voice handles
 -- immediately (the NNS TrackUpdateChannel delivery), and the mixer applies
 -- them at the next control step after the sequence portion of the same
--- sound interval. play(sequence, bank) starts an ordered sequence instance
+-- sound interval. play(handle, sequence, bank) starts an ordered sequence instance
 -- in its SDAT player's capacity without executing its entry program. Instances
 -- share the global track pool and physical mixer.
 
@@ -125,15 +125,20 @@ local bit = require("bit")
 ---@field private _seqPlayers table<integer, table?>
 ---@field private _freeSeqPlayerSlots integer[] FIFO of inactive physical slots
 ---@field private _trackPool table<integer, table?> concrete reusable track objects
+---@field private _handles table<table, boolean> handles created by this player
+---@field private _handleAttachments table<table, table?> current instance per handle
 ---@field private _soundPhase integer the one global 192 Hz sound-interval phase accumulator
 ---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider, observer: table? }): SequencePlayer
----@field play fun(self: SequencePlayer, sequence: table, bank: table)
+---@field createHandle fun(self: SequencePlayer): table
+---@field play fun(self: SequencePlayer, handle: table, sequence: table, bank: table): boolean
 ---@field render fun(self: SequencePlayer, frames: integer): integer[]
 ---@field stop fun(self: SequencePlayer)
 ---@field isPlaying fun(self: SequencePlayer): boolean
----@field setFader fun(self: SequencePlayer, playerId: integer, level: integer)
----@field pausePlayer fun(self: SequencePlayer, playerId: integer)
----@field resumePlayer fun(self: SequencePlayer, playerId: integer)
+---@field setHandleFader fun(self: SequencePlayer, handle: table, level: integer)
+---@field pauseHandle fun(self: SequencePlayer, handle: table)
+---@field resumeHandle fun(self: SequencePlayer, handle: table)
+---@field stopHandle fun(self: SequencePlayer, handle: table)
+---@field isHandlePlaying fun(self: SequencePlayer, handle: table): boolean
 
 local SequencePlayer = {}
 SequencePlayer.__index = SequencePlayer
@@ -171,6 +176,10 @@ local CONTROL_STACK_MAX = 3
 -- wait gate. A program that exceeds it is an authored runaway (e.g. a jump
 -- to itself) and fails loudly instead of hanging the render loop.
 local HOST_SAFETY_STEP_BUDGET = 1024
+
+local function validateHandle(self, handle)
+  assert(type(handle) == "table" and self._handles[handle], "handle must belong to this SequencePlayer")
+end
 
 local function observerCallback(self, method)
   local observer = self._observer
@@ -1197,6 +1206,9 @@ retireInstance = function(self, instance, reason)
   self._seqPlayers[instance.seqPlayerSlot] = nil
   appendFreeSeqPlayerSlot(self, instance.seqPlayerSlot)
   instance.retired = true
+  if instance.handle ~= nil and self._handleAttachments[instance.handle] == instance then
+    self._handleAttachments[instance.handle] = nil
+  end
   local observer, callback = observerCallback(self, "onSequenceRetirement")
   if callback ~= nil then
     callback(observer, {
@@ -1228,6 +1240,8 @@ function SequencePlayer.new(opts)
     _nextInstanceId = 1,
     _trackCount = 0,
     _trackPool = {},
+    _handles = {},
+    _handleAttachments = {},
     -- The player-scoped RNG (injected or the deterministic default): plays
     -- share it and never reseed, so random operands stay reproducible.
     _rng = opts.rng or newRng(),
@@ -1247,10 +1261,17 @@ function SequencePlayer.new(opts)
   }, SequencePlayer)
 end
 
+function SequencePlayer:createHandle()
+  local handle = {}
+  self._handles[handle] = true
+  return handle
+end
+
 -- Shared instance creation for sequence starts. `enforceBank` controls
 -- whether a mismatched bank id is rejected (ordinary play) or allowed
 -- (explicit donor-bank override).
-local function startSequenceInstance(self, sequence, bank, enforceBank)
+local function startSequenceInstance(self, handle, sequence, bank, enforceBank)
+  validateHandle(self, handle)
   assert(sequence and bank, "play requires a sequence and a bank")
   if enforceBank and bank.id ~= sequence.bankId then
     Errors.raise(
@@ -1267,6 +1288,10 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   local initialTrackMask = sequence.program.initialTrackMask
   local playerRecord = self._provider:player(logicalPlayerId)
   local channelMask = playerRecord.channelMask == 0 and 0xFFFF or playerRecord.channelMask
+  local attached = self._handleAttachments[handle]
+  if attached ~= nil then
+    retireInstance(self, attached, "handle_replacement")
+  end
   local logicalPlayer = self._logicalPlayers[logicalPlayerId]
   if logicalPlayer == nil then
     logicalPlayer = { instances = {} }
@@ -1299,7 +1324,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
           reason = "logical_priority",
         })
       end
-      return
+      return false
     end
     retireInstance(self, logicalVictim, "logical_eviction")
   end
@@ -1331,7 +1356,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
           reason = "physical_priority",
         })
       end
-      return
+      return false
     end
     retireInstance(self, globalVictim, "physical_eviction")
     seqPlayerSlot = popFreeSeqPlayerSlot(self)
@@ -1341,6 +1366,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   local instance = {
     id = self._nextInstanceId,
     logicalPlayerId = logicalPlayerId,
+    handle = handle,
     seqPlayerSlot = seqPlayerSlot,
     sequence = sequence,
     bank = bank,
@@ -1385,7 +1411,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
         reason = "track_capacity",
       })
     end
-    return
+    return false
   end
   instance.tracks[0] = entryTrack
   startTrack(entryTrack, sequence.program.entry)
@@ -1401,6 +1427,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
   self._nextInstanceId = self._nextInstanceId + 1
   instances[#instances + 1] = instance
   self._seqPlayers[seqPlayerSlot] = instance
+  self._handleAttachments[handle] = instance
   local observer, callback = observerCallback(self, "onSequenceAllocation")
   if callback ~= nil then
     callback(observer, {
@@ -1412,6 +1439,7 @@ local function startSequenceInstance(self, sequence, bank, enforceBank)
       accepted = true,
     })
   end
+  return true
 end
 
 -- Starts `sequence` on its player id with `bank`. The bank must be the
@@ -1419,19 +1447,18 @@ end
 -- priority instance. The instance is initialized to the source PlayerInit
 -- state (tempo 120, tempoRatio 256, tempoCounter 240) and the entry track
 -- is armed, but play() does not fetch or execute the entry program: the
--- first source sequence tick runs on the first sound interval after play
 -- (tempoCounter 240 naturally produces it). The global sound phase and the
 -- shared RNG are never reset by a play.
-function SequencePlayer:play(sequence, bank)
-  startSequenceInstance(self, sequence, bank, true)
+function SequencePlayer:play(handle, sequence, bank)
+  return startSequenceInstance(self, handle, sequence, bank, true)
 end
 
 -- Starts `sequence` with an explicit donor bank whose id may differ from
 -- `sequence.bankId`. This is the sole bank-mismatch exception for
 -- environmental soundplates that use the base field BGM's bank. Every other
 -- player/channel/sequence invariant is identical to ordinary play.
-function SequencePlayer:playWithBankOverride(sequence, bank)
-  startSequenceInstance(self, sequence, bank, false)
+function SequencePlayer:playWithBankOverride(handle, sequence, bank)
+  return startSequenceInstance(self, handle, sequence, bank, false)
 end
 
 -- Sets the player's fader level (0..127, the volume domain -- the NNS
@@ -1439,28 +1466,25 @@ end
 -- player's voices immediately as a queued dB-domain fader event
 -- (NnsSoundMath.decibel; the mixer clamps at -0x8000). The GameSound
 -- fade state is the caller; a player with no active instance is a no-op.
----@param playerId integer
+---@param handle table
 ---@param level integer
-function SequencePlayer:setFader(playerId, level)
+function SequencePlayer:setHandleFader(handle, level)
+  validateHandle(self, handle)
   assert(level >= 0 and level <= 127 and level % 1 == 0, "fader level must be an integer in 0..127")
-  local logicalPlayer = self._logicalPlayers[playerId]
-  if logicalPlayer == nil then
+  local instance = self._handleAttachments[handle]
+  if instance == nil then
     return
   end
-  local instances = logicalPlayer.instances
-  for index = 1, #instances do
-    local instance = instances[index]
-    instance.outerFaderDb = NnsSoundMath.decibel(level)
-    for trackId = 0, TRACK_COUNT - 1 do
-      local track = instance.tracks[trackId]
-      if track ~= nil then
-        pushTrackValues(self, instance, track)
-      end
+  instance.outerFaderDb = NnsSoundMath.decibel(level)
+  for trackId = 0, TRACK_COUNT - 1 do
+    local track = instance.tracks[trackId]
+    if track ~= nil then
+      pushTrackValues(self, instance, track)
     end
   end
 end
 
--- Pauses the sequence on `playerId` (the NNS SND_PlayerPause transport
+-- Pauses the sequence on `handle` (the NNS SND_PlayerPause transport
 -- pause the HGSS PlayFanfare path uses): the instance stays held
 -- (isPlayerPlaying stays true) but its tick timeline freezes, no control
 -- values are pushed, and the player's current track channels are released
@@ -1468,41 +1492,52 @@ end
 -- SDK pause releases and frees channels, preserving no sample or envelope
 -- state for resumption. A player with no active instance, or one already
 -- paused, is a no-op.
----@param playerId integer
-function SequencePlayer:pausePlayer(playerId)
-  local logicalPlayer = self._logicalPlayers[playerId]
-  if logicalPlayer == nil then
+---@param handle table
+function SequencePlayer:pauseHandle(handle)
+  validateHandle(self, handle)
+  local instance = self._handleAttachments[handle]
+  if instance == nil or instance.paused then
     return
   end
-  local instances = logicalPlayer.instances
-  for index = 1, #instances do
-    local instance = instances[index]
-    if not instance.paused then
-      instance.paused = true
-      for trackId = 0, TRACK_COUNT - 1 do
-        local track = instance.tracks[trackId]
-        if track ~= nil then
-          releaseTrackVoices(self, instance, track, 127)
-        end
-      end
+  instance.paused = true
+  for trackId = 0, TRACK_COUNT - 1 do
+    local track = instance.tracks[trackId]
+    if track ~= nil then
+      releaseTrackVoices(self, instance, track, 127)
     end
   end
 end
 
--- Resumes the paused sequence on `playerId`: the frozen timeline continues
--- from its paused position. The channels released at pause are not
--- resurrected -- their handles are gone from the tracks. A player with no
--- active instance, or one not paused, is a no-op.
----@param playerId integer
-function SequencePlayer:resumePlayer(playerId)
-  local logicalPlayer = self._logicalPlayers[playerId]
-  if logicalPlayer == nil then
-    return
+---@param handle table
+function SequencePlayer:resumeHandle(handle)
+  validateHandle(self, handle)
+  local instance = self._handleAttachments[handle]
+  if instance ~= nil then
+    instance.paused = false
   end
-  local instances = logicalPlayer.instances
-  for index = 1, #instances do
-    instances[index].paused = false
+end
+
+function SequencePlayer:stopHandle(handle)
+  validateHandle(self, handle)
+  local instance = self._handleAttachments[handle]
+  if instance ~= nil then
+    retireInstance(self, instance, "stop_handle")
   end
+end
+
+function SequencePlayer:isHandlePlaying(handle)
+  validateHandle(self, handle)
+  local instance = self._handleAttachments[handle]
+  if instance == nil then
+    return false
+  end
+  for trackId = 0, TRACK_COUNT - 1 do
+    local track = instance.tracks[trackId]
+    if track ~= nil and track.pc ~= nil and not track.ended then
+      return true
+    end
+  end
+  return false
 end
 
 -- Executes one source sequence tick for one active, unpaused player

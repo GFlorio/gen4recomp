@@ -44,6 +44,7 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _currentMusic integer|nil
 ---@field private _fanfare table|nil
 ---@field private _faders table<integer, GameSoundPlayerFader>
+---@field private _handles table<integer, table>
 ---@field private _cryActive boolean
 ---@field new fun(opts: { provider: AudioAssetProvider, player: SequencePlayer, cry: table?, mapMusic: fun(): integer|string|nil? }): GameSound
 ---@field play fun(self: GameSound, idOrSymbol: integer|string)
@@ -76,7 +77,7 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field level integer
 ---@field ramp GameSoundFaderRamp?
 
--- A single ramp owning one player's fader for `durationFrames` 60 Hz sound
+-- A single ramp owning one logical player's canonical-handle fader for `durationFrames` 60 Hz sound
 -- frames. `start` is the applied level at creation; `target` is the source
 -- volume-domain goal (may be the full-restore spelling 128); the applied
 -- level interpolates with the source cDiv formula and is normalized to
@@ -97,7 +98,7 @@ GameSound.__index = GameSound
 -- down after the fanfare player stops. At 60 Hz, 15 frames = 250 ms.
 local FANFARE_POST_WAIT_FRAMES = 15
 
--- The strict player fader domain (SequencePlayer:setFader asserts 0..127)
+-- The strict handle fader domain (SequencePlayer:setHandleFader asserts 0..127)
 -- and the source full-restore spelling accepted only at the GameSound
 -- boundary (HGSS GF_SndHandleMoveVolume(0, 128, 15) on soundplate exit).
 local PLAYER_FADER_FULL = 127
@@ -127,6 +128,7 @@ function GameSound.new(opts)
     _currentMusic = nil,
     _fanfare = nil,
     _faders = {},
+    _handles = {},
     _cryActive = false,
   }, GameSound)
 end
@@ -138,13 +140,26 @@ end
 -- record for that player is reset to full and idle immediately -- stale
 -- ramp/level bookkeeping from a replaced sequence must never survive.
 ---@param idOrSymbol integer|string
----@return table
+---@return table, boolean
 function GameSound:_startSequence(idOrSymbol)
   local sequence = self._provider:sequence(idOrSymbol)
   local bank = self._provider:bank(sequence.bankId)
-  self._player:play(sequence, bank)
-  self:_resetPlayerFader(sequence.player.id)
-  return sequence
+  local accepted = self._player:play(self:_handleForPlayer(sequence.player.id), sequence, bank)
+  if accepted then
+    self:_resetPlayerFader(sequence.player.id)
+  end
+  return sequence, accepted
+end
+
+---@param playerId integer
+---@return table
+function GameSound:_handleForPlayer(playerId)
+  local handle = self._handles[playerId]
+  if handle == nil then
+    handle = self._player:createHandle()
+    self._handles[playerId] = handle
+  end
+  return handle
 end
 
 -- The fader record for `playerId`, created at the known actual full level
@@ -171,7 +186,7 @@ function GameSound:_resetPlayerFader(playerId)
 end
 
 -- Applies a volume-domain level to the player through the strict
--- SequencePlayer:setFader contract, normalizing the source full-restore
+-- SequencePlayer:setHandleFader contract, normalizing the source full-restore
 -- spelling 128 to the player full level 127 exactly at this boundary.
 -- Returns the level actually applied, so the module's record always matches
 -- what SequencePlayer holds.
@@ -182,7 +197,7 @@ function GameSound:_applyFader(playerId, level)
   if level > PLAYER_FADER_FULL then
     level = PLAYER_FADER_FULL
   end
-  self._player:setFader(playerId, level)
+  self._player:setHandleFader(self:_handleForPlayer(playerId), level)
   return level
 end
 
@@ -227,8 +242,8 @@ function GameSound:_stopBgmPlayer()
 end
 
 -- `play` is the effect (SE) path: the sequence runs on its own player id,
--- so a later effect on the same player replaces the earlier one (the
--- engine's same-player replacement) while the player stays busy -- exactly
+-- so a later effect on the same player reuses its canonical handle and
+-- replaces the earlier attachment while the player stays busy -- exactly
 -- what an HGSS WaitSE observes through the player-state query.
 ---@param idOrSymbol integer|string
 function GameSound:play(idOrSymbol)
@@ -265,7 +280,11 @@ end
 ---@param idOrSymbol integer|string
 function GameSound:playMusic(idOrSymbol)
   self:_stopBgmPlayer()
-  self._currentMusic = self:_startSequence(idOrSymbol).id
+  self._currentMusic = nil
+  local sequence, accepted = self:_startSequence(idOrSymbol)
+  if accepted then
+    self._currentMusic = sequence.id
+  end
 end
 
 -- Stops the current BGM, drops the reference, and cancels its fade (a
@@ -293,11 +312,14 @@ end
 -- stopped its player). Without a current BGM the pause is a no-op.
 ---@param idOrSymbol integer|string
 function GameSound:playFanfare(idOrSymbol)
+  local sequence, accepted = self:_startSequence(idOrSymbol)
+  if not accepted then
+    return
+  end
   if self._currentMusic ~= nil then
     local bgm = self._provider:sequence(self._currentMusic)
-    self._player:pausePlayer(bgm.player.id)
+    self._player:pauseHandle(self:_handleForPlayer(bgm.player.id))
   end
-  local sequence = self:_startSequence(idOrSymbol)
   self._fanfare = { playerId = sequence.player.id, frames = FANFARE_POST_WAIT_FRAMES }
 end
 
@@ -418,8 +440,10 @@ end
 -- selection and future resetMusic).
 ---@param idOrSymbol integer|string
 function GameSound:temporaryMusic(idOrSymbol)
-  local sequence = self:_startSequence(idOrSymbol)
-  self._currentMusic = sequence.id
+  local sequence, accepted = self:_startSequence(idOrSymbol)
+  if accepted then
+    self._currentMusic = sequence.id
+  end
 end
 
 -- Advances the game-semantic audio state once per 60 Hz sound frame: the
@@ -463,7 +487,7 @@ function GameSound:_advanceFaderRamps()
         if ramp.elapsedFrames >= ramp.durationFrames then
           fader.ramp = nil
           if ramp.stopWhenDone then
-            self._player:stopPlayer(playerId)
+            self._player:stopHandle(self:_handleForPlayer(playerId))
             self:_resetPlayerFader(playerId)
           end
         end
@@ -483,7 +507,7 @@ function GameSound:_completeFanfare()
   self._player:stopPlayer(playerId)
   if self._currentMusic ~= nil then
     local bgm = self._provider:sequence(self._currentMusic)
-    self._player:resumePlayer(bgm.player.id)
+    self._player:resumeHandle(self:_handleForPlayer(bgm.player.id))
   end
 end
 
@@ -529,8 +553,10 @@ end
 function GameSound:playWithBankOverride(sequenceRef, bankRef)
   local sequence = self._provider:sequence(sequenceRef)
   local bank = self._provider:bank(bankRef)
-  self._player:playWithBankOverride(sequence, bank)
-  self:_resetPlayerFader(sequence.player.id)
+  local accepted = self._player:playWithBankOverride(self:_handleForPlayer(sequence.player.id), sequence, bank)
+  if accepted then
+    self:_resetPlayerFader(sequence.player.id)
+  end
 end
 
 return GameSound

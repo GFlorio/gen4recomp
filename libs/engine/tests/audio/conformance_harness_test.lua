@@ -78,7 +78,7 @@ function T.interval_phase_order_is_before_sequence_then_after_sequence_then_afte
     { op = "note", key = 60, velocity = 100, duration = 4 },
     { op = "end" },
   })
-  player:play(provider:sequence(0), provider:bank(12))
+  player:play(player:createHandle(), provider:sequence(0), provider:bank(12))
   -- At 48 kHz an interval is 250 frames. Render 3 intervals = 750 frames.
   player:render(750)
 
@@ -131,7 +131,7 @@ function T.trace_is_stable_across_render_chunk_sizes()
 
   local function collect(chunks)
     local player, provider, trace = engineWithTrace(program)
-    player:play(provider:sequence(0), provider:bank(12))
+    player:play(player:createHandle(), provider:sequence(0), provider:bank(12))
     for _, frames in ipairs(chunks) do
       player:render(frames)
     end
@@ -160,7 +160,7 @@ function T.trace_determinism_is_identical_for_one_large_chunk_and_several_uneven
 
   local function collect(chunks)
     local player, provider, trace = engineWithTrace(program)
-    player:play(provider:sequence(0), provider:bank(12))
+    player:play(player:createHandle(), provider:sequence(0), provider:bank(12))
     for _, frames in ipairs(chunks) do
       player:render(frames)
     end
@@ -195,7 +195,7 @@ function T.observer_absence_does_not_change_playback_behavior()
   local provider = AudioAssetProvider.new(AudioFixture.readyCache(bundle))
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
   local player = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
-  player:play(provider:sequence(0), provider:bank(12))
+  player:play(player:createHandle(), provider:sequence(0), provider:bank(12))
   local pcm = player:render(500)
   Assert.isTrue(#pcm > 0, "rendering without observer must produce pcm")
   player:stop()
@@ -210,7 +210,7 @@ function T.observer_absence_does_not_change_playback_behavior()
     provider = provider,
     observer = partialObserver,
   })
-  partialPlayer:play(provider:sequence(0), provider:bank(12))
+  partialPlayer:play(partialPlayer:createHandle(), provider:sequence(0), provider:bank(12))
   local partialPcm = partialPlayer:render(500)
   Assert.isTrue(#partialPcm > 0, "rendering with a partial observer must produce pcm")
 end

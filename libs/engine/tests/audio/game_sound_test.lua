@@ -192,10 +192,10 @@ local function newGameSound(sequences, opts)
   -- to apply, in application order, so the one-level-per-player contract is
   -- observable as exact level sequences without rendering.
   --[[@cast player any]]
-  local realSetFader = player.setFader
-  player.setFader = function(self, playerId, level)
-    spy.faderWrites[#spy.faderWrites + 1] = { playerId = playerId, level = level }
-    return realSetFader(self, playerId, level)
+  local realSetHandleFader = player.setHandleFader
+  player.setHandleFader = function(self, handle, level)
+    spy.faderWrites[#spy.faderWrites + 1] = { handle = handle, level = level }
+    return realSetHandleFader(self, handle, level)
   end
   local sound = GameSound.new({
     provider = provider,
@@ -203,7 +203,7 @@ local function newGameSound(sequences, opts)
     cry = opts.cry,
     mapMusic = opts.mapMusic,
   })
-  return sound, player, spy
+  return sound, player, spy, provider, mixer
 end
 
 local function left(pcm, frames)
@@ -1046,12 +1046,14 @@ function T.ramps_on_multiple_players_advance_in_deterministic_player_order()
   sound:stopSequenceWithFade("SEQ_TEST_EFFECT", 3)
   -- One frame advances both players; the lower player id is written first.
   sound:updateSoundFrame()
-  Assert.equal(spy.faderWrites[#spy.faderWrites - 1].playerId, 1)
-  Assert.equal(spy.faderWrites[#spy.faderWrites].playerId, 2)
+  Assert.isTrue(
+    spy.faderWrites[#spy.faderWrites - 1].handle ~= spy.faderWrites[#spy.faderWrites].handle,
+    "separate canonical handles are advanced independently"
+  )
   -- The two remaining frames complete both ramps and stop the effect player.
   sound:updateSoundFrame()
   sound:updateSoundFrame()
-  Assert.equal(spy.faderWrites[#spy.faderWrites].playerId, 2)
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, 0, "the effect ramp reaches silence")
   Assert.isFalse(sound:isEffectPlaying("SEQ_TEST_EFFECT"), "the fade-stop stopped its player")
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the volume move left its player playing")
   player:render(250)
@@ -1079,6 +1081,51 @@ function T.after_a_full_restore_the_record_holds_the_applied_level_not_raw_128()
     "the follow-up ramp starts from the applied full level"
   )
   player:render(250)
+end
+
+function T.rejected_facade_starts_leave_music_fanfare_and_fader_state_unchanged()
+  local sound, player, spy = newGameSound()
+  sound:playMusic("SEQ_TEST_BGM")
+  player:render(250)
+  local current = sound:currentMusic()
+  player.play = function()
+    return false
+  end
+  sound:temporaryMusic("SEQ_TEST_BGM_B")
+  Assert.equal(sound:currentMusic(), current, "a rejected temporary start keeps the prior music identity")
+  sound:playMusic("SEQ_TEST_BGM_B")
+  Assert.isNil(sound:currentMusic(), "a rejected BGM start is not claimed as current")
+  local internalSound = sound --[[@as any]]
+  local faderBeforeFanfare = internalSound._faders[1]
+
+  local paused = false
+  player.pauseHandle = function()
+    paused = true
+  end
+  sound:playFanfare("SEQ_TEST_FANFARE")
+  Assert.isFalse(paused, "a rejected fanfare does not pause the BGM")
+  Assert.isFalse(sound:isFanfarePlaying(), "a rejected fanfare does not claim fanfare state")
+  Assert.equal(internalSound._faders[1], faderBeforeFanfare, "a rejected start does not reset the facade fader")
+end
+
+function T.facade_effects_replace_canonical_handles_and_fades_do_not_touch_direct_handles()
+  local sound, player, spy, provider, mixer = newGameSound()
+  sound:play(1)
+  player:render(250)
+  local direct = player:createHandle()
+  Assert.isTrue(player:play(direct, provider:sequence(3), provider:bank(12)))
+  player:render(250)
+  Assert.isTrue(sound:isEffectPlaying(1), "the replacement keeps the effect group active")
+
+  local writesBeforeFade = #spy.faderWrites
+  sound:moveSequenceVolume("SEQ_TEST_EFFECT", 42, 1)
+  sound:updateSoundFrame()
+  player:render(250)
+  Assert.isTrue(#spy.faderWrites >= 1, "the canonical effect receives the facade fade")
+  Assert.isTrue(#spy.faderWrites > writesBeforeFade, "the canonical effect receives the facade fade")
+  for index = writesBeforeFade + 1, #spy.faderWrites do
+    Assert.equal(spy.faderWrites[index].handle, spy.faderWrites[writesBeforeFade + 1].handle)
+  end
 end
 
 return { tests = T }

@@ -85,16 +85,16 @@ function CryPlayer.new(opts)
   assert(opts and opts.player, "cry player requires the engine player")
   return setmetatable({
     _player = opts.player,
+    _handle = opts.player:createHandle(),
   }, CryPlayer)
 end
 
 -- Starts the referenced cry as a stand-in on the cry slot; a cry already
--- playing on the slot is replaced by the engine player's same-slot
--- replacement.
+-- playing on the private handle is replaced by the engine player.
 ---@param species integer
 ---@param form integer
 function CryPlayer:play(species, form)
-  self._player:play(standinSequence(species), CRY_BANK)
+  self._player:play(self._handle, standinSequence(species), CRY_BANK)
 end
 
 -- True once the cry slot's sequence has ended.

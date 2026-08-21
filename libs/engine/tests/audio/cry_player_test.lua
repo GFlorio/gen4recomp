@@ -43,7 +43,8 @@ local function defaultSequences()
   }
 end
 
-local function newCryPlayer()
+local function newCryPlayer(opts)
+  opts = opts or {}
   local bundle = AudioFixture.bundle()
   local indexSequences, indexPlayers, sequenceBySymbol = {}, {}, {}
   for id, sequence in pairs(defaultSequences()) do
@@ -57,7 +58,7 @@ local function newCryPlayer()
     if indexPlayers[sequence.player.id] == nil then
       indexPlayers[sequence.player.id] = {
         id = sequence.player.id,
-        maxSequences = 16,
+        maxSequences = opts.maxSequences or 16,
         channelMask = 0xFFFF,
       }
     end
@@ -70,6 +71,7 @@ local function newCryPlayer()
     sampleRate = SAMPLE_RATE,
     mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE }),
     provider = provider,
+    observer = opts.observer,
   })
   return CryPlayer.new({ player = player }), player
 end
@@ -78,7 +80,10 @@ function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
   local capturedSequence
   local capturedBank
   local player = {
-    play = function(_, sequence, bank)
+    createHandle = function()
+      return {}
+    end,
+    play = function(_, _, sequence, bank)
       capturedSequence = sequence
       capturedBank = bank
     end,
@@ -116,6 +121,23 @@ function T.play_replaces_an_active_cry_without_a_stale_wait()
   Assert.isFalse(cry:isFinished(), "the replacement cry is active")
   player:render(4000)
   Assert.isTrue(cry:isFinished(), "the replacement ends")
+end
+
+function T.repeated_cries_reuse_one_private_attachment_in_a_multi_sequence_group()
+  local retirements = {}
+  local cry, player = newCryPlayer({
+    maxSequences = 2,
+    observer = {
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
+  cry:play(25, 0)
+  player:render(250)
+  cry:play(133, 0)
+  Assert.equal(#retirements, 1, "a second cry retires the persistent private attachment")
+  Assert.isFalse(cry:isFinished(), "the replacement cry remains active")
 end
 
 function T.construction_requires_the_engine_player()
