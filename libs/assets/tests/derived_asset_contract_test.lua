@@ -24,9 +24,8 @@ local T = {}
 function T.contract_pins_the_current_asset_identities()
   -- The audio contracts moved to explicit class schemas while the global
   -- revision stayed put: the per-class schemas fully identify the changed
-  -- contracts, so unrelated derived classes must not invalidate. The closed
-  -- sequence vocabulary removed the non-produced synthetic channel_mask
-  -- operation, so the current sequence schema is v8.
+  -- contracts, so unrelated derived classes must not invalidate. The
+  -- sequence initial-volume domain is the current NNS table domain.
   Assert.deepEqual(DerivedAssetContract, {
     revision = 5,
     map = {
@@ -69,10 +68,10 @@ function T.contract_pins_the_current_asset_identities()
     },
     audio = {
       cacheFormat = "g4-audio-cache-v1",
-      -- The sequence vocabulary is a strict current contract; deleted
-      -- operations invalidate earlier sequence assets.
+      -- The sequence vocabulary and initial-volume domain are strict current
+      -- contracts; earlier sequence assets are stale.
       indexSchema = "g4-audio-index-v5",
-      sequenceSchema = "g4-audio-sequence-v8",
+      sequenceSchema = "g4-audio-sequence-v9",
       bankSchema = "g4-audio-bank-v5",
       sampleSchema = "g4-audio-sample-v4",
       provenanceSchema = "g4-audio-provenance-v1",

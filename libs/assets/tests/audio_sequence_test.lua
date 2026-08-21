@@ -79,7 +79,7 @@ function T.validates_schema_and_identity()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.schema = "g4-audio-sequence-v9"
+  sequence.schema = "g4-audio-sequence-v8"
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -134,10 +134,21 @@ function T.validates_the_player_block()
     AudioSequence.validate(sequence)
   end)
   sequence.player.id = 1
-  sequence.player.initialVolume = 256
-  throwsCode("AUDIO_SEQUENCE_INVALID", function()
-    AudioSequence.validate(sequence)
-  end)
+  local function rejectsInitialVolume(value)
+    sequence.player.initialVolume = value
+    local err = Assert.throws(function()
+      AudioSequence.validate(sequence)
+    end)
+    Assert.equal(err.code, "AUDIO_SEQUENCE_INVALID")
+    Assert.equal(err.context.field, "player.initialVolume")
+  end
+  sequence.player.initialVolume = 127
+  Assert.isTrue(AudioSequence.validate(sequence))
+  rejectsInitialVolume(128)
+  rejectsInitialVolume(255)
+  rejectsInitialVolume(-1)
+  rejectsInitialVolume(1.5)
+  rejectsInitialVolume(nil)
   sequence.player.initialVolume = 127
   sequence.player.playerPriority = -1
   throwsCode("AUDIO_SEQUENCE_INVALID", function()

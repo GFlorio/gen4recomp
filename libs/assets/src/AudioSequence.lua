@@ -245,7 +245,7 @@ function AudioSequence.validate(sequence)
   if not isIntegerInRange(player.id, 0, 31) then
     fail({ field = "player.id" })
   end
-  if not isIntegerInRange(player.initialVolume, 0, 0xFF) then
+  if not isIntegerInRange(player.initialVolume, 0, 0x7F) then
     fail({ field = "player.initialVolume" })
   end
   if not isIntegerInRange(player.playerPriority, 0, 0xFF) then

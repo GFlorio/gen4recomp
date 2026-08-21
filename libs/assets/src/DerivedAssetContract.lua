@@ -101,9 +101,8 @@ DerivedAssetContract.audio = {
   -- so a redundant `file` field is malformed index data.
   indexSchema = "g4-audio-index-v5",
   -- The sequence asset carries a closed semantic instruction vocabulary and
-  -- strictly invalidates deleted operations; v8 removes the synthetic
-  -- channel-mask operation that had no producer.
-  sequenceSchema = "g4-audio-sequence-v8",
+  -- the NNS initial-volume domain; v9 rejects values above 0x7F.
+  sequenceSchema = "g4-audio-sequence-v9",
   -- v5 includes exact silent DUMMY leaves and the 0xFF release sentinel.
   bankSchema = "g4-audio-bank-v5",
   sampleSchema = "g4-audio-sample-v4",
