@@ -1,171 +1,136 @@
--- CryPlayer contract: the production cry data path plays the referenced
--- cry as a short SE-style stand-in sequence through the engine audio
--- player on the cry slot, and reports finished once the slot's sequence
--- has ended. GameSound's injectable cry boundary is pinned by
--- game_sound_test; this suite pins the subsystem the production
--- composition injects.
+-- CryPlayer contract: standard form-0 cries resolve the generated generic
+-- cry sequence and the species bank through the shared engine player. The
+-- player owns busy/completion state; this suite pins the subsystem the
+-- production composition injects.
 
 local Assert = require("tests.support.Assert")
-local AudioFixture = require("tests.support.AudioFixture")
-local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
-local AudioBank = require("libs.assets.src.AudioBank")
-local AudioSequence = require("libs.assets.src.AudioSequence")
-local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
-local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
+local AudioErrors = require("libs.engine.src.audio.AudioErrors")
+local Errors = require("libs.errors.src.Errors")
 local CryPlayer = require("libs.engine.src.audio.CryPlayer")
 
 local T = {}
 
-local SAMPLE_RATE = 48000
-
-local function voice(key)
-  return {
-    generator = { kind = "sample", sample = key },
-    originalKey = 60,
-    envelope = { attack = 127, decay = 0, sustain = 127, release = 127 },
-    pan = 0,
+local function newRecordingCry()
+  local sequence = { id = 2, bankId = 0, player = { id = 3 } }
+  local bank = { id = 183 }
+  local state = {
+    sequenceId = nil,
+    bankId = nil,
+    startCount = 0,
+    stopCount = 0,
+    playing = false,
   }
-end
-
--- The default fanfare fixture runs on player 3, the cry slot, so the
--- player index carries a player-3 record for the stand-in to resolve.
-local function defaultSequences()
-  return {
-    [0] = AudioFixture.sequence(0, "SEQ_TEST_BGM", 12, 1),
-    [1] = AudioFixture.sequence(1, "SEQ_TEST_FANFARE", 12, 3, {
-      entry = 1,
-      instructions = {
-        { op = "program", program = 1 },
-        { op = "note", key = 60, velocity = 127, duration = 1 },
-        { op = "end" },
-      },
-    }),
+  local provider = {
+    sequence = function(_, id)
+      state.sequenceId = id
+      return sequence
+    end,
+    bank = function(_, id)
+      state.bankId = id
+      bank.id = id
+      return bank
+    end,
   }
-end
-
-local function newCryPlayer(opts)
-  opts = opts or {}
-  local bundle = AudioFixture.bundle()
-  local indexSequences, indexPlayers, sequenceBySymbol = {}, {}, {}
-  for id, sequence in pairs(defaultSequences()) do
-    indexSequences[id] = {
-      id = id,
-      symbol = sequence.symbol,
-      bankId = sequence.bankId,
-      playerId = sequence.player.id,
-    }
-    sequenceBySymbol[sequence.symbol] = id
-    if indexPlayers[sequence.player.id] == nil then
-      indexPlayers[sequence.player.id] = {
-        id = sequence.player.id,
-        maxSequences = opts.maxSequences or 16,
-        channelMask = 0xFFFF,
-      }
-    end
-  end
-  bundle.index.sequences = indexSequences
-  bundle.index.players = indexPlayers
-  bundle.index.sequenceBySymbol = sequenceBySymbol
-  local provider = AudioAssetProvider.new(AudioFixture.readyCache(bundle))
-  local player = SequencePlayer.new({
-    sampleRate = SAMPLE_RATE,
-    mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE }),
-    provider = provider,
-    observer = opts.observer,
-  })
-  return CryPlayer.new({ player = player }), player
-end
-
-function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
-  local capturedSequence
-  local capturedBank
   local player = {
     createHandle = function()
-      return {}
+      return state
     end,
-    playSynthetic = function(_, _, sequence, bank)
-      capturedSequence = sequence
-      capturedBank = bank
+    stopHandle = function(_, handle)
+      state.stopCount = state.stopCount + 1
+      handle.playing = false
     end,
-    isPlayerPlaying = function()
-      return false
+    playSynthetic = function()
+      state.synthetic = true
+      state.playing = true
+      return true
+    end,
+    playWithBankOverride = function(_, handle, resolvedSequence, resolvedBank)
+      state.startCount = state.startCount + 1
+      handle.playing = true
+      return true
+    end,
+    isHandlePlaying = function(_, handle)
+      return handle.playing
     end,
   }
-  rawset(player, "stopHandle", function() end)
-  local cry = CryPlayer.new({ player = player })
-
-  cry:play(25, 0)
-
-  Assert.isTrue(AudioSequence.validate(capturedSequence))
-  Assert.isTrue(AudioBank.validate(capturedBank))
-  Assert.equal(0x0001, capturedSequence.program.initialTrackMask)
-  Assert.equal(64, capturedSequence.player.channelPriority)
+  return CryPlayer.new({ player = player, provider = provider }), state, provider
 end
 
-function T.stopping_ordinary_sequence_2000_does_not_stop_the_cry_standin()
-  local cry, player = newCryPlayer()
-  local provider = player._provider --[[@as AudioAssetProvider]]
-  local handle = player:createHandle()
-  local sequence = AudioFixture.sequence(2000, "SEQ_TEST_2000", 12, 1)
-  player:play(handle, sequence, provider:bank(12))
+function T.standard_cries_use_the_generic_sequence_and_species_bank()
+  local cry, state = newRecordingCry()
+  Assert.isTrue(cry:isFinished(), "an idle cry is finished")
 
-  cry:play(25, 0)
-  player:stopSequence(2000)
+  cry:play(183, 0)
 
-  Assert.isFalse(player:isHandlePlaying(handle), "the ordinary sequence is stopped")
-  Assert.isFalse(cry:isFinished(), "the cry stand-in is not an ordinary sequence")
+  Assert.equal(state.sequenceId, 2, "standard cries resolve generated sequence 2")
+  Assert.equal(state.bankId, 183, "standard cries resolve the species bank")
+  Assert.equal(state.startCount, 1, "the cry starts through the shared player")
+  Assert.isFalse(state.synthetic == true, "standard cries must not use synthetic assets")
+  Assert.isFalse(cry:isFinished(), "busy state follows the started playback handle")
+
+  state.playing = false
+  Assert.isTrue(cry:isFinished(), "completion follows the playback handle")
 end
 
-function T.play_starts_the_cry_slot_and_finishes_when_the_sequence_ends()
-  local cry, player = newCryPlayer()
-  Assert.isTrue(cry:isFinished(), "an idle cry slot is finished")
+function T.replacing_a_cry_stops_the_previous_handle()
+  local cry, state = newRecordingCry()
+  cry:play(183, 0)
   cry:play(25, 0)
-  Assert.isFalse(cry:isFinished(), "the cry is active once started")
-  Assert.isTrue(player:isPlayerPlaying(3), "the stand-in plays on the cry slot")
-  -- The two-note stand-in ends within the rendered window.
-  player:render(4000)
-  Assert.isTrue(cry:isFinished(), "the stand-in ends and frees the cry slot")
-  Assert.isFalse(player:isPlayerPlaying(3))
+
+  Assert.equal(state.stopCount, 2, "each start replaces the previous cry handle explicitly")
+  Assert.equal(state.bankId, 25, "the replacement resolves its own species bank")
+  Assert.isFalse(cry:isFinished(), "the replacement cry remains busy")
 end
 
-function T.play_replaces_an_active_cry_without_a_stale_wait()
-  local cry, player = newCryPlayer()
-  cry:play(25, 0)
-  player:render(200)
-  cry:play(133, 0)
-  Assert.isFalse(cry:isFinished(), "the replacement cry is active")
-  player:render(4000)
-  Assert.isTrue(cry:isFinished(), "the replacement ends")
-end
-
-function T.repeated_cries_explicitly_stop_the_previous_private_attachment()
-  local retirements = {}
-  local cry, player = newCryPlayer({
-    maxSequences = 2,
-    observer = {
-      onSequenceRetirement = function(_, event)
-        retirements[#retirements + 1] = event
-      end,
-    },
-  })
-  local stopCalls = 0
-  local stopHandle = player.stopHandle
-  rawset(player, "stopHandle", function(self, handle)
-    stopCalls = stopCalls + 1
-    return stopHandle(self, handle)
+function T.unsupported_cry_forms_fail_at_the_semantic_boundary()
+  local cry = newRecordingCry()
+  local err = Assert.throws(function()
+    cry:play(183, 1)
   end)
-  cry:play(25, 0)
-  player:render(250)
-  stopCalls = 0
-  cry:play(133, 0)
-  Assert.equal(stopCalls, 1, "cry replacement explicitly stops the private attachment")
-  Assert.equal(#retirements, 1, "a second cry retires the previous private attachment")
-  Assert.isFalse(cry:isFinished(), "the replacement cry remains active")
+  Assert.isTrue(Errors.is(err), "unsupported cries must use a structured audio error")
+  Assert.equal(err.code, AudioErrors.AUDIO_CRY_UNAVAILABLE)
 end
 
-function T.construction_requires_the_engine_player()
-  local ok = pcall(CryPlayer.new, {})
-  Assert.isFalse(ok, "a cry player without the engine player is a composition fault")
+function T.species_and_form_are_finite_integers_in_the_standard_domain()
+  local cry = newRecordingCry()
+  for _, species in ipairs({ 0, 183.5, 494 }) do
+    local err = Assert.throws(function()
+      cry:play(species, 0)
+    end)
+    Assert.isTrue(Errors.is(err))
+    Assert.equal(err.code, AudioErrors.AUDIO_CRY_UNAVAILABLE)
+  end
+  local err = Assert.throws(function()
+    cry:play(183, 0.5)
+  end)
+  Assert.isTrue(Errors.is(err))
+  Assert.equal(err.code, AudioErrors.AUDIO_CRY_UNAVAILABLE)
+end
+
+function T.missing_standard_assets_keep_provider_error_attribution()
+  local cry, _, provider = newRecordingCry()
+  provider.sequence = function()
+    Errors.raise(AudioErrors.AUDIO_PROVIDER_SEQUENCE_UNKNOWN, "missing sequence")
+  end
+  local sequenceErr = Assert.throws(function()
+    cry:play(183, 0)
+  end)
+  Assert.isTrue(Errors.is(sequenceErr))
+  Assert.equal(sequenceErr.code, AudioErrors.AUDIO_PROVIDER_SEQUENCE_UNKNOWN)
+
+  local cryWithBank, _, bankProvider = newRecordingCry()
+  bankProvider.bank = function()
+    Errors.raise(AudioErrors.AUDIO_PROVIDER_BANK_UNKNOWN, "missing bank")
+  end
+  local bankErr = Assert.throws(function()
+    cryWithBank:play(183, 0)
+  end)
+  Assert.isTrue(Errors.is(bankErr))
+  Assert.equal(bankErr.code, AudioErrors.AUDIO_PROVIDER_BANK_UNKNOWN)
+end
+
+function T.construction_requires_the_engine_player_and_provider()
+  Assert.isFalse(pcall(CryPlayer.new, {}), "a cry player without its collaborators is a composition fault")
 end
 
 return { tests = T }

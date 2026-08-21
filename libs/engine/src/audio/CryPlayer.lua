@@ -1,108 +1,76 @@
--- CryPlayer: the production cry data path. HGSS cries are played as
--- SE-style sounds on the shared effect players (the script's
--- ScrCmd_PlayCry passes a species/form and the cry voice data lives
--- outside the audio archive), so the cry boundary plays the referenced cry
--- as a short SE-style stand-in sequence through the same engine audio
--- stack, on the effect-player slot the derived player index declares. The
--- stand-in carries the species through its pitch (the only cry identity
--- the script operand provides). PCM rendering stays the output sink's
--- business; this module only starts the stand-in through the player and
--- reports when it has finished. Pure domain module: no love dependency.
+-- CryPlayer: the standard HGSS cry path over generated SDAT assets. Retail
+-- PlayCry starts generic sequence 2 with the normalized species number as
+-- its bank override (see asm/unk_02005D10.s); the shared SequencePlayer
+-- owns the resulting playback and the private handle identifies this cry
+-- independently of other uses of the logical player. Pure domain module: no
+-- love dependency.
 
-local AudioCache = require("libs.assets.src.AudioCache")
+local AudioErrors = require("libs.engine.src.audio.AudioErrors")
+local Errors = require("libs.errors.src.Errors")
 
 local CryPlayer = {}
 CryPlayer.__index = CryPlayer
 
--- The effect-player slot the stand-in occupies. The derived player index
--- declares players 0..8; the field-script roles use 1/7 (BGM), 2/4
--- (fanfare), and 3/4/5 (effects), so the cry slot overlaps the effect
--- role exactly as HGSS cries do.
-local CRY_PLAYER_ID = 3
+local STANDARD_CRY_SEQUENCE_ID = 2
+local MAX_STANDARD_SPECIES = 493
 
--- The stand-in bank: one direct square voice, so the cry needs no sample
--- payload.
-local CRY_BANK = {
-  schema = AudioCache.BANK_SCHEMA,
-  id = 2000,
-  symbol = "BANK_CRY_STANDIN",
-  instruments = {
-    [0] = {
-      kind = "direct",
-      voice = {
-        generator = { kind = "square", duty = 4 },
-        originalKey = 60,
-        envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
-        pan = 64,
-      },
-    },
-  },
-}
-
--- The pitch of the stand-in carries the species identity: HGSS cries vary
--- by species, and the script operand is the only reference the cry
--- boundary receives.
-local function midiKeyFor(species)
-  return 48 + (species % 24)
+local function isInteger(value)
+  return type(value) == "number"
+    and value == value
+    and value ~= math.huge
+    and value ~= -math.huge
+    and value == math.floor(value)
 end
 
--- The stand-in sequence for one cry: a short two-note call on the cry
--- slot, so the player reports the slot free again when the call ends.
-local function standinSequence(species)
-  local key = midiKeyFor(species)
-  return {
-    schema = AudioCache.SEQUENCE_SCHEMA,
-    id = 2000,
-    symbol = "SEQ_CRY_STANDIN",
-    bankId = 2000,
-    player = {
-      id = CRY_PLAYER_ID,
-      initialVolume = 127,
-      playerPriority = 64,
-      channelPriority = 64,
-    },
-    program = {
-      entry = 1,
-      initialTrackMask = 0x0001,
-      instructions = {
-        { op = "program", program = 0 },
-        { op = "note", key = key, velocity = 127, duration = 3 },
-        { op = "note", key = key + 2, velocity = 96, duration = 3 },
-        { op = "end" },
-      },
-    },
-  }
+local function unavailable(species, form, reason)
+  Errors.raise(AudioErrors.AUDIO_CRY_UNAVAILABLE, reason, { species = species, form = form })
 end
 
 ---@class CryPlayer
----@field new fun(opts: { player: SequencePlayer }): CryPlayer
----@field play fun(self: CryPlayer, species: integer, form: integer)
+---@field new fun(opts: { player: SequencePlayer, provider: AudioAssetProvider }): CryPlayer
+---@field play fun(self: CryPlayer, species: integer, form: integer|nil)
 ---@field isFinished fun(self: CryPlayer): boolean
 
----@param opts { player: SequencePlayer }
+---@param opts { player: SequencePlayer, provider: AudioAssetProvider }
 ---@return CryPlayer
 function CryPlayer.new(opts)
-  assert(opts and opts.player, "cry player requires the engine player")
+  assert(opts and opts.player and opts.provider, "cry player requires the engine player and provider")
   return setmetatable({
     _player = opts.player,
+    _provider = opts.provider,
     _handle = opts.player:createHandle(),
   }, CryPlayer)
 end
 
--- Starts the referenced cry as a stand-in on the cry slot. Cry replacement is
--- an explicit policy of this subsystem, so an active prior cry is stopped
--- before the private handle is reused.
+-- Starts the source-compatible generic cry sequence with the species bank.
+-- Resolving assets before stopping the current handle leaves an active cry
+-- untouched when a replacement request is invalid or absent from the cache.
 ---@param species integer
----@param form integer
+---@param form integer|nil
 function CryPlayer:play(species, form)
+  if form == nil then
+    form = 0
+  end
+  if not isInteger(species) or species < 1 or species > MAX_STANDARD_SPECIES then
+    unavailable(species, form, "standard cry species must be a supported integer")
+  end
+  if not isInteger(form) or form ~= 0 then
+    unavailable(species, form, "only standard form 0 cries are supported")
+  end
+
+  local sequence = self._provider:sequence(STANDARD_CRY_SEQUENCE_ID)
+  local bank = self._provider:bank(species)
   self._player:stopHandle(self._handle)
-  self._player:playSynthetic(self._handle, standinSequence(species), CRY_BANK)
+  local accepted = self._player:playWithBankOverride(self._handle, sequence, bank)
+  if not accepted then
+    unavailable(species, form, "the standard cry was rejected by the audio player")
+  end
 end
 
--- True once the cry slot's sequence has ended.
+-- True once the source playback attached to this cry's private handle ends.
 ---@return boolean
 function CryPlayer:isFinished()
-  return not self._player:isPlayerPlaying(CRY_PLAYER_ID)
+  return not self._player:isHandlePlaying(self._handle)
 end
 
 return CryPlayer
