@@ -85,7 +85,7 @@ int lastTranslucentId(vec4 dstState)
 
 void effect()
 {
-  // Same final alpha5 as map.glsl/state.glsl (MODULATE/DECAL).
+  // Same final alpha5 as map.glsl (MODULATE/DECAL).
   float textureAlpha5 = u_useTexture ? floor(Texel(MainTex, v_sourceUv).a * 31.0 + 0.5) : 31.0;
   int polygonAlpha5 = int(floor(u_polygonAlpha * 31.0 + 0.5));
 

@@ -3042,7 +3042,7 @@ function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
   everyEdgeNearVisible(b)
 end
 
--- ---- field depth-domain fixtures (state.glsl's G-channel conversion) ----
+-- ---- field depth-domain fixtures (map.glsl's G-channel conversion) ----
 
 -- The field camera selects DS Z buffering (GX_BUFFERMODE_Z), so the render
 -- state's green channel is the DS 24-bit Z-domain value derived from the host

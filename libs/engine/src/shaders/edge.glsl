@@ -1,7 +1,7 @@
 // DS final composite pass, run over the world raster before its nearest
 // upscale to presentation resolution.
 // sceneColor target (map.glsl's color-only output) and the same-resolution
-// renderState target (state.glsl's state output: red edge polygon ID, green
+// renderState target (map.glsl's WORLD_MRT state output: red edge polygon ID, green
 // DS-quantized depth, blue per-polygon fog gate, alpha last-translucent-ID
 // encoding). It resolves each pixel through explicit fogged candidates:
 // scene candidate -> fog(scene) and, when marked, edge candidate
@@ -16,10 +16,9 @@
 // cannot model that distinction, so the limitation is documented rather than
 // hidden. State A (last translucent ID) is not consumed by edge or fog.
 //
-// The color and state targets have identical dimensions and identical
-// screen-space coverage (see MapRenderer:_ensureTargets): state
-// classification is never downsampled, so a visible one-host-pixel state
-// change has a matching one-host-pixel state location. The state texture is
+// The color and state targets have identical bounded world-raster dimensions
+// and identical screen-space coverage (see MapRenderer:_ensureTargets). The
+// state texture is
 // nearest-filtered; every sample snaps/clamps to a render-state pixel center
 // explicitly rather than relying on the sampler's own filtering/clamp
 // behavior. The neighbor probes sample at a distance of u_edgeRadiusPx
@@ -39,13 +38,13 @@
 // marked pixel's own ID, indexed as id >> 3. The depth comparison is a strict
 // integer-domain inequality, never a tolerance-scaled float heuristic.
 //
-// The green channel holds the DS Z-buffer depth state.glsl computes (see its
+// The green channel holds the DS Z-buffer depth map.glsl computes (see its
 // dsZbufferDepth) rather than raw window Z: the DS 24-bit Z domain preserves
 // depth separation across the whole field far better than a raw 24-bit
 // window-Z quantization would, so silhouette steps for short field objects
 // stay well above any usable threshold and mark as they do on hardware. The
 // DS field camera selects GX_BUFFERMODE_Z (HGSS Camera_ApplyPerspectiveType;
-// see state.glsl's header), so the depth is the DS Z-buffer conversion of
+// see map.glsl's header), so the depth is the DS Z-buffer conversion of
 // the host fragment's normalized window depth, evaluated exactly per the
 // pinned melonDS formula (windowZ -> ndcZ = 2*windowZ - 1, ndcZ scaled by
 // 0x4000 with truncation toward zero, +0x3FFF, *0x200, clamped to

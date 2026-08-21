@@ -257,9 +257,9 @@ center's AND the center is strictly in front of that neighbor
 (`edge.glsl`'s `marked` test, table-indexed by `centerPolygonId >> 3`). The
 compared depth is the DS 24-bit Z-buffer domain, derived from the same
 value the shader also stores (see "Render-state depth" below); there is no
-`DEPTH_STEP_TOLERANCE` fudge factor. An edge pixel's output is hardware-style
-RGB replacement (`vec4(edgeColor, scene.a)`), never an alpha-mix with the
-scene color, and there is no separate edge-opacity uniform.
+depth tolerance. An edge pixel's output is hardware-style RGB replacement
+(`vec4(edgeColor, scene.a)`), never an alpha-mix with the scene color, and
+there is no separate edge-opacity uniform.
 
 The opaque polygon ID, the DS-quantized depth, the per-polygon fog gate, and
 the last translucent ID are carried as separate channels of one `rgba32f`
