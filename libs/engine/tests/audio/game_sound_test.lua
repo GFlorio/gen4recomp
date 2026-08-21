@@ -187,6 +187,7 @@ local function newGameSound(sequences, opts)
     sampleRate = SAMPLE_RATE,
     mixer = mixer,
     provider = provider,
+    observer = opts.observer,
   })
   -- The player-fader spy records every level GameSound asks the engine player
   -- to apply, in application order, so the one-level-per-player contract is
@@ -327,15 +328,43 @@ function T.effect_waits_follow_the_sequence_player_state()
   Assert.isFalse(sound:isEffectPlaying(3))
 end
 
-function T.stop_effect_stops_only_its_player()
-  local sound, player = newGameSound()
-  sound:playMusic("SEQ_TEST_BGM")
+function T.stop_effect_is_sequence_scoped_but_wait_is_player_scoped()
+  local retirements = {}
+  local sound, player = newGameSound(nil, {
+    observer = {
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
   sound:play(1)
+  sound:play(3)
   player:render(200)
   sound:stop(1)
-  Assert.isFalse(sound:isEffectPlaying(1))
-  Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the bgm survives the effect stop")
-  Assert.isTrue(maxAbs(left(player:render(500), 500)) > 0, "the bgm keeps rendering")
+  Assert.equal(#retirements, 1, "stopping one sequence retires one instance")
+  Assert.isTrue(sound:isEffectPlaying(1), "the stopped sequence's player remains busy")
+  Assert.isTrue(sound:isEffectPlaying(3), "the sibling sequence remains active")
+
+  sound:stop(3)
+  Assert.isFalse(sound:isEffectPlaying(1), "the player-scoped wait ends after its final sibling stops")
+  Assert.isFalse(sound:isEffectPlaying(3))
+end
+
+function T.stop_detached_effect_preserves_the_canonical_fader_ramp()
+  local sound, player, spy = newGameSound()
+  sound:play(1)
+  sound:play(3)
+  sound:moveSequenceVolume(3, 32, 10)
+  sound:updateSoundFrame()
+  local writesBeforeStop = #spy.faderWrites
+  local expectedNext = 127 + NnsSoundMath.cDiv(2 * (32 - 127), 10)
+
+  sound:stop(1)
+  Assert.isTrue(sound:isEffectPlaying(3), "the canonical sibling remains active")
+  sound:updateSoundFrame()
+
+  Assert.equal(#spy.faderWrites, writesBeforeStop + 1, "the surviving ramp advances after the detached stop")
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, expectedNext, "the ramp keeps its prior interpolation")
 end
 
 -- The fanfare machine on the transport-pause model (the NNS

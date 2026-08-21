@@ -4322,6 +4322,59 @@ function T.logical_group_controls_cover_all_instances_in_the_group()
   Assert.isFalse(player:isPlayerPlaying(20), "stopping a logical group removes every instance")
 end
 
+function T.sequence_stop_preserves_a_sibling_in_the_same_logical_group()
+  local mixer = stubMixer()
+  local player, provider = allocationEngine({
+    [0] = longLivedSequence(0, 20, 64),
+    [1] = longLivedSequence(1, 20, 64),
+  }, { mixer = mixer, maxSequences = 2 })
+  local first, second = player:createHandle(), player:createHandle()
+
+  Assert.isTrue(player:play(first, provider:sequence(0), provider:bank(12)))
+  Assert.isTrue(player:play(second, provider:sequence(1), provider:bank(12)))
+  player:render(250)
+
+  player:stopSequence(0)
+
+  Assert.isFalse(player:isHandlePlaying(first), "the requested sequence is retired")
+  Assert.isTrue(player:isHandlePlaying(second), "a sibling sequence remains attached")
+  Assert.isTrue(player:isPlayerPlaying(20), "the logical player remains active")
+  Assert.equal(#mixer.log.noteOffs, 1, "only the requested sequence releases its voice")
+end
+
+function T.sequence_stop_retires_all_matching_instances_in_slot_order()
+  local retirements = {}
+  local player, provider = allocationEngine({
+    [40] = longLivedSequence(40, 7, 64),
+    [41] = longLivedSequence(41, 8, 64),
+  }, {
+    maxSequences = 3,
+    observer = {
+      onSequenceRetirement = function(_, event)
+        retirements[#retirements + 1] = event
+      end,
+    },
+  })
+  local first, second, unrelated = player:createHandle(), player:createHandle(), player:createHandle()
+
+  Assert.isTrue(player:play(first, provider:sequence(40), provider:bank(12)))
+  Assert.isTrue(player:play(second, provider:sequence(40), provider:bank(12)))
+  Assert.isTrue(player:play(unrelated, provider:sequence(41), provider:bank(12)))
+
+  player:stopSequence(40)
+
+  Assert.equal(#retirements, 2, "every matching instance retires")
+  Assert.deepEqual(
+    { retirements[1].seqPlayerSlot, retirements[2].seqPlayerSlot },
+    { 0, 1 },
+    "matching instances retire in ascending physical slot order"
+  )
+  Assert.isFalse(player:isHandlePlaying(first))
+  Assert.isFalse(player:isHandlePlaying(second))
+  Assert.isTrue(player:isHandlePlaying(unrelated), "a nonmatching instance remains active")
+  Assert.isTrue(player:isPlayerPlaying(8), "the unrelated logical player remains active")
+end
+
 function T.reusing_a_handle_detaches_without_retiring_the_former_sequence()
   local allocations, retirements, order = {}, {}, {}
   local mixer = stubMixer()

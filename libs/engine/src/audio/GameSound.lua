@@ -250,14 +250,17 @@ function GameSound:play(idOrSymbol)
   self:_startSequence(idOrSymbol)
 end
 
--- Stops the player the sequence plays on, leaving every other player (in
--- particular the BGM player) untouched. Stopping drops the player's fader
--- record so stale ramp state cannot outlive the instance it described.
+-- Stops every instance of the requested sequence ID. Effect waits remain
+-- player-scoped, so a surviving sibling keeps the logical player busy. A
+-- surviving canonical attachment also keeps its fader record and ramp.
 ---@param idOrSymbol integer|string
 function GameSound:stop(idOrSymbol)
   local sequence = self._provider:sequence(idOrSymbol)
-  self._player:stopPlayer(sequence.player.id)
-  self:_resetPlayerFader(sequence.player.id)
+  self._player:stopSequence(sequence.id)
+  local handle = self._handles[sequence.player.id]
+  if handle == nil or not self._player:isHandlePlaying(handle) then
+    self:_resetPlayerFader(sequence.player.id)
+  end
 end
 
 -- True while the sequence's player has a running sequence. An unresolvable

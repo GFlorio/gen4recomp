@@ -139,6 +139,7 @@ local bit = require("bit")
 ---@field resumeHandle fun(self: SequencePlayer, handle: table)
 ---@field stopHandle fun(self: SequencePlayer, handle: table)
 ---@field isHandlePlaying fun(self: SequencePlayer, handle: table): boolean
+---@field stopSequence fun(self: SequencePlayer, sequenceId: integer)
 
 local SequencePlayer = {}
 SequencePlayer.__index = SequencePlayer
@@ -1781,6 +1782,20 @@ function SequencePlayer:stopPlayer(playerId)
   end
   while #logicalPlayer.instances > 0 do
     retireInstance(self, logicalPlayer.instances[1], "stop_player")
+  end
+end
+
+-- Releases every active ordinary sequence whose generated sequence ID matches;
+-- the fixed physical-slot scan mirrors NNS_SndPlayerStopSeqBySeqNo and keeps
+-- retirement in the single instance lifecycle path.
+---@param sequenceId integer
+function SequencePlayer:stopSequence(sequenceId)
+  assert(sequenceId >= 0 and sequenceId % 1 == 0, "sequence id must be a non-negative integer")
+  for seqPlayerSlot = 0, PLAYER_COUNT - 1 do
+    local instance = self._seqPlayers[seqPlayerSlot]
+    if instance ~= nil and instance.sequence.id == sequenceId then
+      retireInstance(self, instance, "stop_sequence")
+    end
   end
 end
 
