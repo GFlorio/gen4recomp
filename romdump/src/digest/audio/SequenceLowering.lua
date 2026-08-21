@@ -192,8 +192,8 @@ end
 -- Maps a decoded command to its instruction record, or nil when the command
 -- is a dropped diagnostic (0xD6 print_var). `indexOf` resolves absolute source
 -- offsets to instruction indices for branch targets. Branch operands are
--- sequence-data-relative in the decoded SSEQ and are rebased here.
--- Operands are emitted per
+-- sequence-data-relative in the decoded SSEQ and are rebased here. Operands
+-- are emitted per
 -- semantic op, so reserved no-op forms never carry operand fields; the
 -- signed operand classes narrow plain values to their semantic signed
 -- number. `trackMask` is the FE header's u16 mask (nil without an FE
