@@ -82,6 +82,54 @@ function T.interval_phase_order_is_before_sequence_then_after_sequence_then_afte
   -- At 48 kHz an interval is 250 frames. Render 3 intervals = 750 frames.
   player:render(750)
 
+  Assert.isTrue(#trace.events > 0, "trace must expose the global callback stream")
+  local positions = {}
+  local function firstPosition(predicate)
+    for index, entry in ipairs(trace.events) do
+      if predicate(entry) then
+        return index
+      end
+    end
+    return nil
+  end
+  for index, entry in ipairs(trace.events) do
+    local kind = entry.kind
+    if positions[kind] == nil then
+      positions[kind] = index
+    end
+  end
+  Assert.notNil(positions.sound_interval, "interval callbacks must be recorded globally")
+  Assert.notNil(positions.track_step, "track callbacks must be recorded globally")
+  Assert.notNil(positions.note_event, "note callbacks must be recorded globally")
+  Assert.notNil(positions.channel_state, "channel callbacks must be recorded globally")
+  local beforeSequence = firstPosition(function(entry)
+    return entry.kind == "sound_interval" and entry.event.ordinal == 0 and entry.event.phase == "before_sequence"
+  end)
+  local afterSequence = firstPosition(function(entry)
+    return entry.kind == "sound_interval" and entry.event.ordinal == 0 and entry.event.phase == "after_sequence"
+  end)
+  local afterChannels = firstPosition(function(entry)
+    return entry.kind == "sound_interval" and entry.event.ordinal == 0 and entry.event.phase == "after_channels"
+  end)
+  local sequenceWork = firstPosition(function(entry)
+    return (entry.kind == "track_step" or entry.kind == "note_event") and entry.event.ordinal == 0
+  end)
+  local channelWork = firstPosition(function(entry)
+    return entry.kind == "channel_state" and entry.event.ordinal == 0
+  end)
+  Assert.notNil(beforeSequence, "first interval must expose before_sequence globally")
+  Assert.notNil(sequenceWork, "first interval must expose sequence work globally")
+  Assert.notNil(afterSequence, "first interval must expose after_sequence globally")
+  Assert.notNil(channelWork, "first interval must expose mixer work globally")
+  Assert.notNil(afterChannels, "first interval must expose after_channels globally")
+  Assert.isTrue(
+    beforeSequence < sequenceWork
+      and sequenceWork < afterSequence
+      and afterSequence < channelWork
+      and channelWork < afterChannels,
+    "global stream must preserve interval, sequence, and mixer callback order"
+  )
+
   -- The observer must emit three phases per 192 Hz interval in strict order.
   local intervals = trace.intervals
   Assert.isTrue(
@@ -136,6 +184,7 @@ function T.trace_is_stable_across_render_chunk_sizes()
       player:render(frames)
     end
     -- Also collect track and channel snapshots for stability.
+    Assert.isTrue(#trace.events > 0, "global trace must be non-empty: " .. trace:summary())
     return trace
   end
 
@@ -164,6 +213,7 @@ function T.trace_determinism_is_identical_for_one_large_chunk_and_several_uneven
     for _, frames in ipairs(chunks) do
       player:render(frames)
     end
+    Assert.isTrue(#trace.events > 0, "global trace must be non-empty: " .. trace:summary())
     return trace
   end
 
@@ -218,45 +268,23 @@ end
 function T.trace_recorder_treats_chronology_as_semantic_and_renders_mismatch_diagnostics()
   local a = AudioTrace.new()
   a:onSoundInterval({ ordinal = 0, phase = "before_sequence" })
-  a:onSoundInterval({ ordinal = 0, phase = "after_sequence" })
-  a:onSoundInterval({ ordinal = 0, phase = "after_channels" })
-  a:onSoundInterval({ ordinal = 1, phase = "after_channels" })
-  a:onSoundInterval({ ordinal = 1, phase = "before_sequence" })
-  a:onSoundInterval({ ordinal = 1, phase = "after_sequence" })
+  a:onTrackStep({ ordinal = 0, track = 0, op = "note" })
 
   local b = AudioTrace.new()
+  b:onTrackStep({ ordinal = 0, track = 0, op = "note" })
   b:onSoundInterval({ ordinal = 0, phase = "before_sequence" })
-  b:onSoundInterval({ ordinal = 0, phase = "after_sequence" })
-  b:onSoundInterval({ ordinal = 0, phase = "after_channels" })
-  b:onSoundInterval({ ordinal = 1, phase = "before_sequence" })
-  b:onSoundInterval({ ordinal = 1, phase = "after_sequence" })
-  b:onSoundInterval({ ordinal = 1, phase = "after_channels" })
 
-  local chronological = AudioTrace.new()
-  chronological:onSoundInterval({ ordinal = 0, phase = "before_sequence" })
-  chronological:onSoundInterval({ ordinal = 0, phase = "after_sequence" })
-  chronological:onSoundInterval({ ordinal = 0, phase = "after_channels" })
-  chronological:onSoundInterval({ ordinal = 1, phase = "after_channels" })
-  chronological:onSoundInterval({ ordinal = 1, phase = "before_sequence" })
-  chronological:onSoundInterval({ ordinal = 1, phase = "after_sequence" })
-
-  Assert.isTrue(a:equals(chronological), "identical chronological insertions must compare equal")
+  Assert.deepEqual(a.intervals, b.intervals, "category interval views remain identical")
+  Assert.deepEqual(a.trackSteps, b.trackSteps, "category track views remain identical")
   local reordered = a:diagnostics(b)
   Assert.isTrue(
-    reordered ~= nil and reordered:find("intervals mismatch at 4") ~= nil,
-    "reordered chronology must be a mismatch at the first event, got " .. tostring(reordered)
+    reordered ~= nil
+      and reordered:find("global event 1") ~= nil
+      and reordered:find("sound_interval") ~= nil
+      and reordered:find("track_step") ~= nil,
+    "cross-kind reorder must identify the first global mismatch, got " .. tostring(reordered)
   )
-
-  local c = AudioTrace.new()
-  c:onSoundInterval({ ordinal = 0, phase = "before_sequence" })
-  -- Missing phases -> diagnostics should mention mismatch.
-  local diag = b:diagnostics(c)
-  Assert.isTrue(
-    diag ~= nil and diag:find("intervals") ~= nil,
-    "mismatch diagnostics must mention intervals, got " .. tostring(diag)
-  )
-  diag = assert(diag)
-  Assert.isTrue(diag:find("expected") ~= nil, "diagnostics must show expected vs actual")
+  Assert.isFalse(a:equals(b), "global chronology must define whole-trace equality")
 end
 
 return { tests = T }

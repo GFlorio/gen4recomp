@@ -19,6 +19,7 @@ end
 
 function AudioTrace.new()
   return setmetatable({
+    events = {},
     intervals = {},
     trackSteps = {},
     noteEvents = {},
@@ -27,33 +28,39 @@ function AudioTrace.new()
 end
 
 function AudioTrace:clear()
+  self.events = {}
   self.intervals = {}
   self.trackSteps = {}
   self.noteEvents = {}
   self.channelStates = {}
 end
 
+local function appendEvent(self, kind, category, event)
+  local snapshot = copyTable(event)
+  category[#category + 1] = snapshot
+  self.events[#self.events + 1] = { kind = kind, event = snapshot }
+end
+
 function AudioTrace:onSoundInterval(event)
   assert(type(event) == "table", "interval event must be a table")
   assert(type(event.ordinal) == "number", "interval ordinal must be a number")
   assert(type(event.phase) == "string", "interval phase must be a string")
-  -- Store an immutable snapshot.
-  self.intervals[#self.intervals + 1] = copyTable(event)
+  appendEvent(self, "sound_interval", self.intervals, event)
 end
 
 function AudioTrace:onTrackStep(event)
   assert(type(event) == "table", "track step must be a table")
-  self.trackSteps[#self.trackSteps + 1] = copyTable(event)
+  appendEvent(self, "track_step", self.trackSteps, event)
 end
 
 function AudioTrace:onNoteEvent(event)
   assert(type(event) == "table", "note event must be a table")
-  self.noteEvents[#self.noteEvents + 1] = copyTable(event)
+  appendEvent(self, "note_event", self.noteEvents, event)
 end
 
 function AudioTrace:onChannelState(event)
   assert(type(event) == "table", "channel state must be a table")
-  self.channelStates[#self.channelStates + 1] = copyTable(event)
+  appendEvent(self, "channel_state", self.channelStates, event)
 end
 
 local function shallowEqual(a, b)
@@ -76,67 +83,34 @@ local function shallowEqual(a, b)
   return true
 end
 
-local function diffLists(name, expected, actual)
+local function formatValue(value)
+  if type(value) ~= "table" then
+    return tostring(value)
+  end
+  local parts = {}
+  for key, field in pairs(value) do
+    parts[#parts + 1] = string.format("%s=%s", tostring(key), formatValue(field))
+  end
+  table.sort(parts)
+  return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+local function diffEvents(expected, actual)
   if #expected ~= #actual then
-    return string.format("%s count mismatch: expected %d got %d", name, #expected, #actual)
+    return string.format("global event count mismatch: expected %d got %d", #expected, #actual)
   end
   for index = 1, #expected do
     local exp = expected[index]
     local got = actual[index]
-    if not shallowEqual(exp, got) then
-      local function fmt(entry)
-        local parts = {}
-        for key, value in pairs(entry) do
-          parts[#parts + 1] = string.format("%s=%s", tostring(key), tostring(value))
-        end
-        table.sort(parts)
-        return "{" .. table.concat(parts, ", ") .. "}"
-      end
-      return string.format("%s mismatch at %d: expected %s got %s", name, index, fmt(exp), fmt(got))
+    if exp.kind ~= got.kind or not shallowEqual(exp.event, got.event) then
+      return string.format("global event %d mismatch: expected %s got %s", index, formatValue(exp), formatValue(got))
     end
   end
   return nil
 end
 
 function AudioTrace:diagnostics(other)
-  local checks = {
-    { name = "intervals", expected = self.intervals, actual = other.intervals },
-    { name = "trackSteps", expected = self.trackSteps, actual = other.trackSteps },
-    { name = "noteEvents", expected = self.noteEvents, actual = other.noteEvents },
-    { name = "channelStates", expected = self.channelStates, actual = other.channelStates },
-  }
-  local lines = {}
-  for _, check in ipairs(checks) do
-    local message = diffLists(check.name, check.expected, check.actual)
-    if message ~= nil then
-      lines[#lines + 1] = message
-      -- Show first few entries for context.
-      local limit = math.min(3, math.max(#check.expected, #check.actual))
-      for index = 1, limit do
-        local exp = check.expected[index]
-        local got = check.actual[index]
-        if exp ~= nil or got ~= nil then
-          local function fmt(entry)
-            if entry == nil then
-              return "<missing>"
-            end
-            local parts = {}
-            for key, value in pairs(entry) do
-              parts[#parts + 1] = string.format("%s=%s", tostring(key), tostring(value))
-            end
-            table.sort(parts)
-            return "{" .. table.concat(parts, ", ") .. "}"
-          end
-          lines[#lines + 1] = string.format("  [%d] expected %s", index, fmt(exp))
-          lines[#lines + 1] = string.format("  [%d] actual   %s", index, fmt(got))
-        end
-      end
-    end
-  end
-  if #lines == 0 then
-    return nil
-  end
-  return table.concat(lines, "\n")
+  return diffEvents(self.events, other.events)
 end
 
 function AudioTrace:equals(other)
@@ -155,7 +129,8 @@ end
 
 function AudioTrace:summary()
   return string.format(
-    "intervals=%d trackSteps=%d noteEvents=%d channelStates=%d",
+    "events=%d intervals=%d trackSteps=%d noteEvents=%d channelStates=%d",
+    #self.events,
     #self.intervals,
     #self.trackSteps,
     #self.noteEvents,
