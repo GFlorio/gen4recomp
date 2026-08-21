@@ -1159,9 +1159,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     if self.translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE then
       if #queue.blended > 0 then
         self:_sendLighting(sceneRuntime, self.shader)
-        ---@type { [1]: love.Canvas, depthstencil: love.Canvas }
-        local approximateTargets = { assert(self.sceneColor), depthstencil = assert(self.colorDepth) }
-        lg.setCanvas(approximateTargets)
+        lg.setCanvas(assert(self._colorClearTargets))
         lg.setShader(self.shader)
         lg.setDepthMode("less", false)
         lg.setBlendMode("alpha", "alphamultiply")

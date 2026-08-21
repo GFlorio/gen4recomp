@@ -982,7 +982,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   )
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the same edge table reference is not resent")
 
-  viewport:resize(1280, 720)
+  viewport:resize(1280, 800)
   renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new color descriptor")
   Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new MRT descriptor")
@@ -2519,6 +2519,61 @@ function T.default_translucency_uses_direct_alpha_and_no_exact_resources()
   Assert.equal(callCount(lg.calls.blend, { mode = "alpha", alpha = "alphamultiply" }), 1)
   Assert.isNil(renderer._sourceColor, "default mode does not allocate source color")
   Assert.isNil(renderer._sourceMeta, "default mode does not allocate source metadata")
+  renderer:release()
+end
+
+-- The approximate blended pass must bind the renderer-owned single-color and
+-- depth descriptor, not an equivalent frame-local setup table. The third-from-
+-- last canvas bind is the blended pass; the final two binds restore the
+-- presentation target and the caller's canvas.
+function T.approximate_blended_pass_binds_the_renderer_owned_descriptor()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+  local scene = emptySceneCamera()
+
+  drawTranslucentFrame(renderer, scene, translucentItems(1))
+
+  local approximateTargets = lg.calls.canvas[#lg.calls.canvas - 2]
+  Assert.equal(approximateTargets, renderer._colorClearTargets, "approximate pass uses the persistent descriptor")
+  Assert.equal(approximateTargets[1], renderer.sceneColor, "descriptor color follows the active scene color")
+  Assert.equal(approximateTargets.depthstencil, renderer.colorDepth, "descriptor depth follows the color depth")
+  renderer:release()
+end
+
+-- The descriptor lifetime follows target generations: repeated same-size
+-- blended frames reuse it, while a raster-size change publishes one replacement.
+function T.approximate_blended_frames_reuse_descriptor_until_resize()
+  local lg = fakeGraphics()
+  local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+  local scene = emptySceneCamera()
+  local viewport = FieldViewport.new(1920, 1080, { mode = "expanded" })
+  local function drawAndRecord()
+    renderer:draw(scene.runtime, scene.camera, { translucentItems(1) }, nil, viewport, 0)
+    return lg.calls.canvas[#lg.calls.canvas - 2]
+  end
+
+  local firstDescriptor = drawAndRecord()
+  Assert.equal(firstDescriptor, renderer._colorClearTargets, "first blended frame uses its generation descriptor")
+  local secondDescriptor = drawAndRecord()
+  local thirdDescriptor = drawAndRecord()
+  Assert.equal(secondDescriptor, firstDescriptor, "same-size second frame reuses the descriptor")
+  Assert.equal(thirdDescriptor, firstDescriptor, "same-size third frame reuses the descriptor")
+
+  local resizedViewport = FieldViewport.new(1280, 800, { mode = "expanded" })
+  local function drawResizedAndRecord()
+    renderer:draw(scene.runtime, scene.camera, { translucentItems(1) }, nil, resizedViewport, 0)
+    return lg.calls.canvas[#lg.calls.canvas - 2]
+  end
+  local resizedDescriptor = drawResizedAndRecord()
+  Assert.isTrue(resizedDescriptor ~= firstDescriptor, "resize publishes a new generation descriptor")
+  Assert.equal(resizedDescriptor, renderer._colorClearTargets, "resized frame uses the new persistent descriptor")
+  Assert.equal(resizedDescriptor[1], renderer.sceneColor, "resized descriptor color follows the new scene color")
+  Assert.equal(
+    resizedDescriptor.depthstencil,
+    renderer.colorDepth,
+    "resized descriptor depth follows the new color depth"
+  )
+  Assert.equal(drawResizedAndRecord(), resizedDescriptor, "same-size frame after resize reuses the replacement")
   renderer:release()
 end
 
