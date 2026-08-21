@@ -1,5 +1,10 @@
--- Version-scoped persistent user-data owner. Saves live below
--- `saves/<versionId>/`, a sibling namespace to the disposable version cache
+-- Persistent user-data owner. Product saves use the global `saves/` root;
+-- legacy version-scoped callers may still use `saves/<versionId>/` until
+-- their runtime lifecycle is migrated. Both roots share strict confinement
+-- and backend failure handling.
+--
+-- Version-scoped saves live below `saves/<versionId>/`, while product saves use
+-- the global `saves/` root as a sibling namespace to the disposable version cache
 -- (`heartgold/`, `soulsilver/`), so no cache-clearing operation -- ROM
 -- re-import, derived-cache invalidation, deleting a version root -- is
 -- structurally able to reach a save. The version id is any safe path component;
@@ -34,7 +39,7 @@ local SAVE_ERRORS = {
 }
 
 ---@class SaveFs
----@field versionId string
+---@field versionId string?
 ---@field private _prefix string
 ---@field private _root string
 ---@field backend table
@@ -58,6 +63,16 @@ function SaveFs.forVersion(versionId, backend)
     versionId = versionId,
     _prefix = "saves/" .. versionId .. "/",
     _root = "saves/" .. versionId,
+    backend = backend or ScopedFs.loveBackend(),
+  }, SaveFs)
+end
+
+---@param backend table|nil
+---@return SaveFs
+function SaveFs.global(backend)
+  return setmetatable({
+    _prefix = "saves/",
+    _root = "saves",
     backend = backend or ScopedFs.loveBackend(),
   }, SaveFs)
 end

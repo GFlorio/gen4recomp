@@ -1,0 +1,108 @@
+-- GameSave validation tests cover the strict persisted record boundary while
+-- leaving domain-owned bucket rules with their injected validators.
+
+local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
+local GameSave = require("libs.engine.src.GameSave")
+
+local T = {}
+
+local function record(overrides)
+  local value = {
+    schema = GameSave.SCHEMA,
+    saveId = "save-00000001",
+    versionId = "heartgold",
+    playTimeSeconds = 0,
+    mapId = 60,
+    fieldX = 684,
+    fieldZ = 393,
+    worldY = 0,
+    surfaceId = 0,
+    terrainDependencyHash = "terrain-heartgold",
+    facing = "south",
+    playerData = { profile = {}, options = {} },
+    world = { flags = {}, variables = {}, objects = {}, rng = {} },
+    scripts = {},
+    auxiliaryUi = {},
+    audio = {},
+  }
+  for key, replacement in pairs(overrides or {}) do
+    value[key] = replacement
+  end
+  return value
+end
+
+local function returnsCode(code, fn)
+  local valid, err = fn()
+  Assert.isNil(valid)
+  Assert.isTrue(Errors.is(err))
+  Assert.equal(err.code, code)
+end
+
+function T.validates_required_buckets_and_numeric_ranges()
+  local valid = assert(GameSave.validate(record()))
+  Assert.equal(valid.saveId, "save-00000001")
+
+  returnsCode("GAME_SAVE_SCHEMA_UNSUPPORTED", function()
+    return GameSave.validate(record({ schema = "g4-field-save-v3" }))
+  end)
+  returnsCode("GAME_SAVE_SAVE_ID_INVALID", function()
+    return GameSave.validate(record({ saveId = "../escape" }))
+  end)
+  returnsCode("GAME_SAVE_PLAY_TIME_INVALID", function()
+    return GameSave.validate(record({ playTimeSeconds = 3599999 + 1 }))
+  end)
+  returnsCode("GAME_SAVE_FIELD_INVALID", function()
+    return GameSave.validate(record({ facing = "up" }))
+  end)
+  returnsCode("GAME_SAVE_BUCKET_INVALID", function()
+    local value = record()
+    value.scripts = nil
+    return GameSave.validate(value)
+  end)
+end
+
+function T.uses_injected_authoritative_bucket_validators()
+  local calls = {}
+  local opts = {
+    playerDataValidate = function(value)
+      calls.playerData = value
+      return { canonical = true }
+    end,
+    worldValidate = function(value)
+      calls.world = value
+    end,
+    scriptsValidate = function(value)
+      calls.scripts = value
+    end,
+    auxiliaryUiValidate = function(value)
+      calls.auxiliaryUi = value
+    end,
+    audioValidate = function(value)
+      calls.audio = value
+    end,
+  }
+  local valid = assert(GameSave.validate(record(), opts))
+  Assert.deepEqual(valid.playerData, { canonical = true })
+  Assert.notNil(calls.playerData)
+  Assert.notNil(calls.world)
+  Assert.notNil(calls.scripts)
+  Assert.notNil(calls.auxiliaryUi)
+  Assert.notNil(calls.audio)
+end
+
+function T.rejects_non_table_and_missing_required_buckets()
+  returnsCode("GAME_SAVE_INVALID", function()
+    ---@diagnostic disable-next-line: param-type-mismatch
+    return GameSave.validate(nil)
+  end)
+  for _, key in ipairs({ "playerData", "world", "auxiliaryUi", "audio" }) do
+    returnsCode("GAME_SAVE_BUCKET_INVALID", function()
+      local value = record()
+      value[key] = nil
+      return GameSave.validate(value)
+    end)
+  end
+end
+
+return { tests = T }
