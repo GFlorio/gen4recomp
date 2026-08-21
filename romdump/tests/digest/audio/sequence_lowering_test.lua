@@ -11,6 +11,7 @@
 -- build.
 
 local Assert = require("tests.support.Assert")
+local AudioSequence = require("libs.assets.src.AudioSequence")
 local Errors = require("libs.errors.src.Errors")
 local SequenceLowering = require("romdump.src.digest.audio.SequenceLowering")
 local SseqFixture = require("tests.support.SseqFixture")
@@ -385,19 +386,57 @@ function T.conditional_terminators_keep_false_fallthrough()
   end
 end
 
-function T.conditional_open_track_does_not_decode_a_false_target()
+function T.conditional_cross_track_open_keeps_fallthrough_and_valid_target()
   local bytes = SseqFixture.build({
     { op = "fe", mask = 3 },
     { op = "cmp_eq", var = 0, amount = 1 },
-    { op = "prefix", kind = "if", command = { op = "open_track", track = 1, target = { cmd = 5 } } },
+    { op = "prefix", kind = "if", command = { op = "open_track", track = 1, target = { cmd = 6 } } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
     { op = "fin" },
-    { op = "raw", bytes = "\x80\x80" },
+    { op = "note", key = 72, velocity = 80, duration = 8 },
+    { op = "fin" },
   })
   local program = lowerOrFail(bytes)
-  Assert.equal(#program.instructions, 3)
-  Assert.equal(program.instructions[2].op, "if")
-  Assert.equal(program.instructions[2].instruction.op, "open_track")
-  Assert.isNil(program.instructions[2].instruction.target)
+  Assert.equal(#program.instructions, 6)
+  Assert.equal(program.instructions[3].op, "note", "conditional false fallthrough remains reachable")
+  Assert.equal(program.instructions[3].key, 60)
+  Assert.equal(program.instructions[4].op, "end")
+  Assert.equal(program.instructions[5].op, "note", "conditional true target remains reachable")
+  Assert.equal(program.instructions[5].key, 72)
+  Assert.equal(program.instructions[6].op, "end")
+  Assert.deepEqual(program.instructions[2], {
+    op = "if",
+    condition = "compare_result",
+    instruction = { op = "open_track", track = 1, target = 5 },
+  })
+
+  local sequence = {
+    schema = AudioSequence.SCHEMA,
+    id = IDENTITY.sequenceId,
+    symbol = IDENTITY.symbol,
+    bankId = 0,
+    player = {
+      id = 0,
+      initialVolume = 127,
+      playerPriority = 64,
+      channelPriority = 64,
+    },
+    program = program,
+  }
+  Assert.isTrue(AudioSequence.validate(sequence), "lowered cross-track open is a valid asset")
+end
+
+function T.self_open_does_not_decode_its_malformed_target()
+  local bytes = SseqFixture.build({
+    { op = "fe", mask = 1 },
+    { op = "open_track", track = 0, target = { cmd = 4 } },
+    { op = "fin" },
+    { op = "raw", bytes = "\x60\x80" },
+  })
+  local program = lowerOrFail(bytes)
+  Assert.equal(#program.instructions, 2)
+  Assert.deepEqual(program.instructions[1], { op = "nop" })
+  Assert.equal(program.instructions[2].op, "end")
 end
 
 -- RETURN with no active CALL/LOOP frame is a fallthrough in the ARM7

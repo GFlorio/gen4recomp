@@ -43,8 +43,8 @@ local function classifyLoopCount(value)
   return "many"
 end
 
-local function addSuccessor(queue, offset, stack)
-  queue[#queue + 1] = { offset = offset, stack = stack }
+local function addSuccessor(queue, offset, stack, trackSlot)
+  queue[#queue + 1] = { offset = offset, stack = stack, trackSlot = trackSlot }
 end
 
 local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
@@ -52,21 +52,21 @@ local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
   local stack = state.stack
   local nextOffset = command.next
   local function skipped()
-    addSuccessor(queue, nextOffset, stack)
+    addSuccessor(queue, nextOffset, stack, state.trackSlot)
   end
 
   if opcode == 0x93 then
-    addSuccessor(queue, nextOffset, stack)
-    if not command.conditional then
+    addSuccessor(queue, nextOffset, stack, state.trackSlot)
+    if command.track ~= state.trackSlot then
       branchTargets[command.offset] = true
-      addSuccessor(queue, dataOffset + command.target, {})
+      addSuccessor(queue, dataOffset + command.target, {}, command.track)
     end
   elseif opcode == 0x94 then
     if command.conditional then
       skipped()
     end
     branchTargets[command.offset] = true
-    addSuccessor(queue, dataOffset + command.target, stack)
+    addSuccessor(queue, dataOffset + command.target, stack, state.trackSlot)
   elseif opcode == 0x95 then
     if command.conditional then
       skipped()
@@ -79,7 +79,8 @@ local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
         push(stack, {
           kind = "call",
           returnOffset = nextOffset,
-        })
+        }),
+        state.trackSlot
       )
     else
       skipped()
@@ -89,11 +90,11 @@ local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
       skipped()
     end
     if #stack == 0 then
-      addSuccessor(queue, nextOffset, stack)
+      addSuccessor(queue, nextOffset, stack, state.trackSlot)
     else
       addSuccessor(queue, stack[#stack].returnOffset, {
         table.unpack(stack, 1, #stack - 1),
-      })
+      }, state.trackSlot)
     end
   elseif opcode == 0xD4 then
     if command.conditional then
@@ -107,7 +108,8 @@ local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
           kind = "loop",
           returnOffset = nextOffset,
           countClass = classifyLoopCount(command.value),
-        })
+        }),
+        state.trackSlot
       )
     else
       skipped()
@@ -118,28 +120,28 @@ local function visitSuccessors(command, state, dataOffset, queue, branchTargets)
     end
     local frame = stack[#stack]
     if frame == nil then
-      addSuccessor(queue, nextOffset, stack)
+      addSuccessor(queue, nextOffset, stack, state.trackSlot)
     elseif frame.kind ~= "loop" then
-      addSuccessor(queue, nextOffset, stack)
-      addSuccessor(queue, frame.returnOffset, stack)
+      addSuccessor(queue, nextOffset, stack, state.trackSlot)
+      addSuccessor(queue, frame.returnOffset, stack, state.trackSlot)
     elseif frame.countClass == "zero" then
-      addSuccessor(queue, frame.returnOffset, stack)
+      addSuccessor(queue, frame.returnOffset, stack, state.trackSlot)
     elseif frame.countClass == "one" then
       addSuccessor(queue, nextOffset, {
         table.unpack(stack, 1, #stack - 1),
-      })
+      }, state.trackSlot)
     else
-      addSuccessor(queue, frame.returnOffset, stack)
+      addSuccessor(queue, frame.returnOffset, stack, state.trackSlot)
       addSuccessor(queue, nextOffset, {
         table.unpack(stack, 1, #stack - 1),
-      })
+      }, state.trackSlot)
     end
   elseif opcode == 0xFF then
     if command.conditional then
       skipped()
     end
   else
-    addSuccessor(queue, nextOffset, stack)
+    addSuccessor(queue, nextOffset, stack, state.trackSlot)
   end
 end
 
@@ -171,14 +173,14 @@ local function _analyze(bytes, context)
     })
   end
 
-  local queue = { { offset = entryOffset, stack = {} } }
+  local queue = { { offset = entryOffset, stack = {}, trackSlot = 0 } }
   local seenStates = {}
   local commandsByOffset = {}
   local branchTargets = {}
   while #queue > 0 do
     local state = table.remove(queue)
     if state.offset < endPos then
-      local key = state.offset .. "|" .. stackKey(state.stack)
+      local key = state.offset .. "|" .. state.trackSlot .. "|" .. stackKey(state.stack)
       if not seenStates[key] then
         seenStates[key] = true
         local command = commandsByOffset[state.offset]

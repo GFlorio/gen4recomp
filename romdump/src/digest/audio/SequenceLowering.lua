@@ -238,6 +238,12 @@ local function toInstruction(command, indexOf, identity, trackMask, dataOffset, 
   elseif op == "program" then
     instruction.program = normalizeValue(command.value)
   elseif op == "open_track" then
+    if not targetExecutable then
+      if conditional then
+        return { op = "if", condition = "compare_result", instruction = { op = "nop" } }
+      end
+      return { op = "nop" }
+    end
     if trackMask == nil or not trackAllocated(trackMask, command.track) then
       Errors.raise(
         "AUDIO_SEQUENCE_TRACK_NOT_ALLOCATED",
@@ -250,20 +256,18 @@ local function toInstruction(command, indexOf, identity, trackMask, dataOffset, 
         }
       )
     end
-    if targetExecutable then
-      local absoluteTarget = dataOffset + command.target
-      local target = indexOf[absoluteTarget]
-      if target == nil then
-        Errors.raise("AUDIO_SEQUENCE_BAD_TARGET", "open-track target is not an instruction boundary", {
-          sequenceId = identity.sequenceId,
-          sequenceSymbol = identity.symbol,
-          sourceOffset = command.offset,
-          target = absoluteTarget,
-          encodedTarget = command.target,
-        })
-      end
-      instruction.target = target
+    local absoluteTarget = dataOffset + command.target
+    local target = indexOf[absoluteTarget]
+    if target == nil then
+      Errors.raise("AUDIO_SEQUENCE_BAD_TARGET", "open-track target is not an instruction boundary", {
+        sequenceId = identity.sequenceId,
+        sequenceSymbol = identity.symbol,
+        sourceOffset = command.offset,
+        target = absoluteTarget,
+        encodedTarget = command.target,
+      })
     end
+    instruction.target = target
     instruction.track = command.track
   elseif op == "jump" or op == "call" then
     if targetExecutable then
