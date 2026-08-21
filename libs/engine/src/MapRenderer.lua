@@ -1,22 +1,22 @@
--- Draws a loaded runtime scene through one world-raster pass and a native
--- presentation sprite stage (see docs/rendering.md). The color raster
--- (sceneColor/colorDepth) and render-state raster (renderState)
--- share bounded world dimensions; actor sprites resolve the world first and
--- draw directly to the host window.
+-- Draws a loaded runtime scene through a bounded world-raster pass and a
+-- native-resolution presentation billboard stage (see docs/rendering.md).
+-- The world color/state/depth targets share bounded dimensions; ordinary
+-- opaque/cutout actor billboards resolve the world first and draw directly to
+-- the host window without writing world renderState or receiving world edges.
 --
 -- The world render queue is built exactly once per frame (RenderQueue.buildInto)
 -- and the world MRT pass consumes it. Opaque, cutout, and mixed-opaque
--- fragments stamp renderState atomically with color:
+-- fragments stamp the active color and renderState MRT atomically:
 -- ID, DS-quantized depth, and per-polygon fog gate. Ordinary translucent and
--- mixed-translucent fragments never touch the state target directly; their
--- state (last translucent ID, fog-gate AND, optional DS Z depth) is
--- maintained by the exact programmable compositor. Approximate mode instead
--- draws the joint `blended` list directly with host alpha blending. The final
+-- mixed-translucent fragments never touch the state target directly in the
+-- exact compositor. Approximate mode changes world color only with host
+-- alpha blending; exact mode additionally maintains last translucent ID,
+-- fog-gate AND, and the retained state semantics. The final
 -- resolve (edge.glsl) samples sceneColor as its own
--- texture and the same-resolution renderState through explicit snap/clamp to
--- render-state pixel centers (never texture-clamp reliance), probing the four
--- orthogonal neighbors at a distance of one integer edge radius (the rounded
--- field logical pixel scale -- see FieldViewport:logicalPixelScale), and
+-- texture and the same bounded-resolution renderState through explicit
+-- snap/clamp to render-state pixel centers (never texture-clamp reliance),
+-- probing the four orthogonal neighbors at a distance of one integer edge
+-- radius computed from the world target height and camera zoom, and
 -- applies, in order: edge marking, fog, then the project's current antialias
 -- approximation (50% mix of fogged candidates -- not exact hardware
 -- lower-pixel coverage). Both candidates share the center state's single
@@ -903,9 +903,10 @@ function MapRenderer:_drawWireframeStraddle(item, projection, viewMatrix)
 end
 
 -- The common wireframe draw body: bind the model/normal matrices, the
--- profile registers, and draw the mesh. The pass owns shader, depth, blend,
--- and wireframe state outside the item loop. Wireframe items always draw as
--- opaque (GBATEK: edge marking applies to wire-frames too).
+-- profile registers, and draw the mesh. The active wireframe pass owns shader,
+-- depth, blend, and wireframe state outside the item loop. It writes color and
+-- polygon state together to the active MRT pair, using shared depth and
+-- replace semantics; wireframe items are opaque for edge marking.
 function MapRenderer:_drawWireframeMesh(
   item,
   projection,
@@ -1253,8 +1254,11 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     lg.setShader()
 
     -- The world is now present at presentation resolution. The host depth
-    -- buffer is borrowed for actor ordering; presentation sprites draw
-    -- directly to the window. No sprite color or state canvas is allocated.
+    -- buffer is borrowed for sprite-vs-sprite ordering; presentation sprites
+    -- sample world DS depth for world-vs-sprite occlusion and draw directly to
+    -- the window. Their fogged RGB and DS result alpha are written directly
+    -- with replace/premultiplied semantics; no sprite color or state canvas is
+    -- allocated.
     if spriteItems and #spriteItems > 0 then
       self._activeShader = self:_ensureSpriteShader()
       local spriteShader = assert(self._activeShader)

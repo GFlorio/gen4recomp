@@ -1,12 +1,11 @@
 -- Turns presentation-neutral actor draw records into map-renderer draw items.
 --
--- An actor is world geometry, not UI: it enters the same queue as terrain and
--- building batches and carries the polygon state the ROM's actor material
--- declares (modulation, full polygon alpha, polygon id 0, colour-zero cutout),
--- so it depth-tests against map geometry and takes part in edge marking exactly
--- as the original does. The quad is a Nitro full camera-facing billboard, so the
--- item ships its world-space center and base scale; the vertex shader supplies
--- the camera-facing axes without rebuilding a model matrix on the CPU.
+-- Ordinary actor visuals are native-resolution opaque/cutout presentation
+-- billboards. They carry their world-space center and base scale for the
+-- presentation shader, which samples the resolved world's DS depth but does
+-- not write world renderState or receive world edge marking. Static-model
+-- actor parts remain world actors: they use the world projection and join the
+-- world color/state and edge passes with terrain and buildings.
 --
 -- Pure domain module: matrix arithmetic only, no love dependency.
 

@@ -4,8 +4,11 @@
 // resulting RGB. The pixel stage samples the texture, applies the exact DS
 // MODULATE/DECAL combiner, and discards fragments per the exact-alpha5
 // fragment-pass predicate (u_fragmentPass). In WORLD_MRT mode it also writes
-// the polygon state attachment atomically with the color output. No fake directional light or
-// second diffuse multiplication remains. This shader owns no DS render
+// the polygon state attachment atomically with the color output. In
+// presentation-sprite mode it samples world renderState for DS depth/visibility
+// and applies presentation fog; the host writes that result directly with
+// replace/premultiplied semantics. No fake directional light or second diffuse
+// multiplication remains. This shader owns no DS render
 // state (polygon ID, quantized depth, fog gate) outside WORLD_MRT mode.
 //
 // The vertex-lighting algebra below (computeDsLighting, dsLightContribution,
@@ -41,10 +44,11 @@
 // identity element of both combiner equations -- no separate uniform is
 // needed to reach that value.
 //
-// Fog is entirely a final-pass concern (GBATEK "3D Display - Fog": edge
-// marking, then fog, over the whole composited scene) -- this shader owns no
-// fog uniform, and (since this refactor) no per-polygon fog-gate output
-// either; WORLD_MRT carries POLYGON_ATTR FOG_ENABLE into its state attachment.
+// World fog is a final-resolve concern (GBATEK "3D Display - Fog": edge
+// marking, then fog, over the bounded world raster) -- WORLD_MRT carries
+// POLYGON_ATTR FOG_ENABLE into renderState for that resolve. Presentation
+// billboards are fogged here from their sampled world visibility and host
+// fragment depth; fog result alpha remains result data, not coverage.
 
 varying vec3 v_dsColor;
 varying vec2 v_spriteUv;
@@ -402,7 +406,9 @@ vec3 decalRgb6(vec3 texture6, vec3 vertex6, float textureAlpha5)
   return floor((texture6 * textureAlpha5 + vertex6 * (31.0 - textureAlpha5)) / 32.0);
 }
 
-// WORLD_MRT stores the DS Z-buffer depth in renderState's green channel.
+// WORLD_MRT writes active world color plus renderState: R is polygon ID, G is
+// DS-quantized depth, B is the polygon fog gate, and A is the cleared or
+// compositor-maintained translucent ID state.
 
 void effect()
 {
@@ -432,8 +438,8 @@ void effect()
     outputAlpha5 = int(floor(float((int(textureAlpha5) + 1) * (polygonAlpha5 + 1) - 1) / 32.0));
   }
   // Exact integer-domain alpha5 discard predicates -- never a float-epsilon
-  // comparison once outputAlpha5 is already computed exactly (spec: mixed
-  // materials split their opaque and translucent texels by this exact value).
+  // comparison once outputAlpha5 is already computed exactly. Mixed materials
+  // split their opaque and translucent texels by this exact value.
   if (u_fragmentPass == 1) {
     if (outputAlpha5 == 0) discard;
   } else if (u_fragmentPass == 2) {
@@ -451,14 +457,19 @@ void effect()
   if (u_presentationSprite) {
     // Render-state canvases use the canvas texture orientation while this
     // stage is rasterized directly to the window, so presentation Y is
-    // inverted when looking up the corresponding world pixel.
+    // inverted when looking up the corresponding bounded world pixel.
     if (v_spriteUv.x < 0.0 || v_spriteUv.x > 1.0 || v_spriteUv.y < 0.0 || v_spriteUv.y > 1.0) discard;
     vec2 stateUv = vec2(v_spriteUv.x, 1.0 - v_spriteUv.y);
     stateUv = clamp(stateUv, vec2(0.0), vec2(1.0) - 0.5 / u_stateSize);
     float worldDepth = Texel(u_renderState, stateUv).g;
     float spriteDepthValue = spriteDepth(gl_FragCoord.z);
+    // Exact alpha5 discard happened above. Sampled world DS depth and host
+    // sprite depth are the presentation visibility gates; host depth also
+    // orders presentation sprites against one another.
     if (spriteDepthValue >= worldDepth) discard;
     vec4 fogged = fogSprite(vec4(outRgb, alpha), spriteDepthValue);
+    // Replace/premultiplied presentation blending preserves fogged RGB even
+    // when DS fog produces result alpha zero.
     outRgb = fogged.rgb;
     alpha = fogged.a;
   }

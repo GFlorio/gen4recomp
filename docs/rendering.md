@@ -189,8 +189,8 @@ alpha for final alpha entirely):
 | MODULATE, texture alpha usage has a zero texel (no partial) | `cutout` |
 | otherwise | `opaque` |
 
-A `mixed` batch draws through both the opaque and translucent subpasses (see
-"Shared full-resolution rasters" below): each fragment's own exact final alpha5 decides
+A `mixed` batch draws through both the opaque and translucent world paths (see
+"World raster targets and passes" below): each fragment's own exact final alpha5 decides
 which subpass's write, if any, survives at that fragment.
 
 The RGB fragment combiner is the DS integer-domain equation (GBATEK's
@@ -225,9 +225,10 @@ when the final 5-bit alpha is zero, implemented as `alpha < 0.5 / 255`.
 position}`, never a field stamped onto the original item). `blended` holds
 both ordinary translucent items and a mixed item's translucent subpass,
 sorted together back-to-front in view space (submission position breaks
-ties) and honoring the polygon bit-11 translucent depth-write flag. The pass
-order is filled world MRT geometry, selected translucency, then one edge-only
-wireframe pass. `FieldState` supplies
+ties). The supported asset contract rejects `translucentDepthWrite = true`
+(POLYGON_ATTR bit 11). The pass order is filled world MRT geometry, selected
+translucency, then one wireframe pass that writes the active color and state
+targets together. `FieldState` supplies
 ordered arrays of map geometry, buildings, neighbour-ring draws, and actors.
 `RenderQueue` traverses those
 parts with one monotonically increasing submission position, so cross-part
@@ -269,9 +270,9 @@ representable in binary floating point, so the A encoding is exact. The
 clear/rear-plane state is `{63/63, 0xFFFFFF, 0, 0}`. Opaque, cutout,
 mixed-opaque, and wireframe fragments write their own real 0..63 polygon ID
 into R and reset A to 0, because the new top opaque pixel has no accepted
-translucent overlay yet; there is no invented sentinel value. Ordinary
-translucent state is maintained by the programmable compositor below, not by
-the state pass.
+translucent overlay yet; there is no invented sentinel value. In exact mode,
+translucent state is maintained by the programmable compositor; approximate
+mode changes world color only.
 
 ## World raster targets and passes
 
@@ -292,8 +293,9 @@ independent of host presentation resolution:
   declaring a second output, so these paths can target a single color canvas.
 
 The render queue is built once per frame. State-writing world geometry is
-submitted once through the MRT shader; translucent color and metadata remain
-separate because their compositor needs read-modify-write state semantics.
+submitted through the active color+state MRT; exact translucent color and
+metadata use source buffers because their compositor needs read-modify-write
+state semantics.
 There is no dedicated state shader or state depth canvas.
 
 ### Render-state depth
@@ -360,21 +362,24 @@ alone -- texture storage format (e.g. A3I5/A5I3) describes capability, not the
 alpha distribution of a particular decoded texture, and DECAL ignores texture
 alpha for final alpha entirely. Such a material draws once in the MRT pass as
 `mixedOpaque`, then again only for its partial fragments in the joint `blended`
-list via the selected translucency mode: each fragment's own exact final alpha5 (not a
-float-epsilon comparison) decides which pass's write, if
-any, survives -- alpha 0 discards everywhere, alpha 31 is opaque in both
-  color and state, and alpha 1-30 blends through the selected translucency mode in color and
-contributes translucent state, not opaque state.
+list via the selected translucency mode: each fragment's own exact final alpha5
+(not a float-epsilon comparison) decides which pass's write, if any, survives
+-- alpha 0 discards everywhere, alpha 31 is opaque in both color and state. For
+alpha 1-30, approximate mode blends world color only and
+  leaves `renderState` at the opaque/world state underneath; exact mode alone
+  applies the programmable translucent state mutation. This distinction is a
+  mode choice, not a property of the material classification.
 
 ### Translucency modes
 
 The renderer defaults to `MapRenderer.TRANSLUCENCY_APPROXIMATE`. It draws the
-sorted `blended` entries directly into the world color target with fixed-function
-alpha blending, so translucent geometry adds geometry submissions but no
-per-entry full-screen work. Approximate mode intentionally does not reproduce
-same-ID rejection, integer RGB6/alpha5 destination blending, maximum destination
-alpha, fog-gate AND, or last-translucent-ID state; this is the deliberate
-low-end production tradeoff.
+sorted `blended` entries directly into the bounded world color target with
+fixed-function alpha blending, so translucent geometry adds geometry
+submissions but no per-entry full-screen work. Approximate mode changes world
+color only: it intentionally does not reproduce same-ID rejection, integer
+RGB6/alpha5 destination blending, maximum destination alpha, fog-gate AND, or
+last-translucent-ID state. Translucent geometry still depth-tests against the
+opaque world's shared `colorDepth`, with depth writes disabled.
 
 `MapRenderer.TRANSLUCENCY_EXACT` remains a normal supported construction mode for
 a future graphics-quality selector. It retains the programmable compositor and
@@ -384,9 +389,10 @@ composite per blended entry. Exact-only shaders, spare canvases, and source
 buffers are allocated only in exact mode. The source metadata buffer is `rgba8`
 and encodes IDs as `(id + 1) / 64`; no source-color clear or initial destination
 seed blits are required because invalid-source pixels copy the active destination.
-This exactness applies to world-raster blending and state only. Native
-presentation actors are composed after the world has resolved, so they do not
-participate in exact translucent ordering with world polygons.
+This exactness applies only to world-raster blending and state. Native
+presentation actors are composed after the world has resolved and remain
+opaque/cutout presentation sprites; they do not participate in exact
+translucent ordering with world polygons.
 
 ### Programmable translucent compositor
 
@@ -411,12 +417,13 @@ translucent ID). The compositor is a ping-pong read-modify-write:
 * A full-screen composite shader then applies the exact integer blend/state
   equations only where source valid is true (otherwise copying the destination
   unchanged) into the inactive pair, then the pairs swap.
-* After the loop, wireframe color drawing binds the active color with the
-  shared `colorDepth` attachment; the active state is not a second color
-  target. The final resolve then samples the same active pair, so final color
-  and state remain aligned. No pass samples and writes the same target in one
-  draw (no feedback hazard). The composite and the source rasterization both
-  use `replace` semantics -- the composite does not
+* After the loop, wireframe binds the active color and active state as an MRT
+  pair with the shared `colorDepth` attachment. It uses `less,true` and
+  `replace` with premultiplied output, so each accepted wireframe pixel stamps
+  color and state atomically. The final resolve then samples the same active
+  pair, so final color and state remain aligned. No pass samples and writes the
+  same target in one draw (no feedback hazard). The composite and the source
+  rasterization both use `replace` semantics -- the composite does not
   apply a second host alpha blend to already-computed output, and ordinary
   translucent/mixed-translucent entries share this same compositor path.
 
@@ -426,20 +433,15 @@ and does not implement the hardware's automatic translucent sort.
 
 ### Final resolve
 
-`edge.glsl` samples `sceneColor` (its full-resolution `tex` input) and
-`renderState` (a same-resolution sampler) together: because the two rasters
-share one-to-one screen coverage, every fragment's state sample snaps/clamps
-to the render-state pixel center via an explicit `statePixelCenter` -- never
-texture-clamp behavior -- and an out-of-bounds neighbour probe returns the
-same rear-plane state (`MapRenderer.DS_STATE_CLEAR`) a real off-screen sample
-would. The four orthogonal neighbour probes (never diagonals) sit at a
-distance of one integer edge radius, `u_edgeRadiusPx`, which `MapRenderer`
-derives each frame from the field logical pixel scale
-(`FieldViewport:logicalPixelScale(camera.zoom)` =
-`(referenceFrame.height / 192) * zoom`, rounded to the nearest integer,
-minimum 1) -- so DS-relative edge width is a sampling distance over the
-full-resolution state, not a block of host pixels owned by one coarse state
-texel. Ordering is strictly: scene RGB -> edge detection -> fog each candidate
+`edge.glsl` samples the bounded `sceneColor` and `renderState` rasters
+together. They have the same bounded world-raster dimensions, so each resolve
+pixel snaps/clamps to its render-state pixel center via explicit
+`statePixelCenter` -- never texture-clamp behavior -- and an out-of-bounds
+neighbour probe returns the rear-plane state (`MapRenderer.DS_STATE_CLEAR`).
+The four orthogonal neighbour probes (never diagonals) use
+`u_edgeRadiusPx = max(1, floor((colorH / 192) * camera.zoom + 0.5))`, measured
+in world-raster pixels from the actual world color-target height. Ordering is
+strictly: scene RGB -> edge detection -> fog each candidate
 (scene candidate `S -> Sf` and, when marked, edge candidate
 `E = {edgeRGB, S.alpha} -> Ef` using the center state's single depth and fog
 gate with the existing integer RGB6/alpha5 fog arithmetic) -> current
@@ -477,8 +479,9 @@ a matrix mid-stream raises
 
 ## Field actors
 
-Field actors are world geometry, not a 2D overlay. Ordinary actors use the shared
-`mmodel` model member's single quad, replayed at import time through the same
+Field actor items are presentation-neutral until `FieldState` partitions them.
+Ordinary actors use the shared `mmodel` model member's single quad, replayed at
+import time through the same
 `MeshCompiler` the map and building models use, so its vertices (in tiles), its
 normal, its vertex-colour source, its UVs, its `BB` base transform, and its
 effective `POLYGON_ATTR` all come from the ROM. `FieldActorMesh` builds one mesh
@@ -501,12 +504,18 @@ by the ROM-gated layer):
 | Polygon alpha | 31, modulation mode, single-sided (`back` cull) | ordinary opaque-pass ordering |
 | Texture | 32x32 `palette16`, colour 0 transparent | classified `cutout`, so the shader discards alpha-zero fragments |
 | Vertex colour source | `NORMAL` with light mask 1 | the field light profile shades actors like map geometry |
-| Polygon ID | 0 | actor polygons take part in edge marking with the same ID map terrain uses |
+| Polygon ID | 0 | retained in the actor item; presentation sprites do not write it into world state |
 
-Because the quad is camera-facing, its whole surface sits at the pivot's view
-depth: it depth-tests against map geometry as a flat card at the actor's own
-distance, which is what makes walls and foreground geometry occlude it correctly.
-A world-upright quad would instead be squashed by the camera pitch.
+`FieldState` sends ordinary camera-facing billboards to the native-resolution
+presentation stream. After the bounded world resolve, each accepted opaque or
+cutout fragment samples bounded `renderState.g` for world occlusion, then uses
+the presentation target's host depth buffer to order sprites against one
+another. The presentation shader applies DS fog at the sprite's own depth; the
+fogged RGB and fog result alpha are written directly with `replace` plus
+premultiplied semantics. Fog result alpha is result data, not source-over
+coverage: coverage was already decided by alpha5 discard and both depth tests.
+Presentation sprites do not write world `renderState` and do not receive world
+edge marking. A world-upright quad would instead be squashed by camera pitch.
 
 HGSS does not draw those billboards through the same projection as the map.
 After maps and props, `ov01_021E6220` (pokeheartgold `src/field/fieldmap.c`)
@@ -518,8 +527,9 @@ the depth row, so billboards keep their screen position and size but win depth
 ties against same-depth props (signs, mailboxes); 8 model units is 0.5 tiles
 here. `FieldCamera:billboardProjection()` reproduces the matrix, and
 `FieldActorDraw` flags ordinary actor quads with it so `MapRenderer` binds it
-per draw; map/building billboards render in the map pass and static-model
-actors draw with the world projection, exactly as on the DS.
+per draw. Map/building billboards remain world items. Actor visuals whose
+visual is `staticModel` remain world geometry: they use the world projection,
+write normal world color/state, and participate in the world edge pass.
 
 ## Exact versus approximate behavior
 
@@ -536,15 +546,17 @@ actors draw with the world projection, exactly as on the DS.
   texture storage format alone (see "Alpha classification and fragment
   contract" above).
 * Culling from polygon bits 6-7.
-* Translucent bit-11 depth writes.
+* Validation of the supported field contract, including rejection of
+  `translucentDepthWrite = true` (POLYGON_ATTR bit 11). Runtime translucent
+  depth writes are not implemented.
 * MODULATE/DECAL fragment combiner in the DS integer domain, not floating
   multiplication (see "Alpha classification and fragment contract" above).
 * The real HGSS field edge-color tables, per-area table selection, the
   strict DS edge predicate/depth representation, RGB-replacement edge
   compositing, the clear/rear-plane polygon ID (63, HGSS's real value, not an
   invented sentinel), and the opaque-ID/depth/fog-gate `renderState` attribute
-  split, rasterized at the same full resolution as the color raster (see
-  "Edge marking" and "Shared full-resolution rasters" above).
+  split, rasterized at the same bounded world-raster resolution as the color
+  raster (see "Edge marking" and "World raster targets and passes" above).
 * HGSS field 3D anti-aliasing's current 50% edge-coverage approximation
   (half of each fogged candidate at a marked edge -- the project's approximation,
   not exact DS lower-pixel coverage -- see "Final resolve" above).
