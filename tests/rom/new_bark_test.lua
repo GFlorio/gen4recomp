@@ -173,7 +173,7 @@ end
 function T.mixed_alpha_materials_split_by_exact_final_alpha_not_format_alone(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   local scene = bundle.scene
-  Assert.equal(scene.schema, "g4-map-scene-v7")
+  Assert.equal(scene.schema, "g4-map-scene-v8")
 
   local VALID_CLASSES = {
     [AlphaClassifier.OPAQUE] = true,
