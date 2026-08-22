@@ -19,6 +19,7 @@ local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local LocalClock = require("libs.engine.src.LocalClock")
 local PlayerData = require("libs.engine.src.PlayerData")
+local GameSaveValidation = require("game.src.game.GameSaveValidation")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldInput = require("libs.engine.src.FieldInput")
@@ -68,6 +69,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field localClock LocalClock? injectable host-local civil-time boundary
 ---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 ---@field saveStore GameSaveStore? global publication owner
+---@field saveValidation GameSaveValidation? shared semantic GameSave validator
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -86,6 +88,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field zoom FieldZoom
 ---@field saveStatus string?
 ---@field saveStore GameSaveStore? global publication owner
+---@field saveValidation GameSaveValidation? shared semantic GameSave validator
 ---@field savePublished boolean whether the reserved record has been published
 ---@field playerData table the validated profile/options authority (PlayerData shape)
 ---@field session FieldSession
@@ -296,6 +299,7 @@ function FieldRuntime.new(game, options)
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
     saveStore = options.saveStore,
+    saveValidation = options.saveValidation or GameSaveValidation.new(),
     savePublished = false,
     localClock = options.localClock or LocalClock.system(),
     weatherClock = options.weatherClock,
@@ -354,18 +358,7 @@ function FieldRuntime:_load()
       charmap = fontDef.charmap,
       frameIndexes = frameIndexes,
     }
-    local saveValidation = {
-      playerDataValidate = function(record)
-        local valid, err = PlayerData.validate(record, playerDataContext)
-        if not valid then
-          return nil, err
-        end
-        return valid
-      end,
-      scriptsValidate = function(bucket)
-        return ScriptSave.validate(bucket, {})
-      end,
-    }
+    local saveValidation = assert(self.saveValidation)
     local world =
       assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
     local profiles =
@@ -391,11 +384,11 @@ function FieldRuntime:_load()
     })
     local loadedGame
     if self.game.schema == GameSave.SCHEMA then
-      loadedGame = assert(GameSave.validate(self.game, saveValidation))
+      loadedGame = assert(saveValidation:validate(self.game, playerDataContext))
       assert(loadedGame.versionId == self.versionId, "loaded game belongs to another version")
     else
       assert(self.game.playerData, "finalized game player data is required")
-      local validPlayerData, playerDataErr = PlayerData.validate(self.game.playerData, playerDataContext)
+      local validPlayerData, playerDataErr = saveValidation:validatePlayerData(self.game.playerData, playerDataContext)
       assert(validPlayerData, "finalized game player data is invalid: " .. tostring(playerDataErr))
       self.game.playerData = validPlayerData
     end

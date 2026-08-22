@@ -23,6 +23,7 @@ local MainMenuRenderer = require("game.src.game.MainMenuRenderer")
 ---@field items table[] published menu cards, beginning with the New Game sentinel
 ---@field catalogError string|nil recoverable catalog failure summary
 ---@field controller MainMenuController pure focus and confirmation state
+---@field scrollOffset number computed menu scroll offset
 local MainMenuState = {}
 MainMenuState.__index = MainMenuState
 
@@ -40,15 +41,8 @@ local function itemId(item)
 end
 
 local function makeItem(fields)
-  -- `id` is a semantic identity, not card metadata. Keep it derived so the
-  -- card surface contains only the fields promised to the renderer/consumer.
-  return setmetatable(fields, {
-    __index = function(_, key)
-      if key == "id" then
-        return itemId(fields)
-      end
-    end,
-  })
+  fields.id = itemId(fields)
+  return fields
 end
 
 ---@param seconds number
@@ -65,8 +59,15 @@ local function newGameItem()
   return makeItem({ canContinue = true, canDelete = false })
 end
 
-local function validSaveItem(entry, ready)
-  assert(type(entry.saveId) == "string" and entry.saveId ~= "", "catalog save entries need a saveId")
+local function validSaveItem(entry, ready, ordinal)
+  if type(entry) ~= "table" or type(entry.saveId) ~= "string" or entry.saveId == "" then
+    return makeItem({
+      id = "unavailable-save-" .. ordinal,
+      errorSummary = "Save data unavailable",
+      canContinue = false,
+      canDelete = false,
+    })
+  end
   if entry.error then
     return makeItem({
       saveId = entry.saveId,
@@ -76,11 +77,25 @@ local function validSaveItem(entry, ready)
     })
   end
 
-  local playerData = assert(entry.playerData, "catalog save entries need player data")
-  local profile = assert(playerData.profile, "catalog save entries need a player profile")
-  local playerName = assert(profile.name, "catalog save entries need a player name")
-  assert(type(entry.versionId) == "string" and entry.versionId ~= "", "catalog save entries need a version")
-  assert(type(entry.playTimeSeconds) == "number", "catalog save entries need play time")
+  local playerData = entry.playerData
+  local profile = type(playerData) == "table" and playerData.profile
+  local playerName = type(profile) == "table" and profile.name
+  if type(playerName) ~= "string" or playerName == "" then
+    return makeItem({
+      saveId = entry.saveId,
+      errorSummary = "Save data unavailable",
+      canContinue = false,
+      canDelete = true,
+    })
+  end
+  if type(entry.versionId) ~= "string" or entry.versionId == "" or type(entry.playTimeSeconds) ~= "number" then
+    return makeItem({
+      saveId = entry.saveId,
+      errorSummary = "Save data unavailable",
+      canContinue = false,
+      canDelete = true,
+    })
+  end
   if not ready[entry.versionId] then
     return makeItem({
       saveId = entry.saveId,
@@ -130,6 +145,7 @@ function MainMenuState.new(options)
     renderer = options.renderer or MainMenuRenderer.new(),
     items = { newGameItem() },
     catalogError = nil,
+    scrollOffset = 0,
   }, MainMenuState)
   self.controller = MainMenuController.new(self.items)
   self:refresh()
@@ -146,8 +162,8 @@ function MainMenuState:_readItems()
   end
   assert(type(entriesOrError) == "table", "save catalog list must return an array")
   local items = { newGameItem() }
-  for _, entry in ipairs(entriesOrError) do
-    items[#items + 1] = validSaveItem(entry, self.readyVersions)
+  for ordinal, entry in ipairs(entriesOrError) do
+    items[#items + 1] = validSaveItem(entry, self.readyVersions, ordinal)
   end
   return items, nil
 end
@@ -196,7 +212,7 @@ function MainMenuState:_activate()
     self:_markLoadError(item.saveId, loadError or "save could not be loaded")
     return
   end
-  self:_emit({ kind = "continue", saveId = item.saveId })
+  self:_emit({ kind = "continue", game = recordOrError })
 end
 
 function MainMenuState:_confirmDialog()
@@ -344,14 +360,14 @@ function MainMenuState:layout()
     self.controller.focusIndex,
     self.width,
     self.height,
-    self.controller.scrollOffset or 0,
+    self.scrollOffset,
     self.controller.dialog
   )
 end
 
 function MainMenuState:view()
   local layout = self:layout()
-  self.controller.scrollOffset = layout.offset
+  self.scrollOffset = layout.offset
   return {
     kind = "main_menu",
     items = self.items,

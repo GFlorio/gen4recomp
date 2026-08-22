@@ -1,6 +1,6 @@
 -- App composes both product entry routes through one finalized GameSave-shaped
--- FieldState boundary: Oak supplies an unpublished game and Continue loads a
--- published game before entering the field.
+-- FieldState boundary: Oak supplies an unpublished game and Continue supplies
+-- the already loaded published game.
 
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
@@ -13,6 +13,7 @@ local function withFieldStateSpy(fn)
   local originalOpts = App.opts
   local originalState = App.state
   local originalSaveStore = App.saveStore
+  local originalSaveValidation = App.saveValidation
   local captured = {}
   FieldState.new = function(game, options)
     captured.game = game
@@ -40,6 +41,7 @@ local function withFieldStateSpy(fn)
   App.opts = originalOpts
   App.state = originalState
   App.saveStore = originalSaveStore
+  App.saveValidation = originalSaveValidation
   if not ok then
     error(err, 0)
   end
@@ -54,17 +56,15 @@ function T.finalized_new_game_enters_field_from_the_oak_result()
   end)
 end
 
-function T.continue_loads_the_game_before_entering_field()
+function T.continue_hands_the_loaded_game_to_field_without_storage_access()
   local game = { saveId = "save-00000002", versionId = "heartgold", playerData = {} }
   withFieldStateSpy(function(captured)
-    ---@type SaveStoreLike
     App.saveStore = {
       load = function(_, saveId)
-        Assert.equal(saveId, game.saveId)
-        return game
+        error("Continue must not load again: " .. tostring(saveId))
       end,
     }
-    App._mainMenuResult({ kind = "continue", saveId = game.saveId })
+    App._mainMenuResult({ kind = "continue", game = game })
     Assert.equal(captured.game, game)
     Assert.equal(App.state ~= nil, true)
   end)

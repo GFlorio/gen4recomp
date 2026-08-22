@@ -196,7 +196,14 @@ function GameSaveStore:_payloadTempPath(saveId)
 end
 
 function GameSaveStore:_validateRecord(record, expectedSaveId)
-  local valid, err = GameSave.validate(record, self.opts)
+  local validator = self.opts.recordValidate
+  local valid, err
+  if validator then
+    assert(type(validator) == "function", "recordValidate must be a function")
+    valid, err = validator(record)
+  else
+    valid, err = GameSave.validate(record, self.opts)
+  end
   if not valid then
     error(err)
   end
@@ -260,7 +267,7 @@ end
 function GameSaveStore:list()
   local catalog = self:_readCatalog()
   local entries = {}
-  for index = 1, #catalog.saveIds do
+  for index = #catalog.saveIds, 1, -1 do
     local saveId = catalog.saveIds[index]
     local ok, recordOrError = pcall(function()
       return self:_loadPublished(saveId)

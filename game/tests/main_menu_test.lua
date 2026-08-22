@@ -55,7 +55,14 @@ function T.delete_focus_uses_the_replacement_item_at_each_boundary()
     Assert.isTrue(controller:requestDelete())
     controller:chooseDialogAction("delete")
     Assert.equal(controller:confirmDelete(), case.target)
-    controller:removeFocusedItem()
+    controller:setItems({ item("new-game", true), item("one", true), item("two", true), item("three", true) })
+    local remaining = {}
+    for _, candidate in ipairs(controller.items) do
+      if candidate.id ~= case.target then
+        remaining[#remaining + 1] = candidate
+      end
+    end
+    controller:setItems(remaining)
     Assert.equal(controller:focusedId(), case.expected)
   end
 
@@ -64,7 +71,7 @@ function T.delete_focus_uses_the_replacement_item_at_each_boundary()
   Assert.isTrue(only:requestDelete())
   only:chooseDialogAction("delete")
   Assert.equal(only:confirmDelete(), "only")
-  only:removeFocusedItem()
+  only:setItems({ item("new-game", true) })
   Assert.equal(only:focusedId(), "new-game")
 end
 
@@ -99,6 +106,57 @@ function T.catalog_error_is_not_represented_as_an_empty_catalog()
   Assert.notNil(view.catalogError)
   Assert.equal(#view.items, 1)
   Assert.equal(view.items[1].id, "new-game")
+end
+
+function T.malformed_save_metadata_is_an_unavailable_deletable_card()
+  local menu = MainMenuState.new({
+    saveStore = {
+      list = function()
+        return { { saveId = "save-00000001", playerData = {} } }
+      end,
+    },
+    readyVersions = { "heartgold" },
+    width = 640,
+    height = 480,
+  })
+  local card = menu:view().items[2]
+  Assert.equal(card.id, "save-00000001")
+  Assert.isFalse(card.canContinue)
+  Assert.isTrue(card.canDelete)
+  Assert.notNil(card.errorSummary)
+end
+
+function T.continue_emits_the_loaded_canonical_record_without_another_read()
+  local loaded = {
+    saveId = "save-00000001",
+    versionId = "heartgold",
+    playerData = { profile = { name = "GOLD" } },
+    playTimeSeconds = 0,
+  }
+  local loads = 0
+  local results = {}
+  local menu = MainMenuState.new({
+    saveStore = {
+      list = function()
+        return { loaded }
+      end,
+      load = function(_, saveId)
+        loads = loads + 1
+        Assert.equal(saveId, loaded.saveId)
+        return loaded
+      end,
+    },
+    readyVersions = { "heartgold" },
+    onResult = function(result)
+      results[#results + 1] = result
+    end,
+    width = 640,
+    height = 480,
+  })
+  menu:keypressed("down")
+  menu:keypressed("return")
+  Assert.equal(loads, 1)
+  Assert.deepEqual(results, { { kind = "continue", game = loaded } })
 end
 
 return { tests = T }

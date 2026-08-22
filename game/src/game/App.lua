@@ -16,6 +16,7 @@ local NewGame = require("libs.engine.src.NewGame")
 local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local MainMenuState = require("game.src.game.MainMenuState")
+local GameSaveValidation = require("game.src.game.GameSaveValidation")
 local OakIntroState = require("game.src.game.OakIntroState")
 local OakIntroComposition = require("game.src.game.OakIntroComposition")
 local ImportState = require("game.src.launcher.ImportState")
@@ -34,6 +35,7 @@ local App = {}
 ---@field newGameCandidateFactory (fun(options: table): table)?
 ---@field oakIntroOptionsFactory fun(options: table): table
 ---@field oakIntroHost table? true host seams for product-composition tests
+---@field saveValidation GameSaveValidation?
 
 -- A bare `--field` (option == true) selects the runtime default map; a
 -- numeric string is a map id, anything else a semantic map symbol.
@@ -64,12 +66,18 @@ end
 
 ---@return FieldStateOptions
 local function fieldStateOptions()
-  return { development = App.opts.dev == true, saveStore = App.saveStore }
+  return { development = App.opts.dev == true, saveStore = App.saveStore, saveValidation = App.saveValidation }
 end
 
 function App.load(opts)
   App.opts = opts or {}
-  App.saveStore = App.opts.saveStore or GameSaveStore.new(SaveFs.global())
+  App.saveValidation = App.opts.saveValidation or GameSaveValidation.new()
+  App.saveStore = App.opts.saveStore
+    or GameSaveStore.new(SaveFs.global(), {
+      recordValidate = function(record)
+        return App.saveValidation:validate(record)
+      end,
+    })
   App.importer = nil
   App.setState(nil)
   love.graphics.setBackgroundColor(unpack(WindowConfig.BACKGROUND_COLOR))
@@ -91,11 +99,7 @@ function App._mainMenuResult(result)
   elseif result.kind == "new_game" then
     App._bootOakIntro()
   elseif result.kind == "continue" then
-    local saveStore = App.saveStore
-    assert(saveStore)
-    ---@cast saveStore SaveStoreLike
-    local game = assert(saveStore:load(result.saveId))
-    App.setState(FieldState.new(game, fieldStateOptions()))
+    App.setState(FieldState.new(assert(result.game), fieldStateOptions()))
   end
 end
 
