@@ -18,7 +18,7 @@ local function candidate()
   return NewGame.createCandidate({
     saveService = {
       reserve = function()
-        return 17
+        return "save-00000017"
       end,
     },
     versionId = "heartgold",
@@ -234,7 +234,7 @@ function T.finalization_handoff_keeps_reserved_identity_without_storage_publicat
   state:tick(30)
   Assert.equal(state:view().phase, "complete")
   local result = assert(state:result())
-  Assert.equal(result.saveId, 17)
+  Assert.equal(result.saveId, "save-00000017")
   Assert.equal(result.playerData.profile.name, "GOLD")
   Assert.equal(result.playerData.profile.trainerId, 0x12345678)
   Assert.equal(calls, 0)

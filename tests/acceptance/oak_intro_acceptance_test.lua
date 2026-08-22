@@ -106,10 +106,9 @@ local function fakeStore()
     self.listCalls = self.listCalls + 1
     return {}
   end
-  function store:reserve(versionId)
-    Assert.equal(versionId, READY_VERSION)
+  function store:reserve()
     self.reserveCalls = self.reserveCalls + 1
-    return 27
+    return "save-00000027"
   end
   return store
 end
@@ -406,7 +405,7 @@ function T.tests.final_confirmation_hands_off_a_valid_unpublished_game()
     Assert.equal(App.state.kind, "field")
     Assert.equal(#context.fieldCalls, 1)
     local result = context.fieldCalls[1].game
-    Assert.equal(result.saveId, 27)
+    Assert.equal(result.saveId, "save-00000027")
     Assert.equal(result.playerData.profile.name, "GOLD")
     Assert.equal(result.playerData.profile.gender, 0)
     Assert.equal(result.playerData.profile.trainerId, 0x12345678)

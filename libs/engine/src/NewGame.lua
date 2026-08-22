@@ -3,6 +3,7 @@
 -- Oak profile without publishing gameplay to storage.
 
 local FieldEventState = require("libs.engine.src.FieldEventState")
+local GameSave = require("libs.engine.src.GameSave")
 local PlayTime = require("libs.engine.src.PlayTime")
 local PlayerData = require("libs.engine.src.PlayerData")
 
@@ -21,13 +22,6 @@ local function assertMapIdentity(mapIdentity)
   assert(type(mapIdentity.fieldX) == "number" and mapIdentity.fieldX % 1 == 0, "NewGame fieldX must be an integer")
   assert(type(mapIdentity.fieldZ) == "number" and mapIdentity.fieldZ % 1 == 0, "NewGame fieldZ must be an integer")
   assert(SOURCE_FACING[mapIdentity.sourceFacing] ~= nil, "NewGame source facing is invalid")
-end
-
-local function assertSaveId(saveId)
-  assert(
-    type(saveId) == "number" and saveId == math.floor(saveId) and saveId >= 0,
-    "C01 reserve returned an invalid saveId"
-  )
 end
 
 ---@param options table
@@ -51,8 +45,11 @@ function NewGame.createCandidate(options)
   local openingFlag = options.scriptSymbols.flagsByName.FLAG_UNK_960
   assert(type(openingFlag) == "number", "NewGame requires the opening event flag symbol")
 
-  local saveId = options.saveService:reserve(options.versionId)
-  assertSaveId(saveId)
+  local saveId = options.saveService:reserve()
+  local valid, saveIdError = GameSave.validateSaveId(saveId)
+  if not valid then
+    error(saveIdError)
+  end
   options.eventState:setFlag(openingFlag)
 
   return {
