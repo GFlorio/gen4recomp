@@ -371,15 +371,11 @@ function FieldSession:updateFixed(inputSnapshot)
   -- HGSS checks a passive sign before the idle Action and standing-input
   -- paths. It is deliberately limited to a north-facing type-one event.
   local passiveDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
-  if passiveDirection and (self.player.motion == "idle" or inputSnapshot.pressedDirection) then
-    local direction = passiveDirection
-    self.player.facing = direction
-    if direction == "north" then
-      local intent = resolvePassiveSign(self)
-      if intent then
-        consumeScriptIntent(self, intent)
-        return
-      end
+  if self.player.motion == "idle" and passiveDirection == self.player.facing then
+    local intent = resolvePassiveSign(self)
+    if intent then
+      consumeScriptIntent(self, intent)
+      return
     end
   end
 

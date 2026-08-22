@@ -1083,6 +1083,98 @@ function T.interaction_never_resolves_under_a_locked_transition_or_modal()
   Assert.equal(modalSteps(), 0)
 end
 
+local function passiveArbitrationSession(opts)
+  opts = opts or {}
+  local passiveCalls = 0
+  local actionSnapshot
+  local player = {
+    fieldX = 4,
+    fieldZ = 14,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = opts.facing or "east",
+    motion = opts.motion or "idle",
+    updateFixed = function()
+      return false
+    end,
+    collapseRenderInterpolation = function() end,
+  }
+  local eventResolver = {
+    resolveCoordinate = function()
+      return nil
+    end,
+    resolvePassiveSign = function()
+      passiveCalls = passiveCalls + 1
+      return opts.passiveIntent
+    end,
+  }
+  local interactions = {
+    resolve = function(_, snapshot)
+      actionSnapshot = snapshot
+      return opts.actionIntent
+    end,
+  }
+  local scriptClient = {
+    consume = function(_, intent)
+      assert(intent == opts.actionIntent or intent == opts.passiveIntent)
+      return ScriptInteractionClient.RESULTS.started
+    end,
+  }
+  local session = FieldSession.new(baseOptions({
+    player = player,
+    eventResolver = eventResolver,
+    interactions = interactions,
+    scriptClient = scriptClient,
+  }))
+  return session, player, function()
+    return passiveCalls, actionSnapshot
+  end
+end
+
+function T.passive_sign_does_not_redirect_simultaneous_action()
+  local actionIntent = { kind = "object" }
+  local passiveIntent = { kind = "background" }
+  local session, player, observations = passiveArbitrationSession({
+    actionIntent = actionIntent,
+    passiveIntent = passiveIntent,
+  })
+
+  session:updateFixed({ pressedDirection = "north", actionPressed = true })
+
+  local passiveCalls, actionSnapshot = observations()
+  Assert.equal(passiveCalls, 0, "a direction different from facing cannot probe a passive sign")
+  Assert.equal(actionSnapshot.facing, "east", "Action observes the established facing")
+  Assert.equal(player.facing, "east", "passive arbitration does not write facing")
+end
+
+function T.passive_sign_does_not_probe_during_a_step()
+  local session, player, observations = passiveArbitrationSession({
+    motion = "walking",
+    passiveIntent = { kind = "background" },
+  })
+
+  session:updateFixed({ pressedDirection = "north" })
+
+  local passiveCalls = observations()
+  Assert.equal(passiveCalls, 0, "a fresh direction edge during a step cannot probe a sign")
+  Assert.equal(player.facing, "east", "a mid-step probe does not change facing")
+end
+
+function T.passive_sign_requires_matching_facing_while_idle()
+  local session, player, observations = passiveArbitrationSession({
+    facing = "north",
+    passiveIntent = { kind = "background" },
+  })
+
+  session:updateFixed({ heldDirection = "east" })
+
+  local passiveCalls = observations()
+  Assert.equal(passiveCalls, 0, "an idle candidate must match facing before probing")
+  Assert.equal(player.facing, "north")
+end
+
 function T.catch_up_ticks_do_not_replay_one_action_edge()
   local input = FieldInput.new()
   input:pressAction("key:space")
