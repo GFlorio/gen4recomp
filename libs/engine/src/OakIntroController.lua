@@ -26,6 +26,9 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field phase string
 ---@field message string|table|nil
 ---@field visual string
+---@field visualFrameIndex integer
+---@field oakOffsetX number
+---@field flashAlpha number
 ---@field genderFocus integer
 ---@field name string
 ---@field virtualGlyphFocus integer
@@ -54,6 +57,9 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _sourceFrames integer
 ---@field private _message string|table|nil
 ---@field private _visual string
+---@field private _visualFrameIndex integer
+---@field private _visualFrameTimer integer?
+---@field private _flashFrames integer
 ---@field private _genderFocus integer
 ---@field private _name string
 ---@field private _result table|nil
@@ -80,6 +86,7 @@ local MARILL_CRY_WAIT = 40
 local MARILL_HIDE_WAIT = 30
 local NAME_LAUNCH_WAIT = 40
 local SHRINK_WAIT = 30
+local FLASH_FRAMES = 4
 
 local function requireMessage(messages, key)
   local message = messages[key]
@@ -107,6 +114,11 @@ end
 
 local function validateTickCount(frames)
   assert(type(frames) == "number" and frames % 1 == 0 and frames >= 0, "Oak tick count must be a non-negative integer")
+end
+
+local function framesFor(assets, visual)
+  local asset = assets[visual]
+  return asset and asset.frames or nil
 end
 
 local function appendGlyphs(text)
@@ -156,11 +168,43 @@ function OakIntroController.new(options)
     _sourceFrames = 0,
     _message = nil,
     _visual = "background",
+    _visualFrameIndex = 1,
+    _visualFrameTimer = nil,
+    _flashFrames = 0,
     _genderFocus = 0,
     _name = "",
     _result = nil,
     _events = {},
   }, OakIntroController)
+end
+
+function OakIntroController:_setVisual(visual)
+  self._visual = visual
+  self._visualFrameIndex = 1
+  local frames = framesFor(self._assets, visual)
+  self._visualFrameTimer = frames and assert(frames[1].duration) or nil
+end
+
+function OakIntroController:_advanceVisual()
+  local frames = framesFor(self._assets, self._visual)
+  if frames == nil or #frames <= 1 or self._visualFrameTimer == nil then
+    return false
+  end
+  self._visualFrameTimer = self._visualFrameTimer - 1
+  if self._visualFrameTimer > 0 then
+    return false
+  end
+  if self._visualFrameIndex == #frames then
+    if self._phase == "marill_cry_wait" then
+      self._visualFrameIndex = 1
+    else
+      return true
+    end
+  else
+    self._visualFrameIndex = self._visualFrameIndex + 1
+  end
+  self._visualFrameTimer = assert(frames[self._visualFrameIndex].duration)
+  return false
 end
 
 function OakIntroController:_event(kind, value)
@@ -173,7 +217,8 @@ function OakIntroController:_setMessage(key)
 end
 
 function OakIntroController:_startCry()
-  self._visual = "marill"
+  self:_setVisual("marill")
+  self._flashFrames = FLASH_FRAMES
   self._audio:play("SEQ_SE_DP_BOWA2")
   self._audio:playCry(184, 0)
   self:_event("marill_appears", "marill")
@@ -217,13 +262,22 @@ end
 function OakIntroController:_stepFrame()
   self._sourceFrames = self._sourceFrames + 1
   self._audio:updateSoundFrame()
+  if self._flashFrames > 0 then
+    self._flashFrames = self._flashFrames - 1
+  end
+  if self._phase == "shrink_animation" and self:_advanceVisual() then
+    self:_finish()
+    return
+  elseif self._phase == "marill_cry_wait" then
+    self:_advanceVisual()
+  end
   if self._phase == "opening_wait" then
     self._timer = self._timer - 1
     if self._timer == 0 then
       local civilTime = self._clock:nowLocal()
       self:_setMessage(OakGreetingPolicy.messageKey(civilTime))
       self._phase = "greeting"
-      self._visual = "background"
+      self:_setVisual("background")
     end
   elseif self._phase == "fade_wait" then
     self._timer = self._timer - 1
@@ -232,7 +286,7 @@ function OakIntroController:_stepFrame()
       self._audio:playMusic("SEQ_GS_STARTING2")
       self._phase = "oak_reveal_wait"
       self._timer = OAK_REVEAL_WAIT
-      self._visual = "oak"
+      self:_setVisual("oak")
       self:_event("oak_revealed", "oak")
     end
   elseif self._phase == "oak_reveal_wait" then
@@ -262,7 +316,7 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     if self._timer == 0 then
       self._phase = "oak_live_alongside"
-      self._visual = "oak"
+      self:_setVisual("oak")
       self:_setMessage("oak.live_alongside")
     end
   elseif self._phase == "marill_hide_wait" then
@@ -270,7 +324,7 @@ function OakIntroController:_stepFrame()
     if self._timer == 0 then
       self._phase = "oak_slide_left"
       self._timer = OAK_SLIDE_FRAMES
-      self._visual = "oak"
+      self:_setVisual("oak")
       self:_event("oak_slide", "left")
     end
   elseif self._phase == "name_launch_wait" then
@@ -282,8 +336,12 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     if self._timer == 0 then
       self._audio:play("SEQ_SE_GS_HERO_SHUKUSHOU")
-      self._visual = self._genderFocus == 0 and "shrink.male" or "shrink.female"
-      self:_finish()
+      self:_setVisual(self._genderFocus == 0 and "shrink.male" or "shrink.female")
+      if framesFor(self._assets, self._visual) == nil then
+        self:_finish()
+      else
+        self._phase = "shrink_animation"
+      end
     end
   end
 end
@@ -317,7 +375,7 @@ function OakIntroController:_enterNameEditor()
   self._name = ""
   self._virtualFocus = 1
   self._phase = "name_edit"
-  self._visual = "background"
+  self:_setVisual("background")
   self:_event("name_editor", "opened")
 end
 
@@ -357,20 +415,20 @@ function OakIntroController:press(action)
   elseif (action == "confirm" or action == "yes") and self._phase == "oak_world_inhabited" then
     self._phase = "ball_open_wait"
     self._timer = BALL_OPEN_WAIT
-    self._visual = "ball"
+    self:_setVisual("ball")
     self:_event("ball_opened", "ball")
     self._audio:play("SEQ_SE_DP_BOWA2")
   elseif (action == "confirm" or action == "yes") and self._phase == "oak_live_alongside" then
     self._phase = "marill_hide_wait"
     self._timer = MARILL_HIDE_WAIT
-    self._visual = "oak"
+    self:_setVisual("oak")
     self:_event("marill_hidden", "marill")
   elseif (action == "confirm" or action == "yes") and self._phase == "oak_tell_about_yourself" then
     self._phase = "gender_question"
     self:_setMessage("profile.gender_question")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_question" then
     self._phase = "gender_select"
-    self._visual = "gender.indicator"
+    self:_setVisual("gender.indicator")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_select" then
     self._phase = "gender_confirm"
     self:_setMessage(self._genderFocus == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female")
@@ -444,6 +502,13 @@ function OakIntroController:view()
     phase = self._phase,
     message = self._message,
     visual = self._visual,
+    visualFrameIndex = self._visualFrameIndex,
+    oakOffsetX = (
+      self._phase == "oak_slide_right" and (OAK_SLIDE_FRAMES - self._timer)
+      or self._phase == "oak_slide_left" and -(OAK_SLIDE_FRAMES - self._timer)
+      or 0
+    ),
+    flashAlpha = self._flashFrames / FLASH_FRAMES,
     genderFocus = self._genderFocus,
     name = self._name,
     virtualGlyphFocus = self._virtualFocus,

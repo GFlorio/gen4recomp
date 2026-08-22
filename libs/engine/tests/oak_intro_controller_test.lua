@@ -115,6 +115,14 @@ local function controller(options)
   })
 end
 
+local function animatedAssets()
+  return {
+    marill = { frames = { { duration = 1 }, { duration = 4 }, { duration = 2 } } },
+    ["shrink.male"] = { frames = { { duration = 2 }, { duration = 3 } } },
+    ["shrink.female"] = { frames = { { duration = 2 }, { duration = 3 } } },
+  }
+end
+
 function T.greeting_policy_uses_each_source_boundary()
   local cases = {
     { 3, 59, "midnight" },
@@ -270,6 +278,59 @@ function T.core_sequence_exposes_source_beats_in_order()
   Assert.equal(state:view().message, "oak.tell_about_yourself")
   state:press("confirm")
   Assert.equal(state:view().message, "profile.gender_question")
+end
+
+function T.generated_animation_durations_drive_looping_marill_frames()
+  local state = controller({ assets = animatedAssets() })
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30)
+  Assert.equal(state:view().visual, "marill")
+  Assert.equal(state:view().visualFrameIndex, 1)
+  state:tick(1)
+  Assert.equal(state:view().visualFrameIndex, 2)
+  state:tick(4)
+  Assert.equal(state:view().visualFrameIndex, 3)
+  state:tick(2)
+  Assert.equal(state:view().visualFrameIndex, 1)
+end
+
+function T.shrink_frames_remain_drawable_until_their_generated_durations_end()
+  local state = controller({ assets = animatedAssets() })
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30 + 40)
+  state:press("confirm")
+  state:tick(30 + 26)
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(40)
+  state:inputText("GOLD")
+  state:press("submit")
+  state:press("confirm")
+  state:press("confirm")
+  Assert.equal(state:view().phase, "shrink_wait")
+  state:tick(30)
+  Assert.equal(state:view().phase, "shrink_animation")
+  Assert.equal(state:view().visualFrameIndex, 1)
+  state:tick(4)
+  Assert.equal(state:view().phase, "shrink_animation")
+  Assert.equal(state:view().visualFrameIndex, 2)
+  state:tick(1)
+  Assert.equal(state:view().phase, "complete")
 end
 
 function T.virtual_keyboard_focus_reaches_delete_and_confirm_actions()

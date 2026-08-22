@@ -56,6 +56,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field controller OakIntroStateController
 ---@field manifest table
 ---@field renderer OakIntroStateRenderer?
+---@field graphics any?
 ---@field imageLoader (fun(path: string): any)?
 ---@field textInputHost OakIntroStateTextInputHost?
 ---@field glyphs string[]?
@@ -163,6 +164,7 @@ function OakIntroState.new(options)
     local renderer = options.renderer
       or OakIntroRenderer.new({
         manifest = options.manifest,
+        graphics = options.graphics,
         imageLoader = options.imageLoader,
       })
     self = setmetatable({
