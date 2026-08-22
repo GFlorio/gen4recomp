@@ -35,4 +35,10 @@ function T.invalid_civil_dates_are_rejected()
   end
 end
 
+function T.system_clock_maps_os_date_abbreviations_to_the_domain_shape()
+  local now = LocalClock.system():nowLocal()
+  Assert.isTrue(type(now.minute) == "number" and now.minute >= 0 and now.minute <= 59)
+  Assert.isTrue(type(now.second) == "number" and now.second >= 0 and now.second <= 59)
+end
+
 return { tests = T }

@@ -76,7 +76,8 @@ end
 function T.tests.synthetic_boot_keeps_the_global_save_catalog_inside_its_namespace()
   local harness = AcceptanceHarness.new({ versions = { "heartgold" }, runtimeFactory = fakeRuntime })
   local game = harness:boot({ versionId = "heartgold", save = "fresh" })
-  Assert.notNil(love.filesystem.getInfo(game.saveNamespace .. "/catalog.lua"))
+  Assert.notNil(love.filesystem.getInfo(game.saveNamespace .. "/global/catalog.lua"))
+  Assert.isNil(love.filesystem.getInfo(game.saveNamespace .. "/version/catalog.lua"))
   Assert.isNil(love.filesystem.getInfo("saves/catalog.lua"), "acceptance must not touch the real save root")
   game:close()
 end

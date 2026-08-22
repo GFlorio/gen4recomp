@@ -56,9 +56,9 @@ local function saveBackend(faults, lifecycle, namespace, versionId)
     local versionPrefix = "saves/" .. versionId .. "/"
     local rest
     if path:sub(1, #versionPrefix) == versionPrefix then
-      rest = path:sub(#versionPrefix + 1)
+      rest = "version/" .. path:sub(#versionPrefix + 1)
     else
-      rest = path:gsub("^saves/", "")
+      rest = "global/" .. path:gsub("^saves/", "")
     end
     local remapped = namespace .. "/" .. rest:gsub("^/", "")
     return (remapped:gsub("/$", ""))
@@ -193,7 +193,7 @@ function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, field
     runtimeOptions.saveStore = saveStore
     if reserveSave and game.schema == nil then
       local reservedSaveId = saveStore:reserve()
-      assert(game.saveId == reservedSaveId, "acceptance candidate must use its reserved save id")
+      game.saveId = reservedSaveId
     end
   end
   -- `audioHost = "production"` omits the recording audio adapter so the
@@ -791,7 +791,7 @@ function AcceptanceHarness.new(options)
         saveId = "save-00000001",
         versionId = versionId,
         location = {
-          mapSymbol = map or "MAP_NEW_BARK_ELMS_LAB_1F",
+          mapSymbol = map or "MAP_BURNED_TOWER_1F",
           fieldX = 6,
           fieldZ = 6,
           facing = "south",

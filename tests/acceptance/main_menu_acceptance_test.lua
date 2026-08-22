@@ -126,7 +126,7 @@ local function confirmDelete(menu)
 end
 
 local function assertValidCard(card, saveId, playerName, playTimeLabel)
-  Assert.keySet(card, "canContinue,canDelete,playTimeLabel,playerName,saveId")
+  Assert.keySet(card, "canContinue,canDelete,id,playTimeLabel,playerName,saveId")
   Assert.equal(card.saveId, saveId)
   Assert.equal(card.playerName, playerName)
   Assert.equal(card.playTimeLabel, playTimeLabel)

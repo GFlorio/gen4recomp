@@ -63,8 +63,15 @@ end
 ---@return LocalClock
 function LocalClock.system()
   return LocalClock.new(function()
-    ---@diagnostic disable-next-line: return-type-mismatch -- os.date("*t") is the host's civil-time record
-    return os.date("*t")
+    local now = os.date("*t")
+    return {
+      year = now.year,
+      month = now.month,
+      day = now.day,
+      hour = now.hour,
+      minute = now.min,
+      second = now.sec,
+    }
   end)
 end
 
