@@ -240,6 +240,11 @@ function StartMenuController:_activate(position)
   if self._effect then
     self._effect("SEQ_SE_DP_SELECT")
   end
+  if action.actionKind == "field_action" then
+    self._result = { kind = "field_action", actionId = action.id }
+    self._closed = true
+    return
+  end
   if action.actionKind ~= "application" then
     error("enabled start menu action has no implemented routing: " .. tostring(action.id), 2)
   end
@@ -363,9 +368,9 @@ function StartMenuController:status()
   }
 end
 
--- The result contract: nil until a terminal event, then exactly one
--- { kind = "close" } or { kind = "launch", applicationId }.
----@return { kind: "close"|"launch", applicationId?: string }?
+-- The result contract: nil until a terminal event, then exactly one close,
+-- child launch, or immediate field-action result.
+---@return { kind: "close"|"launch"|"field_action", applicationId?: string, actionId?: string }?
 function StartMenuController:takeResult()
   local result = self._result
   self._result = nil

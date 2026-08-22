@@ -3,6 +3,7 @@
 -- while FieldRuntime remains the sole owner of maps, scripts, actors, and saves.
 
 local SaveFs = require("libs.storage.src.SaveFs")
+local GameSaveStore = require("libs.engine.src.GameSaveStore")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
@@ -180,6 +181,13 @@ function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, field
       return { year = 2000, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
     end)
   runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace))
+  if fieldOptions == nil or fieldOptions.saveStore ~= false then
+    local saveStore = GameSaveStore.new(SaveFs.global(saveBackend(faults, lifecycle, namespace)))
+    runtimeOptions.saveStore = saveStore
+    if game.schema == nil then
+      assert(game.saveId == saveStore:reserve(), "acceptance candidate must use its reserved save id")
+    end
+  end
   -- `audioHost = "production"` omits the recording audio adapter so the
   -- production composition wires the real GameSound at scriptHosts.audio
   -- (the field-audio acceptance scenarios); the default keeps the recording
@@ -771,7 +779,7 @@ function AcceptanceHarness.new(options)
     end,
     gameFactory = options.gameFactory or function(versionId, map)
       return {
-        saveId = "acceptance-save",
+        saveId = "save-00000001",
         versionId = versionId,
         location = {
           mapSymbol = map or "MAP_NEW_BARK_ELMS_LAB_1F",

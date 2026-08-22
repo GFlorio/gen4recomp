@@ -165,6 +165,82 @@ function T.warp_completion_does_not_request_an_implicit_save()
   Assert.equal(saveRequests, 0, "completing a warp must not publish or request a checkpoint")
 end
 
+function T.update_advances_play_time_once_even_when_fixed_ticks_are_dropped()
+  local advances = {}
+  local runtime = setmetatable({
+    scripts = {},
+    session = {
+      accumulator = 0,
+      update = function() end,
+    },
+    transition = {
+      error = nil,
+      consumeCompleted = function()
+        return false
+      end,
+    },
+    applicationHost = {
+      error = function()
+        return nil
+      end,
+    },
+    playTime = {
+      advance = function(_, dt)
+        advances[#advances + 1] = dt
+      end,
+    },
+  }, FieldRuntime)
+  runtime:update(123.5)
+  Assert.deepEqual(advances, { 123.5 })
+end
+
+function T.manual_save_keeps_publication_state_across_menu_openings()
+  local calls = {}
+  local runtime = setmetatable({
+    savePublished = false,
+    saveStore = {
+      publishFirst = function(_, record)
+        calls[#calls + 1] = { kind = "publish", record = record }
+      end,
+      save = function(_, record)
+        calls[#calls + 1] = { kind = "update", record = record }
+      end,
+    },
+  }, FieldRuntime)
+  runtime._captureManualSaveFromMenu = function()
+    return { saveId = "save-00000001" }
+  end
+  runtime:_saveCheckpoint()
+  runtime:_saveCheckpoint()
+  Assert.equal(runtime.savePublished, true)
+  Assert.deepEqual({ calls[1].kind, calls[2].kind }, { "publish", "update" })
+end
+
+function T.failed_first_manual_save_remains_retryable_as_first_publication()
+  local attempts = 0
+  local runtime = setmetatable({
+    savePublished = false,
+    saveStore = {
+      publishFirst = function()
+        attempts = attempts + 1
+        if attempts == 1 then
+          error("publication failed")
+        end
+      end,
+    },
+  }, FieldRuntime)
+  runtime._captureManualSaveFromMenu = function()
+    return { saveId = "save-00000001" }
+  end
+  Assert.throws(function()
+    runtime:_saveCheckpoint()
+  end)
+  Assert.equal(runtime.savePublished, false)
+  runtime:_saveCheckpoint()
+  Assert.equal(runtime.savePublished, true)
+  Assert.equal(attempts, 2)
+end
+
 function T.dispose_releases_runtime_without_capturing_or_persisting()
   local captures = 0
   local runtime = captureRuntime()

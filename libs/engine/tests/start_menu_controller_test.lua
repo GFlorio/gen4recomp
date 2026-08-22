@@ -238,6 +238,16 @@ function T.confirm_launches_the_selected_application()
   Assert.equal(controller:status().open, false, "a taken result ends the menu lifetime")
 end
 
+function T.confirming_a_field_action_emits_a_field_action_result()
+  local controller = newController({
+    entries = {
+      { id = "vanilla.save", actionKind = "field_action", displayPosition = 0, enabled = true },
+    },
+  })
+  controller:updateFixed({ { type = "confirm" } })
+  Assert.deepEqual(controller:takeResult(), { kind = "field_action", actionId = "vanilla.save" })
+end
+
 function T.cancel_and_the_menu_event_close()
   local controller = newController()
   controller:updateFixed({ { type = "cancel" } })

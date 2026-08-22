@@ -11,7 +11,6 @@ local FieldApplicationIds = {
   BAG = "bag",
   POKEGEAR = "pokegear",
   TRAINER_CARD = "trainer_card",
-  SAVE = "save",
   OPTIONS = "options",
 }
 
