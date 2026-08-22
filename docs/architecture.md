@@ -12,7 +12,7 @@ The repository is a small monorepo: top-level directories are applications you
 run; `libs/` holds the capabilities they share. Each app is its own LÖVE root.
 
 ```text
-game/         Interactive app — launcher, boot, and the field runtime (love game/)
+game/         Interactive app — launcher, product states, and field runtime (love game/)
 romdump/      Source ingestion + ROM-specific digestion + asset production (love romdump/)
 libs/assets/  Project-owned asset contracts (generated schemas, cache paths/readiness,
               modder-facing text forms)
@@ -67,11 +67,10 @@ love game/
        ├─ --field [map]           → boot the field runtime on a target map
        ├─ --actors                → boot the compiled field-actor preview grid
        ├─ --dev                   → enable the playtest HUD and F1/F2 binds
-       ├─ --new-field-session     → clear the selected version's save, then boot
        └─ (no flags)              → App inspects both version caches:
                                       0 ready → import screen
-                                      1 ready → that version's field runtime
-                                      2 ready → version selector → field runtime
+                                      1 ready → Main Menu
+                                      2 ready → version selector → Main Menu
 ```
 
 The headless `romdump/main.lua` parses with `Cli` and dispatches to `Runner`,
@@ -158,10 +157,11 @@ occupancy, and coverage keep working from the derived data alone.
 maps, player and actors, scripts, dialogue control, input, transitions, saves,
 and deterministic camera state. `FieldPresentation` owns the LÖVE-only renderer,
 GPU assets, viewport, and dialogue rendering. Interactive `FieldState` composes
-both; the acceptance layer boots `FieldRuntime` through its production harness
-with recording host adapters and an isolated save root, then stops before any
-GPU draw call. This keeps user-flow coverage on the real composition path while
-graphics smoke tests separately own actual shader, canvas, mesh, and image work.
+both; the acceptance layer boots the product `App` through its production
+harness with recording host adapters and an isolated save root, then stops
+before any GPU draw call. This keeps user-flow coverage on the real top-level
+composition path while graphics smoke tests separately own actual shader,
+canvas, mesh, and image work.
 
 ### Field actors
 
@@ -179,9 +179,6 @@ engine. Flag writes are queued and applied at one point in the fixed tick —
 before movement reads occupancy — so the draw list and collision never disagree
 within a tick. An actor's raw ROM movement code is preserved on the actor and
 never executed; actors move only through script movement tasks.
-`data/manifests/field_scenario.lua` seeds which target objects start hidden; it names objects by map/object
-identity and `FieldScenario` resolves each to the ROM's numeric flag.
-
 The player's movement decision order is collision, then terrain surface
 transition, then actor occupancy (`FieldPlayer` consults the manager's
 occupancy index through an injected predicate that returns the blocking

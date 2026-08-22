@@ -6,9 +6,8 @@
 -- the recursively discovered, layer-selectable test suite and exits; --field
 -- boots a fixed field target; --actors opens the compiled field-actor preview
 -- grid; --dev enables the playtest HUD and the F1/F2 developer binds; without
--- it the app runs in product mode; --new-field-session
--- clears the selected version's project save; otherwise App drives the normal
--- boot/import flow. Options.parse owns strictness: unknown options, stray
+-- it the app runs in product mode; otherwise App drives the normal
+-- boot/import/Main Menu flow. Options.parse owns strictness: unknown options, stray
 -- arguments, and the --actors/--field conflict are rejected with a message on
 -- stderr and exit status 2, and everything after the exact --test token is
 -- left to the test command.

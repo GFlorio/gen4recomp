@@ -7,9 +7,8 @@ per-user cache, and reads game data from that dump at runtime.
 > **This is not an emulator and does not recompile DS machine code.** It is a
 > pure-Lua reader for the Nintendo DS cartridge container (header, FAT, FNT,
 > overlay tables) and the HGSS NARC archive format. The project currently
-> delivers an interactive field runtime over the compiled assets — walkable maps,
-> deterministic movement and collision, warps, object interactions, and modal
-> dialogue — not a playable game.
+> delivers a playable opening flow over compiled assets: Main Menu, New Game,
+> Oak's introduction, the first field event, explicit manual Save, and Continue.
 
 ## Legal / ROM requirement
 
@@ -37,7 +36,7 @@ Use the scripts in `scripts/` — they redirect the cache into a gitignored
 in-repo folder during development:
 
 ```sh
-scripts/run.sh                  # boot: import screen, or the field runtime if a cache is ready
+scripts/run.sh                  # boot: import screen, Main Menu, or developer preview
 scripts/buildcache.sh [ROM]     # import if needed, then rebuild the game cache
 scripts/test.sh                 # run every available test layer (--list, --layer, --filter, --rom-source)
 scripts/lint.sh                 # stylua --check + lua-language-server diagnostics
@@ -102,8 +101,8 @@ no separate test suite.
 
 ## Status
 
-Vertical slice complete through DS material/lighting, 3D map rendering, and the
-interactive field runtime: repository bootstrap, binary foundation, version and
+The product flow is complete through the first manual checkpoint: repository
+bootstrap, binary foundation, version and
 cache contracts, NDS/NitroFS/NARC parsing, private dump, runtime `RomFs`,
 map/building model compilation, DS vertex lighting, deterministic field
 movement and collision, warps, object interactions, and modal dialogue. See
