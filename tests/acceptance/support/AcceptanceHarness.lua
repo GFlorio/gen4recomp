@@ -305,6 +305,10 @@ function Game:snapshot()
       facing = player.facing,
       motion = player.motion,
     },
+    playerVisual = runtime.playerVisual and {
+      pose = runtime.playerVisual.pose,
+      poseTick = runtime.playerVisual.poseTick,
+    } or nil,
     dialogue = dialogue and dialogue:status() or { modal = false },
     menu = appHostStatus.menu or (runtime.menuHost and runtime.menuHost:snapshot()) or nil,
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
@@ -605,9 +609,9 @@ function Game:waitForTransition()
   self:advanceUntil("transition completes", function(snapshot)
     return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle"
   end, 120)
-  local destination = self:snapshot()
+  local completed = assert(self.lastTransition, "completed transition snapshot missing")
   self.lastTransition = nil
-  return { source = source, destination = destination }
+  return { source = completed.source, destination = self:snapshot() }
 end
 
 function Game:ownership()

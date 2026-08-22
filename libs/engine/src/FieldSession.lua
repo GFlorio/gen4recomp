@@ -230,8 +230,8 @@ function FieldSession:updateFixed(inputSnapshot)
       self.player:collapseRenderInterpolation()
     end
     self.currentMap:updateAnimated()
-    if playerAdvanced and self.playerVisual then
-      self.playerVisual:updateFixed(walkingAtTickStart)
+    if self.playerVisual then
+      self.playerVisual:updateFixed(playerAdvanced or walkingAtTickStart or self.transition.profileId == 6)
     end
     self.camera:updateFixed(self:actorTarget())
     -- Keep the just-arrived tile stable until the application consumes the

@@ -46,6 +46,8 @@ local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
+local MapProps = require("libs.engine.src.MapProps")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
@@ -210,6 +212,37 @@ local function defaultWeatherClock()
       return false
     end,
   }
+end
+
+-- Build the non-GPU door facade used by simulation and acceptance runtimes.
+-- It reuses the normalized scene placement/model contract, so transition
+-- audio and profile choreography do not depend on presentation being enabled.
+local function headlessMapProps(runtimeMap, cacheFs)
+  local scene = runtimeMap.scene
+  local instances = {}
+  for _, placement in ipairs(scene.buildingInstances) do
+    local descriptor = assert(cacheFs:loadLua(MapAssetCache.modelPath(placement.modelKey)))
+    instances[placement.placementIndex] = {
+      soundOnly = true,
+      definition = { doorSoundType = descriptor.doorSoundType },
+    }
+  end
+  local doorTiles = {}
+  local origin = runtimeMap.coordinateOrigin
+  for _, warp in ipairs(runtimeMap.fieldData.events.warps) do
+    local localX, localZ = warp.x - origin.x, warp.z - origin.z
+    if
+      runtimeMap.collision:containsLocal(localX, localZ)
+      and MetatileBehavior.isDoor(runtimeMap.collision:getLocal(localX, localZ).behavior)
+    then
+      doorTiles[#doorTiles + 1] = { x = localX, z = localZ }
+    end
+  end
+  return MapProps.new({
+    placements = scene.buildingInstances,
+    instances = instances,
+    doorTiles = doorTiles,
+  })
 end
 
 function FieldRuntime.new(versionId, mapIdOrSymbol, options)
@@ -434,11 +467,17 @@ function FieldRuntime:_load()
     -- one (every presentation map carries a scene runtime), so a door-less
     -- composition is exactly "no door resolver, no door choreography" and a
     -- door-kind warp there degrades to a plain fade instead of raising.
-    local doorAt
-    if self.presentation then
-      doorAt = function(runtimeMap, fieldX, fieldZ)
-        return runtimeMap.sceneRuntime.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
+    local headlessProps = {}
+    local doorAt = function(runtimeMap, fieldX, fieldZ)
+      local props = runtimeMap.sceneRuntime and runtimeMap.sceneRuntime.mapProps
+      if not props then
+        props = headlessProps[runtimeMap.mapId]
+        if not props then
+          props = headlessMapProps(runtimeMap, cacheFs)
+          headlessProps[runtimeMap.mapId] = props
+        end
       end
+      return props:doorAt(runtimeMap, fieldX, fieldZ)
     end
     self.transition = FieldTransition.new({
       loader = self.mapLoader,
@@ -460,9 +499,9 @@ function FieldRuntime:_load()
       -- hook so stair completion (SEQ_SE_DP_KAIDAN2) emits through the
       -- production audio service.
       playSound = function(soundRef)
-        if self.audio then
-          self.audio:play(soundRef)
-        end
+        local audio = self.audio or (self.scriptHosts and self.scriptHosts.audio)
+        assert(audio and type(audio.play) == "function", "field transition audio host required")
+        audio:play(soundRef)
       end,
     })
     self.transition.player = self.player

@@ -613,7 +613,7 @@ function T.source_door_waits_for_the_open_before_the_ingress()
   Assert.equal(sourceDoor.events[#sourceDoor.events], "open-finished", "the opening clip reached its end")
 
   transition:updateFixed()
-  Assert.deepEqual(player.steps, { "south" }, "the ingress begins only after the door finished opening")
+  Assert.deepEqual(player.steps, { "north" }, "the ingress begins only after the door finished opening")
   Assert.equal(player.motion, "walking")
   Assert.isTrue(transition.fadeAlpha > 0, "the fade runs concurrently with the choreography")
 
@@ -647,7 +647,7 @@ function T.source_door_waits_for_the_open_before_the_ingress()
   Assert.equal(sourceDoor.closed, 0, "the source door never closes; the map is discarded")
   Assert.deepEqual(
     player.steps,
-    { "south", "south" },
+    { "north", "south" },
     "the destination egress walks off the anchor even without a door"
   )
   Assert.equal(player.updates, 2 * player.stepTicks, "both scripted steps walk to completion")
@@ -700,7 +700,7 @@ function T.destination_door_waits_for_the_open_then_the_egress_then_closes()
   )
 
   tick(transition, { sourceDoor, destinationDoor })
-  Assert.deepEqual(player.steps, { "south", "south" }, "the egress begins after the destination door finished opening")
+  Assert.deepEqual(player.steps, { "north", "south" }, "the egress begins after the destination door finished opening")
   Assert.equal(player.motion, "walking")
 
   -- The movement outlasts the fade-in: the close must still wait for it.
@@ -801,7 +801,7 @@ function T.static_destination_door_does_not_block_the_unlock()
   Assert.equal(transition.phase, "fade_in")
   -- A static door (no animation) has nothing to wait for: the egress begins
   -- at the swap.
-  Assert.deepEqual(player.steps, { "south", "south" }, "the egress begins at the swap for a static door")
+  Assert.deepEqual(player.steps, { "north", "south" }, "the egress begins at the swap for a static door")
 
   runUntil(transition, {}, function()
     return transition.fadeAlpha == 0

@@ -46,6 +46,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local AnimationClip = require("libs.assets.src.AnimationClip")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
+local DoorSound = require("libs.engine.src.DoorSound")
 
 ---@class MapProps
 ---@field placements table -- scene placement records (read only after assembly)
@@ -158,6 +159,9 @@ function MapProps.new(opts)
       placementIndex = best.placement.placementIndex,
       modelKey = best.placement.modelKey,
       animation = nil,
+      doorSoundType = self.instances[best.placement.placementIndex]
+          and self.instances[best.placement.placementIndex].definition.doorSoundType
+        or nil,
     }
   end
   return self
@@ -174,6 +178,7 @@ end
 ---@field warp table -- the warp record at the door tile
 ---@field placementIndex integer
 ---@field modelKey string
+---@field doorSoundType integer|nil
 ---@field instance table|nil
 ---@field entry table -- the retained index record ({ animation = handle|nil })
 local MapDoor = {}
@@ -186,12 +191,14 @@ MapDoor.__index = MapDoor
 -- lack the role (a data problem worth a diagnostic, not a silent fallback).
 function MapDoor:open()
   self:_play(AnimationClip.ROLES.DOOR_OPEN)
+  return self.doorSoundType and DoorSound.sequence(self.doorSoundType, "open") or nil
 end
 
 -- Play the door's closing animation: the semantic door.close role, once,
 -- from frame 0, stopping the door's previous play. Static doors no-op.
 function MapDoor:close()
   self:_play(AnimationClip.ROLES.DOOR_CLOSE)
+  return self.doorSoundType and DoorSound.sequence(self.doorSoundType, "close") or nil
 end
 
 -- One door has one playing attachment: playing a role stops the tile's
@@ -199,7 +206,7 @@ end
 -- handle is the LIVE attachment instance:play returned, so isFinished reads
 -- it directly and replays always restart.
 function MapDoor:_play(role)
-  if not self.instance then
+  if not self.instance or self.instance.soundOnly then
     return
   end
   local definition = self.instance.definition
@@ -267,6 +274,9 @@ function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
     modelKey = entry.modelKey,
     instance = self.instances[entry.placementIndex],
     entry = entry,
+    doorSoundType = entry.doorSoundType
+      or (self.instances[entry.placementIndex] and self.instances[entry.placementIndex].definition.doorSoundType)
+      or nil,
   }, MapDoor)
 end
 

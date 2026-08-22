@@ -56,7 +56,7 @@ local ANIM_ARCHIVE = "build_anim"
 -- compiled assets must account for it: a decoder or sampler change without
 -- it would leave stale compiled clips in the derived cache. Bump whenever
 -- the decoders or the clip compilers change behavior.
-MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v5"
+MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v6"
 
 -- clip name -> semantic role. Patterns match the tail of the Nitro dict
 -- name; the whole name matches when the pattern is exact. The role
@@ -268,7 +268,24 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
     clips[#clips + 1] = modelClip(resourceId, resNarc:readMember(resourceId))
   end
   annotatePolicy(clips, record)
-  return { clips = clips }
+  local hasDoor = false
+  for _, clip in ipairs(clips) do
+    for _, semanticName in ipairs(clip.semanticNames or {}) do
+      if semanticName == AnimationClip.ROLES.DOOR_OPEN or semanticName == AnimationClip.ROLES.DOOR_CLOSE then
+        hasDoor = true
+      end
+    end
+  end
+  if hasDoor then
+    if type(record.doorSoundType) ~= "number" or record.doorSoundType < 1 or record.doorSoundType > 4 then
+      Errors.raise(
+        "MAP_PROP_ANIM_DOOR_SOUND_INVALID",
+        "door animation record has unsupported sound type " .. tostring(record.doorSoundType),
+        { memberId = opts.memberId, doorSoundType = record.doorSoundType }
+      )
+    end
+  end
+  return { clips = clips, doorSoundType = hasDoor and record.doorSoundType or nil }
 end
 
 return MapPropAnimCompiler

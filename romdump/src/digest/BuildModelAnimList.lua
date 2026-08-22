@@ -23,10 +23,9 @@
 --     one-shot, not-manager-advanced state (1, 1, 0).
 --   areaGate (byte 3):     the area loader skips the ordinary registration
 --     entirely when nonzero.
--- Bytes 4-7 have no established consumer meaning (the corpus carries nonzero
--- values there); they are not carried -- the source bytes remain in the
--- archive if future research discovers meaning.
--- decode() returns { ids, registration, policy, control, areaGate, banded },
+-- Byte 4 is the source door sound selector consumed by GetDoorSE. Bytes 5-7
+-- remain unclaimed and are not carried.
+-- decode() returns { ids, registration, policy, control, areaGate, doorSoundType, banded },
 -- with banded = (policy == 0x08). The no-animation sentinel (first header u16
 -- 0xFFFF) yields empty ids; the byte fields are still exposed.
 
@@ -45,6 +44,7 @@ local REGISTRATION_OFFSET = 0
 local POLICY_OFFSET = 1
 local CONTROL_OFFSET = 2
 local AREA_GATE_OFFSET = 3
+local DOOR_SOUND_OFFSET = 4
 
 -- The time-band policy value: the registrar's bit helpers (ov01_021E8864 /
 -- ov01_021E887C) special-case 0x08 to 0/1 -- the banded prop policy.
@@ -79,6 +79,7 @@ function BuildModelAnimList.decode(bytes)
     policy = policy,
     control = r:u8(CONTROL_OFFSET),
     areaGate = r:u8(AREA_GATE_OFFSET),
+    doorSoundType = r:u8(DOOR_SOUND_OFFSET),
     banded = policy == BAND_POLICY,
   }
 end
