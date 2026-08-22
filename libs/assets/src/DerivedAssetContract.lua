@@ -21,6 +21,9 @@
 -- classification); the vocabulary a stale v1 cache could have baked in is
 -- no longer trustworthy.
 --
+-- fieldUi schema 7: dialogue continuation cursor phases become a precolored
+-- source-independent atlas with strict placement and timing metadata.
+--
 -- fieldUi schema 6: wayfinding rects become final 48x32 surfaces. Each
 -- (type, map) rect is a 6x4 arrangement (48px wide, 32px tall) composed at
 -- build time from the original 24 8x8 tiles, instead of a raw 192x8 strip.
@@ -127,7 +130,7 @@ DerivedAssetContract.fieldEffects = {
 
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
-  schema = "g4-field-ui-v6",
+  schema = "g4-field-ui-v7",
 }
 
 DerivedAssetContract.audio = {

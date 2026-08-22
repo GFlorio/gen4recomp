@@ -1,7 +1,7 @@
 -- The single theme record for field dialogue presentation: the 256 x 192
 -- reference canvas (matching the DS top-screen aspect),
--- the canonical HGSS message-box content rect, text metrics, colors, cursor
--- blink, the user-frame tilemap composition, and the reference-to-screen
+-- the canonical HGSS message-box content rect and text metrics
+-- the user-frame tilemap composition, and the reference-to-screen
 -- mapping into FieldViewport.referenceFrame.
 -- The content rect is 16,152,216,32: DIALOG_BOX_X=2, DIALOG_BOX_Y=19,
 -- DIALOG_BOX_W=27, DIALOG_BOX_H=4 tiles at 8px/tile (src/dialog_box.c,
@@ -25,8 +25,6 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field maxLines integer
 ---@field textWidth integer
 ---@field textHeight integer
----@field cursor { width: integer, height: integer, offsetX: integer, offsetY: integer, blinkTicks: integer }
----@field colors { cursor: number[] }
 ---@field frameTilePlacements fun(box: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
 ---@field layout fun(referenceFrame: FieldDialogueTheme.Rect, fieldScale: number): FieldDialogueTheme.Layout
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
@@ -58,24 +56,8 @@ FieldDialogueTheme.maxLines = 2
 FieldDialogueTheme.textWidth = 216 - 2 * 10
 FieldDialogueTheme.textHeight = 32
 
--- Cursor: a down-pointing triangle at the text area's bottom-right, blinking
--- on a fixed tick period.
-FieldDialogueTheme.cursor = {
-  width = 10,
-  height = 8,
-  offsetX = 6,
-  offsetY = 6,
-  blinkTicks = 30,
-}
-
--- Colors (project-owned window; the extracted glyph atlas bakes
--- its own ink/shadow/background colors, so text is drawn unmodified; the
--- HGSS user-frame artwork carries its own baked colors). The cursor color
--- belongs to the dialogue presentation.
-FieldDialogueTheme.colors = {
-  cursor = { 0.10, 0.12, 0.30, 1 },
-}
-
+-- The extracted glyph atlas and HGSS user-frame artwork carry their own
+-- baked colors; the dialogue renderer does not own cursor presentation data.
 -- The audited DrawFrameAndWindow2 tilemap: every tile of the user-frame
 -- strip placed around the content box, in strip order. Positions are
 -- reference-canvas pixels; a span entry repeats the tile across the named
@@ -168,12 +150,6 @@ function FieldDialogueTheme.layout(referenceFrame, fieldScale)
     origin = origin,
     box = box,
     text = text,
-    cursor = {
-      x = text.x + text.width - FieldDialogueTheme.cursor.width - FieldDialogueTheme.cursor.offsetX,
-      y = text.y + text.height - FieldDialogueTheme.cursor.height - FieldDialogueTheme.cursor.offsetY,
-      width = FieldDialogueTheme.cursor.width,
-      height = FieldDialogueTheme.cursor.height,
-    },
     lineHeight = FieldDialogueTheme.lineHeight,
   }
 end
@@ -238,7 +214,6 @@ end
 ---@field origin { x: number, y: number }
 ---@field box FieldDialogueTheme.Rect
 ---@field text FieldDialogueTheme.Rect
----@field cursor FieldDialogueTheme.Rect
 ---@field lineHeight number
 
 -- Metrics consumed by DialogueLayout: glyph advances from the generated font

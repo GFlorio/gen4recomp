@@ -98,10 +98,6 @@ function T.text_area_fits_two_lines_of_font_height()
     "two lines fit the content height"
   )
   Assert.near(text.width, FieldDialogueTheme.textWidth)
-  -- The cursor sits inside the text area's bottom-right corner.
-  local cursor = layout.cursor
-  Assert.isTrue(cursor.x >= text.x and cursor.x + cursor.width <= text.x + text.width + 1e-9)
-  Assert.isTrue(cursor.y + cursor.height <= text.y + text.height + 1e-9)
 end
 
 -- The frame tilemap is the audited DrawFrameAndWindow2 composition

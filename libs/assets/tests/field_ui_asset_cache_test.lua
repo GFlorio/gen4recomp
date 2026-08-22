@@ -55,10 +55,34 @@ local function validManifest()
         height = 32,
       },
       ["hgss.trainer_card.front"] = { image = "assets/generated/field/ui/trainer-card.png", width = 256, height = 192 },
+      ["hgss.dialogue_continue_cursor"] = {
+        image = "assets/generated/field/ui/dialogue-continue-cursor.png",
+        width = 48,
+        height = 320,
+      },
     },
     dialogueFrames = {
       count = 20,
       frameTiles = frameTiles,
+      continueCursor = {
+        asset = "hgss.dialogue_continue_cursor",
+        cycle = { 0, 1, 2, 1 },
+        framePrinterTicks = 9,
+        placement = { x = 240, y = 168, width = 16, height = 16 },
+        styles = (function()
+          local styles = {}
+          for style = 0, 19 do
+            styles[style] = {
+              phases = {
+                [0] = { x = 0, y = style * 16, width = 16, height = 16 },
+                [1] = { x = 16, y = style * 16, width = 16, height = 16 },
+                [2] = { x = 32, y = style * 16, width = 16, height = 16 },
+              },
+            }
+          end
+          return styles
+        end)(),
+      },
     },
     signposts = {
       textColors = { foreground = 2, shadow = 10, background = 15 },
@@ -233,6 +257,46 @@ function T.ui_row_geometry_must_match_the_hgss_strip_contract()
   reject(function(m)
     m.signposts.types[0].wayfinding[0].height = 31
   end, "FIELD_UI_MANIFEST_INVALID")
+end
+
+-- A complete v7 cursor contract passes, while each independently malformed
+-- cursor field is rejected before runtime can consume the generated class.
+function T.continuation_cursor_contract_rejects_incomplete_manifests()
+  local complete = validManifest()
+  Assert.isTrue(FieldUiAssetCache.validateManifest(complete))
+
+  local mutations = {
+    function(m)
+      m.assets["hgss.dialogue_continue_cursor"] = nil
+    end,
+    function(m)
+      m.dialogueFrames.continueCursor.styles[19] = nil
+    end,
+    function(m)
+      m.dialogueFrames.continueCursor.styles[0].phases[2] = nil
+    end,
+    function(m)
+      m.dialogueFrames.continueCursor.styles[0].phases[0].width = 15
+    end,
+    function(m)
+      m.dialogueFrames.continueCursor.styles[0].phases[0].x = 40
+    end,
+    function(m)
+      m.dialogueFrames.continueCursor.cycle = { 0, 1, 0, 1 }
+    end,
+    function(m)
+      m.dialogueFrames.continueCursor.placement.x = 239
+    end,
+    function(m)
+      m.dialogueFrames.continueCursor.framePrinterTicks = 8
+    end,
+  }
+  for index, mutate in ipairs(mutations) do
+    local manifest = validManifest()
+    mutate(manifest)
+    local ok, err = FieldUiAssetCache.validateManifest(manifest)
+    Assert.isFalse(ok, "cursor mutation " .. index .. " must be rejected: " .. tostring(err))
+  end
 end
 
 -- v5 schema: signposts section requires textColors and per-type palettes.

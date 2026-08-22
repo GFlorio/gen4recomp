@@ -34,9 +34,8 @@ local function renderer(scope)
   }))
 end
 
--- Steps a fixture dialogue until its text is fully revealed and the cursor
--- blink is off, so the canonical render is deterministic (text visible, no
--- cursor triangle).
+-- Steps a fixture dialogue until its text is fully revealed and the cursor is
+-- at phase zero, so the canonical render is deterministic.
 ---@param controller FieldDialogueController
 local function settleDialogue(controller)
   controller:step({})
@@ -48,7 +47,7 @@ local function settleDialogue(controller)
   end
   local status = controller:status()
   Assert.equal(status.state, "WAITING_CLOSE")
-  Assert.equal(status.cursorPhase, 0, "cursor phase is off in the settled render")
+  Assert.equal(status.cursorPhase, 0, "cursor phase is deterministic in the settled render")
 end
 
 -- The canonical 256x192 render of the fixture dialogue for one frame style.
@@ -128,6 +127,12 @@ local function goldenReference(frameIndex)
           paste(glyph.x + tx, layout.text.y + ty, 40 / 255, 200 / 255, 40 / 255, 1)
         end
       end
+    end
+  end
+  local cursorR, cursorG, cursorB = FieldUiFixture.continueCursorColor(frameIndex, 0)
+  for y = 0, 15 do
+    for x = 0, 15 do
+      paste(240 + x, 168 + y, cursorR / 255, cursorG / 255, cursorB / 255, 1)
     end
   end
   return reference

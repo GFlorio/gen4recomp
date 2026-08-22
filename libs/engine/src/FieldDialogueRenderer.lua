@@ -28,7 +28,9 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table the generated field-UI manifest
 ---@field _frameImage love.Image?
+---@field _cursorImage love.Image?
 ---@field _frameQuadCache table<integer, love.Quad[]>|nil per-frame tile quads, built lazily
+---@field _cursorQuadCache table<integer, table<integer, love.Quad>>|nil
 local FieldDialogueRenderer = {}
 FieldDialogueRenderer.__index = FieldDialogueRenderer
 
@@ -79,7 +81,9 @@ function FieldDialogueRenderer.new(opts)
     _text = text,
     _manifest = manifest,
     _frameImage = nil,
+    _cursorImage = nil,
     _frameQuadCache = nil,
+    _cursorQuadCache = nil,
   }, FieldDialogueRenderer)
 
   local frameData = cacheFs:read(frameImagePath)
@@ -98,6 +102,35 @@ function FieldDialogueRenderer.new(opts)
   if not ok then
     self:release()
     error(err)
+  end
+  local cursor = assert(manifest.dialogueFrames.continueCursor)
+  local cursorAsset = assert(manifest.assets[cursor.asset])
+  local cursorData = cacheFs:read(cursorAsset.image)
+  if not cursorData then
+    self:release()
+    Errors.raise(
+      FieldErrors.FIELD_UI_CONTINUE_CURSOR_MISSING,
+      "dialogue continuation cursor missing at " .. cursorAsset.image,
+      { path = cursorAsset.image }
+    )
+  end
+  local cursorOk, cursorErr = pcall(function()
+    self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, cursorAsset.image))
+    self._cursorImage:setFilter("nearest", "nearest")
+    self._cursorQuadCache = {}
+    for style, styleEntry in pairs(cursor.styles) do
+      local phases = assert(styleEntry).phases
+      local quads = {}
+      for phase = 0, 2 do
+        local rect = assert(phases[phase])
+        quads[phase] = graphics.newQuad(rect.x, rect.y, rect.width, rect.height, cursorAsset.width, cursorAsset.height)
+      end
+      self._cursorQuadCache[style] = quads
+    end
+  end)
+  if not cursorOk then
+    self:release()
+    error(cursorErr)
   end
   return self
 end
@@ -125,28 +158,26 @@ function FieldDialogueRenderer:_buildFrameQuads(frameIndex, rect)
   return quads
 end
 
--- Draws the continue cursor at the text area's bottom-right while the
--- controller waits at a boundary, using the controller's deterministic blink.
+-- Draws the generated continuation phase while the controller waits at a
+-- boundary. Timing and phase selection belong to the controller.
 
 ---@param status FieldDialogueController.Status
----@param layout FieldDialogueTheme.Layout
-function FieldDialogueRenderer:_drawCursor(status, layout)
-  if not status.waiting or status.cursorPhase == nil or status.cursorPhase == 0 then
+---@param _layout FieldDialogueTheme.Layout
+function FieldDialogueRenderer:_drawCursor(status, _layout)
+  if not status.waiting or status.cursorPhase == nil then
     return
   end
   local lg = assert(self._graphics)
-  local cursor = layout.cursor
-  local color = self._theme.colors.cursor
-  lg.setColor(color[1], color[2], color[3], color[4])
-  lg.polygon(
-    "fill",
-    cursor.x,
-    cursor.y,
-    cursor.x + cursor.width,
-    cursor.y,
-    cursor.x + cursor.width / 2,
-    cursor.y + cursor.height
-  )
+  local frameIndex = status.frameIndex
+  if frameIndex == nil then
+    return
+  end
+  local cursor = assert(self._manifest.dialogueFrames.continueCursor)
+  local quads = assert(self._cursorQuadCache)[frameIndex]
+  local quad = assert(quads)[status.cursorPhase]
+  local placement = cursor.placement
+  lg.setColor(1, 1, 1, 1)
+  lg.draw(assert(self._cursorImage), quad, placement.x, placement.y)
 end
 
 -- Draws the player's selected HGSS user-frame: the strip row named by the
@@ -262,7 +293,12 @@ function FieldDialogueRenderer:release()
     self._frameImage:release()
   end
   self._frameImage = nil
+  if self._cursorImage and self._cursorImage.release then
+    self._cursorImage:release()
+  end
+  self._cursorImage = nil
   self._frameQuadCache = nil
+  self._cursorQuadCache = nil
 end
 
 return FieldDialogueRenderer

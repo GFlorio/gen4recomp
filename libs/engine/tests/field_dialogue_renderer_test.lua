@@ -36,6 +36,39 @@ local function uiCache()
   return FieldUiFixture.cacheWithFontAndFrames()
 end
 
+local CURSOR_ASSET = "hgss.dialogue_continue_cursor"
+local CURSOR_PATH = "assets/generated/field/ui/dialogue-continue-cursor.png"
+
+local function cursorManifest()
+  local manifest = FieldUiFixture.manifest()
+  manifest.assets[CURSOR_ASSET] = { image = CURSOR_PATH, width = 48, height = 320 }
+  manifest.dialogueFrames.frameTiles[2] = { x = 0, y = 16, width = 144, height = 8 }
+  manifest.dialogueFrames.frameTiles[3] = { x = 0, y = 24, width = 144, height = 8 }
+  manifest.dialogueFrames.count = 4
+  manifest.dialogueFrames.continueCursor = {
+    asset = CURSOR_ASSET,
+    cycle = { 0, 1, 2, 1 },
+    framePrinterTicks = 9,
+    placement = { x = 240, y = 168, width = 16, height = 16 },
+    styles = {
+      [3] = {
+        phases = {
+          [0] = { x = 0, y = 48, width = 16, height = 16 },
+          [1] = { x = 16, y = 48, width = 16, height = 16 },
+          [2] = { x = 32, y = 48, width = 16, height = 16 },
+        },
+      },
+    },
+  }
+  return manifest
+end
+
+local function cursorCache()
+  local cache = uiCache()
+  cache:write(CURSOR_PATH, "cursor")
+  return cache
+end
+
 -- The shared font assets: the fixture font carries three glyphs, so the text
 -- renderer creates three images (glyph atlas, semantic mask atlas, and focus
 -- strip) and three glyph quads ahead of the dialogue renderer's own strip
@@ -165,12 +198,12 @@ function T.no_nine_slice_assets_are_built()
     text = withTextRenderer(uiCache(), lg),
     graphics = lg,
   })
-  Assert.equal(#lg.images, 4, "only the font atlas, mask atlas, focus strip, and frame strip are created")
+  Assert.equal(#lg.images, 5, "the font atlases, frame strip, and continuation cursor are created")
 
   local controller = FieldDialogueFixture.openDialogue("AB", 0)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
-  Assert.equal(#lg.images, 4, "drawing creates no slice image")
+  Assert.equal(#lg.images, 5, "drawing creates no slice image")
   renderer:release()
 end
 
@@ -239,6 +272,42 @@ function T.request_without_a_frame_index_draws_no_frame_tiles()
     Assert.equal(call.quad.imgW, 16, "only font-atlas quads are drawn without a frame index")
   end
   renderer:release()
+end
+
+-- A waiting dialogue samples C01's phase and frame index: it draws the
+-- generated cursor quad at the source placement, never a local blink polygon,
+-- and repeated draws do not advance the controller-owned phase.
+function T.waiting_dialogue_draws_the_generated_cursor_phase_without_blinking()
+  local lg = fakeGraphics({
+    imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 32 }, { 48, 320 } },
+  })
+  local cache = cursorCache()
+  local text = withTextRenderer(cache, lg)
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = cache,
+    manifest = cursorManifest(),
+    text = text,
+    graphics = lg,
+  })
+  local controller = FieldDialogueFixture.openDialogue("AB", 3)
+  controller:step({ actionPressed = true })
+  for _ = 1, 30 do
+    controller:step({})
+  end
+  local status = controller:status()
+  Assert.isTrue(status.waiting, "the dialogue must be waiting at its continuation boundary")
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
+  local first = lg.draws[#lg.draws]
+  Assert.equal(first.image, lg.images[5], "the continuation uses the generated cursor atlas")
+  Assert.deepEqual({ first.quad.x, first.quad.y, first.quad.w, first.quad.h }, { 32, 48, 16, 16 })
+  Assert.deepEqual({ first.x, first.y }, { 240, 168 })
+  Assert.isFalse(#lg.primitives > 1 and lg.primitives[#lg.primitives] == "polygon", "cursor is not a triangle")
+  local phaseQuad = first.quad
+  renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
+  Assert.equal(lg.draws[#lg.draws].quad, phaseQuad, "draw does not invent timing")
+  renderer:release()
+  text:release()
 end
 
 -- The content rectangle is an opaque fill using the compiled field-font
@@ -355,8 +424,7 @@ function T.reached_focus_indicator_draws_at_the_content_window_right_edge()
     "field 0 samples its imported strip rect"
   )
   Assert.equal(lg.draws[#lg.draws].quad, focus[1].quad, "the indicator draws after the frame and text")
-  Assert.equal(#lg.primitives, 2, "the opaque window fill and continuation cursor both draw")
-  Assert.equal(lg.primitives[2], "polygon", "the cursor is drawn, never suppressed by the indicator")
+  Assert.equal(#lg.primitives, 1, "only the opaque window fill is a primitive")
   renderer:release()
 end
 

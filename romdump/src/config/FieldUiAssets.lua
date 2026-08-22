@@ -44,6 +44,7 @@ return {
     firstFrameMember = 2,
     frameCount = 20,
     firstPaletteMember = 26,
+    continueCursorMember = 0x16,
   },
   signposts = {
     alias = "signpost_graphics",

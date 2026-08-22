@@ -284,6 +284,7 @@ local function fixture(opts)
       for i = 1, 20 do
         members[26 + i] = lz10Wrap(paletteOr16(opts.framePalette))
       end
+      members[0x16 + 1] = lz10Wrap(charData(12))
     elseif alias == "signpost_graphics" then
       members = signposts
     else
