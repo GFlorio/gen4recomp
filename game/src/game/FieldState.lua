@@ -18,10 +18,8 @@ local KEY_DIRECTIONS =
 local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", dpright = "east" }
 
 ---@class FieldStateOptions
----@field resumeSave boolean? resume the saved field session (runtime contract)
----@field resetSave boolean? wipe the save and start a fresh session (runtime contract)
 ---@field zoomConfig table? runtime zoom configuration (runtime contract)
----@field development boolean? product mode (the default) hides the playtest HUD and ignores the F1/F2 developer binds
+---@field development boolean? product mode (the default) hides the playtest HUD
 ---@field topologyProvider (fun(width: number, height: number): ScreenTopology)?
 
 ---@class FieldState
@@ -63,13 +61,15 @@ local function defaultScreenTopology(width, height)
   })
 end
 
-function FieldState.new(versionId, mapIdOrSymbol, options)
+---@param game table finalized unpublished game or validated loaded GameSave
+---@param options FieldStateOptions?
+---@return FieldState
+function FieldState.new(game, options)
   options = options or {}
-  -- Only the documented runtime contract crosses the boundary: a state-only
-  -- option such as topologyProvider must never become a runtime option.
+  -- Only the documented runtime contract crosses the boundary: the finalized
+  -- or loaded game is the runtime's save authority, while state-only options
+  -- such as topologyProvider must never become runtime options.
   local runtimeOptions = {
-    resumeSave = options.resumeSave == true,
-    resetSave = options.resetSave == true,
     zoomConfig = options.zoomConfig,
     presentation = true,
   }
@@ -77,7 +77,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
   -- returned a fully usable runtime, so presentation resources are acquired
   -- unconditionally. A failure here releases the booted runtime exactly once
   -- through the shared disposal and rethrows.
-  local runtime = FieldRuntime.new(versionId, mapIdOrSymbol, runtimeOptions)
+  local runtime = FieldRuntime.new(game, runtimeOptions)
   local self = setmetatable({
     runtime = runtime,
     development = options.development == true,
@@ -446,8 +446,7 @@ function FieldState:_drawHud()
       self.runtime.player.motion
     ),
     self.runtime.saveStatus or "save not written this run",
-    "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   M menu   -/= zoom"
-      .. "   0 reset zoom   F1 save   F2 reset   Esc quit",
+    "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   M menu   -/= zoom" .. "   0 reset zoom   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 900, 20 * #lines + 12)
@@ -463,15 +462,6 @@ end
 function FieldState:keypressed(key, scancode, isrepeat)
   if key == "escape" then
     love.event.quit(0)
-  end
-  if self.development then
-    if key == "f1" then
-      self.runtime:saveSession()
-    end
-    if key == "f2" then
-      self.runtime:reset()
-      return
-    end
   end
   if self.runtime.actionKeys[key] then
     self.runtime.input:pressAction("key:" .. key)

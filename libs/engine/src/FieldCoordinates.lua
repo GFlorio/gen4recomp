@@ -33,7 +33,7 @@ local function requireIndex(value, name, context)
 end
 
 -- Heights are continuous (fractional is legitimate); only non-finite values
--- are rejected, mirroring FieldSave's height validation.
+-- are rejected, mirroring GameSave's height validation.
 local function requireFinite(value, name, context)
   if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
     Errors.raise(FieldErrors.FIELD_COORDINATES_INVALID, name .. " must be finite, got " .. tostring(value), context)

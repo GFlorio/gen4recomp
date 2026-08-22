@@ -142,7 +142,19 @@ local function withAppBoot(fn)
   local originalFieldNew = FieldState.new
   local fieldCalls = {}
 
-  App.opts = { saveStore = fakeStore({}) }
+  ---@type AppOptions
+  App.opts = {
+    test = false,
+    actors = false,
+    dev = false,
+    newGameCandidateFactory = function()
+      return {}
+    end,
+    oakIntroOptionsFactory = function()
+      return {}
+    end,
+    saveStore = fakeStore({}),
+  }
   App.state = nil
   App.importer = nil
   ---@diagnostic disable-next-line: duplicate-set-field
@@ -176,8 +188,10 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
   local originalOpts = App.opts
   local originalState = App.state
   local originalImporter = App.importer
+  local originalFieldNew = FieldState.new
   local candidate = { saveId = "save-00000007", playerData = { profile = { name = "GOLD" } } }
   local handoffs = {}
+  local fieldCalls = {}
   local publishCalls = 0
   local controller = { phase = "opening_wait", started = 0, disposed = 0 }
   function controller:start()
@@ -218,7 +232,11 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
   function store:publishFirst()
     publishCalls = publishCalls + 1
   end
+  ---@type AppOptions
   App.opts = {
+    test = false,
+    actors = false,
+    dev = false,
     saveStore = store,
     oakIntroOptionsFactory = function(options)
       Assert.equal(options.candidate, candidate)
@@ -237,10 +255,12 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
       Assert.equal(options.versionId, READY_VERSION)
       return candidate
     end,
-    onNewGame = function(result)
-      handoffs[#handoffs + 1] = result
-    end,
   }
+  ---@diagnostic disable-next-line: duplicate-set-field
+  FieldState.new = function(game, options)
+    fieldCalls[#fieldCalls + 1] = { game = game, options = options }
+    return { kind = "field" }
+  end
   App.state = nil
   App.importer = nil
 
@@ -253,8 +273,10 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
 
     controller.phase = "complete"
     App.update(0)
-    Assert.deepEqual(handoffs, { candidate })
-    Assert.isNil(App.state)
+    Assert.deepEqual(handoffs, {})
+    Assert.equal(#fieldCalls, 1)
+    Assert.equal(fieldCalls[1].game, candidate)
+    Assert.equal(App.state.kind, "field")
     Assert.equal(publishCalls, 0)
     Assert.equal(controller.disposed, 1)
     Assert.equal(renderer.disposed, 1)
@@ -264,6 +286,7 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
   App.opts = originalOpts
   App.state = originalState
   App.importer = originalImporter
+  FieldState.new = originalFieldNew
   if not ok then
     error(err, 0)
   end

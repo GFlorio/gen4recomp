@@ -11,14 +11,13 @@ local Options = {}
 -- Cli.EXIT_USAGE so scripts/test.sh and the game agree on "bad invocation".
 Options.EXIT_USAGE = 2
 
-Options.USAGE = "usage: love game/ [--test ...] [--field [map]] [--actors] [--dev] [--new-field-session]"
+Options.USAGE = "usage: love game/ [--test ...] [--field [map]] [--actors] [--dev]"
 
 ---@class GameOptions
 ---@field test boolean
 ---@field field boolean|string|nil
 ---@field actors boolean
 ---@field dev boolean
----@field newFieldSession boolean
 
 -- argv: the array LÖVE passes to love.load.
 ---@param argv string[]|nil
@@ -36,7 +35,7 @@ function Options.parse(argv)
     end
   end
 
-  local opts = { test = false, field = nil, actors = false, dev = false, newFieldSession = false }
+  local opts = { test = false, field = nil, actors = false, dev = false }
 
   local i = 1
   while i <= #argv do
@@ -51,8 +50,6 @@ function Options.parse(argv)
       opts.actors = true
     elseif option == "--dev" then
       opts.dev = true
-    elseif option == "--new-field-session" then
-      opts.newFieldSession = true
     elseif option:sub(1, 2) == "--" then
       return nil, "unknown option '" .. option .. "'\n" .. Options.USAGE
     else

@@ -3,9 +3,6 @@
 -- exposes the field warp transition lifecycle.
 
 local CacheFs = require("libs.storage.src.CacheFs")
-local SaveFs = require("libs.storage.src.SaveFs")
-local StorageErrors = require("libs.storage.src.errors")
-local Errors = require("libs.errors.src.Errors")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorDefinitionProvider = require("libs.engine.src.FieldActorDefinitionProvider")
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
@@ -32,9 +29,8 @@ local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
-local FieldSave = require("libs.engine.src.FieldSave")
-local FieldScenario = require("libs.engine.src.FieldScenario")
-local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
+local GameSave = require("libs.engine.src.GameSave")
+local PlayTime = require("libs.engine.src.PlayTime")
 local FieldScripts = require("game.src.game.FieldScripts")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldSession = require("libs.engine.src.FieldSession")
@@ -56,21 +52,15 @@ local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
-local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
-local FieldScenarioManifest = require("data.manifests.field_scenario")
-local FieldPlayerManifest = require("data.manifests.field_player")
 local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
 
 ---@class FieldRuntimeOptions
----@field resumeSave boolean?
----@field resetSave boolean?
 ---@field zoomConfig table?
 ---@field viewportWidth integer?
 ---@field viewportHeight integer?
 ---@field screenTopology ScreenTopology?
----@field saveFs SaveFs?
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
@@ -86,9 +76,8 @@ local WindowConfig = require("game.src.WindowConfig")
 
 ---@class FieldRuntime
 ---@field versionId string
----@field mapIdOrSymbol string|integer?
----@field resumeSave boolean
----@field resetSave boolean
+---@field saveId string
+---@field game table finalized unpublished game or validated loaded GameSave
 ---@field viewportWidth integer
 ---@field viewportHeight integer
 ---@field screenTopology ScreenTopology?
@@ -105,7 +94,6 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
 ---@field menuKeys table<string, boolean>?
----@field saveFs SaveFs?
 ---@field presentation boolean
 ---@field windowStyles FieldWindowStyles the immutable per-runtime window style catalogue
 ---@field scriptHosts FieldRuntimeScriptHosts?
@@ -131,7 +119,6 @@ local AUDIO_SAMPLE_RATE = 32768
 local AUDIO_FRAME_HZ = 60
 local AUDIO_FRAME_DT = 1 / AUDIO_FRAME_HZ
 local CAMERA_PROFILES_PATH = FieldCameraCache.profilesPath()
-local DEFAULT_MAP = "MAP_NEW_BARK_ELMS_LAB_1F"
 ---@return table<string, boolean>
 local function actionBindings()
   local keys = {}
@@ -157,19 +144,6 @@ local function menuBindings()
     keys[key] = true
   end
   return keys
-end
-
--- The save validation set of compiled avatar ids, so a corrupt save naming an
--- unbuilt player graphic is rejected before it reaches the runtime. The set
--- comes from the generated actor index's runtime block, not a source manifest.
----@param actorIndex table
----@return table<string, boolean>
-local function avatarIdSet(actorIndex)
-  local set = {}
-  for _, avatar in ipairs(actorIndex.runtime.avatars) do
-    set[avatar.id] = true
-  end
-  return set
 end
 
 -- The player consults the manager's occupancy index through this predicate,
@@ -214,17 +188,102 @@ local function defaultWeatherClock(localClock)
   }
 end
 
-function FieldRuntime.new(versionId, mapIdOrSymbol, options)
+local function canCapture(session)
+  return session
+    and session.player
+    and session.player.motion == "idle"
+    and (not session.transition or session.transition.phase == FieldTransition.PHASES.idle)
+    and (not session.dialogue or not session.dialogue:isModal())
+    and (not session.signpost or not session.signpost:isModal())
+    and (not session.applicationHost or not session.applicationHost:isActive())
+end
+
+local function avatarForPlayer(avatars, playerData)
+  local index = playerData.profile.gender + 1
+  local avatar = assert(avatars[index], "compiled actor index has no avatar for player gender")
+  return { index = index, id = avatar.id, spriteId = avatar.spriteId }
+end
+
+local function closestSurface(runtimeMap, localX, localZ, savedY)
+  local best
+  local bestDistance
+  for _, plate in
+    ipairs(
+      runtimeMap.terrain:candidatesAt(
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+    )
+  do
+    local sample = runtimeMap.terrain:sample(
+      plate.id,
+      localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ + FieldCoordinates.TILE_CENTER_OFFSET
+    )
+    local distance = math.abs(sample.worldY - savedY)
+    if best == nil or distance < bestDistance then
+      best, bestDistance = sample, distance
+    end
+  end
+  return assert(best, "saved coordinate has no walkable terrain surface")
+end
+
+local function loadGameLocation(game, mapLoader)
+  if game.schema == GameSave.SCHEMA then
+    local runtimeMap = mapLoader:load(game.mapId)
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, game.fieldX, game.fieldZ)
+    local surface
+    if
+      game.terrainDependencyHash == runtimeMap.terrainDependencyHash
+      and runtimeMap.terrain:contains(
+        game.surfaceId,
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+    then
+      surface = runtimeMap.terrain:sample(
+        game.surfaceId,
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+    else
+      surface = closestSurface(runtimeMap, localX, localZ, game.worldY)
+    end
+    return runtimeMap,
+      {
+        fieldX = game.fieldX,
+        fieldZ = game.fieldZ,
+        surfaceId = surface.surfaceId,
+        facing = game.facing,
+        worldY = surface.worldY,
+      }
+  end
+
+  assert(type(game.location) == "table", "finalized game location is required")
+  local runtimeMap = mapLoader:load(game.location.mapSymbol)
+  local fieldX, fieldZ = FieldCoordinates.localToField(runtimeMap, game.location.fieldX, game.location.fieldZ)
+  local surface = spawnSurface(runtimeMap, game.location.fieldX, game.location.fieldZ)
+  return runtimeMap,
+    {
+      fieldX = fieldX,
+      fieldZ = fieldZ,
+      surfaceId = surface.surfaceId,
+      facing = game.location.facing,
+      worldY = surface.worldY,
+    }
+end
+
+function FieldRuntime.new(game, options)
+  assert(type(game) == "table", "field runtime requires a finalized or loaded game")
+  assert(type(game.versionId) == "string" and game.versionId ~= "", "field runtime game version is required")
   options = options or {}
   local self = setmetatable({
-    versionId = versionId,
-    mapIdOrSymbol = mapIdOrSymbol or DEFAULT_MAP,
-    resumeSave = options.resumeSave == true,
-    resetSave = options.resetSave == true,
+    game = game,
+    versionId = game.versionId,
+    saveId = game.saveId,
     viewportWidth = options.viewportWidth or WindowConfig.REFERENCE_WIDTH,
     viewportHeight = options.viewportHeight or WindowConfig.REFERENCE_HEIGHT,
     screenTopology = options.screenTopology,
-    saveFs = options.saveFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
     dayNight = options.dayNight,
@@ -286,23 +345,18 @@ function FieldRuntime:_load()
       charmap = fontDef.charmap,
       frameIndexes = frameIndexes,
     }
-    -- The one immutable save-validation policy: the compiled avatar set, the
-    -- deep scripts validator, and the player-data context. Both the save
-    -- store and the resume restore receive the same record, so persisted data
-    -- cannot bypass any injectable validator on resume.
     local saveValidation = {
-      avatars = avatarIdSet(actorIndex),
+      playerDataValidate = function(record)
+        local valid, err = PlayerData.validate(record, playerDataContext)
+        if not valid then
+          return nil, err
+        end
+        return valid
+      end,
       scriptsValidate = function(bucket)
         return ScriptSave.validate(bucket, {})
       end,
-      playerDataContext = playerDataContext,
     }
-    self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), saveValidation)
-    if self.resetSave then
-      self.saveStore:reset()
-      self.resetSave = false
-      self.saveStatus = "Started a new field session"
-    end
     local world =
       assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
     local profiles =
@@ -326,53 +380,23 @@ function FieldRuntime:_load()
       sceneLoader = self.presentation and MapSceneLoader or nil,
       neighborLoader = self.presentation and NeighborRing or nil,
     })
-    local restored
-    if self.resumeSave then
-      local saved, saveErr = self.saveStore:load()
-      if saved then
-        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId, saveValidation)
-      end
-      if saveErr and saveErr.code ~= StorageErrors.SAVE_FILE_MISSING then
-        self.saveStatus = "Save ignored: " .. tostring(saveErr)
-      elseif restored then
-        self.saveStatus = "Resumed saved field session"
-      end
+    local loadedGame
+    if self.game.schema == GameSave.SCHEMA then
+      loadedGame = assert(GameSave.validate(self.game, saveValidation))
+      assert(loadedGame.versionId == self.versionId, "loaded game belongs to another version")
+    else
+      assert(self.game.playerData, "finalized game player data is required")
+      local validPlayerData, playerDataErr = PlayerData.validate(self.game.playerData, playerDataContext)
+      assert(validPlayerData, "finalized game player data is invalid: " .. tostring(playerDataErr))
+      self.game.playerData = validPlayerData
     end
-    self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.mapIdOrSymbol)
+    local activeGame = loadedGame or self.game
+    self.runtimeMap, self.entryLocation = loadGameLocation(activeGame, self.mapLoader)
     self.mapLoader:protectMap(self.runtimeMap.mapId, true)
 
-    -- The player profile/options authority: a fresh session copies and
-    -- validates the checked-in initial manifest; a resumed session uses the
-    -- required saved player-data bucket, canonicalized by FieldSave.restore
-    -- as the single resume validation boundary.
-    -- This is the single authority the script platform and later dialogue
-    -- presentation consume; they never re-read the manifest.
-    local initialPlayerData, initialPlayerDataErr = PlayerData.validate(FieldPlayerManifest, playerDataContext)
-    assert(initialPlayerData, "the initial player data manifest is invalid: " .. tostring(initialPlayerDataErr))
-    self.playerData = restored and restored.playerData or initialPlayerData
-
-    -- The spawn manifest is flat: each entry is itself the spawn record
-    -- (x, z, facing). A fresh boot must declare a spawn -- a missing entry is
-    -- a loud boot failure naming the map, never a synthetic (0,0) origin --
-    -- and a malformed entry is a manifest bug and must fail loudly instead of
-    -- dumping the player onto a blocked tile. A resumed boot places the player
-    -- from the save record, which carries its own position, surface, and
-    -- facing; warp destinations can be any compiled map and the game autosaves
-    -- after every warp, so a resume must not require a spawn entry.
-    local spawn = TargetSpawns[self.runtimeMap.mapSymbol]
-    assert(
-      spawn == nil or (type(spawn.x) == "number" and type(spawn.z) == "number"),
-      "spawn manifest must define x and z for " .. self.runtimeMap.mapSymbol
-    )
-    local fieldX, fieldZ, surfaceId, facing
-    if restored then
-      fieldX, fieldZ = restored.fieldX, restored.fieldZ
-      surfaceId, facing = restored.surfaceId, restored.facing
-    else
-      assert(spawn, "spawn manifest must define a spawn for " .. self.runtimeMap.mapSymbol)
-      fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
-      surfaceId, facing = spawnSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
-    end
+    self.playerData = activeGame.playerData
+    local fieldX, fieldZ = self.entryLocation.fieldX, self.entryLocation.fieldZ
+    local surfaceId, facing = self.entryLocation.surfaceId, self.entryLocation.facing
     self.player = FieldPlayer.new({
       currentMap = self.runtimeMap,
       fieldX = fieldX,
@@ -392,20 +416,13 @@ function FieldRuntime:_load()
     local width, height = self.viewportWidth, self.viewportHeight
     self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
     self:_updateCameraProjection()
-    -- Event state: a persisted save owns the flags/vars and wins over the
-    -- demo scenario. Only a fresh boot (no save) seeds the scenario. The
-    -- save's world bucket carries the numeric flag/var maps in the
-    -- event-state shape.
-    local restoredWorld = restored and restored.world
-    self.eventState = FieldEventState.new(restoredWorld and {
-      flags = restoredWorld.flags,
-      vars = restoredWorld.variables,
-    } or nil)
-    if not restored then
-      FieldScenario.apply(FieldScenarioManifest, self.eventState, function(mapId)
-        return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-      end)
-    end
+    local restoredWorld = loadedGame and loadedGame.world
+    local restoredAudio = loadedGame and loadedGame.audio
+    self.restoredAudio = restoredAudio
+    self.eventState = loadedGame
+        and FieldEventState.new({ flags = restoredWorld.flags, vars = restoredWorld.variables })
+      or self.game.worldState
+    assert(self.eventState and self.eventState.serialize, "finalized game event state is required")
     self.actorAssets = FieldActorDefinitionProvider.new(cacheFs)
     self.actors = FieldActorManager.new({
       assets = self.actorAssets,
@@ -413,13 +430,7 @@ function FieldRuntime:_load()
     })
     self.actors:enterMap(self.runtimeMap, self.eventState)
 
-    -- The player's graphic is one more compiled actor visual: it is acquired from
-    -- the same reference-counted provider, and FieldPlayer keeps every bit of
-    -- movement authority. A resumed save names the avatar; a fresh boot uses the
-    -- scenario's configured pick. Avatar selection validates against the
-    -- generated actor configuration.
-    self.avatar =
-      FieldScenario.avatarById(self.actorConfig.avatars, (restored and restored.avatar) or FieldScenarioManifest.avatar)
+    self.avatar = avatarForPlayer(self.actorConfig.avatars, self.playerData)
     self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
     self.playerVisual = FieldPlayerVisual.new({
       player = self.player,
@@ -470,7 +481,7 @@ function FieldRuntime:_load()
       end,
     })
     self.transition.player = self.player
-    self.transition.suppression = restored and restored.suppression or nil
+    self.transition.suppression = nil
 
     -- Modal dialogue is pure and fixed-tick. Runtime layout needs only the
     -- compiled font definition; presentation later owns the atlas and drawing.
@@ -511,7 +522,7 @@ function FieldRuntime:_load()
       layout = signpostLayout,
       ticksPerGlyph = PlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
     })
-    self.auxiliaryFieldUi = restored and AuxiliaryFieldUi.restore(restored.auxiliaryUi) or AuxiliaryFieldUi.new()
+    self.auxiliaryFieldUi = loadedGame and AuxiliaryFieldUi.restore(loadedGame.auxiliaryUi) or AuxiliaryFieldUi.new()
     self.contextChoiceProvider = ContextChoiceProvider.new()
     self.actionKeys = actionBindings()
     self.cancelKeys = cancelBindings()
@@ -567,7 +578,7 @@ function FieldRuntime:_load()
     -- of this closure (rather than inlined here) so its module-level
     -- collaborators are not upvalues of this already large boot closure,
     -- which sits close to LuaJIT's 60-upvalue-per-function limit.
-    local audioService = self:_composeAudio(cacheFs, restoredWorld)
+    local audioService = self:_composeAudio(cacheFs, restoredAudio)
 
     -- The field-script platform (the script override system): registry over
     -- the compiled cache + data/scripts/overrides, composition, mechanical
@@ -606,13 +617,13 @@ function FieldRuntime:_load()
         end,
       },
     })
-    -- The strict schema makes the world and scripts buckets required: a
-    -- restored save always carries both, so restore is unconditional.
-    if restored then
-      ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {
+    -- A loaded game carries strict world and script buckets, so restore is
+    -- unconditional after GameSave validation.
+    if loadedGame then
+      ScriptSave.restore(loadedGame.scripts, self.scripts.scheduler, 0, {
         expectedRegistryFingerprint = self.scripts:registryFingerprint(),
       })
-      self.scripts.worldState:restoreRng(restored.world)
+      self.scripts.worldState:restoreRng(loadedGame.world)
     end
 
     self.session = FieldSession.new({
@@ -643,6 +654,9 @@ function FieldRuntime:_load()
     })
 
     self:_applyEffectiveWeather(self.runtimeMap)
+    self.playTime = loadedGame and PlayTime.new(loadedGame.playTimeSeconds) or self.game.playTime
+    assert(self.playTime and self.playTime.start and self.playTime.advance, "game play time is required")
+    self.playTime:start()
   end)
   -- Construction is binary: a failed boot releases everything acquired so
   -- far exactly once, then the original failure propagates to the caller.
@@ -727,7 +741,6 @@ function FieldRuntime:update(dt)
     end
   end
   if self.transition:consumeCompleted() then
-    self:saveSession("Autosaved after warp")
   end
 end
 
@@ -911,66 +924,49 @@ function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
   return audioService
 end
 
--- Save the current field session (developer F1 bind, autosave after warp, and
--- disposal). The save boundary presents only expected save/storage failures
--- (the structured SAVE_*/FIELD_SAVE_* errors the UI shows as save status); any
--- other failure inside the capture/write is a programming fault and rethrows
--- instead of being flattened into friendly text.
----@param successText string?
----@return boolean saved
-function FieldRuntime:saveSession(successText)
-  if not self.session or not FieldSave.canCapture(self.session) then
-    self.saveStatus = "Save deferred: movement or transition is active"
-    return false
+-- Capture the current field session for the explicit-save owner. This boundary
+-- only builds and validates a snapshot; publication belongs to storage.
+---@return table? snapshot
+---@return string|table? reason validation or stability failure
+function FieldRuntime:captureGameSave()
+  if not canCapture(self.session) then
+    return nil, "Save deferred: movement, transition, or modal state is active"
   end
-  local ok, err = pcall(function()
-    -- Capture the persisted field-music override from the audio controller:
-    -- world.fieldMusicOverride is game state, not transient playback.
-    local world = self.scripts.worldState:capture()
-    if self.audio then
-      world.fieldMusicOverride = self.audio:musicOverride()
-    end
-    self.saveStore:save(FieldSave.capture(self.session, {
-      avatarId = self.avatar.id,
-      scenario = FieldScenarioManifest.id,
-      world = world,
-      scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
-        registryFingerprint = self.scripts:registryFingerprint(),
-      }),
-      auxiliaryUi = self.auxiliaryFieldUi:capture(),
-      playerData = self.playerData,
-    }))
-  end)
-  if not ok then
-    if Errors.is(err) then
-      self.saveStatus = "Save failed: " .. tostring(err)
-      return false
-    end
-    error(err, 0)
-  end
-  self.saveStatus = successText or "Field session saved"
-  return true
-end
 
--- Reset the field session (developer F2 bind): wipe the save store, release
--- every owned collaborator, and re-boot a fresh session. Expected storage
--- failures present as saveStatus; programming faults rethrow.
-function FieldRuntime:reset()
-  local ok, err = pcall(function()
-    self.saveStore:reset()
-  end)
-  if not ok then
-    if Errors.is(err) then
-      self.saveStatus = "Reset failed: " .. tostring(err)
-      return
-    end
-    error(err, 0)
+  local session = self.session
+  local player = session.player
+  local runtimeMap = session.currentMap
+  assert(type(runtimeMap.terrainDependencyHash) == "string", "runtime map terrain dependency identity required")
+
+  local world = self.scripts.worldState:capture()
+  local snapshot = {
+    schema = GameSave.SCHEMA,
+    saveId = self.saveId,
+    versionId = self.versionId,
+    mapId = runtimeMap.mapId,
+    fieldX = player.fieldX,
+    fieldZ = player.fieldZ,
+    worldY = player.worldY,
+    surfaceId = player.surfaceId,
+    terrainDependencyHash = runtimeMap.terrainDependencyHash,
+    facing = player.facing,
+    playTimeSeconds = self.playTime:seconds(),
+    playerData = self.playerData,
+    world = world,
+    scripts = ScriptSave.capture(self.scripts.scheduler, session.tick, {
+      registryFingerprint = self.scripts:registryFingerprint(),
+    }),
+    auxiliaryUi = self.auxiliaryFieldUi:capture(),
+    audio = {
+      fieldMusicOverride = self.audio and self.audio:musicOverride() or nil,
+    },
+  }
+
+  local valid, validationErr = GameSave.validate(snapshot)
+  if not valid then
+    return nil, validationErr
   end
-  self:_releaseAll()
-  self.resumeSave = false
-  self.errorText = nil
-  self.saveStatus = "Field session reset"
-  self:_load()
+  return valid
 end
 
 -- Apply effective weather to a runtime map: resolve the catalog rules
@@ -1180,7 +1176,6 @@ function FieldRuntime:dispose()
   if self.applicationHost then
     self.applicationHost:dispose()
   end
-  self:saveSession("Field session saved")
   self:_releaseAll()
 end
 

@@ -55,7 +55,7 @@ end
 -- A real lab exit whose destination scene read fails must leave the source
 -- map protected and the transition coherently aborted, then freeze every
 -- later runtime update until the public reset flow boots a usable session.
-function T.tests.failed_destination_preparation_is_terminal_until_reset()
+function T.tests.failed_destination_preparation_is_terminal_until_restart()
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
     local game = harness:boot({ versionId = versionId, map = LAB, save = "fresh" })
@@ -105,7 +105,7 @@ function T.tests.failed_destination_preparation_is_terminal_until_reset()
       }, "a terminal runtime freezes player state")
       Assert.equal(game.runtime.errorText, errorText, "terminal error presentation is stable")
 
-      game.runtime:reset()
+      game:restart({ save = "fresh" })
       Assert.isNil(game.runtime.errorText, "reset clears terminal error presentation")
       Assert.notNil(game.runtime.session, "reset boots a usable session")
       Assert.equal(game.runtime.runtimeMap.mapSymbol, LAB)

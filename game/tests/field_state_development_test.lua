@@ -1,6 +1,5 @@
 -- Dev-mode behavior over the playtest presentation. Product mode (the
--- default) renders no playtest HUD and ignores the F1 save / F2 reset
--- developer binds; dev mode keeps both. The zoom keys are documented product
+-- default) renders no playtest HUD. The zoom keys are documented product
 -- camera controls (docs/field-camera.md) and stay available in both modes.
 
 local Assert = require("tests.support.Assert")
@@ -122,51 +121,6 @@ function T.dev_mode_draw_keeps_the_playtest_hud()
   end)
   Assert.equal(counts.print, 4, "dev mode keeps the four playtest HUD lines")
   Assert.equal(counts.rectangle, 1, "dev mode keeps the HUD backdrop")
-end
-
--- Product mode ignores the F1 save / F2 reset developer binds.
-function T.product_mode_ignores_the_f1_and_f2_developer_binds()
-  local saves, resets = 0, 0
-  local state = setmetatable({
-    runtime = {
-      actionKeys = {},
-      cancelKeys = {},
-      menuKeys = {},
-      saveSession = function()
-        saves = saves + 1
-      end,
-      reset = function()
-        resets = resets + 1
-      end,
-    },
-  }, FieldState)
-  state:keypressed("f1")
-  state:keypressed("f2")
-  Assert.equal(saves, 0, "product mode must ignore the F1 developer save bind")
-  Assert.equal(resets, 0, "product mode must ignore the F2 developer reset bind")
-end
-
--- Dev mode keeps the F1 save / F2 reset binds.
-function T.dev_mode_keeps_the_f1_and_f2_developer_binds()
-  local saves, resets = 0, 0
-  local state = setmetatable({
-    development = true,
-    runtime = {
-      actionKeys = {},
-      cancelKeys = {},
-      menuKeys = {},
-      saveSession = function()
-        saves = saves + 1
-      end,
-      reset = function()
-        resets = resets + 1
-      end,
-    },
-  }, FieldState)
-  state:keypressed("f1")
-  state:keypressed("f2")
-  Assert.equal(saves, 1, "dev mode keeps the F1 save bind")
-  Assert.equal(resets, 1, "dev mode keeps the F2 reset bind")
 end
 
 -- The zoom keys are documented product camera controls

@@ -34,7 +34,20 @@ function T.tests.weather_and_map_music_use_the_injected_local_clock()
   end
 
   local ok, err = xpcall(function()
-    local runtime = FieldRuntime.new("heartgold", nil, { localClock = clock })
+    local runtime = FieldRuntime.new({
+      saveId = "test-save",
+      versionId = "heartgold",
+      location = { mapSymbol = "MAP_NEW_BARK_ELMS_LAB_1F", fieldX = 6, fieldZ = 6, facing = "south" },
+      playerData = {
+        profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
+        options = { textSpeed = "mid", textFrame = 0 },
+      },
+      worldState = {
+        serialize = function()
+          return {}
+        end,
+      },
+    }, { localClock = clock })
     Assert.deepEqual(runtime.weatherClock:today(), { month = 2, day = 29 })
     ---@diagnostic disable-next-line: missing-fields -- the test only exercises the injected world loader
     runtime:_composeAudio({

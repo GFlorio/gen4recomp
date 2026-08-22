@@ -10,8 +10,43 @@ local RomImporter = require("romdump.src.source.RomImporter")
 local RomFs = require("romdump.src.source.RomFs")
 local Errors = require("libs.errors.src.Errors")
 local Cli = require("romdump.src.cli.Cli")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local LocalClock = require("libs.engine.src.LocalClock")
+local NewGame = require("libs.engine.src.NewGame")
 
 local Runner = {}
+
+-- Build-cache verification needs a real finalized game because the field
+-- runtime no longer creates a demo session from a version string. The
+-- reservation is deliberately in-memory: verification must not publish save
+-- data or acquire a storage owner.
+local function newVerificationGame(versionId)
+  local candidate = NewGame.createCandidate({
+    saveService = {
+      reserve = function()
+        return 0
+      end,
+    },
+    versionId = versionId,
+    eventState = FieldEventState.new(),
+    scriptSymbols = FieldScriptSymbols,
+    mapIdentity = {
+      mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+      fieldX = 6,
+      fieldZ = 6,
+      sourceFacing = 1,
+    },
+  })
+  local game, err = NewGame.finalize(candidate, { name = "A", gender = 0 }, {
+    randomU32 = function()
+      return 0
+    end,
+    playerDataContext = { charmap = { A = true }, frameIndexes = { [0] = true } },
+  })
+  assert(game, tostring(err))
+  return game
+end
 
 local function readyVersions()
   local out = {}
@@ -331,7 +366,11 @@ function Runner._finishImport(status)
   -- fully usable runtime. A raised boot failure is a build failure, never
   -- proof that the cache boots.
   local ok, runtime = pcall(function()
-    return require("game.src.game.FieldRuntime").new(versionId)
+    return require("game.src.game.FieldRuntime").new(newVerificationGame(versionId), {
+      localClock = LocalClock.new(function()
+        return { year = 2024, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
+      end),
+    })
   end)
   if not ok then
     print("build-cache: " .. versionId .. " runtime boot failed: " .. tostring(runtime))

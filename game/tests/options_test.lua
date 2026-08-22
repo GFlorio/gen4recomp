@@ -37,7 +37,6 @@ function T.no_options_default_to_the_normal_boot_flow()
   Assert.isNil(opts.field)
   Assert.isFalse(opts.actors)
   Assert.isFalse(opts.dev)
-  Assert.isFalse(opts.newFieldSession)
 end
 
 function T.documented_options_parse()
@@ -53,7 +52,6 @@ function T.documented_options_parse()
 
   Assert.isTrue(parses({ "--actors" }).actors)
   Assert.isTrue(parses({ "--dev" }).dev)
-  Assert.isTrue(parses({ "--new-field-session" }).newFieldSession)
 end
 
 -- --field consumes at most one following non-option token.
@@ -64,10 +62,9 @@ function T.field_never_consumes_a_following_option()
 end
 
 function T.modifiers_compose_with_the_modes_they_apply_to()
-  local fieldBoot = parses({ "--field", "--dev", "--new-field-session" })
+  local fieldBoot = parses({ "--field", "--dev" })
   Assert.equal(fieldBoot.field, true)
   Assert.isTrue(fieldBoot.dev)
-  Assert.isTrue(fieldBoot.newFieldSession)
 
   local preview = parses({ "--actors", "--dev" })
   Assert.isTrue(preview.actors)

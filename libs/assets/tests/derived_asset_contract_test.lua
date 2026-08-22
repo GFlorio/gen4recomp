@@ -71,6 +71,11 @@ function T.contract_pins_the_current_asset_identities()
       cacheFormat = "field-ui-cache-v1",
       schema = "g4-field-ui-v6",
     },
+    intro = {
+      cacheFormat = "intro-cache-v1",
+      schema = "g4-intro-assets-v1",
+      provenanceSchema = "g4-intro-provenance-v1",
+    },
     audio = {
       cacheFormat = "g4-audio-cache-v1",
       -- The sequence vocabulary and initial-volume domain are strict current

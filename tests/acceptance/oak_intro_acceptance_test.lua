@@ -4,6 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
+local FieldState = require("game.src.game.FieldState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local OakIntroController = require("libs.engine.src.OakIntroController")
@@ -139,6 +140,7 @@ local function startFlow(options, fn)
     saveStore = App.saveStore,
     versionId = App.versionId,
     menuResult = App.menuResult,
+    fieldNew = FieldState.new,
   }
   if App.state then
     App.setState(nil)
@@ -153,13 +155,14 @@ local function startFlow(options, fn)
   end
   local renderer = fakeRenderer()
   local controller
-  local handoffs = {}
+  local fieldCalls = {}
 
+  ---@type AppOptions
   App.opts = {
+    test = false,
+    actors = false,
+    dev = false,
     saveStore = store,
-    onNewGame = function(result)
-      handoffs[#handoffs + 1] = result
-    end,
     oakIntroOptionsFactory = function(factoryOptions)
       Assert.equal(factoryOptions.versionId, READY_VERSION)
       controller = OakIntroController.new({
@@ -187,6 +190,11 @@ local function startFlow(options, fn)
   App.saveStore = store
   App.versionId = nil
   App.menuResult = nil
+  ---@diagnostic disable-next-line: duplicate-set-field
+  FieldState.new = function(game, fieldOptions)
+    fieldCalls[#fieldCalls + 1] = { game = game, options = fieldOptions }
+    return { kind = "field" }
+  end
 
   local ok, err = xpcall(function()
     App._bootMainMenu({ READY_VERSION })
@@ -198,7 +206,7 @@ local function startFlow(options, fn)
       audio = audio,
       clock = clock,
       controller = controller,
-      handoffs = handoffs,
+      fieldCalls = fieldCalls,
       inputHost = inputHost,
       renderer = renderer,
       store = store,
@@ -211,6 +219,7 @@ local function startFlow(options, fn)
   App.saveStore = original.saveStore
   App.versionId = original.versionId
   App.menuResult = original.menuResult
+  FieldState.new = original.fieldNew
   if not ok then
     error(err, 0)
   end
@@ -276,8 +285,9 @@ function T.tests.new_game_routes_through_the_core_oak_sequence()
     confirm()
     confirm()
     advance(30)
-    Assert.equal(#context.handoffs, 1)
-    Assert.equal(context.handoffs[1].playerData.profile.name, "GOLD")
+    Assert.equal(#context.fieldCalls, 1)
+    Assert.equal(context.fieldCalls[1].game.playerData.profile.name, "GOLD")
+    Assert.equal(App.state.kind, "field")
   end)
 end
 
@@ -393,9 +403,9 @@ function T.tests.final_confirmation_hands_off_a_valid_unpublished_game()
     Assert.equal(App.state:view().phase, "shrink_wait")
     advance(1)
 
-    Assert.isNil(App.state)
-    Assert.equal(#context.handoffs, 1)
-    local result = context.handoffs[1]
+    Assert.equal(App.state.kind, "field")
+    Assert.equal(#context.fieldCalls, 1)
+    local result = context.fieldCalls[1].game
     Assert.equal(result.saveId, 27)
     Assert.equal(result.playerData.profile.name, "GOLD")
     Assert.equal(result.playerData.profile.gender, 0)

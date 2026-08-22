@@ -15,7 +15,6 @@ local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local InventoryAssert = require("tests.support.InventoryAssert")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
-local FieldSpawns = require("data.manifests.field_spawns")
 
 local T = {}
 
@@ -220,13 +219,6 @@ function T.traversal(romFs)
     worldOriginX = r.worldOriginX,
     worldOriginZ = r.worldOriginZ,
   })
-
-  -- Spawn is in-bounds and passable (no relocation needed).
-  local spawn = FieldSpawns.MAP_NEW_BARK_ELMS_LAB_1F
-  Assert.isTrue(collision:containsLocal(spawn.x, spawn.z))
-  Assert.isFalse(collision:isBlockedLocal(spawn.x, spawn.z))
-  Assert.equal(spawn.x, 4)
-  Assert.equal(spawn.z, 13)
 
   -- The exit warp (4,14) is passable and one step south of the spawn.
   Assert.isFalse(collision:isBlockedLocal(4, 14))

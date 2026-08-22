@@ -10,9 +10,9 @@ local T = {
   tests = {},
 }
 
-local function fakeRuntime(versionId)
+local function fakeRuntime(game)
   local runtime = {
-    versionId = versionId,
+    versionId = game.versionId,
     session = { tick = 0 },
     player = { fieldX = 4, fieldZ = 7, facing = "south", motion = "idle" },
     runtimeMap = { mapId = 12, mapSymbol = "MAP_TEST" },
@@ -26,6 +26,10 @@ local function fakeRuntime(versionId)
     self.player.facing = direction
   end
   function runtime:release() end
+  function runtime:captureGameSave()
+    return self.game
+  end
+  runtime.game = game
   function runtime:dispose()
     self.disposeCalls = self.disposeCalls + 1
   end
@@ -39,8 +43,8 @@ function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace(
   local originalShader = graphics.newShader
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId)
-      local runtime = fakeRuntime(versionId)
+    runtimeFactory = function(game)
+      local runtime = fakeRuntime(game)
       runtimes[#runtimes + 1] = runtime
       return runtime
     end,
@@ -54,6 +58,8 @@ function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace(
 
   local first = harness:boot({ versionId = "heartgold", save = "fresh" })
   local second = harness:boot({ versionId = "heartgold", save = "fresh" })
+  Assert.equal(runtimes[1].game.playTime:seconds(), 0)
+  Assert.equal(runtimes[2].game.playTime:seconds(), 0)
   Assert.isTrue(first.saveNamespace ~= second.saveNamespace, "each boot needs an isolated save namespace")
   first:close()
   first:close()
@@ -84,8 +90,8 @@ end
 
 function T.tests.failed_boot_disposes_the_partial_runtime_and_removes_its_namespace()
   local deleted = {}
-  local runtime = fakeRuntime("heartgold")
-  runtime.session = nil
+  local runtime = fakeRuntime({ versionId = "heartgold" })
+  runtime.captureGameSave = nil
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
     runtimeFactory = function()
@@ -148,9 +154,9 @@ function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_run
   local optionsSeen = {}
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId, _, options)
+    runtimeFactory = function(game, options)
       optionsSeen[#optionsSeen + 1] = options
-      local runtime = fakeRuntime(versionId)
+      local runtime = fakeRuntime(game)
       runtimes[#runtimes + 1] = runtime
       return runtime
     end,
@@ -163,9 +169,8 @@ function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_run
   local resumed = game:restart({ save = "resume" })
 
   Assert.equal(resumed, game)
+  Assert.equal(runtimes[1].game.playTime:seconds(), runtimes[2].game.playTime:seconds())
   Assert.equal(runtimes[1].disposeCalls, 1)
-  Assert.isTrue(optionsSeen[2].resumeSave)
-  Assert.isFalse(optionsSeen[2].resetSave)
   game:close()
   Assert.equal(runtimes[2].disposeCalls, 1)
 end
@@ -179,9 +184,9 @@ function T.tests.restart_reuses_the_original_field_options()
   }
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId, _, options)
+    runtimeFactory = function(game, options)
       optionsSeen[#optionsSeen + 1] = options
-      return fakeRuntime(versionId)
+      return fakeRuntime(game)
     end,
   })
   local game = harness:boot({

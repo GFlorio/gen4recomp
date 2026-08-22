@@ -10,7 +10,6 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local FieldSave = require("libs.engine.src.FieldSave")
 
 local T = {
   metadata = {
@@ -63,11 +62,11 @@ function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
     signpost:setCommand("show")
     game:step()
     Assert.isTrue(signpost:status().active)
-    Assert.isFalse(FieldSave.canCapture(runtime.session), "an active signpost defers the save")
+    Assert.isNil(runtime:captureGameSave(), "an active signpost defers the save")
     signpost:setCommand("hide")
     game:step()
     Assert.isFalse(signpost:status().active)
-    Assert.isTrue(FieldSave.canCapture(runtime.session), "closing the signpost restores a capturable boundary")
+    Assert.notNil(runtime:captureGameSave(), "closing the signpost restores a capturable boundary")
 
     -- The typed print path travels the real production chain: the host
     -- resolves the message through the dialogue host's public operation

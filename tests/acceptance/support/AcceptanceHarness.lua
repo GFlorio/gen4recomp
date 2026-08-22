@@ -2,17 +2,20 @@
 -- isolated save namespace and a temporary graphics trap around each runtime,
 -- while FieldRuntime remains the sole owner of maps, scripts, actors, and saves.
 
-local FieldSave = require("libs.engine.src.FieldSave")
 local SaveFs = require("libs.storage.src.SaveFs")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local App = require("game.src.game.App")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local LocalClock = require("libs.engine.src.LocalClock")
+local PlayTime = require("libs.engine.src.PlayTime")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
 
 ---@class AcceptanceHarness
 ---@field versions string[]
----@field runtimeFactory fun(versionId: string, map: string|integer|nil, runtimeOptions: table|nil): table
+---@field runtimeFactory fun(game: table, runtimeOptions: table|nil): table
+---@field gameFactory fun(versionId: string, map: string|integer|nil): table
 ---@field saveNamespace fun(versionId: string, serial: integer): string
 ---@field removeSaveNamespace fun(namespace: string)
 local AcceptanceHarness = {}
@@ -37,8 +40,6 @@ end
 
 local function removeNamespace(path)
   local fs = love.filesystem
-  fs.remove(path .. "/" .. FieldSave.PATH .. ".tmp")
-  fs.remove(path .. "/" .. FieldSave.PATH)
   fs.remove(path)
 end
 
@@ -168,21 +169,24 @@ end
 local Game = {}
 Game.__index = Game
 
-function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, lifecycle, fieldOptions)
+function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, fieldOptions)
+  local versionId = assert(game.versionId, "acceptance game version required")
   local runtimeOptions = {}
   for key, value in pairs(fieldOptions or {}) do
     runtimeOptions[key] = value
   end
+  runtimeOptions.localClock = runtimeOptions.localClock
+    or LocalClock.new(function()
+      return { year = 2000, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
+    end)
   runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace))
-  runtimeOptions.resumeSave = save == "resume"
-  runtimeOptions.resetSave = save == "fresh"
   -- `audioHost = "production"` omits the recording audio adapter so the
   -- production composition wires the real GameSound at scriptHosts.audio
   -- (the field-audio acceptance scenarios); the default keeps the recording
   -- adapter for every other scenario.
   runtimeOptions.scriptHosts =
     RecordingScriptHosts.new({ audio = fieldOptions and fieldOptions.audioHost ~= "production" })
-  return self.runtimeFactory(versionId, map, runtimeOptions)
+  return self.runtimeFactory(game, runtimeOptions)
 end
 
 local function gameFor(
@@ -237,8 +241,7 @@ end
 
 function Game:restart(options)
   options = options or {}
-  local save = options.save or "resume"
-  assert(save == "fresh" or save == "resume", "acceptance restart save must be fresh or resume")
+  local game = assert(self.runtime:captureGameSave(), "acceptance restart requires a stable captured game")
   self:_disposeRuntime()
   if self.disposeErr then
     error(self.disposeErr, 0)
@@ -247,10 +250,8 @@ function Game:restart(options)
   local ok, runtime = pcall(
     self.harness._newRuntime,
     self.harness,
-    self.versionId,
-    options.map or self.map,
+    game,
     self.saveNamespace,
-    save,
     self.faults,
     self.lifecycle,
     self.fieldOptions
@@ -259,7 +260,7 @@ function Game:restart(options)
     error(runtime, 0)
   end
   assert(
-    runtime and runtime.session,
+    runtime and type(runtime.captureGameSave) == "function",
     "acceptance restart runtime boot failed: " .. tostring(runtime and runtime.errorText)
   )
   self.runtime = runtime
@@ -705,19 +706,18 @@ function Game:replaceApplicationState()
   local ok, runtime = pcall(
     self.harness._newRuntime,
     self.harness,
-    self.versionId,
-    self.map,
+    assert(self.runtime:captureGameSave(), "application replacement requires a stable captured game"),
     self.saveNamespace,
-    "resume",
     self.faults,
-    activeLifecycle
+    activeLifecycle,
+    self.fieldOptions
   )
   if not ok then
     App.setState(nil)
     error(runtime, 0)
   end
   assert(
-    runtime and runtime.session,
+    runtime and type(runtime.captureGameSave) == "function",
     "acceptance replacement runtime boot failed: " .. tostring(runtime and runtime.errorText)
   )
   local active = gameFor(
@@ -766,8 +766,26 @@ function AcceptanceHarness.new(options)
   options = options or {}
   return setmetatable({
     versions = options.versions or readyVersions(),
-    runtimeFactory = options.runtimeFactory or function(versionId, map, runtimeOptions)
-      return FieldRuntime.new(versionId, map, runtimeOptions)
+    runtimeFactory = options.runtimeFactory or function(game, runtimeOptions)
+      return FieldRuntime.new(game, runtimeOptions)
+    end,
+    gameFactory = options.gameFactory or function(versionId, map)
+      return {
+        saveId = "acceptance-save",
+        versionId = versionId,
+        location = {
+          mapSymbol = map or "MAP_NEW_BARK_ELMS_LAB_1F",
+          fieldX = 6,
+          fieldZ = 6,
+          facing = "south",
+        },
+        playerData = {
+          profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
+          options = { textSpeed = "mid", textFrame = 0 },
+        },
+        playTime = PlayTime.new(),
+        worldState = FieldEventState.new(),
+      }
     end,
     saveNamespace = options.saveNamespace or defaultNamespace,
     removeSaveNamespace = options.removeSaveNamespace or removeNamespace,
@@ -788,22 +806,13 @@ function AcceptanceHarness:boot(options)
   local trap = installRenderTrap()
   local faults = {}
   local lifecycle = { saveWrites = 0, saveReads = 0, runtimeDisposals = 0 }
-  local ok, runtime = pcall(
-    self._newRuntime,
-    self,
-    options.versionId,
-    options.map,
-    namespace,
-    options.save,
-    faults,
-    lifecycle,
-    options.fieldOptions
-  )
+  local game = self.gameFactory(options.versionId, options.map)
+  local ok, runtime = pcall(self._newRuntime, self, game, namespace, faults, lifecycle, options.fieldOptions)
   if not ok then
     abortBoot(nil, trap, self.removeSaveNamespace, namespace)
     error("acceptance runtime boot failed: " .. tostring(runtime), 0)
   end
-  if not runtime or not runtime.session then
+  if not runtime or type(runtime.captureGameSave) ~= "function" then
     local errorText = runtime and runtime.errorText
     abortBoot(runtime, trap, self.removeSaveNamespace, namespace)
     error("acceptance runtime boot failed: " .. tostring(errorText), 0)

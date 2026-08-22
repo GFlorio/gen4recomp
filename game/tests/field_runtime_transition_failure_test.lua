@@ -1,7 +1,7 @@
 -- FieldRuntime treats a transition preparation failure as a terminal
 -- presentation state. The first failing update promotes the transition
 -- error after completing that tick; later updates do no background or
--- simulation work until reset boots a fresh runtime.
+-- simulation work until the owning game flow boots a fresh runtime.
 
 local Assert = require("tests.support.Assert")
 local FieldRuntime = require("game.src.game.FieldRuntime")
@@ -64,28 +64,6 @@ function T.runtime_freezes_simulation_and_warmup_after_promoting_transition_erro
   Assert.equal(calls.session, 1, "terminal runtime does not continue session updates")
   Assert.equal(tostringCalls, 1, "the transition failure is formatted once")
   Assert.equal(runtime.errorText, "destination preparation failed\nsource map 61 warp 0 -> map 60 warp 0")
-end
-
-function T.reset_clears_terminal_error_and_reboots_the_runtime()
-  local resetCalls = 0
-  local loadCalls = 0
-  local runtime = setmetatable({
-    errorText = "terminal transition failure",
-    saveStore = {
-      reset = function()
-        resetCalls = resetCalls + 1
-      end,
-    },
-  }, FieldRuntime)
-  function runtime:_load()
-    loadCalls = loadCalls + 1
-  end
-
-  runtime:reset()
-
-  Assert.equal(resetCalls, 1, "reset clears the save store before rebooting")
-  Assert.equal(loadCalls, 1, "reset reboots the runtime")
-  Assert.isNil(runtime.errorText, "reset clears the terminal presentation")
 end
 
 return { tests = T }

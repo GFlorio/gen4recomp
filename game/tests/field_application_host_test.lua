@@ -9,7 +9,6 @@
 -- different post-resize slot.
 
 local Assert = require("tests.support.Assert")
-local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -203,7 +202,7 @@ function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_fiel
     Assert.equal(trainerCardFound, true, "the menu must include the trainer card action")
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
-    Assert.equal(FieldSave.canCapture(runtime.session), true, "closing the menu must restore the capturable boundary")
+    Assert.notNil(runtime:captureGameSave(), "closing the menu must restore the capturable boundary")
   end, debug.traceback)
   game:close()
   if not ok then
@@ -246,11 +245,7 @@ function T.tests.the_runtime_registers_production_destinations_only()
     )
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
-    Assert.equal(
-      FieldSave.canCapture(runtime.session),
-      true,
-      "closing the menu must restore the capturable field boundary"
-    )
+    Assert.equal(runtime:captureGameSave() ~= nil, true, "closing the menu must restore the capturable field boundary")
   end, debug.traceback)
   game:close()
   if not ok then

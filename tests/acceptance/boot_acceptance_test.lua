@@ -5,8 +5,6 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local FieldSpawns = require("data.manifests.field_spawns")
 
 local T = {
   metadata = {
@@ -14,6 +12,11 @@ local T = {
     tags = { "field", "boot" },
   },
   tests = {},
+}
+
+local BOOT_LOCATIONS = {
+  MAP_NEW_BARK_ELMS_LAB_1F = { fieldX = 4, fieldZ = 13, facing = "north" },
+  MAP_NEW_BARK = { fieldX = 12, fieldZ = 10, facing = "south" },
 }
 
 -- BOOT-01/BOOT-02: explicit semantic targets boot through exactly the same
@@ -33,13 +36,12 @@ function T.tests.production_field_boot_is_idle_controllable_and_never_renders()
       })
       local ok, err = xpcall(function()
         local snapshot = game:snapshot()
-        local spawn = FieldSpawns[map]
-        local expectedX, expectedZ = FieldCoordinates.localToField(game.runtime.runtimeMap, spawn.x, spawn.z)
+        local location = BOOT_LOCATIONS[map]
         Assert.equal(snapshot.versionId, versionId)
         Assert.equal(snapshot.mapSymbol, map)
-        Assert.equal(snapshot.player.fieldX, expectedX, map .. " must boot on its declared spawn x")
-        Assert.equal(snapshot.player.fieldZ, expectedZ, map .. " must boot on its declared spawn z")
-        Assert.equal(snapshot.player.facing, spawn.facing, map .. " must boot facing its declared spawn facing")
+        Assert.equal(snapshot.player.fieldX, location.fieldX, map .. " must boot at its supplied x")
+        Assert.equal(snapshot.player.fieldZ, location.fieldZ, map .. " must boot at its supplied z")
+        Assert.equal(snapshot.player.facing, location.facing, map .. " must boot at its supplied facing")
         Assert.equal(snapshot.player.motion, "idle")
         Assert.isFalse(snapshot.dialogue.modal)
         Assert.isFalse(snapshot.fieldLocked)
@@ -55,38 +57,6 @@ function T.tests.production_field_boot_is_idle_controllable_and_never_renders()
         error(err, 0)
       end
     end
-  end)
-end
-
--- BOOT-03: every bootable map must declare a spawn. A map without one fails to
--- boot loudly (naming the map) instead of synthesizing the historic (0,0)
--- origin. MAP_ROUTE_29 is a real renderable map absent from the spawn
--- manifest; the precondition asserts that absence so the scenario fails
--- loudly here if the manifest ever gains that entry and the scenario must be
--- re-pointed.
-function T.tests.map_without_a_declared_spawn_fails_to_boot_loudly()
-  local harness = AcceptanceHarness.new()
-  local map = "MAP_ROUTE_29"
-  assert(FieldSpawns[map] == nil, map .. " gained a spawn entry; re-point this scenario at a map without one")
-  harness:forEachVersion(function(versionId)
-    local game
-    local ok, err = pcall(function()
-      game = harness:boot({ versionId = versionId, map = map, save = "fresh" })
-    end)
-    if ok then
-      local snapshot = game:snapshot()
-      game:close()
-      error(
-        string.format(
-          "map without a declared spawn booted at the synthetic origin: field (%d,%d) surface %d",
-          snapshot.player.fieldX,
-          snapshot.player.fieldZ,
-          snapshot.player.surfaceId
-        ),
-        0
-      )
-    end
-    Assert.isTrue(tostring(err):find(map, 1, true) ~= nil, "boot failure must name the map symbol: " .. tostring(err))
   end)
 end
 

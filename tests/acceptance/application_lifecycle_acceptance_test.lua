@@ -18,7 +18,6 @@
 -- asserts only the user-visible modal surfaces and field boundary.
 
 local Assert = require("tests.support.Assert")
-local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
@@ -93,7 +92,7 @@ end
 
 local function waitForFieldBoundary(game, maxTicks)
   return game:advanceUntil("the field boundary restores", function()
-    return FieldSave.canCapture(game.runtime.session) == true
+    return game.runtime:captureGameSave() ~= nil
   end, maxTicks)
 end
 
@@ -120,7 +119,7 @@ function T.tests.the_production_trainer_card_journey_runs_without_injected_appli
   local ok, err = xpcall(function()
     local runtime = game.runtime
     Assert.equal(
-      FieldSave.canCapture(runtime.session),
+      runtime:captureGameSave() ~= nil,
       true,
       "the fresh field boundary must be capturable before any modal opens"
     )
@@ -148,7 +147,7 @@ function T.tests.the_production_trainer_card_journey_runs_without_injected_appli
       beforeWalk.player.fieldX - 1,
       "the ignored menu edge must not interrupt the walk"
     )
-    Assert.equal(FieldSave.canCapture(runtime.session), true, "the completed walk must be capturable again")
+    Assert.isTrue(runtime:captureGameSave() ~= nil, "the completed walk must be capturable again")
 
     -- The real unlock flag makes the trainer card interactive; the eligible
     -- open at the settled field boundary opens the menu and consumes the
@@ -156,7 +155,7 @@ function T.tests.the_production_trainer_card_journey_runs_without_injected_appli
     game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
     pressMenuEdge(game)
     waitForMenu(game, 16)
-    Assert.equal(FieldSave.canCapture(runtime.session), false, "the open menu must block save capture")
+    Assert.isNil(runtime:captureGameSave(), "the open menu must block save capture")
     local actions = menuActions(game)
     local enabledActions = {}
     for _, action in ipairs(actions) do
@@ -199,7 +198,7 @@ function T.tests.the_production_trainer_card_journey_runs_without_injected_appli
       "the production card must present the authoritative trainer id, got: "
         .. tostring(application and application.trainerId)
     )
-    Assert.equal(FieldSave.canCapture(runtime.session), false, "the active card must block save capture")
+    Assert.isNil(runtime:captureGameSave(), "the active card must block save capture")
     assertPausedAt(pausedAtOpen, game, "the active card")
 
     -- Foreign field input while the card owns the modal: movement edges

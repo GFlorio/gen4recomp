@@ -10,10 +10,8 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
-local FieldSave = require("libs.engine.src.FieldSave")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
-local PlayerDataContext = require("tests.support.PlayerDataContext")
 
 local T = {}
 
@@ -273,64 +271,6 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     cameraSamples[firstHoldTick].appliedY > cameraSamples[firstHoldTick - 1].appliedY,
     "camera Y should retain the delayed ascent delta"
   )
-end
-
-function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, versionId)
-  local artifact, resolved = load(romFs, "MAP_NEW_BARK")
-  local runtimeMap = {
-    mapId = resolved.map.id,
-    coordinateOrigin = { x = resolved.worldOriginX, z = resolved.worldOriginZ },
-    collision = {
-      containsLocal = function(_, x, z)
-        return x >= 0 and x < 32 and z >= 0 and z < 32
-      end,
-      isBlockedLocal = function()
-        return false
-      end,
-    },
-    terrain = TerrainSurface.new(artifact),
-    terrainDependencyHash = Hashing.hashLua(artifact),
-    fieldData = { events = { warps = {} } },
-    -- Mirrors the simulation-only aggregate: no presentation runtimes, so the
-    -- map clock entry is a safe no-op.
-    updateAnimated = function() end,
-  }
-  local player = FieldPlayer.new({
-    currentMap = runtimeMap,
-    fieldX = resolved.worldOriginX + 16,
-    fieldZ = resolved.worldOriginZ + 6,
-    surfaceId = 0,
-    facing = "east",
-    occupancy = function()
-      return nil
-    end,
-  })
-  local session = {
-    versionId = versionId,
-    currentMap = runtimeMap,
-    player = player,
-    transition = { phase = "idle" },
-  }
-  local saved = FieldSave.capture(session, {
-    avatarId = "hero",
-    scenario = "terrain-surfaces",
-    world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
-    scriptsBucket = {},
-    auxiliaryUi = { requested = "shown", state = "shown" },
-    playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
-      options = { textFrame = 0, textSpeed = "mid" },
-    },
-  })
-  local restored = assert(FieldSave.restore(saved, {
-    load = function(_, mapId)
-      Assert.equal(mapId, resolved.map.id)
-      return runtimeMap
-    end,
-  }, versionId, { playerDataContext = PlayerDataContext.new() }))
-  Assert.equal(restored.surfaceId, 0)
-  near(restored.worldY, player.worldY)
-  Assert.isTrue(restored.worldY > 4, "upper staircase save must remain elevated")
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

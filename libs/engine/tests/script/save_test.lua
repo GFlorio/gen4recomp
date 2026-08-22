@@ -9,7 +9,6 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local PlayerDataContext = require("tests.support.PlayerDataContext")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -23,7 +22,6 @@ local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
-local FieldSave = require("libs.engine.src.FieldSave")
 
 local T = {}
 
@@ -469,81 +467,6 @@ T["capture requires phase boundary"] = function()
   instance.status = "running"
   local ok = pcall(ScriptSave.capture, h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
   Assert.isFalse(ok)
-end
-
--- 12. g4-field-save-v3: the field bucket stays valid and the scripts bucket
--- rides along.
-T["field save v3 round trip"] = function()
-  local FieldEventState = require("libs.engine.src.FieldEventState")
-  local eventState = FieldEventState.new()
-  eventState:setFlag(0x800)
-  eventState:setVar(0x4000, 3)
-  local session = {
-    versionId = "heartgold",
-    currentMap = {
-      mapId = 58,
-      coordinateOrigin = { x = 680, z = 390 },
-      collision = {
-        containsLocal = function()
-          return true
-        end,
-        isBlockedLocal = function()
-          return false
-        end,
-      },
-      terrainDependencyHash = "terrain-a",
-      fieldData = { events = { warps = {} } },
-      terrain = {
-        contains = function()
-          return false
-        end,
-        candidatesAt = function()
-          return { { id = 0, worldY = 4, surfaceId = 11, distance = 0 } }
-        end,
-        sample = function()
-          return { worldY = 4, surfaceId = 11 }
-        end,
-      },
-    },
-    player = { motion = "idle", fieldX = 4, fieldZ = 6, worldY = 4, surfaceId = 11, facing = "north" },
-    transition = { phase = "idle" },
-  }
-  local record = FieldSave.capture(session, {
-    avatarId = "hero",
-    scenario = "scenario-a",
-    world = { flags = { [5] = true }, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
-    scriptsBucket = { schema = ScriptSave.SCHEMA_NAME, placeholder = true },
-    auxiliaryUi = { requested = "shown", state = "shown" },
-    playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
-      options = { textFrame = 0, textSpeed = "mid" },
-    },
-  })
-  Assert.equal(record.schema, FieldSave.SCHEMA)
-  Assert.equal(record.world.flags[5], true)
-  Assert.equal(record.scripts.schema, ScriptSave.SCHEMA_NAME)
-  local restored, err = FieldSave.restore(
-    record,
-    {
-      load = function()
-        return session.currentMap
-      end,
-    },
-    "heartgold",
-    {
-      scriptsValidate = function(bucket)
-        if bucket.placeholder ~= true then
-          return Errors.new("SCRIPT_TASK_UNSERIALIZABLE", "bad bucket", {})
-        end
-        return nil
-      end,
-      playerDataContext = PlayerDataContext.new(),
-    }
-  )
-  Assert.isTrue(restored ~= nil, tostring(err))
-  ---@cast restored table
-  Assert.equal(restored.scripts.placeholder, true)
-  Assert.equal(restored.world.flags[5], true)
 end
 
 -- 14. The resumed trace suffix equals the uninterrupted suffix for a longer

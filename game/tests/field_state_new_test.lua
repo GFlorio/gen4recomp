@@ -40,12 +40,13 @@ end
 ---@param options FieldStateOptions
 ---@param cache CacheFs? the presentation cache the stubbed runtime serves
 ---@return FieldState state
----@return table runtimeOptions
+---@return table captured
+---@return table game
 local function bootWithCapturedRuntimeOptions(options, cache)
   local captured
   local originalNew = FieldRuntime.new
-  FieldRuntime.new = function(_, _, runtimeOptions)
-    captured = runtimeOptions
+  FieldRuntime.new = function(game, runtimeOptions)
+    captured = { game = game, options = runtimeOptions }
     return setmetatable({
       cacheFs = cache or presentationCache(),
       uiManifest = FieldUiFixture.manifest(),
@@ -68,12 +69,13 @@ local function bootWithCapturedRuntimeOptions(options, cache)
       dispose = function() end,
     }, FieldRuntime)
   end
-  local ok, state = pcall(FieldState.new, "heartgold", nil, options)
+  local game = { saveId = "save-00000001", versionId = "heartgold" }
+  local ok, state = pcall(FieldState.new, game, options)
   FieldRuntime.new = originalNew
   if not ok then
     error(state, 0)
   end
-  return state, captured
+  return state, captured, game
 end
 
 -- The composition: FieldState constructs the signpost, Start Menu, and
@@ -99,17 +101,14 @@ end
 -- developer binds), so it stays behind the boundary.
 function T.only_documented_runtime_options_reach_the_runtime()
   local options = fieldStateOptions()
-  options.resumeSave = true
-  options.resetSave = false
   options.zoomConfig = { mode = "test" }
   options.development = true
-  local state, captured = bootWithCapturedRuntimeOptions(options)
-  Assert.deepEqual(captured, {
-    resumeSave = true,
-    resetSave = false,
+  local state, captured, game = bootWithCapturedRuntimeOptions(options)
+  Assert.deepEqual(captured.options, {
     zoomConfig = { mode = "test" },
     presentation = true,
   })
+  Assert.equal(captured.game, game)
   Assert.equal(state.development, true, "the state keeps the development flag for its own presentation")
   state:dispose()
 end

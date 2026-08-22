@@ -171,8 +171,12 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
     end,
   }
   package.loaded["game.src.game.FieldRuntime"] = {
-    new = function(versionId)
-      calls[#calls + 1] = "boot:" .. versionId
+    new = function(game)
+      calls[#calls + 1] = "boot:" .. game.versionId
+      Assert.equal(game.location.mapSymbol, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
+      Assert.equal(game.location.fieldX, 6)
+      Assert.equal(game.location.fieldZ, 6)
+      Assert.isTrue(game.playerData ~= nil)
       return {
         session = {},
         dispose = function()
@@ -360,8 +364,8 @@ function T.completed_import_constructor_raise_exits_nonzero()
     end,
   }
   package.loaded["game.src.game.FieldRuntime"] = {
-    new = function(versionId)
-      calls[#calls + 1] = "boot:" .. versionId
+    new = function(game)
+      calls[#calls + 1] = "boot:" .. game.versionId
       error("field actor index missing")
     end,
   }

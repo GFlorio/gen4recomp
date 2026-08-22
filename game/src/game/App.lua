@@ -20,7 +20,18 @@ local OakIntroState = require("game.src.game.OakIntroState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
+---@class SaveStoreLike
+---@field load fun(self: SaveStoreLike, saveId: string): table|nil, any
+---@class App
+---@field opts AppOptions
+---@field saveStore (GameSaveStore|SaveStoreLike)?
 local App = {}
+
+---@class AppOptions : GameOptions
+---@field saveStore (GameSaveStore|SaveStoreLike)?
+---@field fieldGame table? developer-only finalized game fixture
+---@field newGameCandidateFactory (fun(options: table): table)?
+---@field oakIntroOptionsFactory fun(options: table): table
 
 -- A bare `--field` (option == true) selects the runtime default map; a
 -- numeric string is a map id, anything else a semantic map symbol.
@@ -49,18 +60,9 @@ local function readyVersions()
   return out
 end
 
--- The CLI session flags are applied here once, then passed as explicit
--- FieldState options: --new-field-session forces a fresh session (wiping the
--- save) instead of a resume, and --dev enables the playtest presentation.
----@param resumeSave boolean
----@return { resumeSave: boolean, resetSave: boolean, development: boolean }
-local function fieldSessionOptions(resumeSave)
-  local opts = App.opts
-  return {
-    resumeSave = resumeSave and not opts.newFieldSession,
-    resetSave = opts.newFieldSession,
-    development = opts.dev == true,
-  }
+---@return FieldStateOptions
+local function fieldStateOptions()
+  return { development = App.opts.dev == true }
 end
 
 function App.load(opts)
@@ -86,8 +88,12 @@ function App._mainMenuResult(result)
     love.event.quit(0)
   elseif result.kind == "new_game" then
     App._bootOakIntro()
-  elseif result.kind == "continue" and App.opts.onContinue then
-    App.opts.onContinue(result.saveId)
+  elseif result.kind == "continue" then
+    local saveStore = App.saveStore
+    assert(saveStore)
+    ---@cast saveStore SaveStoreLike
+    local game = assert(saveStore:load(result.saveId))
+    App.setState(FieldState.new(game, fieldStateOptions()))
   end
 end
 
@@ -133,11 +139,7 @@ end
 -- reserved and unpublished until the receiving field flow explicitly writes it.
 function App._onOakComplete(result)
   assert(type(result) == "table" and result.playerData ~= nil, "Oak intro completed without a finalized game")
-  local handoff = App.opts.onNewGame
-  App.setState(nil)
-  if handoff then
-    handoff(result)
-  end
+  App.setState(FieldState.new(result, fieldStateOptions()))
 end
 
 function App._bootMainMenu(versions)
@@ -188,7 +190,8 @@ function App._bootField(mapIdOrSymbol)
     App._startImport()
     return
   end
-  App.setState(FieldState.new(ready[1], fieldTarget(mapIdOrSymbol), fieldSessionOptions(false)))
+  local game = assert(App.opts.fieldGame, "--field requires a finalized developer game fixture")
+  App.setState(FieldState.new(game, fieldStateOptions()))
 end
 
 function App._startImport()
@@ -206,7 +209,7 @@ end
 function App._onImported(versionId)
   App.importer = nil
   if App.opts.field then
-    App.setState(FieldState.new(versionId, fieldTarget(App.opts.field), fieldSessionOptions(false)))
+    App._bootField(App.opts.field)
   else
     App._bootMainMenu({ versionId })
   end
