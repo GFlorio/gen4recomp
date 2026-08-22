@@ -68,8 +68,11 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
   Assert.isTrue(ok, tostring(result))
   Assert.equal(result.model.batches[1].geometry, FieldEffectAssetCache.geometryPath("mesh"))
   Assert.equal(result.model.materials[1].texture, FieldEffectAssetCache.texturePath("texture"))
-  Assert.equal(result.manifest.mesh, FieldEffectAssetCache.geometryPath("mesh"))
-  Assert.equal(result.manifest.materials[1].texture, FieldEffectAssetCache.texturePath("texture"))
+  Assert.isNil(result.model.memberId)
+  Assert.isNil(result.manifest)
+  Assert.isNil(result.archive)
+  Assert.isNil(result.memberId)
+  Assert.isNil(result.romSha1)
 end
 
 return T

@@ -161,14 +161,13 @@ T.tests["two-phase motion is fixed-step and source-calibrated"] = function()
   end)
 end
 
-T.tests["member 85 is required by cache readiness"] = function()
+T.tests["the canonical model is required by cache readiness"] = function()
   withGame(TOWN, function(game)
     local asset = game.runtime.fieldEntranceIndicatorAsset
     Assert.notNil(asset, "production boot must resolve the ROM-derived entrance-effect asset")
-    Assert.equal(asset.archive, "field_static_models")
-    Assert.equal(asset.memberId, 85)
-    Assert.notNil(asset.mesh, "the readiness contract must expose normalized mesh data")
-    Assert.notNil(asset.materials, "the readiness contract must expose normalized material data")
+    Assert.equal(asset.model.key, "field-effect:warp-entrance")
+    Assert.notNil(asset.model.batches, "the readiness contract must expose model batches")
+    Assert.notNil(asset.model.materials, "the readiness contract must expose model materials")
     Assert.equal(#recordsNamed(game, "asset.fallback_draw"), 0, "the effect must not use a synthetic fallback")
   end)
 end

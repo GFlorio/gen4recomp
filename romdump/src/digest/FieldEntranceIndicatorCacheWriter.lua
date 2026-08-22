@@ -4,6 +4,7 @@ local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
+local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local Writer = {}
 function Writer.write(cacheFs, bundle)
@@ -22,8 +23,11 @@ function Writer.write(cacheFs, bundle)
       )
     end
     tx.stage:writeLua(FieldEffectAssetCache.modelPath(), bundle.model)
-    tx.stage:writeLua(FieldEffectAssetCache.manifestPath(), bundle.manifest)
-    assert(tx.stage:loadLua(FieldEffectAssetCache.modelPath()))
+    local model = assert(tx.stage:loadLua(FieldEffectAssetCache.modelPath()))
+    ModelAsset.validate(model)
+    for _, path in ipairs(ModelAsset.referencedPaths(model)) do
+      assert(tx.stage:exists(path), "field-effect referenced asset is missing: " .. path)
+    end
     tx.stage:write(FieldEffectAssetCache.markerPath(), bundle.marker)
   end)
   if not ok then

@@ -54,8 +54,7 @@ function Compiler.compile(romFs, hashLua)
   end
   local descriptor = {
     schema = ModelAsset.SCHEMA,
-    key = "field-effect:85",
-    memberId = 85,
+    key = "field-effect:warp-entrance",
     kind = "static",
     batches = compiled.batches,
     materials = compiled.materials,
@@ -75,23 +74,11 @@ function Compiler.compile(romFs, hashLua)
     error(err, 0)
   end
   local depHash = hashLua({ memberSha1 = Hashing.sha1hex(bytes), model = descriptor })
-  local first = assert(descriptor.batches[1], "field-effect member 85 has no render batches")
-  local manifest = {
-    schema = FieldEffectAssetCache.SCHEMA,
-    archive = "field_static_models",
-    memberId = 85,
-    modelPath = FieldEffectAssetCache.modelPath(),
-    mesh = first.geometry,
-    materials = descriptor.materials,
-    dependencies = { { archive = "field_static_models", memberId = 85, sha1 = Hashing.sha1hex(bytes) } },
-  }
   return {
-    manifest = manifest,
     model = descriptor,
     meshes = meshes,
     textures = textures,
     marker = FieldEffectAssetCache.marker(romFs:metadata().sha1, depHash),
-    romSha1 = romFs:metadata().sha1,
   }
 end
 
