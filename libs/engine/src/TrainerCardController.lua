@@ -20,9 +20,23 @@
 -- gameplay model does not own. Pure module: no love, no I/O, no Start Menu
 -- internals.
 
+---@class TrainerCardController.Profile
+---@field name string
+---@field trainerId integer
+---@field money number
+
+---@class TrainerCardController.Options
+---@field profile TrainerCardController.Profile
+---@field playTimeSeconds number
+---@field effect fun(sequence: string)? source UI sound effect boundary
+
 ---@class TrainerCardController
 ---@field _name string
 ---@field _trainerId integer
+---@field _visibleTrainerId integer
+---@field _money number
+---@field _playTimeSeconds number
+---@field _effect fun(sequence: string)? source UI sound effect boundary
 ---@field _result { kind: "close" }?
 ---@field _closed boolean
 local TrainerCardController = {}
@@ -32,7 +46,7 @@ local PlayerData = require("libs.engine.src.PlayerData")
 -- The profile is already canonical before it reaches the controller (the
 -- player-data model validates it at the runtime boundary), so construction
 -- only asserts the fields the card copies.
----@param opts { profile: { name: string, trainerId: integer } }
+---@param opts TrainerCardController.Options
 ---@return TrainerCardController
 function TrainerCardController.new(opts)
   assert(type(opts) == "table" and type(opts.profile) == "table", "the trainer card controller requires the profile")
@@ -41,12 +55,23 @@ function TrainerCardController.new(opts)
     profile.name ~= nil and profile.trainerId ~= nil,
     "the trainer card requires name and trainerId from the player profile"
   )
-  return setmetatable({
+  assert(profile.money ~= nil, "the trainer card requires money from the player profile")
+  assert(opts.playTimeSeconds ~= nil, "the trainer card requires play time")
+  assert(type(opts.playTimeSeconds) == "number" and opts.playTimeSeconds >= 0, "trainer card play time is invalid")
+  local self = setmetatable({
     _name = profile.name,
-    _trainerId = PlayerData.visibleTrainerId(profile.trainerId),
+    _trainerId = profile.trainerId,
+    _visibleTrainerId = PlayerData.visibleTrainerId(profile.trainerId),
+    _money = profile.money,
+    _playTimeSeconds = opts.playTimeSeconds,
+    _effect = opts.effect,
     _result = nil,
     _closed = false,
   }, TrainerCardController)
+  if self._effect then
+    self._effect("SEQ_SE_DP_CARD3")
+  end
+  return self
 end
 
 -- One fixed tick. The card consumes only its own close edge; foreign input
@@ -67,6 +92,9 @@ end
 -- The close edge records the close state; the host owns the actual return
 -- path.
 function TrainerCardController:_close()
+  if self._effect then
+    self._effect("SEQ_SE_GS_GEARCANCEL")
+  end
   self._result = { kind = "close" }
   self._closed = true
 end
@@ -82,6 +110,9 @@ function TrainerCardController:status()
     open = true,
     name = self._name,
     trainerId = self._trainerId,
+    visibleTrainerId = self._visibleTrainerId,
+    money = self._money,
+    playTimeSeconds = self._playTimeSeconds,
   }
 end
 

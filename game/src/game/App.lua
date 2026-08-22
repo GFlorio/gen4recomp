@@ -62,7 +62,7 @@ end
 
 ---@return FieldStateOptions
 local function fieldStateOptions()
-  return { development = App.opts.dev == true }
+  return { development = App.opts.dev == true, saveStore = App.saveStore }
 end
 
 function App.load(opts)

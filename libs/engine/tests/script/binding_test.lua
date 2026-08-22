@@ -430,6 +430,9 @@ T["session script phase"] = function()
         return false
       end,
     },
+    bagUnlocked = function()
+      return true
+    end,
   })
   -- The script client starts the interaction and the tick is consumed: the
   -- player does not move while the foreground root owns the field.

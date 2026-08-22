@@ -21,6 +21,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field zoomConfig table? runtime zoom configuration (runtime contract)
 ---@field development boolean? product mode (the default) hides the playtest HUD
 ---@field topologyProvider (fun(width: number, height: number): ScreenTopology)?
+---@field saveStore table? global GameSaveStore
 
 ---@class FieldState
 ---@field runtime FieldRuntime?
@@ -72,6 +73,7 @@ function FieldState.new(game, options)
   local runtimeOptions = {
     zoomConfig = options.zoomConfig,
     presentation = true,
+    saveStore = options.saveStore,
   }
   -- Construction is binary: FieldRuntime.new either raised (boot failed) or
   -- returned a fully usable runtime, so presentation resources are acquired

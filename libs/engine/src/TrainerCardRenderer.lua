@@ -159,7 +159,7 @@ function TrainerCardRenderer:draw(presentation, viewport)
     local name = presentation.name
     self._text:drawText(name, TrainerCardRenderer.NAME_RIGHT_EDGE - self._text:textWidth(name), 24)
     local money = tostring(presentation.money)
-    self._text:drawText(money, 152 - self._text:textWidth(money), 72)
+    self._text:drawText(money, 152 - self._text:textWidth(money), 48)
     local totalMinutes = math.floor(presentation.playTimeSeconds / 60)
     local hours = math.floor(totalMinutes / 60)
     local minutes = totalMinutes % 60

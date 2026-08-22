@@ -224,6 +224,9 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       end,
     },
     interactions = interactions,
+    bagUnlocked = function()
+      return true
+    end,
   })
 
   local directions = {

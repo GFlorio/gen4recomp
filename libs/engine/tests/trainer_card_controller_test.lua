@@ -23,11 +23,11 @@ local function throws(fn)
 end
 
 local function demoProfile()
-  return { name = "GOLD", gender = 0, trainerId = 0 }
+  return { name = "GOLD", gender = 0, trainerId = 0, money = 3000 }
 end
 
 local function fixture(profile)
-  return TrainerCardController.new({ profile = profile or demoProfile() })
+  return TrainerCardController.new({ profile = profile or demoProfile(), playTimeSeconds = 0 })
 end
 
 function T.tests.construction_requires_the_profile()
@@ -49,7 +49,9 @@ function T.tests.construction_requires_the_profile()
   end)
   -- Gender is not a card presentation field: a profile without it is a
   -- valid construction input.
-  Assert.notNil(TrainerCardController.new({ profile = { name = "GOLD", trainerId = 0 } }))
+  Assert.notNil(
+    TrainerCardController.new({ profile = { name = "GOLD", trainerId = 0, money = 3000 }, playTimeSeconds = 0 })
+  )
 end
 
 -- The card must expose only the implemented profile fields: extra keys are
@@ -59,19 +61,39 @@ function T.tests.status_exposes_exactly_the_implemented_profile_fields()
   Assert.equal(status.open, true)
   Assert.equal(status.name, "GOLD")
   Assert.equal(status.trainerId, 0)
-  Assert.keySet(status, "name,open,trainerId")
+  Assert.keySet(status, "money,name,open,playTimeSeconds,trainerId,visibleTrainerId")
 end
 
 function T.tests.status_passes_boundary_profile_values_through()
-  local controller = fixture({ name = "ABCDEFG", trainerId = 65535 })
+  local controller = TrainerCardController.new({
+    profile = { name = "ABCDEFG", trainerId = 0x1234FFFF, money = 999999 },
+    playTimeSeconds = 3599999,
+  })
   local status = controller:status()
   Assert.equal(status.name, "ABCDEFG")
-  Assert.equal(status.trainerId, 65535)
+  Assert.equal(status.trainerId, 0x1234FFFF)
+  Assert.equal(status.visibleTrainerId, 65535)
+  Assert.equal(status.money, 999999)
+  Assert.equal(status.playTimeSeconds, 3599999)
+end
+
+function T.tests.open_and_cancel_emit_card_effects()
+  local effects = {}
+  local controller = TrainerCardController.new({
+    profile = { name = "GOLD", trainerId = 0, money = 3000 },
+    playTimeSeconds = 62,
+    effect = function(sequence)
+      effects[#effects + 1] = sequence
+    end,
+  })
+  Assert.deepEqual(effects, { "SEQ_SE_DP_CARD3" })
+  controller:updateFixed({ { type = "cancel" } })
+  Assert.equal(effects[2], "SEQ_SE_GS_GEARCANCEL")
 end
 
 function T.tests.construction_copies_the_required_fields()
-  local profile = { name = "GOLD", gender = 0, trainerId = 0 }
-  local controller = TrainerCardController.new({ profile = profile })
+  local profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 }
+  local controller = TrainerCardController.new({ profile = profile, playTimeSeconds = 0 })
   profile.name = "HIKARI"
   profile.trainerId = 1
   local status = controller:status()

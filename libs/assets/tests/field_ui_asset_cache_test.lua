@@ -83,6 +83,11 @@ local function validManifest()
       background = { x = 0, y = 0, width = 256, height = 192 },
       cursor = { frames = { { x = 0, y = 0, width = 32, height = 32, duration = 3 } } },
       slots = slots,
+      actionSurfaces = {
+        ["vanilla.trainer_card"] = slots[6],
+        ["vanilla.save"] = slots[7],
+        ["vanilla.options"] = slots[8],
+      },
     },
     trainerCard = { front = { x = 0, y = 0, width = 256, height = 192 } },
   }

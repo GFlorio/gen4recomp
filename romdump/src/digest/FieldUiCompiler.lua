@@ -317,6 +317,15 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
       [9] = { x = 0, y = 152, width = 128, height = 38 },
       [10] = { x = 128, y = 152, width = 128, height = 38 },
     },
+    actionSurfaces = {
+      ["vanilla.pokedex"] = { x = 0, y = 0, width = 128, height = 38 },
+      ["vanilla.pokemon"] = { x = 128, y = 0, width = 128, height = 38 },
+      ["vanilla.bag"] = { x = 0, y = 38, width = 128, height = 38 },
+      ["vanilla.pokegear"] = { x = 128, y = 38, width = 128, height = 38 },
+      ["vanilla.trainer_card"] = { x = 0, y = 76, width = 128, height = 38 },
+      ["vanilla.save"] = { x = 128, y = 76, width = 128, height = 38 },
+      ["vanilla.options"] = { x = 0, y = 114, width = 128, height = 38 },
+    },
   }
 end
 

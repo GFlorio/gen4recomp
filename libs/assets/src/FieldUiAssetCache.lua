@@ -409,6 +409,19 @@ function FieldUiAssetCache.validateManifest(manifest)
         return false, err
       end
     end
+    if type(s.actionSurfaces) ~= "table" then
+      return false, Errors.new(MANIFEST_INVALID, "startMenu.actionSurfaces must be a table", {})
+    end
+    for actionId, surface in pairs(s.actionSurfaces) do
+      if type(actionId) ~= "string" or type(surface) ~= "table" then
+        return false, Errors.new(MANIFEST_INVALID, "start menu action surfaces are malformed", {})
+      end
+      local ok, err =
+        rectInAtlas(surface, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu action " .. actionId)
+      if not ok then
+        return false, err
+      end
+    end
     return true
   end)
   if not ok then

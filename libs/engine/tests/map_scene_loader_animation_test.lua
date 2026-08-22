@@ -1158,6 +1158,9 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
         return nil
       end,
     },
+    bagUnlocked = function()
+      return true
+    end,
   })
 
   session:updateFixed({})
