@@ -37,7 +37,7 @@ function T.tests.core_and_field_audio_share_the_production_stack()
     local coreOutput = FakeAudioOutput.new()
     local game = harness:boot({
       versionId = versionId,
-      map = "MAP_NEW_BARK",
+      map = "MAP_NEW_BARK_ELMS_LAB_1F",
       save = "fresh",
       fieldOptions = {
         audioHost = "production",

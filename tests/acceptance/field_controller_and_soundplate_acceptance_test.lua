@@ -41,7 +41,7 @@ function T.tests.production_audio_respects_authoritative_world_coordinates()
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
     local fake = FakeAudioOutput.new()
-    local game = bootWithAudio(harness, versionId, "MAP_NEW_BARK", fake)
+    local game = bootWithAudio(harness, versionId, "MAP_NEW_BARK_ELMS_LAB_1F", fake)
     local ok, err = xpcall(function()
       local audio = requireAudio(game)
       local player = game.runtime.player
@@ -61,7 +61,7 @@ function T.tests.environment_selection_follows_the_replacement_player_after_warp
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
     local fake = FakeAudioOutput.new()
-    local game = bootWithAudio(harness, versionId, "MAP_NEW_BARK", fake)
+    local game = bootWithAudio(harness, versionId, "MAP_NEW_BARK_ELMS_LAB_1F", fake)
     local ok, err = xpcall(function()
       local audio = requireAudio(game)
       local beforePlayer = game.runtime.player
