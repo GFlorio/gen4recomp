@@ -68,7 +68,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field audioOutput table? { audio: table, sound: table } audio-output host namespaces for the LÖVE sink (defaults to love.audio + love.sound)
 ---@field localClock LocalClock? injectable host-local civil-time boundary
 ---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
----@field saveStore GameSaveStore? global publication owner
+---@field saveStore FieldRuntimeSaveStore? global publication owner
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
 
 ---@class FieldRuntimeScriptHosts
@@ -76,6 +76,10 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field camera table?
 ---@field screen table?
 ---@field events table?
+
+---@class FieldRuntimeSaveStore
+---@field save fun(self: FieldRuntimeSaveStore, record: table)
+---@field publishFirst fun(self: FieldRuntimeSaveStore, record: table)
 
 ---@class FieldRuntime
 ---@field versionId string
@@ -87,7 +91,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field errorText string?
 ---@field zoom FieldZoom
 ---@field saveStatus string?
----@field saveStore GameSaveStore? global publication owner
+---@field saveStore FieldRuntimeSaveStore? global publication owner
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
 ---@field savePublished boolean whether the reserved record has been published
 ---@field playerData table the validated profile/options authority (PlayerData shape)

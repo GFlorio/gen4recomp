@@ -60,7 +60,14 @@ function T.tests.new_game_enters_production_oak_without_a_factory()
     versionId = App.versionId,
   }
   local store = GameSaveStore.new(SaveFs.global(FakeCache.new()))
-  App.opts = { saveStore = store, oakIntroHost = hostSeams() }
+  ---@type AppOptions
+  App.opts = {
+    saveStore = store,
+    oakIntroHost = hostSeams(),
+    test = false,
+    actors = false,
+    dev = false,
+  }
   App.saveStore = store
   App.state = nil
   App.versionId = nil

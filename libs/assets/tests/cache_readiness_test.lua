@@ -319,7 +319,7 @@ end
 function T.field_data_rejects_malformed_init_descriptor_union()
   local c = cache()
   writeFieldRecord(c, 60, { background = {}, objects = {}, warps = {}, coordinates = {} })
-  local field = c:loadLua(FieldMapDataCache.fieldPath(60))
+  local field = assert(c:loadLua(FieldMapDataCache.fieldPath(60)))
   field.initScripts = { { type = "on_resume", scriptId = "vanilla.hgss.scr_seq.0001.script_000", extra = true } }
   c:writeLua(FieldMapDataCache.fieldPath(60), field)
   Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"))
@@ -328,7 +328,7 @@ end
 function T.field_data_rejects_legacy_numeric_script_targets()
   local c = cache()
   writeFieldRecord(c, 60, { background = {}, objects = {}, warps = {}, coordinates = {} })
-  local field = c:loadLua(FieldMapDataCache.fieldPath(60))
+  local field = assert(c:loadLua(FieldMapDataCache.fieldPath(60)))
   field.initScripts = { { type = "on_frame_eq", rules = { { variableId = 1, equals = 2, scriptIndex = 0 } } } }
   c:writeLua(FieldMapDataCache.fieldPath(60), field)
   Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"))

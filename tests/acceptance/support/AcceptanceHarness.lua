@@ -182,6 +182,7 @@ function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, field
     end)
   runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace))
   if fieldOptions == nil or fieldOptions.saveStore ~= false then
+    ---@type { reserve: fun(self: table): string }
     local saveStore = GameSaveStore.new(SaveFs.global(saveBackend(faults, lifecycle, namespace)))
     runtimeOptions.saveStore = saveStore
     if game.schema == nil then
