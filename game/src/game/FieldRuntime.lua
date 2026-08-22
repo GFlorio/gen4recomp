@@ -65,6 +65,57 @@ local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
+local function runtimeProfileEffect(runtime, profile, phase)
+  local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
+  local family = assert(FieldTransitionProfile.ROUTINE_FAMILIES[profile])
+  local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
+  if phase == "exit" and family.sound then
+    assert(audio and type(audio.play) == "function", "field transition audio host required")
+    audio:play(family.sound)
+  end
+  runtime.player.facing = phase == "enter" and runtime.transition.destinationFacing or runtime.transition.facing
+end
+
+local function runtimeCameraAdjust(runtime, profile, adjustment, player)
+  assert(runtime.camera and type(runtime.camera.adjustTransition) == "function", "field transition camera required")
+  runtime.camera:adjustTransition(profile, adjustment, player)
+end
+
+local function runtimePanelEffect(runtime, phase)
+  runtime.transitionPanel = phase
+  local screen = runtime.scriptHosts and runtime.scriptHosts.screen
+  if screen and type(screen.setPanelTransition) == "function" then
+    screen:setPanelTransition(phase)
+  end
+end
+
+local function createFieldTransition(runtime, doorAt)
+  return FieldTransition.new({
+    loader = runtime.mapLoader,
+    prepare = function(resolution, facing)
+      return runtime:_prepareSwap(resolution, facing)
+    end,
+    commit = function(resolution, facing, prepared)
+      runtime:_commitSwap(resolution, facing, prepared)
+    end,
+    doorAt = doorAt,
+    onStart = function(_, trigger)
+      if runtime.audio then
+        runtime.audio:beginWarp(trigger.warp.destinationMapId)
+      end
+    end,
+    playSound = function(soundRef)
+      local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
+      assert(audio and type(audio.play) == "function", "field transition audio host required")
+      audio:play(soundRef)
+    end,
+    callbackOwner = runtime,
+    onProfile = runtimeProfileEffect,
+    cameraAdjust = runtimeCameraAdjust,
+    onPanel = runtimePanelEffect,
+  })
+end
+
 ---@class FieldRuntimeOptions
 ---@field resumeSave boolean?
 ---@field resetSave boolean?
@@ -482,31 +533,7 @@ function FieldRuntime:_load()
       end
       return props:doorAt(runtimeMap, fieldX, fieldZ)
     end
-    self.transition = FieldTransition.new({
-      loader = self.mapLoader,
-      prepare = function(resolution, facing)
-        return self:_prepareSwap(resolution, facing)
-      end,
-      commit = function(resolution, facing, prepared)
-        self:_commitSwap(resolution, facing, prepared)
-      end,
-      doorAt = doorAt,
-      -- FieldTransition.onStart callback invoked once per transition start:
-      -- invoke field-audio pre-fade for destination music mismatch decision.
-      onStart = function(sourceMap, trigger, facing)
-        if self.audio then
-          self.audio:beginWarp(trigger.warp.destinationMapId)
-        end
-      end,
-      -- Stair SFX callback: FieldRuntime binds the field-audio playSound
-      -- hook so stair completion (SEQ_SE_DP_KAIDAN2) emits through the
-      -- production audio service.
-      playSound = function(soundRef)
-        local audio = self.audio or (self.scriptHosts and self.scriptHosts.audio)
-        assert(audio and type(audio.play) == "function", "field transition audio host required")
-        audio:play(soundRef)
-      end,
-    })
+    self.transition = createFieldTransition(self, doorAt)
     self.transition.player = self.player
     self.transition.suppression = restored and restored.suppression or nil
 

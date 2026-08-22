@@ -28,7 +28,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field previousWorldZ number
 ---@field surfaceId integer
 ---@field facing FieldDirection
----@field motion "idle"|"walking"|"climbing"
+---@field motion "idle"|"walking"|"climbing"|"transition"
 ---@field progressTicks integer
 ---@field durationTicks integer
 ---@field bufferedDirection FieldDirection?
@@ -230,6 +230,27 @@ function FieldPlayer:beginStairClimb()
   return true
 end
 
+-- Starts one of the source transition movement families.  These motions are
+-- deliberately separate from tile walking: ladder and ladder-down routines
+-- interpolate the already-selected map position for sixteen fixed ticks and
+-- never claim a new field tile.
+function FieldPlayer:beginTransitionMotion(profile, phase, facing)
+  assert(self.motion == "idle", "cannot begin a transition motion while moving")
+  assert(profile == 2 or profile == 7 or profile == 8, "profile has no player transition motion")
+  self.motion = "transition"
+  self.transitionProfile = profile
+  self.transitionPhase = phase
+  self.transitionFacing = facing
+  self.facing = facing
+  self.progressTicks = 0
+  self.durationTicks = 16
+  self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
+  local y = profile == 8 and -16 or 16
+  local z = profile == 7 and (facing == "south" and 16 or 0) or 0
+  self.transitionTo = { x = self.worldX, y = self.worldY + y, z = self.worldZ + z }
+  return true
+end
+
 function FieldPlayer:_advanceStep()
   assert(self.motion == "walking" and self.from and self.to, "walking step endpoints required")
   self.progressTicks = self.progressTicks + 1
@@ -282,6 +303,21 @@ function FieldPlayer:updateFixed(input)
       self.progressTicks = 0
     end
     return false
+  end
+
+  if self.motion == "transition" then
+    self.progressTicks = self.progressTicks + 1
+    local progress = self.progressTicks / self.durationTicks
+    self.worldX = self.transitionFrom.x + (self.transitionTo.x - self.transitionFrom.x) * progress
+    self.worldY = self.transitionFrom.y + (self.transitionTo.y - self.transitionFrom.y) * progress
+    self.worldZ = self.transitionFrom.z + (self.transitionTo.z - self.transitionFrom.z) * progress
+    if self.progressTicks >= self.durationTicks then
+      self.worldX, self.worldY, self.worldZ = self.transitionTo.x, self.transitionTo.y, self.transitionTo.z
+      self.motion = "idle"
+      self.progressTicks = 0
+      self.transitionFrom, self.transitionTo = nil, nil
+    end
+    return true
   end
 
   local direction

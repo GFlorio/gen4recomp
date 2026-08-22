@@ -1293,7 +1293,11 @@ function T.plain_warps_never_play_the_stair_choreography()
   local source
   local sounds
   transition, source, _, _, sounds = transitionFixture({ kind = "generic", player = player })
-  transition:start(source, trigger("generic", DOOR_WARP), "north")
+  transition:start(source, {
+    kind = "generic",
+    warp = DOOR_WARP,
+    transition = { mode = "panel" },
+  }, "north")
   runTicks(transition, 2 * FADE + 2)
   Assert.equal(transition.phase, "idle")
   Assert.equal(transition.sourceKind, "generic")

@@ -79,39 +79,19 @@ local function enterHouse(game)
   Assert.equal(transition.destination.mapSymbol, HOUSE_1F)
 end
 
-function T.tests.player_house_uses_ordinary_indoor_profile_and_stair_sound()
+function T.tests.player_house_stairs_remain_fixed_profile_three_indoors()
   withGame(TOWN, function(game)
     enterHouse(game)
     game:moveTo(HOUSE_WARP)
     game:step({ direction = "west" })
-    Assert.equal(game.runtime.transition.profileId, 6, "indoor-to-indoor warp must select profile 6")
-    Assert.isTrue(hasEffect(game, "SEQ_SE_DP_KAIDAN2"), "profile 6 must emit the source stair sequence")
-    Assert.isFalse(game.runtime.player.motion == "climbing", "profile 6 must not start horizontal stair movement")
-    Assert.isFalse(game.runtime.transition.sourceKind == "stairs", "profile 6 must not use the horizontal stair path")
-  end)
-end
-
-function T.tests.player_house_profile_six_fade_preserves_presentation_until_hidden_swap()
-  withGame(TOWN, function(game)
-    enterHouse(game)
-    game:moveTo(HOUSE_WARP)
-    game:step({ direction = "west" })
-    local before = game:snapshot().player
-    local visualBefore = game:snapshot().playerVisual
-    local fadeSamples = {}
-    game:advanceUntil("profile 6 reaches full obscuration", function(snapshot)
-      fadeSamples[#fadeSamples + 1] = game.runtime.transition.fadeAlpha
-      return game.runtime.transition.fadeAlpha == 1
-    end, 120)
-    local hidden = game:snapshot()
-    Assert.equal(hidden.transition.phase, "load_destination", "map preparation starts only after full obscuration")
-    Assert.isTrue(#fadeSamples <= 7, "profile 6 must use the source-calibrated six-step fade")
-    Assert.isTrue(
-      hidden.playerVisual.pose == "walk" and hidden.playerVisual.poseTick ~= visualBefore.poseTick,
-      "the player visual pose must continue progressing during the source fade"
-    )
+    Assert.equal(game.runtime.player.motion, "climbing", "the source stair path owns held movement")
     local transition = game:waitForTransition()
+    Assert.equal(game.runtime.transition.profileId, 3, "indoor stairs retain fixed profile 3")
+    Assert.equal(game.runtime.transition.sourceKind, "stairs", "the trigger remains a stair transition")
+    Assert.isTrue(hasEffect(game, "SEQ_SE_DP_KAIDAN2"), "the stair exit emits the source sequence")
     Assert.equal(transition.destination.mapSymbol, HOUSE_2F)
+    Assert.equal(transition.destination.player.fieldX, HOUSE_WARP.fieldX)
+    Assert.equal(transition.destination.player.fieldZ, HOUSE_WARP.fieldZ + 1)
   end)
 end
 

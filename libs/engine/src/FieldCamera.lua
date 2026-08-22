@@ -178,6 +178,16 @@ function FieldCamera:setZoom(zoom)
   self._projectionDirty = true
 end
 
+-- Applies the camera-side part of a non-ordinary field transition. The
+-- transition family remains observable after the swap, while the camera
+-- keeps ownership of its own adjustment state.
+function FieldCamera:adjustTransition(profile, adjustment)
+  assert(type(profile) == "number", "transition camera profile required")
+  assert(type(adjustment) == "string", "transition camera adjustment required")
+  self.transitionProfile = profile
+  self.transitionAdjustment = adjustment
+end
+
 -- `alpha` is the render interpolation factor of the current fixed step: 0 shows
 -- the state the previous fixed update left behind, 1 the latest one, and values
 -- between are smoothed so the camera cannot jump between simulation ticks.

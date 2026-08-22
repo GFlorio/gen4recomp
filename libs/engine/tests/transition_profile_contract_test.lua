@@ -36,6 +36,75 @@ T.tests.transition_profiles_preserve_source_semantics = function()
   Assert.equal(FieldTransitionProfile.selectEnvironment("building", "outdoors"), 0)
 end
 
+function T.tests.all_fixed_profiles_are_explicit_and_panel_has_no_numeric_profile()
+  for profile = 0, 8 do
+    Assert.equal(FieldTransitionProfile.fixed(profile).profile, profile)
+  end
+  Assert.throws(function()
+    FieldTransitionProfile.fixed(-1)
+  end, "negative transition profiles are invalid")
+  Assert.throws(function()
+    FieldTransitionProfile.fixed(9)
+  end, "unknown transition profiles are invalid")
+
+  local transition = FieldTransition.new({
+    loader = {},
+    prepare = function() end,
+    commit = function() end,
+  })
+  transition:start(
+    { mapId = 61 },
+    { warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 }, transition = { mode = "panel" } },
+    "north"
+  )
+  Assert.isNil(transition.profileId)
+  Assert.equal(transition.transitionMode, FieldTransitionProfile.MODE_PANEL)
+end
+
+function T.tests.ordinary_profiles_share_source_exit_audio_and_fade()
+  local observations = {}
+  for _, profile in ipairs({ FieldTransitionProfile.ORDINARY, FieldTransitionProfile.ORDINARY_INDOOR }) do
+    local sounds = {}
+    local transition = FieldTransition.new({
+      loader = {},
+      prepare = function() end,
+      commit = function() end,
+      playSound = function(sound)
+        sounds[#sounds + 1] = sound
+      end,
+    })
+    transition:start({ mapId = 61 }, {
+      warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+      transition = { mode = "fixed", profile = profile },
+    }, "north")
+    observations[#observations + 1] = {
+      profile = profile,
+      sounds = sounds,
+      fadeOutTicks = transition.fadeOutTicks,
+      fadeInTicks = transition.fadeInTicks,
+    }
+  end
+
+  Assert.deepEqual(observations[1].sounds, { "SEQ_SE_DP_KAIDAN2" }, "profile 0 source exit audio")
+  Assert.deepEqual(observations[2].sounds, observations[1].sounds, "profile 6 shares profile 0 source exit audio")
+  Assert.equal(observations[2].fadeOutTicks, observations[1].fadeOutTicks, "profile 6 shares profile 0 source fade-out")
+  Assert.equal(observations[2].fadeInTicks, observations[1].fadeInTicks, "profile 6 shares profile 0 source fade-in")
+end
+
+function T.tests.transition_motion_profiles_require_the_player_motion_contract()
+  local transition = FieldTransition.new({
+    loader = {},
+    prepare = function() end,
+    commit = function() end,
+  })
+  Assert.throws(function()
+    transition:start({ mapId = 61 }, {
+      warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+      transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
+    }, "south")
+  end, "transition movement profiles require beginTransitionMotion")
+end
+
 function T.tests.field_transition_consumes_trigger_profile_before_ownership()
   local metadataCalls = 0
   local loader = {
@@ -100,6 +169,15 @@ end
 
 function T.tests.field_transition_uses_trigger_destination_facing()
   local receivedFacing
+  local player = {
+    motion = "idle",
+    beginTransitionMotion = function(self, _, _, facing)
+      self.motion = "idle"
+      self.facing = facing
+      return true
+    end,
+    updateFixed = function() end,
+  }
   local transition = FieldTransition.new({
     loader = {},
     fadeOutTicks = 1,
@@ -111,6 +189,7 @@ function T.tests.field_transition_uses_trigger_destination_facing()
       receivedFacing = facing
     end,
     commit = function() end,
+    player = player,
   })
   transition:start({ mapId = 61 }, {
     warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
@@ -160,14 +239,55 @@ local function runTransition(options)
 end
 
 local function instantDoor(soundType)
+  local open = {
+    [1] = "SEQ_SE_DP_DOOR_OPEN",
+    [2] = "SEQ_SE_DP_DOOR10",
+    [3] = "SEQ_SE_PL_DOOR_OPEN5",
+    [4] = "SEQ_SE_GS_HIKIDO_OPEN",
+  }
+  local close = {
+    [1] = "SEQ_SE_DP_DOOR_CLOSE2",
+    [2] = nil,
+    [3] = nil,
+    [4] = "SEQ_SE_GS_HIKIDO_CLOSE",
+  }
   return {
     soundType = soundType,
-    open = function() end,
-    close = function() end,
+    open = function()
+      return open[soundType]
+    end,
+    close = function()
+      return close[soundType]
+    end,
     isFinished = function()
       return true
     end,
   }
+end
+
+function T.tests.door_audio_comes_only_from_door_operations()
+  local sounds = {}
+  local door = {
+    soundType = 1,
+    open = function()
+      return "SEQ_FROM_OPEN"
+    end,
+    close = function()
+      return nil
+    end,
+    isFinished = function()
+      return true
+    end,
+  }
+  runTransition({
+    doorAt = function()
+      return door
+    end,
+    playSound = function(sound)
+      sounds[#sounds + 1] = sound
+    end,
+  })
+  Assert.deepEqual(sounds, { "SEQ_FROM_OPEN" })
 end
 
 function T.tests.door_sound_selector_emits_exact_open_and_close_sequences()
@@ -210,6 +330,177 @@ function T.tests.door_profile_steps_north_into_source_and_south_out_of_destinati
     player = player,
   })
   Assert.deepEqual(player.steps, { "north", "south" })
+end
+
+function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
+  local events = {}
+  local player = {
+    motion = "idle",
+    facing = "south",
+    beginTransitionMotion = function(self, profile, phase, facing)
+      events[#events + 1] = { profile = profile, phase = "movement", family = phase .. ":" .. facing }
+      self.motion = "transition"
+      self.transitionTicks = 0
+      self.facing = facing
+      return true
+    end,
+    updateFixed = function(self)
+      self.transitionTicks = self.transitionTicks + 1
+      if self.transitionTicks == 1 then
+        self.motion = "idle"
+      end
+      return true
+    end,
+  }
+  local transition = FieldTransition.new({
+    loader = {},
+    fadeOutTicks = 1,
+    fadeInTicks = 1,
+    resolveDestination = function()
+      return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
+    end,
+    prepare = function() end,
+    commit = function() end,
+    player = player,
+    onProfile = function(profile, phase, family)
+      events[#events + 1] = { profile = profile, phase = phase, family = family }
+    end,
+    cameraAdjust = function(profile, adjustment)
+      events[#events + 1] = { profile = profile, phase = "camera", family = adjustment }
+    end,
+  })
+
+  for _, profile in ipairs({ 2, 4, 5, 7, 8 }) do
+    events = {}
+    transition:start({ mapId = 61 }, {
+      warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+      transition = { mode = "fixed", profile = profile },
+    }, "south")
+    for _ = 1, 20 do
+      if transition.phase == "idle" then
+        break
+      end
+      transition:updateFixed()
+    end
+    Assert.equal(transition.phase, "idle", "profile " .. profile .. " completes")
+    Assert.equal(events[1].profile, profile)
+    Assert.equal(events[1].phase, "exit")
+    Assert.equal(events[1].family, FieldTransitionProfile.ROUTINE_FAMILIES[profile].exit)
+    local enter
+    for index, event in ipairs(events) do
+      if event.phase == "enter" then
+        enter = event
+        break
+      end
+    end
+    Assert.notNil(enter, "profile " .. profile .. " must dispatch its enter routine")
+    Assert.equal(enter.profile, profile)
+    Assert.equal(enter.family, FieldTransitionProfile.ROUTINE_FAMILIES[profile].enter)
+    local camera = FieldTransitionProfile.ROUTINE_FAMILIES[profile].adjustment
+    if camera then
+      local cameraEvent
+      for _, event in ipairs(events) do
+        if event.phase == "camera" then
+          cameraEvent = event
+          break
+        end
+      end
+      Assert.notNil(cameraEvent, "profile " .. profile .. " must adjust the camera")
+      Assert.equal(cameraEvent.family, camera)
+    else
+      for _, event in ipairs(events) do
+        Assert.isFalse(event.phase == "camera", "profile " .. profile .. " must not adjust the camera")
+      end
+    end
+  end
+end
+
+function T.tests.panel_lifecycle_notifies_each_side_once_without_profile_dispatch()
+  local panels = {}
+  local profiles = {}
+  local transition = FieldTransition.new({
+    loader = {},
+    fadeOutTicks = 1,
+    fadeInTicks = 1,
+    resolveDestination = function()
+      return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
+    end,
+    prepare = function() end,
+    commit = function() end,
+    onPanel = function(phase)
+      panels[#panels + 1] = phase
+    end,
+    onProfile = function()
+      profiles[#profiles + 1] = true
+    end,
+  })
+  transition:start({ mapId = 61 }, {
+    warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+    transition = { mode = "panel" },
+  }, "south")
+  for _ = 1, 5 do
+    if transition.phase == "idle" then
+      break
+    end
+    transition:updateFixed()
+  end
+  Assert.deepEqual(panels, { "exit", "enter" })
+  Assert.deepEqual(profiles, {})
+end
+
+function T.tests.profile_hook_failure_aborts_before_commit_but_after_commit_propagates()
+  local commits = 0
+  local before = FieldTransition.new({
+    loader = {},
+    onProfile = function(_, phase)
+      if phase == "exit" then
+        error("exit failed", 0)
+      end
+    end,
+    prepare = function() end,
+    commit = function()
+      commits = commits + 1
+    end,
+  })
+  local ok, err = pcall(function()
+    before:start({ mapId = 61 }, {
+      warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+      transition = { mode = "fixed", profile = 4 },
+    }, "south")
+  end)
+  Assert.isFalse(ok)
+  Assert.equal(tostring(err), "exit failed")
+  Assert.equal(before.phase, "idle")
+  Assert.isFalse(before.locked)
+  Assert.isNil(before.sourceMap)
+  Assert.equal(tostring(before.error), "exit failed")
+  Assert.equal(commits, 0)
+
+  local after = FieldTransition.new({
+    loader = {},
+    fadeOutTicks = 1,
+    fadeInTicks = 1,
+    resolveDestination = function()
+      return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
+    end,
+    prepare = function() end,
+    commit = function() end,
+    onProfile = function(_, phase)
+      if phase == "enter" then
+        error("enter failed", 0)
+      end
+    end,
+  })
+  after:start({ mapId = 61 }, {
+    warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+    transition = { mode = "fixed", profile = 4 },
+  }, "south")
+  after:updateFixed()
+  after:updateFixed()
+  local ok, err = pcall(after.updateFixed, after)
+  Assert.isFalse(ok)
+  Assert.equal(tostring(err), "enter failed")
+  Assert.equal(after.phase, "swap_map")
 end
 
 return T
