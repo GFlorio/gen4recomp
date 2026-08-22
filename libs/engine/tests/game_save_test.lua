@@ -105,4 +105,16 @@ function T.rejects_non_table_and_missing_required_buckets()
   end
 end
 
+function T.rejects_removed_top_level_session_fields()
+  for _, field in ipairs({ "scenario", "currentState" }) do
+    local valid = record({ [field] = {} })
+    local canonical, err = GameSave.validate(valid)
+    Assert.isNil(canonical)
+    err = assert(err)
+    Assert.equal(err.code, "GAME_SAVE_INVALID")
+    Assert.equal(err.context.field, field)
+  end
+  Assert.notNil(GameSave.validate(record()))
+end
+
 return { tests = T }
