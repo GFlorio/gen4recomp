@@ -59,7 +59,7 @@ local function autosaveRoundTrip(harness)
     scriptsBucket = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
     playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
       options = { textFrame = 0, textSpeed = "mid" },
     },
   })

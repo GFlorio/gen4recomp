@@ -109,7 +109,7 @@ function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versi
       scriptsBucket = {},
       auxiliaryUi = { requested = "shown", state = "shown" },
       playerData = {
-        profile = { name = "GOLD", gender = 0, trainerId = 0 },
+        profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
         options = { textFrame = 0, textSpeed = "mid" },
       },
     })
@@ -158,7 +158,7 @@ function T.a_resumed_event_store_keeps_scenario_actors_hidden(romFs)
     scriptsBucket = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
     playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
       options = { textFrame = 0, textSpeed = "mid" },
     },
   })

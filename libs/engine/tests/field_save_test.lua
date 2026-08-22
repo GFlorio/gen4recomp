@@ -71,7 +71,7 @@ end
 
 local function playerData(overrides)
   local value = {
-    profile = { name = "GOLD", gender = 0, trainerId = 0 },
+    profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
     options = { textFrame = 0, textSpeed = "mid" },
   }
   for key, item in pairs(overrides or {}) do
@@ -169,7 +169,7 @@ end
 function T.player_data_bucket_round_trips_exactly()
   local map = runtimeMap("terrain-a", { flat(11, 4) })
   local modified = playerData({
-    profile = { name = "HIKARI", gender = 1, trainerId = 65535 },
+    profile = { name = "HIKARI", gender = 1, trainerId = 65535, money = 3000 },
     options = { textFrame = 1, textSpeed = "slow" },
   })
 
@@ -189,7 +189,7 @@ end
 function T.player_data_validation_retains_the_canonical_record()
   local map = runtimeMap("terrain-a", { flat(11, 4) })
   local planted = {
-    profile = { name = "GOLD", gender = 0, trainerId = 7, transientThing = 123 },
+    profile = { name = "GOLD", gender = 0, trainerId = 7, money = 3000, transientThing = 123 },
     options = { textFrame = 0, textSpeed = "mid", futureThing = true },
     extraTopLevel = true,
   }
@@ -199,7 +199,7 @@ function T.player_data_validation_retains_the_canonical_record()
   local restored = assert(restore(record({ playerData = planted }), map))
   Assert.isFalse(rawequal(restored.playerData, planted), "restore must not return the deserialized input bucket")
   Assert.keySet(restored.playerData, "options,profile", "restore must drop the extra top-level key")
-  Assert.keySet(restored.playerData.profile, "gender,name,trainerId", "restore must drop profile.transientThing")
+  Assert.keySet(restored.playerData.profile, "gender,money,name,trainerId", "restore must drop profile.transientThing")
   Assert.keySet(restored.playerData.options, "textFrame,textSpeed", "restore must drop options.futureThing")
 end
 
@@ -237,7 +237,7 @@ function T.invalid_player_data_is_rejected_at_the_schema_boundary()
   local context = playerDataContext()
   throwsCode("FIELD_SAVE_PLAYER_DATA_INVALID", function()
     local _, err = FieldSave.validate(
-      record({ playerData = playerData({ profile = { name = "GOLDGOLD", gender = 0, trainerId = 0 } }) }),
+      record({ playerData = playerData({ profile = { name = "GOLDGOLD", gender = 0, trainerId = 0, money = 3000 } }) }),
       { playerDataContext = context }
     )
     error(err)

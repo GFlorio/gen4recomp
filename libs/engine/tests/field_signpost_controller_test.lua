@@ -350,7 +350,7 @@ function T.typed_print_reveals_at_the_injected_fixed_tick_cadence()
 end
 
 -- The reveal cadence is injected at construction (the runtime wires
--- FieldPlayerData.ticksPerGlyph); the controller has no fixed speed of its
+-- PlayerData.ticksPerGlyph); the controller has no fixed speed of its
 -- own.
 function T.injected_ticks_per_glyph_drives_the_reveal_cadence()
   local lines = { line({ glyph("A", 1), glyph("B", 2), glyph("C", 3) }) }

@@ -116,7 +116,7 @@ local function disposableState()
     scripts = fakeScripts(),
     avatar = { id = "hero" },
     playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
       options = { textFrame = 0, textSpeed = "mid" },
     },
     auxiliaryFieldUi = {

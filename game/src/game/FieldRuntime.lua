@@ -20,7 +20,8 @@ local FieldDialogueController = require("libs.engine.src.FieldDialogueController
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldEventState = require("libs.engine.src.FieldEventState")
-local FieldPlayerData = require("libs.engine.src.FieldPlayerData")
+local LocalClock = require("libs.engine.src.LocalClock")
+local PlayerData = require("libs.engine.src.PlayerData")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldInput = require("libs.engine.src.FieldInput")
@@ -74,6 +75,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
 ---@field audioOutput table? { audio: table, sound: table } audio-output host namespaces for the LÖVE sink (defaults to love.audio + love.sound)
+---@field localClock LocalClock? injectable host-local civil-time boundary
 ---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 
 ---@class FieldRuntimeScriptHosts
@@ -93,7 +95,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field errorText string?
 ---@field zoom FieldZoom
 ---@field saveStatus string?
----@field playerData table the validated profile/options authority (FieldPlayerData shape)
+---@field playerData table the validated profile/options authority (PlayerData shape)
 ---@field session FieldSession
 ---@field dialogue FieldDialogueController?
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (script-owned via ScriptSignpostHost)
@@ -115,6 +117,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field audio FieldAudioController? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
+---@field localClock LocalClock the shared host-local civil-time boundary
 ---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
@@ -197,11 +200,12 @@ local function spawnSurface(runtimeMap, localX, localZ)
   return best
 end
 
+---@param localClock LocalClock
 ---@return table
-local function defaultWeatherClock()
+local function defaultWeatherClock(localClock)
   return {
     today = function()
-      local now = os.date("*t")
+      local now = localClock:nowLocal()
       return { month = now.month, day = now.day }
     end,
     hasPenalty = function()
@@ -225,7 +229,8 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     scriptHosts = options.scriptHosts,
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
-    weatherClock = options.weatherClock or defaultWeatherClock(),
+    localClock = options.localClock or LocalClock.system(),
+    weatherClock = options.weatherClock,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
     -- The 60 Hz sound-frame accumulator: wall-clock elapsed time the update
@@ -233,6 +238,7 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     -- 1/60-second interval.
     audioFrameAccumulator = 0,
   }, FieldRuntime)
+  self.weatherClock = self.weatherClock or defaultWeatherClock(self.localClock)
   self:_load()
   return self
 end
@@ -341,7 +347,7 @@ function FieldRuntime:_load()
     -- as the single resume validation boundary.
     -- This is the single authority the script platform and later dialogue
     -- presentation consume; they never re-read the manifest.
-    local initialPlayerData, initialPlayerDataErr = FieldPlayerData.validate(FieldPlayerManifest, playerDataContext)
+    local initialPlayerData, initialPlayerDataErr = PlayerData.validate(FieldPlayerManifest, playerDataContext)
     assert(initialPlayerData, "the initial player data manifest is invalid: " .. tostring(initialPlayerDataErr))
     self.playerData = restored and restored.playerData or initialPlayerData
 
@@ -495,7 +501,7 @@ function FieldRuntime:_load()
     end
     self.dialogue = FieldDialogueController.new({
       layout = layoutMessage,
-      ticksPerGlyph = FieldPlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
+      ticksPerGlyph = PlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
     })
     -- The signpost controller is fixed-tick and pure; the script platform
     -- advances it once per scheduler tick through the signpost host. The
@@ -503,7 +509,7 @@ function FieldRuntime:_load()
     -- the same single authority as the dialogue controller.
     self.signpost = FieldSignpostController.new({
       layout = signpostLayout,
-      ticksPerGlyph = FieldPlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
+      ticksPerGlyph = PlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
     })
     self.auxiliaryFieldUi = restored and AuxiliaryFieldUi.restore(restored.auxiliaryUi) or AuxiliaryFieldUi.new()
     self.contextChoiceProvider = ContextChoiceProvider.new()
@@ -854,7 +860,7 @@ function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
   if audioService == nil or self.audioOutput ~= nil then
     self.mapMusicDayNight = self.dayNight
       or function()
-        return TimeOfDayProps.bandForHour(os.date("*t").hour) == "nite" and "night" or "day"
+        return TimeOfDayProps.bandForHour(self.localClock:nowLocal().hour) == "nite" and "night" or "day"
       end
     local world =
       assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")

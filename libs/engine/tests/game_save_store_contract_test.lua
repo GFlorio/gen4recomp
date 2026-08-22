@@ -36,7 +36,7 @@ local function record(saveId, versionId, overrides)
     terrainDependencyHash = "terrain-" .. versionId,
     facing = "south",
     playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
       options = { textFrame = 0, textSpeed = "mid" },
     },
     world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },

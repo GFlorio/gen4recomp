@@ -260,6 +260,7 @@ function T.tests.extra_player_data_fields_are_dropped_by_canonicalization()
       name = "GOLD",
       gender = 0,
       trainerId = 1234,
+      money = 3000,
       transientThing = 123,
     },
     options = {
@@ -277,7 +278,7 @@ function T.tests.extra_player_data_fields_are_dropped_by_canonicalization()
     Assert.keySet(first.runtime.playerData, "options,profile", "the fresh player data must be the canonical record")
     Assert.keySet(
       first.runtime.playerData.profile,
-      "gender,name,trainerId",
+      "gender,money,name,trainerId",
       "the fresh profile must carry exactly the model fields"
     )
     Assert.keySet(
@@ -296,7 +297,7 @@ function T.tests.extra_player_data_fields_are_dropped_by_canonicalization()
     Assert.equal(canonical.options.textFrame, 0, "the canonical options keep the text frame")
     Assert.equal(canonical.options.textSpeed, "mid", "the canonical options keep the text speed")
     Assert.keySet(canonical, "options,profile", "canonicalization must drop the extra top-level key")
-    Assert.keySet(canonical.profile, "gender,name,trainerId", "canonicalization must drop profile.transientThing")
+    Assert.keySet(canonical.profile, "gender,money,name,trainerId", "canonicalization must drop profile.transientThing")
     Assert.keySet(canonical.options, "textFrame,textSpeed", "canonicalization must drop options.futureThing")
     Assert.equal(resumed:renderAttempts(), 0, "the canonicalization resume must not render")
   end, debug.traceback)
@@ -343,6 +344,7 @@ function T.tests.multibyte_player_name_validates_and_reaches_the_trainer_card_pr
         name = MULTIBYTE_NAME,
         gender = record.playerData.profile.gender,
         trainerId = record.playerData.profile.trainerId,
+        money = record.playerData.profile.money,
       },
       options = {
         textFrame = record.playerData.options.textFrame,

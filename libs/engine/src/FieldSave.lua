@@ -19,7 +19,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldEventState = require("libs.engine.src.FieldEventState")
-local FieldPlayerData = require("libs.engine.src.FieldPlayerData")
+local PlayerData = require("libs.engine.src.PlayerData")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local ScriptRng = require("libs.engine.src.script.ScriptRng")
 local WarpSystem = require("libs.engine.src.WarpSystem")
@@ -210,7 +210,7 @@ local function validatePlayerData(record, opts)
     type(context) == "table" and type(context.charmap) == "table" and type(context.frameIndexes) == "table",
     "field save player-data validation requires the generated charmap and frame-index context"
   )
-  local valid, err = FieldPlayerData.validate(record.playerData, context)
+  local valid, err = PlayerData.validate(record.playerData, context)
   if not valid then
     ---@cast err Errors.Error
     Errors.raise(FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID, "field save player data is invalid: " .. tostring(err), {

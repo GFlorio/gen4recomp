@@ -65,7 +65,7 @@ local function record(versionId, overrides)
     scripts = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
     playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
       options = { textFrame = 0, textSpeed = "mid" },
     },
   }
@@ -279,7 +279,7 @@ function T.save_persists_the_canonical_player_data()
   store:save(value)
   local persisted = assert(store:load())
   Assert.keySet(persisted.playerData, "options,profile", "save must persist the canonical player-data record")
-  Assert.keySet(persisted.playerData.profile, "gender,name,trainerId")
+  Assert.keySet(persisted.playerData.profile, "gender,money,name,trainerId")
   Assert.keySet(persisted.playerData.options, "textFrame,textSpeed")
 end
 

@@ -318,7 +318,7 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     scriptsBucket = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
     playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
       options = { textFrame = 0, textSpeed = "mid" },
     },
   })

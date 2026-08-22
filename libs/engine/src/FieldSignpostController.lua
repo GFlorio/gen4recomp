@@ -89,7 +89,7 @@ local function visibleLines(lines, revealed)
 end
 
 -- opts.layout(formattedMessage) -> { lines = { { tokens = MessageToken[] } } }
--- opts.ticksPerGlyph (default 2; FieldPlayerData.ticksPerGlyph supplies the
+-- opts.ticksPerGlyph (default 2; PlayerData.ticksPerGlyph supplies the
 -- injected cadence), opts.styleId (default FieldWindowStyles.BUILTIN.SIGNPOST).
 
 ---@class FieldSignpostControllerOptions

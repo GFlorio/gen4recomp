@@ -1,7 +1,7 @@
 -- trainer_tips_print task implementation : the native
 -- waiter for opcode 59 (TrainerTips). Creation starts the typed print at the
 -- player's configured text speed through the injected signpost host (the
--- cadence is the controller's injected FieldPlayerData authority; the task
+-- cadence is the controller's injected PlayerData authority; the task
 -- never chooses one). The poll reads only the fixed-tick input edges: a
 -- directional edge before the print completes is the source interruption
 -- (ScrCmd_TrainerTips / NativeScript_WaitTrainerTips, src/scrcmd_c.c at the

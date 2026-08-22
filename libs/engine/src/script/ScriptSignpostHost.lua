@@ -76,7 +76,7 @@ end
 
 -- Print at the player's configured text speed (Trainer Tips path). The
 -- cadence is injected into the controller at construction from the single
--- FieldPlayerData authority; the host never chooses one.
+-- PlayerData authority; the host never chooses one.
 ---@param message any
 ---@param bindings table|nil
 ---@param textArgs table|nil

@@ -27,6 +27,7 @@
 ---@field _closed boolean
 local TrainerCardController = {}
 TrainerCardController.__index = TrainerCardController
+local PlayerData = require("libs.engine.src.PlayerData")
 
 -- The profile is already canonical before it reaches the controller (the
 -- player-data model validates it at the runtime boundary), so construction
@@ -42,7 +43,7 @@ function TrainerCardController.new(opts)
   )
   return setmetatable({
     _name = profile.name,
-    _trainerId = profile.trainerId,
+    _trainerId = PlayerData.visibleTrainerId(profile.trainerId),
     _result = nil,
     _closed = false,
   }, TrainerCardController)
