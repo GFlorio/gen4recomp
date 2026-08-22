@@ -48,7 +48,7 @@ local function settleDialogue(controller)
   end
   local status = controller:status()
   Assert.equal(status.state, "WAITING_CLOSE")
-  Assert.isFalse(status.cursorOn, "cursor blink is off in the settled render")
+  Assert.equal(status.cursorPhase, 0, "cursor phase is off in the settled render")
 end
 
 -- The canonical 256x192 render of the fixture dialogue for one frame style.

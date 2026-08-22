@@ -11,8 +11,8 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class FieldDialogueController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result
----@field _ticksPerGlyph integer
----@field _cursorBlinkTicks integer
+---@field _printerDelay integer
+---@field _audio table?
 ---@field _state "CLOSED"|"OPENING"|"REVEALING"|"WAITING_BOUNDARY"|"WAITING_CLOSE"|"SCROLLING"|"CLOSING"
 ---@field _request FieldDialogueController.Request?
 ---@field _handle FieldDialogueController.Handle?
@@ -34,8 +34,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldDialogueController = {}
 FieldDialogueController.__index = FieldDialogueController
 
-FieldDialogueController.DEFAULT_TICKS_PER_GLYPH = 2
-FieldDialogueController.DEFAULT_CURSOR_BLINK_TICKS = 30
+FieldDialogueController.DEFAULT_PRINTER_DELAY = 4
 
 -- Pages whose breakKind asks the reader for Action ("prompt", "page") wait;
 -- "line" and "overflow" auto-scroll into the next page the way the DS scrolls
@@ -44,7 +43,11 @@ FieldDialogueController.DEFAULT_CURSOR_BLINK_TICKS = 30
 ---@param page DialogueLayout.Page
 ---@return boolean
 local function waitsForAction(page)
-  return page.breakKind == "prompt" or page.breakKind == "page" or page.breakKind == "eos"
+  return page.breakKind == "prompt"
+    or page.breakKind == "page"
+    or page.breakKind == "clear"
+    or page.breakKind == "scroll"
+    or page.breakKind == "eos"
 end
 
 ---@param page DialogueLayout.Page
@@ -97,12 +100,12 @@ local function lineTokens(line)
 end
 
 -- opts.layout(formattedMessage) -> DialogueLayout.Result
--- opts.ticksPerGlyph (default 2), opts.cursorBlinkTicks (default 30).
+-- opts.printerDelay is measured in source printer ticks.
 
 ---@class FieldDialogueControllerOptions
 ---@field layout fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result
----@field ticksPerGlyph integer?
----@field cursorBlinkTicks integer?
+---@field printerDelay integer?
+---@field audio table? { play: function(self: table, soundRef: string) }
 
 ---@param opts FieldDialogueControllerOptions
 ---@return FieldDialogueController
@@ -111,20 +114,12 @@ function FieldDialogueController.new(opts)
     type(opts) == "table" and type(opts.layout) == "function",
     "FieldDialogueController requires a layout function"
   )
-  local ticksPerGlyph = opts.ticksPerGlyph or FieldDialogueController.DEFAULT_TICKS_PER_GLYPH
-  assert(
-    ticksPerGlyph >= 1 and ticksPerGlyph == math.floor(ticksPerGlyph),
-    "ticks per glyph must be a positive integer"
-  )
-  local cursorBlinkTicks = opts.cursorBlinkTicks or FieldDialogueController.DEFAULT_CURSOR_BLINK_TICKS
-  assert(
-    cursorBlinkTicks >= 1 and cursorBlinkTicks == math.floor(cursorBlinkTicks),
-    "cursor blink ticks must be a positive integer"
-  )
+  local printerDelay = opts.printerDelay or FieldDialogueController.DEFAULT_PRINTER_DELAY
+  assert(printerDelay >= 1 and printerDelay == math.floor(printerDelay), "printer delay must be a positive integer")
   return setmetatable({
     _layout = opts.layout,
-    _ticksPerGlyph = ticksPerGlyph,
-    _cursorBlinkTicks = cursorBlinkTicks,
+    _printerDelay = printerDelay,
+    _audio = opts.audio,
     _state = "CLOSED",
     _request = nil,
     _handle = nil,
@@ -143,6 +138,12 @@ function FieldDialogueController.new(opts)
     _scrollLines = nil,
     _scrollRemaining = 0,
     _scrollOffsetY = 0,
+    _pageTokens = nil,
+    _tokenIndex = 1,
+    _delayCounter = 0,
+    _pauseRemaining = 0,
+    _speedUp = false,
+    _cursorFrame = 1,
   }, FieldDialogueController)
 end
 
@@ -168,9 +169,9 @@ end
 function FieldDialogueController:status()
   local page = self._pages and self._pages[self._pageIndex]
   local waiting = self._state == "WAITING_BOUNDARY" or self._state == "WAITING_CLOSE"
-  local cursorOn = false
-  if waiting then
-    cursorOn = math.floor((self._waitTicks - 1) / self._cursorBlinkTicks) % 2 == 0
+  local continuationKind = nil
+  if waiting and page and (page.breakKind == "clear" or page.breakKind == "scroll") then
+    continuationKind = page.breakKind
   end
   local lines
   local scrollLines
@@ -198,7 +199,8 @@ function FieldDialogueController:status()
     revealedGlyphs = self._revealed,
     pageGlyphCount = page and self._pageGlyphs[self._pageIndex] or 0,
     waiting = waiting,
-    cursorOn = cursorOn,
+    continuationKind = continuationKind,
+    cursorPhase = waiting and ({ 0, 1, 2, 1 })[self._cursorFrame] or nil,
     warnings = self._warnings or {},
     visibleLines = lines,
     scrollLines = scrollLines,
@@ -271,6 +273,12 @@ function FieldDialogueController:_dispatch()
   self._scrollLines = nil
   self._scrollRemaining = 0
   self._scrollOffsetY = 0
+  self._pageTokens = nil
+  self._tokenIndex = 1
+  self._delayCounter = 0
+  self._pauseRemaining = 0
+  self._speedUp = false
+  self._cursorFrame = 1
   local ok, err = pcall(function()
     if callback then
       callback(terminal.result)
@@ -354,6 +362,21 @@ function FieldDialogueController:open(request)
   self._warnings = layout.warnings
   self._lineHeight = assert(layout.lineHeight or 16)
   self._lineSpacing = assert(layout.lineSpacing or 0)
+  self._pageTokens = {}
+  for pageIndex, page in ipairs(layout.pages) do
+    local tokens = {}
+    for _, line in ipairs(page.lines) do
+      for _, token in ipairs(line.tokens) do
+        tokens[#tokens + 1] = token
+      end
+    end
+    self._pageTokens[pageIndex] = tokens
+  end
+  self._tokenIndex = 1
+  self._delayCounter = 0
+  self._pauseRemaining = 0
+  self._speedUp = false
+  self._cursorFrame = 1
   self._state = "OPENING"
   if #self._pages == 0 then
     -- An empty or control-only message closes safely on its first step: the
@@ -377,6 +400,10 @@ function FieldDialogueController:_advancePage()
   self._revealed = 0
   self._revealTicks = 0
   self._waitTicks = 0
+  self._tokenIndex = 1
+  self._delayCounter = 0
+  self._pauseRemaining = 0
+  self._speedUp = false
   self._state = "REVEALING"
   return true
 end
@@ -407,6 +434,7 @@ function FieldDialogueController:_enterWait()
   local state = page.breakKind == "eos" and "WAITING_CLOSE" or "WAITING_BOUNDARY"
   self._state = state
   self._waitTicks = 0
+  self._cursorFrame = 1
 end
 
 -- Called when the current page has fully revealed: prompt/page/eos pages
@@ -433,27 +461,48 @@ function FieldDialogueController:_atPageEnd()
   self:_enterWait()
 end
 
----@param snapshot FieldDialogueController.Input
-function FieldDialogueController:_revealTick(snapshot)
+---@param sourceNew boolean
+---@param sourceHeld boolean
+function FieldDialogueController:_printerSubstep(sourceNew, sourceHeld)
   self._scrollOffsetY = 0
   local page = self._pages[self._pageIndex]
   local total = self._pageGlyphs[self._pageIndex]
-  if snapshot.actionPressed then
-    self._revealed = total
-    self._revealTicks = 0
-  else
-    self._revealTicks = self._revealTicks + 1
-    while self._revealTicks >= self._ticksPerGlyph do
-      self._revealTicks = self._revealTicks - self._ticksPerGlyph
-      self._revealed = self._revealed + 1
+  if sourceNew then
+    self._speedUp = true
+    self._delayCounter = 0
+  elseif sourceHeld then
+    self._speedUp = true
+  end
+  if self._pauseRemaining > 0 then
+    self._pauseRemaining = self._pauseRemaining - 1
+    return
+  end
+  local tokens = self._pageTokens[self._pageIndex]
+  while self._tokenIndex <= #tokens do
+    local token = tokens[self._tokenIndex]
+    if token.kind == "glyph" then
+      self._delayCounter = self._delayCounter + 1
+      local delay = self._speedUp and 1 or self._printerDelay
+      if self._delayCounter < delay then
+        return
+      end
+      self._delayCounter = 0
+      self._tokenIndex = self._tokenIndex + 1
+      self._revealed = math.min(total, self._revealed + 1)
+      if self._revealed >= total then
+        self:_atPageEnd()
+      end
+      return
     end
-    if self._revealed > total then
-      self._revealed = total
+    self._tokenIndex = self._tokenIndex + 1
+    if token.kind == "pause" then
+      self._pauseRemaining = assert(token.args and token.args[1], "pause control requires an argument")
+      return
+    elseif token.kind == "printer_callback" then
+      return
     end
   end
-  if self._revealed >= total then
-    self:_atPageEnd()
-  end
+  self:_atPageEnd()
 end
 
 -- One fixed simulation tick. snapshot = { actionPressed, cancelPressed }
@@ -467,6 +516,8 @@ function FieldDialogueController:step(snapshot)
     return nil
   end
   snapshot = snapshot or {}
+  local sourceNew = snapshot.actionPressed == true or (not self._request.allowCancel and snapshot.cancelPressed == true)
+  local sourceHeld = snapshot.actionDown == true or (not self._request.allowCancel and snapshot.cancelDown == true)
 
   if self._request.allowCancel and snapshot.cancelPressed and self._state ~= "CLOSING" then
     self._state = "CLOSED"
@@ -490,13 +541,21 @@ function FieldDialogueController:step(snapshot)
   end
 
   if self._state == "REVEALING" then
-    self:_revealTick(snapshot)
+    self:_printerSubstep(sourceNew, sourceHeld)
+    if self._state == "REVEALING" then
+      self:_printerSubstep(false, sourceHeld)
+    end
   elseif self._state == "WAITING_BOUNDARY" or self._state == "WAITING_CLOSE" then
     self._waitTicks = self._waitTicks + 1
-    if snapshot.actionPressed then
+    self._cursorFrame = self._cursorFrame % 4 + 1
+    if sourceNew then
+      if self._audio then
+        assert(type(self._audio.play) == "function", "dialogue audio host must provide play")
+        self._audio:play("SEQ_SE_DP_SELECT")
+      end
       if self._state == "WAITING_BOUNDARY" then
         local page = assert(self._pages[self._pageIndex])
-        if page.breakKind == "page" then
+        if page.breakKind == "page" or page.breakKind == "scroll" then
           self:_beginScroll()
         else
           self._retainedLines = {}
@@ -590,7 +649,9 @@ end
 
 ---@class FieldDialogueController.Input
 ---@field actionPressed boolean?
+---@field actionDown boolean?
 ---@field cancelPressed boolean?
+---@field cancelDown boolean?
 
 -- Snapshot of the controller's reveal position for the renderer and HUD.
 
@@ -606,7 +667,8 @@ end
 ---@field revealedGlyphs integer
 ---@field pageGlyphCount integer
 ---@field waiting boolean
----@field cursorOn boolean
+---@field continuationKind "clear"|"scroll"?
+---@field cursorPhase integer?
 ---@field warnings DialogueLayout.Warning[]
 ---@field visibleLines (MessageToken[]|FieldDialogueController.VisibleLine)[]
 ---@field scrollLines FieldDialogueController.VisibleLine[]?

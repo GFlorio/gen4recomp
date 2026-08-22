@@ -539,7 +539,8 @@ function FieldRuntime:_load()
     end
     self.dialogue = FieldDialogueController.new({
       layout = layoutMessage,
-      ticksPerGlyph = FieldPlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
+      printerDelay = FieldPlayerData.textFrameDelay(self.playerData.options.textSpeed),
+      audio = self.audio or (self.scriptHosts and self.scriptHosts.audio),
     })
     -- The signpost controller is fixed-tick and pure; the script platform
     -- advances it once per scheduler tick through the signpost host. The

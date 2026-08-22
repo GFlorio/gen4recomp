@@ -129,6 +129,23 @@ function T.prompt_and_page_breaks_boundary_pages()
   Assert.equal(textOf(layout.pages[3].lines[1]), "AAAA")
 end
 
+function T.extended_continuations_are_distinct_layout_boundaries()
+  local tokens = {
+    { kind = "glyph", code = 0x0121, text = "A", raw = { 0x0121 } },
+    { kind = "clear_continuation", control = 0x0207, args = {}, raw = { 0xFFFE, 0x0207, 0 } },
+    { kind = "glyph", code = 0x0122, text = "B", raw = { 0x0122 } },
+    { kind = "scroll_continuation", control = 0x0208, args = {}, raw = { 0xFFFE, 0x0208, 0 } },
+    { kind = "glyph", code = 0x0123, text = "C", raw = { 0x0123 } },
+    { kind = "eos", raw = { 0xFFFF } },
+  }
+  local layout = DialogueLayout.layout(tokens, metrics(FONT), { width = 24, maxLines = 2 })
+  Assert.equal(layout.pages[1].breakKind, "clear")
+  Assert.equal(layout.pages[2].breakKind, "scroll")
+  Assert.equal(textOf(layout.pages[1].lines[1]), "A")
+  Assert.equal(textOf(layout.pages[2].lines[1]), "B")
+  Assert.equal(textOf(layout.pages[3].lines[1]), "C")
+end
+
 function T.overwide_glyph_is_placed_alone_and_traced()
   local wideFont = {
     [0x0121] = { advance = 60 },

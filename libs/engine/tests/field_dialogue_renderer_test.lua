@@ -283,7 +283,7 @@ local function openedWithTokens(tokens, opts)
         warnings = {},
       }
     end,
-    ticksPerGlyph = opts.ticksPerGlyph or 2,
+    printerDelay = opts.printerDelay or 2,
   })
   controller:open({
     id = "focus",
@@ -310,8 +310,8 @@ function T.focus_indicator_not_reached_by_reveal_is_not_drawn()
     text = withTextRenderer(uiCache(), lg),
     graphics = lg,
   })
-  local controller = openedWithTokens({ glyphToken(1), glyphToken(2), focusToken(0) }, { ticksPerGlyph = 1 })
-  controller:step({})
+  local controller = openedWithTokens({ glyphToken(1), glyphToken(2), focusToken(0) }, { printerDelay = 2 })
+  controller:step({}) -- opening and two source updates reveal one glyph
   Assert.equal(controller:status().revealedGlyphs, 1, "the reveal cursor has not reached the trailing control")
   local viewport0 = FieldViewport.new(256, 192, { mode = "expanded" })
   renderer:draw(controller, viewport0, viewport0:logicalPixelScale(1))
@@ -341,7 +341,7 @@ function T.reached_focus_indicator_draws_at_the_content_window_right_edge()
   end
   local status = controller:status()
   Assert.equal(status.waiting, true)
-  Assert.equal(status.cursorOn, true, "the continuation cursor is on at its blink edge")
+  Assert.isTrue(status.cursorPhase ~= nil and status.cursorPhase > 0, "the continuation cursor is on at its blink edge")
 
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local focus = focusDraws(lg)

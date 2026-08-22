@@ -49,7 +49,7 @@ function T.contract_pins_the_current_asset_identities()
       fieldSchema = "g4-field-map-v5",
     },
     messages = {
-      cacheFormat = "field-message-cache-v2",
+      cacheFormat = "field-message-cache-v3",
       schema = "g4-field-message-bank-v1",
       indexSchema = "g4-field-message-index-v1",
       provenanceSchema = "g4-field-message-provenance-v1",

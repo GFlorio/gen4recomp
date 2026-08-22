@@ -131,7 +131,7 @@ end
 ---@param status FieldDialogueController.Status
 ---@param layout FieldDialogueTheme.Layout
 function FieldDialogueRenderer:_drawCursor(status, layout)
-  if not status.waiting or not status.cursorOn then
+  if not status.waiting or status.cursorPhase == nil or status.cursorPhase == 0 then
     return
   end
   local lg = assert(self._graphics)

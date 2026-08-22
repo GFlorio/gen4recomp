@@ -173,6 +173,10 @@ function DialogueLayout.layout(tokens, metrics, opts)
       endPage("prompt")
     elseif token.kind == "page_break" then
       endPage("page")
+    elseif token.kind == "clear_continuation" then
+      endPage("clear")
+    elseif token.kind == "scroll_continuation" then
+      endPage("scroll")
     else
       -- style/wait/focus_indicator/substitution/unsupported tokens are
       -- zero-width and cannot be split: keep them at their source position
@@ -205,7 +209,7 @@ end
 
 ---@class DialogueLayout.Page
 ---@field lines DialogueLayout.Line[]
----@field breakKind "prompt"|"page"|"line"|"overflow"|"eos"
+---@field breakKind "prompt"|"page"|"clear"|"scroll"|"line"|"overflow"|"eos"
 
 -- A traced layout problem (a glyph token wider than the box).
 

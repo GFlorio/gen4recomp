@@ -82,13 +82,49 @@ function T.strvar_families_classify_as_substitutions()
   end
 end
 
-function T.style_and_wait_controls_keep_their_kinds()
+function T.style_and_callback_controls_keep_their_kinds()
   local tokens = tokenize({ 0xFFFE, 0xFF00, 0x0001, 0x0001, 0xFFFE, 0x0202, 0x0000, 0xFFFF })
   Assert.equal(tokens[1].kind, "style")
   Assert.equal(tokens[1].control, 0xFF00)
   Assert.deepEqual(tokens[1].args, { 0x0001 })
-  Assert.equal(tokens[2].kind, "wait")
+  Assert.equal(tokens[2].kind, "printer_callback")
   Assert.equal(tokens[2].control, 0x0202)
+end
+
+function T.extended_continuations_keep_identity_and_consume_only_the_following_lf()
+  local tokens = tokenize({
+    0xFFFE,
+    0x0207,
+    0x0000,
+    0xE000,
+    0x0121,
+    0xFFFE,
+    0x0208,
+    0x0000,
+    0xE000,
+    0x0122,
+    0xFFFF,
+  })
+  Assert.equal(tokens[1].kind, "clear_continuation")
+  Assert.equal(tokens[2].kind, "glyph")
+  Assert.equal(tokens[2].code, 0x0121)
+  Assert.equal(tokens[3].kind, "scroll_continuation")
+  Assert.equal(tokens[4].kind, "glyph")
+  Assert.equal(tokens[4].code, 0x0122)
+
+  local fontDef = { charmap = { A = 0x0121, B = 0x0122 } }
+  local clear = assert(FieldMessageText.parse("{UNK_207}", fontDef, { eos = false }))
+  local scroll = assert(FieldMessageText.parse("{UNK_208}", fontDef, { eos = false }))
+  Assert.equal(clear[1].control, 0x0207)
+  Assert.equal(scroll[1].control, 0x0208)
+  Assert.equal(FieldMessageText.tokensToText(clear), "{UNK_207}")
+  Assert.equal(FieldMessageText.tokensToText(scroll), "{UNK_208}")
+end
+
+function T.extended_continuations_do_not_skip_a_non_lf_token()
+  local tokens = tokenize({ 0xFFFE, 0x0207, 0x0000, 0x0121, 0xFFFF })
+  Assert.equal(tokens[2].kind, "glyph")
+  Assert.equal(tokens[2].code, 0x0121)
 end
 
 function T.unknown_extended_control_is_visible_not_dropped()

@@ -40,6 +40,16 @@ function FieldPlayerData.ticksPerGlyph(textSpeed)
   return cadence
 end
 
+-- HGSS printer delays are integer 60 Hz updates, not field-tick durations.
+---@param textSpeed string
+---@return integer
+function FieldPlayerData.textFrameDelay(textSpeed)
+  local delays = { slow = 8, mid = 4, fast = 1 }
+  local delay = delays[textSpeed]
+  assert(delay ~= nil, "unknown text speed")
+  return delay
+end
+
 -- Strict validation (raising). Returns the exact canonical model shape: the
 -- profile (name/gender/trainerId) and the options (textFrame/textSpeed)
 -- tables, every field within its strict range, the name encodable by the
