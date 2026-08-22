@@ -85,6 +85,95 @@ function T.layout_keeps_card_body_and_delete_hit_regions_exclusive()
   Assert.isFalse(MainMenuLayout.contains(card.body, card.delete.x + 1, card.delete.y + 1))
 end
 
+function T.layout_clamps_previous_offset_after_resize()
+  local menuItems = items({
+    "new-game",
+    "save-1",
+    "save-2",
+    "save-3",
+    "save-4",
+    "save-5",
+    "save-6",
+    "save-7",
+    "save-8",
+  })
+  local narrow = MainMenuLayout.compute(menuItems, 9, 320, 180, 0, nil)
+  local layout = MainMenuLayout.compute(menuItems, 9, 320, 400, narrow.offset, nil)
+
+  Assert.equal(layout.offset, 124)
+end
+
+function T.content_hit_testing_uses_half_open_boundaries()
+  local content = { x = 16, y = 48, width = 128, height = 64 }
+  Assert.isTrue(MainMenuLayout.contains(content, 16, 48))
+  Assert.isTrue(MainMenuLayout.contains(content, 143, 111))
+  Assert.isFalse(MainMenuLayout.contains(content, 144, 111))
+  Assert.isFalse(MainMenuLayout.contains(content, 143, 112))
+end
+
+function T.long_menu_keeps_the_last_focused_card_inside_the_content_viewport()
+  local entries = {}
+  for index = 1, 8 do
+    entries[#entries + 1] = {
+      saveId = string.format("save-%08d", index),
+      versionId = "heartgold",
+      playerData = { profile = { name = "P" .. index } },
+      playTimeSeconds = index * 60,
+    }
+  end
+  local menu = MainMenuState.new({
+    saveStore = {
+      list = function()
+        return entries
+      end,
+    },
+    readyVersions = { "heartgold" },
+    width = 320,
+    height = 180,
+  })
+
+  for _ = 1, 40 do
+    menu:keypressed("down")
+  end
+
+  local view = menu:view()
+  local content = assert(view.layout.content)
+  local card = assert(view.layout.cards["save-00000008"])
+  Assert.equal(view.focusedId, "save-00000008")
+  Assert.isTrue(view.layout.offset > 0)
+  Assert.isTrue(card.body.y >= content.y)
+  Assert.isTrue(card.body.y + card.body.height <= content.y + content.height)
+end
+
+function T.pointer_outside_the_content_viewport_does_not_activate_a_clipped_card()
+  local results = {}
+  local menu = MainMenuState.new({
+    saveStore = {
+      list = function()
+        return {}
+      end,
+    },
+    readyVersions = { "heartgold" },
+    onResult = function(result)
+      results[#results + 1] = result
+    end,
+    width = 320,
+    height = 80,
+  })
+  local view = menu:view()
+  local content = assert(view.layout.content)
+  local card = assert(view.layout.cards["new-game"])
+  Assert.isTrue(card.body.y < card.body.y + card.body.height)
+  Assert.isTrue(card.body.y + card.body.height > content.y + content.height)
+
+  menu:mousepressed(card.body.x + 1, content.y + content.height, 1)
+  menu:touchpressed("finger-1", card.body.x + 1, content.y + content.height)
+
+  Assert.deepEqual(menu:hitTest(card.body.x + 1, content.y + content.height), { primary = nil, delete = nil })
+  Assert.deepEqual(results, {})
+  Assert.equal(menu:view().focusedId, "new-game")
+end
+
 function T.refresh_preserves_focus_by_stable_save_identity()
   local controller = MainMenuController.new({ item("new-game", true), item("one", true), item("two", true) })
   controller:setFocusedId("two")

@@ -31,45 +31,55 @@ end
 ---@return table
 function MainMenuLayout.compute(items, focusedIndex, width, height, previousOffset, dialog)
   assert(type(items) == "table" and #items > 0, "Main Menu layout needs items")
-  assert(type(width) == "number" and type(height) == "number", "Main Menu layout needs viewport dimensions")
+  assert(
+    type(width) == "number" and width > 0 and type(height) == "number" and height > 0,
+    "Main Menu layout needs positive viewport dimensions"
+  )
   local viewport = { x = 0, y = 0, width = math.max(1, width), height = math.max(1, height) }
   local contentX = MARGIN
   local contentY = MARGIN + HEADER_HEIGHT
-  local contentWidth = math.max(1, width - MARGIN * 2)
-  local contentHeight = math.max(1, height - MARGIN * 2 - HEADER_HEIGHT)
-  local cardsHeight = #items * CARD_HEIGHT + (#items - 1) * CARD_GAP
-  local maxOffset = math.max(0, cardsHeight - contentHeight)
+  local content = {
+    x = contentX,
+    y = contentY,
+    width = math.max(1, width - MARGIN * 2),
+    height = math.max(1, height - MARGIN * 2 - HEADER_HEIGHT),
+  }
+  local totalCardsHeight = #items * CARD_HEIGHT + (#items - 1) * CARD_GAP
+  local maxOffset = math.max(0, totalCardsHeight - content.height)
   local offset = clamp(previousOffset or 0, 0, maxOffset)
   local focusedTop = (focusedIndex - 1) * (CARD_HEIGHT + CARD_GAP)
   local focusedBottom = focusedTop + CARD_HEIGHT
-  if focusedTop < offset then
-    offset = focusedTop
-  elseif focusedBottom > offset + viewport.height then
-    offset = focusedBottom - viewport.height
+  if CARD_HEIGHT <= content.height then
+    if focusedTop < offset then
+      offset = focusedTop
+    elseif focusedBottom > offset + content.height then
+      offset = focusedBottom - content.height
+    end
   end
   offset = clamp(offset, 0, maxOffset)
 
   local cards = {}
   for index, item in ipairs(items) do
-    local y = contentY + (index - 1) * (CARD_HEIGHT + CARD_GAP) - offset
-    local fullWidth = contentWidth
+    local y = content.y + (index - 1) * (CARD_HEIGHT + CARD_GAP) - offset
+    local fullWidth = content.width
     local bodyWidth = fullWidth
     local delete = nil
     if item.canDelete then
       bodyWidth = math.max(1, fullWidth - DELETE_WIDTH - DELETE_GAP)
-      delete = { x = contentX + bodyWidth + DELETE_GAP, y = y, width = DELETE_WIDTH, height = CARD_HEIGHT }
+      delete = { x = content.x + bodyWidth + DELETE_GAP, y = y, width = DELETE_WIDTH, height = CARD_HEIGHT }
     end
     cards[item.id] = {
-      body = { x = contentX, y = y, width = bodyWidth, height = CARD_HEIGHT },
+      body = { x = content.x, y = y, width = bodyWidth, height = CARD_HEIGHT },
       delete = delete,
     }
   end
 
   local result = {
     viewport = viewport,
+    content = content,
     cards = cards,
     offset = offset,
-    contentHeight = cardsHeight,
+    totalCardsHeight = totalCardsHeight,
   }
   if dialog then
     local boxWidth = math.max(1, math.min(420, width - MARGIN * 2))

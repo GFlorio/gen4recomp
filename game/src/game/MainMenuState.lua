@@ -292,6 +292,9 @@ function MainMenuState:_pointer(x, y)
     return
   end
   local layout = self:layout()
+  if not MainMenuLayout.contains(layout.content, x, y) then
+    return
+  end
   for _, item in ipairs(self.items) do
     local card = layout.cards[item.id]
     if card then
@@ -324,6 +327,9 @@ end
 ---@return { primary: string|nil, delete: string|nil }
 function MainMenuState:hitTest(x, y)
   local layout = self:layout()
+  if not MainMenuLayout.contains(layout.content, x, y) then
+    return { primary = nil, delete = nil }
+  end
   for _, item in ipairs(self.items) do
     local card = layout.cards[item.id]
     if card then
