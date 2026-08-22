@@ -64,6 +64,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field height number?
 ---@field onComplete fun(result: table)?
 ---@field audioSink OakIntroStateAudioSink?
+---@field audioLifetime table?
 
 ---@class OakIntroState
 ---@field new fun(options: OakIntroStateOptions): OakIntroState
@@ -78,6 +79,8 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field completed boolean
 ---@field onComplete fun(result: table)?
 ---@field audioSink OakIntroStateAudioSink?
+---@field audioLifetime table?
+---@field disposed boolean
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
 ---@field update fun(self: OakIntroState, dt: number)
@@ -177,16 +180,24 @@ function OakIntroState.new(options)
       accumulator = 0,
       textInputEnabled = nil,
       completed = false,
+      disposed = false,
       onComplete = options.onComplete,
       audioSink = options.audioSink,
+      audioLifetime = options.audioLifetime,
     }, OakIntroState)
     self:_setTextInput(false)
     self.controller:start()
     return self
   end)
   if not ok then
+    if options.controller.dispose then
+      pcall(options.controller.dispose, options.controller)
+    end
     if self and self.renderer and self.renderer.dispose then
       pcall(self.renderer.dispose, self.renderer)
+    end
+    if self and self.audioLifetime then
+      pcall(self.audioLifetime.dispose, self.audioLifetime)
     end
     error(result, 0)
   end
@@ -333,11 +344,19 @@ function OakIntroState:touchpressed(_, x, y)
 end
 
 function OakIntroState:dispose()
+  if self.disposed then
+    return
+  end
+  self.disposed = true
   self:_setTextInput(false)
   self.controller:dispose()
   if self.renderer then
     self.renderer:dispose()
     self.renderer = nil
+  end
+  if self.audioLifetime then
+    self.audioLifetime:dispose()
+    self.audioLifetime = nil
   end
 end
 
