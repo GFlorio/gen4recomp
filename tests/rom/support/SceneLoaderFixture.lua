@@ -240,6 +240,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     transition = transition,
     input = harness.input,
     playerVisual = playerVisual,
+    fieldEntranceIndicator = { updateFixed = function() end },
     actors = actors,
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     dialogue = {

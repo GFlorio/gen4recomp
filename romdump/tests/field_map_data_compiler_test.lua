@@ -67,6 +67,7 @@ end
 function T.compiles_map_header_types_to_transition_environments_and_rejects_unknown_types()
   local cases = {
     { mapId = 0, expected = "outdoors" },
+    { mapId = 3, expected = "cave" },
     { mapId = 7, expected = "cave" },
     { mapId = 60, expected = "outdoors" },
     { mapId = 61, expected = "building" },
@@ -201,15 +202,20 @@ function T.failed_rebuild_preserves_the_previous_record()
   Assert.isTrue(FieldMapDataCache.isReady(cache, 60, second.marker), "a retry publishes the new record")
 end
 
-function T.compile_all_rejects_an_unmapped_catalog_type_with_context()
+function T.compile_all_skips_the_placeholder_map_but_keeps_actual_records()
   local romFs, sha1, hashLua = allMapsFixture()
-  local bundles, err = FieldMapDataCompiler.compileAll(romFs, sha1, hashLua)
-  Assert.isNil(bundles)
-  Assert.notNil(err)
-  err = assert(err)
-  Assert.equal(err.context.mapId, 1)
-  Assert.equal(err.context.mapSymbol, "MAP_NOTHING")
-  Assert.equal(err.context.mapType, "INVALID")
+  local bundles, compileErr = FieldMapDataCompiler.compileAll(romFs, sha1, hashLua)
+  assert(bundles ~= nil, compileErr)
+  ---@cast bundles table
+  Assert.equal(#bundles, 539)
+
+  local byId = {}
+  for _, bundle in ipairs(bundles) do
+    byId[bundle.mapId] = bundle
+  end
+  Assert.isNil(byId[1], "MAP_NOTHING is a catalog placeholder, not a field record")
+  Assert.notNil(byId[0])
+  Assert.notNil(byId[2])
 end
 
 return { tests = T }

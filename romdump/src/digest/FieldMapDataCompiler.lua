@@ -20,6 +20,7 @@ local FieldMapDataCompiler = {}
 local TRANSITION_ENVIRONMENT_BY_MAP_TYPE = {
   CAVE = "cave",
   CITY_TOWN = "outdoors",
+  UNDERGROUND = "cave",
   ROUTE = "outdoors",
   INTERIOR = "building",
   POKEMON_CENTER = "building",
@@ -306,7 +307,11 @@ function FieldMapDataCompiler.compileAll(romFs, sha1hex, hashLua)
     local source = loadSource(romFs, sha1hex)
     local bundles = {}
     for map in MapCatalog.all() do
-      bundles[#bundles + 1] = compileMap(romFs, map, source, sha1hex, hashLua)
+      -- MAP_NOTHING is the catalog's unused header filler, not a runtime map.
+      -- Keep transitionEnvironment strict for every actual map record.
+      if map.symbol ~= "MAP_NOTHING" or map.mapType ~= "INVALID" then
+        bundles[#bundles + 1] = compileMap(romFs, map, source, sha1hex, hashLua)
+      end
     end
     return bundles
   end)
