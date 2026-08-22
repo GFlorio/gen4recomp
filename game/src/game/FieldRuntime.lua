@@ -642,6 +642,7 @@ function FieldRuntime:_load()
       contextChoice = self.contextChoiceProvider,
       signpost = self.signpost,
       applicationHost = self.applicationHost,
+      initController = self.scripts.initController,
       -- The session's fixed-tick audio collaborator is the production
       -- GameSound only; a recording script adapter is a script service, not
       -- a session collaborator.

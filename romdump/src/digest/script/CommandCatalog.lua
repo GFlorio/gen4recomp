@@ -26,6 +26,10 @@ for opcode, entry in pairs(ScriptCommands.byOpcode) do
     CommandCatalog.CLASSIFICATION[opcode] = entry.classification
   end
 end
+-- ScrCmd_609 checks for a following Pokémon and returns FALSE when none is
+-- present. The opening path has no follower, so its supported semantics are
+-- one scheduler yield; active followers remain explicitly unsupported.
+CommandCatalog.CLASSIFICATION[609] = CommandCatalog.YIELD
 
 -- The supported opcodes: every opcode with an explicit timing
 -- descriptor; everything else decodes but stays an explicit unsupported node.

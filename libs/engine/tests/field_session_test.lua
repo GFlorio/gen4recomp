@@ -304,6 +304,43 @@ function T.camera_follows_the_player_xyz_each_fixed_tick()
   Assert.deepEqual(targets[1], { x = 1.25, y = 2.5, z = 3.75 })
 end
 
+function T.map_init_claims_the_tick_before_scheduler_and_player_input()
+  local order = {}
+  local controller = {
+    evaluate = function(_, tick)
+      order[#order + 1] = "init:" .. tick
+      return true
+    end,
+  }
+  local scheduler = {
+    step = function()
+      order[#order + 1] = "scheduler"
+    end,
+    playerMovementLocked = function()
+      return false
+    end,
+  }
+  local input = idleInput()
+  input.snapshot = function()
+    return { pressedDirection = "south" }
+  end
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    order[#order + 1] = "player"
+    return false
+  end
+  local session = FieldSession.new(baseOptions({
+    initController = controller,
+    scriptScheduler = scheduler,
+    input = input,
+    player = player,
+  }))
+
+  session:updateFixed()
+
+  Assert.deepEqual(order, { "init:1" })
+end
+
 function T.completed_transition_holds_the_arrival_tile_for_autosave()
   local updates = 0
   local player = {

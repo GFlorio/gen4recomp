@@ -47,6 +47,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field audio { updateField: fun(self: table) }?
+---@field initController table|nil
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -69,6 +70,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field audio { updateField: fun(self: table) }?
+---@field initController table|nil
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -144,6 +146,7 @@ function FieldSession.new(options)
     signpost = options.signpost,
     applicationHost = options.applicationHost,
     audio = options.audio,
+    initController = options.initController,
     tick = 0,
     accumulator = 0,
   }, FieldSession)
@@ -250,6 +253,11 @@ function FieldSession:updateFixed(inputSnapshot)
   -- aggregate fans one call out to the central scene runtime and the
   -- neighbor coverage runtime. No other module steps it.
   self.currentMap:updateAnimated()
+
+  if self.initController and self.initController:evaluate(self.tick + 1) then
+    self:_advanceTick()
+    return
+  end
 
   -- Script phase : the field-script scheduler
   -- advances script-owned asynchronous work, polls tasks, promotes completed

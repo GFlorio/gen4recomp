@@ -44,6 +44,7 @@ function FieldMapDataFixture.build(opts)
       [landMemberId] = LandDataBuilder.build({ bgsPayload = opts.landBgsPayload or "" }),
     },
     zone_events = { [eventMemberId] = opts.zoneEventsMember or ZoneEventsBuilder.build() },
+    field_script_headers = { [opts.scriptHeaderMemberId or 618] = opts.scriptHeaderMember or "" },
   }
   for alias, byId in pairs(opts.members or {}) do
     for memberId, bytes in pairs(byId) do
@@ -69,7 +70,7 @@ function FieldMapDataFixture.build(opts)
       local byId = assert(members[alias], "fixture has no archive " .. alias)
       return {
         memberCount = function()
-          return 512
+          return 965
         end,
         readMember = function(_, memberId)
           -- Every catalog map names its own event and matrix members; the
@@ -81,6 +82,9 @@ function FieldMapDataFixture.build(opts)
           end
           if alias == "map_matrices" then
             return assert(members.map_matrices[opts.matrixMemberId or FieldMapDataFixture.MATRIX_MEMBER_ID])
+          end
+          if alias == "field_script_headers" then
+            return assert(members.field_script_headers[opts.scriptHeaderMemberId or 618])
           end
           local bytes = byId[memberId]
           assert(bytes, string.format("fixture %s has no member %d", alias, memberId))

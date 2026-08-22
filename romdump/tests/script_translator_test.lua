@@ -85,6 +85,17 @@ T["lab sign fold shape"] = function()
   Assert.isTrue(report.complete)
 end
 
+T["opcode 609 lowers to the follower gate"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      { offset = 0x20, instructions = { { op = 609, args = {} }, { op = 2, args = {} } } },
+    },
+  })
+  local _, steps, report = translate(bytes, 845, 0)
+  Assert.equal(steps[1].op, "yield_tick")
+  Assert.isTrue(report.complete)
+end
+
 -- 2. Emission is deterministic and byte-stable, and the resource validates.
 T["emitter determinism and validation"] = function()
   local _, steps, report = translate(labSignMember(), 843, 0)

@@ -20,6 +20,7 @@ local WorldState = require("libs.engine.src.script.WorldState")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local MapInitScriptController = require("libs.engine.src.MapInitScriptController")
 
 -- Every task implementation the runtime can create, registered into the
 -- live task registry below.
@@ -180,6 +181,7 @@ end
 ---@field registrySnapshotUsed boolean true when a matching snapshot skipped per-use validation
 ---@field warmup RegistryWarmup|nil background warm-up after a snapshot miss
 ---@field taskRegistry TaskRegistry the live registered-task registry
+---@field initController MapInitScriptController
 local FieldScripts = {}
 FieldScripts.__index = FieldScripts
 
@@ -277,6 +279,8 @@ function FieldScripts.new(opts)
     end,
   })
 
+  ---@class FieldScriptsPlatform: FieldScripts
+  ---@field initController MapInitScriptController
   local platform = setmetatable({
     registry = registry,
     registrySnapshotKey = snapshot and snapshot.key or nil,
@@ -342,6 +346,12 @@ function FieldScripts.new(opts)
       return composition:effective(id)
     end,
     scheduler = scheduler,
+    scriptBankId = opts.sourceMap.fieldData.scriptBankId,
+  })
+  platform.initController = MapInitScriptController.new({
+    rules = opts.sourceMap.fieldData.initScripts,
+    world = worldState,
+    scriptClient = platform.client,
   })
   return platform
 end
@@ -375,6 +385,8 @@ end
 function FieldScripts:onMapSwap(player, sourceMap)
   self.player:setPlayer(player)
   self.mapsService:setSourceMap(sourceMap)
+  self.client:setScriptBankId(sourceMap.fieldData.scriptBankId)
+  self.initController:setRules(sourceMap.fieldData.initScripts)
 end
 
 return FieldScripts

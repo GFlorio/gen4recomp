@@ -280,12 +280,13 @@ local function writeFieldRecord(c, mapId, events, audioPolicy, schema)
       soundplates = {},
     }
   c:writeLua(FieldMapDataCache.fieldPath(mapId), {
-    schema = schema or "g4-field-map-v5",
+    schema = schema or "g4-field-map-v6",
     mapId = mapId,
     mapSymbol = "test",
     events = events,
     music = audioPolicy.music,
     soundplates = audioPolicy.soundplates,
+    initScripts = {},
   })
   c:writeLua(FieldMapDataCache.dependenciesPath(mapId), { cacheFormat = FieldMapDataCache.FORMAT })
   c:write(FieldMapDataCache.markerPath(mapId), "m")

@@ -182,6 +182,9 @@ end
 -- the instruction participates in a multi-instruction fold handled by the
 -- walker (wait_button / close_msg are consumed by the say fold).
 local HANDLERS = {
+  [609] = function()
+    return { op = "yield_tick" }
+  end, -- no-follower path of ScrCmd_609
   [0] = function()
     return nil
   end, -- Nop

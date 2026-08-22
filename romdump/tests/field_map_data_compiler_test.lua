@@ -39,11 +39,36 @@ local function allMapsFixture()
   return romFs, sha1, hashLua
 end
 
+local function playerHouseHeader()
+  return string.char(
+    0x01,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x06,
+    0x41,
+    0x03,
+    0x00,
+    0x07,
+    0x00,
+    0x06,
+    0x41,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0x00
+  )
+end
+
 function T.compiles_catalog_identity_source_and_events()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
   Assert.equal(bundle.mapId, 60)
-  Assert.equal(bundle.field.schema, "g4-field-map-v5")
+  Assert.equal(bundle.field.schema, "g4-field-map-v6")
   Assert.equal(bundle.field.mapSymbol, "MAP_NEW_BARK")
   Assert.equal(bundle.field.cameraType, 0)
   -- Source identity lives only in the dependency record; the runtime asset
@@ -61,6 +86,37 @@ function T.compiles_catalog_identity_source_and_events()
 
   local again = assert(FieldMapDataCompiler.compile(romFs, "MAP_NEW_BARK", sha1, hashLua))
   Assert.equal(LuaWriter.encode(bundle.field), LuaWriter.encode(again.field))
+end
+
+function T.emits_strict_init_script_array_for_every_map()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
+  Assert.equal(bundle.field.schema, "g4-field-map-v6")
+  Assert.deepEqual(bundle.field.initScripts, {})
+end
+
+function T.player_house_header_618_resolves_scripts_in_body_bank_845()
+  local romFs = FieldMapDataFixture.build({ scriptHeaderMember = playerHouseHeader() })
+  local bundle = assert(FieldMapDataCompiler.compile(romFs, 63, function()
+    return "archive-sha"
+  end, function()
+    return "dependency-sha"
+  end))
+  Assert.equal(bundle.field.scriptBankId, 845)
+  Assert.deepEqual(bundle.field.initScripts[1].rules, {
+    {
+      variableId = 0x4106,
+      equals = 3,
+      scriptIndex = 6,
+      scriptId = "vanilla.hgss.scr_seq.0845.script_006",
+    },
+    {
+      variableId = 0x4106,
+      equals = 0,
+      scriptIndex = 0,
+      scriptId = "vanilla.hgss.scr_seq.0845.script_000",
+    },
+  })
 end
 
 function T.map_header_music_fields_are_emitted_as_canonical_sequence_references()

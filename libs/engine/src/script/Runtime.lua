@@ -543,6 +543,20 @@ HANDLERS.request_start_menu = function(node, run)
 end
 
 HANDLERS.yield_tick = function(node, run)
+  if node.source and node.source.opcodes then
+    for _, opcode in ipairs(node.source.opcodes) do
+      if opcode == 609 then
+        local actors = requireService(run, "actors")
+        if actors ~= nil and actors:partnerId() ~= nil then
+          Errors.raise(ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE, "opcode 609 follower path is unsupported", {
+            scriptId = run.instance.scriptId,
+            command = 609,
+          })
+        end
+        break
+      end
+    end
+  end
   return Runtime.OUTCOME_YIELD_TICK
 end
 

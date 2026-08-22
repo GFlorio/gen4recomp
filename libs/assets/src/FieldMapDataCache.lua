@@ -12,6 +12,14 @@ FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
 
+local function hasInitScripts(field)
+  return Validate.isArray(field.initScripts)
+end
+
+function FieldMapDataCache.hasRequiredInitScripts(field)
+  return type(field) == "table" and hasInitScripts(field)
+end
+
 -- The audio policy the current field-map schema always carries: the music
 -- record and the soundplates array. Soundplate records are runtime-semantic
 -- only (rectangle, sequence, donor-bank flag, derived duck/ambient targets,
@@ -80,7 +88,7 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
     return false
   end
   local events = field.events
-  if not FieldMapDataCache.hasRequiredEvents(events) or not hasAudioPolicy(field) then
+  if not FieldMapDataCache.hasRequiredEvents(events) or not hasAudioPolicy(field) or not hasInitScripts(field) then
     return false
   end
   return true

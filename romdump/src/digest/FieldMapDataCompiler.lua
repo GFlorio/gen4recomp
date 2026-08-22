@@ -14,6 +14,7 @@ local LandData = require("romdump.src.digest.LandData")
 local HgssSoundplate = require("romdump.src.digest.HgssSoundplate")
 local Hashing = require("romdump.src.digest.Hashing")
 local fieldAudio = require("romdump.src.reference.hgss.field_audio")
+local ScriptHeader = require("romdump.src.digest.ScriptHeader")
 
 local FieldMapDataCompiler = {}
 
@@ -127,6 +128,19 @@ local function loadSource(romFs, sha1hex)
   }
 end
 
+local function loadHeaderSource(romFs, sha1hex)
+  local archiveInfo = romFs:resolvedNarc("field_script_headers")
+  if not archiveInfo then
+    Errors.raise("ROMFS_NARC_UNRESOLVED", "field_script_headers NARC is unavailable", { name = "field_script_headers" })
+  end
+  local archiveBytes = must(romFs:read(archiveInfo.fileId))
+  return {
+    archive = must(romFs:openNarc("field_script_headers")),
+    archiveInfo = archiveInfo,
+    archiveSha1 = sha1hex(archiveBytes),
+  }
+end
+
 -- The engine's SoundplateStruct is the whole land BGS block (field_control.c):
 -- the 0x1234 signature bytes and a u16 record byte count precede the 8-byte
 -- records, so the struct header is the BGS block header, not part of the
@@ -191,7 +205,7 @@ local function compileSoundplates(romFs, map, sha1hex)
     }
 end
 
-local function compileMap(romFs, map, source, sha1hex, hashLua)
+local function compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
   local memberBytes = must(source.archive:readMember(map.eventMemberId))
   local decoded = must(ZoneEvents.decode(memberBytes, {
     mapId = map.id,
@@ -201,6 +215,12 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
 
   local memberSha1 = sha1hex(memberBytes)
   local soundplates, audioSource = compileSoundplates(romFs, map, sha1hex)
+  local headerBytes = must(headerSource.archive:readMember(map.scriptHeaderMemberId))
+  local initScripts = must(ScriptHeader.parse(headerBytes, {
+    mapId = map.id,
+    memberId = map.scriptHeaderMemberId,
+    scriptBankId = map.scriptsMemberId,
+  }))
   local dependencies = {
     cacheFormat = FieldMapDataCache.FORMAT,
     mapCatalogVersion = MapCatalog.VERSION,
@@ -215,6 +235,16 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     },
     eventMemberId = map.eventMemberId,
     eventMemberSha1 = memberSha1,
+    scriptHeaderMemberId = map.scriptHeaderMemberId,
+    scriptHeaderMemberSha1 = sha1hex(headerBytes),
+    scriptHeaderNarc = {
+      symbol = headerSource.archiveInfo.symbol,
+      alias = headerSource.archiveInfo.alias,
+      narcId = headerSource.archiveInfo.narcId,
+      fileId = headerSource.archiveInfo.fileId,
+      path = headerSource.archiveInfo.path,
+      sha1 = headerSource.archiveSha1,
+    },
     -- The map-matrix and land members the audio policy derives from: the
     -- matrix cell picks the land member, whose BGS payload carries the
     -- soundplates. Source identity lives only in this dependency record.
@@ -232,6 +262,7 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     -- bank; it reads these fields.
     messageBankId = map.messageMemberId,
     scriptBankId = map.scriptsMemberId,
+    initScripts = initScripts,
     -- The map-header day/night music references (the frozen catalog's
     -- dayMusic/nightMusic, emitted as canonical audio sequence references);
     -- the field-music policy selects the day or night branch at runtime from
@@ -261,7 +292,14 @@ local function _compile(romFs, idOrSymbol, sha1hex, hashLua)
   assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
   sha1hex = sha1hex or Hashing.sha1hex
   hashLua = hashLua or Hashing.hashLua
-  return compileMap(romFs, MapCatalog.require(idOrSymbol), loadSource(romFs, sha1hex), sha1hex, hashLua)
+  return compileMap(
+    romFs,
+    MapCatalog.require(idOrSymbol),
+    loadSource(romFs, sha1hex),
+    loadHeaderSource(romFs, sha1hex),
+    sha1hex,
+    hashLua
+  )
 end
 
 function FieldMapDataCompiler.compile(romFs, idOrSymbol, sha1hex, hashLua)
@@ -281,9 +319,10 @@ function FieldMapDataCompiler.compileAll(romFs, sha1hex, hashLua)
   hashLua = hashLua or Hashing.hashLua
   local ok, result = pcall(function()
     local source = loadSource(romFs, sha1hex)
+    local headerSource = loadHeaderSource(romFs, sha1hex)
     local bundles = {}
     for map in MapCatalog.all() do
-      bundles[#bundles + 1] = compileMap(romFs, map, source, sha1hex, hashLua)
+      bundles[#bundles + 1] = compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
     end
     return bundles
   end)

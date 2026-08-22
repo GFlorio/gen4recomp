@@ -236,6 +236,13 @@ function FieldMapLoader:load(idOrSymbol)
       { mapId = record.id }
     )
   end
+  if not FieldMapDataCache.hasRequiredInitScripts(fieldData) then
+    Errors.raise(
+      FieldErrors.FIELD_MAP_DATA_CACHE_INVALID,
+      "field cache initScripts array is missing or malformed; rebuild the derived cache",
+      { mapId = record.id }
+    )
+  end
   if terrainArtifact.schema ~= MapAssetCache.TERRAIN_SCHEMA then
     Errors.raise(
       FieldErrors.FIELD_MAP_TERRAIN_CACHE_INVALID,

@@ -28,6 +28,7 @@ local ALIAS_TO_SYMBOL = {
   pokemon_graphics = "NARC_poketool_pokegra_pokegra",
   moves = "NARC_poketool_waza_waza_tbl",
   field_scripts = "NARC_fielddata_script_scr_seq",
+  field_script_headers = "NARC_fielddata_script_scr_seq",
   font = "NARC_graphic_font",
   item_data = "NARC_itemtool_itemdata_item_data",
   item_icons = "NARC_itemtool_itemdata_item_icon",
@@ -80,8 +81,10 @@ local VERSION_ALIASES = {
 local SYMBOL_TO_ALIAS = {}
 for alias, symbol in pairs(ALIAS_TO_SYMBOL) do
   assert(catalog.entries[symbol], "alias " .. alias .. " maps to unknown symbol " .. symbol)
-  assert(not SYMBOL_TO_ALIAS[symbol], "symbol " .. symbol .. " has more than one alias")
-  SYMBOL_TO_ALIAS[symbol] = alias
+  -- A source archive may have more than one semantic role. Keep the first
+  -- alias as the raw-symbol display name while allowing role-specific aliases
+  -- such as field_scripts and field_script_headers to share its catalog entry.
+  SYMBOL_TO_ALIAS[symbol] = SYMBOL_TO_ALIAS[symbol] or alias
 end
 
 local function entryForAlias(alias)
@@ -136,7 +139,10 @@ function HgssArchives.aliasList()
     list[#list + 1] = entryForAlias(alias)
   end
   table.sort(list, function(a, b)
-    return a.narcId < b.narcId
+    if a.narcId ~= b.narcId then
+      return a.narcId < b.narcId
+    end
+    return a.alias < b.alias
   end)
   return list
 end
