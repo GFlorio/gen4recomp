@@ -220,6 +220,7 @@ local function compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
     mapId = map.id,
     memberId = map.scriptHeaderMemberId,
     scriptBankId = map.scriptsMemberId,
+    allowNoInit = true,
   }))
   local dependencies = {
     cacheFormat = FieldMapDataCache.FORMAT,

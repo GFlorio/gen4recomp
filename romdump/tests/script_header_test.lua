@@ -50,6 +50,18 @@ function T.empty_header_has_an_explicit_empty_rule_set()
   Assert.deepEqual(ScriptHeader.parse("", {}), {})
 end
 
+function T.source_no_init_record_is_empty_when_explicitly_allowed()
+  Assert.deepEqual(
+    ScriptHeader.parse(string.char(0x02, 0x01, 0x00, 0x00, 0x00, 0x04, 0x02, 0x00), { allowNoInit = true }),
+    {}
+  )
+end
+
+function T.type_one_header_allows_zero_alignment_padding_after_terminator()
+  local bytes = u16(0x0101) .. u16(0) .. u16(0) .. u16(0x408C) .. u16(2) .. u16(2) .. u16(0) .. u16(0)
+  Assert.equal(#ScriptHeader.parse(bytes, { scriptBankId = 472 })[1].rules, 1)
+end
+
 function T.malformed_header_is_rejected()
   Assert.throws(function()
     ScriptHeader.parse("G4IH", { mapId = 1, memberId = 2 })

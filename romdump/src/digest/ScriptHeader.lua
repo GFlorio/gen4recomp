@@ -28,6 +28,12 @@ function ScriptHeader.parse(bytes, opts)
   if #bytes == 0 then
     return {}
   end
+  -- Some HGSS script members are four-byte source records rather than an
+  -- OnFrame header. The map compiler explicitly opts into treating this
+  -- source shape as "no init scripts"; direct callers remain strict.
+  if opts.allowNoInit and (bytes:byte(1) ~= 1 or bytes:byte(2) ~= 1) then
+    return {}
+  end
   if #bytes < 8 then
     fail("truncated type-1 script header", context)
   end
@@ -68,7 +74,8 @@ function ScriptHeader.parse(bytes, opts)
     }
     index = index + 1
   end
-  if not terminated or cursor ~= #bytes then
+  local trailing = bytes:sub(cursor + 1)
+  if not terminated or trailing:find("[^%z]") then
     fail("unterminated or trailing type-1 script-header records", context)
   end
   return { { type = "on_frame_eq", rules = rules } }
