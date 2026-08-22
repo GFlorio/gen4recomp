@@ -140,6 +140,7 @@ end
 
 function T.warp_completion_does_not_request_an_implicit_save()
   local saveRequests = 0
+  local completionConsumed = false
   local runtime = setmetatable({
     scripts = {},
     session = {
@@ -148,6 +149,7 @@ function T.warp_completion_does_not_request_an_implicit_save()
     transition = {
       error = nil,
       consumeCompleted = function()
+        completionConsumed = true
         return true
       end,
     },
@@ -162,6 +164,7 @@ function T.warp_completion_does_not_request_an_implicit_save()
   }, FieldRuntime)
   runtime:update(0)
 
+  Assert.isTrue(completionConsumed, "the transition completion edge is consumed")
   Assert.equal(saveRequests, 0, "completing a warp must not publish or request a checkpoint")
 end
 

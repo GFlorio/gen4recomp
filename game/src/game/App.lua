@@ -31,28 +31,10 @@ local App = {}
 
 ---@class AppOptions : GameOptions
 ---@field saveStore (GameSaveStore|SaveStoreLike)?
----@field fieldGame table? developer-only finalized game fixture
 ---@field newGameCandidateFactory (fun(options: table): table)?
 ---@field oakIntroOptionsFactory fun(options: table): table
 ---@field oakIntroHost table? true host seams for product-composition tests
 ---@field saveValidation GameSaveValidation?
-
--- A bare `--field` (option == true) selects the runtime default map; a
--- numeric string is a map id, anything else a semantic map symbol.
-
----@param option boolean|string|nil
----@return string|integer|nil
-local function fieldTarget(option)
-  if option == true then
-    return nil
-  end
-  if type(option) == "string" and option:match("^%d+$") then
-    return tonumber(option)
-  end
-  return option --[[@as string|integer|nil]]
-end
-
-App.fieldTarget = fieldTarget
 
 local function readyVersions()
   local out = {}
@@ -85,9 +67,6 @@ function App.load(opts)
 
   if App.opts.actors then
     return App._bootActorPreview()
-  end
-  if App.opts.field then
-    return App._bootField(App.opts.field)
   end
   App._bootExisting()
 end
@@ -199,18 +178,6 @@ function App._bootActorPreview()
   App.setState(ActorPreviewState.new(ready[1]))
 end
 
--- Boot the fixed-step field runtime. A bare --field selects Elm's Lab;
--- an argument may select another compiled map by semantic symbol or numeric id.
-function App._bootField(mapIdOrSymbol)
-  local ready = readyVersions()
-  if #ready == 0 then
-    App._startImport()
-    return
-  end
-  local game = assert(App.opts.fieldGame, "--field requires a finalized developer game fixture")
-  App.setState(FieldState.new(game, fieldStateOptions()))
-end
-
 function App._startImport()
   App.importer = RomImporter.new({
     onComplete = function(versionId)
@@ -221,15 +188,10 @@ function App._startImport()
 end
 
 -- Fired once on a successful import: the session ends here, so the importer
--- is cleared and the normal field runtime is entered unless an explicit
--- developer field target was requested.
+-- is cleared and the normal product boot flow is entered.
 function App._onImported(versionId)
   App.importer = nil
-  if App.opts.field then
-    App._bootField(App.opts.field)
-  else
-    App._bootMainMenu({ versionId })
-  end
+  App._bootMainMenu({ versionId })
 end
 
 -- Boot decision when no ROM was supplied: one ready cache opens its Main Menu,

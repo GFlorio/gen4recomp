@@ -766,8 +766,7 @@ function FieldRuntime:update(dt)
       self.errorText = tostring(self.transition.error)
     end
   end
-  if self.transition:consumeCompleted() then
-  end
+  self.transition:consumeCompleted()
 end
 
 -- Every semantic-input entry point below needs the same live-input guard;

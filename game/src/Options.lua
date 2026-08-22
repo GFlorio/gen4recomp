@@ -1,6 +1,6 @@
 -- Pure command-line option parsing for the game app. Turns the LÖVE argv into
--- a normalized options table, rejecting unknown options, stray arguments, and
--- conflicting execution modes with a message. It holds no state and never
+-- a normalized options table, rejecting unknown options and stray arguments
+-- with a message. It holds no state and never
 -- touches love, so main.lua can dispatch and the parser can be unit tested
 -- off-runtime. Once the exact --test token appears the parser defers the whole
 -- argv to the test command, which owns its own argument validation.
@@ -11,11 +11,10 @@ local Options = {}
 -- Cli.EXIT_USAGE so scripts/test.sh and the game agree on "bad invocation".
 Options.EXIT_USAGE = 2
 
-Options.USAGE = "usage: love game/ [--test ...] [--field [map]] [--actors] [--dev]"
+Options.USAGE = "usage: love game/ [--test ...] [--actors] [--dev]"
 
 ---@class GameOptions
 ---@field test boolean
----@field field boolean|string|nil
 ---@field actors boolean
 ---@field dev boolean
 
@@ -35,18 +34,12 @@ function Options.parse(argv)
     end
   end
 
-  local opts = { test = false, field = nil, actors = false, dev = false }
+  local opts = { test = false, actors = false, dev = false }
 
   local i = 1
   while i <= #argv do
     local option = argv[i]
-    if option == "--field" then
-      opts.field = true
-      if argv[i + 1] and argv[i + 1]:sub(1, 2) ~= "--" then
-        i = i + 1
-        opts.field = argv[i]
-      end
-    elseif option == "--actors" then
+    if option == "--actors" then
       opts.actors = true
     elseif option == "--dev" then
       opts.dev = true
@@ -56,10 +49,6 @@ function Options.parse(argv)
       return nil, "unexpected argument '" .. option .. "'\n" .. Options.USAGE
     end
     i = i + 1
-  end
-
-  if opts.actors and opts.field ~= nil then
-    return nil, "conflicting execution modes: --actors and --field\n" .. Options.USAGE
   end
 
   return opts

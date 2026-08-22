@@ -55,8 +55,8 @@ state — they take a byte string and return a validated structure or a structur
 
 The interactive `game/main.lua` parses its flags with the pure `Options`
 parser, then hands off to `App`. The parser accepts only the documented
-options: unknown options, stray arguments, and the `--actors`/`--field`
-conflict are rejected with a message and exit status 2. Once the exact `--test`
+options: unknown options and stray arguments are rejected with a message and exit
+status 2. Once the exact `--test`
 token appears, the whole argv defers to the test command, which owns its own
 validation:
 
@@ -64,7 +64,6 @@ validation:
 love game/
   └─ love.load(argv)
        ├─ --test [options]        → run the test suite, exit 0/1/2
-       ├─ --field [map]           → boot the field runtime on a target map
        ├─ --actors                → boot the compiled field-actor preview grid
        ├─ --dev                   → enable the playtest HUD and F1/F2 binds
        └─ (no flags)              → App inspects both version caches:
