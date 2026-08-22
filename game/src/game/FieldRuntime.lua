@@ -50,7 +50,6 @@ local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
-local SaveActionController = require("libs.engine.src.SaveActionController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
@@ -86,6 +85,8 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field errorText string?
 ---@field zoom FieldZoom
 ---@field saveStatus string?
+---@field saveStore GameSaveStore? global publication owner
+---@field savePublished boolean whether the reserved record has been published
 ---@field playerData table the validated profile/options authority (PlayerData shape)
 ---@field session FieldSession
 ---@field dialogue FieldDialogueController?
@@ -190,14 +191,18 @@ local function defaultWeatherClock(localClock)
   }
 end
 
-local function canCapture(session)
+local function canCapture(session, allowMenu)
   return session
     and session.player
     and session.player.motion == "idle"
     and (not session.transition or session.transition.phase == FieldTransition.PHASES.idle)
     and (not session.dialogue or not session.dialogue:isModal())
     and (not session.signpost or not session.signpost:isModal())
-    and (not session.applicationHost or not session.applicationHost:isActive())
+    and (
+      not session.applicationHost
+      or not session.applicationHost:isActive()
+      or (allowMenu and session.applicationHost:status().phase == FieldApplicationHost.PHASES.menu)
+    )
 end
 
 local function avatarForPlayer(avatars, playerData)
@@ -291,6 +296,7 @@ function FieldRuntime.new(game, options)
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
     saveStore = options.saveStore,
+    savePublished = false,
     localClock = options.localClock or LocalClock.system(),
     weatherClock = options.weatherClock,
     errorText = nil,
@@ -394,6 +400,7 @@ function FieldRuntime:_load()
       self.game.playerData = validPlayerData
     end
     local activeGame = loadedGame or self.game
+    self.savePublished = loadedGame ~= nil
     self.runtimeMap, self.entryLocation = loadGameLocation(activeGame, self.mapLoader)
     self.mapLoader:protectMap(self.runtimeMap.mapId, true)
 
@@ -556,25 +563,6 @@ function FieldRuntime:_load()
         end,
       },
     }
-    if self.saveStore then
-      applicationDescriptors[#applicationDescriptors + 1] = {
-        id = FieldApplicationIds.SAVE,
-        factory = function()
-          return SaveActionController.new({
-            published = self.game.schema == GameSave.SCHEMA,
-            capture = function()
-              return self:captureGameSave()
-            end,
-            publishFirst = function(record)
-              self.saveStore:publishFirst(record)
-            end,
-            update = function(record)
-              self.saveStore:save(record)
-            end,
-          })
-        end,
-      }
-    end
     self.applications = FieldApplicationRegistry.new(applicationDescriptors)
     self.applicationHost = FieldApplicationHost.new({
       registry = self.applications,
@@ -582,6 +570,12 @@ function FieldRuntime:_load()
         return self:_composeStartMenu(rememberedActionId)
       end,
       input = self.input,
+      fieldAction = function(actionId)
+        if actionId == "vanilla.save" then
+          return self:_saveCheckpoint()
+        end
+        error("unknown field action " .. tostring(actionId))
+      end,
       effect = function(sequence)
         if self.audio then
           self.audio:play(sequence)
@@ -710,6 +704,7 @@ function FieldRuntime:update(dt)
   if self.errorText then
     return
   end
+  self.playTime:advance(dt)
 
   -- The background registry warm-up (snapshot-miss boot) runs one time
   -- slice per frame; the first save finishes whatever it has not.
@@ -828,11 +823,12 @@ end
 -- Helper: determine if this port has implemented the destination application
 -- for an action kind.
 local function implementationAvailable(self, entry)
+  if entry.actionKind == "field_action" then
+    return entry.id == "vanilla.save" and self.saveStore ~= nil
+  end
   if entry.actionKind == "application" then
     return entry.targetApplication ~= nil and self.applications:has(entry.targetApplication)
   end
-  -- Non-application actions (toggle, field_action, removed) are not yet
-  -- implemented in this port.
   return false
 end
 
@@ -974,8 +970,8 @@ end
 -- only builds and validates a snapshot; publication belongs to storage.
 ---@return table? snapshot
 ---@return string|table? reason validation or stability failure
-function FieldRuntime:captureGameSave()
-  if not canCapture(self.session) then
+function FieldRuntime:_captureGameSave(allowMenu)
+  if not canCapture(self.session, allowMenu == true) then
     return nil, "Save deferred: movement, transition, or modal state is active"
   end
 
@@ -1013,6 +1009,29 @@ function FieldRuntime:captureGameSave()
     return nil, validationErr
   end
   return valid
+end
+
+function FieldRuntime:captureGameSave()
+  return self:_captureGameSave(false)
+end
+
+function FieldRuntime:_captureManualSaveFromMenu()
+  if not canCapture(self.session, true) then
+    return nil, "Save deferred: the field is not stable"
+  end
+  return self:_captureGameSave(true)
+end
+
+function FieldRuntime:_saveCheckpoint()
+  assert(self.saveStore, "manual Save requires a save store")
+  local record, reason = self:_captureManualSaveFromMenu()
+  assert(record, reason)
+  if self.savePublished then
+    self.saveStore:save(record)
+  else
+    self.saveStore:publishFirst(record)
+    self.savePublished = true
+  end
 end
 
 -- Apply effective weather to a runtime map: resolve the catalog rules
@@ -1215,10 +1234,7 @@ function FieldRuntime:dispose()
     self.signpost = nil
   end
   -- The application host owns the other transient modal (the Start Menu, an
-  -- application fade, or a child application): releasing it restores the
-  -- capturable idle boundary before the save attempt, so quitting mid-menu
-  -- persists the world like quitting mid-dialogue does. The release is
-  -- idempotent; the shared teardown below re-runs it as a no-op.
+  -- application fade, or a child application).
   if self.applicationHost then
     self.applicationHost:dispose()
   end

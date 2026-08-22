@@ -1956,6 +1956,7 @@ local function applicationCompositionFixture(menuFactory)
     registry = FieldApplicationRegistry.new({}),
     menuFactory = menuFactory,
     input = input,
+    fieldAction = function() end,
   })
   local session = FieldSession.new(baseOptions({
     player = player,

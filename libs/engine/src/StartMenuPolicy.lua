@@ -84,8 +84,7 @@ local ACTIONS = {
   },
   {
     id = "vanilla.save",
-    actionKind = "application",
-    targetApplication = FieldApplicationIds.SAVE,
+    actionKind = "field_action",
     unlockedBy = "saveUnlocked",
   },
   {

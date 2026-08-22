@@ -113,6 +113,7 @@ local function fixture()
       return factory.fn(rememberedActionId)
     end,
     input = input,
+    fieldAction = function() end,
   })
   return host, input, registry, factory
 end
@@ -122,6 +123,38 @@ local function openMenu(host, input, registry)
   Assert.equal(opened, true, "an open with available actions must succeed")
   Assert.equal(input.beginUiTicks[1], 10)
   return registry.menuControllers[1]
+end
+
+function T.tests.successful_field_action_closes_the_menu_without_a_child_application()
+  local calls = 0
+  local host, input, registry = fixture()
+  host._fieldAction = function(actionId)
+    calls = calls + 1
+    Assert.equal(actionId, "vanilla.save")
+  end
+  local menu = openMenu(host, input, registry)
+  menu.result = { kind = "field_action", actionId = "vanilla.save" }
+  host:updateFixed({ { type = "confirm" } })
+  Assert.equal(calls, 1)
+  Assert.equal(host:status().phase, "closed")
+  Assert.equal(input.clearUiCalls, 1)
+  Assert.equal(menu.disposeCount, 1)
+  Assert.deepEqual(registry.created, {})
+end
+
+function T.tests.field_action_failure_releases_menu_ownership_and_surfaces_error()
+  local host, input, registry = fixture()
+  host._fieldAction = function()
+    error("save failed")
+  end
+  local menu = openMenu(host, input, registry)
+  menu.result = { kind = "field_action", actionId = "vanilla.save" }
+  host:updateFixed({ { type = "confirm" } })
+  Assert.equal(host:status().phase, "failed")
+  Assert.isTrue(tostring(host:error()):find("save failed", 1, true) ~= nil)
+  Assert.equal(input.clearUiCalls, 1)
+  Assert.equal(menu.disposeCount, 1)
+  Assert.deepEqual(registry.created, {})
 end
 
 -- The canonical 256x192 placement: the identity record the pointer tests map
