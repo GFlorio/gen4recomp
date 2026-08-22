@@ -280,15 +280,43 @@ local function writeFieldRecord(c, mapId, events, audioPolicy, schema)
       soundplates = {},
     }
   c:writeLua(FieldMapDataCache.fieldPath(mapId), {
-    schema = schema or "g4-field-map-v5",
+    schema = schema or FieldMapDataCache.FIELD_SCHEMA,
     mapId = mapId,
     mapSymbol = "test",
+    transitionEnvironment = "outdoors",
     events = events,
     music = audioPolicy.music,
     soundplates = audioPolicy.soundplates,
   })
   c:writeLua(FieldMapDataCache.dependenciesPath(mapId), { cacheFormat = FieldMapDataCache.FORMAT })
   c:write(FieldMapDataCache.markerPath(mapId), "m")
+end
+
+local function writeCurrentFieldRecord(c, mapId, transitionEnvironment)
+  writeFieldRecord(
+    c,
+    mapId,
+    { background = {}, objects = {}, warps = {}, coordinates = {} },
+    nil,
+    FieldMapDataCache.FIELD_SCHEMA
+  )
+  local field = c:loadLua(FieldMapDataCache.fieldPath(mapId))
+  field.transitionEnvironment = transitionEnvironment
+  c:writeLua(FieldMapDataCache.fieldPath(mapId), field)
+end
+
+function T.current_field_data_requires_a_valid_transition_environment()
+  for _, environment in ipairs({ "cave", "outdoors", "building" }) do
+    local c = cache()
+    writeCurrentFieldRecord(c, 60, environment)
+    Assert.isTrue(FieldMapDataCache.isReady(c, 60, "m"), environment)
+  end
+
+  for _, case in ipairs({ { value = nil }, { value = "unknown" } }) do
+    local c = cache()
+    writeCurrentFieldRecord(c, 60, case.value)
+    Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"), "invalid transition environment")
+  end
 end
 
 function T.field_data_missing_events_is_not_ready()

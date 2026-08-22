@@ -37,10 +37,11 @@ local function fixture(mapCount)
     }
     files[scene.collision.file] = CollisionFixture.asset(32, 32)
     files[string.format("data/generated/field/maps/%04d/field.lua", mapId)] = {
-      schema = "g4-field-map-v5",
+      schema = "g4-field-map-v6",
       mapId = mapId,
       mapSymbol = symbol,
       cameraType = mapId,
+      transitionEnvironment = "outdoors",
       events = { background = {}, objects = {}, warps = {}, coordinates = {} },
       music = { day = "SEQ_X", night = "SEQ_X", flagOverrides = {}, traversalOverrides = {} },
       soundplates = {},
@@ -77,7 +78,7 @@ function T.loads_visual_field_collision_and_terrain_into_one_aggregate()
   local map = loader:load("MAP_0")
   Assert.equal(map.mapId, 0)
   Assert.equal(map.sceneRuntime.scene.mapSymbol, "MAP_0")
-  Assert.equal(map.fieldData.schema, "g4-field-map-v5")
+  Assert.equal(map.fieldData.schema, "g4-field-map-v6")
   Assert.equal(map.fieldRegion.collision, map.collision)
   Assert.isTrue(map.fieldRegion.cells[1].collision:containsLocal(4, 4))
   Assert.isTrue(map.collision:containsLocal(4, 4))

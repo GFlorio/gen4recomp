@@ -8,9 +8,20 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 FieldMapDataCache.FORMAT = Contract.fieldMapData.cacheFormat
 FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
+FieldMapDataCache.TRANSITION_ENVIRONMENTS = {
+  cave = true,
+  outdoors = true,
+  building = true,
+}
 
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
+
+---@param value any
+---@return boolean
+function FieldMapDataCache.isTransitionEnvironment(value)
+  return type(value) == "string" and FieldMapDataCache.TRANSITION_ENVIRONMENTS[value] == true
+end
 
 -- The audio policy the current field-map schema always carries: the music
 -- record and the soundplates array. Soundplate records are runtime-semantic
@@ -76,6 +87,7 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
     or field.schema ~= FieldMapDataCache.FIELD_SCHEMA
     or field.mapId ~= mapId
     or type(dependencies) ~= "table"
+    or not FieldMapDataCache.isTransitionEnvironment(field.transitionEnvironment)
   then
     return false
   end

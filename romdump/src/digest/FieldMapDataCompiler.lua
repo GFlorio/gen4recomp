@@ -17,6 +17,28 @@ local fieldAudio = require("romdump.src.reference.hgss.field_audio")
 
 local FieldMapDataCompiler = {}
 
+local TRANSITION_ENVIRONMENT_BY_MAP_TYPE = {
+  CAVE = "cave",
+  CITY_TOWN = "outdoors",
+  ROUTE = "outdoors",
+  INTERIOR = "building",
+  POKEMON_CENTER = "building",
+}
+
+---@param map table
+---@return string
+local function transitionEnvironment(map)
+  local environment = TRANSITION_ENVIRONMENT_BY_MAP_TYPE[map.mapType]
+  if not environment then
+    Errors.raise(
+      "FIELD_MAP_UNKNOWN_MAP_TYPE",
+      "map header has no transition environment mapping",
+      { mapId = map.id, mapSymbol = map.symbol, mapType = map.mapType }
+    )
+  end
+  return environment
+end
+
 -- The canonical audio sequence reference of a map-header music suffix: the
 -- frozen catalog carries the SDAT symbol without its class prefix, and the
 -- generated record carries the full reference so runtime field-music policy
@@ -226,6 +248,7 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     schema = FieldMapDataCache.FIELD_SCHEMA,
     mapId = map.id,
     mapSymbol = map.symbol,
+    transitionEnvironment = transitionEnvironment(map),
     cameraType = map.cameraType,
     -- Map-header message/script associations (src/data/map_headers.h via the
     -- frozen catalog). Runtime code must never branch on map IDs to choose a

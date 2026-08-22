@@ -46,7 +46,7 @@ function T.contract_pins_the_current_asset_identities()
     },
     fieldMapData = {
       cacheFormat = "g4-field-map-cache-v1",
-      fieldSchema = "g4-field-map-v5",
+      fieldSchema = "g4-field-map-v6",
     },
     messages = {
       cacheFormat = "field-message-cache-v3",
@@ -73,7 +73,7 @@ function T.contract_pins_the_current_asset_identities()
     },
     fieldUi = {
       cacheFormat = "field-ui-cache-v1",
-      schema = "g4-field-ui-v6",
+      schema = "g4-field-ui-v7",
     },
     audio = {
       cacheFormat = "g4-audio-cache-v1",

@@ -45,7 +45,7 @@ end
 
 function T.music_record_carries_day_night_overrides_and_the_surf_traversal_rule()
   local bundle = compileOk("")
-  Assert.equal(bundle.field.schema, "g4-field-map-v5")
+  Assert.equal(bundle.field.schema, "g4-field-map-v6")
   Assert.deepEqual(bundle.field.music, {
     day = "SEQ_GS_T_WAKABA",
     night = "SEQ_GS_T_WAKABA",
@@ -60,7 +60,7 @@ function T.flag_overrides_attach_exactly_the_thirteen_source_rules_to_their_maps
     local bundle = compileOk("", rule.map)
     Assert.deepEqual(bundle.field.music.flagOverrides, { { flagId = rule.flagId, sequence = rule.sequence } }, rule.map)
   end
-  for _, mapId in ipairs({ 1, 2, 5, 60, 61, 100 }) do
+  for _, mapId in ipairs({ 0, 2, 5, 60, 61, 100 }) do
     local bundle = compileOk("", mapId)
     Assert.deepEqual(bundle.field.music.flagOverrides, {}, "map " .. mapId .. " must not carry a foreign rule")
   end

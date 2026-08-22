@@ -8,6 +8,7 @@ local FieldMapDataCacheWriter = require("romdump.src.digest.FieldMapDataCacheWri
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapDataInspector = require("romdump.src.digest.FieldMapDataInspector")
 local FieldMapDataFixture = require("tests.support.FieldMapDataFixture")
+local MapCatalog = require("romdump.src.digest.MapCatalog")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
@@ -43,7 +44,7 @@ function T.compiles_catalog_identity_source_and_events()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
   Assert.equal(bundle.mapId, 60)
-  Assert.equal(bundle.field.schema, "g4-field-map-v5")
+  Assert.equal(bundle.field.schema, "g4-field-map-v6")
   Assert.equal(bundle.field.mapSymbol, "MAP_NEW_BARK")
   Assert.equal(bundle.field.cameraType, 0)
   -- Source identity lives only in the dependency record; the runtime asset
@@ -61,6 +62,44 @@ function T.compiles_catalog_identity_source_and_events()
 
   local again = assert(FieldMapDataCompiler.compile(romFs, "MAP_NEW_BARK", sha1, hashLua))
   Assert.equal(LuaWriter.encode(bundle.field), LuaWriter.encode(again.field))
+end
+
+function T.compiles_map_header_types_to_transition_environments_and_rejects_unknown_types()
+  local cases = {
+    { mapId = 0, expected = "outdoors" },
+    { mapId = 7, expected = "cave" },
+    { mapId = 60, expected = "outdoors" },
+    { mapId = 61, expected = "building" },
+    { mapId = 2, expected = "building", sourceType = "POKEMON_CENTER" },
+  }
+  for _, case in ipairs(cases) do
+    local record = MapCatalog.require(case.mapId)
+    local originalMapType = record.mapType
+    record.mapType = case.sourceType or originalMapType
+    local romFs, sha1, hashLua = fixture()
+    local ok, bundle = pcall(function()
+      return assert(FieldMapDataCompiler.compile(romFs, case.mapId, sha1, hashLua))
+    end)
+    record.mapType = originalMapType
+    assert(ok, bundle)
+    Assert.equal(bundle.field.transitionEnvironment, case.expected, "map " .. case.mapId)
+  end
+
+  local record = MapCatalog.require(60)
+  local originalMapType = record.mapType
+  record.mapType = "UNKNOWN"
+  local ok, bundle, err = pcall(function()
+    local romFs, sha1, hashLua = fixture()
+    return FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua)
+  end)
+  record.mapType = originalMapType
+  Assert.isTrue(ok, "unknown map types must cross the compiler error boundary")
+  Assert.isNil(bundle)
+  Assert.notNil(err)
+  err = assert(err)
+  Assert.equal(err.context.mapId, 60)
+  Assert.equal(err.context.mapSymbol, "MAP_NEW_BARK")
+  Assert.equal(err.context.mapType, "UNKNOWN")
 end
 
 function T.map_header_music_fields_are_emitted_as_canonical_sequence_references()
@@ -162,17 +201,15 @@ function T.failed_rebuild_preserves_the_previous_record()
   Assert.isTrue(FieldMapDataCache.isReady(cache, 60, second.marker), "a retry publishes the new record")
 end
 
-function T.compile_all_covers_the_catalog_in_numeric_order()
+function T.compile_all_rejects_an_unmapped_catalog_type_with_context()
   local romFs, sha1, hashLua = allMapsFixture()
-  local bundles = assert(FieldMapDataCompiler.compileAll(romFs, sha1, hashLua))
-  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  Assert.equal(#bundles, 540)
-  for index, bundle in ipairs(bundles) do
-    Assert.equal(bundle.mapId, index - 1)
-    Assert.equal(bundle.field.mapId, index - 1)
-    FieldMapDataCacheWriter.write(cache, bundle)
-    Assert.isTrue(FieldMapDataCache.isReady(cache, bundle.mapId, bundle.marker))
-  end
+  local bundles, err = FieldMapDataCompiler.compileAll(romFs, sha1, hashLua)
+  Assert.isNil(bundles)
+  Assert.notNil(err)
+  err = assert(err)
+  Assert.equal(err.context.mapId, 1)
+  Assert.equal(err.context.mapSymbol, "MAP_NOTHING")
+  Assert.equal(err.context.mapType, "INVALID")
 end
 
 return { tests = T }
