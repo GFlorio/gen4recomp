@@ -70,6 +70,12 @@ function love.keypressed(key, scancode, isrepeat)
   end
 end
 
+function love.textinput(text)
+  if App then
+    App.textinput(text)
+  end
+end
+
 function love.keyreleased(key, scancode)
   if App then
     App.keyreleased(key, scancode)

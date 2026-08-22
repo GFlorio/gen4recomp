@@ -10,9 +10,13 @@ local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local GameSaveStore = require("libs.engine.src.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local NewGame = require("libs.engine.src.NewGame")
 local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local MainMenuState = require("game.src.game.MainMenuState")
+local OakIntroState = require("game.src.game.OakIntroState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
@@ -80,14 +84,65 @@ function App._mainMenuResult(result)
   App.menuResult = result
   if result.kind == "quit" then
     love.event.quit(0)
-  elseif result.kind == "new_game" and App.opts.onNewGame then
-    App.opts.onNewGame()
+  elseif result.kind == "new_game" then
+    App._bootOakIntro()
   elseif result.kind == "continue" and App.opts.onContinue then
     App.opts.onContinue(result.saveId)
   end
 end
 
+local function newGameCandidate(versionId)
+  local factory = App.opts.newGameCandidateFactory
+  if factory then
+    local candidate = factory({ saveService = App.saveStore, versionId = versionId })
+    return assert(candidate, "New Game candidate factory returned no candidate")
+  end
+  return NewGame.createCandidate({
+    saveService = App.saveStore,
+    versionId = versionId,
+    eventState = FieldEventState.new(),
+    scriptSymbols = FieldScriptSymbols,
+    mapIdentity = {
+      mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+      fieldX = 6,
+      fieldZ = 6,
+      sourceFacing = 1,
+    },
+  })
+end
+
+-- Build the production Oak state from generated visual/message/audio resources.
+-- The factory is an explicit composition seam: missing generated resources fail
+-- the New Game transition rather than falling back to embedded retail data.
+function App._bootOakIntro()
+  local versionId = assert(App.versionId, "New Game needs a selected version")
+  local candidate = newGameCandidate(versionId)
+  local factory = assert(App.opts.oakIntroOptionsFactory, "Oak intro resources are unavailable")
+  local options = factory({
+    candidate = candidate,
+    versionId = versionId,
+  })
+  assert(type(options) == "table", "Oak intro options factory must return a table")
+  options.onComplete = function(result)
+    App._onOakComplete(result)
+  end
+  App.setState(OakIntroState.new(options))
+end
+
+-- C05 handoff: the candidate is already finalized in memory, but remains
+-- reserved and unpublished until the receiving field flow explicitly writes it.
+function App._onOakComplete(result)
+  assert(type(result) == "table" and result.playerData ~= nil, "Oak intro completed without a finalized game")
+  local handoff = App.opts.onNewGame
+  App.setState(nil)
+  if handoff then
+    handoff(result)
+  end
+end
+
 function App._bootMainMenu(versions)
+  assert(type(versions) == "table" and #versions == 1, "Main Menu needs exactly one selected version")
+  App.versionId = versions[1]
   local width, height = love.graphics.getDimensions()
   App.setState(MainMenuState.new({
     saveStore = App.saveStore or assert(App.opts.saveStore, "App needs a global save store"),
@@ -295,6 +350,12 @@ end
 function App.touchreleased(id, x, y, dx, dy, pressure)
   if App.state and App.state.touchreleased then
     App.state:touchreleased(id, x, y, dx, dy, pressure)
+  end
+end
+
+function App.textinput(text)
+  if App.state and App.state.textinput then
+    App.state:textinput(text)
   end
 end
 

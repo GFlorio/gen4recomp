@@ -169,6 +169,106 @@ local function withAppBoot(fn)
   end
 end
 
+-- The New Game card enters the real Oak state boundary. The semantic Oak
+-- resources are injected at the cache/audio host seam; MainMenuState, App,
+-- and OakIntroState remain the production composition under test.
+function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing()
+  local originalOpts = App.opts
+  local originalState = App.state
+  local originalImporter = App.importer
+  local candidate = { saveId = "save-00000007", playerData = { profile = { name = "GOLD" } } }
+  local handoffs = {}
+  local publishCalls = 0
+  local controller = { phase = "opening_wait", started = 0, disposed = 0 }
+  function controller:start()
+    self.started = self.started + 1
+  end
+  function controller:tick() end
+  function controller:press() end
+  function controller:inputText() end
+  function controller:deleteGlyph() end
+  function controller:dispose()
+    self.disposed = self.disposed + 1
+  end
+  function controller:view()
+    return {
+      phase = self.phase,
+      name = "",
+      message = "generated",
+      visual = "background",
+      genderFocus = 0,
+      nameInputEnabled = false,
+    }
+  end
+  function controller:result()
+    return candidate
+  end
+
+  local renderer = { disposed = 0 }
+  function renderer:draw() end
+  function renderer:dispose()
+    self.disposed = self.disposed + 1
+  end
+  local inputHost = { calls = {} }
+  function inputHost:setTextInput(enabled)
+    self.calls[#self.calls + 1] = enabled
+  end
+
+  local store = fakeStore({})
+  function store:publishFirst()
+    publishCalls = publishCalls + 1
+  end
+  App.opts = {
+    saveStore = store,
+    oakIntroOptionsFactory = function(options)
+      Assert.equal(options.candidate, candidate)
+      Assert.equal(options.versionId, READY_VERSION)
+      return {
+        controller = controller,
+        manifest = {},
+        renderer = renderer,
+        textInputHost = inputHost,
+        glyphs = { "A" },
+        width = 960,
+        height = 540,
+      }
+    end,
+    newGameCandidateFactory = function(options)
+      Assert.equal(options.versionId, READY_VERSION)
+      return candidate
+    end,
+    onNewGame = function(result)
+      handoffs[#handoffs + 1] = result
+    end,
+  }
+  App.state = nil
+  App.importer = nil
+
+  local ok, err = xpcall(function()
+    App._bootMainMenu({ READY_VERSION })
+    App.keypressed("return")
+    Assert.equal(controller.started, 1)
+    Assert.equal(getmetatable(App.state).__index, require("game.src.game.OakIntroState"))
+    Assert.deepEqual(handoffs, {})
+
+    controller.phase = "complete"
+    App.update(0)
+    Assert.deepEqual(handoffs, { candidate })
+    Assert.isNil(App.state)
+    Assert.equal(publishCalls, 0)
+    Assert.equal(controller.disposed, 1)
+    Assert.equal(renderer.disposed, 1)
+  end, debug.traceback)
+
+  App.setState(nil)
+  App.opts = originalOpts
+  App.state = originalState
+  App.importer = originalImporter
+  if not ok then
+    error(err, 0)
+  end
+end
+
 -- The normal ready and completed-import routes must stop at the menu. The
 -- FieldState seam is only an observer: constructing it is the forbidden
 -- behavior being caught, not a replacement runtime used by the scenario.
