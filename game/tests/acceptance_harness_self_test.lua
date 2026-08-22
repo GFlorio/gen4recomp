@@ -73,6 +73,14 @@ function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace(
   Assert.equal(graphics.newShader, originalShader, "closing every game restores the graphics namespace")
 end
 
+function T.tests.synthetic_boot_keeps_the_global_save_catalog_inside_its_namespace()
+  local harness = AcceptanceHarness.new({ versions = { "heartgold" }, runtimeFactory = fakeRuntime })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+  Assert.notNil(love.filesystem.getInfo(game.saveNamespace .. "/catalog.lua"))
+  Assert.isNil(love.filesystem.getInfo("saves/catalog.lua"), "acceptance must not touch the real save root")
+  game:close()
+end
+
 function T.tests.advance_until_timeout_contains_a_bounded_semantic_trace()
   local harness = AcceptanceHarness.new({ versions = { "heartgold" }, runtimeFactory = fakeRuntime })
   local game = harness:boot({ versionId = "heartgold", save = "fresh" })
