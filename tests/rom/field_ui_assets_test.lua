@@ -206,12 +206,12 @@ function T.dialogue_continue_cursor_manifest_has_the_source_contract(romFs, vers
   local assetId = "hgss.dialogue_continue_cursor"
   local asset = assert(bundle.manifest.assets[assetId], "the cursor asset must be indexed by its semantic ID")
   local image = assert(bundle.assets[asset.image], "the cursor atlas must have generated pixel payload")
+  local imageWidth, imageHeight, pixels = PngReader.rgba(image)
 
-  Assert.equal(asset.width, 48, "the cursor atlas has three 16-pixel phases per style")
-  Assert.equal(asset.height, frames.count * 16, "the cursor atlas has one 16-pixel row per style")
-  Assert.equal(image.width, 48)
-  Assert.equal(image.height, frames.count * 16)
-  Assert.isTrue(type(image.pixels) == "string" and #image.pixels > 0, "cursor pixel payload must be nonempty")
+  Assert.equal(asset.image, "assets/generated/field/ui/dialogue-continue-cursor.png")
+  Assert.equal(imageWidth, 48)
+  Assert.equal(imageHeight, frames.count * 16)
+  Assert.isTrue(type(pixels) == "string" and #pixels > 0, "cursor pixel payload must be nonempty")
   Assert.deepEqual(cursor.cycle, { 0, 1, 2, 1 })
   Assert.equal(cursor.framePrinterTicks, 9)
   Assert.deepEqual(cursor.placement, { x = 240, y = 168, width = 16, height = 16 })

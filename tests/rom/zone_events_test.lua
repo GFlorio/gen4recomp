@@ -34,8 +34,11 @@ function T.every_catalog_map_event_member_decodes(romFs)
   local bundles = assert(FieldMapDataCompiler.compileAll(romFs))
   Assert.equal(#bundles, 539)
   for index, bundle in ipairs(bundles) do
-    Assert.equal(bundle.mapId, index - 1)
-    Assert.equal(bundle.field.mapId, index - 1)
+    -- MAP_NOTHING is omitted from the compiled runtime records, so the
+    -- catalog position after map 0 is one greater than the bundle index.
+    local expectedMapId = index == 1 and 0 or index
+    Assert.equal(bundle.mapId, expectedMapId)
+    Assert.equal(bundle.field.mapId, expectedMapId)
     Assert.isNil(bundle.field.source)
     Assert.isTrue(
       type(bundle.dependencies.eventMemberId) == "number",
