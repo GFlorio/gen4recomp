@@ -4,7 +4,6 @@
 
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldEntranceIndicator = require("libs.engine.src.FieldEntranceIndicator")
-local FieldTransition = require("libs.engine.src.FieldTransition")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local M = {}
@@ -16,22 +15,6 @@ function M.load(cacheFs)
   )
   ModelAsset.validate(model)
   return { model = model }, FieldEntranceIndicator.new()
-end
-
-function M.update(runtime)
-  runtime.fieldEntranceIndicator:updateFixed({
-    map = runtime.runtimeMap,
-    player = runtime.player,
-    transition = { ownsField = runtime.transition.phase == FieldTransition.PHASES.idle },
-  })
-end
-
-function M.hide(runtime)
-  runtime.fieldEntranceIndicator:updateFixed({
-    map = runtime.runtimeMap,
-    player = runtime.player,
-    transition = { ownsField = false },
-  })
 end
 
 return M

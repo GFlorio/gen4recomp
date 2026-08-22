@@ -1,5 +1,5 @@
 -- Presentation adapter for the normalized directional entrance effect. The
--- map scene's GPU pool owns meshes/images; this adapter only assembles
+-- field presentation owns the GPU pool; this adapter only assembles
 -- world-space draw items from the current indicator status.
 
 local Matrix3 = require("libs.math.src.Matrix3")
@@ -8,13 +8,37 @@ local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local Renderer = {}
 Renderer.__index = Renderer
+local materials
 
-function Renderer.new(asset)
-  assert(asset and asset.model and asset.model.batches, "field effect asset model is required")
-  return setmetatable({ asset = asset }, Renderer)
+function Renderer.new(model, pool)
+  assert(model and model.batches and model.materials, "field effect asset model is required")
+  assert(pool and pool.meshFor and pool.imageFor and pool.build, "field effect asset pool is required")
+  local prepared = pool:build(function()
+    local materialById = materials({ model = model }, pool)
+    local batches = {}
+    for _, batch in ipairs(model.batches) do
+      local mesh = pool:meshFor(batch.geometry)
+      batches[#batches + 1] = {
+        mesh = mesh.mesh,
+        material = materialById[batch.material],
+        center = mesh.center,
+        alphaClass = batch.alphaClass,
+        cullMode = batch.cullMode,
+        polygonAlpha = batch.polygonAlpha,
+        polygonMode = batch.polygonMode,
+        polygonId = batch.polygonId,
+        translucentDepthWrite = batch.translucentDepthWrite,
+        depthEqual = batch.depthEqual,
+        lightMask = batch.lightMask,
+        fogEnabled = batch.fogEnabled,
+      }
+    end
+    return { model = model, batches = batches }
+  end)
+  return setmetatable({ prepared = prepared }, Renderer)
 end
 
-local function materials(asset, pool)
+materials = function(asset, pool)
   local out = {}
   for _, record in ipairs(asset.model.materials) do
     local wrap = SceneDescriptor.wrap(record)
@@ -29,13 +53,10 @@ local function materials(asset, pool)
   return out
 end
 
-function Renderer:drawItems(status, sceneRuntime)
-  if not status or not status.visible then
+function Renderer:drawItems(status)
+  if not status or not status.visible or not status.position then
     return {}
   end
-  assert(sceneRuntime and sceneRuntime.assetPool, "field effect requires the live scene asset pool")
-  local pool = sceneRuntime.assetPool
-  local materialById = materials(self.asset, pool)
   local transform = Matrix4.multiply(
     Matrix4.translate(status.position.x, status.position.y, status.position.z),
     Matrix4.multiply(
@@ -44,14 +65,13 @@ function Renderer:drawItems(status, sceneRuntime)
     )
   )
   local items = {}
-  for _, batch in ipairs(self.asset.model.batches) do
-    local mesh = pool:meshFor(batch.geometry)
+  for _, batch in ipairs(self.prepared.batches) do
     items[#items + 1] = {
-      mesh = mesh.mesh,
-      material = materialById[batch.material],
+      mesh = batch.mesh,
+      material = batch.material,
       transform = transform,
-      modelNormal = Matrix3.identity(),
-      center = mesh.center,
+      modelNormal = Matrix3.modelNormal(transform),
+      center = batch.center,
       alphaClass = batch.alphaClass,
       cullMode = batch.cullMode,
       polygonAlpha = batch.polygonAlpha,
@@ -69,7 +89,7 @@ function Renderer:drawItems(status, sceneRuntime)
 end
 
 function Renderer:dispose()
-  self.asset = nil
+  self.prepared = nil
 end
 
 return Renderer

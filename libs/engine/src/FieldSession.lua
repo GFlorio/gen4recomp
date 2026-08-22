@@ -49,6 +49,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
+---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field audio { updateField: fun(self: table) }?
 
 ---@class FieldSession.Interactions
@@ -73,6 +74,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
+---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field audio { updateField: fun(self: table) }?
 ---@field tick integer
 ---@field accumulator number
@@ -129,6 +131,10 @@ function FieldSession.new(options)
   )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
   assert(
+    options.fieldEntranceIndicator and options.fieldEntranceIndicator.updateFixed,
+    "field entrance indicator required"
+  )
+  assert(
     options.eventResolver and options.eventResolver.resolveCoordinate and options.eventResolver.resolvePassiveSign,
     "field event resolver required"
   )
@@ -155,6 +161,7 @@ function FieldSession.new(options)
     contextChoice = options.contextChoice,
     signpost = options.signpost,
     applicationHost = options.applicationHost,
+    fieldEntranceIndicator = options.fieldEntranceIndicator,
     audio = options.audio,
     tick = 0,
     accumulator = 0,
@@ -182,6 +189,11 @@ local function canOpenStartMenu(self)
 end
 
 function FieldSession:_advanceTick()
+  self.fieldEntranceIndicator:updateFixed({
+    map = self.currentMap,
+    player = self.player,
+    transition = { ownsField = self.transition.phase == FieldTransition.PHASES.idle },
+  })
   self.tick = self.tick + 1
 end
 

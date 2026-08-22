@@ -710,6 +710,7 @@ function FieldRuntime:_load()
       },
       eventResolver = FieldEventResolver,
       eventState = self.eventState,
+      fieldEntranceIndicator = self.fieldEntranceIndicator,
     })
 
     self:_applyEffectiveWeather(self.runtimeMap)
@@ -752,7 +753,6 @@ function FieldRuntime:update(dt)
       if canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
         self.session.accumulator = self.session.accumulator - FIXED_DT
         self.session:updateFixed()
-        FieldEntranceIndicatorRuntime.update(self)
         fieldExecuted = fieldExecuted + 1
         if self.applicationHost:error() and not self.errorText then
           self.errorText = tostring(self.applicationHost:error())
@@ -771,7 +771,6 @@ function FieldRuntime:update(dt)
     end
   else
     self.session:update(dt)
-    FieldEntranceIndicatorRuntime.update(self)
     if self.applicationHost:error() and not self.errorText then
       self.errorText = tostring(self.applicationHost:error())
     end
@@ -1143,7 +1142,6 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
     self.audio:enterMap(runtimeMap, { clearMusicOverride = true, play = true })
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
-  FieldEntranceIndicatorRuntime.hide(self)
 end
 
 function FieldRuntime:_updateCameraProjection()

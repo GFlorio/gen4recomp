@@ -21,10 +21,10 @@ local DELTAS = {
 -- The table is indexed by source direction and phase, and is intentionally
 -- immutable through the public API.
 local PHASE_OFFSETS = {
-  north = { { x = 0, y = 0, z = -0.125 }, { x = 0, y = 0.125, z = -0.125 } },
-  south = { { x = 0, y = 0, z = 0.125 }, { x = 0, y = 0.125, z = 0.125 } },
-  west = { { x = -0.125, y = 0, z = 0 }, { x = -0.125, y = 0.125, z = 0 } },
-  east = { { x = 0.125, y = 0, z = 0 }, { x = 0.125, y = 0.125, z = 0 } },
+  north = { { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = -0.125 } },
+  south = { { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0.125 } },
+  west = { { x = 0, y = 0, z = 0 }, { x = -0.125, y = 0, z = 0 } },
+  east = { { x = 0, y = 0, z = 0 }, { x = 0.125, y = 0, z = 0 } },
 }
 
 local function copyOffset(offset)

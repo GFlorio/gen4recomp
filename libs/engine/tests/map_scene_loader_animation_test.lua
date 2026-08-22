@@ -1102,6 +1102,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     versionId = "heartgold",
     currentMap = map,
     player = player,
+    fieldEntranceIndicator = { updateFixed = function() end },
     camera = camera,
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     transition = {

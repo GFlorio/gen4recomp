@@ -537,6 +537,7 @@ T["session script phase"] = function()
     versionId = "heartgold",
     currentMap = runtimeMap,
     player = player,
+    fieldEntranceIndicator = { updateFixed = function() end },
     camera = camera,
     transition = transition,
     input = input,

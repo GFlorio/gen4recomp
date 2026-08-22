@@ -110,6 +110,13 @@ end
 -- carries empty warp events so a pressed direction reaches the warp check
 -- safely.
 local function baseOptions(overrides)
+  local indicator = {
+    updates = 0,
+    updateFixed = function(self, runtime)
+      self.updates = self.updates + 1
+      self.lastRuntime = runtime
+    end,
+  }
   local options = {
     versionId = "heartgold",
     currentMap = {
@@ -160,11 +167,25 @@ local function baseOptions(overrides)
     },
     eventResolver = FieldEventResolver,
     eventState = FieldEventState.new(),
+    fieldEntranceIndicator = indicator,
   }
   for key, value in pairs(overrides) do
     options[key] = value
   end
   return options
+end
+
+function T.indicator_is_required_and_advances_once_per_completed_tick()
+  local options = baseOptions({})
+  options.fieldEntranceIndicator = nil
+  local ok = pcall(FieldSession.new, options)
+  Assert.isFalse(ok)
+
+  local indicator = baseOptions({}).fieldEntranceIndicator
+  local session = FieldSession.new(baseOptions({ fieldEntranceIndicator = indicator }))
+  session:update(0.5)
+  Assert.equal(session.tick, 5)
+  Assert.equal(indicator.updates, 5)
 end
 
 local function session()

@@ -230,6 +230,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     interactions = interactions,
     eventResolver = FieldEventResolver,
     eventState = FieldEventState.new(),
+    fieldEntranceIndicator = { updateFixed = function() end },
   })
 
   local directions = {
