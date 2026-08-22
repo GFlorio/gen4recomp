@@ -370,7 +370,7 @@ function T.compiles_the_manifest_and_all_assets()
   for _ in pairs(bundle.assets) do
     assetCount = assetCount + 1
   end
-  Assert.equal(assetCount, 6)
+  Assert.equal(assetCount, 7)
   for path, bytes in pairs(bundle.assets) do
     Assert.isTrue(path:find("^assets/generated/field/ui/") ~= nil)
     Assert.isTrue(#bytes > 0)

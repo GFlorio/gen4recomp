@@ -32,7 +32,7 @@ end
 
 function T.every_catalog_map_event_member_decodes(romFs)
   local bundles = assert(FieldMapDataCompiler.compileAll(romFs))
-  Assert.equal(#bundles, 540)
+  Assert.equal(#bundles, 539)
   for index, bundle in ipairs(bundles) do
     Assert.equal(bundle.mapId, index - 1)
     Assert.equal(bundle.field.mapId, index - 1)

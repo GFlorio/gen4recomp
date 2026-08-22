@@ -116,7 +116,7 @@ function T.compiles_tokenized_lossless_banks()
   Assert.equal(bundle.dependencies.bank542MemberSha1, "member-542-sha")
   Assert.equal(bundle.dependencies.bank543MemberSha1, "member-543-sha")
   Assert.equal(bundle.dependencies.bank191MemberSha1, "member-191-sha")
-  Assert.equal(bundle.marker, "field-message-cache-v2:rom-sha:dependency-sha")
+  Assert.equal(bundle.marker, "field-message-cache-v3:rom-sha:dependency-sha")
 end
 
 function T.compilation_is_deterministic()

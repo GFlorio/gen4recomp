@@ -161,6 +161,10 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     load = function(_, mapId)
       return assert(maps[mapId], "map " .. tostring(mapId))
     end,
+    transitionEnvironment = function(_, mapId)
+      local map = assert(maps[mapId], "map " .. tostring(mapId))
+      return assert(map.fieldData.transitionEnvironment, "map transition environment " .. tostring(mapId))
+    end,
     protectMap = function() end,
   }
   local spawn = opts.spawn

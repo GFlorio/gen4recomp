@@ -212,6 +212,9 @@ local function fixture(opts)
       for i = 1, 20 do
         members[26 + i] = lz10Wrap(palette16())
       end
+      -- The v7 cursor atlas is sourced from the dedicated member after the
+      -- twenty dialogue frame members.
+      members[0x16 + 1] = lz10Wrap(charData(12))
     elseif alias == "signpost_graphics" then
       members = signposts
     else
