@@ -387,12 +387,9 @@ function T.restore_slot_sources_resolve_from_the_draw_snapshot()
   Assert.equal(draw.position[14], 2)
 end
 
--- A straddling mesh (a primitive whose vertices were submitted under two
--- different sources) must resolve BOTH matrices into the pose, exactly as the
--- DS transforms each vertex at submission: the leading vertices under the
--- straddle source, the trailing under the mesh's own source. The runtime
--- needs both matrices and the split to reproduce the per-vertex bend.
-function T.straddling_meshes_resolve_both_sources()
+-- Compiled straddle provenance is dormant presentation data. Evaluation must
+-- not resolve it when the current draw source is valid.
+function T.dormant_straddle_source_is_not_resolved()
   -- Draw 0 carries node 0's matrix (16,0,0 model units -> 1,0,0 tiles) via
   -- the MTX slot reselect, and the restoreStack snapshot keeps node 1's
   -- matrix in slot 1 (0,32,0 -> 0,2,0 tiles).
@@ -456,7 +453,7 @@ function T.straddling_meshes_resolve_both_sources()
         m = {
           drawIndex = 0,
           positionSource = "draw",
-          straddle = { leading = 2, source = { slot = 1 } },
+          straddle = { leading = 2, source = { slot = 9 } },
           transformMode = "static",
           cullMode = "back",
           polygonMode = "modulation",
@@ -471,27 +468,29 @@ function T.straddling_meshes_resolve_both_sources()
   })
   local instance = newInstance(def)
   instance:evaluatePose()
-  ---@type { position: number[], transformMode: string, baseTransform: any, straddle?: { leading: integer, position: number[], direction: number[] } }
   local draw = instance.poseState.drawMatrices["m"]
   -- The mesh's own source resolves the draw matrix (node 0: 16,0,0 -> 1,0,0
   -- tiles).
   Assert.equal(draw.position[13], 1)
-  -- The straddle source resolves the slot snapshot (node 1: 0,32,0 -> 0,2,0
-  -- tiles) with the leading count, so the draw path can bend per-vertex.
-  Assert.equal(draw.straddle.leading, 2)
-  Assert.equal(draw.straddle.position[14], 2)
-  Assert.equal(draw.straddle.direction[1], 1)
-  -- The draw item carries both transforms and the split, so the renderer
-  -- can reproduce the DS per-vertex bend (leading vertices under the old
-  -- matrix, trailing under the new).
-  ---@type { transform: number[], modelNormal: number[], straddle?: { leading: integer, transform: number[] } }[]
+  ---@diagnostic disable-next-line: undefined-field -- evaluated pose omits dormant provenance
+  Assert.isNil(draw.straddle)
+  Assert.isTrue(def.backend.meshes.m.straddle ~= nil, "compiled provenance remains")
   local items = instance:drawItems({ m = {} })
-  Assert.equal(items[1].straddle.leading, 2)
-  Assert.equal(items[1].straddle.transform[14], 2)
   Assert.equal(items[1].transform[13], 1)
   Assert.deepEqual(items[1].modelNormal, identity9())
   local nextItems = instance:drawItems({ m = {} })
-  Assert.equal(items[1].modelNormal, nextItems[1].modelNormal, "straddles share the baked-path identity normal")
+  Assert.equal(items[1].modelNormal, nextItems[1].modelNormal, "translation-only draws share the identity normal")
+
+  -- With valid dormant provenance, the evaluated contract remains the same:
+  -- current pose data is present, but no per-frame split is published.
+  def.backend.meshes.m.straddle.source = { slot = 1 }
+  local validInstance = newInstance(def)
+  validInstance:evaluatePose()
+  local validDraw = validInstance.poseState.drawMatrices["m"]
+  Assert.equal(validDraw.position[13], 1)
+  ---@diagnostic disable-next-line: undefined-field -- evaluated pose omits dormant provenance
+  Assert.isNil(validDraw.straddle)
+  Assert.isTrue(def.backend.meshes.m.straddle ~= nil, "compiled provenance remains")
 end
 
 -- The pose guard is defense in depth: the artifact gate rejects a serialized

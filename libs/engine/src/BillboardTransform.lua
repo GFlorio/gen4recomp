@@ -1,6 +1,6 @@
--- Describes the camera-independent placement data of a billboard draw and, for
--- the exceptional straddle path, rebuilds the model matrix against the live
--- camera. A BB shape cannot be baked at compile time, so MapAssetCompiler ships
+-- Describes the camera-independent placement data of a billboard draw and
+-- rebuilds the model matrix against the live camera. A BB shape cannot be
+-- baked at compile time, so MapAssetCompiler ships
 -- its geometry in billboard-local space plus the position matrix the SBC command
 -- captured (`baseTransform`).
 --

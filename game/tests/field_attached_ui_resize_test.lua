@@ -13,8 +13,18 @@ local T = {}
 ---@class ResizeTestRuntime
 ---@field resizeCalls integer?
 ---@field lastResize table?
+---@field rendererObservations table?
 
 local function drawState(topologyProvider, pollTopology)
+  topologyProvider = topologyProvider
+    or function(width, height)
+      return ScreenTopology.oneDisplay({
+        id = "main",
+        rect = { x = 0, y = 0, width = width, height = height },
+        touch = false,
+        role = "world",
+      })
+    end
   ---@type ResizeTestRuntime
   local runtime = {
     session = {
@@ -25,6 +35,8 @@ local function drawState(topologyProvider, pollTopology)
     runtimeMap = { sceneRuntime = {} },
     camera = { zoom = 1 },
     viewport = {
+      width = 800,
+      height = 600,
       worldViewport = {},
       logicalPixelScale = function()
         return 1
@@ -54,13 +66,24 @@ local function drawState(topologyProvider, pollTopology)
     resizePresentation = function(self, width, height, topology)
       self.resizeCalls = (self.resizeCalls or 0) + 1
       self.lastResize = { width, height, topology }
+      self.viewport.width = width
+      self.viewport.height = height
     end,
   }
+  local rendererObservations = {}
   local state = setmetatable({
     runtime = runtime,
     topologyProvider = topologyProvider,
     _pollPresentationTopology = pollTopology == true,
-    renderer = { draw = function() end },
+    renderer = {
+      draw = function(_, _, _, _, _, viewport)
+        rendererObservations[#rendererObservations + 1] = {
+          width = viewport.width,
+          height = viewport.height,
+          resizeCalls = runtime.resizeCalls or 0,
+        }
+      end,
+    },
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
@@ -68,6 +91,7 @@ local function drawState(topologyProvider, pollTopology)
   state._worldParts = function()
     return state.worldParts
   end
+  runtime.rendererObservations = rendererObservations
   return state, runtime
 end
 
@@ -81,19 +105,49 @@ local function oneDisplay(width, height, safeRect)
   })
 end
 
-function T.default_field_draw_does_not_poll_topology_or_resize_runtime()
-  local state, runtime = drawState(nil)
+function T.missed_resize_is_reconciled_before_renderer_and_restored_once()
+  local topologyCalls = 0
+  local state, runtime = drawState(function(width, height)
+    topologyCalls = topologyCalls + 1
+    return ScreenTopology.oneDisplay({
+      id = "main",
+      rect = { x = 0, y = 0, width = width, height = height },
+      touch = false,
+      role = "world",
+    })
+  end, true)
   local originalGetDimensions = love.graphics.getDimensions
+  local dimensions = { width = 1600, height = 900 }
   love.graphics.getDimensions = function()
-    error("default draw must not query presentation dimensions")
+    return dimensions.width, dimensions.height
   end
   local ok, err = pcall(function()
     state:draw()
+  end)
+  Assert.isTrue(ok, "missed grow resize should be repaired: " .. tostring(err))
+  Assert.equal(runtime.resizeCalls, 1)
+  Assert.equal(runtime.lastResize[1], 1600)
+  Assert.equal(runtime.lastResize[2], 900)
+  Assert.deepEqual(runtime.rendererObservations, {
+    { width = 1600, height = 900, resizeCalls = 1 },
+  })
+  Assert.equal(topologyCalls, 1)
+
+  dimensions.width, dimensions.height = 800, 600
+  ok, err = pcall(function()
     state:draw()
   end)
   love.graphics.getDimensions = originalGetDimensions
-  Assert.isTrue(ok, "steady default draws must not perform geometry polling: " .. tostring(err))
-  Assert.isNil(runtime.lastResize)
+  Assert.isTrue(ok, "missed restore resize should be repaired: " .. tostring(err))
+  Assert.equal(runtime.resizeCalls, 2)
+  Assert.equal(runtime.lastResize[1], 800)
+  Assert.equal(runtime.lastResize[2], 600)
+  Assert.deepEqual(runtime.rendererObservations[2], {
+    width = 800,
+    height = 600,
+    resizeCalls = 2,
+  })
+  Assert.equal(topologyCalls, 2)
 end
 
 function T.resize_event_applies_presentation_geometry_once_before_an_unchanged_draw()
@@ -107,14 +161,19 @@ function T.resize_event_applies_presentation_geometry_once_before_an_unchanged_d
 
   local originalGetDimensions = love.graphics.getDimensions
   love.graphics.getDimensions = function()
-    error("default draw must not poll after an explicit resize")
+    return 1280, 720
   end
   local ok, err = pcall(function()
+    state:draw()
     state:draw()
   end)
   love.graphics.getDimensions = originalGetDimensions
   Assert.isTrue(ok, "unchanged draw must use the event-synchronized geometry: " .. tostring(err))
   Assert.equal(runtime.resizeCalls, 1)
+  Assert.deepEqual(runtime.rendererObservations, {
+    { width = 1280, height = 720, resizeCalls = 1 },
+    { width = 1280, height = 720, resizeCalls = 1 },
+  })
 end
 
 function T.injected_topology_provider_publishes_one_same_size_structural_change()

@@ -151,6 +151,26 @@ function T.draw_items_carry_pose_transforms()
   Assert.equal(items[1].lightMask, 5)
 end
 
+-- Compiled source provenance does not alter the renderer-facing current
+-- transform or ordinary normal calculation.
+function T.straddle_origin_items_use_the_current_transform_and_normal()
+  local def = NitroModelFixture.doorDefinition()
+  local instance = ModelInstance.new(def)
+  instance:evaluatePose()
+  local draw = instance.poseState.drawMatrices["draw0.seg0"]
+  local current = Matrix4.multiply(Matrix4.rotateY(math.pi / 3), Matrix4.scale(2, 1, 1))
+  draw.position = current
+
+  local residentMesh = {}
+  local items = instance:drawItems({ [def.meshes[1].id] = residentMesh })
+  Assert.equal(#items, 1)
+  Assert.equal(items[1].mesh, residentMesh)
+  Assert.deepEqual(items[1].transform, current)
+  Assert.deepEqual(items[1].modelNormal, Matrix3.modelNormal(current))
+  ---@diagnostic disable-next-line: undefined-field -- renderer items omit dormant provenance
+  Assert.isNil(items[1].straddle, "renderer items do not carry the discarded split")
+end
+
 -- The effective material reads the record's optional colors block (the four
 -- DS base-material registers the dynamic compiler emits) per component even
 -- before any evaluation -- the initial material state carries the record's

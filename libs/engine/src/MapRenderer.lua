@@ -22,12 +22,9 @@
 -- lower-pixel coverage). Both candidates share the center state's single
 -- depth/fog state; fog alpha is resolved before the mix.
 --
--- A straddling draw item (the first `leading` vertices submitted under a
--- pre-boundary matrix, per the DS geometry engine) is bent per frame, in both
--- passes and the wireframe pass alike: the shared mesh's vertex data is
--- CPU-baked under the two transforms into a scratch mesh drawn with an
--- identity model and released within the frame -- the pool-shared mesh is
--- never mutated. Resource construction is transactional: a failed shader,
+-- A straddling draw is presented as a whole resident mesh under its current
+-- transform. Resource
+-- construction is transactional: a failed shader,
 -- canvas allocation, or target configuration releases everything already
 -- created, and a canvas recreation keeps the previous target set usable until
 -- the replacement is complete. It restores the exact caller state it changed
@@ -37,10 +34,7 @@
 -- the loader and compiler; here everything is already resident.
 
 local RenderQueue = require("libs.engine.src.RenderQueue")
-local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local Matrix3 = require("libs.math.src.Matrix3")
-local Matrix4 = require("libs.math.src.Matrix4")
-local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
@@ -131,7 +125,6 @@ end
 -- libs/engine must not import game-level config, so this default is the
 -- renderer's own and intentionally distinct from any game-chosen value.
 local DEFAULT_CLEAR_COLOR = { 0, 0, 0, 1 }
-local IDENTITY_MODEL = Matrix4.identity()
 local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
 -- 24-bit rear-plane depth: the maximum value the shader's quantized
@@ -638,46 +631,6 @@ local function effectiveMaterialColor(value, colorsAnimated, profileColor)
   return profileColor or ZERO_COLOR
 end
 
--- Bake a straddling item's vertex data into world space, exactly as the DS
--- geometry engine transformed each vertex at submission under the
--- then-current matrix: the first `leading` vertices under the straddle
--- transform, the rest under the item transform. Positions transform through
--- the full matrix; normals through the matrix's linear part only (a
--- direction never picks up a translation). UVs, colors, and the color source
--- ride unchanged. `vertices` is a plain table of project-layout vertex
--- records; the returned table is fresh and owned by the caller. Pure
--- arithmetic, no graphics state.
--- A straddle record always splits a segment strictly between zero and its
--- full vertex count; anything else is a corrupted provenance record and
--- fails loudly instead of baking a degenerate bend.
----@param vertices number[][] -- project render layout records: {x,y,z, u,v, nx,ny,nz, r,g,b,a, colorSource}
----@param leading integer
----@param straddleTransform number[]
----@param transform number[]
----@return number[][]
-function MapRenderer.bakeStraddle(vertices, leading, straddleTransform, transform)
-  assert(type(vertices) == "table" and #vertices > 0, "bakeStraddle requires a non-empty vertex table")
-  assert(
-    type(leading) == "number" and leading >= 1 and leading < #vertices,
-    "bakeStraddle leading count " .. tostring(leading) .. " is out of range for " .. #vertices .. " vertices"
-  )
-  local leadingNormal = Matrix3.modelNormal(straddleTransform)
-  local trailingNormal = Matrix3.modelNormal(transform)
-  local baked = {}
-  for i, v in ipairs(vertices) do
-    local m, nm
-    if i <= leading then
-      m, nm = straddleTransform, leadingNormal
-    else
-      m, nm = transform, trailingNormal
-    end
-    local x, y, z = Matrix4.transformPoint(m, v[1], v[2], v[3])
-    local nx, ny, nz = Matrix3.transform(nm, v[6], v[7], v[8])
-    baked[i] = { x, y, z, v[4], v[5], nx, ny, nz, v[9], v[10], v[11], v[12], v[13] }
-  end
-  return baked
-end
-
 -- Bind the model/normal matrices or billboard placement common to both the
 -- filled and wireframe draw bodies (_drawMesh, _drawWireframeMesh).
 local function sendTransformUniforms(shader, projection, modelMatrix, modelNormal, billboardCenter, billboardScale)
@@ -708,52 +661,12 @@ local function sendPlacementUniforms(shader, projection, modelMatrix, billboardC
   end
 end
 
--- Bake a straddling item's shared mesh into a scratch mesh under the item's
--- two submission transforms (see MapRenderer.bakeStraddle), resolving a
--- billboard base through the current view first if the item is a
--- billboarded straddle. Shared by every straddle draw path (color, state,
--- and wireframe): all bake identically and differ only in which draw body
--- consumes the result. The caller owns releasing the returned mesh.
-local function bakeStraddleMesh(lg, item, viewMatrix)
-  -- love 11.5 has no Mesh:getVertices bulk read; the CPU-side vertex data is
-  -- still reachable per vertex (getVertex returns the attribute components
-  -- as multiple values on this build).
-  local vertices = {}
-  for i = 1, item.mesh:getVertexCount() do
-    vertices[i] = { item.mesh:getVertex(i) }
-  end
-  local transform = item.transform
-  if item.billboardBase then
-    -- A billboarded straddle still has mixed submission transforms, so keep
-    -- the proven CPU bend until that exceptional combination has an exact
-    -- view-space equivalent.
-    transform =
-      BillboardTransform.resolve(item.billboardBase, assert(viewMatrix, "straddle billboard needs a view matrix"))
-  end
-  local scratch = lg.newMesh(
-    VertexFormat.LAYOUT,
-    MapRenderer.bakeStraddle(vertices, item.straddle.leading, item.straddle.transform, transform),
-    "triangles",
-    "static"
-  )
-  local map = item.mesh:getVertexMap()
-  if map and #map > 0 then
-    scratch:setVertexMap(map)
-  end
-  return scratch
-end
-
 -- Bind a material's uniforms/texture/cull state, then draw the mesh.
 -- `projection` is per item: billboard actors draw through the camera's
 -- field-billboard projection, everything else through the world projection.
--- `modelMatrix`/`modelNormal` are the item's unless the item straddles (a
--- straddling item draws its baked world-space scratch mesh with an identity
--- model). `fragmentPass` was selected by the caller and is sent as-is.
-function MapRenderer:_drawItem(item, projection, fragmentPass, viewMatrix)
-  if item.straddle then
-    self:_drawStraddle(item, projection, fragmentPass, viewMatrix)
-    return
-  end
+-- `modelMatrix`/`modelNormal` are the item's current placement. `fragmentPass`
+-- was selected by the caller and is sent as-is.
+function MapRenderer:_drawItem(item, projection, fragmentPass)
   self:_drawMesh(
     item,
     projection,
@@ -764,29 +677,6 @@ function MapRenderer:_drawItem(item, projection, fragmentPass, viewMatrix)
     item.billboardCenter,
     item.billboardScale
   )
-end
-
--- Draw a straddling item: the DS submitted its first `leading` vertices
--- under the pre-boundary matrix, so the renderer CPU-bakes them under
--- item.straddle.transform and the rest under item.transform (per frame --
--- the transforms animate), and draws the result with an identity model. The
--- bake never mutates the pool-shared mesh (the pool dedups geometry by
--- path): a scratch mesh is created, drawn, and released within this call, on
--- the failure path as well as the success path. The scratch carries the
--- source mesh's vertex map, so index order is preserved exactly.
-function MapRenderer:_drawStraddle(item, projection, fragmentPass, viewMatrix)
-  local lg = assert(self._graphics)
-  local scratch
-  local ok, err = pcall(function()
-    scratch = bakeStraddleMesh(lg, item, viewMatrix)
-    self:_drawMesh(item, projection, IDENTITY_MODEL, IDENTITY_MODEL_NORMAL, scratch, fragmentPass, nil, nil)
-  end)
-  if scratch then
-    scratch:release()
-  end
-  if not ok then
-    error(err)
-  end
 end
 
 -- The common draw body: bind the model/normal matrices or billboard placement,
@@ -863,15 +753,8 @@ end
 
 -- Draw the edges of a wireframe batch through the same projection path as
 -- filled geometry. The DS draws polygon alpha zero as wireframe edges rather
--- than an invisible filled polygon. A straddling wireframe item takes the
--- same per-vertex bend dispatch as the filled passes: the first `leading`
--- vertices are baked under the straddle transform into a released scratch
--- mesh, exactly like _drawStraddle.
-function MapRenderer:_drawWireframe(item, projection, viewMatrix)
-  if item.straddle then
-    self:_drawWireframeStraddle(item, projection, viewMatrix)
-    return
-  end
+-- than an invisible filled polygon.
+function MapRenderer:_drawWireframe(item, projection)
   self:_drawWireframeMesh(
     item,
     projection,
@@ -881,25 +764,6 @@ function MapRenderer:_drawWireframe(item, projection, viewMatrix)
     item.billboardCenter,
     item.billboardScale
   )
-end
-
--- Draw a straddling wireframe item: bake the shared mesh's vertices under
--- the straddle transform (leading) and the item transform (trailing) into a
--- scratch mesh, draw it with an identity model, and release the scratch
--- within the call -- on the failure path as well as the success path.
-function MapRenderer:_drawWireframeStraddle(item, projection, viewMatrix)
-  local lg = assert(self._graphics)
-  local scratch
-  local ok, err = pcall(function()
-    scratch = bakeStraddleMesh(lg, item, viewMatrix)
-    self:_drawWireframeMesh(item, projection, IDENTITY_MODEL, IDENTITY_MODEL_NORMAL, scratch, nil, nil)
-  end)
-  if scratch then
-    scratch:release()
-  end
-  if not ok then
-    error(err)
-  end
 end
 
 -- The common wireframe draw body: bind the model/normal matrices, the
@@ -958,15 +822,13 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
   local lg = assert(self._graphics)
   local mat = item.material
 
-  -- Pass 1: source color through the ordinary color shader (the same
-  -- _drawItem dispatch the color pass uses, so straddle bending, lighting,
-  -- materials, and billboard projection are all identical).
+  -- Pass 1: source color through the ordinary color shader.
   lg.setCanvas(assert(self._sourceColorTargets))
   lg.setShader(self.shader)
   lg.setDepthMode("less", false)
   lg.setBlendMode("replace", "premultiplied")
   self.shader:send("u_view", "column", viewMatrix)
-  self:_drawItem(item, projection, fragmentPass, viewMatrix)
+  self:_drawItem(item, projection, fragmentPass)
 
   -- Pass 2: source metadata through source.glsl (same-ID rejection + fog flag
   -- + id).
@@ -977,67 +839,26 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
   lg.setBlendMode("replace", "premultiplied")
   self.sourceShader:send("u_view", "column", viewMatrix)
 
-  if item.straddle then
-    self:_drawSourceStraddleMeta(item, projection, fragmentPass, viewMatrix, activeState, stateW, stateH)
+  sendPlacementUniforms(self.sourceShader, projection, item.transform, item.billboardCenter, item.billboardScale)
+  self.sourceShader:send("u_texMatrix", "column", mat.texMatrix)
+  if mat and mat.image then
+    self.sourceShader:send("u_useTexture", true)
+    item.mesh:setTexture(mat.image)
   else
-    sendPlacementUniforms(self.sourceShader, projection, item.transform, item.billboardCenter, item.billboardScale)
-    self.sourceShader:send("u_texMatrix", "column", mat.texMatrix)
-    if mat and mat.image then
-      self.sourceShader:send("u_useTexture", true)
-      item.mesh:setTexture(mat.image)
-    else
-      self.sourceShader:send("u_useTexture", false)
-      item.mesh:setTexture()
-    end
-    self.sourceShader:send("u_fragmentPass", fragmentPass)
-    self.sourceShader:send("u_polygonAlpha", item.polygonAlpha)
-    self.sourceShader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-    self.sourceShader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
-    self.sourceShader:send("u_polygonFogEnabled", item.fogEnabled == true)
-    self.sourceShader:send("u_activeState", activeState)
-    self.sourceShader:send("u_stateSize", { stateW, stateH })
-    lg.setMeshCullMode(item.cullMode)
-    lg.draw(item.mesh)
+    self.sourceShader:send("u_useTexture", false)
+    item.mesh:setTexture()
   end
+  self.sourceShader:send("u_fragmentPass", fragmentPass)
+  self.sourceShader:send("u_polygonAlpha", item.polygonAlpha)
+  self.sourceShader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
+  self.sourceShader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
+  self.sourceShader:send("u_polygonFogEnabled", item.fogEnabled == true)
+  self.sourceShader:send("u_activeState", activeState)
+  self.sourceShader:send("u_stateSize", { stateW, stateH })
+  lg.setMeshCullMode(item.cullMode)
+  lg.draw(item.mesh)
   self.stats.drawCalls = self.stats.drawCalls + 2
   self.stats.colorDrawCalls = self.stats.colorDrawCalls + 2
-end
-
--- A straddling blended item through the source metadata pass: the first
--- `leading` vertices are baked under the straddle transform into a scratch
--- mesh and the rest under the item transform, exactly like the color pass's
--- straddle path (the source pass shares the same per-vertex bend dispatch).
-function MapRenderer:_drawSourceStraddleMeta(item, projection, fragmentPass, viewMatrix, activeState, stateW, stateH)
-  local lg = assert(self._graphics)
-  local scratch
-  local ok, err = pcall(function()
-    scratch = bakeStraddleMesh(lg, item, viewMatrix)
-    local shader = self.sourceShader
-    sendPlacementUniforms(shader, projection, IDENTITY_MODEL, nil, nil)
-    shader:send("u_texMatrix", "column", item.material.texMatrix)
-    if item.material and item.material.image then
-      shader:send("u_useTexture", true)
-      scratch:setTexture(item.material.image)
-    else
-      shader:send("u_useTexture", false)
-      scratch:setTexture()
-    end
-    shader:send("u_fragmentPass", fragmentPass)
-    shader:send("u_polygonAlpha", item.polygonAlpha)
-    shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-    shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
-    shader:send("u_polygonFogEnabled", item.fogEnabled == true)
-    shader:send("u_activeState", activeState)
-    shader:send("u_stateSize", { stateW, stateH })
-    lg.setMeshCullMode(item.cullMode)
-    lg.draw(scratch)
-  end)
-  if scratch then
-    scratch:release()
-  end
-  if not ok then
-    error(err)
-  end
 end
 
 -- `worldParts` contains ordered arrays of map geometry, building batches, the
@@ -1125,13 +946,13 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     self:_sendLighting(sceneRuntime, self.worldShader)
 
     for _, d in ipairs(queue.opaque) do
-      self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_OPAQUE, viewMatrix)
+      self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_OPAQUE)
     end
     for _, d in ipairs(queue.cutout) do
-      self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_CUTOUT, viewMatrix)
+      self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_CUTOUT)
     end
     for _, d in ipairs(queue.mixedOpaque) do
-      self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_MIXED_OPAQUE, viewMatrix)
+      self:_drawItem(d, projectionFor(d), FRAGMENT_PASS_MIXED_OPAQUE)
     end
     self._activeShader = nil
 
@@ -1163,7 +984,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
         for _, entry in ipairs(queue.blended) do
           local fragmentPass = entry.fragmentPass == AlphaClassifier.MIXED and FRAGMENT_PASS_MIXED_TRANSLUCENT
             or FRAGMENT_PASS_TRANSLUCENT
-          self:_drawItem(entry.item, projectionFor(entry.item), fragmentPass, viewMatrix)
+          self:_drawItem(entry.item, projectionFor(entry.item), fragmentPass)
         end
       end
     elseif #queue.blended > 0 then
@@ -1223,7 +1044,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       lg.setBlendMode("replace", "premultiplied")
       lg.setWireframe(true)
       for _, d in ipairs(queue.wireframe) do
-        self:_drawWireframe(d, projectionFor(d), viewMatrix)
+        self:_drawWireframe(d, projectionFor(d))
       end
       self._activeShader = nil
       lg.setWireframe(false)
@@ -1291,7 +1112,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       local function drawSprite(item, fragmentPass)
         spriteShader:send("u_spriteFogEnabled", item.fogEnabled == true)
         lg.setDepthMode("less", true)
-        self:_drawItem(item, billboardProjection, fragmentPass, viewMatrix)
+        self:_drawItem(item, billboardProjection, fragmentPass)
       end
       for _, item in ipairs(spriteItems) do
         local fragmentPass
