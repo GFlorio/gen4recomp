@@ -42,6 +42,7 @@ function OakIntroLayout.compute(width, height, view, glyphs)
   end
   return {
     viewport = rect(0, 0, width, height),
+    subject = rect(margin, margin, contentWidth, math.max(120, math.floor(height * 0.55))),
     message = rect(margin, height - margin - 112, contentWidth, 96),
     cards = cards,
     nameGrid = grid,

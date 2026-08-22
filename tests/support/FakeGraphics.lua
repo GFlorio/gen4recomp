@@ -117,6 +117,7 @@ function FakeGraphics.new(opts)
     setColor = function(r, g, b, a)
       state.color = { r, g, b, a }
     end,
+    clear = function() end,
     getColor = function()
       return state.color[1], state.color[2], state.color[3], state.color[4]
     end,
