@@ -1,10 +1,18 @@
--- Decodes the type-1 HGSS field-script header records used by map initialization.
--- The producer owns this source representation; runtime receives only ordered
--- OnFrame equality rules.
+-- Decodes the complete typed HGSS map-init script stream and its referenced
+-- OnFrame tables. The producer owns these source offsets and binary forms.
 
 local Errors = require("libs.errors.src.Errors")
+local ScriptIdentity = require("libs.assets.src.ScriptIdentity")
 
 local ScriptHeader = {}
+
+local function fail(message, context)
+  Errors.raise("SCRIPT_HEADER_INVALID", message, context)
+end
+
+local function byte(bytes, offset)
+  return bytes:byte(offset + 1)
+end
 
 local function u16(bytes, offset)
   local a, b = bytes:byte(offset + 1, offset + 2)
@@ -14,71 +22,124 @@ local function u16(bytes, offset)
   return a + b * 256
 end
 
-local function fail(message, context)
-  Errors.raise("SCRIPT_HEADER_INVALID", message, context)
+local function i32(bytes, offset)
+  local a, b, c, d = bytes:byte(offset + 1, offset + 4)
+  if not d then
+    return nil
+  end
+  local value = a + b * 256 + c * 65536 + d * 16777216
+  return value >= 2147483648 and value - 4294967296 or value
 end
 
+local function context(opts, sourceOffset, typeId)
+  return { mapId = opts.mapId, memberId = opts.memberId, type = typeId, sourceOffset = sourceOffset }
+end
+
+local function scriptId(opts, rawScriptId, sourceOffset, typeId)
+  if rawScriptId == nil or rawScriptId < 1 then
+    fail("script ID must be at least one", context(opts, sourceOffset, typeId))
+  end
+  return ScriptIdentity.formatVanilla(opts.scriptBankId or 0, rawScriptId - 1)
+end
+
+local function parseTable(bytes, offset, opts, typeId)
+  if offset < 0 or offset + 2 > #bytes then
+    fail("OnFrame table pointer is outside the script header", context(opts, offset, typeId))
+  end
+  local rules = {}
+  local cursor = offset
+  while true do
+    local variableId = u16(bytes, cursor)
+    if variableId == nil then
+      fail("unterminated OnFrame equality table", context(opts, cursor, typeId))
+    end
+    if variableId == 0 then
+      return rules, cursor + 2
+    end
+    local equals = u16(bytes, cursor + 2)
+    local rawScriptId = u16(bytes, cursor + 4)
+    if equals == nil or rawScriptId == nil then
+      fail("truncated OnFrame equality entry", context(opts, cursor, typeId))
+    end
+    rules[#rules + 1] = {
+      variableId = variableId,
+      equals = equals,
+      scriptId = scriptId(opts, rawScriptId, cursor + 4, typeId),
+    }
+    cursor = cursor + 6
+  end
+end
+
+local FIXED_TYPES = { [2] = "on_transition", [3] = "on_resume", [4] = "on_load" }
+
 ---@param bytes string
----@param opts table { mapId: integer, memberId: integer, scriptBankId: integer }
+---@param opts table|nil { mapId: integer, memberId: integer, scriptBankId: integer }
 ---@return table
 function ScriptHeader.parse(bytes, opts)
   assert(type(bytes) == "string", "script header bytes must be a string")
   opts = opts or {}
-  local context = { mapId = opts.mapId, memberId = opts.memberId }
   if #bytes == 0 then
     return {}
   end
-  -- Some HGSS script members are four-byte source records rather than an
-  -- OnFrame header. The map compiler explicitly opts into treating this
-  -- source shape as "no init scripts"; direct callers remain strict.
-  if opts.allowNoInit and (bytes:byte(1) ~= 1 or bytes:byte(2) ~= 1) then
-    return {}
-  end
-  if #bytes < 8 then
-    fail("truncated type-1 script header", context)
-  end
-  if bytes:byte(1) ~= 1 or bytes:byte(2) ~= 1 then
-    fail("unsupported script-header type", context)
-  end
-  if bytes:sub(3, 6) ~= "\0\0\0\0" then
-    fail("malformed type-1 script-header prefix", context)
-  end
-
-  local cursor = 6
-  local rules = {}
-  local terminated = false
-  local index = 0
-  while cursor + 2 <= #bytes do
-    if u16(bytes, cursor) == 0 then
-      cursor = cursor + 2
-      terminated = true
+  local descriptors = {}
+  local tables = {}
+  local cursor = 0
+  while true do
+    local typeId = byte(bytes, cursor)
+    if typeId == nil then
+      fail("unterminated init-script entry stream", context(opts, cursor, nil))
+    end
+    if typeId == 0 then
       break
     end
-    local variableId = u16(bytes, cursor)
-    local equals = u16(bytes, cursor + 2)
-    if variableId == nil or equals == nil then
-      fail("truncated OnFrame equality entry", { mapId = opts.mapId, memberId = opts.memberId, entry = index })
+    if typeId == 1 then
+      local displacement = i32(bytes, cursor + 1)
+      if displacement == nil then
+        fail("truncated OnFrame entry", context(opts, cursor, typeId))
+      end
+      tables[#tables + 1] = { descriptor = #descriptors + 1, offset = cursor + 5 + displacement, type = typeId }
+      descriptors[#descriptors + 1] = { type = "on_frame_eq" }
+      cursor = cursor + 5
+    else
+      local name = FIXED_TYPES[typeId]
+      if not name then
+        fail("unknown init-script entry type", context(opts, cursor, typeId))
+      end
+      local rawScriptId = u16(bytes, cursor + 1)
+      local reserved = u16(bytes, cursor + 3)
+      if rawScriptId == nil or reserved == nil then
+        fail("truncated fixed init-script entry", context(opts, cursor, typeId))
+      end
+      if reserved ~= 0 then
+        fail("fixed init-script entry has nonzero reserved field", context(opts, cursor, typeId))
+      end
+      descriptors[#descriptors + 1] = {
+        type = name,
+        scriptId = scriptId(opts, rawScriptId, cursor + 1, typeId),
+      }
+      cursor = cursor + 5
     end
-    cursor = cursor + 4
-    local target = u16(bytes, cursor)
-    if target == nil then
-      fail("truncated OnFrame script target", { mapId = opts.mapId, memberId = opts.memberId, entry = index })
+  end
+  for _, reference in ipairs(tables) do
+    local rules, endOffset = parseTable(bytes, reference.offset, opts, reference.type)
+    descriptors[reference.descriptor].rules = rules
+    reference.endOffset = endOffset
+  end
+  for offset = cursor + 1, #bytes - 1 do
+    if byte(bytes, offset) ~= 0 then
+      local inTable = false
+      for _, reference in ipairs(tables) do
+        if offset >= reference.offset and offset < reference.endOffset then
+          inTable = true
+          break
+        end
+      end
+      if not inTable then
+        fail("nonzero data follows init-script entry stream", context(opts, offset, nil))
+      end
     end
-    cursor = cursor + 2
-    local scriptIndex = target - 1
-    rules[#rules + 1] = {
-      variableId = variableId,
-      equals = equals,
-      scriptIndex = scriptIndex,
-      scriptId = string.format("vanilla.hgss.scr_seq.%04d.script_%03d", opts.scriptBankId or 0, scriptIndex),
-    }
-    index = index + 1
   end
-  local trailing = bytes:sub(cursor + 1)
-  if not terminated or trailing:find("[^%z]") then
-    fail("unterminated or trailing type-1 script-header records", context)
-  end
-  return { { type = "on_frame_eq", rules = rules } }
+  return descriptors
 end
 
 return ScriptHeader

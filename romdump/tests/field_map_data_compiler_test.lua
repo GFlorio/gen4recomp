@@ -68,7 +68,7 @@ function T.compiles_catalog_identity_source_and_events()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
   Assert.equal(bundle.mapId, 60)
-  Assert.equal(bundle.field.schema, "g4-field-map-v6")
+  Assert.equal(bundle.field.schema, "g4-field-map-v7")
   Assert.equal(bundle.field.mapSymbol, "MAP_NEW_BARK")
   Assert.equal(bundle.field.cameraType, 0)
   -- Source identity lives only in the dependency record; the runtime asset
@@ -91,7 +91,7 @@ end
 function T.emits_strict_init_script_array_for_every_map()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
-  Assert.equal(bundle.field.schema, "g4-field-map-v6")
+  Assert.equal(bundle.field.schema, "g4-field-map-v7")
   Assert.deepEqual(bundle.field.initScripts, {})
 end
 
@@ -107,13 +107,11 @@ function T.player_house_header_618_resolves_scripts_in_body_bank_845()
     {
       variableId = 0x4106,
       equals = 3,
-      scriptIndex = 6,
       scriptId = "vanilla.hgss.scr_seq.0845.script_006",
     },
     {
       variableId = 0x4106,
       equals = 0,
-      scriptIndex = 0,
       scriptId = "vanilla.hgss.scr_seq.0845.script_000",
     },
   })

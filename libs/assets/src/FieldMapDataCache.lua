@@ -12,8 +12,53 @@ FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
 
+local function hasString(value)
+  return type(value) == "string" and #value > 0
+end
+
+local function hasOnlyKeys(value, allowed)
+  for key in pairs(value) do
+    if not allowed[key] then
+      return false
+    end
+  end
+  return true
+end
+
 local function hasInitScripts(field)
-  return Validate.isArray(field.initScripts)
+  if not Validate.isArray(field.initScripts) then
+    return false
+  end
+  for _, descriptor in ipairs(field.initScripts) do
+    if type(descriptor) ~= "table" or type(descriptor.type) ~= "string" then
+      return false
+    end
+    if descriptor.type == "on_frame_eq" then
+      if not hasOnlyKeys(descriptor, { type = true, rules = true }) or not Validate.isArray(descriptor.rules) then
+        return false
+      end
+      for _, rule in ipairs(descriptor.rules) do
+        if
+          type(rule) ~= "table"
+          or not hasOnlyKeys(rule, { variableId = true, equals = true, scriptId = true })
+          or not Validate.isNonNegativeInteger(rule.variableId)
+          or rule.variableId > 0xFFFF
+          or not Validate.isNonNegativeInteger(rule.equals)
+          or rule.equals > 0xFFFF
+          or not hasString(rule.scriptId)
+        then
+          return false
+        end
+      end
+    elseif descriptor.type == "on_transition" or descriptor.type == "on_resume" or descriptor.type == "on_load" then
+      if not hasOnlyKeys(descriptor, { type = true, scriptId = true }) or not hasString(descriptor.scriptId) then
+        return false
+      end
+    else
+      return false
+    end
+  end
+  return true
 end
 
 function FieldMapDataCache.hasRequiredInitScripts(field)
