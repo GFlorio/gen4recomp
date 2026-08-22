@@ -1302,7 +1302,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   Assert.isFalse(anyBright(unlitImg, diffuseSamples, threshold), "unlit frame inherits the previous material state")
 end
 
-function T.a_straddling_item_bends_its_leading_vertices(scope)
+function T.a_straddling_item_uses_its_current_transform_for_the_whole_mesh(scope)
   -- An arbitrary injected clear color distinguishable from the drawn
   -- triangles: this test asserts against it directly, not against
   -- MapRenderer's fallback default (libs/engine carries no opinion about
@@ -1312,9 +1312,9 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
   local lg = love.graphics
 
   -- Leading triangle (green) at y in [0.2, 0.5]; trailing triangle (red) at
-  -- y in [-0.5, -0.2]. The straddle transform translates the leading half
-  -- DOWN one world unit, so the baked green triangle lands at y in [-0.8,
-  -- -0.5] -- clearly apart from the red one.
+  -- y in [-0.5, -0.2]. The current renderer presents the resident mesh as a
+  -- whole under the item's current transform, so the straddle transform does
+  -- not move the leading triangle.
   local mesh = scope:own(syntheticMesh({
     { -0.8, 0.2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
     { 0, 0.5, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0 },
@@ -1328,6 +1328,7 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
     mesh = mesh,
     material = { alphaClass = "opaque", texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 } },
     transform = IDENTITY,
+    modelNormal = IDENTITY_NORMAL,
     alphaClass = "opaque",
     cullMode = "none",
     polygonAlpha = 1.0,
@@ -1354,22 +1355,24 @@ function T.a_straddling_item_bends_its_leading_vertices(scope)
     return data:getPixel(cx, cy)
   end
 
-  -- The baked leading triangle (world y in [-0.8, -0.5]): centroid green.
-  local gr, gg, gb = pixelAt(0, -0.65)
-  Assert.near(gr, 0, 0.05, "baked leading red")
-  Assert.near(gg, 1, 0.05, "baked leading green")
-  Assert.near(gb, 0, 0.05, "baked leading blue")
+  -- The leading triangle remains under the item's current transform (world y
+  -- in [0.2, 0.5]): centroid green.
+  local gr, gg, gb = pixelAt(0, 0.35)
+  Assert.near(gr, 0, 0.05, "current leading red")
+  Assert.near(gg, 1, 0.05, "current leading green")
+  Assert.near(gb, 0, 0.05, "current leading blue")
   -- The trailing triangle (world y in [-0.5, -0.2]): centroid red.
   local rr, rg, rb = pixelAt(0, -0.35)
   Assert.near(rr, 1, 0.05, "trailing red")
   Assert.near(rg, 0, 0.05, "trailing green")
   Assert.near(rb, 0, 0.05, "trailing blue")
-  -- Where the unbaked leading triangle would have drawn (world y in
-  -- [0.2, 0.5]): nothing but the background color.
-  local br, bg, bb = pixelAt(0, 0.35)
-  Assert.near(br, clearColor[1], 0.05, "unbaked position red")
-  Assert.near(bg, clearColor[2], 0.05, "unbaked position green")
-  Assert.near(bb, clearColor[3], 0.05, "unbaked position blue")
+  -- The discarded exact split's translated position (world y in [-0.8,
+  -- -0.5]) remains background because the whole mesh uses the current
+  -- transform.
+  local br, bg, bb = pixelAt(0, -0.65)
+  Assert.near(br, clearColor[1], 0.05, "translated position red")
+  Assert.near(bg, clearColor[2], 0.05, "translated position green")
+  Assert.near(bb, clearColor[3], 0.05, "translated position blue")
 end
 
 -- A lighting profile with one white light and a specular-only material
@@ -4388,6 +4391,156 @@ local function presentationSprite(scope, mesh, image)
     fogEnabled = false,
     center = { 0, 0, 0 },
   }
+end
+
+local function registrationCamera(width, height)
+  local far = 400
+  local projection = Matrix4.perspective(math.rad(60), width / height, 0.1, far)
+  return {
+    distance = 26,
+    far = far,
+    view = function()
+      return IDENTITY
+    end,
+    projection = function()
+      return projection
+    end,
+    billboardProjection = function()
+      return projection
+    end,
+  }
+end
+
+local function projectedCenter(projection, center)
+  local clipX = projection[1] * center[1] + projection[5] * center[2] + projection[9] * center[3] + projection[13]
+  local clipY = projection[2] * center[1] + projection[6] * center[2] + projection[10] * center[3] + projection[14]
+  local clipW = projection[4] * center[1] + projection[8] * center[2] + projection[12] * center[3] + projection[16]
+  return { x = clipX / clipW, y = clipY / clipW, w = clipW }
+end
+
+local function projectedHostCenter(viewport, camera, center, targetWidth, targetHeight)
+  local projected = projectedCenter(camera.billboardProjection(), center)
+  Assert.isTrue(projected.w > 1.5, "the registration fixture keeps perspective clip.w materially above one")
+  local rectangle = viewport.worldViewport
+  local scaleX = rectangle.width / targetWidth
+  local scaleY = -rectangle.height / targetHeight
+  local offsetX = (2 * rectangle.x + rectangle.width) / targetWidth - 1
+  local offsetY = -(1 - (2 * rectangle.y + rectangle.height) / targetHeight)
+  return {
+    continuousX = (projected.x * scaleX + offsetX + 1) * targetWidth / 2,
+    continuousY = (1 - (projected.y * scaleY + offsetY)) * targetHeight / 2,
+    homogeneousWrongX = (projected.x * scaleX + offsetX / projected.w + 1) * targetWidth / 2,
+  }
+end
+
+local function presentationCenter(image, width, height)
+  local sumX, sumY, count = 0, 0, 0
+  for y = 0, height - 1 do
+    for x = 0, width - 1 do
+      local r, g, b = image:getPixel(x, y)
+      if r > 0.75 and g < 0.1 and b < 0.1 then
+        sumX, sumY, count = sumX + x, sumY + y, count + 1
+      end
+    end
+  end
+  Assert.isTrue(count >= 4, "the diagnostic sprite leaves a readable red center region")
+  return sumX / count, sumY / count
+end
+
+local function renderRegistration(scope, renderer, width, height, center, viewport)
+  local target, color = presentationTarget(scope, width, height)
+  local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), solidAlphaImage(scope, 255, 0, 0, 255))
+  sprite.billboardCenter = center
+  sprite.billboardScale = { 0.06, 0.06, 1 }
+  love.graphics.setCanvas(target)
+  love.graphics.clear(0, 0, 0, 1)
+  local camera = registrationCamera(width, height)
+  renderer:draw(emptyRuntime(), camera, {}, { sprite }, viewport, 0)
+  love.graphics.setCanvas()
+  local image = color:newImageData()
+  local actualX, actualY = presentationCenter(image, width, height)
+  return camera, actualX, actualY
+end
+
+local function worldLandmark(scope, image)
+  local mesh = scope:own(syntheticMesh({
+    { 0.12, -0.12, -3, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 0.36, -0.12, -3, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 0.36, 0.12, -3, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 0.12, -0.12, -3, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 0.36, 0.12, -3, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+    { 0.12, 0.12, -3, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
+  }))
+  local item = presentationSprite(scope, mesh, image)
+  item.billboardProjection = false
+  item.billboardCenter = nil
+  item.billboardScale = nil
+  item.center = { 0.24, 0, -3 }
+  return item
+end
+
+local function colorCenter(image, color)
+  local sumX, sumY, count = 0, 0, 0
+  for y = 0, image:getHeight() - 1 do
+    for x = 0, image:getWidth() - 1 do
+      local r, g, b = image:getPixel(x, y)
+      if color == "red" and r > 0.75 and g < 0.1 and b < 0.1 then
+        sumX, sumY, count = sumX + x, sumY + y, count + 1
+      elseif color == "green" and g > 0.75 and r < 0.1 and b < 0.1 then
+        sumX, sumY, count = sumX + x, sumY + y, count + 1
+      end
+    end
+  end
+  Assert.isTrue(count >= 4, color .. " diagnostic remains visible")
+  return sumX / count, sumY / count
+end
+
+function T.world_landmark_and_presentation_sprite_keep_relative_registration_on_round_trip(scope)
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local observations = {}
+  for _, size in ipairs({ { 320, 240 }, { 1280, 720 }, { 320, 240 } }) do
+    local width, height = size[1], size[2]
+    local target, color = presentationTarget(scope, width, height)
+    local landmark = worldLandmark(scope, solidAlphaImage(scope, 0, 255, 0, 255))
+    local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), solidAlphaImage(scope, 255, 0, 0, 255))
+    sprite.billboardCenter = { 0.48, 0, -3 }
+    sprite.billboardScale = { 0.06, 0.06, 1 }
+    local viewport = FieldViewport.new(width, height, { mode = "expanded" })
+    love.graphics.setCanvas(target)
+    love.graphics.clear(0, 0, 0, 1)
+    renderer:draw(emptyRuntime(), registrationCamera(width, height), { { landmark } }, { sprite }, viewport, 0)
+    love.graphics.setCanvas()
+    local image = color:newImageData()
+    local greenX, greenY = colorCenter(image, "green")
+    local redX, redY = colorCenter(image, "red")
+    observations[#observations + 1] = { x = redX - greenX, y = redY - greenY }
+  end
+  Assert.near(observations[3].x, observations[1].x, 2, "round-trip restores the world/sprite X relationship")
+  Assert.near(observations[3].y, observations[1].y, 2, "round-trip restores the world/sprite Y relationship")
+  Assert.isTrue(math.abs(observations[2].x) > 2, "diagnostics have a measurable world-space separation")
+end
+
+function T.presentation_billboard_registration_uses_homogeneous_offset_and_state_position(scope)
+  local width, height = 1280, 720
+  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local viewport = FieldViewport.new(width, height, { mode = "strict", x = 50, y = 30 })
+  local center = { 0.3683, 0.17, -3.0 }
+  local camera, actualX, actualY = renderRegistration(scope, renderer, width, height, center, viewport)
+  local expected = projectedHostCenter(viewport, camera, center, width, height)
+
+  Assert.isTrue(
+    math.abs(expected.continuousX - expected.homogeneousWrongX) >= 10,
+    "the non-centered offset fixture is homogeneous-diagnostic"
+  )
+  Assert.near(actualX, expected.continuousX, 1.5, "non-centered presentation placement uses homogeneous offset")
+  Assert.isTrue(
+    math.abs(actualX - expected.homogeneousWrongX) > 10,
+    "non-centered placement does not use raw clip-space offset"
+  )
+  Assert.isTrue(
+    math.abs(actualY - expected.continuousY) <= 2 or math.abs(actualY - (height - 1 - expected.continuousY)) <= 2,
+    "non-centered Y placement remains visible"
+  )
 end
 
 local function flashFogRuntime()

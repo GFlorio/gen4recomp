@@ -304,9 +304,6 @@ end
 ---@field billboardBase number[]|nil
 ---@field billboardCenter number[]|nil
 ---@field billboardScale number[]|nil
----@field straddle { leading: integer, transform: number[] }|nil -- the DS
---  bend: the first `leading` vertices were submitted under this transform
---  (the pre-boundary matrix), the rest under `transform`
 
 -- Draw items in the MapRenderer item shape, one per definition mesh, with
 -- the current pose. `renderMeshesById` maps mesh id -> built render mesh
@@ -356,9 +353,8 @@ function ModelInstance:drawItems(renderMeshesById)
         "backend mesh record missing for " .. mesh.id .. " (a nitro definition must cover every mesh)"
       )
       local material = self:effectiveMaterial(mesh.materialIndex)
-      local usesBakedNormals = draw and draw.straddle
       local modelNormal = IDENTITY_MODEL_NORMAL
-      if not billboardBase and not usesBakedNormals and not isTranslationOnly(transform) then
+      if not billboardBase and not isTranslationOnly(transform) then
         modelNormal = Matrix3.modelNormal(transform)
       end
       local item = {
@@ -380,15 +376,6 @@ function ModelInstance:drawItems(renderMeshesById)
       -- every batch, and fromNitroDescriptor copies the batch records).
       for _, field in ipairs(DRAW_STATE_FIELDS) do
         item[field] = meshState[field]
-      end
-      -- A straddling draw carries the bend: the first `leading` vertices
-      -- were submitted under the pre-boundary matrix, so the renderer needs
-      -- both transforms and the split to reproduce the DS per-vertex bend.
-      if draw and draw.straddle then
-        item.straddle = {
-          leading = draw.straddle.leading,
-          transform = Matrix4.multiply(self.transform, draw.straddle.position),
-        }
       end
       items[#items + 1] = item
     end

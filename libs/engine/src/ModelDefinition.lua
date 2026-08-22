@@ -200,10 +200,8 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
     backendRecord.drawIndex = mesh.drawIndex
     backendRecord.positionSource = mesh.positionSource
     backendRecord.transformMode = mesh.transformMode
-    -- A batch whose run straddled a mid-run matrix boundary carries the
-    -- per-vertex provenance (the leading vertices resolve under the
-    -- pre-boundary source at draw time); without it the batch is fully
-    -- owned by its own positionSource.
+    -- Preserve source-side matrix-boundary provenance in the compiled backend
+    -- record; runtime presentation draws the resident batch as one mesh.
     if mesh.straddle then
       backendRecord.straddle = mesh.straddle
     end

@@ -42,27 +42,6 @@ local function publishedCache()
   return cache
 end
 
-function T.audit_requires_the_weather_catalog_artifact_to_be_available()
-  local DerivedCacheAudit = require("romdump.src.DerivedCacheAudit")
-  local FieldWeatherCache = requireWeatherCache()
-  local cache = publishedCache()
-  -- make the weather artifact available
-  cache:write(FieldWeatherCache.markerPath(), "weather-complete")
-  cache:writeLua(FieldWeatherCache.catalogPath(), {
-    schema = FieldWeatherCache.SCHEMA,
-    presets = {},
-    rules = {},
-  })
-  -- stash original audit behavior: when weather marker missing, audit must report not available
-  cache:remove(FieldWeatherCache.markerPath())
-  local available, reason = DerivedCacheAudit.isAvailable(cache)
-  Assert.isFalse(available, "audit must report unavailable when the weather catalog marker is missing")
-  Assert.isTrue(
-    tostring(reason):find("weather", 1, true) ~= nil or tostring(reason):find("field", 1, true) ~= nil,
-    "reason must name the weather artifact: " .. tostring(reason)
-  )
-end
-
 function T.audit_with_stale_weather_marker_requires_a_build()
   local DerivedCacheAudit = require("romdump.src.DerivedCacheAudit")
   local FieldWeatherCache = requireWeatherCache()

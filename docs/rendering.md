@@ -462,7 +462,15 @@ with its translation converted to tiles, and geometry left in billboard-local
 space. `MapSceneLoader` composes that base with the placement transform and
 stores its translation and basis scales; the vertex shader supplies the
 camera-facing axes. `RenderQueue` uses the same center and scale for translucent
-sorting. Only the exceptional straddling path calls `BillboardTransform.resolve`.
+sorting.
+
+Dynamic geometry whose source provenance straddles a matrix submission boundary
+is presented as a whole resident mesh under its current/post-boundary transform.
+This deliberately gives up the DS-exact split transform for that exceptional
+geometry, but preserves ordinary billboard placement and avoids per-frame vertex
+readback and temporary mesh allocation. Compiled backend records retain the
+source provenance for the asset boundary; evaluated poses and renderer-facing
+items do not resolve or carry it.
 
 Following NitroSystem `sbc.c`, the resolved matrix keeps the base translation and
 the magnitude of each base basis vector and discards the base rotation:
