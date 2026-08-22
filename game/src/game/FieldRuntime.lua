@@ -553,6 +553,11 @@ function FieldRuntime:_load()
         return self:_composeStartMenu(rememberedActionId)
       end,
       input = self.input,
+      effect = function(sequence)
+        if self.audio then
+          self.audio:play(sequence)
+        end
+      end,
     })
     -- The one Start Menu placement record: the runtime computes it from the
     -- boot topology (so pointer input works before any resize) and re-applies
@@ -638,11 +643,11 @@ function FieldRuntime:_load()
       input = self.input,
       scriptScheduler = self.scripts.scheduler,
       scriptClient = self.scripts.client,
+      initController = self.scripts.initController,
       menuHost = self.menuHost,
       contextChoice = self.contextChoiceProvider,
       signpost = self.signpost,
       applicationHost = self.applicationHost,
-      initController = self.scripts.initController,
       -- The session's fixed-tick audio collaborator is the production
       -- GameSound only; a recording script adapter is a script service, not
       -- a session collaborator.
