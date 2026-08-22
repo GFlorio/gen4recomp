@@ -117,6 +117,59 @@ function T.escalators_classify_directional_step_with_east_west_gate()
   end
 end
 
+-- The production trigger record preserves source transition mode/profile
+-- identity instead of asking FieldTransition to reconstruct it later.
+function T.a_d05_01_trigger_record_preserves_fixed_environment_and_panel_identity()
+  ---@return table
+  local function stepTrigger(behavior, facing)
+    local warps = { warp(4, 14) }
+    local map = runtimeMap(0, 0, warps, {
+      ["4:14"] = { behavior = behavior },
+    })
+    return assert(TransitionTrigger.stepPath(map, 4, 14, facing)) --[[@as table]]
+  end
+
+  ---@return table
+  local function inputTrigger(behavior, facing)
+    local warps = { warp(4, 14) }
+    local map = runtimeMap(0, 0, warps, {
+      ["4:14"] = { behavior = behavior },
+    })
+    return assert(TransitionTrigger.inputPath(map, 4, 14, facing)) --[[@as table]]
+  end
+
+  local doorMap = runtimeMap(0, 0, { warp(4, 14) }, {
+    ["4:14"] = { behavior = BEHAVIOR.DOOR, blocked = true },
+  })
+  local door = assert(TransitionTrigger.inputPath(doorMap, 4, 13, "south")) --[[@as table]]
+  Assert.deepEqual(door.transition, { mode = "fixed", profile = 1 })
+
+  local escalator = stepTrigger(BEHAVIOR.ESCALATOR, "east")
+  Assert.deepEqual(escalator.transition, { mode = "fixed", profile = 2 })
+  Assert.equal(escalator.destinationFacing, "east")
+
+  local flip = stepTrigger(BEHAVIOR.ESCALATOR_FLIP_FACE, "east")
+  Assert.deepEqual(flip.transition, { mode = "fixed", profile = 2 })
+  Assert.equal(flip.destinationFacing, "west")
+
+  local stairs = inputTrigger(BEHAVIOR.WARP_STAIRS_EAST, "east")
+  Assert.deepEqual(stairs.transition, { mode = "fixed", profile = 3 })
+
+  local ladder = inputTrigger(BEHAVIOR.LADDER_NORTH, "north")
+  Assert.deepEqual(ladder.transition, { mode = "fixed", profile = 7 })
+
+  local ladderDown = stepTrigger(BEHAVIOR.LADDER_DOWN, "north")
+  Assert.deepEqual(ladderDown.transition, { mode = "fixed", profile = 8 })
+
+  local panel = stepTrigger(BEHAVIOR.WARP_PANEL, "north")
+  Assert.deepEqual(panel.transition, { mode = "panel" })
+  Assert.isNil(panel.transition.profile)
+
+  local environment = inputTrigger(BEHAVIOR.WARP_EAST, "east")
+  Assert.deepEqual(environment.transition, { mode = "environment" })
+  Assert.isNil(environment.transition.profile)
+end
+
 function T.unrecognized_behaviors_do_not_classify()
   for _, behavior in ipairs({ 0, 1, 2, 3, 63, 104, 112, 255 }) do
     Assert.isNil(TransitionTrigger.classify(behavior), "behavior " .. behavior .. " must not classify")

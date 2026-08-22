@@ -345,6 +345,29 @@ function FieldMapLoader:load(idOrSymbol)
   return runtimeMap
 end
 
+-- Read only the generated semantic metadata needed to choose a transition.
+-- This deliberately does not load a scene, collision grid, terrain, or GPU
+-- resource, so profile selection cannot acquire destination ownership.
+function FieldMapLoader:transitionEnvironment(idOrSymbol)
+  assert(not self.released, "field map loader is released")
+  local record = worldRecord(self.world, idOrSymbol)
+  local fieldData =
+    loadRequired(self.cacheFs, FieldMapDataCache.fieldPath(record.id), FieldErrors.FIELD_MAP_DATA_CACHE_MISSING)
+  if
+    fieldData.schema ~= FieldMapDataCache.FIELD_SCHEMA
+    or fieldData.mapId ~= record.id
+    or not FieldMapDataCache.hasRequiredEvents(fieldData.events)
+    or not FieldMapDataCache.isTransitionEnvironment(fieldData.transitionEnvironment)
+  then
+    Errors.raise(
+      FieldErrors.FIELD_MAP_DATA_CACHE_INVALID,
+      "field cache identity, event collections, or transition environment is invalid; rebuild the derived cache",
+      { mapId = record.id }
+    )
+  end
+  return fieldData.transitionEnvironment
+end
+
 function FieldMapLoader:get(mapId)
   local entry = self.entries[mapId]
   return entry and entry.runtimeMap or nil

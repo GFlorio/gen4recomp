@@ -7,13 +7,119 @@ local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 
 local T = { tests = {} }
 
+-- Environment-selected profiles use the generated semantic map matrix,
+-- including an explicit failure for unsupported pairs.
+function T.tests.a_d05_02_environment_selection_matches_hgss_matrix()
+  local expected = {
+    { "cave", "cave", 6 },
+    { "cave", "outdoors", 5 },
+    { "cave", "building", 6 },
+    { "outdoors", "cave", 4 },
+    { "outdoors", "building", 6 },
+    { "building", "building", 6 },
+    { "building", "cave", 0 },
+    { "building", "outdoors", 0 },
+  }
+  for _, pair in ipairs(expected) do
+    Assert.equal(FieldTransitionProfile.selectEnvironment(pair[1], pair[2]), pair[3])
+  end
+
+  Assert.throws(function()
+    FieldTransitionProfile.selectEnvironment("outdoors", "outdoors")
+  end, "outdoors-to-outdoors must fail instead of defaulting to a profile")
+end
+
 T.tests.transition_profiles_preserve_source_semantics = function()
-  local outdoor = { scene = { type = "outdoor" } }
-  local indoor = { scene = { type = "indoor" } }
-  Assert.equal(FieldTransitionProfile.select("door", outdoor, indoor), 1)
-  Assert.equal(FieldTransitionProfile.select("stairs", outdoor, outdoor), 3)
-  Assert.equal(FieldTransitionProfile.select("directional", indoor, indoor), 6)
-  Assert.equal(FieldTransitionProfile.select("directional", outdoor, indoor), 0)
+  Assert.equal(FieldTransitionProfile.fixed(1).profile, 1)
+  Assert.equal(FieldTransitionProfile.fixed(3).profile, 3)
+  Assert.equal(FieldTransitionProfile.selectEnvironment("building", "building"), 6)
+  Assert.equal(FieldTransitionProfile.selectEnvironment("building", "outdoors"), 0)
+end
+
+function T.tests.field_transition_consumes_trigger_profile_before_ownership()
+  local metadataCalls = 0
+  local loader = {
+    transitionEnvironment = function(_, mapId)
+      metadataCalls = metadataCalls + 1
+      Assert.equal(mapId, 60)
+      return "building"
+    end,
+    load = function()
+      error("profile selection must not load a destination map", 0)
+    end,
+  }
+  local transition = FieldTransition.new({
+    loader = loader,
+    resolveDestination = function()
+      return {
+        destinationMap = { mapId = 60 },
+        fieldX = 0,
+        fieldZ = 0,
+        surfaceId = 0,
+        worldY = 0,
+      }
+    end,
+    prepare = function() end,
+    commit = function() end,
+  })
+
+  transition:start({ mapId = 61, fieldData = { transitionEnvironment = "outdoors" } }, {
+    warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+    transition = { mode = "environment" },
+  }, "east")
+  Assert.equal(transition.profileId, 6)
+  Assert.equal(metadataCalls, 1)
+  Assert.isTrue(transition.locked)
+end
+
+function T.tests.field_transition_rejects_unsupported_environment_before_lock()
+  local transition = FieldTransition.new({
+    loader = {
+      transitionEnvironment = function()
+        return "outdoors"
+      end,
+    },
+    prepare = function() end,
+    commit = function() end,
+  })
+
+  local ok, err = pcall(function()
+    transition:start({ mapId = 61, fieldData = { transitionEnvironment = "outdoors" } }, {
+      warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+      transition = { mode = "environment" },
+    }, "east")
+  end)
+  Assert.isFalse(ok)
+  if type(err) ~= "table" then
+    error("expected a structured transition profile error")
+  end
+  Assert.equal(err.code, "MAP_TRANSITION_PROFILE_UNSUPPORTED")
+  Assert.equal(transition.phase, "idle")
+  Assert.isFalse(transition.locked)
+end
+
+function T.tests.field_transition_uses_trigger_destination_facing()
+  local receivedFacing
+  local transition = FieldTransition.new({
+    loader = {},
+    fadeOutTicks = 1,
+    fadeInTicks = 1,
+    resolveDestination = function()
+      return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
+    end,
+    prepare = function(_, facing)
+      receivedFacing = facing
+    end,
+    commit = function() end,
+  })
+  transition:start({ mapId = 61 }, {
+    warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+    transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
+    destinationFacing = "west",
+  }, "east")
+  transition:updateFixed()
+  transition:updateFixed()
+  Assert.equal(receivedFacing, "west")
 end
 
 local function runTransition(options)

@@ -73,6 +73,8 @@ local DoorSound = require("libs.engine.src.DoorSound")
 ---@field defaultFadeOutTicks integer
 ---@field defaultFadeInTicks integer
 ---@field profileId integer|nil
+---@field transitionMode "fixed"|"environment"|"panel"|nil
+---@field destinationFacing FieldDirection
 ---@field locked boolean
 ---@field sourceKind "door"|"stairs"|"directional"|"generic"|nil -- the trigger classification passed down
 ---@field sourceDoor table|nil -- the resolved source door, when the source kind is a door
@@ -129,6 +131,8 @@ function FieldTransition.new(options)
     defaultFadeOutTicks = fadeOutTicks,
     defaultFadeInTicks = fadeInTicks,
     profileId = nil,
+    transitionMode = nil,
+    destinationFacing = nil,
     phase = FieldTransition.PHASES.idle,
     locked = false,
     sourceKind = nil,
@@ -138,6 +142,45 @@ function FieldTransition.new(options)
     destinationChoreo = nil,
     fadeAlpha = 0,
   }, FieldTransition)
+end
+
+local function selectProfile(self, sourceMap, trigger)
+  local descriptor = trigger.transition
+  if not descriptor then
+    -- Scripted/plain callers have no source classification. Keep their
+    -- ordinary fade semantics; classified runtime triggers always carry C03.
+    if trigger.kind == "door" then
+      return FieldTransitionProfile.DOOR, "fixed"
+    end
+    if trigger.kind == "stairs" then
+      return FieldTransitionProfile.HORIZONTAL_STAIRS, "fixed"
+    end
+    return FieldTransitionProfile.ORDINARY, nil
+  end
+  assert(
+    descriptor.mode == FieldTransitionProfile.MODE_FIXED
+      or descriptor.mode == FieldTransitionProfile.MODE_ENVIRONMENT
+      or descriptor.mode == FieldTransitionProfile.MODE_PANEL,
+    "unknown field transition mode"
+  )
+  if descriptor.mode == FieldTransitionProfile.MODE_FIXED then
+    assert(type(descriptor.profile) == "number", "fixed field transition profile required")
+    return descriptor.profile, descriptor.mode
+  end
+  if descriptor.mode == FieldTransitionProfile.MODE_PANEL then
+    return nil, descriptor.mode
+  end
+  local sourceEnvironment = sourceMap.fieldData and sourceMap.fieldData.transitionEnvironment
+  assert(sourceEnvironment, "source transition environment required")
+  assert(type(self.loader.transitionEnvironment) == "function", "field map transition metadata required")
+  local destinationEnvironment = self.loader:transitionEnvironment(self.sourceWarp.destinationMapId)
+  return FieldTransitionProfile.selectEnvironment(sourceEnvironment, destinationEnvironment, {
+    sourceMapId = sourceMap.mapId,
+    destinationMapId = self.sourceWarp.destinationMapId,
+    sourceEnvironment = sourceEnvironment,
+    destinationEnvironment = destinationEnvironment,
+  }),
+    descriptor.mode
 end
 
 -- Begin the source choreography: resolve the source door at the warp tile and
@@ -377,16 +420,11 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.sourceMap = sourceMap
   self.sourceWarp = trigger.warp
   self.sourceKind = trigger.kind
+  self.transitionMode = nil
+  self.destinationFacing = trigger.destinationFacing or facing
   self.fadeOutTicks = self.defaultFadeOutTicks
   self.fadeInTicks = self.defaultFadeInTicks
-  local destinationMap
-  if trigger.kind == "stairs" and type(self.loader.load) == "function" then
-    destinationMap = self.loader:load(trigger.warp.destinationMapId)
-  end
-  self.profileId = FieldTransitionProfile.select(trigger.kind, sourceMap, destinationMap)
-  if self.profileId == FieldTransitionProfile.ORDINARY_INDOOR then
-    self.sourceKind = "directional"
-  end
+  self.profileId, self.transitionMode = selectProfile(self, sourceMap, trigger)
   self.facing = facing
   self.progressTicks = 0
   self.resolution = nil
@@ -479,7 +517,6 @@ function FieldTransition:updateFixed()
     local ok, err = pcall(function()
       local result = self.resolveDestination(self.loader, self.sourceMap, self.sourceWarp)
       self.resolution = result
-      self.profileId = FieldTransitionProfile.select(self.sourceKind, self.sourceMap, result.destinationMap)
       if self.profileId == FieldTransitionProfile.DOOR then
         -- The destination warp is the doorway anchor. Profile 1 places the
         -- player on the near side of that anchor before its authoritative
@@ -500,7 +537,7 @@ function FieldTransition:updateFixed()
       else
         self.suppression = result.suppression
       end
-      self.prepared = self.prepare(result, self.facing)
+      self.prepared = self.prepare(result, self.destinationFacing)
     end)
     if not ok then
       return self:_abort(err)
@@ -510,7 +547,7 @@ function FieldTransition:updateFixed()
   end
   if self.phase == FieldTransition.PHASES.swap_map then
     assert(self.fadeAlpha == 1, "map swap must occur while fully black")
-    self.commit(self.resolution, self.facing, self.prepared)
+    self.commit(self.resolution, self.destinationFacing, self.prepared)
     if self.sourceKind == "door" or self.destinationDoor ~= nil then
       runChoreo(self, beginDestinationChoreography)
       -- Start the destination choreography on the swap tick: an animated door

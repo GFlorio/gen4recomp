@@ -87,6 +87,14 @@ function T.loads_visual_field_collision_and_terrain_into_one_aggregate()
   loader:release()
 end
 
+function T.reads_transition_environment_without_loading_a_scene()
+  local cache, world, sceneLoader = fixture(1)
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  Assert.equal(loader:transitionEnvironment(0), "outdoors")
+  Assert.equal(loader:residentCount(), 0)
+  loader:release()
+end
+
 function T.evicts_the_least_recently_used_unprotected_map()
   local cache, world, sceneLoader, releases = fixture(3)
   local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader, capacity = 2 })
