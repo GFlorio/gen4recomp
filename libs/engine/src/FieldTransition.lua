@@ -175,6 +175,9 @@ local function beginSourceChoreography(self)
     end
     self.sourceDoor = door
     local sound = door:open()
+    if not sound and door.soundType then
+      sound = DoorSound.sequence(door.soundType, "open")
+    end
     if sound and self.playSound then
       self.playSound(sound)
     end

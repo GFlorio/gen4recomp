@@ -485,6 +485,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   }
 
   runtime.scene = scene
+  runtime.assetPool = pool
   runtime.mapId = scene.mapId
   runtime.cameraType = scene.cameraType
   runtime.collision = collision

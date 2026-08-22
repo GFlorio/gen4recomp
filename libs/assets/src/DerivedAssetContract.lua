@@ -54,7 +54,7 @@
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 6
+DerivedAssetContract.revision = 7
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
@@ -118,6 +118,11 @@ DerivedAssetContract.scripts = {
 DerivedAssetContract.fieldWeather = {
   cacheFormat = "field-weather-cache-v1",
   schema = "g4-field-weather-v1",
+}
+
+DerivedAssetContract.fieldEffects = {
+  cacheFormat = "field-effect-cache-v1",
+  schema = "g4-field-effect-warp-entrance-v1",
 }
 
 DerivedAssetContract.fieldUi = {

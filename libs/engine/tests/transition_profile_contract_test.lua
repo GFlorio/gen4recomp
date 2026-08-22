@@ -7,7 +7,7 @@ local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 
 local T = { tests = {} }
 
-function T.transition_profiles_preserve_source_semantics()
+T.tests.transition_profiles_preserve_source_semantics = function()
   local outdoor = { scene = { type = "outdoor" } }
   local indoor = { scene = { type = "indoor" } }
   Assert.equal(FieldTransitionProfile.select("door", outdoor, indoor), 1)

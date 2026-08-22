@@ -8,6 +8,7 @@ local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
+local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceIndicatorRenderer")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
@@ -129,6 +130,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
       manifest = runtime.uiManifest,
       text = self.textRenderer,
     })
+    self.fieldEntranceIndicatorRenderer = FieldEntranceIndicatorRenderer.new(runtime.fieldEntranceIndicatorAsset)
     local width, height = love.graphics.getDimensions()
     -- The initial presentation-geometry sync: pointer input must work
     -- before the user has resized the window, so the runtime computes and
@@ -246,6 +248,8 @@ function FieldState:_worldParts(alpha)
   worldParts[2] = sceneRuntime.staticBuildingDraws
   worldParts[3] = sceneRuntime.animatedBuildingDraws
   worldParts[4] = self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or NO_DRAWS
+  local indicator = assert(self.runtime.fieldEntranceIndicator, "field entrance indicator is unavailable")
+  worldParts[5] = self.fieldEntranceIndicatorRenderer:drawItems(indicator:status(), sceneRuntime)
   local actorItems = self:_actorDraws(alpha)
   local worldActorItems = self.worldActorItems
   local spriteItems = self.spriteItems
@@ -262,7 +266,7 @@ function FieldState:_worldParts(alpha)
       worldActorItems[#worldActorItems + 1] = item
     end
   end
-  worldParts[5] = worldActorItems
+  worldParts[6] = worldActorItems
   return worldParts
 end
 
@@ -692,6 +696,10 @@ function FieldState:dispose()
     self._presentationSpriteRefs = {}
     self.presentationActorAssets:dispose()
     self.presentationActorAssets = nil
+  end
+  if self.fieldEntranceIndicatorRenderer then
+    self.fieldEntranceIndicatorRenderer:dispose()
+    self.fieldEntranceIndicatorRenderer = nil
   end
   if self.renderer then
     self.renderer:release()

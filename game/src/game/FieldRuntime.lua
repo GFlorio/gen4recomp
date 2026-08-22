@@ -36,7 +36,6 @@ local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldScripts = require("game.src.game.FieldScripts")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -50,7 +49,7 @@ local MapProps = require("libs.engine.src.MapProps")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local NeighborRing = require("libs.engine.src.NeighborRing")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
-local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
 local FieldWeatherResolver = require("libs.engine.src.FieldWeatherResolver")
 local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
@@ -120,6 +119,8 @@ local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
 ---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
+---@field fieldEntranceIndicator FieldEntranceIndicator
+---@field fieldEntranceIndicatorAsset table
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -340,12 +341,14 @@ function FieldRuntime:_load()
     self.cameraProfiles = profiles.profiles
 
     -- The weather catalog: fourteen fog presets and ordered override rules.
+    local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
     local weatherCatalog = assert(
       cacheFs:loadLua(FieldWeatherCache.catalogPath()),
       "field weather cache is cold -- run `scripts/buildcache.sh` first"
     )
     assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
     self.weatherCatalog = weatherCatalog
+    self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
 
     -- FieldMapLoader owns the simulation assets (field data, collision,
     -- terrain) through the pure asset paths for every composition. The visual
@@ -721,6 +724,7 @@ function FieldRuntime:update(dt)
       if canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
         self.session.accumulator = self.session.accumulator - FIXED_DT
         self.session:updateFixed()
+        FieldEntranceIndicatorRuntime.update(self)
         fieldExecuted = fieldExecuted + 1
         if self.applicationHost:error() and not self.errorText then
           self.errorText = tostring(self.applicationHost:error())
@@ -739,6 +743,7 @@ function FieldRuntime:update(dt)
     end
   else
     self.session:update(dt)
+    FieldEntranceIndicatorRuntime.update(self)
     if self.applicationHost:error() and not self.errorText then
       self.errorText = tostring(self.applicationHost:error())
     end
@@ -836,7 +841,7 @@ end
 ---@return StartMenuController? nil when the source has no present actions
 function FieldRuntime:_composeStartMenu(rememberedActionId)
   local world = self.scripts.worldState
-  local flags = FieldScriptSymbols.flagsByName
+  local flags = require("libs.assets.src.FieldScriptSymbols").flagsByName
 
   -- Source policy: returns all present actions (regardless of implementation)
   local sourceEntries = StartMenuPolicy.actions({
@@ -1110,6 +1115,7 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
     self.audio:enterMap(runtimeMap, { clearMusicOverride = true, play = true })
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
+  FieldEntranceIndicatorRuntime.hide(self)
 end
 
 function FieldRuntime:_updateCameraProjection()
@@ -1187,6 +1193,7 @@ function FieldRuntime:_releaseAll()
   self.audio, self.audioSink, self.mapMusicDayNight = nil, nil, nil
   self.session, self.saveStore, self.scripts = nil, nil, nil
   self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
+  self.fieldEntranceIndicator, self.fieldEntranceIndicatorAsset = nil, nil
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
