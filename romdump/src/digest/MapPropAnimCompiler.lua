@@ -52,12 +52,6 @@ local MapPropAnimCompiler = {}
 -- The shared animation archive both build-anim lists reference (HGSS a/1/0/6).
 local ANIM_ARCHIVE = "build_anim"
 
--- Version of the animation decode + clip-compile semantics. Cache keys of
--- compiled assets must account for it: a decoder or sampler change without
--- it would leave stale compiled clips in the derived cache. Bump whenever
--- the decoders or the clip compilers change behavior.
-MapPropAnimCompiler.VERSION = "map-prop-anim-clip-v6"
-
 -- clip name -> semantic role. Patterns match the tail of the Nitro dict
 -- name; the whole name matches when the pattern is exact. The role
 -- vocabulary lives on the animation contract (AnimationClip.ROLES), the one

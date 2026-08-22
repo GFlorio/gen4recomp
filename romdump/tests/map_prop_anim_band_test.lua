@@ -194,15 +194,4 @@ function T.ambient_effects_stay_unbanded()
   Assert.isTrue(result.clips[1].ambientLoop, "the ambient effect plays at load")
 end
 
--- The clip-compile version pins the compile semantics: any decoder or clip
--- compiler behavior change (currently: the absent-channel rejection) must
--- bump it, or the derived cache would serve stale clips.
-function T.compiler_version_bumps_with_the_compile_semantics()
-  Assert.equal(
-    MapPropAnimCompiler.VERSION,
-    "map-prop-anim-clip-v6",
-    "the clip-compile version must bump with the compile semantics"
-  )
-end
-
 return { tests = T }
