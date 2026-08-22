@@ -79,7 +79,7 @@ function BundleFixture.minimal(mapId)
     textures = { [texSha] = { pixels = string.char(10, 20, 30, 255), width = 1, height = 1 } },
     models = {
       [modelKey] = {
-        schema = "g4-model-v4",
+        schema = "g4-model-v5",
         key = modelKey,
         memberId = 1,
         kind = "static",

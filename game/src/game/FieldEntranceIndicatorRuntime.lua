@@ -4,6 +4,7 @@
 
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldEntranceIndicator = require("libs.engine.src.FieldEntranceIndicator")
+local FieldTransition = require("libs.engine.src.FieldTransition")
 
 local M = {}
 
@@ -24,7 +25,7 @@ function M.update(runtime)
   runtime.fieldEntranceIndicator:updateFixed({
     map = runtime.runtimeMap,
     player = runtime.player,
-    transition = { ownsField = runtime.transition.phase == "idle" },
+    transition = { ownsField = runtime.transition.phase == FieldTransition.PHASES.idle },
   })
 end
 

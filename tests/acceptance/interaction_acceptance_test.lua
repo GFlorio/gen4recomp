@@ -80,7 +80,15 @@ end
 -- releases every interaction owner (no modal, no field lock, no live
 -- scheduler state, no facing override).
 local function assertFaultReleasedEverything(game, snapshot, scriptId, endReason)
-  local fault = assert(scriptFaults(game)[1], "the foreground script must fault")
+  local faults = scriptFaults(game)
+  local fault
+  for index = #faults, 1, -1 do
+    if faults[index].scriptId == scriptId then
+      fault = faults[index]
+      break
+    end
+  end
+  fault = assert(fault, "the foreground script must fault")
   Assert.equal(fault.scriptId, scriptId)
   Assert.equal(fault.endReason, endReason)
   Assert.isFalse(snapshot.dialogue.modal)

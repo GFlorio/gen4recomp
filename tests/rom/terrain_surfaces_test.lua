@@ -10,6 +10,8 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldSave = require("libs.engine.src.FieldSave")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
@@ -226,6 +228,8 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       end,
     },
     interactions = interactions,
+    eventResolver = FieldEventResolver,
+    eventState = FieldEventState.new(),
   })
 
   local directions = {

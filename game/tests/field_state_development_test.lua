@@ -42,6 +42,11 @@ local function drawableState(development)
       viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
       camera = { zoom = 1 },
       transition = { fadeAlpha = 0 },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
       dialogue = {
         isModal = function()
           return false
@@ -77,6 +82,11 @@ local function drawableState(development)
     worldActorItems = {},
     spriteItems = {},
     renderer = { draw = function() end },
+    fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
     _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
     _actorAssetLookup = function()
       error("no actor in this scenario is visible, so the asset lookup must not run")

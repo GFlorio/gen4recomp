@@ -107,8 +107,7 @@ function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
       game:step()
       Assert.equal(game:snapshot().mapSymbol, TOWN)
 
-      game:move("south")
-      game:face("north")
+      game:move("north")
       game:waitForTransition()
       Assert.equal(game:snapshot().mapSymbol, LAB)
       -- The door-capability contract: the door-less runtime completes the

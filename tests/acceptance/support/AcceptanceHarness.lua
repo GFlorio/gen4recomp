@@ -534,50 +534,58 @@ function Game:moveTo(target)
     end
     return setmetatable(copy, getmetatable(source))
   end
-  local queue = { { player = copyPlayer(player), route = {} } }
-  local seen = { [player.fieldX .. ":" .. player.fieldZ] = true }
-  local route
-  local head = 1
   local directions = { "north", "south", "west", "east" }
-  while queue[head] do
-    local node = queue[head]
-    head = head + 1
-    if node.player.fieldX .. ":" .. node.player.fieldZ == targetKey then
-      route = node.route
-      break
-    end
-    for _, direction in ipairs(directions) do
-      local destination = node.player:_resolveStep(direction)
-      if destination then
-        local key = destination.fieldX .. ":" .. destination.fieldZ
-        local isWarp = false
-        for _, warp in ipairs(node.player.currentMap.fieldData.events.warps) do
-          if warp.x == destination.fieldX and warp.z == destination.fieldZ then
-            isWarp = true
-            break
+  local deltas = { north = { 0, -1 }, south = { 0, 1 }, west = { -1, 0 }, east = { 1, 0 } }
+  local function findRoute(source)
+    local queue = { { player = copyPlayer(source), route = {} } }
+    local seen = { [source.fieldX .. ":" .. source.fieldZ] = true }
+    local head = 1
+    while queue[head] do
+      local node = queue[head]
+      head = head + 1
+      if node.player.fieldX .. ":" .. node.player.fieldZ == targetKey then
+        return node.route
+      end
+      for _, direction in ipairs(directions) do
+        local destination = node.player:_resolveStep(direction)
+        if destination then
+          local key = destination.fieldX .. ":" .. destination.fieldZ
+          local isWarp = false
+          for _, warp in ipairs(node.player.currentMap.fieldData.events.warps) do
+            if warp.x == destination.fieldX and warp.z == destination.fieldZ then
+              isWarp = true
+              break
+            end
           end
-        end
-        if not seen[key] and (not isWarp or key == targetKey) then
-          seen[key] = true
-          local nextRoute = {}
-          for index, step in ipairs(node.route) do
-            nextRoute[index] = step
+          if not seen[key] and (not isWarp or key == targetKey) then
+            seen[key] = true
+            local nextRoute = {}
+            for index, step in ipairs(node.route) do
+              nextRoute[index] = step
+            end
+            nextRoute[#nextRoute + 1] = direction
+            local nextPlayer = copyPlayer(node.player)
+            for field, value in pairs(destination) do
+              nextPlayer[field] = value
+            end
+            queue[#queue + 1] = { player = nextPlayer, route = nextRoute }
           end
-          nextRoute[#nextRoute + 1] = direction
-          local nextPlayer = copyPlayer(node.player)
-          for key, value in pairs(destination) do
-            nextPlayer[key] = value
-          end
-          queue[#queue + 1] = { player = nextPlayer, route = nextRoute }
         end
       end
     end
+    return nil
   end
-  assert(route, "no production movement route to " .. targetKey)
-  for _, direction in ipairs(route) do
+
+  for _ = 1, 256 do
+    player = assert(self.runtime.player, "acceptance runtime player required")
+    if player.fieldX .. ":" .. player.fieldZ == targetKey then
+      return self:snapshot()
+    end
+    local route = assert(findRoute(player), "no production movement route to " .. targetKey)
+    local direction = assert(route[1], "production movement route made no progress")
     self:_moveOne(direction)
   end
-  return self:snapshot()
+  error("production movement route exceeded 256 steps to " .. targetKey)
 end
 
 function Game:moveUntilBlocked(direction)

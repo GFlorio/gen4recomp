@@ -40,6 +40,9 @@ local function runtimeWithTransitionError(transitionError)
         return nil
       end,
     },
+    fieldEntranceIndicator = {
+      updateFixed = function() end,
+    },
   }, FieldRuntime)
   return runtime, calls
 end

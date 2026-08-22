@@ -17,6 +17,7 @@ local ScriptCache = require("libs.assets.src.ScriptCache")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 
 local T = {}
 
@@ -29,6 +30,7 @@ local function publishedCache()
     FieldMessageCache.markerPath(),
     FieldUiAssetCache.markerPath(),
     FieldWeatherCache.markerPath(),
+    FieldEffectAssetCache.markerPath(),
     ScriptCache.markerPath(),
     AudioCache.markerPath(),
     MapAssetCache.mapDir(7) .. "/complete",

@@ -167,6 +167,9 @@ local function runtimeWithClock(catalog, calls, currentMap)
         return false
       end,
     },
+    fieldEntranceIndicator = {
+      updateFixed = function() end,
+    },
   }, FieldRuntime)
 end
 
