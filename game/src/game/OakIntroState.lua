@@ -36,9 +36,8 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field viewport OakIntroStateRectangle
 ---@field message OakIntroStateRectangle
 ---@field cards table<integer, OakIntroStateRectangle>
----@field nameGrid table<string, { rect: OakIntroStateRectangle, glyph: string }>
----@field delete OakIntroStateRectangle
----@field confirm OakIntroStateRectangle
+---@field nameGrid table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
+---@field virtualKeyColumns integer
 ---@field genderFocus integer
 
 ---@class OakIntroStateView
@@ -260,11 +259,13 @@ function OakIntroState:keypressed(key)
     or key == "space"
     or key == "escape"
   then
-    self.controller:press(
-      key == "escape" and "cancel"
-        or ({ ["left"] = "left", ["right"] = "right", ["up"] = "up", ["down"] = "down" })[key]
-        or "confirm"
-    )
+    local action = key == "escape" and "cancel"
+      or ({ ["left"] = "left", ["right"] = "right", ["up"] = "up", ["down"] = "down" })[key]
+      or "confirm"
+    if action == "confirm" and self.controller:view().phase == "name_edit" then
+      action = "submit"
+    end
+    self.controller:press(action)
   elseif key == "backspace" then
     self.controller:deleteGlyph()
   end
@@ -277,18 +278,12 @@ function OakIntroState:textinput(text)
 end
 
 function OakIntroState:gamepadpressed(_, button)
-  local action = (
-    { dpup = "up", dpdown = "down", dpleft = "left", dpright = "right", a = "grid_confirm", b = "cancel" }
-  )[button]
-  if action == "grid_confirm" and self.controller:view().phase ~= "name_edit" then
-    action = "confirm"
-  end
+  local action = ({ dpup = "up", dpdown = "down", dpleft = "left", dpright = "right", a = "confirm", b = "cancel" })[button]
   if
     action == "left"
     or action == "right"
     or action == "up"
     or action == "down"
-    or action == "grid_confirm"
     or action == "confirm"
     or action == "cancel"
   then
@@ -309,16 +304,17 @@ function OakIntroState:_pointer(x, y)
       end
     end
   elseif view.phase == "name_edit" then
-    for glyph, entry in pairs(layout.nameGrid) do
+    for _, entry in pairs(layout.nameGrid) do
       if OakIntroLayout.contains(entry.rect, x, y) then
-        self.controller:inputText(glyph)
+        if entry.kind == "glyph" then
+          self.controller:inputText(assert(entry.glyph))
+        elseif entry.kind == "delete" then
+          self.controller:deleteGlyph()
+        elseif entry.kind == "confirm" then
+          self.controller:press("submit")
+        end
         return
       end
-    end
-    if OakIntroLayout.contains(layout.delete, x, y) then
-      self.controller:deleteGlyph()
-    elseif OakIntroLayout.contains(layout.confirm, x, y) then
-      self.controller:press("confirm")
     end
   end
   self:_sync()

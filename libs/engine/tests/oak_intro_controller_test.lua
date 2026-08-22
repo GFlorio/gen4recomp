@@ -94,11 +94,16 @@ local function controller(options)
       ["greeting.day"] = "greeting.day",
       ["greeting.evening"] = "greeting.evening",
       ["greeting.night"] = "greeting.night",
-      ["profile.ask"] = "profile.ask",
+      ["oak.welcome"] = "oak.welcome",
+      ["oak.world_inhabited"] = "oak.world_inhabited",
+      ["oak.live_alongside"] = "oak.live_alongside",
+      ["oak.tell_about_yourself"] = "oak.tell_about_yourself",
       ["profile.gender_question"] = "profile.gender_question",
-      ["profile.gender_select"] = "profile.gender_select",
-      ["profile.gender_confirm"] = "profile.gender_confirm",
-      ["profile.name_confirm"] = "profile.name_confirm",
+      ["profile.gender_confirm.male"] = "profile.gender_confirm.male",
+      ["profile.gender_confirm.female"] = "profile.gender_confirm.female",
+      ["profile.name_prompt"] = "profile.name_prompt",
+      ["profile.name_confirm.male"] = "profile.name_confirm.male",
+      ["profile.name_confirm.female"] = "profile.name_confirm.female",
       ["profile.final"] = "profile.final",
     },
     assets = options.assets or {},
@@ -141,7 +146,13 @@ function T.gender_rejection_returns_through_question_with_remembered_focus()
   state:start()
   state:tick(40)
   state:press("confirm")
-  state:tick(6 + 30 + 30 + 40)
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30 + 40)
+  state:press("confirm")
+  state:tick(30 + 26)
   state:press("confirm")
   state:press("confirm")
   state:press("right")
@@ -159,10 +170,20 @@ function T.name_buffer_has_shared_utf8_limits_and_deletes_glyphs()
   state:start()
   state:tick(40)
   state:press("confirm")
-  state:tick(6 + 30 + 30 + 40)
-  for _ = 1, 4 do
-    state:press("confirm")
-  end
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30 + 40)
+  state:press("confirm")
+  state:tick(30 + 26)
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(40)
   Assert.equal(state:view().phase, "name_edit")
   state:inputText("Aé")
   Assert.equal(state:view().name, "Aé")
@@ -172,7 +193,7 @@ function T.name_buffer_has_shared_utf8_limits_and_deletes_glyphs()
   Assert.equal(state:view().name, "ABBBBBB")
   state:inputText("C")
   Assert.equal(state:view().name, "ABBBBBB")
-  state:press("confirm")
+  state:press("submit")
   Assert.equal(state:view().phase, "name_confirm")
 end
 
@@ -181,17 +202,26 @@ function T.name_rejection_clears_the_buffer_on_reentry()
   state:start()
   state:tick(40)
   state:press("confirm")
-  state:tick(6 + 30 + 30 + 40)
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30 + 40)
+  state:press("confirm")
+  state:tick(30 + 26)
+  state:press("confirm")
+  for _ = 1, 5 do
+    state:press("confirm")
+  end
+  state:tick(40)
+  state:inputText("GOLD")
+  state:press("submit")
+  state:press("cancel")
+  Assert.equal(state:view().phase, "gender_question")
   for _ = 1, 4 do
     state:press("confirm")
   end
-  state:inputText("GOLD")
-  state:press("confirm")
-  state:press("cancel")
-  Assert.equal(state:view().phase, "gender_question")
-  for _ = 1, 3 do
-    state:press("confirm")
-  end
+  state:tick(40)
   Assert.equal(state:view().phase, "name_edit")
   Assert.equal(state:view().name, "")
 end
@@ -205,15 +235,69 @@ function T.fixed_source_waits_and_cry_do_not_wait_for_completion()
   state:tick(6)
   Assert.equal(state:view().phase, "oak_reveal_wait")
   state:tick(30)
-  Assert.equal(state:view().phase, "marill_appearance_wait")
+  Assert.equal(state:view().phase, "oak_welcome")
+  state:press("confirm")
+  state:tick(26)
+  Assert.equal(state:view().phase, "oak_world_inhabited")
+  state:press("confirm")
   state:tick(30)
   Assert.equal(state:view().phase, "marill_cry_wait")
   Assert.equal(sounds.trace[#sounds.trace].name, "cry")
   state:tick(39)
   Assert.equal(state:view().phase, "marill_cry_wait")
   state:tick(1)
-  Assert.equal(state:view().phase, "profile")
-  Assert.equal(state:view().sourceFrames, 146)
+  state:tick(1)
+  Assert.equal(state:view().phase, "oak_live_alongside")
+end
+
+function T.core_sequence_exposes_source_beats_in_order()
+  local state = controller()
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  Assert.equal(state:view().message, "oak.welcome")
+  state:press("confirm")
+  state:tick(26)
+  Assert.equal(state:view().message, "oak.world_inhabited")
+  state:press("confirm")
+  state:tick(30)
+  Assert.equal(state:view().visual, "marill")
+  state:tick(40)
+  Assert.equal(state:view().message, "oak.live_alongside")
+  state:press("confirm")
+  state:tick(30 + 26)
+  Assert.equal(state:view().message, "oak.tell_about_yourself")
+  state:press("confirm")
+  Assert.equal(state:view().message, "profile.gender_question")
+end
+
+function T.virtual_keyboard_focus_reaches_delete_and_confirm_actions()
+  local state = controller()
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30 + 40)
+  state:press("confirm")
+  state:tick(30 + 26)
+  state:press("confirm")
+  for _ = 1, 4 do
+    state:press("confirm")
+  end
+  state:tick(40)
+  state:press("confirm")
+  for _ = 1, 10 do
+    state:press("right")
+  end
+  state:press("confirm")
+  Assert.equal(state:view().name, "")
+  state:press("right")
+  state:press("confirm")
+  Assert.equal(state:view().name, "")
 end
 
 function T.finalization_handoff_keeps_reserved_identity_without_storage_publication()
@@ -223,12 +307,21 @@ function T.finalization_handoff_keeps_reserved_identity_without_storage_publicat
   state:start()
   state:tick(40)
   state:press("confirm")
-  state:tick(6 + 30 + 30 + 40)
-  for _ = 1, 4 do
-    state:press("confirm")
-  end
-  state:inputText("GOLD")
+  state:tick(6 + 30)
   state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30 + 40)
+  state:press("confirm")
+  state:tick(30 + 26)
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(40)
+  state:inputText("GOLD")
+  state:press("submit")
   state:press("confirm")
   state:press("confirm")
   state:tick(30)

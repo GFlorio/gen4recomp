@@ -98,11 +98,13 @@ function OakIntroRenderer:draw(view)
     love.graphics.printf(tostring(view.message), layout.message.x, layout.message.y, layout.message.width, "left")
   end
   if view.phase == "name_edit" then
-    for glyph, entry in pairs(layout.nameGrid) do
-      love.graphics.printf(glyph, entry.rect.x, entry.rect.y + 6, entry.rect.width, "center")
+    for _, entry in ipairs(layout.nameGrid) do
+      local label = entry.kind == "glyph" and assert(entry.glyph)
+        or entry.kind == "delete" and "Delete"
+        or entry.kind == "confirm" and "Confirm"
+      assert(label, "Oak layout contains an unknown virtual-key kind")
+      love.graphics.printf(label, entry.rect.x, entry.rect.y + 6, entry.rect.width, "center")
     end
-    love.graphics.printf("Delete", layout.delete.x, layout.delete.y + 10, layout.delete.width, "center")
-    love.graphics.printf("Confirm", layout.confirm.x, layout.confirm.y + 10, layout.confirm.width, "center")
   end
 end
 

@@ -43,6 +43,14 @@ local function fakeController()
       genderFocus = 0,
       message = "generated.message",
       visual = "background",
+      virtualKeys = {
+        { kind = "glyph", glyph = "A" },
+        { kind = "glyph", glyph = "B" },
+        { kind = "glyph", glyph = "é" },
+        { kind = "delete" },
+        { kind = "confirm" },
+      },
+      virtualKeyColumns = 3,
     }
   end
   return controller
@@ -91,7 +99,7 @@ end
 function T.pointer_hits_the_same_drawn_virtual_key_geometry()
   local state, controller = stateHarness()
   local layout = state:view().layout
-  local key = layout.nameGrid["é"].rect
+  local key = layout.nameGrid[3].rect
   state:mousepressed(key.x + 1, key.y + 1, 1)
   Assert.deepEqual(controller.text, { "é" })
 end
@@ -101,17 +109,17 @@ function T.keyboard_and_gamepad_use_one_controller_buffer_path()
   state:keypressed("right")
   state:gamepadpressed({}, "a")
   state:keypressed("backspace")
-  Assert.deepEqual(controller.pressed, { "right", "grid_confirm" })
+  Assert.deepEqual(controller.pressed, { "right", "confirm" })
   Assert.equal(controller.deleted, 1)
   Assert.deepEqual(controller.text, {})
 end
 
-function T.gamepad_confirm_uses_the_name_grid_only_in_name_edit()
+function T.gamepad_confirm_uses_the_focused_semantic_key()
   local state, controller = stateHarness()
   state:gamepadpressed(nil, "a")
   controller.phase = "gender_select"
   state:gamepadpressed(nil, "a")
-  Assert.deepEqual(controller.pressed, { "grid_confirm", "confirm" })
+  Assert.deepEqual(controller.pressed, { "confirm", "confirm" })
 end
 
 function T.return_uses_the_shared_confirm_action()
@@ -119,7 +127,7 @@ function T.return_uses_the_shared_confirm_action()
   state:keypressed("return")
   state:keypressed("kpenter")
   state:keypressed("space")
-  Assert.deepEqual(controller.pressed, { "confirm", "confirm", "confirm" })
+  Assert.deepEqual(controller.pressed, { "submit", "submit", "submit" })
 end
 
 return { tests = T }

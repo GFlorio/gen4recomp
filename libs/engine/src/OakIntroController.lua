@@ -15,6 +15,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field playerDataContext { charmap: table<string, integer>, frameIndexes: table<integer, boolean> }
 ---@field randomU32 fun(): number
 ---@field virtualGlyphs string[]
+---@field virtualKeyColumns integer?
 
 ---@class OakIntroEvent
 ---@field kind string
@@ -28,6 +29,8 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field genderFocus integer
 ---@field name string
 ---@field virtualGlyphFocus integer
+---@field virtualKeys table<integer, { kind: string, glyph: string? }>
+---@field virtualKeyColumns integer
 ---@field nameInputEnabled boolean
 ---@field sourceFrames integer
 ---@field events OakIntroEvent[]
@@ -42,6 +45,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _playerDataContext { charmap: table<string, integer>, frameIndexes: table<integer, boolean> }
 ---@field private _randomU32 fun(): number
 ---@field private _virtualGlyphs string[]
+---@field private _virtualKeyColumns integer
 ---@field private _virtualFocus integer
 ---@field private _phase string
 ---@field private _timer integer
@@ -70,8 +74,11 @@ local SOURCE_HZ = 60
 local GREETING_WAIT = 40
 local MUSIC_FADE_FRAMES = 6
 local OAK_REVEAL_WAIT = 30
-local MARILL_APPEARANCE_WAIT = 30
+local OAK_SLIDE_FRAMES = 26
+local BALL_OPEN_WAIT = 30
 local MARILL_CRY_WAIT = 40
+local MARILL_HIDE_WAIT = 30
+local NAME_LAUNCH_WAIT = 40
 local SHRINK_WAIT = 30
 
 local function requireMessage(messages, key)
@@ -140,6 +147,7 @@ function OakIntroController.new(options)
     _playerDataContext = options.playerDataContext,
     _randomU32 = options.randomU32,
     _virtualGlyphs = options.virtualGlyphs,
+    _virtualKeyColumns = math.max(1, math.min(8, options.virtualKeyColumns or 8)),
     _virtualFocus = 1,
     _phase = "opening_wait",
     _timer = GREETING_WAIT,
@@ -171,6 +179,25 @@ function OakIntroController:_startCry()
   self:_event("marill_appears", "marill")
   self._phase = "marill_cry_wait"
   self._timer = MARILL_CRY_WAIT
+end
+
+function OakIntroController:_setVirtualKeyAction(kind)
+  if kind == "delete" then
+    return self:deleteGlyph()
+  elseif kind == "confirm" then
+    return self:press("submit")
+  end
+  return false
+end
+
+function OakIntroController:_virtualKeys()
+  local keys = {}
+  for _, glyph in ipairs(self._virtualGlyphs) do
+    keys[#keys + 1] = { kind = "glyph", glyph = glyph }
+  end
+  keys[#keys + 1] = { kind = "delete" }
+  keys[#keys + 1] = { kind = "confirm" }
+  return keys
 end
 
 function OakIntroController:_finish()
@@ -208,22 +235,48 @@ function OakIntroController:_stepFrame()
       self._visual = "oak"
       self:_event("oak_revealed", "oak")
     end
-  elseif self._phase == "oak_reveal_wait" or self._phase == "marill_appearance_wait" then
+  elseif self._phase == "oak_reveal_wait" then
     self._timer = self._timer - 1
     if self._timer == 0 then
-      if self._phase == "oak_reveal_wait" then
-        self._phase = "marill_appearance_wait"
-        self._timer = MARILL_APPEARANCE_WAIT
+      self._phase = "oak_welcome"
+      self:_setMessage("oak.welcome")
+    end
+  elseif self._phase == "oak_slide_right" or self._phase == "oak_slide_left" then
+    self._timer = self._timer - 1
+    if self._timer == 0 then
+      if self._phase == "oak_slide_right" then
+        self._phase = "oak_world_inhabited"
+        self:_setMessage("oak.world_inhabited")
       else
-        self:_startCry()
+        self._phase = "oak_tell_about_yourself"
+        self:_setMessage("oak.tell_about_yourself")
       end
+    end
+  elseif self._phase == "ball_open_wait" then
+    self._timer = self._timer - 1
+    if self._timer == 0 then
+      self:_event("ball_flash", "opening")
+      self:_startCry()
     end
   elseif self._phase == "marill_cry_wait" then
     self._timer = self._timer - 1
     if self._timer == 0 then
-      self._phase = "profile"
+      self._phase = "oak_live_alongside"
       self._visual = "oak"
-      self:_setMessage("profile.ask")
+      self:_setMessage("oak.live_alongside")
+    end
+  elseif self._phase == "marill_hide_wait" then
+    self._timer = self._timer - 1
+    if self._timer == 0 then
+      self._phase = "oak_slide_left"
+      self._timer = OAK_SLIDE_FRAMES
+      self._visual = "oak"
+      self:_event("oak_slide", "left")
+    end
+  elseif self._phase == "name_launch_wait" then
+    self._timer = self._timer - 1
+    if self._timer == 0 then
+      self:_enterNameEditor()
     end
   elseif self._phase == "shrink_wait" then
     self._timer = self._timer - 1
@@ -282,36 +335,60 @@ function OakIntroController:press(action)
   elseif
     self._phase == "name_edit" and (action == "left" or action == "right" or action == "up" or action == "down")
   then
-    local step = (action == "left" or action == "up") and -1 or 1
-    self._virtualFocus = ((self._virtualFocus - 1 + step) % #self._virtualGlyphs) + 1
+    local count = #self._virtualGlyphs + 2
+    local columns = math.max(1, math.min(8, self._virtualKeyColumns))
+    local step = action == "left" and -1 or action == "right" and 1 or action == "up" and -columns or columns
+    self._virtualFocus = ((self._virtualFocus - 1 + step) % count) + 1
     self._audio:play("SEQ_SE_DP_SELECT")
-  elseif action == "grid_confirm" and self._phase == "name_edit" then
-    self:inputText(self._virtualGlyphs[self._virtualFocus])
+  elseif action == "confirm" and self._phase == "name_edit" then
+    local key = self:_virtualKeys()[self._virtualFocus]
+    if key.kind == "glyph" then
+      return self:inputText(key.glyph)
+    end
+    return self:_setVirtualKeyAction(key.kind)
   elseif (action == "confirm" or action == "yes") and self._phase == "greeting" then
     self._audio:fadeMusicOut({ target = 0, durationTicks = MUSIC_FADE_FRAMES })
     self._phase = "fade_wait"
     self._timer = MUSIC_FADE_FRAMES
-  elseif (action == "confirm" or action == "yes") and self._phase == "profile" then
+  elseif (action == "confirm" or action == "yes") and self._phase == "oak_welcome" then
+    self._phase = "oak_slide_right"
+    self._timer = OAK_SLIDE_FRAMES
+    self:_event("oak_slide", "right")
+  elseif (action == "confirm" or action == "yes") and self._phase == "oak_world_inhabited" then
+    self._phase = "ball_open_wait"
+    self._timer = BALL_OPEN_WAIT
+    self._visual = "ball"
+    self:_event("ball_opened", "ball")
+    self._audio:play("SEQ_SE_DP_BOWA2")
+  elseif (action == "confirm" or action == "yes") and self._phase == "oak_live_alongside" then
+    self._phase = "marill_hide_wait"
+    self._timer = MARILL_HIDE_WAIT
+    self._visual = "oak"
+    self:_event("marill_hidden", "marill")
+  elseif (action == "confirm" or action == "yes") and self._phase == "oak_tell_about_yourself" then
     self._phase = "gender_question"
     self:_setMessage("profile.gender_question")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_question" then
     self._phase = "gender_select"
     self._visual = "gender.indicator"
-    self:_setMessage("profile.gender_select")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_select" then
     self._phase = "gender_confirm"
-    self:_setMessage("profile.gender_confirm")
+    self:_setMessage(self._genderFocus == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female")
   elseif (action == "cancel" or action == "no") and self._phase == "gender_confirm" then
     self._phase = "gender_question"
     self:_setMessage("profile.gender_question")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_confirm" then
-    self:_enterNameEditor()
+    self._phase = "name_prompt"
+    self:_setMessage("profile.name_prompt")
+  elseif (action == "confirm" or action == "yes") and self._phase == "name_prompt" then
+    self._phase = "name_launch_wait"
+    self._timer = NAME_LAUNCH_WAIT
   elseif (action == "submit" or action == "confirm" or action == "yes") and self._phase == "name_edit" then
     if #self._name > 0 then
       local glyphs = appendGlyphs(self._name)
       if #glyphs >= 1 and #glyphs <= 7 then
         self._phase = "name_confirm"
-        self:_setMessage("profile.name_confirm")
+        self:_setMessage(self._genderFocus == 0 and "profile.name_confirm.male" or "profile.name_confirm.female")
       end
     end
   elseif (action == "cancel" or action == "no") and self._phase == "name_confirm" then
@@ -362,6 +439,7 @@ end
 
 ---@return table
 function OakIntroController:view()
+  local virtualKeys = self:_virtualKeys()
   return {
     phase = self._phase,
     message = self._message,
@@ -369,6 +447,8 @@ function OakIntroController:view()
     genderFocus = self._genderFocus,
     name = self._name,
     virtualGlyphFocus = self._virtualFocus,
+    virtualKeys = virtualKeys,
+    virtualKeyColumns = self._virtualKeyColumns,
     nameInputEnabled = self._phase == "name_edit",
     sourceFrames = self._sourceFrames,
     events = self._events,

@@ -26,23 +26,26 @@ function OakIntroLayout.compute(width, height, view, glyphs)
     [1] = rect(left + cardWidth + 16, cardY, cardWidth, cardHeight),
   }
   local grid = {}
-  local columns = math.max(1, math.min(8, math.floor(contentWidth / 42)))
+  local columns = math.max(1, math.min(8, view.virtualKeyColumns or math.floor(contentWidth / 42)))
   local cell = math.floor(contentWidth / columns)
   local gridY = math.floor(height * 0.42)
-  for index, glyph in ipairs(glyphs) do
+  local keys = view.virtualKeys or {}
+  for index, key in ipairs(keys) do
     local zero = index - 1
     local column = zero % columns
     local row = math.floor(zero / columns)
-    grid[glyph] = { rect = rect(margin + column * cell, gridY + row * 34, cell - 4, 30), glyph = glyph }
+    grid[index] = {
+      rect = rect(margin + column * cell, gridY + row * 34, cell - 4, 30),
+      kind = key.kind,
+      glyph = key.glyph,
+    }
   end
-  local actionsY = height - margin - 42
   return {
     viewport = rect(0, 0, width, height),
     message = rect(margin, height - margin - 112, contentWidth, 96),
     cards = cards,
     nameGrid = grid,
-    delete = rect(margin, actionsY, math.min(120, contentWidth / 3), 38),
-    confirm = rect(width - margin - math.min(140, contentWidth / 3), actionsY, math.min(140, contentWidth / 3), 38),
+    virtualKeyColumns = columns,
     genderFocus = view.genderFocus,
   }
 end

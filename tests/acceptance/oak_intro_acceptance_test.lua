@@ -27,11 +27,16 @@ local MESSAGES = {
   ["greeting.day"] = "generated.greeting.day",
   ["greeting.evening"] = "generated.greeting.evening",
   ["greeting.night"] = "generated.greeting.night",
-  ["profile.ask"] = "generated.profile.ask",
+  ["oak.welcome"] = "generated.oak.welcome",
+  ["oak.world_inhabited"] = "generated.oak.world_inhabited",
+  ["oak.live_alongside"] = "generated.oak.live_alongside",
+  ["oak.tell_about_yourself"] = "generated.oak.tell_about_yourself",
   ["profile.gender_question"] = "generated.profile.gender_question",
-  ["profile.gender_select"] = "generated.profile.gender_select",
-  ["profile.gender_confirm"] = "generated.profile.gender_confirm",
-  ["profile.name_confirm"] = "generated.profile.name_confirm",
+  ["profile.gender_confirm.male"] = "generated.profile.gender_confirm.male",
+  ["profile.gender_confirm.female"] = "generated.profile.gender_confirm.female",
+  ["profile.name_prompt"] = "generated.profile.name_prompt",
+  ["profile.name_confirm.male"] = "generated.profile.name_confirm.male",
+  ["profile.name_confirm.female"] = "generated.profile.name_confirm.female",
   ["profile.final"] = "generated.profile.final",
 }
 
@@ -239,7 +244,13 @@ local function reachGenderSelect(audio)
   -- These scenarios exercise profile input after the fade; the dedicated
   -- audio scenario controls this host completion explicitly.
   audio.fadeActive = false
-  advance(6 + 30 + 30 + 40)
+  advance(6 + 30)
+  confirm()
+  advance(26)
+  confirm()
+  advance(30 + 40)
+  confirm()
+  advance(30 + 26)
   confirm()
   confirm()
   Assert.equal(App.state:view().phase, "gender_select")
@@ -250,6 +261,7 @@ local function reachNameEditor(audio)
   confirm()
   confirm()
   confirm()
+  advance(40)
   Assert.equal(App.state:view().phase, "name_edit")
 end
 
@@ -263,21 +275,26 @@ function T.tests.new_game_routes_through_the_core_oak_sequence()
     Assert.equal(context.controller:view().message, MESSAGES["greeting.day"])
     confirm()
     context.audio.fadeActive = false
-    advance(6 + 30 + 30 + 40)
+    advance(6 + 30)
+    Assert.equal(context.controller:view().message, MESSAGES["oak.welcome"])
+    confirm()
+    advance(26)
+    Assert.equal(context.controller:view().message, MESSAGES["oak.world_inhabited"])
+    confirm()
+    advance(30 + 40)
+    Assert.equal(context.controller:view().message, MESSAGES["oak.live_alongside"])
+    confirm()
+    advance(30 + 26)
+    Assert.equal(context.controller:view().message, MESSAGES["oak.tell_about_yourself"])
+    confirm()
 
-    Assert.equal(context.controller:view().phase, "profile")
-    Assert.deepEqual(eventKinds(context.controller), {
-      "started",
-      "message",
-      "oak_revealed",
-      "marill_appears",
-      "message",
-    })
-    Assert.deepEqual(eventValues(context.controller, "message"), { "greeting.day", "profile.ask" })
+    Assert.equal(context.controller:view().phase, "gender_question")
 
     confirm()
     confirm()
     confirm()
+    confirm()
+    advance(40)
     confirm()
     App.textinput("GOLD")
     confirm()
@@ -375,7 +392,11 @@ function T.tests.audio_and_fixed_source_timing_are_ordered_and_cry_independent()
     }, { "stop_music", nil, "music", "SEQ_GS_STARTING2" })
 
     advance(30)
-    Assert.equal(context.controller:view().phase, "marill_appearance_wait")
+    Assert.equal(context.controller:view().phase, "oak_welcome")
+    confirm()
+    advance(26)
+    Assert.equal(context.controller:view().phase, "oak_world_inhabited")
+    confirm()
     advance(30)
     Assert.equal(context.controller:view().phase, "marill_cry_wait")
     Assert.deepEqual(context.audio.events[#context.audio.events - 1], { name = "effect", value = "SEQ_SE_DP_BOWA2" })
@@ -383,7 +404,7 @@ function T.tests.audio_and_fixed_source_timing_are_ordered_and_cry_independent()
     advance(39)
     Assert.equal(context.controller:view().phase, "marill_cry_wait")
     advance(1)
-    Assert.equal(context.controller:view().phase, "profile")
+    Assert.equal(context.controller:view().phase, "oak_live_alongside")
   end)
 end
 
@@ -438,7 +459,14 @@ function T.tests.resize_and_all_input_modalities_share_oak_geometry_and_buffer()
     Assert.equal(App.state:view().phase, "name_edit")
     App.textinput("A")
     local layout = App.state:view().layout
-    local key = layout.nameGrid["é"].rect
+    local key
+    for _, entry in pairs(layout.nameGrid) do
+      if entry.glyph == "é" then
+        key = entry.rect
+        break
+      end
+    end
+    Assert.notNil(key)
     App.mousepressed(key.x + 1, key.y + 1, 1)
     Assert.equal(App.state:view().name, "Aé")
     App.keypressed("backspace")
