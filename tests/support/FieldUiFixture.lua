@@ -351,6 +351,17 @@ function FieldUiFixture.cardFontDef()
     },
     glyphs = glyphs,
     charmap = charmap,
+    palette = (function()
+      local palette = {}
+      for slot = 1, 16 do
+        palette[slot] = {
+          r = math.floor(255 * slot / 16) / 255,
+          g = math.floor(255 * slot / 32) / 255,
+          b = math.floor(255 * slot / 64) / 255,
+        }
+      end
+      return palette
+    end)(),
   }
 end
 

@@ -237,6 +237,78 @@ function T.auto_scroll_pages_advance_without_action()
   Assert.equal(c:status().state, "WAITING_CLOSE")
 end
 
+-- A scroll continuation retains the old bottom line while the next source
+-- tokens print into the newly exposed bottom line.
+function T.scroll_break_retains_the_prior_bottom_line()
+  local c = controller({
+    page({ line({ glyph("A", 1) }), line({ glyph("B", 2) }) }, "page"),
+    page({ line({ glyph("C", 3) }) }, "eos"),
+  })
+  c:open(request("scroll", message()))
+  c:step({ actionPressed = true })
+  Assert.equal(c:status().state, "WAITING_BOUNDARY")
+  c:step({ actionPressed = true })
+  local status = c:status()
+  Assert.equal(status.state, "SCROLLING", "a scroll break enters an explicit scroll state")
+  Assert.equal(status.visibleLines[1].tokens[1].text, "B", "the prior bottom line becomes the new top line")
+  Assert.equal(status.visibleLines[2], nil, "subsequent text starts on the bottom line")
+end
+
+-- Source scroll distance is one line and advances by four logical pixels per
+-- fixed printer update, with a final partial step when needed.
+function T.scroll_break_moves_exactly_one_line_in_fixed_increments()
+  local c = FieldDialogueController.new({
+    layout = function()
+      return {
+        pages = {
+          {
+            lines = { line({ glyph("A", 1) }), line({ glyph("B", 2) }) },
+            breakKind = "page",
+          },
+          { lines = { line({ glyph("C", 3) }) }, breakKind = "eos" },
+        },
+        lineHeight = 17,
+        lineSpacing = 2,
+        warnings = {},
+      }
+    end,
+    ticksPerGlyph = 1,
+  })
+  c:open(request("scroll-distance", message()))
+  c:step({ actionPressed = true })
+  c:step({ actionPressed = true })
+  Assert.equal(c:status().scrollRemaining, 19)
+  Assert.equal(c:status().scrollOffsetY, 0)
+  local offsets = {}
+  for _ = 1, 5 do
+    c:step({})
+    local status = c:status()
+    offsets[#offsets + 1] = status.scrollOffsetY
+    Assert.equal(status.revealedGlyphs, 0, "no new glyph is revealed during scrolling")
+  end
+  Assert.deepEqual(offsets, { 4, 8, 12, 16, 19 })
+  Assert.equal(c:status().scrollRemaining, 0)
+end
+
+-- Prompt continuation clears both retained lines and resumes at the window
+-- origin; it does not enter the one-line scroll state.
+function T.prompt_break_clears_instead_of_scrolling()
+  local c = controller({
+    page({ line({ glyph("A", 1) }), line({ glyph("B", 2) }) }, "prompt"),
+    page({ line({ glyph("C", 3) }) }, "eos"),
+  })
+  c:open(request("prompt", message()))
+  c:step({ actionPressed = true })
+  Assert.equal(c:status().state, "WAITING_BOUNDARY")
+  c:step({ actionPressed = true })
+  local status = c:status()
+  Assert.equal(status.state, "REVEALING")
+  Assert.equal(status.scrollRemaining, 0)
+  Assert.equal(status.scrollOffsetY, 0)
+  Assert.equal(status.visibleLines[1], nil, "clear removes the old top line")
+  Assert.equal(status.visibleLines[2], nil, "clear removes the old bottom line")
+end
+
 function T.zero_glyph_pages_reach_boundary_without_ticks()
   local c = controller({
     page({ line({ { kind = "style", control = 0xFF00, name = "COLOR", args = { 1 } } }) }, "prompt"),

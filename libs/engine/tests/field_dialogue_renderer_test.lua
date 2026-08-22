@@ -241,6 +241,36 @@ function T.request_without_a_frame_index_draws_no_frame_tiles()
   renderer:release()
 end
 
+-- The content rectangle is an opaque fill using the compiled field-font
+-- palette's source slot 15, drawn before the frame and glyphs.
+function T.dialogue_content_uses_the_source_background_palette_slot()
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 16 } } })
+  local text = withTextRenderer(uiCache(), lg)
+  text.fontDef.palette = {}
+  for index = 1, 16 do
+    text.fontDef.palette[index] = { 0.01 * index, 0.02 * index, 0.03 * index, 1 }
+  end
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = uiCache(),
+    manifest = MANIFEST,
+    text = text,
+    graphics = lg,
+  })
+  local controller = FieldDialogueFixture.openDialogue("AB", 0)
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
+  local layout = FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1))
+  Assert.equal(#lg.rectangles, 1, "the content rectangle is explicitly filled")
+  Assert.equal(lg.rectangles[1].mode, "fill")
+  Assert.deepEqual(lg.rectangles[1].color, text.fontDef.palette[16])
+  Assert.equal(lg.rectangles[1].x, layout.box.x)
+  Assert.equal(lg.rectangles[1].y, layout.box.y)
+  Assert.equal(lg.rectangles[1].w, layout.box.width)
+  Assert.equal(lg.rectangles[1].h, layout.box.height)
+  renderer:release()
+  text:release()
+end
+
 -- A dialogue controller whose single eos page carries the given tokens, so
 -- the renderer suites drive the real reveal state machine (the same canned
 -- layout convention as FieldDialogueFixture.openDialogue).
@@ -325,8 +355,8 @@ function T.reached_focus_indicator_draws_at_the_content_window_right_edge()
     "field 0 samples its imported strip rect"
   )
   Assert.equal(lg.draws[#lg.draws].quad, focus[1].quad, "the indicator draws after the frame and text")
-  Assert.equal(#lg.primitives, 1, "the continuation cursor polygon still draws")
-  Assert.equal(lg.primitives[1], "polygon", "the cursor is drawn, never suppressed by the indicator")
+  Assert.equal(#lg.primitives, 2, "the opaque window fill and continuation cursor both draw")
+  Assert.equal(lg.primitives[2], "polygon", "the cursor is drawn, never suppressed by the indicator")
   renderer:release()
 end
 

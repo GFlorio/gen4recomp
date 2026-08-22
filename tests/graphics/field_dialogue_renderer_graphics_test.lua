@@ -71,10 +71,10 @@ local function canonicalRender(scope, frameIndex)
 end
 
 -- The independent reference for the canonical render: the fixture's own tile
--- bytes placed by the pinned frame tilemap, plus the fixture font's two
--- glyphs at the layout text origin. Built without the renderer, so a draw
--- regression (wrong quad, wrong position, wrong frame row, wrong scale) is a
--- mismatch.
+-- bytes placed by the frame tilemap, the opaque field-window fill, and the
+-- fixture font's two glyphs at the layout text origin. Built without the
+-- renderer, so a draw regression (wrong quad, wrong position, wrong frame row,
+-- wrong scale) is a mismatch.
 ---@param frameIndex integer
 ---@return love.ImageData
 local function goldenReference(frameIndex)
@@ -101,6 +101,12 @@ local function goldenReference(frameIndex)
           end
         end
       end
+    end
+  end
+  local background = FieldDialogueFixture.fontDef().palette[16]
+  for y = FieldDialogueTheme.box.y, FieldDialogueTheme.box.y + FieldDialogueTheme.box.height - 1 do
+    for x = FieldDialogueTheme.box.x, FieldDialogueTheme.box.x + FieldDialogueTheme.box.width - 1 do
+      paste(x, y, background.r, background.g, background.b, 1)
     end
   end
   -- Text: glyph A (atlas columns 0..7, red) then glyph B (columns 8..15,
@@ -234,8 +240,7 @@ end
 
 -- Canonical golden: the frame 0 render matches the independent reference
 -- pixel for pixel. The frame tilemap fills the 256x192 canvas around the
--- content rect; the content stays transparent and the text sits at the
--- layout origin.
+-- opaque content rect, and the text sits at the layout origin.
 function T.canonical_golden_matches_frame_zero_pixel_for_pixel(scope)
   local rendered = canonicalRender(scope, 0)
   assertPixelsEqual(goldenReference(0), rendered, "frame 0 golden")
@@ -250,8 +255,8 @@ function T.canonical_golden_matches_frame_one_pixel_for_pixel(scope)
   local frame1 = canonicalRender(scope, 1)
   assertPixelsEqual(goldenReference(1), frame1, "frame 1 golden")
 
-  -- The frame region differs (different palette), the content rect is
-  -- transparent in both, and the text pixels are identical.
+  -- The frame region differs (different palette), the content rect uses the
+  -- field-window fill in both, and the text pixels are identical.
   local quantize = function(v)
     return math.floor(v * 255 + 0.5)
   end
@@ -266,10 +271,11 @@ function T.canonical_golden_matches_frame_one_pixel_for_pixel(scope)
   local box = FieldDialogueTheme.box
   for _, frame in ipairs({ frame0, frame1 }) do
     local r, g, b, a = pixel(frame, box.x + box.width / 2, box.y + box.height / 2)
-    Assert.equal(a, 0, "the content rect stays transparent")
-    Assert.equal(r, 0)
-    Assert.equal(g, 0)
-    Assert.equal(b, 0)
+    local background = FieldDialogueFixture.fontDef().palette[16]
+    Assert.equal(r, math.floor(background.r * 255 + 0.5), "the content rect uses the field-window fill")
+    Assert.equal(g, math.floor(background.g * 255 + 0.5))
+    Assert.equal(b, math.floor(background.b * 255 + 0.5))
+    Assert.equal(a, 255)
   end
 
   local ta0r, ta0g, ta0b, ta0a = frame0:getPixel(26, 152)

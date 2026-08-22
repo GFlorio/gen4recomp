@@ -14,6 +14,7 @@ local DialogueLayout = {}
 local DEFAULT_MAX_LINES = 2
 
 -- metrics: { glyphWidth(code) -> integer }
+-- metrics also carries the printer lineHeight and lineSpacing when available.
 -- resolving glyph advances. Every non-glyph token is zero-width.
 -- opts: { width = integer, maxLines = integer }
 -- Returns { pages = { { lines = { { tokens, width } }, breakKind } }, warnings }.
@@ -185,7 +186,12 @@ function DialogueLayout.layout(tokens, metrics, opts)
     pushPage("eos")
   end
 
-  return { pages = pages, warnings = warnings }
+  return {
+    pages = pages,
+    warnings = warnings,
+    lineHeight = metrics.lineHeight or 16,
+    lineSpacing = metrics.lineSpacing or 0,
+  }
 end
 
 -- One wrapped line of the current page: tokens plus the rendered width.
@@ -214,5 +220,7 @@ end
 ---@class DialogueLayout.Result
 ---@field pages DialogueLayout.Page[]
 ---@field warnings DialogueLayout.Warning[]
+---@field lineHeight integer
+---@field lineSpacing integer
 
 return DialogueLayout

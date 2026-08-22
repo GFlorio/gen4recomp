@@ -190,7 +190,12 @@ end
 ---@param status FieldDialogueController.Status
 ---@param layout FieldDialogueTheme.Layout
 function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
-  local field = FieldTextRenderer.lastVisibleFocusField(status.visibleLines)
+  local lines = status.scrollLines or status.visibleLines
+  local tokensByLine = {}
+  for _, line in ipairs(lines) do
+    tokensByLine[#tokensByLine + 1] = line.tokens or line
+  end
+  local field = FieldTextRenderer.lastVisibleFocusField(tokensByLine)
   if field ~= nil then
     self._text:drawFocusIndicator(
       field,
@@ -235,11 +240,17 @@ function FieldDialogueRenderer:draw(controller, viewport, fieldScale)
     local layout = self._theme.layout(viewport.referenceFrame, fieldScale)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
+    local background = self._text:windowBackgroundColor()
+    lg.setColor(background[1], background[2], background[3], background[4])
+    lg.rectangle("fill", layout.box.x, layout.box.y, layout.box.width, layout.box.height)
     self:_drawFrame(status, layout)
-    local lineY = layout.text.y
-    for _, tokens in ipairs(status.visibleLines) do
+    local lines = status.scrollLines or status.visibleLines
+    local scrollOffset = status.scrollLines and status.scrollOffsetY or 0
+    local lineY = layout.text.y - scrollOffset
+    for _, line in ipairs(lines) do
+      local tokens = line.tokens or line
       self._text:drawLine(tokens, layout.text.x, lineY)
-      lineY = lineY + layout.lineHeight
+      lineY = lineY + status.lineHeight + status.lineSpacing
     end
     self:_drawFocusIndicator(status, layout)
     self:_drawCursor(status, layout)

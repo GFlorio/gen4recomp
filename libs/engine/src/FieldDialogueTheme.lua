@@ -196,6 +196,8 @@ function FieldDialogueTheme.fontMetrics(fontDef)
       local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
       return glyph and glyph.advance
     end,
+    lineHeight = fontDef.lineHeight or FieldDialogueTheme.lineHeight,
+    lineSpacing = 0,
   }
 end
 
@@ -245,5 +247,7 @@ end
 
 ---@class FieldDialogueTheme.Metrics
 ---@field glyphWidth fun(code: integer): integer?
+---@field lineHeight integer
+---@field lineSpacing integer
 
 return FieldDialogueTheme

@@ -3,7 +3,8 @@
 -- cancel policy, and the exactly-once completion handle. Layout and input are
 -- injected, so headless tests drive the full lifecycle without LÖVE; the
 -- controller never touches presentation. Pages come from the injected layout
--- function and stay immutable while the reveal cursor advances over them.
+-- function; continuation state retains the visible window instead of replacing
+-- it wholesale.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -12,7 +13,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result
 ---@field _ticksPerGlyph integer
 ---@field _cursorBlinkTicks integer
----@field _state "CLOSED"|"OPENING"|"REVEALING"|"WAITING_BOUNDARY"|"WAITING_CLOSE"|"CLOSING"
+---@field _state "CLOSED"|"OPENING"|"REVEALING"|"WAITING_BOUNDARY"|"WAITING_CLOSE"|"SCROLLING"|"CLOSING"
 ---@field _request FieldDialogueController.Request?
 ---@field _handle FieldDialogueController.Handle?
 ---@field _pages DialogueLayout.Page[]?
@@ -24,6 +25,12 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field _waitTicks integer
 ---@field _terminal { kind: string, result: FieldDialogueController.Result }?
 ---@field _pendingClose { kind: string, error: any }?
+---@field _lineHeight integer
+---@field _lineSpacing integer
+---@field _retainedLines MessageToken[][]
+---@field _scrollLines FieldDialogueController.VisibleLine[]?
+---@field _scrollRemaining integer
+---@field _scrollOffsetY integer
 local FieldDialogueController = {}
 FieldDialogueController.__index = FieldDialogueController
 
@@ -83,6 +90,12 @@ local function visibleLines(page, revealed)
   return out
 end
 
+---@param line MessageToken[]|FieldDialogueController.VisibleLine
+---@return MessageToken[]
+local function lineTokens(line)
+  return line.tokens or line
+end
+
 -- opts.layout(formattedMessage) -> DialogueLayout.Result
 -- opts.ticksPerGlyph (default 2), opts.cursorBlinkTicks (default 30).
 
@@ -124,6 +137,12 @@ function FieldDialogueController.new(opts)
     _waitTicks = 0,
     _terminal = nil,
     _pendingClose = nil,
+    _lineHeight = 16,
+    _lineSpacing = 0,
+    _retainedLines = {},
+    _scrollLines = nil,
+    _scrollRemaining = 0,
+    _scrollOffsetY = 0,
   }, FieldDialogueController)
 end
 
@@ -153,6 +172,20 @@ function FieldDialogueController:status()
   if waiting then
     cursorOn = math.floor((self._waitTicks - 1) / self._cursorBlinkTicks) % 2 == 0
   end
+  local lines
+  local scrollLines
+  if self._state == "SCROLLING" then
+    scrollLines = self._scrollLines
+    lines = { assert(self._scrollLines)[#self._scrollLines] }
+  else
+    lines = {}
+    for _, retained in ipairs(self._retainedLines) do
+      lines[#lines + 1] = retained
+    end
+    for _, visible in ipairs(page and visibleLines(page, self._revealed) or {}) do
+      lines[#lines + 1] = visible
+    end
+  end
   return {
     state = self._state,
     modal = self:isModal(),
@@ -167,7 +200,12 @@ function FieldDialogueController:status()
     waiting = waiting,
     cursorOn = cursorOn,
     warnings = self._warnings or {},
-    visibleLines = page and visibleLines(page, self._revealed) or {},
+    visibleLines = lines,
+    scrollLines = scrollLines,
+    lineHeight = self._lineHeight,
+    lineSpacing = self._lineSpacing,
+    scrollOffsetY = self._scrollOffsetY,
+    scrollRemaining = self._scrollRemaining,
     allowCancel = self._request and self._request.allowCancel == true or false,
   }
 end
@@ -229,6 +267,10 @@ function FieldDialogueController:_dispatch()
   self._pages = nil
   self._pageGlyphs = nil
   self._warnings = nil
+  self._retainedLines = {}
+  self._scrollLines = nil
+  self._scrollRemaining = 0
+  self._scrollOffsetY = 0
   local ok, err = pcall(function()
     if callback then
       callback(terminal.result)
@@ -282,7 +324,7 @@ function FieldDialogueController:open(request)
     frameIndex == nil or (type(frameIndex) == "number" and frameIndex >= 0 and frameIndex % 1 == 0),
     "dialogue request frameIndex must be a non-negative integer"
   )
-  local ok, pages = pcall(self._layout, request.message)
+  local ok, layout = pcall(self._layout, request.message)
   self._request = request
   self._handle = handle
   self._pageIndex = 1
@@ -291,21 +333,27 @@ function FieldDialogueController:open(request)
   self._waitTicks = 0
   self._terminal = nil
   self._pendingClose = nil
+  self._retainedLines = {}
+  self._scrollLines = nil
+  self._scrollRemaining = 0
+  self._scrollOffsetY = 0
   if not ok then
     self._pages = {}
     self._pageGlyphs = {}
     self._warnings = {}
     self._state = "OPENING"
-    self._pendingClose = { kind = "error", error = pages }
+    self._pendingClose = { kind = "error", error = layout }
     return handle
   end
   local pageGlyphs = {}
-  for index, page in ipairs(pages.pages) do
+  for index, page in ipairs(layout.pages) do
     pageGlyphs[index] = glyphCount(page)
   end
-  self._pages = pages.pages
+  self._pages = layout.pages
   self._pageGlyphs = pageGlyphs
-  self._warnings = pages.warnings
+  self._warnings = layout.warnings
+  self._lineHeight = assert(layout.lineHeight or 16)
+  self._lineSpacing = assert(layout.lineSpacing or 0)
   self._state = "OPENING"
   if #self._pages == 0 then
     -- An empty or control-only message closes safely on its first step: the
@@ -331,6 +379,27 @@ function FieldDialogueController:_advancePage()
   self._waitTicks = 0
   self._state = "REVEALING"
   return true
+end
+
+function FieldDialogueController:_beginScroll()
+  local statusLines = self:status().visibleLines
+  assert(#statusLines > 0, "scroll break requires visible dialogue lines")
+  self._scrollLines = {}
+  for _, tokens in ipairs(statusLines) do
+    self._scrollLines[#self._scrollLines + 1] = { tokens = lineTokens(tokens), width = 0 }
+  end
+  self._retainedLines = { statusLines[#statusLines] }
+  self._revealed = 0
+  self._scrollOffsetY = 0
+  self._scrollRemaining = self._lineHeight + self._lineSpacing
+  assert(self._scrollRemaining > 0, "dialogue scroll distance must be positive")
+  self._state = "SCROLLING"
+end
+
+function FieldDialogueController:_finishScroll()
+  self._scrollLines = nil
+  self._scrollRemaining = 0
+  self:_advancePage()
 end
 
 function FieldDialogueController:_enterWait()
@@ -366,6 +435,7 @@ end
 
 ---@param snapshot FieldDialogueController.Input
 function FieldDialogueController:_revealTick(snapshot)
+  self._scrollOffsetY = 0
   local page = self._pages[self._pageIndex]
   local total = self._pageGlyphs[self._pageIndex]
   if snapshot.actionPressed then
@@ -425,10 +495,23 @@ function FieldDialogueController:step(snapshot)
     self._waitTicks = self._waitTicks + 1
     if snapshot.actionPressed then
       if self._state == "WAITING_BOUNDARY" then
-        self:_advancePage()
+        local page = assert(self._pages[self._pageIndex])
+        if page.breakKind == "page" then
+          self:_beginScroll()
+        else
+          self._retainedLines = {}
+          self:_advancePage()
+        end
       else
         self._state = "CLOSING"
       end
+    end
+  elseif self._state == "SCROLLING" then
+    local delta = math.min(4, self._scrollRemaining)
+    self._scrollOffsetY = self._scrollOffsetY + delta
+    self._scrollRemaining = self._scrollRemaining - delta
+    if self._scrollRemaining == 0 then
+      self:_finishScroll()
     end
   elseif self._state == "CLOSING" then
     self._state = "CLOSED"
@@ -512,7 +595,7 @@ end
 -- Snapshot of the controller's reveal position for the renderer and HUD.
 
 ---@class FieldDialogueController.Status
----@field state "CLOSED"|"OPENING"|"REVEALING"|"WAITING_BOUNDARY"|"WAITING_CLOSE"|"CLOSING"
+---@field state "CLOSED"|"OPENING"|"REVEALING"|"WAITING_BOUNDARY"|"WAITING_CLOSE"|"SCROLLING"|"CLOSING"
 ---@field modal boolean
 ---@field requestId string?
 ---@field bankId integer?
@@ -525,7 +608,16 @@ end
 ---@field waiting boolean
 ---@field cursorOn boolean
 ---@field warnings DialogueLayout.Warning[]
----@field visibleLines MessageToken[][]
+---@field visibleLines (MessageToken[]|FieldDialogueController.VisibleLine)[]
+---@field scrollLines FieldDialogueController.VisibleLine[]?
+---@field lineHeight integer
+---@field lineSpacing integer
+---@field scrollOffsetY integer
+---@field scrollRemaining integer
 ---@field allowCancel boolean
+
+---@class FieldDialogueController.VisibleLine
+---@field tokens MessageToken[]
+---@field width integer
 
 return FieldDialogueController
