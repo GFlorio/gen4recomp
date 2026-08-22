@@ -32,7 +32,7 @@ local App = {}
 ---@class AppOptions : GameOptions
 ---@field saveStore (GameSaveStore|SaveStoreLike)?
 ---@field newGameCandidateFactory (fun(options: table): table)?
----@field oakIntroOptionsFactory fun(options: table): table
+---@field oakIntroOptionsFactory (fun(options: table): table)?
 ---@field oakIntroHost table? true host seams for product-composition tests
 ---@field saveValidation GameSaveValidation?
 
