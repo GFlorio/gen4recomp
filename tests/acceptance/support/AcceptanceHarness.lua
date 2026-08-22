@@ -50,10 +50,16 @@ end
 -- the production SaveFs constructor needs no test-only rooting mode. The
 -- wrapper also injects one scoped write or read failure without changing the
 -- runtime's real save composition.
-local function saveBackend(faults, lifecycle, namespace)
+local function saveBackend(faults, lifecycle, namespace, versionId)
   local fs = love.filesystem
   local function remap(path)
-    local rest = path:gsub("^saves/[^/]+", "")
+    local versionPrefix = "saves/" .. versionId .. "/"
+    local rest
+    if path:sub(1, #versionPrefix) == versionPrefix then
+      rest = path:sub(#versionPrefix + 1)
+    else
+      rest = path:gsub("^saves/", "")
+    end
     local remapped = namespace .. "/" .. rest:gsub("^/", "")
     return (remapped:gsub("/$", ""))
   end
@@ -170,7 +176,7 @@ end
 local Game = {}
 Game.__index = Game
 
-function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, fieldOptions)
+function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, fieldOptions, reserveSave)
   local versionId = assert(game.versionId, "acceptance game version required")
   local runtimeOptions = {}
   for key, value in pairs(fieldOptions or {}) do
@@ -180,13 +186,14 @@ function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, field
     or LocalClock.new(function()
       return { year = 2000, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
     end)
-  runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace))
+  runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace, versionId))
   if fieldOptions == nil or fieldOptions.saveStore ~= false then
     ---@type { reserve: fun(self: table): string }
-    local saveStore = GameSaveStore.new(SaveFs.global(saveBackend(faults, lifecycle, namespace)))
+    local saveStore = GameSaveStore.new(SaveFs.global(saveBackend(faults, lifecycle, namespace, versionId)))
     runtimeOptions.saveStore = saveStore
-    if game.schema == nil then
-      assert(game.saveId == saveStore:reserve(), "acceptance candidate must use its reserved save id")
+    if reserveSave and game.schema == nil then
+      local reservedSaveId = saveStore:reserve()
+      assert(game.saveId == reservedSaveId, "acceptance candidate must use its reserved save id")
     end
   end
   -- `audioHost = "production"` omits the recording audio adapter so the
@@ -263,7 +270,8 @@ function Game:restart(options)
     self.saveNamespace,
     self.faults,
     self.lifecycle,
-    self.fieldOptions
+    self.fieldOptions,
+    false
   )
   if not ok then
     error(runtime, 0)
@@ -816,7 +824,7 @@ function AcceptanceHarness:boot(options)
   local faults = {}
   local lifecycle = { saveWrites = 0, saveReads = 0, runtimeDisposals = 0 }
   local game = self.gameFactory(options.versionId, options.map)
-  local ok, runtime = pcall(self._newRuntime, self, game, namespace, faults, lifecycle, options.fieldOptions)
+  local ok, runtime = pcall(self._newRuntime, self, game, namespace, faults, lifecycle, options.fieldOptions, true)
   if not ok then
     abortBoot(nil, trap, self.removeSaveNamespace, namespace)
     error("acceptance runtime boot failed: " .. tostring(runtime), 0)
