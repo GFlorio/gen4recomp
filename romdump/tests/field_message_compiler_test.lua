@@ -54,6 +54,9 @@ local function fixture()
   members[191] = FieldMessageBank.encodeForTests({
     { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
   }, 0xD191)
+  members[219] = FieldMessageBank.encodeForTests({
+    { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
+  }, 0xD219)
   local romFs = {
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "messages")
@@ -95,7 +98,7 @@ end
 function T.compiles_tokenized_lossless_banks()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMessageCompiler.compile(romFs, sha1, hashLua))
-  Assert.deepEqual(bundle.index.bankIds, { 542, 543, 544, 545, 546, 547, 548, 549, 191 })
+  Assert.deepEqual(bundle.index.bankIds, { 542, 543, 544, 545, 546, 547, 548, 549, 191, 219 })
   Assert.equal(bundle.index.schema, FieldMessageCache.INDEX_SCHEMA)
 
   local bank = bundle.banks[542]

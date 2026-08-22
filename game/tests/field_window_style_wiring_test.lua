@@ -18,7 +18,7 @@ local T = {
 function T.tests.runtime_composes_the_window_style_catalogue()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
-    map = "MAP_NEW_BARK",
+    map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
   local ok, err = xpcall(function()

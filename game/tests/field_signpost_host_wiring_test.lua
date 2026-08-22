@@ -29,7 +29,7 @@ local T = {
 function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
-    map = "MAP_NEW_BARK",
+    map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
   local ok, err = xpcall(function()

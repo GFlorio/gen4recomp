@@ -57,7 +57,7 @@ end
 function T.tests.production_factory_registers_the_card_and_resume_drives_the_presentation()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
-    map = "MAP_NEW_BARK",
+    map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
   local ok, err = xpcall(function()

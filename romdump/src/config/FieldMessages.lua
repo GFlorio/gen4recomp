@@ -25,7 +25,7 @@ return {
   -- bound scripts of the New Bark slice reference their maps' own banks, and
   -- bank 191 because the vanilla 749-752 menus (common.pokemart and the
   -- New Bark slice's menus) resolve their items there.
-  banks = { 219, 542, 543, 544, 545, 546, 547, 548, 549, 191 },
+  banks = { 542, 543, 544, 545, 546, 547, 548, 549, 191, 219 },
   -- Font 0 is the field dialogue font (src/font.c sFontArcParam[0]).
   fontId = 0,
   fontGlyphMember = 0,
