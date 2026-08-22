@@ -130,4 +130,20 @@ function T.return_uses_the_shared_confirm_action()
   Assert.deepEqual(controller.pressed, { "submit", "submit", "submit" })
 end
 
+function T.audio_lifetime_is_released_once_with_the_state()
+  local state, controller, input, renderer = stateHarness()
+  local lifetime = { releases = 0 }
+  function lifetime:dispose()
+    self.releases = self.releases + 1
+  end
+  state.audioLifetime = lifetime
+
+  state:dispose()
+  state:dispose()
+
+  Assert.equal(lifetime.releases, 1)
+  Assert.equal(controller.disposed, 1)
+  Assert.equal(renderer.disposed, 1)
+end
+
 return { tests = T }

@@ -17,6 +17,7 @@ local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local MainMenuState = require("game.src.game.MainMenuState")
 local OakIntroState = require("game.src.game.OakIntroState")
+local OakIntroComposition = require("game.src.game.OakIntroComposition")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
@@ -32,6 +33,7 @@ local App = {}
 ---@field fieldGame table? developer-only finalized game fixture
 ---@field newGameCandidateFactory (fun(options: table): table)?
 ---@field oakIntroOptionsFactory fun(options: table): table
+---@field oakIntroHost table? true host seams for product-composition tests
 
 -- A bare `--field` (option == true) selects the runtime default map; a
 -- numeric string is a map id, anything else a semantic map symbol.
@@ -118,21 +120,32 @@ local function newGameCandidate(versionId)
 end
 
 -- Build the production Oak state from generated visual/message/audio resources.
--- The factory is an explicit composition seam: missing generated resources fail
--- the New Game transition rather than falling back to embedded retail data.
+-- An explicit factory remains a test seam; normal New Game uses the production
+-- composer so missing generated resources fail the transition loudly.
 function App._bootOakIntro()
   local versionId = assert(App.versionId, "New Game needs a selected version")
   local candidate = newGameCandidate(versionId)
-  local factory = assert(App.opts.oakIntroOptionsFactory, "Oak intro resources are unavailable")
-  local options = factory({
+  local input = {
     candidate = candidate,
     versionId = versionId,
-  })
-  assert(type(options) == "table", "Oak intro options factory must return a table")
-  options.onComplete = function(result)
+  }
+  for key, value in pairs(App.opts.oakIntroHost or {}) do
+    input[key] = value
+  end
+  local factory = App.opts.oakIntroOptionsFactory
+  if factory then
+    local options = factory(input)
+    assert(type(options) == "table", "Oak intro options factory must return a table")
+    options.onComplete = function(result)
+      App._onOakComplete(result)
+    end
+    App.setState(OakIntroState.new(options))
+    return
+  end
+  input.onComplete = function(result)
     App._onOakComplete(result)
   end
-  App.setState(OakIntroState.new(options))
+  App.setState(OakIntroComposition.compose(input))
 end
 
 -- C05 handoff: the candidate is already finalized in memory, but remains
