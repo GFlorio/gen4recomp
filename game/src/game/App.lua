@@ -8,8 +8,11 @@
 local WindowConfig = require("game.src.WindowConfig")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
+local GameSaveStore = require("libs.engine.src.GameSaveStore")
+local SaveFs = require("libs.storage.src.SaveFs")
 local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
+local MainMenuState = require("game.src.game.MainMenuState")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
@@ -58,6 +61,7 @@ end
 
 function App.load(opts)
   App.opts = opts or {}
+  App.saveStore = App.opts.saveStore or GameSaveStore.new(SaveFs.global())
   App.importer = nil
   App.setState(nil)
   love.graphics.setBackgroundColor(unpack(WindowConfig.BACKGROUND_COLOR))
@@ -70,6 +74,30 @@ function App.load(opts)
     return App._bootField(App.opts.field)
   end
   App._bootExisting()
+end
+
+function App._mainMenuResult(result)
+  App.menuResult = result
+  if result.kind == "quit" then
+    love.event.quit(0)
+  elseif result.kind == "new_game" and App.opts.onNewGame then
+    App.opts.onNewGame()
+  elseif result.kind == "continue" and App.opts.onContinue then
+    App.opts.onContinue(result.saveId)
+  end
+end
+
+function App._bootMainMenu(versions)
+  local width, height = love.graphics.getDimensions()
+  App.setState(MainMenuState.new({
+    saveStore = App.saveStore or assert(App.opts.saveStore, "App needs a global save store"),
+    readyVersions = versions,
+    width = width,
+    height = height,
+    onResult = function(result)
+      App._mainMenuResult(result)
+    end,
+  }))
 end
 
 -- The one transition point between top-level states: every state swap goes
@@ -125,7 +153,7 @@ function App._onImported(versionId)
   if App.opts.field then
     App.setState(FieldState.new(versionId, fieldTarget(App.opts.field), fieldSessionOptions(false)))
   else
-    App.setState(FieldState.new(versionId, nil, fieldSessionOptions(true)))
+    App._bootMainMenu({ versionId })
   end
 end
 
@@ -140,11 +168,11 @@ function App._bootExisting()
     return
   end
   if #ready == 1 then
-    App.setState(FieldState.new(ready[1], nil, fieldSessionOptions(true)))
+    App._bootMainMenu(ready)
     return
   end
   App.setState(VersionSelectState.new(ready, function(versionId)
-    App.setState(FieldState.new(versionId, nil, fieldSessionOptions(true)))
+    App._bootMainMenu({ versionId })
   end))
 end
 
