@@ -25,6 +25,7 @@
 -- sound-frame clock is the runtime's wall-clock accumulator.
 
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -40,6 +41,8 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field dialogue FieldDialogueController
 ---@field input FieldInput
 ---@field interactions FieldSession.Interactions
+---@field eventResolver table
+---@field eventState FieldEventState
 ---@field scriptScheduler Scheduler
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
@@ -62,6 +65,8 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field dialogue FieldDialogueController
 ---@field input FieldInput
 ---@field interactions FieldSession.Interactions
+---@field eventResolver table
+---@field eventState FieldEventState
 ---@field scriptScheduler Scheduler
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
@@ -123,6 +128,11 @@ function FieldSession.new(options)
     "field session application host required"
   )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
+  assert(
+    options.eventResolver and options.eventResolver.resolveCoordinate and options.eventResolver.resolvePassiveSign,
+    "field event resolver required"
+  )
+  assert(options.eventState and options.eventState.getVar, "field event state required")
   if options.audio then
     assert(type(options.audio.updateField) == "function", "field session audio field-policy update required")
   end
@@ -137,6 +147,8 @@ function FieldSession.new(options)
     dialogue = options.dialogue,
     input = options.input,
     interactions = options.interactions,
+    eventResolver = options.eventResolver,
+    eventState = options.eventState,
     scriptScheduler = options.scriptScheduler,
     scriptClient = options.scriptClient,
     menuHost = options.menuHost,
@@ -171,6 +183,32 @@ end
 
 function FieldSession:_advanceTick()
   self.tick = self.tick + 1
+end
+
+local function resolveCoordinate(self)
+  local events = self.currentMap.fieldData and self.currentMap.fieldData.events
+  if not events or not events.coordinates then
+    return nil
+  end
+  return self.eventResolver.resolveCoordinate(self.currentMap, self.player, self.eventState)
+end
+
+local function resolvePassiveSign(self)
+  local events = self.currentMap.fieldData and self.currentMap.fieldData.events
+  if not events or not events.background then
+    return nil
+  end
+  return self.eventResolver.resolvePassiveSign(self.currentMap, self.player)
+end
+
+local function consumeScriptIntent(self, intent)
+  local result = self.scriptClient:consume(intent, self.tick + 1)
+  local results = ScriptInteractionClient.RESULTS
+  assert(
+    result == results.started or result == results.blocked,
+    "a field event must be bound: " .. tostring(intent.mapId)
+  )
+  self:_advanceTick()
 end
 
 function FieldSession:updateFixed(inputSnapshot)
@@ -330,6 +368,21 @@ function FieldSession:updateFixed(inputSnapshot)
   -- move, so collision and the draw list never disagree within a tick.
   self.actors:step(self.tick + 1)
 
+  -- HGSS checks a passive sign before the idle Action and standing-input
+  -- paths. It is deliberately limited to a north-facing type-one event.
+  local passiveDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+  if passiveDirection and (self.player.motion == "idle" or inputSnapshot.pressedDirection) then
+    local direction = passiveDirection
+    self.player.facing = direction
+    if direction == "north" then
+      local intent = resolvePassiveSign(self)
+      if intent then
+        consumeScriptIntent(self, intent)
+        return
+      end
+    end
+  end
+
   -- An idle player's Action edge resolves an interaction
   -- before movement or warps are evaluated. A consumed interaction owns the
   -- tick (the dialogue becomes modal on it), so the same edge cannot also
@@ -370,11 +423,14 @@ function FieldSession:updateFixed(inputSnapshot)
     local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
     if
       trigger
-      and not WarpSystem.isSuppressed(
-        self.transition.suppression,
-        self.currentMap.mapId,
-        trigger.warp.x,
-        trigger.warp.z
+      and (
+        trigger.kind == "directional"
+        or not WarpSystem.isSuppressed(
+          self.transition.suppression,
+          self.currentMap.mapId,
+          trigger.warp.x,
+          trigger.warp.z
+        )
       )
     then
       self.player.facing = direction
@@ -394,6 +450,12 @@ function FieldSession:updateFixed(inputSnapshot)
     if self.audio then
       self.audio:updateField()
     end
+    local coordinateIntent = resolveCoordinate(self)
+    if coordinateIntent then
+      consumeScriptIntent(self, coordinateIntent)
+      return
+    end
+
     -- Standing-trigger path: a completed step onto a warp tile
     -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
     -- behaviors only; direction-gated warps wait for the facing path above.
@@ -409,6 +471,13 @@ function FieldSession:updateFixed(inputSnapshot)
       )
     then
       self.transition:start(self.currentMap, trigger, self.player.facing)
+      self:_advanceTick()
+      return
+    end
+    local passiveIntent = resolvePassiveSign(self)
+    if passiveIntent then
+      consumeScriptIntent(self, passiveIntent)
+      return
     end
   end
   -- Pose clocks advance only on a tick that could change the world, so a fade or

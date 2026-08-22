@@ -17,6 +17,8 @@ local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local FakeServices = require("tests.support.script.FakeServices")
 local FieldSession = require("libs.engine.src.FieldSession")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}
 
@@ -25,10 +27,12 @@ local MANIFEST = {
     [57] = {
       objects = { obj_T20_gswoman1 = "new_bark.npc.woman_1" },
       backgrounds = {},
+      coordinates = {},
     },
     [58] = {
       objects = { obj_T20R0101_doctor = "elms_lab.elm" },
       backgrounds = { [9] = "new_bark.lab_sign" },
+      coordinates = {},
     },
   },
 }
@@ -116,6 +120,28 @@ T["background binding and trigger"] = function()
   Assert.equal(trigger.scriptId, "new_bark.lab_sign")
 end
 
+T["coordinate binding and trigger"] = function()
+  local bindings = Bindings.new({
+    maps = { [60] = { objects = {}, backgrounds = {}, coordinates = { [1] = "landing.script" } } },
+  })
+  local hit = bindings:resolveIntent({
+    kind = "coordinate",
+    mapId = 60,
+    coordinateId = 1,
+    coordinate = { index = 1 },
+    sourceFieldX = 688,
+    sourceFieldZ = 392,
+    playerFacing = "west",
+  }, "west")
+  local trigger = assert(hit).trigger
+  Assert.equal(trigger.kind, "coordinate")
+  Assert.equal(trigger.mapId, 60)
+  Assert.equal(trigger.coordinateId, 1)
+  Assert.equal(trigger.scriptId, "landing.script")
+  Assert.equal(trigger.playerFacing, "west")
+  Assert.isNil(trigger.backgroundId)
+end
+
 -- 3. Unbound events resolve to nil (no-script event).
 T["unbound event"] = function()
   local bindings = Bindings.new(MANIFEST)
@@ -149,10 +175,10 @@ end
 -- a missing array is a schema error, never an implicit empty one.
 T["map without required binding arrays is rejected"] = function()
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { backgrounds = {} } } })
+    Bindings.new({ maps = { [57] = { backgrounds = {}, coordinates = {} } } })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {} } } })
+    Bindings.new({ maps = { [57] = { objects = {}, coordinates = {} } } })
   end)
 end
 
@@ -160,9 +186,9 @@ end
 -- map-lifecycle kinds have no dispatcher: carrying one is a schema error at
 -- load, not data the loader silently accepts.
 T["undispatched trigger kinds are rejected at load"] = function()
-  for _, section in ipairs({ "coordinates", "map_init", "map_enter", "map_resume" }) do
+  for _, section in ipairs({ "map_init", "map_enter", "map_resume" }) do
     throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-      Bindings.new({ maps = { [57] = { objects = {}, backgrounds = {}, [section] = {} } } })
+      Bindings.new({ maps = { [57] = { objects = {}, backgrounds = {}, coordinates = {}, [section] = {} } } })
     end)
   end
 end
@@ -172,19 +198,19 @@ end
 -- ids.
 T["invalid binding key and target types are rejected"] = function()
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = { [0] = "a" }, backgrounds = {} } } })
+    Bindings.new({ maps = { [57] = { objects = { [0] = "a" }, backgrounds = {}, coordinates = {} } } })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [-1] = "a" } } } })
+    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [-1] = "a" }, coordinates = {} } } })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [0.5] = "a" } } } })
+    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [0.5] = "a" }, coordinates = {} } } })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = { ["map:57:object:0"] = 7 }, backgrounds = {} } } })
+    Bindings.new({ maps = { [57] = { objects = { ["map:57:object:0"] = 7 }, backgrounds = {}, coordinates = {} } } })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { ["57"] = { objects = {}, backgrounds = {} } } })
+    Bindings.new({ maps = { ["57"] = { objects = {}, backgrounds = {}, coordinates = {} } } })
   end)
 end
 
@@ -195,16 +221,16 @@ T["duplicate and conflicting bindings are rejected"] = function()
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
     Bindings.new({
       maps = {
-        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
-        [60] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
+        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {}, coordinates = {} },
+        [60] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {}, coordinates = {} },
       },
     })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
     Bindings.new({
       maps = {
-        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {} },
-        [60] = { objects = { ["map:57:object:0"] = "b" }, backgrounds = {} },
+        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {}, coordinates = {} },
+        [60] = { objects = { ["map:57:object:0"] = "b" }, backgrounds = {}, coordinates = {} },
       },
     })
   end)
@@ -522,6 +548,8 @@ T["session script phase"] = function()
         return objectIntent(57, "obj_T20_gswoman1", "north")
       end,
     },
+    eventResolver = FieldEventResolver,
+    eventState = FieldEventState.new(),
     dialogue = dialogue,
     menuHost = menuHost,
     contextChoice = contextChoice,

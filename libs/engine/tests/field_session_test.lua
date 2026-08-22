@@ -11,6 +11,8 @@ local FieldSession = require("libs.engine.src.FieldSession")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}
 
@@ -112,7 +114,7 @@ local function baseOptions(overrides)
     versionId = "heartgold",
     currentMap = {
       mapId = 61,
-      fieldData = { events = { warps = {} } },
+      fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
       -- Mirrors the simulation-only aggregate: no presentation runtimes, so
       -- the map clock entry is a safe no-op.
       updateAnimated = function() end,
@@ -156,6 +158,8 @@ local function baseOptions(overrides)
         return nil
       end,
     },
+    eventResolver = FieldEventResolver,
+    eventState = FieldEventState.new(),
   }
   for key, value in pairs(overrides) do
     options[key] = value

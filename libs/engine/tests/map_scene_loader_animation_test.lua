@@ -15,6 +15,8 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldSession = require("libs.engine.src.FieldSession")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local MeshWriter = require("libs.assets.src.MeshWriter")
@@ -1124,6 +1126,8 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     },
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptClient = { consume = function() end },
+    eventResolver = FieldEventResolver,
+    eventState = FieldEventState.new(),
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     menuHost = {
       isModal = function()

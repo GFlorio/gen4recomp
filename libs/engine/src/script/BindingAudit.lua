@@ -53,7 +53,11 @@ function BindingAudit.check(manifest, loadFieldData)
       missingMapData(mapId)
     end
     local fieldEvents = field.events
-    if type(fieldEvents.objects) ~= "table" or type(fieldEvents.background) ~= "table" then
+    if
+      type(fieldEvents.objects) ~= "table"
+      or type(fieldEvents.background) ~= "table"
+      or type(fieldEvents.coordinates) ~= "table"
+    then
       missingMapData(mapId)
     end
     for _, event in ipairs(fieldEvents.objects) do
@@ -81,6 +85,14 @@ function BindingAudit.check(manifest, loadFieldData)
         local key = string.format("map:%d:background:%d", mapId, event.index)
         if type(map.backgrounds[event.index]) ~= "string" then
           missing[#missing + 1] = { kind = "background", mapId = mapId, key = key, scriptId = event.scriptId }
+        end
+      end
+    end
+    for _, event in ipairs(fieldEvents.coordinates) do
+      if event.scriptId ~= 0 then
+        local key = string.format("map:%d:coordinate:%d", mapId, event.index)
+        if type(map.coordinates[event.index]) ~= "string" then
+          missing[#missing + 1] = { kind = "coordinate", mapId = mapId, key = key, scriptId = event.scriptId }
         end
       end
     end

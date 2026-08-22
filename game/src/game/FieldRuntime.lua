@@ -26,6 +26,7 @@ local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldMenuHost = require("libs.engine.src.FieldMenuHost")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
@@ -637,6 +638,8 @@ function FieldRuntime:_load()
           return self.interactionResolver:resolve(snapshot)
         end,
       },
+      eventResolver = FieldEventResolver,
+      eventState = self.eventState,
     })
 
     self:_applyEffectiveWeather(self.runtimeMap)

@@ -38,18 +38,20 @@ local function validate(manifest)
     if type(map) ~= "table" then
       Errors.raise(BINDINGS_MANIFEST_INVALID, "bindings map entry must be a table", { mapId = mapId })
     end
-    if type(map.objects) ~= "table" or type(map.backgrounds) ~= "table" then
+    if type(map.objects) ~= "table" or type(map.backgrounds) ~= "table" or type(map.coordinates) ~= "table" then
       Errors.raise(
         BINDINGS_MANIFEST_INVALID,
-        "bindings map entry requires objects and backgrounds arrays",
+        "bindings map entry requires objects, backgrounds, and coordinates arrays",
         { mapId = mapId }
       )
     end
     for section, entries in pairs(map) do
-      if section ~= "objects" and section ~= "backgrounds" then
+      if section ~= "objects" and section ~= "backgrounds" and section ~= "coordinates" then
         Errors.raise(
           BINDINGS_MANIFEST_INVALID,
-          "unknown binding section " .. tostring(section) .. ": only object and background triggers are dispatched",
+          "unknown binding section "
+            .. tostring(section)
+            .. ": only object, background, and coordinate triggers are dispatched",
           { mapId = mapId, section = section }
         )
       end
@@ -77,7 +79,7 @@ local function validate(manifest)
           end
           seen[key] = target
         end
-      else
+      elseif section == "backgrounds" or section == "coordinates" then
         for key, target in pairs(entries) do
           if type(key) ~= "number" or math.floor(key) ~= key or key < 0 then
             Errors.raise(
@@ -175,6 +177,29 @@ function Bindings.backgroundTrigger(intent, scriptId, playerFacing)
   }
 end
 
+---@param intent table
+---@param scriptId string
+---@param playerFacing string
+---@return table
+function Bindings.coordinateTrigger(intent, scriptId, playerFacing)
+  assert(intent.kind == "coordinate", "coordinate trigger requires a coordinate intent")
+  assert(intent.coordinate ~= nil and intent.coordinateId ~= nil, "coordinate intent identity required")
+  return {
+    kind = "coordinate",
+    mapId = intent.mapId,
+    coordinateId = intent.coordinateId,
+    scriptId = scriptId,
+    playerFacing = playerFacing,
+    sourceFieldX = intent.sourceFieldX,
+    sourceFieldZ = intent.sourceFieldZ,
+    targetFieldX = intent.targetFieldX,
+    targetFieldZ = intent.targetFieldZ,
+    objectId = nil,
+    selfActor = nil,
+    backgroundId = nil,
+  }
+end
+
 -- Resolve one interaction intent against the manifest into a trigger
 -- descriptor plus the bound script id, or nil when nothing is bound (object
 -- preferred, then background; other intent kinds are not dispatched).
@@ -201,6 +226,15 @@ function Bindings:resolveIntent(intent, playerFacing)
       trigger = Bindings.backgroundTrigger(intent, scriptId, playerFacing),
       scriptId = scriptId,
     }
+  elseif kind == "coordinate" then
+    local scriptId = self:scriptFor(intent.mapId, "coordinate", intent.coordinateId)
+    if scriptId == nil then
+      return nil
+    end
+    return {
+      trigger = Bindings.coordinateTrigger(intent, scriptId, playerFacing),
+      scriptId = scriptId,
+    }
   end
   return nil
 end
@@ -210,7 +244,7 @@ end
 function Bindings:allScriptIds()
   local out, seen = {}, {}
   for _, map in pairs(self._maps) do
-    for _, kind in ipairs({ "object", "background" }) do
+    for _, kind in ipairs({ "object", "background", "coordinate" }) do
       for _, scriptId in pairs(map[kind .. "s"]) do
         if type(scriptId) == "string" and not seen[scriptId] then
           seen[scriptId] = true

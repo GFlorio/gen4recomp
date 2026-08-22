@@ -22,6 +22,8 @@
 local Assert = require("tests.support.Assert")
 local FakeCache = require("tests.support.FakeCache")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
@@ -246,6 +248,8 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       end,
     },
     interactions = { resolve = function() end },
+    eventResolver = FieldEventResolver,
+    eventState = FieldEventState.new(),
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
       step = function() end,

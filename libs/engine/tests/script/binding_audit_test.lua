@@ -17,7 +17,7 @@ local function throwsCode(code, fn)
 end
 
 local function fieldData(objects, backgrounds)
-  return { mapId = 60, events = { objects = objects, background = backgrounds } }
+  return { mapId = 60, events = { objects = objects, background = backgrounds, coordinates = {} } }
 end
 
 local function objectEvent(objectEventId, scriptId)
@@ -41,6 +41,7 @@ local FULL_MAP = {
     [0] = "script.bg0",
     [1] = "script.bg1",
   },
+  coordinates = {},
 }
 
 function T.a_fully_bound_map_passes()
@@ -70,6 +71,27 @@ function T.an_unbound_interactable_background_event_is_rejected()
   end)
   Assert.equal(err.context.missing[1].kind, "background")
   Assert.equal(err.context.missing[1].key, "map:60:background:3")
+end
+
+function T.an_unbound_interactable_coordinate_event_is_rejected()
+  local err = throwsCode("SCRIPT_BINDING_AUDIT_INCOMPLETE", function()
+    BindingAudit.check(manifestFor(FULL_MAP), function()
+      return {
+        mapId = 60,
+        events = {
+          objects = {},
+          background = {},
+          coordinates = {
+            { index = 4, scriptId = 17, x = 1, z = 2, width = 1, height = 1 },
+          },
+        },
+      }
+    end)
+  end)
+  Assert.equal(err.context.missing[1].kind, "coordinate")
+  Assert.equal(err.context.missing[1].mapId, 60)
+  Assert.equal(err.context.missing[1].key, "map:60:coordinate:4")
+  Assert.equal(err.context.missing[1].scriptId, 17)
 end
 
 function T.script_id_zero_objects_are_noninteractive()
@@ -127,7 +149,7 @@ end
 function T.a_field_record_for_a_different_map_is_rejected()
   throwsCode("SCRIPT_BINDING_AUDIT_MAP_MISSING", function()
     BindingAudit.check(manifestFor(FULL_MAP), function()
-      return { mapId = 61, events = { objects = {}, background = {} } }
+      return { mapId = 61, events = { objects = {}, background = {}, coordinates = {} } }
     end)
   end)
 end

@@ -42,6 +42,11 @@ local TransitionTrigger = {}
 -- module's policy.
 local BEHAVIOR = MetatileBehavior.BEHAVIOR
 
+local function entranceDirections(behavior)
+  local direction = MetatileBehavior.warpEntranceDirection(behavior)
+  return direction and { direction } or {}
+end
+
 -- Behavior byte -> semantic classification. requiredDirections is the gate
 -- FieldSystem_CheckMapTransition applies (empty = any facing); evaluatesOn
 -- selects the trigger path; ladder behaviors additionally return early on a
@@ -82,13 +87,13 @@ local CLASSIFICATIONS = {
   [BEHAVIOR.WARP_ENTRANCE_EAST] = {
     kind = "directional",
     triggerMode = "standing",
-    requiredDirections = { "east" },
+    requiredDirections = entranceDirections(BEHAVIOR.WARP_ENTRANCE_EAST),
     evaluatesOn = "input",
   },
   [BEHAVIOR.WARP_ENTRANCE_WEST] = {
     kind = "directional",
     triggerMode = "standing",
-    requiredDirections = { "west" },
+    requiredDirections = entranceDirections(BEHAVIOR.WARP_ENTRANCE_WEST),
     evaluatesOn = "input",
   },
   [BEHAVIOR.WARP_ENTRANCE_NORTH] = {
@@ -100,7 +105,7 @@ local CLASSIFICATIONS = {
   [BEHAVIOR.WARP_ENTRANCE_SOUTH] = {
     kind = "directional",
     triggerMode = "standing",
-    requiredDirections = { "south" },
+    requiredDirections = entranceDirections(BEHAVIOR.WARP_ENTRANCE_SOUTH),
     evaluatesOn = "input",
   },
   [BEHAVIOR.WARP_PANEL] = {
@@ -266,18 +271,15 @@ function TransitionTrigger.inputPath(runtimeMap, fieldX, fieldZ, direction)
     return attachWarp(standing, runtimeMap, fieldX, fieldZ)
   end
 
-  -- 2. The input path requires a blocked tile directly ahead (the door or
-  --    stair wall the player faces); HGSS returns FALSE without it.
-  if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) ~= true then
-    return nil
-  end
-
-  -- 3. Facing-tile door: the blocked tile ahead carries a DOOR warp.
-  local facing = classifyAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z)
-  if facing and facing.kind == "door" then
-    local trigger = attachWarp(facing, runtimeMap, fieldX + delta.x, fieldZ + delta.z)
-    if trigger then
-      return trigger
+  -- 2. Collision gates only the facing-tile door probe. Standing input
+  --    warps are evaluated independently of the tile ahead.
+  if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) == true then
+    local facing = classifyAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z)
+    if facing and facing.kind == "door" then
+      local trigger = attachWarp(facing, runtimeMap, fieldX + delta.x, fieldZ + delta.z)
+      if trigger then
+        return trigger
+      end
     end
   end
 
