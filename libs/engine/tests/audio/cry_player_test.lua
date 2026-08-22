@@ -46,6 +46,8 @@ local function newRecordingCry()
     end,
     playWithBankOverride = function(_, handle, resolvedSequence, resolvedBank)
       state.startCount = state.startCount + 1
+      state.startedSequence = resolvedSequence
+      state.startedBank = resolvedBank
       handle.playing = true
       return true
     end,
@@ -128,7 +130,6 @@ function T.missing_standard_assets_keep_provider_error_attribution()
   Assert.isTrue(Errors.is(bankErr))
   Assert.equal(bankErr.code, AudioErrors.AUDIO_PROVIDER_BANK_UNKNOWN)
 end
-
 function T.construction_requires_the_engine_player_and_provider()
   Assert.isFalse(pcall(CryPlayer.new, {}), "a cry player without its collaborators is a composition fault")
 end
