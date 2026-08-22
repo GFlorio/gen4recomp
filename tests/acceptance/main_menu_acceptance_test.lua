@@ -346,7 +346,7 @@ function T.tests.published_cards_are_sparse_and_creation_ordered()
   activateKey(menu, "down")
   activateKey(menu, "down")
   activateKey(menu, "return")
-  Assert.deepEqual(results[1], { kind = "continue", saveId = "save-00000003" })
+  Assert.deepEqual(results[1], { kind = "continue", game = store.entries[2] })
 end
 
 -- Keyboard, gamepad, pointer, touch, resize, and scrolling all operate on
@@ -381,15 +381,15 @@ function T.tests.cross_input_focus_activation_and_resize_keep_logical_focus()
   activateKey(menu, "up")
   Assert.equal(view(menu).focusedId, "save-00000007")
   menu:gamepadpressed(nil, "a")
-  Assert.deepEqual(results[1], { kind = "continue", saveId = "save-00000007" })
+  Assert.deepEqual(results[1], { kind = "continue", game = entries[7] })
 
   local body = assert(view(menu).layout.cards["save-00000007"].body)
   local x, y = rectCenter(body)
   menu:mousepressed(x, y, 1, false, 1)
-  Assert.deepEqual(results[2], { kind = "continue", saveId = "save-00000007" })
+  Assert.deepEqual(results[2], { kind = "continue", game = entries[7] })
 
   menu:touchpressed("finger-1", x, y, 0, 0, 1)
-  Assert.deepEqual(results[3], { kind = "continue", saveId = "save-00000007" })
+  Assert.deepEqual(results[3], { kind = "continue", game = entries[7] })
 end
 
 -- Delete is a separate, confirmed action. The one scenario covers all

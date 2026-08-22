@@ -22,7 +22,7 @@ end
 ---@return MainMenuController
 function MainMenuController.new(items)
   assert(type(items) == "table" and #items > 0, "the Main Menu needs at least New Game")
-  return setmetatable({ items = items, focusIndex = 1, dialog = nil, result = nil }, MainMenuController)
+  return setmetatable({ items = items, focusIndex = 1, dialog = nil }, MainMenuController)
 end
 
 function MainMenuController:setItems(items)
@@ -51,17 +51,6 @@ function MainMenuController:move(direction)
   assert(direction == "up" or direction == "down", "unknown Main Menu direction")
   local delta = direction == "up" and -1 or 1
   self.focusIndex = math.max(1, math.min(#self.items, self.focusIndex + delta))
-end
-
-function MainMenuController:activate()
-  local item = self:focusedItem()
-  if item.id == "new-game" then
-    return { kind = "new_game" }
-  end
-  if item.canContinue then
-    return { kind = "continue", saveId = assert(item.saveId) }
-  end
-  return nil
 end
 
 function MainMenuController:requestDelete()
@@ -98,23 +87,6 @@ function MainMenuController:confirmDelete()
   local saveId = self.dialog.saveId
   self.dialog = nil
   return saveId
-end
-
-function MainMenuController:removeFocusedItem()
-  local oldIndex = self.focusIndex
-  table.remove(self.items, oldIndex)
-  self.focusIndex = math.min(oldIndex, #self.items)
-end
-
-function MainMenuController:setScrollOffset(offset)
-  assert(type(offset) == "number" and offset >= 0, "scroll offset must be non-negative")
-  self.scrollOffset = offset
-end
-
-function MainMenuController:takeResult()
-  local result = self.result
-  self.result = nil
-  return result
 end
 
 return MainMenuController

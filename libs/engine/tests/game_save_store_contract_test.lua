@@ -4,6 +4,7 @@
 ---@diagnostic disable: undefined-field
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local SaveFs = require("libs.storage.src.SaveFs")
@@ -118,6 +119,33 @@ function T.multiple_versions_use_one_global_catalog_and_strict_game_records()
   callFailure(function()
     store:publishFirst(invalid)
   end)
+end
+
+function T.injected_full_record_validator_classifies_payload_errors_per_card()
+  local backend = FakeCache.new()
+  local calls = 0
+  local rejectSoulsilver = false
+  local store = newStore(backend, {
+    recordValidate = function(value)
+      calls = calls + 1
+      if rejectSoulsilver and value.versionId == "soulsilver" then
+        return nil, Errors.new("SAVE_VERSION_CONTEXT_UNAVAILABLE", "version context unavailable", {})
+      end
+      return value
+    end,
+  })
+  local heartgold = store:reserve()
+  local soulsilver = store:reserve()
+  store:publishFirst(record(heartgold, "heartgold"))
+  store:publishFirst(record(soulsilver, "soulsilver"))
+  rejectSoulsilver = true
+  local entries = assert(store:list())
+  Assert.equal(#entries, 2)
+  Assert.equal(entries[1].saveId, soulsilver)
+  Assert.notNil(entries[1].error)
+  Assert.equal(entries[2].saveId, heartgold)
+  Assert.isNil(entries[2].error)
+  Assert.isTrue(calls >= 4, "full validation must cover publication and listing")
 end
 
 function T.reservation_survives_restart_without_payload_or_visibility_and_never_reuses_ids()
@@ -265,9 +293,9 @@ function T.catalog_authority_preserves_errors_and_ignores_orphans_and_reserved_g
 
   local entries = assert(store:list())
   Assert.equal(#entries, 3, "only catalog-referenced IDs may be listed")
-  Assert.equal(entries[1].saveId, validId)
+  Assert.equal(entries[1].saveId, oldId)
   Assert.equal(entries[2].saveId, corruptId)
-  Assert.equal(entries[3].saveId, oldId)
+  Assert.equal(entries[3].saveId, validId)
   Assert.notNil(findEntry(entries, corruptId).error)
   Assert.notNil(findEntry(entries, oldId).error)
   Assert.isNil(findEntry(entries, orphanId))
@@ -294,8 +322,8 @@ function T.deleted_ids_are_not_reusable_and_published_order_follows_creation()
   store:publishFirst(record(secondId, "soulsilver"))
   store:publishFirst(record(firstId, "heartgold"))
   local entries = assert(store:list())
-  Assert.equal(entries[1].saveId, firstId)
-  Assert.equal(entries[2].saveId, secondId)
+  Assert.equal(entries[1].saveId, secondId)
+  Assert.equal(entries[2].saveId, firstId)
 
   store:delete(firstId)
   callFailure(function()

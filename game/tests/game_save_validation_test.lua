@@ -1,0 +1,89 @@
+-- Tests the one version-aware semantic boundary used by persisted records and
+-- in-memory field construction.
+
+local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
+local GameSaveValidation = require("game.src.game.GameSaveValidation")
+
+local T = {}
+
+local function context()
+  return {
+    charmap = { G = 1, O = 2, L = 3, D = 4 },
+    frameIndexes = { [0] = true },
+  }
+end
+
+local function record(saveId, versionId, playerData)
+  return {
+    schema = "g4-game-save-v1",
+    saveId = saveId,
+    versionId = versionId,
+    playTimeSeconds = 0,
+    mapId = 60,
+    fieldX = 684,
+    fieldZ = 393,
+    worldY = 0,
+    surfaceId = 0,
+    terrainDependencyHash = "terrain-" .. versionId,
+    facing = "south",
+    playerData = playerData,
+    world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
+    scripts = {
+      schema = "g4-script-save-v1",
+      registryFingerprint = "registry",
+      taskFingerprint = "tasks",
+      capturedAtSimulationTick = 0,
+      nextEnvironmentId = 0,
+      nextInstanceId = 0,
+      nextTaskId = 0,
+      environments = {},
+      instances = {},
+      tasks = {},
+    },
+    auxiliaryUi = { requested = "shown", state = "shown" },
+    audio = {},
+  }
+end
+
+local validPlayerData = {
+  profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
+  options = { textFrame = 0, textSpeed = "mid" },
+}
+
+function T.full_record_validation_is_shared_and_version_context_is_cached()
+  local loads = 0
+  local service = GameSaveValidation.new({
+    contextLoader = function(versionId)
+      loads = loads + 1
+      Assert.equal(versionId, "heartgold")
+      return context()
+    end,
+  })
+  local first = assert(service:validate(record("save-00000001", "heartgold", validPlayerData)))
+  local second = assert(service:validate(record("save-00000002", "heartgold", validPlayerData)))
+  Assert.equal(first.saveId, "save-00000001")
+  Assert.equal(second.saveId, "save-00000002")
+  Assert.equal(loads, 1)
+  local invalid, err = service:validate(record("save-00000003", "heartgold", { options = {} }))
+  Assert.isNil(invalid)
+  Assert.isTrue(Errors.is(err))
+end
+
+function T.version_context_failure_does_not_borrow_another_version()
+  local service = GameSaveValidation.new({
+    contextLoader = function(versionId)
+      if versionId == "heartgold" then
+        return context()
+      end
+      Errors.raise("SAVE_VERSION_CONTEXT_UNAVAILABLE", "version context is unavailable", { versionId = versionId })
+    end,
+  })
+  Assert.notNil(service:validate(record("save-00000001", "heartgold", validPlayerData)))
+  local invalid, err = service:validate(record("save-00000002", "soulsilver", validPlayerData))
+  Assert.isNil(invalid)
+  local unavailableError = assert(err)
+  Assert.equal(unavailableError.code, "SAVE_VERSION_CONTEXT_UNAVAILABLE")
+end
+
+return { tests = T }
