@@ -15,6 +15,7 @@ local FieldUiFixture = require("tests.support.FieldUiFixture")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
+local GameSaveValidation = require("game.src.game.GameSaveValidation")
 
 local T = {}
 
@@ -101,12 +102,19 @@ end
 -- developer binds), so it stays behind the boundary.
 function T.only_documented_runtime_options_reach_the_runtime()
   local options = fieldStateOptions()
+  local saveValidation = GameSaveValidation.new({
+    contextLoader = function()
+      return {}
+    end,
+  })
+  options.saveValidation = saveValidation
   options.zoomConfig = { mode = "test" }
   options.development = true
   local state, captured, game = bootWithCapturedRuntimeOptions(options)
   Assert.deepEqual(captured.options, {
     zoomConfig = { mode = "test" },
     presentation = true,
+    saveValidation = saveValidation,
   })
   Assert.equal(captured.game, game)
   Assert.equal(state.development, true, "the state keeps the development flag for its own presentation")
