@@ -1,4 +1,5 @@
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
 local ScriptHeader = require("romdump.src.digest.ScriptHeader")
 
 local T = {}
@@ -23,8 +24,8 @@ function T.decodes_ordered_on_frame_rules_and_targets()
     {
       type = "on_frame_eq",
       rules = {
-        { variableId = 0x4106, equals = 3, scriptIndex = 6, scriptId = "vanilla.hgss.scr_seq.0845.script_006" },
-        { variableId = 0x4106, equals = 0, scriptIndex = 0, scriptId = "vanilla.hgss.scr_seq.0845.script_000" },
+        { variableId = 0x4106, equals = 3, scriptId = "vanilla.hgss.scr_seq.0845.script_006" },
+        { variableId = 0x4106, equals = 0, scriptId = "vanilla.hgss.scr_seq.0845.script_000" },
       },
     },
   })
@@ -51,10 +52,23 @@ function T.empty_header_has_an_explicit_empty_rule_set()
 end
 
 function T.source_no_init_record_is_empty_when_explicitly_allowed()
-  Assert.deepEqual(
-    ScriptHeader.parse(string.char(0x02, 0x01, 0x00, 0x00, 0x00, 0x04, 0x02, 0x00), { allowNoInit = true }),
-    {}
-  )
+  local bytes = string.char(3, 2, 0, 0, 0, 0)
+  Assert.deepEqual(ScriptHeader.parse(bytes, { scriptBankId = 10 }), {
+    { type = "on_resume", scriptId = "vanilla.hgss.scr_seq.0010.script_001" },
+  })
+end
+
+function T.mixed_stream_preserves_later_on_frame_table()
+  local bytes = string.char(3, 2, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0x06, 0x41, 3, 0, 7, 0, 0, 0)
+  Assert.deepEqual(ScriptHeader.parse(bytes, { scriptBankId = 845 }), {
+    { type = "on_resume", scriptId = "vanilla.hgss.scr_seq.0845.script_001" },
+    {
+      type = "on_frame_eq",
+      rules = {
+        { variableId = 0x4106, equals = 3, scriptId = "vanilla.hgss.scr_seq.0845.script_006" },
+      },
+    },
+  })
 end
 
 function T.type_one_header_allows_zero_alignment_padding_after_terminator()
@@ -66,6 +80,22 @@ function T.malformed_header_is_rejected()
   Assert.throws(function()
     ScriptHeader.parse("G4IH", { mapId = 1, memberId = 2 })
   end)
+end
+
+function T.malformed_typed_entries_use_structured_source_errors()
+  local cases = {
+    string.char(9),
+    string.char(1, 0, 0),
+    string.char(2, 1, 0, 1, 0),
+    string.char(1, 0, 0, 0, 0),
+    string.char(1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0),
+  }
+  for _, bytes in ipairs(cases) do
+    local ok, err = pcall(ScriptHeader.parse, bytes, { mapId = 1, memberId = 2 })
+    Assert.isFalse(ok)
+    Assert.isTrue(Errors.is(err))
+    Assert.equal(err.code, "SCRIPT_HEADER_INVALID")
+  end
 end
 
 return { tests = T }

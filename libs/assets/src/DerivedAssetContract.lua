@@ -90,8 +90,8 @@ DerivedAssetContract.fieldMapData = {
   -- comes from the frozen reference rule scoped to the map, and raw
   -- soundplateSoundID never reaches the record. v4 added the flag/traversal
   -- music policy and the semantic soundplates array to the record.
-  -- v6 adds the required source-independent initScripts array.
-  fieldSchema = "g4-field-map-v6",
+  -- v7 makes initScripts a strict source-independent descriptor union.
+  fieldSchema = "g4-field-map-v7",
 }
 
 DerivedAssetContract.messages = {

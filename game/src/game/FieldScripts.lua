@@ -350,6 +350,7 @@ function FieldScripts.new(opts)
   })
   platform.initController = MapInitScriptController.new({
     rules = opts.sourceMap.fieldData.initScripts,
+    mapId = opts.sourceMap.fieldData.mapId,
     world = worldState,
     scriptClient = platform.client,
   })
@@ -386,7 +387,7 @@ function FieldScripts:onMapSwap(player, sourceMap)
   self.player:setPlayer(player)
   self.mapsService:setSourceMap(sourceMap)
   self.client:setScriptBankId(sourceMap.fieldData.scriptBankId)
-  self.initController:setRules(sourceMap.fieldData.initScripts)
+  self.initController:setRules(sourceMap.fieldData.initScripts, sourceMap.fieldData.mapId)
 end
 
 return FieldScripts
