@@ -29,6 +29,7 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 ---@field registry FieldApplicationRegistry the immutable per-runtime child-application catalogue
 ---@field menuFactory fun(rememberedActionId: string?): table? the Start Menu composition step (nil = menu currently unavailable)
 ---@field input FieldInput the field input whose modal lifetime the host acquires/releases
+---@field effect fun(sequence: string)? source UI sound effect boundary
 
 ---@class FieldApplicationHost
 ---@field _registry FieldApplicationRegistry
@@ -44,6 +45,7 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 ---@field _uiHeld boolean the modal input lifetime is held (beginUi done, clearUi pending)
 ---@field _reopenPending boolean a script reopen request awaits the session
 ---@field _layout table? the StartMenuLayout placement record (setMenuPlacement)
+---@field _effect fun(sequence: string)? source UI sound effect boundary
 local FieldApplicationHost = {}
 FieldApplicationHost.__index = FieldApplicationHost
 
@@ -86,6 +88,7 @@ function FieldApplicationHost.new(options)
     _uiHeld = false,
     _reopenPending = false,
     _layout = nil,
+    _effect = options.effect,
   }, FieldApplicationHost)
 end
 
@@ -182,6 +185,9 @@ end
 ---@param rememberedActionId string?
 ---@return boolean consumed
 function FieldApplicationHost:_openMenu(tick, rememberedActionId)
+  if self._effect then
+    self._effect("SEQ_SE_DP_WIN_OPEN")
+  end
   local ok, controller = pcall(self._menuFactory, rememberedActionId)
   if not ok then
     self:_fail(controller)

@@ -122,7 +122,7 @@ DerivedAssetContract.fieldWeather = {
 
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
-  schema = "g4-field-ui-v6",
+  schema = "g4-field-ui-v7",
 }
 
 DerivedAssetContract.intro = {

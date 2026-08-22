@@ -284,6 +284,9 @@ function SceneLoaderFixture.newHarness(versionId, opts)
         return false
       end,
     },
+    bagUnlocked = function()
+      return true
+    end,
   })
   harness.session = session
   harness.transition = transition

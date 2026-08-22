@@ -50,6 +50,7 @@ local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
+local SaveActionController = require("libs.engine.src.SaveActionController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
@@ -67,6 +68,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field audioOutput table? { audio: table, sound: table } audio-output host namespaces for the LÖVE sink (defaults to love.audio + love.sound)
 ---@field localClock LocalClock? injectable host-local civil-time boundary
 ---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
+---@field saveStore GameSaveStore? global publication owner
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -288,6 +290,7 @@ function FieldRuntime.new(game, options)
     scriptHosts = options.scriptHosts,
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
+    saveStore = options.saveStore,
     localClock = options.localClock or LocalClock.system(),
     weatherClock = options.weatherClock,
     errorText = nil,
@@ -537,22 +540,53 @@ function FieldRuntime:_load()
     -- unimplemented destinations get capability state, never dummy
     -- factories. The Start Menu is not a registry entry: the application
     -- host composes it through its own menu factory.
-    self.applications = FieldApplicationRegistry.new({
+    local applicationDescriptors = {
       {
         id = FieldApplicationIds.TRAINER_CARD,
         factory = function()
           return TrainerCardController.new({
             profile = self.playerData.profile,
+            playTimeSeconds = self.playTime:seconds(),
+            effect = function(sequence)
+              if self.audio then
+                self.audio:play(sequence)
+              end
+            end,
           })
         end,
       },
-    })
+    }
+    if self.saveStore then
+      applicationDescriptors[#applicationDescriptors + 1] = {
+        id = FieldApplicationIds.SAVE,
+        factory = function()
+          return SaveActionController.new({
+            published = self.game.schema == GameSave.SCHEMA,
+            capture = function()
+              return self:captureGameSave()
+            end,
+            publishFirst = function(record)
+              self.saveStore:publishFirst(record)
+            end,
+            update = function(record)
+              self.saveStore:save(record)
+            end,
+          })
+        end,
+      }
+    end
+    self.applications = FieldApplicationRegistry.new(applicationDescriptors)
     self.applicationHost = FieldApplicationHost.new({
       registry = self.applications,
       menuFactory = function(rememberedActionId)
         return self:_composeStartMenu(rememberedActionId)
       end,
       input = self.input,
+      effect = function(sequence)
+        if self.audio then
+          self.audio:play(sequence)
+        end
+      end,
     })
     -- The one Start Menu placement record: the runtime computes it from the
     -- boot topology (so pointer input works before any resize) and re-applies
@@ -651,6 +685,9 @@ function FieldRuntime:_load()
           return self.interactionResolver:resolve(snapshot)
         end,
       },
+      bagUnlocked = function()
+        return self.scripts.worldState:isFlagSet(FieldScriptSymbols.flagsByName.FLAG_GOT_BAG)
+      end,
     })
 
     self:_applyEffectiveWeather(self.runtimeMap)
@@ -836,6 +873,9 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
       displayPosition = source.displayPosition,
       actionKind = source.actionKind,
       targetApplication = source.targetApplication,
+      sourcePresent = true,
+      sourceEnabled = source.sourceEnabled,
+      implemented = implementationAvailable(self, source),
       enabled = source.sourceEnabled and implementationAvailable(self, source),
     }
   end
@@ -845,6 +885,11 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
     slots = self.uiManifest.startMenu.slots,
     cursorFrames = self.uiManifest.startMenu.cursor.frames,
     rememberedActionId = rememberedActionId,
+    effect = function(sequence)
+      if self.audio then
+        self.audio:play(sequence)
+      end
+    end,
   })
 end
 

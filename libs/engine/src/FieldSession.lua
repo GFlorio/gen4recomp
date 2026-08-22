@@ -47,6 +47,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field audio { updateField: fun(self: table) }?
+---@field bagUnlocked fun(): boolean
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -69,6 +70,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field audio { updateField: fun(self: table) }?
+---@field bagUnlocked fun(): boolean
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -123,6 +125,7 @@ function FieldSession.new(options)
     "field session application host required"
   )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
+  assert(type(options.bagUnlocked) == "function", "field session bag unlock predicate required")
   if options.audio then
     assert(type(options.audio.updateField) == "function", "field session audio field-policy update required")
   end
@@ -137,6 +140,7 @@ function FieldSession.new(options)
     dialogue = options.dialogue,
     input = options.input,
     interactions = options.interactions,
+    bagUnlocked = options.bagUnlocked,
     scriptScheduler = options.scriptScheduler,
     scriptClient = options.scriptClient,
     menuHost = options.menuHost,
@@ -160,7 +164,8 @@ end
 -- application branch above has already returned before this code runs.
 ---@return boolean
 local function canOpenStartMenu(self)
-  return self.player.motion == "idle"
+  return self.bagUnlocked()
+    and self.player.motion == "idle"
     and self.transition.phase == FieldTransition.PHASES.idle
     and not self.dialogue:isModal()
     and not self.signpost:isModal()

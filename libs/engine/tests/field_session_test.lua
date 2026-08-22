@@ -156,6 +156,9 @@ local function baseOptions(overrides)
         return nil
       end,
     },
+    bagUnlocked = function()
+      return true
+    end,
   }
   for key, value in pairs(overrides) do
     options[key] = value

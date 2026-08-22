@@ -139,7 +139,9 @@ function TrainerCardRenderer:draw(presentation, viewport)
   end
   local lg = assert(self._graphics)
   assert(type(presentation.name) == "string", "the card presentation requires the player name")
-  assert(type(presentation.trainerId) == "number", "the card presentation requires the trainer id")
+  assert(type(presentation.visibleTrainerId) == "number", "the card presentation requires the visible trainer id")
+  assert(type(presentation.money) == "number", "the card presentation requires money")
+  assert(type(presentation.playTimeSeconds) == "number", "the card presentation requires play time")
   FieldDrawState.protectedDraw(lg, function()
     -- Trainer Card is an application surface, not field-attached: it keeps
     -- the existing placement contract (scale from the reference frame itself,
@@ -156,7 +158,14 @@ function TrainerCardRenderer:draw(presentation, viewport)
     end
     local name = presentation.name
     self._text:drawText(name, TrainerCardRenderer.NAME_RIGHT_EDGE - self._text:textWidth(name), 24)
-    local trainerId = string.format("%0" .. TrainerCardRenderer.TRAINER_ID_DIGITS .. "d", presentation.trainerId)
+    local money = tostring(presentation.money)
+    self._text:drawText(money, 152 - self._text:textWidth(money), 48)
+    local totalMinutes = math.floor(presentation.playTimeSeconds / 60)
+    local hours = math.floor(totalMinutes / 60)
+    local minutes = totalMinutes % 60
+    local playTime = string.format("%d:%02d", hours, minutes)
+    self._text:drawText(playTime, 240 - self._text:textWidth(playTime), 128)
+    local trainerId = string.format("%0" .. TrainerCardRenderer.TRAINER_ID_DIGITS .. "d", presentation.visibleTrainerId)
     self._text:drawText(trainerId, TrainerCardRenderer.TRAINER_ID_RIGHT_EDGE - self._text:textWidth(trainerId), 24)
   end)
 end

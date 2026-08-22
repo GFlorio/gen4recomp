@@ -32,6 +32,9 @@ local function demoPresentation()
     open = true,
     name = "GOLD",
     trainerId = 0,
+    visibleTrainerId = 0,
+    money = 0,
+    playTimeSeconds = 0,
   }
 end
 
@@ -158,8 +161,12 @@ local function fixtureReference(presentation)
     pasteText(reference, fontDef, anchor.text, anchor.x, anchor.y)
   end
   pasteText(reference, fontDef, presentation.name, TrainerCardRenderer.NAME_RIGHT_EDGE - measure(presentation.name), 24)
-  local trainerId = string.format("%05d", presentation.trainerId)
+  local trainerId = string.format("%05d", presentation.visibleTrainerId)
   pasteText(reference, fontDef, trainerId, TrainerCardRenderer.TRAINER_ID_RIGHT_EDGE - measure(trainerId), 24)
+  pasteText(reference, fontDef, tostring(presentation.money), 152 - measure(tostring(presentation.money)), 48)
+  local minutes = math.floor(presentation.playTimeSeconds / 60)
+  local playTime = string.format("%d:%02d", math.floor(minutes / 60), minutes % 60)
+  pasteText(reference, fontDef, playTime, 240 - measure(playTime), 128)
   return reference
 end
 
@@ -176,7 +183,7 @@ end
 function T.profile_values_render_at_the_audited_anchors(scope)
   local presentation = demoPresentation()
   presentation.name = "ABCDEFG"
-  presentation.trainerId = 65535
+  presentation.visibleTrainerId = 65535
   local rendered = canonicalRender(scope, FieldUiFixture.trainerCardCache(), FieldUiFixture.manifest(), presentation)
   assertPixelsEqual(fixtureReference(presentation), rendered, "boundary profile golden")
 end

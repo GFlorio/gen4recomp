@@ -80,7 +80,11 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     Assert.isTrue(type(status) == "table", "the host must present the card application")
     Assert.equal(status.name, runtime.playerData.profile.name)
     Assert.equal(status.trainerId, runtime.playerData.profile.trainerId)
-    Assert.keySet(status, "name,open,trainerId", "the card exposes only the implemented profile fields")
+    Assert.keySet(
+      status,
+      "money,name,open,playTimeSeconds,trainerId,visibleTrainerId",
+      "the card exposes the implemented profile fields"
+    )
 
     -- The saved bucket wins over the initial manifest after a resume: return
     -- to the field (the settled boundary allows the disposal save), mutate
