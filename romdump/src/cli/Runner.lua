@@ -133,8 +133,8 @@ function Runner._runCheckDerivedCache()
   love.event.quit(allOk and 0 or 1)
 end
 
--- Audit every ready version and exit 0 only if all pass. Proves the runtime
--- boots from the private cache without the ROM.
+-- Audit every ready version and exit 0 only if all pass. Runtime boot is
+-- verified by the game/application tests, not by this ROM-source command.
 function Runner._runCheckDump()
   local DumpAudit = require("romdump.src.source.DumpAudit")
   local targets = readyVersions()

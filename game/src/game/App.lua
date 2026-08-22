@@ -215,9 +215,9 @@ function App._onImported(versionId)
   end
 end
 
--- Boot decision when no ROM was supplied: one ready cache resumes its field
--- session, both ready show a selector over exactly the ready array, and none
--- ready offers import. Version selection lives here -- zero/exactly one/
+-- Boot decision when no ROM was supplied: one ready cache opens its Main Menu,
+-- both ready show a selector over exactly the ready array, and none ready
+-- offers import. Version selection lives here -- zero/exactly one/
 -- several -- and nowhere else.
 function App._bootExisting()
   local ready = readyVersions()
