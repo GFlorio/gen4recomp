@@ -12,14 +12,54 @@ MapInitScriptController.__index = MapInitScriptController
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 
+local EVENT_TYPES = {
+  on_load = true,
+  on_transition = true,
+  on_resume = true,
+}
+
+local function invalid(mapId, group, groupIndex, message, ruleIndex)
+  Errors.raise(FieldErrors.MAP_INIT_UNSUPPORTED_LIFECYCLE, message, {
+    type = group and group.type,
+    scriptId = group and group.scriptId,
+    mapId = mapId,
+    groupIndex = groupIndex,
+    ruleIndex = ruleIndex,
+  })
+end
+
+local function validScriptId(value)
+  return type(value) == "string" and #value > 0
+end
+
+local function validU16(value)
+  return type(value) == "number" and value >= 0 and value % 1 == 0 and value <= 0xFFFF
+end
+
 local function validateRules(rules, mapId)
-  for _, group in ipairs(rules) do
-    if group.type ~= "on_frame_eq" then
-      Errors.raise(FieldErrors.MAP_INIT_UNSUPPORTED_LIFECYCLE, "map init lifecycle is not executable", {
-        type = group.type,
-        scriptId = group.scriptId,
-        mapId = mapId,
-      })
+  for groupIndex, group in ipairs(rules) do
+    if type(group) ~= "table" then
+      invalid(mapId, group, groupIndex, "map init group must be a table")
+    elseif EVENT_TYPES[group.type] then
+      if not validScriptId(group.scriptId) then
+        invalid(mapId, group, groupIndex, "map init event script is missing")
+      end
+    elseif group.type == "on_frame_eq" then
+      if type(group.rules) ~= "table" then
+        invalid(mapId, group, groupIndex, "map init frame rules are missing")
+      end
+      for ruleIndex, rule in ipairs(group.rules) do
+        if
+          type(rule) ~= "table"
+          or not validU16(rule.variableId)
+          or not validU16(rule.equals)
+          or not validScriptId(rule.scriptId)
+        then
+          invalid(mapId, group, groupIndex, "map init frame rule is malformed", ruleIndex)
+        end
+      end
+    else
+      invalid(mapId, group, groupIndex, "map init lifecycle is not executable")
     end
   end
 end
@@ -46,15 +86,32 @@ end
 
 ---@param tick integer
 ---@return boolean claimed
-function MapInitScriptController:evaluate(tick)
+function MapInitScriptController:startLifecycle(lifecycle, tick)
+  assert(EVENT_TYPES[lifecycle], "unknown map lifecycle: " .. tostring(lifecycle))
   for _, group in ipairs(self.rules) do
-    for _, rule in ipairs(group.rules) do
-      if self.world:getVar(rule.variableId) == rule.equals then
-        return self.scriptClient:startInitScript(rule.scriptId, tick) == true
+    if group.type == lifecycle then
+      return self.scriptClient:startInitScript(group.scriptId, tick) == true
+    end
+  end
+  return false
+end
+
+function MapInitScriptController:evaluateFrame(tick)
+  for _, group in ipairs(self.rules) do
+    if group.type == "on_frame_eq" then
+      for _, rule in ipairs(group.rules) do
+        if self.world:getVar(rule.variableId) == rule.equals then
+          return self.scriptClient:startInitScript(rule.scriptId, tick) == true
+        end
       end
     end
   end
   return false
+end
+
+-- Kept as the frame-only entry point for the existing field test seam.
+function MapInitScriptController:evaluate(tick)
+  return self:evaluateFrame(tick)
 end
 
 return MapInitScriptController

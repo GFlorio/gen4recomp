@@ -344,6 +344,37 @@ function T.map_init_claims_the_tick_before_scheduler_and_player_input()
   Assert.deepEqual(order, { "init:1" })
 end
 
+function T.map_lifecycle_events_are_queued_and_drained_before_frame_checks()
+  local order = {}
+  local controller = {
+    startLifecycle = function(_, lifecycle, tick)
+      order[#order + 1] = lifecycle .. ":" .. tick
+      return lifecycle == "on_load"
+    end,
+    evaluateFrame = function(_, tick)
+      order[#order + 1] = "frame:" .. tick
+      return true
+    end,
+  }
+  local scheduler = {
+    busy = false,
+    step = function(self)
+      order[#order + 1] = "scheduler"
+      self.busy = false
+    end,
+    playerMovementLocked = function(self)
+      return self.busy
+    end,
+  }
+  local s = FieldSession.new(baseOptions({ initController = controller, scriptScheduler = scheduler }))
+  s:updateFixed()
+  Assert.deepEqual(order, { "on_load:1" })
+  s:updateFixed()
+  Assert.deepEqual(order, { "on_load:1", "on_resume:2" })
+  s:updateFixed()
+  Assert.deepEqual(order, { "on_load:1", "on_resume:2", "scheduler", "frame:3" })
+end
+
 function T.completed_transition_holds_the_arrival_tile_for_autosave()
   local updates = 0
   local player = {

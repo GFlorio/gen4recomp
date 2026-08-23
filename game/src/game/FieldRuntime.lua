@@ -1128,6 +1128,7 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
     self.audio:enterMap(runtimeMap, { clearMusicOverride = true, play = true })
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
+  self.session:onDestinationMapSwap()
 end
 
 function FieldRuntime:_updateCameraProjection()

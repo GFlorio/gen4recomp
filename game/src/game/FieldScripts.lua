@@ -390,4 +390,12 @@ function FieldScripts:onMapSwap(player, sourceMap)
   self.initController:setRules(sourceMap.fieldData.initScripts, sourceMap.fieldData.mapId)
 end
 
+function FieldScripts:startMapLifecycle(lifecycle, tick)
+  return self.initController:startLifecycle(lifecycle, tick)
+end
+
+function FieldScripts:evaluateMapFrameScripts(tick)
+  return self.initController:evaluateFrame(tick)
+end
+
 return FieldScripts

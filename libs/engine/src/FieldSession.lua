@@ -72,6 +72,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field audio { updateField: fun(self: table) }?
 ---@field initController table|nil
+---@field pendingMapLifecycles string[]
 ---@field bagUnlocked fun(): boolean
 ---@field tick integer
 ---@field accumulator number
@@ -131,7 +132,7 @@ function FieldSession.new(options)
   if options.audio then
     assert(type(options.audio.updateField) == "function", "field session audio field-policy update required")
   end
-  return setmetatable({
+  local session = setmetatable({
     versionId = options.versionId,
     currentMap = options.currentMap,
     player = options.player,
@@ -151,9 +152,30 @@ function FieldSession.new(options)
     applicationHost = options.applicationHost,
     audio = options.audio,
     initController = options.initController,
+    pendingMapLifecycles = {},
     tick = 0,
     accumulator = 0,
   }, FieldSession)
+  if session.initController and session.initController.startLifecycle then
+    session:queueMapLifecycles({ "on_load", "on_resume" })
+  end
+  return session
+end
+
+function FieldSession:queueMapLifecycles(lifecycles)
+  assert(self.initController and self.initController.startLifecycle, "map lifecycle controller required")
+  for _, lifecycle in ipairs(lifecycles) do
+    self.pendingMapLifecycles[#self.pendingMapLifecycles + 1] = lifecycle
+  end
+end
+
+function FieldSession:onDestinationMapSwap()
+  self.pendingMapLifecycles = {}
+  self:queueMapLifecycles({ "on_transition", "on_resume" })
+end
+
+function FieldSession:onChildApplicationResume()
+  self:queueMapLifecycles({ "on_resume" })
 end
 
 function FieldSession:actorTarget()
@@ -230,7 +252,13 @@ function FieldSession:updateFixed(inputSnapshot)
     if inputSnapshot.menuPressed then
       uiEvents[#uiEvents + 1] = { type = "menu" }
     end
+    local status = self.applicationHost.status and self.applicationHost:status() or nil
+    local wasApplication = status and status.phase == "application"
     self.applicationHost:updateFixed(uiEvents)
+    local afterStatus = self.applicationHost.status and self.applicationHost:status() or nil
+    if wasApplication and afterStatus and afterStatus.phase == "fading_in" then
+      self:onChildApplicationResume()
+    end
     self:_advanceTick()
     return
   end
@@ -259,7 +287,19 @@ function FieldSession:updateFixed(inputSnapshot)
   -- neighbor coverage runtime. No other module steps it.
   self.currentMap:updateAnimated()
 
-  if self.initController and self.initController:evaluate(self.tick + 1) then
+  if self.initController and self.initController.startLifecycle then
+    if #self.pendingMapLifecycles > 0 and not self.scriptScheduler:playerMovementLocked() then
+      while #self.pendingMapLifecycles > 0 do
+        local lifecycle = table.remove(self.pendingMapLifecycles, 1)
+        if self.initController:startLifecycle(lifecycle, self.tick + 1) then
+          self:_advanceTick()
+          return
+        end
+      end
+      self:_advanceTick()
+      return
+    end
+  elseif self.initController and self.initController:evaluate(self.tick + 1) then
     self:_advanceTick()
     return
   end
@@ -305,6 +345,19 @@ function FieldSession:updateFixed(inputSnapshot)
   if movementLockedAtTickStart or self.scriptScheduler:playerMovementLocked() then
     self:_advanceTick()
     return
+  end
+
+  if self.initController and self.initController.startLifecycle and #self.pendingMapLifecycles > 0 then
+    self:_advanceTick()
+    return
+  end
+
+  if self.initController and self.initController.startLifecycle then
+    local evaluateFrame = self.initController.evaluateFrame
+    if evaluateFrame and evaluateFrame(self.initController, self.tick + 1) then
+      self:_advanceTick()
+      return
+    end
   end
 
   -- Start Menu arbitration: a pending script reopen request (opcode 61's
