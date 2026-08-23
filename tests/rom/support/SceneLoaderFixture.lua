@@ -320,6 +320,8 @@ end
 function SceneLoaderFixture.tick(harness)
   harness.ticks = harness.ticks + 1
   harness.session:updateFixed()
+  harness.transition:updateSourceFrame()
+  harness.transition:updateSourceFrame()
   local phase = harness.transition.phase
   if harness.timeline[phase] == nil then
     harness.timeline[phase] = harness.ticks

@@ -11,6 +11,7 @@ local T = {}
 local function runtimeWithTransitionError(transitionError)
   local calls = { warmup = 0, session = 0 }
   local runtime = setmetatable({
+    presentationFrameAccumulator = 0,
     scripts = {
       warmup = {
         update = function()
@@ -19,7 +20,11 @@ local function runtimeWithTransitionError(transitionError)
       },
     },
     session = {
+      accumulator = 0,
       update = function()
+        calls.session = calls.session + 1
+      end,
+      updateFixed = function()
         calls.session = calls.session + 1
       end,
     },
@@ -34,6 +39,8 @@ local function runtimeWithTransitionError(transitionError)
       consumeCompleted = function()
         return nil
       end,
+      updateSourceFrame = function() end,
+      updateFixed = function() end,
     },
     applicationHost = {
       error = function()
