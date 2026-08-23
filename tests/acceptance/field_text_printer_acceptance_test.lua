@@ -15,6 +15,9 @@ local T = {
 
 local TOWN = "MAP_NEW_BARK"
 local WOMAN = { fieldX = 683, fieldZ = 400 }
+-- The New Bark object at this source position opens bank 542 message 12,
+-- which carries the source prompt boundary needed by the cadence scenario.
+local BOUNDARY_NPC = { fieldX = 685, fieldZ = 407 }
 
 local function withReadyVersion(fn, options)
   local harness = AcceptanceHarness.new()
@@ -100,7 +103,7 @@ function T.tests.field_dialogue_continuation_uses_printer_cadence()
       game.runtime.scripts.composition:effective("demo.dialogue"),
       "acceptance dialogue fixtures must not be installed in the production registry"
     )
-    openVanillaDialogue(game)
+    openVanillaDialogue(game, BOUNDARY_NPC, "south")
     local waiting = advanceToDialogueWait(game)
     Assert.isTrue(
       waiting.dialogue.continuationKind == "clear" or waiting.dialogue.continuationKind == "scroll",
