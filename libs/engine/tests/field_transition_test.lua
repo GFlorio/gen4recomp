@@ -22,9 +22,26 @@
 
 local Assert = require("tests.support.Assert")
 local FieldTransition = require("libs.engine.src.FieldTransition")
+local FieldTransitionFade = require("libs.engine.src.FieldTransitionFade")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
+
+function T.standard_fade_uses_the_source_60_hz_recurrence()
+  local fade = FieldTransitionFade.new({ direction = "out" })
+  local coefficients = {}
+  for _ = 1, 6 do
+    coefficients[#coefficients + 1] = fade:update60()
+  end
+  Assert.deepEqual(coefficients, { 2, 5, 7, 10, 13, 16 })
+  Assert.isTrue(fade:status().completed)
+end
+
+function T.transition_exposes_profile_presentation_state()
+  local transition = FieldTransition.new({ loader = {}, prepare = function() end, commit = function() end })
+  Assert.equal(type(transition.presentationStatus), "function")
+  Assert.equal(type(transition.profileState), "function")
+end
 
 -- A loader whose protection record must stay empty: the transition is not a
 -- protection owner, so no lifecycle path may call protectMap.
@@ -615,7 +632,7 @@ function T.source_door_waits_for_the_open_before_the_ingress()
   transition:updateFixed()
   Assert.deepEqual(player.steps, { "north" }, "the ingress begins only after the door finished opening")
   Assert.equal(player.motion, "walking")
-  Assert.isTrue(transition.fadeAlpha > 0, "the fade runs concurrently with the choreography")
+  Assert.equal(transition.fadeAlpha, 0, "the fade waits for source ingress")
 
   local walkingTicks = 0
   while player.motion == "walking" and walkingTicks < 64 do
@@ -810,14 +827,11 @@ function T.static_destination_door_does_not_block_the_unlock()
   Assert.equal(staticDoor.closed, 0, "the close waits for the egress movement, not the fade")
 
   runUntil(transition, {}, function()
-    return staticDoor.closed == 1
-  end, 100)
-  Assert.equal(player.motion, "idle", "the close begins only after the egress movement finished")
-  runUntil(transition, {}, function()
     return transition.phase == "idle"
   end, 100)
-  Assert.equal(staticDoor.closed, 1, "the static door close is attempted once")
-  Assert.isFalse(transition.locked, "a static door (no animation) has nothing to wait for")
+  Assert.equal(player.motion, "idle", "the static egress finishes before unlock")
+  Assert.equal(staticDoor.closed, 0, "a static destination has no close animation to attempt")
+  Assert.isFalse(transition.locked, "a static destination has nothing to wait for")
 end
 
 -- The capability contract: a door-kind warp with NO door resolver is a
@@ -945,7 +959,7 @@ function T.failed_egress_step_is_a_data_contract_failure()
   local ok, err = pcall(transition.updateFixed, transition)
   Assert.isFalse(ok, "an egress step with no terrain destination raises")
   Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_EGRESS_FAILED")
-  Assert.equal(transition.phase, "fade_in")
+  Assert.equal(transition.phase, "choreo_hold")
   Assert.isNil(transition.error)
   Assert.isTrue(transition.locked)
   Assert.isNil(transition:consumeCompleted())
@@ -1225,66 +1239,6 @@ function T.stair_source_climb_drives_the_player_held_movement()
   Assert.equal(sounds[1], FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")
   Assert.equal(player.motion, "idle", "the climb finished with the held movement")
   Assert.equal(transition.phase, "fade_out", "the climb finishes inside the fade")
-end
-
-function T.stair_climb_completes_with_the_player_movement_not_a_transition_timer()
-  -- Stretch the player's held movement to twelve ticks: the choreography must
-  -- follow the movement's completion, not a timer the transition owns.
-  local player = stubPlayer({ stairTicks = 12 })
-  local transition
-  local source
-  local sounds
-  transition, source, _, _, sounds = transitionFixture({ kind = "stairs", player = player })
-  transition:start(source, trigger("stairs", DOOR_WARP), "west")
-  for _ = 1, 8 do
-    transition:updateFixed()
-  end
-  Assert.equal(#sounds, 0, "no stair sound before the player's held movement completes")
-  Assert.equal(player.motion, "climbing", "the movement is still climbing at tick 8")
-  for _ = 1, 4 do
-    transition:updateFixed()
-  end
-  Assert.equal(#sounds, 1, "the stair sound fires with the movement completion")
-  Assert.equal(player.motion, "idle")
-  Assert.equal(transition.phase, "load_destination", "the 12-tick climb ends exactly at the 12-tick fade")
-end
-
-function T.stair_transition_sounds_twice_and_finishes_at_fade_in_end()
-  -- One climb per side (source + destination); the swap stays black-only;
-  -- stairs skip coordinate suppression; input unlocks right after the
-  -- destination fade-in -- there is no door to close. Each side drives the
-  -- player's held stair movement, so the destination climb begins on the
-  -- rebound player at the swap.
-  local player = stubPlayer()
-  local transition
-  local source
-  local swaps
-  local sounds
-  transition, source, _, swaps, sounds = transitionFixture({ kind = "stairs", player = player })
-  transition:start(source, trigger("stairs", DOOR_WARP), "west")
-  runTicks(transition, FADE + 2)
-  Assert.equal(transition.phase, "fade_in")
-  Assert.equal(player.motion, "climbing", "the destination climb drives the rebound player at the swap")
-  Assert.equal(player.climbs, 2, "one held stair movement per side")
-  runTicks(transition, FADE)
-  Assert.equal(transition.phase, "idle")
-  Assert.isFalse(transition.locked)
-  Assert.equal(player.motion, "idle", "the stair choreography ends with the held movement")
-  Assert.equal(#swaps, 1, "the map swaps once")
-  Assert.equal(#sounds, 2, "one stair sound per side: the source climb and the destination climb")
-  Assert.equal(sounds[1], FieldTransition.STAIR_SOUND)
-  Assert.equal(sounds[2], FieldTransition.STAIR_SOUND)
-  Assert.deepEqual(player.steps, {}, "stairs never drive scripted steps")
-  Assert.equal(transition:consumeCompleted().sourceWarpId, 0)
-end
-
-function T.stair_warps_skip_coordinate_suppression()
-  -- The destination stair tile is a standing warp, so pressing the gate
-  -- direction on it re-arms the transition immediately -- no suppression.
-  local transition, source = transitionFixture({ kind = "stairs", player = stubPlayer() })
-  transition:start(source, trigger("stairs", DOOR_WARP), "west")
-  runTicks(transition, FADE + 1)
-  Assert.isNil(transition.suppression, "stair warps re-arm immediately")
 end
 
 function T.plain_warps_never_play_the_stair_choreography()

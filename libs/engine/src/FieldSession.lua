@@ -246,6 +246,9 @@ function FieldSession:updateFixed(inputSnapshot)
       self.playerVisual:updateFixed(true)
     end
     self.camera:updateFixed(self:actorTarget())
+    if self.transition.completed and type(self.camera.collapseRenderInterpolation) == "function" then
+      self.camera:collapseRenderInterpolation()
+    end
     -- Keep the just-arrived tile stable until the application consumes the
     -- completion event and autosaves it, even when movement remains held.
     if self.transition.completed and self.input.clearEdges then

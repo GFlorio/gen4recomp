@@ -10,6 +10,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldTransitionMotion = require("libs.engine.src.FieldTransitionMotion")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 ---@class FieldPlayer
@@ -49,6 +50,7 @@ FieldPlayer.WALK_STEP_TICKS = 8
 ---@field fieldZ integer
 ---@field surfaceId integer
 ---@field facing FieldDirection?
+---@field initialWorldY number?
 ---@field occupancy? fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil
 
 local DELTAS = {
@@ -83,11 +85,13 @@ function FieldPlayer.new(options)
   )
   local map = options.currentMap
   local localX, localZ = FieldCoordinates.fieldToLocal(map, options.fieldX, options.fieldZ)
-  local sample = map.terrain:sample(
-    options.surfaceId,
-    localX + FieldCoordinates.TILE_CENTER_OFFSET,
-    localZ + FieldCoordinates.TILE_CENTER_OFFSET
-  )
+  local sample = options.initialWorldY == nil
+      and map.terrain:sample(
+        options.surfaceId,
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+    or { surfaceId = options.surfaceId, worldY = options.initialWorldY }
   local point = FieldCoordinates.fieldToWorld(map, options.fieldX, options.fieldZ, sample.worldY)
   return setmetatable({
     currentMap = map,
@@ -230,6 +234,11 @@ function FieldPlayer:beginStairClimb()
   return true
 end
 
+function FieldPlayer:beginTransitionStep(direction)
+  assert(self.motion == "idle", "cannot begin a transition step while moving")
+  return self:scriptedStep(direction)
+end
+
 -- Starts one of the source transition movement families.  These motions are
 -- deliberately separate from tile walking: ladder and ladder-down routines
 -- interpolate the already-selected map position for sixteen fixed ticks and
@@ -245,8 +254,13 @@ function FieldPlayer:beginTransitionMotion(profile, phase, facing)
   self.progressTicks = 0
   self.durationTicks = 16
   self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
-  local y = profile == 8 and -16 or 16
-  local z = profile == 7 and (facing == "south" and 16 or 0) or 0
+  local rawY = profile == 8 and -8192 or 8192
+  local rawZ = profile == 7 and (facing == "south" and -6144 or 0) or 0
+  if profile == 7 and facing == "south" then
+    rawY = 2048
+  end
+  local y = FieldTransitionMotion.fx32ToWorldUnits(rawY)
+  local z = FieldTransitionMotion.fx32ToWorldUnits(rawZ)
   self.transitionTo = { x = self.worldX, y = self.worldY + y, z = self.worldZ + z }
   return true
 end

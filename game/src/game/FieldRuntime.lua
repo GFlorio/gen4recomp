@@ -69,15 +69,18 @@ local function runtimeProfileEffect(runtime, profile, phase)
   local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
   local family = assert(FieldTransitionProfile.ROUTINE_FAMILIES[profile])
   local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
-  if phase == "exit" and family.sound then
+  if phase == "exit" and family.exitSound then
     assert(audio and type(audio.play) == "function", "field transition audio host required")
-    audio:play(family.sound)
+    audio:play(family.exitSound)
   end
   runtime.player.facing = phase == "enter" and runtime.transition.destinationFacing or runtime.transition.facing
 end
 
 local function runtimeCameraAdjust(runtime, profile, adjustment, player)
   assert(runtime.camera and type(runtime.camera.adjustTransition) == "function", "field transition camera required")
+  if player and type(runtime.camera.setTransitionPlayer) == "function" then
+    runtime.camera:setTransitionPlayer(player)
+  end
   runtime.camera:adjustTransition(profile, adjustment, player)
 end
 
@@ -267,8 +270,8 @@ local function defaultWeatherClock()
 end
 
 -- Build the non-GPU door facade used by simulation and acceptance runtimes.
--- It reuses the normalized scene placement/model contract, so transition
--- audio and profile choreography do not depend on presentation being enabled.
+-- It reads the generated scene/model contracts only to recover the source
+-- door's semantic sound selector; no presentation instance is acquired.
 local function headlessMapProps(runtimeMap, cacheFs)
   local scene = runtimeMap.scene
   local instances = {}
@@ -514,24 +517,27 @@ function FieldRuntime:_load()
     -- `direct` records carry global destination coordinates and resolve
     -- through their own branch. Fallible destination preparation runs before
     -- the commit, so a failed warp never touches current-map ownership.
-    -- The door choreography resolves doors through each scene's MapProps
-    -- facade: field coordinate -> building placement -> ModelInstance ->
-    -- semantic door animation. Nothing Nitro leaks into the transition. The
-    -- resolver is the door capability: only a presentation runtime supplies
-    -- one (every presentation map carries a scene runtime), so a door-less
-    -- composition is exactly "no door resolver, no door choreography" and a
-    -- door-kind warp there degrades to a plain fade instead of raising.
+    -- Door choreography is a presentation capability. A simulation-only
+    -- runtime has no resolver and therefore runs door-kind warps through the
+    -- ordinary fade lifecycle.
     local headlessProps = {}
-    local doorAt = function(runtimeMap, fieldX, fieldZ)
-      local props = runtimeMap.sceneRuntime and runtimeMap.sceneRuntime.mapProps
-      if not props then
-        props = headlessProps[runtimeMap.mapId]
+    local doorAt
+    if self.presentation or self.runtimeMap.sceneRuntime or self.runtimeMap.scene then
+      doorAt = function(runtimeMap, fieldX, fieldZ)
+        if not self.presentation and runtimeMap ~= self.runtimeMap then
+          return nil
+        end
+        local sceneRuntime = runtimeMap.sceneRuntime
+        if sceneRuntime then
+          return sceneRuntime.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
+        end
+        local props = headlessProps[runtimeMap.mapId]
         if not props then
           props = headlessMapProps(runtimeMap, cacheFs)
           headlessProps[runtimeMap.mapId] = props
         end
+        return props:doorAt(runtimeMap, fieldX, fieldZ)
       end
-      return props:doorAt(runtimeMap, fieldX, fieldZ)
     end
     self.transition = createFieldTransition(self, doorAt)
     self.transition.player = self.player
@@ -1090,6 +1096,7 @@ function FieldRuntime:_prepareSwap(resolution, facing)
     fieldX = resolution.fieldX,
     fieldZ = resolution.fieldZ,
     surfaceId = resolution.surfaceId,
+    initialWorldY = resolution.worldY,
     facing = facing,
     occupancy = playerOccupancy(self),
   })

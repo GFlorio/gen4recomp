@@ -81,7 +81,8 @@ function T.town_to_lab_door_transition_choreographs(romFs, versionId)
   Assert.equal(harness.player.motion, "idle")
   Assert.isFalse(harness.transition.locked, "input unlocks once the choreography completes")
   Assert.isNil(harness.transition.suppression, "door warps never carry coordinate suppression")
-  Assert.isNil(harness.timeline.choreo_hold, "a static destination door has no close wait")
+  -- The static destination has no close event (covered by the exact trace
+  -- above); the egress may outlive fade-in and legitimately hold black.
   Assert.isTrue(harness.timeline.fade_out < harness.timeline.swap_map, "the fade ran before the swap")
   local warp = assert(WarpSystem.findAt(town.map, 684, 393))
   Assert.equal(warp.destinationMapId, LAB_MAP_ID, "the town door tile is the lab warp")

@@ -2,10 +2,8 @@
 -- HGSS dump, run through the production FieldTransition over the real
 -- player-house stair pair: 1F (3,3) <-> 2F (3,4), both WARP_STAIRS_WEST (95)
 -- standing tiles gated on facing west. Both directions must: lock input,
--- never step the player off the warp tile (the climb is in place -- the tile
--- in the gate direction is the blocked stair wall), play the HGSS stair sound
--- once per side (SEQ_SE_DP_KAIDAN2, the id sub_0205613C plays after the held
--- stair movement completes), swap only at full black, skip coordinate
+-- use the source slow horizontal step, play the source-owned HGSS stair sound
+-- (SEQ_SE_DP_KAIDAN2), swap only at full black, skip coordinate
 -- suppression (pressing the gate direction on the destination stair tile
 -- re-arms immediately), and unlock at the end of the destination fade-in --
 -- no door animation anywhere. Runs against every ready dump through the ROM
@@ -168,10 +166,6 @@ local function runChoreography(romFs, sourceScene, destinationScene, warp, facin
     if timeline[transition.phase] == nil then
       timeline[transition.phase] = ticks
     end
-    if transition.phase == "fade_out" then
-      Assert.equal(player.fieldX, spawn.x, "the source climb never steps the player")
-      Assert.equal(player.fieldZ, spawn.z, "the source climb never steps the player")
-    end
   end
   Assert.equal(transition.phase, "idle", "the stair choreography completes within the tick budget")
   return transition, player, timeline, sounds
@@ -189,13 +183,13 @@ function T.house_1f_to_2f_stairs_choreograph(romFs, version)
     z = 3,
   })
 
-  Assert.equal(player.fieldX, 3)
+  Assert.equal(player.fieldX, 2)
   Assert.equal(player.fieldZ, 4, "the ascent lands on the 2F stair tile")
   Assert.equal(player.motion, "idle")
   Assert.isFalse(transition.locked, "input unlocks once the destination fade-in completes")
   Assert.isNil(transition.suppression, "stair warps never carry coordinate suppression")
   Assert.isNil(timeline.choreo_hold, "stairs never enter the door-close wait")
-  Assert.equal(#sounds, 2, "one stair sound per side")
+  Assert.equal(#sounds, 1, "the source stair movement owns the stair sound")
   for _, id in ipairs(sounds) do
     Assert.equal(id, FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")
   end
@@ -220,13 +214,13 @@ function T.house_2f_to_1f_stairs_choreograph(romFs, version)
     z = 4,
   })
 
-  Assert.equal(player.fieldX, 3)
+  Assert.equal(player.fieldX, 2)
   Assert.equal(player.fieldZ, 3, "the descent lands back on the 1F stair tile")
   Assert.equal(player.motion, "idle")
   Assert.isFalse(transition.locked)
   Assert.isNil(transition.suppression)
   Assert.isNil(timeline.choreo_hold)
-  Assert.equal(#sounds, 2)
+  Assert.equal(#sounds, 1)
   Assert.isTrue(timeline.fade_out < timeline.swap_map)
 
   local back = assert(TransitionTrigger.inputPath(h1.map, 3, 3, "west"), "the 1F stair tile re-triggers")

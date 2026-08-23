@@ -240,7 +240,7 @@ function T.standing_stairs_triggers_with_its_direction_gate()
   local warps = { warp(3, 3) }
   local map = runtimeMap(0, 0, warps, {
     ["3:3"] = { behavior = BEHAVIOR.WARP_STAIRS_WEST },
-    ["2:3"] = { blocked = true },
+    ["2:3"] = { blocked = false },
   })
   local trigger = assert(TransitionTrigger.inputPath(map, 3, 3, "west"))
   Assert.equal(trigger.kind, "stairs")

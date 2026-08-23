@@ -312,7 +312,7 @@ function T.tests.door_sound_selector_emits_exact_open_and_close_sequences()
   end
 end
 
-function T.tests.door_profile_steps_north_into_source_and_south_out_of_destination()
+function T.tests.door_profile_steps_north_into_source_and_north_out_of_destination()
   local player = {
     motion = "idle",
     steps = {},
@@ -329,7 +329,7 @@ function T.tests.door_profile_steps_north_into_source_and_south_out_of_destinati
     end,
     player = player,
   })
-  Assert.deepEqual(player.steps, { "north", "south" })
+  Assert.deepEqual(player.steps, { "north", "north" })
 end
 
 function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()

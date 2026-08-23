@@ -70,12 +70,9 @@ end
 -- Current-map protection has one owner (the runtime). A live transition
 -- must not pin a second map while the destination loads and swaps, and a
 -- completed warp transfers protection to the destination exactly once.
--- The return leg fires the town DOOR
--- tile (behavior 105) in a runtime that owns no door choreography -- the
--- non-presentation boot has no scene runtime -- so it also verifies the
--- door-capability contract: a door-less composition completes the door warp
--- as a plain fade, never a choreography hold phase and never an
--- unresolved-door raise.
+-- The return leg fires the town DOOR tile (behavior 105) in the non-rendering
+-- runtime. The source door still owns semantic sound/ingress choreography;
+-- the static destination has no close animation.
 function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
@@ -110,10 +107,9 @@ function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
       game:move("north")
       game:waitForTransition()
       Assert.equal(game:snapshot().mapSymbol, LAB)
-      -- The door-capability contract: the door-less runtime completes the
-      -- town DOOR warp through the plain fade lifecycle and records no error
-      -- (a supplied resolver returning no door where the headless caller
-      -- stated it has none must never degrade to bad data).
+      -- The headless source door completes without GPU presentation or an
+      -- unresolved-door error. A choreo hold may cover the source egress while
+      -- its fade-in has already completed; it is not a destination close wait.
       for _, snapshot in ipairs(game:trace()) do
         local phase = snapshot.transition.phase
         Assert.isTrue(
@@ -121,9 +117,9 @@ function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
             or phase == "fade_out"
             or phase == "load_destination"
             or phase == "swap_map"
-            or phase == "fade_in",
-          "a door warp in a door-less runtime runs the plain fade lifecycle, not a choreography phase: "
-            .. tostring(phase)
+            or phase == "fade_in"
+            or phase == "choreo_hold",
+          "a headless door warp has only source/egress choreography: " .. tostring(phase)
         )
       end
       Assert.isNil(game.runtime.transition.error, "a door warp in a door-less runtime records no unresolved-door error")
