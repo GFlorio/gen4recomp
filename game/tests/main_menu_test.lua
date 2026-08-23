@@ -227,6 +227,93 @@ function T.catalog_error_is_not_represented_as_an_empty_catalog()
   Assert.equal(view.items[1].id, "new-game")
 end
 
+function T.failed_delete_preserves_its_error_after_catalog_refresh()
+  local deleteFailure = Errors.new("GAME_SAVE_DELETE_FAILED", "save could not be deleted")
+  local entries = {
+    {
+      saveId = "save-00000001",
+      versionId = "heartgold",
+      playerData = { profile = { name = "PLAYER" } },
+      playTimeSeconds = 60,
+    },
+  }
+  local calls = { list = 0, delete = 0 }
+  local store = {}
+  function store:list()
+    calls.list = calls.list + 1
+    return entries
+  end
+  function store:delete(saveId)
+    Assert.equal(saveId, "save-00000001")
+    calls.delete = calls.delete + 1
+    error(deleteFailure)
+  end
+
+  local menu = MainMenuState.new({
+    saveStore = store,
+    readyVersions = { "heartgold" },
+    width = 640,
+    height = 480,
+  })
+  menu:keypressed("down")
+  menu:keypressed("delete")
+  menu:keypressed("down")
+  menu:keypressed("return")
+
+  local failed = menu:view()
+  Assert.equal(calls.list, 2)
+  Assert.equal(calls.delete, 1)
+  Assert.isNil(failed.dialog)
+  Assert.equal(failed.focusedId, "save-00000001")
+  Assert.equal(failed.items[2].saveId, "save-00000001")
+  Assert.equal(failed.catalogError, "save could not be deleted")
+
+  menu:refresh()
+  Assert.isNil(menu:view().catalogError)
+end
+
+function T.successful_delete_refreshes_the_catalog_without_an_error()
+  local entries = {
+    {
+      saveId = "save-00000001",
+      versionId = "heartgold",
+      playerData = { profile = { name = "PLAYER" } },
+      playTimeSeconds = 60,
+    },
+  }
+  local calls = { list = 0, delete = 0 }
+  local store = {}
+  function store:list()
+    calls.list = calls.list + 1
+    return entries
+  end
+  function store:delete(saveId)
+    Assert.equal(saveId, "save-00000001")
+    calls.delete = calls.delete + 1
+    entries = {}
+    return true
+  end
+
+  local menu = MainMenuState.new({
+    saveStore = store,
+    readyVersions = { "heartgold" },
+    width = 640,
+    height = 480,
+  })
+  menu:keypressed("down")
+  menu:keypressed("delete")
+  menu:keypressed("down")
+  menu:keypressed("return")
+
+  local deleted = menu:view()
+  Assert.equal(calls.list, 2)
+  Assert.equal(calls.delete, 1)
+  Assert.isNil(deleted.catalogError)
+  Assert.equal(#deleted.items, 1)
+  Assert.equal(deleted.items[1].id, "new-game")
+  Assert.equal(deleted.focusedId, "new-game")
+end
+
 function T.malformed_save_metadata_is_an_unavailable_deletable_card()
   local menu = MainMenuState.new({
     saveStore = {

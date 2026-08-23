@@ -438,6 +438,39 @@ function T.tests.delete_requires_confirmation_and_focuses_the_replacement_item()
   end
 end
 
+function T.tests.failed_delete_survives_successful_catalog_refresh()
+  local deleteFailure = Errors.new("GAME_SAVE_DELETE_FAILED", "save could not be deleted")
+  local entries = { saveRecord("save-00000001", "PLAYER", 60) }
+  local store = fakeStore(entries)
+  function store:delete(saveId)
+    self.calls.delete[#self.calls.delete + 1] = saveId
+    error(deleteFailure)
+  end
+
+  local menu = newMenu(store, function() end, 640, 480)
+  activateKey(menu, "down")
+  activateKey(menu, "delete")
+  confirmDelete(menu)
+
+  local failed = view(menu)
+  Assert.equal(failed.dialog, nil, "failed deletion must close the confirmation dialog")
+  Assert.deepEqual(store.calls.delete, { "save-00000001" })
+  Assert.equal(store.calls.list, 2, "failed deletion must refresh the authoritative catalog")
+  Assert.equal(failed.focusedId, "save-00000001", "the refreshed item must remain focused")
+  Assert.equal(failed.items[2].saveId, "save-00000001")
+  Assert.equal(failed.catalogError, "save could not be deleted")
+
+  local errorRect = assert(failed.layout.catalogErrorRect)
+  local content = failed.layout.content
+  Assert.equal(errorRect.x, content.x)
+  Assert.equal(errorRect.y, content.y)
+  Assert.equal(errorRect.width, content.width)
+  Assert.equal(errorRect.height, 24)
+
+  menu:refresh()
+  Assert.isNil(view(menu).catalogError, "an independent successful refresh may clear the old error")
+end
+
 -- Corrupt and content-unavailable records remain visible and deletable while
 -- Continue is disabled; an independent catalog failure is also represented
 -- as a recoverable menu error rather than an empty catalog.

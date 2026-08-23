@@ -222,8 +222,9 @@ function MainMenuState:_confirmDialog()
   end
   local ok, resultOrError = pcall(self.saveStore.delete, self.saveStore, saveId)
   if not ok then
-    self.catalogError = errorSummary(resultOrError)
+    local deleteError = errorSummary(resultOrError)
     self:refresh()
+    self.catalogError = deleteError
     return
   end
   assert(resultOrError == true or resultOrError == nil, "save deletion must report success")
