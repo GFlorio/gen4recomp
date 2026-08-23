@@ -9,6 +9,8 @@ local RomImporter = require("romdump.src.source.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local App = require("game.src.game.App")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
+local AcceptanceScriptFs = require("tests.acceptance.support.AcceptanceScriptFs")
+local RepoFs = require("game.src.game.RepoFs")
 
 ---@class AcceptanceHarness
 ---@field versions string[]
@@ -182,6 +184,10 @@ function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, 
   -- adapter for every other scenario.
   runtimeOptions.scriptHosts =
     RecordingScriptHosts.new({ audio = fieldOptions and fieldOptions.audioHost ~= "production" })
+  if fieldOptions and fieldOptions.acceptanceScripts then
+    runtimeOptions.overrideFs =
+      AcceptanceScriptFs.new(RepoFs.new(love.filesystem.getSourceBaseDirectory()), fieldOptions.acceptanceScripts)
+  end
   return self.runtimeFactory(versionId, map, runtimeOptions)
 end
 

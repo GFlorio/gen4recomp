@@ -34,6 +34,7 @@
 local Assert = require("tests.support.Assert")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local AcceptanceScripts = require("tests.acceptance.support.AcceptanceScripts")
 
 local T = {
   metadata = {
@@ -57,6 +58,7 @@ local function withGame(fn)
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
     save = "fresh",
+    fieldOptions = { acceptanceScripts = AcceptanceScripts },
   })
   local ok, err = xpcall(function()
     fn(game)

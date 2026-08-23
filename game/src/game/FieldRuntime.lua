@@ -122,6 +122,7 @@ end
 ---@field viewportHeight integer?
 ---@field screenTopology ScreenTopology?
 ---@field saveFs SaveFs?
+---@field overrideFs table? read-shaped repository filesystem override
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
@@ -135,6 +136,7 @@ end
 ---@field events table?
 
 ---@class FieldRuntime
+---@field overrideFs table? read-shaped repository filesystem override
 ---@field versionId string
 ---@field mapIdOrSymbol string|integer?
 ---@field resumeSave boolean
@@ -306,6 +308,7 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     viewportHeight = options.viewportHeight or WindowConfig.REFERENCE_HEIGHT,
     screenTopology = options.screenTopology,
     saveFs = options.saveFs,
+    overrideFs = options.overrideFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
     dayNight = options.dayNight,
@@ -658,7 +661,7 @@ function FieldRuntime:_load()
     -- so the loader reads them through the io-backed repo filesystem.
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
-      overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),
+      overrideFs = self.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory()),
       bindingsManifest = BindingsManifest,
       eventState = self.eventState,
       actors = self.actors,

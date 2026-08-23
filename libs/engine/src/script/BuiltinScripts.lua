@@ -4,6 +4,8 @@
 
 local S = require("gen4.script")
 local Bindings = require("libs.engine.src.script.Bindings")
+local LuaWriter = require("libs.codec.src.LuaWriter")
+local Sha256 = require("libs.engine.src.script.Sha256")
 
 local BuiltinScripts = {}
 
@@ -16,6 +18,14 @@ function BuiltinScripts.all()
       steps = { S.stop() },
     }),
   }
+end
+
+-- The digest covers the executable builtin projection, including ids and
+-- script data, with the same deterministic serializer used by registry
+-- fingerprints.
+---@return string
+function BuiltinScripts.contentHash()
+  return Sha256.hex(LuaWriter.encode(BuiltinScripts.all()))
 end
 
 return BuiltinScripts

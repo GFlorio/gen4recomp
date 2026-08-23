@@ -96,10 +96,11 @@ end
 -- printer cadence rather than field cadence.
 function T.tests.field_dialogue_continuation_uses_printer_cadence()
   withReadyVersion(function(game)
-    game:startScript("demo.dialogue")
-    game:advanceUntil("ROM-backed field dialogue opens", function(snapshot)
-      return snapshot.dialogue.modal
-    end, 32)
+    Assert.isNil(
+      game.runtime.scripts.composition:effective("demo.dialogue"),
+      "acceptance dialogue fixtures must not be installed in the production registry"
+    )
+    openVanillaDialogue(game)
     local waiting = advanceToDialogueWait(game)
     Assert.isTrue(
       waiting.dialogue.continuationKind == "clear" or waiting.dialogue.continuationKind == "scroll",
@@ -159,7 +160,11 @@ end
 function T.tests.trainer_tip_uses_shared_speed_policy_and_not_task_fill()
   withReadyVersion(function(game)
     Assert.equal(game.runtime.playerData.options.textSpeed, "fastest", "fresh player data must use fastest text speed")
-    game:startScript("demo.signpost")
+    Assert.isNil(
+      game.runtime.scripts.composition:effective("demo.signpost"),
+      "acceptance signpost fixtures must not be installed in the production registry"
+    )
+    game:startScript("vanilla.hgss.scr_seq.0842.script_007")
     game:pressAction()
     game:advanceUntil("typed Trainer Tip opens", function()
       local status = game.runtime.signpost:status()
