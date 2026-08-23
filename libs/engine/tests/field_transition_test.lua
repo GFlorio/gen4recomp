@@ -1217,9 +1217,9 @@ function T.stair_warp_without_a_player_raises_and_aborts()
   Assert.deepEqual(loader.protections, {})
 end
 
-function T.stair_source_climb_drives_the_player_held_movement()
+function T.stair_source_climb_drives_the_player_locked_movement()
   -- Profile 3 owns the locked source step. It must not fall back to a
-  -- duplicate in-place stair movement.
+  -- duplicate presentation movement.
   local player = stubPlayer()
   local transition
   local source

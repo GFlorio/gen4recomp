@@ -192,8 +192,7 @@ local function beginProfileMotion(self, phase)
       assert(self.player and type(self.player.beginTransitionStep) == "function", "stair transition step required")
       return self.player:beginTransitionStep(self.facing)
     end
-    assert(self.player and type(self.player.beginTransitionHeldStair) == "function", "held stair motion required")
-    return self.player:beginTransitionHeldStair(phase == "enter" and self.destinationFacing or self.facing)
+    return false
   end
   if self.profileId == FieldTransitionProfile.ESCALATOR then
     assert(self.escalatorAt, "escalator prop resolver required")
@@ -280,13 +279,9 @@ local function resumeOwnedPlayerAnimation(self)
   self.ownsPlayerAnimationPause = false
 end
 
-local function resetTransient(self, stopSound)
+local function resetTransient(self)
   resumeOwnedPlayerAnimation(self)
-  if stopSound then
-    stopProfileSound(self)
-  else
-    self.activeProfileSound = nil
-  end
+  stopProfileSound(self)
   self.fadeAlpha = 0
   self.fade = nil
   self.fadeStarted = false
@@ -389,11 +384,10 @@ end
 -- The door is a capability contract: a transition without a door resolver is
 -- a headless caller stating it has no door choreography, so the door warp
 -- degrades to a plain fade; a supplied resolver returning no door for a
--- required door is bad data. Stair warps instead take movement ownership as
--- an in-place climb: HGSS holds a stair movement and never steps the player
--- off the warp tile, so no door and no step here. Stairs require a player
--- (production FieldRuntime always binds one): a missing player is a
--- programming fault.
+-- required door is bad data. Stair warps instead take movement ownership with
+-- their locked source step and do not use the door choreography. Stairs
+-- require a player (production FieldRuntime always binds one): a missing
+-- player is a programming fault.
 local function beginSourceChoreography(self)
   local kind = self.sourceKind
   if kind == "door" then
@@ -639,15 +633,13 @@ local function runChoreo(self, fn)
   end
 end
 
--- Advance the in-place stair climb by one tick. The climb is the player's
--- held stair movement: the transition advances it like a walk, and the HGSS
--- stair sound fires when the movement completes (sub_0205613C plays
--- SEQ_SE_DP_KAIDAN2 after the held movement finishes, before the fade). The
--- climb never reports locomotion: the player stays on the warp tile. Stair
--- warps require a player (asserted at the source begin), so one is always
--- bound here.
+-- Advance the source stair step by one tick. The transition advances it like
+-- a walk, and the HGSS stair sound fires when the movement completes
+-- (sub_0205613C plays SEQ_SE_DP_KAIDAN2 after the step finishes, before the
+-- fade). Stair warps require a player (asserted at the source begin), so one
+-- is always bound here.
 local function finish(self)
-  resetTransient(self, true)
+  resetTransient(self)
   self.phase = FieldTransition.PHASES.idle
   self.locked = false
   self.completed = {
@@ -666,7 +658,7 @@ end
 function FieldTransition:start(sourceMap, trigger, facing)
   assert(self.phase == FieldTransition.PHASES.idle, "field transition already active")
   assert(sourceMap and trigger and trigger.warp and facing, "transition source, trigger, and facing required")
-  resetTransient(self, true)
+  resetTransient(self)
   self.sourceMap = sourceMap
   self.sourceWarp = trigger.warp
   self.sourceKind = trigger.kind
@@ -722,7 +714,7 @@ function FieldTransition:_abort(err)
   end
   self.phase = FieldTransition.PHASES.idle
   self.locked = false
-  resetTransient(self, true)
+  resetTransient(self)
   self.completed = nil
   self.suppression = nil
   self.sourceMap, self.sourceWarp, self.resolution, self.prepared = nil, nil, nil, nil

@@ -736,12 +736,6 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
       self.facing = facing
       return true
     end,
-    beginTransitionHeldStair = function(self, facing)
-      events[#events + 1] = { phase = "movement", family = "held_stair:" .. facing }
-      self.motion = "transition"
-      self.transitionTicks = 0
-      return true
-    end,
     beginTransitionLadderExit = function(self, facing)
       events[#events + 1] = { phase = "movement", family = "ladder_exit:" .. facing }
       self.motion = "transition"

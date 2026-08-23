@@ -35,7 +35,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field bufferedDirection FieldDirection?
 ---@field from table?
 ---@field to table?
----@field transitionKind "held_stair"|"ladder_exit"|"ladder_down_exit"|"vertical_return"|nil
+---@field transitionKind "ladder_exit"|"ladder_down_exit"|"vertical_return"|nil
 ---@field transitionFacing FieldDirection?
 ---@field transitionFrom table?
 ---@field transitionTo table?
@@ -257,24 +257,6 @@ local function beginTransitionPresentation(self, kind, facing, target)
   return true
 end
 
--- Holds the destination stair pose for one walk interval without changing the
--- already-staged logical tile. The presentation offset returns to its exact
--- logical anchor at completion.
-function FieldPlayer:beginTransitionHeldStair(facing)
-  assert(facing == "east" or facing == "west", "held stair transition requires an east or west facing")
-  assert(self.motion == "idle", "cannot begin a held stair motion while moving")
-  self.motion = "transition"
-  self.facing = facing
-  self.progressTicks = 0
-  self.durationTicks = FieldPlayer.WALK_STEP_TICKS
-  self.transitionKind = "held_stair"
-  self.transitionFacing = facing
-  self.transitionProgress = 0
-  self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
-  self.transitionTo = { x = self.worldX, y = self.worldY, z = self.worldZ }
-  return true
-end
-
 -- Source-side ladder ascent presentation. This never claims a field tile;
 -- destination staging and the final semantic step own logical movement.
 function FieldPlayer:beginTransitionLadderExit(facing)
@@ -361,19 +343,9 @@ function FieldPlayer:updateFixed(input)
     self.progressTicks = self.progressTicks + 1
     local progress = self.progressTicks / self.durationTicks
     self.transitionProgress = math.min(1, progress)
-    if self.transitionKind == "held_stair" then
-      local midpoint = self.durationTicks / 2
-      local offset = self.progressTicks <= midpoint and self.progressTicks / midpoint
-        or (self.durationTicks - self.progressTicks) / midpoint
-      local direction = self.transitionFacing == "east" and 1 or -1
-      self.worldX = self.transitionFrom.x + direction * offset
-      self.worldY = self.transitionFrom.y
-      self.worldZ = self.transitionFrom.z
-    else
-      self.worldX = self.transitionFrom.x + (self.transitionTo.x - self.transitionFrom.x) * progress
-      self.worldY = self.transitionFrom.y + (self.transitionTo.y - self.transitionFrom.y) * progress
-      self.worldZ = self.transitionFrom.z + (self.transitionTo.z - self.transitionFrom.z) * progress
-    end
+    self.worldX = self.transitionFrom.x + (self.transitionTo.x - self.transitionFrom.x) * progress
+    self.worldY = self.transitionFrom.y + (self.transitionTo.y - self.transitionFrom.y) * progress
+    self.worldZ = self.transitionFrom.z + (self.transitionTo.z - self.transitionFrom.z) * progress
     if self.progressTicks >= self.durationTicks then
       self.worldX, self.worldY, self.worldZ = self.transitionTo.x, self.transitionTo.y, self.transitionTo.z
       self.motion = "idle"
