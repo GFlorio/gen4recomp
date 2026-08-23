@@ -18,10 +18,10 @@ local function manifest()
   local assets = {
     background = {
       image = "background.png",
-      width = 8,
-      height = 8,
+      width = 1,
+      height = 192,
       sampling = "linear",
-      frames = { { x = 0, y = 0, width = 8, height = 8, duration = 1 } },
+      frames = { { x = 0, y = 0, width = 1, height = 192, duration = 1 } },
     },
   }
   for _, id in ipairs({ "oak", "marill", "male", "female", "shrink_male", "shrink_female", "ball_open" }) do
@@ -63,7 +63,7 @@ end
 
 T.responsive_renderer_uses_declared_sampling_and_identity_tint = function()
   local graphics = FakeGraphics.new({
-    imageSizes = { { 8, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
+    imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
   })
   local renderer = OakIntroRenderer.new({
     manifest = manifest(),
@@ -99,6 +99,39 @@ T.responsive_renderer_uses_declared_sampling_and_identity_tint = function()
   for _, image in ipairs(graphics.images) do
     Assert.isTrue(image.released)
   end
+end
+
+T.background_gradient_stretches_to_the_host_viewport = function()
+  local graphics = FakeGraphics.new({
+    imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
+  })
+  local renderer = OakIntroRenderer.new({
+    manifest = manifest(),
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = textRenderer(),
+  })
+  local oakView = view()
+  oakView.layout.viewport = { x = 13, y = 17, width = 1600, height = 900 }
+  oakView.primaryWidget = "oak"
+
+  renderer:draw(oakView)
+
+  local background = graphics.draws[1]
+  Assert.equal(background.x, 13)
+  Assert.equal(background.y, 17)
+  Assert.equal(background.sx, 1600)
+  Assert.equal(background.sy, 900 / 192)
+  Assert.equal(background.quad.w * background.sx, 1600)
+  Assert.equal(background.quad.h * background.sy, 900)
+
+  local widget = graphics.draws[2]
+  Assert.equal(widget.sx, widget.sy)
+  renderer:dispose()
 end
 
 function T.nonzero_atlas_frame_is_drawn_with_a_reusable_quad(scope)

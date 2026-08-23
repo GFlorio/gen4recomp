@@ -373,4 +373,61 @@ T.tests.name_controls_use_generated_text_and_shared_hit_rectangles = function()
   intro:dispose()
 end
 
+T.tests.name_confirmation_draw_does_not_require_editor_preview_geometry = function()
+  local graphics = FakeGraphics.new()
+  local renderer = OakIntroRenderer.new({
+    manifest = manifest(),
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = {
+      drawText = function() end,
+      textWidth = function(_, value)
+        return #value * 8
+      end,
+    },
+  })
+  local intro = OakIntroState.new({
+    controller = controller(),
+    manifest = manifest(),
+    ---@diagnostic disable-next-line: assign-type-mismatch
+    renderer = renderer,
+    textRenderer = renderer.text,
+    glyphs = { "A", "B" },
+    width = 390,
+    height = 844,
+    textInputHost = { setTextInput = function() end },
+  })
+
+  intro:tick(40)
+  intro:keypressed("return")
+  intro:tick(6 + 30)
+  intro:keypressed("return")
+  intro:tick(26)
+  intro:keypressed("return")
+  intro:tick(30 + 40)
+  intro:keypressed("return")
+  intro:tick(30 + 26)
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:tick(40)
+  Assert.equal(intro:view().phase, "name_edit")
+  intro:textinput("A")
+  intro:keypressed("return")
+  local view = intro:view()
+  Assert.equal(view.phase, "name_confirm")
+  Assert.isNil(view.layout.namePreview)
+  renderer:draw(view)
+  Assert.isTrue(#graphics.draws > 0)
+
+  intro:dispose()
+end
+
 return T

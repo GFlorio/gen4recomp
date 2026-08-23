@@ -109,13 +109,24 @@ local function drawAsset(self, assetId, frameIndex, region)
   self.graphics.draw(image, quad, x, y, 0, scale, scale)
 end
 
+local function drawBackground(self, region)
+  local asset = assert(self.assets.background, "intro asset is missing: background")
+  local image = assert(self.images.background, "intro image is missing: background")
+  local quad = assert(self.quads.background and self.quads.background[1], "intro frame is missing: background")
+  local frame = asset.frames[1]
+  local sx = region.width / frame.width
+  local sy = region.height / frame.height
+  self.graphics.setColor(1, 1, 1, 1)
+  self.graphics.draw(image, quad, region.x, region.y, 0, sx, sy)
+end
+
 ---@param view table
 function OakIntroRenderer:draw(view)
   assert(not self.released, "Oak renderer is released")
   local graphics = self.graphics
   local layout = view.layout
   graphics.clear(0.04, 0.05, 0.09, 1)
-  drawAsset(self, "background", 1, layout.viewport)
+  drawBackground(self, layout.viewport)
   if view.primaryWidget ~= nil then
     drawAsset(self, view.primaryWidget, view.visualFrameIndex, layout.subject)
   elseif view.visual ~= "background" then
@@ -157,7 +168,7 @@ function OakIntroRenderer:draw(view)
     end
   end
   graphics.setColor(1, 1, 1, 1)
-  if view.name ~= "" then
+  if view.phase == "name_edit" and view.name ~= "" then
     local preview = assert(layout.namePreview, "Oak name preview is missing")
     local textWidth = self.text.textWidth and self.text:textWidth(view.name) or 0
     self.text:drawText(view.name, preview.x + (preview.width - textWidth) / 2, preview.y + (preview.height - 16) / 2)

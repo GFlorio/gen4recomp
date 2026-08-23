@@ -125,9 +125,19 @@ function FakeGraphics.new(opts)
     getColor = function()
       return state.color[1], state.color[2], state.color[3], state.color[4]
     end,
-    draw = function(image, quad, x, y)
+    draw = function(image, quad, x, y, rotation, sx, sy)
       drawCalls = drawCalls + 1
-      draws[#draws + 1] = { kind = "draw", image = image, quad = quad, x = x, y = y, color = state.color }
+      draws[#draws + 1] = {
+        kind = "draw",
+        image = image,
+        quad = quad,
+        x = x,
+        y = y,
+        rotation = rotation,
+        sx = sx,
+        sy = sy,
+        color = state.color,
+      }
       if opts.failOnDrawCall == drawCalls then
         error("injected draw failure")
       end
