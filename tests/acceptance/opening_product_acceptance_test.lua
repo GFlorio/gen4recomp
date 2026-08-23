@@ -92,34 +92,48 @@ local function completeOak()
   error("Oak did not reach the opening field")
 end
 
-local function fieldStep(direction)
-  press(({ north = "dpup", south = "dpdown", east = "dpright", west = "dpleft" })[direction])
+local function fieldStep(runtime, direction)
+  runtime:press(direction)
   tick(2)
+  runtime:release(direction)
+  for _ = 1, 120 do
+    tick(1)
+    if runtime.player.motion == "idle" then
+      return
+    end
+  end
+  error("the production player did not finish moving " .. direction)
 end
 
 local function reachFirstFloor(runtime)
-  local directions = { "north", "south", "east", "west" }
+  for _ = 1, 3 do
+    fieldStep(runtime, "west")
+  end
+  for _ = 1, 2 do
+    fieldStep(runtime, "north")
+  end
+  Assert.equal(runtime.player.fieldX, 3)
+  Assert.equal(runtime.player.fieldZ, 4)
+  fieldStep(runtime, "west")
   for _ = 1, 240 do
     if runtime.runtimeMap.mapSymbol == "MAP_NEW_BARK_PLAYER_HOUSE_1F" then
       return
     end
-    for _, direction in ipairs(directions) do
-      fieldStep(direction)
-      if runtime.runtimeMap.mapSymbol == "MAP_NEW_BARK_PLAYER_HOUSE_1F" then
-        return
-      end
-    end
+    tick(1)
   end
-  error("the production field did not reach Player's House 1F")
+  error("the production field did not complete the Player's House stair warp")
 end
 
 local function waitForMom(runtime)
+  local world = runtime.scripts.worldState
+  local flags = FieldScriptSymbols.flagsByName
   for _ = 1, 2400 do
     tick(1)
-    local world = runtime.scripts.worldState
-    local flags = FieldScriptSymbols.flagsByName
+    if runtime.dialogue:isModal() then
+      press("a")
+    end
     if
-      world:getVar(FieldScriptSymbols.varsByName.VAR_SCENE_PLAYERS_HOUSE_1F) == 1
+      world:getVar(FieldScriptSymbols.variablesByName.VAR_SCENE_PLAYERS_HOUSE_1F) == 1
       and world:isFlagSet(flags.FLAG_GOT_BAG)
       and world:isFlagSet(flags.FLAG_GOT_TRAINER_CARD)
       and world:isFlagSet(flags.FLAG_GOT_SAVE_BUTTON)
