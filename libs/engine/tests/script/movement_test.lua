@@ -16,10 +16,13 @@ local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
+local Runtime = require("libs.engine.src.script.Runtime")
 local MovementBarrierTask = require("libs.engine.src.script.tasks.MovementBarrierTask")
 local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
+local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
+local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
 
 local T = {}
 
@@ -160,6 +163,51 @@ T["multiple actors before one barrier"] = function()
   Assert.equal(h.services.actors.actors.a.fieldX, 1)
   Assert.equal(h.services.actors.actors.b.fieldZ, -1)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+T["lowered local object zero and player can move concurrently"] = function()
+  local h = harness()
+  h.services.actors:add("mom", { fieldX = 4, fieldZ = 6, facing = "north" })
+  h.services.actors:add("player", { fieldX = 5, fieldZ = 6, facing = "north" })
+  h.services.actors.mapIndexes = { [0] = "mom" }
+
+  local lowered = SemanticLowering.lowerScript({
+    instructions = {
+      { opcode = 94, operands = { 0, "@0010" }, offset = 0x20 },
+      { opcode = 94, operands = { "obj_player", "@0010" }, offset = 0x24 },
+      { opcode = 2, operands = {}, offset = 0x28 },
+    },
+  }, {
+    member = 1,
+    scripts = {},
+    movements = { [0x10] = { actions = { { movementCode = 12, count = 1 } } } },
+  }, { stdCatalog = SourceCatalog.catalog() })
+  local instanceId = startForeground(h, script("test.lowered_actor_identity", { S.waitTicks({ ticks = 10 }) }), 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local environment = assert(h.scheduler:environments()[1])
+  local ctx = { services = h.services, environment = environment, instance = instance, scheduler = h.scheduler }
+  local function start(reference)
+    local actorId = Runtime.resolveActor(reference, ctx)
+    return h.scheduler:createTask(
+      "movement",
+      { actor = actorId, sequence = { { action = "walk", direction = "east", speed = "normal", tiles = 1 } } },
+      instance,
+      100,
+      nil
+    )
+  end
+  local momTaskId = start(lowered.items[1].actor)
+  local playerTaskId = start(lowered.items[2].actor)
+  Assert.notNil(momTaskId)
+  Assert.notNil(playerTaskId)
+  Assert.equal(h.scheduler:activeMovementForActor(environment.environmentId, "mom"), momTaskId)
+  Assert.equal(h.scheduler:activeMovementForActor(environment.environmentId, "player"), playerTaskId)
+  local ok, err = pcall(function()
+    start(lowered.items[2].actor)
+  end)
+  Assert.isFalse(ok)
+  Assert.isTrue(Errors.is(err))
+  Assert.equal(err.code, "SCRIPT_ACTOR_BUSY")
 end
 
 -- 3. Empty WaitMovement still has the native-style minimum timing:

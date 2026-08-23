@@ -82,14 +82,13 @@ local function varRef(value)
 end
 
 -- Actor operand: obj_* symbols become actor ids; obj_player and the pinned
--- numeric specials (scrcmd.h: obj_player=255, obj_partner_poke=253; object
--- id 0 is the player; id 0xF1 is the field camera target) become specials.
+-- numeric specials (scrcmd.h: obj_player=255, obj_partner_poke=253; id 0xF1
+-- is the field camera target) become specials.
 -- Any other numeric id is a local map-object index resolved against the
 -- current map at runtime (the pinned MapObjectManager_GetFirstActiveObjectByID
 -- path in sub_02041C70).
 local STRING_SPECIALS = { obj_player = "player", obj_partner_poke = "partner" }
 local NUMERIC_SPECIALS = {
-  [0] = "player",
   [255] = "player",
   [253] = "partner",
   [241] = "camera_target",

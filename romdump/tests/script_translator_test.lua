@@ -30,6 +30,23 @@ local CATALOG = {
   maps = {},
 }
 
+local function loweredActorSteps(operands)
+  local instructions = {}
+  for index, operand in ipairs(operands) do
+    instructions[index] = {
+      opcode = 94,
+      operands = { operand, "@0010" },
+      offset = index * 4,
+    }
+  end
+  local lowered = SemanticLowering.lowerScript(
+    { instructions = instructions },
+    { member = 1, scripts = {}, movements = { [0x10] = { actions = {} } } },
+    { stdCatalog = SourceCatalog.catalog() }
+  )
+  return lowered.items
+end
+
 -- The lab-sign shape (member 843 script 9): PlaySE; LockAll; NPCMsg 97;
 -- WaitButton; CloseMsg; ReleaseAll; End.
 local function labSignMember()
@@ -94,6 +111,14 @@ T["opcode 609 lowers to the follower gate"] = function()
   local _, steps, report = translate(bytes, 845, 0)
   Assert.equal(steps[1].op, "yield_tick")
   Assert.isTrue(report.complete)
+end
+
+T["generated movement operands preserve local and player identities"] = function()
+  local items = loweredActorSteps({ 0, 1, "obj_player", 255 })
+  Assert.deepEqual(items[1].actor, { ref = "actor", mapIndex = 0 })
+  Assert.deepEqual(items[2].actor, { ref = "actor", mapIndex = 1 })
+  Assert.deepEqual(items[3].actor, { ref = "actor", special = "player" })
+  Assert.deepEqual(items[4].actor, { ref = "actor", special = "player" })
 end
 
 -- 2. Emission is deterministic and byte-stable, and the resource validates.
