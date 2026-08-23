@@ -292,6 +292,10 @@ function T.canonical_golden_matches_the_real_generated_card_pixel_for_pixel(scop
   end
   local name = "GOLD"
   pasteRealText(name, TrainerCardRenderer.NAME_RIGHT_EDGE - measureText(name), 24)
+  local money = "0"
+  pasteRealText(money, 152 - measureText(money), 48)
+  local playTime = "0:00"
+  pasteRealText(playTime, 240 - measureText(playTime), 128)
   local trainerId = string.format("%05d", 0)
   pasteRealText(trainerId, TrainerCardRenderer.TRAINER_ID_RIGHT_EDGE - measureText(trainerId), 24)
 
