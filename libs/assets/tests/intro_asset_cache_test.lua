@@ -1,144 +1,93 @@
--- The consumer-facing contract for the generated Professor Oak/profile visual
--- class: one semantic manifest, strict payload references, source-independent
--- records, and a completion marker that is visible only for a complete class.
+-- Contract scenarios for strict validation of the generated Oak intro class.
+-- These fixtures model the public schema only; ROM identities belong to the
+-- producer provenance and are intentionally absent here.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.storage.src.CacheFs")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
-local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
+local WIDGETS = { "ball_open", "female", "male", "marill", "oak", "shrink_female", "shrink_male" }
 
-local REQUIRED = {
-  "background",
-  "oak",
-  "marill",
-  "gender.male",
-  "gender.female",
-  "gender.indicator",
-  "shrink.male",
-  "shrink.female",
-}
-
-local function introCache()
-  local ok, cache = pcall(require, "libs.assets.src.IntroAssetCache")
-  if not ok then
-    error("the intro visual cache contract is missing: " .. tostring(cache), 0)
-  end
-  Assert.notNil(DerivedAssetContract.intro, "the derived asset contract must declare the intro class")
-  return cache
+local function frame(path, width, height, duration)
+  return { image = path, width = width, height = height, duration = duration }
 end
 
-local function rect(x, y, width, height, duration)
-  return { x = x, y = y, width = width, height = height, duration = duration }
-end
-
-local function validManifest(cache)
-  local manifest = {
-    schema = cache.SCHEMA,
-    reference = { width = 256, height = 192, filter = "nearest" },
-    assets = {},
-  }
-  local sizes = {
-    background = { 256, 192 },
-    oak = { 128, 128 },
-    marill = { 64, 64 },
-    ["gender.male"] = { 64, 64 },
-    ["gender.female"] = { 64, 64 },
-    ["gender.indicator"] = { 32, 16 },
-    ["shrink.male"] = { 128, 128 },
-    ["shrink.female"] = { 128, 128 },
-  }
-  for _, id in ipairs(REQUIRED) do
-    local size = sizes[id]
-    manifest.assets[id] = {
-      image = "assets/generated/intro/" .. id:gsub("%.", "-") .. ".png",
-      width = size[1],
-      height = size[2],
-      frames = { rect(0, 0, size[1], size[2], 1) },
-      filter = "nearest",
+local function validManifest()
+  local widgets = {}
+  for _, id in ipairs(WIDGETS) do
+    local path = "assets/generated/intro/" .. id .. ".png"
+    widgets[id] = {
+      image = path,
+      width = 32,
+      height = 32,
+      anchor = { x = 16, y = 32 },
+      sourceBounds = { x = 0, y = 0, width = 32, height = 32 },
+      sampling = "nearest",
+      provenance = { rule = "alpha-crop" },
+      frames = { frame(path, 32, 32, 4) },
     }
   end
-  manifest.assets.oak.frames = { rect(0, 0, 64, 64, 6), rect(64, 0, 64, 64, 6) }
-  manifest.assets["gender.indicator"].frames = { rect(0, 0, 16, 16, 4), rect(16, 0, 16, 16, 4) }
-  manifest.assets["shrink.male"].frames = {
-    rect(0, 0, 32, 32, 4),
-    rect(32, 0, 32, 32, 4),
-    rect(64, 0, 32, 32, 4),
-    rect(96, 0, 32, 32, 4),
+  widgets.ball_open.sourceCenter = { x = 128, y = 90 }
+  widgets.ball_open.frames = {
+    frame("assets/generated/intro/ball-open-0.png", 32, 32, 1),
+    frame("assets/generated/intro/ball-open-1.png", 32, 32, 4),
   }
-  manifest.assets["shrink.female"].frames = {
-    rect(0, 0, 32, 32, 4),
-    rect(32, 0, 32, 32, 4),
-    rect(64, 0, 32, 32, 4),
-    rect(96, 0, 32, 32, 4),
+  return {
+    schemaVersion = 2,
+    variant = "heartgold",
+    sourceReference = { width = 256, height = 192 },
+    background = {
+      image = "assets/generated/intro/background.png",
+      width = 1,
+      height = 192,
+      sampling = "linear",
+      provenance = { charMember = 0, screenMember = 3, paletteMember = 1 },
+    },
+    widgets = widgets,
   }
-  return manifest
 end
 
-local function reject(cache, mutate)
-  local manifest = validManifest(cache)
+local function reject(cache, mutate, label)
+  local manifest = validManifest()
   mutate(manifest)
   local ok, err = cache.validateManifest(manifest)
-  Assert.isFalse(ok, "malformed intro metadata must not validate")
-  Assert.equal(assert(err).code, "INTRO_MANIFEST_INVALID")
+  Assert.isFalse(ok, label .. " must be rejected")
+  Assert.equal(assert(err).code, "INTRO_MANIFEST_INVALID", label .. " has a typed error")
 end
 
-function T.contract_declares_a_distinct_intro_class()
-  local cache = introCache()
+function T.complete_schema_two_manifest_loads_and_declares_closed_inventory()
+  local cache = require("libs.assets.src.IntroAssetCache")
+  Assert.equal(cache.SCHEMA, "g4-intro-assets-v2")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
-  Assert.equal(cache.SCHEMA, DerivedAssetContract.intro.schema)
-  Assert.isTrue(cache.FORMAT ~= DerivedAssetContract.fieldUi.cacheFormat)
-  Assert.equal(cache.marker("rom-sha", "dep-hash"), "intro-cache-v1:rom-sha:dep-hash")
-end
-
-function T.required_semantic_records_and_frame_metadata_are_closed()
-  local cache = introCache()
-  local manifest = validManifest(cache)
+  local manifest = validManifest()
   Assert.isTrue(cache.validateManifest(manifest))
-  for _, id in ipairs(REQUIRED) do
-    local record = manifest.assets[id]
-    Assert.notNil(record, "required intro resource " .. id)
-    Assert.equal(record.filter, "nearest", id .. " keeps native filtering intent")
-    Assert.isTrue(#record.frames >= 1, id .. " carries at least one frame")
-    for _, frame in ipairs(record.frames) do
-      Assert.isTrue(frame.width > 0 and frame.height > 0, id .. " frame has positive dimensions")
-      Assert.isTrue(frame.duration > 0, id .. " frame has source timing")
-      Assert.isTrue(frame.x + frame.width <= record.width, id .. " frame stays inside its payload")
-      Assert.isTrue(frame.y + frame.height <= record.height, id .. " frame stays inside its payload")
-    end
-  end
+  Assert.keySet(manifest.widgets, "ball_open,female,male,marill,oak,shrink_female,shrink_male")
 end
 
-function T.missing_unknown_and_unreferenced_payloads_are_not_ready()
-  local cache = introCache()
+function T.stale_and_malformed_manifests_fail_before_composition()
+  local cache = require("libs.assets.src.IntroAssetCache")
+  Assert.isTrue(cache.validateManifest(validManifest()), "the complete schema-2 fixture must be accepted first")
   reject(cache, function(manifest)
-    manifest.assets.marill = nil
-  end)
+    manifest.schemaVersion = 1
+  end, "stale schema")
   reject(cache, function(manifest)
-    manifest.assets.tutorial = manifest.assets.oak
-  end)
+    manifest.widgets.ball_open = nil
+  end, "missing widget")
   reject(cache, function(manifest)
-    manifest.assets.oak.frames[1].width = 129
-  end)
-
-  local manifest = validManifest(cache)
-  local fs = CacheFs.forVersion("heartgold", FakeCache.new())
-  fs:writeLua(cache.manifestPath(), manifest)
-  fs:writeLua(cache.provenancePath(), {
-    schema = cache.PROVENANCE_SCHEMA,
-    source = { repo = "fixture", commit = "fixture", sources = { "fixture" } },
-    dependencies = {},
-  })
-  fs:write(cache.markerPath(), cache.marker("rom-sha", "dep-hash"))
-  for _, record in pairs(manifest.assets) do
-    fs:write(record.image, "png")
-  end
-  Assert.isTrue(cache.isReady(fs, cache.marker("rom-sha", "dep-hash")))
-  fs:remove(cache.provenancePath())
-  Assert.isFalse(cache.isReady(fs, cache.marker("rom-sha", "dep-hash")))
-  fs:remove(manifest.assets.marill.image)
-  Assert.isFalse(cache.isReady(fs, cache.marker("rom-sha", "dep-hash")))
+    manifest.widgets.ball = validManifest().widgets.oak
+  end, "unknown widget")
+  reject(cache, function(manifest)
+    manifest.widgets.oak.anchor.x = 33
+  end, "invalid anchor")
+  reject(cache, function(manifest)
+    manifest.widgets.ball_open.frames[2].width = 31
+  end, "inconsistent animation")
+  reject(cache, function(manifest)
+    manifest.background.width = 2
+  end, "incorrect gradient dimensions")
+  reject(cache, function(manifest)
+    manifest.variant = "unknown"
+  end, "invalid variant")
 end
 
 return { tests = T }

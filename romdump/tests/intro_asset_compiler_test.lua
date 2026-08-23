@@ -33,24 +33,39 @@ local function writer()
 end
 
 local function fixtureBundle(cache, marker)
-  local assets, manifestAssets = {}, {}
+  local assets, widgets = {}, {}
+  assets[cache.assetDir() .. "/background.png"] = "png"
   for _, id in ipairs(cache.REQUIRED_ASSETS) do
-    local image = cache.assetDir() .. "/" .. id:gsub("%.", "-") .. ".png"
-    manifestAssets[id] = {
+    local image = cache.assetDir() .. "/" .. id .. ".png"
+    widgets[id] = {
       image = image,
       width = 1,
       height = 1,
-      frames = { { x = 0, y = 0, width = 1, height = 1, duration = 1 } },
-      filter = "nearest",
+      anchor = { x = 0, y = 0 },
+      sourceBounds = { x = 0, y = 0, width = 1, height = 1 },
+      sampling = "nearest",
+      provenance = { rule = "fixture" },
+      frames = { { image = image, width = 1, height = 1, duration = 1, anchor = { x = 0, y = 0 } } },
     }
+    if id == "ball_open" then
+      widgets[id].sourceCenter = { x = 128, y = 90 }
+    end
     assets[image] = "png"
   end
   return {
     marker = marker,
     manifest = {
-      schema = cache.SCHEMA,
-      reference = { width = 256, height = 192, filter = "nearest" },
-      assets = manifestAssets,
+      schemaVersion = 2,
+      variant = "heartgold",
+      sourceReference = { width = 256, height = 192 },
+      background = {
+        image = cache.assetDir() .. "/background.png",
+        width = 1,
+        height = 192,
+        sampling = "linear",
+        provenance = { fixture = true },
+      },
+      widgets = widgets,
     },
     dependencies = {
       schema = cache.PROVENANCE_SCHEMA,

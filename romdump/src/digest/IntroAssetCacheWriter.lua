@@ -33,9 +33,18 @@ local function stageBundle(tx, bundle)
       cause = provenanceErr.message,
     })
   end
-  for _, asset in pairs(manifest.assets) do
-    if not stage:exists(asset.image, "file") then
-      Errors.raise("INTRO_CACHE_READBACK_FAILED", "intro asset missing after stage", { image = asset.image })
+  if not stage:exists(manifest.background.image, "file") then
+    Errors.raise(
+      "INTRO_CACHE_READBACK_FAILED",
+      "intro background missing after stage",
+      { image = manifest.background.image }
+    )
+  end
+  for _, widget in pairs(manifest.widgets) do
+    for _, frame in ipairs(widget.frames) do
+      if not stage:exists(frame.image, "file") then
+        Errors.raise("INTRO_CACHE_READBACK_FAILED", "intro widget missing after stage", { image = frame.image })
+      end
     end
   end
   stage:write(IntroAssetCache.markerPath(), bundle.marker)
@@ -45,7 +54,7 @@ end
 ---@param bundle table
 function IntroAssetCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and bundle and bundle.marker and bundle.manifest and bundle.dependencies and bundle.assets)
-  assert(bundle.manifest.schema == IntroAssetCache.SCHEMA, "intro manifest schema mismatch")
+  assert(bundle.manifest.schemaVersion == 2, "intro manifest schema mismatch")
   local tx = ArtifactPublisher.begin(cacheFs, "intro", { IntroAssetCache.assetDir(), IntroAssetCache.dir() })
   local ok, err = pcall(stageBundle, tx, bundle)
   if not ok then

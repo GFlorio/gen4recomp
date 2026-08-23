@@ -9,6 +9,7 @@ local Hashing = require("romdump.src.digest.Hashing")
 local Lz10 = require("romdump.src.digest.Lz10")
 local PngWriter = require("libs.assets.src.PngWriter")
 local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
+local IntroAssetImage = require("romdump.src.digest.IntroAssetImage")
 local config = require("romdump.src.config.IntroAssets")
 
 local IntroAssetCompiler = {}
@@ -229,17 +230,13 @@ local function renderAnimations(char, palette, cells, animation, animationIndex)
   if #images == 0 then
     sourceError("intro source animation is empty", { sourceOffset = 0 })
   end
-  local rgba, y = newRgba(width, height), 0
-  for _, image in ipairs(images) do
-    for row = 0, image.height - 1 do
-      local source, destination = row * image.width * 4 + 1, (y + row) * width * 4 + 1
-      for offset = 0, image.width * 4 - 1 do
-        rgba[destination + offset] = string.byte(image.rgba, source + offset)
-      end
-    end
-    y = y + image.height
+  local cropped = IntroAssetImage.cropAlphaUnion(images, { x = width / 2, y = images[1].height })
+  local output = {}
+  for index, image in ipairs(cropped.frames) do
+    output[index] =
+      { width = cropped.width, height = cropped.height, rgba = image.rgba, duration = frames[index].duration }
   end
-  return { width = width, height = height, rgba = concatBytes(rgba) }, frames
+  return cropped, output
 end
 
 local function addDependency(dependencies, archiveName, memberId, bytes, role)
@@ -255,16 +252,36 @@ local function assetPath(id)
   return IntroAssetCache.assetDir() .. "/" .. id:gsub("%.", "-") .. ".png"
 end
 
-local function addAsset(manifest, assets, id, image, frames)
-  local path = assetPath(id)
-  manifest.assets[id] = {
-    image = path,
+local function addAsset(manifest, assets, id, image, frames, sourceBounds, anchor, provenance, sourceCenter)
+  sourceBounds = sourceBounds or { x = 0, y = 0, width = image.width, height = image.height }
+  anchor = anchor or { x = image.width / 2, y = image.height }
+  anchor = {
+    x = math.max(0, math.min(image.width, anchor.x or image.width / 2)),
+    y = math.max(0, math.min(image.height, anchor.y or image.height)),
+  }
+  local paths = {}
+  for index, frame in ipairs(frames) do
+    paths[index] = assetPath(id .. "." .. index)
+    assets[paths[index]] = PngWriter.encode(frame.width, frame.height, frame.rgba)
+  end
+  local widget = {
+    image = paths[1],
     width = image.width,
     height = image.height,
-    frames = frames,
-    filter = "nearest",
+    anchor = anchor,
+    sourceBounds = sourceBounds,
+    sampling = "nearest",
+    provenance = provenance,
+    frames = {},
   }
-  assets[path] = PngWriter.encode(image.width, image.height, image.rgba)
+  if sourceCenter then
+    widget.sourceCenter = sourceCenter
+  end
+  for index, frame in ipairs(frames) do
+    widget.frames[index] =
+      { image = paths[index], width = frame.width, height = frame.height, duration = frame.duration, anchor = anchor }
+  end
+  manifest.widgets[id] = widget
 end
 
 local function loadCharPalette(archive, dependencies, spec, role)
@@ -286,9 +303,17 @@ local function compileSingle(archive, dependencies, manifest, assets, id, spec)
     local screen = decode("decodeScreen", screenBytes, id .. " screen", spec.screen, spec.archive or config.archive)
     image = renderScreen(char, palette.colors, screen)
   end
-  addAsset(manifest, assets, id, image, {
-    { x = 0, y = 0, width = image.width, height = image.height, duration = 1 },
-  })
+  local cropped = IntroAssetImage.cropAlphaUnion({ image }, { x = image.width / 2, y = image.height })
+  addAsset(
+    manifest,
+    assets,
+    id,
+    cropped,
+    { { width = cropped.width, height = cropped.height, rgba = cropped.frames[1].rgba, duration = 1 } },
+    cropped.sourceBounds,
+    cropped.anchor,
+    { rule = "alpha-crop-bottom-center" }
+  )
 end
 
 local function compileShrink(archive, dependencies, manifest, assets, id, spec)
@@ -308,24 +333,22 @@ local function compileShrink(archive, dependencies, manifest, assets, id, spec)
     images[#images + 1] = image
     height = height + image.height
   end
-  local rgba, frames, y = newRgba(width, height), {}, 0
-  for frameIndex, image in ipairs(images) do
-    for row = 0, image.height - 1 do
-      local source, destination = row * image.width * 4 + 1, (y + row) * width * 4 + 1
-      for offset = 0, image.width * 4 - 1 do
-        rgba[destination + offset] = string.byte(image.rgba, source + offset)
-      end
-    end
-    frames[frameIndex] = {
-      x = 0,
-      y = y,
-      width = image.width,
-      height = image.height,
-      duration = frameIndex == 1 and 1 or 4,
-    }
-    y = y + image.height
+  local cropped = IntroAssetImage.cropAlphaUnion(images, { x = width / 2, y = images[1].height })
+  local frames = {}
+  for frameIndex, image in ipairs(cropped.frames) do
+    frames[frameIndex] =
+      { width = cropped.width, height = cropped.height, rgba = image.rgba, duration = frameIndex == 1 and 1 or 4 }
   end
-  addAsset(manifest, assets, id, { width = width, height = height, rgba = concatBytes(rgba) }, frames)
+  addAsset(
+    manifest,
+    assets,
+    id,
+    cropped,
+    frames,
+    cropped.sourceBounds,
+    cropped.anchor,
+    { rule = "alpha-union-crop-bottom-center" }
+  )
 end
 
 local function sourceArchive(romFs, archiveName)
@@ -345,22 +368,35 @@ function IntroAssetCompiler.compile(romFs)
   )
   local metadata = romFs:metadata()
   assert(type(metadata) == "table" and type(metadata.sha1) == "string", "intro source metadata must carry sha1")
+  local variant = assert(type(romFs.version) == "function" and romFs:version(), "intro source variant is required")
+  local paletteMember = config.variant(variant)
+  local backgroundSpec = { char = config.background.char, palette = paletteMember, screen = config.background.screen }
   local archive = sourceArchive(romFs, config.archive)
   local dependencies, assets = {}, {}
   local manifest = {
-    schema = IntroAssetCache.SCHEMA,
-    reference = { width = 256, height = 192, filter = "nearest" },
-    assets = {},
+    schemaVersion = 2,
+    variant = variant,
+    sourceReference = { width = 256, height = 192 },
+    widgets = {},
   }
 
-  local backgroundChar, backgroundPalette = loadCharPalette(archive, dependencies, config.background, "background")
+  local backgroundChar, backgroundPalette = loadCharPalette(archive, dependencies, backgroundSpec, "background")
   local backgroundBytes = decodeMember(archive, config.background.screen, "background screen", config.archive)
   addDependency(dependencies, config.archive, config.background.screen, backgroundBytes, "background:screen")
   local backgroundScreen =
     decode("decodeScreen", backgroundBytes, "background screen", config.background.screen, config.archive)
-  addAsset(manifest, assets, "background", renderScreen(backgroundChar, backgroundPalette.colors, backgroundScreen), {
-    { x = 0, y = 0, width = 256, height = 192, duration = 1 },
-  })
+  local renderedBackground = renderScreen(backgroundChar, backgroundPalette.colors, backgroundScreen)
+  local gradient =
+    IntroAssetImage.reduceGradient(renderedBackground.width, renderedBackground.height, renderedBackground.rgba)
+  local backgroundPath = IntroAssetCache.assetDir() .. "/background.png"
+  assets[backgroundPath] = PngWriter.encode(gradient.width, gradient.height, gradient.rgba)
+  manifest.background = {
+    image = backgroundPath,
+    width = 1,
+    height = 192,
+    sampling = "linear",
+    provenance = { charMember = 0, screenMember = 3, paletteMember = paletteMember },
+  }
 
   compileSingle(archive, dependencies, manifest, assets, "oak", config.oak)
   local marillChar, marillPalette = loadCharPalette(archive, dependencies, config.marill, "marill")
@@ -374,11 +410,58 @@ function IntroAssetCompiler.compile(romFs)
   local marill, marillFrames =
     renderAnimations(marillChar, marillPalette.colors, marillCells, marillAnimation, config.marill.animationIndex)
   addAsset(manifest, assets, "marill", marill, marillFrames)
-  compileSingle(archive, dependencies, manifest, assets, "gender.male", config.gender.male)
-  compileSingle(archive, dependencies, manifest, assets, "gender.female", config.gender.female)
-  compileSingle(archive, dependencies, manifest, assets, "gender.indicator", config.gender.indicator)
-  compileShrink(archive, dependencies, manifest, assets, "shrink.male", config.shrink.male)
-  compileShrink(archive, dependencies, manifest, assets, "shrink.female", config.shrink.female)
+  compileSingle(archive, dependencies, manifest, assets, "male", config.gender.male)
+  compileSingle(archive, dependencies, manifest, assets, "female", config.gender.female)
+  compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
+  compileShrink(archive, dependencies, manifest, assets, "shrink_female", config.shrink.female)
+  local ballArchive = sourceArchive(romFs, config.ball_open.archive)
+  local resourceDataArchive = sourceArchive(romFs, config.ball_open.resourceData.archive)
+  local resourceDataBytes = decodeMember(
+    resourceDataArchive,
+    config.ball_open.resourceData.member,
+    "ball_open resource data",
+    config.ball_open.resourceData.archive
+  )
+  addDependency(
+    dependencies,
+    config.ball_open.resourceData.archive,
+    config.ball_open.resourceData.member,
+    resourceDataBytes,
+    "ball_open:resource-data"
+  )
+  local ballChar, ballPalette = loadCharPalette(ballArchive, dependencies, config.ball_open, "ball_open")
+  local ballCellBytes = decodeMember(ballArchive, config.ball_open.cell, "ball_open cell", config.ball_open.archive)
+  local ballAnimationBytes =
+    decodeMember(ballArchive, config.ball_open.animation, "ball_open animation", config.ball_open.archive)
+  addDependency(dependencies, config.ball_open.archive, config.ball_open.cell, ballCellBytes, "ball_open:cell")
+  addDependency(
+    dependencies,
+    config.ball_open.archive,
+    config.ball_open.animation,
+    ballAnimationBytes,
+    "ball_open:animation"
+  )
+  local ballCell =
+    decode("decodeCell", ballCellBytes, "ball_open cell", config.ball_open.cell, config.ball_open.archive)
+  local ballAnimation = decode(
+    "decodeAnimation",
+    ballAnimationBytes,
+    "ball_open animation",
+    config.ball_open.animation,
+    config.ball_open.archive
+  )
+  local ball, ballFrames = renderAnimations(ballChar, ballPalette.colors, { cells = ballCell.cells }, ballAnimation)
+  addAsset(
+    manifest,
+    assets,
+    "ball_open",
+    ball,
+    ballFrames,
+    ball.sourceBounds,
+    ball.anchor,
+    { resourceSet = 5, rule = "alpha-union-crop-center" },
+    config.ball_open.sourceCenter
+  )
 
   local valid, err = IntroAssetCache.validateManifest(manifest)
   if not valid then
