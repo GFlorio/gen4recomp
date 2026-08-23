@@ -50,6 +50,16 @@ local function controller(lines, opts)
   })
 end
 
+local function acceleratedController()
+  return FieldSignpostController.new({
+    layout = function(msg)
+      ---@cast msg any
+      return { lines = msg._lines }
+    end,
+    policy = TextSpeedPolicy.forSpeed("mid"),
+  })
+end
+
 local function revealedGlyphs(status)
   local count = 0
   for _, ln in ipairs(status.visibleLines) do
@@ -373,6 +383,36 @@ function T.injected_ticks_per_glyph_drives_the_reveal_cadence()
   Assert.equal(revealedGlyphs(slow:status()), 2, "the shared printer uses two substeps per update")
   slow:updateFixed()
   Assert.equal(revealedGlyphs(slow:status()), 2, "cadence 3 reveals the second glyph on the next update")
+end
+
+function T.signpost_edges_are_consumed_once_and_held_input_remains_visible()
+  for _, edge in ipairs({ "pressedAction", "pressedCancel" }) do
+    local lines = { line({ glyph("A", 1), glyph("B", 2), glyph("C", 3), glyph("D", 4) }) }
+    local c = acceleratedController()
+    c:printTyped(message(lines))
+
+    local firstInput = { actionDown = false, cancelDown = false }
+    firstInput[edge] = true
+    c:updateFixed(firstInput)
+    Assert.equal(revealedGlyphs(c:status()), 1, edge .. " reveals the due first glyph")
+
+    c:updateFixed({})
+    Assert.equal(revealedGlyphs(c:status()), 1, edge .. " must not be replayed by the second source substep")
+
+    local heldInput = { actionDown = edge == "pressedAction", cancelDown = edge == "pressedCancel" }
+    c:updateFixed(heldInput)
+    Assert.equal(revealedGlyphs(c:status()), 2, edge .. " held state must remain visible without replaying a new edge")
+  end
+end
+
+function T.signpost_new_edges_arm_acceleration_for_later_held_updates()
+  local lines = { line({ glyph("A", 1), glyph("B", 2), glyph("C", 3), glyph("D", 4) }) }
+  local c = acceleratedController()
+  c:printTyped(message(lines))
+  c:updateFixed()
+  c:updateFixed({ pressedAction = true })
+  c:updateFixed({ actionDown = true })
+  Assert.equal(revealedGlyphs(c:status()), 3, "a legitimate new edge enables held acceleration")
 end
 
 -- A new print replaces the previous text only through the explicit print

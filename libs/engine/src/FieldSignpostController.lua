@@ -368,10 +368,11 @@ function FieldSignpostController:_advancePrint(input)
   end
   local sourceNew = input.pressedAction == true or input.pressedCancel == true
   local sourceHeld = input.actionDown == true or input.cancelDown == true
-  for _ = 1, 2 do
+  for substep = 1, 2 do
+    local newOnThisSourceUpdate = substep == 1 and sourceNew or false
     local accelerated = false
     if self._policy.abAcceleration and print.revealTicks > 0 then
-      if sourceNew then
+      if newOnThisSourceUpdate then
         self._hasPrintBeenSpedUp = true
         print.revealTicks = 0
         accelerated = true
