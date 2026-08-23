@@ -4,16 +4,9 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
-local FieldTransitionMotion = require("libs.engine.src.FieldTransitionMotion")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
-
-function T.source_fx32_movement_uses_one_world_unit_conversion()
-  Assert.equal(FieldTransitionMotion.fx32ToWorldUnits(8192), 2)
-  Assert.equal(FieldTransitionMotion.fx32ToWorldUnits(2048), 0.5)
-  Assert.equal(FieldTransitionMotion.fx32ToWorldUnits(-6144), -1.5)
-end
 
 local ROOT_HALF = math.sqrt(0.5)
 

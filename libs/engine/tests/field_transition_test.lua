@@ -23,6 +23,7 @@
 local Assert = require("tests.support.Assert")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldTransitionFade = require("libs.engine.src.FieldTransitionFade")
+local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
@@ -1233,7 +1234,11 @@ function T.stair_source_climb_drives_the_player_held_movement()
     step(transition)
   end
   Assert.equal(#sounds, 1, "the stair sound fires when the source step completes")
-  Assert.equal(sounds[1], FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")
+  Assert.equal(
+    sounds[1],
+    FieldTransitionProfile.ROUTINE_FAMILIES[FieldTransitionProfile.HORIZONTAL_STAIRS].exitSound,
+    "the HGSS stair-climb sound id"
+  )
   Assert.equal(player.motion, "idle", "the source step finished")
   Assert.equal(transition.phase, "fade_out", "the climb finishes inside the fade")
 end

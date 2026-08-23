@@ -14,6 +14,7 @@ local DoorTiles = require("libs.engine.src.DoorTiles")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldTransition = require("libs.engine.src.FieldTransition")
+local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapProps = require("libs.engine.src.MapProps")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
@@ -193,7 +194,11 @@ function T.house_1f_to_2f_stairs_choreograph(romFs, version)
   Assert.isNil(timeline.choreo_hold, "stairs never enter the door-close wait")
   Assert.equal(#sounds, 1, "the source stair movement owns the stair sound")
   for _, id in ipairs(sounds) do
-    Assert.equal(id, FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")
+    Assert.equal(
+      id,
+      FieldTransitionProfile.ROUTINE_FAMILIES[FieldTransitionProfile.HORIZONTAL_STAIRS].exitSound,
+      "the HGSS stair-climb sound id"
+    )
   end
   Assert.isTrue(timeline.fade_out < timeline.swap_map, "the fade ran before the swap")
   Assert.equal(transition:consumeCompleted().sourceWarpId, warp.index)

@@ -27,6 +27,7 @@ local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldTransition = require("libs.engine.src.FieldTransition")
+local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 local PlayerDataContext = require("tests.support.PlayerDataContext")
 local SceneLoaderFixture = require("tests.rom.support.SceneLoaderFixture")
 local SaveFs = require("libs.storage.src.SaveFs")
@@ -295,7 +296,11 @@ function T.player_house_stairs_acceptance(romFs, versionId)
   Assert.isNil(harness.timeline.choreo_hold, "stairs never enter the door-close wait")
   Assert.equal(#harness.sounds, 1, "the source stair movement owns the stair sound")
   for _, id in ipairs(harness.sounds) do
-    Assert.equal(id, FieldTransition.STAIR_SOUND, "the HGSS stair-climb sound id")
+    Assert.equal(
+      id,
+      FieldTransitionProfile.ROUTINE_FAMILIES[FieldTransitionProfile.HORIZONTAL_STAIRS].exitSound,
+      "the HGSS stair-climb sound id"
+    )
   end
   Assert.equal(harness.player.fieldX, 2)
   Assert.equal(harness.player.fieldZ, 4, "the ascent lands on the 2F stair tile")

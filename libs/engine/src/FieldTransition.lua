@@ -89,8 +89,6 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldTransition = {}
 FieldTransition.__index = FieldTransition
 
-FieldTransition.STAIR_SOUND = "SEQ_SE_DP_KAIDAN2"
-
 FieldTransition.PHASES = {
   idle = "idle",
   fade_out = "fade_out",
