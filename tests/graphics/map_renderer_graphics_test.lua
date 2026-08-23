@@ -3426,6 +3426,20 @@ function T.approximate_translucent_normal_lighting_reaches_the_color_shader(scop
   Assert.isTrue(result.color[1] > 0.1, "approximate translucent NORMAL lighting is visible")
 end
 
+function T.approximate_translucent_draw_preserves_non_black_world_color(scope)
+  local clearColor = { 0.2, 0.7, 0.9, 1 }
+  local renderer = scope:own(MapRenderer.new({
+    clearColor = clearColor,
+    translucencyMode = MapRenderer.TRANSLUCENCY_APPROXIMATE,
+  }))
+  local item = normalLitTranslucentQuad(scope)
+  local result = centerReadback(scope, renderer, fixedCamera(), litRuntimeForRenderer(), { { item } })
+
+  Assert.isTrue(result.color[1] > clearColor[1], "translucent color must compose over the non-black world color")
+  Assert.isTrue(result.color[2] > clearColor[2], "translucent color must compose over the non-black world color")
+  Assert.isTrue(result.color[3] > clearColor[3], "translucent color must compose over the non-black world color")
+end
+
 function T.exact_translucent_normal_lighting_reaches_source_color_rasterization(scope)
   local renderer = scope:own(MapRenderer.new({ translucencyMode = MapRenderer.TRANSLUCENCY_EXACT }))
   local item = normalLitTranslucentQuad(scope)

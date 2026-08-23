@@ -4,6 +4,7 @@
 
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
+local FixedPoint = require("libs.math.src.FixedPoint")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local Renderer = {}
@@ -24,7 +25,7 @@ function Renderer.new(model, pool)
         center = mesh.center,
         alphaClass = batch.alphaClass,
         cullMode = batch.cullMode,
-        polygonAlpha = batch.polygonAlpha,
+        polygonAlpha = batch.polygonAlpha / FixedPoint.RGB5_MAX,
         polygonMode = batch.polygonMode,
         polygonId = batch.polygonId,
         translucentDepthWrite = batch.translucentDepthWrite,
