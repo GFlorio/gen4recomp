@@ -82,6 +82,41 @@ function T.tests.advance_until_timeout_contains_a_bounded_semantic_trace()
   game:close()
 end
 
+function T.tests.wait_for_transition_waits_for_script_ownership_release()
+  local lockTicks = 0
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(versionId)
+      local runtime = fakeRuntime(versionId)
+      runtime.scripts = {
+        scheduler = {
+          playerMovementLocked = function()
+            return lockTicks < 4
+          end,
+        },
+      }
+      function runtime:update()
+        lockTicks = lockTicks + 1
+        self.session.tick = lockTicks
+        if lockTicks == 2 then
+          self.runtimeMap.mapId = 13
+          self.runtimeMap.mapSymbol = "MAP_DESTINATION"
+        end
+      end
+      return runtime
+    end,
+  })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+  game:step()
+
+  local transition = game:waitForTransition()
+
+  Assert.equal(transition.destination.mapSymbol, "MAP_DESTINATION")
+  Assert.isFalse(transition.destination.fieldLocked)
+  Assert.equal(transition.destination.tick, 4)
+  game:close()
+end
+
 function T.tests.failed_boot_disposes_the_partial_runtime_and_removes_its_namespace()
   local deleted = {}
   local runtime = fakeRuntime("heartgold")

@@ -12,6 +12,7 @@ function RecordingScriptHosts.new(options)
   options = options or {}
   local effects = {}
   local audio = { current = nil, fadeActive = false }
+  local screen = { fadeActive = false }
   local events = { records = {} }
 
   function audio:play(sound)
@@ -53,11 +54,19 @@ function RecordingScriptHosts.new(options)
     return self.fadeActive
   end
 
+  function screen:startFade()
+    self.fadeActive = false
+  end
+
+  function screen:fadeDone()
+    return not self.fadeActive
+  end
+
   function events:emit(name, payload)
     self.records[#self.records + 1] = { name = name, payload = payload }
   end
 
-  local hosts = { effects = effects, events = events }
+  local hosts = { effects = effects, events = events, screen = screen }
   if options.audio ~= false then
     hosts.audio = audio
   end

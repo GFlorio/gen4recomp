@@ -3,6 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
 local T = {
@@ -15,6 +16,7 @@ local T = {
 
 local TOWN = "MAP_NEW_BARK"
 local LAB_2F = "MAP_NEW_BARK_ELMS_LAB_2F"
+local VAR_UNK_407C = FieldScriptSymbols.variablesByName.VAR_UNK_407C
 
 local function withGame(map, fn)
   local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = map, save = "fresh" })
@@ -91,22 +93,30 @@ local function backgroundCell(game, eventType)
 end
 
 local function enterLab2F(game)
-  game:moveTo({ fieldX = 688, fieldZ = 392 })
-  game:face("west")
+  local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
+  setCoordinatePredicate(game, event, true)
+  game:moveTo({ fieldX = 688, fieldZ = 393 })
+  game:move("north")
   local transition = game:waitForTransition()
   Assert.equal(transition.destination.mapSymbol, LAB_2F)
 end
 
-function T.tests.coordinate_event_runs_on_the_landing_step()
+function T.tests.walking_onto_elm_lab_enters_the_second_floor_without_a_turn()
   withGame(TOWN, function(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
     setCoordinatePredicate(game, event, true)
-    game:moveTo({ fieldX = 688, fieldZ = 392 })
+    game:moveTo({ fieldX = 688, fieldZ = 393 })
+    local before = game:snapshot()
+    Assert.deepEqual({ before.player.fieldX, before.player.fieldZ }, { 688, 393 })
 
-    local started = recordsNamed(game, "script.started")
-    Assert.isTrue(#started > 0, "the landing coordinate script must start during the landing step")
-    Assert.equal(started[#started].payload.trigger.kind, "coordinate")
-    Assert.equal(game:snapshot().mapSymbol, TOWN, "the landing script owns the step before input warping")
+    game:move("north")
+    local transition = game:waitForTransition()
+    local destination = transition.destination
+    Assert.equal(destination.mapSymbol, LAB_2F)
+    Assert.deepEqual({ destination.player.fieldX, destination.player.fieldZ }, { 12, 6 })
+    Assert.equal(destination.player.facing, "west")
+    Assert.isFalse(destination.fieldLocked, "the completed route must release script ownership")
+    Assert.equal(game.runtime.scripts.worldState:getVar(VAR_UNK_407C), 1)
   end)
 end
 
@@ -123,11 +133,10 @@ function T.tests.coordinate_priority_and_variable_gate_control_the_landing()
   withGame(TOWN, function(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
     setCoordinatePredicate(game, event, false)
-    game:moveTo({ fieldX = 688, fieldZ = 392 })
+    game:moveTo({ fieldX = 688, fieldZ = 393 })
+    game:move("north")
     Assert.equal(#recordsNamed(game, "script.started"), 0, "a mismatched coordinate variable must skip the script")
-    game:face("west")
-    local transition = game:waitForTransition()
-    Assert.equal(transition.destination.mapSymbol, LAB_2F)
+    Assert.equal(game:snapshot().mapSymbol, TOWN)
   end)
 end
 

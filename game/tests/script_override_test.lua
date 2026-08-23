@@ -2,10 +2,12 @@
 -- as semantic operations instead of hiding them behind placeholder dialogue.
 
 local Assert = require("tests.support.Assert")
+local Compiler = require("libs.engine.src.script.Compiler")
 
 local T = {}
 
 local OVERRIDE_PATHS = {
+  "data/scripts/overrides/vanilla.hgss.scr_seq.0842.script_010.lua",
   "data/scripts/overrides/vanilla.hgss.scr_seq.0842.script_017.lua",
   "data/scripts/overrides/vanilla.hgss.scr_seq.0843.script_012.lua",
   "data/scripts/overrides/vanilla.hgss.scr_seq.0843.script_013.lua",
@@ -13,6 +15,7 @@ local OVERRIDE_PATHS = {
 }
 
 local VISIBILITY_BY_OPCODE = { [746] = false, [747] = true }
+local ELM_OVERRIDE_PATH = "data/scripts/overrides/vanilla.hgss.scr_seq.0842.script_010.lua"
 
 local function assertAuxiliaryUiOperations(value, moduleName, seen)
   if type(value) ~= "table" then
@@ -45,6 +48,14 @@ function T.supported_auxiliary_ui_opcodes_are_semantic_operations_in_overrides()
   end
   Assert.isTrue(seen[746])
   Assert.isTrue(seen[747])
+end
+
+function T.elm_route_override_has_complete_supported_coverage()
+  local resource = assert(loadfile(ELM_OVERRIDE_PATH))()
+  Assert.equal(resource.metadata.coverage.complete, true)
+  Assert.equal(resource.metadata.coverage.unsupportedCount, 0)
+  local graph = assert(Compiler.compile(resource))
+  Assert.isFalse(graph.hasUnsupported)
 end
 
 -- The signpost overrides' std_signpost call must be the real call_common

@@ -614,14 +614,18 @@ function Game:face(direction)
 end
 
 function Game:waitForTransition()
-  if self.lastTransition and self.lastTransition.destination.transition.phase == "idle" then
+  if
+    self.lastTransition
+    and self.lastTransition.destination.transition.phase == "idle"
+    and not self.lastTransition.destination.fieldLocked
+  then
     local completed = self.lastTransition
     self.lastTransition = nil
     return completed
   end
-  local source = self:snapshot()
+  local source = self.lastTransition and self.lastTransition.source or self:snapshot()
   self:advanceUntil("transition completes", function(snapshot)
-    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle"
+    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle" and not snapshot.fieldLocked
   end, 120)
   local completed = assert(self.lastTransition, "completed transition snapshot missing")
   self.lastTransition = nil
