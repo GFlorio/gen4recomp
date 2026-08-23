@@ -246,11 +246,85 @@ function T.tests.ordinary_profiles_share_source_exit_audio_and_fade()
       sounds = sounds,
       fade = transition.fade:status(),
     }
+    Assert.isTrue(transition:updateSourceFrame(), "ordinary source fade advances at start")
   end
 
   Assert.deepEqual(observations[1].sounds, { "SEQ_SE_DP_KAIDAN2" }, "profile 0 source exit audio")
   Assert.deepEqual(observations[2].sounds, observations[1].sounds, "profile 6 shares profile 0 source exit audio")
   Assert.equal(observations[2].fade.coefficient, observations[1].fade.coefficient)
+end
+
+local function ladderSourceFixture(profile)
+  local sounds = {}
+  local updates = 0
+  local player = {
+    motion = "idle",
+    beginTransitionLadderExit = function(self)
+      self.motion = "transition"
+      return true
+    end,
+    beginTransitionLadderDownExit = function(self)
+      self.motion = "transition"
+      return true
+    end,
+    updateFixed = function(self)
+      updates = updates + 1
+      if updates == 16 then
+        self.motion = "idle"
+      end
+      return true
+    end,
+  }
+  local transition = FieldTransition.new({
+    loader = {},
+    player = player,
+    resolveDestination = function()
+      return {
+        destinationMap = { mapId = 60 },
+        fieldX = 4,
+        fieldZ = 4,
+        surfaceId = 0,
+        worldY = 0,
+      }
+    end,
+    prepare = function(result)
+      return result
+    end,
+    commit = function() end,
+    playSound = function(sound)
+      sounds[#sounds + 1] = sound
+    end,
+  })
+  transition:start({ mapId = 61 }, {
+    warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+    transition = { mode = "fixed", profile = profile },
+  }, "north")
+  return transition, player, sounds
+end
+
+function T.tests.ladder_source_motion_finishes_before_sound_and_fade()
+  for _, profile in ipairs({ FieldTransitionProfile.LADDER, FieldTransitionProfile.LADDER_DOWN }) do
+    local transition, player, sounds = ladderSourceFixture(profile)
+    Assert.equal(player.motion, "transition")
+    Assert.deepEqual(sounds, {})
+    Assert.isFalse(transition:updateSourceFrame())
+    Assert.equal(transition:presentationStatus().coefficient, 0)
+
+    for _ = 1, 15 do
+      transition:updateFixed()
+      Assert.equal(player.motion, "transition")
+      Assert.deepEqual(sounds, {})
+      Assert.isFalse(transition:updateSourceFrame())
+      Assert.equal(transition:presentationStatus().coefficient, 0)
+    end
+
+    transition:updateFixed()
+    Assert.equal(player.motion, "idle")
+    Assert.deepEqual(sounds, { "SEQ_SE_DP_KAIDAN2" })
+    Assert.equal(transition:presentationStatus().coefficient, 0)
+    Assert.isTrue(transition:updateSourceFrame())
+    Assert.equal(transition:presentationStatus().coefficient, 2)
+  end
 end
 
 function T.tests.ordinary_profile_exit_audio_is_played_once()

@@ -383,6 +383,7 @@ local function beginSourceChoreography(self)
   if kind == "door" then
     if not self.doorAt then
       self.sourceChoreo = "done"
+      startFade(self, "out", 0)
       return
     end
     local door = self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
@@ -405,9 +406,11 @@ local function beginSourceChoreography(self)
       self.playSound(sound)
     end
     self.sourceChoreo = "wait_open"
+    startFade(self, "out", 0)
     return
   end
   if self.transitionMode == FieldTransitionProfile.MODE_PANEL then
+    startFade(self, "out", 0)
     return
   end
   invokeProfile(self, "exit")
@@ -424,16 +427,10 @@ local function beginSourceChoreography(self)
     self.playSound(family.exitSound)
     self.profileSoundPlayed = true
   end
-  if
-    family.exitSound
-    and self.playSound
-    and (self.profileId == FieldTransitionProfile.LADDER or self.profileId == FieldTransitionProfile.LADDER_DOWN)
-  then
-    self.playSound(family.exitSound)
-    self.profileSoundPlayed = true
-  end
   if kind ~= "door" and self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS then
-    startFade(self, "out", family.fadeColor or 0)
+    if self.profileId ~= FieldTransitionProfile.LADDER and self.profileId ~= FieldTransitionProfile.LADDER_DOWN then
+      startFade(self, "out", family.fadeColor or 0)
+    end
   end
   if beginProfileMotion(self, "exit") then
     self.sourceChoreo = "profile_motion"
@@ -690,9 +687,6 @@ function FieldTransition:start(sourceMap, trigger, facing)
     end
   end
   runChoreo(self, beginSourceChoreography)
-  if self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS then
-    startFade(self, "out", self.profileId and profileFamily(self).fadeColor or 0)
-  end
 end
 
 -- Restore a coherent idle state after failed destination preparation. Map

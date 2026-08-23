@@ -90,6 +90,52 @@ function T.escalator_motion_is_horizontal_and_does_not_change_height()
   Assert.equal(p.fieldX, 1)
 end
 
+function T.ladder_source_presentation_preserves_logical_ownership()
+  local cases = {
+    { method = "beginTransitionLadderExit", facing = "north", y = 2, z = 0 },
+    { method = "beginTransitionLadderExit", facing = "south", y = 0.5, z = -1.5 },
+    { method = "beginTransitionLadderDownExit", facing = "south", y = -2, z = 0 },
+  }
+  for _, case in ipairs(cases) do
+    local p = player(runtimeMap(), 0, 4, 0)
+    local start = {
+      fieldX = p.fieldX,
+      fieldZ = p.fieldZ,
+      localX = p.localX,
+      localZ = p.localZ,
+      surfaceId = p.surfaceId,
+      worldX = p.worldX,
+      worldY = p.worldY,
+      worldZ = p.worldZ,
+    }
+    Assert.isTrue(p[case.method](p, case.facing))
+    for _ = 1, 8 do
+      p:updateFixed({})
+    end
+    near(p.worldX, start.worldX)
+    near(p.worldY, start.worldY + case.y / 2)
+    near(p.worldZ, start.worldZ + case.z / 2)
+    Assert.equal(p.fieldX, start.fieldX)
+    Assert.equal(p.fieldZ, start.fieldZ)
+    Assert.equal(p.localX, start.localX)
+    Assert.equal(p.localZ, start.localZ)
+    Assert.equal(p.surfaceId, start.surfaceId)
+
+    for _ = 1, 8 do
+      p:updateFixed({})
+    end
+    near(p.worldX, start.worldX)
+    near(p.worldY, start.worldY + case.y)
+    near(p.worldZ, start.worldZ + case.z)
+    Assert.equal(p.motion, "idle")
+    Assert.equal(p.fieldX, start.fieldX)
+    Assert.equal(p.fieldZ, start.fieldZ)
+    Assert.equal(p.localX, start.localX)
+    Assert.equal(p.localZ, start.localZ)
+    Assert.equal(p.surfaceId, start.surfaceId)
+  end
+end
+
 local function tick(p, held, pressed)
   p:updateFixed({ heldDirection = held, pressedDirection = pressed })
 end

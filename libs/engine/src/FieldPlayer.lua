@@ -243,7 +243,7 @@ function FieldPlayer:resumeTransitionAnimation()
   self.animationPaused = false
 end
 
-local function beginTransitionPresentation(self, kind, facing, targetY)
+local function beginTransitionPresentation(self, kind, facing, target)
   assert(self.motion == "idle", "cannot begin a transition motion while moving")
   self.motion = "transition"
   self.facing = facing
@@ -253,7 +253,7 @@ local function beginTransitionPresentation(self, kind, facing, targetY)
   self.transitionFacing = facing
   self.transitionProgress = 0
   self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
-  self.transitionTo = { x = self.worldX, y = targetY or self.worldY, z = self.worldZ }
+  self.transitionTo = { x = target.x, y = target.y, z = target.z }
   return true
 end
 
@@ -279,14 +279,23 @@ end
 -- destination staging and the final semantic step own logical movement.
 function FieldPlayer:beginTransitionLadderExit(facing)
   assert(type(facing) == "string", "ladder exit facing required")
-  return beginTransitionPresentation(self, "ladder_exit", facing, self.worldY + 2)
+  local target = { x = self.worldX, y = self.worldY + 2, z = self.worldZ }
+  if facing == "south" then
+    target.y = self.worldY + 0.5
+    target.z = self.worldZ - 1.5
+  end
+  return beginTransitionPresentation(self, "ladder_exit", facing, target)
 end
 
 -- Source-side ladder descent presentation. It is deliberately separate from
 -- ascent so the two source routines retain their opposite vertical motion.
 function FieldPlayer:beginTransitionLadderDownExit(facing)
   assert(type(facing) == "string", "ladder-down exit facing required")
-  return beginTransitionPresentation(self, "ladder_down_exit", facing, self.worldY - 2)
+  return beginTransitionPresentation(self, "ladder_down_exit", facing, {
+    x = self.worldX,
+    y = self.worldY - 2,
+    z = self.worldZ,
+  })
 end
 
 -- Starts the sixteen-update vertical return from ladder staging to the
