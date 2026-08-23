@@ -775,9 +775,11 @@ function FieldRuntime:update(dt)
     local nextPresentationDelta = PRESENTATION_FRAME_DT - self.presentationFrameAccumulator
     local nextFieldDelta = FIXED_DT - self.session.accumulator
     local nextAudioDelta = self.audio and AUDIO_FRAME_DT - self.audioFrameAccumulator or math.huge
+    -- A field tick at the same timestamp starts the transition before its
+    -- source-frame presentation is consumed.
     if
       canPresentation
-      and (not canField or nextPresentationDelta <= nextFieldDelta)
+      and (not canField or nextPresentationDelta < nextFieldDelta)
       and (not canAudio or nextPresentationDelta <= nextAudioDelta)
     then
       self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT

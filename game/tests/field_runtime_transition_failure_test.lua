@@ -4,6 +4,7 @@
 -- simulation work until reset boots a fresh runtime.
 
 local Assert = require("tests.support.Assert")
+local FieldSession = require("libs.engine.src.FieldSession")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 
 local T = {}
@@ -96,6 +97,38 @@ function T.reset_clears_terminal_error_and_reboots_the_runtime()
   Assert.equal(resetCalls, 1, "reset clears the save store before rebooting")
   Assert.equal(loadCalls, 1, "reset reboots the runtime")
   Assert.isNil(runtime.errorText, "reset clears the terminal presentation")
+end
+
+function T.source_frame_started_on_the_same_boundary_as_field_tick_is_exposed()
+  local fadeStarted = false
+  local coefficient = 0
+  local runtime = setmetatable({
+    presentationFrameAccumulator = 0,
+    scripts = {},
+    session = {
+      accumulator = FieldSession.FIXED_DT - 1 / 60,
+      updateFixed = function()
+        fadeStarted = true
+      end,
+    },
+    transition = {
+      error = nil,
+      updateSourceFrame = function()
+        coefficient = fadeStarted and 2 or 0
+      end,
+      consumeCompleted = function()
+        return nil
+      end,
+    },
+    applicationHost = {
+      error = function()
+        return nil
+      end,
+    },
+  }, FieldRuntime)
+
+  runtime:update(1 / 60)
+  Assert.equal(coefficient, 2, "the first source-frame fade coefficient must be visible immediately")
 end
 
 return { tests = T }
