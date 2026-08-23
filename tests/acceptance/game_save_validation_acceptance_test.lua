@@ -234,4 +234,43 @@ function T.tests.catalog_lists_stale_script_identity_as_unavailable_before_conti
   menu:dispose()
 end
 
+function T.tests.catalog_lists_impossible_rng_state_as_unavailable_before_continue()
+  local backend = FakeCache.new()
+  local saveFs = SaveFs.global(backend)
+  local service = validator()
+  local store = GameSaveStore.new(saveFs, {
+    recordValidate = function(record)
+      return service:validate(record)
+    end,
+  })
+  ---@cast store SaveCatalogStore
+  local publisher = GameSaveStore.new(saveFs, { recordValidate = GameSave.validate })
+  ---@cast publisher SaveCatalogStore
+
+  local record = validRecord()
+  record.world.rng.state = 0x7FFFFFFF
+  Assert.equal(publisher:reserve(), record.saveId)
+  Assert.isTrue(publisher:publishFirst(record))
+
+  local entries = store:list()
+  Assert.equal(#entries, 1)
+  Assert.equal(entries[1].saveId, record.saveId)
+  Assert.notNil(entries[1].error, "an impossible RNG state must be rejected during catalog validation")
+  Assert.isTrue(Errors.is(entries[1].error))
+
+  local menu = MainMenuState.new({
+    saveStore = store,
+    readyVersions = { "heartgold" },
+    width = 960,
+    height = 540,
+  })
+  local item = menu:view().items[2]
+  Assert.equal(item.saveId, record.saveId)
+  Assert.isFalse(item.canContinue, "an impossible RNG state must not be Continue-eligible")
+  Assert.isTrue(type(item.errorSummary) == "string" and item.errorSummary ~= "")
+  Assert.isTrue(store:delete(record.saveId), "an unavailable save must remain deletable")
+  Assert.equal(#store:list(), 0)
+  menu:dispose()
+end
+
 return T

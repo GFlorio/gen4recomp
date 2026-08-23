@@ -234,6 +234,48 @@ T["world validation is strict and matches capture"] = function()
   end
 end
 
+T["script rng validation enforces the generator domain"] = function()
+  local maximumState = 0x7FFFFFFE
+  local modulus = 0x7FFFFFFF
+
+  Assert.notNil(ScriptRng.validate({ state = 1, calls = 0 }))
+  local maximum, maximumErr = ScriptRng.validate({ state = maximumState, calls = 0 })
+  Assert.notNil(maximum, "the largest reachable state must be valid")
+  Assert.isNil(maximumErr)
+  local restoredMaximum = ScriptRng.restore(assert(maximum))
+  local nextMaximum = restoredMaximum:nextRaw()
+  Assert.isTrue(
+    nextMaximum > 0 and nextMaximum < modulus,
+    "the largest reachable state must advance within the generator domain"
+  )
+
+  local _, modulusErr = ScriptRng.validate({ state = modulus, calls = 0 })
+  Assert.isTrue(Errors.is(modulusErr), "the modulus must be rejected")
+  local _, largerErr = ScriptRng.validate({ state = modulus + 1, calls = 0 })
+  Assert.isTrue(Errors.is(largerErr), "states above the modulus must be rejected")
+
+  local invalidStates = { 0, -1, 1.5, 0 / 0, math.huge, -math.huge }
+  for _, state in ipairs(invalidStates) do
+    local _, err = ScriptRng.validate({ state = state, calls = 0 })
+    Assert.isTrue(Errors.is(err), "invalid state must return a typed error")
+  end
+
+  local validCalls, validCallsErr = ScriptRng.validate({ state = 1, calls = 4 })
+  Assert.notNil(validCalls)
+  Assert.isNil(validCallsErr)
+  local invalidCalls = { -1, 1.5, 0 / 0, math.huge, -math.huge }
+  for _, calls in ipairs(invalidCalls) do
+    local _, err = ScriptRng.validate({ state = 1, calls = calls })
+    Assert.isTrue(Errors.is(err), "invalid call count must return a typed error")
+  end
+
+  local _, unknownFieldErr = ScriptRng.validate({ state = 1, calls = 0, extra = true })
+  Assert.isTrue(Errors.is(unknownFieldErr), "unknown fields must be rejected")
+
+  local _, missingFieldErr = ScriptRng.validate({ state = 1 })
+  Assert.isTrue(Errors.is(missingFieldErr), "missing fields must be rejected")
+end
+
 -- 8. The new-bark branching scenario: scene variable drives the branch and
 -- save state selects every branch.
 T["new bark branching driven by save state"] = function()

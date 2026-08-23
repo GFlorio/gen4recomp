@@ -16,6 +16,10 @@ ScriptRng.SCHEMA_NAME = "g4-script-rng-v1"
 local MODULUS = 0x7FFFFFFF
 local MULTIPLIER = 48271
 
+local function isFiniteInteger(value)
+  return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge and value % 1 == 0
+end
+
 ---@class ScriptRngState
 ---@field _state integer
 ---@field _calls integer
@@ -103,11 +107,18 @@ function ScriptRng.validate(record)
   if type(record) ~= "table" then
     return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state must be a table", {})
   end
-  if type(record.state) ~= "number" or record.state % 1 ~= 0 or record.state <= 0 then
-    return nil,
-      Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state must be a positive integer", {})
+
+  for key in pairs(record) do
+    if key ~= "state" and key ~= "calls" then
+      return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state has an unknown field", {})
+    end
   end
-  if type(record.calls) ~= "number" or record.calls % 1 ~= 0 or record.calls < 0 then
+
+  if not isFiniteInteger(record.state) or record.state < 1 or record.state >= MODULUS then
+    return nil,
+      Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state is outside the generator domain", {})
+  end
+  if not isFiniteInteger(record.calls) or record.calls < 0 then
     return nil,
       Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng calls must be a non-negative integer", {})
   end
