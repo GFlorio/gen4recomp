@@ -80,6 +80,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field sourceChoreo "wait_open"|"wait_step"|"profile_motion"|"done"|nil -- the source-side choreography state
 ---@field destinationChoreo "wait_open"|"wait_step"|"wait_close"|"profile_motion"|"done"|nil -- the destination-side choreography state
 ---@field activeProfileSound string|nil
+---@field ownsPlayerAnimationPause boolean
 ---@field completed table?
 ---@field error any?
 ---@field warpContext table?
@@ -135,6 +136,7 @@ function FieldTransition.new(options)
     fadeStarted = false,
     profileSoundPlayed = false,
     activeProfileSound = nil,
+    ownsPlayerAnimationPause = false,
     escalator = nil,
   }, FieldTransition)
 end
@@ -203,11 +205,15 @@ local function beginProfileMotion(self, phase)
     assert(self.escalator, "escalator transition prop required")
     assert(type(self.escalator.play) == "function", "escalator prop playback required")
     assert(type(self.escalator.isFinished) == "function", "escalator prop completion required")
-    self.escalator:play("escalator")
-    if self.player and type(self.player.pauseTransitionAnimation) == "function" then
-      self.player:pauseTransitionAnimation()
-    end
+    assert(self.player and type(self.player.pauseTransitionAnimation) == "function", "escalator player pause required")
+    assert(
+      self.player and type(self.player.resumeTransitionAnimation) == "function",
+      "escalator player resume required"
+    )
     assert(self.player and type(self.player.beginTransitionStep) == "function", "escalator step required")
+    self.escalator:play("escalator")
+    self.player:pauseTransitionAnimation()
+    self.ownsPlayerAnimationPause = true
     local direction = phase == "exit" and self.facing or self.destinationFacing
     local started = self.player:beginTransitionStep(direction)
     assert(started, "escalator transition step could not start")
@@ -265,7 +271,17 @@ local function stopProfileSound(self)
   self.activeProfileSound = nil
 end
 
+local function resumeOwnedPlayerAnimation(self)
+  if not self.ownsPlayerAnimationPause then
+    return
+  end
+  assert(self.player and type(self.player.resumeTransitionAnimation) == "function", "escalator player resume required")
+  self.player:resumeTransitionAnimation()
+  self.ownsPlayerAnimationPause = false
+end
+
 local function resetTransient(self, stopSound)
+  resumeOwnedPlayerAnimation(self)
   if stopSound then
     stopProfileSound(self)
   else
@@ -428,7 +444,11 @@ local function beginSourceChoreography(self)
     self.profileSoundPlayed = true
   end
   if kind ~= "door" and self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS then
-    if self.profileId ~= FieldTransitionProfile.LADDER and self.profileId ~= FieldTransitionProfile.LADDER_DOWN then
+    if
+      self.profileId ~= FieldTransitionProfile.LADDER
+      and self.profileId ~= FieldTransitionProfile.LADDER_DOWN
+      and self.profileId ~= FieldTransitionProfile.ESCALATOR
+    then
       startFade(self, "out", family.fadeColor or 0)
     end
   end
@@ -447,10 +467,20 @@ local function advanceSourceChoreo(self)
   if self.sourceChoreo == "profile_motion" then
     advanceProfileMotion(self)
     if not self.player or (self.player.motion ~= "transition" and self.player.motion ~= "walking") then
-      if not self.escalator or self.escalator:isFinished() ~= false then
-        if self.player and type(self.player.resumeTransitionAnimation) == "function" then
-          self.player:resumeTransitionAnimation()
+      if self.profileId == FieldTransitionProfile.ESCALATOR then
+        if not self.fadeStarted then
+          local family = profileFamily(self)
+          startFade(self, "out", family.fadeColor or 0)
         end
+        local propFinished = not self.escalator or self.escalator:isFinished() ~= false
+        if propFinished and self.fadeAlpha == 1 then
+          resumeOwnedPlayerAnimation(self)
+          stopProfileSound(self)
+          self.sourceChoreo = "done"
+        end
+        return
+      end
+      if not self.escalator or self.escalator:isFinished() ~= false then
         self.sourceChoreo = "done"
       end
     end
@@ -526,9 +556,7 @@ local function advanceDestinationChoreo(self)
         if self.escalator and self.escalator:isFinished() == false then
           return
         end
-        if self.player and type(self.player.resumeTransitionAnimation) == "function" then
-          self.player:resumeTransitionAnimation()
-        end
+        resumeOwnedPlayerAnimation(self)
       end
       if self.profileId == FieldTransitionProfile.LADDER or self.profileId == FieldTransitionProfile.LADDER_DOWN then
         local direction = self.profileId == FieldTransitionProfile.LADDER and "north" or "south"
@@ -646,21 +674,12 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.destinationFacing = trigger.destinationFacing or facing
   self.profileId, self.transitionMode = selectProfile(self, sourceMap, trigger)
   self.facing = facing
-  self.progressTicks = 0
   self.resolution = nil
   self.suppression = nil
   self.prepared = nil
   self.error = nil
   self.warpContext = nil
   self.completed = nil
-  self.sourceDoor = nil
-  self.destinationDoor = nil
-  self.sourceChoreo = nil
-  self.destinationChoreo = nil
-  self.destinationAnchorY = nil
-  self.escalator = nil
-  self.profileSoundPlayed = false
-
   -- Invoke onStart callback once per transition start: this callback runs
   -- before ownership changes and can fail coherently like other pre-commit
   -- failures.

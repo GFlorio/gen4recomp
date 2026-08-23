@@ -109,36 +109,59 @@ function T.tests.vertical_profiles_return_from_staging_before_the_final_step()
   end
 end
 
-function T.tests.escalator_profile_uses_prop_and_horizontal_player_choreography()
+local function eventIndex(events, expected)
+  for index, event in ipairs(events) do
+    if event == expected then
+      return index
+    end
+  end
+  return nil
+end
+
+function T.tests.escalator_source_lifecycle_orders_effects_and_pause_ownership()
   local events = {}
+  local stepCount = 0
+  local propPlayCount = 0
+  local sourcePropPolls = 0
   local prop = {
     play = function(self, animation)
       events[#events + 1] = "prop:" .. animation
+      propPlayCount = propPlayCount + 1
+      if propPlayCount == 1 then
+        sourcePropPolls = 0
+      end
       self.finished = false
     end,
     isFinished = function(self)
-      if not self.finished then
-        self.finished = true
-        return false
+      if propPlayCount == 1 then
+        sourcePropPolls = sourcePropPolls + 1
+        return sourcePropPolls >= 3
       end
       return true
     end,
   }
   local player = {
     motion = "idle",
-    pauseTransitionAnimation = function()
+    animationPaused = false,
+    pauseTransitionAnimation = function(self)
       events[#events + 1] = "pause"
+      self.animationPaused = true
     end,
-    resumeTransitionAnimation = function()
+    resumeTransitionAnimation = function(self)
       events[#events + 1] = "resume"
+      self.animationPaused = false
     end,
     beginTransitionStep = function(self, facing)
       events[#events + 1] = "horizontal:" .. facing
       self.motion = "walking"
+      stepCount = 0
       return true
     end,
     updateFixed = function(self)
-      self.motion = "idle"
+      stepCount = stepCount + 1
+      if stepCount >= 2 then
+        self.motion = "idle"
+      end
       return true
     end,
   }
@@ -155,6 +178,7 @@ function T.tests.escalator_profile_uses_prop_and_horizontal_player_choreography(
       events[#events + 1] = "stop:" .. sound
     end,
     resolveDestination = function()
+      events[#events + 1] = "resolve"
       return {
         destinationMap = { mapId = 60 },
         fieldX = 4,
@@ -164,33 +188,131 @@ function T.tests.escalator_profile_uses_prop_and_horizontal_player_choreography(
       }
     end,
     prepare = function(result)
+      events[#events + 1] = "prepare"
       return result
     end,
-    commit = function() end,
+    commit = function()
+      events[#events + 1] = "commit"
+    end,
   })
   transition:start({ mapId = 61 }, {
     warp = { index = 0, destinationMapId = 60, destinationWarpId = 0, x = 4, z = 4 },
     transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
   }, "east")
-  for _ = 1, 80 do
-    step(transition)
-    if transition.phase == "idle" then
-      break
-    end
-  end
-  Assert.equal(transition.phase, "idle")
   Assert.deepEqual(events, {
     "prop:escalator",
     "pause",
     "horizontal:east",
     "sound:SEQ_SE_DP_ESUKA",
-    "resume",
-    "prop:escalator",
-    "pause",
-    "horizontal:east",
-    "resume",
-    "stop:SEQ_SE_DP_ESUKA",
   })
+  Assert.isTrue(player.animationPaused)
+  local fadeAbsentBeforeMotion = not transition.fadeStarted
+  local sourceFrameStoppedBeforeMotion = not transition:updateSourceFrame()
+  local coefficientStayedAtZero = transition:presentationStatus().coefficient == 0
+
+  transition:updateFixed()
+  Assert.equal(player.motion, "walking")
+  local fadeStartedBeforePlayerFinished = transition.fadeStarted
+  transition:updateFixed()
+  Assert.equal(player.motion, "idle")
+  Assert.isTrue(transition.fadeStarted)
+  Assert.isTrue(transition:updateSourceFrame())
+
+  while not transition.fade:status().completed do
+    Assert.isTrue(transition:updateSourceFrame())
+  end
+  Assert.isTrue(transition.fade:status().completed)
+  transition:updateFixed()
+  Assert.equal(transition.phase, FieldTransition.PHASES.fade_out)
+  Assert.isTrue(player.animationPaused)
+  Assert.isNil(eventIndex(events, "stop:SEQ_SE_DP_ESUKA"))
+
+  transition:updateFixed()
+  Assert.equal(transition.phase, FieldTransition.PHASES.load_destination)
+  Assert.isFalse(player.animationPaused)
+  Assert.equal(eventIndex(events, "resume"), 5)
+  local sourceStopBeforeResolve = eventIndex(events, "stop:SEQ_SE_DP_ESUKA")
+
+  transition:updateFixed()
+  Assert.equal(transition.phase, FieldTransition.PHASES.swap_map)
+  transition:updateFixed()
+  Assert.equal(transition.phase, FieldTransition.PHASES.fade_in)
+
+  for _ = 1, 20 do
+    if transition.phase == FieldTransition.PHASES.idle then
+      break
+    end
+    step(transition)
+  end
+  Assert.equal(transition.phase, "idle")
+  Assert.isFalse(player.animationPaused)
+  Assert.isTrue(fadeAbsentBeforeMotion, "source fade must wait for player motion")
+  Assert.isFalse(fadeStartedBeforePlayerFinished, "source fade must wait for player motion")
+  Assert.isTrue(sourceFrameStoppedBeforeMotion, "source frames must not advance before source motion")
+  Assert.isTrue(coefficientStayedAtZero, "source fade coefficient must remain zero before source motion")
+  Assert.notNil(sourceStopBeforeResolve, "source sound must stop before destination resolution")
+  Assert.isTrue(
+    sourceStopBeforeResolve < eventIndex(events, "resolve"),
+    "source sound must stop before destination resolution"
+  )
+  Assert.equal(#events, 13)
+  Assert.equal(events[7], "resolve")
+  Assert.equal(events[8], "prepare")
+  Assert.equal(events[9], "commit")
+  Assert.equal(events[10], "prop:escalator")
+  Assert.equal(events[11], "pause")
+  Assert.equal(events[12], "horizontal:east")
+  Assert.equal(events[13], "resume")
+end
+
+function T.tests.escalator_step_failure_releases_owned_animation_pause()
+  local player = {
+    motion = "idle",
+    animationPaused = false,
+    pauseTransitionAnimation = function(self)
+      self.animationPaused = true
+    end,
+    resumeTransitionAnimation = function(self)
+      self.animationPaused = false
+    end,
+    beginTransitionStep = function()
+      return false
+    end,
+  }
+  local transition = FieldTransition.new({
+    loader = {},
+    player = player,
+    escalatorAt = function()
+      return {
+        play = function() end,
+        isFinished = function()
+          return true
+        end,
+      }
+    end,
+    playSound = function() end,
+    stopSound = function() end,
+    resolveDestination = function()
+      return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
+    end,
+    prepare = function(result)
+      return result
+    end,
+    commit = function() end,
+  })
+
+  local err = Assert.throws(function()
+    transition:start({ mapId = 61 }, {
+      warp = { index = 0, destinationMapId = 60, destinationWarpId = 0, x = 4, z = 4 },
+      transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
+    }, "east")
+  end)
+  Assert.isTrue(string.find(tostring(err), "escalator transition step could not start", 1, true) ~= nil)
+  Assert.equal(transition.phase, FieldTransition.PHASES.idle)
+  Assert.isFalse(transition.locked)
+  Assert.equal(transition.error, err)
+  Assert.isFalse(player.animationPaused)
+  Assert.isFalse(transition:updateSourceFrame())
 end
 
 T.tests.transition_profiles_preserve_source_semantics = function()
@@ -434,6 +556,8 @@ function T.tests.field_transition_uses_trigger_destination_facing()
   local receivedFacing
   local player = {
     motion = "idle",
+    pauseTransitionAnimation = function() end,
+    resumeTransitionAnimation = function() end,
     beginTransitionStep = function(self, facing)
       self.motion = "idle"
       self.facing = facing
@@ -465,7 +589,7 @@ function T.tests.field_transition_uses_trigger_destination_facing()
     transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
     destinationFacing = "west",
   }, "east")
-  advanceTo(transition, "swap_map", 4)
+  advanceTo(transition, "swap_map", 10)
   Assert.equal(receivedFacing, "west")
 end
 
@@ -603,6 +727,8 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
   local player = {
     motion = "idle",
     facing = "south",
+    pauseTransitionAnimation = function() end,
+    resumeTransitionAnimation = function() end,
     beginTransitionStep = function(self, facing)
       events[#events + 1] = { phase = "movement", family = "step:" .. facing }
       self.motion = "transition"
