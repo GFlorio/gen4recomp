@@ -388,6 +388,64 @@ T["task version rejection"] = function()
   Assert.equal(err.code, "SCRIPT_TASK_VERSION_UNSUPPORTED")
 end
 
+T["complete validation rejects task state before restore"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.validation", {
+      S.waitTicks({ ticks = 5 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.tasks[1].state.remainingTicks = -1
+
+  local err = ScriptSave.validate(bucket, {
+    expectedRegistryFingerprint = h.registry:fingerprint(),
+    expectedTaskFingerprint = h.taskRegistry:fingerprint(),
+    resolveTask = function(taskType, version)
+      return h.taskRegistry:resolve(taskType, version)
+    end,
+    resolveComposition = function(scriptId)
+      return h.composition:effective(scriptId)
+    end,
+  })
+  Assert.isTrue(Errors.is(err))
+  local validationError = assert(err)
+  Assert.equal(validationError.code, "SCRIPT_TASK_UNSERIALIZABLE")
+end
+
+T["complete validation rejects stale frame revision before restore"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.validation_revision", {
+      S.waitTicks({ ticks = 5 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.instances[1].frames[1].graphRevision = "stale-graph"
+
+  local err = ScriptSave.validate(bucket, {
+    expectedRegistryFingerprint = h.registry:fingerprint(),
+    expectedTaskFingerprint = h.taskRegistry:fingerprint(),
+    resolveTask = function(taskType, version)
+      return h.taskRegistry:resolve(taskType, version)
+    end,
+    resolveComposition = function(scriptId)
+      return h.composition:effective(scriptId)
+    end,
+  })
+  Assert.isTrue(Errors.is(err))
+  local validationError = assert(err)
+  Assert.equal(validationError.code, "SCRIPT_SAVE_REVISION_MISMATCH")
+end
+
 -- 9. Missing graph revision on load : the runtime does not
 -- restart or redirect the active script.
 T["missing graph revision"] = function()

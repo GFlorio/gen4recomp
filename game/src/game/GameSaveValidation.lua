@@ -12,14 +12,16 @@ local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
 local AudioCache = require("libs.assets.src.AudioCache")
 local GameSave = require("libs.engine.src.GameSave")
 local Errors = require("libs.errors.src.Errors")
+local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
 
 ---@class GameSaveValidation
 ---@field contexts table<string, table>
 ---@field contextLoader fun(versionId: string): table
+---@field overrideFs table|nil repository override filesystem for default contexts
 local GameSaveValidation = {}
 GameSaveValidation.__index = GameSaveValidation
 
-local function contextForCache(cacheFs)
+local function contextForCache(cacheFs, overrideFs)
   local fontDef = FieldFontLoader.load(cacheFs)
   local manifest, loadError = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
   if not manifest then
@@ -41,14 +43,23 @@ local function contextForCache(cacheFs)
     assert(type(sequenceId) == "number" and sequence.id == sequenceId, "audio index sequence identity is invalid")
     audioSequenceIds[sequenceId] = true
   end
-  return { charmap = fontDef.charmap, frameIndexes = frameIndexes, audioSequenceIds = audioSequenceIds }
+  return {
+    charmap = fontDef.charmap,
+    frameIndexes = frameIndexes,
+    audioSequenceIds = audioSequenceIds,
+    scriptCompatibility = FieldScriptCompatibility.new({ cacheFs = cacheFs, overrideFs = overrideFs }),
+  }
 end
 
 ---@param options table?
 ---@return GameSaveValidation
 function GameSaveValidation.new(options)
   options = options or {}
-  return setmetatable({ contexts = {}, contextLoader = options.contextLoader }, GameSaveValidation)
+  return setmetatable({
+    contexts = {},
+    contextLoader = options.contextLoader,
+    overrideFs = options.overrideFs,
+  }, GameSaveValidation)
 end
 
 function GameSaveValidation:_context(versionId)
@@ -56,9 +67,11 @@ function GameSaveValidation:_context(versionId)
   if context then
     return context
   end
-  context = self.contextLoader and self.contextLoader(versionId) or contextForCache(CacheFs.forVersion(versionId))
+  context = self.contextLoader and self.contextLoader(versionId)
+    or contextForCache(CacheFs.forVersion(versionId), assert(self.overrideFs, "override filesystem is required"))
   assert(type(context) == "table", "GameSave validation context must be a table")
   assert(type(context.audioSequenceIds) == "table", "GameSave validation audio sequence ids are required")
+  assert(type(context.scriptCompatibility) == "table", "GameSave script compatibility context is required")
   self.contexts[versionId] = context
   return context
 end
@@ -77,7 +90,8 @@ function GameSaveValidation:validate(record, context)
         return PlayerData.validate(value, selected)
       end,
       scriptsValidate = function(value)
-        return ScriptSave.validate(value, {})
+        local options = selected.scriptCompatibility:validationOptions()
+        return ScriptSave.validate(value, options)
       end,
       worldValidate = function(value)
         return WorldState.validate(value)

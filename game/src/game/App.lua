@@ -21,6 +21,7 @@ local OakIntroState = require("game.src.game.OakIntroState")
 local OakIntroComposition = require("game.src.game.OakIntroComposition")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
+local RepoFs = require("game.src.game.RepoFs")
 
 ---@class SaveStoreLike
 ---@field load fun(self: SaveStoreLike, saveId: string): table|nil, any
@@ -58,7 +59,8 @@ end
 
 function App.load(opts)
   App.opts = opts or {}
-  App.saveValidation = App.opts.saveValidation or GameSaveValidation.new()
+  App.saveValidation = App.opts.saveValidation
+    or GameSaveValidation.new({ overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()) })
   App.saveStore = App.opts.saveStore
     or GameSaveStore.new(SaveFs.global(), {
       recordValidate = function(record)

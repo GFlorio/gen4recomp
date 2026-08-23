@@ -12,6 +12,20 @@ local function context()
     charmap = { G = 1, O = 2, L = 3, D = 4 },
     frameIndexes = { [0] = true },
     audioSequenceIds = { [7] = true },
+    scriptCompatibility = {
+      validationOptions = function()
+        return {
+          expectedRegistryFingerprint = "registry",
+          expectedTaskFingerprint = "tasks",
+          resolveTask = function()
+            return nil
+          end,
+          resolveComposition = function()
+            return nil
+          end,
+        }
+      end,
+    },
   }
 end
 
@@ -85,6 +99,32 @@ function T.version_context_failure_does_not_borrow_another_version()
   Assert.isNil(invalid)
   local unavailableError = assert(err)
   Assert.equal(unavailableError.code, "SAVE_VERSION_CONTEXT_UNAVAILABLE")
+end
+
+function T.complete_validation_rejects_stale_task_identity()
+  local selected = context()
+  selected.scriptCompatibility.validationOptions = function()
+    return {
+      expectedRegistryFingerprint = "registry",
+      expectedTaskFingerprint = "current-tasks",
+      resolveTask = function()
+        return nil
+      end,
+      resolveComposition = function()
+        return nil
+      end,
+    }
+  end
+  local service = GameSaveValidation.new({
+    contextLoader = function()
+      return selected
+    end,
+  })
+  local invalid, err = service:validate(record("save-00000004", "heartgold", validPlayerData))
+  Assert.isNil(invalid)
+  Assert.isTrue(Errors.is(err))
+  local validationError = assert(err)
+  Assert.equal(validationError.code, "GAME_SAVE_BUCKET_INVALID")
 end
 
 return { tests = T }

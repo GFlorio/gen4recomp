@@ -5,6 +5,7 @@ local Assert = require("tests.support.Assert")
 local FakeCache = require("tests.support.FakeCache")
 local SaveFs = require("libs.storage.src.SaveFs")
 local GameSaveStore = require("libs.engine.src.GameSaveStore")
+local GameSave = require("libs.engine.src.GameSave")
 local GameSaveValidation = require("game.src.game.GameSaveValidation")
 local MainMenuState = require("game.src.game.MainMenuState")
 local Errors = require("libs.errors.src.Errors")
@@ -15,6 +16,12 @@ local T = {
   },
   tests = {},
 }
+
+---@class SaveCatalogStore : GameSaveStore
+---@field reserve fun(self: SaveCatalogStore): string
+---@field publishFirst fun(self: SaveCatalogStore, record: table): boolean
+---@field list fun(self: SaveCatalogStore): table[]
+---@field delete fun(self: SaveCatalogStore, saveId: string): boolean
 
 local function copy(value)
   if type(value) ~= "table" then
@@ -32,6 +39,20 @@ local function context()
     charmap = { G = 1, O = 2, L = 3, D = 4 },
     frameIndexes = { [0] = true },
     audioSequenceIds = { [7] = true },
+    scriptCompatibility = {
+      validationOptions = function()
+        return {
+          expectedRegistryFingerprint = "registry",
+          expectedTaskFingerprint = "tasks",
+          resolveTask = function()
+            return nil
+          end,
+          resolveComposition = function()
+            return nil
+          end,
+        }
+      end,
+    },
   }
 end
 
@@ -133,7 +154,6 @@ function T.tests.catalog_lists_corrupt_save_as_unavailable_before_continue()
   local backend = FakeCache.new()
   local saveFs = SaveFs.global(backend)
   local service = validator()
-  ---@type { reserve: fun(self: table): string, publishFirst: fun(self: table, record: table): boolean, list: fun(self: table): table[] }
   local store = GameSaveStore.new(saveFs, {
     recordValidate = function(record)
       return service:validate(record)
@@ -169,6 +189,48 @@ function T.tests.catalog_lists_corrupt_save_as_unavailable_before_continue()
   Assert.isTrue(type(item.errorSummary) == "string" and item.errorSummary ~= "")
   Assert.isNil(item.playerName)
   Assert.isNil(item.playTimeLabel)
+  menu:dispose()
+end
+
+function T.tests.catalog_lists_stale_script_identity_as_unavailable_before_continue()
+  local backend = FakeCache.new()
+  local saveFs = SaveFs.global(backend)
+  local service = validator()
+  ---@type { reserve: fun(self: table): string, publishFirst: fun(self: table, record: table): boolean, list: fun(self: table): table[] }
+  local store = GameSaveStore.new(saveFs, {
+    recordValidate = function(record)
+      return service:validate(record)
+    end,
+  })
+  local publisher = GameSaveStore.new(saveFs, { recordValidate = GameSave.validate })
+  ---@cast store SaveCatalogStore
+  ---@cast publisher SaveCatalogStore
+
+  local record = validRecord()
+  record.scripts.registryFingerprint = "stale-registry"
+  Assert.equal(publisher:reserve(), record.saveId)
+  Assert.isTrue(publisher:publishFirst(record))
+
+  local entries = store:list()
+  Assert.equal(#entries, 1)
+  Assert.equal(entries[1].saveId, record.saveId)
+  Assert.notNil(entries[1].error, "a stale script identity must be rejected during catalog validation")
+  Assert.isTrue(Errors.is(entries[1].error))
+
+  local menu = MainMenuState.new({
+    saveStore = store,
+    readyVersions = { "heartgold" },
+    width = 960,
+    height = 540,
+  })
+  local item = menu:view().items[2]
+  Assert.equal(item.saveId, record.saveId)
+  Assert.isFalse(item.canContinue, "a stale script identity must not be Continue-eligible")
+  Assert.isTrue(type(item.errorSummary) == "string" and item.errorSummary ~= "")
+
+  local deleted = store:delete(record.saveId)
+  Assert.isTrue(deleted, "an unavailable save must remain deletable")
+  Assert.equal(#store:list(), 0)
   menu:dispose()
 end
 

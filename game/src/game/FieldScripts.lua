@@ -4,7 +4,6 @@
 -- session steps. FieldState wires the result into FieldSession.
 
 local Bindings = require("libs.engine.src.script.Bindings")
-local Composition = require("libs.engine.src.script.Composition")
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
@@ -12,54 +11,12 @@ local ScriptDialogueHost = require("libs.engine.src.script.ScriptDialogueHost")
 local ScriptMenuHost = require("libs.engine.src.script.ScriptMenuHost")
 local ScriptSignpostHost = require("libs.engine.src.script.ScriptSignpostHost")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
-local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
-local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
-local RegistryWarmup = require("libs.engine.src.script.RegistryWarmup")
 local WorldState = require("libs.engine.src.script.WorldState")
 local Scheduler = require("libs.engine.src.script.Scheduler")
-local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
+local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local MapInitScriptController = require("libs.engine.src.MapInitScriptController")
-
--- Every task implementation the runtime can create, registered into the
--- live task registry below.
-local TASK_MODULES = {
-  "libs.engine.src.script.tasks.WaitTicksTask",
-  "libs.engine.src.script.tasks.WaitInputTask",
-  "libs.engine.src.script.tasks.WaitInputOrTicksTask",
-  "libs.engine.src.script.tasks.WaitSignpostActionTask",
-  "libs.engine.src.script.tasks.TrainerTipsTask",
-  "libs.engine.src.script.tasks.WaitSignpostTask",
-  "libs.engine.src.script.tasks.SignTask",
-  "libs.engine.src.script.tasks.DialogueTask",
-  "libs.engine.src.script.tasks.MovementTask",
-  "libs.engine.src.script.tasks.MovementBarrierTask",
-  "libs.engine.src.script.tasks.MovementPauseTask",
-  "libs.engine.src.script.tasks.FadeTask",
-  "libs.engine.src.script.tasks.SoundWaitTask",
-  "libs.engine.src.script.tasks.MusicFadeTask",
-  "libs.engine.src.script.tasks.WarpTask",
-  "libs.engine.src.script.tasks.ChildScriptTask",
-  "libs.engine.src.script.tasks.AskYesNoTask",
-  "libs.engine.src.script.tasks.AuxiliaryUiTask",
-  "libs.engine.src.script.tasks.ContextChoiceTask",
-  "libs.engine.src.script.tasks.MenuTask",
-}
-
--- Build the task registry with every registered task type. `actor_pause`
--- shares the movement pause implementation, scoped to one actor.
----@return TaskRegistry
-local function taskRegistry()
-  local registry = TaskRegistry.new()
-  for _, moduleName in ipairs(TASK_MODULES) do
-    local impl = require(moduleName)
-    registry:register(impl.type, impl.version, impl)
-  end
-  local pause = require("libs.engine.src.script.tasks.MovementPauseTask")
-  registry:register(pause.actorType, pause.version, pause)
-  return registry
-end
 
 -- The player facade the script services consume: position/facing/gender/name
 -- plus the mutation hooks the movement tasks use (the player can be a
@@ -182,6 +139,7 @@ end
 ---@field warmup RegistryWarmup|nil background warm-up after a snapshot miss
 ---@field taskRegistry TaskRegistry the live registered-task registry
 ---@field initController MapInitScriptController
+---@field compatibility FieldScriptCompatibility
 local FieldScripts = {}
 FieldScripts.__index = FieldScripts
 
@@ -212,25 +170,9 @@ function FieldScripts.new(opts)
   -- fingerprint; on a miss the background warm-up decodes, hashes, and
   -- publishes the snapshot while the game plays, and the first save finishes
   -- it. The override layer is always loaded and validated eagerly.
-  local snapshot = RegistrySnapshot.load(opts.cacheFs, opts.overrideFs)
-  local fast = snapshot ~= nil and snapshot.fingerprint ~= nil
-  local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs, nil, {
-    lazy = true,
-    validateGenerated = not fast,
-  })
-  if snapshot ~= nil and snapshot.fingerprint ~= nil then
-    registry:restoreFingerprint(snapshot.fingerprint)
-  end
-  local warmup
-  if not fast then
-    warmup = RegistryWarmup.new({
-      registry = registry,
-      cacheFs = opts.cacheFs,
-      overrideFs = opts.overrideFs,
-      snapshotKey = snapshot and snapshot.key or nil,
-    })
-  end
-  local composition = Composition.new(registry)
+  local compatibility = FieldScriptCompatibility.new({ cacheFs = opts.cacheFs, overrideFs = opts.overrideFs })
+  local registry = compatibility.registry
+  local composition = compatibility.composition
   local bindings = Bindings.new()
 
   local worldState = WorldState.new({
@@ -282,10 +224,11 @@ function FieldScripts.new(opts)
   ---@class FieldScriptsPlatform: FieldScripts
   ---@field initController MapInitScriptController
   local platform = setmetatable({
+    compatibility = compatibility,
     registry = registry,
-    registrySnapshotKey = snapshot and snapshot.key or nil,
-    registrySnapshotUsed = fast,
-    warmup = warmup,
+    registrySnapshotKey = compatibility.registrySnapshotKey,
+    registrySnapshotUsed = compatibility.registrySnapshotUsed,
+    warmup = compatibility.warmup,
     cacheFs = opts.cacheFs,
     overrideFs = opts.overrideFs,
     composition = composition,
@@ -299,7 +242,7 @@ function FieldScripts.new(opts)
   }, FieldScripts)
 
   -- The live task registry: the scheduler routes through it.
-  local liveTaskRegistry = taskRegistry()
+  local liveTaskRegistry = compatibility.taskRegistry
 
   local scheduler
   local advanceAsync = function()
@@ -366,17 +309,7 @@ end
 -- warms up again instead of trusting a stale digest.
 ---@return string
 function FieldScripts:registryFingerprint()
-  if self.warmup ~= nil then
-    local failure = self.warmup:finish()
-    if failure ~= nil then
-      Errors.raise(failure.code, failure.message, failure.context)
-    end
-  end
-  local fingerprint = self.registry:fingerprint()
-  if self.registrySnapshotKey ~= nil then
-    RegistrySnapshot.save(self.cacheFs, self.overrideFs, fingerprint, self.registrySnapshotKey)
-  end
-  return fingerprint
+  return self.compatibility:registryFingerprint()
 end
 
 -- Rebind the facade and warp source after a map swap (the player and the

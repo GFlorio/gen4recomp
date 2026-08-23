@@ -1261,43 +1261,14 @@ function Scheduler:restoreScriptState(bucket, restoreTick)
   assert(self._foregroundEnvironmentId == nil and next(self._instances) == nil, "restore requires an idle scheduler")
   local graphs = {}
 
-  -- Collect every referenced graph revision through the frame chain
-  -- identities; a revision that no current composition produces is a save
-  -- mismatch (SCRIPT_SAVE_REVISION_MISMATCH).
+  -- Collect graph objects through identities already checked by ScriptSave.
   for _, instanceRecord in ipairs(bucket.instances or {}) do
     for _, frameRecord in ipairs(instanceRecord.frames or {}) do
       local composed = self:resolveComposition(frameRecord.chainScriptId)
-      if composed == nil or composed.revision ~= frameRecord.chainRevision then
-        Errors.raise(
-          ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
-          "save references an unknown composed script revision",
-          {
-            scriptId = frameRecord.chainScriptId,
-            revision = frameRecord.chainRevision,
-            composedRevision = composed and composed.revision or nil,
-          }
-        )
-      end
-      composed = composed --[[@as table]]
-      local entryIndex = frameRecord
-        .composition --[[@as table]]
-        .entryIndex + 1
-      local entry = composed.entries[entryIndex]
-      if entry == nil then
-        Errors.raise(
-          ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
-          "save references an unknown composition entry",
-          { scriptId = frameRecord.chainScriptId, entryIndex = entryIndex }
-        )
-      end
-      entry = entry --[[@as table]]
-      if entry.graph.revision ~= frameRecord.graphRevision then
-        Errors.raise(
-          ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
-          "save references an unknown graph revision",
-          { scriptId = frameRecord.chainScriptId, revision = frameRecord.graphRevision }
-        )
-      end
+      assert(composed and composed.revision == frameRecord.chainRevision, "validated frame chain must resolve")
+      local entry = composed.entries[frameRecord.composition.entryIndex + 1]
+      assert(entry ~= nil, "validated composition entry must resolve")
+      assert(entry.graph.revision == frameRecord.graphRevision, "validated graph revision must resolve")
       graphs[frameRecord.graphRevision] = entry.graph
     end
   end
