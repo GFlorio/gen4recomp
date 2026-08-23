@@ -5,6 +5,7 @@
 local OakIntroLayout = require("game.src.game.OakIntroLayout")
 local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 
 ---@class OakIntroStateController
 ---@field start fun(self: OakIntroStateController): boolean
@@ -39,10 +40,12 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field nameGrid table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
 ---@field virtualKeyColumns integer
 ---@field genderFocus integer
+---@field safeFrame OakIntroStateRectangle
 
 ---@class OakIntroStateView
 ---@field phase string
 ---@field message string|table|nil
+---@field dialogue table?
 ---@field visual string
 ---@field genderFocus integer
 ---@field name string
@@ -65,6 +68,17 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field onComplete fun(result: table)?
 ---@field audioSink OakIntroStateAudioSink?
 ---@field audioLifetime table?
+---@field dialogueController table?
+---@field dialogueRenderer table?
+---@field dialogueMessages table?
+---@field dialogueText table?
+---@field textRenderer table
+---@field dialogueController table?
+---@field dialogueRenderer table?
+---@field dialogueText table?
+---@field dialogueMessages table?
+---@field dialogueMessageKey string?
+---@field manifest table
 
 ---@class OakIntroState
 ---@field new fun(options: OakIntroStateOptions): OakIntroState
@@ -169,6 +183,7 @@ function OakIntroState.new(options)
         manifest = options.manifest,
         graphics = options.graphics,
         imageLoader = options.imageLoader,
+        text = assert(options.textRenderer, "Oak state requires the shared FieldTextRenderer"),
       })
     self = setmetatable({
       controller = options.controller,
@@ -184,6 +199,12 @@ function OakIntroState.new(options)
       onComplete = options.onComplete,
       audioSink = options.audioSink,
       audioLifetime = options.audioLifetime,
+      dialogueController = options.dialogueController,
+      dialogueRenderer = options.dialogueRenderer,
+      dialogueMessages = options.dialogueMessages,
+      dialogueText = options.dialogueText,
+      dialoguePresentation = nil,
+      dialogueMessageKey = nil,
     }, OakIntroState)
     self:_setTextInput(false)
     self.controller:start()
@@ -215,6 +236,21 @@ end
 function OakIntroState:_sync()
   local view = self.controller:view()
   self:_setTextInput(view.nameInputEnabled)
+  if self.dialogueController and view.messageKey ~= self.dialogueMessageKey then
+    self.dialogueMessageKey = view.messageKey
+    if view.messageKey then
+      local message = assert(self.dialogueMessages and self.dialogueMessages[view.messageKey])
+      local handle = self.dialogueController:open({
+        id = "oak:" .. view.messageKey,
+        message = message,
+        frameIndex = 0,
+        allowCancel = false,
+      })
+      handle:onComplete(function()
+        self.controller:messageCompleted(view.messageKey)
+      end)
+    end
+  end
   if view.phase == "complete" and not self.completed then
     self.completed = true
     if self.onComplete then
@@ -229,6 +265,9 @@ function OakIntroState:update(dt)
   self.accumulator = self.accumulator + dt
   while self.accumulator >= 1 / 60 do
     self.accumulator = self.accumulator - 1 / 60
+    if self.dialogueController then
+      self.dialogueController:step()
+    end
     self.controller:tick(1)
     if self.controller:view().phase == "complete" then
       break
@@ -241,19 +280,35 @@ function OakIntroState:update(dt)
 end
 
 function OakIntroState:tick(frames)
-  self.controller:tick(frames)
+  assert(frames >= 0 and frames % 1 == 0, "Oak tick count must be a non-negative integer")
+  for _ = 1, frames do
+    if self.dialogueController then
+      self.dialogueController:step()
+    end
+    self.controller:tick(1)
+  end
   self:_sync()
 end
 
 function OakIntroState:view()
   local view = self.controller:view()
-  view.layout = OakIntroLayout.compute(self.width, self.height, view, self.glyphs)
+  view.layout = OakIntroLayout.compute(self.width, self.height, view, self.glyphs, self.manifest.widgets)
+  if self.dialogueController then
+    view.dialogueStatus = self.dialogueController:status()
+    view.dialoguePresentation = view.layout.dialogue
+        and DialoguePresentationLayout.compute(view.layout.dialogue.outerRect, { scale = view.layout.dialogue.scale })
+      or nil
+  end
   ---@cast view OakIntroStateLayoutView
   return view
 end
 
 function OakIntroState:draw()
-  self.renderer:draw(self:view())
+  local view = self:view()
+  self.renderer:draw(view)
+  if self.dialogueController and self.dialogueRenderer then
+    self.dialogueRenderer:draw(self.dialogueController, view.dialoguePresentation)
+  end
 end
 
 function OakIntroState:resize(width, height)
@@ -278,6 +333,11 @@ function OakIntroState:keypressed(key)
     if action == "confirm" and self.controller:view().phase == "name_edit" then
       action = "submit"
     end
+    if self.dialogueController and self.dialogueController:isModal() then
+      self.dialogueController:step({ actionPressed = action == "confirm", cancelPressed = action == "cancel" })
+      self:_sync()
+      return
+    end
     self.controller:press(action)
   elseif key == "backspace" then
     self.controller:deleteGlyph()
@@ -300,6 +360,11 @@ function OakIntroState:gamepadpressed(_, button)
     or action == "confirm"
     or action == "cancel"
   then
+    if self.dialogueController and self.dialogueController:isModal() then
+      self.dialogueController:step({ actionPressed = action == "confirm", cancelPressed = action == "cancel" })
+      self:_sync()
+      return
+    end
     self.controller:press(action)
   end
   self:_sync()
@@ -317,7 +382,7 @@ function OakIntroState:_pointer(x, y)
       end
     end
   elseif view.phase == "name_edit" then
-    for _, entry in pairs(layout.nameGrid) do
+    for _, entry in pairs(layout.nameKeys or layout.nameGrid) do
       if OakIntroLayout.contains(entry.rect, x, y) then
         if entry.kind == "glyph" then
           self.controller:inputText(assert(entry.glyph))
@@ -357,6 +422,15 @@ function OakIntroState:dispose()
   if self.audioLifetime then
     self.audioLifetime:dispose()
     self.audioLifetime = nil
+  end
+  if self.dialogueRenderer and self.dialogueRenderer.release then
+    self.dialogueRenderer:release()
+  end
+  if self.dialogueText and self.dialogueText.release then
+    self.dialogueText:release()
+  end
+  if self.dialogueController and self.dialogueController.dispose then
+    self.dialogueController:dispose()
   end
 end
 

@@ -146,4 +146,57 @@ function T.audio_lifetime_is_released_once_with_the_state()
   Assert.equal(renderer.disposed, 1)
 end
 
+function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
+  local state, controller = stateHarness()
+  local dialogue = {
+    opened = 0,
+    stepped = 0,
+    drawn = 0,
+    released = 0,
+    open = function(self)
+      self.opened = self.opened + 1
+    end,
+    step = function(self, input)
+      self.stepped = self.stepped + 1
+      self.lastInput = input
+    end,
+    isModal = function()
+      return true
+    end,
+    status = function()
+      return {}
+    end,
+    draw = function(self)
+      self.drawn = self.drawn + 1
+    end,
+    dispose = function(self)
+      self.released = self.released + 1
+    end,
+  }
+  state.dialogueController = dialogue
+  state.dialogueRenderer = dialogue
+  state.dialoguePresentation = {}
+  controller.phase = "oak_welcome"
+  controller.view = function(self)
+    return {
+      phase = self.phase,
+      messageKey = "oak.welcome",
+      message = { tokens = {} },
+      name = "",
+      nameInputEnabled = false,
+      genderFocus = 0,
+      visual = "background",
+      virtualKeys = {},
+    }
+  end
+  state:_sync()
+  Assert.equal(dialogue.opened, 1)
+  state:tick(1)
+  Assert.equal(dialogue.stepped, 1)
+  state:draw()
+  Assert.equal(dialogue.drawn, 1)
+  state:dispose()
+  Assert.equal(dialogue.released, 1)
+end
+
 return { tests = T }

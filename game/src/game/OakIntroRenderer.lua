@@ -4,8 +4,10 @@
 
 ---@class OakIntroRenderer
 ---@field graphics table
+---@field text FieldTextRenderer
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
+local REQUIRED_ASSETS = { "oak", "marill", "male", "female", "shrink_male", "shrink_female", "ball_open" }
 
 local function defaultImageLoader(path)
   return love.graphics.newImage(path, { linear = false, mipmaps = false })
@@ -21,8 +23,26 @@ end
 
 local function loadResources(manifest, graphics, imageLoader)
   local images, quads, acquired = {}, {}, {}
+  local assets = {}
   local ok, failure = pcall(function()
-    for assetId, asset in pairs(manifest.assets) do
+    for assetId, asset in pairs(manifest.widgets) do
+      assets[assetId] = asset
+    end
+    assets.background = {
+      image = manifest.background.image,
+      width = manifest.background.width,
+      height = manifest.background.height,
+      frames = {
+        {
+          x = 0,
+          y = 0,
+          width = manifest.background.width,
+          height = manifest.background.height,
+          duration = 1,
+        },
+      },
+    }
+    for assetId, asset in pairs(assets) do
       local image = imageLoader(asset.image)
       assert(image ~= nil, "intro image loader returned no image for " .. assetId)
       acquired[#acquired + 1] = image
@@ -41,44 +61,39 @@ local function loadResources(manifest, graphics, imageLoader)
     releaseAll(acquired)
     error(failure, 0)
   end
-  return images, quads
+  return images, quads, assets
 end
 
 ---@param options table
 ---@return OakIntroRenderer
 function OakIntroRenderer.new(options)
   assert(type(options) == "table", "Oak renderer requires options")
-  assert(
-    type(options.manifest) == "table" and type(options.manifest.assets) == "table",
-    "Oak renderer requires the generated intro manifest"
-  )
+  assert(type(options.manifest) == "table", "Oak renderer requires the generated intro manifest")
+  assert(type(options.manifest.widgets) == "table", "Oak renderer requires generated intro widgets")
+  assert(type(options.manifest.background) == "table", "Oak renderer requires a generated intro background")
+  local assets = options.manifest.widgets
+  assert(options.manifest.background, "Oak renderer requires a generated background")
+  for _, assetId in ipairs(REQUIRED_ASSETS) do
+    assert(assets[assetId], "Oak renderer requires generated asset " .. assetId)
+  end
   local graphics = options.graphics or love.graphics
+  local text = assert(options.text, "Oak renderer requires the shared FieldTextRenderer")
+  assert(type(text.drawText) == "function", "Oak renderer requires FieldTextRenderer.drawText")
   local imageLoader = options.imageLoader or defaultImageLoader
   assert(type(imageLoader) == "function", "Oak renderer image loader must be callable")
-  local images, quads = loadResources(options.manifest, graphics, imageLoader)
-  return setmetatable(
-    { manifest = options.manifest, graphics = graphics, images = images, quads = quads, released = false },
-    OakIntroRenderer
-  )
-end
-
-local function messageText(message)
-  if type(message) == "string" then
-    return message
-  end
-  if type(message) == "table" then
-    if type(message.text) == "string" then
-      return message.text
-    end
-    if type(message.payload) == "string" then
-      return message.payload
-    end
-  end
-  return tostring(message)
+  local images, quads, renderedAssets = loadResources(options.manifest, graphics, imageLoader)
+  return setmetatable({
+    assets = renderedAssets,
+    graphics = graphics,
+    text = text,
+    images = images,
+    quads = quads,
+    released = false,
+  }, OakIntroRenderer)
 end
 
 local function drawAsset(self, assetId, frameIndex, region, offsetX)
-  local asset = self.manifest.assets[assetId]
+  local asset = self.assets[assetId]
   local image = self.images[assetId]
   local quad = self.quads[assetId] and self.quads[assetId][frameIndex or 1]
   assert(asset ~= nil, "intro asset is missing: " .. assetId)
@@ -99,34 +114,36 @@ function OakIntroRenderer:draw(view)
   graphics.setColor(0.04, 0.05, 0.09, 1)
   graphics.clear(0.04, 0.05, 0.09, 1)
   drawAsset(self, "background", 1, layout.viewport)
-  if view.visual ~= "background" then
+  if view.primaryWidget ~= nil then
+    drawAsset(self, view.primaryWidget, view.visualFrameIndex, layout.subject, view.oakOffsetX)
+  elseif view.visual ~= "background" then
     drawAsset(self, view.visual, view.visualFrameIndex, layout.subject, view.oakOffsetX)
+  end
+  if view.overlayWidget ~= nil then
+    drawAsset(self, view.overlayWidget, view.overlayFrameIndex, layout.overlay)
+  end
+  if view.revealWidget ~= nil and layout.reveal ~= nil then
+    drawAsset(self, view.revealWidget, view.visualFrameIndex, layout.reveal)
   end
   if view.flashAlpha > 0 then
     graphics.setColor(1, 1, 1, view.flashAlpha)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
-    drawAsset(self, "gender.male", 1, layout.cards[0])
-    drawAsset(self, "gender.female", 1, layout.cards[1])
+    drawAsset(self, "male", 1, layout.profileCards[0] or layout.cards[0])
+    drawAsset(self, "female", 1, layout.profileCards[1] or layout.cards[1])
     graphics.setColor(0.8, 0.9, 1, 1)
     local card = layout.cards[view.genderFocus]
     graphics.rectangle("line", card.x, card.y, card.width, card.height)
   end
   graphics.setColor(1, 1, 1, 1)
   if view.name ~= "" then
-    graphics.print(view.name, layout.message.x, layout.message.y - 24)
-  end
-  if view.message ~= nil then
-    graphics.printf(messageText(view.message), layout.message.x, layout.message.y, layout.message.width, "left")
+    self.text:drawText(view.name, layout.message.x, layout.message.y - 24)
   end
   if view.phase == "name_edit" then
-    for _, entry in ipairs(layout.nameGrid) do
-      local label = entry.kind == "glyph" and assert(entry.glyph)
-        or entry.kind == "delete" and "Delete"
-        or entry.kind == "confirm" and "Confirm"
-      assert(label, "Oak layout contains an unknown virtual-key kind")
-      graphics.printf(label, entry.rect.x, entry.rect.y + 6, entry.rect.width, "center")
+    for _, entry in ipairs(layout.nameKeys or layout.nameGrid) do
+      local width = self.text.textWidth and self.text:textWidth(entry.label) or 0
+      self.text:drawText(entry.label, entry.rect.x + (entry.rect.width - width) / 2, entry.rect.y + 6)
     end
   end
 end

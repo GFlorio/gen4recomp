@@ -27,6 +27,13 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field message string|table|nil
 ---@field visual string
 ---@field visualFrameIndex integer
+---@field primaryWidget string|nil
+---@field revealWidget string|nil
+---@field overlayWidget string|nil
+---@field overlayFrameIndex integer|nil
+---@field oakSlideProgress number
+---@field oakSlideDirection integer
+---@field messageKey string|nil
 ---@field oakOffsetX number
 ---@field flashAlpha number
 ---@field genderFocus integer
@@ -56,6 +63,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _disposed boolean
 ---@field private _sourceFrames integer
 ---@field private _message string|table|nil
+---@field private _messageKey string|nil
 ---@field private _visual string
 ---@field private _visualFrameIndex integer
 ---@field private _visualFrameTimer integer?
@@ -117,6 +125,7 @@ local function validateTickCount(frames)
 end
 
 local function framesFor(assets, visual)
+  assets = assets.widgets or assets
   local asset = assets[visual]
   return asset and asset.frames or nil
 end
@@ -159,7 +168,7 @@ function OakIntroController.new(options)
     _playerDataContext = options.playerDataContext,
     _randomU32 = options.randomU32,
     _virtualGlyphs = options.virtualGlyphs,
-    _virtualKeyColumns = math.max(1, math.min(8, options.virtualKeyColumns or 8)),
+    _virtualKeyColumns = math.max(1, math.min(10, options.virtualKeyColumns or 10)),
     _virtualFocus = 1,
     _phase = "opening_wait",
     _timer = GREETING_WAIT,
@@ -167,6 +176,7 @@ function OakIntroController.new(options)
     _disposed = false,
     _sourceFrames = 0,
     _message = nil,
+    _messageKey = nil,
     _visual = "background",
     _visualFrameIndex = 1,
     _visualFrameTimer = nil,
@@ -213,13 +223,12 @@ end
 
 function OakIntroController:_setMessage(key)
   self._message = requireMessage(self._messages, key)
+  self._messageKey = key
   self:_event("message", key)
 end
 
 function OakIntroController:_startCry()
-  self:_setVisual("marill")
   self._flashFrames = FLASH_FRAMES
-  self._audio:play("SEQ_SE_DP_BOWA2")
   self._audio:playCry(184, 0)
   self:_event("marill_appears", "marill")
   self._phase = "marill_cry_wait"
@@ -310,6 +319,8 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     if self._timer == 0 then
       self:_event("ball_flash", "opening")
+      self._audio:play("SEQ_SE_DP_BOWA2")
+      self._flashFrames = FLASH_FRAMES
       self:_startCry()
     end
   elseif self._phase == "marill_cry_wait" then
@@ -336,7 +347,7 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     if self._timer == 0 then
       self._audio:play("SEQ_SE_GS_HERO_SHUKUSHOU")
-      self:_setVisual(self._genderFocus == 0 and "shrink.male" or "shrink.female")
+      self:_setVisual(self._genderFocus == 0 and "shrink_male" or "shrink_female")
       if framesFor(self._assets, self._visual) == nil then
         self:_finish()
       else
@@ -415,9 +426,7 @@ function OakIntroController:press(action)
   elseif (action == "confirm" or action == "yes") and self._phase == "oak_world_inhabited" then
     self._phase = "ball_open_wait"
     self._timer = BALL_OPEN_WAIT
-    self:_setVisual("ball")
-    self:_event("ball_opened", "ball")
-    self._audio:play("SEQ_SE_DP_BOWA2")
+    self:_event("ball_opened", "ball_open")
   elseif (action == "confirm" or action == "yes") and self._phase == "oak_live_alongside" then
     self._phase = "marill_hide_wait"
     self._timer = MARILL_HIDE_WAIT
@@ -428,7 +437,6 @@ function OakIntroController:press(action)
     self:_setMessage("profile.gender_question")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_question" then
     self._phase = "gender_select"
-    self:_setVisual("gender.indicator")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_select" then
     self._phase = "gender_confirm"
     self:_setMessage(self._genderFocus == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female")
@@ -498,6 +506,13 @@ end
 ---@return table
 function OakIntroController:view()
   local virtualKeys = self:_virtualKeys()
+  local dialogue
+  if self._message ~= nil then
+    dialogue = {
+      message = self._message,
+      messageKey = assert(self._messageKey),
+    }
+  end
   return {
     phase = self._phase,
     message = self._message,
@@ -517,7 +532,27 @@ function OakIntroController:view()
     nameInputEnabled = self._phase == "name_edit",
     sourceFrames = self._sourceFrames,
     events = self._events,
+    messageKey = self._messageKey,
+    dialogue = dialogue,
+    primaryWidget = self._visual == "background" and (self._phase == "marill_cry_wait" and "oak" or nil)
+      or self._visual,
+    revealWidget = self._phase == "marill_cry_wait" and "marill" or nil,
+    overlayWidget = self._flashFrames > 0 and "ball_open" or nil,
+    overlayFrameIndex = self._flashFrames > 0 and FLASH_FRAMES - self._flashFrames + 1 or nil,
+    oakSlideProgress = (self._phase == "oak_slide_right" or self._phase == "oak_slide_left") and math.max(
+      0,
+      math.min(1, (OAK_SLIDE_FRAMES - self._timer) / OAK_SLIDE_FRAMES)
+    ) or self._phase == "oak_world_inhabited" and 1 or 0,
+    oakSlideDirection = self._phase == "oak_slide_right" and 1 or self._phase == "oak_slide_left" and -1 or 0,
   }
+end
+
+function OakIntroController:messageCompleted(key)
+  assert(key == self._messageKey, "Oak dialogue completion is stale")
+  assert(self._message ~= nil, "Oak dialogue completion has no active message")
+  self._message = nil
+  self._messageKey = nil
+  return self:press("confirm")
 end
 
 function OakIntroController:candidate()

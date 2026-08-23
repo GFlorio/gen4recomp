@@ -280,6 +280,18 @@ function T.core_sequence_exposes_source_beats_in_order()
   Assert.equal(state:view().message, "profile.gender_question")
 end
 
+function T.dialogue_view_keeps_the_generated_message_key_boundary()
+  local state = controller()
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  local view = state:view()
+  Assert.equal(view.messageKey, "oak.welcome")
+  Assert.equal(view.dialogue.message, view.message)
+  Assert.equal(view.dialogue.messageKey, view.messageKey)
+end
+
 function T.generated_animation_durations_drive_looping_marill_frames()
   local state = controller({ assets = animatedAssets() })
   state:start()

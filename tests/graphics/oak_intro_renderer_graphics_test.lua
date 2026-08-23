@@ -6,25 +6,29 @@ local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 local T = {}
 
 local function manifest()
-  return {
-    assets = {
-      background = {
-        image = "background.png",
-        width = 8,
-        height = 8,
-        frames = { { x = 0, y = 0, width = 8, height = 8, duration = 1 } },
-      },
-      oak = {
-        image = "oak.png",
-        width = 4,
-        height = 8,
-        frames = {
-          { x = 0, y = 0, width = 4, height = 4, duration = 1 },
-          { x = 0, y = 4, width = 4, height = 4, duration = 1 },
-        },
-      },
+  local assets = {
+    background = {
+      image = "background.png",
+      width = 8,
+      height = 8,
+      frames = { { x = 0, y = 0, width = 8, height = 8, duration = 1 } },
     },
   }
+  for _, id in ipairs({ "oak", "marill", "male", "female", "shrink_male", "shrink_female", "ball_open" }) do
+    assets[id] = {
+      image = id .. ".png",
+      width = 4,
+      height = 8,
+      frames = { { x = 0, y = 0, width = 4, height = 8, duration = 1 } },
+    }
+  end
+  assets.oak.frames = {
+    { x = 0, y = 0, width = 4, height = 4, duration = 1 },
+    { x = 0, y = 4, width = 4, height = 4, duration = 1 },
+  }
+  local background = assets.background
+  assets.background = nil
+  return { background = background, widgets = assets }
 end
 
 local function view()
@@ -46,6 +50,15 @@ local function view()
   }
 end
 
+local function textRenderer()
+  return {
+    drawText = function() end,
+    textWidth = function(_, text)
+      return #text * 8
+    end,
+  }
+end
+
 function T.nonzero_atlas_frame_is_drawn_with_a_reusable_quad(scope)
   local graphics = FakeGraphics.new({ imageSizes = { { 8, 8 }, { 4, 8 } } })
   local renderer = OakIntroRenderer.new({
@@ -54,6 +67,7 @@ function T.nonzero_atlas_frame_is_drawn_with_a_reusable_quad(scope)
     imageLoader = function(path)
       return graphics.newImage()
     end,
+    text = textRenderer(),
   })
   renderer:draw(view())
   Assert.equal(#graphics.draws, 2)
@@ -72,6 +86,7 @@ function T.constructor_releases_images_when_quad_creation_fails()
       imageLoader = function(path)
         return graphics.newImage()
       end,
+      text = textRenderer(),
     })
   end)
   Assert.isFalse(ok)

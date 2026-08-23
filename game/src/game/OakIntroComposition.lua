@@ -7,6 +7,11 @@ local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
+local DialogueLayout = require("libs.engine.src.DialogueLayout")
+local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
+local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
+local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local LocalClock = require("libs.engine.src.LocalClock")
 local OakIntroController = require("libs.engine.src.OakIntroController")
 local OakIntroState = require("game.src.game.OakIntroState")
@@ -60,13 +65,24 @@ end
 
 local function virtualGlyphs(charmap)
   local glyphs = {}
-  for glyph in pairs(charmap) do
-    if type(glyph) == "string" and glyph ~= "" then
-      glyphs[#glyphs + 1] = glyph
+  local pages = {
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "abcdefghijklmnopqrstuvwxyz",
+    "0123456789 -.'",
+  }
+  for _, page in ipairs(pages) do
+    for glyph in page:gmatch(".") do
+      if charmap[glyph] ~= nil then
+        glyphs[#glyphs + 1] = glyph
+      end
     end
   end
-  table.sort(glyphs)
-  assert(#glyphs > 0, "generated field font charmap has no virtual keyboard glyphs")
+  local upper, lower = false, false
+  for _, glyph in ipairs(glyphs) do
+    upper = upper or glyph:match("^[A-Z]$") ~= nil
+    lower = lower or glyph:match("^[a-z]$") ~= nil
+  end
+  assert(upper and lower, "generated field font lacks an uppercase or lowercase name-key page")
   return glyphs
 end
 
@@ -112,11 +128,13 @@ function OakIntroComposition.compose(options)
   local bankAcquired = false
   local audio
   local audioLifetime
+  local textRenderer
+  local dialogueRenderer
   local ok, state = pcall(function()
     assert(provider:acquireBank(219))
     bankAcquired = true
     local messages = mapMessages(function(messageId)
-      return provider:get(219, messageId)
+      return provider:format(assert(provider:get(219, messageId)))
     end)
     provider:releaseBank(219)
     bankAcquired = false
@@ -139,12 +157,28 @@ function OakIntroComposition.compose(options)
     }
 
     local graphics = options.graphics or love.graphics
+    textRenderer = FieldTextRenderer.new({ cacheFs = cacheFs, graphics = graphics })
+    dialogueRenderer = FieldDialogueRenderer.new({
+      cacheFs = cacheFs,
+      manifest = uiManifest,
+      text = textRenderer,
+      graphics = graphics,
+    })
+    local dialogueController = FieldDialogueController.new({
+      layout = function(formatted)
+        return DialogueLayout.layout(
+          formatted.tokens,
+          FieldDialogueTheme.fontMetrics(fontDef),
+          { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+        )
+      end,
+    })
     local controller = OakIntroController.new({
       candidate = options.candidate,
       clock = options.clock or LocalClock.system(),
       audio = audio.sound,
       messages = messages,
-      assets = introManifest.assets,
+      assets = introManifest,
       playerDataContext = playerDataContext,
       randomU32 = options.randomU32 or OakIntroComposition.randomU32(),
       virtualGlyphs = virtualGlyphs(fontDef.charmap),
@@ -152,6 +186,7 @@ function OakIntroComposition.compose(options)
     return OakIntroState.new({
       controller = controller --[[@as any]],
       manifest = introManifest,
+      textRenderer = textRenderer,
       graphics = graphics,
       imageLoader = options.imageLoader or generatedImageLoader(cacheFs, graphics),
       textInputHost = options.textInputHost,
@@ -160,6 +195,10 @@ function OakIntroComposition.compose(options)
       onComplete = options.onComplete,
       audioSink = audio.sink --[[@as OakIntroStateAudioSink?]],
       audioLifetime = audioLifetime,
+      dialogueController = dialogueController,
+      dialogueRenderer = dialogueRenderer,
+      dialogueText = textRenderer,
+      dialogueMessages = messages,
     })
   end)
   if not ok then
@@ -170,6 +209,12 @@ function OakIntroComposition.compose(options)
       audioLifetime:dispose()
     elseif audio and audio.sink then
       audio.sink:release()
+    end
+    if dialogueRenderer then
+      pcall(dialogueRenderer.release, dialogueRenderer)
+    end
+    if textRenderer then
+      pcall(textRenderer.release, textRenderer)
     end
     error(state, 0)
   end
