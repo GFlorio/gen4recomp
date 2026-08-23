@@ -785,9 +785,20 @@ function FieldRuntime:update(dt)
       self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT
       self.transition:updateSourceFrame()
     elseif canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
+      local transitionWasIdle = self.transition.phase == FieldTransition.PHASES.idle
       self.session.accumulator = self.session.accumulator - FIXED_DT
       self.session:updateFixed()
       fieldExecuted = fieldExecuted + 1
+      if
+        transitionWasIdle
+        and self.transition.phase ~= FieldTransition.PHASES.idle
+        and self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
+      then
+        -- A presentation frame before this fixed boundary belongs to the
+        -- previous field state. Do not let a later frame from this same
+        -- update call become the first frame of the new transition.
+        self.presentationFrameAccumulator = 0
+      end
       if self.applicationHost:error() and not self.errorText then
         self.errorText = tostring(self.applicationHost:error())
       end

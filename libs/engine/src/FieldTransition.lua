@@ -178,21 +178,14 @@ end
 
 local function beginProfileMotion(self, phase)
   if self.profileId == FieldTransitionProfile.HORIZONTAL_STAIRS then
-    if phase ~= "exit" then
+    if phase == "exit" then
       assert(self.player and type(self.player.beginTransitionStep) == "function", "stair transition step required")
-      local direction = self.destinationFacing or self.facing
-      local started = self.player:beginTransitionStep(direction)
-      if not started then
-        Errors.raise(
-          FieldErrors.MAP_TRANSITION_EGRESS_FAILED,
-          "the horizontal stair destination step resolves no terrain destination",
-          { mapId = self.resolution.destinationMap.mapId, direction = direction }
-        )
-      end
-      return true
+      return self.player:beginTransitionStep(self.facing)
     end
-    assert(self.player and type(self.player.beginTransitionStep) == "function", "stair transition step required")
-    return self.player:beginTransitionStep(self.facing)
+    -- The destination adjustment already places the player on the adjacent
+    -- arrival tile. A second step would walk back onto the standing stair
+    -- warp and can outlive the destination fade.
+    return false
   end
   if self.profileId == FieldTransitionProfile.ESCALATOR then
     assert(self.escalatorAt, "escalator prop resolver required")
@@ -659,10 +652,7 @@ function FieldTransition:start(sourceMap, trigger, facing)
     end
   end
   runChoreo(self, beginSourceChoreography)
-  if
-    (self.sourceKind ~= "door" or self.sourceChoreo == "done")
-    and self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS
-  then
+  if self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS then
     startFade(self, "out", self.profileId and profileFamily(self).fadeColor or 0)
   end
 end

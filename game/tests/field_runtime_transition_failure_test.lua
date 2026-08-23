@@ -131,4 +131,42 @@ function T.source_frame_started_on_the_same_boundary_as_field_tick_is_exposed()
   Assert.equal(coefficient, 2, "the first source-frame fade coefficient must be visible immediately")
 end
 
+function T.transition_started_after_a_prior_presentation_frame_defers_the_fade()
+  local sourceFrames = 0
+  local runtime
+  runtime = setmetatable({
+    presentationFrameAccumulator = 0,
+    scripts = {},
+    session = {
+      accumulator = 0,
+      updateFixed = function()
+        runtime.transition.phase = "fade_out"
+      end,
+    },
+    transition = {
+      phase = "idle",
+      error = nil,
+      updateSourceFrame = function()
+        if runtime.transition.phase ~= "idle" then
+          sourceFrames = sourceFrames + 1
+        end
+      end,
+      consumeCompleted = function()
+        return nil
+      end,
+    },
+    applicationHost = {
+      error = function()
+        return nil
+      end,
+    },
+  }, FieldRuntime)
+
+  runtime:update(1 / 30)
+  Assert.equal(sourceFrames, 0, "a transition must not consume a later source frame in its input update")
+
+  runtime:update(1 / 60)
+  Assert.equal(sourceFrames, 1, "the first source frame must be consumed by the next presentation update")
+end
+
 return { tests = T }
