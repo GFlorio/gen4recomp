@@ -158,6 +158,8 @@ local function runChoreography(romFs, sourceScene, destinationScene, warp, facin
   while transition.phase ~= "idle" and transition.phase ~= "error" and ticks < 500 do
     ticks = ticks + 1
     transition:updateFixed()
+    transition:updateSourceFrame()
+    transition:updateSourceFrame()
     if transition.locked or transition.completed then
       for _, instance in ipairs(currentInstances) do
         instance:updateFixed()
