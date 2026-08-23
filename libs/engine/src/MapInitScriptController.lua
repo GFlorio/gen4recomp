@@ -84,6 +84,18 @@ function MapInitScriptController:setRules(rules, mapId)
   self.rules = rules
 end
 
+---@param lifecycle string
+---@return boolean
+function MapInitScriptController:hasLifecycle(lifecycle)
+  assert(EVENT_TYPES[lifecycle], "unknown map lifecycle: " .. tostring(lifecycle))
+  for _, group in ipairs(self.rules) do
+    if group.type == lifecycle then
+      return true
+    end
+  end
+  return false
+end
+
 ---@param tick integer
 ---@return boolean claimed
 function MapInitScriptController:startLifecycle(lifecycle, tick)

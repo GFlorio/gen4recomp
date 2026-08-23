@@ -4,6 +4,10 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local FieldActorManager = require("libs.engine.src.FieldActorManager")
+local FieldSession = require("libs.engine.src.FieldSession")
+local FieldScripts = require("game.src.game.FieldScripts")
+local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 
 local T = {
   metadata = {
@@ -21,38 +25,69 @@ local function lifecycleTypes(runtime)
   return result
 end
 
-local function recordInitStarts(runtime)
-  local client = assert(runtime.scripts.client)
-  local original = assert(client.startInitScript)
+local function oneShotTypes(runtime)
+  local result = {}
+  for _, group in ipairs(runtime.runtimeMap.fieldData.initScripts) do
+    if group.type ~= "on_frame_eq" then
+      result[#result + 1] = group.type
+    end
+  end
+  return result
+end
+
+local function installStartRecorder()
+  local starts = {}
+  local original = assert(ScriptInteractionClient.startInitScript)
+  ScriptInteractionClient.startInitScript = function(self, scriptId, tick)
+    starts[#starts + 1] = { scriptId = scriptId, tick = tick }
+    return original(self, scriptId, tick)
+  end
+  return starts, function()
+    ScriptInteractionClient.startInitScript = original
+  end
+end
+
+local function lifecycleStartTypes(starts, runtime)
   local lifecycleByScriptId = {}
   for _, group in ipairs(runtime.runtimeMap.fieldData.initScripts) do
     if group.type ~= "on_frame_eq" then
       lifecycleByScriptId[group.scriptId] = group.type
     end
   end
-  local starts = {}
-  client.startInitScript = function(self, scriptId, tick)
-    starts[#starts + 1] = {
-      scriptId = scriptId,
-      lifecycle = lifecycleByScriptId[scriptId],
-      tick = tick,
-      mapId = runtime.runtimeMap.mapId,
-    }
-    return original(self, scriptId, tick)
-  end
-  return starts, function()
-    client.startInitScript = original
-  end
-end
-
-local function eventStartCount(starts)
-  local count = 0
+  local result = {}
   for _, start in ipairs(starts) do
-    if start.lifecycle ~= nil then
-      count = count + 1
+    if lifecycleByScriptId[start.scriptId] ~= nil then
+      result[#result + 1] = lifecycleByScriptId[start.scriptId]
     end
   end
-  return count
+  return result
+end
+
+local function installBoundaryRecorder()
+  local events = {}
+  local actorEnter = assert(FieldActorManager.enterMap)
+  local queueLifecycles = assert(FieldSession.queueMapLifecycles)
+  local mapSwap = assert(FieldScripts.onMapSwap)
+  FieldActorManager.enterMap = function(self, runtimeMap, eventState)
+    events[#events + 1] = { kind = "actors_enter", mapId = runtimeMap.mapId }
+    return actorEnter(self, runtimeMap, eventState)
+  end
+  FieldSession.queueMapLifecycles = function(self, lifecycles)
+    for _, lifecycle in ipairs(lifecycles) do
+      events[#events + 1] = { kind = "lifecycle_request", lifecycle = lifecycle, mapId = self.currentMap.mapId }
+    end
+    return queueLifecycles(self, lifecycles)
+  end
+  FieldScripts.onMapSwap = function(self, player, runtimeMap)
+    events[#events + 1] = { kind = "scripts_rebind", mapId = runtimeMap.mapId }
+    return mapSwap(self, player, runtimeMap)
+  end
+  return events,
+    function()
+      FieldActorManager.enterMap = actorEnter
+      FieldSession.queueMapLifecycles = queueLifecycles
+      FieldScripts.onMapSwap = mapSwap
+    end
 end
 
 local function lifecycleHarness()
@@ -79,19 +114,43 @@ local function lifecycleHarness()
   return harness
 end
 
-function T.tests.elms_lab_mixed_lifecycle_map_binds_and_reaches_idle_field_play()
+function T.tests.initial_map_lifecycle_order_precedes_actor_entry_and_reaches_idle_field_play()
   local harness = lifecycleHarness()
   harness:forEachVersion(function(versionId)
-    local game = harness:boot({ versionId = versionId, map = "MAP_NEW_BARK_ELMS_LAB_1F", save = "fresh" })
+    local events, restoreBoundaries = installBoundaryRecorder()
+    local starts, restoreStarts = installStartRecorder()
+    local game
     local ok, err = xpcall(function()
-      Assert.equal(game:snapshot().mapSymbol, "MAP_NEW_BARK_ELMS_LAB_1F")
-      Assert.deepEqual(lifecycleTypes(game.runtime), { "on_resume", "on_frame_eq" })
-      game:advanceUntil("Elm's Lab initial lifecycle work to finish", function(snapshot)
-        return snapshot.transition.phase == "idle" and not snapshot.fieldLocked
+      game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
+      Assert.equal(game:snapshot().mapSymbol, "MAP_ROUTE_22")
+      local expected = oneShotTypes(game.runtime)
+      Assert.isTrue(#expected > 0, "initial map must declare one-shot lifecycle work")
+      Assert.equal(events[1].kind, "lifecycle_request", "transition intent must precede actor entry")
+      Assert.equal(events[1].lifecycle, "on_transition")
+      local actorIndex
+      for index, event in ipairs(events) do
+        if event.kind == "actors_enter" then
+          actorIndex = index
+          break
+        end
+      end
+      Assert.isTrue(actorIndex ~= nil, "initial actor entry must be recorded")
+      for index = 1, actorIndex - 1 do
+        Assert.equal(events[index].kind, "lifecycle_request")
+      end
+      game:advanceUntil("initial map lifecycle work to finish", function(snapshot)
+        return snapshot.transition.phase == "idle"
+          and not snapshot.fieldLocked
+          and #lifecycleStartTypes(starts, game.runtime) == #expected
       end, 240)
+      Assert.deepEqual(lifecycleStartTypes(starts, game.runtime), expected)
       Assert.equal(game:renderAttempts(), 0)
     end, debug.traceback)
-    game:close()
+    restoreStarts()
+    restoreBoundaries()
+    if game then
+      game:close()
+    end
     if not ok then
       error(err, 0)
     end
@@ -101,29 +160,74 @@ end
 function T.tests.destination_lifecycle_runs_after_bind_and_ordinary_frames_do_not_repeat_events()
   local harness = lifecycleHarness()
   harness:forEachVersion(function(versionId)
-    local game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
+    local events, restoreBoundaries = installBoundaryRecorder()
+    local restoreStarts = function() end
+    local game
     local ok, err = xpcall(function()
+      game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
       Assert.deepEqual(lifecycleTypes(game.runtime), { "on_transition", "on_resume", "on_frame_eq" })
-      local starts, restore = recordInitStarts(game.runtime)
       local before = game:snapshot()
       game:advanceUntil("initial map lifecycle queue to drain", function(snapshot)
-        return not snapshot.fieldLocked and snapshot.player.motion == "idle" and eventStartCount(starts) == 1
+        return not snapshot.fieldLocked and snapshot.player.motion == "idle"
       end, 240)
-      local initialEventCount = eventStartCount(starts)
       for _ = 1, 30 do
         game:step()
       end
-      local finalEventCount = eventStartCount(starts)
-      Assert.equal(finalEventCount, initialEventCount, "ordinary frames must not repeat event lifecycles")
+      local starts
+      starts, restoreStarts = installStartRecorder()
       game:moveTo({ fieldX = 936, fieldZ = 267 })
       game:move("west")
       local transition = game:waitForTransition()
       Assert.isFalse(transition.destination.mapId == before.mapId)
       Assert.equal(game.runtime.scripts.initController.mapId, transition.destination.mapId)
-      restore()
+      local expected = oneShotTypes(game.runtime)
+      game:advanceUntil("destination one-shot lifecycle queue to drain", function(snapshot)
+        return not snapshot.fieldLocked and snapshot.player.motion == "idle"
+      end, 240)
+      Assert.deepEqual(lifecycleStartTypes(starts, game.runtime), expected)
+      local destinationActorIndex
+      local destinationRebindIndex
+      local destinationRequestIndex
+      for index = #events, 1, -1 do
+        local event = events[index]
+        if
+          destinationActorIndex == nil
+          and event.kind == "actors_enter"
+          and event.mapId == transition.destination.mapId
+        then
+          destinationActorIndex = index
+        elseif
+          destinationRebindIndex == nil
+          and event.kind == "scripts_rebind"
+          and event.mapId == transition.destination.mapId
+        then
+          destinationRebindIndex = index
+        elseif
+          destinationRequestIndex == nil
+          and event.kind == "lifecycle_request"
+          and event.mapId == transition.destination.mapId
+        then
+          destinationRequestIndex = index
+        end
+      end
+      Assert.isTrue(destinationRebindIndex < destinationRequestIndex)
+      Assert.isTrue(destinationRequestIndex < destinationActorIndex)
+      local count = #lifecycleStartTypes(starts, game.runtime)
+      for _ = 1, 30 do
+        game:step()
+      end
+      Assert.equal(
+        #lifecycleStartTypes(starts, game.runtime),
+        count,
+        "ordinary frames must not repeat event lifecycles"
+      )
       Assert.equal(game:renderAttempts(), 0)
     end, debug.traceback)
-    game:close()
+    restoreStarts()
+    restoreBoundaries()
+    if game then
+      game:close()
+    end
     if not ok then
       error(err, 0)
     end

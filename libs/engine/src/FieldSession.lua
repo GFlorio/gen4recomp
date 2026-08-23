@@ -156,9 +156,6 @@ function FieldSession.new(options)
     tick = 0,
     accumulator = 0,
   }, FieldSession)
-  if session.initController and session.initController.startLifecycle then
-    session:queueMapLifecycles({ "on_load", "on_resume" })
-  end
   return session
 end
 
@@ -169,9 +166,17 @@ function FieldSession:queueMapLifecycles(lifecycles)
   end
 end
 
-function FieldSession:onDestinationMapSwap()
+function FieldSession:beginMapEntry()
   self.pendingMapLifecycles = {}
-  self:queueMapLifecycles({ "on_transition", "on_resume" })
+  self:queueMapLifecycles({ "on_transition" })
+end
+
+function FieldSession:mapLoaded()
+  self:queueMapLifecycles({ "on_load" })
+end
+
+function FieldSession:mapEntryComplete()
+  self:queueMapLifecycles({ "on_resume" })
 end
 
 function FieldSession:onChildApplicationResume()
@@ -287,19 +292,28 @@ function FieldSession:updateFixed(inputSnapshot)
   -- neighbor coverage runtime. No other module steps it.
   self.currentMap:updateAnimated()
 
-  if self.initController and self.initController.startLifecycle then
-    if #self.pendingMapLifecycles > 0 and not self.scriptScheduler:playerMovementLocked() then
+  if self.initController and self.initController.startLifecycle and #self.pendingMapLifecycles > 0 then
+    assert(self.initController.hasLifecycle, "map lifecycle presence query required")
+    if self.scriptScheduler:foregroundEnvironmentId() == nil then
       while #self.pendingMapLifecycles > 0 do
-        local lifecycle = table.remove(self.pendingMapLifecycles, 1)
-        if self.initController:startLifecycle(lifecycle, self.tick + 1) then
+        local lifecycle = self.pendingMapLifecycles[1]
+        if not self.initController:hasLifecycle(lifecycle) then
+          table.remove(self.pendingMapLifecycles, 1)
+        elseif self.initController:startLifecycle(lifecycle, self.tick + 1) then
+          table.remove(self.pendingMapLifecycles, 1)
+          self:_advanceTick()
+          return
+        else
           self:_advanceTick()
           return
         end
       end
-      self:_advanceTick()
-      return
     end
-  elseif self.initController and self.initController:evaluate(self.tick + 1) then
+  elseif
+    self.initController
+    and not self.initController.startLifecycle
+    and self.initController:evaluate(self.tick + 1)
+  then
     self:_advanceTick()
     return
   end

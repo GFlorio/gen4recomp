@@ -42,6 +42,7 @@ function T.mixed_lifecycles_bind_and_dispatch_first_matching_event()
   local starts = {}
   local controller = Controller.new({
     rules = {
+      { type = "on_transition", scriptId = "transition" },
       { type = "on_resume", scriptId = "resume" },
       { type = "on_frame_eq", rules = { { variableId = 10, equals = 3, scriptId = "frame" } } },
       { type = "on_load", scriptId = "load" },
@@ -61,14 +62,42 @@ function T.mixed_lifecycles_bind_and_dispatch_first_matching_event()
   })
 
   Assert.isTrue(controller:startLifecycle("on_load", 4))
-  Assert.deepEqual(starts, { { id = "load", tick = 4 } })
+  Assert.isTrue(controller:startLifecycle("on_transition", 3))
+  Assert.deepEqual(starts, {
+    { id = "load", tick = 4 },
+    { id = "transition", tick = 3 },
+  })
   Assert.isTrue(controller:startLifecycle("on_resume", 5))
   Assert.isTrue(controller:evaluateFrame(6))
   Assert.deepEqual(starts, {
     { id = "load", tick = 4 },
+    { id = "transition", tick = 3 },
     { id = "resume", tick = 5 },
     { id = "frame", tick = 6 },
   })
+end
+
+function T.lifecycle_presence_distinguishes_absent_from_blocked_start()
+  local attempts = 0
+  local controller = Controller.new({
+    rules = { { type = "on_transition", scriptId = "transition" } },
+    world = {
+      getVar = function()
+        return 0
+      end,
+    },
+    scriptClient = {
+      startInitScript = function()
+        attempts = attempts + 1
+        return false
+      end,
+    },
+  })
+
+  Assert.isTrue(controller:hasLifecycle("on_transition"))
+  Assert.isFalse(controller:hasLifecycle("on_load"))
+  Assert.isFalse(controller:startLifecycle("on_transition", 1))
+  Assert.equal(attempts, 1)
 end
 
 function T.unknown_lifecycle_is_rejected_with_context()

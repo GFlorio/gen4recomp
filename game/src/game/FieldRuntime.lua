@@ -435,7 +435,6 @@ function FieldRuntime:_load()
       assets = self.actorAssets,
       policy = { variableSprites = self.actorConfig.variableSprites },
     })
-    self.actors:enterMap(self.runtimeMap, self.eventState)
 
     self.avatar = avatarForPlayer(self.actorConfig.avatars, self.playerData)
     self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
@@ -681,6 +680,11 @@ function FieldRuntime:_load()
         return self.scripts.worldState:isFlagSet(FieldScriptSymbols.flagsByName.FLAG_GOT_BAG)
       end,
     })
+
+    self.session:beginMapEntry()
+    self.actors:enterMap(self.runtimeMap, self.eventState)
+    self.session:mapLoaded()
+    self.session:mapEntryComplete()
 
     self:_applyEffectiveWeather(self.runtimeMap)
     self.playTime = loadedGame and PlayTime.new(loadedGame.playTimeSeconds) or self.game.playTime
@@ -1087,7 +1091,6 @@ function FieldRuntime:_prepareSwap(resolution, facing)
     player = player,
     spriteId = self.avatar.spriteId,
   })
-  self.actors:enterMap(runtimeMap, self.eventState)
   return {
     player = player,
     camera = camera,
@@ -1128,7 +1131,10 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
     self.audio:enterMap(runtimeMap, { clearMusicOverride = true, play = true })
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
-  self.session:onDestinationMapSwap()
+  self.session:beginMapEntry()
+  self.actors:enterMap(runtimeMap, self.eventState)
+  self.session:mapLoaded()
+  self.session:mapEntryComplete()
 end
 
 function FieldRuntime:_updateCameraProjection()
