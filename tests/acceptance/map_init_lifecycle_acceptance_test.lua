@@ -66,10 +66,19 @@ local function lifecycleHarness()
   return harness
 end
 
+local function advanceToEntryReady(game, starts)
+  local expectedCount = #lifecycleTypes(game.runtime)
+  return game:advanceUntil("map entry ready", function(snapshot)
+    return #starts >= expectedCount and not snapshot.fieldLocked and snapshot.player.motion == "idle"
+  end, 240)
+end
+
 local function scriptTypeById(runtime)
   local result = {}
   for _, group in ipairs(runtime.runtimeMap.fieldData.initScripts) do
-    result[group.scriptId] = group.type
+    if group.scriptId ~= nil then
+      result[group.scriptId] = group.type
+    end
   end
   return result
 end
@@ -81,15 +90,16 @@ function T.tests.initial_entry_executes_transition_before_actor_construction()
     local game
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
+      game:advanceUntil("initial actors entered", function()
+        return entries[1] ~= nil
+      end, 240)
       local types = scriptTypeById(game.runtime)
       Assert.isTrue(#lifecycleTypes(game.runtime) > 0)
       Assert.isTrue(#starts > 0, "entry must execute a lifecycle script")
       Assert.equal(types[starts[1].scriptId], "on_transition")
       Assert.equal(entries[1].mapId, game.runtime.runtimeMap.mapId)
       Assert.isTrue(starts[1].tick < game.runtime.session.tick, "actor entry must follow transition execution")
-      game:advanceUntil("initial entry ready", function(snapshot)
-        return snapshot.transition.phase == "idle" and not snapshot.fieldLocked
-      end, 240)
+      advanceToEntryReady(game, starts)
       Assert.equal(game:renderAttempts(), 0)
     end, debug.traceback)
     restore()
@@ -109,15 +119,21 @@ function T.tests.destination_entry_executes_transition_before_destination_actors
     local game
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
-      game:advanceUntil("initial entry ready", function(snapshot)
-        return not snapshot.fieldLocked and snapshot.player.motion == "idle"
-      end, 240)
+      advanceToEntryReady(game, starts)
       local before = game:snapshot().mapId
       game:moveTo({ fieldX = 936, fieldZ = 267 })
       local result = game:move("west")
       result = game:waitForTransition()
       Assert.isFalse(result.destination.mapId == before)
       local destination = result.destination.mapId
+      game:advanceUntil("destination actors entered", function()
+        for _, entry in ipairs(entries) do
+          if entry.mapId == destination then
+            return true
+          end
+        end
+        return false
+      end, 240)
       local destinationEntry
       for index = #entries, 1, -1 do
         if entries[index].mapId == destination then
@@ -156,9 +172,7 @@ function T.tests.headless_entry_reaches_ready_without_rendering_and_does_not_rep
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
       local expected = lifecycleTypes(game.runtime)
-      game:advanceUntil("all entry lifecycle work", function(snapshot)
-        return not snapshot.fieldLocked and snapshot.player.motion == "idle"
-      end, 240)
+      advanceToEntryReady(game, starts)
       local types = scriptTypeById(game.runtime)
       local actual = {}
       for _, start in ipairs(starts) do

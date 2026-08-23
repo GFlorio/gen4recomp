@@ -708,7 +708,9 @@ function FieldRuntime:update(dt)
   if self.errorText then
     return
   end
-  self.playTime:advance(dt)
+  if self.playTime then
+    self.playTime:advance(dt)
+  end
 
   -- The background registry warm-up (snapshot-miss boot) runs one time
   -- slice per frame; the first save finishes whatever it has not.
@@ -1092,6 +1094,7 @@ function FieldRuntime:_prepareSwap(resolution, facing)
     player = player,
     spriteId = self.avatar.spriteId,
   })
+  self.actors:enterMap(runtimeMap, self.eventState)
   return {
     player = player,
     camera = camera,

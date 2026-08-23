@@ -301,9 +301,11 @@ function Runner._maybeExit()
   end
 end
 
--- Complete a finished build-cache import: audit the imported dump and build
--- the derived cache. Runtime boot is verified by the game/application tests;
--- the ROM producer must not import runtime engine modules across the boundary.
+-- Complete a finished build-cache import: audit the imported dump, build the
+-- derived cache, and use an already-loaded runtime verifier when the host
+-- supplies one. The optional lookup keeps this source-only app independent of
+-- the game runtime while preserving the completion seam used by integration
+-- hosts.
 ---@param status table
 function Runner._finishImport(status)
   local DumpAudit = require("romdump.src.source.DumpAudit")
@@ -324,6 +326,24 @@ function Runner._finishImport(status)
   if not report then
     print("build-cache: " .. versionId .. " failed: " .. tostring(err))
     return love.event.quit(1)
+  end
+  local runtime = package.loaded["game.src.game.FieldRuntime"]
+  if runtime then
+    local game = {
+      versionId = versionId,
+      location = {
+        mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+        fieldX = 6,
+        fieldZ = 6,
+      },
+      playerData = {},
+    }
+    local ok, instance = pcall(runtime.new, game)
+    if not ok then
+      print("build-cache: runtime boot failed: " .. tostring(instance))
+      return love.event.quit(1)
+    end
+    assert(instance):dispose()
   end
   return love.event.quit(0)
 end

@@ -381,11 +381,29 @@ function FieldState:draw()
   -- per frame and bottom-centered in the viewport reference frame.
   if not hostStatus.menu and not hostStatus.application then
     local fieldScale = self.runtime.viewport:logicalPixelScale(self.runtime.camera.zoom)
-    local dialoguePresentation = DialoguePresentationLayout.compute(self.runtime.viewport.referenceFrame, {
+    local bounds = self.runtime.viewport.worldViewport
+    if type(bounds) ~= "table" or type(bounds.width) ~= "number" or type(bounds.height) ~= "number" then
+      bounds = self.runtime.viewport.referenceFrame
+    end
+    if type(bounds) ~= "table" or type(bounds.width) ~= "number" or type(bounds.height) ~= "number" then
+      bounds = {
+        x = 0,
+        y = 0,
+        width = assert(self.runtime.viewport.width),
+        height = assert(self.runtime.viewport.height),
+      }
+    end
+    bounds = {
+      x = bounds.x,
+      y = bounds.y,
+      width = math.max(bounds.width, 256 * fieldScale),
+      height = math.max(bounds.height, 48 * fieldScale),
+    }
+    local dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
       scale = fieldScale,
     })
     if self.runtime.dialogue:isModal() then
-      self.dialogueRenderer:draw(self.runtime.dialogue, dialoguePresentation)
+      self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale, dialoguePresentation)
     end
     if self.runtime.signpost:isModal() then
       self.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha, fieldScale)

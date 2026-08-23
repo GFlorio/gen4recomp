@@ -210,8 +210,13 @@ end
 -- surface and matches the world logical pixel scale.
 
 ---@param controller FieldDialogueController
----@param presentation DialoguePresentationLayout.Presentation
-function FieldDialogueRenderer:draw(controller, presentation)
+---@param viewport table|DialoguePresentationLayout.Presentation
+---@param fieldScale number|nil
+---@param presentation DialoguePresentationLayout.Presentation|nil
+function FieldDialogueRenderer:draw(controller, viewport, fieldScale, presentation)
+  if presentation == nil then
+    presentation = viewport
+  end
   -- Inactive (closed) is a pure no-op and checks no scale precondition; an
   -- inactive draw must not touch graphics state or require presentation
   -- parameters. The scale is only required for the active path.
