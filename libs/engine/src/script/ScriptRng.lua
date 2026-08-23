@@ -8,6 +8,9 @@
 local ScriptRng = {}
 ScriptRng.__index = ScriptRng
 
+local Errors = require("libs.errors.src.Errors")
+local ScriptErrors = require("libs.engine.src.script.errors")
+
 ScriptRng.SCHEMA_NAME = "g4-script-rng-v1"
 
 local MODULUS = 0x7FFFFFFF
@@ -94,6 +97,23 @@ function ScriptRng:serialize()
   return { state = self._state, calls = self._calls }
 end
 
+---@param record any
+---@return table|nil, Errors.Error?
+function ScriptRng.validate(record)
+  if type(record) ~= "table" then
+    return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state must be a table", {})
+  end
+  if type(record.state) ~= "number" or record.state % 1 ~= 0 or record.state <= 0 then
+    return nil,
+      Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state must be a positive integer", {})
+  end
+  if type(record.calls) ~= "number" or record.calls % 1 ~= 0 or record.calls < 0 then
+    return nil,
+      Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng calls must be a non-negative integer", {})
+  end
+  return { state = record.state, calls = record.calls }
+end
+
 -- Create an RNG instance. `seed` may be a number or a string (derived).
 ---@param seed integer|string|nil
 ---@return table rng
@@ -120,16 +140,14 @@ end
 ---@param record table
 ---@return table rng
 function ScriptRng.restore(record)
-  assert(
-    type(record) == "table" and type(record.state) == "number" and record.state % 1 == 0 and record.state > 0,
-    "serialized rng state must be a positive integer"
-  )
-  assert(
-    type(record.calls) == "number" and record.calls % 1 == 0 and record.calls >= 0,
-    "serialized rng call count must be a non-negative integer"
-  )
-  local rng = ScriptRng.new(record.state)
-  rng._calls = record.calls
+  local valid, err = ScriptRng.validate(record)
+  if not valid then
+    local validationError = assert(err)
+    Errors.raise(validationError.code, validationError.message, validationError.context)
+  end
+  local validated = assert(valid)
+  local rng = ScriptRng.new(validated.state)
+  rng._calls = validated.calls
   return rng
 end
 

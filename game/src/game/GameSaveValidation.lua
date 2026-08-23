@@ -6,6 +6,10 @@ local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local PlayerData = require("libs.engine.src.PlayerData")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
+local WorldState = require("libs.engine.src.script.WorldState")
+local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
+local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
+local AudioCache = require("libs.assets.src.AudioCache")
 local GameSave = require("libs.engine.src.GameSave")
 local Errors = require("libs.errors.src.Errors")
 
@@ -29,7 +33,15 @@ local function contextForCache(cacheFs)
   for frame = 0, manifest.dialogueFrames.count - 1 do
     frameIndexes[frame] = true
   end
-  return { charmap = fontDef.charmap, frameIndexes = frameIndexes }
+  local index = assert(cacheFs:loadLua(AudioCache.indexPath()), "audio index missing")
+  assert(index.schema == AudioCache.INDEX_SCHEMA, "audio index schema is invalid")
+  assert(type(index.sequences) == "table", "audio index sequences are required")
+  local audioSequenceIds = {}
+  for sequenceId, sequence in pairs(index.sequences) do
+    assert(type(sequenceId) == "number" and sequence.id == sequenceId, "audio index sequence identity is invalid")
+    audioSequenceIds[sequenceId] = true
+  end
+  return { charmap = fontDef.charmap, frameIndexes = frameIndexes, audioSequenceIds = audioSequenceIds }
 end
 
 ---@param options table?
@@ -46,6 +58,7 @@ function GameSaveValidation:_context(versionId)
   end
   context = self.contextLoader and self.contextLoader(versionId) or contextForCache(CacheFs.forVersion(versionId))
   assert(type(context) == "table", "GameSave validation context must be a table")
+  assert(type(context.audioSequenceIds) == "table", "GameSave validation audio sequence ids are required")
   self.contexts[versionId] = context
   return context
 end
@@ -65,6 +78,15 @@ function GameSaveValidation:validate(record, context)
       end,
       scriptsValidate = function(value)
         return ScriptSave.validate(value, {})
+      end,
+      worldValidate = function(value)
+        return WorldState.validate(value)
+      end,
+      auxiliaryUiValidate = function(value)
+        return AuxiliaryFieldUi.validate(value)
+      end,
+      audioValidate = function(value)
+        return FieldAudioSave.validate(value, selected)
       end,
     })
   end)

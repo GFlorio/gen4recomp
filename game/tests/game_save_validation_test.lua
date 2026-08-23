@@ -11,6 +11,7 @@ local function context()
   return {
     charmap = { G = 1, O = 2, L = 3, D = 4 },
     frameIndexes = { [0] = true },
+    audioSequenceIds = { [7] = true },
   }
 end
 

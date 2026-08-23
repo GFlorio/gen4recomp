@@ -3,6 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
+local Errors = require("libs.errors.src.Errors")
 local AuxiliaryUiTask = require("libs.engine.src.script.tasks.AuxiliaryUiTask")
 
 local T = {}
@@ -50,6 +51,21 @@ function T.capture_and_restore_preserve_an_in_flight_transition()
   local restored = AuxiliaryFieldUi.restore(ui:capture())
 
   Assert.deepEqual(restored:status(), { requested = "hidden", state = "hiding" })
+end
+
+function T.validate_accepts_valid_directions_and_rejects_contradictions()
+  local valid = {
+    { requested = "shown", state = "shown" },
+    { requested = "shown", state = "showing" },
+    { requested = "hidden", state = "hidden" },
+    { requested = "hidden", state = "hiding" },
+  }
+  for _, record in ipairs(valid) do
+    Assert.notNil(AuxiliaryFieldUi.validate(record))
+  end
+  local invalid, err = AuxiliaryFieldUi.validate({ requested = "hidden", state = "showing" })
+  Assert.isNil(invalid)
+  Assert.isTrue(Errors.is(err))
 end
 
 function T.auxiliary_ui_task_validation_returns_a_structured_error_for_invalid_saved_state()

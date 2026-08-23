@@ -91,6 +91,15 @@ local function captureRuntime(overrides)
       end,
     },
     playTime = PlayTime.new(17),
+    saveValidation = {
+      contexts = {},
+      contextLoader = function()
+        return {}
+      end,
+      validate = function(_, record)
+        return record
+      end,
+    },
   }, FieldRuntime)
   for key, value in pairs(overrides or {}) do
     runtime[key] = value
@@ -100,6 +109,17 @@ end
 
 function T.captureGameSave_returns_a_strict_snapshot_without_storage_io()
   local runtime = captureRuntime()
+  local validationCalls = 0
+  runtime.saveValidation = {
+    contexts = {},
+    contextLoader = function()
+      return {}
+    end,
+    validate = function(_, record)
+      validationCalls = validationCalls + 1
+      return record
+    end,
+  }
   local scriptCaptureCalls = 0
   local originalCapture = require("libs.engine.src.script.ScriptSave").capture
   ---@diagnostic disable-next-line: duplicate-set-field
@@ -127,6 +147,7 @@ function T.captureGameSave_returns_a_strict_snapshot_without_storage_io()
   Assert.equal(valid.playTimeSeconds, 17)
   Assert.equal(valid.audio.fieldMusicOverride, 123)
   Assert.equal(scriptCaptureCalls, 1)
+  Assert.equal(validationCalls, 1)
 end
 
 function T.captureGameSave_refuses_an_unstable_boundary_without_mutating_state()

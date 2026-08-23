@@ -23,6 +23,40 @@ WorldState.__index = WorldState
 
 WorldState.SCHEMA_NAME = "g4-world-state-v1"
 
+local WORLD_FIELDS = { flags = true, variables = true, objects = true, rng = true }
+
+---@param record any
+---@return table|nil, Errors.Error?
+function WorldState.validate(record)
+  if type(record) ~= "table" then
+    return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "world bucket must be a table", {})
+  end
+  for key in pairs(record) do
+    if not WORLD_FIELDS[key] then
+      return nil,
+        Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "world bucket contains an unknown field", { field = key })
+    end
+  end
+  for _, key in ipairs({ "flags", "variables", "objects", "rng" }) do
+    if type(record[key]) ~= "table" then
+      return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "world bucket field is required", { field = key })
+    end
+  end
+  local events, eventErr = FieldEventState.validate({ flags = record.flags, vars = record.variables })
+  if not events then
+    return nil, assert(eventErr)
+  end
+  for key in pairs(record.objects) do
+    return nil,
+      Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "world object state is unsupported", { field = key })
+  end
+  local rng, rngErr = ScriptRng.validate(record.rng)
+  if not rng then
+    return nil, assert(rngErr)
+  end
+  return { flags = events.flags, variables = events.vars, objects = {}, rng = rng }
+end
+
 -- Resolve a flag/var id through the catalog: symbolic names become numeric
 -- ids when the catalog knows them; unknown symbolic names are attributed
 -- reference errors so typos fail loudly.
@@ -135,9 +169,14 @@ end
 ---@param opts table|nil
 ---@return WorldState
 function WorldState.restore(record, opts)
-  record = record or {}
-  local events = { flags = record.flags or {}, vars = record.variables or {} }
-  local rng = record.rng ~= nil and ScriptRng.restore(record.rng) or ScriptRng.new(opts and opts.seed or nil)
+  local valid, err = WorldState.validate(record)
+  if not valid then
+    local validationError = assert(err)
+    Errors.raise(validationError.code, validationError.message, validationError.context)
+  end
+  local validated = assert(valid)
+  local events = { flags = validated.flags, vars = validated.variables }
+  local rng = ScriptRng.restore(validated.rng)
   return WorldState.new({ events = events, catalogs = opts and opts.catalogs, rng = rng })
 end
 

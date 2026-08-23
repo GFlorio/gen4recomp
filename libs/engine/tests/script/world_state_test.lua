@@ -217,6 +217,23 @@ T["world state round trip"] = function()
   Assert.equal(restored.rng:nextInt(50), world.rng:nextInt(50), "the serialized RNG continues from the captured state")
 end
 
+T["world validation is strict and matches capture"] = function()
+  local world = WorldState.new({ catalogs = CATALOGS, seed = 7 })
+  local record = world:capture()
+  Assert.notNil(WorldState.validate(record))
+  local invalid = {
+    { flags = {}, variables = {}, objects = {}, rng = { state = 0, calls = 0 } },
+    { flags = {}, variables = {}, objects = { extra = true }, rng = { state = 1, calls = 0 } },
+    { flags = {}, variables = {}, rng = { state = 1, calls = 0 } },
+    { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = -1 } },
+  }
+  for _, candidate in ipairs(invalid) do
+    local validated, err = WorldState.validate(candidate)
+    Assert.isNil(validated)
+    Assert.isTrue(Errors.is(err))
+  end
+end
+
 -- 8. The new-bark branching scenario: scene variable drives the branch and
 -- save state selects every branch.
 T["new bark branching driven by save state"] = function()

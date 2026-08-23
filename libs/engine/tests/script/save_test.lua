@@ -25,6 +25,34 @@ local Diagnostics = require("libs.engine.src.script.Diagnostics")
 
 local T = {}
 
+T["structural validation requires both fingerprints"] = function()
+  local bucket = {
+    schema = ScriptSave.SCHEMA_NAME,
+    registryFingerprint = "registry",
+    taskFingerprint = "tasks",
+    nextEnvironmentId = 0,
+    nextInstanceId = 0,
+    nextTaskId = 0,
+    environments = {},
+    instances = {},
+    tasks = {},
+  }
+  Assert.isNil(ScriptSave.validate(bucket, {}))
+  for _, field in ipairs({ "registryFingerprint", "taskFingerprint" }) do
+    local candidate = {}
+    for key, value in pairs(bucket) do
+      candidate[key] = value
+    end
+    candidate[field] = nil
+    local err = assert(ScriptSave.validate(candidate, {}))
+    Assert.isTrue(Errors.is(err))
+    candidate[field] = ""
+    Assert.isTrue(Errors.is(assert(ScriptSave.validate(candidate, {}))))
+    candidate[field] = 7
+    Assert.isTrue(Errors.is(assert(ScriptSave.validate(candidate, {}))))
+  end
+end
+
 ---@class SaveHarness
 ---@field services FakeServices
 ---@field registry Registry

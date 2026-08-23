@@ -387,6 +387,15 @@ function ScriptSave.validate(bucket, opts)
       { schema = bucket.schema }
     )
   end
+  for _, field in ipairs({ "registryFingerprint", "taskFingerprint" }) do
+    if type(bucket[field]) ~= "string" or bucket[field] == "" then
+      return Errors.new(
+        ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+        "scripts bucket fingerprint is required",
+        { field = field }
+      )
+    end
+  end
   if opts.expectedRegistryFingerprint ~= nil and bucket.registryFingerprint ~= opts.expectedRegistryFingerprint then
     return Errors.new(
       ScriptErrors.SCRIPT_REGISTRY_FINGERPRINT_MISMATCH,

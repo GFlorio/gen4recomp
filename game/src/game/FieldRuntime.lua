@@ -52,6 +52,7 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
+local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
 local RepoFs = require("game.src.game.RepoFs")
@@ -388,7 +389,7 @@ function FieldRuntime:_load()
     })
     local loadedGame
     if self.game.schema == GameSave.SCHEMA then
-      loadedGame = assert(saveValidation:validate(self.game, playerDataContext))
+      loadedGame = assert(saveValidation:validate(self.game))
       assert(loadedGame.versionId == self.versionId, "loaded game belongs to another version")
     else
       assert(self.game.playerData, "finalized game player data is required")
@@ -908,9 +909,9 @@ end
 -- IsNighttime predicate (hours 0-3 and 20-23, the bandForHour nite band);
 -- tests and hosts inject a deterministic one.
 ---@param cacheFs CacheFs
----@param restoredWorld table? the restored save's world bucket, when resuming
+---@param restoredAudio table? the restored save's audio bucket, when resuming
 ---@return table audioService the GameSound instance, or the injected recording adapter
-function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
+function FieldRuntime:_composeAudio(cacheFs, restoredAudio)
   local audioService = self.scriptHosts and self.scriptHosts.audio
   if audioService == nil or self.audioOutput ~= nil then
     self.mapMusicDayNight = self.dayNight
@@ -959,7 +960,7 @@ function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
     -- Fresh boot: no override. Resume: restore the persisted override.
     self.audio:enterMap(self.runtimeMap, {
       play = true,
-      restoredMusicOverride = restoredWorld and restoredWorld.fieldMusicOverride or nil,
+      restoredMusicOverride = restoredAudio and restoredAudio.fieldMusicOverride or nil,
     })
   end
   assert(audioService ~= nil, "field runtime audio composition must produce a service")
@@ -999,12 +1000,10 @@ function FieldRuntime:_captureGameSave(allowMenu)
       registryFingerprint = self.scripts:registryFingerprint(),
     }),
     auxiliaryUi = self.auxiliaryFieldUi:capture(),
-    audio = {
-      fieldMusicOverride = self.audio and self.audio:musicOverride() or nil,
-    },
+    audio = FieldAudioSave.capture(self.audio),
   }
 
-  local valid, validationErr = GameSave.validate(snapshot)
+  local valid, validationErr = self.saveValidation:validate(snapshot)
   if not valid then
     return nil, validationErr
   end
