@@ -32,6 +32,7 @@ local function loadResources(manifest, graphics, imageLoader)
       image = manifest.background.image,
       width = manifest.background.width,
       height = manifest.background.height,
+      sampling = manifest.background.sampling,
       frames = {
         {
           x = 0,
@@ -47,7 +48,8 @@ local function loadResources(manifest, graphics, imageLoader)
       assert(image ~= nil, "intro image loader returned no image for " .. assetId)
       acquired[#acquired + 1] = image
       if image.setFilter then
-        image:setFilter("nearest", "nearest")
+        assert(asset.sampling == "linear" or asset.sampling == "nearest", "intro asset sampling is invalid")
+        image:setFilter(asset.sampling, asset.sampling)
       end
       images[assetId] = image
       quads[assetId] = {}
@@ -92,7 +94,7 @@ function OakIntroRenderer.new(options)
   }, OakIntroRenderer)
 end
 
-local function drawAsset(self, assetId, frameIndex, region, offsetX)
+local function drawAsset(self, assetId, frameIndex, region)
   local asset = self.assets[assetId]
   local image = self.images[assetId]
   local quad = self.quads[assetId] and self.quads[assetId][frameIndex or 1]
@@ -101,8 +103,9 @@ local function drawAsset(self, assetId, frameIndex, region, offsetX)
   assert(quad ~= nil, "intro frame is missing: " .. assetId)
   local frame = asset.frames[frameIndex or 1]
   local scale = math.min(region.width / frame.width, region.height / frame.height)
-  local x = region.x + (region.width - frame.width * scale) / 2 + (offsetX or 0)
+  local x = region.x + (region.width - frame.width * scale) / 2
   local y = region.y + (region.height - frame.height * scale) / 2
+  self.graphics.setColor(1, 1, 1, 1)
   self.graphics.draw(image, quad, x, y, 0, scale, scale)
 end
 
@@ -111,19 +114,18 @@ function OakIntroRenderer:draw(view)
   assert(not self.released, "Oak renderer is released")
   local graphics = self.graphics
   local layout = view.layout
-  graphics.setColor(0.04, 0.05, 0.09, 1)
   graphics.clear(0.04, 0.05, 0.09, 1)
   drawAsset(self, "background", 1, layout.viewport)
   if view.primaryWidget ~= nil then
-    drawAsset(self, view.primaryWidget, view.visualFrameIndex, layout.subject, view.oakOffsetX)
+    drawAsset(self, view.primaryWidget, view.visualFrameIndex, layout.subject)
   elseif view.visual ~= "background" then
-    drawAsset(self, view.visual, view.visualFrameIndex, layout.subject, view.oakOffsetX)
+    drawAsset(self, view.visual, view.visualFrameIndex, layout.subject)
   end
   if view.overlayWidget ~= nil then
     drawAsset(self, view.overlayWidget, view.overlayFrameIndex, layout.overlay)
   end
   if view.revealWidget ~= nil and layout.reveal ~= nil then
-    drawAsset(self, view.revealWidget, view.visualFrameIndex, layout.reveal)
+    drawAsset(self, view.revealWidget, view.revealFrameIndex, layout.reveal)
   end
   if view.flashAlpha > 0 then
     graphics.setColor(1, 1, 1, view.flashAlpha)
@@ -156,13 +158,18 @@ function OakIntroRenderer:draw(view)
   end
   graphics.setColor(1, 1, 1, 1)
   if view.name ~= "" then
-    self.text:drawText(view.name, layout.message.x, layout.message.y - 24)
+    local preview = assert(layout.namePreview, "Oak name preview is missing")
+    local textWidth = self.text.textWidth and self.text:textWidth(view.name) or 0
+    self.text:drawText(view.name, preview.x + (preview.width - textWidth) / 2, preview.y + (preview.height - 16) / 2)
   end
   if view.phase == "name_edit" then
     for _, entry in ipairs(layout.nameKeys or layout.nameGrid) do
       local width = self.text.textWidth and self.text:textWidth(entry.label) or 0
       self.text:drawText(entry.label, entry.rect.x + (entry.rect.width - width) / 2, entry.rect.y + 6)
     end
+    local focused = assert(layout.nameKeys[view.virtualGlyphFocus], "Oak virtual focus is invalid")
+    graphics.setColor(0.8, 0.9, 1, 1)
+    graphics.rectangle("line", focused.rect.x, focused.rect.y, focused.rect.width, focused.rect.height)
   end
 end
 

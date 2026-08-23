@@ -79,9 +79,13 @@ function FakeGraphics.new(opts)
         error("injected newImage failure")
       end
       local size = opts.imageSizes and opts.imageSizes[#images + 1] or { 16, 16 }
-      local image = {
+      local image
+      image = {
         released = false,
-        setFilter = function() end,
+        filters = {},
+        setFilter = function(_, min, mag)
+          image.filters[#image.filters + 1] = { min = min, mag = mag }
+        end,
         getWidth = function()
           return size[1]
         end,

@@ -9,7 +9,9 @@ local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
 local NewGame = require("libs.engine.src.NewGame")
 local OakIntroController = require("libs.engine.src.OakIntroController")
 local OakIntroLayout = require("game.src.game.OakIntroLayout")
+local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 local OakIntroState = require("game.src.game.OakIntroState")
+local FakeGraphics = require("tests.support.FakeGraphics")
 
 local T = {
   metadata = {
@@ -77,6 +79,9 @@ local function manifest()
         },
       },
     }
+    if id == "ball_open" then
+      widgets[id].sourceCenter = { x = 160, y = 80 }
+    end
   end
   return {
     schemaVersion = 2,
@@ -134,11 +139,12 @@ local function controller(options)
     },
     audio = options.audio or audio(),
     messages = MESSAGES,
-    assets = {
+    assets = options.assets or {
       oak = { frames = { { duration = 1 } } },
       marill = { frames = { { duration = 1 } } },
-      ["shrink.male"] = { frames = { { duration = 1 } } },
-      ["shrink.female"] = { frames = { { duration = 1 } } },
+      shrink_male = { frames = { { duration = 1 } } },
+      shrink_female = { frames = { { duration = 1 } } },
+      ball_open = { frames = { { duration = 1 } } },
     },
     playerDataContext = { charmap = { A = 1, B = 2, G = 3, O = 4, L = 5 }, frameIndexes = { [0] = true } },
     randomU32 = function()
@@ -246,6 +252,125 @@ function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangle
   local layout = OakIntroLayout.compute(390, 844, state:view(), { "A", "B" })
   Assert.notNil(layout.nameKeys)
   Assert.equal(layout.nameKeys[1].label, "A")
+end
+
+T.tests.oak_motion_uses_normalized_progress_and_rendered_scale = function()
+  local state = controller()
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  local before = state:view()
+  local beforeLayout = OakIntroLayout.compute(390, 844, before, { "A", "B" }, manifest().widgets)
+
+  state:tick(13)
+  local during = state:view()
+  local duringLayout = OakIntroLayout.compute(390, 844, during, { "A", "B" }, manifest().widgets)
+  local expected = math.min(52 * duringLayout.subject.scale, duringLayout.stageContent.width * 0.24)
+    * during.oakSlideProgress
+  local beforeCenter = beforeLayout.subject.x + beforeLayout.subject.width / 2
+  local duringCenter = duringLayout.subject.x + duringLayout.subject.width / 2
+  Assert.near(beforeCenter - duringCenter, expected)
+end
+
+T.tests.ball_reveal_channels_preserve_independent_animation_timing = function()
+  local assets = {
+    oak = { frames = { { duration = 1 }, { duration = 1 }, { duration = 1 } } },
+    marill = { frames = { { duration = 2 }, { duration = 3 } } },
+    ball_open = {
+      frames = { { duration = 4 }, { duration = 1 }, { duration = 1 }, { duration = 1 }, { duration = 1 } },
+    },
+  }
+  local state = controller({ assets = assets })
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30)
+  local initial = state:view()
+  Assert.equal(initial.phase, "marill_cry_wait")
+  Assert.equal(initial.primaryWidget, "oak")
+  Assert.equal(initial.revealFrameIndex, 1)
+  Assert.equal(initial.overlayFrameIndex, 1)
+  state:tick(1)
+  local next = state:view()
+  Assert.equal(next.visualFrameIndex, initial.visualFrameIndex)
+  Assert.equal(next.revealFrameIndex, 1)
+  Assert.equal(next.overlayFrameIndex, 1, "ball timing must not use the four-frame flash counter")
+  state:tick(1)
+  Assert.equal(state:view().revealFrameIndex, 2)
+end
+
+T.tests.name_controls_use_generated_text_and_shared_hit_rectangles = function()
+  local graphics = FakeGraphics.new()
+  local textCalls = {}
+  local text = {
+    drawText = function(_, value, x, y)
+      textCalls[#textCalls + 1] = { value = value, x = x, y = y }
+    end,
+    textWidth = function(_, value)
+      return #value * 8
+    end,
+  }
+  local renderer = OakIntroRenderer.new({
+    manifest = manifest(),
+    graphics = graphics,
+    imageLoader = function()
+      return graphics.newImage()
+    end,
+    text = text,
+  })
+  local state = controller()
+  local host = { setTextInput = function() end }
+  local intro = OakIntroState.new({
+    controller = state,
+    manifest = manifest(),
+    ---@diagnostic disable-next-line: assign-type-mismatch
+    renderer = renderer,
+    textRenderer = text,
+    glyphs = { "A", "B" },
+    width = 390,
+    height = 844,
+    textInputHost = host,
+  })
+  intro:tick(40)
+  intro:keypressed("return")
+  intro:tick(6 + 30)
+  intro:keypressed("return")
+  intro:tick(26)
+  intro:keypressed("return")
+  intro:tick(30 + 40)
+  intro:keypressed("return")
+  intro:tick(30 + 26)
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:keypressed("return")
+  intro:tick(40)
+  Assert.equal(intro:view().phase, "name_edit")
+  intro:textinput("A")
+  local view = intro:view()
+  local preview = assert(view.layout.namePreview)
+  renderer:draw(view)
+  local nameDraw = assert(textCalls[#textCalls - #view.layout.nameKeys])
+  Assert.isTrue(nameDraw.x >= preview.x and nameDraw.x + text:textWidth(nameDraw.value) <= preview.x + preview.width)
+  local focused = view.layout.nameKeys[view.virtualGlyphFocus].rect
+  local focusedLines = 0
+  for _, rectangle in ipairs(graphics.rectangles) do
+    if rectangle.mode == "line" and rectangle.x == focused.x and rectangle.y == focused.y then
+      focusedLines = focusedLines + 1
+    end
+  end
+  Assert.equal(focusedLines, 1)
+  intro:mousepressed(focused.x + focused.width / 2, focused.y + focused.height / 2, 1)
+  Assert.equal(intro:view().name, "AA")
+  intro:dispose()
 end
 
 return T

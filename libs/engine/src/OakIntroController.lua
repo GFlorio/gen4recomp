@@ -36,7 +36,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field messageKey string|nil
 ---@field confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field dialogue { message: string|table|nil, messageKey: string? }?
----@field oakOffsetX number
+---@field revealFrameIndex integer|nil
 ---@field flashAlpha number
 ---@field genderFocus integer
 ---@field name string
@@ -71,6 +71,10 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _visualFrameIndex integer
 ---@field private _visualFrameTimer integer?
 ---@field private _flashFrames integer
+---@field private _revealFrameIndex integer|nil
+---@field private _revealFrameTimer integer|nil
+---@field private _overlayFrameIndex integer|nil
+---@field private _overlayFrameTimer integer|nil
 ---@field private _genderFocus integer
 ---@field private _name string
 ---@field private _result table|nil
@@ -186,6 +190,10 @@ function OakIntroController.new(options)
     _visualFrameIndex = 1,
     _visualFrameTimer = nil,
     _flashFrames = 0,
+    _revealFrameIndex = nil,
+    _revealFrameTimer = nil,
+    _overlayFrameIndex = nil,
+    _overlayFrameTimer = nil,
     _genderFocus = 0,
     _name = "",
     _result = nil,
@@ -222,6 +230,36 @@ function OakIntroController:_advanceVisual()
   return false
 end
 
+function OakIntroController:_startChannel(visual, channel)
+  local frames = framesFor(self._assets, visual)
+  assert(frames ~= nil and #frames > 0, "generated Oak animation is missing: " .. visual)
+  self[channel .. "FrameIndex"] = 1
+  self[channel .. "FrameTimer"] = assert(frames[1].duration)
+end
+
+function OakIntroController:_advanceChannel(visual, channel, loop)
+  local frames = framesFor(self._assets, visual)
+  assert(frames ~= nil and #frames > 0, "generated Oak animation is missing: " .. visual)
+  local indexField, timerField = channel .. "FrameIndex", channel .. "FrameTimer"
+  local index, timer = self[indexField], self[timerField]
+  assert(index ~= nil and timer ~= nil, "Oak animation channel is not initialized: " .. channel)
+  self[timerField] = timer - 1
+  if self[timerField] > 0 then
+    return
+  end
+  if index == #frames then
+    if loop then
+      index = 1
+    else
+      return
+    end
+  else
+    index = index + 1
+  end
+  self[indexField] = index
+  self[timerField] = assert(frames[index].duration)
+end
+
 function OakIntroController:_event(kind, value)
   self._events[#self._events + 1] = { kind = kind, value = value, frame = self._sourceFrames }
 end
@@ -235,7 +273,8 @@ end
 
 function OakIntroController:_startCry()
   self._flashFrames = FLASH_FRAMES
-  self:_setVisual("marill")
+  self:_startChannel("marill", "_reveal")
+  self:_startChannel("ball_open", "_overlay")
   self._audio:playCry(184, 0)
   self:_event("marill_appears", "marill")
   self._phase = "marill_cry_wait"
@@ -280,12 +319,15 @@ function OakIntroController:_stepFrame()
   self._audio:updateSoundFrame()
   if self._flashFrames > 0 then
     self._flashFrames = self._flashFrames - 1
+    if self._overlayFrameIndex ~= nil then
+      self:_advanceChannel("ball_open", "_overlay", false)
+    end
   end
   if self._phase == "shrink_animation" and self:_advanceVisual() then
     self:_finish()
     return
   elseif self._phase == "marill_cry_wait" then
-    self:_advanceVisual()
+    self:_advanceChannel("marill", "_reveal", true)
   end
   if self._phase == "opening_wait" then
     self._timer = self._timer - 1
@@ -566,11 +608,6 @@ function OakIntroController:view()
     message = self._message,
     visual = self._visual,
     visualFrameIndex = self._visualFrameIndex,
-    oakOffsetX = (
-      self._phase == "oak_slide_right" and (OAK_SLIDE_FRAMES - self._timer)
-      or self._phase == "oak_slide_left" and -(OAK_SLIDE_FRAMES - self._timer)
-      or 0
-    ),
     flashAlpha = self._flashFrames / FLASH_FRAMES,
     genderFocus = self._genderFocus,
     name = self._name,
@@ -589,7 +626,8 @@ function OakIntroController:view()
       or self._visual,
     revealWidget = self._phase == "marill_cry_wait" and "marill" or nil,
     overlayWidget = self._flashFrames > 0 and "ball_open" or nil,
-    overlayFrameIndex = self._flashFrames > 0 and FLASH_FRAMES - self._flashFrames + 1 or nil,
+    revealFrameIndex = self._phase == "marill_cry_wait" and self._revealFrameIndex or nil,
+    overlayFrameIndex = self._flashFrames > 0 and self._overlayFrameIndex or nil,
     oakSlideProgress = (self._phase == "oak_slide_right" or self._phase == "oak_slide_left") and math.max(
       0,
       math.min(1, (OAK_SLIDE_FRAMES - self._timer) / OAK_SLIDE_FRAMES)

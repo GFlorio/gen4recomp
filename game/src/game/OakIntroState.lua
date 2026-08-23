@@ -40,6 +40,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field cards table<integer, OakIntroStateRectangle>
 ---@field nameGrid table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
 ---@field nameKeys table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
+---@field namePreview OakIntroStateRectangle?
 ---@field stageContent OakIntroStateRectangle
 ---@field dialogue { outerRect: OakIntroStateRectangle, scale: number }?
 ---@field choicePanel OakIntroStateRectangle?
@@ -206,7 +207,7 @@ function OakIntroState.new(options)
     self = setmetatable({
       controller = options.controller,
       manifest = options.manifest,
-      renderer = renderer,
+      renderer = renderer --[[@as OakIntroStateRenderer]],
       inputHost = textInputHost(options.textInputHost),
       glyphs = glyphList(options.glyphs),
       width = width,

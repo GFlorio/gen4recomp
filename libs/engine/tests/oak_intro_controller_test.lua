@@ -106,7 +106,10 @@ local function controller(options)
       ["profile.name_confirm.female"] = "profile.name_confirm.female",
       ["profile.final"] = "profile.final",
     },
-    assets = options.assets or {},
+    assets = options.assets or {
+      marill = { frames = { { duration = 1 } } },
+      ball_open = { frames = { { duration = 1 } } },
+    },
     virtualGlyphs = { "A", "B", "C", "D", "E", "F", "G", "O", "L", "é" },
     playerDataContext = PLAYER_DATA_CONTEXT,
     randomU32 = function()
@@ -118,6 +121,7 @@ end
 local function animatedAssets()
   return {
     marill = { frames = { { duration = 1 }, { duration = 4 }, { duration = 2 } } },
+    ball_open = { frames = { { duration = 1 } } },
     shrink_male = { frames = { { duration = 2 }, { duration = 3 } } },
     shrink_female = { frames = { { duration = 2 }, { duration = 3 } } },
   }
@@ -327,7 +331,9 @@ function T.core_sequence_exposes_source_beats_in_order()
   Assert.equal(state:view().message, "oak.world_inhabited")
   state:press("confirm")
   state:tick(30)
-  Assert.equal(state:view().visual, "marill")
+  Assert.equal(state:view().primaryWidget, "oak")
+  Assert.equal(state:view().revealWidget, "marill")
+  Assert.equal(state:view().revealFrameIndex, 1)
   state:tick(40)
   Assert.equal(state:view().message, "oak.live_alongside")
   state:press("confirm")
@@ -359,14 +365,15 @@ function T.generated_animation_durations_drive_looping_marill_frames()
   state:tick(26)
   state:press("confirm")
   state:tick(30)
-  Assert.equal(state:view().visual, "marill")
-  Assert.equal(state:view().visualFrameIndex, 1)
+  Assert.equal(state:view().primaryWidget, "oak")
+  Assert.equal(state:view().revealWidget, "marill")
+  Assert.equal(state:view().revealFrameIndex, 1)
   state:tick(1)
-  Assert.equal(state:view().visualFrameIndex, 2)
+  Assert.equal(state:view().revealFrameIndex, 2)
   state:tick(4)
-  Assert.equal(state:view().visualFrameIndex, 3)
+  Assert.equal(state:view().revealFrameIndex, 3)
   state:tick(2)
-  Assert.equal(state:view().visualFrameIndex, 1)
+  Assert.equal(state:view().revealFrameIndex, 1)
 end
 
 function T.shrink_frames_remain_drawable_until_their_generated_durations_end()

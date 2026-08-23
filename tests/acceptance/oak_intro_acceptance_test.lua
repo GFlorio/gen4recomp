@@ -20,6 +20,10 @@ local READY_VERSION = "heartgold"
 local VIRTUAL_GLYPHS = { "A", "B", "C", "D", "E", "F", "G", "O", "L", "é" }
 local CHARMAP = { A = 1, B = 2, C = 3, D = 4, E = 5, F = 6, G = 7, O = 8, L = 9, ["é"] = 10 }
 local PLAYER_DATA_CONTEXT = { charmap = CHARMAP, frameIndexes = { [0] = true } }
+local INTRO_ASSETS = {
+  marill = { frames = { { duration = 1 } } },
+  ball_open = { frames = { { duration = 1 } } },
+}
 
 local MESSAGES = {
   ["greeting.midnight"] = "generated.greeting.midnight",
@@ -174,6 +178,7 @@ local function startFlow(options, fn)
         clock = clock,
         audio = audio,
         messages = MESSAGES,
+        assets = INTRO_ASSETS,
         virtualGlyphs = VIRTUAL_GLYPHS,
         playerDataContext = PLAYER_DATA_CONTEXT,
         randomU32 = function()
