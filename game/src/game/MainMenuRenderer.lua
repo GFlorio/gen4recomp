@@ -32,6 +32,19 @@ function MainMenuRenderer:draw(view)
   local oldX, oldY, oldWidth, oldHeight = lg.getScissor()
   lg.setScissor(layout.content.x, layout.content.y, layout.content.width, layout.content.height)
   local cardsOk, cardsError = xpcall(function()
+    if view.catalogError and view.catalogError ~= "" then
+      local errorRect = assert(layout.catalogErrorRect, "catalog error needs visible layout geometry")
+      lg.setColor(1, 0.65, 0.65, 1)
+      lg.setScissor(errorRect.x, errorRect.y, errorRect.width, errorRect.height)
+      lg.printf(
+        "Save catalog unavailable: " .. tostring(view.catalogError),
+        errorRect.x + 8,
+        errorRect.y + 4,
+        math.max(1, errorRect.width - 16),
+        "left"
+      )
+      lg.setScissor(layout.content.x, layout.content.y, layout.content.width, layout.content.height)
+    end
     for _, item in ipairs(view.items) do
       local card = layout.cards[item.id]
       if card then
@@ -93,9 +106,6 @@ function MainMenuRenderer:draw(view)
     lg.setColor(1, 1, 1, 1)
     lg.printf("Cancel", dialog.cancel.x, dialog.cancel.y + 10, dialog.cancel.width, "center")
     lg.printf("Delete", dialog.delete.x, dialog.delete.y + 10, dialog.delete.width, "center")
-  elseif view.catalogError then
-    lg.setColor(1, 0.65, 0.65, 1)
-    lg.print("Save catalog unavailable: " .. tostring(view.catalogError), layout.viewport.x, layout.viewport.y - 24)
   end
 end
 

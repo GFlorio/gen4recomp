@@ -367,7 +367,8 @@ function MainMenuState:layout()
     self.width,
     self.height,
     self.scrollOffset,
-    self.controller.dialog
+    self.controller.dialog,
+    type(self.catalogError) == "string" and self.catalogError ~= ""
   )
 end
 

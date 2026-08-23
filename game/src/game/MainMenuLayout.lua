@@ -7,6 +7,8 @@ local MARGIN = 16
 local HEADER_HEIGHT = 32
 local CARD_HEIGHT = 44
 local CARD_GAP = 8
+local MAX_CONTENT_WIDTH = 960
+local CATALOG_ERROR_HEIGHT = 24
 local DELETE_WIDTH = 48
 local DELETE_GAP = 8
 
@@ -28,26 +30,33 @@ end
 ---@param height number
 ---@param previousOffset number
 ---@param dialog table|nil
+---@param hasCatalogError boolean|nil
 ---@return table
-function MainMenuLayout.compute(items, focusedIndex, width, height, previousOffset, dialog)
+function MainMenuLayout.compute(items, focusedIndex, width, height, previousOffset, dialog, hasCatalogError)
   assert(type(items) == "table" and #items > 0, "Main Menu layout needs items")
   assert(
     type(width) == "number" and width > 0 and type(height) == "number" and height > 0,
     "Main Menu layout needs positive viewport dimensions"
   )
+  assert(hasCatalogError == nil or type(hasCatalogError) == "boolean", "catalog error presence must be boolean")
   local viewport = { x = 0, y = 0, width = math.max(1, width), height = math.max(1, height) }
-  local contentX = MARGIN
+  local availableWidth = math.max(0, width - MARGIN * 2)
+  local contentWidth = math.max(1, math.min(availableWidth, MAX_CONTENT_WIDTH))
+  local contentX = math.floor((width - contentWidth) / 2)
   local contentY = MARGIN + HEADER_HEIGHT
   local content = {
     x = contentX,
     y = contentY,
-    width = math.max(1, width - MARGIN * 2),
+    width = contentWidth,
     height = math.max(1, height - MARGIN * 2 - HEADER_HEIGHT),
   }
   local totalCardsHeight = #items * CARD_HEIGHT + (#items - 1) * CARD_GAP
-  local maxOffset = math.max(0, totalCardsHeight - content.height)
+  local errorHeight = hasCatalogError and CATALOG_ERROR_HEIGHT or 0
+  local errorGap = hasCatalogError and CARD_GAP or 0
+  local totalContentHeight = totalCardsHeight + errorHeight + errorGap
+  local maxOffset = math.max(0, totalContentHeight - content.height)
   local offset = clamp(previousOffset or 0, 0, maxOffset)
-  local focusedTop = (focusedIndex - 1) * (CARD_HEIGHT + CARD_GAP)
+  local focusedTop = errorHeight + errorGap + (focusedIndex - 1) * (CARD_HEIGHT + CARD_GAP)
   local focusedBottom = focusedTop + CARD_HEIGHT
   if CARD_HEIGHT <= content.height then
     if focusedTop < offset then
@@ -59,8 +68,9 @@ function MainMenuLayout.compute(items, focusedIndex, width, height, previousOffs
   offset = clamp(offset, 0, maxOffset)
 
   local cards = {}
+  local cardsStartY = content.y + errorHeight + errorGap
   for index, item in ipairs(items) do
-    local y = content.y + (index - 1) * (CARD_HEIGHT + CARD_GAP) - offset
+    local y = cardsStartY + (index - 1) * (CARD_HEIGHT + CARD_GAP) - offset
     local fullWidth = content.width
     local bodyWidth = fullWidth
     local delete = nil
@@ -80,7 +90,16 @@ function MainMenuLayout.compute(items, focusedIndex, width, height, previousOffs
     cards = cards,
     offset = offset,
     totalCardsHeight = totalCardsHeight,
+    totalContentHeight = totalContentHeight,
   }
+  if hasCatalogError then
+    result.catalogErrorRect = {
+      x = content.x,
+      y = content.y - offset,
+      width = content.width,
+      height = CATALOG_ERROR_HEIGHT,
+    }
+  end
   if dialog then
     local boxWidth = math.max(1, math.min(420, width - MARGIN * 2))
     local boxHeight = 136

@@ -111,6 +111,36 @@ function T.content_hit_testing_uses_half_open_boundaries()
   Assert.isFalse(MainMenuLayout.contains(content, 143, 112))
 end
 
+function T.layout_caps_and_centers_content_with_floor_rounding()
+  local menuItems = { item("new-game", true) }
+  local atCap = MainMenuLayout.compute(menuItems, 1, 992, 480, 0, nil, false)
+  local evenWide = MainMenuLayout.compute(menuItems, 1, 1600, 480, 0, nil, false)
+  local oddWide = MainMenuLayout.compute(menuItems, 1, 1601, 480, 0, nil, false)
+
+  Assert.equal(atCap.content.width, 960)
+  Assert.equal(atCap.content.x, 16)
+  Assert.equal(evenWide.content.width, 960)
+  Assert.equal(evenWide.content.x, 320)
+  Assert.equal(oddWide.content.width, 960)
+  Assert.equal(oddWide.content.x, 320)
+end
+
+function T.layout_places_catalog_error_inside_content_and_shifts_cards()
+  local menuItems = { item("new-game", true), item("save-1", true) }
+  local withoutError = MainMenuLayout.compute(menuItems, 1, 640, 480, 0, nil, false)
+  local withError = MainMenuLayout.compute(menuItems, 1, 640, 480, 0, nil, true)
+  local errorRect = assert(withError.catalogErrorRect)
+
+  Assert.isNil(withoutError.catalogErrorRect)
+  Assert.equal(withError.cards["new-game"].body.y, withoutError.cards["new-game"].body.y + 32)
+  Assert.equal(withError.cards["save-1"].body.y, withoutError.cards["save-1"].body.y + 32)
+  Assert.equal(errorRect.x, withError.content.x)
+  Assert.equal(errorRect.y, withError.content.y)
+  Assert.equal(errorRect.width, withError.content.width)
+  Assert.equal(errorRect.height, 24)
+  Assert.equal(withError.totalContentHeight, withError.totalCardsHeight + 32)
+end
+
 function T.long_menu_keeps_the_last_focused_card_inside_the_content_viewport()
   local entries = {}
   for index = 1, 8 do

@@ -523,4 +523,66 @@ function T.tests.responsive_root_and_delete_hit_semantics_are_deliberate()
   App.state = nil
 end
 
+-- The product menu owns one shared content rectangle for cards and pointer
+-- activation. Wide hosts cap and center that rectangle without changing the
+-- narrow margin behavior.
+function T.tests.menu_content_is_margin_filled_narrow_and_capped_centered_wide()
+  local entries = { saveRecord("save-00000001", "PLAYER", 60) }
+  local menu = newMenu(fakeStore(entries), function() end, 640, 480)
+
+  local narrow = view(menu)
+  Assert.equal(narrow.layout.content.width, 608)
+  Assert.equal(narrow.layout.content.x, 16)
+
+  menu:resize(1600, 900)
+  local wide = view(menu)
+  local content = wide.layout.content
+  Assert.equal(content.width, 960)
+  Assert.equal(content.x, 320)
+
+  for _, card in pairs(wide.layout.cards) do
+    Assert.isTrue(card.body.x >= content.x)
+    Assert.isTrue(card.body.x + card.body.width <= content.x + content.width)
+    if card.delete then
+      Assert.isTrue(card.delete.x >= content.x)
+      Assert.isTrue(card.delete.x + card.delete.width <= content.x + content.width)
+    end
+  end
+
+  local card = assert(wide.layout.cards["save-00000001"])
+  local x, y = rectCenter(card.body)
+  local results = {}
+  local actionableMenu = newMenu(fakeStore(entries), function(result)
+    results[#results + 1] = result
+  end, 1600, 900)
+  actionableMenu:mousepressed(x, y, 1, false, 1)
+  Assert.equal(results[1].kind, "continue")
+  Assert.equal(results[1].game.saveId, "save-00000001")
+end
+
+-- A recoverable catalog failure is part of the composed menu view. Its
+-- layout-owned row is visible, participates in scrolling, and leaves the
+-- first card below the normal gap.
+function T.tests.catalog_error_has_visible_geometry_before_cards_on_narrow_and_wide_hosts()
+  local catalogError = Errors.new("GAME_SAVE_CATALOG_INVALID", "catalog unreadable")
+  for _, dimensions in ipairs({ { 640, 480 }, { 1600, 900 } }) do
+    local menu = newMenu(fakeStore({}, catalogError), function() end, dimensions[1], dimensions[2])
+    local current = view(menu)
+    local layout = current.layout
+    local errorRect = assert(layout.catalogErrorRect)
+    local content = layout.content
+    local newGame = assert(layout.cards["new-game"])
+
+    Assert.isTrue(current.catalogError ~= nil and current.catalogError ~= "")
+    Assert.equal(errorRect.x, content.x)
+    Assert.equal(errorRect.y, content.y)
+    Assert.equal(errorRect.width, content.width)
+    Assert.equal(errorRect.height, 24)
+    Assert.isTrue(errorRect.y >= layout.viewport.y)
+    Assert.isTrue(errorRect.y + errorRect.height <= content.y + content.height)
+    Assert.equal(newGame.body.y, content.y + errorRect.height + 8)
+    Assert.equal(layout.totalContentHeight, layout.totalCardsHeight + errorRect.height + 8)
+  end
+end
+
 return T
