@@ -143,13 +143,15 @@ T.tests["two-phase motion is fixed-step and source-calibrated"] = function()
     game:step()
 
     local samples = {}
-    for tick = 1, 33 do
+    for tick = 1, 32 do
       samples[tick] = indicatorStatus(game)
       game:step()
     end
     Assert.equal(samples[1].phase, 0)
-    Assert.equal(samples[17].phase, 1, "the source phase must toggle after 16 eligible updates")
-    Assert.equal(samples[33].phase, 0, "the source phase must toggle back after another 16 updates")
+    Assert.equal(samples[16].phase, 1, "the source phase must toggle on the sixteenth eligible update")
+    Assert.equal(samples[16].counter, 0)
+    Assert.equal(samples[32].phase, 0, "the source phase must toggle back on the thirty-second eligible update")
+    Assert.equal(samples[32].counter, 0)
     Assert.notNil(samples[1].offset, "the status must expose the source-calibrated world offset")
     Assert.notNil(samples[17].offset, "both source phases must expose a world offset")
     Assert.isFalse(

@@ -25,17 +25,46 @@ T.tests["only matching entrance behavior is visible"] = function()
   Assert.isFalse(update(indicator, behaviors.DOOR, "east").visible)
 end
 
-T.tests["phase advances in fixed steps and resets"] = function()
+T.tests["phase toggles on the sixteenth eligible update"] = function()
   local indicator = Indicator.new()
   local behavior = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST
-  Assert.equal(update(indicator, behavior, "east").phase, 0)
-  for _ = 2, 16 do
+  for updateNumber = 1, 15 do
+    local status = update(indicator, behavior, "east")
+    Assert.equal(status.phase, 0, "the initial phase lasts through update " .. updateNumber)
+    Assert.equal(status.counter, updateNumber)
+  end
+  local phaseOne = update(indicator, behavior, "east")
+  Assert.equal(phaseOne.phase, 1, "the sixteenth eligible update toggles before drawing")
+  Assert.equal(phaseOne.counter, 0)
+  for updateNumber = 17, 31 do
+    local status = update(indicator, behavior, "east")
+    Assert.equal(status.phase, 1, "phase one lasts through update " .. updateNumber)
+    Assert.equal(status.counter, updateNumber - 16)
+  end
+  local phaseZero = update(indicator, behavior, "east")
+  Assert.equal(phaseZero.phase, 0, "the thirty-second eligible update toggles back before drawing")
+  Assert.equal(phaseZero.counter, 0)
+end
+
+T.tests["ineligible updates reset the animation before requalification"] = function()
+  local indicator = Indicator.new()
+  local behavior = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST
+  for _ = 1, 16 do
     update(indicator, behavior, "east")
   end
-  Assert.equal(update(indicator, behavior, "east").phase, 1)
-  Assert.equal(update(indicator, behavior, "north").phase, 0)
-  Assert.equal(update(indicator, behavior, "east").phase, 0)
-  Assert.equal(update(indicator, behavior, "east", false).phase, 0)
+  local hidden = update(indicator, behavior, "north")
+  Assert.isFalse(hidden.visible)
+  Assert.equal(hidden.phase, 0)
+  Assert.equal(hidden.counter, 0)
+  local restarted = update(indicator, behavior, "east")
+  Assert.isTrue(restarted.visible)
+  Assert.equal(restarted.phase, 0)
+  Assert.equal(restarted.counter, 1)
+
+  local transitionHidden = update(indicator, behavior, "east", false)
+  Assert.isFalse(transitionHidden.visible)
+  Assert.equal(transitionHidden.phase, 0)
+  Assert.equal(transitionHidden.counter, 0)
 end
 
 T.tests["phase offsets match the directional source vectors"] = function()

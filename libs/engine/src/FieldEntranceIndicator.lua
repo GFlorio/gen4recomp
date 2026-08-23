@@ -10,6 +10,7 @@ local FieldEntranceIndicator = {}
 FieldEntranceIndicator.__index = FieldEntranceIndicator
 
 local ROTATION_DEGREES = { north = 180, south = 0, west = 270, east = 90 }
+local PHASE_LENGTH = 16
 local DELTAS = {
   north = { x = 0, z = -1 },
   south = { x = 0, z = 1 },
@@ -32,7 +33,11 @@ local function copyOffset(offset)
 end
 
 function FieldEntranceIndicator.new()
-  return setmetatable({ phase = 0, counter = 0, statusRecord = { visible = false, phase = 0 } }, FieldEntranceIndicator)
+  return setmetatable({
+    phase = 0,
+    counter = 0,
+    statusRecord = { visible = false, phase = 0, counter = 0 },
+  }, FieldEntranceIndicator)
 end
 
 local function behaviorOf(map, player)
@@ -49,7 +54,7 @@ end
 
 function FieldEntranceIndicator:_reset()
   self.phase, self.counter = 0, 0
-  self.statusRecord = { visible = false, phase = 0 }
+  self.statusRecord = { visible = false, phase = 0, counter = 0 }
   return self.statusRecord
 end
 
@@ -64,7 +69,8 @@ function FieldEntranceIndicator:updateFixed(runtime)
     return self:_reset()
   end
   assert(DELTAS[direction] and ROTATION_DEGREES[direction], "unknown entrance direction")
-  if self.counter == 16 then
+  self.counter = self.counter + 1
+  if self.counter >= PHASE_LENGTH then
     self.counter, self.phase = 0, 1 - self.phase
   end
   local delta = DELTAS[direction]
@@ -91,7 +97,6 @@ function FieldEntranceIndicator:updateFixed(runtime)
       z = world.z + delta.z + offset.z,
     }
   end
-  self.counter = self.counter + 1
   return self.statusRecord
 end
 

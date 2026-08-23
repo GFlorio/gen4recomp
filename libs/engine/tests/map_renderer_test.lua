@@ -2185,9 +2185,10 @@ function T.draw_builds_the_render_queue_exactly_once_per_frame()
   renderer:release()
 end
 
--- World items must select projection identically for ordinary and billboard
--- geometry. The single MRT pass records both outputs with that projection.
-function T.projection_selection_matches_between_the_state_and_color_passes()
+-- World items, actor billboards, and field effects share one projection
+-- selection boundary. The single MRT pass records each output with that
+-- projection.
+function T.field_effects_share_the_depth_biased_projection_with_billboards()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
@@ -2205,11 +2206,14 @@ function T.projection_selection_matches_between_the_state_and_color_passes()
   billboard.billboardCenter = { 0, 0, -5 }
   billboard.billboardScale = { 1, 1, 1 }
   billboard.billboardProjection = true
+  local entrance = passItem("opaque", 0)
+  entrance.worldSpace = true
+  entrance.fieldEffect = "warp_entrance"
 
   renderer:draw(
     scene.runtime,
     scene.camera,
-    { { ordinary, billboard } },
+    { { ordinary, billboard, entrance } },
     nil,
     FieldViewport.new(640, 480, { mode = "strict" }),
     0
@@ -2228,8 +2232,8 @@ function T.projection_selection_matches_between_the_state_and_color_passes()
   local worldProjections = projectionsSentBy(lg.shaders[3])
   Assert.deepEqual(
     worldProjections,
-    { worldProjection, billboardProjection },
-    "MRT world pass: ordinary then billboard"
+    { worldProjection, billboardProjection, billboardProjection },
+    "MRT world pass: ordinary, billboard, then field effect"
   )
   renderer:release()
 end
