@@ -35,7 +35,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field bufferedDirection FieldDirection?
 ---@field from table?
 ---@field to table?
----@field transitionKind "ladder_exit"|"ladder_down_exit"|"vertical_return"|nil
+---@field transitionKind "ladder_exit"|"ladder_down_exit"|"vertical_return"|"held_stair"|nil
 ---@field transitionFacing FieldDirection?
 ---@field transitionFrom table?
 ---@field transitionTo table?
@@ -233,6 +233,29 @@ end
 function FieldPlayer:beginTransitionStep(direction)
   assert(self.motion == "idle", "cannot begin a transition step while moving")
   return self:scriptedStep(direction)
+end
+
+-- Starts destination-side horizontal-stair presentation from an adjacent
+-- sampled point into the player's existing logical anchor. This is visual
+-- motion only: the player keeps the destination warp's logical ownership.
+function FieldPlayer:beginTransitionHeldStair(startWorld, facing)
+  assert(self.motion == "idle", "cannot begin held-stair presentation while moving")
+  assert(facing == "east" or facing == "west", "held-stair presentation facing required")
+  assert(type(startWorld) == "table", "held-stair presentation start required")
+  assert(type(startWorld.x) == "number" and type(startWorld.y) == "number" and type(startWorld.z) == "number")
+  local anchor = { x = self.worldX, y = self.worldY, z = self.worldZ }
+  self.motion = "transition"
+  self.facing = facing
+  self.progressTicks = 0
+  self.durationTicks = FieldPlayer.WALK_STEP_TICKS
+  self.transitionKind = "held_stair"
+  self.transitionFacing = facing
+  self.transitionProgress = 0
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = startWorld.x, startWorld.y, startWorld.z
+  self.worldX, self.worldY, self.worldZ = startWorld.x, startWorld.y, startWorld.z
+  self.transitionFrom = { x = startWorld.x, y = startWorld.y, z = startWorld.z }
+  self.transitionTo = anchor
+  return true
 end
 
 function FieldPlayer:pauseTransitionAnimation()

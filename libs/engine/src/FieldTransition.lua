@@ -86,6 +86,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field warpContext table?
 ---@field suppression table?
 ---@field destinationAnchorY number?
+---@field destinationStairPresentationStart table?
 ---@field prepared table?
 ---@field sourceMap RuntimeFieldMap?
 ---@field sourceWarp table?
@@ -124,6 +125,7 @@ function FieldTransition.new(options)
     transitionMode = nil,
     destinationFacing = nil,
     destinationAnchorY = nil,
+    destinationStairPresentationStart = nil,
     phase = FieldTransition.PHASES.idle,
     locked = false,
     sourceKind = nil,
@@ -134,7 +136,6 @@ function FieldTransition.new(options)
     fadeAlpha = 0,
     fade = nil,
     fadeStarted = false,
-    profileSoundPlayed = false,
     activeProfileSound = nil,
     ownsPlayerAnimationPause = false,
     escalator = nil,
@@ -190,9 +191,25 @@ local function beginProfileMotion(self, phase)
   if self.profileId == FieldTransitionProfile.HORIZONTAL_STAIRS then
     if phase == "exit" then
       assert(self.player and type(self.player.beginTransitionStep) == "function", "stair transition step required")
-      return self.player:beginTransitionStep(self.facing)
+      local started = self.player:beginTransitionStep(self.facing)
+      if not started then
+        Errors.raise(
+          FieldErrors.MAP_TRANSITION_INGRESS_FAILED,
+          "horizontal stair source step resolves no terrain destination",
+          {
+            mapId = self.sourceMap.mapId,
+            warpId = self.sourceWarp.index,
+            x = self.sourceWarp.x,
+            z = self.sourceWarp.z,
+            direction = self.facing,
+          }
+        )
+      end
+      return true
     end
-    return false
+    assert(self.player and type(self.player.beginTransitionHeldStair) == "function", "held-stair presentation required")
+    assert(self.destinationStairPresentationStart, "held-stair presentation start required")
+    return self.player:beginTransitionHeldStair(self.destinationStairPresentationStart, self.destinationFacing)
   end
   if self.profileId == FieldTransitionProfile.ESCALATOR then
     assert(self.escalatorAt, "escalator prop resolver required")
@@ -216,11 +233,10 @@ local function beginProfileMotion(self, phase)
     local direction = phase == "exit" and self.facing or self.destinationFacing
     local started = self.player:beginTransitionStep(direction)
     assert(started, "escalator transition step could not start")
-    if phase == "exit" and not self.profileSoundPlayed and self.playSound then
+    if phase == "exit" and self.playSound then
       assert(self.stopSound, "escalator transition sound stop callback required")
       self.playSound(FieldTransitionProfile.ROUTINE_FAMILIES[self.profileId].exitSound)
       self.activeProfileSound = FieldTransitionProfile.ROUTINE_FAMILIES[self.profileId].exitSound
-      self.profileSoundPlayed = true
     end
     return started
   end
@@ -285,19 +301,18 @@ local function resetTransient(self)
   self.fadeAlpha = 0
   self.fade = nil
   self.fadeStarted = false
-  self.profileSoundPlayed = false
   self.sourceDoor = nil
   self.destinationDoor = nil
   self.sourceChoreo = nil
   self.destinationChoreo = nil
   self.destinationAnchorY = nil
+  self.destinationStairPresentationStart = nil
   self.escalator = nil
   self.progressTicks = 0
 end
 
--- The source fade has one sequencing owner. Source choreography only marks
--- readiness; this helper is the sole place that starts the ordinary fade and
--- any delayed profile SFX.
+-- Keep the destination warp resolution as the logical anchor and retain the
+-- adjacent stair cell only as the visual start of destination presentation.
 local function adjustHorizontalStairDestination(self, resolution)
   assert(resolution.destinationWarp, "horizontal stair destination warp required")
   local localX, localZ =
@@ -319,10 +334,8 @@ local function adjustHorizontalStairDestination(self, resolution)
     localZ = adjustedLocalZ + FieldCoordinates.TILE_CENTER_OFFSET,
     currentY = resolution.worldY,
   })
-  resolution.fieldX = fieldX
-  resolution.fieldZ = fieldZ
-  resolution.surfaceId = sample.surfaceId
-  resolution.worldY = sample.worldY
+  self.destinationStairPresentationStart =
+    FieldCoordinates.fieldToWorld(resolution.destinationMap, fieldX, fieldZ, sample.worldY)
   self.destinationFacing = facing
   self.destinationWarpX = resolution.destinationWarp.x
   self.destinationWarpZ = resolution.destinationWarp.z
@@ -435,7 +448,6 @@ local function beginSourceChoreography(self)
     and self.playSound
   then
     self.playSound(family.exitSound)
-    self.profileSoundPlayed = true
   end
   if kind ~= "door" and self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS then
     if
@@ -459,13 +471,13 @@ end
 -- player's step and resolves done when the movement finished.
 local function advanceSourceChoreo(self)
   if self.sourceChoreo == "profile_motion" then
+    if self.profileId == FieldTransitionProfile.ESCALATOR and not self.fadeStarted then
+      local family = profileFamily(self)
+      startFade(self, "out", family.fadeColor or 0)
+    end
     advanceProfileMotion(self)
     if not self.player or (self.player.motion ~= "transition" and self.player.motion ~= "walking") then
       if self.profileId == FieldTransitionProfile.ESCALATOR then
-        if not self.fadeStarted then
-          local family = profileFamily(self)
-          startFade(self, "out", family.fadeColor or 0)
-        end
         local propFinished = not self.escalator or self.escalator:isFinished() ~= false
         if propFinished and self.fadeAlpha == 1 then
           resumeOwnedPlayerAnimation(self)
@@ -740,10 +752,7 @@ function FieldTransition:updateFixed()
     if self.sourceChoreo == "done" and not self.fadeStarted then
       local family = profileFamily(self)
       if family.exitSound and self.playSound then
-        if not self.profileSoundPlayed then
-          self.playSound(family.exitSound)
-          self.profileSoundPlayed = true
-        end
+        self.playSound(family.exitSound)
       end
       startFade(self, "out", family.fadeColor or 0)
     end

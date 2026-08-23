@@ -136,6 +136,41 @@ function T.ladder_source_presentation_preserves_logical_ownership()
   end
 end
 
+function T.held_stair_presentation_moves_into_anchor_without_logical_movement()
+  for _, case in ipairs({
+    { facing = "west", offset = 1 },
+    { facing = "east", offset = -1 },
+  }) do
+    local p = player(runtimeMap(), 2, 4, 0)
+    local anchor = { x = p.worldX, y = p.worldY, z = p.worldZ }
+    local start = { x = anchor.x + case.offset, y = anchor.y + 1, z = anchor.z }
+    local logical = { p.fieldX, p.fieldZ, p.localX, p.localZ, p.surfaceId }
+
+    Assert.isTrue(p:beginTransitionHeldStair(start, case.facing))
+    near(p.worldX, start.x)
+    near(p.worldY, start.y)
+    near(p.worldZ, start.z)
+    Assert.equal(p.motion, "transition")
+    Assert.deepEqual({ p.fieldX, p.fieldZ, p.localX, p.localZ, p.surfaceId }, logical)
+
+    for _ = 1, FieldPlayer.WALK_STEP_TICKS / 2 do
+      p:updateFixed({})
+    end
+    Assert.isTrue((case.offset > 0 and p.worldX > anchor.x) or (case.offset < 0 and p.worldX < anchor.x))
+    Assert.equal(p.motion, "transition")
+    Assert.deepEqual({ p.fieldX, p.fieldZ, p.localX, p.localZ, p.surfaceId }, logical)
+
+    for _ = FieldPlayer.WALK_STEP_TICKS / 2 + 1, FieldPlayer.WALK_STEP_TICKS do
+      p:updateFixed({})
+    end
+    near(p.worldX, anchor.x)
+    near(p.worldY, anchor.y)
+    near(p.worldZ, anchor.z)
+    Assert.equal(p.motion, "idle")
+    Assert.deepEqual({ p.fieldX, p.fieldZ, p.localX, p.localZ, p.surfaceId }, logical)
+  end
+end
+
 local function tick(p, held, pressed)
   p:updateFixed({ heldDirection = held, pressedDirection = pressed })
 end

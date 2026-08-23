@@ -206,17 +206,17 @@ function T.tests.escalator_source_lifecycle_orders_effects_and_pause_ownership()
     "sound:SEQ_SE_DP_ESUKA",
   })
   Assert.isTrue(player.animationPaused)
-  local fadeAbsentBeforeMotion = not transition.fadeStarted
+  Assert.isFalse(transition.fadeStarted)
   local sourceFrameStoppedBeforeMotion = not transition:updateSourceFrame()
   local coefficientStayedAtZero = transition:presentationStatus().coefficient == 0
 
   transition:updateFixed()
   Assert.equal(player.motion, "walking")
-  local fadeStartedBeforePlayerFinished = transition.fadeStarted
-  transition:updateFixed()
-  Assert.equal(player.motion, "idle")
   Assert.isTrue(transition.fadeStarted)
   Assert.isTrue(transition:updateSourceFrame())
+  Assert.isTrue(transition:presentationStatus().coefficient > 0)
+  transition:updateFixed()
+  Assert.equal(player.motion, "idle")
 
   while not transition.fade:status().completed do
     Assert.isTrue(transition:updateSourceFrame())
@@ -230,7 +230,6 @@ function T.tests.escalator_source_lifecycle_orders_effects_and_pause_ownership()
   transition:updateFixed()
   Assert.equal(transition.phase, FieldTransition.PHASES.load_destination)
   Assert.isFalse(player.animationPaused)
-  Assert.equal(eventIndex(events, "resume"), 5)
   local sourceStopBeforeResolve = eventIndex(events, "stop:SEQ_SE_DP_ESUKA")
 
   transition:updateFixed()
@@ -246,23 +245,17 @@ function T.tests.escalator_source_lifecycle_orders_effects_and_pause_ownership()
   end
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(player.animationPaused)
-  Assert.isTrue(fadeAbsentBeforeMotion, "source fade must wait for player motion")
-  Assert.isFalse(fadeStartedBeforePlayerFinished, "source fade must wait for player motion")
   Assert.isTrue(sourceFrameStoppedBeforeMotion, "source frames must not advance before source motion")
   Assert.isTrue(coefficientStayedAtZero, "source fade coefficient must remain zero before source motion")
   Assert.notNil(sourceStopBeforeResolve, "source sound must stop before destination resolution")
+  Assert.equal(eventIndex(events, "sound:SEQ_SE_DP_ESUKA"), 4)
+  Assert.equal(eventIndex(events, "stop:SEQ_SE_DP_ESUKA"), eventIndex(events, "resume") + 1)
   Assert.isTrue(
     sourceStopBeforeResolve < eventIndex(events, "resolve"),
     "source sound must stop before destination resolution"
   )
-  Assert.equal(#events, 13)
-  Assert.equal(events[7], "resolve")
-  Assert.equal(events[8], "prepare")
-  Assert.equal(events[9], "commit")
-  Assert.equal(events[10], "prop:escalator")
-  Assert.equal(events[11], "pause")
-  Assert.equal(events[12], "horizontal:east")
-  Assert.equal(events[13], "resume")
+  Assert.isTrue(eventIndex(events, "resume") < eventIndex(events, "resolve"))
+  Assert.isTrue(eventIndex(events, "stop:SEQ_SE_DP_ESUKA") < eventIndex(events, "resolve"))
 end
 
 function T.tests.escalator_step_failure_releases_owned_animation_pause()

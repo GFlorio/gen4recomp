@@ -21,6 +21,7 @@
 -- grid to classify the warp tile.
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldTransitionFade = require("libs.engine.src.FieldTransitionFade")
 local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
@@ -1241,6 +1242,24 @@ function T.stair_source_climb_drives_the_player_locked_movement()
   )
   Assert.equal(player.motion, "idle", "the source step finished")
   Assert.equal(transition.phase, "fade_out", "the climb finishes inside the fade")
+end
+
+function T.stair_source_step_failure_aborts_with_ingress_error()
+  local player = {
+    motion = "idle",
+    beginTransitionStep = function()
+      return false
+    end,
+  }
+  local transition, source = transitionFixture({ kind = "stairs", player = player })
+  local ok, err = pcall(transition.start, transition, source, trigger("stairs", DOOR_WARP), "west")
+  Assert.isFalse(ok)
+  Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_INGRESS_FAILED")
+  Assert.equal(transition.error.code, "MAP_TRANSITION_INGRESS_FAILED")
+  Assert.equal(transition.phase, "idle")
+  Assert.isFalse(transition.locked)
+  Assert.isFalse(transition.fadeStarted)
+  Assert.deepEqual(transition.suppression, nil)
 end
 
 function T.plain_warps_never_play_the_stair_choreography()

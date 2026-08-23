@@ -186,12 +186,12 @@ function T.house_1f_to_2f_stairs_choreograph(romFs, version)
     z = 3,
   })
 
-  Assert.equal(player.fieldX, 2)
+  Assert.equal(player.fieldX, 3)
   Assert.equal(player.fieldZ, 4, "the ascent lands on the 2F stair tile")
   Assert.equal(player.motion, "idle")
   Assert.isFalse(transition.locked, "input unlocks once the destination fade-in completes")
   Assert.isNil(transition.suppression, "stair warps never carry coordinate suppression")
-  Assert.isNil(timeline.choreo_hold, "stairs never enter the door-close wait")
+  Assert.notNil(timeline.choreo_hold, "stairs hold until destination presentation completes")
   Assert.equal(#sounds, 1, "the source stair movement owns the stair sound")
   for _, id in ipairs(sounds) do
     Assert.equal(
@@ -205,7 +205,8 @@ function T.house_1f_to_2f_stairs_choreograph(romFs, version)
 
   -- Immediate reversal: the destination tile is a standing stair warp, so
   -- pressing the gate direction re-arms the transition immediately.
-  local back = assert(TransitionTrigger.inputPath(h2.map, 3, 4, "west"), "the 2F stair tile re-triggers")
+  local back =
+    assert(TransitionTrigger.inputPath(h2.map, player.fieldX, player.fieldZ, "west"), "the 2F stair tile re-triggers")
   Assert.equal(back.kind, "stairs")
   Assert.equal(assert(back.warp).destinationMapId, h1.map.mapId)
 end
@@ -221,16 +222,17 @@ function T.house_2f_to_1f_stairs_choreograph(romFs, version)
     z = 4,
   })
 
-  Assert.equal(player.fieldX, 2)
+  Assert.equal(player.fieldX, 3)
   Assert.equal(player.fieldZ, 3, "the descent lands back on the 1F stair tile")
   Assert.equal(player.motion, "idle")
   Assert.isFalse(transition.locked)
   Assert.isNil(transition.suppression)
-  Assert.isNil(timeline.choreo_hold)
+  Assert.notNil(timeline.choreo_hold)
   Assert.equal(#sounds, 1)
   Assert.isTrue(timeline.fade_out < timeline.swap_map)
 
-  local back = assert(TransitionTrigger.inputPath(h1.map, 3, 3, "west"), "the 1F stair tile re-triggers")
+  local back =
+    assert(TransitionTrigger.inputPath(h1.map, player.fieldX, player.fieldZ, "west"), "the 1F stair tile re-triggers")
   Assert.equal(back.kind, "stairs")
 end
 

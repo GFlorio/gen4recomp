@@ -293,7 +293,7 @@ function T.player_house_stairs_acceptance(romFs, versionId)
 
   Assert.equal(harness.swapCount, 1, "exactly one map swap")
   Assert.equal(harness.transition.profileId, 3, "player-house stairs use fixed profile 3")
-  Assert.isNil(harness.timeline.choreo_hold, "stairs never enter the door-close wait")
+  Assert.notNil(harness.timeline.choreo_hold, "stairs hold until destination presentation completes")
   Assert.equal(#harness.sounds, 1, "the source stair movement owns the stair sound")
   for _, id in ipairs(harness.sounds) do
     Assert.equal(
@@ -302,7 +302,7 @@ function T.player_house_stairs_acceptance(romFs, versionId)
       "the HGSS stair-climb sound id"
     )
   end
-  Assert.equal(harness.player.fieldX, 2)
+  Assert.equal(harness.player.fieldX, 3)
   Assert.equal(harness.player.fieldZ, 4, "the ascent lands on the 2F stair tile")
   Assert.equal(harness.player.motion, "idle")
   Assert.isFalse(harness.transition.locked, "stairs finish at the end of the destination fade-in")
@@ -310,15 +310,14 @@ function T.player_house_stairs_acceptance(romFs, versionId)
 
   local record, restored = autosaveRoundTrip(harness)
   Assert.equal(record.mapId, HOUSE_2F_MAP_ID)
-  Assert.equal(record.fieldX, 2)
+  Assert.equal(record.fieldX, 3)
   Assert.equal(record.fieldZ, 4)
-  Assert.equal(restored.fieldX, 2)
+  Assert.equal(restored.fieldX, 3)
   Assert.equal(restored.fieldZ, 4)
 
-  -- No bounce loop: the adjacent arrival tile is not the standing stair warp,
-  -- and with no input nothing re-fires.
+  -- No bounce loop: with no input the standing stair warp does not re-fire.
   SceneLoaderFixture.assertStable(harness, 20)
-  Assert.equal(harness.player.fieldX, 2)
+  Assert.equal(harness.player.fieldX, 3)
   Assert.equal(harness.player.fieldZ, 4)
 
   house1f.runtime:release()
