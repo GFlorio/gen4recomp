@@ -31,7 +31,7 @@ local function withGame(fn)
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
     save = "fresh",
-    fieldOptions = { acceptanceScripts = AcceptanceScripts },
+    fieldOptions = { acceptanceScripts = AcceptanceScripts, recordingScriptHosts = true },
   })
   local ok, err = xpcall(function()
     fn(game)
@@ -45,7 +45,7 @@ end
 
 local function scriptFaults(game)
   local faults = {}
-  for _, record in ipairs(game.hosts.events.records) do
+  for _, record in ipairs(game:hostEvents().records) do
     if record.name == "script.error" then
       faults[#faults + 1] = {
         scriptId = record.payload.scriptId,
@@ -127,7 +127,7 @@ function T.tests.high_level_sign_script_presents_and_dismisses_without_source_ap
     Assert.isFalse(signpostStatus(game).active, "A must dismiss the trainer tip window")
     Assert.equal(signpostStatus(game).command, "nop")
     game:advanceUntil("the demo script ends after dismissal", function()
-      for _, record in ipairs(game.hosts.events.records) do
+      for _, record in ipairs(game:hostEvents().records) do
         if record.name == "script.ended" then
           return true
         end

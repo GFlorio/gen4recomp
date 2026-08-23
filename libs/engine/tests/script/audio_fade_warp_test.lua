@@ -79,6 +79,11 @@ function FakeAudioBackend:isEffectPlaying(id)
   return self.playing[id] == true
 end
 
+function FakeAudioBackend:isEffectWaitComplete(id)
+  self.calls[#self.calls + 1] = { op = "isEffectWaitComplete", id = id }
+  return self.playing[id] ~= true
+end
+
 function FakeAudioBackend:isCryFinished()
   self.calls[#self.calls + 1] = { op = "isCryFinished" }
   return self:currentCry() == nil
@@ -328,6 +333,9 @@ T["sound wait polls never accept a nil result"] = function()
       node = { op = "wait_sound", sound = "SEQ_SE_DP_SELECT" },
       audio = {
         isEffectPlaying = function()
+          return false
+        end,
+        isEffectWaitComplete = function()
           return nil
         end,
       },
@@ -836,7 +844,7 @@ T["wait sound evaluates a value reference before polling"] = function()
   h.scheduler:step(100, nil)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
   h.scheduler:step(101, nil)
-  Assert.equal(callOp(h.audio.calls, 2), "isEffectPlaying")
+  Assert.equal(callOp(h.audio.calls, 2), "isEffectWaitComplete")
   Assert.equal(h.audio.calls[2].id, 1500, "the wait polls the resolved sequence")
   h.audio.playing[1500] = nil
   h.scheduler:step(102, nil)
@@ -845,7 +853,7 @@ T["wait sound evaluates a value reference before polling"] = function()
 end
 
 -- 9. wait_sound carries the resolved sequence and polls
--- isEffectPlaying(sequence); completion keeps the scheduler handoff.
+-- isEffectWaitComplete(sequence); completion keeps the scheduler handoff.
 T["wait sound polls the resolved sequence effect state"] = function()
   local h = harness({ audio = true })
   h.services.advanceAsync = nil
@@ -860,7 +868,7 @@ T["wait sound polls the resolved sequence effect state"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
   -- The wait stays blocked while the backend reports the effect playing.
   h.scheduler:step(101, nil)
-  Assert.equal(callOp(h.audio.calls, 2), "isEffectPlaying")
+  Assert.equal(callOp(h.audio.calls, 2), "isEffectWaitComplete")
   Assert.equal(h.audio.calls[2].id, "SEQ_SE_DP_SELECT")
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
   -- Ending the effect completes the poll; continuation follows the handoff.

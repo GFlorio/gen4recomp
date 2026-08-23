@@ -109,6 +109,11 @@ local function createFieldTransition(runtime, doorAt, escalatorAt)
       assert(audio and type(audio.play) == "function", "field transition audio host required")
       audio:play(soundRef)
     end,
+    stopSound = function(soundRef)
+      local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
+      assert(audio and type(audio.stop) == "function", "field transition audio host required")
+      audio:stop(soundRef)
+    end,
     callbackOwner = runtime,
     onProfile = runtimeProfileEffect,
     cameraAdjust = runtimeCameraAdjust,

@@ -52,7 +52,7 @@ local function fieldData(objects, backgrounds, coordinates)
   return { mapId = 60, events = { objects = objects, background = backgrounds, coordinates = coordinates } }
 end
 
-function T.input_path_requires_the_facing_collision_gate_after_ladder_check()
+function T.input_path_applies_facing_collision_only_to_facing_doors()
   for _, case in ipairs({
     { behavior = BEHAVIOR.WARP_ENTRANCE_SOUTH, direction = "south" },
     { behavior = BEHAVIOR.WARP_ENTRANCE_EAST, direction = "east" },
@@ -63,7 +63,7 @@ function T.input_path_requires_the_facing_collision_gate_after_ladder_check()
     local d = delta[case.direction]
     local unblocked =
       map(case.behavior, { ["4:4"] = { behavior = case.behavior }, [(4 + d.x) .. ":" .. (4 + d.z)] = {} })
-    Assert.isNil(TransitionTrigger.inputPath(unblocked, 4, 4, case.direction))
+    Assert.notNil(TransitionTrigger.inputPath(unblocked, 4, 4, case.direction))
     local blocked = map(
       case.behavior,
       { ["4:4"] = { behavior = case.behavior }, [(4 + d.x) .. ":" .. (4 + d.z)] = { blocked = true } }

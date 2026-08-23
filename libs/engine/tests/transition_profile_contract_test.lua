@@ -56,6 +56,14 @@ function T.tests.vertical_profiles_return_from_staging_before_the_final_step()
         self.motion = "transition"
         return true
       end,
+      beginTransitionLadderExit = function(self)
+        self.motion = "transition"
+        return true
+      end,
+      beginTransitionLadderDownExit = function(self)
+        self.motion = "transition"
+        return true
+      end,
       beginTransitionStep = function(self, direction)
         events[#events + 1] = { "step", direction }
         self.motion = "walking"
@@ -124,10 +132,9 @@ function T.tests.escalator_profile_uses_prop_and_horizontal_player_choreography(
     resumeTransitionAnimation = function()
       events[#events + 1] = "resume"
     end,
-    beginTransitionMotion = function(self, profile, _, facing)
-      Assert.equal(profile, FieldTransitionProfile.ESCALATOR)
+    beginTransitionStep = function(self, facing)
       events[#events + 1] = "horizontal:" .. facing
-      self.motion = "transition"
+      self.motion = "walking"
       return true
     end,
     updateFixed = function(self)
@@ -143,6 +150,9 @@ function T.tests.escalator_profile_uses_prop_and_horizontal_player_choreography(
     end,
     playSound = function(sound)
       events[#events + 1] = "sound:" .. sound
+    end,
+    stopSound = function(sound)
+      events[#events + 1] = "stop:" .. sound
     end,
     resolveDestination = function()
       return {
@@ -179,6 +189,7 @@ function T.tests.escalator_profile_uses_prop_and_horizontal_player_choreography(
     "pause",
     "horizontal:east",
     "resume",
+    "stop:SEQ_SE_DP_ESUKA",
   })
 end
 
@@ -280,7 +291,7 @@ function T.tests.transition_motion_profiles_require_the_player_motion_contract()
       warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
       transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
     }, "south")
-  end, "transition movement profiles require beginTransitionMotion")
+  end, "transition movement profiles require semantic player motion")
 end
 
 function T.tests.field_transition_consumes_trigger_profile_before_ownership()
@@ -349,7 +360,7 @@ function T.tests.field_transition_uses_trigger_destination_facing()
   local receivedFacing
   local player = {
     motion = "idle",
-    beginTransitionMotion = function(self, _, _, facing)
+    beginTransitionStep = function(self, facing)
       self.motion = "idle"
       self.facing = facing
       return true
@@ -518,20 +529,33 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
   local player = {
     motion = "idle",
     facing = "south",
-    beginTransitionMotion = function(self, profile, phase, facing)
-      events[#events + 1] = { profile = profile, phase = "movement", family = phase .. ":" .. facing }
+    beginTransitionStep = function(self, facing)
+      events[#events + 1] = { phase = "movement", family = "step:" .. facing }
       self.motion = "transition"
       self.transitionTicks = 0
       self.facing = facing
       return true
     end,
-    beginTransitionVerticalReturn = function(self)
+    beginTransitionHeldStair = function(self, facing)
+      events[#events + 1] = { phase = "movement", family = "held_stair:" .. facing }
       self.motion = "transition"
       self.transitionTicks = 0
       return true
     end,
-    beginTransitionStep = function(self)
-      self.motion = "walking"
+    beginTransitionLadderExit = function(self, facing)
+      events[#events + 1] = { phase = "movement", family = "ladder_exit:" .. facing }
+      self.motion = "transition"
+      self.transitionTicks = 0
+      return true
+    end,
+    beginTransitionLadderDownExit = function(self, facing)
+      events[#events + 1] = { phase = "movement", family = "ladder_down_exit:" .. facing }
+      self.motion = "transition"
+      self.transitionTicks = 0
+      return true
+    end,
+    beginTransitionVerticalReturn = function(self)
+      self.motion = "transition"
       self.transitionTicks = 0
       return true
     end,

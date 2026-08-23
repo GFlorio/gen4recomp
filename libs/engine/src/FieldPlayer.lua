@@ -35,6 +35,11 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field bufferedDirection FieldDirection?
 ---@field from table?
 ---@field to table?
+---@field transitionKind "held_stair"|"ladder_exit"|"ladder_down_exit"|"vertical_return"|nil
+---@field transitionFacing FieldDirection?
+---@field transitionFrom table?
+---@field transitionTo table?
+---@field transitionProgress number?
 local FieldPlayer = {}
 FieldPlayer.__index = FieldPlayer
 
@@ -113,6 +118,9 @@ function FieldPlayer.new(options)
     progressTicks = 0,
     durationTicks = FieldPlayer.WALK_STEP_TICKS,
     animationPaused = false,
+    transitionKind = nil,
+    transitionFacing = nil,
+    transitionProgress = nil,
   }, FieldPlayer)
 end
 
@@ -235,33 +243,64 @@ function FieldPlayer:resumeTransitionAnimation()
   self.animationPaused = false
 end
 
--- Starts one of the source transition movement families.  These motions are
--- deliberately separate from tile walking: ladder and ladder-down routines
--- interpolate the already-selected map position for sixteen fixed ticks and
--- never claim a new field tile.
-function FieldPlayer:beginTransitionMotion(profile, phase, facing)
+local function beginTransitionPresentation(self, kind, facing, targetY)
   assert(self.motion == "idle", "cannot begin a transition motion while moving")
-  assert(profile == 2, "profile has no escalator transition motion")
   self.motion = "transition"
   self.facing = facing
   self.progressTicks = 0
   self.durationTicks = 16
+  self.transitionKind = kind
+  self.transitionFacing = facing
+  self.transitionProgress = 0
   self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
-  local deltaX = facing == "east" and 1 or facing == "west" and -1
-  assert(deltaX, "escalator transition requires an east or west facing")
-  self.transitionTo = { x = self.worldX + deltaX, y = self.worldY, z = self.worldZ }
+  self.transitionTo = { x = self.worldX, y = targetY or self.worldY, z = self.worldZ }
   return true
+end
+
+-- Holds the destination stair pose for one walk interval without changing the
+-- already-staged logical tile. The presentation offset returns to its exact
+-- logical anchor at completion.
+function FieldPlayer:beginTransitionHeldStair(facing)
+  assert(facing == "east" or facing == "west", "held stair transition requires an east or west facing")
+  assert(self.motion == "idle", "cannot begin a held stair motion while moving")
+  self.motion = "transition"
+  self.facing = facing
+  self.progressTicks = 0
+  self.durationTicks = FieldPlayer.WALK_STEP_TICKS
+  self.transitionKind = "held_stair"
+  self.transitionFacing = facing
+  self.transitionProgress = 0
+  self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
+  self.transitionTo = { x = self.worldX, y = self.worldY, z = self.worldZ }
+  return true
+end
+
+-- Source-side ladder ascent presentation. This never claims a field tile;
+-- destination staging and the final semantic step own logical movement.
+function FieldPlayer:beginTransitionLadderExit(facing)
+  assert(type(facing) == "string", "ladder exit facing required")
+  return beginTransitionPresentation(self, "ladder_exit", facing, self.worldY + 2)
+end
+
+-- Source-side ladder descent presentation. It is deliberately separate from
+-- ascent so the two source routines retain their opposite vertical motion.
+function FieldPlayer:beginTransitionLadderDownExit(facing)
+  assert(type(facing) == "string", "ladder-down exit facing required")
+  return beginTransitionPresentation(self, "ladder_down_exit", facing, self.worldY - 2)
 end
 
 -- Starts the sixteen-update vertical return from ladder staging to the
 -- resolved anchor height. The caller performs the final cardinal tile step
 -- only after this presentation interpolation completes.
 function FieldPlayer:beginTransitionVerticalReturn(anchorY)
-  assert(self.motion == "idle", "cannot begin a vertical transition while moving")
+  assert(self.motion == "idle", "cannot begin a vertical return while moving")
   assert(type(anchorY) == "number", "ladder anchor height required")
   self.motion = "transition"
   self.progressTicks = 0
   self.durationTicks = 16
+  self.transitionKind = "vertical_return"
+  self.transitionFacing = nil
+  self.transitionProgress = 0
   self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
   self.transitionTo = { x = self.worldX, y = anchorY, z = self.worldZ }
   return true
@@ -312,14 +351,28 @@ function FieldPlayer:updateFixed(input)
   if self.motion == "transition" then
     self.progressTicks = self.progressTicks + 1
     local progress = self.progressTicks / self.durationTicks
-    self.worldX = self.transitionFrom.x + (self.transitionTo.x - self.transitionFrom.x) * progress
-    self.worldY = self.transitionFrom.y + (self.transitionTo.y - self.transitionFrom.y) * progress
-    self.worldZ = self.transitionFrom.z + (self.transitionTo.z - self.transitionFrom.z) * progress
+    self.transitionProgress = math.min(1, progress)
+    if self.transitionKind == "held_stair" then
+      local midpoint = self.durationTicks / 2
+      local offset = self.progressTicks <= midpoint and self.progressTicks / midpoint
+        or (self.durationTicks - self.progressTicks) / midpoint
+      local direction = self.transitionFacing == "east" and 1 or -1
+      self.worldX = self.transitionFrom.x + direction * offset
+      self.worldY = self.transitionFrom.y
+      self.worldZ = self.transitionFrom.z
+    else
+      self.worldX = self.transitionFrom.x + (self.transitionTo.x - self.transitionFrom.x) * progress
+      self.worldY = self.transitionFrom.y + (self.transitionTo.y - self.transitionFrom.y) * progress
+      self.worldZ = self.transitionFrom.z + (self.transitionTo.z - self.transitionFrom.z) * progress
+    end
     if self.progressTicks >= self.durationTicks then
       self.worldX, self.worldY, self.worldZ = self.transitionTo.x, self.transitionTo.y, self.transitionTo.z
       self.motion = "idle"
       self.progressTicks = 0
       self.transitionFrom, self.transitionTo = nil, nil
+      self.transitionKind = nil
+      self.transitionFacing = nil
+      self.transitionProgress = nil
     end
     return true
   end
@@ -373,6 +426,8 @@ function FieldPlayer:status()
     destinationSurfaceId = self.to and self.to.surfaceId or nil,
     facing = self.facing,
     motion = self.motion,
+    transitionKind = self.transitionKind,
+    transitionProgress = self.transitionProgress,
   }
 end
 

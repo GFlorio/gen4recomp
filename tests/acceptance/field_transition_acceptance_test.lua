@@ -106,7 +106,7 @@ function T.tests.player_house_stairs_remain_fixed_profile_three_indoors()
     Assert.equal(game.runtime.player.facing, "east")
     Assert.equal(game.runtime.player.fieldX, HOUSE_2F_ARRIVAL.fieldX)
     Assert.equal(game.runtime.player.fieldZ, HOUSE_2F_ARRIVAL.fieldZ)
-  end)
+  end, { recordingScriptHosts = true })
 end
 
 function T.tests.transition_sounds_are_emitted_once_by_profile_choreography()
@@ -114,7 +114,7 @@ function T.tests.transition_sounds_are_emitted_once_by_profile_choreography()
     beginTownDoor(game)
     Assert.equal(effectCount(game, "SEQ_SE_DP_DOOR_OPEN"), 1, "ordinary profile audio must be emitted once")
     game:waitForTransition()
-  end)
+  end, { recordingScriptHosts = true })
 
   withGame(TOWN, function(game)
     enterHouse(game)
@@ -123,7 +123,7 @@ function T.tests.transition_sounds_are_emitted_once_by_profile_choreography()
     game:waitForTransition()
     local stairSoundCount = effectCount(game, "SEQ_SE_DP_KAIDAN2")
     Assert.equal(stairSoundCount, 1, "stair profile audio must be emitted once; got " .. tostring(stairSoundCount))
-  end)
+  end, { recordingScriptHosts = true })
 end
 
 function T.tests.standard_fade_exposes_every_source_frame()
@@ -193,7 +193,7 @@ function T.tests.door_fade_waits_for_source_ingress_and_preserves_anchor()
       { LAB_FLOOR.fieldX, LAB_FLOOR.fieldZ }
     )
     Assert.isFalse(completed.destination.player.fieldZ < LAB_FLOOR.fieldZ, "door movement must not overshoot")
-  end)
+  end, { recordingScriptHosts = true })
 end
 
 function T.tests.transition_post_state_reanchors_player_and_camera()

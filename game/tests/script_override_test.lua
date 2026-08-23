@@ -58,6 +58,22 @@ function T.elm_route_override_has_complete_supported_coverage()
   Assert.isFalse(graph.hasUnsupported)
 end
 
+function T.elm_route_override_delegates_fade_to_the_field_transition()
+  local resource = assert(loadfile(ELM_OVERRIDE_PATH))()
+  local operations = {}
+  for _, step in ipairs(resource.steps) do
+    operations[#operations + 1] = step.op
+  end
+  Assert.deepEqual(operations, { "play_sound", "warp", "wait_sound", "set_var", "stop" })
+  Assert.equal(resource.steps[2].map, "MAP_NEW_BARK_ELMS_LAB_2F")
+  Assert.deepEqual(
+    { resource.steps[2].fieldX, resource.steps[2].fieldZ, resource.steps[2].facing, resource.steps[2].warp },
+    { 12, 6, "west", 0 }
+  )
+  Assert.equal(resource.steps[4].variable, "VAR_UNK_407C")
+  Assert.equal(resource.steps[4].value, 1)
+end
+
 -- The signpost overrides' std_signpost call must be the real call_common
 -- node: with opcode 61 classified, common.signpost is fully supported, so
 -- the generator must not collapse the call into an unsupported node

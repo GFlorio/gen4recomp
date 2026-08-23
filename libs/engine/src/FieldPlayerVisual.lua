@@ -84,6 +84,14 @@ function FieldPlayerVisual:updateFixed(walkingAtTickStart)
   end
 end
 
+-- Stop locomotion presentation at an explicit ownership handoff. This does
+-- not alter the player's logical or render position.
+function FieldPlayerVisual:settle()
+  self.pose = "idle"
+  self.poseTick = 0
+  self.lastFacing = self.player.facing
+end
+
 -- `alpha` is the render interpolation factor of the current fixed step.
 function FieldPlayerVisual:drawRecord(alpha)
   local point = self.player:renderPosition(alpha)

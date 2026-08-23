@@ -351,9 +351,23 @@ function FieldState:draw()
   if hostStatus.fadeAlpha > 0 then
     self:_drawApplicationFade(hostStatus.fadeAlpha)
   end
-  if self.runtime.transition.fadeAlpha > 0 then
+  local transitionStatus
+  if type(self.runtime.transition.presentationStatus) == "function" then
+    transitionStatus = self.runtime.transition:presentationStatus()
+  else
+    transitionStatus = {
+      overlay = self.runtime.transition.fadeAlpha > 0 and {
+        r = 0,
+        g = 0,
+        b = 0,
+        a = self.runtime.transition.fadeAlpha,
+      } or nil,
+    }
+  end
+  local transitionOverlay = transitionStatus.overlay
+  if transitionOverlay then
     local rectangle = self.runtime.viewport.worldViewport
-    lg.setColor(0, 0, 0, self.runtime.transition.fadeAlpha)
+    lg.setColor(transitionOverlay.r, transitionOverlay.g, transitionOverlay.b, transitionOverlay.a)
     lg.rectangle("fill", rectangle.x, rectangle.y, rectangle.width, rectangle.height)
   end
   -- Dialogue or signpost attached to the world surface, and only while the

@@ -3,6 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
@@ -18,8 +19,13 @@ local TOWN = "MAP_NEW_BARK"
 local LAB_2F = "MAP_NEW_BARK_ELMS_LAB_2F"
 local VAR_UNK_407C = FieldScriptSymbols.variablesByName.VAR_UNK_407C
 
-local function withGame(map, fn)
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = map, save = "fresh" })
+local function withGame(map, fn, fieldOptions)
+  local game = AcceptanceHarness.new():boot({
+    versionId = "heartgold",
+    map = map,
+    save = "fresh",
+    fieldOptions = fieldOptions,
+  })
   local ok, err = xpcall(function()
     fn(game)
     Assert.equal(game:renderAttempts(), 0)
@@ -32,7 +38,7 @@ end
 
 local function recordsNamed(game, name)
   local records = {}
-  for _, record in ipairs(game.hosts.events.records) do
+  for _, record in ipairs(game:hostEvents().records) do
     if record.name == name then
       records[#records + 1] = record
     end
@@ -103,6 +109,7 @@ end
 
 function T.tests.walking_onto_elm_lab_enters_the_second_floor_without_a_turn()
   withGame(TOWN, function(game)
+    Assert.isNil(game.runtime.scriptHosts, "the automatic Elm route must use the production-like composition")
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
     setCoordinatePredicate(game, event, true)
     game:moveTo({ fieldX = 688, fieldZ = 393 })
@@ -110,14 +117,21 @@ function T.tests.walking_onto_elm_lab_enters_the_second_floor_without_a_turn()
     Assert.deepEqual({ before.player.fieldX, before.player.fieldZ }, { 688, 393 })
 
     game:move("north")
-    local transition = game:waitForTransition()
-    local destination = transition.destination
+    local phases = {}
+    game:advanceUntil("Elm Lab automatic route completes", function(snapshot)
+      phases[snapshot.transition.phase] = true
+      return snapshot.mapSymbol == LAB_2F and snapshot.transition.phase == "idle" and not snapshot.fieldLocked
+    end, 120)
+    local destination = game:snapshot()
     Assert.equal(destination.mapSymbol, LAB_2F)
     Assert.deepEqual({ destination.player.fieldX, destination.player.fieldZ }, { 12, 6 })
     Assert.equal(destination.player.facing, "west")
     Assert.isFalse(destination.fieldLocked, "the completed route must release script ownership")
     Assert.equal(game.runtime.scripts.worldState:getVar(VAR_UNK_407C), 1)
-  end)
+
+    Assert.isTrue(phases.fade_out, "the route must use the field transition fade-out")
+    Assert.isTrue(phases.fade_in, "the route must use the field transition fade-in")
+  end, { audioOutput = FakeAudioOutput.new() })
 end
 
 function T.tests.coordinate_priority_and_variable_gate_control_the_landing()
@@ -128,7 +142,7 @@ function T.tests.coordinate_priority_and_variable_gate_control_the_landing()
     local matching = recordsNamed(game, "script.started")
     Assert.isTrue(#matching > 0)
     Assert.equal(matching[#matching].payload.trigger.kind, "coordinate")
-  end)
+  end, { recordingScriptHosts = true })
 
   withGame(TOWN, function(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
@@ -137,7 +151,7 @@ function T.tests.coordinate_priority_and_variable_gate_control_the_landing()
     game:move("north")
     Assert.equal(#recordsNamed(game, "script.started"), 0, "a mismatched coordinate variable must skip the script")
     Assert.equal(game:snapshot().mapSymbol, TOWN)
-  end)
+  end, { recordingScriptHosts = true })
 end
 
 function T.tests.elm_lab_second_floor_exits_east_through_production_input()
@@ -150,25 +164,53 @@ function T.tests.elm_lab_second_floor_exits_east_through_production_input()
     game:moveTo(cell)
     game:step({ direction = "east" })
     Assert.isFalse(game:snapshot().transition.phase == "idle", "the east exit must start from production input")
-  end)
+  end, { recordingScriptHosts = true })
 end
 
-function T.tests.elm_lab_second_floor_exit_uses_the_compiled_facing_collision_gate()
+function T.tests.elm_lab_second_floor_exit_uses_the_standing_directional_trigger()
   withGame(TOWN, function(game)
     enterLab2F(game)
     local cell = assert(
       warpCellWithBehavior(game, MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST),
       "Elm Lab 2F must expose its east exit"
     )
-    local origin = assert(game.runtime.runtimeMap.coordinateOrigin)
-    local aheadX, aheadZ = cell.fieldX + 1 - origin.x, cell.fieldZ - origin.z
-    Assert.isTrue(
-      game.runtime.runtimeMap.collision:isBlockedLocal(aheadX, aheadZ),
-      "the source-gated Elm Lab exit must have a blocked facing tile in compiled collision"
-    )
     game:moveTo(cell)
     game:step({ direction = "east" })
     Assert.isFalse(game:snapshot().transition.phase == "idle")
+  end, { audioOutput = FakeAudioOutput.new() })
+end
+
+function T.tests.passive_script_handoff_settles_the_player_visual()
+  withGame(TOWN, function(game)
+    local typeOne = assert(backgroundCell(game, 1), "a scripted type-one background event is required")
+    game:moveTo({ fieldX = typeOne.x, fieldZ = typeOne.z + 1 })
+    game.runtime.player.facing = "north"
+    game:step({ direction = "north" })
+
+    local handoff = game:advanceUntil("passive interaction ownership", function(snapshot)
+      return snapshot.player.fieldX == typeOne.x and snapshot.player.fieldZ == typeOne.z + 1 and snapshot.fieldLocked
+    end, 120)
+    Assert.equal(handoff.playerVisual.pose, "idle")
+    Assert.equal(handoff.playerVisual.poseTick, 0)
+  end, { recordingScriptHosts = true })
+end
+
+function T.tests.continuous_walking_carries_visual_gait_across_tile_commits()
+  withGame(TOWN, function(game)
+    game:moveTo({ fieldX = 688, fieldZ = 393 })
+    game:move("south")
+    local first = game:advanceUntil("first ordinary step", function(snapshot)
+      return snapshot.player.motion == "idle" and snapshot.player.fieldZ == 394
+    end, 120)
+    Assert.equal(first.playerVisual.pose, "walk")
+    Assert.isTrue(first.playerVisual.poseTick > 0)
+
+    game:move("south")
+    local second = game:advanceUntil("second ordinary step", function(snapshot)
+      return snapshot.player.motion == "idle" and snapshot.player.fieldZ == 395
+    end, 120)
+    Assert.equal(second.playerVisual.pose, "walk")
+    Assert.isTrue(second.playerVisual.poseTick > first.playerVisual.poseTick)
   end)
 end
 
@@ -187,7 +229,7 @@ function T.tests.mid_step_direction_edge_cannot_start_passive_sign()
 
     Assert.equal(#recordsNamed(game, "script.started"), before, "a fresh direction edge must not probe while walking")
     Assert.equal(game:snapshot().player.facing, establishedFacing, "the mid-step probe must not change facing")
-  end)
+  end, { recordingScriptHosts = true })
 end
 
 return T

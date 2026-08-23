@@ -391,6 +391,9 @@ function FieldSession:updateFixed(inputSnapshot)
   if self.player.motion == "idle" and passiveDirection == self.player.facing then
     local intent = resolvePassiveSign(self)
     if intent then
+      if self.playerVisual then
+        self.playerVisual:settle()
+      end
       consumeScriptIntent(self, intent)
       return
     end
@@ -465,6 +468,9 @@ function FieldSession:updateFixed(inputSnapshot)
     end
     local coordinateIntent = resolveCoordinate(self)
     if coordinateIntent then
+      if self.playerVisual then
+        self.playerVisual:settle()
+      end
       consumeScriptIntent(self, coordinateIntent)
       return
     end
@@ -489,6 +495,9 @@ function FieldSession:updateFixed(inputSnapshot)
     end
     local passiveIntent = resolvePassiveSign(self)
     if passiveIntent then
+      if self.playerVisual then
+        self.playerVisual:settle()
+      end
       consumeScriptIntent(self, passiveIntent)
       return
     end

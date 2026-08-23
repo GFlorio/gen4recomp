@@ -423,6 +423,7 @@ function T.tests.recording_script_audio_and_production_output_are_separate_compo
       fieldOptions = {
         dayNight = day,
         audioOutput = fake,
+        recordingScriptHosts = true,
       },
     })
     local ok, err = xpcall(function()

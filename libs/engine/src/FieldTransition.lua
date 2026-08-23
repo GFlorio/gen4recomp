@@ -58,6 +58,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field resolveDestination function
 ---@field doorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table|nil -- nil = no door choreography
 ---@field playSound fun(soundId: string)?
+---@field stopSound fun(soundId: string)?
 ---@field onStart fun(sourceMap: table, trigger: table, facing: FieldDirection)? -- invoked once per transition start, before ownership changes
 ---@field onProfile fun(profile: integer, phase: "exit"|"enter", family: string)? -- source-specific semantic hook
 ---@field cameraAdjust fun(...: any)?
@@ -78,6 +79,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field destinationDoor table|nil -- the resolved destination door, when the destination resolves one
 ---@field sourceChoreo "wait_open"|"wait_step"|"profile_motion"|"done"|nil -- the source-side choreography state
 ---@field destinationChoreo "wait_open"|"wait_step"|"wait_close"|"profile_motion"|"done"|nil -- the destination-side choreography state
+---@field activeProfileSound string|nil
 ---@field completed table?
 ---@field error any?
 ---@field warpContext table?
@@ -109,6 +111,7 @@ function FieldTransition.new(options)
     commit = options.commit,
     doorAt = options.doorAt,
     playSound = options.playSound,
+    stopSound = options.stopSound,
     onStart = options.onStart, -- invoked once per transition start, before ownership changes
     onProfile = options.onProfile,
     cameraAdjust = options.cameraAdjust,
@@ -131,6 +134,7 @@ function FieldTransition.new(options)
     fade = nil,
     fadeStarted = false,
     profileSoundPlayed = false,
+    activeProfileSound = nil,
     escalator = nil,
   }, FieldTransition)
 end
@@ -149,12 +153,18 @@ function FieldTransition:presentationStatus()
   elseif self.sourceChoreo == "wait_step" then
     phase = "door_ingress"
   end
+  local overlay
+  if self.fade and fade.coefficient > 0 and (not fade.completed or fade.direction == "out") then
+    local channel = fade.color == 0x7FFF and 1 or 0
+    overlay = { r = channel, g = channel, b = channel, a = math.min(1, math.max(0, fade.coefficient / 16)) }
+  end
   return {
     phase = phase,
     coefficient = fade.coefficient,
     color = fade.color,
     direction = fade.direction,
     completed = fade.completed,
+    overlay = overlay,
     entryAction = self.profileId == FieldTransitionProfile.DOOR and "step_down" or nil,
   }
 end
@@ -180,10 +190,8 @@ local function beginProfileMotion(self, phase)
       assert(self.player and type(self.player.beginTransitionStep) == "function", "stair transition step required")
       return self.player:beginTransitionStep(self.facing)
     end
-    -- The destination adjustment already places the player on the adjacent
-    -- arrival tile. A second step would walk back onto the standing stair
-    -- warp and can outlive the destination fade.
-    return false
+    assert(self.player and type(self.player.beginTransitionHeldStair) == "function", "held stair motion required")
+    return self.player:beginTransitionHeldStair(phase == "enter" and self.destinationFacing or self.facing)
   end
   if self.profileId == FieldTransitionProfile.ESCALATOR then
     assert(self.escalatorAt, "escalator prop resolver required")
@@ -199,17 +207,25 @@ local function beginProfileMotion(self, phase)
     if self.player and type(self.player.pauseTransitionAnimation) == "function" then
       self.player:pauseTransitionAnimation()
     end
-    assert(self.player and type(self.player.beginTransitionMotion) == "function", "escalator motion required")
-    local started = self.player:beginTransitionMotion(self.profileId, phase, self.facing or self.destinationFacing)
+    assert(self.player and type(self.player.beginTransitionStep) == "function", "escalator step required")
+    local direction = phase == "exit" and self.facing or self.destinationFacing
+    local started = self.player:beginTransitionStep(direction)
+    assert(started, "escalator transition step could not start")
     if phase == "exit" and not self.profileSoundPlayed and self.playSound then
+      assert(self.stopSound, "escalator transition sound stop callback required")
       self.playSound(FieldTransitionProfile.ROUTINE_FAMILIES[self.profileId].exitSound)
+      self.activeProfileSound = FieldTransitionProfile.ROUTINE_FAMILIES[self.profileId].exitSound
       self.profileSoundPlayed = true
     end
     return started
   end
   if self.profileId == FieldTransitionProfile.LADDER or self.profileId == FieldTransitionProfile.LADDER_DOWN then
     if phase == "exit" then
-      return false
+      assert(self.player, "ladder exit player required")
+      local method = self.profileId == FieldTransitionProfile.LADDER and self.player.beginTransitionLadderExit
+        or self.player.beginTransitionLadderDownExit
+      assert(self.player and type(method) == "function", "ladder exit motion required")
+      return method(self.player, self.facing)
     end
     assert(self.player and type(self.player.beginTransitionVerticalReturn) == "function", "ladder return required")
     return self.player:beginTransitionVerticalReturn(self.destinationAnchorY)
@@ -240,6 +256,37 @@ local function advanceFade(self)
   self.fadeAlpha = self.fade:status().coefficient / 16
 end
 
+local function stopProfileSound(self)
+  if not self.activeProfileSound then
+    return
+  end
+  assert(self.stopSound, "profile transition sound stop callback required")
+  self.stopSound(self.activeProfileSound)
+  self.activeProfileSound = nil
+end
+
+local function resetTransient(self, stopSound)
+  if stopSound then
+    stopProfileSound(self)
+  else
+    self.activeProfileSound = nil
+  end
+  self.fadeAlpha = 0
+  self.fade = nil
+  self.fadeStarted = false
+  self.profileSoundPlayed = false
+  self.sourceDoor = nil
+  self.destinationDoor = nil
+  self.sourceChoreo = nil
+  self.destinationChoreo = nil
+  self.destinationAnchorY = nil
+  self.escalator = nil
+  self.progressTicks = 0
+end
+
+-- The source fade has one sequencing owner. Source choreography only marks
+-- readiness; this helper is the sole place that starts the ordinary fade and
+-- any delayed profile SFX.
 local function adjustHorizontalStairDestination(self, resolution)
   assert(resolution.destinationWarp, "horizontal stair destination warp required")
   local localX, localZ =
@@ -446,7 +493,7 @@ end
 -- side to prepare. Resolved once here (the load phase runs a single tick),
 -- opened after the swap.
 local function detectDestinationDoor(self)
-  if not self.doorAt or not self.resolution.destinationWarp then
+  if self.sourceKind == "stairs" or not self.doorAt or not self.resolution.destinationWarp then
     return
   end
   self.destinationDoor =
@@ -575,17 +622,9 @@ end
 -- warps require a player (asserted at the source begin), so one is always
 -- bound here.
 local function finish(self)
-  self.fadeAlpha = 0
-  self.fade = nil
-  self.fadeStarted = false
+  resetTransient(self, true)
   self.phase = FieldTransition.PHASES.idle
   self.locked = false
-  self.sourceDoor = nil
-  self.destinationDoor = nil
-  self.sourceChoreo = nil
-  self.destinationChoreo = nil
-  self.destinationAnchorY = nil
-  self.escalator = nil
   self.completed = {
     sourceMapId = self.sourceMap.mapId,
     destinationMapId = self.resolution.destinationMap.mapId,
@@ -602,6 +641,7 @@ end
 function FieldTransition:start(sourceMap, trigger, facing)
   assert(self.phase == FieldTransition.PHASES.idle, "field transition already active")
   assert(sourceMap and trigger and trigger.warp and facing, "transition source, trigger, and facing required")
+  resetTransient(self, true)
   self.sourceMap = sourceMap
   self.sourceWarp = trigger.warp
   self.sourceKind = trigger.kind
@@ -669,15 +709,7 @@ function FieldTransition:_abort(err)
   end
   self.phase = FieldTransition.PHASES.idle
   self.locked = false
-  self.sourceDoor = nil
-  self.destinationDoor = nil
-  self.sourceChoreo = nil
-  self.destinationChoreo = nil
-  self.destinationAnchorY = nil
-  self.escalator = nil
-  self.profileSoundPlayed = false
-  self.fadeAlpha = 0
-  self.progressTicks = 0
+  resetTransient(self, true)
   self.completed = nil
   self.suppression = nil
   self.sourceMap, self.sourceWarp, self.resolution, self.prepared = nil, nil, nil, nil

@@ -67,6 +67,7 @@ function FieldAudio.compose(opts)
   local sound = GameSound.new({
     provider = provider,
     player = player,
+    completionAvailable = sink ~= nil,
     cry = CryPlayer.new({ player = player }),
   })
   return {

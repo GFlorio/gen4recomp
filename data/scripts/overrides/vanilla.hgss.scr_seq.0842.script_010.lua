@@ -1,6 +1,6 @@
 -- Project-owned projection of the no-follower Elm Lab entrance sequence.
--- It keeps the source route's observable sound, fade, warp, and event state
--- while omitting source commands for runtime systems not yet present.
+-- Visible map obscuring is delegated to the field transition around the warp.
+-- It keeps the source route's observable sound, warp, and event state.
 local S = require("gen4.script")
 
 return S.script {
@@ -22,11 +22,7 @@ return S.script {
   },
   steps = {
     { op = "play_sound", sound = "SEQ_SE_DP_KAIDAN2" },
-    { color = "black", direction = "out", kind = 6, op = "fade_screen", speed = 1 },
-    { op = "wait_fade" },
     { facing = "west", fieldX = 12, fieldZ = 6, map = "MAP_NEW_BARK_ELMS_LAB_2F", op = "warp", warp = 0 },
-    { color = "black", direction = "in", kind = 6, op = "fade_screen", speed = 1 },
-    { op = "wait_fade" },
     { op = "wait_sound", sound = "SEQ_SE_DP_KAIDAN2" },
     { op = "set_var", value = 1, variable = "VAR_UNK_407C" },
     { op = "stop" },

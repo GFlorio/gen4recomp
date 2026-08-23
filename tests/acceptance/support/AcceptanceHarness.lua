@@ -178,12 +178,12 @@ function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, 
   runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace))
   runtimeOptions.resumeSave = save == "resume"
   runtimeOptions.resetSave = save == "fresh"
-  -- `audioHost = "production"` omits the recording audio adapter so the
-  -- production composition wires the real GameSound at scriptHosts.audio
-  -- (the field-audio acceptance scenarios); the default keeps the recording
-  -- adapter for every other scenario.
-  runtimeOptions.scriptHosts =
-    RecordingScriptHosts.new({ audio = fieldOptions and fieldOptions.audioHost ~= "production" })
+  -- Recording script hosts are an explicit test composition. `audioHost =
+  -- "production"` still omits only the recording audio adapter so the field-
+  -- audio acceptance scenarios can observe the real GameSound composition.
+  if fieldOptions and fieldOptions.recordingScriptHosts == true then
+    runtimeOptions.scriptHosts = RecordingScriptHosts.new({ audio = fieldOptions.audioHost ~= "production" })
+  end
   if fieldOptions and fieldOptions.acceptanceScripts then
     runtimeOptions.overrideFs =
       AcceptanceScriptFs.new(RepoFs.new(love.filesystem.getSourceBaseDirectory()), fieldOptions.acceptanceScripts)
@@ -432,7 +432,19 @@ function Game:advanceDialogue()
 end
 
 function Game:hostEffects()
+  assert(
+    self.hosts.effects,
+    "recording hosts are disabled; boot with fieldOptions.recordingScriptHosts = true to inspect host effects"
+  )
   return self.hosts.effects
+end
+
+function Game:hostEvents()
+  assert(
+    self.hosts.events,
+    "recording hosts are disabled; boot with fieldOptions.recordingScriptHosts = true to inspect host events"
+  )
+  return self.hosts.events
 end
 
 -- Start a real ROM-derived script through the production FieldScripts
@@ -672,7 +684,7 @@ function Game:advanceUntil(label, predicate, maxTicks)
   error(
     "timed out waiting for "
       .. label
-      .. "; trace="
+      .. "; "
       .. tostring(#self.timeline)
       .. " snapshots; last tick="
       .. tostring(self:snapshot().tick),

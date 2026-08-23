@@ -313,21 +313,19 @@ function TransitionTrigger.inputPath(runtimeMap, fieldX, fieldZ, direction)
     return attachWarp(standing, runtimeMap, fieldX, fieldZ)
   end
 
-  -- 2. Every non-ladder input-path transition requires the source collision
-  --    attribute on the facing tile before any family-specific probe.
-  if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) ~= true then
-    return nil
-  end
-  local facing = classifyAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z)
-  if facing and facing.kind == "door" then
-    local trigger = attachWarp(facing, runtimeMap, fieldX + delta.x, fieldZ + delta.z)
-    if trigger then
-      return trigger
+  -- 2. The facing-cell collision gate belongs only to the facing-door probe.
+  if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) == true then
+    local facing = classifyAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z)
+    if facing and facing.kind == "door" then
+      local trigger = attachWarp(facing, runtimeMap, fieldX + delta.x, fieldZ + delta.z)
+      if trigger then
+        return trigger
+      end
     end
   end
 
-  -- Horizontal stairs are evaluated after the common collision gate, like
-  -- the source's remaining input-path transitions.
+  -- 3. Standing stairs and directional warps are independent of the
+  -- facing-cell collision result.
   if
     standing
     and standing.kind == "stairs"

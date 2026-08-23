@@ -1148,6 +1148,7 @@ local function passiveArbitrationSession(opts)
     eventResolver = eventResolver,
     interactions = interactions,
     scriptClient = scriptClient,
+    playerVisual = opts.playerVisual,
   }))
   return session, player, function()
     return passiveCalls, actionSnapshot
@@ -1194,6 +1195,71 @@ function T.passive_sign_requires_matching_facing_while_idle()
   local passiveCalls = observations()
   Assert.equal(passiveCalls, 0, "an idle candidate must match facing before probing")
   Assert.equal(player.facing, "north")
+end
+
+function T.coordinate_script_handoff_settles_the_player_visual()
+  local intent = { kind = "coordinate" }
+  local player = defaultPlayer()
+  player.motion = "walking"
+  player.updateFixed = function(self)
+    self.motion = "idle"
+    return true
+  end
+  local visual = {
+    settleCalls = 0,
+    settle = function(self)
+      self.settleCalls = self.settleCalls + 1
+    end,
+    updateFixed = function()
+      error("the handoff owns the completed step before the normal visual tick", 2)
+    end,
+  }
+  local consumed
+  local session = FieldSession.new(baseOptions({
+    player = player,
+    playerVisual = visual,
+    eventResolver = {
+      resolveCoordinate = function()
+        return intent
+      end,
+      resolvePassiveSign = function()
+        return nil
+      end,
+    },
+    scriptClient = {
+      consume = function(_, received)
+        consumed = received
+        return ScriptInteractionClient.RESULTS.started
+      end,
+    },
+  }))
+
+  session:updateFixed()
+
+  Assert.equal(visual.settleCalls, 1)
+  Assert.equal(consumed, intent)
+end
+
+function T.passive_script_handoff_settles_the_player_visual()
+  local intent = { kind = "background" }
+  local visual = {
+    settleCalls = 0,
+    settle = function(self)
+      self.settleCalls = self.settleCalls + 1
+    end,
+    updateFixed = function()
+      error("the passive handoff owns the tick before the normal visual tick", 2)
+    end,
+  }
+  local session = passiveArbitrationSession({
+    facing = "north",
+    passiveIntent = intent,
+    playerVisual = visual,
+  })
+
+  session:updateFixed({ pressedDirection = "north" })
+
+  Assert.equal(visual.settleCalls, 1)
 end
 
 function T.catch_up_ticks_do_not_replay_one_action_edge()

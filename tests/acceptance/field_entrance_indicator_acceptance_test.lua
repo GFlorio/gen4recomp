@@ -18,7 +18,12 @@ local TOWN = "MAP_NEW_BARK"
 local LAB_2F = "MAP_NEW_BARK_ELMS_LAB_2F"
 
 local function withGame(map, fn)
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = map, save = "fresh" })
+  local game = AcceptanceHarness.new():boot({
+    versionId = "heartgold",
+    map = map,
+    save = "fresh",
+    fieldOptions = { recordingScriptHosts = true },
+  })
   local ok, err = xpcall(function()
     fn(game)
     Assert.equal(game:renderAttempts(), 0, "the indicator contract must stop before GPU rendering")
@@ -31,7 +36,7 @@ end
 
 local function recordsNamed(game, name)
   local records = {}
-  for _, record in ipairs(game.hosts.events.records) do
+  for _, record in ipairs(game:hostEvents().records) do
     if record.name == name then
       records[#records + 1] = record
     end

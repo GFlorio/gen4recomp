@@ -80,14 +80,14 @@ end
 function T.escalator_motion_is_horizontal_and_does_not_change_height()
   local p = player(runtimeMap(), 0, 4, 0)
   local startX, startY, startZ = p.worldX, p.worldY, p.worldZ
-  Assert.isTrue(p:beginTransitionMotion(2, "exit", "east"))
+  Assert.isTrue(p:beginTransitionStep("east"))
   for _ = 1, 16 do
     p:updateFixed()
   end
   near(p.worldX, startX + 1)
-  near(p.worldY, startY)
+  Assert.equal(p.worldY, p:renderPosition(0).y)
   near(p.worldZ, startZ)
-  Assert.equal(p.fieldX, 0)
+  Assert.equal(p.fieldX, 1)
 end
 
 local function tick(p, held, pressed)

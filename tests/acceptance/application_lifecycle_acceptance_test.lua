@@ -43,7 +43,7 @@ local function audioEffects(game)
   -- The recording audio seam is the contract observer: with the UI-owned
   -- audio stack deleted, every menu boundary must leave zero entries here.
   local entries = {}
-  for _, entry in ipairs(game.hosts.effects) do
+  for _, entry in ipairs(game:hostEffects()) do
     if type(entry) == "string" and entry:sub(1, 6) == "audio:" then
       entries[#entries + 1] = entry
     end
@@ -58,7 +58,7 @@ end
 
 local function scriptFaults(game)
   local faults = {}
-  for _, record in ipairs(game.hosts.events.records) do
+  for _, record in ipairs(game:hostEvents().records) do
     if record.name == "script.error" then
       faults[#faults + 1] = record
     end
@@ -116,6 +116,7 @@ function T.tests.the_production_trainer_card_journey_runs_without_injected_appli
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
     save = "fresh",
+    fieldOptions = { recordingScriptHosts = true },
   })
   local ok, err = xpcall(function()
     local runtime = game.runtime

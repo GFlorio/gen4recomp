@@ -32,10 +32,10 @@ return {
         [3] = "vanilla.hgss.scr_seq.0842.script_016",
       },
       coordinates = {
-        [0] = "vanilla.hgss.scr_seq.0842.script_003",
+        [0] = "vanilla.hgss.scr_seq.0842.script_002",
         [1] = "vanilla.hgss.scr_seq.0842.script_010",
-        [2] = "vanilla.hgss.scr_seq.0842.script_012",
-        [3] = "vanilla.hgss.scr_seq.0842.script_013",
+        [2] = "vanilla.hgss.scr_seq.0842.script_011",
+        [3] = "vanilla.hgss.scr_seq.0842.script_012",
       },
     },
 
@@ -59,8 +59,8 @@ return {
         [10] = "vanilla.hgss.scr_seq.0843.script_013",
       },
       coordinates = {
-        [0] = "vanilla.hgss.scr_seq.0843.script_004",
-        [1] = "vanilla.hgss.scr_seq.0843.script_012",
+        [0] = "vanilla.hgss.scr_seq.0843.script_003",
+        [1] = "vanilla.hgss.scr_seq.0843.script_011",
       },
     },
 

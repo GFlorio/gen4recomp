@@ -47,7 +47,12 @@ local function requireCapability(game, name)
 end
 
 local function withGame(map, fn)
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = map, save = "fresh" })
+  local game = AcceptanceHarness.new():boot({
+    versionId = "heartgold",
+    map = map,
+    save = "fresh",
+    fieldOptions = { recordingScriptHosts = true },
+  })
   local ok, err = xpcall(function()
     fn(game)
     Assert.equal(game:renderAttempts(), 0)
@@ -60,7 +65,7 @@ end
 
 local function scriptFaults(game)
   local faults = {}
-  for _, record in ipairs(game.hosts.events.records) do
+  for _, record in ipairs(game:hostEvents().records) do
     if record.name == "script.error" then
       faults[#faults + 1] = { scriptId = record.payload.scriptId, code = record.payload.code }
     end

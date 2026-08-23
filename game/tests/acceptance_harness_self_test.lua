@@ -233,4 +233,33 @@ function T.tests.restart_reuses_the_original_field_options()
   game:close()
 end
 
+function T.tests.recording_script_hosts_are_an_explicit_composition_choice()
+  local optionsSeen = {}
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(versionId, _, options)
+      optionsSeen[#optionsSeen + 1] = options
+      local runtime = fakeRuntime(versionId)
+      runtime.scriptHosts = options.scriptHosts
+      return runtime
+    end,
+  })
+
+  local productionLike = harness:boot({ versionId = "heartgold", save = "fresh" })
+  Assert.isNil(optionsSeen[1].scriptHosts, "default acceptance composition must not inject recording hosts")
+  Assert.throws(function()
+    productionLike:hostEvents()
+  end, "recording-only observations must require explicit recording hosts")
+  productionLike:close()
+
+  local recording = harness:boot({
+    versionId = "heartgold",
+    save = "fresh",
+    fieldOptions = { recordingScriptHosts = true },
+  })
+  Assert.notNil(optionsSeen[2].scriptHosts, "explicit recording composition must provide script hosts")
+  Assert.notNil(recording:hostEvents().records, "explicit recording composition must expose event records")
+  recording:close()
+end
+
 return T

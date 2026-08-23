@@ -58,7 +58,7 @@ local function withGame(fn)
     versionId = "heartgold",
     map = "MAP_NEW_BARK",
     save = "fresh",
-    fieldOptions = { acceptanceScripts = AcceptanceScripts },
+    fieldOptions = { acceptanceScripts = AcceptanceScripts, recordingScriptHosts = true },
   })
   local ok, err = xpcall(function()
     fn(game)
@@ -75,7 +75,7 @@ end
 -- run count rather than the first record.
 local function scriptEndedCount(game, scriptId)
   local count = 0
-  for _, record in ipairs(game.hosts.events.records) do
+  for _, record in ipairs(game:hostEvents().records) do
     if record.name == "script.ended" and record.payload.scriptId == scriptId and record.payload.completed == true then
       count = count + 1
     end
@@ -101,7 +101,7 @@ end
 
 local function scriptFaults(game)
   local faults = {}
-  for _, record in ipairs(game.hosts.events.records) do
+  for _, record in ipairs(game:hostEvents().records) do
     if record.name == "script.error" then
       faults[#faults + 1] = {
         scriptId = record.payload.scriptId,

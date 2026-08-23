@@ -30,6 +30,10 @@ function RecordingScriptHosts.new(options)
     return false
   end
 
+  function audio:isEffectWaitComplete()
+    return true
+  end
+
   function audio:isCryFinished()
     return true
   end

@@ -248,13 +248,13 @@ function T.standing_stairs_triggers_with_its_direction_gate()
   Assert.isNil(TransitionTrigger.inputPath(map, 3, 3, "east"))
 end
 
-function T.standing_horizontal_stairs_require_a_blocked_facing_tile()
+function T.standing_horizontal_stairs_ignore_facing_tile_collision()
   local warps = { warp(3, 3) }
   local openMap = runtimeMap(0, 0, warps, {
     ["3:3"] = { behavior = BEHAVIOR.WARP_STAIRS_EAST },
     ["4:3"] = { blocked = false },
   })
-  Assert.isNil(TransitionTrigger.inputPath(openMap, 3, 3, "east"))
+  Assert.notNil(TransitionTrigger.inputPath(openMap, 3, 3, "east"))
 
   local blockedMap = runtimeMap(0, 0, warps, {
     ["3:3"] = { behavior = BEHAVIOR.WARP_STAIRS_EAST },
@@ -263,20 +263,20 @@ function T.standing_horizontal_stairs_require_a_blocked_facing_tile()
   Assert.notNil(TransitionTrigger.inputPath(blockedMap, 3, 3, "east"))
 end
 
-function T.standing_south_warp_requires_a_blocked_facing_tile()
+function T.standing_south_warp_triggers_with_a_passable_facing_tile()
   local map = runtimeMap(0, 0, { warp(4, 14) }, {
     ["4:14"] = { behavior = BEHAVIOR.WARP_ENTRANCE_SOUTH },
-    ["4:15"] = { blocked = true },
+    ["4:15"] = { blocked = false },
   })
   local trigger = assert(TransitionTrigger.inputPath(map, 4, 14, "south"))
   Assert.equal(trigger.kind, "directional")
 end
 
-function T.standing_east_warp_requires_a_blocked_facing_tile()
+function T.standing_east_warp_triggers_with_a_passable_facing_tile()
   local warps = { warp(4, 14) }
   local map = runtimeMap(0, 0, warps, {
     ["4:14"] = { behavior = BEHAVIOR.WARP_ENTRANCE_EAST, blocked = false },
-    ["5:14"] = { behavior = 0, blocked = true },
+    ["5:14"] = { behavior = 0, blocked = false },
   })
   local trigger = assert(TransitionTrigger.inputPath(map, 4, 14, "east"))
   Assert.equal(trigger.kind, "directional")
