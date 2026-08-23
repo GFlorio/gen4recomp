@@ -231,6 +231,7 @@ end
 
 function OakIntroController:_startCry()
   self._flashFrames = FLASH_FRAMES
+  self:_setVisual("marill")
   self._audio:playCry(184, 0)
   self:_event("marill_appears", "marill")
   self._phase = "marill_cry_wait"

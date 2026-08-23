@@ -118,8 +118,8 @@ end
 local function animatedAssets()
   return {
     marill = { frames = { { duration = 1 }, { duration = 4 }, { duration = 2 } } },
-    ["shrink.male"] = { frames = { { duration = 2 }, { duration = 3 } } },
-    ["shrink.female"] = { frames = { { duration = 2 }, { duration = 3 } } },
+    shrink_male = { frames = { { duration = 2 }, { duration = 3 } } },
+    shrink_female = { frames = { { duration = 2 }, { duration = 3 } } },
   }
 end
 
