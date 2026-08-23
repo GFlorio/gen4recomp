@@ -8,6 +8,28 @@ local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
 
+function T.ball_source_configuration_uses_resource_set_five_and_animation_zero()
+  local config = require("romdump.src.config.IntroAssets")
+  Assert.deepEqual(config.ball_open, {
+    archive = "intro",
+    char = 64,
+    palette = 63,
+    cell = 65,
+    animation = 66,
+    animationIndex = 0,
+    resourceSet = 5,
+    resourceResolution = {
+      archive = "NARC_data_resdat",
+      header = 78,
+      charTable = 26,
+      paletteTable = 27,
+      cellTable = 25,
+      animationTable = 24,
+    },
+    sourceCenter = { x = 160, y = 80 },
+  })
+end
+
 local function introCache()
   local ok, cache = pcall(require, "libs.assets.src.IntroAssetCache")
   if not ok then

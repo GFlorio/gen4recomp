@@ -38,13 +38,21 @@ local IntroAssets = {
   },
   ball_open = {
     archive = "intro",
-    char = 60,
-    palette = 59,
-    cell = 61,
-    animation = 62,
+    char = 64,
+    palette = 63,
+    cell = 65,
+    animation = 66,
+    animationIndex = 0,
     resourceSet = 5,
-    resourceData = { archive = "NARC_data_resdat", member = 78 },
-    sourceCenter = { x = 128, y = 90 },
+    resourceResolution = {
+      archive = "NARC_data_resdat",
+      header = 78,
+      charTable = 26,
+      paletteTable = 27,
+      cellTable = 25,
+      animationTable = 24,
+    },
+    sourceCenter = { x = 160, y = 80 },
   },
 }
 

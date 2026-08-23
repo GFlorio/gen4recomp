@@ -248,6 +248,11 @@ local function addDependency(dependencies, archiveName, memberId, bytes, role)
   }
 end
 
+local function addConfiguredDependency(archive, dependencies, spec, role, memberId)
+  local bytes = decodeMember(archive, memberId, role, spec.archive)
+  addDependency(dependencies, spec.archive, memberId, bytes, role)
+end
+
 local function assetPath(id)
   return IntroAssetCache.assetDir() .. "/" .. id:gsub("%.", "-") .. ".png"
 end
@@ -415,19 +420,36 @@ function IntroAssetCompiler.compile(romFs)
   compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
   compileShrink(archive, dependencies, manifest, assets, "shrink_female", config.shrink.female)
   local ballArchive = sourceArchive(romFs, config.ball_open.archive)
-  local resourceDataArchive = sourceArchive(romFs, config.ball_open.resourceData.archive)
-  local resourceDataBytes = decodeMember(
+  local resolution = config.ball_open.resourceResolution
+  local resourceDataArchive = sourceArchive(romFs, resolution.archive)
+  addConfiguredDependency(resourceDataArchive, dependencies, resolution, "ball_open:resdat-header", resolution.header)
+  addConfiguredDependency(
     resourceDataArchive,
-    config.ball_open.resourceData.member,
-    "ball_open resource data",
-    config.ball_open.resourceData.archive
-  )
-  addDependency(
     dependencies,
-    config.ball_open.resourceData.archive,
-    config.ball_open.resourceData.member,
-    resourceDataBytes,
-    "ball_open:resource-data"
+    resolution,
+    "ball_open:resdat-char-table",
+    resolution.charTable
+  )
+  addConfiguredDependency(
+    resourceDataArchive,
+    dependencies,
+    resolution,
+    "ball_open:resdat-palette-table",
+    resolution.paletteTable
+  )
+  addConfiguredDependency(
+    resourceDataArchive,
+    dependencies,
+    resolution,
+    "ball_open:resdat-cell-table",
+    resolution.cellTable
+  )
+  addConfiguredDependency(
+    resourceDataArchive,
+    dependencies,
+    resolution,
+    "ball_open:resdat-animation-table",
+    resolution.animationTable
   )
   local ballChar, ballPalette = loadCharPalette(ballArchive, dependencies, config.ball_open, "ball_open")
   local ballCellBytes = decodeMember(ballArchive, config.ball_open.cell, "ball_open cell", config.ball_open.archive)
@@ -450,7 +472,13 @@ function IntroAssetCompiler.compile(romFs)
     config.ball_open.animation,
     config.ball_open.archive
   )
-  local ball, ballFrames = renderAnimations(ballChar, ballPalette.colors, { cells = ballCell.cells }, ballAnimation)
+  local ball, ballFrames = renderAnimations(
+    ballChar,
+    ballPalette.colors,
+    { cells = ballCell.cells },
+    ballAnimation,
+    config.ball_open.animationIndex
+  )
   addAsset(
     manifest,
     assets,
@@ -459,7 +487,7 @@ function IntroAssetCompiler.compile(romFs)
     ballFrames,
     ball.sourceBounds,
     ball.anchor,
-    { resourceSet = 5, rule = "alpha-union-crop-center" },
+    { resourceSet = config.ball_open.resourceSet, rule = "alpha-union-crop-center" },
     config.ball_open.sourceCenter
   )
 

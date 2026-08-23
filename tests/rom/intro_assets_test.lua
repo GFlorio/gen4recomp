@@ -38,6 +38,37 @@ local function sourceMember(bundle, role)
   error("missing dependency role " .. role, 2)
 end
 
+local function sourceArchive(bundle, role)
+  for _, item in ipairs(bundle.dependencies.dependencies) do
+    if item.role == role then
+      return item.archive
+    end
+  end
+  error("missing dependency role " .. role, 2)
+end
+
+local function assertBallSource(bundle)
+  local expected = {
+    ["ball_open:char"] = { archive = "intro", memberId = 64 },
+    ["ball_open:palette"] = { archive = "intro", memberId = 63 },
+    ["ball_open:cell"] = { archive = "intro", memberId = 65 },
+    ["ball_open:animation"] = { archive = "intro", memberId = 66 },
+    ["ball_open:resdat-header"] = { archive = "NARC_data_resdat", memberId = 78 },
+    ["ball_open:resdat-char-table"] = { archive = "NARC_data_resdat", memberId = 26 },
+    ["ball_open:resdat-palette-table"] = { archive = "NARC_data_resdat", memberId = 27 },
+    ["ball_open:resdat-cell-table"] = { archive = "NARC_data_resdat", memberId = 25 },
+    ["ball_open:resdat-animation-table"] = { archive = "NARC_data_resdat", memberId = 24 },
+  }
+  for role, source in pairs(expected) do
+    Assert.equal(sourceMember(bundle, role), source.memberId, role .. " resolves the pinned source member")
+    Assert.equal(sourceArchive(bundle, role), source.archive, role .. " uses the pinned source archive")
+  end
+  Assert.equal(sourceMember(bundle, "marill:char"), 60)
+  Assert.equal(sourceMember(bundle, "marill:palette"), 59)
+  Assert.equal(sourceMember(bundle, "marill:cell"), 61)
+  Assert.equal(sourceMember(bundle, "marill:animation"), 62)
+end
+
 local function assertVariant(bundle, versionId, paletteMember)
   Assert.equal(bundle.manifest.schemaVersion, 2)
   Assert.equal(bundle.manifest.variant, versionId)
@@ -64,6 +95,10 @@ function T.both_variants_compile_the_correct_gradient(romFs, versionId)
   local first = assert(compiler().compile(romFs))
   local second = assert(compiler().compile(romFs))
   assertVariant(first, versionId, versionId == "heartgold" and 1 or 2)
+  assertBallSource(first)
+  Assert.equal(first.manifest.widgets.ball_open.sourceCenter.x, 160)
+  Assert.equal(first.manifest.widgets.ball_open.sourceCenter.y, 80)
+  Assert.isTrue(#first.manifest.widgets.ball_open.frames > 0, "ball_open has animation frames")
   Assert.deepEqual(first.manifest, second.manifest, "same source produces deterministic manifest")
   Assert.deepEqual(first.dependencies, second.dependencies, "same source produces deterministic provenance")
   Assert.equal(payloadBytes(first), payloadBytes(second), "same source produces deterministic image bytes")
@@ -89,8 +124,8 @@ function T.compiled_visuals_are_stable_semantic_widgets(romFs)
       Assert.equal(decodedHeight, frame.height, id .. " frame payload has declared height")
     end
   end
-  Assert.equal(bundle.manifest.widgets.ball_open.sourceCenter.x, 128)
-  Assert.equal(bundle.manifest.widgets.ball_open.sourceCenter.y, 90)
+  Assert.equal(bundle.manifest.widgets.ball_open.sourceCenter.x, 160)
+  Assert.equal(bundle.manifest.widgets.ball_open.sourceCenter.y, 80)
   Assert.isNil(bundle.manifest.widgets.ball)
 end
 

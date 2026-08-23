@@ -127,6 +127,21 @@ local function widget(id, value)
   return true
 end
 
+local function sourceCenter(reference, value)
+  if
+    type(value) ~= "table"
+    or not finite(value.x)
+    or not finite(value.y)
+    or value.x < 0
+    or value.x > reference.width
+    or value.y < 0
+    or value.y > reference.height
+  then
+    return invalid("widget ball_open sourceCenter is invalid", { widget = "ball_open" })
+  end
+  return true
+end
+
 function M.validateManifest(manifest)
   if type(manifest) ~= "table" or manifest.schemaVersion ~= 2 then
     return invalid("manifest schema mismatch", { expected = 2, actual = manifest and manifest.schemaVersion })
@@ -158,6 +173,12 @@ function M.validateManifest(manifest)
     local ok, err = widget(id, manifest.widgets[id])
     if not ok then
       return false, err
+    end
+    if id == "ball_open" then
+      local centerOk, centerErr = sourceCenter(reference, manifest.widgets[id].sourceCenter)
+      if not centerOk then
+        return false, centerErr
+      end
     end
   end
   for id in pairs(manifest.widgets) do

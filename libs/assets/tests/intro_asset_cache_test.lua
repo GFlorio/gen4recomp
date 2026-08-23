@@ -27,7 +27,7 @@ local function validManifest()
       frames = { frame(path, 32, 32, 4) },
     }
   end
-  widgets.ball_open.sourceCenter = { x = 128, y = 90 }
+  widgets.ball_open.sourceCenter = { x = 160, y = 80 }
   widgets.ball_open.frames = {
     frame("assets/generated/intro/ball-open-0.png", 32, 32, 1),
     frame("assets/generated/intro/ball-open-1.png", 32, 32, 4),
@@ -88,6 +88,15 @@ function T.stale_and_malformed_manifests_fail_before_composition()
   reject(cache, function(manifest)
     manifest.variant = "unknown"
   end, "invalid variant")
+  reject(cache, function(manifest)
+    manifest.widgets.ball_open.sourceCenter = nil
+  end, "missing ball source center")
+  reject(cache, function(manifest)
+    manifest.widgets.ball_open.sourceCenter.x = math.huge
+  end, "non-finite ball source center")
+  reject(cache, function(manifest)
+    manifest.widgets.ball_open.sourceCenter.x = 257
+  end, "out-of-range ball source center")
 end
 
 return { tests = T }
