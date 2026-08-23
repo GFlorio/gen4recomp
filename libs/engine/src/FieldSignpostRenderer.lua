@@ -28,7 +28,6 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldSignpostTheme = require("libs.engine.src.FieldSignpostTheme")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
@@ -316,7 +315,14 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha, fieldScale)
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the per-type geometry from the
     -- style catalogue is already reference-space, so nothing is scaled twice.
-    local layout = FieldDialogueTheme.layout(viewport.referenceFrame, fieldScale)
+    local ref = viewport.referenceFrame
+    local layout = {
+      scale = fieldScale,
+      origin = {
+        x = ref.x + (ref.width - 256 * fieldScale) / 2,
+        y = ref.y + ref.height - 192 * fieldScale,
+      },
+    }
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local wipe = self:_wipeY(status, alpha)

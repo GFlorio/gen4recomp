@@ -65,7 +65,7 @@ local function canonicalRender(scope, frameIndex)
   local canvas = scope:own(lg.newCanvas(CANONICAL_WIDTH, CANONICAL_HEIGHT))
   lg.setCanvas(canvas)
   lg.clear(0, 0, 0, 0)
-  dialogue:draw(controller, viewport, fieldScale)
+  dialogue:draw(controller, FieldDialogueTheme.layout(viewport.referenceFrame, fieldScale))
   lg.setCanvas()
   return scope:own(canvas:newImageData())
 end
@@ -80,7 +80,11 @@ end
 local function goldenReference(frameIndex)
   local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
   local rgba = FieldUiFixture.framePixels(frameIndex)
-  local placements = FieldDialogueTheme.frameTilePlacements(FieldDialogueTheme.box)
+  local presentation = FieldDialogueTheme.layout(
+    { x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT },
+    FieldViewport.new(CANONICAL_WIDTH, CANONICAL_HEIGHT, { mode = "expanded" }):logicalPixelScale(1)
+  )
+  local placements = FieldDialogueTheme.frameTilePlacements(FieldDialogueTheme.localBox)
   local function paste(x, y, r, g, b, a)
     reference:setPixel(x, y, r, g, b, a)
   end
@@ -91,8 +95,8 @@ local function goldenReference(frameIndex)
           for tx = 0, 7 do
             local index = (ty * 144 + p.tile * 8 + tx) * 4 + 1
             paste(
-              p.x + col * 8 + tx,
-              p.y + row * 8 + ty,
+              presentation.origin.x + (p.x + col * 8 + tx) * presentation.scale,
+              presentation.origin.y + (p.y + row * 8 + ty) * presentation.scale,
               rgba:byte(index) / 255,
               rgba:byte(index + 1) / 255,
               rgba:byte(index + 2) / 255,
@@ -105,10 +109,8 @@ local function goldenReference(frameIndex)
   end
   -- Text: glyph A (atlas columns 0..7, red) then glyph B (columns 8..15,
   -- green), both 8x16 at the layout text origin with advance 6.
-  local layout = FieldDialogueTheme.layout(
-    { x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT },
-    CANONICAL_WIDTH / 192
-  )
+  local layout =
+    FieldDialogueTheme.layout({ x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT }, presentation.scale)
   local glyphs = {
     { x = layout.text.x, red = true },
     { x = layout.text.x + 6, red = false },
@@ -117,9 +119,23 @@ local function goldenReference(frameIndex)
     for ty = 0, 15 do
       for tx = 0, 7 do
         if glyph.red then
-          paste(glyph.x + tx, layout.text.y + ty, 200 / 255, 40 / 255, 40 / 255, 1)
+          paste(
+            presentation.origin.x + (glyph.x + tx) * presentation.scale,
+            presentation.origin.y + (layout.text.y + ty) * presentation.scale,
+            200 / 255,
+            40 / 255,
+            40 / 255,
+            1
+          )
         else
-          paste(glyph.x + tx, layout.text.y + ty, 40 / 255, 200 / 255, 40 / 255, 1)
+          paste(
+            presentation.origin.x + (glyph.x + tx) * presentation.scale,
+            presentation.origin.y + (layout.text.y + ty) * presentation.scale,
+            40 / 255,
+            200 / 255,
+            40 / 255,
+            1
+          )
         end
       end
     end
@@ -192,7 +208,7 @@ function T.restores_graphics_state_after_draw(scope)
   lg.setColor(0.2, 0.4, 0.6, 0.8)
   lg.setScissor(4, 8, 32, 16)
 
-  dialogue:draw(controller, viewport, viewport:logicalPixelScale(1))
+  dialogue:draw(controller, FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1)))
 
   FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
 end
@@ -207,7 +223,8 @@ function T.a_closed_controller_draws_nothing_and_changes_no_state(scope)
   })
 
   lg.setColor(0.1, 0.2, 0.3, 0.4)
-  dialogue:draw(controller, FieldViewport.new(960, 720, { mode = "expanded" }))
+  local viewport = FieldViewport.new(960, 720, { mode = "expanded" })
+  dialogue:draw(controller, FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1)))
 
   Assert.near(lg.getColor(), 0.1, 1e-6)
   Assert.isNil(lg.getShader())
@@ -219,7 +236,7 @@ function T.draws_inside_the_reference_frame_at_every_host_aspect(scope)
   for _, size in ipairs({ { 960, 720 }, { 1280, 720 }, { 1920, 720 }, { 640, 480 } }) do
     local controller = FieldDialogueFixture.openDialogue("AB", 0)
     local viewport = FieldViewport.new(size[1], size[2], { mode = "expanded" })
-    dialogue:draw(controller, viewport, viewport:logicalPixelScale(1))
+    dialogue:draw(controller, FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1)))
 
     -- Layout geometry stays in reference-canvas coordinates (the draw
     -- applies the single origin+scale transform), so the box must fit the

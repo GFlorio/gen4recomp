@@ -148,7 +148,13 @@ function TrainerCardRenderer:draw(presentation, viewport)
     -- no camera zoom) so it stays independent of field zoom.
     local ref = viewport.referenceFrame
     local appScale = ref.width / FieldDialogueTheme.referenceWidth
-    local layout = FieldDialogueTheme.layout(ref, appScale)
+    local layout = {
+      scale = appScale,
+      origin = {
+        x = ref.x + (ref.width - FieldDialogueTheme.referenceWidth * appScale) / 2,
+        y = ref.y + ref.height - FieldDialogueTheme.referenceHeight * appScale,
+      },
+    }
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     lg.setColor(1, 1, 1, 1)

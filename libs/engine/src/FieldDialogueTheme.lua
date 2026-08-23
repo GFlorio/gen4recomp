@@ -13,6 +13,7 @@
 -- host aspect; the LÖVE renderer draws exactly what this module computes.
 
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 
 ---@class FieldDialogueTheme
 ---@field schema string
@@ -28,7 +29,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field cursor { width: integer, height: integer, offsetX: integer, offsetY: integer, blinkTicks: integer }
 ---@field colors { cursor: number[] }
 ---@field frameTilePlacements fun(box: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
----@field layout fun(referenceFrame: FieldDialogueTheme.Rect, fieldScale: number): FieldDialogueTheme.Layout
+---@field layout fun(bounds: FieldDialogueTheme.Rect, fieldScale: number): DialoguePresentationLayout.Presentation
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
 ---@field measureText fun(fontDef: FieldFontDef): fun(text: string): number
 local FieldDialogueTheme = {}
@@ -44,6 +45,13 @@ FieldDialogueTheme.referenceHeight = 192
 FieldDialogueTheme.box = {
   x = 16,
   y = 152,
+  width = 216,
+  height = 32,
+}
+
+FieldDialogueTheme.localBox = {
+  x = 16,
+  y = 8,
   width = 216,
   height = 32,
 }
@@ -114,75 +122,18 @@ function FieldDialogueTheme.frameTilePlacements(box)
   }
 end
 
--- Reference-to-screen mapping for one viewport. The canonical 256x192
--- surface is scaled by the field logical pixel scale — the same
--- FieldViewport:logicalPixelScale(camera.zoom) used for world presentation —
--- and bottom-centered in the 4:3 referenceFrame, so zoom and resize
--- compensation affect world and field-attached UI together and wide hosts
--- keep the UI inside the canonical frame. All geometry is returned in
--- reference-canvas coordinates; the renderer applies origin + scale once.
--- Never return screen-mapped rects here: draw() applies the transform, and
--- double mapping pushes the box off-screen.
-
----@param referenceFrame FieldDialogueTheme.Rect
----@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom)), must be finite > 0
----@return FieldDialogueTheme.Layout
-function FieldDialogueTheme.layout(referenceFrame, fieldScale)
-  assert(
-    type(referenceFrame) == "table"
-      and type(referenceFrame.x) == "number"
-      and type(referenceFrame.y) == "number"
-      and type(referenceFrame.width) == "number"
-      and type(referenceFrame.height) == "number"
-      and referenceFrame.width > 0
-      and referenceFrame.height > 0,
-    "FieldDialogueTheme.layout requires a reference frame"
-  )
-  assert(
-    type(fieldScale) == "number"
-      and fieldScale > 0
-      and fieldScale == fieldScale
-      and fieldScale ~= math.huge
-      and fieldScale ~= -math.huge,
-    "FieldDialogueTheme.layout requires a finite positive field scale"
-  )
-  local scale = fieldScale
-  local origin = {
-    x = referenceFrame.x + (referenceFrame.width - FieldDialogueTheme.referenceWidth * scale) / 2,
-    y = referenceFrame.y + referenceFrame.height - FieldDialogueTheme.referenceHeight * scale,
-  }
-  local box = {
-    x = FieldDialogueTheme.box.x,
-    y = FieldDialogueTheme.box.y,
-    width = FieldDialogueTheme.box.width,
-    height = FieldDialogueTheme.box.height,
-  }
-  local text = {
-    x = box.x + FieldDialogueTheme.textInsetX,
-    y = box.y + FieldDialogueTheme.textInsetY,
-    width = FieldDialogueTheme.textWidth,
-    height = FieldDialogueTheme.textHeight,
-  }
-  return {
-    scale = scale,
-    origin = origin,
-    box = box,
-    text = text,
-    cursor = {
-      x = text.x + text.width - FieldDialogueTheme.cursor.width - FieldDialogueTheme.cursor.offsetX,
-      y = text.y + text.height - FieldDialogueTheme.cursor.height - FieldDialogueTheme.cursor.offsetY,
-      width = FieldDialogueTheme.cursor.width,
-      height = FieldDialogueTheme.cursor.height,
-    },
-    lineHeight = FieldDialogueTheme.lineHeight,
-  }
-end
-
 -- The layout metrics object the paginator consumes: glyph advances from the
 -- generated font definition, falling back to the compiled fallback glyph.
 -- Control tokens carry no width: none of the controls implemented today has
 -- spatial semantics, and the serialized marker spelling is not presentation
 -- geometry. Returns a table with glyphWidth(code) only.
+
+---@param bounds FieldDialogueTheme.Rect
+---@param fieldScale number
+---@return DialoguePresentationLayout.Presentation
+function FieldDialogueTheme.layout(bounds, fieldScale)
+  return DialoguePresentationLayout.compute(bounds, { scale = fieldScale })
+end
 
 ---@param fontDef FieldFontDef
 ---@return FieldDialogueTheme.Metrics

@@ -5,6 +5,7 @@ local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
@@ -359,11 +360,14 @@ function FieldState:draw()
   -- keeps at most one of the two live in a tick. Both field-attached
   -- surfaces share the same field logical pixel scale (the viewport's
   -- logicalPixelScale of the runtime's effective camera zoom), computed once
-  -- per frame and bottom-centered via FieldDialogueTheme.layout.
+  -- per frame and bottom-centered in the viewport reference frame.
   if not hostStatus.menu and not hostStatus.application then
     local fieldScale = self.runtime.viewport:logicalPixelScale(self.runtime.camera.zoom)
+    local dialoguePresentation = DialoguePresentationLayout.compute(self.runtime.viewport.referenceFrame, {
+      scale = fieldScale,
+    })
     if self.runtime.dialogue:isModal() then
-      self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale)
+      self.dialogueRenderer:draw(self.runtime.dialogue, dialoguePresentation)
     end
     if self.runtime.signpost:isModal() then
       self.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha, fieldScale)

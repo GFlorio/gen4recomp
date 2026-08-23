@@ -17,6 +17,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
@@ -170,7 +171,7 @@ function FieldDialogueRenderer:_drawFrame(status, layout)
   assert(rect ~= nil, "dialogue frame index " .. tostring(frameIndex) .. " is outside the generated frame set")
   local quads = self:_buildFrameQuads(frameIndex, rect)
   lg.setColor(1, 1, 1, 1)
-  for _, placement in ipairs(self._theme.frameTilePlacements(layout.box)) do
+  for _, placement in ipairs(self._theme.frameTilePlacements(self._theme.localBox)) do
     local tile = assert(quads[placement.tile])
     for row = 0, (placement.spanY or 1) - 1 do
       for col = 0, (placement.spanX or 1) - 1 do
@@ -211,38 +212,30 @@ end
 ---@param controller FieldDialogueController
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
 ---@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
-function FieldDialogueRenderer:draw(controller, viewport, fieldScale)
+function FieldDialogueRenderer:draw(controller, presentation)
   -- Inactive (closed) is a pure no-op and checks no scale precondition; an
   -- inactive draw must not touch graphics state or require presentation
   -- parameters. The scale is only required for the active path.
   if not controller or not controller:isModal() or not self._frameImage then
     return
   end
-  assert(
-    type(fieldScale) == "number"
-      and fieldScale > 0
-      and fieldScale == fieldScale
-      and fieldScale ~= math.huge
-      and fieldScale ~= -math.huge,
-    "FieldDialogueRenderer:draw requires a finite positive field scale"
-  )
+  DialoguePresentationLayout.validate(presentation)
   local lg = assert(self._graphics)
   local status = controller:status()
   FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the theme never returns
     -- screen-mapped rects, so nothing is scaled twice.
-    local layout = self._theme.layout(viewport.referenceFrame, fieldScale)
-    lg.translate(layout.origin.x, layout.origin.y)
-    lg.scale(layout.scale, layout.scale)
-    self:_drawFrame(status, layout)
-    local lineY = layout.text.y
+    lg.translate(presentation.origin.x, presentation.origin.y)
+    lg.scale(presentation.scale, presentation.scale)
+    self:_drawFrame(status, presentation)
+    local lineY = presentation.text.y
     for _, tokens in ipairs(status.visibleLines) do
-      self._text:drawLine(tokens, layout.text.x, lineY)
-      lineY = lineY + layout.lineHeight
+      self._text:drawLine(tokens, presentation.text.x, lineY)
+      lineY = lineY + presentation.lineHeight
     end
-    self:_drawFocusIndicator(status, layout)
-    self:_drawCursor(status, layout)
+    self:_drawFocusIndicator(status, presentation)
+    self:_drawCursor(status, presentation)
   end)
 end
 
