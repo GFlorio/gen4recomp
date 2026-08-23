@@ -369,7 +369,6 @@ function OakIntroController:_stepFrame()
     if self._timer == 0 then
       self:_event("ball_flash", "opening")
       self._audio:play("SEQ_SE_DP_BOWA2")
-      self._flashFrames = FLASH_FRAMES
       self:_startCry()
     end
   elseif self._phase == "marill_cry_wait" then
@@ -477,7 +476,10 @@ function OakIntroController:press(action)
       self._audio:play("SEQ_SE_DP_SELECT")
       return true
     end
-    if action == "confirm" or action == "yes" then
+    if action == "confirm" then
+      return self:_resolveConfirmation(self._confirmationChoice.selected)
+    end
+    if action == "yes" then
       return self:_resolveConfirmation(0)
     end
     if action == "cancel" or action == "no" then

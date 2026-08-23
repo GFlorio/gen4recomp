@@ -127,6 +127,42 @@ local function animatedAssets()
   }
 end
 
+local function genderConfirmation()
+  local state = controller()
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:tick(30 + 40)
+  state:press("confirm")
+  state:tick(30 + 26)
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(40)
+  state:press("right")
+  state:press("confirm")
+  Assert.equal(state:view().phase, "gender_confirm")
+  state:messageCompleted("profile.gender_confirm.female")
+  Assert.deepEqual(state:view().confirmationChoice, { kind = "gender", selected = 0 })
+  return state
+end
+
+local function nameConfirmation()
+  local state = genderConfirmation()
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(40)
+  state:inputText("GOLD")
+  state:press("submit")
+  state:messageCompleted("profile.name_confirm.female")
+  Assert.equal(state:view().phase, "name_confirm")
+  Assert.deepEqual(state:view().confirmationChoice, { kind = "name", selected = 0 })
+  return state
+end
+
 function T.greeting_policy_uses_each_source_boundary()
   local cases = {
     { 3, 59, "midnight" },
@@ -205,6 +241,31 @@ function T.confirmation_completion_activates_an_explicit_yes_choice()
   state:press("cancel")
   Assert.equal(state:view().phase, "gender_question")
   Assert.equal(state:view().genderFocus, 1)
+end
+
+function T.focused_no_resolves_gender_rejection()
+  local state = genderConfirmation()
+  state:press("down")
+  state:press("confirm")
+  Assert.equal(state:view().phase, "gender_question")
+  Assert.equal(state:view().genderFocus, 1)
+end
+
+function T.focused_no_resolves_name_rejection()
+  local state = nameConfirmation()
+  state:press("down")
+  state:press("confirm")
+  Assert.equal(state:view().phase, "gender_question")
+end
+
+function T.focused_yes_remains_affirmative_for_gender_and_name()
+  local gender = genderConfirmation()
+  gender:press("confirm")
+  Assert.equal(gender:view().phase, "name_prompt")
+
+  local name = nameConfirmation()
+  name:press("confirm")
+  Assert.equal(name:view().phase, "final_dialogue")
 end
 
 function T.confirmation_yes_and_no_resolve_only_from_the_active_choice()
