@@ -19,7 +19,7 @@ end
 
 -- Environment-selected profiles use the generated semantic map matrix,
 -- including an explicit failure for unsupported pairs.
-function T.tests.a_d05_02_environment_selection_matches_hgss_matrix()
+function T.tests.environment_selection_matches_hgss_matrix()
   local expected = {
     { "cave", "cave", 6 },
     { "cave", "outdoors", 5 },
@@ -37,6 +37,143 @@ function T.tests.a_d05_02_environment_selection_matches_hgss_matrix()
   Assert.throws(function()
     FieldTransitionProfile.selectEnvironment("outdoors", "outdoors")
   end, "outdoors-to-outdoors must fail instead of defaulting to a profile")
+end
+
+function T.tests.vertical_profiles_return_from_staging_before_the_final_step()
+  for _, profile in ipairs({ 7, 8 }) do
+    local events = {}
+    local stagedY
+    local player = {
+      motion = "idle",
+      beginTransitionVerticalReturn = function(self, anchorY)
+        events[#events + 1] = { "return", anchorY }
+        self.motion = "transition"
+        return true
+      end,
+      beginTransitionStep = function(self, direction)
+        events[#events + 1] = { "step", direction }
+        self.motion = "walking"
+        return true
+      end,
+      updateFixed = function(self)
+        self.motion = "idle"
+        return true
+      end,
+    }
+    local transition = FieldTransition.new({
+      loader = {},
+      player = player,
+      resolveDestination = function()
+        return {
+          destinationMap = { mapId = 60 },
+          destinationWarp = { x = 4, z = 4 },
+          fieldX = 4,
+          fieldZ = 4,
+          surfaceId = 0,
+          worldY = 10,
+        }
+      end,
+      prepare = function(result)
+        stagedY = result.worldY
+        return result
+      end,
+      commit = function() end,
+    })
+    transition:start({ mapId = 61 }, {
+      warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+      transition = { mode = "fixed", profile = profile },
+    }, "south")
+    for _ = 1, 20 do
+      transition:updateFixed()
+      if transition.phase == "idle" then
+        break
+      end
+    end
+    local expectedDirection = profile == 7 and "north" or "south"
+    Assert.equal(stagedY, profile == 7 and 8 or 12)
+    Assert.deepEqual(events, { { "return", 10 }, { "step", expectedDirection } })
+  end
+end
+
+function T.tests.escalator_profile_uses_prop_and_horizontal_player_choreography()
+  local events = {}
+  local prop = {
+    play = function(self, animation)
+      events[#events + 1] = "prop:" .. animation
+      self.finished = false
+    end,
+    isFinished = function(self)
+      if not self.finished then
+        self.finished = true
+        return false
+      end
+      return true
+    end,
+  }
+  local player = {
+    motion = "idle",
+    pauseTransitionAnimation = function()
+      events[#events + 1] = "pause"
+    end,
+    resumeTransitionAnimation = function()
+      events[#events + 1] = "resume"
+    end,
+    beginTransitionMotion = function(self, profile, _, facing)
+      Assert.equal(profile, FieldTransitionProfile.ESCALATOR)
+      events[#events + 1] = "horizontal:" .. facing
+      self.motion = "transition"
+      return true
+    end,
+    updateFixed = function(self)
+      self.motion = "idle"
+      return true
+    end,
+  }
+  local transition = FieldTransition.new({
+    loader = {},
+    player = player,
+    escalatorAt = function()
+      return prop
+    end,
+    playSound = function(sound)
+      events[#events + 1] = "sound:" .. sound
+    end,
+    resolveDestination = function()
+      return {
+        destinationMap = { mapId = 60 },
+        fieldX = 4,
+        fieldZ = 4,
+        surfaceId = 0,
+        worldY = 0,
+      }
+    end,
+    prepare = function(result)
+      return result
+    end,
+    commit = function() end,
+  })
+  transition:start({ mapId = 61 }, {
+    warp = { index = 0, destinationMapId = 60, destinationWarpId = 0, x = 4, z = 4 },
+    transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
+  }, "east")
+  for _ = 1, 80 do
+    transition:updateFixed()
+    if transition.phase == "idle" then
+      break
+    end
+  end
+  Assert.equal(transition.phase, "idle")
+  Assert.deepEqual(events, {
+    "prop:escalator",
+    "pause",
+    "horizontal:east",
+    "sound:SEQ_SE_DP_ESUKA",
+    "resume",
+    "prop:escalator",
+    "pause",
+    "horizontal:east",
+    "resume",
+  })
 end
 
 T.tests.transition_profiles_preserve_source_semantics = function()
@@ -196,6 +333,14 @@ function T.tests.field_transition_uses_trigger_destination_facing()
     end,
     commit = function() end,
     player = player,
+    escalatorAt = function()
+      return {
+        play = function() end,
+        isFinished = function()
+          return true
+        end,
+      }
+    end,
   })
   transition:start({ mapId = 61 }, {
     warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
@@ -347,6 +492,16 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
       self.facing = facing
       return true
     end,
+    beginTransitionVerticalReturn = function(self)
+      self.motion = "transition"
+      self.transitionTicks = 0
+      return true
+    end,
+    beginTransitionStep = function(self)
+      self.motion = "walking"
+      self.transitionTicks = 0
+      return true
+    end,
     updateFixed = function(self)
       self.transitionTicks = self.transitionTicks + 1
       if self.transitionTicks == 1 then
@@ -368,6 +523,14 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
     end,
     cameraAdjust = function(profile, adjustment)
       events[#events + 1] = { profile = profile, phase = "camera", family = adjustment }
+    end,
+    escalatorAt = function()
+      return {
+        play = function() end,
+        isFinished = function()
+          return true
+        end,
+      }
     end,
   })
 

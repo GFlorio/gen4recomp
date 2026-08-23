@@ -61,6 +61,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field onStart fun(sourceMap: table, trigger: table, facing: FieldDirection)? -- invoked once per transition start, before ownership changes
 ---@field onProfile fun(profile: integer, phase: "exit"|"enter", family: string)? -- source-specific semantic hook
 ---@field cameraAdjust fun(...: any)?
+---@field escalatorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table?
 ---@field onPanel fun(...: any)?
 ---@field callbackOwner table?
 ---@field player table|nil -- FieldPlayer, bound by the owner across the swap
@@ -81,6 +82,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field error any?
 ---@field warpContext table?
 ---@field suppression table?
+---@field destinationAnchorY number?
 ---@field prepared table?
 ---@field sourceMap RuntimeFieldMap?
 ---@field sourceWarp table?
@@ -112,12 +114,14 @@ function FieldTransition.new(options)
     onStart = options.onStart, -- invoked once per transition start, before ownership changes
     onProfile = options.onProfile,
     cameraAdjust = options.cameraAdjust,
+    escalatorAt = options.escalatorAt,
     onPanel = options.onPanel,
     callbackOwner = options.callbackOwner,
     player = options.player,
     profileId = nil,
     transitionMode = nil,
     destinationFacing = nil,
+    destinationAnchorY = nil,
     phase = FieldTransition.PHASES.idle,
     locked = false,
     sourceKind = nil,
@@ -128,21 +132,9 @@ function FieldTransition.new(options)
     fadeAlpha = 0,
     fade = nil,
     fadeStarted = false,
+    profileSoundPlayed = false,
+    escalator = nil,
   }, FieldTransition)
-end
-
-function FieldTransition:profileState(profile)
-  local family = FieldTransitionProfile.ROUTINE_FAMILIES[profile]
-  if not family then
-    return nil
-  end
-  local state = {}
-  for key, value in pairs(family) do
-    state[key] = value
-  end
-  state.exitRoutine = family.exit
-  state.enterRoutine = family.enter
-  return state
 end
 
 function FieldTransition:presentationStatus()
@@ -187,20 +179,51 @@ end
 local function beginProfileMotion(self, phase)
   if self.profileId == FieldTransitionProfile.HORIZONTAL_STAIRS then
     if phase ~= "exit" then
-      return false
+      assert(self.player and type(self.player.beginTransitionStep) == "function", "stair transition step required")
+      local direction = self.destinationFacing or self.facing
+      local started = self.player:beginTransitionStep(direction)
+      if not started then
+        Errors.raise(
+          FieldErrors.MAP_TRANSITION_EGRESS_FAILED,
+          "the horizontal stair destination step resolves no terrain destination",
+          { mapId = self.resolution.destinationMap.mapId, direction = direction }
+        )
+      end
+      return true
     end
     assert(self.player and type(self.player.beginTransitionStep) == "function", "stair transition step required")
-    return self.player:beginTransitionStep(self.facing or self.destinationFacing)
+    return self.player:beginTransitionStep(self.facing)
   end
-  if self.profileId ~= 2 and self.profileId ~= 7 and self.profileId ~= 8 then
-    return false
+  if self.profileId == FieldTransitionProfile.ESCALATOR then
+    assert(self.escalatorAt, "escalator prop resolver required")
+    local map, x, z = self.sourceMap, self.sourceWarp.x, self.sourceWarp.z
+    if phase == "enter" then
+      map, x, z = self.resolution.destinationMap, self.resolution.fieldX, self.resolution.fieldZ
+    end
+    self.escalator = self.escalatorAt(map, x, z)
+    assert(self.escalator, "escalator transition prop required")
+    assert(type(self.escalator.play) == "function", "escalator prop playback required")
+    assert(type(self.escalator.isFinished) == "function", "escalator prop completion required")
+    self.escalator:play("escalator")
+    if self.player and type(self.player.pauseTransitionAnimation) == "function" then
+      self.player:pauseTransitionAnimation()
+    end
+    assert(self.player and type(self.player.beginTransitionMotion) == "function", "escalator motion required")
+    local started = self.player:beginTransitionMotion(self.profileId, phase, self.facing or self.destinationFacing)
+    if phase == "exit" and not self.profileSoundPlayed and self.playSound then
+      self.playSound(FieldTransitionProfile.ROUTINE_FAMILIES[self.profileId].exitSound)
+      self.profileSoundPlayed = true
+    end
+    return started
   end
-  assert(self.player, "transition movement profile requires a player")
-  assert(
-    type(self.player.beginTransitionMotion) == "function",
-    "transition movement profile requires beginTransitionMotion"
-  )
-  return self.player:beginTransitionMotion(self.profileId, phase, self.facing or self.destinationFacing)
+  if self.profileId == FieldTransitionProfile.LADDER or self.profileId == FieldTransitionProfile.LADDER_DOWN then
+    if phase == "exit" then
+      return false
+    end
+    assert(self.player and type(self.player.beginTransitionVerticalReturn) == "function", "ladder return required")
+    return self.player:beginTransitionVerticalReturn(self.destinationAnchorY)
+  end
+  return false
 end
 
 local function advanceProfileMotion(self)
@@ -253,6 +276,14 @@ local function adjustHorizontalStairDestination(self, resolution)
   resolution.surfaceId = sample.surfaceId
   resolution.worldY = sample.worldY
   self.destinationFacing = facing
+  self.destinationWarpX = resolution.destinationWarp.x
+  self.destinationWarpZ = resolution.destinationWarp.z
+end
+
+local function adjustVerticalDestination(self, resolution)
+  self.destinationAnchorY = resolution.worldY
+  local offset = self.profileId == FieldTransitionProfile.LADDER and -2 or 2
+  resolution.worldY = resolution.worldY + offset
 end
 
 local function selectProfile(self, sourceMap, trigger)
@@ -355,6 +386,13 @@ local function beginSourceChoreography(self)
   then
     self.playSound(family.exitSound)
   end
+  if
+    family.exitSound
+    and self.playSound
+    and (self.profileId == FieldTransitionProfile.LADDER or self.profileId == FieldTransitionProfile.LADDER_DOWN)
+  then
+    self.playSound(family.exitSound)
+  end
   if kind ~= "door" and self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS then
     startFade(self, "out", family.fadeColor or 0)
   end
@@ -373,7 +411,12 @@ local function advanceSourceChoreo(self)
   if self.sourceChoreo == "profile_motion" then
     advanceProfileMotion(self)
     if not self.player or (self.player.motion ~= "transition" and self.player.motion ~= "walking") then
-      self.sourceChoreo = "done"
+      if not self.escalator or self.escalator:isFinished() ~= false then
+        if self.player and type(self.player.resumeTransitionAnimation) == "function" then
+          self.player:resumeTransitionAnimation()
+        end
+        self.sourceChoreo = "done"
+      end
     end
     return
   end
@@ -443,6 +486,37 @@ local function advanceDestinationChoreo(self)
   if self.destinationChoreo == "profile_motion" then
     advanceProfileMotion(self)
     if not self.player or (self.player.motion ~= "transition" and self.player.motion ~= "walking") then
+      if self.profileId == FieldTransitionProfile.ESCALATOR then
+        if self.escalator and self.escalator:isFinished() == false then
+          return
+        end
+        if self.player and type(self.player.resumeTransitionAnimation) == "function" then
+          self.player:resumeTransitionAnimation()
+        end
+      end
+      if self.profileId == FieldTransitionProfile.LADDER or self.profileId == FieldTransitionProfile.LADDER_DOWN then
+        local direction = self.profileId == FieldTransitionProfile.LADDER and "north" or "south"
+        assert(self.player and type(self.player.beginTransitionStep) == "function", "ladder destination step required")
+        local ok = self.player:beginTransitionStep(direction)
+        if not ok then
+          Errors.raise(
+            FieldErrors.MAP_TRANSITION_EGRESS_FAILED,
+            "the ladder destination step resolves no terrain destination",
+            { mapId = self.resolution.destinationMap.mapId, direction = direction }
+          )
+        end
+        self.destinationChoreo = "profile_step"
+      else
+        self.destinationChoreo = "done"
+      end
+    end
+    return
+  end
+  if self.destinationChoreo == "profile_step" then
+    if self.player and self.player.motion == "walking" then
+      self.player:updateFixed({})
+    end
+    if not self.player or self.player.motion ~= "walking" then
       self.destinationChoreo = "done"
     end
     return
@@ -518,6 +592,8 @@ local function finish(self)
   self.destinationDoor = nil
   self.sourceChoreo = nil
   self.destinationChoreo = nil
+  self.destinationAnchorY = nil
+  self.escalator = nil
   self.completed = {
     sourceMapId = self.sourceMap.mapId,
     destinationMapId = self.resolution.destinationMap.mapId,
@@ -552,6 +628,9 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.destinationDoor = nil
   self.sourceChoreo = nil
   self.destinationChoreo = nil
+  self.destinationAnchorY = nil
+  self.escalator = nil
+  self.profileSoundPlayed = false
 
   -- Invoke onStart callback once per transition start: this callback runs
   -- before ownership changes and can fail coherently like other pre-commit
@@ -605,6 +684,9 @@ function FieldTransition:_abort(err)
   self.destinationDoor = nil
   self.sourceChoreo = nil
   self.destinationChoreo = nil
+  self.destinationAnchorY = nil
+  self.escalator = nil
+  self.profileSoundPlayed = false
   self.fadeAlpha = 0
   self.progressTicks = 0
   self.completed = nil
@@ -633,7 +715,10 @@ function FieldTransition:updateFixed()
     if self.sourceChoreo == "done" and not self.fadeStarted then
       local family = profileFamily(self)
       if family.exitSound and self.playSound then
-        self.playSound(family.exitSound)
+        if not self.profileSoundPlayed then
+          self.playSound(family.exitSound)
+          self.profileSoundPlayed = true
+        end
       end
       startFade(self, "out", family.fadeColor or 0)
     end
@@ -657,6 +742,10 @@ function FieldTransition:updateFixed()
       self.resolution = result
       if self.profileId == FieldTransitionProfile.HORIZONTAL_STAIRS then
         adjustHorizontalStairDestination(self, result)
+      elseif
+        self.profileId == FieldTransitionProfile.LADDER or self.profileId == FieldTransitionProfile.LADDER_DOWN
+      then
+        adjustVerticalDestination(self, result)
       end
       detectDestinationDoor(self)
       -- Door and stair warps never suppress: the player egresses off the anchor

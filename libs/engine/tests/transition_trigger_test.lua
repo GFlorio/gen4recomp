@@ -119,7 +119,7 @@ end
 
 -- The production trigger record preserves source transition mode/profile
 -- identity instead of asking FieldTransition to reconstruct it later.
-function T.a_d05_01_trigger_record_preserves_fixed_environment_and_panel_identity()
+function T.trigger_record_preserves_transition_identity()
   ---@return table
   local function stepTrigger(behavior, facing)
     local warps = { warp(4, 14) }
@@ -240,12 +240,27 @@ function T.standing_stairs_triggers_with_its_direction_gate()
   local warps = { warp(3, 3) }
   local map = runtimeMap(0, 0, warps, {
     ["3:3"] = { behavior = BEHAVIOR.WARP_STAIRS_WEST },
-    ["2:3"] = { blocked = false },
+    ["2:3"] = { blocked = true },
   })
   local trigger = assert(TransitionTrigger.inputPath(map, 3, 3, "west"))
   Assert.equal(trigger.kind, "stairs")
   Assert.equal(assert(trigger.warp), warps[1])
   Assert.isNil(TransitionTrigger.inputPath(map, 3, 3, "east"))
+end
+
+function T.standing_horizontal_stairs_require_a_blocked_facing_tile()
+  local warps = { warp(3, 3) }
+  local openMap = runtimeMap(0, 0, warps, {
+    ["3:3"] = { behavior = BEHAVIOR.WARP_STAIRS_EAST },
+    ["4:3"] = { blocked = false },
+  })
+  Assert.isNil(TransitionTrigger.inputPath(openMap, 3, 3, "east"))
+
+  local blockedMap = runtimeMap(0, 0, warps, {
+    ["3:3"] = { behavior = BEHAVIOR.WARP_STAIRS_EAST },
+    ["4:3"] = { blocked = true },
+  })
+  Assert.notNil(TransitionTrigger.inputPath(blockedMap, 3, 3, "east"))
 end
 
 function T.standing_south_warp_requires_a_blocked_facing_tile()

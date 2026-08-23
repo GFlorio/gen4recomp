@@ -66,13 +66,7 @@ local WindowConfig = require("game.src.WindowConfig")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
 local function runtimeProfileEffect(runtime, profile, phase)
-  local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
-  local family = assert(FieldTransitionProfile.ROUTINE_FAMILIES[profile])
-  local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
-  if phase == "exit" and family.exitSound then
-    assert(audio and type(audio.play) == "function", "field transition audio host required")
-    audio:play(family.exitSound)
-  end
+  assert(type(profile) == "number", "field transition profile required")
   runtime.player.facing = phase == "enter" and runtime.transition.destinationFacing or runtime.transition.facing
 end
 
@@ -92,7 +86,7 @@ local function runtimePanelEffect(runtime, phase)
   end
 end
 
-local function createFieldTransition(runtime, doorAt)
+local function createFieldTransition(runtime, doorAt, escalatorAt)
   return FieldTransition.new({
     loader = runtime.mapLoader,
     prepare = function(resolution, facing)
@@ -102,6 +96,7 @@ local function createFieldTransition(runtime, doorAt)
       runtime:_commitSwap(resolution, facing, prepared)
     end,
     doorAt = doorAt,
+    escalatorAt = escalatorAt,
     onStart = function(_, trigger)
       if runtime.audio then
         runtime.audio:beginWarp(trigger.warp.destinationMapId)
@@ -522,11 +517,9 @@ function FieldRuntime:_load()
     -- ordinary fade lifecycle.
     local headlessProps = {}
     local doorAt
+    local escalatorAt
     if self.presentation or self.runtimeMap.sceneRuntime or self.runtimeMap.scene then
       doorAt = function(runtimeMap, fieldX, fieldZ)
-        if not self.presentation and runtimeMap ~= self.runtimeMap then
-          return nil
-        end
         local sceneRuntime = runtimeMap.sceneRuntime
         if sceneRuntime then
           return sceneRuntime.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
@@ -538,8 +531,20 @@ function FieldRuntime:_load()
         end
         return props:doorAt(runtimeMap, fieldX, fieldZ)
       end
+      escalatorAt = function(runtimeMap, fieldX, fieldZ)
+        local sceneRuntime = runtimeMap.sceneRuntime
+        if sceneRuntime then
+          return sceneRuntime.mapProps:propAt(runtimeMap, fieldX, fieldZ)
+        end
+        local props = headlessProps[runtimeMap.mapId]
+        if not props then
+          props = headlessMapProps(runtimeMap, cacheFs)
+          headlessProps[runtimeMap.mapId] = props
+        end
+        return props:propAt(runtimeMap, fieldX, fieldZ)
+      end
     end
-    self.transition = createFieldTransition(self, doorAt)
+    self.transition = createFieldTransition(self, doorAt, escalatorAt)
     self.transition.player = self.player
     self.transition.suppression = restored and restored.suppression or nil
 

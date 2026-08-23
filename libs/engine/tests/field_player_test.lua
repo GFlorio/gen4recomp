@@ -14,6 +14,7 @@ function T.source_fx32_movement_uses_one_world_unit_conversion()
   Assert.equal(FieldTransitionMotion.fx32ToWorldUnits(2048), 0.5)
   Assert.equal(FieldTransitionMotion.fx32ToWorldUnits(-6144), -1.5)
 end
+
 local ROOT_HALF = math.sqrt(0.5)
 
 local function throwsCode(code, fn)
@@ -81,6 +82,19 @@ end
 
 local function player(map, x, z, surfaceId)
   return FieldPlayer.new({ currentMap = map, fieldX = x, fieldZ = z, surfaceId = surfaceId, facing = "south" })
+end
+
+function T.escalator_motion_is_horizontal_and_does_not_change_height()
+  local p = player(runtimeMap(), 0, 4, 0)
+  local startX, startY, startZ = p.worldX, p.worldY, p.worldZ
+  Assert.isTrue(p:beginTransitionMotion(2, "exit", "east"))
+  for _ = 1, 16 do
+    p:updateFixed()
+  end
+  near(p.worldX, startX + 1)
+  near(p.worldY, startY)
+  near(p.worldZ, startZ)
+  Assert.equal(p.fieldX, 0)
 end
 
 local function tick(p, held, pressed)

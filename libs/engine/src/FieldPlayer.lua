@@ -10,7 +10,6 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local FieldTransitionMotion = require("libs.engine.src.FieldTransitionMotion")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 ---@class FieldPlayer
@@ -32,6 +31,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field motion "idle"|"walking"|"transition"
 ---@field progressTicks integer
 ---@field durationTicks integer
+---@field animationPaused boolean
 ---@field bufferedDirection FieldDirection?
 ---@field from table?
 ---@field to table?
@@ -112,6 +112,7 @@ function FieldPlayer.new(options)
     motion = "idle",
     progressTicks = 0,
     durationTicks = FieldPlayer.WALK_STEP_TICKS,
+    animationPaused = false,
   }, FieldPlayer)
 end
 
@@ -226,26 +227,43 @@ function FieldPlayer:beginTransitionStep(direction)
   return self:scriptedStep(direction)
 end
 
+function FieldPlayer:pauseTransitionAnimation()
+  self.animationPaused = true
+end
+
+function FieldPlayer:resumeTransitionAnimation()
+  self.animationPaused = false
+end
+
 -- Starts one of the source transition movement families.  These motions are
 -- deliberately separate from tile walking: ladder and ladder-down routines
 -- interpolate the already-selected map position for sixteen fixed ticks and
 -- never claim a new field tile.
 function FieldPlayer:beginTransitionMotion(profile, phase, facing)
   assert(self.motion == "idle", "cannot begin a transition motion while moving")
-  assert(profile == 2 or profile == 7 or profile == 8, "profile has no player transition motion")
+  assert(profile == 2, "profile has no escalator transition motion")
   self.motion = "transition"
   self.facing = facing
   self.progressTicks = 0
   self.durationTicks = 16
   self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
-  local rawY = profile == 8 and -8192 or 8192
-  local rawZ = profile == 7 and (facing == "south" and -6144 or 0) or 0
-  if profile == 7 and facing == "south" then
-    rawY = 2048
-  end
-  local y = FieldTransitionMotion.fx32ToWorldUnits(rawY)
-  local z = FieldTransitionMotion.fx32ToWorldUnits(rawZ)
-  self.transitionTo = { x = self.worldX, y = self.worldY + y, z = self.worldZ + z }
+  local deltaX = facing == "east" and 1 or facing == "west" and -1
+  assert(deltaX, "escalator transition requires an east or west facing")
+  self.transitionTo = { x = self.worldX + deltaX, y = self.worldY, z = self.worldZ }
+  return true
+end
+
+-- Starts the sixteen-update vertical return from ladder staging to the
+-- resolved anchor height. The caller performs the final cardinal tile step
+-- only after this presentation interpolation completes.
+function FieldPlayer:beginTransitionVerticalReturn(anchorY)
+  assert(self.motion == "idle", "cannot begin a vertical transition while moving")
+  assert(type(anchorY) == "number", "ladder anchor height required")
+  self.motion = "transition"
+  self.progressTicks = 0
+  self.durationTicks = 16
+  self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
+  self.transitionTo = { x = self.worldX, y = anchorY, z = self.worldZ }
   return true
 end
 

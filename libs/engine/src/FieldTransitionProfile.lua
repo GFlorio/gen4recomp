@@ -28,17 +28,12 @@ FieldTransitionProfile.ROUTINE_FAMILIES = {
     enter = "escalator_enter",
     adjustment = "escalator",
     exitSound = "SEQ_SE_DP_ESUKA",
-    pauseAction = "pause_animation",
-    resumeAction = "resume_animation",
-    horizontalAction = "walk_slow",
-    requiresPropAnimation = true,
   },
   [3] = {
     exit = "horizontal_stairs_exit",
     enter = "horizontal_stairs_enter",
     adjustment = "horizontal_stairs",
     exitSound = "SEQ_SE_DP_KAIDAN2",
-    horizontalAction = "walk_slow",
   },
   [4] = {
     exit = "cave_exit",
@@ -60,16 +55,12 @@ FieldTransitionProfile.ROUTINE_FAMILIES = {
     enter = "ladder_enter",
     adjustment = "ladder",
     exitSound = "SEQ_SE_DP_KAIDAN2",
-    enterAction = "walk_normal_north",
-    exitVector = { dy = 8192 },
   },
   [8] = {
     exit = "ladder_down",
     enter = "ladder_down_enter",
     adjustment = "ladder_down",
     exitSound = "SEQ_SE_DP_KAIDAN2",
-    enterAction = "walk_normal_south",
-    exitVector = { dy = -8192 },
   },
 }
 

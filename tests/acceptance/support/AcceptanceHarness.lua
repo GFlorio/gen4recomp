@@ -608,7 +608,7 @@ function Game:face(direction)
 end
 
 function Game:waitForTransition()
-  if self.lastTransition then
+  if self.lastTransition and self.lastTransition.destination.transition.phase == "idle" then
     local completed = self.lastTransition
     self.lastTransition = nil
     return completed

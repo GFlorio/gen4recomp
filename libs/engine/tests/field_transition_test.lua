@@ -40,7 +40,6 @@ end
 function T.transition_exposes_profile_presentation_state()
   local transition = FieldTransition.new({ loader = {}, prepare = function() end, commit = function() end })
   Assert.equal(type(transition.presentationStatus), "function")
-  Assert.equal(type(transition.profileState), "function")
 end
 
 -- A loader whose protection record must stay empty: the transition is not a

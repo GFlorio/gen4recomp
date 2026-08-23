@@ -370,4 +370,22 @@ function MapProps:prop(placementIndex)
   }, SceneProp)
 end
 
+-- Resolve the prop nearest a semantic field tile. Transition choreography uses
+-- this only for map behaviors whose source animation is owned by a placed
+-- model; the returned handle still validates the requested clip on play.
+function MapProps:propAt(runtimeMap, fieldX, fieldZ)
+  local localX, localZ = fieldX - runtimeMap.coordinateOrigin.x, fieldZ - runtimeMap.coordinateOrigin.z
+  local worldX, worldZ = FieldGrid.tileCenterToWorld(localX, localZ)
+  local nearest
+  for _, placement in ipairs(self.placements) do
+    local dx = placement.transform[13] - worldX
+    local dz = placement.transform[15] - worldZ
+    local distance = dx * dx + dz * dz
+    if not nearest or distance < nearest.distance then
+      nearest = { placement = placement, distance = distance }
+    end
+  end
+  return nearest and self:prop(nearest.placement.placementIndex) or nil
+end
+
 return MapProps

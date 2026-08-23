@@ -313,16 +313,6 @@ function TransitionTrigger.inputPath(runtimeMap, fieldX, fieldZ, direction)
     return attachWarp(standing, runtimeMap, fieldX, fieldZ)
   end
 
-  -- A standing stair owns its input gate on the stair tile. The destination
-  -- side may be walkable in the gate direction after the horizontal landing
-  -- adjustment, so it must not be filtered by the facing-tile wall check.
-  if standing and standing.kind == "stairs" and standing.evaluatesOn == "input" then
-    if TransitionTrigger.matchesDirection(standing, direction) then
-      return attachWarp(standing, runtimeMap, fieldX, fieldZ)
-    end
-    return nil
-  end
-
   -- 2. Every non-ladder input-path transition requires the source collision
   --    attribute on the facing tile before any family-specific probe.
   if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) ~= true then
@@ -334,6 +324,17 @@ function TransitionTrigger.inputPath(runtimeMap, fieldX, fieldZ, direction)
     if trigger then
       return trigger
     end
+  end
+
+  -- Horizontal stairs are evaluated after the common collision gate, like
+  -- the source's remaining input-path transitions.
+  if
+    standing
+    and standing.kind == "stairs"
+    and standing.evaluatesOn == "input"
+    and TransitionTrigger.matchesDirection(standing, direction)
+  then
+    return attachWarp(standing, runtimeMap, fieldX, fieldZ)
   end
 
   -- 4. Standing direction-gated warps (door, stairs, and east/west/south
