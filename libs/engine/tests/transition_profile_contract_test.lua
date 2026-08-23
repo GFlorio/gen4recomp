@@ -7,12 +7,18 @@ local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 
 local T = { tests = {} }
 
+local function step(transition)
+  transition:updateSourceFrame()
+  transition:updateSourceFrame()
+  return transition:updateFixed()
+end
+
 local function advanceTo(transition, phase, maxTicks)
   for _ = 1, maxTicks do
     if transition.phase == phase then
       return
     end
-    transition:updateFixed()
+    step(transition)
   end
   Assert.equal(transition.phase, phase)
 end
@@ -84,7 +90,7 @@ function T.tests.vertical_profiles_return_from_staging_before_the_final_step()
       transition = { mode = "fixed", profile = profile },
     }, "south")
     for _ = 1, 20 do
-      transition:updateFixed()
+      step(transition)
       if transition.phase == "idle" then
         break
       end
@@ -157,7 +163,7 @@ function T.tests.escalator_profile_uses_prop_and_horizontal_player_choreography(
     transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
   }, "east")
   for _ = 1, 80 do
-    transition:updateFixed()
+    step(transition)
     if transition.phase == "idle" then
       break
     end
@@ -381,7 +387,7 @@ local function runTransition(options)
     if transition.phase == "idle" then
       break
     end
-    transition:updateFixed()
+    step(transition)
   end
   Assert.equal(transition.phase, "idle", "the pure transition fixture must complete")
 end
@@ -544,7 +550,7 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
       if transition.phase == "idle" then
         break
       end
-      transition:updateFixed()
+      step(transition)
     end
     Assert.equal(transition.phase, "idle", "profile " .. profile .. " completes")
     Assert.equal(events[1].profile, profile)
@@ -604,7 +610,7 @@ function T.tests.panel_lifecycle_notifies_each_side_once_without_profile_dispatc
     if transition.phase == "idle" then
       break
     end
-    transition:updateFixed()
+    step(transition)
   end
   Assert.deepEqual(panels, { "exit", "enter" })
   Assert.deepEqual(profiles, {})

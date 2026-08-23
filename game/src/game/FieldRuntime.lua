@@ -65,6 +65,8 @@ local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
 local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
+local PRESENTATION_FRAME_DT = 1 / 60
+
 local function runtimeProfileEffect(runtime, profile, phase)
   assert(type(profile) == "number", "field transition profile required")
   runtime.player.facing = phase == "enter" and runtime.transition.destinationFacing or runtime.transition.facing
@@ -320,6 +322,7 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     -- loop converts into due semantic sound frames, one per complete
     -- 1/60-second interval.
     audioFrameAccumulator = 0,
+    presentationFrameAccumulator = 0,
   }, FieldRuntime)
   self:_load()
   return self
@@ -330,6 +333,7 @@ function FieldRuntime:_load()
   -- clean on every boot: a reset re-boots through _load, so a stale
   -- pre-reset residue must never carry into the fresh runtime.
   self.audioFrameAccumulator = 0
+  self.presentationFrameAccumulator = 0
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
     self.cacheFs = cacheFs
@@ -752,45 +756,50 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
+  self.presentationFrameAccumulator = self.presentationFrameAccumulator + dt
+  self.session.accumulator = self.session.accumulator + dt
   if self.audio then
     self.audioFrameAccumulator = self.audioFrameAccumulator + dt
-    self.session.accumulator = self.session.accumulator + dt
-    local FIXED_DT = FieldSession.FIXED_DT
-    local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
-    local EPSILON = 1e-12
-    local fieldExecuted = 0
-    while true do
-      local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
-      local canAudio = self.audioFrameAccumulator + EPSILON >= AUDIO_FRAME_DT
-      if not canField and not canAudio then
+  end
+  local FIXED_DT = FieldSession.FIXED_DT
+  local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
+  local EPSILON = 1e-12
+  local fieldExecuted = 0
+  while true do
+    local canPresentation = self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
+    local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
+    local canAudio = self.audio ~= nil and self.audioFrameAccumulator + EPSILON >= AUDIO_FRAME_DT
+    if not canPresentation and not canField and not canAudio then
+      break
+    end
+    local nextPresentationDelta = PRESENTATION_FRAME_DT - self.presentationFrameAccumulator
+    local nextFieldDelta = FIXED_DT - self.session.accumulator
+    local nextAudioDelta = self.audio and AUDIO_FRAME_DT - self.audioFrameAccumulator or math.huge
+    if
+      canPresentation
+      and (not canField or nextPresentationDelta <= nextFieldDelta)
+      and (not canAudio or nextPresentationDelta <= nextAudioDelta)
+    then
+      self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT
+      self.transition:updateSourceFrame()
+    elseif canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
+      self.session.accumulator = self.session.accumulator - FIXED_DT
+      self.session:updateFixed()
+      fieldExecuted = fieldExecuted + 1
+      if self.applicationHost:error() and not self.errorText then
+        self.errorText = tostring(self.applicationHost:error())
+      end
+      if self.errorText then
         break
       end
-      local nextFieldDelta = FIXED_DT - self.session.accumulator
-      local nextAudioDelta = AUDIO_FRAME_DT - self.audioFrameAccumulator
-      if canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
-        self.session.accumulator = self.session.accumulator - FIXED_DT
-        self.session:updateFixed()
-        fieldExecuted = fieldExecuted + 1
-        if self.applicationHost:error() and not self.errorText then
-          self.errorText = tostring(self.applicationHost:error())
-        end
-        if self.errorText then
-          break
-        end
-      else
-        self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
-        self.audio:updateSoundFrame()
-      end
+    else
+      self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
+      self.audio:updateSoundFrame()
     end
-    if self.session.accumulator + EPSILON >= FIXED_DT then
-      local discarded = math.floor((self.session.accumulator + EPSILON) / FIXED_DT)
-      self.session.accumulator = self.session.accumulator - discarded * FIXED_DT
-    end
-  else
-    self.session:update(dt)
-    if self.applicationHost:error() and not self.errorText then
-      self.errorText = tostring(self.applicationHost:error())
-    end
+  end
+  if self.session.accumulator + EPSILON >= FIXED_DT then
+    local discarded = math.floor((self.session.accumulator + EPSILON) / FIXED_DT)
+    self.session.accumulator = self.session.accumulator - discarded * FIXED_DT
   end
 
   -- The audio output clock: pump PCM from the engine into the host sink once

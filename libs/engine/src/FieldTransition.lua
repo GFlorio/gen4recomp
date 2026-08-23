@@ -246,7 +246,6 @@ local function advanceFade(self)
     return
   end
   self.fade:update60()
-  self.fade:update60()
   self.fadeAlpha = self.fade:status().coefficient / 16
 end
 
@@ -707,7 +706,6 @@ function FieldTransition:updateFixed()
     -- The locomotion report reflects the tick-start state: false during the
     -- open wait, true while the ingress step runs.
     local playerAdvanced = self.sourceChoreo ~= nil and self.player ~= nil and self.player.motion == "walking"
-    local fadeWasStarted = self.fadeStarted
     if self.sourceChoreo then
       runChoreo(self, advanceSourceChoreo)
     end
@@ -725,9 +723,6 @@ function FieldTransition:updateFixed()
     -- The ingress finishes after the 12-tick fade, so the fade clamps at
     -- black and holds until the choreography completes -- the swap only ever
     -- happens at full black.
-    if fadeWasStarted then
-      advanceFade(self)
-    end
     if not self.fadeStarted then
       self.fadeAlpha = 0
     end
@@ -816,7 +811,6 @@ function FieldTransition:updateFixed()
       runChoreo(self, advanceDestinationChoreo)
     end
     if self.phase == FieldTransition.PHASES.fade_in then
-      advanceFade(self)
       if self.fade and self.fade:status().completed then
         if not self.destinationChoreo or self.destinationChoreo == "done" then
           finish(self)
@@ -833,6 +827,20 @@ function FieldTransition:updateFixed()
     return playerAdvanced
   end
   assert(false, "unknown field transition phase")
+end
+
+-- Advances the presentation clock by exactly one source frame. Field
+-- simulation calls updateFixed separately, so fade cadence cannot depend on
+-- the 30 Hz simulation clock or on whether an audio service is composed.
+function FieldTransition:updateSourceFrame()
+  if self.phase == FieldTransition.PHASES.idle then
+    return false
+  end
+  if self.fadeStarted and self.fade and not self.fade:status().completed then
+    advanceFade(self)
+    return true
+  end
+  return false
 end
 
 function FieldTransition:consumeCompleted()

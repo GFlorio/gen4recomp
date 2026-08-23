@@ -4,6 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 
 local T = {
   metadata = {
@@ -24,8 +25,13 @@ local LAB_FLOOR = { fieldX = 4, fieldZ = 13 }
 local LAB_DOOR_ANCHOR = { fieldX = 4, fieldZ = 14 }
 local HOUSE_WARP = { fieldX = 3, fieldZ = 3 }
 
-local function withGame(map, fn)
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = map, save = "fresh" })
+local function withGame(map, fn, fieldOptions)
+  local game = AcceptanceHarness.new():boot({
+    versionId = "heartgold",
+    map = map,
+    save = "fresh",
+    fieldOptions = fieldOptions,
+  })
   local ok, err = xpcall(function()
     fn(game)
     Assert.equal(game:renderAttempts(), 0, "transition acceptance must stop before GPU rendering")
@@ -119,24 +125,49 @@ function T.tests.transition_sounds_are_emitted_once_by_profile_choreography()
   end)
 end
 
-function T.tests.standard_fade_uses_source_substeps()
+function T.tests.standard_fade_exposes_every_source_frame()
   withGame(TOWN, function(game)
     beginTownDoor(game)
     local transition = game.runtime.transition
     Assert.equal(type(transition.presentationStatus), "function", "transition presentation status is required")
     local samples = {}
-    game:advanceUntil("first source fade tick", function()
-      return transition.fade ~= nil and transition.fade.updates > 0
-    end, 120)
-    samples[#samples + 1] = transition:presentationStatus().coefficient
-    for _ = 1, 2 do
-      game:step()
+    for _ = 1, 6 do
+      game.runtime:update(1 / 60)
       local status = transition:presentationStatus()
       samples[#samples + 1] = status.coefficient
     end
-    Assert.deepEqual(samples, { 5, 10, 16 })
+    Assert.deepEqual(samples, { 2, 5, 7, 10, 13, 16 })
     Assert.equal(transition:presentationStatus().completed, true)
   end)
+end
+
+local function fadeTimeline(fieldOptions)
+  local timeline = {}
+  withGame(TOWN, function(game)
+    beginTownDoor(game)
+    local transition = game.runtime.transition
+    for _ = 1, 120 do
+      game.runtime:update(1 / 60)
+      local status = transition:presentationStatus()
+      timeline[#timeline + 1] = {
+        coefficient = status.coefficient,
+        mapSymbol = game:snapshot().mapSymbol,
+        phase = status.phase,
+      }
+      if status.phase == "idle" then
+        break
+      end
+    end
+    Assert.equal(transition.phase, "idle", "the transition must complete on the source-frame clock")
+    Assert.equal(timeline[#timeline].coefficient, 0, "completion must follow fade-in to zero")
+  end, fieldOptions)
+  return timeline
+end
+
+function T.tests.standard_fade_timing_is_independent_of_audio_composition()
+  local withoutAudio = fadeTimeline()
+  local withAudio = fadeTimeline({ audioHost = "production", audioOutput = FakeAudioOutput.new() })
+  Assert.deepEqual(withAudio, withoutAudio, "audio composition must not change fade timing or swap ordering")
 end
 
 function T.tests.door_fade_waits_for_source_ingress_and_preserves_anchor()
