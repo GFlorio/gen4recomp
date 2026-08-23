@@ -564,4 +564,79 @@ function T.runtime_fields_are_not_forwarded_onto_the_instance()
   Assert.isNil(state["zoom"])
 end
 
+function T.destination_world_is_not_drawn_before_entry_presentation_is_ready()
+  local draws = 0
+  local state = setmetatable({
+    runtime = {
+      runtimeMap = { sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} } },
+      playerVisual = {
+        drawRecord = function()
+          return { visible = false }
+        end,
+      },
+      actors = {
+        drawRecords = function()
+          return {}
+        end,
+      },
+      session = {
+        renderAlpha = function()
+          return 0.5
+        end,
+        destinationWorldPresentable = function()
+          return false
+        end,
+      },
+      viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
+      camera = { zoom = 1 },
+      transition = { fadeAlpha = 0 },
+      dialogue = {
+        isModal = function()
+          return false
+        end,
+      },
+      signpost = {
+        isModal = function()
+          return false
+        end,
+      },
+      applicationHost = {
+        status = function()
+          return { phase = "closed", fadeAlpha = 0 }
+        end,
+      },
+      menuHost = {
+        presentation = function()
+          return nil
+        end,
+      },
+      resizePresentation = function() end,
+    },
+    _pollPresentationTopology = false,
+    topologyProvider = function()
+      return ScreenTopology.oneDisplay({
+        id = "main",
+        rect = { x = 0, y = 0, width = 640, height = 480 },
+        touch = false,
+        role = "world",
+      })
+    end,
+    renderer = {
+      draw = function()
+        draws = draws + 1
+      end,
+    },
+    worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
+    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
+    _actorAssetLookup = function()
+      return {}
+    end,
+  }, FieldState)
+
+  state:draw()
+  Assert.equal(draws, 0, "destination world presentation waits for load completion")
+end
+
 return { tests = T }

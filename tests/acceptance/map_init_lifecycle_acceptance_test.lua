@@ -1,12 +1,10 @@
--- Production-composed map-init lifecycle contracts. Real generated field maps,
--- FieldRuntime, FieldScripts, FieldSession, and the scheduler remain in the
--- path; the acceptance harness supplies only host seams and isolated saves.
+-- Production-composed map-entry contracts. Real generated maps, FieldRuntime,
+-- FieldScripts, FieldSession, and the scheduler remain in the path; the
+-- acceptance harness supplies only host seams and isolated saves.
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
-local FieldSession = require("libs.engine.src.FieldSession")
-local FieldScripts = require("game.src.game.FieldScripts")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 
 local T = {
@@ -20,14 +18,6 @@ local T = {
 local function lifecycleTypes(runtime)
   local result = {}
   for _, group in ipairs(runtime.runtimeMap.fieldData.initScripts) do
-    result[#result + 1] = group.type
-  end
-  return result
-end
-
-local function oneShotTypes(runtime)
-  local result = {}
-  for _, group in ipairs(runtime.runtimeMap.fieldData.initScripts) do
     if group.type ~= "on_frame_eq" then
       result[#result + 1] = group.type
     end
@@ -35,58 +25,24 @@ local function oneShotTypes(runtime)
   return result
 end
 
-local function installStartRecorder()
+local function installExecutionRecorder()
   local starts = {}
-  local original = assert(ScriptInteractionClient.startInitScript)
+  local actorEntries = {}
+  local originalStart = assert(ScriptInteractionClient.startInitScript)
+  local originalEnter = assert(FieldActorManager.enterMap)
   ScriptInteractionClient.startInitScript = function(self, scriptId, tick)
     starts[#starts + 1] = { scriptId = scriptId, tick = tick }
-    return original(self, scriptId, tick)
+    return originalStart(self, scriptId, tick)
   end
-  return starts, function()
-    ScriptInteractionClient.startInitScript = original
-  end
-end
-
-local function lifecycleStartTypes(starts, runtime)
-  local lifecycleByScriptId = {}
-  for _, group in ipairs(runtime.runtimeMap.fieldData.initScripts) do
-    if group.type ~= "on_frame_eq" then
-      lifecycleByScriptId[group.scriptId] = group.type
-    end
-  end
-  local result = {}
-  for _, start in ipairs(starts) do
-    if lifecycleByScriptId[start.scriptId] ~= nil then
-      result[#result + 1] = lifecycleByScriptId[start.scriptId]
-    end
-  end
-  return result
-end
-
-local function installBoundaryRecorder()
-  local events = {}
-  local actorEnter = assert(FieldActorManager.enterMap)
-  local queueLifecycles = assert(FieldSession.queueMapLifecycles)
-  local mapSwap = assert(FieldScripts.onMapSwap)
   FieldActorManager.enterMap = function(self, runtimeMap, eventState)
-    events[#events + 1] = { kind = "actors_enter", mapId = runtimeMap.mapId }
-    return actorEnter(self, runtimeMap, eventState)
+    actorEntries[#actorEntries + 1] = { mapId = runtimeMap.mapId }
+    return originalEnter(self, runtimeMap, eventState)
   end
-  FieldSession.queueMapLifecycles = function(self, lifecycles)
-    for _, lifecycle in ipairs(lifecycles) do
-      events[#events + 1] = { kind = "lifecycle_request", lifecycle = lifecycle, mapId = self.currentMap.mapId }
-    end
-    return queueLifecycles(self, lifecycles)
-  end
-  FieldScripts.onMapSwap = function(self, player, runtimeMap)
-    events[#events + 1] = { kind = "scripts_rebind", mapId = runtimeMap.mapId }
-    return mapSwap(self, player, runtimeMap)
-  end
-  return events,
+  return starts,
+    actorEntries,
     function()
-      FieldActorManager.enterMap = actorEnter
-      FieldSession.queueMapLifecycles = queueLifecycles
-      FieldScripts.onMapSwap = mapSwap
+      ScriptInteractionClient.startInitScript = originalStart
+      FieldActorManager.enterMap = originalEnter
     end
 end
 
@@ -96,13 +52,9 @@ local function lifecycleHarness()
   harness.gameFactory = function(versionId, map)
     local game = defaultGameFactory(versionId, map)
     if map == "MAP_NEW_BARK_ELMS_LAB_1F" then
-      -- The shared harness default is a valid overworld fixture, not the
-      -- laboratory's compiled walkable surface. Use the center of its plate.
       game.location.fieldX = 4
       game.location.fieldZ = 13
     elseif map == "MAP_ROUTE_22" then
-      -- Route 22's compiled map has walkable terrain and open collision at
-      -- local tile (9, 9); the shared (6, 6) fixture spawn has no surface.
       game.location.fieldX = 9
       game.location.fieldZ = 9
       game.worldState:setFlag(638)
@@ -114,40 +66,33 @@ local function lifecycleHarness()
   return harness
 end
 
-function T.tests.initial_map_lifecycle_order_precedes_actor_entry_and_reaches_idle_field_play()
+local function scriptTypeById(runtime)
+  local result = {}
+  for _, group in ipairs(runtime.runtimeMap.fieldData.initScripts) do
+    result[group.scriptId] = group.type
+  end
+  return result
+end
+
+function T.tests.initial_entry_executes_transition_before_actor_construction()
   local harness = lifecycleHarness()
   harness:forEachVersion(function(versionId)
-    local events, restoreBoundaries = installBoundaryRecorder()
-    local starts, restoreStarts = installStartRecorder()
+    local starts, entries, restore = installExecutionRecorder()
     local game
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
-      Assert.equal(game:snapshot().mapSymbol, "MAP_ROUTE_22")
-      local expected = oneShotTypes(game.runtime)
-      Assert.isTrue(#expected > 0, "initial map must declare one-shot lifecycle work")
-      Assert.equal(events[1].kind, "lifecycle_request", "transition intent must precede actor entry")
-      Assert.equal(events[1].lifecycle, "on_transition")
-      local actorIndex
-      for index, event in ipairs(events) do
-        if event.kind == "actors_enter" then
-          actorIndex = index
-          break
-        end
-      end
-      Assert.isTrue(actorIndex ~= nil, "initial actor entry must be recorded")
-      for index = 1, actorIndex - 1 do
-        Assert.equal(events[index].kind, "lifecycle_request")
-      end
-      game:advanceUntil("initial map lifecycle work to finish", function(snapshot)
-        return snapshot.transition.phase == "idle"
-          and not snapshot.fieldLocked
-          and #lifecycleStartTypes(starts, game.runtime) == #expected
+      local types = scriptTypeById(game.runtime)
+      Assert.isTrue(#lifecycleTypes(game.runtime) > 0)
+      Assert.isTrue(#starts > 0, "entry must execute a lifecycle script")
+      Assert.equal(types[starts[1].scriptId], "on_transition")
+      Assert.equal(entries[1].mapId, game.runtime.runtimeMap.mapId)
+      Assert.isTrue(starts[1].tick < game.runtime.session.tick, "actor entry must follow transition execution")
+      game:advanceUntil("initial entry ready", function(snapshot)
+        return snapshot.transition.phase == "idle" and not snapshot.fieldLocked
       end, 240)
-      Assert.deepEqual(lifecycleStartTypes(starts, game.runtime), expected)
       Assert.equal(game:renderAttempts(), 0)
     end, debug.traceback)
-    restoreStarts()
-    restoreBoundaries()
+    restore()
     if game then
       game:close()
     end
@@ -157,74 +102,79 @@ function T.tests.initial_map_lifecycle_order_precedes_actor_entry_and_reaches_id
   end)
 end
 
-function T.tests.destination_lifecycle_runs_after_bind_and_ordinary_frames_do_not_repeat_events()
+function T.tests.destination_entry_executes_transition_before_destination_actors()
   local harness = lifecycleHarness()
   harness:forEachVersion(function(versionId)
-    local events, restoreBoundaries = installBoundaryRecorder()
-    local restoreStarts = function() end
+    local starts, entries, restore = installExecutionRecorder()
     local game
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
-      Assert.deepEqual(lifecycleTypes(game.runtime), { "on_transition", "on_resume", "on_frame_eq" })
-      local before = game:snapshot()
-      game:advanceUntil("initial map lifecycle queue to drain", function(snapshot)
+      game:advanceUntil("initial entry ready", function(snapshot)
         return not snapshot.fieldLocked and snapshot.player.motion == "idle"
       end, 240)
-      for _ = 1, 30 do
-        game:step()
-      end
-      local starts
-      starts, restoreStarts = installStartRecorder()
+      local before = game:snapshot().mapId
       game:moveTo({ fieldX = 936, fieldZ = 267 })
-      game:move("west")
-      local transition = game:waitForTransition()
-      Assert.isFalse(transition.destination.mapId == before.mapId)
-      Assert.equal(game.runtime.scripts.initController.mapId, transition.destination.mapId)
-      local expected = oneShotTypes(game.runtime)
-      game:advanceUntil("destination one-shot lifecycle queue to drain", function(snapshot)
-        return not snapshot.fieldLocked and snapshot.player.motion == "idle"
-      end, 240)
-      Assert.deepEqual(lifecycleStartTypes(starts, game.runtime), expected)
-      local destinationActorIndex
-      local destinationRebindIndex
-      local destinationRequestIndex
-      for index = #events, 1, -1 do
-        local event = events[index]
-        if
-          destinationActorIndex == nil
-          and event.kind == "actors_enter"
-          and event.mapId == transition.destination.mapId
-        then
-          destinationActorIndex = index
-        elseif
-          destinationRebindIndex == nil
-          and event.kind == "scripts_rebind"
-          and event.mapId == transition.destination.mapId
-        then
-          destinationRebindIndex = index
-        elseif
-          destinationRequestIndex == nil
-          and event.kind == "lifecycle_request"
-          and event.mapId == transition.destination.mapId
-        then
-          destinationRequestIndex = index
+      local result = game:move("west")
+      result = game:waitForTransition()
+      Assert.isFalse(result.destination.mapId == before)
+      local destination = result.destination.mapId
+      local destinationEntry
+      for index = #entries, 1, -1 do
+        if entries[index].mapId == destination then
+          destinationEntry = index
+          break
         end
       end
-      Assert.isTrue(destinationRebindIndex < destinationRequestIndex)
-      Assert.isTrue(destinationRequestIndex < destinationActorIndex)
-      local count = #lifecycleStartTypes(starts, game.runtime)
+      Assert.isTrue(destinationEntry ~= nil, "destination actors must be constructed")
+      local types = scriptTypeById(game.runtime)
+      local transitionStart
+      for index = #starts, 1, -1 do
+        if types[starts[index].scriptId] == "on_transition" then
+          transitionStart = index
+          break
+        end
+      end
+      Assert.isTrue(transitionStart ~= nil)
+      Assert.isTrue(starts[transitionStart].tick < game.runtime.session.tick)
+      Assert.equal(game:renderAttempts(), 0)
+    end, debug.traceback)
+    restore()
+    if game then
+      game:close()
+    end
+    if not ok then
+      error(err, 0)
+    end
+  end)
+end
+
+function T.tests.headless_entry_reaches_ready_without_rendering_and_does_not_repeat_lifecycles()
+  local harness = lifecycleHarness()
+  harness:forEachVersion(function(versionId)
+    local starts, _, restore = installExecutionRecorder()
+    local game
+    local ok, err = xpcall(function()
+      game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
+      local expected = lifecycleTypes(game.runtime)
+      game:advanceUntil("all entry lifecycle work", function(snapshot)
+        return not snapshot.fieldLocked and snapshot.player.motion == "idle"
+      end, 240)
+      local types = scriptTypeById(game.runtime)
+      local actual = {}
+      for _, start in ipairs(starts) do
+        if types[start.scriptId] ~= nil then
+          actual[#actual + 1] = types[start.scriptId]
+        end
+      end
+      Assert.deepEqual(actual, expected)
+      local count = #starts
       for _ = 1, 30 do
         game:step()
       end
-      Assert.equal(
-        #lifecycleStartTypes(starts, game.runtime),
-        count,
-        "ordinary frames must not repeat event lifecycles"
-      )
-      Assert.equal(game:renderAttempts(), 0)
+      Assert.equal(#starts, count, "ordinary field ticks must not restart entry lifecycles")
+      Assert.equal(game:renderAttempts(), 0, "headless entry must acknowledge presentation without drawing")
     end, debug.traceback)
-    restoreStarts()
-    restoreBoundaries()
+    restore()
     if game then
       game:close()
     end

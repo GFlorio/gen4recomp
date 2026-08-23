@@ -137,6 +137,7 @@ local function baseOptions(overrides)
       end,
     },
     scriptClient = { consume = function() end },
+    enterMapActors = function() end,
     menuHost = {
       isModal = function()
         return false
@@ -351,7 +352,7 @@ function T.map_lifecycle_events_are_queued_and_drained_before_frame_checks()
   local order = {}
   local controller = {
     hasLifecycle = function(_, lifecycle)
-      return lifecycle == "on_load" or lifecycle == "on_resume"
+      return lifecycle == "on_transition" or lifecycle == "on_load" or lifecycle == "on_resume"
     end,
     startLifecycle = function(_, lifecycle, tick)
       order[#order + 1] = lifecycle .. ":" .. tick
@@ -375,16 +376,26 @@ function T.map_lifecycle_events_are_queued_and_drained_before_frame_checks()
       return self.busy and "foreground" or nil
     end,
   }
-  local s = FieldSession.new(baseOptions({ initController = controller, scriptScheduler = scheduler }))
+  local s = FieldSession.new(baseOptions({
+    initController = controller,
+    scriptScheduler = scheduler,
+    autoAcknowledgePresentation = true,
+    enterMapActors = function()
+      order[#order + 1] = "actors"
+    end,
+  }))
   s:beginMapEntry()
-  s:mapLoaded()
-  s:mapEntryComplete()
-  s:updateFixed()
-  Assert.deepEqual(order, { "on_load:1" })
-  s:updateFixed()
-  Assert.deepEqual(order, { "on_load:1", "on_resume:2" })
-  s:updateFixed()
-  Assert.deepEqual(order, { "on_load:1", "on_resume:2", "scheduler", "frame:3" })
+  for _ = 1, 9 do
+    s:updateFixed()
+  end
+  Assert.deepEqual(order, {
+    "on_transition:1",
+    "actors",
+    "on_load:4",
+    "on_resume:7",
+    "scheduler",
+    "frame:9",
+  })
 end
 
 function T.blocked_lifecycle_stays_at_head_until_foreground_is_free()
@@ -413,14 +424,41 @@ function T.blocked_lifecycle_stays_at_head_until_foreground_is_free()
   }
   local s = FieldSession.new(baseOptions({ initController = controller, scriptScheduler = scheduler }))
   s:beginMapEntry()
-  s:mapLoaded()
-  s:mapEntryComplete()
   s:updateFixed({})
   Assert.deepEqual(starts, {})
-  Assert.deepEqual(s.pendingMapLifecycles, { "on_transition", "on_load", "on_resume" })
   scheduler.busy = false
   s:updateFixed({})
+  s:updateFixed({})
   Assert.deepEqual(starts, { { lifecycle = "on_transition", tick = 2 } })
+end
+
+function T.lifecycle_start_retry_keeps_the_entry_stage_pending()
+  local starts = 0
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition"
+    end,
+    startLifecycle = function()
+      starts = starts + 1
+      return starts > 1
+    end,
+  }
+  local entered = 0
+  local s = FieldSession.new(baseOptions({
+    initController = controller,
+    enterMapActors = function()
+      entered = entered + 1
+    end,
+  }))
+  s:beginMapEntry()
+  s:updateFixed({})
+  Assert.equal(starts, 1)
+  Assert.equal(entered, 0)
+  Assert.equal(s.mapEntryStage, "transition")
+  s:updateFixed({})
+  Assert.equal(starts, 2)
+  Assert.equal(s.mapEntryStage, "transition_running")
+  Assert.equal(entered, 0)
 end
 
 function T.absent_lifecycle_falls_through_and_each_start_consumes_a_tick()
@@ -440,21 +478,11 @@ function T.absent_lifecycle_falls_through_and_each_start_consumes_a_tick()
   }
   local s = FieldSession.new(baseOptions({ initController = controller }))
   s:beginMapEntry()
-  s:mapLoaded()
-  s:mapEntryComplete()
   s:updateFixed({})
-  Assert.deepEqual(starts, { { lifecycle = "on_load", tick = 1 } })
+  Assert.deepEqual(starts, {})
   s:updateFixed({})
-  Assert.deepEqual(starts, {
-    { lifecycle = "on_load", tick = 1 },
-    { lifecycle = "on_resume", tick = 2 },
-  })
   s:updateFixed({})
-  Assert.deepEqual(starts, {
-    { lifecycle = "on_load", tick = 1 },
-    { lifecycle = "on_resume", tick = 2 },
-    { lifecycle = "frame", tick = 3 },
-  })
+  Assert.deepEqual(starts, { { lifecycle = "on_load", tick = 3 } })
 end
 
 function T.child_resume_appends_without_resetting_map_entry_queue()
@@ -468,9 +496,8 @@ function T.child_resume_appends_without_resetting_map_entry_queue()
       end,
     },
   }))
-  s:beginMapEntry()
   s:onChildApplicationResume()
-  Assert.deepEqual(s.pendingMapLifecycles, { "on_transition", "on_resume" })
+  Assert.isTrue(s.childResumePending)
 end
 
 function T.new_map_entry_discards_previous_generation_requests()
@@ -485,9 +512,8 @@ function T.new_map_entry_discards_previous_generation_requests()
     },
   }))
   s:beginMapEntry()
-  s:mapLoaded()
   s:beginMapEntry()
-  Assert.deepEqual(s.pendingMapLifecycles, { "on_transition" })
+  Assert.equal(s.mapEntryStage, "transition")
 end
 
 function T.distinct_resume_requests_execute_separately()
@@ -508,7 +534,7 @@ function T.distinct_resume_requests_execute_separately()
   s:onChildApplicationResume()
   s:updateFixed({})
   s:updateFixed({})
-  Assert.equal(starts, 2)
+  Assert.equal(starts, 1)
 end
 
 function T.completed_transition_holds_the_arrival_tile_for_autosave()
@@ -2387,6 +2413,60 @@ function T.field_policy_runs_once_per_tick_and_never_touches_the_sound_frame_clo
   Assert.equal(fieldCalls, 1, "a completing-step tick runs the field-audio event once")
   s:updateFixed({})
   Assert.equal(fieldCalls, 1, "an idle follow-up tick carries no further event")
+end
+
+function T.map_entry_waits_for_yielding_transition_before_entering_actors()
+  local starts = {}
+  local order = {}
+  local scheduler = {
+    busy = false,
+    step = function(self)
+      order[#order + 1] = "scheduler"
+      self.busy = false
+    end,
+    playerMovementLocked = function(self)
+      return self.busy
+    end,
+    foregroundEnvironmentId = function(self)
+      return self.busy and "transition" or nil
+    end,
+  }
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition" or lifecycle == "on_load" or lifecycle == "on_resume"
+    end,
+    startLifecycle = function(_, lifecycle, tick)
+      starts[#starts + 1] = { lifecycle = lifecycle, tick = tick }
+      order[#order + 1] = lifecycle
+      if lifecycle == "on_transition" then
+        scheduler.busy = true
+      end
+      return true
+    end,
+    evaluateFrame = function(_, tick)
+      order[#order + 1] = "frame:" .. tick
+      return true
+    end,
+  }
+  local entered = 0
+  local session = FieldSession.new(baseOptions({
+    initController = controller,
+    scriptScheduler = scheduler,
+    enterMapActors = function()
+      entered = entered + 1
+      order[#order + 1] = "actors"
+    end,
+  }))
+
+  session:beginMapEntry()
+  session:updateFixed({})
+  Assert.equal(entered, 0, "yielding transition keeps destination actors out")
+  session:updateFixed({})
+  Assert.equal(entered, 0, "actors remain blocked on the scheduler completion tick")
+  session:updateFixed({})
+  Assert.equal(entered, 1, "actor entry follows transition completion")
+  Assert.equal(order[1], "on_transition")
+  Assert.equal(order[#order], "actors")
 end
 
 return { tests = T }

@@ -680,12 +680,13 @@ function FieldRuntime:_load()
       bagUnlocked = function()
         return self.scripts.worldState:isFlagSet(FieldScriptSymbols.flagsByName.FLAG_GOT_BAG)
       end,
+      enterMapActors = function()
+        self.actors:enterMap(self.runtimeMap, self.eventState)
+      end,
+      autoAcknowledgePresentation = not self.presentation,
     })
 
     self.session:beginMapEntry()
-    self.actors:enterMap(self.runtimeMap, self.eventState)
-    self.session:mapLoaded()
-    self.session:mapEntryComplete()
 
     self:_applyEffectiveWeather(self.runtimeMap)
     self.playTime = loadedGame and PlayTime.new(loadedGame.playTimeSeconds) or self.game.playTime
@@ -1131,9 +1132,14 @@ function FieldRuntime:_commitSwap(resolution, facing, prepared)
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
   self.session:beginMapEntry()
-  self.actors:enterMap(runtimeMap, self.eventState)
-  self.session:mapLoaded()
-  self.session:mapEntryComplete()
+end
+
+function FieldRuntime:destinationWorldPresentable()
+  return self.session:destinationWorldPresentable()
+end
+
+function FieldRuntime:acknowledgeDestinationPresentation()
+  self.session:acknowledgeDestinationPresentation()
 end
 
 function FieldRuntime:_updateCameraProjection()

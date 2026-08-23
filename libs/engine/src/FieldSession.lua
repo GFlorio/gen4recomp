@@ -48,6 +48,8 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field audio { updateField: fun(self: table) }?
 ---@field initController table|nil
+---@field enterMapActors fun()?
+---@field autoAcknowledgePresentation boolean?
 ---@field bagUnlocked fun(): boolean
 
 ---@class FieldSession.Interactions
@@ -72,7 +74,10 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field audio { updateField: fun(self: table) }?
 ---@field initController table|nil
----@field pendingMapLifecycles string[]
+---@field enterMapActors fun()?
+---@field mapEntryStage string?
+---@field childResumePending boolean
+---@field autoAcknowledgePresentation boolean
 ---@field bagUnlocked fun(): boolean
 ---@field tick integer
 ---@field accumulator number
@@ -152,35 +157,116 @@ function FieldSession.new(options)
     applicationHost = options.applicationHost,
     audio = options.audio,
     initController = options.initController,
-    pendingMapLifecycles = {},
+    enterMapActors = options.enterMapActors,
+    mapEntryStage = nil,
+    childResumePending = false,
+    autoAcknowledgePresentation = options.autoAcknowledgePresentation == true,
     tick = 0,
     accumulator = 0,
   }, FieldSession)
   return session
 end
 
-function FieldSession:queueMapLifecycles(lifecycles)
-  assert(self.initController and self.initController.startLifecycle, "map lifecycle controller required")
-  for _, lifecycle in ipairs(lifecycles) do
-    self.pendingMapLifecycles[#self.pendingMapLifecycles + 1] = lifecycle
-  end
-end
-
 function FieldSession:beginMapEntry()
-  self.pendingMapLifecycles = {}
-  self:queueMapLifecycles({ "on_transition" })
-end
-
-function FieldSession:mapLoaded()
-  self:queueMapLifecycles({ "on_load" })
-end
-
-function FieldSession:mapEntryComplete()
-  self:queueMapLifecycles({ "on_resume" })
+  assert(type(self.enterMapActors) == "function", "map actor entry capability required")
+  assert(self.initController and self.initController.startLifecycle, "map lifecycle controller required")
+  self.mapEntryStage = "transition"
 end
 
 function FieldSession:onChildApplicationResume()
-  self:queueMapLifecycles({ "on_resume" })
+  self.childResumePending = true
+end
+
+function FieldSession:destinationWorldPresentable()
+  return self.mapEntryStage == "await_presentation" or self.mapEntryStage == "resume" or self.mapEntryStage == "ready"
+end
+
+function FieldSession:acknowledgeDestinationPresentation()
+  if self.mapEntryStage == "await_presentation" then
+    self.mapEntryStage = "resume"
+  end
+end
+
+local function hasEntryLifecycle(self, lifecycle)
+  return self.initController:hasLifecycle(lifecycle)
+end
+
+-- Advances one map-entry boundary. A running lifecycle is left for the normal
+-- scheduler phase, which remains the sole script execution point.
+function FieldSession:_advanceMapEntryBoundary()
+  local stage = self.mapEntryStage
+  if not stage then
+    return false
+  end
+  if stage == "transition" then
+    if self.scriptScheduler:foregroundEnvironmentId() ~= nil then
+      return false
+    end
+    if hasEntryLifecycle(self, "on_transition") then
+      if self.initController:startLifecycle("on_transition", self.tick + 1) then
+        self.mapEntryStage = "transition_running"
+      end
+    else
+      self.mapEntryStage = "actors"
+    end
+    return true
+  elseif stage == "transition_running" then
+    if self.scriptScheduler:foregroundEnvironmentId() ~= nil then
+      return false
+    end
+    self.mapEntryStage = "actors"
+    return true
+  elseif stage == "actors" then
+    self.enterMapActors()
+    self.mapEntryStage = "load"
+    return true
+  elseif stage == "load" then
+    if self.scriptScheduler:foregroundEnvironmentId() ~= nil then
+      return false
+    end
+    if hasEntryLifecycle(self, "on_load") then
+      if self.initController:startLifecycle("on_load", self.tick + 1) then
+        self.mapEntryStage = "load_running"
+      end
+    else
+      self.mapEntryStage = "await_presentation"
+    end
+    return true
+  elseif stage == "load_running" then
+    if self.scriptScheduler:foregroundEnvironmentId() ~= nil then
+      return false
+    end
+    self.mapEntryStage = "await_presentation"
+    return true
+  elseif stage == "await_presentation" then
+    if self.autoAcknowledgePresentation then
+      self:acknowledgeDestinationPresentation()
+      return true
+    end
+    return false
+  elseif stage == "resume" then
+    if self.scriptScheduler:foregroundEnvironmentId() ~= nil then
+      return false
+    end
+    if hasEntryLifecycle(self, "on_resume") then
+      if self.initController:startLifecycle("on_resume", self.tick + 1) then
+        self.mapEntryStage = "resume_running"
+      end
+    else
+      self.mapEntryStage = "ready"
+    end
+    return true
+  elseif stage == "resume_running" then
+    if self.scriptScheduler:foregroundEnvironmentId() ~= nil then
+      return false
+    end
+    self.mapEntryStage = "ready"
+    return true
+  elseif stage == "ready" then
+    self.mapEntryStage = nil
+    return false
+  end
+  error("unknown map entry stage " .. tostring(stage))
 end
 
 function FieldSession:actorTarget()
@@ -292,23 +378,19 @@ function FieldSession:updateFixed(inputSnapshot)
   -- neighbor coverage runtime. No other module steps it.
   self.currentMap:updateAnimated()
 
-  if self.initController and self.initController.startLifecycle and #self.pendingMapLifecycles > 0 then
-    assert(self.initController.hasLifecycle, "map lifecycle presence query required")
-    if self.scriptScheduler:foregroundEnvironmentId() == nil then
-      while #self.pendingMapLifecycles > 0 do
-        local lifecycle = self.pendingMapLifecycles[1]
-        if not self.initController:hasLifecycle(lifecycle) then
-          table.remove(self.pendingMapLifecycles, 1)
-        elseif self.initController:startLifecycle(lifecycle, self.tick + 1) then
-          table.remove(self.pendingMapLifecycles, 1)
-          self:_advanceTick()
-          return
-        else
-          self:_advanceTick()
-          return
-        end
-      end
+  if self.mapEntryStage then
+    assert(self.initController and self.initController.hasLifecycle, "map lifecycle presence query required")
+    if self:_advanceMapEntryBoundary() then
+      self:_advanceTick()
+      return
     end
+  elseif self.childResumePending and self.scriptScheduler:foregroundEnvironmentId() == nil then
+    self.childResumePending = false
+    if self.initController:hasLifecycle("on_resume") then
+      assert(self.initController:startLifecycle("on_resume", self.tick + 1))
+    end
+    self:_advanceTick()
+    return
   elseif
     self.initController
     and not self.initController.startLifecycle
@@ -354,6 +436,13 @@ function FieldSession:updateFixed(inputSnapshot)
   elseif contextChoiceModal and not contextChoiceNowModal then
     self.input:clearUi()
   end
+  if self.mapEntryStage then
+    if self:_advanceMapEntryBoundary() or self.mapEntryStage ~= nil then
+      self:_advanceTick()
+      return
+    end
+  end
+
   -- A foreground root owns the field or a player lock suppresses movement
   -- and new triggers; the tick is consumed.
   if movementLockedAtTickStart or self.scriptScheduler:playerMovementLocked() then
@@ -361,7 +450,7 @@ function FieldSession:updateFixed(inputSnapshot)
     return
   end
 
-  if self.initController and self.initController.startLifecycle and #self.pendingMapLifecycles > 0 then
+  if self.childResumePending then
     self:_advanceTick()
     return
   end
