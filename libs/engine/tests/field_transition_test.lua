@@ -633,15 +633,17 @@ function T.source_door_waits_for_the_open_before_the_ingress()
     Assert.isFalse(step(transition), "the open wait reports no locomotion")
     sourceDoor:advance(1)
     Assert.equal(transition.phase, "fade_out")
+    Assert.isTrue(transition.fadeAlpha > 0, "the source fade runs while the door opens")
     Assert.equal(#player.steps, 0, "the player does not step while the door opens")
     Assert.equal(player.updates, 0)
   end
   Assert.equal(sourceDoor.events[#sourceDoor.events], "open-finished", "the opening clip reached its end")
+  Assert.equal(transition.fadeAlpha, 1, "the source fade reaches black before ingress")
 
   step(transition)
   Assert.deepEqual(player.steps, { "north" }, "the ingress begins only after the door finished opening")
   Assert.equal(player.motion, "walking")
-  Assert.equal(transition.fadeAlpha, 0, "the fade waits for source ingress")
+  Assert.equal(transition.fadeAlpha, 1, "the ingress begins at full black")
 
   local walkingTicks = 0
   while player.motion == "walking" and walkingTicks < 64 do

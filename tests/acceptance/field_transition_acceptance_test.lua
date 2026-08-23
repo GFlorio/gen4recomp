@@ -18,7 +18,7 @@ local TOWN = "MAP_NEW_BARK"
 local LAB = "MAP_NEW_BARK_ELMS_LAB_1F"
 local HOUSE_1F = "MAP_NEW_BARK_PLAYER_HOUSE_1F"
 local HOUSE_2F = "MAP_NEW_BARK_PLAYER_HOUSE_2F"
-local HOUSE_2F_WARP = { fieldX = 3, fieldZ = 4 }
+local HOUSE_2F_ARRIVAL = { fieldX = 2, fieldZ = 4 }
 local TOWN_DOOR = { fieldX = 684, fieldZ = 393 }
 local TOWN_DOOR_APPROACH = { fieldX = 684, fieldZ = 394 }
 local LAB_FLOOR = { fieldX = 4, fieldZ = 13 }
@@ -85,26 +85,27 @@ function T.tests.player_house_stairs_remain_fixed_profile_three_indoors()
     end, 120)
     Assert.deepEqual(
       { staged.player.fieldX, staged.player.fieldZ },
-      { HOUSE_WARP.fieldX - 1, HOUSE_WARP.fieldZ + 1 },
-      "profile three must expose its temporary side staging after the swap"
+      { HOUSE_2F_ARRIVAL.fieldX, HOUSE_2F_ARRIVAL.fieldZ },
+      "profile three must expose its adjacent arrival tile after the swap"
     )
-    game:advanceUntil("destination stair enter step completes", function(snapshot)
+    game:advanceUntil("destination stair transition completes", function(snapshot)
       return snapshot.mapSymbol == HOUSE_2F
+        and snapshot.transition.phase == "idle"
         and snapshot.player.motion == "idle"
-        and snapshot.player.fieldX == HOUSE_2F_WARP.fieldX
-        and snapshot.player.fieldZ == HOUSE_2F_WARP.fieldZ
+        and snapshot.player.fieldX == HOUSE_2F_ARRIVAL.fieldX
+        and snapshot.player.fieldZ == HOUSE_2F_ARRIVAL.fieldZ
     end, 120)
     Assert.equal(game.runtime.transition.profileId, 3, "indoor stairs retain fixed profile 3")
     Assert.equal(game.runtime.transition.sourceKind, "stairs", "the trigger remains a stair transition")
     Assert.isTrue(hasEffect(game, "SEQ_SE_DP_KAIDAN2"), "the stair exit emits the source sequence")
     Assert.deepEqual(
       { game.runtime.player.fieldX, game.runtime.player.fieldZ },
-      { HOUSE_2F_WARP.fieldX, HOUSE_2F_WARP.fieldZ },
-      "profile three must finish on the real destination warp tile"
+      { HOUSE_2F_ARRIVAL.fieldX, HOUSE_2F_ARRIVAL.fieldZ },
+      "profile three must finish on the real destination arrival tile"
     )
     Assert.equal(game.runtime.player.facing, "east")
-    Assert.equal(game.runtime.player.fieldX, HOUSE_2F_WARP.fieldX)
-    Assert.equal(game.runtime.player.fieldZ, HOUSE_2F_WARP.fieldZ)
+    Assert.equal(game.runtime.player.fieldX, HOUSE_2F_ARRIVAL.fieldX)
+    Assert.equal(game.runtime.player.fieldZ, HOUSE_2F_ARRIVAL.fieldZ)
   end)
 end
 
