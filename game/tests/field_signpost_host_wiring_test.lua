@@ -25,7 +25,7 @@ local T = {
 -- the controller exactly once per production tick: a queued wipe moves one
 -- 16px step per tick. The same boot then proves the save gate follows the
 -- controller's presented window and that a typed print reveals one glyph per
--- two scheduler ticks -- the mid text-speed cadence captured from the player
+-- four scheduler ticks -- the fastest text-speed cadence captured from the player
 -- options at construction, never a host-chosen constant.
 function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
@@ -72,7 +72,7 @@ function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
     -- The typed print path travels the real production chain: the host
     -- resolves the message through the dialogue host's public operation
     -- against the generated message bank, and the controller reveals one
-    -- glyph per two scheduler ticks.
+    -- four glyphs per scheduler tick.
     host:printTyped("msg.hgss.0542.00009", {}, {})
     Assert.isFalse(host:status().printDone, "the typed print starts incomplete")
     local ticks = 0
@@ -80,7 +80,7 @@ function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
       game:step()
       ticks = ticks + 1
     end
-    Assert.equal(ticks, 32, "16 glyphs at the mid cadence of two ticks per glyph")
+    Assert.equal(ticks, 4, "16 glyphs at the fastest cadence of four glyphs per tick")
     Assert.isTrue(host:status().printDone, "the print completes at the cadence")
   end, debug.traceback)
   game:close()

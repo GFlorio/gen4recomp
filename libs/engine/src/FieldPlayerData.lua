@@ -11,17 +11,9 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
+local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 
 local FieldPlayerData = {}
-
--- Explicitly supported gameplay text speeds and their fixed-tick glyph
--- cadence (ticks per revealed glyph). Owned next to the options model so the
--- dialogue print path never chooses a renderer-side arbitrary reveal speed.
-FieldPlayerData.TEXT_SPEEDS = {
-  slow = 3,
-  mid = 2,
-  fast = 1,
-}
 
 -- The gender values the existing gendered-message path distinguishes
 -- (0 = male, 1 = female); anything else is not a playable profile.
@@ -31,24 +23,7 @@ FieldPlayerData.MIN_NAME_GLYPHS = 1
 FieldPlayerData.MAX_NAME_GLYPHS = 7
 FieldPlayerData.MAX_TRAINER_ID = 65535
 
--- The fixed-tick glyph cadence for a supported text speed.
----@param textSpeed string
----@return integer
-function FieldPlayerData.ticksPerGlyph(textSpeed)
-  local cadence = FieldPlayerData.TEXT_SPEEDS[textSpeed]
-  assert(cadence ~= nil, "unknown text speed " .. tostring(textSpeed))
-  return cadence
-end
-
--- HGSS printer delays are integer 60 Hz updates, not field-tick durations.
----@param textSpeed string
----@return integer
-function FieldPlayerData.textFrameDelay(textSpeed)
-  local delays = { slow = 8, mid = 4, fast = 1 }
-  local delay = delays[textSpeed]
-  assert(delay ~= nil, "unknown text speed")
-  return delay
-end
+FieldPlayerData.textSpeedPolicy = TextSpeedPolicy.forSpeed
 
 -- Strict validation (raising). Returns the exact canonical model shape: the
 -- profile (name/gender/trainerId) and the options (textFrame/textSpeed)
@@ -132,7 +107,8 @@ local function validate(record, context)
       }
     )
   end
-  if FieldPlayerData.TEXT_SPEEDS[options.textSpeed] == nil then
+  local knownSpeed = pcall(TextSpeedPolicy.forSpeed, options.textSpeed)
+  if not knownSpeed then
     Errors.raise(
       FieldErrors.PLAYER_DATA_TEXT_SPEED_INVALID,
       "text speed must be an explicitly supported gameplay value",

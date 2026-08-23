@@ -315,6 +315,8 @@ function FieldSession:updateFixed(inputSnapshot)
     pressedDirection = inputSnapshot.pressedDirection,
     pressedAction = inputSnapshot.actionPressed,
     pressedCancel = inputSnapshot.cancelPressed,
+    actionDown = inputSnapshot.actionDown,
+    cancelDown = inputSnapshot.cancelDown,
   }
   local menuModal = self.menuHost:isModal()
   local contextChoiceModal = self.contextChoice:isActive()

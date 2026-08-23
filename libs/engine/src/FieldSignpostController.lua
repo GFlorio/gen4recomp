@@ -17,7 +17,7 @@ local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
 
 ---@class FieldSignpostController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }
----@field _ticksPerGlyph integer
+---@field _policy table
 ---@field _defaultStyleId string the construction style id setStyleId(nil) restores
 ---@field _styleId string
 ---@field _command "nop"|"show"|"wipe_out"|"wipe_in"|"hide"
@@ -39,7 +39,6 @@ FieldSignpostController.COMMANDS = {
   hide = true,
 }
 
-FieldSignpostController.DEFAULT_TICKS_PER_GLYPH = 2
 FieldSignpostController.DEFAULT_STYLE_ID = FieldWindowStyles.BUILTIN.SIGNPOST
 
 -- The hidden signpost BG layer position and the fixed 16px wipe step:
@@ -89,12 +88,12 @@ local function visibleLines(lines, revealed)
 end
 
 -- opts.layout(formattedMessage) -> { lines = { { tokens = MessageToken[] } } }
--- opts.ticksPerGlyph (default 2; FieldPlayerData.ticksPerGlyph supplies the
--- injected cadence), opts.styleId (default FieldWindowStyles.BUILTIN.SIGNPOST).
+-- opts.policy supplies the shared field-printer cadence; opts.styleId defaults
+-- to FieldWindowStyles.BUILTIN.SIGNPOST.
 
 ---@class FieldSignpostControllerOptions
 ---@field layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }
----@field ticksPerGlyph integer?
+---@field policy { interGlyphDelay: integer, glyphBudget: integer, abAcceleration: boolean }?
 ---@field styleId string?
 
 ---@param opts FieldSignpostControllerOptions
@@ -104,13 +103,12 @@ function FieldSignpostController.new(opts)
     type(opts) == "table" and type(opts.layout) == "function",
     "FieldSignpostController requires a layout function"
   )
-  local ticksPerGlyph = opts.ticksPerGlyph or FieldSignpostController.DEFAULT_TICKS_PER_GLYPH
-  assert(ticksPerGlyph >= 1 and ticksPerGlyph % 1 == 0, "ticks per glyph must be a positive integer")
+  local policy = assert(opts.policy, "FieldSignpostController requires a text speed policy")
   local styleId = opts.styleId or FieldSignpostController.DEFAULT_STYLE_ID
   assert(type(styleId) == "string" and styleId ~= "", "style id must be a non-empty string")
   return setmetatable({
     _layout = opts.layout,
-    _ticksPerGlyph = ticksPerGlyph,
+    _policy = policy,
     _defaultStyleId = styleId,
     _styleId = styleId,
     _command = "nop",
@@ -119,6 +117,7 @@ function FieldSignpostController.new(opts)
     _active = false,
     _sourceAppearance = nil,
     _print = nil,
+    _hasPrintBeenSpedUp = false,
   }, FieldSignpostController)
 end
 
@@ -141,6 +140,8 @@ end
 ---@field styleId string
 ---@field visibleLines MessageToken[][]
 ---@field printDone boolean
+---@field revealedGlyphs integer
+---@field totalGlyphs integer
 
 ---@return FieldSignpostController.Status
 function FieldSignpostController:status()
@@ -159,6 +160,8 @@ function FieldSignpostController:status()
     styleId = self._styleId,
     visibleLines = print and visibleLines(print.lines, print.revealed) or {},
     printDone = print ~= nil and print.revealed >= print.total,
+    revealedGlyphs = print and print.revealed or 0,
+    totalGlyphs = print and print.total or 0,
   }
 end
 
@@ -223,7 +226,8 @@ end
 -- the stored BG offset to 0); wipes move one 16px step, hold the command on
 -- the update that reaches the endpoint, and complete on the following
 -- endpoint-check update.
-function FieldSignpostController:updateFixed()
+---@param input table|nil
+function FieldSignpostController:updateFixed(input)
   self._previousOffset = self._offset
   local command = self._command
   if command == "show" then
@@ -249,7 +253,7 @@ function FieldSignpostController:updateFixed()
       self:_resetPresentation()
     end
   end
-  self:_advancePrint()
+  self:_advancePrint(input or {})
 end
 
 -- The completed-hide presentation: window closed, printer cleared, command
@@ -260,6 +264,7 @@ end
 function FieldSignpostController:_resetPresentation()
   self._active = false
   self._print = nil
+  self._hasPrintBeenSpedUp = false
   self._previousOffset = 0
   self._offset = 0
   self._command = "nop"
@@ -295,23 +300,22 @@ function FieldSignpostController:printInstant(message)
   local lines = self:_captureLines(message)
   local total = glyphCount(lines)
   self._print = { lines = lines, revealed = total, revealTicks = 0, total = total, live = false }
+  self._hasPrintBeenSpedUp = false
 end
 
--- Typed print: glyphs reveal at the injected fixed-tick cadence (Trainer
--- Tips prints at the player's configured text speed; the controller does not
--- choose one); finishPrint fills the whole message on demand.
+-- Typed print reveals at the injected fixed-tick cadence. The controller
+-- consumes the same held/new-button policy as field dialogue.
 
 ---@param message FieldMessageProvider.FormattedMessage
 function FieldSignpostController:printTyped(message)
   local lines = self:_captureLines(message)
   local total = glyphCount(lines)
   self._print = { lines = lines, revealed = 0, revealTicks = 0, total = total, live = total > 0 }
+  self._hasPrintBeenSpedUp = false
 end
 
--- The instant-fill operation (Trainer Tips A/B speed-up): a live typed
--- printer reveals the whole message immediately and stops advancing. The
--- window stays presented and every other presentation field is untouched;
--- without a print, or on an already-completed print, it is a no-op.
+-- The explicit instant-fill operation remains for instant script commands;
+-- typed Trainer Tips do not call it.
 -- Idempotent.
 function FieldSignpostController:finishPrint()
   local print = self._print
@@ -321,6 +325,7 @@ function FieldSignpostController:finishPrint()
   print.revealed = print.total
   print.revealTicks = 0
   print.live = false
+  self._hasPrintBeenSpedUp = false
 end
 
 -- Explicit cleanup (script fault/cancellation teardown): returns the
@@ -351,22 +356,45 @@ function FieldSignpostController:dispose()
   self._offset = HIDDEN_OFFSET
   self._sourceAppearance = nil
   self._print = nil
+  self._hasPrintBeenSpedUp = false
   self._styleId = self._defaultStyleId
 end
 
-function FieldSignpostController:_advancePrint()
+---@param input { pressedAction: boolean?, pressedCancel: boolean?, actionDown: boolean?, cancelDown: boolean? }
+function FieldSignpostController:_advancePrint(input)
   local print = self._print
   if not print or not print.live or print.revealed >= print.total then
     return
   end
-  print.revealTicks = print.revealTicks + 1
-  -- revealTicks stays below ticksPerGlyph between updates, so at most one
-  -- glyph reveals per update; revealed can never overshoot total.
-  if print.revealTicks >= self._ticksPerGlyph then
-    print.revealTicks = print.revealTicks - self._ticksPerGlyph
-    print.revealed = print.revealed + 1
-    if print.revealed >= print.total then
-      print.live = false
+  local sourceNew = input.pressedAction == true or input.pressedCancel == true
+  local sourceHeld = input.actionDown == true or input.cancelDown == true
+  for _ = 1, 2 do
+    local accelerated = false
+    if self._policy.abAcceleration and print.revealTicks > 0 then
+      if sourceNew then
+        self._hasPrintBeenSpedUp = true
+        print.revealTicks = 0
+        accelerated = true
+      elseif self._hasPrintBeenSpedUp and sourceHeld then
+        print.revealTicks = 0
+      end
+    end
+    if accelerated then
+      break
+    end
+    local visible = 0
+    while visible < self._policy.glyphBudget do
+      if print.revealTicks > 0 then
+        print.revealTicks = print.revealTicks - 1
+        break
+      end
+      print.revealed = print.revealed + 1
+      print.revealTicks = self._policy.interGlyphDelay
+      visible = visible + 1
+      if print.revealed >= print.total then
+        print.live = false
+        return
+      end
     end
   end
 end

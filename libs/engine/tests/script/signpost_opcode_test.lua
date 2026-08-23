@@ -471,12 +471,9 @@ function T.trainer_tips_directional_interrupt_stops_turns_and_writes_zero_for_ev
   end
 end
 
--- A/B during the live print is the instant-fill operation, never a
--- dismissal: the whole message reveals on the input tick through
--- host:finishPrint, the window is never closed, and the task completes with
--- the normal print-complete result 2. The print path also reads no pointer
--- edge (the input snapshot has none), so the signpost print never fills on
--- touch.
+-- A/B during the live print follows the shared printer policy and never
+-- instant-fills at the task layer. The window remains presented until normal
+-- printer completion.
 function T.trainer_tips_ab_during_the_live_print_fills_and_completes_two()
   for _, edge in ipairs({ "pressedAction", "pressedCancel" }) do
     local h = harness()
@@ -496,12 +493,21 @@ function T.trainer_tips_ab_during_the_live_print_fills_and_completes_two()
     local input = {}
     input[edge] = true
     h.scheduler:step(101, input)
-    Assert.equal(h.signpost.fills, 1, edge .. " during the print must fill the whole message")
-    Assert.isTrue(h.signpost.printDone, edge .. " must complete the print on the input tick")
+    Assert.equal(h.signpost.fills, 0, edge .. " during the print must not instant-fill")
+    Assert.isFalse(h.signpost.printDone, edge .. " must remain live on the input tick")
     Assert.equal(h.signpost.closes, 0, edge .. " must not dismiss the signpost")
-    Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the task completes in the input tick")
+    Assert.equal(h.services.world:getVar("VAR_AFTER"), 0, "the task remains active during the print")
 
+    -- This opcode suite uses a recording host rather than the real printer;
+    -- complete the host boundary explicitly, as the existing completion tests do.
+    h.signpost.printDone = true
     h.scheduler:step(102, {})
+    Assert.equal(
+      h.services.world:getVar("VAR_SPECIAL_RESULT"),
+      0,
+      edge .. " promotes completion before writing the result"
+    )
+    h.scheduler:step(103, {})
     Assert.equal(h.services.world:getVar("VAR_SPECIAL_RESULT"), 2, edge .. " during the print writes the result 2")
     Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
     Assert.equal(#h.scheduler:tasks(), 0, edge .. " during the print must complete the task")
@@ -941,7 +947,7 @@ function T.high_level_trainer_tip_types_then_waits_for_dismissal()
   -- waiting for the dismissal edge.
   h.scheduler:step(101, { pressedAction = true })
   Assert.equal(#h.scheduler:tasks(), 1, "A during the print must not dismiss the trainer tip")
-  Assert.equal(h.signpost.fills, 1, "A during the live print must fill the remaining message")
+  Assert.equal(h.signpost.fills, 0, "A during the print must not task-level fill the message")
   Assert.equal(h.signpost.closes, 0)
 
   -- A directional edge after the fill is still the source interruption.

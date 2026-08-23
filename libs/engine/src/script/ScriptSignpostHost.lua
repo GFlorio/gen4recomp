@@ -115,8 +115,9 @@ end
 -- One fixed scheduler tick: the controller executes its current command and
 -- advances its printer. The scheduler calls this from its engine-owned
 -- advanceAsync callback once per tick.
-function ScriptSignpostHost:advance()
-  self._controller:updateFixed()
+---@param input table|nil
+function ScriptSignpostHost:advance(input)
+  self._controller:updateFixed(input)
 end
 
 -- Fault/cancellation cleanup: the controller's explicit cleanup releases the

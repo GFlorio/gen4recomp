@@ -210,15 +210,6 @@ function T.missing_profile_or_options_tables_are_rejected()
   end)
 end
 
-function T.ticks_per_glyph_maps_every_supported_speed_to_a_positive_cadence()
-  Assert.equal(FieldPlayerData.ticksPerGlyph("slow"), 3)
-  Assert.equal(FieldPlayerData.ticksPerGlyph("mid"), 2)
-  Assert.equal(FieldPlayerData.ticksPerGlyph("fast"), 1)
-  Assert.throws(function()
-    FieldPlayerData.ticksPerGlyph("turbo")
-  end)
-end
-
 function T.validation_requires_the_font_and_frame_context()
   Assert.throws(function()
     FieldPlayerData.validate(record(), { charmap = CHARMAP })

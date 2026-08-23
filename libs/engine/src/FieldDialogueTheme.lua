@@ -49,11 +49,11 @@ FieldDialogueTheme.box = {
 -- Text area inside the box: two 16px lines fill the 32px content height
 -- (HGSS prints from the window origin); a small horizontal inset keeps the
 -- text clear of the window border.
-FieldDialogueTheme.textInsetX = 10
+FieldDialogueTheme.textInsetX = 0
 FieldDialogueTheme.textInsetY = 0
 FieldDialogueTheme.lineHeight = 16
 FieldDialogueTheme.maxLines = 2
-FieldDialogueTheme.textWidth = 216 - 2 * 10
+FieldDialogueTheme.textWidth = 216
 FieldDialogueTheme.textHeight = 32
 
 -- The extracted glyph atlas and HGSS user-frame artwork carry their own

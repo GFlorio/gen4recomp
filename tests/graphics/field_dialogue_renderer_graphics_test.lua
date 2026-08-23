@@ -42,7 +42,7 @@ local function settleDialogue(controller)
   for _ = 1, 4 do
     controller:step({})
   end
-  for _ = 1, 31 do
+  for _ = 1, 34 do
     controller:step({})
   end
   local status = controller:status()
@@ -283,8 +283,8 @@ function T.canonical_golden_matches_frame_one_pixel_for_pixel(scope)
     Assert.equal(a, 255)
   end
 
-  local ta0r, ta0g, ta0b, ta0a = frame0:getPixel(26, 152)
-  local ta1r, ta1g, ta1b, ta1a = frame1:getPixel(26, 152)
+  local ta0r, ta0g, ta0b, ta0a = frame0:getPixel(16, 152)
+  local ta1r, ta1g, ta1b, ta1a = frame1:getPixel(16, 152)
   Assert.equal(quantize(ta0r), quantize(ta1r), "text pixels identical across frames")
   Assert.equal(quantize(ta0g), quantize(ta1g))
   Assert.equal(quantize(ta0b), quantize(ta1b))

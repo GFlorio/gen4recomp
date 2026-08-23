@@ -15,6 +15,6 @@ return {
   },
   options = {
     textFrame = 0,
-    textSpeed = "mid",
+    textSpeed = "fastest",
   },
 }

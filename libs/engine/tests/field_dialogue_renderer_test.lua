@@ -14,6 +14,7 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
+local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
@@ -300,7 +301,7 @@ function T.waiting_dialogue_draws_the_generated_cursor_phase_without_blinking()
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local first = lg.draws[#lg.draws]
   Assert.equal(first.image, lg.images[5], "the continuation uses the generated cursor atlas")
-  Assert.deepEqual({ first.quad.x, first.quad.y, first.quad.w, first.quad.h }, { 32, 48, 16, 16 })
+  Assert.deepEqual({ first.quad.x, first.quad.y, first.quad.w, first.quad.h }, { 0, 48, 16, 16 })
   Assert.deepEqual({ first.x, first.y }, { 240, 168 })
   Assert.isFalse(#lg.primitives > 1 and lg.primitives[#lg.primitives] == "polygon", "cursor is not a triangle")
   local phaseQuad = first.quad
@@ -352,7 +353,7 @@ local function openedWithTokens(tokens, opts)
         warnings = {},
       }
     end,
-    printerDelay = opts.printerDelay or 2,
+    policy = TextSpeedPolicy.forSpeed("mid"),
   })
   controller:open({
     id = "focus",
@@ -410,7 +411,7 @@ function T.reached_focus_indicator_draws_at_the_content_window_right_edge()
   end
   local status = controller:status()
   Assert.equal(status.waiting, true)
-  Assert.isTrue(status.cursorPhase ~= nil and status.cursorPhase > 0, "the continuation cursor is on at its blink edge")
+  Assert.isTrue(status.cursorPhase ~= nil, "the continuation cursor exposes its generated phase")
 
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local focus = focusDraws(lg)

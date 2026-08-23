@@ -6,6 +6,7 @@
 -- paste the glyph colors independently.
 
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
+local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 
@@ -64,6 +65,7 @@ function FieldSignpostFixture.shown(lines, opts)
       ---@cast msg any
       return { lines = msg._lines }
     end,
+    policy = TextSpeedPolicy.forSpeed("mid"),
     styleId = opts.styleId,
   })
   controller:setSourceAppearance({ game = "hgss", type = opts.type or 2, map = opts.map or 0 })

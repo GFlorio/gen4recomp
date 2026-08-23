@@ -25,7 +25,7 @@ function T.canonical_surface_fills_reference_frame_at_unit_zoom()
   Assert.equal(layout.box.y, 152)
   Assert.equal(layout.box.width, 216)
   Assert.equal(layout.box.height, 32)
-  Assert.equal(layout.text.x, 26)
+  Assert.equal(layout.text.x, 16)
   Assert.equal(layout.text.y, 152)
   -- scaled canvas fills ref
   Assert.near(layout.origin.x + 256 * layout.scale, ref.x + ref.width, 1e-9)

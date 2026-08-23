@@ -6,6 +6,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
+local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 
 local T = {}
 
@@ -28,7 +29,11 @@ local function controller(pages, opts)
     layout = function()
       return { pages = pages, warnings = opts.warnings or {} }
     end,
-    printerDelay = opts.printerDelay or 2,
+    policy = {
+      interGlyphDelay = (opts.printerDelay or 2) - 1,
+      glyphBudget = 1,
+      abAcceleration = true,
+    },
     audio = opts.audio,
   })
 end
@@ -70,8 +75,8 @@ function T.printer_delays_run_at_two_substeps_per_field_tick()
   local fast = revealAfter(1, 1)
   Assert.equal(fast, 3, "opening and one field tick run two printer substeps each")
   Assert.equal(revealAfter(4, 1), 1, "mid text advances on its fourth printer update")
-  Assert.equal(revealAfter(4, 2), 1, "mid text advances on the fourth printer update")
-  Assert.equal(revealAfter(8, 4), 1, "slow text advances on the eighth printer update")
+  Assert.equal(revealAfter(4, 2), 2, "mid text advances on the fifth printer update")
+  Assert.equal(revealAfter(8, 4), 2, "slow text advances on the ninth printer update")
 end
 
 function T.action_and_cancel_speed_up_progressively_and_play_select_once()
@@ -105,6 +110,19 @@ function T.action_and_cancel_speed_up_progressively_and_play_select_once()
   Assert.equal(c:status().pageIndex, 2)
   Assert.equal(#played, 1)
   Assert.equal(played[1], "SEQ_SE_DP_SELECT")
+end
+
+function T.fresh_speed_up_edge_does_not_reveal_in_the_same_field_tick()
+  local c = controller({ page({ line({ glyph("A", 1), glyph("B", 2), glyph("C", 3) }) }, "eos") }, {
+    printerDelay = 8,
+  })
+  c:open(request("fresh-edge", message()))
+  c:step({})
+  Assert.equal(c:status().revealedGlyphs, 1)
+  c:step({ actionPressed = true, actionDown = true })
+  Assert.equal(c:status().revealedGlyphs, 1, "the fresh acceleration edge consumes this field tick")
+  c:step({ actionDown = true })
+  Assert.equal(c:status().revealedGlyphs, 3, "the held accelerated input applies on the next field tick")
 end
 
 function T.pause_blocks_while_callback_signal_consumes_one_printer_update()
@@ -147,6 +165,21 @@ function T.fixed_ticks_reveal_expected_glyph_count()
   Assert.equal(c:status().state, "WAITING_CLOSE")
   c:step({})
   Assert.equal(c:status().state, "WAITING_CLOSE")
+end
+
+function T.fastest_reveals_consecutive_source_glyphs_without_skipping()
+  local tokens = { glyph("A", 1), glyph("B", 2), glyph("C", 3) }
+  local c = FieldDialogueController.new({
+    layout = function()
+      return { pages = { page({ line(tokens) }, "eos") }, warnings = {} }
+    end,
+    policy = TextSpeedPolicy.forSpeed("fastest"),
+  })
+  c:open(request("fastest", message()))
+  c:step({})
+  local visible = c:status().visibleLines[1]
+  Assert.equal(visible[1].code, 1)
+  Assert.equal(visible[2].code, 2)
 end
 
 -- The player-selected HGSS user-frame index travels on the open request and
@@ -195,9 +228,9 @@ function T.injected_printer_delay_drives_reveal_cadence()
   c:open(request("t", message()))
   c:step({})
   c:step({})
-  Assert.equal(c:status().revealedGlyphs, 1, "four printer ticks reveal one glyph")
+  Assert.equal(c:status().revealedGlyphs, 2, "two printer updates reveal the second glyph")
   c:step({})
-  Assert.equal(c:status().revealedGlyphs, 2, "six printer ticks reveal two glyphs")
+  Assert.equal(c:status().revealedGlyphs, 2, "the second glyph remains visible")
   c:step({})
   c:step({})
   c:step({})
@@ -269,8 +302,8 @@ function T.open_consumes_the_initiating_edge()
   -- carries only held state, so nothing is skipped or advanced.
   local handle = c:open(request("t", message()))
   c:step({ actionDown = true })
-  Assert.equal(c:status().revealedGlyphs, 2)
-  Assert.equal(c:status().state, "WAITING_BOUNDARY")
+  Assert.equal(c:status().revealedGlyphs, 1)
+  Assert.equal(c:status().state, "REVEALING")
   c:step({ actionDown = true })
   Assert.equal(c:status().state, "WAITING_BOUNDARY")
   c:step({ actionPressed = true })
@@ -311,7 +344,9 @@ function T.scroll_break_retains_the_prior_bottom_line()
     page({ line({ glyph("C", 3) }) }, "eos"),
   })
   c:open(request("scroll", message()))
-  c:step({ actionPressed = true })
+  while c:status().state == "REVEALING" or c:status().state == "OPENING" do
+    c:step({})
+  end
   Assert.equal(c:status().state, "WAITING_BOUNDARY")
   c:step({ actionPressed = true })
   local status = c:status()
@@ -338,21 +373,23 @@ function T.scroll_break_moves_exactly_one_line_in_fixed_increments()
         warnings = {},
       }
     end,
-    printerDelay = 1,
+    policy = TextSpeedPolicy.forSpeed("fast"),
   })
   c:open(request("scroll-distance", message()))
-  c:step({ actionPressed = true })
+  while c:status().state == "REVEALING" or c:status().state == "OPENING" do
+    c:step({})
+  end
   c:step({ actionPressed = true })
   Assert.equal(c:status().scrollRemaining, 19)
   Assert.equal(c:status().scrollOffsetY, 0)
   local offsets = {}
-  for _ = 1, 5 do
+  for _ = 1, 3 do
     c:step({})
     local status = c:status()
     offsets[#offsets + 1] = status.scrollOffsetY
     Assert.equal(status.revealedGlyphs, 0, "no new glyph is revealed during scrolling")
   end
-  Assert.deepEqual(offsets, { 4, 8, 12, 16, 19 })
+  Assert.deepEqual(offsets, { 8, 16, 19 })
   Assert.equal(c:status().scrollRemaining, 0)
 end
 
@@ -364,14 +401,16 @@ function T.prompt_break_clears_instead_of_scrolling()
     page({ line({ glyph("C", 3) }) }, "eos"),
   })
   c:open(request("prompt", message()))
-  c:step({ actionPressed = true })
+  while c:status().state == "REVEALING" or c:status().state == "OPENING" do
+    c:step({})
+  end
   Assert.equal(c:status().state, "WAITING_BOUNDARY")
   c:step({ actionPressed = true })
   local status = c:status()
   Assert.equal(status.state, "REVEALING")
   Assert.equal(status.scrollRemaining, 0)
   Assert.equal(status.scrollOffsetY, 0)
-  Assert.equal(status.visibleLines[1], nil, "clear removes the old top line")
+  Assert.equal(status.visibleLines[1], nil, "clear removes the old top line before the next glyph")
   Assert.equal(status.visibleLines[2], nil, "clear removes the old bottom line")
 end
 

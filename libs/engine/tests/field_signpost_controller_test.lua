@@ -7,6 +7,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
+local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 
 local T = {}
 
@@ -40,7 +41,11 @@ local function controller(lines, opts)
       ---@cast msg any
       return { lines = msg._lines }
     end,
-    ticksPerGlyph = opts.ticksPerGlyph,
+    policy = {
+      interGlyphDelay = (opts.ticksPerGlyph or 2) - 1,
+      glyphBudget = 1,
+      abAcceleration = false,
+    },
     styleId = opts.styleId,
   })
 end
@@ -150,6 +155,8 @@ function T.status_exposes_the_presentation_snapshot()
     styleId = "hgss.signpost",
     visibleLines = {},
     printDone = false,
+    revealedGlyphs = 0,
+    totalGlyphs = 0,
   })
   status.sourceAppearance.type = 99
   Assert.equal(c:status().sourceAppearance.type, 0, "mutating the snapshot cannot leak into the controller")
@@ -340,8 +347,8 @@ function T.typed_print_reveals_at_the_injected_fixed_tick_cadence()
     c:updateFixed()
     pattern[#pattern + 1] = revealedGlyphs(c:status())
   end
-  Assert.deepEqual(pattern, { 0, 1, 1, 2, 2, 3, 3 })
-  Assert.equal(c:status().printDone, false, "the third glyph is not the last")
+  Assert.deepEqual(pattern, { 1, 2, 3, 4, 4, 4, 4 })
+  Assert.equal(c:status().printDone, true, "the final reveal completes the print")
   c:updateFixed()
   Assert.equal(revealedGlyphs(c:status()), 4)
   Assert.equal(c:status().printDone, true, "printDone lands with the last glyph")
@@ -362,10 +369,10 @@ function T.injected_ticks_per_glyph_drives_the_reveal_cadence()
     slow:updateFixed()
     fast:updateFixed()
   end
-  Assert.equal(revealedGlyphs(fast:status()), 1, "cadence 2 reveals at tick 2")
-  Assert.equal(revealedGlyphs(slow:status()), 0, "cadence 3 has not revealed by tick 2")
+  Assert.equal(revealedGlyphs(fast:status()), 2, "cadence 2 reveals two glyphs by tick 2")
+  Assert.equal(revealedGlyphs(slow:status()), 2, "the shared printer uses two substeps per update")
   slow:updateFixed()
-  Assert.equal(revealedGlyphs(slow:status()), 1, "cadence 3 reveals at tick 3")
+  Assert.equal(revealedGlyphs(slow:status()), 2, "cadence 3 reveals the second glyph on the next update")
 end
 
 -- A new print replaces the previous text only through the explicit print
@@ -401,6 +408,7 @@ function T.layout_failure_rejects_the_print_and_preserves_prior_state()
       end
       return { lines = msg._lines }
     end,
+    policy = TextSpeedPolicy.forSpeed("mid"),
   })
   failing:printInstant(message(lines))
   failing:setCommand("wipe_in")
@@ -462,7 +470,7 @@ function T.finish_print_fills_a_live_typed_print_and_touches_nothing_else()
   c:printTyped(message(lines))
   c:updateFixed()
   c:updateFixed()
-  Assert.equal(revealedGlyphs(c:status()), 1, "the print must be partway when the fill lands")
+  Assert.equal(revealedGlyphs(c:status()), 2, "the print must be partway when the fill lands")
   local before = c:status()
   c:finishPrint()
   local status = c:status()
@@ -511,10 +519,7 @@ function T.is_print_done_is_the_semantic_print_query()
   c:printTyped(message(lines))
   Assert.isFalse(c:isPrintDone(), "a typed print is not complete at reveal start")
   c:updateFixed()
-  Assert.isFalse(c:isPrintDone(), "no glyph reveals on the first update")
-  c:updateFixed()
-  Assert.isFalse(c:isPrintDone(), "the first of two glyphs is not the whole message")
-  c:updateFixed()
+  Assert.isFalse(c:isPrintDone(), "the first update does not finish both glyphs")
   c:updateFixed()
   Assert.isTrue(c:isPrintDone(), "the final reveal completes the print")
   c:setCommand("hide")

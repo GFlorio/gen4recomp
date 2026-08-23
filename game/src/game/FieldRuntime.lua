@@ -550,11 +550,15 @@ function FieldRuntime:_load()
       measureText = FieldDialogueTheme.measureText(fontDef),
     })
     local layoutMessage = function(formatted)
-      return DialogueLayout.layout(
+      local result = DialogueLayout.layout(
         formatted.tokens,
         fontMetrics,
-        { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+        { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines, sourcePositioned = true }
       )
+      result.textOriginX = FieldDialogueTheme.textInsetX
+      result.textOriginY = FieldDialogueTheme.textInsetY
+      result.contentWidth = FieldDialogueTheme.textWidth
+      return result
     end
     -- The signpost window presents one 27x4-tile window: the single-window
     -- lines shape the signpost controller captures is the first page of the
@@ -564,10 +568,11 @@ function FieldRuntime:_load()
       local result = layoutMessage(formatted)
       return { lines = (result.pages[1] or { lines = {} }).lines }
     end
+    local audioService = self:_composeAudio(cacheFs, restoredWorld)
     self.dialogue = FieldDialogueController.new({
       layout = layoutMessage,
-      printerDelay = FieldPlayerData.textFrameDelay(self.playerData.options.textSpeed),
-      audio = self.audio or (self.scriptHosts and self.scriptHosts.audio),
+      policy = FieldPlayerData.textSpeedPolicy(self.playerData.options.textSpeed),
+      audio = audioService,
     })
     -- The signpost controller is fixed-tick and pure; the script platform
     -- advances it once per scheduler tick through the signpost host. The
@@ -575,7 +580,7 @@ function FieldRuntime:_load()
     -- the same single authority as the dialogue controller.
     self.signpost = FieldSignpostController.new({
       layout = signpostLayout,
-      ticksPerGlyph = FieldPlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
+      policy = FieldPlayerData.textSpeedPolicy(self.playerData.options.textSpeed),
     })
     self.auxiliaryFieldUi = restored and AuxiliaryFieldUi.restore(restored.auxiliaryUi) or AuxiliaryFieldUi.new()
     self.contextChoiceProvider = ContextChoiceProvider.new()
@@ -633,8 +638,6 @@ function FieldRuntime:_load()
     -- of this closure (rather than inlined here) so its module-level
     -- collaborators are not upvalues of this already large boot closure,
     -- which sits close to LuaJIT's 60-upvalue-per-function limit.
-    local audioService = self:_composeAudio(cacheFs, restoredWorld)
-
     -- The field-script platform (the script override system): registry over
     -- the compiled cache + data/scripts/overrides, composition, bindings,
     -- scheduler, and interaction client. Bound interactions run through the

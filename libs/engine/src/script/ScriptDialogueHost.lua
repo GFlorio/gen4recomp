@@ -250,10 +250,11 @@ function ScriptDialogueHost:advance(input)
   -- Passing that edge to the controller would close it early, leaving the
   -- task blocked forever waiting for an edge that has already been consumed.
   local actionPressed = input.pressedAction == true and status.state ~= "WAITING_CLOSE"
+  local cancelPressed = input.pressedCancel == true and status.state ~= "WAITING_CLOSE"
   self._controller:step({
     actionPressed = actionPressed,
     actionDown = input.actionDown == true,
-    cancelPressed = input.pressedCancel == true,
+    cancelPressed = cancelPressed,
     cancelDown = input.cancelDown == true,
   })
 end

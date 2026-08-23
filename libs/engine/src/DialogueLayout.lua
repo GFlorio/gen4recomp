@@ -22,7 +22,7 @@ local DEFAULT_MAX_LINES = 2
 
 ---@param tokens MessageToken[]
 ---@param metrics FieldDialogueTheme.Metrics
----@param opts { width: integer, maxLines?: integer }
+---@param opts { width: integer, maxLines?: integer, sourcePositioned?: boolean }
 ---@return DialogueLayout.Result
 function DialogueLayout.layout(tokens, metrics, opts)
   assert(type(tokens) == "table", "layout requires a token stream")
@@ -130,7 +130,10 @@ function DialogueLayout.layout(tokens, metrics, opts)
             boxWidth = width,
           }
         end
-        if line.width + advance > width and #line.tokens > 0 then
+        if opts.sourcePositioned then
+          line.tokens[#line.tokens + 1] = token
+          line.width = line.width + advance
+        elseif line.width + advance > width and #line.tokens > 0 then
           local breakIndex, keptWidth = lastBreakableSpace()
           if #lines >= maxLines then
             endPage("overflow")
@@ -160,11 +163,15 @@ function DialogueLayout.layout(tokens, metrics, opts)
             line = currentLine()
           end
         end
-        line.tokens[#line.tokens + 1] = token
-        line.width = line.width + advance
+        if not opts.sourcePositioned or line.tokens[#line.tokens] ~= token then
+          line.tokens[#line.tokens + 1] = token
+          line.width = line.width + advance
+        end
       end
     elseif token.kind == "line_break" then
-      if #lines >= maxLines then
+      if opts.sourcePositioned then
+        beginLine()
+      elseif #lines >= maxLines then
         endPage("line")
       else
         beginLine()
@@ -195,6 +202,7 @@ function DialogueLayout.layout(tokens, metrics, opts)
     warnings = warnings,
     lineHeight = metrics.lineHeight or 16,
     lineSpacing = metrics.lineSpacing or 0,
+    syntheticBreaks = opts.sourcePositioned and 0 or nil,
   }
 end
 
@@ -226,5 +234,9 @@ end
 ---@field warnings DialogueLayout.Warning[]
 ---@field lineHeight integer
 ---@field lineSpacing integer
+---@field textOriginX integer?
+---@field textOriginY integer?
+---@field contentWidth integer?
+---@field syntheticBreaks integer?
 
 return DialogueLayout
