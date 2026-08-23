@@ -304,7 +304,8 @@ function FieldRuntime.new(game, options)
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
     saveStore = options.saveStore,
-    saveValidation = options.saveValidation or GameSaveValidation.new(),
+    saveValidation = options.saveValidation
+      or GameSaveValidation.new({ overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()) }),
     savePublished = false,
     localClock = options.localClock or LocalClock.system(),
     weatherClock = options.weatherClock,

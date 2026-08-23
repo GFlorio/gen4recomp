@@ -45,6 +45,34 @@ function T.constructor_uses_the_supplied_game_entry_record()
   Assert.isNil(runtime.mapIdOrSymbol, "the runtime must not select a default map")
 end
 
+function T.default_save_validation_uses_repository_overrides()
+  local originalLoad = FieldRuntime._load
+  local entry = {
+    saveId = "save-00000001",
+    versionId = "heartgold",
+    location = {
+      mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+      fieldX = 6,
+      fieldZ = 6,
+      facing = "south",
+    },
+    playerData = {
+      profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
+      options = { textSpeed = "mid", textFrame = 0 },
+    },
+    playTime = PlayTime.new(),
+    worldState = {},
+  }
+
+  FieldRuntime._load = function() end
+  local ok, runtime = pcall(FieldRuntime.new, entry, { presentation = false })
+  FieldRuntime._load = originalLoad
+
+  Assert.isTrue(ok, tostring(runtime))
+  local overrideManifest = runtime.saveValidation.overrideFs:read("data/scripts/manifests/overrides.lua")
+  Assert.notNil(overrideManifest, "default save validation needs repository overrides")
+end
+
 local function captureRuntime(overrides)
   local runtime = setmetatable({
     game = {
