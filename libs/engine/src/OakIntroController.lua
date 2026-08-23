@@ -34,6 +34,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field oakSlideProgress number
 ---@field oakSlideDirection integer
 ---@field messageKey string|nil
+---@field confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field dialogue { message: string|table|nil, messageKey: string? }?
 ---@field oakOffsetX number
 ---@field flashAlpha number
@@ -65,6 +66,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _sourceFrames integer
 ---@field private _message string|table|nil
 ---@field private _messageKey string|nil
+---@field private _confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field private _visual string
 ---@field private _visualFrameIndex integer
 ---@field private _visualFrameTimer integer?
@@ -179,6 +181,7 @@ function OakIntroController.new(options)
     _sourceFrames = 0,
     _message = nil,
     _messageKey = nil,
+    _confirmationChoice = nil,
     _visual = "background",
     _visualFrameIndex = 1,
     _visualFrameTimer = nil,
@@ -226,6 +229,7 @@ end
 function OakIntroController:_setMessage(key)
   self._message = requireMessage(self._messages, key)
   self._messageKey = key
+  self._confirmationChoice = nil
   self:_event("message", key)
 end
 
@@ -393,9 +397,50 @@ function OakIntroController:_enterNameEditor()
   self:_event("name_editor", "opened")
 end
 
+function OakIntroController:_resolveConfirmation(selected)
+  assert(self._confirmationChoice ~= nil, "Oak confirmation choice is not active")
+  assert(selected == 0 or selected == 1, "Oak confirmation selection is invalid")
+  local kind = self._confirmationChoice.kind
+  self._confirmationChoice = nil
+  if kind == "gender" then
+    if selected == 0 then
+      self._phase = "name_prompt"
+      self:_setMessage("profile.name_prompt")
+    else
+      self._phase = "gender_question"
+      self:_setMessage("profile.gender_question")
+    end
+  elseif kind == "name" then
+    if selected == 0 then
+      self._phase = "final_dialogue"
+      self:_setMessage("profile.final")
+    else
+      self._phase = "gender_question"
+      self:_setMessage("profile.gender_question")
+    end
+  else
+    error("unknown Oak confirmation kind: " .. tostring(kind), 0)
+  end
+  return true
+end
+
 function OakIntroController:press(action)
   assert(type(action) == "string", "Oak semantic action must be a string")
   if self._disposed or not self._started or self._phase == "complete" then
+    return false
+  end
+  if self._confirmationChoice then
+    if action == "up" or action == "down" then
+      self._confirmationChoice.selected = action == "up" and 0 or 1
+      self._audio:play("SEQ_SE_DP_SELECT")
+      return true
+    end
+    if action == "confirm" or action == "yes" then
+      return self:_resolveConfirmation(0)
+    end
+    if action == "cancel" or action == "no" then
+      return self:_resolveConfirmation(1)
+    end
     return false
   end
   if action == "left" and self._phase == "gender_select" then
@@ -536,6 +581,9 @@ function OakIntroController:view()
     sourceFrames = self._sourceFrames,
     events = self._events,
     messageKey = self._messageKey,
+    confirmationChoice = self._confirmationChoice
+        and { kind = self._confirmationChoice.kind, selected = self._confirmationChoice.selected }
+      or nil,
     dialogue = dialogue,
     primaryWidget = self._visual == "background" and (self._phase == "marill_cry_wait" and "oak" or nil)
       or self._visual,
@@ -556,6 +604,13 @@ function OakIntroController:messageCompleted(key)
   assert(self._message ~= nil, "Oak dialogue completion has no active message")
   self._message = nil
   self._messageKey = nil
+  if self._phase == "gender_confirm" or self._phase == "name_confirm" then
+    self._confirmationChoice = {
+      kind = self._phase == "gender_confirm" and "gender" or "name",
+      selected = 0,
+    }
+    return true
+  end
   return self:press("confirm")
 end
 

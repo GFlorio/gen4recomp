@@ -140,6 +140,25 @@ function OakIntroLayout.compute(width, height, view, glyphs, metrics)
       rect(x, y, cardWidth, cardHeight), rect(x + cardWidth + cardGap, y, cardWidth, cardHeight)
     result.profileCards = result.cards
   end
+  if view.confirmationChoice then
+    local panelHeight = math.min(stageContent.height * 0.32, 180)
+    panelHeight = math.max(94, panelHeight)
+    panelHeight = math.min(panelHeight, stageContent.height)
+    local panelWidth = math.min(stageContent.width * 0.62, 520)
+    local panel = rect(
+      stageContent.x + (stageContent.width - panelWidth) / 2,
+      stageContent.y + stageContent.height - panelHeight,
+      panelWidth,
+      panelHeight
+    )
+    local rowGap = clamp(math.floor(panel.height * 0.06 + 0.5), 6, 12)
+    local rowHeight = (panel.height - rowGap) / 2
+    result.choicePanel = panel
+    result.choiceRows = {
+      [0] = rect(panel.x, panel.y, panel.width, rowHeight),
+      [1] = rect(panel.x, panel.y + rowHeight + rowGap, panel.width, rowHeight),
+    }
+  end
   if view.phase == "name_edit" then
     local previewHeight = math.min(220, math.max(48, math.floor(stageContent.height * 0.28)))
     previewHeight = math.min(previewHeight, math.floor(stageContent.height * 0.40))

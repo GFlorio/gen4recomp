@@ -42,6 +42,8 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field nameKeys table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
 ---@field stageContent OakIntroStateRectangle
 ---@field dialogue { outerRect: OakIntroStateRectangle, scale: number }?
+---@field choicePanel OakIntroStateRectangle?
+---@field choiceRows table<integer, OakIntroStateRectangle>?
 ---@field virtualKeyColumns integer
 ---@field genderFocus integer
 ---@field safeFrame OakIntroStateRectangle
@@ -57,6 +59,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field genderFocus integer
 ---@field name string
 ---@field nameInputEnabled boolean
+---@field choiceLabels table<integer, string>?
 ---@field layout OakIntroStateLayout?
 
 ---@class OakIntroStateLayoutView: OakIntroStateView
@@ -80,6 +83,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field dialogueRenderer table?
 ---@field dialogueText table?
 ---@field dialogueMessages table?
+---@field dialogueFormatter table?
 ---@field dialogueMessageKey string?
 
 ---@class OakIntroState
@@ -100,6 +104,8 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field dialogueController table?
 ---@field dialogueRenderer table?
 ---@field dialogueMessages table?
+---@field dialogueFormatter table?
+---@field choiceLabels table<integer, string>?
 ---@field dialogueText table?
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field disposed boolean
@@ -180,6 +186,10 @@ end
 function OakIntroState.new(options)
   assert(type(options) == "table" and options.controller, "Oak state requires a controller")
   assert(type(options.manifest) == "table", "Oak state requires generated intro assets")
+  if options.dialogueController then
+    assert(options.dialogueFormatter, "Oak state requires its message formatter")
+    assert(type(options.dialogueFormatter.format) == "function", "Oak message formatter is invalid")
+  end
   local width, height = options.width, options.height
   if width == nil or height == nil then
     width, height = love.graphics.getDimensions()
@@ -210,7 +220,8 @@ function OakIntroState.new(options)
       audioLifetime = options.audioLifetime,
       dialogueController = options.dialogueController,
       dialogueRenderer = options.dialogueRenderer,
-      dialogueMessages = options.dialogueMessages,
+      dialogueFormatter = options.dialogueFormatter,
+      choiceLabels = options.dialogueFormatter and options.dialogueFormatter:choiceLabels() or nil,
       dialogueText = options.dialogueText,
       dialoguePresentation = nil,
       dialogueMessageKey = nil,
@@ -249,7 +260,8 @@ function OakIntroState:_sync()
   if self.dialogueController and view.messageKey ~= self.dialogueMessageKey then
     self.dialogueMessageKey = view.messageKey
     if view.messageKey then
-      local message = assert(self.dialogueMessages and self.dialogueMessages[view.messageKey])
+      local message = self.dialogueFormatter:format(view.messageKey, { playerName = view.name })
+      assert(not message.hadUnresolvedSubstitutions, "Oak message has unresolved substitutions")
       local handle = self.dialogueController:open({
         id = "oak:" .. view.messageKey,
         message = message,
@@ -310,6 +322,7 @@ function OakIntroState:view()
         and DialoguePresentationLayout.compute(view.layout.dialogue.outerRect, { scale = view.layout.dialogue.scale })
       or nil
   end
+  view.choiceLabels = self.choiceLabels
   ---@cast view OakIntroStateLayoutView
   return view
 end
@@ -384,7 +397,15 @@ end
 function OakIntroState:_pointer(x, y)
   local view = self:view()
   local layout = view.layout
-  if view.phase == "gender_select" then
+  if view.confirmationChoice then
+    for selected = 0, 1 do
+      if OakIntroLayout.contains(layout.choiceRows[selected], x, y) then
+        self.controller:press(selected == 0 and "yes" or "no")
+        self:_sync()
+        return
+      end
+    end
+  elseif view.phase == "gender_select" then
     for gender = 0, 1 do
       if OakIntroLayout.contains(layout.cards[gender], x, y) then
         self.controller:press(gender == 0 and "left" or "right")

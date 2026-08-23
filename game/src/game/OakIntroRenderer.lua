@@ -136,6 +136,24 @@ function OakIntroRenderer:draw(view)
     local card = layout.cards[view.genderFocus]
     graphics.rectangle("line", card.x, card.y, card.width, card.height)
   end
+  if view.confirmationChoice then
+    local rows = assert(layout.choiceRows)
+    local labels = assert(view.choiceLabels)
+    for selected = 0, 1 do
+      local row = rows[selected]
+      graphics.setColor(
+        selected == view.confirmationChoice.selected and 0.18 or 0.08,
+        selected == view.confirmationChoice.selected and 0.35 or 0.12,
+        selected == view.confirmationChoice.selected and 0.62 or 0.2,
+        1
+      )
+      graphics.rectangle("fill", row.x, row.y, row.width, row.height)
+      graphics.setColor(1, 1, 1, 1)
+      local label = labels[selected]
+      local width = self.text.textWidth and self.text:textWidth(label) or 0
+      self.text:drawText(label, row.x + (row.width - width) / 2, row.y + (row.height - 16) / 2)
+    end
+  end
   graphics.setColor(1, 1, 1, 1)
   if view.name ~= "" then
     self.text:drawText(view.name, layout.message.x, layout.message.y - 24)

@@ -15,6 +15,7 @@ local function fakeController()
     deleted = 0,
     started = 0,
     disposed = 0,
+    choice = nil,
   }
   function controller:start()
     self.started = self.started + 1
@@ -51,6 +52,7 @@ local function fakeController()
         { kind = "confirm" },
       },
       virtualKeyColumns = 3,
+      confirmationChoice = self.choice,
     }
   end
   return controller
@@ -75,6 +77,14 @@ local function stateHarness()
     textRenderer = {},
     renderer = renderer,
     textInputHost = input,
+    dialogueFormatter = {
+      format = function(_, key)
+        return { tokens = {}, text = key, hadUnresolvedSubstitutions = false }
+      end,
+      choiceLabels = function()
+        return { [0] = "YES", [1] = "NO" }
+      end,
+    },
     glyphs = { "A", "B", "é" },
     width = 640,
     height = 480,
@@ -103,6 +113,16 @@ function T.pointer_hits_the_same_drawn_virtual_key_geometry()
   local key = layout.nameGrid[3].rect
   state:mousepressed(key.x + 1, key.y + 1, 1)
   Assert.deepEqual(controller.text, { "é" })
+end
+
+function T.pointer_hits_the_same_choice_rows_used_by_presentation()
+  local state, controller = stateHarness()
+  controller.phase = "gender_confirm"
+  controller.choice = { kind = "gender", selected = 0 }
+  local layout = state:view().layout
+  state:mousepressed(layout.choiceRows[0].x + 1, layout.choiceRows[0].y + 1, 1)
+  state:mousepressed(layout.choiceRows[1].x + 1, layout.choiceRows[1].y + 1, 1)
+  Assert.deepEqual(controller.pressed, { "yes", "no" })
 end
 
 function T.keyboard_and_gamepad_use_one_controller_buffer_path()
@@ -177,7 +197,6 @@ function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
   }
   state.dialogueController = dialogue
   state.dialogueRenderer = dialogue
-  state.dialogueMessages = { ["oak.welcome"] = { tokens = {} } }
   state.dialoguePresentation = nil
   controller.phase = "oak_welcome"
   controller.view = function(self)
@@ -200,6 +219,58 @@ function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
   Assert.equal(dialogue.drawn, 1)
   state:dispose()
   Assert.equal(dialogue.released, 1)
+end
+
+function T.dialogue_completion_edge_does_not_enter_the_new_choice()
+  local state, controller = stateHarness()
+  local modal = true
+  local completion
+  controller.phase = "gender_confirm"
+  controller.view = function(self)
+    return {
+      phase = self.phase,
+      messageKey = modal and "profile.gender_confirm.male" or nil,
+      message = modal and { tokens = {} } or nil,
+      confirmationChoice = not modal and { kind = "gender", selected = 0 } or nil,
+      name = "",
+      nameInputEnabled = false,
+      genderFocus = 0,
+      visual = "background",
+      virtualKeys = {},
+    }
+  end
+  controller.messageCompleted = function(self, key)
+    Assert.equal(key, "profile.gender_confirm.male")
+    modal = false
+  end
+  local dialogue = {
+    open = function()
+      return {
+        onComplete = function(_, callback)
+          completion = callback
+        end,
+      }
+    end,
+    step = function()
+      if completion then
+        local callback = completion
+        completion = nil
+        modal = false
+        callback()
+      end
+    end,
+    isModal = function()
+      return modal
+    end,
+    status = function()
+      return {}
+    end,
+  }
+  state.dialogueController = dialogue
+  state:_sync()
+  state:keypressed("return")
+  Assert.deepEqual(controller.pressed, {})
+  Assert.notNil(state:view().confirmationChoice)
 end
 
 return { tests = T }

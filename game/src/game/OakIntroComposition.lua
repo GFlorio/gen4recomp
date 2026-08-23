@@ -14,6 +14,7 @@ local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local LocalClock = require("libs.engine.src.LocalClock")
 local OakIntroController = require("libs.engine.src.OakIntroController")
+local OakIntroMessages = require("game.src.game.OakIntroMessages")
 local OakIntroState = require("game.src.game.OakIntroState")
 local GameAudio = require("game.src.game.audio.GameAudio")
 
@@ -36,13 +37,17 @@ local MESSAGE_IDS = {
   ["profile.name_confirm.male"] = 41,
   ["profile.name_confirm.female"] = 42,
   ["profile.final"] = 43,
+  ["choice.yes"] = 47,
+  ["choice.no"] = 48,
 }
 
-local function mapMessages(getMessage)
+local function mapMessages(getMessage, includeChoices)
   local messages = {}
   for key, messageId in pairs(MESSAGE_IDS) do
-    local message = assert(getMessage(messageId))
-    messages[key] = message
+    if includeChoices or key ~= "choice.yes" and key ~= "choice.no" then
+      local message = assert(getMessage(messageId))
+      messages[key] = message
+    end
   end
   return messages
 end
@@ -134,10 +139,11 @@ function OakIntroComposition.compose(options)
     assert(provider:acquireBank(219))
     bankAcquired = true
     local messages = mapMessages(function(messageId)
-      return provider:format(assert(provider:get(219, messageId)))
-    end)
+      return assert(provider:get(219, messageId))
+    end, true)
     provider:releaseBank(219)
     bankAcquired = false
+    local messageFormatter = OakIntroMessages.new({ templates = messages, fontDef = fontDef })
 
     audio = GameAudio.compose({
       cacheFs = cacheFs,
@@ -198,7 +204,7 @@ function OakIntroComposition.compose(options)
       dialogueController = dialogueController,
       dialogueRenderer = dialogueRenderer,
       dialogueText = textRenderer,
-      dialogueMessages = messages,
+      dialogueFormatter = messageFormatter,
     })
   end)
   if not ok then
