@@ -437,19 +437,22 @@ local function pushComposedFrame(run, composed, args, returnNodeId, nodeId)
   local entries = composed.entries
   assert(#entries > 0, "composed script has no entries")
   local entry = entries[1]
-  run.instance:pushFrame(run.instance:makeFrame(entry.graph, nodeId or entry.graph.entry, {
-    returnNodeId = returnNodeId,
-    resultRef = returnNodeId ~= nil and run.node.result or nil,
-    args = args,
-    chain = entries,
-    chainScriptId = composed.scriptId,
-    chainRevision = composed.revision,
-    composition = {
-      entryIndex = 0,
-      operation = entry.operation,
-      owner = entry.owner,
-    },
-  }))
+  local entryNodeId = nodeId or entry.graph.entry
+  if entryNodeId ~= nil then
+    run.instance:pushFrame(run.instance:makeFrame(entry.graph, entryNodeId, {
+      returnNodeId = returnNodeId,
+      resultRef = returnNodeId ~= nil and run.node.result or nil,
+      args = args,
+      chain = entries,
+      chainScriptId = composed.scriptId,
+      chainRevision = composed.revision,
+      composition = {
+        entryIndex = 0,
+        operation = entry.operation,
+        owner = entry.owner,
+      },
+    }))
+  end
 end
 
 -- The graph and entry node id of a composed script, entering at `label`

@@ -55,7 +55,7 @@ local function loadResources(manifest, graphics, imageLoader)
       quads[assetId] = {}
       for frameIndex, frame in ipairs(asset.frames) do
         quads[assetId][frameIndex] =
-          graphics.newQuad(frame.x, frame.y, frame.width, frame.height, image:getWidth(), image:getHeight())
+          graphics.newQuad(frame.x or 0, frame.y or 0, frame.width, frame.height, image:getWidth(), image:getHeight())
       end
     end
   end)

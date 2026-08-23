@@ -24,6 +24,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field topologyProvider (fun(width: number, height: number): ScreenTopology)?
 ---@field saveStore table? global GameSaveStore
 ---@field saveValidation GameSaveValidation? shared version-aware GameSave validator
+---@field audioOutput table? audio-output host namespace for deterministic runtime audio
 
 ---@class FieldState
 ---@field runtime FieldRuntime?
@@ -77,6 +78,7 @@ function FieldState.new(game, options)
     presentation = true,
     saveStore = options.saveStore,
     saveValidation = options.saveValidation,
+    audioOutput = options.audioOutput,
   }
   -- Construction is binary: FieldRuntime.new either raised (boot failed) or
   -- returned a fully usable runtime, so presentation resources are acquired

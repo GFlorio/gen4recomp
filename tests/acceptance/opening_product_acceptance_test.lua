@@ -129,6 +129,9 @@ local function waitForMom(runtime)
   local flags = FieldScriptSymbols.flagsByName
   for _ = 1, 2400 do
     tick(1)
+    if runtime.errorText then
+      error(runtime.errorText)
+    end
     if runtime.dialogue:isModal() then
       press("a")
     end

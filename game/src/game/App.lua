@@ -48,7 +48,12 @@ end
 
 ---@return FieldStateOptions
 local function fieldStateOptions()
-  return { development = App.opts.dev == true, saveStore = App.saveStore, saveValidation = App.saveValidation }
+  return {
+    development = App.opts.dev == true,
+    saveStore = App.saveStore,
+    saveValidation = App.saveValidation,
+    audioOutput = App.opts.oakIntroHost and App.opts.oakIntroHost.audioOutput,
+  }
 end
 
 function App.load(opts)

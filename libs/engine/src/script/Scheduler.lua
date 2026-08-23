@@ -139,17 +139,19 @@ local function pushEntryFrame(instance, composed, args)
   local entries = composed.entries
   assert(#entries > 0, "composed script has no entries")
   local entry = entries[1]
-  instance:pushFrame(instance:makeFrame(entry.graph, entry.graph.entry, {
-    args = args,
-    chain = entries,
-    chainScriptId = composed.scriptId,
-    chainRevision = composed.revision,
-    composition = {
-      entryIndex = 0,
-      operation = entry.operation,
-      owner = entry.owner,
-    },
-  }))
+  if entry.graph.entry ~= nil then
+    instance:pushFrame(instance:makeFrame(entry.graph, entry.graph.entry, {
+      args = args,
+      chain = entries,
+      chainScriptId = composed.scriptId,
+      chainRevision = composed.revision,
+      composition = {
+        entryIndex = 0,
+        operation = entry.operation,
+        owner = entry.owner,
+      },
+    }))
+  end
 end
 
 ---@param env ScriptEnvironment

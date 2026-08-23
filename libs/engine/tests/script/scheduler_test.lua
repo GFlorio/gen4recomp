@@ -946,6 +946,29 @@ T["background restrictions"] = function()
   Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_BACKGROUND_FORBIDDEN")
 end
 
+-- An empty common child still crosses the asynchronous child-task handoff
+-- before the parent's post-call continuation runs.
+T["empty common child completes the handoff"] = function()
+  local h = harness()
+  h.registry:installBase("common.empty", script("common.empty", {}), "generated")
+  startForeground(
+    h,
+    script("test.empty_child", {
+      S.callCommon({ target = "common.empty" }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(101, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
 -- 29. A common child's actor lock runs and releases before the parent's
 -- post-call continuation: the parent is still in flight at the handoff
 -- boundary and completes only after the child's task was consumed.
