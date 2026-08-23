@@ -130,7 +130,7 @@ end
 -- controller waits at a boundary, using the controller's deterministic blink.
 
 ---@param status FieldDialogueController.Status
----@param layout FieldDialogueTheme.Layout
+---@param layout DialoguePresentationLayout.Presentation
 function FieldDialogueRenderer:_drawCursor(status, layout)
   if not status.waiting or not status.cursorOn then
     return
@@ -158,7 +158,7 @@ end
 -- frame at all rather than inventing one.
 
 ---@param status FieldDialogueController.Status
----@param layout FieldDialogueTheme.Layout
+---@param layout DialoguePresentationLayout.Presentation
 function FieldDialogueRenderer:_drawFrame(status, layout)
   local frameIndex = status.frameIndex
   if frameIndex == nil then
@@ -189,7 +189,7 @@ end
 -- distinct source concepts and never suppress each other.
 
 ---@param status FieldDialogueController.Status
----@param layout FieldDialogueTheme.Layout
+---@param layout DialoguePresentationLayout.Presentation
 function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
   local field = FieldTextRenderer.lastVisibleFocusField(status.visibleLines)
   if field ~= nil then
@@ -210,8 +210,7 @@ end
 -- surface and matches the world logical pixel scale.
 
 ---@param controller FieldDialogueController
----@param viewport { referenceFrame: FieldDialogueTheme.Rect }
----@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
+---@param presentation DialoguePresentationLayout.Presentation
 function FieldDialogueRenderer:draw(controller, presentation)
   -- Inactive (closed) is a pure no-op and checks no scale precondition; an
   -- inactive draw must not touch graphics state or require presentation

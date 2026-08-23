@@ -3,6 +3,22 @@
 
 local Layout = {}
 
+---@class DialoguePresentationLayout.Rect
+---@field x number
+---@field y number
+---@field width number
+---@field height number
+
+---@class DialoguePresentationLayout.Presentation
+---@field bounds DialoguePresentationLayout.Rect
+---@field origin { x: number, y: number }
+---@field scale number
+---@field outerRect DialoguePresentationLayout.Rect
+---@field box DialoguePresentationLayout.Rect
+---@field text DialoguePresentationLayout.Rect
+---@field cursor DialoguePresentationLayout.Rect
+---@field lineHeight number
+
 local WIDTH = 256
 local HEIGHT = 48
 local BOX = { x = 16, y = 8, width = 216, height = 32 }
@@ -36,7 +52,7 @@ end
 
 ---@param bounds { x: number, y: number, width: number, height: number }
 ---@param options? { scale?: number, maxScale?: number }
----@return table
+---@return DialoguePresentationLayout.Presentation
 function Layout.compute(bounds, options)
   validateBounds(bounds)
   options = options or {}
@@ -69,7 +85,7 @@ function Layout.compute(bounds, options)
   }
 end
 
----@param presentation table
+---@param presentation DialoguePresentationLayout.Presentation
 function Layout.validate(presentation)
   assert(type(presentation) == "table", "dialogue presentation must be a table")
   validateBounds(presentation.bounds)

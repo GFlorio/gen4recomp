@@ -207,7 +207,7 @@ T["lowered local object zero and player can move concurrently"] = function()
   end)
   Assert.isFalse(ok)
   Assert.isTrue(Errors.is(err))
-  Assert.equal(err.code, "SCRIPT_ACTOR_BUSY")
+  Assert.equal(assert(err).code, "SCRIPT_ACTOR_BUSY")
 end
 
 -- 3. Empty WaitMovement still has the native-style minimum timing:

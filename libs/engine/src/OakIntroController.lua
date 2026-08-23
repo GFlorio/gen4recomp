@@ -8,7 +8,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class OakIntroControllerOptions
 ---@field candidate table partial New Game candidate finalized only after profile confirmation
----@field clock LocalClock
+---@field clock { nowLocal: fun(): LocalCivilTime }
 ---@field audio GameSound
 ---@field messages table<string, string|table>
 ---@field assets table?
@@ -34,6 +34,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field oakSlideProgress number
 ---@field oakSlideDirection integer
 ---@field messageKey string|nil
+---@field dialogue { message: string|table|nil, messageKey: string? }?
 ---@field oakOffsetX number
 ---@field flashAlpha number
 ---@field genderFocus integer
@@ -81,6 +82,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field candidate fun(self: OakIntroController): table
 ---@field result fun(self: OakIntroController): table|nil
 ---@field dispose fun(self: OakIntroController)
+---@field messageCompleted fun(self: OakIntroController, key: string): boolean
 local OakIntroController = {}
 OakIntroController.__index = OakIntroController
 
@@ -547,6 +549,7 @@ function OakIntroController:view()
   }
 end
 
+---@return boolean
 function OakIntroController:messageCompleted(key)
   assert(key == self._messageKey, "Oak dialogue completion is stale")
   assert(self._message ~= nil, "Oak dialogue completion has no active message")

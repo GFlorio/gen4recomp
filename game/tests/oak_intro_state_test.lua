@@ -72,6 +72,7 @@ local function stateHarness()
   local state = OakIntroState.new({
     controller = controller,
     manifest = {},
+    textRenderer = {},
     renderer = renderer,
     textInputHost = input,
     glyphs = { "A", "B", "é" },
@@ -155,6 +156,7 @@ function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
     released = 0,
     open = function(self)
       self.opened = self.opened + 1
+      return { onComplete = function() end }
     end,
     step = function(self, input)
       self.stepped = self.stepped + 1
@@ -175,7 +177,8 @@ function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
   }
   state.dialogueController = dialogue
   state.dialogueRenderer = dialogue
-  state.dialoguePresentation = {}
+  state.dialogueMessages = { ["oak.welcome"] = { tokens = {} } }
+  state.dialoguePresentation = nil
   controller.phase = "oak_welcome"
   controller.view = function(self)
     return {

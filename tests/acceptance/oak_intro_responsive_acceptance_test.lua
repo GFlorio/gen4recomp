@@ -171,6 +171,7 @@ function T.tests.host_native_layout_contract_across_representative_viewports()
       controller = controller(),
       manifest = manifest(),
       renderer = recordingRenderer(),
+      textRenderer = {},
       glyphs = { "A", "B" },
       width = size[1],
       height = size[2],

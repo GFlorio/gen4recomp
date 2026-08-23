@@ -7,14 +7,15 @@ local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 
----@class OakIntroStateController
+---@class OakIntroStateController: OakIntroController
 ---@field start fun(self: OakIntroStateController): boolean
 ---@field tick fun(self: OakIntroStateController, frames: integer)
----@field view fun(self: OakIntroStateController): OakIntroStateView
+---@field view fun(self: OakIntroStateController): OakIntroControllerView
 ---@field result fun(self: OakIntroStateController): table?
 ---@field press fun(self: OakIntroStateController, action: string): boolean
 ---@field deleteGlyph fun(self: OakIntroStateController): boolean
 ---@field inputText fun(self: OakIntroStateController, text: string): boolean
+---@field messageCompleted fun(self: OakIntroStateController, key: string): boolean
 ---@field dispose fun(self: OakIntroStateController)
 
 ---@class OakIntroStateRenderer
@@ -38,13 +39,19 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field message OakIntroStateRectangle
 ---@field cards table<integer, OakIntroStateRectangle>
 ---@field nameGrid table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
+---@field nameKeys table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
+---@field stageContent OakIntroStateRectangle
+---@field dialogue { outerRect: OakIntroStateRectangle, scale: number }?
 ---@field virtualKeyColumns integer
 ---@field genderFocus integer
 ---@field safeFrame OakIntroStateRectangle
 
----@class OakIntroStateView
+---@class OakIntroStateView: OakIntroControllerView
 ---@field phase string
 ---@field message string|table|nil
+---@field messageKey string?
+---@field dialogueStatus table?
+---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field dialogue table?
 ---@field visual string
 ---@field genderFocus integer
@@ -56,7 +63,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field layout OakIntroStateLayout
 
 ---@class OakIntroStateOptions
----@field controller OakIntroStateController
+---@field controller OakIntroController
 ---@field manifest table
 ---@field renderer OakIntroStateRenderer?
 ---@field graphics any?
@@ -68,17 +75,12 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field onComplete fun(result: table)?
 ---@field audioSink OakIntroStateAudioSink?
 ---@field audioLifetime table?
----@field dialogueController table?
----@field dialogueRenderer table?
----@field dialogueMessages table?
----@field dialogueText table?
 ---@field textRenderer table
 ---@field dialogueController table?
 ---@field dialogueRenderer table?
 ---@field dialogueText table?
 ---@field dialogueMessages table?
 ---@field dialogueMessageKey string?
----@field manifest table
 
 ---@class OakIntroState
 ---@field new fun(options: OakIntroStateOptions): OakIntroState
@@ -94,6 +96,12 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field onComplete fun(result: table)?
 ---@field audioSink OakIntroStateAudioSink?
 ---@field audioLifetime table?
+---@field manifest table
+---@field dialogueController table?
+---@field dialogueRenderer table?
+---@field dialogueMessages table?
+---@field dialogueText table?
+---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field disposed boolean
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
@@ -187,6 +195,7 @@ function OakIntroState.new(options)
       })
     self = setmetatable({
       controller = options.controller,
+      manifest = options.manifest,
       renderer = renderer,
       inputHost = textInputHost(options.textInputHost),
       glyphs = glyphList(options.glyphs),
@@ -235,6 +244,7 @@ end
 
 function OakIntroState:_sync()
   local view = self.controller:view()
+  ---@cast view OakIntroStateView
   self:_setTextInput(view.nameInputEnabled)
   if self.dialogueController and view.messageKey ~= self.dialogueMessageKey then
     self.dialogueMessageKey = view.messageKey
@@ -292,6 +302,7 @@ end
 
 function OakIntroState:view()
   local view = self.controller:view()
+  ---@cast view OakIntroStateView
   view.layout = OakIntroLayout.compute(self.width, self.height, view, self.glyphs, self.manifest.widgets)
   if self.dialogueController then
     view.dialogueStatus = self.dialogueController:status()

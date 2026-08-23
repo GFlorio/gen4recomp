@@ -44,7 +44,7 @@ function T.dialogue_uses_bottom_centered_translate_and_single_scale(scope)
   local expectedScale = fieldScale
   local expectedX = ref.x + (ref.width - 256 * expectedScale) / 2
   local expectedY = ref.y + ref.height - 192 * expectedScale
-  renderer:draw(controller, viewport, fieldScale)
+  renderer:draw(controller, FieldDialogueTheme.layout(viewport.referenceFrame, fieldScale))
   Assert.equal(#lg.transforms, 2, "exactly one translate and one scale")
   Assert.equal(lg.transforms[1][1], "translate")
   Assert.near(lg.transforms[1][2], expectedX, 1e-6)
@@ -72,7 +72,7 @@ function T.dialogue_shrinks_from_bottom_center_at_reduced_zoom(scope)
   local ref = viewport.referenceFrame
   local expectedX = ref.x + (ref.width - 256 * fieldScale) / 2
   local expectedY = ref.y + ref.height - 192 * fieldScale
-  renderer:draw(controller, viewport, fieldScale)
+  renderer:draw(controller, FieldDialogueTheme.layout(viewport.referenceFrame, fieldScale))
   -- Current layout ignores zoom: will be at scale 3, origin 0,0 not expected 1.5 / bottom-centered.
   Assert.equal(#lg.transforms, 2, "exactly one translate and one scale")
   Assert.near(lg.transforms[1][2], expectedX, 1e-6, "bottom-centered X at 0.5x")
