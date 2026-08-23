@@ -242,6 +242,33 @@ function T.tests.ordinary_profiles_share_source_exit_audio_and_fade()
   Assert.equal(observations[2].fade.coefficient, observations[1].fade.coefficient)
 end
 
+function T.tests.ordinary_profile_exit_audio_is_played_once()
+  local sounds = {}
+  local transition = FieldTransition.new({
+    loader = {},
+    resolveDestination = function()
+      return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
+    end,
+    prepare = function() end,
+    commit = function() end,
+    playSound = function(sound)
+      sounds[#sounds + 1] = sound
+    end,
+  })
+  transition:start({ mapId = 61 }, {
+    warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
+    transition = { mode = "fixed", profile = FieldTransitionProfile.ORDINARY },
+  }, "north")
+  for _ = 1, 20 do
+    if transition.phase == "idle" then
+      break
+    end
+    step(transition)
+  end
+  Assert.equal(transition.phase, "idle")
+  Assert.deepEqual(sounds, { "SEQ_SE_DP_KAIDAN2" })
+end
+
 function T.tests.transition_motion_profiles_require_the_player_motion_contract()
   local transition = FieldTransition.new({
     loader = {},

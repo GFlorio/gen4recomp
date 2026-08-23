@@ -384,6 +384,7 @@ local function beginSourceChoreography(self)
     and self.playSound
   then
     self.playSound(family.exitSound)
+    self.profileSoundPlayed = true
   end
   if
     family.exitSound
@@ -391,6 +392,7 @@ local function beginSourceChoreography(self)
     and (self.profileId == FieldTransitionProfile.LADDER or self.profileId == FieldTransitionProfile.LADDER_DOWN)
   then
     self.playSound(family.exitSound)
+    self.profileSoundPlayed = true
   end
   if kind ~= "door" and self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS then
     startFade(self, "out", family.fadeColor or 0)

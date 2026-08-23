@@ -9,7 +9,21 @@ local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local Renderer = {}
 Renderer.__index = Renderer
-local materials
+
+local function materials(asset, pool)
+  local out = {}
+  for _, record in ipairs(asset.model.materials) do
+    local wrap = SceneDescriptor.wrap(record)
+    out[record.id] = {
+      id = record.id,
+      name = record.name,
+      image = pool:imageFor(record.texture, wrap.x, wrap.y),
+      texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+      wrap = wrap,
+    }
+  end
+  return out
+end
 
 function Renderer.new(model, pool)
   assert(model and model.batches and model.materials, "field effect asset model is required")
@@ -37,21 +51,6 @@ function Renderer.new(model, pool)
     return { model = model, batches = batches }
   end)
   return setmetatable({ prepared = prepared }, Renderer)
-end
-
-materials = function(asset, pool)
-  local out = {}
-  for _, record in ipairs(asset.model.materials) do
-    local wrap = SceneDescriptor.wrap(record)
-    out[record.id] = {
-      id = record.id,
-      name = record.name,
-      image = pool:imageFor(record.texture, wrap.x, wrap.y),
-      texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
-      wrap = wrap,
-    }
-  end
-  return out
 end
 
 function Renderer:drawItems(status)
