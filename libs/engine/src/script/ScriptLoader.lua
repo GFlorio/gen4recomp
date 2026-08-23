@@ -270,6 +270,10 @@ function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
   else
     registry = Registry.new()
   end
+  local BuiltinScripts = require("libs.engine.src.script.BuiltinScripts")
+  for id, script in pairs(BuiltinScripts.all()) do
+    registry:installBuiltin(id, script)
+  end
   ScriptLoader.installGenerated(registry, cacheFs, requireFn, opts)
   ScriptLoader.installOverrides(registry, fs, requireFn)
   -- Load finished: the registry is sealed so cached compositions and the

@@ -220,7 +220,6 @@ function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, ta
       event.x == targetX
       and event.z == targetZ
       and not FieldInteractionResolver.isHiddenItem(event)
-      and event.scriptId ~= 0
       and FieldInteractionResolver.backgroundDirectionCompatible(playerRaw, event.directionRaw)
     then
       return event
@@ -275,15 +274,10 @@ function FieldInteractionResolver:resolve(snapshot)
   -- Object actors first: the occupancy index is keyed by the exact surface,
   -- and the key is the facing cell's RESOLVED surface, so a cross-surface
   -- boundary looks up the actor where it actually stands, and a same-x/z
-  -- actor on another surface stays ineligible. A script-id-0 actor is
-  -- noninteractive and resolves to nothing: the interaction the original
-  -- would start (bank script 0) is not implemented, so the intent must not
-  -- reach the script client.
+  -- actor on another surface stays ineligible. Raw script zero remains an
+  -- intent and is canonicalized by the script binding authority.
   local actor = self.actorAt(map.mapId, targetX, targetZ, targetSample.surfaceId)
   if actor then
-    if actor.sourceEvent.scriptId == 0 then
-      return nil
-    end
     local intent = baseIntent("object", snapshot, targetX, targetZ, actor.sourceEvent.scriptId)
     intent.object = {
       actorId = actor.actorId,

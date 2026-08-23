@@ -3,8 +3,8 @@
 -- FieldSystem_CheckMapTransition (facing-tile door, direction-gated standing
 -- stairs/warps, standing ladders) and stepPath mirrors FieldSystem_CheckTransition
 -- (north/panel/ladder-down/escalator standing warps). Collision alone never
--- infers a transition type; behavior classifies, collision only gates the
--- facing-tile door. Authoritative source: pret/pokeheartgold
+-- infers a transition type; behavior classifies, while the facing-tile
+-- collision gate admits every input-path transition. Authoritative source: pret/pokeheartgold
 -- src/field/field_control.c with TILE_BEHAVIOR_* values from
 -- include/constants/metatile_behavior.h (sequential enum, NONE = 255).
 --
@@ -33,10 +33,12 @@ local DIRECTION_DELTAS = {
 ---@field requiredDirections string[]
 ---@field evaluatesOn "input"|"step"
 ---@field ladder boolean
+---@field flipFace boolean
 
 ---@class TransitionTrigger -- the public trigger record: kind plus the attached warp
 ---@field kind "door"|"stairs"|"directional"|"generic"
 ---@field warp table?
+---@field destinationFacing string?
 local TransitionTrigger = {}
 
 -- The raw behavior byte vocabulary lives in MetatileBehavior, below this
@@ -138,7 +140,7 @@ local CLASSIFICATIONS = {
     requiredDirections = { "east", "west" },
     evaluatesOn = "step",
     transition = FieldTransitionProfile.fixed(FieldTransitionProfile.ESCALATOR),
-    destinationFacing = "west",
+    flipFace = true,
   },
   [BEHAVIOR.ESCALATOR] = {
     kind = "directional",
@@ -146,7 +148,6 @@ local CLASSIFICATIONS = {
     requiredDirections = { "east", "west" },
     evaluatesOn = "step",
     transition = FieldTransitionProfile.fixed(FieldTransitionProfile.ESCALATOR),
-    destinationFacing = "east",
   },
   [BEHAVIOR.WARP_EAST] = {
     kind = "directional",
@@ -192,7 +193,7 @@ function TransitionTrigger.classify(behavior)
     requiredDirections = record.requiredDirections,
     evaluatesOn = record.evaluatesOn,
     ladder = record.ladder or false,
-    destinationFacing = record.destinationFacing,
+    flipFace = record.flipFace or false,
   }
   if record.transition then
     classification.transition = {
@@ -262,7 +263,7 @@ local function blockedAt(runtimeMap, fieldX, fieldZ)
   return runtimeMap.collision:isBlockedLocal(localX, localZ)
 end
 
-local function attachWarp(classification, runtimeMap, fieldX, fieldZ)
+local function attachWarp(classification, runtimeMap, fieldX, fieldZ, destinationFacing)
   local warp = WarpSystem.findAt(runtimeMap, fieldX, fieldZ)
   if not warp then
     return nil
@@ -277,8 +278,8 @@ local function attachWarp(classification, runtimeMap, fieldX, fieldZ)
       profile = classification.transition.profile,
     }
   end
-  if classification.destinationFacing then
-    trigger.destinationFacing = classification.destinationFacing
+  if destinationFacing then
+    trigger.destinationFacing = destinationFacing
   end
   if classification.kind == "directional" and classification.transition == nil then
     error("directional transition classification is missing profile identity")
@@ -312,15 +313,16 @@ function TransitionTrigger.inputPath(runtimeMap, fieldX, fieldZ, direction)
     return attachWarp(standing, runtimeMap, fieldX, fieldZ)
   end
 
-  -- 2. Collision gates only the facing-tile door probe. Standing input
-  --    warps are evaluated independently of the tile ahead.
-  if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) == true then
-    local facing = classifyAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z)
-    if facing and facing.kind == "door" then
-      local trigger = attachWarp(facing, runtimeMap, fieldX + delta.x, fieldZ + delta.z)
-      if trigger then
-        return trigger
-      end
+  -- 2. Every non-ladder input-path transition requires the source collision
+  --    attribute on the facing tile before any family-specific probe.
+  if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) ~= true then
+    return nil
+  end
+  local facing = classifyAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z)
+  if facing and facing.kind == "door" then
+    local trigger = attachWarp(facing, runtimeMap, fieldX + delta.x, fieldZ + delta.z)
+    if trigger then
+      return trigger
     end
   end
 
@@ -348,7 +350,11 @@ function TransitionTrigger.stepPath(runtimeMap, fieldX, fieldZ, facing)
   if not TransitionTrigger.matchesDirection(classification, facing) then
     return nil
   end
-  return attachWarp(classification, runtimeMap, fieldX, fieldZ)
+  local destinationFacing = facing
+  if classification.flipFace then
+    destinationFacing = ({ north = "south", south = "north", east = "west", west = "east" })[facing]
+  end
+  return attachWarp(classification, runtimeMap, fieldX, fieldZ, destinationFacing)
 end
 
 return TransitionTrigger

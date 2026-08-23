@@ -34,7 +34,7 @@ local PENDING = {}
 -- (every script named by the override manifest) sits above the generated
 -- transcript. The effective base selection happens here so the composition
 -- layer only ever sees one base definition.
-local BASE_LAYERS = { generated = 1, override = 2 }
+local BASE_LAYERS = { builtin = 1, generated = 2, override = 3 }
 
 local VANILLA_OWNER = { kind = "vanilla", id = "base", api = 1 }
 
@@ -89,6 +89,15 @@ function Registry:installBase(id, script, layer)
   assert(BASE_LAYERS[layer] ~= nil, "base layer must be generated or override")
   self:_installLayer(id, layer, script)
   return script
+end
+
+---@param id string
+---@param script table
+function Registry:installBuiltin(id, script)
+  self:_assertMutable(id)
+  assert(type(id) == "string" and id ~= "", "script id required")
+  assert(type(script) == "table", "base script must be a table")
+  self:_installLayer(id, "builtin", script)
 end
 
 -- Record a base layer whose resource is not decoded yet; `base` resolves it
@@ -150,7 +159,7 @@ function Registry:base(id)
   if not layers then
     return nil
   end
-  local layer = layers.override and "override" or layers.generated and "generated"
+  local layer = layers.override and "override" or layers.generated and "generated" or layers.builtin and "builtin"
   if not layer then
     return nil
   end

@@ -46,11 +46,14 @@ function T.coordinate_matching_uses_source_order_and_half_open_bounds()
   )
 end
 
-function T.coordinate_matching_skips_variable_mismatch_and_zero_script()
+function T.coordinate_matching_skips_variable_mismatch_and_preserves_zero_script()
   local event = { index = 4, x = 4, z = 6, width = 1, height = 1, variableId = 7, requiredValue = 3, scriptId = 10 }
   Assert.isNil(FieldEventResolver.resolveCoordinate(map({ event }), player(4, 6, "north"), eventState(2)))
   event.scriptId = 0
-  Assert.isNil(FieldEventResolver.resolveCoordinate(map({ event }), player(4, 6, "north"), eventState(3)))
+  Assert.equal(
+    assert(FieldEventResolver.resolveCoordinate(map({ event }), player(4, 6, "north"), eventState(3))).scriptId,
+    0
+  )
 end
 
 function T.passive_sign_uses_only_north_type_one_and_ignores_direction_raw()

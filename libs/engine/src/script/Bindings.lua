@@ -18,6 +18,8 @@ local BINDINGS_MANIFEST_INVALID = "SCRIPT_BINDING_MANIFEST_INVALID"
 local Bindings = {}
 Bindings.__index = Bindings
 
+Bindings.CANONICAL_INERT_SCRIPT = "runtime.inert_interaction"
+
 Bindings.SCHEMA_NAME = "g4-script-bindings-v1"
 
 -- Validate the manifest structure strictly: the maps table is required, every
@@ -208,8 +210,17 @@ end
 ---@return table|nil { trigger, scriptId }
 function Bindings:resolveIntent(intent, playerFacing)
   local kind = intent.kind
+  local scriptId
+  if intent.scriptId == 0 then
+    scriptId = Bindings.CANONICAL_INERT_SCRIPT
+  elseif kind == "object" then
+    scriptId = self:scriptFor(intent.mapId, "object", intent.object.actorId)
+  elseif kind == "background" then
+    scriptId = self:scriptFor(intent.mapId, "background", intent.background.eventIndex)
+  elseif kind == "coordinate" then
+    scriptId = self:scriptFor(intent.mapId, "coordinate", intent.coordinateId)
+  end
   if kind == "object" then
-    local scriptId = self:scriptFor(intent.mapId, "object", intent.object.actorId)
     if scriptId == nil then
       return nil
     end
@@ -218,7 +229,6 @@ function Bindings:resolveIntent(intent, playerFacing)
       scriptId = scriptId,
     }
   elseif kind == "background" then
-    local scriptId = self:scriptFor(intent.mapId, "background", intent.background.eventIndex)
     if scriptId == nil then
       return nil
     end
@@ -227,7 +237,6 @@ function Bindings:resolveIntent(intent, playerFacing)
       scriptId = scriptId,
     }
   elseif kind == "coordinate" then
-    local scriptId = self:scriptFor(intent.mapId, "coordinate", intent.coordinateId)
     if scriptId == nil then
       return nil
     end

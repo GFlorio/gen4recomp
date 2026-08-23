@@ -144,6 +144,25 @@ function T.tests.elm_lab_second_floor_exits_east_through_production_input()
   end)
 end
 
+function T.tests.elm_lab_second_floor_exit_uses_the_compiled_facing_collision_gate()
+  withGame(TOWN, function(game)
+    enterLab2F(game)
+    local cell = assert(
+      warpCellWithBehavior(game, MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST),
+      "Elm Lab 2F must expose its east exit"
+    )
+    local origin = assert(game.runtime.runtimeMap.coordinateOrigin)
+    local aheadX, aheadZ = cell.fieldX + 1 - origin.x, cell.fieldZ - origin.z
+    Assert.isTrue(
+      game.runtime.runtimeMap.collision:isBlockedLocal(aheadX, aheadZ),
+      "the source-gated Elm Lab exit must have a blocked facing tile in compiled collision"
+    )
+    game:moveTo(cell)
+    game:step({ direction = "east" })
+    Assert.isFalse(game:snapshot().transition.phase == "idle")
+  end)
+end
+
 function T.tests.mid_step_direction_edge_cannot_start_passive_sign()
   withGame(TOWN, function(game)
     local typeOne = assert(backgroundCell(game, 1), "a scripted type-one background event is required")

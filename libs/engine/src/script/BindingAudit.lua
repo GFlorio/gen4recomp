@@ -3,8 +3,8 @@
 -- script id is interactable (the resolver starts the bound script); a
 -- background event with a script id is interactable unless it is the type-2
 -- hidden-item family the resolver declares noninteractive. Events whose
--- script id is 0 are the bank-script-0 no-interaction marker the resolver
--- treats as noninteractive. The hidden-item declaration is shared with the
+-- script id is 0 are satisfied by the canonical inert runtime script. The
+-- hidden-item declaration is shared with the
 -- resolver (`FieldInteractionResolver.isHiddenItem`): exempting those events
 -- and rejecting manifest bindings for them keeps the two sides of the
 -- declaration from drifting -- a bound hidden item could never dispatch. The

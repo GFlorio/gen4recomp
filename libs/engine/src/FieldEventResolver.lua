@@ -32,8 +32,7 @@ function FieldEventResolver.resolveCoordinate(runtimeMap, player, eventState)
   local events = assert(runtimeMap.fieldData.events.coordinates, "coordinate event collection required")
   for _, event in ipairs(events) do
     if
-      event.scriptId ~= 0
-      and player.fieldX >= event.x
+      player.fieldX >= event.x
       and player.fieldX < event.x + event.width
       and player.fieldZ >= event.z
       and player.fieldZ < event.z + event.height
@@ -60,7 +59,7 @@ function FieldEventResolver.resolvePassiveSign(runtimeMap, player)
   local targetX, targetZ = player.fieldX, player.fieldZ - 1
   local events = assert(runtimeMap.fieldData.events.background, "background event collection required")
   for _, event in ipairs(events) do
-    if event.x == targetX and event.z == targetZ and event.type == 1 and event.scriptId ~= 0 then
+    if event.x == targetX and event.z == targetZ and event.type == 1 then
       local intent = baseIntent("background", runtimeMap, player, targetX, targetZ, event.scriptId)
       intent.background = {
         eventIndex = event.index,
