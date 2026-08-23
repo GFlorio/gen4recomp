@@ -29,7 +29,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field previousWorldZ number
 ---@field surfaceId integer
 ---@field facing FieldDirection
----@field motion "idle"|"walking"|"climbing"|"transition"
+---@field motion "idle"|"walking"|"transition"
 ---@field progressTicks integer
 ---@field durationTicks integer
 ---@field bufferedDirection FieldDirection?
@@ -221,19 +221,6 @@ function FieldPlayer:scriptedStep(direction)
   return true
 end
 
--- The held stair movement the transition choreography drives (HGSS
--- sub_0205613C sets MapObject_SetHeldMovement and waits for its completion):
--- an in-place climb that completes after the player's own movement duration
--- and never commits a tile. The transition's stair choreography polls the
--- player's motion, so the movement duration has exactly one owner.
-function FieldPlayer:beginStairClimb()
-  assert(self.motion == "idle", "cannot begin a stair climb while walking")
-  self.motion = "climbing"
-  self.progressTicks = 0
-  self.durationTicks = FieldPlayer.WALK_STEP_TICKS
-  return true
-end
-
 function FieldPlayer:beginTransitionStep(direction)
   assert(self.motion == "idle", "cannot begin a transition step while moving")
   return self:scriptedStep(direction)
@@ -247,9 +234,6 @@ function FieldPlayer:beginTransitionMotion(profile, phase, facing)
   assert(self.motion == "idle", "cannot begin a transition motion while moving")
   assert(profile == 2 or profile == 7 or profile == 8, "profile has no player transition motion")
   self.motion = "transition"
-  self.transitionProfile = profile
-  self.transitionPhase = phase
-  self.transitionFacing = facing
   self.facing = facing
   self.progressTicks = 0
   self.durationTicks = 16
@@ -305,18 +289,6 @@ function FieldPlayer:updateFixed(input)
       self.bufferedDirection = input.pressedDirection
     end
     return self:_advanceStep()
-  end
-
-  -- The in-place stair climb advances on its own clock and commits nothing:
-  -- the transition choreography polls the motion, so a climbing player
-  -- absorbs ticks until the movement duration elapses, then rests idle.
-  if self.motion == "climbing" then
-    self.progressTicks = self.progressTicks + 1
-    if self.progressTicks >= self.durationTicks then
-      self.motion = "idle"
-      self.progressTicks = 0
-    end
-    return false
   end
 
   if self.motion == "transition" then

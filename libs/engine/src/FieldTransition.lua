@@ -39,17 +39,8 @@
 -- animation-list slots: doors are the mapProps doorway API and the player is
 -- the field locomotion contract.
 --
--- Stair warps are a separate policy: the transition takes movement ownership
--- as an in-place stair climb -- HGSS holds a stair movement and never steps
--- the player off the warp tile (unk_02055BF0.c sub_0205613C) -- plays the
--- stair sound (sndseq.h SEQ_SE_DP_KAIDAN2) when the climb completes, and
--- fades; after the black swap the destination side repeats the climb on the
--- destination stair tile and unlocks at the end of the fade-in. No door
--- animation anywhere, and no coordinate suppression, so pressing the gate
--- direction on the destination stair tile re-arms the transition immediately.
--- Stair warps require a player: production FieldRuntime always binds one
--- before any start, so a missing player is a programming fault, not a silent
--- degradation into an ordinary fade.
+-- Stair warps use the profile-owned locked source step and never use door
+-- animation or coordinate compensation.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local Errors = require("libs.errors.src.Errors")
@@ -75,14 +66,8 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field player table|nil -- FieldPlayer, bound by the owner across the swap
 ---@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"choreo_hold"
 ---@field fadeAlpha number
----@field fadeOutTicks integer
----@field fadeInTicks integer
----@field defaultFadeOutTicks integer
----@field defaultFadeInTicks integer
 ---@field fade FieldTransitionFade|nil
 ---@field fadeStarted boolean
----@field explicitFadeTicks boolean
----@field legacyFade boolean
 ---@field profileId integer|nil
 ---@field transitionMode "fixed"|"environment"|"panel"|nil
 ---@field destinationFacing FieldDirection
@@ -102,12 +87,6 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldTransition = {}
 FieldTransition.__index = FieldTransition
 
-FieldTransition.FADE_OUT_TICKS = 12
-FieldTransition.FADE_IN_TICKS = 12
--- HGSS plays the stair-climb sound after the held stair movement completes,
--- before the fade (unk_02055BF0.c sub_0205613C; sndseq.h SEQ_SE_DP_KAIDAN2).
--- The climb duration is the player's own movement duration
--- (FieldPlayer:beginStairClimb) -- the transition never owns a climb timer.
 FieldTransition.STAIR_SOUND = "SEQ_SE_DP_KAIDAN2"
 
 FieldTransition.PHASES = {
@@ -123,10 +102,6 @@ function FieldTransition.new(options)
   assert(options and options.loader, "field transition loader required")
   assert(type(options.prepare) == "function", "field transition prepare callback required")
   assert(type(options.commit) == "function", "field transition commit callback required")
-  local fadeOutTicks = options.fadeOutTicks or FieldTransition.FADE_OUT_TICKS
-  local fadeInTicks = options.fadeInTicks or FieldTransition.FADE_IN_TICKS
-  assert(fadeOutTicks > 0 and fadeOutTicks == math.floor(fadeOutTicks), "positive fade-out ticks required")
-  assert(fadeInTicks > 0 and fadeInTicks == math.floor(fadeInTicks), "positive fade-in ticks required")
   return setmetatable({
     loader = options.loader,
     resolveDestination = options.resolveDestination or WarpSystem.resolveDestination,
@@ -140,10 +115,6 @@ function FieldTransition.new(options)
     onPanel = options.onPanel,
     callbackOwner = options.callbackOwner,
     player = options.player,
-    fadeOutTicks = fadeOutTicks,
-    fadeInTicks = fadeInTicks,
-    defaultFadeOutTicks = fadeOutTicks,
-    defaultFadeInTicks = fadeInTicks,
     profileId = nil,
     transitionMode = nil,
     destinationFacing = nil,
@@ -156,10 +127,7 @@ function FieldTransition.new(options)
     destinationChoreo = nil,
     fadeAlpha = 0,
     fade = nil,
-    profileStateData = nil,
     fadeStarted = false,
-    legacyFade = false,
-    explicitFadeTicks = options.fadeOutTicks ~= nil or options.fadeInTicks ~= nil,
   }, FieldTransition)
 end
 
@@ -221,14 +189,8 @@ local function beginProfileMotion(self, phase)
     if phase ~= "exit" then
       return false
     end
-    if self.player and type(self.player.beginTransitionStep) == "function" then
-      return self.player:beginTransitionStep(self.facing or self.destinationFacing)
-    end
-    if self.player and type(self.player.beginStairClimb) == "function" then
-      self.player:beginStairClimb()
-      return true
-    end
-    error("stair warps require a player with a held stair movement (FieldPlayer)", 0)
+    assert(self.player and type(self.player.beginTransitionStep) == "function", "stair transition step required")
+    return self.player:beginTransitionStep(self.facing or self.destinationFacing)
   end
   if self.profileId ~= 2 and self.profileId ~= 7 and self.profileId ~= 8 then
     return false
@@ -242,10 +204,7 @@ local function beginProfileMotion(self, phase)
 end
 
 local function advanceProfileMotion(self)
-  if
-    self.player
-    and (self.player.motion == "transition" or self.player.motion == "walking" or self.player.motion == "climbing")
-  then
+  if self.player and (self.player.motion == "transition" or self.player.motion == "walking") then
     return self.player:updateFixed({})
   end
   return false
@@ -294,44 +253,6 @@ local function adjustHorizontalStairDestination(self, resolution)
   resolution.surfaceId = sample.surfaceId
   resolution.worldY = sample.worldY
   self.destinationFacing = facing
-end
-
-local function adjustHeadlessDoorDestination(self, resolution)
-  local destinationWarp = resolution.destinationWarp
-  if not destinationWarp then
-    return
-  end
-  if
-    type(resolution.destinationMap.collision) ~= "table"
-    or type(resolution.destinationMap.collision.getLocal) ~= "function"
-  then
-    return
-  end
-  local localX, localZ = FieldCoordinates.fieldToLocal(resolution.destinationMap, destinationWarp.x, destinationWarp.z)
-  local behavior = resolution.destinationMap.collision:getLocal(localX, localZ).behavior
-  if not MetatileBehavior.isDoor(behavior) then
-    return
-  end
-  local deltas = {
-    north = { x = 0, z = -1 },
-    south = { x = 0, z = 1 },
-    west = { x = -1, z = 0 },
-    east = { x = 1, z = 0 },
-  }
-  local delta = deltas[self.destinationFacing]
-  assert(delta, "headless door destination facing required")
-  local fieldX = destinationWarp.x + delta.x
-  local fieldZ = destinationWarp.z + delta.z
-  local adjustedLocalX, adjustedLocalZ = FieldCoordinates.fieldToLocal(resolution.destinationMap, fieldX, fieldZ)
-  local sample = SurfaceResolver.new(resolution.destinationMap.terrain):resolve({
-    localX = adjustedLocalX + FieldCoordinates.TILE_CENTER_OFFSET,
-    localZ = adjustedLocalZ + FieldCoordinates.TILE_CENTER_OFFSET,
-    currentY = resolution.worldY,
-  })
-  resolution.fieldX = fieldX
-  resolution.fieldZ = fieldZ
-  resolution.surfaceId = sample.surfaceId
-  resolution.worldY = sample.worldY
 end
 
 local function selectProfile(self, sourceMap, trigger)
@@ -393,7 +314,7 @@ local function beginSourceChoreography(self)
   local kind = self.sourceKind
   if kind == "door" then
     if not self.doorAt then
-      self.sourceKind = nil
+      self.sourceChoreo = "done"
       return
     end
     local door = self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
@@ -417,12 +338,6 @@ local function beginSourceChoreography(self)
     end
     self.sourceChoreo = "wait_open"
     return
-  end
-  if kind == "stairs" then
-    -- The climb is the player's held stair movement (HGSS
-    -- MapObject_SetHeldMovement), so the movement starts here and its
-    -- completion -- not a transition timer -- fires the sound and gates the
-    -- choreography.
   end
   if self.transitionMode == FieldTransitionProfile.MODE_PANEL then
     return
@@ -457,10 +372,7 @@ end
 local function advanceSourceChoreo(self)
   if self.sourceChoreo == "profile_motion" then
     advanceProfileMotion(self)
-    if
-      not self.player
-      or (self.player.motion ~= "transition" and self.player.motion ~= "walking" and self.player.motion ~= "climbing")
-    then
+    if not self.player or (self.player.motion ~= "transition" and self.player.motion ~= "walking") then
       self.sourceChoreo = "done"
     end
     return
@@ -596,10 +508,6 @@ end
 -- climb never reports locomotion: the player stays on the warp tile. Stair
 -- warps require a player (asserted at the source begin), so one is always
 -- bound here.
-local function advanceStairClimb(self)
-  return false
-end
-
 local function finish(self)
   self.fadeAlpha = 0
   self.fade = nil
@@ -610,7 +518,6 @@ local function finish(self)
   self.destinationDoor = nil
   self.sourceChoreo = nil
   self.destinationChoreo = nil
-  self.legacyFade = self.profileId == nil or self.explicitFadeTicks
   self.completed = {
     sourceMapId = self.sourceMap.mapId,
     destinationMapId = self.resolution.destinationMap.mapId,
@@ -632,11 +539,7 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.sourceKind = trigger.kind
   self.transitionMode = nil
   self.destinationFacing = trigger.destinationFacing or facing
-  self.fadeOutTicks = self.defaultFadeOutTicks
-  self.fadeInTicks = self.defaultFadeInTicks
   self.profileId, self.transitionMode = selectProfile(self, sourceMap, trigger)
-  self.legacyFade = self.profileId == nil or self.explicitFadeTicks
-  self.profileRoutine = self.profileId and FieldTransitionProfile.ROUTINES[self.profileId] or "panel"
   self.facing = facing
   self.progressTicks = 0
   self.resolution = nil
@@ -676,14 +579,11 @@ function FieldTransition:start(sourceMap, trigger, facing)
     end
   end
   runChoreo(self, beginSourceChoreography)
-  if self.legacyFade and self.profileId then
-    local family = profileFamily(self)
-    if family.exitSound and self.playSound then
-      self.playSound(family.exitSound)
-    end
-  end
-  if self.profileId and self.sourceKind ~= "door" and self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS then
-    startFade(self, "out", profileFamily(self).fadeColor or 0)
+  if
+    (self.sourceKind ~= "door" or self.sourceChoreo == "done")
+    and self.profileId ~= FieldTransitionProfile.HORIZONTAL_STAIRS
+  then
+    startFade(self, "out", self.profileId and profileFamily(self).fadeColor or 0)
   end
 end
 
@@ -726,7 +626,6 @@ function FieldTransition:updateFixed()
     -- open wait, true while the ingress step runs.
     local playerAdvanced = self.sourceChoreo ~= nil and self.player ~= nil and self.player.motion == "walking"
     local fadeWasStarted = self.fadeStarted
-    advanceStairClimb(self)
     if self.sourceChoreo then
       runChoreo(self, advanceSourceChoreo)
     end
@@ -741,15 +640,11 @@ function FieldTransition:updateFixed()
     -- The ingress finishes after the 12-tick fade, so the fade clamps at
     -- black and holds until the choreography completes -- the swap only ever
     -- happens at full black.
-    if self.legacyFade then
-      self.fadeAlpha = math.min(1, self.progressTicks / self.fadeOutTicks)
-    else
-      if fadeWasStarted then
-        advanceFade(self)
-      end
-      if not self.fadeStarted then
-        self.fadeAlpha = 0
-      end
+    if fadeWasStarted then
+      advanceFade(self)
+    end
+    if not self.fadeStarted then
+      self.fadeAlpha = 0
     end
     if self.fadeAlpha == 1 and (not self.sourceChoreo or self.sourceChoreo == "done") then
       self.phase = FieldTransition.PHASES.load_destination
@@ -764,14 +659,16 @@ function FieldTransition:updateFixed()
         adjustHorizontalStairDestination(self, result)
       end
       detectDestinationDoor(self)
-      if self.doorAt and not self.destinationDoor then
-        adjustHeadlessDoorDestination(self, result)
-      end
       -- Door and stair warps never suppress: the player egresses off the anchor
       -- (doors) or lands on the standing stair tile (stairs), so pressing back
       -- re-arms immediately. Generic standing-tile warps keep coordinate
       -- suppression.
-      if self.sourceKind == "door" or self.destinationDoor ~= nil or self.sourceKind == "stairs" then
+      if
+        self.sourceKind == "door"
+        or self.sourceKind == "directional"
+        or self.destinationDoor ~= nil
+        or self.sourceKind == "stairs"
+      then
         self.suppression = nil
       else
         self.suppression = result.suppression
@@ -809,6 +706,8 @@ function FieldTransition:updateFixed()
         self.destinationChoreo = "profile_motion"
       end
       startFade(self, "in", family.fadeColor or 0)
+    else
+      startFade(self, "in", 0)
     end
     if self.destinationChoreo == nil and (self.sourceKind == "door" or self.destinationDoor ~= nil) then
       runChoreo(self, beginDestinationChoreography)
@@ -824,18 +723,12 @@ function FieldTransition:updateFixed()
     local playerAdvanced = self.destinationChoreo ~= nil
       and self.player ~= nil
       and (self.player.motion == "walking" or self.player.motion == "transition")
-    advanceStairClimb(self)
     if self.destinationChoreo then
       runChoreo(self, advanceDestinationChoreo)
     end
     if self.phase == FieldTransition.PHASES.fade_in then
-      if self.legacyFade then
-        self.progressTicks = self.progressTicks + 1
-        self.fadeAlpha = math.max(0, 1 - self.progressTicks / self.fadeInTicks)
-      else
-        advanceFade(self)
-      end
-      if self.legacyFade and self.fadeAlpha == 0 or self.fade and self.fade:status().completed then
+      advanceFade(self)
+      if self.fade and self.fade:status().completed then
         if not self.destinationChoreo or self.destinationChoreo == "done" then
           finish(self)
         else

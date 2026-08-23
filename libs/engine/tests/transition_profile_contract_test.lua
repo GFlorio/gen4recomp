@@ -7,6 +7,16 @@ local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 
 local T = { tests = {} }
 
+local function advanceTo(transition, phase, maxTicks)
+  for _ = 1, maxTicks do
+    if transition.phase == phase then
+      return
+    end
+    transition:updateFixed()
+  end
+  Assert.equal(transition.phase, phase)
+end
+
 -- Environment-selected profiles use the generated semantic map matrix,
 -- including an explicit failure for unsupported pairs.
 function T.tests.a_d05_02_environment_selection_matches_hgss_matrix()
@@ -80,15 +90,13 @@ function T.tests.ordinary_profiles_share_source_exit_audio_and_fade()
     observations[#observations + 1] = {
       profile = profile,
       sounds = sounds,
-      fadeOutTicks = transition.fadeOutTicks,
-      fadeInTicks = transition.fadeInTicks,
+      fade = transition.fade:status(),
     }
   end
 
   Assert.deepEqual(observations[1].sounds, { "SEQ_SE_DP_KAIDAN2" }, "profile 0 source exit audio")
   Assert.deepEqual(observations[2].sounds, observations[1].sounds, "profile 6 shares profile 0 source exit audio")
-  Assert.equal(observations[2].fadeOutTicks, observations[1].fadeOutTicks, "profile 6 shares profile 0 source fade-out")
-  Assert.equal(observations[2].fadeInTicks, observations[1].fadeInTicks, "profile 6 shares profile 0 source fade-in")
+  Assert.equal(observations[2].fade.coefficient, observations[1].fade.coefficient)
 end
 
 function T.tests.transition_motion_profiles_require_the_player_motion_contract()
@@ -180,8 +188,6 @@ function T.tests.field_transition_uses_trigger_destination_facing()
   }
   local transition = FieldTransition.new({
     loader = {},
-    fadeOutTicks = 1,
-    fadeInTicks = 1,
     resolveDestination = function()
       return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
     end,
@@ -196,8 +202,7 @@ function T.tests.field_transition_uses_trigger_destination_facing()
     transition = { mode = "fixed", profile = FieldTransitionProfile.ESCALATOR },
     destinationFacing = "west",
   }, "east")
-  transition:updateFixed()
-  transition:updateFixed()
+  advanceTo(transition, "swap_map", 4)
   Assert.equal(receivedFacing, "west")
 end
 
@@ -206,8 +211,6 @@ local function runTransition(options)
   local destination = { mapId = 60 }
   local transition = FieldTransition.new({
     loader = {},
-    fadeOutTicks = 1,
-    fadeInTicks = 1,
     resolveDestination = function()
       return {
         destinationMap = destination,
@@ -354,8 +357,6 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
   }
   local transition = FieldTransition.new({
     loader = {},
-    fadeOutTicks = 1,
-    fadeInTicks = 1,
     resolveDestination = function()
       return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
     end,
@@ -420,8 +421,6 @@ function T.tests.panel_lifecycle_notifies_each_side_once_without_profile_dispatc
   local profiles = {}
   local transition = FieldTransition.new({
     loader = {},
-    fadeOutTicks = 1,
-    fadeInTicks = 1,
     resolveDestination = function()
       return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
     end,
@@ -438,7 +437,7 @@ function T.tests.panel_lifecycle_notifies_each_side_once_without_profile_dispatc
     warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
     transition = { mode = "panel" },
   }, "south")
-  for _ = 1, 5 do
+  for _ = 1, 10 do
     if transition.phase == "idle" then
       break
     end
@@ -478,8 +477,6 @@ function T.tests.profile_hook_failure_aborts_before_commit_but_after_commit_prop
 
   local after = FieldTransition.new({
     loader = {},
-    fadeOutTicks = 1,
-    fadeInTicks = 1,
     resolveDestination = function()
       return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
     end,
@@ -495,8 +492,7 @@ function T.tests.profile_hook_failure_aborts_before_commit_but_after_commit_prop
     warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
     transition = { mode = "fixed", profile = 4 },
   }, "south")
-  after:updateFixed()
-  after:updateFixed()
+  advanceTo(after, "swap_map", 4)
   local ok, err = pcall(after.updateFixed, after)
   Assert.isFalse(ok)
   Assert.equal(tostring(err), "enter failed")

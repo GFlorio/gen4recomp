@@ -184,8 +184,6 @@ end
 function FieldCamera:adjustTransition(profile, adjustment)
   assert(type(profile) == "number", "transition camera profile required")
   assert(type(adjustment) == "string", "transition camera adjustment required")
-  self.transitionProfile = profile
-  self.transitionAdjustment = adjustment
   local sourceTarget = self.sourceTarget
   if self.transitionPlayer then
     sourceTarget = copyVector(self.transitionPlayer:renderPosition())

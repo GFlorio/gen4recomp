@@ -17,18 +17,6 @@ FieldTransitionProfile.MODE_FIXED = "fixed"
 FieldTransitionProfile.MODE_PANEL = "panel"
 FieldTransitionProfile.MODE_ENVIRONMENT = "environment"
 
-FieldTransitionProfile.ROUTINES = {
-  [0] = "ordinary",
-  [1] = "door",
-  [2] = "escalator",
-  [3] = "horizontal_stairs",
-  [4] = "cave",
-  [5] = "outdoor",
-  [6] = "ordinary_indoor",
-  [7] = "ladder",
-  [8] = "ladder_down",
-}
-
 -- The source task table is kept as semantic routine families.  Consumers use
 -- the names to select choreography; they do not need to know the source
 -- symbol that introduced each family.

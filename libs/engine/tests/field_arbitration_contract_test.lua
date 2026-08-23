@@ -57,7 +57,6 @@ function T.input_path_requires_the_facing_collision_gate_after_ladder_check()
     { behavior = BEHAVIOR.WARP_ENTRANCE_SOUTH, direction = "south" },
     { behavior = BEHAVIOR.WARP_ENTRANCE_EAST, direction = "east" },
     { behavior = BEHAVIOR.WARP_ENTRANCE_WEST, direction = "west" },
-    { behavior = BEHAVIOR.WARP_STAIRS_EAST, direction = "east" },
   }) do
     local delta =
       { north = { x = 0, z = -1 }, south = { x = 0, z = 1 }, east = { x = 1, z = 0 }, west = { x = -1, z = 0 } }

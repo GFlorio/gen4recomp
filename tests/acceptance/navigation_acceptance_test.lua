@@ -103,7 +103,6 @@ function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
       Assert.deepEqual(game:ownership().mapProtectedIds, { transition.destination.mapId })
       game:step()
       Assert.equal(game:snapshot().mapSymbol, TOWN)
-
       game:move("north")
       game:waitForTransition()
       Assert.equal(game:snapshot().mapSymbol, LAB)
