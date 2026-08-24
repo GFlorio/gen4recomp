@@ -129,8 +129,21 @@ local function animatedAssets()
   }
 end
 
-local function genderConfirmation()
-  local state = controller()
+local function finalSequenceAssets()
+  return {
+    marill = { frames = { { duration = 1 } } },
+    marill_appear = { frames = { { duration = 1 } } },
+    ball_open = { frames = { { duration = 1 } } },
+    male = { frames = { { duration = 1 } } },
+    female = { frames = { { duration = 1 } } },
+    shrink_male = { frames = { { duration = 8 }, { duration = 8 }, { duration = 8 }, { duration = 8 } } },
+    shrink_female = { frames = { { duration = 8 }, { duration = 8 }, { duration = 8 }, { duration = 8 } } },
+  }
+end
+
+local function genderConfirmation(selectFemale, options)
+  selectFemale = selectFemale ~= false
+  local state = controller(options)
   state:start()
   state:tick(40)
   state:press("confirm")
@@ -144,22 +157,25 @@ local function genderConfirmation()
   state:press("confirm")
   state:press("confirm")
   state:tick(40)
-  state:press("right")
+  if selectFemale then
+    state:press("right")
+  end
   state:press("confirm")
   Assert.equal(state:view().phase, "gender_confirm")
-  state:messageCompleted("profile.gender_confirm.female")
+  state:messageCompleted(selectFemale and "profile.gender_confirm.female" or "profile.gender_confirm.male")
   Assert.deepEqual(state:view().confirmationChoice, { kind = "gender", selected = 0 })
   return state
 end
 
-local function nameConfirmation()
-  local state = genderConfirmation()
+local function nameConfirmation(selectFemale, options)
+  options = options or {}
+  local state = genderConfirmation(selectFemale, options)
   state:press("confirm")
   state:press("confirm")
   state:tick(40)
   state:inputText("GOLD")
   state:press("submit")
-  state:messageCompleted("profile.name_confirm.female")
+  state:messageCompleted(selectFemale == false and "profile.name_confirm.male" or "profile.name_confirm.female")
   Assert.equal(state:view().phase, "name_confirm")
   Assert.deepEqual(state:view().confirmationChoice, { kind = "name", selected = 0 })
   return state
@@ -521,15 +537,89 @@ function T.shrink_frames_remain_drawable_until_their_generated_durations_end()
   state:press("submit")
   state:press("confirm")
   state:press("confirm")
-  Assert.equal(state:view().phase, "shrink_wait")
+  Assert.equal(state:view().phase, "final_fade_out")
+  state:tick(1)
+  Assert.equal(state:view().phase, "final_full_art_fade_in")
+  Assert.equal(state:view().primaryWidget, "male")
+  state:tick(1)
+  Assert.equal(state:view().phase, "final_full_art_hold")
   state:tick(30)
   Assert.equal(state:view().phase, "shrink_animation")
   Assert.equal(state:view().visualFrameIndex, 1)
-  state:tick(4)
+  state:tick(2)
   Assert.equal(state:view().phase, "shrink_animation")
   Assert.equal(state:view().visualFrameIndex, 2)
-  state:tick(1)
+  state:tick(3)
   Assert.equal(state:view().phase, "complete")
+end
+
+function T.final_handoff_shows_selected_full_art_then_source_timed_shrink_for_both_genders()
+  for _, gender in ipairs({ 0, 1 }) do
+    local sounds = audio()
+    local state = controller({ audio = sounds, assets = finalSequenceAssets() })
+    state:start()
+    state:tick(40)
+    state:press("confirm")
+    state:tick(6 + 30)
+    state:press("confirm")
+    state:tick(26)
+    state:press("confirm")
+    state:tick(31 + 40)
+    state:press("confirm")
+    state:tick(30 + 26)
+    state = nameConfirmation(gender == 1, { audio = sounds, assets = finalSequenceAssets() })
+    state:press("confirm")
+    Assert.equal(state:view().phase, "final_dialogue")
+    state:press("confirm")
+    Assert.equal(state:view().phase, "final_fade_out")
+    Assert.equal(state:view().primaryWidget, nil)
+    Assert.isNil(state:result())
+
+    state:tick(1)
+    Assert.equal(state:view().phase, "final_full_art_fade_in")
+    Assert.equal(state:view().primaryWidget, gender == 0 and "male" or "female")
+    Assert.isNil(state:result())
+
+    state:tick(1)
+    Assert.equal(state:view().phase, "final_full_art_hold")
+    Assert.equal(state:view().primaryWidget, gender == 0 and "male" or "female")
+    state:tick(29)
+    Assert.equal(state:view().phase, "final_full_art_hold")
+    Assert.isNil(state:result())
+    state:tick(1)
+    Assert.equal(state:view().phase, "shrink_animation")
+    Assert.equal(state:view().visualFrameIndex, 1)
+    Assert.equal(state:view().primaryWidget, gender == 0 and "shrink_male" or "shrink_female")
+
+    local soundCount = 0
+    for _, event in ipairs(sounds.trace) do
+      if event.name == "effect" and event.value == "SEQ_SE_GS_HERO_SHUKUSHOU" then
+        soundCount = soundCount + 1
+      end
+    end
+    Assert.equal(soundCount, 1)
+    state:tick(8)
+    Assert.equal(state:view().visualFrameIndex, 2)
+    Assert.isNil(state:result())
+    state:tick(8 * 3)
+    Assert.equal(state:view().phase, "complete")
+    Assert.notNil(state:result())
+    local handoffs = 0
+    for _, event in ipairs(state:view().events) do
+      if event.kind == "handoff" then
+        handoffs = handoffs + 1
+      end
+    end
+    Assert.equal(handoffs, 1)
+    state:tick(20)
+    local repeatedHandoffs = 0
+    for _, event in ipairs(state:view().events) do
+      if event.kind == "handoff" then
+        repeatedHandoffs = repeatedHandoffs + 1
+      end
+    end
+    Assert.equal(repeatedHandoffs, 1)
+  end
 end
 
 function T.virtual_keyboard_focus_reaches_delete_and_confirm_actions()
@@ -632,7 +722,7 @@ function T.finalization_handoff_keeps_reserved_identity_without_storage_publicat
   state:press("submit")
   state:press("confirm")
   state:press("confirm")
-  state:tick(30)
+  state:tick(1 + 1 + 30)
   Assert.equal(state:view().phase, "complete")
   local result = assert(state:result())
   Assert.equal(result.saveId, "save-00000017")

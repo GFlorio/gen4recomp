@@ -53,8 +53,8 @@ local IntroAssets = {
     },
   },
   shrink = {
-    male = { palette = 16, chars = { 12, 22, 23, 24, 25 } },
-    female = { palette = 21, chars = { 17, 26, 27, 28, 29 } },
+    male = { palette = 16, chars = { 22, 23, 24, 25 } },
+    female = { palette = 21, chars = { 26, 27, 28, 29 } },
   },
   ball_open = {
     archive = "intro",

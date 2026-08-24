@@ -24,6 +24,12 @@ function T.reveal_source_configuration_uses_resource_set_five_sequences_and_pale
   end
 end
 
+function T.shrink_source_configuration_starts_after_the_displayed_full_portrait()
+  local config = require("romdump.src.config.IntroAssets")
+  Assert.deepEqual(config.shrink.male.chars, { 22, 23, 24, 25 })
+  Assert.deepEqual(config.shrink.female.chars, { 26, 27, 28, 29 })
+end
+
 local function introCache()
   local ok, cache = pcall(require, "libs.assets.src.IntroAssetCache")
   if not ok then

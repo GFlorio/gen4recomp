@@ -35,6 +35,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field dialogue { message: string|table|nil, messageKey: string? }?
 ---@field revealFrameIndex integer|nil
 ---@field flashAlpha number
+---@field finalFadeAlpha number black overlay alpha for the final handoff
 ---@field genderFocus integer
 ---@field name string
 ---@field virtualGlyphFocus integer
@@ -68,6 +69,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _visualFrameIndex integer
 ---@field private _visualFrameTimer integer?
 ---@field private _flashFrames integer
+---@field private _finalFadeAlpha number
 ---@field private _revealFrameIndex integer|nil
 ---@field private _revealFrameTimer integer|nil
 ---@field private _revealWidget string|nil
@@ -98,7 +100,8 @@ local BALL_OPEN_WAIT = 30
 local MARILL_CRY_WAIT = 40
 local MARILL_HIDE_WAIT = 30
 local NAME_LAUNCH_WAIT = 40
-local SHRINK_WAIT = 30
+local FINAL_FULL_ART_HOLD = 30
+local FINAL_FADE_FRAMES = 1
 local FLASH_FRAMES = 4
 local OAK_SLIDE_OFFSET = -52
 
@@ -188,6 +191,7 @@ function OakIntroController.new(options)
     _visualFrameIndex = 1,
     _visualFrameTimer = nil,
     _flashFrames = 0,
+    _finalFadeAlpha = 0,
     _revealFrameIndex = nil,
     _revealFrameTimer = nil,
     _revealWidget = nil,
@@ -405,7 +409,22 @@ function OakIntroController:_stepFrame()
     if self._timer == 0 then
       self:_enterNameEditor()
     end
-  elseif self._phase == "shrink_wait" then
+  elseif self._phase == "final_fade_out" then
+    self._timer = self._timer - 1
+    if self._timer == 0 then
+      self._finalFadeAlpha = 1
+      self:_setVisual(self._genderFocus == 0 and "male" or "female")
+      self._phase = "final_full_art_fade_in"
+      self._timer = FINAL_FADE_FRAMES
+    end
+  elseif self._phase == "final_full_art_fade_in" then
+    self._timer = self._timer - 1
+    if self._timer == 0 then
+      self._finalFadeAlpha = 0
+      self._phase = "final_full_art_hold"
+      self._timer = FINAL_FULL_ART_HOLD
+    end
+  elseif self._phase == "final_full_art_hold" then
     self._timer = self._timer - 1
     if self._timer == 0 then
       self._audio:play("SEQ_SE_GS_HERO_SHUKUSHOU")
@@ -574,9 +593,12 @@ function OakIntroController:press(action)
     self._phase = "final_dialogue"
     self:_setMessage("profile.final")
   elseif (action == "confirm" or action == "yes") and self._phase == "final_dialogue" then
-    self._phase = "shrink_wait"
-    self._timer = SHRINK_WAIT
-    self:_event("shrink_started", "player")
+    self._phase = "final_fade_out"
+    self._timer = FINAL_FADE_FRAMES
+    self._finalFadeAlpha = 0
+    self._message = nil
+    self._messageKey = nil
+    self:_event("final_handoff_started", "player")
   else
     return false
   end
@@ -651,6 +673,7 @@ function OakIntroController:view()
     revealWidget = self._revealWidget,
     revealFrameIndex = self._revealFrameIndex,
     oakSlideOffset = self._oakSlideOffset,
+    finalFadeAlpha = self._finalFadeAlpha,
   }
 end
 

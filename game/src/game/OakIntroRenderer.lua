@@ -154,6 +154,11 @@ function OakIntroRenderer:draw(view)
     graphics.setColor(1, 1, 1, view.flashAlpha)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
+  local finalFadeAlpha = view.finalFadeAlpha or 0
+  if finalFadeAlpha > 0 then
+    graphics.setColor(0, 0, 0, finalFadeAlpha)
+    graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
+  end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
     drawAsset(self, "gender_background", 1, assert(layout.genderBackground))
     drawAsset(self, "gender_male", 1, assert(layout.genderChoices[0]))

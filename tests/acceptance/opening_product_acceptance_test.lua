@@ -60,7 +60,30 @@ local function tick(frames)
   end
 end
 
-local function completeOak()
+local function withDrawRecorder(trace, fn)
+  local originalDraw = love.graphics.draw
+  love.graphics.draw = function(image, ...)
+    local state = App.state
+    local view = state and state.view and state:view() or nil
+    if view and view.phase then
+      trace[#trace + 1] = {
+        image = image,
+        phase = view.phase,
+        primaryWidget = view.primaryWidget,
+      }
+    end
+    -- Keep App.draw and OakIntroRenderer production-composed while stopping
+    -- at the host draw boundary; image identity and ordering are the contract.
+    return nil
+  end
+  local ok, err = xpcall(fn, debug.traceback)
+  love.graphics.draw = originalDraw
+  if not ok then
+    error(err, 0)
+  end
+end
+
+local function completeOak(onDraw)
   local interactive = {
     greeting = true,
     oak_welcome = true,
@@ -78,6 +101,9 @@ local function completeOak()
     Assert.notNil(App.state, "Oak must remain active until the profile is finalized")
     if App.state.runtime ~= nil then
       return
+    end
+    if onDraw then
+      onDraw()
     end
     local view = App.state:view()
     if view.phase == "name_edit" then
@@ -177,6 +203,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
   local namespace = "acceptance/opening-product"
   local audio = FakeAudioOutput.new()
   local saveStore = GameSaveStore.new(SaveFs.global(isolatedBackend(namespace)))
+  local handoffDraws = {}
   local original = { opts = App.opts, state = App.state, saveStore = App.saveStore, versionId = App.versionId }
   local ok, err = xpcall(function()
     ---@diagnostic disable-next-line: missing-fields
@@ -204,7 +231,32 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     ---@diagnostic disable-next-line: undefined-field
     Assert.equal(#saveStore:list(), 0)
     press("a")
-    completeOak()
+    withDrawRecorder(handoffDraws, function()
+      completeOak(function()
+        local phase = App.state:view().phase
+        if
+          phase == "final_dialogue"
+          or phase == "final_fade_out"
+          or phase == "final_full_art_fade_in"
+          or phase == "final_full_art_hold"
+          or phase == "shrink_animation"
+        then
+          App.draw()
+        end
+      end)
+    end)
+    local fullArtImages = {}
+    local shrinkImages = {}
+    for _, draw in ipairs(handoffDraws) do
+      if draw.primaryWidget == "male" or draw.primaryWidget == "female" then
+        fullArtImages[#fullArtImages + 1] = draw.image
+      elseif draw.primaryWidget == "shrink_male" or draw.primaryWidget == "shrink_female" then
+        shrinkImages[#shrinkImages + 1] = draw.image
+      end
+    end
+    Assert.isTrue(#fullArtImages > 0, "full player art was never drawn before field entry")
+    Assert.isTrue(#shrinkImages >= 2, "fewer than two shrink frames were drawn before field entry")
+    Assert.isTrue(shrinkImages[1] ~= shrinkImages[2], "shrink frames reused one image")
     local runtime = assert(App.state.runtime)
     Assert.equal(runtime.runtimeMap.mapSymbol, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
     ---@diagnostic disable-next-line: undefined-field
