@@ -119,6 +119,8 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field audio FieldAudioController? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
+---@field presentationFrameAccumulator number elapsed wall-clock time awaiting transition presentation frames
+---@field audioFrameAccumulator number elapsed wall-clock time awaiting semantic sound frames
 ---@field localClock LocalClock the shared host-local civil-time boundary
 ---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 local FieldRuntime = {}
@@ -132,6 +134,10 @@ local AUDIO_SAMPLE_RATE = 32768
 -- advancement independent of the field's 30 Hz simulation tick.
 local AUDIO_FRAME_HZ = 60
 local AUDIO_FRAME_DT = 1 / AUDIO_FRAME_HZ
+-- The 60 Hz transition presentation clock is independent from field
+-- simulation and semantic audio progression.
+local PRESENTATION_FRAME_HZ = 60
+local PRESENTATION_FRAME_DT = 1 / PRESENTATION_FRAME_HZ
 local CAMERA_PROFILES_PATH = FieldCameraCache.profilesPath()
 ---@return table<string, boolean>
 local function actionBindings()
@@ -318,6 +324,7 @@ function FieldRuntime.new(game, options)
     -- loop converts into due semantic sound frames, one per complete
     -- 1/60-second interval.
     audioFrameAccumulator = 0,
+    presentationFrameAccumulator = 0,
   }, FieldRuntime)
   self.weatherClock = self.weatherClock or defaultWeatherClock(self.localClock)
   self:_load()
@@ -329,6 +336,9 @@ function FieldRuntime:_load()
   -- clean on every boot: a reset re-boots through _load, so a stale
   -- pre-reset residue must never carry into the fresh runtime.
   self.audioFrameAccumulator = 0
+  -- Presentation and audio accumulators are transient wall-clock state and
+  -- start clean on every boot.
+  self.presentationFrameAccumulator = 0
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
     self.cacheFs = cacheFs
@@ -724,45 +734,62 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
+  self.presentationFrameAccumulator = self.presentationFrameAccumulator + dt
+  self.session.accumulator = self.session.accumulator + dt
   if self.audio then
     self.audioFrameAccumulator = self.audioFrameAccumulator + dt
-    self.session.accumulator = self.session.accumulator + dt
-    local FIXED_DT = FieldSession.FIXED_DT
-    local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
-    local EPSILON = 1e-12
-    local fieldExecuted = 0
-    while true do
-      local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
-      local canAudio = self.audioFrameAccumulator + EPSILON >= AUDIO_FRAME_DT
-      if not canField and not canAudio then
+  end
+  local FIXED_DT = FieldSession.FIXED_DT
+  local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
+  local EPSILON = 1e-12
+  local fieldExecuted = 0
+  while true do
+    local canPresentation = self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
+    local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
+    local canAudio = self.audio ~= nil and self.audioFrameAccumulator + EPSILON >= AUDIO_FRAME_DT
+    if not canPresentation and not canField and not canAudio then
+      break
+    end
+    local nextPresentationDelta = PRESENTATION_FRAME_DT - self.presentationFrameAccumulator
+    local nextFieldDelta = FIXED_DT - self.session.accumulator
+    local nextAudioDelta = self.audio and AUDIO_FRAME_DT - self.audioFrameAccumulator or math.huge
+    -- A field tick at the same timestamp starts the transition before its
+    -- source-frame presentation; presentation precedes audio on a tie.
+    if
+      canPresentation
+      and (not canField or nextPresentationDelta < nextFieldDelta)
+      and (not canAudio or nextPresentationDelta <= nextAudioDelta)
+    then
+      self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT
+      self.transition:updateSourceFrame()
+    elseif canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
+      local transitionWasIdle = self.transition.phase == FieldTransition.PHASES.idle
+      self.session.accumulator = self.session.accumulator - FIXED_DT
+      self.session:updateFixed()
+      fieldExecuted = fieldExecuted + 1
+      if
+        transitionWasIdle
+        and self.transition.phase ~= FieldTransition.PHASES.idle
+        and self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
+      then
+        -- Presentation time before this boundary belongs to the old field
+        -- state and must not become the first frame of the new transition.
+        self.presentationFrameAccumulator = 0
+      end
+      if self.applicationHost:error() and not self.errorText then
+        self.errorText = tostring(self.applicationHost:error())
+      end
+      if self.errorText then
         break
       end
-      local nextFieldDelta = FIXED_DT - self.session.accumulator
-      local nextAudioDelta = AUDIO_FRAME_DT - self.audioFrameAccumulator
-      if canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
-        self.session.accumulator = self.session.accumulator - FIXED_DT
-        self.session:updateFixed()
-        fieldExecuted = fieldExecuted + 1
-        if self.applicationHost:error() and not self.errorText then
-          self.errorText = tostring(self.applicationHost:error())
-        end
-        if self.errorText then
-          break
-        end
-      else
-        self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
-        self.audio:updateSoundFrame()
-      end
+    else
+      self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
+      self.audio:updateSoundFrame()
     end
-    if self.session.accumulator + EPSILON >= FIXED_DT then
-      local discarded = math.floor((self.session.accumulator + EPSILON) / FIXED_DT)
-      self.session.accumulator = self.session.accumulator - discarded * FIXED_DT
-    end
-  else
-    self.session:update(dt)
-    if self.applicationHost:error() and not self.errorText then
-      self.errorText = tostring(self.applicationHost:error())
-    end
+  end
+  if self.session.accumulator + EPSILON >= FIXED_DT then
+    local discarded = math.floor((self.session.accumulator + EPSILON) / FIXED_DT)
+    self.session.accumulator = self.session.accumulator - discarded * FIXED_DT
   end
 
   -- The audio output clock: pump PCM from the engine into the host sink once
