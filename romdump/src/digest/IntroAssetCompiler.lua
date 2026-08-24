@@ -157,18 +157,21 @@ local function renderScreen(char, palette, screen)
   return { width = screen.width, height = screen.height, rgba = concatBytes(rgba) }
 end
 
-local function renderCell(char, palette, cell, paletteOverride)
-  local minX, minY, maxX, maxY
+local function cellBounds(cell, bounds)
   for _, object in ipairs(cell.objs) do
-    minX = math.min(minX or object.x, object.x)
-    minY = math.min(minY or object.y, object.y)
-    maxX = math.max(maxX or object.x + object.width, object.x + object.width)
-    maxY = math.max(maxY or object.y + object.height, object.y + object.height)
+    bounds.minX = math.min(bounds.minX, object.x)
+    bounds.minY = math.min(bounds.minY, object.y)
+    bounds.maxX = math.max(bounds.maxX, object.x + object.width)
+    bounds.maxY = math.max(bounds.maxY, object.y + object.height)
   end
-  if not minX then
+end
+
+local function renderCell(char, palette, cell, bounds)
+  if #cell.objs == 0 then
     sourceError("intro cell has no objects", { sourceOffset = 0 })
   end
-  local width, height = maxX - minX, maxY - minY
+  local minX, minY = bounds.minX, bounds.minY
+  local width, height = bounds.maxX - minX, bounds.maxY - minY
   local rgba = newRgba(width, height)
   for _, object in ipairs(cell.objs) do
     local columns, rows = object.width / 8, object.height / 8
@@ -184,7 +187,7 @@ local function renderCell(char, palette, cell, paletteOverride)
           object.y - minY + row * 8,
           object.tile + tileRow * columns + tileColumn,
           palette,
-          paletteOverride == nil and object.palette or paletteOverride,
+          object.palette,
           object.flipH,
           object.flipV
         )
@@ -192,19 +195,6 @@ local function renderCell(char, palette, cell, paletteOverride)
     end
   end
   return { width = width, height = height, rgba = concatBytes(rgba) }
-end
-
-local function padSurface(image, width, height)
-  if image.width == width and image.height == height then
-    return image
-  end
-  local rows = {}
-  local empty = string.rep(string.char(0, 0, 0, 0), width)
-  for y = 0, height - 1 do
-    local row = y < image.height and string.sub(image.rgba, y * image.width * 4 + 1, (y + 1) * image.width * 4) or ""
-    rows[#rows + 1] = row .. string.sub(empty, #row + 1)
-  end
-  return { width = width, height = height, rgba = table.concat(rows) }
 end
 
 local function renderAnimations(char, palette, cells, animation, animationIndex, paletteOverride)
@@ -225,7 +215,7 @@ local function renderAnimations(char, palette, cells, animation, animationIndex,
   else
     animations = animation.anims
   end
-  local images, frames, width, stackHeight, maxHeight = {}, {}, 0, 0, 0
+  local selectedFrames, bounds = {}, { minX = 0, minY = 0, maxX = 0, maxY = 0 }
   for _, selected in ipairs(animations) do
     for _, sourceFrame in ipairs(selected.frames) do
       if sourceFrame.duration <= 0 then
@@ -235,34 +225,29 @@ local function renderAnimations(char, palette, cells, animation, animationIndex,
       if not cell then
         sourceError("intro animation references a missing cell", { cell = sourceFrame.cell })
       end
-      local image = renderCell(char, palette, cell, paletteOverride)
-      images[#images + 1] = image
-      width = math.max(width, image.width)
-      stackHeight = stackHeight + image.height
-      maxHeight = math.max(maxHeight, image.height)
-      frames[#frames + 1] = {
-        x = 0,
-        y = stackHeight - image.height,
-        width = image.width,
-        height = image.height,
-        duration = sourceFrame.duration,
-      }
+      cellBounds(cell, bounds)
+      selectedFrames[#selectedFrames + 1] = { cell = cell, duration = sourceFrame.duration }
     end
   end
-  if #images == 0 then
+  if #selectedFrames == 0 then
     sourceError("intro source animation is empty", { sourceOffset = 0 })
   end
-  for index, image in ipairs(images) do
-    images[index] = padSurface(image, width, maxHeight)
-  end
-  local frameHeight = images[1].height
-  local cropped = IntroAssetImage.cropAlphaUnion(images, { x = width / 2, y = frameHeight })
+  local width, height = bounds.maxX - bounds.minX, bounds.maxY - bounds.minY
+  local anchor = { x = -bounds.minX, y = -bounds.minY }
   local output = {}
-  for index, image in ipairs(cropped.frames) do
-    output[index] =
-      { width = cropped.width, height = cropped.height, rgba = image.rgba, duration = frames[index].duration }
+  for index, selected in ipairs(selectedFrames) do
+    local image = renderCell(char, palette, selected.cell, bounds)
+    output[index] = { width = width, height = height, rgba = image.rgba, duration = selected.duration }
   end
-  return cropped, output
+  return {
+    width = width,
+    height = height,
+    anchor = anchor,
+    sourceBounds = { x = 0, y = 0, width = width, height = height },
+    frames = output,
+    rgba = output[1].rgba,
+  },
+    output
 end
 
 local function addDependency(dependencies, archiveName, memberId, bytes, role)
@@ -274,9 +259,69 @@ local function addDependency(dependencies, archiveName, memberId, bytes, role)
   }
 end
 
-local function addConfiguredDependency(archive, dependencies, spec, role, memberId)
-  local bytes = decodeMember(archive, memberId, role, spec.archive)
-  addDependency(dependencies, spec.archive, memberId, bytes, role)
+local function u32le(bytes, offset, label)
+  if offset + 4 > #bytes then
+    sourceError("intro resource table is truncated", { label = label, sourceOffset = offset })
+  end
+  return string.byte(bytes, offset + 1)
+    + string.byte(bytes, offset + 2) * 256
+    + string.byte(bytes, offset + 3) * 65536
+    + string.byte(bytes, offset + 4) * 16777216
+end
+
+local function readResourceTable(archive, dependencies, spec, memberId, role)
+  local bytes = decodeMember(archive, memberId, role, spec.resourceResolution.archive)
+  addDependency(dependencies, spec.resourceResolution.archive, memberId, bytes, role)
+  local records, offset = {}, 4
+  while true do
+    local narcId = u32le(bytes, offset, role)
+    if narcId == 0xFFFFFFFE then
+      return records
+    end
+    local fileId = u32le(bytes, offset + 4, role)
+    local objectId = u32le(bytes, offset + 12, role)
+    records[objectId] = { narcId = narcId, fileId = fileId }
+    offset = offset + 24
+  end
+end
+
+local function resolveResourceSet(resourceDataArchive, dependencies, spec, id)
+  local resolution = assert(spec.resourceResolution)
+  local headerBytes = decodeMember(resourceDataArchive, resolution.header, id .. " resource header", resolution.archive)
+  addDependency(dependencies, resolution.archive, resolution.header, headerBytes, id .. ":resdat-header")
+  local headerOffset = spec.resourceSet * 32
+  local charId = u32le(headerBytes, headerOffset, id .. " resource header")
+  local paletteId = u32le(headerBytes, headerOffset + 4, id .. " resource header")
+  local cellId = u32le(headerBytes, headerOffset + 8, id .. " resource header")
+  local animationId = u32le(headerBytes, headerOffset + 12, id .. " resource header")
+  local tables = {
+    { key = "char", memberId = resolution.charTable, objectId = charId },
+    { key = "palette", memberId = resolution.paletteTable, objectId = paletteId },
+    { key = "cell", memberId = resolution.cellTable, objectId = cellId },
+    { key = "animation", memberId = resolution.animationTable, objectId = animationId },
+  }
+  local resolved = {}
+  for _, tableSpec in ipairs(tables) do
+    local role = id .. ":resdat-" .. tableSpec.key .. "-table"
+    local records = readResourceTable(resourceDataArchive, dependencies, spec, tableSpec.memberId, role)
+    local record = records[tableSpec.objectId]
+    if not record or record.narcId ~= resolution.sourceNarcId then
+      sourceError("intro resource set references an unsupported source archive", {
+        asset = id,
+        resourceSet = spec.resourceSet,
+        resourceId = tableSpec.objectId,
+        narcId = record and record.narcId,
+      })
+    end
+    resolved[tableSpec.key] = record.fileId
+  end
+  local result = {}
+  for key, value in pairs(spec) do
+    result[key] = value
+  end
+  result.char, result.palette = resolved.char, resolved.palette
+  result.cell, result.animation = resolved.cell, resolved.animation
+  return result
 end
 
 local function assetPath(id)
@@ -286,10 +331,19 @@ end
 local function addAsset(manifest, assets, id, image, frames, sourceBounds, anchor, provenance, sourceCenter)
   sourceBounds = sourceBounds or { x = 0, y = 0, width = image.width, height = image.height }
   anchor = anchor or { x = image.width / 2, y = image.height }
-  anchor = {
-    x = math.max(0, math.min(image.width, anchor.x or image.width / 2)),
-    y = math.max(0, math.min(image.height, anchor.y or image.height)),
-  }
+  if
+    type(anchor) ~= "table"
+    or type(anchor.x) ~= "number"
+    or type(anchor.y) ~= "number"
+    or anchor.x ~= anchor.x
+    or anchor.y ~= anchor.y
+    or anchor.x < 0
+    or anchor.x > image.width
+    or anchor.y < 0
+    or anchor.y > image.height
+  then
+    sourceError("intro asset anchor is outside its generated surface", { asset = id })
+  end
   local paths = {}
   for index, frame in ipairs(frames) do
     paths[index] = assetPath(id .. "." .. index)
@@ -315,7 +369,26 @@ local function addAsset(manifest, assets, id, image, frames, sourceBounds, ancho
   manifest.widgets[id] = widget
 end
 
-local function loadCharPalette(archive, dependencies, spec, role)
+local loadCharPalette
+
+local function compileCellAnimation(archive, dependencies, manifest, assets, id, spec)
+  local dependencyRole = id:gsub("_", "-")
+  local char, palette = loadCharPalette(archive, dependencies, spec, dependencyRole)
+  local cellBytes = decodeMember(archive, spec.cell, id .. " cell", spec.archive)
+  local animationBytes = decodeMember(archive, spec.animation, id .. " animation", spec.archive)
+  addDependency(dependencies, spec.archive, spec.cell, cellBytes, dependencyRole .. ":cell")
+  addDependency(dependencies, spec.archive, spec.animation, animationBytes, dependencyRole .. ":animation")
+  local cells = decode("decodeCell", cellBytes, id .. " cell", spec.cell, spec.archive)
+  local animation = decode("decodeAnimation", animationBytes, id .. " animation", spec.animation, spec.archive)
+  local image, frames =
+    renderAnimations(char, palette.colors, cells, animation, spec.animationIndex, spec.paletteOverride)
+  addAsset(manifest, assets, id, image, frames, image.sourceBounds, image.anchor, {
+    resourceSet = spec.resourceSet,
+    rule = "stable-oam-origin",
+  }, spec.sourceCenter)
+end
+
+loadCharPalette = function(archive, dependencies, spec, role)
   local archiveName = spec.archive or config.archive
   local charBytes = decodeMember(archive, spec.char, role .. " char", archiveName)
   local paletteBytes = decodeMember(archive, spec.palette, role .. " palette", archiveName)
@@ -404,6 +477,8 @@ function IntroAssetCompiler.compile(romFs)
   local paletteMember = config.variant(variant)
   local backgroundSpec = { char = config.background.char, palette = paletteMember, screen = config.background.screen }
   local archive = sourceArchive(romFs, config.archive)
+  local resourceResolution = config.ball_open.resourceResolution
+  local resourceDataArchive = sourceArchive(romFs, resourceResolution.archive)
   local dependencies, assets = {}, {}
   local manifest = {
     schemaVersion = 3,
@@ -433,6 +508,17 @@ function IntroAssetCompiler.compile(romFs)
   compileSingle(archive, dependencies, manifest, assets, "oak", config.oak)
   compileSingle(archive, dependencies, manifest, assets, "male", config.gender.male)
   compileSingle(archive, dependencies, manifest, assets, "female", config.gender.female)
+  for _, id in ipairs({ "gender_male", "gender_female" }) do
+    local spec = config.genderSelectors[id:gsub("gender_", "")]
+    compileCellAnimation(
+      archive,
+      dependencies,
+      manifest,
+      assets,
+      id,
+      resolveResourceSet(resourceDataArchive, dependencies, spec, id)
+    )
+  end
   local genderBackgroundPalette = config.genderBackground.palettes[variant]
   local genderBackground = {
     archive = config.archive,
@@ -441,70 +527,18 @@ function IntroAssetCompiler.compile(romFs)
     screen = config.genderBackground.screen,
   }
   compileSingle(archive, dependencies, manifest, assets, "gender_background", genderBackground, "gender-background")
-  for _, id in ipairs({ "gender_male", "gender_female" }) do
-    compileSingle(archive, dependencies, manifest, assets, id, config.genderSelectors[id:gsub("gender_", "")])
-    local spec = config.genderSelectors[id:gsub("gender_", "")]
-    manifest.widgets[id].provenance = { resourceSet = spec.resourceSet, rule = "source-selector" }
-  end
   compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
   compileShrink(archive, dependencies, manifest, assets, "shrink_female", config.shrink.female)
   local ballArchive = sourceArchive(romFs, config.ball_open.archive)
-  local resolution = config.ball_open.resourceResolution
-  local resourceDataArchive = sourceArchive(romFs, resolution.archive)
-  for _, id in ipairs({ "gender_male", "gender_female" }) do
-    local spec = config.genderSelectors[id:gsub("gender_", "")]
-    addConfiguredDependency(
-      resourceDataArchive,
-      dependencies,
-      resolution,
-      id:gsub("_", "-") .. ":resource-set",
-      spec.resourceSet
-    )
-  end
   for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
-    local spec = config[id]
-    addConfiguredDependency(resourceDataArchive, dependencies, resolution, id .. ":resdat-header", resolution.header)
-    addConfiguredDependency(
-      resourceDataArchive,
+    compileCellAnimation(
+      ballArchive,
       dependencies,
-      resolution,
-      id .. ":resdat-char-table",
-      resolution.charTable
+      manifest,
+      assets,
+      id,
+      resolveResourceSet(resourceDataArchive, dependencies, config[id], id)
     )
-    addConfiguredDependency(
-      resourceDataArchive,
-      dependencies,
-      resolution,
-      id .. ":resdat-palette-table",
-      resolution.paletteTable
-    )
-    addConfiguredDependency(
-      resourceDataArchive,
-      dependencies,
-      resolution,
-      id .. ":resdat-cell-table",
-      resolution.cellTable
-    )
-    addConfiguredDependency(
-      resourceDataArchive,
-      dependencies,
-      resolution,
-      id .. ":resdat-animation-table",
-      resolution.animationTable
-    )
-    local char, palette = loadCharPalette(ballArchive, dependencies, spec, id)
-    local cellBytes = decodeMember(ballArchive, spec.cell, id .. " cell", spec.archive)
-    local animationBytes = decodeMember(ballArchive, spec.animation, id .. " animation", spec.archive)
-    addDependency(dependencies, spec.archive, spec.cell, cellBytes, id .. ":cell")
-    addDependency(dependencies, spec.archive, spec.animation, animationBytes, id .. ":animation")
-    local cells = decode("decodeCell", cellBytes, id .. " cell", spec.cell, spec.archive)
-    local animation = decode("decodeAnimation", animationBytes, id .. " animation", spec.animation, spec.archive)
-    local image, frames =
-      renderAnimations(char, palette.colors, cells, animation, spec.animationIndex, spec.paletteOverride)
-    addAsset(manifest, assets, id, image, frames, image.sourceBounds, image.anchor, {
-      resourceSet = spec.resourceSet,
-      rule = "alpha-union-crop-center",
-    }, spec.sourceCenter)
   end
 
   local valid, err = IntroAssetCache.validateManifest(manifest)

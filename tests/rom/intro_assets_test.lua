@@ -88,6 +88,21 @@ local function assertVariant(bundle, versionId, paletteMember)
     distinct = distinct + 1
   end
   Assert.isTrue(distinct > 1, "the source-derived background gradient is not flat")
+
+  local marill = bundle.manifest.widgets.marill
+  for index, frame in ipairs(marill.frames) do
+    local _, _, frameRgba = PngReader.rgba(bundle.assets[frame.image])
+    local visible, chromatic = false, false
+    for offset = 1, #frameRgba, 4 do
+      local r, g, b, a = string.byte(frameRgba, offset, offset + 3)
+      if a > 0 then
+        visible = true
+        chromatic = chromatic or math.max(r, g, b) > math.min(r, g, b)
+      end
+    end
+    Assert.isTrue(visible, versionId .. " Marill frame " .. index .. " must contain decoded OAM pixels")
+    Assert.isTrue(chromatic, versionId .. " Marill frame " .. index .. " must use its source palette")
+  end
 end
 
 local function assertGenderSource(bundle, paletteMember)

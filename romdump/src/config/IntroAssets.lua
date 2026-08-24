@@ -3,6 +3,16 @@
 -- these records into semantic runtime assets and copies the facts only into
 -- dependency provenance.
 
+local resourceResolution = {
+  archive = "NARC_data_resdat",
+  header = 78,
+  charTable = 26,
+  paletteTable = 27,
+  cellTable = 25,
+  animationTable = 24,
+  sourceNarcId = 120,
+}
+
 local IntroAssets = {
   schema = 2,
   provenance = {
@@ -34,22 +44,18 @@ local IntroAssets = {
     male = {
       resourceSet = 1,
       archive = "intro",
-      char = 34,
-      palette = 33,
-      cell = 53,
-      animation = 54,
       animationIndex = 0,
       paletteOverride = 0,
+      sourceCenter = { x = 64, y = 104 },
+      resourceResolution = resourceResolution,
     },
     female = {
       resourceSet = 2,
       archive = "intro",
-      char = 35,
-      palette = 33,
-      cell = 55,
-      animation = 56,
       animationIndex = 0,
       paletteOverride = 0,
+      sourceCenter = { x = 192, y = 104 },
+      resourceResolution = resourceResolution,
     },
   },
   shrink = {
@@ -58,21 +64,10 @@ local IntroAssets = {
   },
   ball_open = {
     archive = "intro",
-    char = 64,
-    palette = 63,
-    cell = 65,
-    animation = 66,
     animationIndex = 3,
     paletteOverride = 5,
     resourceSet = 5,
-    resourceResolution = {
-      archive = "NARC_data_resdat",
-      header = 78,
-      charTable = 26,
-      paletteTable = 27,
-      cellTable = 25,
-      animationTable = 24,
-    },
+    resourceResolution = resourceResolution,
     sourceCenter = { x = 160, y = 80 },
   },
 }
@@ -86,7 +81,7 @@ IntroAssets.marill_appear = {
   animationIndex = 1,
   paletteOverride = 4,
   resourceSet = IntroAssets.ball_open.resourceSet,
-  resourceResolution = IntroAssets.ball_open.resourceResolution,
+  resourceResolution = resourceResolution,
   sourceCenter = { x = 160, y = 80 },
 }
 
@@ -99,7 +94,7 @@ IntroAssets.marill = {
   animationIndex = 2,
   paletteOverride = 4,
   resourceSet = IntroAssets.ball_open.resourceSet,
-  resourceResolution = IntroAssets.ball_open.resourceResolution,
+  resourceResolution = resourceResolution,
   sourceCenter = { x = 160, y = 80 },
 }
 

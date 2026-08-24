@@ -186,7 +186,7 @@ function M.validateManifest(manifest)
     if not ok then
       return false, err
     end
-    if id == "ball_open" or id == "marill_appear" or id == "marill" then
+    if id == "gender_male" or id == "gender_female" or id == "ball_open" or id == "marill_appear" or id == "marill" then
       local centerOk, centerErr = sourceCenter(id, reference, manifest.widgets[id].sourceCenter)
       if not centerOk then
         return false, centerErr

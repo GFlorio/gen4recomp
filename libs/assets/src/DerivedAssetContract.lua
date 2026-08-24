@@ -51,10 +51,12 @@
 -- font cacheFormat/schema v2: the compiled definition gains seven color bands
 -- and a focus-indicator PNG, and the marker hashes font member 6, so a stale
 -- pre-change font cache must not pass readiness.
+-- intro OBJ geometry: animated widgets retain one OAM-origin pivot across
+-- frames and publish source-reference centers for responsive placement.
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 7
+DerivedAssetContract.revision = 8
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",

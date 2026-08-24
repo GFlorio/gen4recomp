@@ -42,6 +42,8 @@ local function validManifest()
   for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
     widgets[id].sourceCenter = { x = 160, y = 80 }
   end
+  widgets.gender_male.sourceCenter = { x = 64, y = 104 }
+  widgets.gender_female.sourceCenter = { x = 192, y = 104 }
   widgets.ball_open.frames = {
     frame("assets/generated/intro/ball-open-0.png", 32, 32, 1),
     frame("assets/generated/intro/ball-open-1.png", 32, 32, 4),
@@ -114,6 +116,19 @@ function T.stale_and_malformed_manifests_fail_before_composition()
   reject(cache, function(manifest)
     manifest.widgets.ball_open.sourceCenter.x = 257
   end, "out-of-range ball source center")
+  reject(cache, function(manifest)
+    manifest.widgets.gender_male.sourceCenter = nil
+  end, "missing male selector source center")
+  reject(cache, function(manifest)
+    manifest.widgets.gender_female.sourceCenter.x = math.huge
+  end, "non-finite female selector source center")
+  reject(cache, function(manifest)
+    manifest.widgets.gender_female.sourceCenter.y = 193
+  end, "out-of-range female selector source center")
+end
+
+function T.intro_contract_revision_requires_the_new_obj_geometry()
+  Assert.equal(DerivedAssetContract.revision, 8)
 end
 
 return { tests = T }
