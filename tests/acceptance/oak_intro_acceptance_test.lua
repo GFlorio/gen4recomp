@@ -293,12 +293,21 @@ local function advance(frames)
   App.state:tick(frames)
 end
 
+local function advanceUntilPhase(phase)
+  for _ = 1, 2000 do
+    if App.state:view().phase == phase then
+      return
+    end
+    advance(1)
+  end
+  error("Oak flow did not reach phase: " .. phase)
+end
+
 local function confirm()
   App.keypressed("return")
 end
 
 local function reachGenderSelect(audio)
-  local marillAppearanceFrames = 4
   advance(40)
   confirm()
   -- These scenarios exercise profile input after the fade; the dedicated
@@ -308,9 +317,9 @@ local function reachGenderSelect(audio)
   confirm()
   advance(26)
   confirm()
-  advance(30 + marillAppearanceFrames + 40)
+  advanceUntilPhase("oak_live_alongside")
   confirm()
-  advance(30 + 26)
+  advanceUntilPhase("oak_tell_about_yourself")
   confirm()
   confirm()
   Assert.equal(App.state:view().phase, "gender_select")
@@ -341,10 +350,10 @@ function T.tests.new_game_routes_through_the_core_oak_sequence()
     advance(26)
     Assert.equal(context.controller:view().message, MESSAGES["oak.world_inhabited"])
     confirm()
-    advance(30 + 4 + 40)
+    advanceUntilPhase("oak_live_alongside")
     Assert.equal(context.controller:view().message, MESSAGES["oak.live_alongside"])
     confirm()
-    advance(30 + 26)
+    advanceUntilPhase("oak_tell_about_yourself")
     Assert.equal(context.controller:view().message, MESSAGES["oak.tell_about_yourself"])
     confirm()
 
@@ -462,12 +471,13 @@ function T.tests.audio_and_fixed_source_timing_are_ordered_and_cry_independent()
     Assert.equal(context.controller:view().phase, "oak_world_inhabited")
     confirm()
     advance(30)
-    Assert.equal(context.controller:view().phase, "marill_appear")
-    advance(4)
+    Assert.equal(context.controller:view().phase, "scene_flash")
+    advanceUntilPhase("marill_appear")
+    advanceUntilPhase("marill_cry_wait")
     Assert.equal(context.controller:view().phase, "marill_cry_wait")
     Assert.deepEqual(context.audio.events[#context.audio.events - 1], { name = "effect", value = "SEQ_SE_DP_BOWA2" })
     Assert.deepEqual(context.audio.events[#context.audio.events], { name = "cry", value = { species = 184, form = 0 } })
-    advance(39)
+    advanceUntilPhase("oak_live_alongside")
     Assert.equal(context.controller:view().phase, "oak_live_alongside")
   end)
 end
