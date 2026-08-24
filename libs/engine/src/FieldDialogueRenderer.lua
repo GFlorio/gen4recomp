@@ -28,6 +28,7 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@field _graphics love.Graphics
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table the generated field-UI manifest
+---@field _focusIndicatorEnabled boolean whether the source focus indicator is composed
 ---@field _frameImage love.Image?
 ---@field _cursorImage love.Image?
 ---@field _frameQuadCache table<integer, love.Quad[]>|nil per-frame tile quads, built lazily
@@ -46,7 +47,7 @@ FieldDialogueRenderer.__index = FieldDialogueRenderer
 -- PNG bytes still enter through love.filesystem.newFileData); opts.theme:
 -- geometry record.
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics?, drawFocusIndicator?: boolean }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
   assert(
@@ -83,6 +84,7 @@ function FieldDialogueRenderer.new(opts)
     _graphics = graphics,
     _text = text,
     _manifest = manifest,
+    _focusIndicatorEnabled = opts.drawFocusIndicator ~= false,
     _frameImage = nil,
     _cursorImage = nil,
     _frameQuadCache = nil,
@@ -165,8 +167,8 @@ end
 -- boundary. Timing and phase selection belong to the controller.
 
 ---@param status FieldDialogueController.Status
----@param _layout FieldDialogueRenderer.Layout
-function FieldDialogueRenderer:_drawCursor(status, _layout)
+---@param layout FieldDialogueRenderer.Layout
+function FieldDialogueRenderer:_drawCursor(status, layout)
   if not status.waiting or status.cursorPhase == nil then
     return
   end
@@ -178,7 +180,7 @@ function FieldDialogueRenderer:_drawCursor(status, _layout)
   local cursor = assert(self._manifest.dialogueFrames.continueCursor)
   local quads = assert(self._cursorQuadCache)[frameIndex]
   local quad = assert(quads)[status.cursorPhase]
-  local placement = cursor.placement
+  local placement = layout.cursor or cursor.placement
   lg.setColor(1, 1, 1, 1)
   lg.draw(assert(self._cursorImage), quad, placement.x, placement.y)
 end
@@ -226,6 +228,9 @@ end
 ---@param status FieldDialogueController.Status
 ---@param layout FieldDialogueRenderer.Layout
 function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
+  if not self._focusIndicatorEnabled then
+    return
+  end
   local lines = status.scrollLines or status.visibleLines
   local tokensByLine = {}
   for _, line in ipairs(lines) do
