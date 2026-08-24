@@ -90,10 +90,28 @@ local function assertVariant(bundle, versionId, paletteMember)
   Assert.isTrue(distinct > 1, "the source-derived background gradient is not flat")
 end
 
+local function assertGenderSource(bundle, paletteMember)
+  for _, id in ipairs({ "gender_male", "gender_female" }) do
+    Assert.notNil(bundle.manifest.widgets[id], id .. " semantic selector is present")
+    Assert.isTrue(#bundle.manifest.widgets[id].frames > 0, id .. " has visible frames")
+    Assert.notNil(bundle.assets[bundle.manifest.widgets[id].frames[1].image], id .. " has image output")
+  end
+  Assert.notNil(bundle.manifest.widgets.gender_background, "gender auxiliary background is present")
+  Assert.notNil(bundle.assets[bundle.manifest.widgets.gender_background.image], "gender background has image output")
+  Assert.equal(sourceMember(bundle, "gender-background:char"), 32)
+  Assert.equal(sourceMember(bundle, "gender-background:screen"), 51)
+  Assert.equal(sourceMember(bundle, "gender-background:palette"), paletteMember)
+  Assert.equal(sourceMember(bundle, "gender-male:resource-set"), 1)
+  Assert.equal(sourceMember(bundle, "gender-female:resource-set"), 2)
+  Assert.notNil(bundle.manifest.widgets.male, "main male portrait remains distinct")
+  Assert.notNil(bundle.manifest.widgets.female, "main female portrait remains distinct")
+end
+
 function T.both_variants_compile_the_correct_gradient(romFs, versionId)
   local first = assert(compiler().compile(romFs))
   local second = assert(compiler().compile(romFs))
   assertVariant(first, versionId, versionId == "heartgold" and 1 or 2)
+  assertGenderSource(first, versionId == "heartgold" and 30 or 31)
   assertBallSource(first)
   Assert.equal(first.manifest.widgets.ball_open.sourceCenter.x, 160)
   Assert.equal(first.manifest.widgets.ball_open.sourceCenter.y, 80)
@@ -105,10 +123,15 @@ end
 
 function T.compiled_visuals_are_stable_semantic_widgets(romFs)
   local bundle = assert(compiler().compile(romFs))
-  Assert.keySet(bundle.manifest.widgets, "ball_open,female,male,marill,marill_appear,oak,shrink_female,shrink_male")
+  Assert.keySet(
+    bundle.manifest.widgets,
+    "ball_open,female,gender_background,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
+  )
   for id, widget in pairs(bundle.manifest.widgets) do
     Assert.equal(widget.sampling, "nearest", id .. " uses nearest sampling")
-    Assert.isTrue(widget.width < 256 or widget.height < 192, id .. " is not a full-screen visual")
+    if id ~= "gender_background" then
+      Assert.isTrue(widget.width < 256 or widget.height < 192, id .. " is not a full-screen visual")
+    end
     Assert.isTrue(widget.anchor.x >= 0 and widget.anchor.x <= widget.width, id .. " anchor x is bounded")
     Assert.isTrue(widget.anchor.y >= 0 and widget.anchor.y <= widget.height, id .. " anchor y is bounded")
     Assert.isTrue(widget.sourceBounds.x + widget.sourceBounds.width <= 256, id .. " source bounds fit width")

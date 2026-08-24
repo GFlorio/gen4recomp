@@ -6,7 +6,19 @@ local Assert = require("tests.support.Assert")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
 
 local T = {}
-local WIDGETS = { "ball_open", "female", "male", "marill", "marill_appear", "oak", "shrink_female", "shrink_male" }
+local WIDGETS = {
+  "ball_open",
+  "female",
+  "gender_background",
+  "gender_female",
+  "gender_male",
+  "male",
+  "marill",
+  "marill_appear",
+  "oak",
+  "shrink_female",
+  "shrink_male",
+}
 
 local function frame(path, width, height, duration)
   return { image = path, width = width, height = height, duration = duration }
@@ -57,18 +69,21 @@ local function reject(cache, mutate, label)
   Assert.equal(assert(err).code, "INTRO_MANIFEST_INVALID", label .. " has a typed error")
 end
 
-function T.complete_schema_two_manifest_loads_and_declares_closed_inventory()
+function T.complete_schema_manifest_loads_and_declares_closed_inventory()
   local cache = require("libs.assets.src.IntroAssetCache")
   Assert.equal(cache.SCHEMA, "g4-intro-assets-v3")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
   local manifest = validManifest()
   Assert.isTrue(cache.validateManifest(manifest))
-  Assert.keySet(manifest.widgets, "ball_open,female,male,marill,marill_appear,oak,shrink_female,shrink_male")
+  Assert.keySet(
+    manifest.widgets,
+    "ball_open,female,gender_background,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
+  )
 end
 
 function T.stale_and_malformed_manifests_fail_before_composition()
   local cache = require("libs.assets.src.IntroAssetCache")
-  Assert.isTrue(cache.validateManifest(validManifest()), "the complete schema-2 fixture must be accepted first")
+  Assert.isTrue(cache.validateManifest(validManifest()), "the complete schema fixture must be accepted first")
   reject(cache, function(manifest)
     manifest.schemaVersion = 1
   end, "stale schema")

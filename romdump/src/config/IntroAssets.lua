@@ -20,10 +20,37 @@ local IntroAssets = {
     screen = 3,
     palettes = { heartgold = 1, soulsilver = 2 },
   },
+  genderBackground = {
+    char = 32,
+    screen = 51,
+    palettes = { heartgold = 30, soulsilver = 31 },
+  },
   oak = { char = 10, palette = 11, screen = 9 },
   gender = {
     male = { char = 12, palette = 16, screen = 9 },
     female = { char = 17, palette = 21, screen = 9 },
+  },
+  genderSelectors = {
+    male = {
+      resourceSet = 1,
+      archive = "intro",
+      char = 34,
+      palette = 33,
+      cell = 53,
+      animation = 54,
+      animationIndex = 0,
+      paletteOverride = 0,
+    },
+    female = {
+      resourceSet = 2,
+      archive = "intro",
+      char = 35,
+      palette = 33,
+      cell = 55,
+      animation = 56,
+      animationIndex = 0,
+      paletteOverride = 0,
+    },
   },
   shrink = {
     male = { palette = 16, chars = { 12, 22, 23, 24, 25 } },

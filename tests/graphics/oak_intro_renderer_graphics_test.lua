@@ -37,6 +37,9 @@ local function manifest()
     "shrink_male",
     "shrink_female",
     "ball_open",
+    "gender_background",
+    "gender_male",
+    "gender_female",
   }) do
     assets[id] = {
       image = id .. ".png",

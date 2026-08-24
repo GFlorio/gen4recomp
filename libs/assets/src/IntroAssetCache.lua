@@ -21,6 +21,9 @@ M.REQUIRED_ASSETS = {
   "shrink_male",
   "shrink_female",
   "ball_open",
+  "gender_background",
+  "gender_male",
+  "gender_female",
 }
 local REQUIRED = {}
 for _, id in ipairs(M.REQUIRED_ASSETS) do

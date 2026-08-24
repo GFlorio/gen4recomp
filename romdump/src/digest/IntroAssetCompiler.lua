@@ -325,13 +325,15 @@ local function loadCharPalette(archive, dependencies, spec, role)
     decode("decodePalette", paletteBytes, role .. " palette", spec.palette, archiveName)
 end
 
-local function compileSingle(archive, dependencies, manifest, assets, id, spec)
-  local char, palette = loadCharPalette(archive, dependencies, spec, id)
+local function compileSingle(archive, dependencies, manifest, assets, id, spec, dependencyRole)
+  dependencyRole = dependencyRole or id
+  local char, palette = loadCharPalette(archive, dependencies, spec, dependencyRole)
   local image = renderChar(char, palette.colors)
   if spec.screen then
-    local screenBytes = decodeMember(archive, spec.screen, id .. " screen", spec.archive or config.archive)
-    addDependency(dependencies, spec.archive or config.archive, spec.screen, screenBytes, id .. ":screen")
-    local screen = decode("decodeScreen", screenBytes, id .. " screen", spec.screen, spec.archive or config.archive)
+    local screenBytes = decodeMember(archive, spec.screen, dependencyRole .. " screen", spec.archive or config.archive)
+    addDependency(dependencies, spec.archive or config.archive, spec.screen, screenBytes, dependencyRole .. ":screen")
+    local screen =
+      decode("decodeScreen", screenBytes, dependencyRole .. " screen", spec.screen, spec.archive or config.archive)
     image = renderScreen(char, palette.colors, screen)
   end
   local cropped = IntroAssetImage.cropAlphaUnion({ image }, { x = image.width / 2, y = image.height })
@@ -432,11 +434,34 @@ function IntroAssetCompiler.compile(romFs)
   compileSingle(archive, dependencies, manifest, assets, "oak", config.oak)
   compileSingle(archive, dependencies, manifest, assets, "male", config.gender.male)
   compileSingle(archive, dependencies, manifest, assets, "female", config.gender.female)
+  local genderBackgroundPalette = config.genderBackground.palettes[variant]
+  local genderBackground = {
+    archive = config.archive,
+    char = config.genderBackground.char,
+    palette = genderBackgroundPalette,
+    screen = config.genderBackground.screen,
+  }
+  compileSingle(archive, dependencies, manifest, assets, "gender_background", genderBackground, "gender-background")
+  for _, id in ipairs({ "gender_male", "gender_female" }) do
+    compileSingle(archive, dependencies, manifest, assets, id, config.genderSelectors[id:gsub("gender_", "")])
+    local spec = config.genderSelectors[id:gsub("gender_", "")]
+    manifest.widgets[id].provenance = { resourceSet = spec.resourceSet, rule = "source-selector" }
+  end
   compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
   compileShrink(archive, dependencies, manifest, assets, "shrink_female", config.shrink.female)
   local ballArchive = sourceArchive(romFs, config.ball_open.archive)
   local resolution = config.ball_open.resourceResolution
   local resourceDataArchive = sourceArchive(romFs, resolution.archive)
+  for _, id in ipairs({ "gender_male", "gender_female" }) do
+    local spec = config.genderSelectors[id:gsub("gender_", "")]
+    addConfiguredDependency(
+      resourceDataArchive,
+      dependencies,
+      resolution,
+      id:gsub("_", "-") .. ":resource-set",
+      spec.resourceSet
+    )
+  end
   for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
     local spec = config[id]
     addConfiguredDependency(resourceDataArchive, dependencies, resolution, id .. ":resdat-header", resolution.header)

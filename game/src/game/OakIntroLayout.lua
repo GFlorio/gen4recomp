@@ -35,13 +35,53 @@ local function contain(asset, slot, anchorX, anchorY)
   }
 end
 
+local function topologySurfaces(topology)
+  if topology == nil then
+    return nil, nil
+  end
+  assert(type(topology) == "table" and type(topology.surfaces) == "table", "Oak screen topology is invalid")
+  local world, auxiliary
+  for _, surface in ipairs(topology.surfaces) do
+    if surface.role == "world" then
+      assert(world == nil, "Oak topology has multiple world surfaces")
+      world = surface
+    elseif surface.role == "auxiliary" then
+      assert(auxiliary == nil, "Oak topology has multiple auxiliary surfaces")
+      auxiliary = surface
+    end
+  end
+  return world, auxiliary
+end
+
+local function selectorRegions(safeFrame, width, height, topology)
+  local world, auxiliary = topologySurfaces(topology)
+  if world and auxiliary then
+    return world.safeRect, auxiliary.safeRect
+  end
+  if height > width * 1.2 then
+    local mainHeight = math.floor(safeFrame.height * 0.56)
+    return rect(safeFrame.x, safeFrame.y, safeFrame.width, mainHeight),
+      rect(safeFrame.x, safeFrame.y + mainHeight, safeFrame.width, safeFrame.height - mainHeight)
+  end
+  if width >= height * 1.5 then
+    local mainWidth = math.floor(safeFrame.width * 0.56)
+    return rect(safeFrame.x, safeFrame.y, mainWidth, safeFrame.height),
+      rect(safeFrame.x + mainWidth, safeFrame.y, safeFrame.width - mainWidth, safeFrame.height)
+  end
+  local auxiliaryHeight = math.max(96, math.floor(safeFrame.height * 0.58))
+  auxiliaryHeight = math.min(auxiliaryHeight, safeFrame.height - 48)
+  return rect(safeFrame.x, safeFrame.y, safeFrame.width, safeFrame.height - auxiliaryHeight),
+    rect(safeFrame.x, safeFrame.y + safeFrame.height - auxiliaryHeight, safeFrame.width, auxiliaryHeight)
+end
+
 ---@param width number
 ---@param height number
 ---@param view table
 ---@param glyphs string[]
 ---@param metrics table<string, table>?
+---@param screenTopology ScreenTopology?
 ---@return table
-function OakIntroLayout.compute(width, height, view, glyphs, metrics)
+function OakIntroLayout.compute(width, height, view, glyphs, metrics, screenTopology)
   assert(
     type(width) == "number"
       and width == width
@@ -75,7 +115,12 @@ function OakIntroLayout.compute(width, height, view, glyphs, metrics)
       scale = scale,
     }
   end
-  local stage = rect(safeFrame.x, safeFrame.y, safeFrame.width, safeFrame.height)
+  local selectorActive = view.phase == "gender_select" or view.phase == "gender_confirm"
+  local mainRegion, auxiliaryRegion
+  if selectorActive then
+    mainRegion, auxiliaryRegion = selectorRegions(safeFrame, width, height, screenTopology)
+  end
+  local stage = mainRegion or rect(safeFrame.x, safeFrame.y, safeFrame.width, safeFrame.height)
   local contentWidth = math.min(stage.width, 1120)
   local stageContent = rect(stage.x + (stage.width - contentWidth) / 2, stage.y, contentWidth, stage.height)
   local result = {
@@ -87,9 +132,12 @@ function OakIntroLayout.compute(width, height, view, glyphs, metrics)
     message = dialogue and dialogue.outerRect or stage,
     cards = {},
     profileCards = {},
+    genderChoices = {},
     nameGrid = {},
     nameKeys = {},
     genderFocus = view.genderFocus,
+    mainRegion = mainRegion,
+    auxiliaryRegion = auxiliaryRegion,
   }
   local oak = metricsFor(metrics, "oak")
   if oak then
@@ -122,16 +170,29 @@ function OakIntroLayout.compute(width, height, view, glyphs, metrics)
       anchorY
     )
   end
-  if view.phase == "gender_select" or view.phase == "gender_confirm" then
-    local cardGap = clamp(math.floor(stageContent.width * 0.03 + 0.5), 12, 32)
-    local pairWidth = math.min(stageContent.width, 760)
-    local cardWidth = math.min(360, (pairWidth - cardGap) / 2)
-    local cardHeight = math.min(stageContent.height * 0.82, cardWidth * 1.15)
-    local x = stageContent.x + (stageContent.width - cardWidth * 2 - cardGap) / 2
-    local y = stageContent.y + (stageContent.height - cardHeight) / 2
-    result.cards[0], result.cards[1] =
-      rect(x, y, cardWidth, cardHeight), rect(x + cardWidth + cardGap, y, cardWidth, cardHeight)
-    result.profileCards = result.cards
+  if selectorActive then
+    local selector = assert(auxiliaryRegion)
+    local background = assert(metricsFor(metrics, "gender_background"), "Oak gender background metrics are missing")
+    result.genderBackground =
+      contain(background, selector, selector.x + selector.width / 2, selector.y + selector.height / 2)
+    local choiceGap = clamp(math.floor(selector.width * 0.04 + 0.5), 8, 24)
+    local choiceWidth = (selector.width - choiceGap) / 2
+    local choiceHeight = selector.height * 0.78
+    local male = assert(metricsFor(metrics, "gender_male"), "Oak male selector metrics are missing")
+    local female = assert(metricsFor(metrics, "gender_female"), "Oak female selector metrics are missing")
+    local choiceY = selector.y + selector.height * 0.11
+    local choiceAnchorY = choiceY + choiceHeight
+    result.genderChoices[0] =
+      contain(male, rect(selector.x, choiceY, choiceWidth, choiceHeight), selector.x + choiceWidth / 2, choiceAnchorY)
+    result.genderChoices[1] = contain(
+      female,
+      rect(selector.x + choiceWidth + choiceGap, choiceY, choiceWidth, choiceHeight),
+      selector.x + choiceWidth + choiceGap + choiceWidth / 2,
+      choiceAnchorY
+    )
+    result.genderHitRegions = result.genderChoices
+    result.cards = result.genderChoices
+    result.profileCards = result.genderChoices
   end
   if view.confirmationChoice then
     local panelHeight = math.min(stageContent.height * 0.32, 180)

@@ -7,6 +7,14 @@ local OakIntroState = require("game.src.game.OakIntroState")
 
 local T = {}
 
+local INTRO_MANIFEST = {
+  widgets = {
+    gender_background = { width = 256, height = 192, anchor = { x = 128, y = 96 } },
+    gender_male = { width = 64, height = 96, anchor = { x = 32, y = 96 } },
+    gender_female = { width = 64, height = 96, anchor = { x = 32, y = 96 } },
+  },
+}
+
 local function fakeController()
   local controller = {
     phase = "name_edit",
@@ -73,7 +81,7 @@ local function stateHarness()
   end
   local state = OakIntroState.new({
     controller = controller,
-    manifest = {},
+    manifest = INTRO_MANIFEST,
     textRenderer = {},
     renderer = renderer,
     textInputHost = input,

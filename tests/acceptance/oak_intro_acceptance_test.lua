@@ -25,6 +25,13 @@ local INTRO_ASSETS = {
   marill_appear = { frames = { { duration = 1 } } },
   ball_open = { frames = { { duration = 1 } } },
 }
+local INTRO_MANIFEST = {
+  widgets = {
+    gender_background = { width = 256, height = 192, anchor = { x = 128, y = 96 } },
+    gender_male = { width = 64, height = 96, anchor = { x = 32, y = 96 } },
+    gender_female = { width = 64, height = 96, anchor = { x = 32, y = 96 } },
+  },
+}
 
 local MESSAGES = {
   ["greeting.midnight"] = "generated.greeting.midnight",
@@ -188,7 +195,7 @@ local function startFlow(options, fn)
       })
       return {
         controller = controller,
-        manifest = {},
+        manifest = INTRO_MANIFEST,
         renderer = renderer,
         textInputHost = inputHost,
         glyphs = VIRTUAL_GLYPHS,

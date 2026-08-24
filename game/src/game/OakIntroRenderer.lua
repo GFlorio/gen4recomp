@@ -16,6 +16,9 @@ local REQUIRED_ASSETS = {
   "shrink_male",
   "shrink_female",
   "ball_open",
+  "gender_background",
+  "gender_male",
+  "gender_female",
 }
 
 local function defaultImageLoader(path)
@@ -138,7 +141,7 @@ function OakIntroRenderer:draw(view)
   local graphics = self.graphics
   local layout = view.layout
   graphics.clear(0.04, 0.05, 0.09, 1)
-  drawBackground(self, layout.viewport)
+  drawBackground(self, layout.mainRegion or layout.viewport)
   if view.primaryWidget ~= nil then
     drawAsset(self, view.primaryWidget, view.visualFrameIndex, layout.subject)
   elseif view.visual ~= "background" then
@@ -152,10 +155,11 @@ function OakIntroRenderer:draw(view)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
-    drawAsset(self, "male", 1, layout.profileCards[0] or layout.cards[0])
-    drawAsset(self, "female", 1, layout.profileCards[1] or layout.cards[1])
+    drawAsset(self, "gender_background", 1, assert(layout.genderBackground))
+    drawAsset(self, "gender_male", 1, assert(layout.genderChoices[0]))
+    drawAsset(self, "gender_female", 1, assert(layout.genderChoices[1]))
     graphics.setColor(0.8, 0.9, 1, 1)
-    local card = layout.cards[view.genderFocus]
+    local card = assert(layout.genderChoices[view.genderFocus])
     graphics.rectangle("line", card.x, card.y, card.width, card.height)
   end
   if view.confirmationChoice then

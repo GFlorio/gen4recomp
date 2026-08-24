@@ -206,6 +206,7 @@ function OakIntroComposition.compose(options)
       dialogueRenderer = dialogueRenderer,
       dialogueText = textRenderer,
       dialogueFormatter = messageFormatter,
+      screenTopology = options.screenTopology,
     })
   end)
   if not ok then
