@@ -34,7 +34,7 @@ local function releaseAll(resources)
 end
 
 local function loadResources(manifest, graphics, imageLoader)
-  local images, bindings, acquired = {}, {}, {}
+  local bindings, acquired = {}, {}
   local imagesByPath = {}
   local assets = {}
   local ok, failure = pcall(function()
