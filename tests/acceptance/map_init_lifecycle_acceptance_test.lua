@@ -5,6 +5,7 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
+local FieldRuntime = require("game.src.game.FieldRuntime")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 
 local T = {
@@ -28,21 +29,39 @@ end
 local function installExecutionRecorder()
   local starts = {}
   local actorEntries = {}
+  local events = {}
   local originalStart = assert(ScriptInteractionClient.startInitScript)
   local originalEnter = assert(FieldActorManager.enterMap)
+  local originalPrepare = assert(FieldRuntime._prepareSwap)
+  local originalCommit = assert(FieldRuntime._commitSwap)
   ScriptInteractionClient.startInitScript = function(self, scriptId, tick)
     starts[#starts + 1] = { scriptId = scriptId, tick = tick }
+    events[#events + 1] = { kind = "script", scriptId = scriptId }
     return originalStart(self, scriptId, tick)
   end
   FieldActorManager.enterMap = function(self, runtimeMap, eventState)
     actorEntries[#actorEntries + 1] = { mapId = runtimeMap.mapId }
+    events[#events + 1] = { kind = "actors", mapId = runtimeMap.mapId }
     return originalEnter(self, runtimeMap, eventState)
+  end
+  FieldRuntime._prepareSwap = function(self, resolution, facing)
+    events[#events + 1] = { kind = "prepare" }
+    local prepared = originalPrepare(self, resolution, facing)
+    events[#events + 1] = { kind = "prepare_done" }
+    return prepared
+  end
+  FieldRuntime._commitSwap = function(self, resolution, facing, prepared)
+    events[#events + 1] = { kind = "commit" }
+    return originalCommit(self, resolution, facing, prepared)
   end
   return starts,
     actorEntries,
+    events,
     function()
       ScriptInteractionClient.startInitScript = originalStart
       FieldActorManager.enterMap = originalEnter
+      FieldRuntime._prepareSwap = originalPrepare
+      FieldRuntime._commitSwap = originalCommit
     end
 end
 
@@ -86,7 +105,7 @@ end
 function T.tests.initial_entry_executes_transition_before_actor_construction()
   local harness = lifecycleHarness()
   harness:forEachVersion(function(versionId)
-    local starts, entries, restore = installExecutionRecorder()
+    local starts, entries, _, restore = installExecutionRecorder()
     local game
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
@@ -115,7 +134,7 @@ end
 function T.tests.destination_entry_executes_transition_before_destination_actors()
   local harness = lifecycleHarness()
   harness:forEachVersion(function(versionId)
-    local starts, entries, restore = installExecutionRecorder()
+    local starts, entries, events, restore = installExecutionRecorder()
     local game
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
@@ -142,16 +161,44 @@ function T.tests.destination_entry_executes_transition_before_destination_actors
         end
       end
       Assert.isTrue(destinationEntry ~= nil, "destination actors must be constructed")
-      local types = scriptTypeById(game.runtime)
-      local transitionStart
-      for index = #starts, 1, -1 do
-        if types[starts[index].scriptId] == "on_transition" then
-          transitionStart = index
-          break
+      game:advanceUntil("destination entry lifecycle complete", function(snapshot)
+        return game.runtime.session.mapEntryStage == nil
+          and not snapshot.fieldLocked
+          and snapshot.player.motion == "idle"
+      end, 240)
+      local destinationActorEvent
+      local destinationTransitionEvent
+      local destinationCommitEvent
+      local destinationPrepareEvent
+      for index, event in ipairs(events) do
+        if event.kind == "prepare" then
+          destinationPrepareEvent = index
+        end
+        if event.kind == "actors" and event.mapId == destination then
+          destinationActorEvent = index
+        elseif
+          destinationTransitionEvent == nil
+          and destinationPrepareEvent ~= nil
+          and index > destinationPrepareEvent
+          and event.kind == "script"
+        then
+          destinationTransitionEvent = index
+        elseif event.kind == "commit" then
+          destinationCommitEvent = index
         end
       end
-      Assert.isTrue(transitionStart ~= nil)
-      Assert.isTrue(starts[transitionStart].tick < game.runtime.session.tick)
+      Assert.isTrue(destinationCommitEvent ~= nil, "destination ownership must commit before actors enter")
+      local eventDescriptions = {}
+      for _, event in ipairs(events) do
+        eventDescriptions[#eventDescriptions + 1] = event.kind .. ":" .. tostring(event.mapId or "")
+      end
+      Assert.isTrue(
+        destinationTransitionEvent ~= nil,
+        "destination transition script must start; " .. table.concat(eventDescriptions, ",")
+      )
+      Assert.isTrue(destinationActorEvent ~= nil, "destination actors must enter")
+      Assert.isTrue(destinationTransitionEvent < destinationActorEvent)
+      Assert.isTrue(destinationCommitEvent < destinationActorEvent)
       Assert.equal(game:renderAttempts(), 0)
     end, debug.traceback)
     restore()
@@ -167,7 +214,7 @@ end
 function T.tests.headless_entry_reaches_ready_without_rendering_and_does_not_repeat_lifecycles()
   local harness = lifecycleHarness()
   harness:forEachVersion(function(versionId)
-    local starts, _, restore = installExecutionRecorder()
+    local starts, _, _, restore = installExecutionRecorder()
     local game
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })

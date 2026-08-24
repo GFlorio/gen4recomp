@@ -117,6 +117,10 @@ local function drawableState(options)
         return 0.5
       end,
     },
+    destinationWorldPresentable = function()
+      return true
+    end,
+    acknowledgeDestinationPresentation = function() end,
     viewport = viewport,
     camera = { zoom = 1 },
     transition = { fadeAlpha = 0 },

@@ -398,6 +398,52 @@ function T.map_lifecycle_events_are_queued_and_drained_before_frame_checks()
   })
 end
 
+function T.destination_presentability_is_monotonic_through_map_entry()
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition" or lifecycle == "on_load" or lifecycle == "on_resume"
+    end,
+    startLifecycle = function()
+      return true
+    end,
+  }
+  local s = FieldSession.new(baseOptions({
+    initController = controller,
+    autoAcknowledgePresentation = false,
+  }))
+
+  s:beginMapEntry()
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "transition_running")
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "actors")
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "load")
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "load_running")
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "await_presentation")
+  Assert.isTrue(s:destinationWorldPresentable())
+
+  s:acknowledgeDestinationPresentation()
+  Assert.equal(s.mapEntryStage, "resume")
+  Assert.isTrue(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "resume_running")
+  Assert.isTrue(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "ready")
+  Assert.isTrue(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.isNil(s.mapEntryStage)
+  Assert.isTrue(s:destinationWorldPresentable())
+end
+
 function T.blocked_lifecycle_stays_at_head_until_foreground_is_free()
   local starts = {}
   local scheduler = {

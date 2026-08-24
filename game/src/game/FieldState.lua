@@ -335,15 +335,11 @@ function FieldState:draw()
       self:_recordGeometrySignature(width, height, topology)
     end
   end
-  local destinationWorldPresentable = self.runtime.destinationWorldPresentable
-  if destinationWorldPresentable and not destinationWorldPresentable(self.runtime) then
-    return
-  end
-  if
-    not destinationWorldPresentable
-    and self.runtime.session.destinationWorldPresentable
-    and not self.runtime.session:destinationWorldPresentable()
-  then
+  assert(
+    type(self.runtime.destinationWorldPresentable) == "function",
+    "field runtime destination presentation capability required"
+  )
+  if not self.runtime:destinationWorldPresentable() then
     return
   end
   local alpha = self.runtime.session:renderAlpha()
@@ -355,11 +351,11 @@ function FieldState:draw()
     self.runtime.viewport,
     alpha
   )
-  if self.runtime.acknowledgeDestinationPresentation then
-    self.runtime:acknowledgeDestinationPresentation()
-  elseif self.runtime.session.acknowledgeDestinationPresentation then
-    self.runtime.session:acknowledgeDestinationPresentation()
-  end
+  assert(
+    type(self.runtime.acknowledgeDestinationPresentation) == "function",
+    "field runtime destination presentation acknowledgement required"
+  )
+  self.runtime:acknowledgeDestinationPresentation()
   -- The field/application fade: the host-owned application fade covers
   -- the surface being transitioned (the world viewport plus the Start Menu
   -- placement frame), then the unrelated warp fade over the world viewport.

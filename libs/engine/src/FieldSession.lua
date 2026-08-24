@@ -93,6 +93,14 @@ FieldSession.MAX_CATCH_UP_TICKS = 5
 -- not leave a stale full tick in the accumulator.
 local ACCUMULATOR_EPSILON = 1e-12
 
+local HIDDEN_ENTRY_STAGES = {
+  transition = true,
+  transition_running = true,
+  actors = true,
+  load = true,
+  load_running = true,
+}
+
 ---@param options FieldSessionOptions
 ---@return FieldSession
 -- Every collaborator the session steps on a tick is required here: the
@@ -178,7 +186,7 @@ function FieldSession:onChildApplicationResume()
 end
 
 function FieldSession:destinationWorldPresentable()
-  return self.mapEntryStage == "await_presentation" or self.mapEntryStage == "resume" or self.mapEntryStage == "ready"
+  return not HIDDEN_ENTRY_STAGES[self.mapEntryStage]
 end
 
 function FieldSession:acknowledgeDestinationPresentation()

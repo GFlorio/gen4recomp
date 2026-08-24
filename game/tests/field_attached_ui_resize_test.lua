@@ -32,6 +32,10 @@ local function drawState(topologyProvider, pollTopology)
         return 0
       end,
     },
+    destinationWorldPresentable = function()
+      return true
+    end,
+    acknowledgeDestinationPresentation = function() end,
     runtimeMap = { sceneRuntime = {} },
     camera = { zoom = 1 },
     viewport = {
@@ -264,6 +268,10 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
           return 0
         end,
       },
+      destinationWorldPresentable = function()
+        return true
+      end,
+      acknowledgeDestinationPresentation = function() end,
       applicationHost = {
         status = function()
           return { fadeAlpha = 0 }

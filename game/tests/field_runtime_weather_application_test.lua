@@ -193,7 +193,7 @@ function T.runtime_samples_weather_on_activation_and_selects_the_matching_fog()
   Assert.equal(calls.penalty, 1)
   Assert.equal(overrideMap.effectiveWeatherId, 8)
   Assert.equal(overrideMap.sceneRuntime.fog, catalog.presets[8])
-  Assert.equal(calls.enterMap, 1)
+  Assert.equal(calls.enterMap, 0, "precommit preparation must not instantiate destination actors")
 
   runtime:update(1 / 30)
   runtime:update(1 / 30)
@@ -212,7 +212,7 @@ function T.runtime_samples_weather_on_activation_and_selects_the_matching_fog()
   Assert.equal(calls.penalty, 2)
   Assert.equal(baseMap.effectiveWeatherId, 5)
   Assert.equal(baseMap.sceneRuntime.fog, baseFog, "unchanged weather must preserve compiled base fog")
-  Assert.equal(calls.enterMap, 2)
+  Assert.equal(calls.enterMap, 0, "precommit preparation must not instantiate destination actors")
 end
 
 return { tests = T, metadata = { tags = { "field", "weather" } } }

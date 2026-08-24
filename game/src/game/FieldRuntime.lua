@@ -1063,11 +1063,9 @@ function FieldRuntime:_applyEffectiveWeather(runtimeMap)
 end
 
 -- Fallible warp preparation, run by FieldTransition while the source map is
--- still the authoritative current map: construct the destination player and
--- camera and player visual, then enter the
--- destination actors last. Every earlier step is pure construction and
--- enterMap is internally transactional, so a failure at any point aborts the
--- transition with the source map's ownership untouched.
+-- still the authoritative current map: construct only the destination
+-- player, camera, and player visual. Actor entry belongs to the committed map
+-- lifecycle because on_transition can change the destination event state.
 ---@param resolution table
 ---@param facing FieldDirection
 ---@return table prepared destination player, camera, and player visual
@@ -1094,7 +1092,6 @@ function FieldRuntime:_prepareSwap(resolution, facing)
     player = player,
     spriteId = self.avatar.spriteId,
   })
-  self.actors:enterMap(runtimeMap, self.eventState)
   return {
     player = player,
     camera = camera,
