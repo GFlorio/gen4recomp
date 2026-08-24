@@ -37,6 +37,19 @@ function T.test_entrypoint_runs_the_incremental_builder_for_real_dependency_fres
   Assert.isNil(script:find("--check-derived-cache", 1, true))
 end
 
+function T.test_tooling_uses_run_scoped_temporary_directories()
+  local handle = assert(io.open("scripts/test.sh", "rb"))
+  local testScript = handle:read("*a")
+  handle:close()
+
+  handle = assert(io.open("scripts/lint.sh", "rb"))
+  local lintScript = handle:read("*a")
+  handle:close()
+
+  contains(testScript, 'BUILD_LOG_DIR="$(mktemp -d)"', "test script")
+  contains(lintScript, 'LUALS_LOG_DIR="$(mktemp -d)"', "lint script")
+end
+
 -- The shell must not re-implement option scanning: `scripts/test.sh` decides
 -- whether to prepare the derived cache from the runner's machine-readable
 -- plan response (`--plan`), not from a bash copy of the argument parser

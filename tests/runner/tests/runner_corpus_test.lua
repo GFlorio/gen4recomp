@@ -1,7 +1,6 @@
 -- Guards the aggregate entry point against silently discovering nothing. The
 -- fake-corpus suites prove the discovery rules; this one proves they are wired
--- to the real repository: every declared root contributes suites, nested script
--- suites are reachable, and no suite is listed without tests or a layer.
+-- to the real repository and nested suites are reachable.
 
 local Assert = require("tests.support.Assert")
 local Runner = require("tests.run")
@@ -26,17 +25,15 @@ local function find(moduleName)
   return nil
 end
 
-function T.every_declared_root_contributes_suites()
-  local counts = {}
-  for _, suite in ipairs(corpus()) do
-    for _, root in ipairs(Runner.ROOTS) do
-      if suite.module:sub(1, #root.prefix + 1) == root.prefix .. "." then
-        counts[root.path] = (counts[root.path] or 0) + 1
-      end
-    end
-  end
-  for _, root in ipairs(Runner.ROOTS) do
-    Assert.isTrue((counts[root.path] or 0) > 0, "root discovered no suites: " .. root.path)
+function T.project_tree_discovery_finds_the_main_test_trees()
+  local expected = {
+    "libs.codec.tests.binary_reader_test",
+    "game.tests.field_state_draw_test",
+    "romdump.tests.source.narc_test",
+    "tests.runner.tests.runner_discovery_test",
+  }
+  for _, moduleName in ipairs(expected) do
+    Assert.notNil(find(moduleName), "project tree discovery missed " .. moduleName)
   end
 end
 

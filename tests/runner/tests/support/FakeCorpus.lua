@@ -3,8 +3,7 @@
 -- love.filesystem-shaped reader plus a module loader, so discovery, selection,
 -- and execution are testable without touching disk, LÖVE, a ROM dump, or a GPU.
 --
--- Module names are the dotted file path without the ".lua" suffix, so fixture
--- roots always use `prefix` equal to the dotted `path`.
+-- Module names are the dotted file path without the ".lua" suffix.
 
 local RepoFiles = require("tests.runner.RepoFiles")
 
@@ -41,9 +40,9 @@ function FakeCorpus.new(files)
   return self
 end
 
--- Root descriptor for the runner's `roots` option.
+-- Focused root descriptor for the runner's test-only `roots` option.
 function FakeCorpus:root(path, layer)
-  return { path = path, prefix = (path:gsub("/", ".")), layer = layer }
+  return { path = path, layer = layer }
 end
 
 function FakeCorpus:_load(moduleName)

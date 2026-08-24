@@ -8,9 +8,32 @@
 
 local Assert = require("tests.support.Assert")
 local FakeCorpus = require("tests.runner.tests.support.FakeCorpus")
+local Discovery = require("tests.runner.Discovery")
 local TestRunner = require("tests.runner.TestRunner")
 
 local T = {}
+
+function T.tree_discovery_derives_modules_and_layers_from_tests_directories()
+  local corpus = FakeCorpus.new({
+    ["tests/graphics/shader_test.lua"] = { tests = { ["draws"] = function() end } },
+    ["game/tests/application_test.lua"] = { tests = { ["boots"] = function() end } },
+    ["libs/codec/tests/binary_test.lua"] = { tests = { ["reads"] = function() end } },
+    ["libs/codec/tests/nested/helper_test.lua"] = { tests = { ["reads"] = function() end } },
+    ["tmp/refs/legacy/tests/example_silly_oak_test.lua"] = { tests = { ["legacy"] = function() end } },
+  })
+
+  local suites = Discovery.suites(corpus.fs)
+  local layers = {}
+  for _, suite in ipairs(suites) do
+    layers[suite.module] = suite.layer
+  end
+
+  Assert.equal(layers["tests.graphics.shader_test"], "graphics")
+  Assert.equal(layers["game.tests.application_test"], "component")
+  Assert.equal(layers["libs.codec.tests.binary_test"], "unit")
+  Assert.equal(layers["libs.codec.tests.nested.helper_test"], "unit")
+  Assert.isNil(layers["tmp.refs.legacy.tests.example_silly_oak_test"], "reference trees are not test sources")
+end
 
 local function moduleNames(listing)
   local out = {}

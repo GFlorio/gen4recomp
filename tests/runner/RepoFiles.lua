@@ -35,6 +35,17 @@ local function indexRoot(files, baseDirectory, path)
   assert(count > 0, "test root indexed no Lua files: " .. path)
 end
 
+local function indexProject(files, baseDirectory)
+  local command = "find " .. shellQuote(baseDirectory) .. " -type f -name '*.lua' -print 2>/dev/null"
+  local pipe = assert(io.popen(command, "r"), "cannot index project: io.popen unavailable")
+  local prefix = baseDirectory .. "/"
+  for line in pipe:lines() do
+    assert(line:sub(1, #prefix) == prefix, "unexpected path outside the repository: " .. line)
+    files[line:sub(#prefix + 1)] = true
+  end
+  pipe:close()
+end
+
 -- The reader contract discovery consumes, matching the subset of
 -- `love.filesystem` the runner uses.
 ---@class RunnerFileSystem
@@ -48,7 +59,7 @@ end
 ---@return RunnerFileSystem
 function RepoFiles.fromFileSet(files)
   local function getDirectoryItems(path)
-    local prefix = path .. "/"
+    local prefix = path == "" and "" or path .. "/"
     local seen, out = {}, {}
     for file in pairs(files) do
       if file:sub(1, #prefix) == prefix then
@@ -66,7 +77,7 @@ function RepoFiles.fromFileSet(files)
     if files[path] then
       return { type = "file" }
     end
-    local prefix = path .. "/"
+    local prefix = path == "" and "" or path .. "/"
     for file in pairs(files) do
       if file:sub(1, #prefix) == prefix then
         return { type = "directory" }
@@ -78,15 +89,19 @@ function RepoFiles.fromFileSet(files)
   return { getDirectoryItems = getDirectoryItems, getInfo = getInfo }
 end
 
--- Indexes `paths` (repo-relative directories) below `baseDirectory`.
+-- Indexes the project, or the supplied paths for focused adapter tests.
 ---@param baseDirectory string absolute path of the repository root
----@param paths string[] repo-relative directories to index
+---@param paths string[]|nil repo-relative directories to index
 ---@return RunnerFileSystem
 function RepoFiles.new(baseDirectory, paths)
   assert(type(baseDirectory) == "string" and baseDirectory ~= "", "RepoFiles needs a base directory")
   local files = {}
-  for _, path in ipairs(paths) do
-    indexRoot(files, baseDirectory, path)
+  if paths == nil then
+    indexProject(files, baseDirectory)
+  else
+    for _, path in ipairs(paths) do
+      indexRoot(files, baseDirectory, path)
+    end
   end
   return RepoFiles.fromFileSet(files)
 end
