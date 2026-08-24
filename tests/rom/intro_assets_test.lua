@@ -49,12 +49,6 @@ end
 
 local function assertBallSource(bundle)
   for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
-    for field, memberId in pairs({ char = 64, palette = 63, cell = 65, animation = 66 }) do
-      Assert.equal(sourceMember(bundle, id .. ":" .. field), memberId, id .. " uses resource-set-5 " .. field)
-      Assert.equal(sourceArchive(bundle, id .. ":" .. field), "intro")
-    end
-  end
-  for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
     for role, memberId in pairs({
       ["resdat-header"] = 78,
       ["resdat-char-table"] = 26,
@@ -116,8 +110,18 @@ local function assertGenderSource(bundle, paletteMember)
   Assert.equal(sourceMember(bundle, "gender-background:char"), 32)
   Assert.equal(sourceMember(bundle, "gender-background:screen"), 51)
   Assert.equal(sourceMember(bundle, "gender-background:palette"), paletteMember)
-  Assert.equal(sourceMember(bundle, "gender-male:resource-set"), 1)
-  Assert.equal(sourceMember(bundle, "gender-female:resource-set"), 2)
+  for _, id in ipairs({ "gender_male", "gender_female" }) do
+    for role, memberId in pairs({
+      ["resdat-header"] = 78,
+      ["resdat-char-table"] = 26,
+      ["resdat-palette-table"] = 27,
+      ["resdat-cell-table"] = 25,
+      ["resdat-animation-table"] = 24,
+    }) do
+      Assert.equal(sourceMember(bundle, id .. ":" .. role), memberId, id .. " uses shared resdat mapping")
+      Assert.equal(sourceArchive(bundle, id .. ":" .. role), "NARC_data_resdat")
+    end
+  end
   Assert.notNil(bundle.manifest.widgets.male, "main male portrait remains distinct")
   Assert.notNil(bundle.manifest.widgets.female, "main female portrait remains distinct")
 end
