@@ -14,6 +14,7 @@
 --                     polygonAlpha?, texMtxMode?, texWidth?, texHeight?,
 --                     srt?, variants? } },
 --     animations = { <AnimationClip>, ... },
+--     doorSoundType = integer|nil,
 --     backend = nil,                    -- opaque backend payload, never
 --                                       -- interpreted by engine APIs
 --   })
@@ -112,6 +113,7 @@ function ModelDefinition.new(definition)
     meshes = definition.meshes,
     materials = definition.materials,
     animations = definition.animations,
+    doorSoundType = definition.doorSoundType,
     backend = definition.backend,
     animationByName = byName,
     animationBySemantic = bySemantic,
@@ -213,6 +215,7 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
     meshes = meshes,
     materials = desc.materials,
     animations = desc.animations,
+    doorSoundType = desc.doorSoundType,
     backend = {
       program = program,
       meshes = backendMeshes,

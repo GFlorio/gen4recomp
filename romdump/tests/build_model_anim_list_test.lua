@@ -7,7 +7,7 @@
 --
 -- The header decodes into a source-grounded record -- the bytes that have a
 -- consumer meaning are named, the rest is not carried. decode() returns
--- { ids, registration, policy, control, areaGate, banded } -- the fields
+-- { ids, registration, policy, control, areaGate, doorSoundType, banded } -- the fields
 -- named by their consumer's meaning (the asm sources are in
 -- BuildModelAnimList's header comment); banded = (policy == 0x08). The
 -- no-animation sentinel (first header u16 0xFFFF) yields empty ids.
@@ -60,6 +60,7 @@ function T.decodes_multiple_referenced_resources()
   Assert.equal(r.ids[1], 1)
   Assert.equal(r.ids[2], 2)
   assertHeader(r, 1, 3, 0, 1)
+  Assert.equal(r.doorSoundType, 1, "byte 4 door sound selector")
   Assert.isFalse(r.banded, "the door pair is not banded")
 end
 
@@ -112,13 +113,11 @@ function T.policy_bits_name_the_registrar_and_the_play_state()
   Assert.equal(banded.policy, 8, "the time-band policy is the 0x08 special case")
 end
 
-function T.unestablished_header_bytes_are_not_carried()
-  -- Bytes 4-7 have no established consumer meaning; the decoded record must
-  -- not carry them ("just in case" API surface -- the source bytes remain in
-  -- the archive if future research discovers meaning).
+function T.decodes_door_sound_selector_without_claiming_later_bytes()
+  -- Byte 4 is the door selector; bytes 5-7 remain unclaimed.
   local r = BuildModelAnimList.decode(record("\1\0\0\0\2\3\4\5", { 9 }))
   assertHeader(r, 1, 0, 0, 0)
-  Assert.isNil(r.reserved, "bytes 4-5 are not carried")
+  Assert.equal(r.doorSoundType, 2, "byte 4 is carried as the door selector")
   Assert.isNil(r.raw6, "byte 6 is not carried")
   Assert.isNil(r.raw7, "byte 7 is not carried")
 end

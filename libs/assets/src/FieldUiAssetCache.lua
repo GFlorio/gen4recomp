@@ -38,6 +38,7 @@ FieldUiAssetCache.GEOMETRY = {
 -- strings.
 FieldUiAssetCache.ASSET = {
   DIALOGUE_FRAME_TILES = "hgss.dialogue_frame.tiles",
+  DIALOGUE_CONTINUE_CURSOR = "hgss.dialogue_continue_cursor",
   SIGNPOST_TILES = "hgss.signpost.tiles",
   SIGNPOST_WAYFINDING = "hgss.signpost.wayfinding",
   START_MENU_BACKGROUND = "hgss.start_menu.background",
@@ -194,6 +195,69 @@ function FieldUiAssetCache.validateManifest(manifest)
       )
       if not ok then
         return false, err
+      end
+    end
+    local cursor = s.continueCursor
+    if type(cursor) ~= "table" then
+      return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.continueCursor must be a table", {})
+    end
+    local cursorAsset = cursor.asset
+    local asset = atlasSizes[cursorAsset]
+    if cursorAsset ~= FieldUiAssetCache.ASSET.DIALOGUE_CONTINUE_CURSOR or not asset then
+      return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.continueCursor.asset is invalid", {})
+    end
+    if asset.width ~= 48 or asset.height ~= s.count * 16 then
+      return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor atlas has invalid dimensions", {})
+    end
+    if type(cursor.cycle) ~= "table" or #cursor.cycle ~= 4 then
+      return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor cycle is invalid", {})
+    end
+    for index, phase in ipairs({ 0, 1, 2, 1 }) do
+      if cursor.cycle[index] ~= phase then
+        return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor cycle is not source-faithful", {})
+      end
+    end
+    if cursor.framePrinterTicks ~= 9 then
+      return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor timing is invalid", {})
+    end
+    local placement = cursor.placement
+    if
+      type(placement) ~= "table"
+      or placement.x ~= 240
+      or placement.y ~= 168
+      or placement.width ~= 16
+      or placement.height ~= 16
+    then
+      return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor placement is invalid", {})
+    end
+    if type(cursor.styles) ~= "table" then
+      return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor styles are missing", {})
+    end
+    for style = 0, s.count - 1 do
+      local styleEntry = cursor.styles[style]
+      if type(styleEntry) ~= "table" or type(styleEntry.phases) ~= "table" then
+        return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor style is missing", { style = style })
+      end
+      for phase = 0, 2 do
+        local rect = styleEntry.phases[phase]
+        local expected = { x = phase * 16, y = style * 16, width = 16, height = 16 }
+        if
+          type(rect) ~= "table"
+          or rect.x ~= expected.x
+          or rect.y ~= expected.y
+          or rect.width ~= expected.width
+          or rect.height ~= expected.height
+        then
+          return false,
+            Errors.new(MANIFEST_INVALID, "dialogue continuation cursor phase is invalid", {
+              style = style,
+              phase = phase,
+            })
+        end
+        local phaseOk, phaseErr = rectInAtlas(rect, cursorAsset, "dialogue continuation cursor phase")
+        if not phaseOk then
+          return false, phaseErr
+        end
       end
     end
     return true

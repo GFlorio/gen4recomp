@@ -8,9 +8,16 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 FieldMapDataCache.FORMAT = Contract.fieldMapData.cacheFormat
 FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
+FieldMapDataCache.TRANSITION_ENVIRONMENTS = { cave = true, outdoors = true, building = true }
 
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
+
+---@param value any
+---@return boolean
+function FieldMapDataCache.isTransitionEnvironment(value)
+  return type(value) == "string" and FieldMapDataCache.TRANSITION_ENVIRONMENTS[value] == true
+end
 
 local function hasString(value)
   return type(value) == "string" and #value > 0
@@ -133,7 +140,12 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
     return false
   end
   local events = field.events
-  if not FieldMapDataCache.hasRequiredEvents(events) or not hasAudioPolicy(field) or not hasInitScripts(field) then
+  if
+    not FieldMapDataCache.hasRequiredEvents(events)
+    or not hasAudioPolicy(field)
+    or not hasInitScripts(field)
+    or not FieldMapDataCache.isTransitionEnvironment(field.transitionEnvironment)
+  then
     return false
   end
   return true

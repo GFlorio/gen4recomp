@@ -24,9 +24,7 @@ local T = {}
 -- members (0x18-byte slot; header shape per BuildModelAnimList).
 local function referencingRecord(ids)
   local bw = BinaryWriter.new()
-  bw:u16(0)
-  bw:u16(0)
-  bw:u32(0)
+  bw:bytes("\1\3\0\1\1\0\1\2")
   for _, id in ipairs(ids) do
     bw:u32(id)
   end

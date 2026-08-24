@@ -8,6 +8,7 @@ local ScriptIdentity = require("libs.assets.src.ScriptIdentity")
 ---@class Bindings
 local Bindings = {}
 Bindings.__index = Bindings
+Bindings.CANONICAL_INERT_SCRIPT = "runtime.inert_interaction"
 
 local INVALID_INTENT = "SCRIPT_BINDING_INVALID_INTENT"
 
@@ -21,7 +22,7 @@ end
 local function scriptIdFor(intent)
   local rawScriptId = intent.scriptId
   if rawScriptId == 0 then
-    return nil
+    return Bindings.CANONICAL_INERT_SCRIPT
   end
   if type(rawScriptId) ~= "number" or math.floor(rawScriptId) ~= rawScriptId or rawScriptId < 0 then
     Errors.raise(
@@ -87,6 +88,28 @@ function Bindings.backgroundTrigger(intent, scriptId, playerFacing)
   }
 end
 
+---@param intent table InteractionIntent
+---@param scriptId string
+---@param playerFacing string
+---@return table
+function Bindings.coordinateTrigger(intent, scriptId, playerFacing)
+  assert(intent.kind == "coordinate", "coordinate trigger requires a coordinate intent")
+  return {
+    kind = "coordinate",
+    mapId = intent.mapId,
+    coordinateId = intent.coordinateId,
+    scriptId = scriptId,
+    playerFacing = playerFacing,
+    sourceFieldX = intent.sourceFieldX,
+    sourceFieldZ = intent.sourceFieldZ,
+    targetFieldX = intent.targetFieldX,
+    targetFieldZ = intent.targetFieldZ,
+    objectId = nil,
+    selfActor = nil,
+    backgroundId = nil,
+  }
+end
+
 -- Resolve one interaction intent into a trigger descriptor plus its generated
 -- script id. Raw source script id zero is the noninteractive marker.
 ---@param intent table InteractionIntent
@@ -94,7 +117,7 @@ end
 ---@return table|nil { trigger, scriptId }
 function Bindings:resolveIntent(intent, playerFacing)
   local kind = intent.kind
-  if kind ~= "object" and kind ~= "background" then
+  if kind ~= "object" and kind ~= "background" and kind ~= "coordinate" then
     return nil
   end
   local scriptId = scriptIdFor(intent)
@@ -102,7 +125,8 @@ function Bindings:resolveIntent(intent, playerFacing)
     return nil
   end
   local trigger = kind == "object" and Bindings.objectTrigger(intent, scriptId, playerFacing)
-    or Bindings.backgroundTrigger(intent, scriptId, playerFacing)
+    or kind == "background" and Bindings.backgroundTrigger(intent, scriptId, playerFacing)
+    or Bindings.coordinateTrigger(intent, scriptId, playerFacing)
   return { trigger = trigger, scriptId = scriptId }
 end
 

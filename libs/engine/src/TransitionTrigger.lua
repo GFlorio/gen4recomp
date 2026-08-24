@@ -3,8 +3,8 @@
 -- FieldSystem_CheckMapTransition (facing-tile door, direction-gated standing
 -- stairs/warps, standing ladders) and stepPath mirrors FieldSystem_CheckTransition
 -- (north/panel/ladder-down/escalator standing warps). Collision alone never
--- infers a transition type; behavior classifies, collision only gates the
--- facing-tile door. Authoritative source: pret/pokeheartgold
+-- infers a transition type; behavior classifies, while the facing-cell collision
+-- gate applies only to the facing-door probe. Authoritative source: pret/pokeheartgold
 -- src/field/field_control.c with TILE_BEHAVIOR_* values from
 -- include/constants/metatile_behavior.h (sequential enum, NONE = 255).
 --
@@ -16,6 +16,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
@@ -32,15 +33,22 @@ local DIRECTION_DELTAS = {
 ---@field requiredDirections string[]
 ---@field evaluatesOn "input"|"step"
 ---@field ladder boolean
+---@field flipFace boolean
 
 ---@class TransitionTrigger -- the public trigger record: kind plus the attached warp
 ---@field kind "door"|"stairs"|"directional"|"generic"
 ---@field warp table?
+---@field destinationFacing string?
 local TransitionTrigger = {}
 
 -- The raw behavior byte vocabulary lives in MetatileBehavior, below this
 -- module's policy.
 local BEHAVIOR = MetatileBehavior.BEHAVIOR
+
+local function entranceDirections(behavior)
+  local direction = MetatileBehavior.warpEntranceDirection(behavior)
+  return direction and { direction } or {}
+end
 
 -- Behavior byte -> semantic classification. requiredDirections is the gate
 -- FieldSystem_CheckMapTransition applies (empty = any facing); evaluatesOn
@@ -53,6 +61,7 @@ local CLASSIFICATIONS = {
     requiredDirections = { "north" },
     evaluatesOn = "input",
     ladder = true,
+    transition = FieldTransitionProfile.fixed(FieldTransitionProfile.LADDER),
   },
   [BEHAVIOR.LADDER_SOUTH] = {
     kind = "directional",
@@ -60,96 +69,113 @@ local CLASSIFICATIONS = {
     requiredDirections = { "south" },
     evaluatesOn = "input",
     ladder = true,
+    transition = FieldTransitionProfile.fixed(FieldTransitionProfile.LADDER),
   },
   [BEHAVIOR.LADDER_DOWN] = {
     kind = "generic",
     triggerMode = "standing",
     requiredDirections = {},
     evaluatesOn = "step",
+    transition = FieldTransitionProfile.fixed(FieldTransitionProfile.LADDER_DOWN),
   },
   [BEHAVIOR.WARP_STAIRS_EAST] = {
     kind = "stairs",
     triggerMode = "standing",
     requiredDirections = { "east" },
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.fixed(FieldTransitionProfile.HORIZONTAL_STAIRS),
   },
   [BEHAVIOR.WARP_STAIRS_WEST] = {
     kind = "stairs",
     triggerMode = "standing",
     requiredDirections = { "west" },
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.fixed(FieldTransitionProfile.HORIZONTAL_STAIRS),
   },
   [BEHAVIOR.WARP_ENTRANCE_EAST] = {
     kind = "directional",
     triggerMode = "standing",
-    requiredDirections = { "east" },
+    requiredDirections = entranceDirections(BEHAVIOR.WARP_ENTRANCE_EAST),
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_ENVIRONMENT),
   },
   [BEHAVIOR.WARP_ENTRANCE_WEST] = {
     kind = "directional",
     triggerMode = "standing",
-    requiredDirections = { "west" },
+    requiredDirections = entranceDirections(BEHAVIOR.WARP_ENTRANCE_WEST),
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_ENVIRONMENT),
   },
   [BEHAVIOR.WARP_ENTRANCE_NORTH] = {
     kind = "generic",
     triggerMode = "standing",
     requiredDirections = {},
     evaluatesOn = "step",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_ENVIRONMENT),
   },
   [BEHAVIOR.WARP_ENTRANCE_SOUTH] = {
     kind = "directional",
     triggerMode = "standing",
-    requiredDirections = { "south" },
+    requiredDirections = entranceDirections(BEHAVIOR.WARP_ENTRANCE_SOUTH),
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_ENVIRONMENT),
   },
   [BEHAVIOR.WARP_PANEL] = {
     kind = "generic",
     triggerMode = "standing",
     requiredDirections = {},
     evaluatesOn = "step",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_PANEL),
   },
   [BEHAVIOR.DOOR] = {
     kind = "door",
     triggerMode = "facing",
     requiredDirections = {},
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.fixed(FieldTransitionProfile.DOOR),
   },
   [BEHAVIOR.ESCALATOR_FLIP_FACE] = {
     kind = "directional",
     triggerMode = "standing",
     requiredDirections = { "east", "west" },
     evaluatesOn = "step",
+    transition = FieldTransitionProfile.fixed(FieldTransitionProfile.ESCALATOR),
+    flipFace = true,
   },
   [BEHAVIOR.ESCALATOR] = {
     kind = "directional",
     triggerMode = "standing",
     requiredDirections = { "east", "west" },
     evaluatesOn = "step",
+    transition = FieldTransitionProfile.fixed(FieldTransitionProfile.ESCALATOR),
   },
   [BEHAVIOR.WARP_EAST] = {
     kind = "directional",
     triggerMode = "standing",
     requiredDirections = { "east" },
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_ENVIRONMENT),
   },
   [BEHAVIOR.WARP_WEST] = {
     kind = "directional",
     triggerMode = "standing",
     requiredDirections = { "west" },
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_ENVIRONMENT),
   },
   [BEHAVIOR.WARP_NORTH] = {
     kind = "generic",
     triggerMode = "standing",
     requiredDirections = {},
     evaluatesOn = "step",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_ENVIRONMENT),
   },
   [BEHAVIOR.WARP_SOUTH] = {
     kind = "directional",
     triggerMode = "standing",
     requiredDirections = { "south" },
     evaluatesOn = "input",
+    transition = FieldTransitionProfile.mode(FieldTransitionProfile.MODE_ENVIRONMENT),
   },
 }
 
@@ -161,13 +187,21 @@ function TransitionTrigger.classify(behavior)
     return nil
   end
   -- A fresh plain record per call: callers never receive a shared table.
-  return {
+  local classification = {
     kind = record.kind,
     triggerMode = record.triggerMode,
     requiredDirections = record.requiredDirections,
     evaluatesOn = record.evaluatesOn,
     ladder = record.ladder or false,
+    flipFace = record.flipFace or false,
   }
+  if record.transition then
+    classification.transition = {
+      mode = record.transition.mode,
+      profile = record.transition.profile,
+    }
+  end
+  return classification
 end
 
 -- Whether a classification's direction gate admits `facing` (empty gate =
@@ -229,7 +263,7 @@ local function blockedAt(runtimeMap, fieldX, fieldZ)
   return runtimeMap.collision:isBlockedLocal(localX, localZ)
 end
 
-local function attachWarp(classification, runtimeMap, fieldX, fieldZ)
+local function attachWarp(classification, runtimeMap, fieldX, fieldZ, destinationFacing)
   local warp = WarpSystem.findAt(runtimeMap, fieldX, fieldZ)
   if not warp then
     return nil
@@ -237,7 +271,20 @@ local function attachWarp(classification, runtimeMap, fieldX, fieldZ)
   -- The minimal public trigger record: the classification kind plus the
   -- attached warp. The remaining classification data is trigger-policy
   -- internals and never leaves this module.
-  return { kind = classification.kind, warp = warp }
+  local trigger = { kind = classification.kind, warp = warp }
+  if classification.transition then
+    trigger.transition = {
+      mode = classification.transition.mode,
+      profile = classification.transition.profile,
+    }
+  end
+  if destinationFacing then
+    trigger.destinationFacing = destinationFacing
+  end
+  if classification.kind == "directional" and classification.transition == nil then
+    error("directional transition classification is missing profile identity")
+  end
+  return trigger
 end
 
 -- HGSS FieldSystem_CheckMapTransition: evaluated while the player is idle and
@@ -266,19 +313,26 @@ function TransitionTrigger.inputPath(runtimeMap, fieldX, fieldZ, direction)
     return attachWarp(standing, runtimeMap, fieldX, fieldZ)
   end
 
-  -- 2. The input path requires a blocked tile directly ahead (the door or
-  --    stair wall the player faces); HGSS returns FALSE without it.
-  if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) ~= true then
-    return nil
+  -- 2. The facing-cell collision gate belongs only to the facing-door probe.
+  if blockedAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z) == true then
+    local facing = classifyAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z)
+    if facing and facing.kind == "door" then
+      local trigger = attachWarp(facing, runtimeMap, fieldX + delta.x, fieldZ + delta.z)
+      if trigger then
+        return trigger
+      end
+    end
   end
 
-  -- 3. Facing-tile door: the blocked tile ahead carries a DOOR warp.
-  local facing = classifyAt(runtimeMap, fieldX + delta.x, fieldZ + delta.z)
-  if facing and facing.kind == "door" then
-    local trigger = attachWarp(facing, runtimeMap, fieldX + delta.x, fieldZ + delta.z)
-    if trigger then
-      return trigger
-    end
+  -- 3. Standing stairs and directional warps are independent of the
+  -- facing-cell collision result.
+  if
+    standing
+    and standing.kind == "stairs"
+    and standing.evaluatesOn == "input"
+    and TransitionTrigger.matchesDirection(standing, direction)
+  then
+    return attachWarp(standing, runtimeMap, fieldX, fieldZ)
   end
 
   -- 4. Standing direction-gated warps (door, stairs, and east/west/south
@@ -305,7 +359,11 @@ function TransitionTrigger.stepPath(runtimeMap, fieldX, fieldZ, facing)
   if not TransitionTrigger.matchesDirection(classification, facing) then
     return nil
   end
-  return attachWarp(classification, runtimeMap, fieldX, fieldZ)
+  local destinationFacing = facing
+  if classification.flipFace then
+    destinationFacing = ({ north = "south", south = "north", east = "west", west = "east" })[facing]
+  end
+  return attachWarp(classification, runtimeMap, fieldX, fieldZ, destinationFacing)
 end
 
 return TransitionTrigger

@@ -205,7 +205,7 @@ function T.text_frame_must_resolve_to_an_imported_frame_style()
 end
 
 function T.text_speed_is_an_explicitly_supported_gameplay_value()
-  for _, speed in ipairs({ "slow", "mid", "fast" }) do
+  for _, speed in ipairs({ "slow", "mid", "fast", "fastest" }) do
     Assert.notNil(PlayerData.validate(record({ options = { textFrame = 0, textSpeed = speed } }), context()))
   end
   for _, speed in ipairs({ "turbo", "MID", "normal", 2 }) do

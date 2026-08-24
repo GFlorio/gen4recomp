@@ -301,6 +301,7 @@ local function compileAnimatedModel(
     },
     materials = dynamicMaterials(dynamicModel, base, textures, variantsByName),
     animations = animResult.clips,
+    doorSoundType = animResult.doorSoundType,
   },
     wrapped
 end
@@ -652,6 +653,7 @@ local function _compile(romFs, idOrSymbol, opts)
     versionId = romFs:version(),
     mapId = mapId,
     mapSymbol = resolved.map.symbol,
+    type = area.areaType,
     matrix = {
       width = resolved.matrix.width,
       height = resolved.matrix.height,

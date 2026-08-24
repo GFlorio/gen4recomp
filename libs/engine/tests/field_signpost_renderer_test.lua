@@ -515,6 +515,7 @@ function T.an_inactive_gap_leaves_the_next_draw_pure()
       ---@cast msg any
       return { lines = msg._lines }
     end,
+    policy = require("libs.engine.src.TextSpeedPolicy").forSpeed("mid"),
   })
   local before = #lg.draws
   do
@@ -587,6 +588,7 @@ function T.an_active_window_without_appearance_draws_the_full_width_box()
       ---@cast msg any
       return { lines = msg._lines }
     end,
+    policy = require("libs.engine.src.TextSpeedPolicy").forSpeed("mid"),
   })
   controller:setCommand("show")
   controller:updateFixed()
@@ -648,6 +650,7 @@ function T.an_unknown_style_id_is_a_programming_error()
       ---@cast msg any
       return { lines = msg._lines }
     end,
+    policy = require("libs.engine.src.TextSpeedPolicy").forSpeed("mid"),
     styleId = "no.such.style",
   })
   controller:setCommand("show")

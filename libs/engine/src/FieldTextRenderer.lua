@@ -327,6 +327,21 @@ function FieldTextRenderer:textWidth(text)
   return width
 end
 
+-- Returns the source field-window fill color (palette slot 15, represented by
+-- Lua entry 16). ROM palettes are byte-valued; normalized fixture palettes are
+-- accepted so the same semantic accessor remains deterministic in headless UI.
+---@return number[]
+function FieldTextRenderer:windowBackgroundColor()
+  local color = assert(self.fontDef.palette and self.fontDef.palette[16], "field font palette slot 15 is required")
+  assert(type(color) == "table", "field font palette slot 15 must be a color")
+  local r, g, b = color.r or color[1], color.g or color[2], color.b or color[3]
+  assert(r ~= nil and g ~= nil and b ~= nil, "field font palette slot 15 must contain RGB components")
+  if r > 1 or g > 1 or b > 1 then
+    r, g, b = r / 255, g / 255, b / 255
+  end
+  return { r, g, b, 1 }
+end
+
 -- The field index of the last focus_indicator token visible in source
 -- order, or nil when none is visible. The one authoritative last-wins scan
 -- the window renderers use: several visible controls draw one frame.

@@ -1,7 +1,7 @@
 -- sound_wait task implementation : waits for a sound
 -- effect, cry, or fanfare through the audio service's semantic completion
 -- state. The wait state carries the semantic wait kind: `wait_sound` holds
--- the resolved effect sequence and polls `isEffectPlaying(sequence)`;
+-- the resolved effect sequence and polls `isEffectWaitComplete(sequence)`;
 -- `wait_cry` polls `isCryFinished`; `wait_fanfare` polls
 -- `isFanfarePlaying`. The audio service contract says every poll returns a
 -- boolean, never nil: a nil poll result is a programming fault (assert),
@@ -83,10 +83,10 @@ function SoundWaitTask.poll(state, ctx)
   -- name the poll the wait kind uses.
   local done
   if state.kind == "effect" then
-    local service = audio --[[@as { isEffectPlaying: fun(self: table, sequence: any): boolean }]]
-    local playing = service:isEffectPlaying(state.sequence)
-    assert(playing ~= nil, "the audio service must report effect play state as a boolean")
-    done = not playing
+    local service = audio --[[@as { isEffectWaitComplete: fun(self: table, sequence: any): boolean }]]
+    local complete = service:isEffectWaitComplete(state.sequence)
+    assert(complete ~= nil, "the audio service must report effect wait completion as a boolean")
+    done = complete
   elseif state.kind == "cry" then
     local service = audio --[[@as { isCryFinished: fun(self: table): boolean }]]
     local finished = service:isCryFinished()

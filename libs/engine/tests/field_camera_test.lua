@@ -248,6 +248,21 @@ function T.new_bark_profile_uses_full_vertical_fov_and_exact_eye_orbit()
   Assert.isTrue(approx(camera:canonicalProjection()[6], 1 / math.tan(halfFov)))
 end
 
+function T.transition_adjustment_reanchors_real_camera_pairs()
+  local camera = FieldCamera.new(profile(), { initialTarget = { x = 0, y = 0, z = 0 } })
+  camera:setTransitionPlayer({
+    renderPosition = function()
+      return { x = 4, y = 5, z = 6 }
+    end,
+  })
+  camera:adjustTransition(3, "horizontal_stairs")
+  Assert.equal(camera.target.x, 5)
+  Assert.equal(camera.target.y, 7)
+  Assert.equal(camera.target.z, 9)
+  Assert.deepEqual(camera.previousTarget, camera.target)
+  Assert.deepEqual(camera.previousEye, camera.eye)
+end
+
 function T.elms_lab_profile_has_exact_canonical_orthographic_extents()
   local halfFov = angleIndexToRadians(0x0281)
   local camera = FieldCamera.new(

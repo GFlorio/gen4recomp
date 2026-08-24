@@ -25,6 +25,7 @@ local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldMenuHost = require("libs.engine.src.FieldMenuHost")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
@@ -37,6 +38,7 @@ local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
 local FieldTransition = require("libs.engine.src.FieldTransition")
+local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
 local FieldViewport = require("libs.engine.src.FieldViewport")
@@ -52,6 +54,7 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
+local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
 local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
@@ -379,6 +382,7 @@ function FieldRuntime:_load()
     )
     assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
     self.weatherCatalog = weatherCatalog
+    self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
 
     -- FieldMapLoader owns the simulation assets (field data, collision,
     -- terrain) through the pure asset paths for every composition. The visual
@@ -518,9 +522,11 @@ function FieldRuntime:_load()
       local result = layoutMessage(formatted)
       return { lines = (result.pages[1] or { lines = {} }).lines }
     end
+    local audioService = self:_composeAudio(cacheFs, restoredAudio)
     self.dialogue = FieldDialogueController.new({
       layout = layoutMessage,
-      ticksPerGlyph = PlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
+      policy = TextSpeedPolicy.forSpeed(self.playerData.options.textSpeed),
+      audio = audioService,
     })
     -- The signpost controller is fixed-tick and pure; the script platform
     -- advances it once per scheduler tick through the signpost host. The
@@ -528,7 +534,7 @@ function FieldRuntime:_load()
     -- the same single authority as the dialogue controller.
     self.signpost = FieldSignpostController.new({
       layout = signpostLayout,
-      ticksPerGlyph = PlayerData.ticksPerGlyph(self.playerData.options.textSpeed),
+      policy = TextSpeedPolicy.forSpeed(self.playerData.options.textSpeed),
     })
     self.auxiliaryFieldUi = loadedGame and AuxiliaryFieldUi.restore(loadedGame.auxiliaryUi) or AuxiliaryFieldUi.new()
     self.contextChoiceProvider = ContextChoiceProvider.new()
@@ -604,8 +610,6 @@ function FieldRuntime:_load()
     -- of this closure (rather than inlined here) so its module-level
     -- collaborators are not upvalues of this already large boot closure,
     -- which sits close to LuaJIT's 60-upvalue-per-function limit.
-    local audioService = self:_composeAudio(cacheFs, restoredAudio)
-
     -- The field-script platform (the script override system): registry over
     -- the compiled cache + data/scripts/overrides, composition, mechanical
     -- bindings, scheduler, and interaction client. A resumed save reattaches
@@ -681,6 +685,9 @@ function FieldRuntime:_load()
       bagUnlocked = function()
         return self.scripts.worldState:isFlagSet(FieldScriptSymbols.flagsByName.FLAG_GOT_BAG)
       end,
+      eventResolver = FieldEventResolver,
+      eventState = self.eventState,
+      fieldEntranceIndicator = self.fieldEntranceIndicator,
       enterMapActors = function()
         self.actors:enterMap(self.runtimeMap, self.eventState)
       end,

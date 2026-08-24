@@ -142,6 +142,15 @@ function FieldSession.new(options)
   )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
   assert(type(options.bagUnlocked) == "function", "field session bag unlock predicate required")
+  assert(
+    options.fieldEntranceIndicator and options.fieldEntranceIndicator.updateFixed,
+    "field entrance indicator required"
+  )
+  assert(
+    options.eventResolver and options.eventResolver.resolveCoordinate and options.eventResolver.resolvePassiveSign,
+    "field event resolver required"
+  )
+  assert(options.eventState and options.eventState.getVar, "field event state required")
   if options.audio then
     assert(type(options.audio.updateField) == "function", "field session audio field-policy update required")
   end
@@ -157,12 +166,15 @@ function FieldSession.new(options)
     input = options.input,
     interactions = options.interactions,
     bagUnlocked = options.bagUnlocked,
+    eventResolver = options.eventResolver,
+    eventState = options.eventState,
     scriptScheduler = options.scriptScheduler,
     scriptClient = options.scriptClient,
     menuHost = options.menuHost,
     contextChoice = options.contextChoice,
     signpost = options.signpost,
     applicationHost = options.applicationHost,
+    fieldEntranceIndicator = options.fieldEntranceIndicator,
     audio = options.audio,
     initController = options.initController,
     enterMapActors = options.enterMapActors,
@@ -299,7 +311,20 @@ local function canOpenStartMenu(self)
 end
 
 function FieldSession:_advanceTick()
+  self.fieldEntranceIndicator:updateFixed({
+    map = self.currentMap,
+    player = self.player,
+    transition = { ownsField = self.transition.phase == FieldTransition.PHASES.idle },
+  })
   self.tick = self.tick + 1
+end
+
+local function resolveCoordinate(self)
+  return self.eventResolver.resolveCoordinate(self.currentMap, self.player, self.eventState)
+end
+
+local function resolvePassiveSign(self)
+  return self.eventResolver.resolvePassiveSign(self.currentMap, self.player)
 end
 
 function FieldSession:updateFixed(inputSnapshot)
@@ -507,6 +532,16 @@ function FieldSession:updateFixed(inputSnapshot)
   -- move, so collision and the draw list never disagree within a tick.
   self.actors:step(self.tick + 1)
 
+  local passiveDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+  if self.player.motion == "idle" and passiveDirection == self.player.facing then
+    local intent = resolvePassiveSign(self)
+    if intent then
+      self.scriptClient:consume(intent, self.tick + 1)
+      self:_advanceTick()
+      return
+    end
+  end
+
   -- An idle player's Action edge resolves an interaction
   -- before movement or warps are evaluated. A consumed interaction owns the
   -- tick (the dialogue becomes modal on it), so the same edge cannot also
@@ -571,6 +606,12 @@ function FieldSession:updateFixed(inputSnapshot)
     if self.audio then
       self.audio:updateField()
     end
+    local coordinateIntent = resolveCoordinate(self)
+    if coordinateIntent then
+      self.scriptClient:consume(coordinateIntent, self.tick + 1)
+      self:_advanceTick()
+      return
+    end
     -- Standing-trigger path: a completed step onto a warp tile
     -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
     -- behaviors only; direction-gated warps wait for the facing path above.
@@ -586,6 +627,14 @@ function FieldSession:updateFixed(inputSnapshot)
       )
     then
       self.transition:start(self.currentMap, trigger, self.player.facing)
+      self:_advanceTick()
+      return
+    end
+    local passiveIntent = resolvePassiveSign(self)
+    if passiveIntent then
+      self.scriptClient:consume(passiveIntent, self.tick + 1)
+      self:_advanceTick()
+      return
     end
   end
   -- Pose clocks advance only on a tick that could change the world, so a fade or

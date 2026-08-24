@@ -498,6 +498,7 @@ local function emittedDynamicDescriptor()
     },
     materials = { emittedDynamicMaterial() },
     animations = { emittedTrsClip() },
+    doorSoundType = 1,
   }
 end
 
@@ -917,6 +918,7 @@ end
 -- payload is current-schema data the gate accepts.
 function T.validate_accepts_a_pattern_payload_without_counts()
   local desc = emittedDynamicDescriptor()
+  desc.doorSoundType = nil
   desc.animations[1] = {
     id = "build_anim-3",
     name = "pattern",

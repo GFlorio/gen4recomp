@@ -23,6 +23,7 @@ local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = {}
 
 FieldUiFixture.STRIP_PATH = "assets/generated/field/ui/dialogue-frame-tiles.png"
+FieldUiFixture.CONTINUE_CURSOR_PATH = "assets/generated/field/ui/dialogue-continue-cursor.png"
 FieldUiFixture.TILES_PER_FRAME = 18
 FieldUiFixture.FRAME_COUNT = 2
 
@@ -103,6 +104,28 @@ function FieldUiFixture.framePixels(frame)
     rows[#rows + 1] = tileBytes(tile, palette)
   end
   return table.concat(rows)
+end
+
+---@return string png
+function FieldUiFixture.continueCursorBytes()
+  local pixels = {}
+  for style = 0, FieldUiFixture.FRAME_COUNT - 1 do
+    for y = 0, 15 do
+      for x = 0, 47 do
+        local phase = math.floor(x / 16)
+        local r = 40 + style * 80 + phase * 30
+        pixels[#pixels + 1] = string.char(r, 200 - phase * 30, 80 + style * 50, 255)
+      end
+    end
+  end
+  return PngWriter.encode(48, FieldUiFixture.FRAME_COUNT * 16, table.concat(pixels))
+end
+
+---@param style integer
+---@param phase integer
+---@return integer, integer, integer
+function FieldUiFixture.continueCursorColor(style, phase)
+  return 40 + style * 80 + phase * 30, 200 - phase * 30, 80 + style * 50
 end
 
 -- Tile i of the signpost frame strip: a distinct solid color, so a wrong
@@ -351,6 +374,17 @@ function FieldUiFixture.cardFontDef()
     },
     glyphs = glyphs,
     charmap = charmap,
+    palette = (function()
+      local palette = {}
+      for slot = 1, 16 do
+        palette[slot] = {
+          r = math.floor(255 * slot / 16) / 255,
+          g = math.floor(255 * slot / 32) / 255,
+          b = math.floor(255 * slot / 64) / 255,
+        }
+      end
+      return palette
+    end)(),
   }
 end
 
@@ -454,6 +488,11 @@ function FieldUiFixture.manifest()
         width = 144,
         height = FieldUiFixture.FRAME_COUNT * 8,
       },
+      [FieldUiAssetCache.ASSET.DIALOGUE_CONTINUE_CURSOR] = {
+        image = FieldUiFixture.CONTINUE_CURSOR_PATH,
+        width = 48,
+        height = FieldUiFixture.FRAME_COUNT * 16,
+      },
       [FieldUiAssetCache.ASSET.SIGNPOST_TILES] = {
         image = FieldUiFixture.SIGNPOST_TILES_PATH,
         width = 144,
@@ -486,6 +525,25 @@ function FieldUiFixture.manifest()
         [0] = { x = 0, y = 0, width = 144, height = 8 },
         [1] = { x = 0, y = 8, width = 144, height = 8 },
       },
+      continueCursor = {
+        asset = FieldUiAssetCache.ASSET.DIALOGUE_CONTINUE_CURSOR,
+        cycle = { 0, 1, 2, 1 },
+        framePrinterTicks = 9,
+        placement = { x = 240, y = 168, width = 16, height = 16 },
+        styles = (function()
+          local styles = {}
+          for style = 0, FieldUiFixture.FRAME_COUNT - 1 do
+            styles[style] = {
+              phases = {
+                [0] = { x = 0, y = style * 16, width = 16, height = 16 },
+                [1] = { x = 16, y = style * 16, width = 16, height = 16 },
+                [2] = { x = 32, y = style * 16, width = 16, height = 16 },
+              },
+            }
+          end
+          return styles
+        end)(),
+      },
     },
     signposts = {
       textColors = { foreground = 2, shadow = 10, background = 15 },
@@ -516,6 +574,7 @@ function FieldUiFixture.cacheWithFontAndFrames()
   local cache = FieldDialogueFixture.cacheWithFont()
   cache:writeLua(FieldUiAssetCache.manifestPath(), FieldUiFixture.manifest())
   cache:write(FieldUiFixture.STRIP_PATH, FieldUiFixture.stripBytes())
+  cache:write(FieldUiFixture.CONTINUE_CURSOR_PATH, FieldUiFixture.continueCursorBytes())
   cache:write(FieldUiFixture.SIGNPOST_TILES_PATH, FieldUiFixture.signpostTilesBytes())
   cache:write(FieldUiFixture.WAYFINDING_PATH, FieldUiFixture.wayfindingBytes())
   cache:write(FieldUiFixture.START_MENU_BACKGROUND_PATH, FieldUiFixture.startMenuBackgroundBytes())

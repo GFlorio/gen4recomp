@@ -36,6 +36,8 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 ---@field _musicOverride integer|nil
 ---@field _environment { sequence: integer }|nil
 ---@field _eventState any
+---@field isEffectPlaying fun(self: FieldAudioController, idOrSymbol: integer|string): boolean
+---@field isEffectWaitComplete fun(self: FieldAudioController, idOrSymbol: integer|string): boolean
 local FieldAudioController = {}
 FieldAudioController.__index = FieldAudioController
 
@@ -349,6 +351,10 @@ end
 
 function FieldAudioController:isEffectPlaying(idOrSymbol)
   return self._sound:isEffectPlaying(idOrSymbol)
+end
+
+function FieldAudioController:isEffectWaitComplete(idOrSymbol)
+  return self._sound:isEffectWaitComplete(idOrSymbol)
 end
 
 function FieldAudioController:playMusic(idOrSymbol)

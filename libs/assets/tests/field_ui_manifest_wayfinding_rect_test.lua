@@ -35,6 +35,11 @@ local function baseManifest()
         width = 144,
         height = 160,
       },
+      ["hgss.dialogue_continue_cursor"] = {
+        image = "assets/generated/field/ui/dialogue-continue-cursor.png",
+        width = 48,
+        height = 320,
+      },
       ["hgss.signpost.tiles"] = { image = "assets/generated/field/ui/signpost-tiles.png", width = 288, height = 16 },
       ["hgss.signpost.wayfinding"] = {
         image = "assets/generated/field/ui/wayfinding-tiles.png",
@@ -49,7 +54,29 @@ local function baseManifest()
       },
       ["hgss.trainer_card.front"] = { image = "assets/generated/field/ui/trainer-card.png", width = 256, height = 192 },
     },
-    dialogueFrames = { count = 20, frameTiles = frameTiles },
+    dialogueFrames = {
+      count = 20,
+      frameTiles = frameTiles,
+      continueCursor = {
+        asset = "hgss.dialogue_continue_cursor",
+        cycle = { 0, 1, 2, 1 },
+        framePrinterTicks = 9,
+        placement = { x = 240, y = 168, width = 16, height = 16 },
+        styles = (function()
+          local styles = {}
+          for style = 0, 19 do
+            styles[style] = {
+              phases = {
+                [0] = { x = 0, y = style * 16, width = 16, height = 16 },
+                [1] = { x = 16, y = style * 16, width = 16, height = 16 },
+                [2] = { x = 32, y = style * 16, width = 16, height = 16 },
+              },
+            }
+          end
+          return styles
+        end)(),
+      },
+    },
     signposts = {
       textColors = { foreground = 2, shadow = 10, background = 15 },
       types = {
@@ -90,7 +117,7 @@ function T.final_surface_48x32_is_accepted_when_manifest_claims_v7()
     { image = "assets/generated/field/ui/wayfinding-tiles.png", width = 48, height = 32 }
   manifest.signposts.types[0].wayfinding[0] = { x = 0, y = 0, width = 48, height = 32 }
   local ok, err = FieldUiAssetCache.validateManifest(manifest)
-  Assert.isTrue(ok, "48x32 final surface with v6 schema should be accepted")
+  Assert.isTrue(ok, "48x32 final surface with v7 schema should be accepted")
   Assert.isNil(err)
 end
 

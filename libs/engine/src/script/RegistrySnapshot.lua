@@ -11,6 +11,7 @@ local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
 local Sha256 = require("libs.engine.src.script.Sha256")
+local BuiltinScripts = require("libs.engine.src.script.BuiltinScripts")
 
 local RegistrySnapshot = {}
 
@@ -19,18 +20,23 @@ RegistrySnapshot.FILE = "data/generated/script/registry.lua"
 
 local HEX_DIGEST = "^[0-9a-f]+$"
 
--- The current snapshot key: one digest over the script-cache marker and the
--- whole override tree (the manifest text plus every listed file, sorted by
--- id). The marker gates the generated corpus by build contract, and the
--- override bytes gate the checked-in layer, so the same key implies the same
--- registry content. nil when any input is unavailable: a broken cache or
--- override tree can never be snapshotted.
+-- The current snapshot key: one digest over the script-cache marker, builtin
+-- executable content, and the whole override tree (the manifest text plus
+-- every listed file, sorted by id). The marker gates the generated corpus by
+-- build contract, while the builtin and override inputs gate the checked-in
+-- layers, so the same key implies the same registry content. nil when any
+-- input is unavailable: a broken cache or override tree can never be
+-- snapshotted.
 ---@param cacheFs table CacheFs-shaped
 ---@param overrideFs table read-shaped filesystem for data/scripts/overrides
 ---@return string|nil
 function RegistrySnapshot.key(cacheFs, overrideFs)
   local marker = cacheFs:read(ScriptCache.markerPath())
   if marker == nil then
+    return nil
+  end
+  local builtinOk, builtinHash = pcall(BuiltinScripts.contentHash)
+  if not builtinOk or type(builtinHash) ~= "string" then
     return nil
   end
   local manifest = overrideFs:read(ScriptOverrides.MANIFEST)
@@ -59,7 +65,7 @@ function RegistrySnapshot.key(cacheFs, overrideFs)
     idsList[#idsList + 1] = id
   end
   table.sort(idsList)
-  local parts = { marker, "\n", manifest }
+  local parts = { marker, "\n", builtinHash, "\n", manifest }
   for _, id in ipairs(idsList) do
     local content = overrideFs:read(ScriptOverrides.DIR .. "/" .. id .. ".lua")
     if content == nil then

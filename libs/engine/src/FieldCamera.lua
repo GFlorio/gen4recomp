@@ -178,6 +178,45 @@ function FieldCamera:setZoom(zoom)
   self._projectionDirty = true
 end
 
+-- Applies the camera-side part of a non-ordinary field transition. The
+-- transition family remains observable after the swap, while the camera
+-- keeps ownership of its own adjustment state.
+function FieldCamera:adjustTransition(profile, adjustment)
+  assert(type(profile) == "number", "transition camera profile required")
+  assert(type(adjustment) == "string", "transition camera adjustment required")
+  local sourceTarget = self.sourceTarget
+  if self.transitionPlayer then
+    sourceTarget = copyVector(self.transitionPlayer:renderPosition())
+  end
+  self.sourceTarget = sourceTarget
+  local offset = self.profile.targetOffsetTiles
+  self.target = {
+    x = sourceTarget.x + offset.x,
+    y = sourceTarget.y + offset.y,
+    z = sourceTarget.z + offset.z,
+  }
+  self.eye = eyeFromTarget(self.target, self.profile)
+  self.previousTarget = copyVector(self.target)
+  self.previousEye = copyVector(self.eye)
+  self.cameraSourceY = sourceTarget.y
+  self.cameraAppliedY = self.target.y - offset.y
+  if adjustment == "cave" then
+    self.perspectiveMode = "environment_0x10"
+  elseif adjustment == "outdoor" then
+    self.perspectiveMode = "white_fade"
+  end
+end
+
+function FieldCamera:setTransitionPlayer(player)
+  assert(type(player) == "table", "transition player required")
+  self.transitionPlayer = player
+end
+
+function FieldCamera:collapseRenderInterpolation()
+  self.previousTarget = copyVector(self.target)
+  self.previousEye = copyVector(self.eye)
+end
+
 -- `alpha` is the render interpolation factor of the current fixed step: 0 shows
 -- the state the previous fixed update left behind, 1 the latest one, and values
 -- between are smoothed so the camera cannot jump between simulation ticks.

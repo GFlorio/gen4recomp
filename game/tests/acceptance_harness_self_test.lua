@@ -97,6 +97,41 @@ function T.tests.advance_until_timeout_contains_a_bounded_semantic_trace()
   game:close()
 end
 
+function T.tests.wait_for_transition_waits_for_script_ownership_release()
+  local lockTicks = 0
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(versionId)
+      local runtime = fakeRuntime(versionId)
+      runtime.scripts = {
+        scheduler = {
+          playerMovementLocked = function()
+            return lockTicks < 4
+          end,
+        },
+      }
+      function runtime:update()
+        lockTicks = lockTicks + 1
+        self.session.tick = lockTicks
+        if lockTicks == 2 then
+          self.runtimeMap.mapId = 13
+          self.runtimeMap.mapSymbol = "MAP_DESTINATION"
+        end
+      end
+      return runtime
+    end,
+  })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+  game:step()
+
+  local transition = game:waitForTransition()
+
+  Assert.equal(transition.destination.mapSymbol, "MAP_DESTINATION")
+  Assert.isFalse(transition.destination.fieldLocked)
+  Assert.equal(transition.destination.tick, 4)
+  game:close()
+end
+
 function T.tests.failed_boot_disposes_the_partial_runtime_and_removes_its_namespace()
   local deleted = {}
   local runtime = fakeRuntime({ versionId = "heartgold" })
@@ -158,6 +193,15 @@ function T.tests.selected_versions_are_iterated_in_declared_order()
   Assert.deepEqual(seen, { "heartgold", "soulsilver" })
 end
 
+function T.tests.primary_version_uses_the_first_selected_version()
+  local harness = AcceptanceHarness.new({ versions = { "soulsilver" } })
+  Assert.equal(harness:primaryVersion(), "soulsilver")
+end
+
+function T.tests.default_version_comes_from_the_ready_dump_set()
+  Assert.equal(AcceptanceHarness.defaultVersion(), "soulsilver")
+end
+
 function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_runtime_once()
   local runtimes = {}
   local optionsSeen = {}
@@ -210,6 +254,35 @@ function T.tests.restart_reuses_the_original_field_options()
   Assert.equal(optionsSeen[2].viewportHeight, 720)
   Assert.equal(optionsSeen[2].screenTopology, fieldOptions.screenTopology)
   game:close()
+end
+
+function T.tests.recording_script_hosts_are_an_explicit_composition_choice()
+  local optionsSeen = {}
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(versionId, _, options)
+      optionsSeen[#optionsSeen + 1] = options
+      local runtime = fakeRuntime(versionId)
+      runtime.scriptHosts = options.scriptHosts
+      return runtime
+    end,
+  })
+
+  local productionLike = harness:boot({ versionId = "heartgold", save = "fresh" })
+  Assert.isNil(optionsSeen[1].scriptHosts, "default acceptance composition must not inject recording hosts")
+  Assert.throws(function()
+    productionLike:hostEvents()
+  end, "recording-only observations must require explicit recording hosts")
+  productionLike:close()
+
+  local recording = harness:boot({
+    versionId = "heartgold",
+    save = "fresh",
+    fieldOptions = { recordingScriptHosts = true },
+  })
+  Assert.notNil(optionsSeen[2].scriptHosts, "explicit recording composition must provide script hosts")
+  Assert.notNil(recording:hostEvents().records, "explicit recording composition must expose event records")
+  recording:close()
 end
 
 return T

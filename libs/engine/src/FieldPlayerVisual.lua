@@ -67,7 +67,7 @@ end
 -- original timeline: a standing actor holds the first frame of its facing
 -- range, and a turn starts the new range at its first frame.
 function FieldPlayerVisual:updateFixed(walkingAtTickStart)
-  local walking = walkingAtTickStart == true or self.player.motion == "walking"
+  local walking = not self.player.animationPaused and (walkingAtTickStart == true or self.player.motion == "walking")
 
   local facingChanged = self.lastFacing ~= self.player.facing
   if facingChanged then
@@ -82,6 +82,14 @@ function FieldPlayerVisual:updateFixed(walkingAtTickStart)
     self.pose = "idle"
     self.poseTick = 0
   end
+end
+
+-- Stop locomotion presentation at an explicit ownership handoff. This does
+-- not alter the player's logical or render position.
+function FieldPlayerVisual:settle()
+  self.pose = "idle"
+  self.poseTick = 0
+  self.lastFacing = self.player.facing
 end
 
 -- `alpha` is the render interpolation factor of the current fixed step.

@@ -735,6 +735,9 @@ T["mid-audio-wait saves resume against a fresh audio service"] = function()
       isEffectPlaying = function(self, id)
         return self.playing[id] == true
       end,
+      isEffectWaitComplete = function(self, id)
+        return self.playing[id] ~= true
+      end,
       fadeMusicOut = function(self)
         self.fadeActive = true
       end,

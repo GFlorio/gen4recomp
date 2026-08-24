@@ -7,9 +7,9 @@
 -- all. The poll reads only the fixed-tick input edges: a
 -- directional edge closes the window and turns the player (the source
 -- interruption for a live typed print, the dismissal otherwise); an A/B
--- edge before the live typed print is done is the printer's speed-up, never
--- a dismissal. The task carries no result reference. Pure domain module: no
--- love dependency.
+-- edge before the live typed print is done is left to the shared printer
+-- policy for trainer tips; it never dismisses. The task carries no result
+-- reference. Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -23,8 +23,8 @@ SignTask.version = 1
 ---@param spec table
 ---@return table state
 function SignTask.create(spec)
-  assert(spec.node, "sign task requires its graph node")
-  return {}
+  local node = assert(spec.node, "sign task requires its graph node")
+  return node.op == "trainer_tip" and { typed = true } or {}
 end
 
 ---@param state table
@@ -43,10 +43,11 @@ function SignTask.poll(state, ctx)
       host:close()
       return { complete = true, state = state }
     end
-    -- A/B before a live typed print is done is the printer's speed-up: the
-    -- whole message fills immediately and the window stays presented, and
-    -- the task keeps waiting for the dismissal edge.
-    host:finishPrint()
+    -- A/B before a live typed print is done is handled by the shared printer
+    -- policy; the task keeps waiting for the dismissal edge.
+    if not state.typed then
+      host:finishPrint()
+    end
     return { complete = false, state = state }
   end
   return { complete = false, state = state }

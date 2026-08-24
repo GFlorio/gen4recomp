@@ -28,10 +28,10 @@ function T.contract_pins_the_current_asset_identities()
   -- contracts, so unrelated derived classes must not invalidate. The
   -- sequence initial-volume domain is the current NNS table domain.
   Assert.deepEqual(DerivedAssetContract, {
-    revision = 5,
+    revision = 7,
     map = {
       cacheFormat = "map-cache-v7",
-      sceneSchema = "g4-map-scene-v7",
+      sceneSchema = "g4-map-scene-v8",
       terrainSchema = "g4-terrain-surfaces-v1",
       collisionVersion = 1,
     },
@@ -49,7 +49,7 @@ function T.contract_pins_the_current_asset_identities()
       fieldSchema = "g4-field-map-v7",
     },
     messages = {
-      cacheFormat = "field-message-cache-v2",
+      cacheFormat = "field-message-cache-v3",
       schema = "g4-field-message-bank-v1",
       indexSchema = "g4-field-message-index-v1",
       provenanceSchema = "g4-field-message-provenance-v1",
@@ -66,6 +66,9 @@ function T.contract_pins_the_current_asset_identities()
     fieldWeather = {
       cacheFormat = "field-weather-cache-v1",
       schema = "g4-field-weather-v1",
+    },
+    fieldEffects = {
+      cacheFormat = "field-effect-cache-v2",
     },
     fieldUi = {
       cacheFormat = "field-ui-cache-v1",

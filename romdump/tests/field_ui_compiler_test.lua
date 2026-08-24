@@ -284,6 +284,7 @@ local function fixture(opts)
       for i = 1, 20 do
         members[26 + i] = lz10Wrap(paletteOr16(opts.framePalette))
       end
+      members[0x16 + 1] = lz10Wrap(charData(12))
     elseif alias == "signpost_graphics" then
       members = signposts
     else
@@ -369,7 +370,7 @@ function T.compiles_the_manifest_and_all_assets()
   for _ in pairs(bundle.assets) do
     assetCount = assetCount + 1
   end
-  Assert.equal(assetCount, 6)
+  Assert.equal(assetCount, 7)
   for path, bytes in pairs(bundle.assets) do
     Assert.isTrue(path:find("^assets/generated/field/ui/") ~= nil)
     Assert.isTrue(#bytes > 0)

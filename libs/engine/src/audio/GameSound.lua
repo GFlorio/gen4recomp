@@ -5,7 +5,11 @@
 -- effects (play/stop;
 -- waits follow the HGSS IsSEPlaying model -- resolve the sequence's player
 -- and test that player's playback state, never an individual host-source
--- token), the fanfare state machine (the HGSS PlayFanfare path PAUSES the
+-- token). `isEffectPlaying` always exposes that active player state. The
+-- separate `isEffectWaitComplete` query completes immediately when no output
+-- completion clock is composed because there is no real playback lifecycle to
+-- await.
+-- fanfare state machine (the HGSS PlayFanfare path PAUSES the
 -- BGM player: the sequence timeline freezes and the paused player's
 -- channels are released with the forced release override -- no channel or
 -- sample state is preserved; after the fanfare and its 15-tick post-play
@@ -39,6 +43,7 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@class GameSound
 ---@field private _provider AudioAssetProvider
 ---@field private _player SequencePlayer
+---@field private _completionAvailable boolean
 ---@field private _cry table?
 ---@field private _mapMusic fun(): integer|string|nil?
 ---@field private _currentMusic integer|nil
@@ -46,10 +51,11 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _faders table<integer, GameSoundPlayerFader>
 ---@field private _handles table<integer, table>
 ---@field private _cryActive boolean
----@field new fun(opts: { provider: AudioAssetProvider, player: SequencePlayer, cry: table?, mapMusic: fun(): integer|string|nil? }): GameSound
+---@field new fun(opts: { provider: AudioAssetProvider, player: SequencePlayer, completionAvailable: boolean?, cry: table?, mapMusic: fun(): integer|string|nil? }): GameSound
 ---@field play fun(self: GameSound, idOrSymbol: integer|string)
 ---@field stop fun(self: GameSound, idOrSymbol: integer|string)
 ---@field isEffectPlaying fun(self: GameSound, idOrSymbol: integer|string): boolean
+---@field isEffectWaitComplete fun(self: GameSound, idOrSymbol: integer|string): boolean
 ---@field playMusic fun(self: GameSound, idOrSymbol: integer|string)
 ---@field stopMusic fun(self: GameSound)
 ---@field currentMusic fun(self: GameSound): integer?
@@ -107,7 +113,7 @@ local SOURCE_FULL_RESTORE = 128
 -- iterate ascending over these ids, never in Lua table order.
 local NNS_PLAYER_COUNT = 32
 
----@param opts { provider: AudioAssetProvider, player: SequencePlayer, cry: table?, mapMusic: fun(): integer|string|nil? }
+---@param opts { provider: AudioAssetProvider, player: SequencePlayer, completionAvailable: boolean?, cry: table?, mapMusic: fun(): integer|string|nil? }
 ---@return GameSound
 function GameSound.new(opts)
   assert(opts and opts.provider and opts.player, "GameSound requires a provider and a player")
@@ -123,6 +129,7 @@ function GameSound.new(opts)
   return setmetatable({
     _provider = opts.provider,
     _player = opts.player,
+    _completionAvailable = opts.completionAvailable ~= false,
     _cry = opts.cry,
     _mapMusic = opts.mapMusic,
     _currentMusic = nil,
@@ -277,6 +284,19 @@ end
 function GameSound:isEffectPlaying(idOrSymbol)
   local sequence = self._provider:sequence(idOrSymbol)
   return self._player:isPlayerPlaying(sequence.player.id)
+end
+
+-- True when a script wait on the effect may resume. A sinkless composition
+-- still exposes active player state through isEffectPlaying, but has no clock
+-- that can ever retire a finite sequence, so there is no completion to await.
+---@param idOrSymbol integer|string
+---@return boolean
+function GameSound:isEffectWaitComplete(idOrSymbol)
+  local sequence = self._provider:sequence(idOrSymbol)
+  if not self._completionAvailable then
+    return true
+  end
+  return not self._player:isPlayerPlaying(sequence.player.id)
 end
 
 -- Starts `idOrSymbol` as the current BGM. The requested identity is recorded

@@ -36,7 +36,7 @@ local ModelAsset = {}
 -- v4: every dynamic material record carries polygonMode (the real decoded DS
 -- polygon mode), so the runtime evaluator can classify final alpha
 -- (AlphaClassifier v2) without a placeholder mode.
-ModelAsset.SCHEMA = "g4-model-v4"
+ModelAsset.SCHEMA = "g4-model-v5"
 ModelAsset.KINDS = { static = true, ["nitro-dynamic"] = true }
 
 -- Structured error code owned by this module.
@@ -739,6 +739,26 @@ function ModelAsset.validate(desc)
   checkMaterialIndices("dynamic")
   for _, clip in ipairs(desc.animations) do
     checkAnimation(clip, desc)
+  end
+  local hasDoor = false
+  for _, clip in ipairs(desc.animations) do
+    for _, semanticName in ipairs(clip.semanticNames or {}) do
+      if semanticName == AnimationClip.ROLES.DOOR_OPEN or semanticName == AnimationClip.ROLES.DOOR_CLOSE then
+        hasDoor = true
+      end
+    end
+  end
+  if hasDoor then
+    if
+      type(desc.doorSoundType) ~= "number"
+      or desc.doorSoundType % 1 ~= 0
+      or desc.doorSoundType < 1
+      or desc.doorSoundType > 4
+    then
+      invalid("door animation descriptors require doorSoundType 1..4", desc.key)
+    end
+  elseif desc.doorSoundType ~= nil then
+    invalid("non-door animation descriptors must not carry doorSoundType", desc.key)
   end
   return desc
 end

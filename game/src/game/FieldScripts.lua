@@ -250,7 +250,7 @@ function FieldScripts.new(opts)
     dialogueHost:advance(scheduler:currentInput())
     -- The signpost controller is pure and fixed-tick: exactly one step per
     -- scheduler tick, commands and printer together.
-    signpostHost:advance()
+    signpostHost:advance(scheduler:currentInput())
   end
   scheduler = Scheduler.new({
     services = {

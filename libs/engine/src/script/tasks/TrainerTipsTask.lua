@@ -7,15 +7,12 @@
 -- (ScrCmd_TrainerTips / NativeScript_WaitTrainerTips, src/scrcmd_c.c at the
 -- pinned decomp commit) — the explicit cleanup cuts the print off and
 -- closes the window, the player turns to that direction, and the task
--- completes 0; A/B during the
--- print is the instant-fill operation (the whole message reveals through
--- host:finishPrint, the window stays open, and the task completes 2, the
--- same result as normal completion); on a live-print tick the direction wins
--- over A/B. A completed print completes 2 before any edge is considered,
--- and the print path reads no pointer edge (the script input snapshot has
--- none), so touch can never fill the print. The completion value flows
--- through the scheduler result reference (node.result), never a direct world
--- write. Pure domain module: no love dependency.
+-- completes 0; A/B during the print follows the shared printer policy and
+-- leaves the task active until normal completion. On a live-print tick the
+-- direction wins over A/B. A completed print completes 2 before any edge is
+-- considered, and the completion value flows through the scheduler result
+-- reference (node.result), never a direct world write. Pure domain module:
+-- no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -55,13 +52,6 @@ function TrainerTipsTask.poll(state, ctx)
     ctx.services.player:turn(input.pressedDirection)
     host:close()
     return { complete = true, state = state, result = 0 }
-  end
-  if input.pressedAction or input.pressedCancel then
-    -- The instant-fill operation: the whole message reveals immediately, the
-    -- window stays presented, and the task completes with the normal
-    -- print-complete result 2.
-    host:finishPrint()
-    return { complete = true, state = state, result = 2 }
   end
   return { complete = false, state = state }
 end

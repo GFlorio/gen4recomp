@@ -115,6 +115,13 @@ T["deferred base decodes through the loader once"] = function()
   Assert.deepEqual(calls, { "new_bark.lab_sign" }, "the decoded base is memoized")
 end
 
+T["builtin base is available without generated data"] = function()
+  local registry = Registry.new()
+  local builtin = { id = "runtime.inert_interaction" }
+  registry:installBuiltin(builtin.id, builtin)
+  Assert.equal(registry:base(builtin.id), builtin)
+end
+
 -- 2. Presence works without decoding: ids never touch the loader.
 T["presence semantics never decode"] = function()
   local registry, calls = lazyRegistry(scriptCache())

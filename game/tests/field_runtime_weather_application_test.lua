@@ -129,6 +129,7 @@ local function runtimeWithClock(catalog, calls, currentMap)
     end,
   }
   return setmetatable({
+    presentationFrameAccumulator = 0,
     weatherCatalog = catalog,
     weatherClock = clock,
     eventState = FieldEventState.new(),
@@ -154,7 +155,7 @@ local function runtimeWithClock(catalog, calls, currentMap)
       end,
     },
     scripts = {},
-    session = { update = function() end },
+    session = { accumulator = 0, update = function() end, updateFixed = function() end },
     applicationHost = {
       error = function()
         return nil
@@ -166,6 +167,11 @@ local function runtimeWithClock(catalog, calls, currentMap)
       consumeCompleted = function()
         return false
       end,
+      updateSourceFrame = function() end,
+      updateFixed = function() end,
+    },
+    fieldEntranceIndicator = {
+      updateFixed = function() end,
     },
   }, FieldRuntime)
 end

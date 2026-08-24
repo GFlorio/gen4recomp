@@ -132,7 +132,7 @@ function T.control_name_and_kind_helpers()
   Assert.equal(FieldMessageText.controlKind(0x0103), "substitution")
   Assert.equal(FieldMessageText.controlKind(0x0200), "focus_indicator")
   Assert.equal(FieldMessageText.controlKind(0xFF00), "style")
-  Assert.equal(FieldMessageText.controlKind(0x0202), "wait")
+  Assert.equal(FieldMessageText.controlKind(0x0202), "printer_callback")
   Assert.isTrue(FieldMessageText.isStrvarFamily(0x3401))
   Assert.isFalse(FieldMessageText.isStrvarFamily(0x0200))
 end

@@ -30,12 +30,15 @@ FieldMessageText.STRVAR_34 = 0x3400
 FieldMessageText.YESNO = 0x0200
 FieldMessageText.PAUSE = 0x0201
 FieldMessageText.WAIT = 0x0202
+FieldMessageText.CALLBACK_SIGNAL = FieldMessageText.WAIT
 FieldMessageText.CURSOR_X = 0x0203
 FieldMessageText.CURSOR_Y = 0x0204
 FieldMessageText.ALN_CENTER = 0x0205
 FieldMessageText.ALN_RIGHT = 0x0206
 FieldMessageText.UNK_207 = 0x0207
 FieldMessageText.UNK_208 = 0x0208
+FieldMessageText.CLEAR_CONTINUATION = FieldMessageText.UNK_207
+FieldMessageText.SCROLL_CONTINUATION = FieldMessageText.UNK_208
 FieldMessageText.COLOR = 0xFF00
 FieldMessageText.SIZE = 0xFF01
 FieldMessageText.UNK_FF02 = 0xFF02
@@ -106,8 +109,17 @@ function FieldMessageText.controlKind(control)
   if control == FieldMessageText.COLOR or control == FieldMessageText.SIZE or control == FieldMessageText.UNK_FF02 then
     return "style"
   end
-  if control == FieldMessageText.PAUSE or control == FieldMessageText.WAIT then
-    return "wait"
+  if control == FieldMessageText.PAUSE then
+    return "pause"
+  end
+  if control == FieldMessageText.WAIT then
+    return "printer_callback"
+  end
+  if control == FieldMessageText.UNK_207 then
+    return "clear_continuation"
+  end
+  if control == FieldMessageText.UNK_208 then
+    return "scroll_continuation"
   end
   if control == FieldMessageText.YESNO then
     return "focus_indicator"

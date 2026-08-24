@@ -76,7 +76,10 @@ end
 -- an earlier partial rebuild log recorded 2 models/5 shapes; the
 -- decoder-level walk counted 374 boundary crossings including fragments
 -- never compiled. No exterior model straddles.
-function T.the_real_corpus_straddle_census_is_pinned(romFs)
+function T.the_real_corpus_straddle_census_is_pinned(romFs, versionId, context)
+  if versionId ~= "heartgold" then
+    context:skip("the pinned straddle census covers HeartGold only")
+  end
   Assert.equal(
     romFs:metadata().sha1,
     "4fcded0e2713dc03929845de631d0932ea2b5a37",

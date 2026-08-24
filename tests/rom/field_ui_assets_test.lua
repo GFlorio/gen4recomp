@@ -197,4 +197,39 @@ function T.dialogue_frame_styles_are_distinct_artwork_with_identical_geometry(ro
   Assert.isTrue(r0 ~= r1 or g0 ~= g1 or b0 ~= b1, "frame 0 and frame 1 tile 6 colors differ")
 end
 
+-- The field printer's continuation cursor is a source-derived, precolored
+-- atlas: runtime receives only semantic rectangles and final pixel payloads.
+function T.dialogue_continue_cursor_manifest_has_the_source_contract(romFs, version)
+  local bundle = assert(FieldUiCompiler.compile(romFs))
+  local frames = assert(bundle.manifest.dialogueFrames)
+  local cursor = assert(frames.continueCursor, "the generated field UI must publish the continuation cursor")
+  local assetId = "hgss.dialogue_continue_cursor"
+  local asset = assert(bundle.manifest.assets[assetId], "the cursor asset must be indexed by its semantic ID")
+  local image = assert(bundle.assets[asset.image], "the cursor atlas must have generated pixel payload")
+  local imageWidth, imageHeight, pixels = PngReader.rgba(image)
+
+  Assert.equal(asset.image, "assets/generated/field/ui/dialogue-continue-cursor.png")
+  Assert.equal(imageWidth, 48)
+  Assert.equal(imageHeight, frames.count * 16)
+  Assert.isTrue(type(pixels) == "string" and #pixels > 0, "cursor pixel payload must be nonempty")
+  Assert.deepEqual(cursor.cycle, { 0, 1, 2, 1 })
+  Assert.equal(cursor.framePrinterTicks, 9)
+  Assert.deepEqual(cursor.placement, { x = 240, y = 168, width = 16, height = 16 })
+
+  for style = 0, frames.count - 1 do
+    local phases = assert(cursor.styles[style]).phases
+    for phase = 0, 2 do
+      local rect = assert(phases[phase])
+      Assert.deepEqual(rect, { x = phase * 16, y = style * 16, width = 16, height = 16 })
+    end
+  end
+
+  for key in pairs(cursor) do
+    Assert.isFalse(
+      key == "alias" or key == "memberId" or key == "paletteMemberId" or key == "sourcePath",
+      "runtime cursor metadata must not expose source identity"
+    )
+  end
+end
+
 return require("tests.rom.support.RomSuite").fromFacts(T)

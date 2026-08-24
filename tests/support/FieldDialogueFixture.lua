@@ -110,6 +110,17 @@ function FieldDialogueFixture.fontDef()
       [0] = { x = 0, y = 0, w = 8, h = 16, advance = 4, bearingX = 0, bearingY = 0 },
     },
     charmap = { A = 1, B = 2, [" "] = 0 },
+    palette = (function()
+      local palette = {}
+      for slot = 1, 16 do
+        palette[slot] = {
+          r = math.floor(255 * slot / 16) / 255,
+          g = math.floor(255 * slot / 32) / 255,
+          b = math.floor(255 * slot / 64) / 255,
+        }
+      end
+      return palette
+    end)(),
   }
 end
 

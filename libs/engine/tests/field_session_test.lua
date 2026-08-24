@@ -163,6 +163,16 @@ local function baseOptions(overrides)
     bagUnlocked = function()
       return true
     end,
+    fieldEntranceIndicator = { updateFixed = function() end },
+    eventResolver = {
+      resolveCoordinate = function()
+        return nil
+      end,
+      resolvePassiveSign = function()
+        return nil
+      end,
+    },
+    eventState = { getVar = function() end },
   }
   for key, value in pairs(overrides) do
     options[key] = value

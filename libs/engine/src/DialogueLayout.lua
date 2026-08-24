@@ -14,6 +14,7 @@ local DialogueLayout = {}
 local DEFAULT_MAX_LINES = 2
 
 -- metrics: { glyphWidth(code) -> integer }
+-- metrics also carries the printer lineHeight and lineSpacing when available.
 -- resolving glyph advances. Every non-glyph token is zero-width.
 -- opts: { width = integer, maxLines = integer }
 -- Returns { pages = { { lines = { { tokens, width } }, breakKind } }, warnings }.
@@ -21,7 +22,7 @@ local DEFAULT_MAX_LINES = 2
 
 ---@param tokens MessageToken[]
 ---@param metrics FieldDialogueTheme.Metrics
----@param opts { width: integer, maxLines?: integer }
+---@param opts { width: integer, maxLines?: integer, sourcePositioned?: boolean }
 ---@return DialogueLayout.Result
 function DialogueLayout.layout(tokens, metrics, opts)
   assert(type(tokens) == "table", "layout requires a token stream")
@@ -129,7 +130,10 @@ function DialogueLayout.layout(tokens, metrics, opts)
             boxWidth = width,
           }
         end
-        if line.width + advance > width and #line.tokens > 0 then
+        if opts.sourcePositioned then
+          line.tokens[#line.tokens + 1] = token
+          line.width = line.width + advance
+        elseif line.width + advance > width and #line.tokens > 0 then
           local breakIndex, keptWidth = lastBreakableSpace()
           if #lines >= maxLines then
             endPage("overflow")
@@ -159,11 +163,15 @@ function DialogueLayout.layout(tokens, metrics, opts)
             line = currentLine()
           end
         end
-        line.tokens[#line.tokens + 1] = token
-        line.width = line.width + advance
+        if not opts.sourcePositioned or line.tokens[#line.tokens] ~= token then
+          line.tokens[#line.tokens + 1] = token
+          line.width = line.width + advance
+        end
       end
     elseif token.kind == "line_break" then
-      if #lines >= maxLines then
+      if opts.sourcePositioned then
+        beginLine()
+      elseif #lines >= maxLines then
         endPage("line")
       else
         beginLine()
@@ -172,6 +180,10 @@ function DialogueLayout.layout(tokens, metrics, opts)
       endPage("prompt")
     elseif token.kind == "page_break" then
       endPage("page")
+    elseif token.kind == "clear_continuation" then
+      endPage("clear")
+    elseif token.kind == "scroll_continuation" then
+      endPage("scroll")
     else
       -- style/wait/focus_indicator/substitution/unsupported tokens are
       -- zero-width and cannot be split: keep them at their source position
@@ -185,7 +197,13 @@ function DialogueLayout.layout(tokens, metrics, opts)
     pushPage("eos")
   end
 
-  return { pages = pages, warnings = warnings }
+  return {
+    pages = pages,
+    warnings = warnings,
+    lineHeight = metrics.lineHeight or 16,
+    lineSpacing = metrics.lineSpacing or 0,
+    syntheticBreaks = opts.sourcePositioned and 0 or nil,
+  }
 end
 
 -- One wrapped line of the current page: tokens plus the rendered width.
@@ -199,7 +217,7 @@ end
 
 ---@class DialogueLayout.Page
 ---@field lines DialogueLayout.Line[]
----@field breakKind "prompt"|"page"|"line"|"overflow"|"eos"
+---@field breakKind "prompt"|"page"|"clear"|"scroll"|"line"|"overflow"|"eos"
 
 -- A traced layout problem (a glyph token wider than the box).
 
@@ -214,5 +232,11 @@ end
 ---@class DialogueLayout.Result
 ---@field pages DialogueLayout.Page[]
 ---@field warnings DialogueLayout.Warning[]
+---@field lineHeight integer
+---@field lineSpacing integer
+---@field textOriginX integer?
+---@field textOriginY integer?
+---@field contentWidth integer?
+---@field syntheticBreaks integer?
 
 return DialogueLayout

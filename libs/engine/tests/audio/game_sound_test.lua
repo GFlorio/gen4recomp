@@ -204,8 +204,22 @@ local function newGameSound(sequences, opts)
     player = player,
     cry = opts.cry,
     mapMusic = opts.mapMusic,
+    completionAvailable = opts.completionAvailable,
   })
   return sound, player, spy, provider, mixer
+end
+
+function T.effect_observation_stays_active_without_an_audio_completion_clock()
+  local sound = newGameSound(nil, { completionAvailable = false })
+  sound:play("SEQ_TEST_EFFECT")
+  Assert.isTrue(
+    sound:isEffectPlaying("SEQ_TEST_EFFECT"),
+    "active-effect observation must remain true without an audio completion clock"
+  )
+  Assert.isTrue(
+    sound:isEffectWaitComplete("SEQ_TEST_EFFECT"),
+    "a sound wait must complete when the production audio path has no completion clock"
+  )
 end
 
 local function left(pcm, frames)
@@ -301,12 +315,14 @@ function T.effects_overlap_bgm_and_report_player_completion()
   sound:playMusic("SEQ_TEST_BGM")
   sound:play(1)
   Assert.isTrue(sound:isEffectPlaying(1), "the effect is playing on its player")
+  Assert.isFalse(sound:isEffectWaitComplete(1), "the sink-backed wait remains blocked while the effect plays")
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the bgm plays under the effect")
   Assert.isTrue(maxAbs(left(player:render(600), 600)) > 0, "bgm and effect mix")
   -- The duration-1 effect ends at the second tempoCounter tick (frame 750
   -- at default tempo), so 1000 frames complete it.
   player:render(400)
   Assert.isFalse(sound:isEffectPlaying(1), "the effect completed; the bgm player is untouched")
+  Assert.isTrue(sound:isEffectWaitComplete(1), "the sink-backed wait completes with the effect")
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM"), "the bgm outlives the effect")
 end
 

@@ -51,6 +51,7 @@ local function bootWithCapturedRuntimeOptions(options, cache)
     return setmetatable({
       cacheFs = cache or presentationCache(),
       uiManifest = FieldUiFixture.manifest(),
+      fieldEntranceIndicatorAsset = { model = { batches = {}, materials = {} } },
       windowStyles = {
         resolve = function() end,
       },

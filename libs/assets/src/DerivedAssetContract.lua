@@ -54,7 +54,7 @@
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 5
+DerivedAssetContract.revision = 7
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
@@ -63,7 +63,7 @@ DerivedAssetContract.map = {
   -- the per-polygon fog gate (fogEnabled, PolygonState.FIELDS), and scenes
   -- carry the map's base weather ID plus its resolved global HGSS fog preset
   -- (scene.weatherId, scene.fog).
-  sceneSchema = "g4-map-scene-v7",
+  sceneSchema = "g4-map-scene-v8",
   terrainSchema = "g4-terrain-surfaces-v1",
   collisionVersion = 1,
 }
@@ -95,7 +95,7 @@ DerivedAssetContract.fieldMapData = {
 }
 
 DerivedAssetContract.messages = {
-  cacheFormat = "field-message-cache-v2",
+  cacheFormat = "field-message-cache-v3",
   schema = "g4-field-message-bank-v1",
   indexSchema = "g4-field-message-index-v1",
   provenanceSchema = "g4-field-message-provenance-v1",
@@ -119,6 +119,10 @@ DerivedAssetContract.scripts = {
 DerivedAssetContract.fieldWeather = {
   cacheFormat = "field-weather-cache-v1",
   schema = "g4-field-weather-v1",
+}
+
+DerivedAssetContract.fieldEffects = {
+  cacheFormat = "field-effect-cache-v2",
 }
 
 DerivedAssetContract.fieldUi = {

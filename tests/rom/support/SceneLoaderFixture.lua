@@ -22,6 +22,8 @@
 local Assert = require("tests.support.Assert")
 local FakeCache = require("tests.support.FakeCache")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldSession = require("libs.engine.src.FieldSession")
@@ -159,6 +161,10 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     load = function(_, mapId)
       return assert(maps[mapId], "map " .. tostring(mapId))
     end,
+    transitionEnvironment = function(_, mapId)
+      local map = assert(maps[mapId], "map " .. tostring(mapId))
+      return assert(map.fieldData.transitionEnvironment, "map transition environment " .. tostring(mapId))
+    end,
     protectMap = function() end,
   }
   local spawn = opts.spawn
@@ -220,7 +226,10 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     end,
   })
   transition.player = player
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local playerVisual = {
     updateFixed = function(_, walking)
       if walking then
@@ -238,6 +247,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     transition = transition,
     input = harness.input,
     playerVisual = playerVisual,
+    fieldEntranceIndicator = { updateFixed = function() end },
     actors = actors,
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     dialogue = {
@@ -246,6 +256,8 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       end,
     },
     interactions = { resolve = function() end },
+    eventResolver = FieldEventResolver,
+    eventState = FieldEventState.new(),
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
       step = function() end,
@@ -314,6 +326,8 @@ end
 function SceneLoaderFixture.tick(harness)
   harness.ticks = harness.ticks + 1
   harness.session:updateFixed()
+  harness.transition:updateSourceFrame()
+  harness.transition:updateSourceFrame()
   local phase = harness.transition.phase
   if harness.timeline[phase] == nil then
     harness.timeline[phase] = harness.ticks

@@ -64,6 +64,12 @@ local function tokenizeUnits(units, charmap, opts)
         raw = raw,
       }
       index = index + 3 + argumentCount
+      if
+        (control == FieldMessageText.UNK_207 or control == FieldMessageText.UNK_208)
+        and units[index + 1] == FieldMessageText.CHAR_LF
+      then
+        index = index + 1
+      end
     elseif code == FieldMessageText.CHAR_LF then
       tokens[#tokens + 1] = { kind = "line_break", raw = raw }
       index = index + 1

@@ -1,7 +1,7 @@
 -- The single theme record for field dialogue presentation: the 256 x 192
 -- reference canvas (matching the DS top-screen aspect),
--- the canonical HGSS message-box content rect, text metrics, colors, cursor
--- blink, the user-frame tilemap composition, and the reference-to-screen
+-- the canonical HGSS message-box content rect and text metrics
+-- the user-frame tilemap composition, and the reference-to-screen
 -- mapping into FieldViewport.referenceFrame.
 -- The content rect is 16,152,216,32: DIALOG_BOX_X=2, DIALOG_BOX_Y=19,
 -- DIALOG_BOX_W=27, DIALOG_BOX_H=4 tiles at 8px/tile (src/dialog_box.c,
@@ -13,7 +13,6 @@
 -- host aspect; the LÖVE renderer draws exactly what this module computes.
 
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
-local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 
 ---@class FieldDialogueTheme
 ---@field schema string
@@ -26,10 +25,8 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field maxLines integer
 ---@field textWidth integer
 ---@field textHeight integer
----@field cursor { width: integer, height: integer, offsetX: integer, offsetY: integer, blinkTicks: integer }
----@field colors { cursor: number[] }
 ---@field frameTilePlacements fun(box: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
----@field layout fun(bounds: FieldDialogueTheme.Rect, fieldScale: number): DialoguePresentationLayout.Presentation
+---@field layout fun(referenceFrame: FieldDialogueTheme.Rect, fieldScale: number): FieldDialogueTheme.Layout
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
 ---@field measureText fun(fontDef: FieldFontDef): fun(text: string): number
 local FieldDialogueTheme = {}
@@ -49,41 +46,18 @@ FieldDialogueTheme.box = {
   height = 32,
 }
 
-FieldDialogueTheme.localBox = {
-  x = 16,
-  y = 8,
-  width = 216,
-  height = 32,
-}
-
 -- Text area inside the box: two 16px lines fill the 32px content height
 -- (HGSS prints from the window origin); a small horizontal inset keeps the
 -- text clear of the window border.
-FieldDialogueTheme.textInsetX = 10
+FieldDialogueTheme.textInsetX = 0
 FieldDialogueTheme.textInsetY = 0
 FieldDialogueTheme.lineHeight = 16
 FieldDialogueTheme.maxLines = 2
-FieldDialogueTheme.textWidth = 216 - 2 * 10
+FieldDialogueTheme.textWidth = 216
 FieldDialogueTheme.textHeight = 32
 
--- Cursor: a down-pointing triangle at the text area's bottom-right, blinking
--- on a fixed tick period.
-FieldDialogueTheme.cursor = {
-  width = 10,
-  height = 8,
-  offsetX = 6,
-  offsetY = 6,
-  blinkTicks = 30,
-}
-
--- Colors (project-owned window; the extracted glyph atlas bakes
--- its own ink/shadow/background colors, so text is drawn unmodified; the
--- HGSS user-frame artwork carries its own baked colors). The cursor color
--- belongs to the dialogue presentation.
-FieldDialogueTheme.colors = {
-  cursor = { 0.10, 0.12, 0.30, 1 },
-}
-
+-- The extracted glyph atlas and HGSS user-frame artwork carry their own
+-- baked colors; the dialogue renderer does not own cursor presentation data.
 -- The audited DrawFrameAndWindow2 tilemap: every tile of the user-frame
 -- strip placed around the content box, in strip order. Positions are
 -- reference-canvas pixels; a span entry repeats the tile across the named
@@ -122,18 +96,69 @@ function FieldDialogueTheme.frameTilePlacements(box)
   }
 end
 
+-- Reference-to-screen mapping for one viewport. The canonical 256x192
+-- surface is scaled by the field logical pixel scale — the same
+-- FieldViewport:logicalPixelScale(camera.zoom) used for world presentation —
+-- and bottom-centered in the 4:3 referenceFrame, so zoom and resize
+-- compensation affect world and field-attached UI together and wide hosts
+-- keep the UI inside the canonical frame. All geometry is returned in
+-- reference-canvas coordinates; the renderer applies origin + scale once.
+-- Never return screen-mapped rects here: draw() applies the transform, and
+-- double mapping pushes the box off-screen.
+
+---@param referenceFrame FieldDialogueTheme.Rect
+---@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom)), must be finite > 0
+---@return FieldDialogueTheme.Layout
+function FieldDialogueTheme.layout(referenceFrame, fieldScale)
+  assert(
+    type(referenceFrame) == "table"
+      and type(referenceFrame.x) == "number"
+      and type(referenceFrame.y) == "number"
+      and type(referenceFrame.width) == "number"
+      and type(referenceFrame.height) == "number"
+      and referenceFrame.width > 0
+      and referenceFrame.height > 0,
+    "FieldDialogueTheme.layout requires a reference frame"
+  )
+  assert(
+    type(fieldScale) == "number"
+      and fieldScale > 0
+      and fieldScale == fieldScale
+      and fieldScale ~= math.huge
+      and fieldScale ~= -math.huge,
+    "FieldDialogueTheme.layout requires a finite positive field scale"
+  )
+  local scale = fieldScale
+  local origin = {
+    x = referenceFrame.x + (referenceFrame.width - FieldDialogueTheme.referenceWidth * scale) / 2,
+    y = referenceFrame.y + referenceFrame.height - FieldDialogueTheme.referenceHeight * scale,
+  }
+  local box = {
+    x = FieldDialogueTheme.box.x,
+    y = FieldDialogueTheme.box.y,
+    width = FieldDialogueTheme.box.width,
+    height = FieldDialogueTheme.box.height,
+  }
+  local text = {
+    x = box.x + FieldDialogueTheme.textInsetX,
+    y = box.y + FieldDialogueTheme.textInsetY,
+    width = FieldDialogueTheme.textWidth,
+    height = FieldDialogueTheme.textHeight,
+  }
+  return {
+    scale = scale,
+    origin = origin,
+    box = box,
+    text = text,
+    lineHeight = FieldDialogueTheme.lineHeight,
+  }
+end
+
 -- The layout metrics object the paginator consumes: glyph advances from the
 -- generated font definition, falling back to the compiled fallback glyph.
 -- Control tokens carry no width: none of the controls implemented today has
 -- spatial semantics, and the serialized marker spelling is not presentation
 -- geometry. Returns a table with glyphWidth(code) only.
-
----@param bounds FieldDialogueTheme.Rect
----@param fieldScale number
----@return DialoguePresentationLayout.Presentation
-function FieldDialogueTheme.layout(bounds, fieldScale)
-  return DialoguePresentationLayout.compute(bounds, { scale = fieldScale })
-end
 
 ---@param fontDef FieldFontDef
 ---@return FieldDialogueTheme.Metrics
@@ -147,6 +172,8 @@ function FieldDialogueTheme.fontMetrics(fontDef)
       local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
       return glyph and glyph.advance
     end,
+    lineHeight = fontDef.lineHeight or FieldDialogueTheme.lineHeight,
+    lineSpacing = 0,
   }
 end
 
@@ -187,7 +214,6 @@ end
 ---@field origin { x: number, y: number }
 ---@field box FieldDialogueTheme.Rect
 ---@field text FieldDialogueTheme.Rect
----@field cursor FieldDialogueTheme.Rect
 ---@field lineHeight number
 
 -- Metrics consumed by DialogueLayout: glyph advances from the generated font
@@ -196,5 +222,7 @@ end
 
 ---@class FieldDialogueTheme.Metrics
 ---@field glyphWidth fun(code: integer): integer?
+---@field lineHeight integer
+---@field lineSpacing integer
 
 return FieldDialogueTheme

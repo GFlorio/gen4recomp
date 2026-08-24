@@ -124,6 +124,11 @@ local function drawableState(options)
     viewport = viewport,
     camera = { zoom = 1 },
     transition = { fadeAlpha = 0 },
+    fieldEntranceIndicator = {
+      status = function()
+        return { visible = false }
+      end,
+    },
     dialogue = {
       isModal = function()
         return options.dialogueModal == true
@@ -162,6 +167,11 @@ local function drawableState(options)
     startMenuRenderer = recordingRenderer("menu", sink),
     trainerCardRenderer = recordingRenderer("card", sink),
     menuRenderer = recordingRenderer("script-menu", sink),
+    fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
     _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
     _actorAssetLookup = function()
       error("no actor in this scenario is visible, so the asset lookup must not run")

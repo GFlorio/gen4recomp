@@ -15,6 +15,8 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldSession = require("libs.engine.src.FieldSession")
+local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local MeshWriter = require("libs.assets.src.MeshWriter")
@@ -201,7 +203,7 @@ local function doorDescriptor()
   -- quad under (the geometry path is arbitrary within this test).
   local meshSha = "mesh_door_quad_0000000000000000000000000000000000"
   return {
-    schema = "g4-model-v4",
+    schema = "g4-model-v5",
     key = "outdoor:26:door",
     memberId = 26,
     kind = "nitro-dynamic",
@@ -256,6 +258,7 @@ local function doorDescriptor()
       },
     },
     animations = { swingClip("build_anim-1", "door_op", "door.open") },
+    doorSoundType = 1,
   }
 end
 
@@ -1074,6 +1077,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
       playerSteps = playerSteps + 1
       return false
     end,
+    collapseRenderInterpolation = function() end,
   }
   local map = {
     mapId = 61,
@@ -1089,6 +1093,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     updateFixed = function()
       cameraSteps = cameraSteps + 1
     end,
+    collapseRenderInterpolation = function() end,
   }
   local inactiveDialogue = {
     isModal = function()
@@ -1099,6 +1104,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     versionId = "heartgold",
     currentMap = map,
     player = player,
+    fieldEntranceIndicator = { updateFixed = function() end },
     camera = camera,
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     transition = {
@@ -1124,6 +1130,8 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     },
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptClient = { consume = function() end },
+    eventResolver = FieldEventResolver,
+    eventState = FieldEventState.new(),
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     menuHost = {
       isModal = function()

@@ -92,10 +92,11 @@ T["background binding and trigger"] = function()
   Assert.equal(trigger.scriptId, "vanilla.hgss.scr_seq.0842.script_001")
 end
 
--- Raw script id zero remains noninteractive.
-T["zero raw script id is unbound"] = function()
+-- Raw script id zero uses the runtime-owned inert script.
+T["zero raw script id resolves to the inert script"] = function()
   local bindings = Bindings.new()
-  Assert.isNil(bindings:resolveIntent(objectIntent(57, "obj_unknown", "north", 0), "north"))
+  local resolved = assert(bindings:resolveIntent(objectIntent(57, "obj_unknown", "north", 0), "north"))
+  Assert.equal(resolved.scriptId, Bindings.CANONICAL_INERT_SCRIPT)
 end
 
 -- 10. The interaction client starts a bound script in the trigger tick.
@@ -433,6 +434,16 @@ T["session script phase"] = function()
     bagUnlocked = function()
       return true
     end,
+    fieldEntranceIndicator = { updateFixed = function() end },
+    eventResolver = {
+      resolveCoordinate = function()
+        return nil
+      end,
+      resolvePassiveSign = function()
+        return nil
+      end,
+    },
+    eventState = { getVar = function() end },
   })
   -- The script client starts the interaction and the tick is consumed: the
   -- player does not move while the foreground root owns the field.

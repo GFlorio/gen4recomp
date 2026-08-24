@@ -895,14 +895,15 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
   local viewMatrix = camera:view(alpha)
 
   -- Two projections, computed once per frame: the world projection and the
-  -- depth-biased billboard copy (see FieldCamera:billboardProjection). Only
-  -- actor billboards opt into the biased matrix; map/building billboards and
-  -- static-model actors keep the world projection, as on the DS. Both the
-  -- state and color passes select projection identically per item.
+  -- depth-biased field copy (see FieldCamera:billboardProjection). Actor
+  -- billboards and field effects opt into the biased matrix; map/building
+  -- geometry and static-model actors keep the world projection, as on the DS.
+  -- Both the state and color passes select projection identically per item.
   local worldProjection = camera:projection()
   local billboardProjection = camera:billboardProjection()
   local function projectionFor(item)
-    return item.billboardProjection and billboardProjection or worldProjection
+    local usesFieldDepthBias = item.billboardProjection or item.fieldEffect ~= nil
+    return usesFieldDepthBias and billboardProjection or worldProjection
   end
 
   local colorTargets = assert(self._colorTargets)

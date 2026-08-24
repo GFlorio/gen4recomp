@@ -146,6 +146,22 @@ function T.switching_avatar_restarts_the_pose_clock()
   Assert.equal(presentation.poseTick, 0, "a shorter atlas must not be indexed by the old clock")
 end
 
+function T.settle_stops_the_pose_clock_and_retains_the_players_facing()
+  local subject = player()
+  local presentation = visual(subject)
+  subject.facing = "east"
+  presentation.pose = "walk"
+  presentation.poseTick = 7
+  presentation.lastFacing = "south"
+
+  presentation:settle()
+
+  Assert.equal(presentation.pose, "idle")
+  Assert.equal(presentation.poseTick, 0)
+  Assert.equal(presentation.lastFacing, "east")
+  Assert.equal(subject.facing, "east")
+end
+
 function T.rejects_an_avatar_without_a_compiled_sprite_id()
   local subject = player()
   local err = Assert.throws(function()

@@ -7,6 +7,7 @@ local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
+
 local ROOT_HALF = math.sqrt(0.5)
 
 local function throwsCode(code, fn)
@@ -74,6 +75,100 @@ end
 
 local function player(map, x, z, surfaceId)
   return FieldPlayer.new({ currentMap = map, fieldX = x, fieldZ = z, surfaceId = surfaceId, facing = "south" })
+end
+
+function T.escalator_motion_is_horizontal_and_does_not_change_height()
+  local p = player(runtimeMap(), 0, 4, 0)
+  local startX, startY, startZ = p.worldX, p.worldY, p.worldZ
+  Assert.isTrue(p:beginTransitionStep("east"))
+  for _ = 1, 16 do
+    p:updateFixed()
+  end
+  near(p.worldX, startX + 1)
+  Assert.equal(p.worldY, p:renderPosition(0).y)
+  near(p.worldZ, startZ)
+  Assert.equal(p.fieldX, 1)
+end
+
+function T.ladder_source_presentation_preserves_logical_ownership()
+  local cases = {
+    { method = "beginTransitionLadderExit", facing = "north", y = 2, z = 0 },
+    { method = "beginTransitionLadderExit", facing = "south", y = 0.5, z = -1.5 },
+    { method = "beginTransitionLadderDownExit", facing = "south", y = -2, z = 0 },
+  }
+  for _, case in ipairs(cases) do
+    local p = player(runtimeMap(), 0, 4, 0)
+    local start = {
+      fieldX = p.fieldX,
+      fieldZ = p.fieldZ,
+      localX = p.localX,
+      localZ = p.localZ,
+      surfaceId = p.surfaceId,
+      worldX = p.worldX,
+      worldY = p.worldY,
+      worldZ = p.worldZ,
+    }
+    Assert.isTrue(p[case.method](p, case.facing))
+    for _ = 1, 8 do
+      p:updateFixed({})
+    end
+    near(p.worldX, start.worldX)
+    near(p.worldY, start.worldY + case.y / 2)
+    near(p.worldZ, start.worldZ + case.z / 2)
+    Assert.equal(p.fieldX, start.fieldX)
+    Assert.equal(p.fieldZ, start.fieldZ)
+    Assert.equal(p.localX, start.localX)
+    Assert.equal(p.localZ, start.localZ)
+    Assert.equal(p.surfaceId, start.surfaceId)
+
+    for _ = 1, 8 do
+      p:updateFixed({})
+    end
+    near(p.worldX, start.worldX)
+    near(p.worldY, start.worldY + case.y)
+    near(p.worldZ, start.worldZ + case.z)
+    Assert.equal(p.motion, "idle")
+    Assert.equal(p.fieldX, start.fieldX)
+    Assert.equal(p.fieldZ, start.fieldZ)
+    Assert.equal(p.localX, start.localX)
+    Assert.equal(p.localZ, start.localZ)
+    Assert.equal(p.surfaceId, start.surfaceId)
+  end
+end
+
+function T.held_stair_presentation_moves_into_anchor_without_logical_movement()
+  for _, case in ipairs({
+    { facing = "west", offset = 1 },
+    { facing = "east", offset = -1 },
+  }) do
+    local p = player(runtimeMap(), 2, 4, 0)
+    local anchor = { x = p.worldX, y = p.worldY, z = p.worldZ }
+    local start = { x = anchor.x + case.offset, y = anchor.y + 1, z = anchor.z }
+    local logical = { p.fieldX, p.fieldZ, p.localX, p.localZ, p.surfaceId }
+
+    Assert.isTrue(p:beginTransitionHeldStair(start, case.facing))
+    near(p.worldX, start.x)
+    near(p.worldY, start.y)
+    near(p.worldZ, start.z)
+    Assert.equal(p.motion, "transition")
+    Assert.deepEqual({ p.fieldX, p.fieldZ, p.localX, p.localZ, p.surfaceId }, logical)
+
+    for _ = 1, FieldPlayer.WALK_STEP_TICKS / 2 do
+      p:updateFixed({})
+    end
+    Assert.isTrue((case.offset > 0 and p.worldX > anchor.x) or (case.offset < 0 and p.worldX < anchor.x))
+    Assert.equal(p.motion, "transition")
+    Assert.deepEqual({ p.fieldX, p.fieldZ, p.localX, p.localZ, p.surfaceId }, logical)
+
+    for _ = FieldPlayer.WALK_STEP_TICKS / 2 + 1, FieldPlayer.WALK_STEP_TICKS do
+      p:updateFixed({})
+    end
+    near(p.worldX, anchor.x)
+    near(p.worldY, anchor.y)
+    near(p.worldZ, anchor.z)
+    Assert.equal(p.motion, "idle")
+    Assert.deepEqual({ p.fieldX, p.fieldZ, p.localX, p.localZ, p.surfaceId }, logical)
+  end
 end
 
 local function tick(p, held, pressed)
@@ -326,42 +421,6 @@ function T.scripted_step_requires_an_idle_player()
     p:scriptedStep("east")
   end)
   Assert.isFalse(ok, "a scripted step cannot begin mid-walk")
-  Assert.notNil(err)
-end
-
--- The held stair movement the transition choreography drives (HGSS
--- sub_0205613C sets MapObject_SetHeldMovement and waits for its completion):
--- an in-place climb that completes after the player's own movement duration
--- and never commits a tile. The transition's stair choreography polls the
--- player's motion, so the movement duration has exactly one owner.
-function T.stair_climb_starts_in_place_and_completes_after_the_movement_duration()
-  ---@type FieldPlayer & { beginStairClimb: fun(self: FieldPlayer): boolean }
-  local p = player(runtimeMap(), 0, 4, 0)
-  Assert.isTrue(p:beginStairClimb(), "the held stair movement begins")
-  Assert.equal(p.motion, "climbing")
-  Assert.equal(p.fieldX, 0, "the climb never commits a tile")
-  Assert.equal(p.fieldZ, 4)
-  Assert.equal(p.durationTicks, FieldPlayer.WALK_STEP_TICKS, "the climb shares the movement-duration owner")
-  for index = 1, FieldPlayer.WALK_STEP_TICKS - 1 do
-    local committed = p:updateFixed({})
-    Assert.isFalse(committed, "the in-place climb commits nothing")
-    Assert.equal(p.motion, "climbing")
-    Assert.equal(p.fieldX, 0)
-  end
-  p:updateFixed({})
-  Assert.equal(p.motion, "idle", "the climb completes after the movement duration")
-  Assert.equal(p.fieldX, 0)
-  Assert.equal(p.fieldZ, 4)
-end
-
-function T.stair_climb_rejects_a_walking_player()
-  ---@type FieldPlayer & { beginStairClimb: fun(self: FieldPlayer): boolean }
-  local p = player(runtimeMap(), 0, 4, 0)
-  tick(p, "east", "east")
-  local ok, err = pcall(function()
-    p:beginStairClimb()
-  end)
-  Assert.isFalse(ok, "a stair climb cannot begin mid-walk")
   Assert.notNil(err)
 end
 

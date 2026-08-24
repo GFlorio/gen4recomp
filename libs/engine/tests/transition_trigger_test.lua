@@ -117,6 +117,61 @@ function T.escalators_classify_directional_step_with_east_west_gate()
   end
 end
 
+-- The production trigger record preserves source transition mode/profile
+-- identity instead of asking FieldTransition to reconstruct it later.
+function T.trigger_record_preserves_transition_identity()
+  ---@return table
+  local function stepTrigger(behavior, facing)
+    local warps = { warp(4, 14) }
+    local map = runtimeMap(0, 0, warps, {
+      ["4:14"] = { behavior = behavior },
+    })
+    return assert(TransitionTrigger.stepPath(map, 4, 14, facing)) --[[@as table]]
+  end
+
+  ---@return table
+  local function inputTrigger(behavior, facing)
+    local warps = { warp(4, 14) }
+    local map = runtimeMap(0, 0, warps, {
+      ["4:14"] = { behavior = behavior },
+      ["4:15"] = { blocked = true },
+      ["5:14"] = { blocked = true },
+    })
+    return assert(TransitionTrigger.inputPath(map, 4, 14, facing)) --[[@as table]]
+  end
+
+  local doorMap = runtimeMap(0, 0, { warp(4, 14) }, {
+    ["4:14"] = { behavior = BEHAVIOR.DOOR, blocked = true },
+  })
+  local door = assert(TransitionTrigger.inputPath(doorMap, 4, 13, "south")) --[[@as table]]
+  Assert.deepEqual(door.transition, { mode = "fixed", profile = 1 })
+
+  local escalator = stepTrigger(BEHAVIOR.ESCALATOR, "east")
+  Assert.deepEqual(escalator.transition, { mode = "fixed", profile = 2 })
+  Assert.equal(escalator.destinationFacing, "east")
+
+  local flip = stepTrigger(BEHAVIOR.ESCALATOR_FLIP_FACE, "east")
+  Assert.deepEqual(flip.transition, { mode = "fixed", profile = 2 })
+  Assert.equal(flip.destinationFacing, "west")
+
+  local stairs = inputTrigger(BEHAVIOR.WARP_STAIRS_EAST, "east")
+  Assert.deepEqual(stairs.transition, { mode = "fixed", profile = 3 })
+
+  local ladder = inputTrigger(BEHAVIOR.LADDER_NORTH, "north")
+  Assert.deepEqual(ladder.transition, { mode = "fixed", profile = 7 })
+
+  local ladderDown = stepTrigger(BEHAVIOR.LADDER_DOWN, "north")
+  Assert.deepEqual(ladderDown.transition, { mode = "fixed", profile = 8 })
+
+  local panel = stepTrigger(BEHAVIOR.WARP_PANEL, "north")
+  Assert.deepEqual(panel.transition, { mode = "panel" })
+  Assert.isNil(panel.transition.profile)
+
+  local environment = inputTrigger(BEHAVIOR.WARP_EAST, "east")
+  Assert.deepEqual(environment.transition, { mode = "environment" })
+  Assert.isNil(environment.transition.profile)
+end
+
 function T.unrecognized_behaviors_do_not_classify()
   for _, behavior in ipairs({ 0, 1, 2, 3, 63, 104, 112, 255 }) do
     Assert.isNil(TransitionTrigger.classify(behavior), "behavior " .. behavior .. " must not classify")
@@ -193,11 +248,40 @@ function T.standing_stairs_triggers_with_its_direction_gate()
   Assert.isNil(TransitionTrigger.inputPath(map, 3, 3, "east"))
 end
 
-function T.input_path_requires_a_blocked_facing_tile_for_standing_triggers()
+function T.standing_horizontal_stairs_ignore_facing_tile_collision()
+  local warps = { warp(3, 3) }
+  local openMap = runtimeMap(0, 0, warps, {
+    ["3:3"] = { behavior = BEHAVIOR.WARP_STAIRS_EAST },
+    ["4:3"] = { blocked = false },
+  })
+  Assert.notNil(TransitionTrigger.inputPath(openMap, 3, 3, "east"))
+
+  local blockedMap = runtimeMap(0, 0, warps, {
+    ["3:3"] = { behavior = BEHAVIOR.WARP_STAIRS_EAST },
+    ["4:3"] = { blocked = true },
+  })
+  Assert.notNil(TransitionTrigger.inputPath(blockedMap, 3, 3, "east"))
+end
+
+function T.standing_south_warp_triggers_with_a_passable_facing_tile()
   local map = runtimeMap(0, 0, { warp(4, 14) }, {
     ["4:14"] = { behavior = BEHAVIOR.WARP_ENTRANCE_SOUTH },
+    ["4:15"] = { blocked = false },
   })
-  Assert.isNil(TransitionTrigger.inputPath(map, 4, 14, "south"))
+  local trigger = assert(TransitionTrigger.inputPath(map, 4, 14, "south"))
+  Assert.equal(trigger.kind, "directional")
+end
+
+function T.standing_east_warp_triggers_with_a_passable_facing_tile()
+  local warps = { warp(4, 14) }
+  local map = runtimeMap(0, 0, warps, {
+    ["4:14"] = { behavior = BEHAVIOR.WARP_ENTRANCE_EAST, blocked = false },
+    ["5:14"] = { behavior = 0, blocked = false },
+  })
+  local trigger = assert(TransitionTrigger.inputPath(map, 4, 14, "east"))
+  Assert.equal(trigger.kind, "directional")
+  Assert.equal(assert(trigger.warp), warps[1])
+  Assert.isNil(TransitionTrigger.inputPath(map, 4, 14, "west"))
 end
 
 function T.standing_door_triggers_without_a_direction_gate()

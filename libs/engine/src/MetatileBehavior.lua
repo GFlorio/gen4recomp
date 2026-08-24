@@ -35,4 +35,17 @@ function MetatileBehavior.isDoor(behavior)
   return behavior == MetatileBehavior.BEHAVIOR.DOOR
 end
 
+local WARP_ENTRANCE_DIRECTIONS = {
+  [MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_NORTH] = "north",
+  [MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_SOUTH] = "south",
+  [MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_WEST] = "west",
+  [MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST] = "east",
+}
+
+---@param behavior integer?
+---@return string?
+function MetatileBehavior.warpEntranceDirection(behavior)
+  return WARP_ENTRANCE_DIRECTIONS[behavior]
+end
+
 return MetatileBehavior

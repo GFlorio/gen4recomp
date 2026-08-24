@@ -12,7 +12,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 local PlayerData = {}
 
-PlayerData.TEXT_SPEEDS = { slow = 3, mid = 2, fast = 1 }
+PlayerData.TEXT_SPEEDS = { slow = 3, mid = 2, fast = 1, fastest = 1 }
 PlayerData.GENDERS = { [0] = true, [1] = true }
 PlayerData.MIN_NAME_GLYPHS = 1
 PlayerData.MAX_NAME_GLYPHS = 7

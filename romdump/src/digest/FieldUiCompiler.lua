@@ -341,6 +341,12 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
   local atlasHeight = cfg.frameCount * 8
   local rgba = newRgba(atlasWidth, atlasHeight)
   local frameTiles = {}
+  local cursorCharBytes = decodeMember(archive, cfg.continueCursorMember, "dialogue continuation cursor")
+  local cursorChar, cursorErr = G2dDecoder.decodeChar(cursorCharBytes, { label = "dialogue continuation cursor" })
+  cursorChar = must(cursorChar, cursorErr)
+  local cursorWidth = 48
+  local cursorHeight = cfg.frameCount * 16
+  local cursorRgba = newRgba(cursorWidth, cursorHeight)
   for frame = 0, cfg.frameCount - 1 do
     local frameCharBytes = decodeMember(archive, cfg.firstFrameMember + frame, "frame " .. frame .. " char")
     local framePalBytes = decodeMember(archive, cfg.firstPaletteMember + frame, "frame " .. frame .. " palette")
@@ -366,6 +372,23 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
         member = cfg.firstFrameMember + frame,
       })
     end
+    for phase = 0, 2 do
+      for tile = 0, 3 do
+        blitTile(
+          cursorRgba,
+          cursorWidth,
+          phase * 16 + (tile % 2) * 8,
+          frame * 16 + math.floor(tile / 2) * 8,
+          cursorChar,
+          phase * 4 + tile,
+          0,
+          framePal.colors,
+          false,
+          false,
+          { asset = "dialogue continuation cursor", member = cfg.continueCursorMember, frame = frame, phase = phase }
+        )
+      end
+    end
     frameTiles[frame] = { x = 0, y = frame * 8, width = atlasWidth, height = 8 }
     deps[#deps + 1] = {
       name = manifestConfig.dialogueFrames.alias .. ":member:" .. (cfg.firstFrameMember + frame),
@@ -379,10 +402,34 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
   assets[tilesPath] = PngWriter.encode(atlasWidth, atlasHeight, concatChars(rgba))
   manifestAssets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES] =
     { image = tilesPath, width = atlasWidth, height = atlasHeight }
+  local cursorPath = FieldUiAssetCache.assetDir() .. "/dialogue-continue-cursor.png"
+  assets[cursorPath] = PngWriter.encode(cursorWidth, cursorHeight, concatChars(cursorRgba))
+  manifestAssets[FieldUiAssetCache.ASSET.DIALOGUE_CONTINUE_CURSOR] =
+    { image = cursorPath, width = cursorWidth, height = cursorHeight }
   deps[#deps + 1] = { name = manifestConfig.dialogueFrames.alias .. ":narc", sha1 = sha1hex(archiveBytes) }
+  deps[#deps + 1] = {
+    name = manifestConfig.dialogueFrames.alias .. ":member:" .. cfg.continueCursorMember,
+    sha1 = sha1hex(cursorCharBytes),
+  }
   return {
     count = cfg.frameCount,
     frameTiles = frameTiles,
+    continueCursor = {
+      asset = FieldUiAssetCache.ASSET.DIALOGUE_CONTINUE_CURSOR,
+      cycle = { 0, 1, 2, 1 },
+      framePrinterTicks = 9,
+      placement = { x = 240, y = 168, width = 16, height = 16 },
+      styles = (function()
+        local styles = {}
+        for style = 0, cfg.frameCount - 1 do
+          styles[style] = { phases = {} }
+          for phase = 0, 2 do
+            styles[style].phases[phase] = { x = phase * 16, y = style * 16, width = 16, height = 16 }
+          end
+        end
+        return styles
+      end)(),
+    },
   }
 end
 

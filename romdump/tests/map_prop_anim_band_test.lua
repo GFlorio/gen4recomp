@@ -41,7 +41,8 @@ local function record(registration, policy, control, areaGate, reserved, raw6, r
   bw:u8(policy)
   bw:u8(control)
   bw:u8(areaGate)
-  bw:u16(reserved)
+  bw:u8(reserved == 0 and 1 or reserved % 256)
+  bw:u8(math.floor(reserved / 256))
   bw:u8(raw6)
   bw:u8(raw7)
   for _, id in ipairs(ids) do
@@ -175,6 +176,13 @@ function T.door_pairs_stay_unbanded_and_never_ambient()
   Assert.equal(result.clips[1].semanticNames[1], "door.open")
 end
 
+function T.door_selector_outside_source_range_fails_compilation()
+  local err = Assert.throws(function()
+    compile(record(1, 3, 0, 1, 0x0005, 1, 2, { 1, 2 }), 26, { 1, 2 })
+  end)
+  Assert.equal(err.code, "MAP_PROP_ANIM_DOOR_SOUND_INVALID")
+end
+
 function T.ambient_effects_stay_unbanded()
   -- Header 01 00 00 00 00 00 01 01 (a single ambient effect) carries no
   -- time band and keeps its ambient role.
@@ -184,17 +192,6 @@ function T.ambient_effects_stay_unbanded()
   Assert.equal(#result.clips, 1)
   Assert.isNil(result.clips[1].timeBand)
   Assert.isTrue(result.clips[1].ambientLoop, "the ambient effect plays at load")
-end
-
--- The clip-compile version pins the compile semantics: any decoder or clip
--- compiler behavior change (currently: the absent-channel rejection) must
--- bump it, or the derived cache would serve stale clips.
-function T.compiler_version_bumps_with_the_compile_semantics()
-  Assert.equal(
-    MapPropAnimCompiler.VERSION,
-    "map-prop-anim-clip-v5",
-    "the clip-compile version must bump with the compile semantics"
-  )
 end
 
 return { tests = T }

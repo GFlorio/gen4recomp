@@ -322,7 +322,10 @@ function FieldMapDataCompiler.compileAll(romFs, sha1hex, hashLua)
     local headerSource = loadHeaderSource(romFs, sha1hex)
     local bundles = {}
     for map in MapCatalog.all() do
-      bundles[#bundles + 1] = compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
+      -- MAP_NOTHING is the catalog's unused header filler, not a runtime map.
+      if map.symbol ~= "MAP_NOTHING" or map.mapType ~= "INVALID" then
+        bundles[#bundles + 1] = compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
+      end
     end
     return bundles
   end)

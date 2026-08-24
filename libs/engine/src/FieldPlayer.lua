@@ -28,12 +28,18 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field previousWorldZ number
 ---@field surfaceId integer
 ---@field facing FieldDirection
----@field motion "idle"|"walking"|"climbing"
+---@field motion "idle"|"walking"|"transition"
 ---@field progressTicks integer
 ---@field durationTicks integer
+---@field animationPaused boolean
 ---@field bufferedDirection FieldDirection?
 ---@field from table?
 ---@field to table?
+---@field transitionKind "ladder_exit"|"ladder_down_exit"|"vertical_return"|"held_stair"|nil
+---@field transitionFacing FieldDirection?
+---@field transitionFrom table?
+---@field transitionTo table?
+---@field transitionProgress number?
 local FieldPlayer = {}
 FieldPlayer.__index = FieldPlayer
 
@@ -49,6 +55,7 @@ FieldPlayer.WALK_STEP_TICKS = 8
 ---@field fieldZ integer
 ---@field surfaceId integer
 ---@field facing FieldDirection?
+---@field initialWorldY number?
 ---@field occupancy? fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil
 
 local DELTAS = {
@@ -83,11 +90,13 @@ function FieldPlayer.new(options)
   )
   local map = options.currentMap
   local localX, localZ = FieldCoordinates.fieldToLocal(map, options.fieldX, options.fieldZ)
-  local sample = map.terrain:sample(
-    options.surfaceId,
-    localX + FieldCoordinates.TILE_CENTER_OFFSET,
-    localZ + FieldCoordinates.TILE_CENTER_OFFSET
-  )
+  local sample = options.initialWorldY == nil
+      and map.terrain:sample(
+        options.surfaceId,
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+    or { surfaceId = options.surfaceId, worldY = options.initialWorldY }
   local point = FieldCoordinates.fieldToWorld(map, options.fieldX, options.fieldZ, sample.worldY)
   return setmetatable({
     currentMap = map,
@@ -108,6 +117,10 @@ function FieldPlayer.new(options)
     motion = "idle",
     progressTicks = 0,
     durationTicks = FieldPlayer.WALK_STEP_TICKS,
+    animationPaused = false,
+    transitionKind = nil,
+    transitionFacing = nil,
+    transitionProgress = nil,
   }, FieldPlayer)
 end
 
@@ -217,16 +230,93 @@ function FieldPlayer:scriptedStep(direction)
   return true
 end
 
--- The held stair movement the transition choreography drives (HGSS
--- sub_0205613C sets MapObject_SetHeldMovement and waits for its completion):
--- an in-place climb that completes after the player's own movement duration
--- and never commits a tile. The transition's stair choreography polls the
--- player's motion, so the movement duration has exactly one owner.
-function FieldPlayer:beginStairClimb()
-  assert(self.motion == "idle", "cannot begin a stair climb while walking")
-  self.motion = "climbing"
+function FieldPlayer:beginTransitionStep(direction)
+  assert(self.motion == "idle", "cannot begin a transition step while moving")
+  return self:scriptedStep(direction)
+end
+
+-- Starts destination-side horizontal-stair presentation from an adjacent
+-- sampled point into the player's existing logical anchor. This is visual
+-- motion only: the player keeps the destination warp's logical ownership.
+function FieldPlayer:beginTransitionHeldStair(startWorld, facing)
+  assert(self.motion == "idle", "cannot begin held-stair presentation while moving")
+  assert(facing == "east" or facing == "west", "held-stair presentation facing required")
+  assert(type(startWorld) == "table", "held-stair presentation start required")
+  assert(type(startWorld.x) == "number" and type(startWorld.y) == "number" and type(startWorld.z) == "number")
+  local anchor = { x = self.worldX, y = self.worldY, z = self.worldZ }
+  self.motion = "transition"
+  self.facing = facing
   self.progressTicks = 0
   self.durationTicks = FieldPlayer.WALK_STEP_TICKS
+  self.transitionKind = "held_stair"
+  self.transitionFacing = facing
+  self.transitionProgress = 0
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = startWorld.x, startWorld.y, startWorld.z
+  self.worldX, self.worldY, self.worldZ = startWorld.x, startWorld.y, startWorld.z
+  self.transitionFrom = { x = startWorld.x, y = startWorld.y, z = startWorld.z }
+  self.transitionTo = anchor
+  return true
+end
+
+function FieldPlayer:pauseTransitionAnimation()
+  self.animationPaused = true
+end
+
+function FieldPlayer:resumeTransitionAnimation()
+  self.animationPaused = false
+end
+
+local function beginTransitionPresentation(self, kind, facing, target)
+  assert(self.motion == "idle", "cannot begin a transition motion while moving")
+  self.motion = "transition"
+  self.facing = facing
+  self.progressTicks = 0
+  self.durationTicks = 16
+  self.transitionKind = kind
+  self.transitionFacing = facing
+  self.transitionProgress = 0
+  self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
+  self.transitionTo = { x = target.x, y = target.y, z = target.z }
+  return true
+end
+
+-- Source-side ladder ascent presentation. This never claims a field tile;
+-- destination staging and the final semantic step own logical movement.
+function FieldPlayer:beginTransitionLadderExit(facing)
+  assert(type(facing) == "string", "ladder exit facing required")
+  local target = { x = self.worldX, y = self.worldY + 2, z = self.worldZ }
+  if facing == "south" then
+    target.y = self.worldY + 0.5
+    target.z = self.worldZ - 1.5
+  end
+  return beginTransitionPresentation(self, "ladder_exit", facing, target)
+end
+
+-- Source-side ladder descent presentation. It is deliberately separate from
+-- ascent so the two source routines retain their opposite vertical motion.
+function FieldPlayer:beginTransitionLadderDownExit(facing)
+  assert(type(facing) == "string", "ladder-down exit facing required")
+  return beginTransitionPresentation(self, "ladder_down_exit", facing, {
+    x = self.worldX,
+    y = self.worldY - 2,
+    z = self.worldZ,
+  })
+end
+
+-- Starts the sixteen-update vertical return from ladder staging to the
+-- resolved anchor height. The caller performs the final cardinal tile step
+-- only after this presentation interpolation completes.
+function FieldPlayer:beginTransitionVerticalReturn(anchorY)
+  assert(self.motion == "idle", "cannot begin a vertical return while moving")
+  assert(type(anchorY) == "number", "ladder anchor height required")
+  self.motion = "transition"
+  self.progressTicks = 0
+  self.durationTicks = 16
+  self.transitionKind = "vertical_return"
+  self.transitionFacing = nil
+  self.transitionProgress = 0
+  self.transitionFrom = { x = self.worldX, y = self.worldY, z = self.worldZ }
+  self.transitionTo = { x = self.worldX, y = anchorY, z = self.worldZ }
   return true
 end
 
@@ -272,16 +362,23 @@ function FieldPlayer:updateFixed(input)
     return self:_advanceStep()
   end
 
-  -- The in-place stair climb advances on its own clock and commits nothing:
-  -- the transition choreography polls the motion, so a climbing player
-  -- absorbs ticks until the movement duration elapses, then rests idle.
-  if self.motion == "climbing" then
+  if self.motion == "transition" then
     self.progressTicks = self.progressTicks + 1
+    local progress = self.progressTicks / self.durationTicks
+    self.transitionProgress = math.min(1, progress)
+    self.worldX = self.transitionFrom.x + (self.transitionTo.x - self.transitionFrom.x) * progress
+    self.worldY = self.transitionFrom.y + (self.transitionTo.y - self.transitionFrom.y) * progress
+    self.worldZ = self.transitionFrom.z + (self.transitionTo.z - self.transitionFrom.z) * progress
     if self.progressTicks >= self.durationTicks then
+      self.worldX, self.worldY, self.worldZ = self.transitionTo.x, self.transitionTo.y, self.transitionTo.z
       self.motion = "idle"
       self.progressTicks = 0
+      self.transitionFrom, self.transitionTo = nil, nil
+      self.transitionKind = nil
+      self.transitionFacing = nil
+      self.transitionProgress = nil
     end
-    return false
+    return true
   end
 
   local direction
@@ -333,6 +430,8 @@ function FieldPlayer:status()
     destinationSurfaceId = self.to and self.to.surfaceId or nil,
     facing = self.facing,
     motion = self.motion,
+    transitionKind = self.transitionKind,
+    transitionProgress = self.transitionProgress,
   }
 end
 

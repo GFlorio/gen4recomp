@@ -12,6 +12,7 @@ local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
 local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
+local BuiltinScripts = require("libs.engine.src.script.BuiltinScripts")
 
 local T = {}
 
@@ -124,6 +125,23 @@ T["key is deterministic over marker, manifest, and override files"] = function()
   Assert.isTrue(
     RegistrySnapshot.key(scriptCache(), overrideFs(grown)) ~= RegistrySnapshot.key(scriptCache(), overrideFs(files))
   )
+end
+
+T["key changes when builtin executable content changes"] = function()
+  local cache = scriptCache()
+  local fs = overrideFs()
+  local original = BuiltinScripts.all
+  local baseline = assert(RegistrySnapshot.key(cache, fs))
+  rawset(BuiltinScripts, "all", function()
+    local scripts = original()
+    scripts["runtime.inert_interaction"].steps[1] = { op = "noop" }
+    return scripts
+  end)
+  local ok, changed = pcall(RegistrySnapshot.key, cache, fs)
+  rawset(BuiltinScripts, "all", original)
+  assert(ok, changed)
+  changed = assert(changed)
+  Assert.isTrue(changed ~= baseline, "builtin content must participate in snapshot identity")
 end
 
 -- 2. Without the script-cache marker there is nothing to snapshot: no key.

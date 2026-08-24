@@ -28,6 +28,9 @@ local IntroAssetCacheWriter = require("romdump.src.digest.IntroAssetCacheWriter"
 local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
 local FieldWeatherCompiler = require("romdump.src.digest.FieldWeatherCompiler")
 local FieldWeatherCacheWriter = require("romdump.src.digest.FieldWeatherCacheWriter")
+local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
+local FieldEntranceIndicatorCacheWriter = require("romdump.src.digest.FieldEntranceIndicatorCacheWriter")
+local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
@@ -201,6 +204,16 @@ function CacheBuilder.buildVersions(versionIds, options)
       local weatherBundle, weatherErr = FieldWeatherCompiler.compile(romFs)
       if not weatherBundle then
         return versionFailure(weatherErr)
+      end
+      local effectBundle, effectErr = FieldEntranceIndicatorCompiler.compile(romFs)
+      if not effectBundle then
+        return versionFailure(effectErr)
+      end
+      if forced or not FieldEffectAssetCache.isReady(cacheFs, effectBundle.marker) then
+        FieldEntranceIndicatorCacheWriter.write(cacheFs, effectBundle)
+        log(string.format("build-cache: %s warp entrance field effect compiled", version))
+      else
+        log(string.format("build-cache: %s warp entrance field effect current", version))
       end
       if forced or not FieldWeatherCacheWriter.isReady(cacheFs, weatherBundle.marker) then
         FieldWeatherCacheWriter.write(cacheFs, weatherBundle)

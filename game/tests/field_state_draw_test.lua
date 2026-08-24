@@ -83,6 +83,11 @@ local function presentationState(assets, actorIds)
       end,
     },
     runtimeMap = { sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} } },
+    fieldEntranceIndicator = {
+      status = function()
+        return { visible = false }
+      end,
+    },
   }
   return setmetatable({
     runtime = runtime,
@@ -95,6 +100,12 @@ local function presentationState(assets, actorIds)
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
+    fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+      dispose = function() end,
+    },
   }, FieldState),
     actors,
     runtime
@@ -103,6 +114,11 @@ end
 -- A bare FieldState over a fake runtime that carries only the canonical
 -- fields: no `runtime` sceneRuntime alias and no `actor` player alias.
 local function stateWith(runtime)
+  runtime.fieldEntranceIndicator = {
+    status = function()
+      return { visible = false }
+    end,
+  }
   return setmetatable({
     runtime = runtime,
     _pollPresentationTopology = false,
@@ -112,6 +128,11 @@ local function stateWith(runtime)
     renderer = {
       draw = function()
         error("renderer should be stubbed by the test")
+      end,
+    },
+    fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
       end,
     },
   }, FieldState)
@@ -143,8 +164,8 @@ function T.world_parts_refresh_replaced_scene_neighbor_and_actor_draws()
   Assert.isTrue(parts[2] == staticBuildingDraws)
   Assert.isTrue(parts[3] == animatedBuildingDraws)
   Assert.isTrue(parts[4] == neighborDraws)
-  Assert.isTrue(parts[5] == state.worldActorItems)
-  Assert.equal(parts[5][1], actorDraws[1])
+  Assert.isTrue(parts[6] == state.worldActorItems)
+  Assert.equal(parts[6][1], actorDraws[1])
 
   local nextMapDraws = { { kind = "next-map" } }
   local nextAnimatedBuildingDraws = { { kind = "next-animated-building" } }
@@ -163,8 +184,8 @@ function T.world_parts_refresh_replaced_scene_neighbor_and_actor_draws()
     "fixed-tick animated building replacement reaches the renderer"
   )
   Assert.deepEqual(refreshed[4], {})
-  Assert.isTrue(refreshed[5] == state.worldActorItems)
-  Assert.equal(refreshed[5][1], nextActorDraws[1])
+  Assert.isTrue(refreshed[6] == state.worldActorItems)
+  Assert.equal(refreshed[6][1], nextActorDraws[1])
 end
 
 -- A live presentation runtime always carries the transition, dialogue, and
@@ -227,6 +248,11 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
       },
       startMenuPlacement = nil,
       resizePresentation = function() end,
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
     },
     _pollPresentationTopology = true,
     topologyProvider = function()
@@ -249,6 +275,11 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
+    fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
   }, FieldState)
   state:draw()
   Assert.equal(received.scene, sceneRuntime, "the renderer receives the runtime map's scene runtime")
@@ -317,6 +348,11 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
         end,
       },
       resizePresentation = function() end,
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
     },
     _pollPresentationTopology = true,
     topologyProvider = function()
@@ -335,15 +371,20 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
+    fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
   }, FieldState)
   state._actorDraws = function()
     return { staticModel, sprite }
   end
 
   state:draw()
-  Assert.equal(received.worldParts[5][1], staticModel)
+  Assert.equal(received.worldParts[6][1], staticModel)
   Assert.equal(received.spriteItems[1], sprite)
-  Assert.equal(#received.worldParts[5], 1)
+  Assert.equal(#received.worldParts[6], 1)
   Assert.equal(#received.spriteItems, 1)
 end
 
