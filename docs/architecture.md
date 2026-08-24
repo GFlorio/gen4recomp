@@ -34,6 +34,9 @@ An app's `main.lua` adds the repo root (its LÖVE source base directory) to
 
 ## Layers
 
+For the policy governing adaptation of dual-screen-derived interfaces to host
+displays, see [Dual-screen presentation layout](presentation-layout.md).
+
 Cutting across that layout, the code follows three conceptual layers. The domain
 layer is pure and testable without LÖVE; interface and infrastructure are
 allowed to depend on LÖVE and are kept thin. `romdump/src`, `libs/assets`,
