@@ -603,15 +603,23 @@ local function runTransition(options)
     end,
     prepare = function() end,
     commit = function() end,
-    doorAt = options.doorAt,
+    doorAt = function(map)
+      if map == source then
+        if options.doorAt then
+          return options.doorAt(map)
+        end
+        return options.sourceDoor
+      end
+      return options.destinationDoor or (options.doorAt and options.doorAt(map))
+    end,
     playSound = options.playSound,
     player = options.player,
   })
-  transition:start(
-    source,
-    { kind = "door", warp = { index = 0, x = 684, z = 393, destinationMapId = 60, destinationWarpId = 0 } },
-    "north"
-  )
+  transition:start(source, {
+    kind = "door",
+    warp = { index = 0, x = 684, z = 393, destinationMapId = 60, destinationWarpId = 0 },
+    destinationFacing = options.destinationFacing,
+  }, "north")
   for _ = 1, 40 do
     if transition.phase == "idle" then
       break
@@ -695,24 +703,29 @@ function T.tests.door_sound_selector_emits_exact_open_and_close_sequences()
   end
 end
 
-function T.tests.door_profile_steps_north_into_source_and_north_out_of_destination()
-  local player = {
-    motion = "idle",
-    steps = {},
-    scriptedStep = function(self, direction)
-      self.steps[#self.steps + 1] = direction
-      self.motion = "idle"
-      return true
-    end,
-  }
-  local door = instantDoor(1)
-  runTransition({
-    doorAt = function()
-      return door
-    end,
-    player = player,
-  })
-  Assert.deepEqual(player.steps, { "north", "north" })
+function T.tests.door_profile_uses_destination_door_and_facing_asymmetric_steps()
+  local function runCase(destinationDoor, destinationFacing)
+    local player = {
+      motion = "idle",
+      steps = {},
+      scriptedStep = function(self, direction)
+        self.steps[#self.steps + 1] = direction
+        self.motion = "idle"
+        return true
+      end,
+    }
+    runTransition({
+      sourceDoor = instantDoor(1),
+      destinationDoor = destinationDoor and instantDoor(1) or nil,
+      destinationFacing = destinationFacing,
+      player = player,
+    })
+    return player.steps
+  end
+
+  Assert.deepEqual(runCase(false, "north"), { "north" })
+  Assert.deepEqual(runCase(false, "south"), { "north", "south" })
+  Assert.deepEqual(runCase(true, "north"), { "north", "south" })
 end
 
 function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()

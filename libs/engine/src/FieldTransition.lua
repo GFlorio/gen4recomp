@@ -23,10 +23,9 @@
 -- classification, passed down from the trigger paths -- never re-read from
 -- the permission grid here), sourceDoor (resolved on the source map), and
 -- destinationDoor (resolved at load on the destination map). The destination
--- egress predicate (a door source always egresses; a door destination alone
--- -- the Elm Lab exit pattern -- also activates the destination
--- choreography) is derived from sourceKind and destinationDoor at its read
--- sites. Doors are a capability contract: no door resolver means no door
+-- egress predicate is derived from destinationDoor and the profile's
+-- destination-facing semantics at its read sites. Doors are a capability
+-- contract: no door resolver means no door
 -- choreography at all (a headless caller states it has none, and a door-kind
 -- warp degrades to a plain fade), while a supplied resolver returning no door
 -- for a required door is bad data and raises. A door-kind warp
@@ -533,6 +532,12 @@ local function detectDestinationDoor(self)
     self.doorAt(self.resolution.destinationMap, self.resolution.destinationWarp.x, self.resolution.destinationWarp.z)
 end
 
+local function needsDoorlessDoorEnterStep(self)
+  return self.destinationDoor == nil
+    and self.profileId == FieldTransitionProfile.DOOR
+    and self.destinationFacing == "south"
+end
+
 -- After the swap: open the destination door (its opening runs inside the
 -- fade-in) and start the destination choreography. The egress step begins
 -- only once the opening finished (advanceDestinationChoreo) -- a static door
@@ -549,9 +554,9 @@ end
 
 -- Advance the destination choreography by one tick: wait_open resolves when
 -- there is no door or its opening finished (a static door reports nil
--- isFinished, so nothing waits on it) and begins the scripted egress step; a
--- failed egress step is a data-contract failure. wait_step advances the
--- player's step, closes the destination door once the movement finished (no
+-- isFinished, so nothing waits on it) and begins the south scripted egress
+-- step; a failed egress step is a data-contract failure. wait_step advances
+-- the player's step, closes the destination door once the movement finished (no
 -- door: nothing to close, done), and wait_close resolves when the closing
 -- finished -- nil isFinished (static door) resolves immediately.
 local function advanceDestinationChoreo(self)
@@ -595,7 +600,9 @@ local function advanceDestinationChoreo(self)
     local finished = self.destinationDoor and self.destinationDoor:isFinished()
     if not self.destinationDoor or finished ~= false then
       if self.player then
-        local ok = self.player:scriptedStep(self.facing)
+        -- Both an actual destination door and the explicitly admitted
+        -- doorless profile-1/south case use HGSS STEP_DOWN.
+        local ok = self.player:scriptedStep("south")
         if not ok then
           Errors.raise(
             FieldErrors.MAP_TRANSITION_EGRESS_FAILED,
@@ -829,7 +836,7 @@ function FieldTransition:updateFixed()
     else
       startFade(self, "in", 0)
     end
-    if self.destinationChoreo == nil and (self.sourceKind == "door" or self.destinationDoor ~= nil) then
+    if self.destinationChoreo == nil and (self.destinationDoor ~= nil or needsDoorlessDoorEnterStep(self)) then
       runChoreo(self, beginDestinationChoreography)
       -- Start the destination choreography on the swap tick: an animated door
       -- holds in wait_open, a static one (nothing to wait for) steps at once.

@@ -52,8 +52,7 @@ end
 -- for the opening to finish, the player commits onto the door tile, and the
 -- swap happens only at full black. The destination interior entrance is
 -- static on the real ROM (Elm Lab's interior door carries no animation-list
--- records), so the egress begins at the swap and nothing closes -- the trace
--- is two open->step pairs with no close.
+-- records), so no destination egress is required and nothing closes.
 function T.town_to_lab_door_transition_choreographs(romFs, versionId)
   local town, lab = townAndLab(romFs)
   local harness = SceneLoaderFixture.newHarness(versionId, {
@@ -65,10 +64,8 @@ function T.town_to_lab_door_transition_choreographs(romFs, versionId)
   local trace = pressAndDrive(harness, "north", 500)
   Assert.equal(
     trace,
-    "open-start,open-finished,step-start,step-finished,step-start,step-finished",
-    "the town door opens, the ingress waits for it, and the static interior egresses without a close (got: "
-      .. trace
-      .. ")"
+    "open-start,open-finished,step-start,step-finished",
+    "the town door opens and the source ingress waits for it (got: " .. trace .. ")"
   )
 
   -- The source door opened to completion during the source fade.
@@ -77,12 +74,12 @@ function T.town_to_lab_door_transition_choreographs(romFs, versionId)
   Assert.isTrue(SceneLoaderFixture.entryRole(door) == OPEN_ROLE, "the retained entry state records the played role")
 
   Assert.equal(harness.player.fieldX, 4)
-  Assert.equal(harness.player.fieldZ, 13, "the egress walks north off the interior anchor")
+  Assert.equal(harness.player.fieldZ, 14, "the destination remains on the resolved entrance anchor")
   Assert.equal(harness.player.motion, "idle")
   Assert.isFalse(harness.transition.locked, "input unlocks once the choreography completes")
   Assert.isNil(harness.transition.suppression, "door warps never carry coordinate suppression")
   -- The static destination has no close event (covered by the exact trace
-  -- above); the egress may outlive fade-in and legitimately hold black.
+  -- above).
   Assert.isTrue(harness.timeline.fade_out < harness.timeline.swap_map, "the fade ran before the swap")
   local warp = assert(WarpSystem.findAt(town.map, 684, 393))
   Assert.equal(warp.destinationMapId, LAB_MAP_ID, "the town door tile is the lab warp")
