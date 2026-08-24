@@ -48,8 +48,10 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field virtualKeyColumns integer
 ---@field genderFocus integer
 ---@field safeFrame OakIntroStateRectangle
----@field mainRegion OakIntroStateRectangle?
----@field auxiliaryRegion OakIntroStateRectangle?
+---@field scene OakIntroStateRectangle
+---@field oakRegion OakIntroStateRectangle?
+---@field selectorRegion OakIntroStateRectangle?
+---@field selectorPanel OakIntroStateRectangle?
 ---@field genderBackground OakIntroStateRectangle?
 ---@field genderChoices table<integer, OakIntroStateRectangle>
 ---@field genderHitRegions table<integer, OakIntroStateRectangle>?
@@ -91,7 +93,6 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field dialogueMessages table?
 ---@field dialogueFormatter table?
 ---@field dialogueMessageKey string?
----@field screenTopology table?
 
 ---@class OakIntroState
 ---@field new fun(options: OakIntroStateOptions): OakIntroState
@@ -115,7 +116,6 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field choiceLabels table<integer, string>?
 ---@field dialogueText table?
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
----@field screenTopology table?
 ---@field disposed boolean
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
@@ -233,7 +233,6 @@ function OakIntroState.new(options)
       dialogueText = options.dialogueText,
       dialoguePresentation = nil,
       dialogueMessageKey = nil,
-      screenTopology = options.screenTopology,
     }, OakIntroState)
     self:_setTextInput(false)
     self.controller:start()
@@ -324,8 +323,7 @@ end
 function OakIntroState:view()
   local view = self.controller:view()
   ---@cast view OakIntroStateView
-  view.layout =
-    OakIntroLayout.compute(self.width, self.height, view, self.glyphs, self.manifest.widgets, self.screenTopology)
+  view.layout = OakIntroLayout.compute(self.width, self.height, view, self.glyphs, self.manifest)
   if self.dialogueController then
     view.dialogueStatus = self.dialogueController:status()
     view.dialoguePresentation = view.layout.dialogue

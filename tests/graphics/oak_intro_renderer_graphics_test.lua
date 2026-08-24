@@ -204,6 +204,42 @@ T.background_gradient_stretches_to_the_host_viewport = function()
   renderer:dispose()
 end
 
+T.gender_gradient_covers_the_full_viewport_not_a_composition_region = function()
+  local graphics = FakeGraphics.new({
+    imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
+  })
+  local renderer = OakIntroRenderer.new({
+    manifest = manifest(),
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = textRenderer(),
+  })
+  local gender = view()
+  gender.phase = "gender_select"
+  gender.primaryWidget = nil
+  gender.layout.viewport = { x = 11, y = 13, width = 1600, height = 900 }
+  gender.layout.oakRegion = { x = 11, y = 13, width = 500, height = 900 }
+  gender.layout.genderBackground = { x = 600, y = 100, width = 400, height = 300 }
+  gender.layout.genderChoices = {
+    [0] = { x = 600, y = 100, width = 100, height = 150 },
+    [1] = { x = 800, y = 100, width = 100, height = 150 },
+  }
+  gender.genderFocus = 0
+
+  renderer:draw(gender)
+
+  local background = graphics.draws[1]
+  Assert.equal(background.x, 11)
+  Assert.equal(background.y, 13)
+  Assert.equal(background.sx, 1600)
+  Assert.equal(background.sy, 900 / 192)
+  renderer:dispose()
+end
+
 T.background_only_view_draws_the_gradient_once_without_a_subject = function()
   local graphics = FakeGraphics.new({
     imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },

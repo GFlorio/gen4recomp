@@ -26,10 +26,56 @@ local INTRO_ASSETS = {
   ball_open = { frames = { { duration = 1 } } },
 }
 local INTRO_MANIFEST = {
+  sourceReference = { width = 256, height = 192 },
+  background = { width = 1, height = 192, sampling = "linear" },
   widgets = {
-    gender_background = { width = 256, height = 192, anchor = { x = 128, y = 96 } },
-    gender_male = { width = 64, height = 96, anchor = { x = 32, y = 96 } },
-    gender_female = { width = 64, height = 96, anchor = { x = 32, y = 96 } },
+    oak = {
+      width = 80,
+      height = 100,
+      anchor = { x = 20, y = 100 },
+      sourceBounds = { x = 40, y = 30, width = 80, height = 100 },
+    },
+    gender_background = {
+      width = 256,
+      height = 192,
+      anchor = { x = 128, y = 192 },
+      sourceBounds = { x = 0, y = 0, width = 256, height = 192 },
+    },
+    gender_male = {
+      width = 64,
+      height = 96,
+      anchor = { x = 32, y = 48 },
+      sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+      sourceCenter = { x = 64, y = 104 },
+    },
+    gender_female = {
+      width = 64,
+      height = 96,
+      anchor = { x = 32, y = 48 },
+      sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+      sourceCenter = { x = 192, y = 104 },
+    },
+    ball_open = {
+      width = 40,
+      height = 30,
+      anchor = { x = 20, y = 30 },
+      sourceBounds = { x = 140, y = 50, width = 40, height = 30 },
+      sourceCenter = { x = 160, y = 80 },
+    },
+    marill_appear = {
+      width = 40,
+      height = 30,
+      anchor = { x = 20, y = 30 },
+      sourceBounds = { x = 140, y = 50, width = 40, height = 30 },
+      sourceCenter = { x = 160, y = 80 },
+    },
+    marill = {
+      width = 40,
+      height = 30,
+      anchor = { x = 20, y = 30 },
+      sourceBounds = { x = 140, y = 50, width = 40, height = 30 },
+      sourceCenter = { x = 160, y = 80 },
+    },
   },
 }
 
@@ -468,8 +514,8 @@ function T.tests.resize_and_all_input_modalities_share_oak_geometry_and_buffer()
     App.resize(420, 800)
     Assert.equal(App.state:view().layout.viewport.width, 420)
     Assert.equal(App.state:view().genderFocus, 1)
-    local card = App.state:view().layout.cards[1]
-    App.touchpressed("finger-1", card.x + 1, card.y + 1)
+    local card = App.state:view().layout.cards[App.state:view().genderFocus]
+    App.state:touchpressed("finger-1", card.x + 1, card.y + 1)
     Assert.equal(App.state:view().phase, "gender_confirm")
 
     confirm()
@@ -486,7 +532,7 @@ function T.tests.resize_and_all_input_modalities_share_oak_geometry_and_buffer()
       end
     end
     Assert.notNil(key)
-    App.mousepressed(key.x + 1, key.y + 1, 1)
+    App.state:mousepressed(key.x + 1, key.y + 1, 1)
     Assert.equal(App.state:view().name, "Aé")
     App.keypressed("backspace")
     Assert.equal(App.state:view().name, "A")

@@ -8,10 +8,35 @@ local OakIntroState = require("game.src.game.OakIntroState")
 local T = {}
 
 local INTRO_MANIFEST = {
+  sourceReference = { width = 256, height = 192 },
+  background = { width = 256, height = 192, sampling = "linear" },
   widgets = {
-    gender_background = { width = 256, height = 192, anchor = { x = 128, y = 96 } },
-    gender_male = { width = 64, height = 96, anchor = { x = 32, y = 96 } },
-    gender_female = { width = 64, height = 96, anchor = { x = 32, y = 96 } },
+    oak = {
+      width = 80,
+      height = 100,
+      anchor = { x = 20, y = 100 },
+      sourceBounds = { x = 40, y = 30, width = 80, height = 100 },
+    },
+    gender_background = {
+      width = 256,
+      height = 192,
+      anchor = { x = 128, y = 192 },
+      sourceBounds = { x = 0, y = 0, width = 256, height = 192 },
+    },
+    gender_male = {
+      width = 64,
+      height = 96,
+      anchor = { x = 32, y = 48 },
+      sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+      sourceCenter = { x = 64, y = 104 },
+    },
+    gender_female = {
+      width = 64,
+      height = 96,
+      anchor = { x = 32, y = 48 },
+      sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+      sourceCenter = { x = 192, y = 104 },
+    },
   },
 }
 

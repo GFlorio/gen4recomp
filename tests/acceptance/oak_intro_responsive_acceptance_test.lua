@@ -11,7 +11,6 @@ local OakIntroController = require("libs.engine.src.OakIntroController")
 local OakIntroLayout = require("game.src.game.OakIntroLayout")
 local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 local OakIntroState = require("game.src.game.OakIntroState")
-local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local FakeGraphics = require("tests.support.FakeGraphics")
 
 local T = {
@@ -73,16 +72,6 @@ local function candidate()
   })
 end
 
-local function display(id, x, y, width, height, role, touch)
-  return {
-    id = id,
-    rect = { x = x, y = y, width = width, height = height },
-    safeRect = { x = x, y = y, width = width, height = height },
-    role = role,
-    touch = touch,
-  }
-end
-
 local manifest
 
 local function genderView()
@@ -95,24 +84,30 @@ local function genderView()
   }
 end
 
-local function genderMetrics()
-  local metrics = manifest().widgets
-  metrics.gender_background = {
+local function genderManifest()
+  local data = manifest()
+  local widgets = data.widgets
+  widgets.gender_background = {
     width = 256,
     height = 192,
-    anchor = { x = 128, y = 96 },
+    anchor = { x = 128, y = 192 },
+    sourceBounds = { x = 0, y = 0, width = 256, height = 192 },
   }
-  metrics.gender_male = {
+  widgets.gender_male = {
     width = 64,
     height = 96,
-    anchor = { x = 32, y = 96 },
+    anchor = { x = 32, y = 48 },
+    sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+    sourceCenter = { x = 64, y = 104 },
   }
-  metrics.gender_female = {
+  widgets.gender_female = {
     width = 64,
     height = 96,
-    anchor = { x = 32, y = 96 },
+    anchor = { x = 32, y = 48 },
+    sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+    sourceCenter = { x = 192, y = 104 },
   }
-  return metrics
+  return data
 end
 
 local function assertInside(inner, outer, message)
@@ -266,47 +261,31 @@ function T.tests.host_native_layout_contract_across_representative_viewports()
   end
 end
 
-function T.tests.physical_and_portrait_gender_selection_keep_surface_roles_separate()
+-- The intro uses one responsive host surface; topology-specific split tests are obsolete.
+function T.tests.single_surface_gender_selection_keeps_regions_separate()
   local view = genderView()
-  local metrics = genderMetrics()
-  local dual = ScreenTopology.dualDisplay(
-    display("world", 0, 0, 512, 384, "world", false),
-    display("auxiliary", 0, 384, 512, 384, "auxiliary", true)
-  )
-  ---@diagnostic disable-next-line: redundant-parameter
-  local physical = OakIntroLayout.compute(512, 768, view, { "A" }, metrics, dual)
-  Assert.notNil(physical.mainRegion, "physical topology exposes the main region")
-  Assert.notNil(physical.auxiliaryRegion, "physical topology exposes the auxiliary region")
-  Assert.notNil(physical.genderBackground, "physical topology places the selector background")
-  Assert.notNil(physical.genderChoices, "physical topology places selector choices")
-  assertDisjoint(physical.mainRegion, physical.auxiliaryRegion, "physical main and auxiliary regions overlap")
-  assertInside(
-    physical.genderBackground,
-    physical.auxiliaryRegion,
-    "physical selector background leaves auxiliary surface"
-  )
-
-  local portrait = OakIntroLayout.compute(390, 844, view, { "A" }, metrics)
-  Assert.notNil(portrait.mainRegion, "portrait topology exposes the main region")
-  Assert.notNil(portrait.auxiliaryRegion, "portrait topology exposes the auxiliary region")
-  Assert.notNil(portrait.genderChoices, "portrait topology places selector choices")
-  assertDisjoint(portrait.mainRegion, portrait.auxiliaryRegion, "portrait main and auxiliary regions overlap")
-  assertInside(portrait.genderChoices[0], portrait.auxiliaryRegion, "portrait male choice leaves auxiliary region")
-  assertInside(portrait.genderChoices[1], portrait.auxiliaryRegion, "portrait female choice leaves auxiliary region")
+  local data = genderManifest()
+  for _, size in ipairs({ { 512, 768 }, { 390, 844 } }) do
+    local layout = OakIntroLayout.compute(size[1], size[2], view, { "A" }, data)
+    Assert.notNil(layout.oakRegion, "layout exposes the Oak region")
+    Assert.notNil(layout.selectorRegion, "layout exposes the selector region")
+    assertDisjoint(layout.oakRegion, layout.selectorRegion, "Oak and selector regions overlap")
+    assertInside(layout.genderBackground, layout.selectorPanel, "selector background leaves selector panel")
+  end
 end
 
 function T.tests.wide_gender_selection_is_side_by_side_and_hit_regions_are_rendered_regions()
   local view = genderView()
-  local layout = OakIntroLayout.compute(1920, 1080, view, { "A" }, genderMetrics())
-  Assert.notNil(layout.mainRegion, "wide layout exposes the main region")
-  Assert.notNil(layout.auxiliaryRegion, "wide layout exposes the auxiliary region")
+  local layout = OakIntroLayout.compute(1920, 1080, view, { "A" }, genderManifest())
+  Assert.notNil(layout.oakRegion, "wide layout exposes the Oak region")
+  Assert.notNil(layout.selectorRegion, "wide layout exposes the selector region")
   Assert.notNil(layout.genderBackground, "wide layout places the selector background")
   Assert.notNil(layout.genderChoices, "wide layout places selector choices")
-  Assert.isTrue(layout.mainRegion.x < layout.auxiliaryRegion.x, "wide layout keeps main content left of controls")
-  assertDisjoint(layout.mainRegion, layout.auxiliaryRegion, "wide main and auxiliary regions overlap")
-  assertInside(layout.genderBackground, layout.auxiliaryRegion, "wide selector background leaves auxiliary region")
+  Assert.isTrue(layout.oakRegion.x < layout.selectorRegion.x, "wide layout keeps Oak left of controls")
+  assertDisjoint(layout.oakRegion, layout.selectorRegion, "wide Oak and selector regions overlap")
+  assertInside(layout.genderBackground, layout.selectorPanel, "wide selector background leaves selector panel")
   for gender = 0, 1 do
-    assertInside(layout.genderChoices[gender], layout.auxiliaryRegion, "wide selector choice leaves auxiliary region")
+    assertInside(layout.genderChoices[gender], layout.selectorPanel, "wide selector choice leaves selector panel")
   end
   Assert.notNil(layout.genderHitRegions, "pointer hit regions come from the selector placement")
   Assert.deepEqual(layout.genderHitRegions, layout.genderChoices, "pointer and renderer use one selector geometry")
@@ -315,22 +294,22 @@ end
 function T.tests.constrained_gender_selection_keeps_both_controls_and_main_context_usable()
   local view = genderView()
   for _, size in ipairs({ { 320, 240 }, { 800, 600 } }) do
-    local layout = OakIntroLayout.compute(size[1], size[2], view, { "A" }, genderMetrics())
-    Assert.notNil(layout.mainRegion, "constrained layout exposes essential main context")
-    Assert.notNil(layout.auxiliaryRegion, "constrained layout exposes selector controls")
+    local layout = OakIntroLayout.compute(size[1], size[2], view, { "A" }, genderManifest())
+    Assert.notNil(layout.oakRegion, "constrained layout exposes essential Oak context")
+    Assert.notNil(layout.selectorRegion, "constrained layout exposes selector controls")
     Assert.notNil(layout.genderBackground, "constrained layout places the selector background")
     Assert.notNil(layout.genderChoices, "constrained layout places both choices")
-    assertInside(layout.mainRegion, layout.viewport, "constrained main context leaves viewport")
-    assertInside(layout.auxiliaryRegion, layout.viewport, "constrained selector leaves viewport")
-    assertInside(layout.genderChoices[0], layout.auxiliaryRegion, "constrained male choice leaves controls")
-    assertInside(layout.genderChoices[1], layout.auxiliaryRegion, "constrained female choice leaves controls")
+    assertInside(layout.oakRegion, layout.viewport, "constrained Oak context leaves viewport")
+    assertInside(layout.selectorRegion, layout.viewport, "constrained selector leaves viewport")
+    assertInside(layout.genderChoices[0], layout.selectorPanel, "constrained male choice leaves controls")
+    assertInside(layout.genderChoices[1], layout.selectorPanel, "constrained female choice leaves controls")
     assertDisjoint(layout.genderChoices[0], layout.genderChoices[1], "constrained gender choices overlap")
     Assert.notNil(layout.genderHitRegions, "constrained pointer mapping has rendered hit regions")
   end
 end
 
 function T.tests.dialogue_visibility_keeps_the_main_oak_stage_stable()
-  local metrics = manifest().widgets
+  local data = manifest()
   for _, size in ipairs({ { 320, 240 }, { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }) do
     local closed = {
       phase = "oak_slide_right",
@@ -345,8 +324,8 @@ function T.tests.dialogue_visibility_keeps_the_main_oak_stage_stable()
       oakSlideOffset = closed.oakSlideOffset,
       dialogue = { message = "oak.welcome", messageKey = "oak.welcome" },
     }
-    local closedLayout = OakIntroLayout.compute(size[1], size[2], closed, {}, metrics)
-    local openLayout = OakIntroLayout.compute(size[1], size[2], open, {}, metrics)
+    local closedLayout = OakIntroLayout.compute(size[1], size[2], closed, {}, data)
+    local openLayout = OakIntroLayout.compute(size[1], size[2], open, {}, data)
     Assert.deepEqual(openLayout.stage, closedLayout.stage)
     Assert.near(openLayout.subject.scale, closedLayout.subject.scale)
     Assert.near(openLayout.subject.y + openLayout.subject.height, closedLayout.subject.y + closedLayout.subject.height)
@@ -359,24 +338,24 @@ function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
   state:tick(40)
   state:press("confirm")
   state:tick(6 + 30)
-  local centered = OakIntroLayout.compute(800, 600, state:view(), {}, manifest().widgets).subject
+  local centered = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
   state:press("confirm")
   state:tick(26)
-  local endpoint = OakIntroLayout.compute(800, 600, state:view(), {}, manifest().widgets).subject
+  local endpoint = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
   Assert.isTrue(endpoint.x < centered.x, "the completed first slide must be visibly shifted")
   state:press("confirm")
   state:tick(30 + 40)
-  local held = OakIntroLayout.compute(800, 600, state:view(), {}, manifest().widgets).subject
+  local held = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
   Assert.near(held.x, endpoint.x)
   Assert.near(held.y, endpoint.y)
   state:press("confirm")
   state:tick(30)
   local reverse = state:view()
   Assert.equal(reverse.phase, "oak_slide_left")
-  local reverseStart = OakIntroLayout.compute(800, 600, reverse, {}, manifest().widgets).subject
+  local reverseStart = OakIntroLayout.compute(800, 600, reverse, {}, manifest()).subject
   Assert.near(reverseStart.x, held.x)
   state:tick(1)
-  local moved = OakIntroLayout.compute(800, 600, state:view(), {}, manifest().widgets).subject
+  local moved = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
   Assert.isTrue(moved.x > reverseStart.x, "reverse slide moves monotonically toward center")
 end
 
@@ -452,7 +431,7 @@ function T.tests.source_reveal_composition_draws_distinct_semantic_stages()
   Assert.equal(ballView.revealWidget, "ball_open")
   ballView.revealWidget = "ball_open"
   ballView.revealFrameIndex = 1
-  local layout = OakIntroLayout.compute(800, 600, ballView, {}, assets.widgets)
+  local layout = OakIntroLayout.compute(800, 600, ballView, {}, assets)
   renderer:draw({
     layout = layout,
     visual = "oak",
@@ -466,7 +445,7 @@ function T.tests.source_reveal_composition_draws_distinct_semantic_stages()
   state:tick(30)
   local appearance = state:view()
   Assert.equal(appearance.revealWidget, "marill_appear")
-  local appearanceLayout = OakIntroLayout.compute(800, 600, appearance, {}, assets.widgets)
+  local appearanceLayout = OakIntroLayout.compute(800, 600, appearance, {}, assets)
   renderer:draw({
     layout = appearanceLayout,
     visual = "oak",
@@ -495,13 +474,13 @@ function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangle
   state:press("confirm")
   state:press("confirm")
   Assert.equal(state:view().phase, "gender_select")
-  Assert.notNil(OakIntroLayout.compute(390, 844, state:view(), { "A", "B" }).profileCards)
+  Assert.notNil(OakIntroLayout.compute(390, 844, state:view(), { "A", "B" }, manifest()).profileCards)
   state:press("confirm")
   state:press("confirm")
   state:press("confirm")
   state:tick(40)
   Assert.equal(state:view().phase, "name_edit")
-  local layout = OakIntroLayout.compute(390, 844, state:view(), { "A", "B" })
+  local layout = OakIntroLayout.compute(390, 844, state:view(), { "A", "B" }, manifest())
   Assert.notNil(layout.nameKeys)
   Assert.equal(layout.nameKeys[1].label, "A")
 end
@@ -514,11 +493,11 @@ T.tests.oak_motion_uses_normalized_progress_and_rendered_scale = function()
   state:tick(6 + 30)
   state:press("confirm")
   local before = state:view()
-  local beforeLayout = OakIntroLayout.compute(390, 844, before, { "A", "B" }, manifest().widgets)
+  local beforeLayout = OakIntroLayout.compute(390, 844, before, { "A", "B" }, manifest())
 
   state:tick(13)
   local during = state:view()
-  local duringLayout = OakIntroLayout.compute(390, 844, during, { "A", "B" }, manifest().widgets)
+  local duringLayout = OakIntroLayout.compute(390, 844, during, { "A", "B" }, manifest())
   local expected = math.min(52 * duringLayout.subject.scale, duringLayout.stageContent.width * 0.24)
     * (during.oakSlideOffset / -52)
   local beforeCenter = beforeLayout.subject.x + beforeLayout.subject.width / 2

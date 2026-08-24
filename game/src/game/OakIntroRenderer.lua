@@ -141,7 +141,7 @@ function OakIntroRenderer:draw(view)
   local graphics = self.graphics
   local layout = view.layout
   graphics.clear(0.04, 0.05, 0.09, 1)
-  drawBackground(self, layout.mainRegion or layout.viewport)
+  drawBackground(self, layout.viewport)
   if view.primaryWidget ~= nil then
     drawAsset(self, view.primaryWidget, view.visualFrameIndex, layout.subject)
   elseif view.visual ~= "background" then
