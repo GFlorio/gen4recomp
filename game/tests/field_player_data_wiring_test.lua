@@ -26,8 +26,9 @@ local LAB = "MAP_NEW_BARK_ELMS_LAB_1F"
 -- real wiring), then the production fresh -> save -> resume round trip proves
 -- the saved bucket wins over the initial manifest and drives the platform.
 function T.tests.fresh_copy_and_resume_round_trip_own_the_player_data()
-  local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
-    versionId = "heartgold",
+  local versionId = AcceptanceHarness.defaultVersion()
+  local game = AcceptanceHarness.new({ versions = { versionId } }):boot({
+    versionId = versionId,
     map = LAB,
     save = "fresh",
   })

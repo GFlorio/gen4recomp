@@ -91,16 +91,17 @@ end
 -- successful boot. The map without a spawn is the production-reachable
 -- failure point.
 function T.tests.failed_boot_releases_acquired_resources_and_leaves_the_next_boot_clean()
-  local harness = AcceptanceHarness.new({ versions = { "heartgold" } })
+  local versionId = AcceptanceHarness.defaultVersion()
+  local harness = AcceptanceHarness.new({ versions = { versionId } })
   local err = Assert.throws(function()
-    harness:boot({ versionId = "heartgold", map = SPAWN_GAP_MAP, save = "fresh" })
+    harness:boot({ versionId = versionId, map = SPAWN_GAP_MAP, save = "fresh" })
   end)
   Assert.isTrue(
     tostring(err):find(SPAWN_GAP_MAP, 1, true) ~= nil,
     "the failed boot must name the map: " .. tostring(err)
   )
 
-  local game = harness:boot({ versionId = "heartgold", map = LAB, save = "fresh" })
+  local game = harness:boot({ versionId = versionId, map = LAB, save = "fresh" })
   local ok, stepErr = pcall(function()
     game:step()
   end)
@@ -117,8 +118,9 @@ end
 -- runtime failure: it must be rethrown, not stored as runtime error text on a
 -- returned object.
 function T.tests.programming_assertion_in_boot_is_rethrown_not_stored_as_error_text()
+  local versionId = AcceptanceHarness.defaultVersion()
   local ok, err = pcall(function()
-    FieldRuntime.new("heartgold", SPAWN_GAP_MAP)
+    FieldRuntime.new(versionId, SPAWN_GAP_MAP)
   end)
   Assert.isFalse(ok, "a boot-time programming assertion must rethrow")
   Assert.isTrue(
@@ -138,13 +140,14 @@ end
 -- per-test namespace by a remapping wrapper -- test isolation is backend
 -- composition, never a second production rooting mode.
 function T.tests.save_host_programming_fault_is_rethrown_not_reported_as_save_failure()
-  local namespace = "component/save-fault/heartgold"
+  local versionId = AcceptanceHarness.defaultVersion()
+  local namespace = "component/save-fault/" .. versionId
   removeNamespace(namespace)
   local backend = RemapBackend.new(raisingWriteBackend(true), function(path)
-    return (path:gsub("^saves/heartgold/", namespace .. "/"))
+    return (path:gsub("^saves/" .. versionId .. "/", namespace .. "/"))
   end)
-  local saveFs = SaveFs.forVersion("heartgold", backend)
-  local runtime = FieldRuntime.new("heartgold", LAB, { saveFs = saveFs })
+  local saveFs = SaveFs.forVersion(versionId, backend)
+  local runtime = FieldRuntime.new(versionId, LAB, { saveFs = saveFs })
   local ok, err = xpcall(function()
     runtime:dispose()
   end, debug.traceback)
@@ -173,15 +176,16 @@ end
 -- and scripts fingerprints), so the planted defect is the only thing that can
 -- change the boot outcome.
 function T.tests.resume_restore_uses_the_full_save_validation_record()
-  local namespace = "component/resume-validation/heartgold"
+  local versionId = AcceptanceHarness.defaultVersion()
+  local namespace = "component/resume-validation/" .. versionId
   removeNamespace(namespace)
   local saveFs = SaveFs.forVersion(
-    "heartgold",
+    versionId,
     RemapBackend.new(ScopedFs.loveBackend(), function(path)
-      return (path:gsub("^saves/heartgold", namespace))
+      return (path:gsub("^saves/" .. versionId, namespace))
     end)
   )
-  local fresh = FieldRuntime.new("heartgold", LAB, { saveFs = saveFs })
+  local fresh = FieldRuntime.new(versionId, LAB, { saveFs = saveFs })
   fresh:dispose()
 
   -- A structurally valid save naming a player graphic outside the compiled
@@ -190,7 +194,7 @@ function T.tests.resume_restore_uses_the_full_save_validation_record()
   local planted = assert(saveFs:loadLua(FieldSave.PATH), "the fresh boot must have written its save")
   planted.avatar = "not-a-compiled-avatar"
   assert(saveFs:writeLua(FieldSave.PATH, planted))
-  local runtime = FieldRuntime.new("heartgold", LAB, { saveFs = saveFs, resumeSave = true })
+  local runtime = FieldRuntime.new(versionId, LAB, { saveFs = saveFs, resumeSave = true })
   Assert.isTrue(
     runtime.saveStatus:find("Save ignored:", 1, true) ~= nil
       and runtime.saveStatus:find("FIELD_SAVE_AVATAR_INVALID", 1, true) ~= nil,
@@ -206,7 +210,7 @@ function T.tests.resume_restore_uses_the_full_save_validation_record()
   local planted = assert(saveFs:loadLua(FieldSave.PATH), "the ignored boot must have written a fresh save")
   planted.scripts.environments = { { environmentId = "env:0", mode = "impossible" } }
   assert(saveFs:writeLua(FieldSave.PATH, planted))
-  local resumed = FieldRuntime.new("heartgold", LAB, { saveFs = saveFs, resumeSave = true })
+  local resumed = FieldRuntime.new(versionId, LAB, { saveFs = saveFs, resumeSave = true })
   Assert.isTrue(
     resumed.saveStatus:find("Save ignored:", 1, true) ~= nil
       and resumed.saveStatus:find("FIELD_SAVE_SCRIPTS_INVALID", 1, true) ~= nil,

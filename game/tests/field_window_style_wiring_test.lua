@@ -16,8 +16,9 @@ local T = {
 }
 
 function T.tests.runtime_composes_the_window_style_catalogue()
-  local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
-    versionId = "heartgold",
+  local versionId = AcceptanceHarness.defaultVersion()
+  local game = AcceptanceHarness.new({ versions = { versionId } }):boot({
+    versionId = versionId,
     map = "MAP_NEW_BARK",
     save = "fresh",
   })

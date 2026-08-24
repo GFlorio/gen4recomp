@@ -178,6 +178,15 @@ function T.tests.selected_versions_are_iterated_in_declared_order()
   Assert.deepEqual(seen, { "heartgold", "soulsilver" })
 end
 
+function T.tests.primary_version_uses_the_first_selected_version()
+  local harness = AcceptanceHarness.new({ versions = { "soulsilver" } })
+  Assert.equal(harness:primaryVersion(), "soulsilver")
+end
+
+function T.tests.default_version_comes_from_the_ready_dump_set()
+  Assert.equal(AcceptanceHarness.defaultVersion(), "soulsilver")
+end
+
 function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_runtime_once()
   local runtimes = {}
   local optionsSeen = {}

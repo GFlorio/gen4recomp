@@ -35,7 +35,7 @@ function T.tests.manifest_with_an_undispatched_trigger_kind_is_rejected_at_boot(
   local game
   local ok, err = pcall(function()
     game = AcceptanceHarness.new():boot({
-      versionId = "heartgold",
+      versionId = AcceptanceHarness.defaultVersion(),
       map = "MAP_NEW_BARK",
       save = "fresh",
     })

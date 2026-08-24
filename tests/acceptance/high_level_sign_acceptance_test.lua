@@ -28,7 +28,7 @@ local DEMO_SIGNPOST = "demo.signpost"
 
 local function withGame(fn)
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = "MAP_NEW_BARK",
     save = "fresh",
     fieldOptions = { acceptanceScripts = AcceptanceScripts, recordingScriptHosts = true },

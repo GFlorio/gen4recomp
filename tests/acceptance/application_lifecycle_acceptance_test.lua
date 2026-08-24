@@ -113,7 +113,7 @@ end
 -- boundary with zero script faults.
 function T.tests.the_production_trainer_card_journey_runs_without_injected_application_descriptors()
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = "MAP_NEW_BARK",
     save = "fresh",
     fieldOptions = { recordingScriptHosts = true },

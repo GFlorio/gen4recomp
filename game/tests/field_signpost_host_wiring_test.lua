@@ -28,8 +28,9 @@ local T = {
 -- four scheduler ticks -- the fastest text-speed cadence captured from the player
 -- options at construction, never a host-chosen constant.
 function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
-  local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
-    versionId = "heartgold",
+  local versionId = AcceptanceHarness.defaultVersion()
+  local game = AcceptanceHarness.new({ versions = { versionId } }):boot({
+    versionId = versionId,
     map = "MAP_NEW_BARK",
     save = "fresh",
   })

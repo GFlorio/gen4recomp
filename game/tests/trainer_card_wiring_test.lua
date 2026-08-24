@@ -55,8 +55,9 @@ end
 -- save -> resume round trip proves the restored player-data bucket drives the
 -- card after a resume.
 function T.tests.production_factory_registers_the_card_and_resume_drives_the_presentation()
-  local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
-    versionId = "heartgold",
+  local versionId = AcceptanceHarness.defaultVersion()
+  local game = AcceptanceHarness.new({ versions = { versionId } }):boot({
+    versionId = versionId,
     map = "MAP_NEW_BARK",
     save = "fresh",
   })

@@ -48,7 +48,7 @@ end
 
 local function withGame(map, fn)
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = map,
     save = "fresh",
     fieldOptions = { recordingScriptHosts = true },
@@ -153,7 +153,7 @@ local function currentSessionRecord(game)
   local snapshot = game:snapshot()
   return {
     schema = FieldSave.SCHEMA,
-    versionId = "heartgold",
+    versionId = game.versionId,
     mapId = snapshot.mapId,
     fieldX = snapshot.player.fieldX,
     fieldZ = snapshot.player.fieldZ,
@@ -185,7 +185,7 @@ local function plantAndResume(mutate, namespace)
       return namespace
     end,
   })
-  local first = harness:boot({ versionId = "heartgold", map = TOWN, save = "fresh" })
+  local first = harness:boot({ versionId = AcceptanceHarness.defaultVersion(), map = TOWN, save = "fresh" })
   local resumed
   local ok, err = xpcall(function()
     local record = currentSessionRecord(first)
@@ -195,7 +195,7 @@ local function plantAndResume(mutate, namespace)
     love.filesystem.createDirectory(namespace)
     local written = love.filesystem.write(namespace .. "/" .. FieldSave.PATH, LuaWriter.encode(record))
     Assert.isTrue(written, "the planted save record must be written into the acceptance namespace")
-    resumed = harness:boot({ versionId = "heartgold", map = TOWN, save = "resume" })
+    resumed = harness:boot({ versionId = AcceptanceHarness.defaultVersion(), map = TOWN, save = "resume" })
   end, debug.traceback)
   if not ok then
     if resumed then

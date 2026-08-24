@@ -21,7 +21,7 @@ local POKEGEAR_SCRIPT = "vanilla.hgss.scr_seq.0843.script_013"
 local STARTER_FLAG = 106
 
 local function withGame(fn)
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", save = "fresh" })
+  local game = AcceptanceHarness.new():boot({ versionId = AcceptanceHarness.defaultVersion(), save = "fresh" })
   local ok, err = xpcall(function()
     fn(game)
     Assert.equal(game:renderAttempts(), 0)

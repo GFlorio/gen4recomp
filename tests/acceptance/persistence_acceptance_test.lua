@@ -33,7 +33,8 @@ local function withGame(map, fn)
     fn = map
     map = LAB
   end
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = map, save = "fresh" })
+  local game = AcceptanceHarness.new()
+    :boot({ versionId = AcceptanceHarness.defaultVersion(), map = map, save = "fresh" })
   local ok, err = xpcall(function()
     fn(game)
     Assert.equal(game:renderAttempts(), 0)
@@ -197,7 +198,7 @@ function T.tests.corrupt_save_is_ignored_and_fresh_state_boots()
       game.saveNamespace .. "/" .. FieldSave.PATH,
       LuaWriter.encode({
         schema = FieldSave.SCHEMA,
-        versionId = "heartgold",
+        versionId = game.versionId,
         mapId = fresh.mapId,
         fieldX = fresh.player.fieldX + 1,
         fieldZ = fresh.player.fieldZ + 1,
@@ -343,7 +344,7 @@ function T.tests.obsolete_save_filename_is_not_read_as_the_current_save()
       resumed.saveNamespace .. "/field-session-v1.lua",
       LuaWriter.encode({
         schema = FieldSave.SCHEMA,
-        versionId = "heartgold",
+        versionId = resumed.versionId,
         mapId = before.mapId,
         fieldX = before.player.fieldX,
         fieldZ = before.player.fieldZ,
@@ -467,8 +468,9 @@ end
 -- publishes the snapshot; the resume boot reuses it and then decodes a real
 -- generated script on first use.
 function T.tests.resume_reuses_the_registry_snapshot_after_a_saved_session()
-  CacheFs.forVersion("heartgold"):remove("data/generated/script/registry.lua")
-  local game = AcceptanceHarness.new():boot({ versionId = "heartgold", map = LAB, save = "fresh" })
+  local versionId = AcceptanceHarness.defaultVersion()
+  CacheFs.forVersion(versionId):remove("data/generated/script/registry.lua")
+  local game = AcceptanceHarness.new():boot({ versionId = versionId, map = LAB, save = "fresh" })
   local ok, err = xpcall(function()
     game:moveTo({ fieldX = 6, fieldZ = 6 })
     game:face("north")
@@ -477,7 +479,7 @@ function T.tests.resume_reuses_the_registry_snapshot_after_a_saved_session()
     Assert.deepEqual(resumed:snapshot().player, before.player)
     local scripts = resumed.runtime.scripts
     Assert.isTrue(scripts.registrySnapshotUsed, "resume boot must reuse the persisted registry snapshot")
-    local snapshot = CacheFs.forVersion("heartgold"):loadLua("data/generated/script/registry.lua")
+    local snapshot = CacheFs.forVersion(versionId):loadLua("data/generated/script/registry.lua")
     Assert.notNil(snapshot, "registry snapshot file must exist after a saved session")
     ---@cast snapshot table
     Assert.equal(snapshot.schema, "g4-registry-snapshot-v1")

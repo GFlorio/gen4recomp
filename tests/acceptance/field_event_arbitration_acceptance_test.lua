@@ -21,7 +21,7 @@ local VAR_UNK_407C = FieldScriptSymbols.variablesByName.VAR_UNK_407C
 
 local function withGame(map, fn, fieldOptions)
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = map,
     save = "fresh",
     fieldOptions = fieldOptions,

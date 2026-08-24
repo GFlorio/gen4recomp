@@ -77,7 +77,7 @@ end
 
 function T.tests.wide_layout_places_the_start_menu_clear_of_the_reference_frame_with_one_shared_placement()
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = "MAP_NEW_BARK",
     save = "fresh",
     fieldOptions = {
@@ -144,7 +144,7 @@ end
 
 function T.tests.same_size_safe_rect_change_updates_the_placement_and_cancels_a_held_pointer_capture()
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = "MAP_NEW_BARK",
     save = "fresh",
     fieldOptions = {

@@ -48,10 +48,13 @@ function RomSuite.build(options)
   end
 
   for name, fn in pairs(tests) do
-    suite.tests[name] = function()
+    suite.tests[name] = function(context)
       for _, handle in ipairs(assert(handles, "the ROM suite has no open dump")) do
-        local ok, err = pcall(fn, handle.romFs, handle.versionId)
+        local ok, err = pcall(fn, handle.romFs, handle.versionId, context)
         if not ok then
+          if type(err) == "table" then
+            error(err, 0)
+          end
           error(handle.versionId .. ": " .. tostring(err), 0)
         end
       end

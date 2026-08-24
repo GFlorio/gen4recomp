@@ -18,16 +18,28 @@ local TOWN = "MAP_NEW_BARK"
 local LAB = "MAP_NEW_BARK_ELMS_LAB_1F"
 local HOUSE_1F = "MAP_NEW_BARK_PLAYER_HOUSE_1F"
 local HOUSE_2F = "MAP_NEW_BARK_PLAYER_HOUSE_2F"
-local HOUSE_2F_ARRIVAL = { fieldX = 2, fieldZ = 4 }
 local TOWN_DOOR = { fieldX = 684, fieldZ = 393 }
 local TOWN_DOOR_APPROACH = { fieldX = 684, fieldZ = 394 }
-local LAB_FLOOR = { fieldX = 4, fieldZ = 13 }
-local LAB_DOOR_ANCHOR = { fieldX = 4, fieldZ = 14 }
 local HOUSE_WARP = { fieldX = 3, fieldZ = 3 }
+
+-- These coordinates are source facts, not engine policy. The two HGSS
+-- releases use different arrival cells for the same named transitions.
+local VERSION_FACTS = {
+  heartgold = {
+    house2fArrival = { fieldX = 2, fieldZ = 4 },
+    labFloor = { fieldX = 4, fieldZ = 13 },
+    labDoorAnchor = { fieldX = 4, fieldZ = 14 },
+  },
+  soulsilver = {
+    house2fArrival = { fieldX = 3, fieldZ = 4 },
+    labFloor = { fieldX = 4, fieldZ = 14 },
+    labDoorAnchor = { fieldX = 4, fieldZ = 14 },
+  },
+}
 
 local function withGame(map, fn, fieldOptions)
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = map,
     save = "fresh",
     fieldOptions = fieldOptions,
@@ -40,6 +52,10 @@ local function withGame(map, fn, fieldOptions)
   if not ok then
     error(err, 0)
   end
+end
+
+local function factsFor(game)
+  return assert(VERSION_FACTS[game.versionId], "missing transition facts for " .. game.versionId)
 end
 
 local function beginTownDoor(game)
@@ -76,6 +92,7 @@ end
 
 function T.tests.player_house_stairs_remain_fixed_profile_three_indoors()
   withGame(TOWN, function(game)
+    local facts = factsFor(game)
     enterHouse(game)
     game:moveTo(HOUSE_WARP)
     game:step({ direction = "west" })
@@ -85,32 +102,33 @@ function T.tests.player_house_stairs_remain_fixed_profile_three_indoors()
     end, 120)
     Assert.deepEqual(
       { staged.player.fieldX, staged.player.fieldZ },
-      { HOUSE_2F_ARRIVAL.fieldX, HOUSE_2F_ARRIVAL.fieldZ },
+      { facts.house2fArrival.fieldX, facts.house2fArrival.fieldZ },
       "profile three must expose its adjacent arrival tile after the swap"
     )
     game:advanceUntil("destination stair transition completes", function(snapshot)
       return snapshot.mapSymbol == HOUSE_2F
         and snapshot.transition.phase == "idle"
         and snapshot.player.motion == "idle"
-        and snapshot.player.fieldX == HOUSE_2F_ARRIVAL.fieldX
-        and snapshot.player.fieldZ == HOUSE_2F_ARRIVAL.fieldZ
+        and snapshot.player.fieldX == facts.house2fArrival.fieldX
+        and snapshot.player.fieldZ == facts.house2fArrival.fieldZ
     end, 120)
     Assert.equal(game.runtime.transition.profileId, 3, "indoor stairs retain fixed profile 3")
     Assert.equal(game.runtime.transition.sourceKind, "stairs", "the trigger remains a stair transition")
     Assert.isTrue(hasEffect(game, "SEQ_SE_DP_KAIDAN2"), "the stair exit emits the source sequence")
     Assert.deepEqual(
       { game.runtime.player.fieldX, game.runtime.player.fieldZ },
-      { HOUSE_2F_ARRIVAL.fieldX, HOUSE_2F_ARRIVAL.fieldZ },
+      { facts.house2fArrival.fieldX, facts.house2fArrival.fieldZ },
       "profile three must finish on the real destination arrival tile"
     )
     Assert.equal(game.runtime.player.facing, "east")
-    Assert.equal(game.runtime.player.fieldX, HOUSE_2F_ARRIVAL.fieldX)
-    Assert.equal(game.runtime.player.fieldZ, HOUSE_2F_ARRIVAL.fieldZ)
+    Assert.equal(game.runtime.player.fieldX, facts.house2fArrival.fieldX)
+    Assert.equal(game.runtime.player.fieldZ, facts.house2fArrival.fieldZ)
   end, { recordingScriptHosts = true })
 end
 
 function T.tests.transition_sounds_are_emitted_once_by_profile_choreography()
   withGame(TOWN, function(game)
+    local facts = factsFor(game)
     beginTownDoor(game)
     Assert.equal(effectCount(game, "SEQ_SE_DP_DOOR_OPEN"), 1, "ordinary profile audio must be emitted once")
     game:waitForTransition()
@@ -173,6 +191,7 @@ end
 
 function T.tests.door_fade_waits_for_source_ingress_and_preserves_anchor()
   withGame(TOWN, function(game)
+    local facts = factsFor(game)
     beginTownDoor(game)
     local transition = game.runtime.transition
     Assert.isTrue(hasEffect(game, "SEQ_SE_DP_DOOR_OPEN"), "door audio follows the selected source animation")
@@ -184,15 +203,16 @@ function T.tests.door_fade_waits_for_source_ingress_and_preserves_anchor()
     game:advanceUntil("source door ingress completes", function(snapshot)
       return transition.resolution ~= nil
     end, 120)
-    Assert.equal(transition.resolution.fieldX, LAB_FLOOR.fieldX)
-    Assert.equal(transition.resolution.fieldZ, LAB_DOOR_ANCHOR.fieldZ)
+    Assert.equal(transition.resolution.fieldX, facts.labFloor.fieldX)
+    Assert.equal(transition.resolution.fieldX, facts.labDoorAnchor.fieldX)
+    Assert.equal(transition.resolution.fieldZ, facts.labDoorAnchor.fieldZ)
     Assert.equal(transition:presentationStatus().entryAction, "step_down")
     local completed = game:waitForTransition()
     Assert.deepEqual(
       { completed.destination.player.fieldX, completed.destination.player.fieldZ },
-      { LAB_FLOOR.fieldX, LAB_FLOOR.fieldZ }
+      { facts.labFloor.fieldX, facts.labFloor.fieldZ }
     )
-    Assert.isFalse(completed.destination.player.fieldZ < LAB_FLOOR.fieldZ, "door movement must not overshoot")
+    Assert.isFalse(completed.destination.player.fieldZ < facts.labFloor.fieldZ, "door movement must not overshoot")
   end, { recordingScriptHosts = true })
 end
 

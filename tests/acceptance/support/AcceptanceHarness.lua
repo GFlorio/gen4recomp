@@ -808,6 +808,19 @@ function AcceptanceHarness.new(options)
   }, AcceptanceHarness)
 end
 
+---@return string
+function AcceptanceHarness.defaultVersion()
+  local versions = readyVersions()
+  assert(#versions > 0, "acceptance harness requires a ready game version")
+  return versions[1]
+end
+
+---@return string
+function AcceptanceHarness:primaryVersion()
+  assert(#self.versions > 0, "acceptance harness requires at least one selected version")
+  return self.versions[1]
+end
+
 function AcceptanceHarness:forEachVersion(fn)
   for _, versionId in ipairs(self.versions) do
     fn(versionId)

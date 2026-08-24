@@ -28,7 +28,7 @@ local OTHER_MENU_KEY = "n"
 
 function T.tests.production_input_pipeline_carries_the_semantic_menu_button_and_its_required_binding()
   local harness = AcceptanceHarness.new()
-  local game = harness:boot({ versionId = "heartgold", map = "MAP_NEW_BARK", save = "fresh" })
+  local game = harness:boot({ versionId = AcceptanceHarness.defaultVersion(), map = "MAP_NEW_BARK", save = "fresh" })
   local ok, err = xpcall(function()
     local runtime = game.runtime
     ---@diagnostic disable-next-line: undefined-field -- the runtime menu-bindings surface is the contract under test
@@ -93,7 +93,7 @@ function T.tests.production_input_pipeline_carries_the_semantic_menu_button_and_
   presentation.input.menu = { OTHER_MENU_KEY }
   local game2
   local bootOk, bootErr = pcall(function()
-    game2 = harness:boot({ versionId = "heartgold", map = "MAP_NEW_BARK", save = "fresh" })
+    game2 = harness:boot({ versionId = AcceptanceHarness.defaultVersion(), map = "MAP_NEW_BARK", save = "fresh" })
   end)
   presentation.input.menu = savedMenu
   if not bootOk then

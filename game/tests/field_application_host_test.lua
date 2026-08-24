@@ -23,7 +23,7 @@ local T = {
 }
 
 local function harness()
-  return AcceptanceHarness.new({ versions = { "heartgold" } })
+  return AcceptanceHarness.new({ versions = { AcceptanceHarness.defaultVersion() } })
 end
 
 -- Every start-menu unlock flag: a fresh boot leaves them all unset, so the
@@ -42,7 +42,7 @@ local UNLOCK_FLAGS = {
 -- the real unlock flag makes the production Trainer Card interactive.
 local function bootGame()
   local game = harness():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = "MAP_NEW_BARK",
     save = "fresh",
   })
@@ -144,7 +144,7 @@ end
 -- menu-with-disabled-entries composition path.
 function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_field_continues()
   local game = harness():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = "MAP_NEW_BARK",
     save = "fresh",
   })

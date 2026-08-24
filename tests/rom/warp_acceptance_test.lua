@@ -41,6 +41,7 @@ local HOUSE_1F_MAP_ID = 63
 local HOUSE_2F_MAP_ID = 64
 local TOWN_DOOR_TILE = { x = 684, z = 393 }
 local LAB_ENTRANCE_TILE = { x = 4, z = 14 }
+local LAB_FLOOR_Z = { heartgold = 13, soulsilver = 14 }
 local OPEN_ROLE = "door.open"
 local CLOSE_ROLE = "door.close"
 
@@ -81,8 +82,10 @@ end
 -- the exterior door (member 26) opens, the player walks into the doorway, the
 -- swap happens only at full black, the interior destination is static on the
 -- real ROM (Elm Lab's interior door carries no animation-list records), the
--- player exits onto the lab floor, and the autosave lands on (4,13).
+-- player exits onto the version-specific lab floor tile, and the autosave
+-- preserves that arrival coordinate.
 function T.town_to_lab_door_acceptance(romFs, versionId)
+  local labFloorZ = assert(LAB_FLOOR_Z[versionId], "missing lab floor fact for " .. versionId)
   local town = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK")
   local lab = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
   local harness = SceneLoaderFixture.newHarness(versionId, {
@@ -115,24 +118,24 @@ function T.town_to_lab_door_acceptance(romFs, versionId)
   -- still hold black until the player step completes.
 
   Assert.equal(harness.player.fieldX, 4)
-  Assert.equal(harness.player.fieldZ, 13, "the egress lands on the lab floor tile")
+  Assert.equal(harness.player.fieldZ, labFloorZ, "the egress lands on the lab floor tile")
   Assert.equal(harness.player.motion, "idle")
   Assert.isFalse(harness.transition.locked, "input unlocks once the choreography completes")
   Assert.isNil(harness.transition.suppression, "door warps never carry coordinate suppression")
 
-  local localX, localZ = FieldCoordinates.fieldToLocal(lab.map, 4, 13)
+  local localX, localZ = FieldCoordinates.fieldToLocal(lab.map, 4, labFloorZ)
   Assert.isFalse(lab.map.collision:isBlockedLocal(localX, localZ), "the player is not trapped inside the model")
 
   local record, restored = autosaveRoundTrip(harness)
   Assert.equal(record.mapId, LAB_MAP_ID)
   Assert.equal(record.fieldX, 4)
-  Assert.equal(record.fieldZ, 13)
+  Assert.equal(record.fieldZ, labFloorZ)
   Assert.equal(restored.fieldX, 4)
-  Assert.equal(restored.fieldZ, 13)
+  Assert.equal(restored.fieldZ, labFloorZ)
 
   SceneLoaderFixture.assertStable(harness, 20)
   Assert.equal(harness.player.fieldX, 4)
-  Assert.equal(harness.player.fieldZ, 13)
+  Assert.equal(harness.player.fieldZ, labFloorZ)
 
   town.runtime:release()
   lab.runtime:release()
@@ -209,6 +212,7 @@ end
 -- transition on the very next tick -- no coordinate suppression, no step
 -- needed -- and the round trip completes back on the lab floor.
 function T.pressing_back_reenters_immediately(romFs, versionId)
+  local labFloorZ = assert(LAB_FLOOR_Z[versionId], "missing lab floor fact for " .. versionId)
   local town = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK")
   local lab = SceneLoaderFixture.loadScene(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
   local harness = SceneLoaderFixture.newHarness(versionId, {
@@ -227,16 +231,16 @@ function T.pressing_back_reenters_immediately(romFs, versionId)
 
   Assert.equal(harness.swapCount, 1)
   Assert.equal(harness.player.fieldX, 4)
-  Assert.equal(harness.player.fieldZ, 13, "the round trip completes on the lab floor")
+  Assert.equal(harness.player.fieldZ, labFloorZ, "the round trip completes on the lab floor")
   Assert.isFalse(harness.transition.locked)
   Assert.isNil(harness.transition.suppression)
 
   local record, restored = autosaveRoundTrip(harness)
   Assert.equal(record.mapId, LAB_MAP_ID)
   Assert.equal(record.fieldX, 4)
-  Assert.equal(record.fieldZ, 13)
+  Assert.equal(record.fieldZ, labFloorZ)
   Assert.equal(restored.fieldX, 4)
-  Assert.equal(restored.fieldZ, 13)
+  Assert.equal(restored.fieldZ, labFloorZ)
 
   SceneLoaderFixture.assertStable(harness, 20)
 

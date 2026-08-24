@@ -57,7 +57,10 @@ end
 -- The complete animated-asset inventory of the real ROM: no silent fallback
 -- anywhere (any broken resource would raise MAP_PROP_ANIM_UNRESOLVED and
 -- fail this test), and the counts are pinned.
-function T.every_animated_asset_compiles_with_an_explicit_outcome(romFs)
+function T.every_animated_asset_compiles_with_an_explicit_outcome(romFs, versionId, context)
+  if versionId ~= "heartgold" then
+    context:skip("the pinned animated-asset census covers HeartGold only")
+  end
   -- Durable provenance: the pinned census belongs to exactly one ROM
   -- revision, identified by its dump checksum (the game version alone
   -- would not distinguish revisions). Any other dump fails here, and the

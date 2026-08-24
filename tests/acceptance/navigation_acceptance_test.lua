@@ -17,7 +17,7 @@ local LAB = "MAP_NEW_BARK_ELMS_LAB_1F"
 local TOWN = "MAP_NEW_BARK"
 
 local function bootLab()
-  return AcceptanceHarness.new():boot({ versionId = "heartgold", map = LAB, save = "fresh" })
+  return AcceptanceHarness.new():boot({ versionId = AcceptanceHarness.defaultVersion(), map = LAB, save = "fresh" })
 end
 
 local function requireGameCapability(game, name)
