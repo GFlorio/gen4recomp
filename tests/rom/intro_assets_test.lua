@@ -48,29 +48,28 @@ local function sourceArchive(bundle, role)
 end
 
 local function assertBallSource(bundle)
-  local expected = {
-    ["ball_open:char"] = { archive = "intro", memberId = 64 },
-    ["ball_open:palette"] = { archive = "intro", memberId = 63 },
-    ["ball_open:cell"] = { archive = "intro", memberId = 65 },
-    ["ball_open:animation"] = { archive = "intro", memberId = 66 },
-    ["ball_open:resdat-header"] = { archive = "NARC_data_resdat", memberId = 78 },
-    ["ball_open:resdat-char-table"] = { archive = "NARC_data_resdat", memberId = 26 },
-    ["ball_open:resdat-palette-table"] = { archive = "NARC_data_resdat", memberId = 27 },
-    ["ball_open:resdat-cell-table"] = { archive = "NARC_data_resdat", memberId = 25 },
-    ["ball_open:resdat-animation-table"] = { archive = "NARC_data_resdat", memberId = 24 },
-  }
-  for role, source in pairs(expected) do
-    Assert.equal(sourceMember(bundle, role), source.memberId, role .. " resolves the pinned source member")
-    Assert.equal(sourceArchive(bundle, role), source.archive, role .. " uses the pinned source archive")
+  for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
+    for field, memberId in pairs({ char = 64, palette = 63, cell = 65, animation = 66 }) do
+      Assert.equal(sourceMember(bundle, id .. ":" .. field), memberId, id .. " uses resource-set-5 " .. field)
+      Assert.equal(sourceArchive(bundle, id .. ":" .. field), "intro")
+    end
   end
-  Assert.equal(sourceMember(bundle, "marill:char"), 60)
-  Assert.equal(sourceMember(bundle, "marill:palette"), 59)
-  Assert.equal(sourceMember(bundle, "marill:cell"), 61)
-  Assert.equal(sourceMember(bundle, "marill:animation"), 62)
+  for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
+    for role, memberId in pairs({
+      ["resdat-header"] = 78,
+      ["resdat-char-table"] = 26,
+      ["resdat-palette-table"] = 27,
+      ["resdat-cell-table"] = 25,
+      ["resdat-animation-table"] = 24,
+    }) do
+      Assert.equal(sourceMember(bundle, id .. ":" .. role), memberId, id .. " uses shared resdat mapping")
+      Assert.equal(sourceArchive(bundle, id .. ":" .. role), "NARC_data_resdat")
+    end
+  end
 end
 
 local function assertVariant(bundle, versionId, paletteMember)
-  Assert.equal(bundle.manifest.schemaVersion, 2)
+  Assert.equal(bundle.manifest.schemaVersion, 3)
   Assert.equal(bundle.manifest.variant, versionId)
   Assert.equal(sourceMember(bundle, "background:char"), 0)
   Assert.equal(sourceMember(bundle, "background:screen"), 3)
@@ -106,7 +105,7 @@ end
 
 function T.compiled_visuals_are_stable_semantic_widgets(romFs)
   local bundle = assert(compiler().compile(romFs))
-  Assert.keySet(bundle.manifest.widgets, "ball_open,female,male,marill,oak,shrink_female,shrink_male")
+  Assert.keySet(bundle.manifest.widgets, "ball_open,female,male,marill,marill_appear,oak,shrink_female,shrink_male")
   for id, widget in pairs(bundle.manifest.widgets) do
     Assert.equal(widget.sampling, "nearest", id .. " uses nearest sampling")
     Assert.isTrue(widget.width < 256 or widget.height < 192, id .. " is not a full-screen visual")
@@ -126,6 +125,8 @@ function T.compiled_visuals_are_stable_semantic_widgets(romFs)
   end
   Assert.equal(bundle.manifest.widgets.ball_open.sourceCenter.x, 160)
   Assert.equal(bundle.manifest.widgets.ball_open.sourceCenter.y, 80)
+  Assert.equal(bundle.manifest.widgets.marill_appear.sourceCenter.x, 160)
+  Assert.equal(bundle.manifest.widgets.marill.sourceCenter.x, 160)
   Assert.isNil(bundle.manifest.widgets.ball)
 end
 

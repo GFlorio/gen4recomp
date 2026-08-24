@@ -3,8 +3,6 @@
 
 local OakIntroLayout = {}
 
-local SOURCE_VISUAL_WIDTH = 256
-local SOURCE_VISUAL_HEIGHT = 144
 local OAK_SLIDE_DISTANCE = 52
 
 local function clamp(value, low, high)
@@ -123,14 +121,6 @@ function OakIntroLayout.compute(width, height, view, glyphs, metrics)
       anchorX,
       anchorY
     )
-  end
-  if view.overlayWidget then
-    local overlay = assert(metricsFor(metrics, view.overlayWidget), "Oak overlay widget metrics are missing")
-    assert(overlay.sourceCenter, "Oak overlay source center is missing")
-    local anchorX = stageContent.x + stageContent.width * (overlay.sourceCenter.x / SOURCE_VISUAL_WIDTH)
-    local anchorY = stageContent.y + stageContent.height * (overlay.sourceCenter.y / SOURCE_VISUAL_HEIGHT)
-    result.overlay =
-      contain(overlay, rect(stageContent.x, stageContent.y, stageContent.width, stageContent.height), anchorX, anchorY)
   end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
     local cardGap = clamp(math.floor(stageContent.width * 0.03 + 0.5), 12, 32)

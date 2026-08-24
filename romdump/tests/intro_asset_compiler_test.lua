@@ -8,26 +8,20 @@ local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
 
-function T.ball_source_configuration_uses_resource_set_five_and_animation_zero()
+function T.reveal_source_configuration_uses_resource_set_five_sequences_and_palettes()
   local config = require("romdump.src.config.IntroAssets")
-  Assert.deepEqual(config.ball_open, {
-    archive = "intro",
-    char = 64,
-    palette = 63,
-    cell = 65,
-    animation = 66,
-    animationIndex = 0,
-    resourceSet = 5,
-    resourceResolution = {
-      archive = "NARC_data_resdat",
-      header = 78,
-      charTable = 26,
-      paletteTable = 27,
-      cellTable = 25,
-      animationTable = 24,
-    },
-    sourceCenter = { x = 160, y = 80 },
-  })
+  for id, sequence, palette in pairs({ ball_open = { 3, 5 }, marill_appear = { 1, 4 }, marill = { 2, 4 } }) do
+    local entry = assert(config[id])
+    Assert.equal(entry.archive, "intro")
+    Assert.equal(entry.char, 64)
+    Assert.equal(entry.palette, 63)
+    Assert.equal(entry.cell, 65)
+    Assert.equal(entry.animation, 66)
+    Assert.equal(entry.animationIndex, sequence[1])
+    Assert.equal(entry.paletteOverride, sequence[2])
+    Assert.equal(entry.resourceSet, 5)
+    Assert.deepEqual(entry.sourceCenter, { x = 160, y = 80 })
+  end
 end
 
 local function introCache()
@@ -69,7 +63,7 @@ local function fixtureBundle(cache, marker)
       provenance = { rule = "fixture" },
       frames = { { image = image, width = 1, height = 1, duration = 1, anchor = { x = 0, y = 0 } } },
     }
-    if id == "ball_open" then
+    if id == "ball_open" or id == "marill_appear" or id == "marill" then
       widgets[id].sourceCenter = { x = 128, y = 90 }
     end
     assets[image] = "png"
@@ -77,7 +71,7 @@ local function fixtureBundle(cache, marker)
   return {
     marker = marker,
     manifest = {
-      schemaVersion = 2,
+      schemaVersion = 3,
       variant = "heartgold",
       sourceReference = { width = 256, height = 192 },
       background = {

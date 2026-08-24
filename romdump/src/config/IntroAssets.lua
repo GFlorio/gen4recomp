@@ -21,13 +21,6 @@ local IntroAssets = {
     palettes = { heartgold = 1, soulsilver = 2 },
   },
   oak = { char = 10, palette = 11, screen = 9 },
-  marill = {
-    char = 60,
-    palette = 59,
-    cell = 61,
-    animation = 62,
-    animationIndex = 0,
-  },
   gender = {
     male = { char = 12, palette = 16, screen = 9 },
     female = { char = 17, palette = 21, screen = 9 },
@@ -42,7 +35,8 @@ local IntroAssets = {
     palette = 63,
     cell = 65,
     animation = 66,
-    animationIndex = 0,
+    animationIndex = 3,
+    paletteOverride = 5,
     resourceSet = 5,
     resourceResolution = {
       archive = "NARC_data_resdat",
@@ -54,6 +48,32 @@ local IntroAssets = {
     },
     sourceCenter = { x = 160, y = 80 },
   },
+}
+
+IntroAssets.marill_appear = {
+  archive = IntroAssets.ball_open.archive,
+  char = IntroAssets.ball_open.char,
+  palette = IntroAssets.ball_open.palette,
+  cell = IntroAssets.ball_open.cell,
+  animation = IntroAssets.ball_open.animation,
+  animationIndex = 1,
+  paletteOverride = 4,
+  resourceSet = IntroAssets.ball_open.resourceSet,
+  resourceResolution = IntroAssets.ball_open.resourceResolution,
+  sourceCenter = { x = 160, y = 80 },
+}
+
+IntroAssets.marill = {
+  archive = IntroAssets.ball_open.archive,
+  char = IntroAssets.ball_open.char,
+  palette = IntroAssets.ball_open.palette,
+  cell = IntroAssets.ball_open.cell,
+  animation = IntroAssets.ball_open.animation,
+  animationIndex = 2,
+  paletteOverride = 4,
+  resourceSet = IntroAssets.ball_open.resourceSet,
+  resourceResolution = IntroAssets.ball_open.resourceResolution,
+  sourceCenter = { x = 160, y = 80 },
 }
 
 function IntroAssets.variant(versionId)

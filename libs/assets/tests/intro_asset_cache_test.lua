@@ -6,7 +6,7 @@ local Assert = require("tests.support.Assert")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
 
 local T = {}
-local WIDGETS = { "ball_open", "female", "male", "marill", "oak", "shrink_female", "shrink_male" }
+local WIDGETS = { "ball_open", "female", "male", "marill", "marill_appear", "oak", "shrink_female", "shrink_male" }
 
 local function frame(path, width, height, duration)
   return { image = path, width = width, height = height, duration = duration }
@@ -27,13 +27,15 @@ local function validManifest()
       frames = { frame(path, 32, 32, 4) },
     }
   end
-  widgets.ball_open.sourceCenter = { x = 160, y = 80 }
+  for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
+    widgets[id].sourceCenter = { x = 160, y = 80 }
+  end
   widgets.ball_open.frames = {
     frame("assets/generated/intro/ball-open-0.png", 32, 32, 1),
     frame("assets/generated/intro/ball-open-1.png", 32, 32, 4),
   }
   return {
-    schemaVersion = 2,
+    schemaVersion = 3,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -57,11 +59,11 @@ end
 
 function T.complete_schema_two_manifest_loads_and_declares_closed_inventory()
   local cache = require("libs.assets.src.IntroAssetCache")
-  Assert.equal(cache.SCHEMA, "g4-intro-assets-v2")
+  Assert.equal(cache.SCHEMA, "g4-intro-assets-v3")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
   local manifest = validManifest()
   Assert.isTrue(cache.validateManifest(manifest))
-  Assert.keySet(manifest.widgets, "ball_open,female,male,marill,oak,shrink_female,shrink_male")
+  Assert.keySet(manifest.widgets, "ball_open,female,male,marill,marill_appear,oak,shrink_female,shrink_male")
 end
 
 function T.stale_and_malformed_manifests_fail_before_composition()

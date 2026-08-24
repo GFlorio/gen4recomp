@@ -7,7 +7,16 @@
 ---@field text FieldTextRenderer
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
-local REQUIRED_ASSETS = { "oak", "marill", "male", "female", "shrink_male", "shrink_female", "ball_open" }
+local REQUIRED_ASSETS = {
+  "oak",
+  "marill",
+  "marill_appear",
+  "male",
+  "female",
+  "shrink_male",
+  "shrink_female",
+  "ball_open",
+}
 
 local function defaultImageLoader(path)
   return love.graphics.newImage(path, { linear = false, mipmaps = false })
@@ -22,7 +31,8 @@ local function releaseAll(resources)
 end
 
 local function loadResources(manifest, graphics, imageLoader)
-  local images, quads, acquired = {}, {}, {}
+  local images, bindings, acquired = {}, {}, {}
+  local imagesByPath = {}
   local assets = {}
   local ok, failure = pcall(function()
     for assetId, asset in pairs(manifest.widgets) do
@@ -37,6 +47,7 @@ local function loadResources(manifest, graphics, imageLoader)
         {
           x = 0,
           y = 0,
+          image = manifest.background.image,
           width = manifest.background.width,
           height = manifest.background.height,
           duration = 1,
@@ -44,18 +55,22 @@ local function loadResources(manifest, graphics, imageLoader)
       },
     }
     for assetId, asset in pairs(assets) do
-      local image = imageLoader(asset.image)
-      assert(image ~= nil, "intro image loader returned no image for " .. assetId)
-      acquired[#acquired + 1] = image
-      if image.setFilter then
-        assert(asset.sampling == "linear" or asset.sampling == "nearest", "intro asset sampling is invalid")
-        image:setFilter(asset.sampling, asset.sampling)
-      end
-      images[assetId] = image
-      quads[assetId] = {}
+      bindings[assetId] = {}
       for frameIndex, frame in ipairs(asset.frames) do
-        quads[assetId][frameIndex] =
+        local image = imagesByPath[frame.image]
+        if image == nil then
+          image = imageLoader(frame.image)
+          assert(image ~= nil, "intro image loader returned no image for " .. assetId)
+          imagesByPath[frame.image] = image
+          acquired[#acquired + 1] = image
+          if image.setFilter then
+            assert(asset.sampling == "linear" or asset.sampling == "nearest", "intro asset sampling is invalid")
+            image:setFilter(asset.sampling, asset.sampling)
+          end
+        end
+        local quad =
           graphics.newQuad(frame.x or 0, frame.y or 0, frame.width, frame.height, image:getWidth(), image:getHeight())
+        bindings[assetId][frameIndex] = { image = image, quad = quad }
       end
     end
   end)
@@ -63,7 +78,7 @@ local function loadResources(manifest, graphics, imageLoader)
     releaseAll(acquired)
     error(failure, 0)
   end
-  return images, quads, assets
+  return imagesByPath, bindings, assets
 end
 
 ---@param options table
@@ -83,41 +98,38 @@ function OakIntroRenderer.new(options)
   assert(type(text.drawText) == "function", "Oak renderer requires FieldTextRenderer.drawText")
   local imageLoader = options.imageLoader or defaultImageLoader
   assert(type(imageLoader) == "function", "Oak renderer image loader must be callable")
-  local images, quads, renderedAssets = loadResources(options.manifest, graphics, imageLoader)
+  local images, bindings, renderedAssets = loadResources(options.manifest, graphics, imageLoader)
   return setmetatable({
     assets = renderedAssets,
     graphics = graphics,
     text = text,
     images = images,
-    quads = quads,
+    bindings = bindings,
     released = false,
   }, OakIntroRenderer)
 end
 
 local function drawAsset(self, assetId, frameIndex, region)
   local asset = self.assets[assetId]
-  local image = self.images[assetId]
-  local quad = self.quads[assetId] and self.quads[assetId][frameIndex or 1]
   assert(asset ~= nil, "intro asset is missing: " .. assetId)
-  assert(image ~= nil, "intro image is missing: " .. assetId)
-  assert(quad ~= nil, "intro frame is missing: " .. assetId)
   local frame = asset.frames[frameIndex or 1]
+  local binding = self.bindings[assetId] and self.bindings[assetId][frameIndex or 1]
+  assert(binding ~= nil, "intro frame is missing: " .. assetId)
   local scale = math.min(region.width / frame.width, region.height / frame.height)
   local x = region.x + (region.width - frame.width * scale) / 2
   local y = region.y + (region.height - frame.height * scale) / 2
   self.graphics.setColor(1, 1, 1, 1)
-  self.graphics.draw(image, quad, x, y, 0, scale, scale)
+  self.graphics.draw(binding.image, binding.quad, x, y, 0, scale, scale)
 end
 
 local function drawBackground(self, region)
   local asset = assert(self.assets.background, "intro asset is missing: background")
-  local image = assert(self.images.background, "intro image is missing: background")
-  local quad = assert(self.quads.background and self.quads.background[1], "intro frame is missing: background")
+  local binding = assert(self.bindings.background and self.bindings.background[1], "intro frame is missing: background")
   local frame = asset.frames[1]
   local sx = region.width / frame.width
   local sy = region.height / frame.height
   self.graphics.setColor(1, 1, 1, 1)
-  self.graphics.draw(image, quad, region.x, region.y, 0, sx, sy)
+  self.graphics.draw(binding.image, binding.quad, region.x, region.y, 0, sx, sy)
 end
 
 ---@param view table
@@ -131,9 +143,6 @@ function OakIntroRenderer:draw(view)
     drawAsset(self, view.primaryWidget, view.visualFrameIndex, layout.subject)
   elseif view.visual ~= "background" then
     drawAsset(self, view.visual, view.visualFrameIndex, layout.subject)
-  end
-  if view.overlayWidget ~= nil then
-    drawAsset(self, view.overlayWidget, view.overlayFrameIndex, layout.overlay)
   end
   if view.revealWidget ~= nil and layout.reveal ~= nil then
     drawAsset(self, view.revealWidget, view.revealFrameIndex, layout.reveal)
@@ -195,7 +204,7 @@ function OakIntroRenderer:dispose()
   end
   releaseAll(resources)
   self.images = {}
-  self.quads = {}
+  self.bindings = {}
 end
 
 return OakIntroRenderer

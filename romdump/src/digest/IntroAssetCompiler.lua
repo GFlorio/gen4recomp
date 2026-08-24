@@ -157,7 +157,7 @@ local function renderScreen(char, palette, screen)
   return { width = screen.width, height = screen.height, rgba = concatBytes(rgba) }
 end
 
-local function renderCell(char, palette, cell)
+local function renderCell(char, palette, cell, paletteOverride)
   local minX, minY, maxX, maxY
   for _, object in ipairs(cell.objs) do
     minX = math.min(minX or object.x, object.x)
@@ -184,7 +184,7 @@ local function renderCell(char, palette, cell)
           object.y - minY + row * 8,
           object.tile + tileRow * columns + tileColumn,
           palette,
-          object.palette,
+          paletteOverride == nil and object.palette or paletteOverride,
           object.flipH,
           object.flipV
         )
@@ -194,7 +194,28 @@ local function renderCell(char, palette, cell)
   return { width = width, height = height, rgba = concatBytes(rgba) }
 end
 
-local function renderAnimations(char, palette, cells, animation, animationIndex)
+local function padSurface(image, width, height)
+  if image.width == width and image.height == height then
+    return image
+  end
+  local rows = {}
+  local empty = string.rep(string.char(0, 0, 0, 0), width)
+  for y = 0, height - 1 do
+    local row = y < image.height and string.sub(image.rgba, y * image.width * 4 + 1, (y + 1) * image.width * 4) or ""
+    rows[#rows + 1] = row .. string.sub(empty, #row + 1)
+  end
+  return { width = width, height = height, rgba = table.concat(rows) }
+end
+
+local function renderAnimations(char, palette, cells, animation, animationIndex, paletteOverride)
+  if paletteOverride ~= nil then
+    if type(paletteOverride) ~= "number" or paletteOverride % 1 ~= 0 or paletteOverride < 0 then
+      sourceError("intro palette override is invalid", { paletteOverride = paletteOverride })
+    end
+    if char.depth == 3 and (paletteOverride + 1) * 16 > #palette then
+      sourceError("intro palette override is outside decoded palette data", { paletteOverride = paletteOverride })
+    end
+  end
   local animations = {}
   if animationIndex ~= nil then
     animations[1] = animation.anims[animationIndex + 1]
@@ -204,7 +225,7 @@ local function renderAnimations(char, palette, cells, animation, animationIndex)
   else
     animations = animation.anims
   end
-  local images, frames, width, height = {}, {}, 0, 0
+  local images, frames, width, stackHeight, maxHeight = {}, {}, 0, 0, 0
   for _, selected in ipairs(animations) do
     for _, sourceFrame in ipairs(selected.frames) do
       if sourceFrame.duration <= 0 then
@@ -214,13 +235,14 @@ local function renderAnimations(char, palette, cells, animation, animationIndex)
       if not cell then
         sourceError("intro animation references a missing cell", { cell = sourceFrame.cell })
       end
-      local image = renderCell(char, palette, cell)
+      local image = renderCell(char, palette, cell, paletteOverride)
       images[#images + 1] = image
       width = math.max(width, image.width)
-      height = height + image.height
+      stackHeight = stackHeight + image.height
+      maxHeight = math.max(maxHeight, image.height)
       frames[#frames + 1] = {
         x = 0,
-        y = height - image.height,
+        y = stackHeight - image.height,
         width = image.width,
         height = image.height,
         duration = sourceFrame.duration,
@@ -230,7 +252,11 @@ local function renderAnimations(char, palette, cells, animation, animationIndex)
   if #images == 0 then
     sourceError("intro source animation is empty", { sourceOffset = 0 })
   end
-  local cropped = IntroAssetImage.cropAlphaUnion(images, { x = width / 2, y = images[1].height })
+  for index, image in ipairs(images) do
+    images[index] = padSurface(image, width, maxHeight)
+  end
+  local frameHeight = images[1].height
+  local cropped = IntroAssetImage.cropAlphaUnion(images, { x = width / 2, y = frameHeight })
   local output = {}
   for index, image in ipairs(cropped.frames) do
     output[index] =
@@ -379,7 +405,7 @@ function IntroAssetCompiler.compile(romFs)
   local archive = sourceArchive(romFs, config.archive)
   local dependencies, assets = {}, {}
   local manifest = {
-    schemaVersion = 2,
+    schemaVersion = 3,
     variant = variant,
     sourceReference = { width = 256, height = 192 },
     widgets = {},
@@ -404,17 +430,6 @@ function IntroAssetCompiler.compile(romFs)
   }
 
   compileSingle(archive, dependencies, manifest, assets, "oak", config.oak)
-  local marillChar, marillPalette = loadCharPalette(archive, dependencies, config.marill, "marill")
-  local marillCellBytes = decodeMember(archive, config.marill.cell, "marill cell", config.archive)
-  local marillAnimationBytes = decodeMember(archive, config.marill.animation, "marill animation", config.archive)
-  addDependency(dependencies, config.archive, config.marill.cell, marillCellBytes, "marill:cell")
-  addDependency(dependencies, config.archive, config.marill.animation, marillAnimationBytes, "marill:animation")
-  local marillCells = decode("decodeCell", marillCellBytes, "marill cell", config.marill.cell, config.archive)
-  local marillAnimation =
-    decode("decodeAnimation", marillAnimationBytes, "marill animation", config.marill.animation, config.archive)
-  local marill, marillFrames =
-    renderAnimations(marillChar, marillPalette.colors, marillCells, marillAnimation, config.marill.animationIndex)
-  addAsset(manifest, assets, "marill", marill, marillFrames)
   compileSingle(archive, dependencies, manifest, assets, "male", config.gender.male)
   compileSingle(archive, dependencies, manifest, assets, "female", config.gender.female)
   compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
@@ -422,74 +437,51 @@ function IntroAssetCompiler.compile(romFs)
   local ballArchive = sourceArchive(romFs, config.ball_open.archive)
   local resolution = config.ball_open.resourceResolution
   local resourceDataArchive = sourceArchive(romFs, resolution.archive)
-  addConfiguredDependency(resourceDataArchive, dependencies, resolution, "ball_open:resdat-header", resolution.header)
-  addConfiguredDependency(
-    resourceDataArchive,
-    dependencies,
-    resolution,
-    "ball_open:resdat-char-table",
-    resolution.charTable
-  )
-  addConfiguredDependency(
-    resourceDataArchive,
-    dependencies,
-    resolution,
-    "ball_open:resdat-palette-table",
-    resolution.paletteTable
-  )
-  addConfiguredDependency(
-    resourceDataArchive,
-    dependencies,
-    resolution,
-    "ball_open:resdat-cell-table",
-    resolution.cellTable
-  )
-  addConfiguredDependency(
-    resourceDataArchive,
-    dependencies,
-    resolution,
-    "ball_open:resdat-animation-table",
-    resolution.animationTable
-  )
-  local ballChar, ballPalette = loadCharPalette(ballArchive, dependencies, config.ball_open, "ball_open")
-  local ballCellBytes = decodeMember(ballArchive, config.ball_open.cell, "ball_open cell", config.ball_open.archive)
-  local ballAnimationBytes =
-    decodeMember(ballArchive, config.ball_open.animation, "ball_open animation", config.ball_open.archive)
-  addDependency(dependencies, config.ball_open.archive, config.ball_open.cell, ballCellBytes, "ball_open:cell")
-  addDependency(
-    dependencies,
-    config.ball_open.archive,
-    config.ball_open.animation,
-    ballAnimationBytes,
-    "ball_open:animation"
-  )
-  local ballCell =
-    decode("decodeCell", ballCellBytes, "ball_open cell", config.ball_open.cell, config.ball_open.archive)
-  local ballAnimation = decode(
-    "decodeAnimation",
-    ballAnimationBytes,
-    "ball_open animation",
-    config.ball_open.animation,
-    config.ball_open.archive
-  )
-  local ball, ballFrames = renderAnimations(
-    ballChar,
-    ballPalette.colors,
-    { cells = ballCell.cells },
-    ballAnimation,
-    config.ball_open.animationIndex
-  )
-  addAsset(
-    manifest,
-    assets,
-    "ball_open",
-    ball,
-    ballFrames,
-    ball.sourceBounds,
-    ball.anchor,
-    { resourceSet = config.ball_open.resourceSet, rule = "alpha-union-crop-center" },
-    config.ball_open.sourceCenter
-  )
+  for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
+    local spec = config[id]
+    addConfiguredDependency(resourceDataArchive, dependencies, resolution, id .. ":resdat-header", resolution.header)
+    addConfiguredDependency(
+      resourceDataArchive,
+      dependencies,
+      resolution,
+      id .. ":resdat-char-table",
+      resolution.charTable
+    )
+    addConfiguredDependency(
+      resourceDataArchive,
+      dependencies,
+      resolution,
+      id .. ":resdat-palette-table",
+      resolution.paletteTable
+    )
+    addConfiguredDependency(
+      resourceDataArchive,
+      dependencies,
+      resolution,
+      id .. ":resdat-cell-table",
+      resolution.cellTable
+    )
+    addConfiguredDependency(
+      resourceDataArchive,
+      dependencies,
+      resolution,
+      id .. ":resdat-animation-table",
+      resolution.animationTable
+    )
+    local char, palette = loadCharPalette(ballArchive, dependencies, spec, id)
+    local cellBytes = decodeMember(ballArchive, spec.cell, id .. " cell", spec.archive)
+    local animationBytes = decodeMember(ballArchive, spec.animation, id .. " animation", spec.archive)
+    addDependency(dependencies, spec.archive, spec.cell, cellBytes, id .. ":cell")
+    addDependency(dependencies, spec.archive, spec.animation, animationBytes, id .. ":animation")
+    local cells = decode("decodeCell", cellBytes, id .. " cell", spec.cell, spec.archive)
+    local animation = decode("decodeAnimation", animationBytes, id .. " animation", spec.animation, spec.archive)
+    local image, frames =
+      renderAnimations(char, palette.colors, cells, animation, spec.animationIndex, spec.paletteOverride)
+    addAsset(manifest, assets, id, image, frames, image.sourceBounds, image.anchor, {
+      resourceSet = spec.resourceSet,
+      rule = "alpha-union-crop-center",
+    }, spec.sourceCenter)
+  end
 
   local valid, err = IntroAssetCache.validateManifest(manifest)
   if not valid then

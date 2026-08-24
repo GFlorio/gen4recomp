@@ -16,11 +16,12 @@ local FakeGraphics = require("tests.support.FakeGraphics")
 local T = {
   metadata = {
     tags = { "oak", "responsive", "production-composition" },
+    capabilities = { "rom_dump", "derived_cache" },
   },
   tests = {},
 }
 
-local REQUIRED = { "oak", "marill", "male", "female", "shrink_male", "shrink_female", "ball_open" }
+local REQUIRED = { "oak", "marill", "marill_appear", "male", "female", "shrink_male", "shrink_female", "ball_open" }
 local MESSAGES = {
   ["greeting.midnight"] = "greeting.midnight",
   ["greeting.morning"] = "greeting.morning",
@@ -79,12 +80,12 @@ local function manifest()
         },
       },
     }
-    if id == "ball_open" then
+    if id == "ball_open" or id == "marill_appear" or id == "marill" then
       widgets[id].sourceCenter = { x = 160, y = 80 }
     end
   end
   return {
-    schemaVersion = 2,
+    schemaVersion = 3,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -142,6 +143,7 @@ local function controller(options)
     assets = options.assets or {
       oak = { frames = { { duration = 1 } } },
       marill = { frames = { { duration = 1 } } },
+      marill_appear = { frames = { { duration = 1 } } },
       shrink_male = { frames = { { duration = 1 } } },
       shrink_female = { frames = { { duration = 1 } } },
       ball_open = { frames = { { duration = 1 } } },
@@ -171,7 +173,7 @@ end
 
 function T.tests.host_native_layout_contract_across_representative_viewports()
   local checked = IntroAssetCache.validateManifest(manifest())
-  Assert.isTrue(checked, "scenario requires a valid schema-2 semantic manifest")
+  Assert.isTrue(checked, "scenario requires a valid schema-3 semantic manifest")
   for _, size in ipairs({ { 320, 240 }, { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }) do
     local state = OakIntroState.new({
       controller = controller(),
@@ -255,7 +257,7 @@ function T.tests.dialogue_contract_preserves_tokens_prompts_and_substitution_bou
   Assert.isFalse(tostring(state:view().message):find("STRVAR", 1, true) ~= nil)
 end
 
-function T.tests.ball_reveal_is_an_overlay_with_source_timed_slide_and_single_sound()
+function T.tests.ball_reveal_uses_source_timed_stages_and_single_sound()
   local sound = audio()
   local state = controller({ audio = sound })
   state:start()
@@ -267,9 +269,9 @@ function T.tests.ball_reveal_is_an_overlay_with_source_timed_slide_and_single_so
   state:press("confirm")
   Assert.equal(state:view().phase, "ball_open_wait")
   Assert.equal(state:view().primaryWidget, "oak")
-  Assert.isNil(state:view().overlayWidget)
+  Assert.equal(state:view().revealWidget, "ball_open")
   state:tick(30)
-  Assert.equal(state:view().overlayWidget, "ball_open")
+  Assert.equal(state:view().revealWidget, "marill_appear")
   local effects = 0
   for _, event in ipairs(sound.trace) do
     if event.name == "effect" and event.value == "SEQ_SE_DP_BOWA2" then
@@ -277,6 +279,70 @@ function T.tests.ball_reveal_is_an_overlay_with_source_timed_slide_and_single_so
     end
   end
   Assert.equal(effects, 1)
+end
+
+function T.tests.source_reveal_composition_draws_distinct_semantic_stages()
+  local graphics = FakeGraphics.new()
+  local assets = manifest()
+  assets.widgets.marill_appear = assets.widgets.marill
+  assets.widgets.marill_appear.image = "assets/generated/intro/marill-appear.png"
+  assets.widgets.marill_appear.frames[1].image = assets.widgets.marill_appear.image
+  assets.widgets.ball_open.frames[1].image = "assets/generated/intro/ball-open-0.png"
+  assets.widgets.ball_open.frames[1].duration = 1
+  assets.widgets.marill.frames[1].image = "assets/generated/intro/marill-0.png"
+  local renderer = OakIntroRenderer.new({
+    manifest = assets,
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = {
+      drawText = function() end,
+      textWidth = function()
+        return 0
+      end,
+    },
+  })
+  local state = controller({ assets = assets.widgets })
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  local ballView = state:view()
+  Assert.equal(ballView.revealWidget, "ball_open")
+  ballView.revealWidget = "ball_open"
+  ballView.revealFrameIndex = 1
+  local layout = OakIntroLayout.compute(800, 600, ballView, {}, assets.widgets)
+  renderer:draw({
+    layout = layout,
+    visual = "oak",
+    visualFrameIndex = 1,
+    primaryWidget = "oak",
+    flashAlpha = 0,
+    revealWidget = "ball_open",
+    revealFrameIndex = 1,
+  })
+  Assert.equal(graphics.draws[#graphics.draws - 0].image.path, "assets/generated/intro/ball-open-0.png")
+  state:tick(30)
+  local appearance = state:view()
+  Assert.equal(appearance.revealWidget, "marill_appear")
+  local appearanceLayout = OakIntroLayout.compute(800, 600, appearance, {}, assets.widgets)
+  renderer:draw({
+    layout = appearanceLayout,
+    visual = "oak",
+    visualFrameIndex = 1,
+    primaryWidget = "oak",
+    flashAlpha = 0,
+    revealWidget = appearance.revealWidget,
+    revealFrameIndex = appearance.revealFrameIndex,
+  })
+  Assert.equal(graphics.draws[#graphics.draws].image.path, "assets/generated/intro/marill-appear.png")
+  renderer:dispose()
 end
 
 function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangles()
@@ -329,6 +395,7 @@ T.tests.ball_reveal_channels_preserve_independent_animation_timing = function()
   local assets = {
     oak = { frames = { { duration = 1 }, { duration = 1 }, { duration = 1 } } },
     marill = { frames = { { duration = 2 }, { duration = 3 } } },
+    marill_appear = { frames = { { duration = 1 } } },
     ball_open = {
       frames = { { duration = 4 }, { duration = 1 }, { duration = 1 }, { duration = 1 }, { duration = 1 } },
     },
@@ -345,13 +412,13 @@ T.tests.ball_reveal_channels_preserve_independent_animation_timing = function()
   local initial = state:view()
   Assert.equal(initial.phase, "marill_cry_wait")
   Assert.equal(initial.primaryWidget, "oak")
+  Assert.equal(initial.revealWidget, "marill")
   Assert.equal(initial.revealFrameIndex, 1)
-  Assert.equal(initial.overlayFrameIndex, 1)
   state:tick(1)
   local next = state:view()
   Assert.equal(next.visualFrameIndex, initial.visualFrameIndex)
   Assert.equal(next.revealFrameIndex, 1)
-  Assert.equal(next.overlayFrameIndex, 1, "ball timing must not use the four-frame flash counter")
+  Assert.equal(next.revealFrameIndex, 1)
   state:tick(1)
   Assert.equal(state:view().revealFrameIndex, 2)
 end

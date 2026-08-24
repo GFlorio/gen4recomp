@@ -22,6 +22,7 @@ local CHARMAP = { A = 1, B = 2, C = 3, D = 4, E = 5, F = 6, G = 7, O = 8, L = 9,
 local PLAYER_DATA_CONTEXT = { charmap = CHARMAP, frameIndexes = { [0] = true } }
 local INTRO_ASSETS = {
   marill = { frames = { { duration = 1 } } },
+  marill_appear = { frames = { { duration = 1 } } },
   ball_open = { frames = { { duration = 1 } } },
 }
 
@@ -244,6 +245,7 @@ local function confirm()
 end
 
 local function reachGenderSelect(audio)
+  local marillAppearanceFrames = 4
   advance(40)
   confirm()
   -- These scenarios exercise profile input after the fade; the dedicated
@@ -253,7 +255,7 @@ local function reachGenderSelect(audio)
   confirm()
   advance(26)
   confirm()
-  advance(30 + 40)
+  advance(30 + marillAppearanceFrames + 40)
   confirm()
   advance(30 + 26)
   confirm()
@@ -286,7 +288,7 @@ function T.tests.new_game_routes_through_the_core_oak_sequence()
     advance(26)
     Assert.equal(context.controller:view().message, MESSAGES["oak.world_inhabited"])
     confirm()
-    advance(30 + 40)
+    advance(30 + 4 + 40)
     Assert.equal(context.controller:view().message, MESSAGES["oak.live_alongside"])
     confirm()
     advance(30 + 26)
@@ -407,12 +409,12 @@ function T.tests.audio_and_fixed_source_timing_are_ordered_and_cry_independent()
     Assert.equal(context.controller:view().phase, "oak_world_inhabited")
     confirm()
     advance(30)
+    Assert.equal(context.controller:view().phase, "marill_appear")
+    advance(4)
     Assert.equal(context.controller:view().phase, "marill_cry_wait")
     Assert.deepEqual(context.audio.events[#context.audio.events - 1], { name = "effect", value = "SEQ_SE_DP_BOWA2" })
     Assert.deepEqual(context.audio.events[#context.audio.events], { name = "cry", value = { species = 184, form = 0 } })
     advance(39)
-    Assert.equal(context.controller:view().phase, "marill_cry_wait")
-    advance(1)
     Assert.equal(context.controller:view().phase, "oak_live_alongside")
   end)
 end

@@ -25,21 +25,30 @@ local function manifest()
       width = 1,
       height = 192,
       sampling = "linear",
-      frames = { { x = 0, y = 0, width = 1, height = 192, duration = 1 } },
+      frames = { { image = "background.png", x = 0, y = 0, width = 1, height = 192, duration = 1 } },
     },
   }
-  for _, id in ipairs({ "oak", "marill", "male", "female", "shrink_male", "shrink_female", "ball_open" }) do
+  for _, id in ipairs({
+    "oak",
+    "marill",
+    "marill_appear",
+    "male",
+    "female",
+    "shrink_male",
+    "shrink_female",
+    "ball_open",
+  }) do
     assets[id] = {
       image = id .. ".png",
       width = 4,
       height = 8,
       sampling = "nearest",
-      frames = { { x = 0, y = 0, width = 4, height = 8, duration = 1 } },
+      frames = { { image = id .. ".png", x = 0, y = 0, width = 4, height = 8, duration = 1 } },
     }
   end
   assets.oak.frames = {
-    { x = 0, y = 0, width = 4, height = 4, duration = 1 },
-    { x = 0, y = 4, width = 4, height = 4, duration = 1 },
+    { image = "oak.png", x = 0, y = 0, width = 4, height = 4, duration = 1 },
+    { image = "oak.png", x = 0, y = 4, width = 4, height = 4, duration = 1 },
   }
   local background = assets.background
   assets.background = nil
@@ -103,7 +112,11 @@ local function backgroundOnlyController()
       ["oak.tell_about_yourself"] = "oak.tell_about_yourself",
       ["profile.gender_question"] = "profile.gender_question",
     },
-    assets = { marill = { frames = { { duration = 1 } } }, ball_open = { frames = { { duration = 1 } } } },
+    assets = {
+      marill = { frames = { { duration = 1 } } },
+      marill_appear = { frames = { { duration = 1 } } },
+      ball_open = { frames = { { duration = 1 } } },
+    },
     virtualGlyphs = { "A" },
     playerDataContext = { charmap = { A = 1 }, frameIndexes = { [0] = true } },
     randomU32 = function()
@@ -247,6 +260,68 @@ function T.constructor_releases_images_when_quad_creation_fails()
   end)
   Assert.isFalse(ok)
   Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil)
+  for _, image in ipairs(graphics.images) do
+    Assert.isTrue(image.released)
+  end
+end
+
+function T.animated_frames_use_distinct_images_and_release_unique_paths()
+  local graphics = FakeGraphics.new({
+    imageSizes = { { 8, 8 }, { 4, 4 }, { 4, 4 }, { 4, 4 }, { 4, 4 }, { 4, 4 }, { 4, 4 }, { 4, 4 }, { 4, 4 } },
+  })
+  local manifestValue = manifest()
+  manifestValue.widgets.oak.image = "oak-frame-1.png"
+  manifestValue.widgets.oak.frames = {
+    { image = "oak-frame-1.png", x = 0, y = 0, width = 4, height = 4, duration = 1 },
+    { image = "oak-frame-2.png", x = 0, y = 0, width = 4, height = 4, duration = 1 },
+    { image = "oak-frame-2.png", x = 0, y = 0, width = 4, height = 4, duration = 1 },
+  }
+  local renderer = OakIntroRenderer.new({
+    manifest = manifestValue,
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = textRenderer(),
+  })
+
+  local first = view()
+  first.visualFrameIndex = 1
+  renderer:draw(first)
+  local second = view()
+  second.visualFrameIndex = 2
+  renderer:draw(second)
+
+  Assert.equal(graphics.draws[2].image.path, "oak-frame-1.png")
+  Assert.equal(graphics.draws[4].image.path, "oak-frame-2.png")
+  local loaded = {}
+  for _, image in ipairs(graphics.images) do
+    loaded[image.path] = (loaded[image.path] or 0) + 1
+  end
+  Assert.equal(loaded["oak-frame-1.png"], 1)
+  Assert.equal(loaded["oak-frame-2.png"], 1)
+  renderer:dispose()
+  for _, image in ipairs(graphics.images) do
+    Assert.isTrue(image.released)
+  end
+end
+
+function T.image_construction_failure_releases_every_prior_image()
+  local graphics = FakeGraphics.new({ failOnImageCall = 3 })
+  local ok = pcall(function()
+    OakIntroRenderer.new({
+      manifest = manifest(),
+      graphics = graphics,
+      imageLoader = function()
+        return graphics.newImage()
+      end,
+      text = textRenderer(),
+    })
+  end)
+  Assert.isFalse(ok)
+  Assert.equal(#graphics.images, 2)
   for _, image in ipairs(graphics.images) do
     Assert.isTrue(image.released)
   end

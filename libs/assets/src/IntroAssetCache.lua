@@ -12,7 +12,16 @@ local M = {
 }
 
 local DATA_DIR, ASSET_DIR = "data/generated/intro", "assets/generated/intro"
-M.REQUIRED_ASSETS = { "oak", "marill", "male", "female", "shrink_male", "shrink_female", "ball_open" }
+M.REQUIRED_ASSETS = {
+  "oak",
+  "marill",
+  "marill_appear",
+  "male",
+  "female",
+  "shrink_male",
+  "shrink_female",
+  "ball_open",
+}
 local REQUIRED = {}
 for _, id in ipairs(M.REQUIRED_ASSETS) do
   REQUIRED[id] = true
@@ -127,7 +136,7 @@ local function widget(id, value)
   return true
 end
 
-local function sourceCenter(reference, value)
+local function sourceCenter(id, reference, value)
   if
     type(value) ~= "table"
     or not finite(value.x)
@@ -137,14 +146,14 @@ local function sourceCenter(reference, value)
     or value.y < 0
     or value.y > reference.height
   then
-    return invalid("widget ball_open sourceCenter is invalid", { widget = "ball_open" })
+    return invalid("widget " .. id .. " sourceCenter is invalid", { widget = id })
   end
   return true
 end
 
 function M.validateManifest(manifest)
-  if type(manifest) ~= "table" or manifest.schemaVersion ~= 2 then
-    return invalid("manifest schema mismatch", { expected = 2, actual = manifest and manifest.schemaVersion })
+  if type(manifest) ~= "table" or manifest.schemaVersion ~= 3 then
+    return invalid("manifest schema mismatch", { expected = 3, actual = manifest and manifest.schemaVersion })
   end
   if manifest.variant ~= "heartgold" and manifest.variant ~= "soulsilver" then
     return invalid("manifest variant is unsupported", { variant = manifest.variant })
@@ -174,8 +183,8 @@ function M.validateManifest(manifest)
     if not ok then
       return false, err
     end
-    if id == "ball_open" then
-      local centerOk, centerErr = sourceCenter(reference, manifest.widgets[id].sourceCenter)
+    if id == "ball_open" or id == "marill_appear" or id == "marill" then
+      local centerOk, centerErr = sourceCenter(id, reference, manifest.widgets[id].sourceCenter)
       if not centerOk then
         return false, centerErr
       end
