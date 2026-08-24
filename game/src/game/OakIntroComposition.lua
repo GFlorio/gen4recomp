@@ -169,6 +169,7 @@ function OakIntroComposition.compose(options)
       manifest = uiManifest,
       text = textRenderer,
       graphics = graphics,
+      drawFocusIndicator = false,
     })
     local dialogueController = FieldDialogueController.new({
       layout = function(formatted)

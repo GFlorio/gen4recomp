@@ -192,6 +192,57 @@ function T.tests.host_native_layout_contract_across_representative_viewports()
   end
 end
 
+function T.tests.dialogue_visibility_keeps_the_main_oak_stage_stable()
+  local metrics = manifest().widgets
+  for _, size in ipairs({ { 320, 240 }, { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }) do
+    local closed = {
+      phase = "oak_slide_right",
+      visual = "oak",
+      primaryWidget = "oak",
+      oakSlideOffset = 0,
+    }
+    local open = {
+      phase = closed.phase,
+      visual = closed.visual,
+      primaryWidget = closed.primaryWidget,
+      oakSlideOffset = closed.oakSlideOffset,
+      dialogue = { message = "oak.welcome", messageKey = "oak.welcome" },
+    }
+    local closedLayout = OakIntroLayout.compute(size[1], size[2], closed, {}, metrics)
+    local openLayout = OakIntroLayout.compute(size[1], size[2], open, {}, metrics)
+    Assert.deepEqual(openLayout.stage, closedLayout.stage)
+    Assert.near(openLayout.subject.scale, closedLayout.subject.scale)
+    Assert.near(openLayout.subject.y + openLayout.subject.height, closedLayout.subject.y + closedLayout.subject.height)
+  end
+end
+
+function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
+  local state = controller()
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  local centered = OakIntroLayout.compute(800, 600, state:view(), {}, manifest().widgets).subject
+  state:press("confirm")
+  state:tick(26)
+  local endpoint = OakIntroLayout.compute(800, 600, state:view(), {}, manifest().widgets).subject
+  Assert.isTrue(endpoint.x < centered.x, "the completed first slide must be visibly shifted")
+  state:press("confirm")
+  state:tick(30 + 40)
+  local held = OakIntroLayout.compute(800, 600, state:view(), {}, manifest().widgets).subject
+  Assert.near(held.x, endpoint.x)
+  Assert.near(held.y, endpoint.y)
+  state:press("confirm")
+  state:tick(30)
+  local reverse = state:view()
+  Assert.equal(reverse.phase, "oak_slide_left")
+  local reverseStart = OakIntroLayout.compute(800, 600, reverse, {}, manifest().widgets).subject
+  Assert.near(reverseStart.x, held.x)
+  state:tick(1)
+  local moved = OakIntroLayout.compute(800, 600, state:view(), {}, manifest().widgets).subject
+  Assert.isTrue(moved.x > reverseStart.x, "reverse slide moves monotonically toward center")
+end
+
 function T.tests.dialogue_contract_preserves_tokens_prompts_and_substitution_boundary()
   local state = controller()
   state:start()
@@ -268,7 +319,7 @@ T.tests.oak_motion_uses_normalized_progress_and_rendered_scale = function()
   local during = state:view()
   local duringLayout = OakIntroLayout.compute(390, 844, during, { "A", "B" }, manifest().widgets)
   local expected = math.min(52 * duringLayout.subject.scale, duringLayout.stageContent.width * 0.24)
-    * during.oakSlideProgress
+    * (during.oakSlideOffset / -52)
   local beforeCenter = beforeLayout.subject.x + beforeLayout.subject.width / 2
   local duringCenter = duringLayout.subject.x + duringLayout.subject.width / 2
   Assert.near(beforeCenter - duringCenter, expected)

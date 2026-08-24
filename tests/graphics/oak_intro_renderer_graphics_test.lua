@@ -1,6 +1,10 @@
 local Assert = require("tests.support.Assert")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FakeGraphics = require("tests.support.FakeGraphics")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
+local NewGame = require("libs.engine.src.NewGame")
+local OakIntroController = require("libs.engine.src.OakIntroController")
 local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 
 local T = {}
@@ -59,6 +63,56 @@ local function view()
       nameKeys = {},
     },
   }
+end
+
+local function backgroundOnlyController()
+  local audio = {
+    playMusic = function() end,
+    stopMusic = function() end,
+    fadeMusicOut = function() end,
+    play = function() end,
+    playCry = function() end,
+    updateSoundFrame = function() end,
+    isMusicFadeActive = function()
+      return false
+    end,
+  }
+  local controller = OakIntroController.new({
+    candidate = NewGame.createCandidate({
+      saveService = {
+        reserve = function()
+          return "graphics-acceptance"
+        end,
+      },
+      versionId = "heartgold",
+      eventState = FieldEventState.new(),
+      scriptSymbols = FieldScriptSymbols,
+      mapIdentity = { mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F", fieldX = 6, fieldZ = 6, sourceFacing = 1 },
+    }),
+    clock = {
+      nowLocal = function()
+        return { hour = 12, minute = 0 }
+      end,
+    },
+    audio = audio --[[@as GameSound]],
+    messages = {
+      ["greeting.day"] = "greeting.day",
+      ["oak.welcome"] = "oak.welcome",
+      ["oak.world_inhabited"] = "oak.world_inhabited",
+      ["oak.live_alongside"] = "oak.live_alongside",
+      ["oak.tell_about_yourself"] = "oak.tell_about_yourself",
+      ["profile.gender_question"] = "profile.gender_question",
+    },
+    assets = { marill = { frames = { { duration = 1 } } }, ball_open = { frames = { { duration = 1 } } } },
+    virtualGlyphs = { "A" },
+    playerDataContext = { charmap = { A = 1 }, frameIndexes = { [0] = true } },
+    randomU32 = function()
+      return 0x12345678
+    end,
+  })
+  controller:start()
+  controller:tick(40)
+  return controller
 end
 
 T.responsive_renderer_uses_declared_sampling_and_identity_tint = function()
@@ -131,6 +185,33 @@ T.background_gradient_stretches_to_the_host_viewport = function()
 
   local widget = graphics.draws[2]
   Assert.equal(widget.sx, widget.sy)
+  renderer:dispose()
+end
+
+T.background_only_view_draws_the_gradient_once_without_a_subject = function()
+  local graphics = FakeGraphics.new({
+    imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
+  })
+  local renderer = OakIntroRenderer.new({
+    manifest = manifest(),
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = textRenderer(),
+  })
+  local controller = backgroundOnlyController()
+  local background = controller:view() --[[@as table]]
+  background.layout = view().layout
+
+  renderer:draw(background)
+
+  Assert.equal(#graphics.draws, 1, "background-only phases draw one image")
+  Assert.equal(graphics.draws[1].image.path, "background.png")
+  Assert.equal(graphics.draws[1].sx, 160)
+  Assert.equal(graphics.draws[1].sy, 120 / 192)
   renderer:dispose()
 end
 

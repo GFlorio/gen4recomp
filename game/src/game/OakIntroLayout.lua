@@ -5,6 +5,7 @@ local OakIntroLayout = {}
 
 local SOURCE_VISUAL_WIDTH = 256
 local SOURCE_VISUAL_HEIGHT = 144
+local OAK_SLIDE_DISTANCE = 52
 
 local function clamp(value, low, high)
   return math.max(low, math.min(high, value))
@@ -76,8 +77,7 @@ function OakIntroLayout.compute(width, height, view, glyphs, metrics)
       scale = scale,
     }
   end
-  local stageBottom = dialogue and dialogue.outerRect.y - gap or safeFrame.y + safeFrame.height
-  local stage = rect(safeFrame.x, safeFrame.y, safeFrame.width, stageBottom - safeFrame.y)
+  local stage = rect(safeFrame.x, safeFrame.y, safeFrame.width, safeFrame.height)
   local contentWidth = math.min(stage.width, 1120)
   local stageContent = rect(stage.x + (stage.width - contentWidth) / 2, stage.y, contentWidth, stage.height)
   local result = {
@@ -102,9 +102,8 @@ function OakIntroLayout.compute(width, height, view, glyphs, metrics)
       stageContent.height * 0.88
     )
     local oakScale = math.min(slot.width / oak.width, slot.height / oak.height, 6)
-    local displacement = math.min(52 * oakScale, stageContent.width * 0.24)
-      * (view.oakSlideProgress or 0)
-      * (view.oakSlideDirection or 0)
+    local maximumDisplacement = math.min(OAK_SLIDE_DISTANCE * oakScale, stageContent.width * 0.24)
+    local displacement = maximumDisplacement * ((view.oakSlideOffset or 0) / -OAK_SLIDE_DISTANCE)
     local anchorY = stageContent.y + stageContent.height - clamp(math.floor(stageContent.height * 0.04 + 0.5), 4, 24)
     result.subject = contain(oak, slot, stageContent.x + stageContent.width / 2 - displacement, anchorY)
   else

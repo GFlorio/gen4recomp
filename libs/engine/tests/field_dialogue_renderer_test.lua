@@ -357,4 +357,44 @@ function T.the_last_visible_focus_field_wins()
   renderer:release()
 end
 
+function T.focus_indicator_policy_can_be_disabled_without_suppressing_the_cursor()
+  local function render(options)
+    local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 16 } } })
+    local rendererOptions = {
+      cacheFs = uiCache(),
+      manifest = MANIFEST,
+      text = withTextRenderer(uiCache(), lg),
+      graphics = lg,
+    }
+    for key, value in pairs(options or {}) do
+      rendererOptions[key] = value
+    end
+    local renderer = FieldDialogueRenderer.new(rendererOptions)
+    local controller = openedWithTokens({ glyphToken(1), focusToken(0) })
+    controller:step({ actionPressed = true })
+    for _ = 1, 30 do
+      controller:step({})
+    end
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    renderer:draw(controller, FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1)))
+    local focus = focusDraws(lg)
+    local cursorCount = 0
+    for _, primitive in ipairs(lg.primitives) do
+      if primitive == "polygon" then
+        cursorCount = cursorCount + 1
+      end
+    end
+    renderer:release()
+    rendererOptions.text:release()
+    return #focus, cursorCount
+  end
+
+  local defaultFocus, defaultCursor = render()
+  local oakFocus, oakCursor = render({ drawFocusIndicator = false })
+  Assert.equal(defaultFocus, 1)
+  Assert.equal(oakFocus, 0)
+  Assert.equal(defaultCursor, 1)
+  Assert.equal(oakCursor, 1)
+end
+
 return { tests = T }

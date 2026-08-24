@@ -31,8 +31,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field revealWidget string|nil
 ---@field overlayWidget string|nil
 ---@field overlayFrameIndex integer|nil
----@field oakSlideProgress number
----@field oakSlideDirection integer
+---@field oakSlideOffset number source-relative horizontal offset, 0 centered and -52 shifted
 ---@field messageKey string|nil
 ---@field confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field dialogue { message: string|table|nil, messageKey: string? }?
@@ -77,6 +76,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _overlayFrameTimer integer|nil
 ---@field private _genderFocus integer
 ---@field private _name string
+---@field private _oakSlideOffset number source-relative horizontal offset, 0 centered and -52 shifted
 ---@field private _result table|nil
 ---@field private _events OakIntroEvent[]
 ---@field tick fun(self: OakIntroController, frames: integer)
@@ -103,6 +103,7 @@ local MARILL_HIDE_WAIT = 30
 local NAME_LAUNCH_WAIT = 40
 local SHRINK_WAIT = 30
 local FLASH_FRAMES = 4
+local OAK_SLIDE_OFFSET = -52
 
 local function requireMessage(messages, key)
   local message = messages[key]
@@ -196,6 +197,7 @@ function OakIntroController.new(options)
     _overlayFrameTimer = nil,
     _genderFocus = 0,
     _name = "",
+    _oakSlideOffset = 0,
     _result = nil,
     _events = {},
   }, OakIntroController)
@@ -355,11 +357,19 @@ function OakIntroController:_stepFrame()
     end
   elseif self._phase == "oak_slide_right" or self._phase == "oak_slide_left" then
     self._timer = self._timer - 1
+    local progress = (OAK_SLIDE_FRAMES - self._timer) / OAK_SLIDE_FRAMES
+    if self._phase == "oak_slide_right" then
+      self._oakSlideOffset = OAK_SLIDE_OFFSET * progress
+    else
+      self._oakSlideOffset = OAK_SLIDE_OFFSET * (1 - progress)
+    end
     if self._timer == 0 then
       if self._phase == "oak_slide_right" then
+        self._oakSlideOffset = OAK_SLIDE_OFFSET
         self._phase = "oak_world_inhabited"
         self:_setMessage("oak.world_inhabited")
       else
+        self._oakSlideOffset = 0
         self._phase = "oak_tell_about_yourself"
         self:_setMessage("oak.tell_about_yourself")
       end
@@ -497,7 +507,7 @@ function OakIntroController:press(action)
     self._phase == "name_edit" and (action == "left" or action == "right" or action == "up" or action == "down")
   then
     local count = #self._virtualGlyphs + 2
-    local columns = math.max(1, math.min(8, self._virtualKeyColumns))
+    local columns = self._virtualKeyColumns
     local step = action == "left" and -1 or action == "right" and 1 or action == "up" and -columns or columns
     self._virtualFocus = ((self._virtualFocus - 1 + step) % count) + 1
     self._audio:play("SEQ_SE_DP_SELECT")
@@ -598,6 +608,11 @@ end
 ---@return table
 function OakIntroController:view()
   local virtualKeys = self:_virtualKeys()
+  local primaryWidget ---@type string|nil
+  primaryWidget = self._visual
+  if primaryWidget == "background" then
+    primaryWidget = self._phase == "marill_cry_wait" and "oak" or nil
+  end
   local dialogue
   if self._message ~= nil then
     dialogue = {
@@ -624,17 +639,12 @@ function OakIntroController:view()
         and { kind = self._confirmationChoice.kind, selected = self._confirmationChoice.selected }
       or nil,
     dialogue = dialogue,
-    primaryWidget = self._visual == "background" and (self._phase == "marill_cry_wait" and "oak" or nil)
-      or self._visual,
+    primaryWidget = primaryWidget,
     revealWidget = self._phase == "marill_cry_wait" and "marill" or nil,
     overlayWidget = self._flashFrames > 0 and "ball_open" or nil,
     revealFrameIndex = self._phase == "marill_cry_wait" and self._revealFrameIndex or nil,
     overlayFrameIndex = self._flashFrames > 0 and self._overlayFrameIndex or nil,
-    oakSlideProgress = (self._phase == "oak_slide_right" or self._phase == "oak_slide_left") and math.max(
-      0,
-      math.min(1, (OAK_SLIDE_FRAMES - self._timer) / OAK_SLIDE_FRAMES)
-    ) or self._phase == "oak_world_inhabited" and 1 or 0,
-    oakSlideDirection = self._phase == "oak_slide_right" and 1 or self._phase == "oak_slide_left" and -1 or 0,
+    oakSlideOffset = self._oakSlideOffset,
   }
 end
 

@@ -28,6 +28,7 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@field _graphics love.Graphics
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table the generated field-UI manifest
+---@field _drawFocusIndicatorEnabled boolean whether source focus markers are presented
 ---@field _frameImage love.Image?
 ---@field _frameQuadCache table<integer, love.Quad[]>|nil per-frame tile quads, built lazily
 local FieldDialogueRenderer = {}
@@ -42,7 +43,7 @@ FieldDialogueRenderer.__index = FieldDialogueRenderer
 -- PNG bytes still enter through love.filesystem.newFileData); opts.theme:
 -- geometry record.
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics?, drawFocusIndicator?: boolean }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
   assert(
@@ -79,6 +80,7 @@ function FieldDialogueRenderer.new(opts)
     _graphics = graphics,
     _text = text,
     _manifest = manifest,
+    _drawFocusIndicatorEnabled = opts.drawFocusIndicator ~= false,
     _frameImage = nil,
     _frameQuadCache = nil,
   }, FieldDialogueRenderer)
@@ -191,6 +193,9 @@ end
 ---@param status FieldDialogueController.Status
 ---@param layout DialoguePresentationLayout.Presentation
 function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
+  if not self._drawFocusIndicatorEnabled then
+    return
+  end
   local field = FieldTextRenderer.lastVisibleFocusField(status.visibleLines)
   if field ~= nil then
     self._text:drawFocusIndicator(
