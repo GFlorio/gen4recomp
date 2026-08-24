@@ -684,6 +684,24 @@ function T.source_door_waits_for_the_open_before_the_ingress()
   Assert.notNil(transition:consumeCompleted())
 end
 
+function T.door_choreography_requires_a_player_for_ingress()
+  local sourceDoor = doorStub()
+  local transition, source = transitionFixture({
+    doorAt = function(runtimeMap)
+      return runtimeMap.mapId == 61 and sourceDoor or nil
+    end,
+  })
+  transition:start(source, trigger("door", DOOR_WARP), "north")
+  for _ = 1, sourceDoor.frames do
+    step(transition)
+    sourceDoor:advance(1)
+  end
+
+  local ok, err = pcall(step, transition)
+  Assert.isFalse(ok, "a door ingress cannot run without a player")
+  Assert.isTrue(tostring(err):find("door ingress player required", 1, true) ~= nil)
+end
+
 function T.destination_door_waits_for_the_open_then_the_egress_then_closes()
   -- The destination sequence is fully ordered: the door opens at the swap,
   -- the egress begins only after the opening finished, the close begins
@@ -854,7 +872,7 @@ function T.door_kind_without_a_door_resolver_keeps_the_source_classification()
   local source
   local swaps
   transition, source, _, swaps = transitionFixture()
-  local ok, err = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "south")
+  local ok, err = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "north")
   Assert.isTrue(ok, "a door-less composition never raises for a door-kind warp")
   Assert.isNil(err)
   Assert.equal(transition.sourceKind, "door")

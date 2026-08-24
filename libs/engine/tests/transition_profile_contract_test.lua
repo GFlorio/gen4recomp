@@ -589,6 +589,14 @@ end
 local function runTransition(options)
   local source = { mapId = 61 }
   local destination = { mapId = 60 }
+  local player = options.player
+    or {
+      motion = "idle",
+      scriptedStep = function()
+        return true
+      end,
+      updateFixed = function() end,
+    }
   local transition = FieldTransition.new({
     loader = {},
     resolveDestination = function()
@@ -613,7 +621,7 @@ local function runTransition(options)
       return options.destinationDoor or (options.doorAt and options.doorAt(map))
     end,
     playSound = options.playSound,
-    player = options.player,
+    player = player,
   })
   transition:start(source, {
     kind = "door",

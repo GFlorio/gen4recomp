@@ -495,15 +495,14 @@ local function advanceSourceChoreo(self)
     assert(self.sourceDoor, "wait_open always carries the resolved source door")
     local finished = self.sourceDoor:isFinished()
     if finished ~= false then
-      if self.player then
-        local ok = self.player:scriptedStep("north")
-        if not ok then
-          Errors.raise(
-            FieldErrors.MAP_TRANSITION_INGRESS_FAILED,
-            "the ingress step from the door anchor resolves no terrain destination",
-            { mapId = self.sourceMap.mapId, x = self.sourceWarp.x, z = self.sourceWarp.z }
-          )
-        end
+      assert(self.player and type(self.player.scriptedStep) == "function", "door ingress player required")
+      local ok = self.player:scriptedStep("north")
+      if not ok then
+        Errors.raise(
+          FieldErrors.MAP_TRANSITION_INGRESS_FAILED,
+          "the ingress step from the door anchor resolves no terrain destination",
+          { mapId = self.sourceMap.mapId, x = self.sourceWarp.x, z = self.sourceWarp.z }
+        )
       end
       self.sourceChoreo = "wait_step"
     end
@@ -599,17 +598,16 @@ local function advanceDestinationChoreo(self)
   if self.destinationChoreo == "wait_open" then
     local finished = self.destinationDoor and self.destinationDoor:isFinished()
     if not self.destinationDoor or finished ~= false then
-      if self.player then
-        -- Both an actual destination door and the explicitly admitted
-        -- doorless profile-1/south case use HGSS STEP_DOWN.
-        local ok = self.player:scriptedStep("south")
-        if not ok then
-          Errors.raise(
-            FieldErrors.MAP_TRANSITION_EGRESS_FAILED,
-            "the egress step from the transition anchor resolves no terrain destination",
-            { mapId = self.resolution.destinationMap.mapId }
-          )
-        end
+      assert(self.player and type(self.player.scriptedStep) == "function", "door egress player required")
+      -- Both an actual destination door and the explicitly admitted
+      -- doorless profile-1/south case use HGSS STEP_DOWN.
+      local ok = self.player:scriptedStep("south")
+      if not ok then
+        Errors.raise(
+          FieldErrors.MAP_TRANSITION_EGRESS_FAILED,
+          "the egress step from the transition anchor resolves no terrain destination",
+          { mapId = self.resolution.destinationMap.mapId }
+        )
       end
       self.destinationChoreo = "wait_step"
     end

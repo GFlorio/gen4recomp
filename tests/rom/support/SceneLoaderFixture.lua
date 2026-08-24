@@ -226,7 +226,10 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     end,
   })
   transition.player = player
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local playerVisual = {
     updateFixed = function(_, walking)
       if walking then
