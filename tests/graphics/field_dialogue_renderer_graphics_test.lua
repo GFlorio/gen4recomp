@@ -39,10 +39,11 @@ end
 ---@param controller FieldDialogueController
 local function settleDialogue(controller)
   controller:step({})
-  for _ = 1, 4 do
-    controller:step({})
-  end
-  for _ = 1, 34 do
+  for _ = 1, 100 do
+    local status = controller:status()
+    if status.state == "WAITING_CLOSE" and status.cursorPhase == 0 then
+      break
+    end
     controller:step({})
   end
   local status = controller:status()
