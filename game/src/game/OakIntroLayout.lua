@@ -120,8 +120,7 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
       scale = scale,
     }
   end
-  local sceneHeight = dialogue and math.max(1, dialogue.outerRect.y - gap - safeFrame.y) or safeFrame.height
-  local scene = rect(0, safeFrame.y, width, sceneHeight)
+  local scene = rect(0, safeFrame.y, width, safeFrame.height)
   local contentWidth = math.min(scene.width, 1120)
   local sceneContent = rect(scene.x + (scene.width - contentWidth) / 2, scene.y, contentWidth, scene.height)
   local result = {
@@ -153,12 +152,12 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     result.genderHitRegions = result.genderChoices
     result.cards, result.profileCards = result.genderChoices, result.genderChoices
   else
-    local oakPoint = sourcePoint(
-      reference,
-      { x = oak.sourceBounds.x + oak.anchor.x - (view.oakSlideOffset or 0), y = oak.sourceBounds.y + oak.anchor.y },
-      scene
-    )
+    local oakPoint =
+      sourcePoint(reference, { x = oak.sourceBounds.x + oak.anchor.x, y = oak.sourceBounds.y + oak.anchor.y }, scene)
     result.subject = imageAtPoint(oak, oakPoint, scene)
+    local maximumDisplacement = math.min(52 * result.subject.scale, sceneContent.width * 0.24)
+    local displacement = maximumDisplacement * ((view.oakSlideOffset or 0) / -52)
+    result.subject.x = result.subject.x - displacement
     if view.revealWidget then
       result.reveal = sourceCentered(widget(manifest, view.revealWidget), reference, scene)
     end
