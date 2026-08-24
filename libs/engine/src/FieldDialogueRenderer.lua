@@ -24,7 +24,7 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class FieldDialogueRenderer
 ---@field _theme FieldDialogueTheme
----@field _graphics love.Graphics
+---@field _graphics love.Graphics|love.graphics
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table the generated field-UI manifest
 ---@field _frameImage love.Image?
@@ -43,7 +43,7 @@ FieldDialogueRenderer.__index = FieldDialogueRenderer
 -- PNG bytes still enter through love.filesystem.newFileData); opts.theme:
 -- geometry record.
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics|love.graphics }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
   assert(
@@ -95,6 +95,7 @@ function FieldDialogueRenderer.new(opts)
       { path = frameImagePath }
     )
   end
+  frameData = assert(frameData)
   local ok, err = pcall(function()
     self._frameImage = graphics.newImage(love.filesystem.newFileData(frameData, frameImagePath))
     self._frameImage:setFilter("nearest", "nearest")
@@ -105,17 +106,19 @@ function FieldDialogueRenderer.new(opts)
   end
   local cursor = assert(manifest.dialogueFrames.continueCursor)
   local cursorAsset = assert(manifest.assets[cursor.asset])
-  local cursorData = cacheFs:read(cursorAsset.image)
+  local cursorPath = assert(cursorAsset.image, "the dialogue continuation cursor must name an image path")
+  local cursorData = cacheFs:read(cursorPath)
   if not cursorData then
     self:release()
     Errors.raise(
       FieldErrors.FIELD_UI_CONTINUE_CURSOR_MISSING,
-      "dialogue continuation cursor missing at " .. cursorAsset.image,
-      { path = cursorAsset.image }
+      "dialogue continuation cursor missing at " .. cursorPath,
+      { path = cursorPath }
     )
   end
+  cursorData = assert(cursorData)
   local cursorOk, cursorErr = pcall(function()
-    self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, cursorAsset.image))
+    self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, cursorPath))
     self._cursorImage:setFilter("nearest", "nearest")
     self._cursorQuadCache = {}
     for style, styleEntry in pairs(cursor.styles) do

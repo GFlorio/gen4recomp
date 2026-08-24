@@ -25,7 +25,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class GpuAssetPool
 ---@field cacheFs table
----@field graphics love.Graphics
+---@field graphics love.Graphics|love.graphics
 ---@field meshBuilder fun(decoded: table): any
 ---@field imageBuilder fun(path: string): any|nil
 ---@field meshes love.Mesh[]
@@ -74,7 +74,7 @@ local function guarded(pool, fn, revert)
 end
 
 ---@class GpuAssetPoolOptions
----@field graphics? love.Graphics -- injectable LÖVE graphics namespace (nil keeps love.graphics)
+---@field graphics? love.Graphics|love.graphics -- injectable LÖVE graphics namespace (nil keeps love.graphics)
 ---@field meshBuilder? fun(decoded: table): any -- replaces SceneMesh.build (headless tests)
 ---@field imageBuilder? fun(path: string): any -- replaces love-graphics texture construction (headless tests)
 

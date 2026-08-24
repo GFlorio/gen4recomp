@@ -1,11 +1,16 @@
 {
   "runtime": {
-    "version": "LuaJIT"
+    "version": "LuaJIT",
+    "special": {
+      "love.filesystem.load": "loadfile"
+    }
   },
   "diagnostics": {
-    "globals": ["love"]
+    "libraryFiles": "Disable"
   },
   "workspace": {
-    "ignoreDir": [".cache", ".git", ".claude", ".agents", "log", "tmp"]
+    "checkThirdParty": false,
+    "library": ["vendor/lua-cats-love2d/library"],
+    "ignoreDir": [".cache", ".git", ".claude", ".agents", "log", "tmp", "vendor/lua-cats-love2d"]
   }
 }

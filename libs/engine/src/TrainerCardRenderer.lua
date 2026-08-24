@@ -26,7 +26,7 @@ local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class TrainerCardRenderer
----@field _graphics love.Graphics
+---@field _graphics love.Graphics|love.graphics
 ---@field _text FieldTextRenderer the shared glyph atlas/text drawing collaborator
 ---@field _cardImage love.Image?
 ---@field _cardQuad love.Quad?
@@ -57,7 +57,7 @@ TrainerCardRenderer.TRAINER_ID_DIGITS = 5
 -- calls; LÖVE itself remains an allowed presentation-layer dependency (the
 -- PNG bytes still enter through love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, graphics?: love.Graphics|love.graphics }
 ---@return TrainerCardRenderer
 function TrainerCardRenderer.new(opts)
   assert(
@@ -103,6 +103,7 @@ function TrainerCardRenderer.new(opts)
         path = cardPath,
       })
     end
+    cardData = assert(cardData)
     self._cardImage = graphics.newImage(love.filesystem.newFileData(cardData, cardPath))
     self._cardImage:setFilter("nearest", "nearest")
     self:_buildQuads()

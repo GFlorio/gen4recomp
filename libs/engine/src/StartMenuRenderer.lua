@@ -28,7 +28,7 @@ local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class StartMenuRenderer
----@field _graphics love.Graphics
+---@field _graphics love.Graphics|love.graphics
 ---@field _backgroundImage love.Image?
 ---@field _cursorImage love.Image?
 ---@field _backgroundQuad love.Quad?
@@ -44,7 +44,7 @@ StartMenuRenderer.__index = StartMenuRenderer
 -- calls; LÖVE itself remains an allowed presentation-layer dependency (the
 -- PNG bytes still enter through love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, manifest: table, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, graphics?: love.Graphics|love.graphics }
 ---@return StartMenuRenderer
 function StartMenuRenderer.new(opts)
   assert(
@@ -99,6 +99,7 @@ function StartMenuRenderer.new(opts)
       }
     )
   end
+  backgroundData = assert(backgroundData)
   self._backgroundImage = graphics.newImage(love.filesystem.newFileData(backgroundData, backgroundPath))
   local cursorData = cacheFs:read(cursorPath)
   if not cursorData then
@@ -107,6 +108,7 @@ function StartMenuRenderer.new(opts)
       path = cursorPath,
     })
   end
+  cursorData = assert(cursorData)
   local ok, err = pcall(function()
     self._backgroundImage:setFilter("nearest", "nearest")
     self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, cursorPath))

@@ -7,3 +7,4 @@ data/generated/
 data/scripts/overrides/
 import-output/
 tmp/
+vendor/lua-cats-love2d/

@@ -59,22 +59,22 @@ end
 local function spyGraphics(sink)
   local realRectangle, realPrint, realSetColor = love.graphics.rectangle, love.graphics.print, love.graphics.setColor
   local color = { 1, 1, 1, 1 }
-  love.graphics.setColor = function(r, g, b, a)
+  rawset(love.graphics, "setColor", function(r, g, b, a)
     color = { r, g, b, a }
     realSetColor(r, g, b, a)
-  end
-  love.graphics.rectangle = function(mode, x, y, w, h)
+  end)
+  rawset(love.graphics, "rectangle", function(mode, x, y, w, h)
     sink[#sink + 1] = { "rect", color[1], color[2], color[3], color[4], mode, x, y, w, h }
     realRectangle(mode, x, y, w, h)
-  end
-  love.graphics.print = function(text, ...)
+  end)
+  rawset(love.graphics, "print", function(text, ...)
     sink[#sink + 1] = { "print", color[1], color[2], color[3], color[4], text }
     realPrint(text, ...)
-  end
+  end)
   return function()
-    love.graphics.rectangle = realRectangle
-    love.graphics.print = realPrint
-    love.graphics.setColor = realSetColor
+    rawset(love.graphics, "rectangle", realRectangle)
+    rawset(love.graphics, "print", realPrint)
+    rawset(love.graphics, "setColor", realSetColor)
   end
 end
 

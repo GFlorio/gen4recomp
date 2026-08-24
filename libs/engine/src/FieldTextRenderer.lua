@@ -55,7 +55,7 @@ end
 
 ---@class FieldTextRenderer
 ---@field fontDef FieldFontDef
----@field _graphics love.Graphics
+---@field _graphics love.Graphics|love.graphics
 ---@field _atlas love.Image?
 ---@field _maskAtlas love.Image?
 ---@field _paletteShader love.Shader?
@@ -73,7 +73,7 @@ FieldTextRenderer.__index = FieldTextRenderer
 -- allowed presentation-layer dependency (the atlas bytes still enter through
 -- love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics?, readSource?: fun(path: string): string }
+---@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics|love.graphics, readSource?: fun(path: string): string }
 ---@return FieldTextRenderer
 function FieldTextRenderer.new(opts)
   assert(
@@ -107,6 +107,7 @@ function FieldTextRenderer.new(opts)
       path = atlasPath,
     })
   end
+  data = assert(data)
   local maskAtlasPath = FieldFontCache.maskAtlasPath(fontId)
   local maskData = opts.cacheFs:read(maskAtlasPath)
   if not maskData then
@@ -115,6 +116,7 @@ function FieldTextRenderer.new(opts)
       path = maskAtlasPath,
     })
   end
+  maskData = assert(maskData)
   local focusPath = FieldFontCache.focusIndicatorsPath(fontId)
   local focusData = opts.cacheFs:read(focusPath)
   if not focusData then
@@ -123,6 +125,7 @@ function FieldTextRenderer.new(opts)
       path = focusPath,
     })
   end
+  focusData = assert(focusData)
   local ok, err = pcall(function()
     self._atlas = graphics.newImage(love.filesystem.newFileData(data, atlasPath))
     self._atlas:setFilter("nearest", "nearest")
