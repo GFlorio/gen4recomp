@@ -1077,6 +1077,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
       playerSteps = playerSteps + 1
       return false
     end,
+    collapseRenderInterpolation = function() end,
   }
   local map = {
     mapId = 61,
@@ -1092,6 +1093,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     updateFixed = function()
       cameraSteps = cameraSteps + 1
     end,
+    collapseRenderInterpolation = function() end,
   }
   local inactiveDialogue = {
     isModal = function()

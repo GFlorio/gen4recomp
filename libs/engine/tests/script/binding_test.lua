@@ -494,6 +494,7 @@ T["session script phase"] = function()
       self.motion = "idle"
       return false
     end,
+    collapseRenderInterpolation = function() end,
   }
   local runtimeMap = {
     mapId = 57,
@@ -501,7 +502,10 @@ T["session script phase"] = function()
     -- map clock entry is a safe no-op.
     updateAnimated = function() end,
   }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local transition = {
     phase = "idle",
     locked = false,

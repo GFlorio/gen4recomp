@@ -101,6 +101,7 @@ local function defaultPlayer()
     updateFixed = function()
       return false
     end,
+    collapseRenderInterpolation = function() end,
   }
 end
 
@@ -127,7 +128,10 @@ local function baseOptions(overrides)
       updateAnimated = function() end,
     },
     player = defaultPlayer(),
-    camera = { updateFixed = function() end },
+    camera = {
+      updateFixed = function() end,
+      collapseRenderInterpolation = function() end,
+    },
     transition = idleTransition(),
     actors = idleActors(),
     input = idleInput(),
@@ -172,6 +176,16 @@ local function baseOptions(overrides)
   for key, value in pairs(overrides) do
     options[key] = value
   end
+  -- Custom fixtures often replace only the operation they observe. Complete
+  -- those test doubles at the composition boundary so every normal fixture
+  -- still models the production interpolation contract; the validation tests
+  -- below remove the methods after this completion step.
+  if type(options.player.collapseRenderInterpolation) ~= "function" then
+    options.player.collapseRenderInterpolation = function() end
+  end
+  if type(options.camera.collapseRenderInterpolation) ~= "function" then
+    options.camera.collapseRenderInterpolation = function() end
+  end
   return options
 end
 
@@ -208,7 +222,10 @@ end
 
 function T.actor_only_construction_is_rejected()
   local actor = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   -- Intentional: the obsolete actor-only options shape must be rejected by the
   -- constructor's required-player contract.
   local options = {
@@ -227,8 +244,12 @@ function T.player_is_used_as_the_session_player()
     worldY = 2.5,
     worldZ = 3.75,
     updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
   }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local s = FieldSession.new(baseOptions({ player = player, camera = camera }))
   Assert.equal(s.player, player)
   Assert.deepEqual(s:actorTarget(), { x = 1.25, y = 2.5, z = 3.75 })
@@ -279,6 +300,8 @@ function T.required_collaborator_methods_are_validated_at_construction()
     { key = "applicationHost", method = "updateFixed", label = "applicationHost.updateFixed" },
     { key = "applicationHost", method = "requestOpen", label = "applicationHost.requestOpen" },
     { key = "applicationHost", method = "takeReopen", label = "applicationHost.takeReopen" },
+    { key = "player", method = "collapseRenderInterpolation", label = "player.collapseRenderInterpolation" },
+    { key = "camera", method = "collapseRenderInterpolation", label = "camera.collapseRenderInterpolation" },
   }
   for _, case in ipairs(cases) do
     local options = baseOptions({})
@@ -357,7 +380,10 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
     end,
   }
   local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local s = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -392,7 +418,10 @@ function T.script_completion_consumes_its_final_action_edge()
     updateFixed = function() end,
   }
   local map = { mapId = 61, updateAnimated = function() end } --[[@as any]]
-  local camera = { updateFixed = function() end } --[[@as any]]
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  } --[[@as any]]
   local interactions = {
     resolve = function()
       resolved = resolved + 1
@@ -468,7 +497,10 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
     end,
   }
   local map = { mapId = 61, updateAnimated = function() end }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -512,7 +544,10 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
     end,
   }
   local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local s = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -566,7 +601,10 @@ local function warpSession(options)
     end
     return false
   end
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -648,7 +686,10 @@ function T.actor_on_a_blocked_door_cell_does_not_block_the_facing_warp()
       return nil
     end,
   })
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -712,7 +753,10 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
       return nil
     end,
   })
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -927,7 +971,10 @@ function T.transition_commit_clears_stale_action_edges()
       error("a completing transition never starts a warp", 2)
     end,
   }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
@@ -978,7 +1025,10 @@ local function interactionSession(opts)
     end,
     collapseRenderInterpolation = function() end,
   }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local actors = { step = function() end }
   local transition = {
     phase = "idle",
@@ -1120,7 +1170,23 @@ local function passiveArbitrationSession(opts)
     updateFixed = function()
       return false
     end,
-    collapseRenderInterpolation = function() end,
+    collapseRenderInterpolation = function()
+      if opts.events then
+        opts.events[#opts.events + 1] = "player collapse"
+      end
+    end,
+  }
+  local camera = {
+    updateFixed = function(_, target)
+      if opts.events then
+        opts.events[#opts.events + 1] = { "camera update", target.x, target.y, target.z }
+      end
+    end,
+    collapseRenderInterpolation = function()
+      if opts.events then
+        opts.events[#opts.events + 1] = "camera collapse"
+      end
+    end,
   }
   local eventResolver = {
     resolveCoordinate = function()
@@ -1140,11 +1206,15 @@ local function passiveArbitrationSession(opts)
   local scriptClient = {
     consume = function(_, intent)
       assert(intent == opts.actionIntent or intent == opts.passiveIntent)
+      if opts.events then
+        opts.events[#opts.events + 1] = "script consume"
+      end
       return ScriptInteractionClient.RESULTS.started
     end,
   }
   local session = FieldSession.new(baseOptions({
     player = player,
+    camera = camera,
     eventResolver = eventResolver,
     interactions = interactions,
     scriptClient = scriptClient,
@@ -1199,24 +1269,40 @@ end
 
 function T.coordinate_script_handoff_settles_the_player_visual()
   local intent = { kind = "coordinate" }
+  local events = {}
   local player = defaultPlayer()
+  player.worldX, player.worldY, player.worldZ = 1, 2, 3
   player.motion = "walking"
   player.updateFixed = function(self)
     self.motion = "idle"
+    self.worldX, self.worldY, self.worldZ = 4, 5, 6
     return true
+  end
+  player.collapseRenderInterpolation = function()
+    events[#events + 1] = "player collapse"
   end
   local visual = {
     settleCalls = 0,
     settle = function(self)
       self.settleCalls = self.settleCalls + 1
+      events[#events + 1] = "visual settle"
     end,
     updateFixed = function()
       error("the handoff owns the completed step before the normal visual tick", 2)
     end,
   }
   local consumed
+  local camera = {
+    updateFixed = function(_, target)
+      events[#events + 1] = { "camera update", target.x, target.y, target.z }
+    end,
+    collapseRenderInterpolation = function()
+      events[#events + 1] = "camera collapse"
+    end,
+  }
   local session = FieldSession.new(baseOptions({
     player = player,
+    camera = camera,
     playerVisual = visual,
     eventResolver = {
       resolveCoordinate = function()
@@ -1229,6 +1315,7 @@ function T.coordinate_script_handoff_settles_the_player_visual()
     scriptClient = {
       consume = function(_, received)
         consumed = received
+        events[#events + 1] = "script consume"
         return ScriptInteractionClient.RESULTS.started
       end,
     },
@@ -1238,14 +1325,23 @@ function T.coordinate_script_handoff_settles_the_player_visual()
 
   Assert.equal(visual.settleCalls, 1)
   Assert.equal(consumed, intent)
+  Assert.deepEqual(events, {
+    "visual settle",
+    "player collapse",
+    { "camera update", 4, 5, 6 },
+    "camera collapse",
+    "script consume",
+  })
 end
 
 function T.passive_script_handoff_settles_the_player_visual()
   local intent = { kind = "background" }
+  local events = {}
   local visual = {
     settleCalls = 0,
     settle = function(self)
       self.settleCalls = self.settleCalls + 1
+      events[#events + 1] = "visual settle"
     end,
     updateFixed = function()
       error("the passive handoff owns the tick before the normal visual tick", 2)
@@ -1255,11 +1351,19 @@ function T.passive_script_handoff_settles_the_player_visual()
     facing = "north",
     passiveIntent = intent,
     playerVisual = visual,
+    events = events,
   })
 
   session:updateFixed({ pressedDirection = "north" })
 
   Assert.equal(visual.settleCalls, 1)
+  Assert.deepEqual(events, {
+    "visual settle",
+    "player collapse",
+    { "camera update", 0, 0, 0 },
+    "camera collapse",
+    "script consume",
+  })
 end
 
 function T.catch_up_ticks_do_not_replay_one_action_edge()
@@ -1290,7 +1394,10 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
       return false
     end,
   }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local actors = { step = function() end }
   local transition = {
     phase = "idle",
@@ -1395,7 +1502,10 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
     player = player,
     spriteId = 0,
   })
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -1740,7 +1850,10 @@ function T.script_locked_ticks_still_advance_the_scene_clock()
       return false
     end,
   }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local map = {
     mapId = 61,
     cameraType = 4,
@@ -2259,7 +2372,10 @@ function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
     end,
     collapseRenderInterpolation = function() end,
   }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local s = FieldSession.new(baseOptions({
     audio = audio,
     currentMap = map,
@@ -2344,7 +2460,10 @@ function T.field_policy_runs_once_per_tick_and_never_touches_the_sound_frame_clo
     end,
     collapseRenderInterpolation = function() end,
   }
-  local camera = { updateFixed = function() end }
+  local camera = {
+    updateFixed = function() end,
+    collapseRenderInterpolation = function() end,
+  }
   local s = FieldSession.new(baseOptions({
     audio = audio,
     currentMap = map,

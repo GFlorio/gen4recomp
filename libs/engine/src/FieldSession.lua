@@ -103,8 +103,13 @@ function FieldSession.new(options)
     "field session current map animation clock required"
   )
   assert(
-    options.player and options.player.updateFixed and options.camera and options.camera.updateFixed,
-    "field session player and camera required"
+    options.player
+      and type(options.player.updateFixed) == "function"
+      and type(options.player.collapseRenderInterpolation) == "function"
+      and options.camera
+      and type(options.camera.updateFixed) == "function"
+      and type(options.camera.collapseRenderInterpolation) == "function",
+    "field session player and camera interpolation contract required"
   )
   assert(
     options.transition and options.transition.updateFixed and options.transition.start,
@@ -223,6 +228,16 @@ local function consumeScriptIntent(self, intent)
   self:_advanceTick()
 end
 
+local function settleScriptHandoffPresentation(self)
+  assert(self.player.motion == "idle", "script handoff requires an idle player")
+  if self.playerVisual then
+    self.playerVisual:settle()
+  end
+  self.player:collapseRenderInterpolation()
+  self.camera:updateFixed(self:actorTarget())
+  self.camera:collapseRenderInterpolation()
+end
+
 function FieldSession:updateFixed(inputSnapshot)
   -- Ordinary field-audio runs on its semantic events (step-completion and
   -- map-entry), not at the top of every fixed tick. updateField is the
@@ -246,7 +261,7 @@ function FieldSession:updateFixed(inputSnapshot)
       self.playerVisual:updateFixed(true)
     end
     self.camera:updateFixed(self:actorTarget())
-    if self.transition.completed and type(self.camera.collapseRenderInterpolation) == "function" then
+    if self.transition.completed then
       self.camera:collapseRenderInterpolation()
     end
     -- Keep the just-arrived tile stable until the application consumes the
@@ -391,9 +406,7 @@ function FieldSession:updateFixed(inputSnapshot)
   if self.player.motion == "idle" and passiveDirection == self.player.facing then
     local intent = resolvePassiveSign(self)
     if intent then
-      if self.playerVisual then
-        self.playerVisual:settle()
-      end
+      settleScriptHandoffPresentation(self)
       consumeScriptIntent(self, intent)
       return
     end
@@ -468,9 +481,7 @@ function FieldSession:updateFixed(inputSnapshot)
     end
     local coordinateIntent = resolveCoordinate(self)
     if coordinateIntent then
-      if self.playerVisual then
-        self.playerVisual:settle()
-      end
+      settleScriptHandoffPresentation(self)
       consumeScriptIntent(self, coordinateIntent)
       return
     end
@@ -495,9 +506,7 @@ function FieldSession:updateFixed(inputSnapshot)
     end
     local passiveIntent = resolvePassiveSign(self)
     if passiveIntent then
-      if self.playerVisual then
-        self.playerVisual:settle()
-      end
+      settleScriptHandoffPresentation(self)
       consumeScriptIntent(self, passiveIntent)
       return
     end

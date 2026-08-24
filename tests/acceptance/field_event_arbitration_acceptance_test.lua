@@ -183,7 +183,7 @@ end
 function T.tests.passive_script_handoff_settles_the_player_visual()
   withGame(TOWN, function(game)
     local typeOne = assert(backgroundCell(game, 1), "a scripted type-one background event is required")
-    game:moveTo({ fieldX = typeOne.x, fieldZ = typeOne.z + 1 })
+    game:moveTo({ fieldX = typeOne.x, fieldZ = typeOne.z + 2 })
     game.runtime.player.facing = "north"
     game:step({ direction = "north" })
 
@@ -192,6 +192,31 @@ function T.tests.passive_script_handoff_settles_the_player_visual()
     end, 120)
     Assert.equal(handoff.playerVisual.pose, "idle")
     Assert.equal(handoff.playerVisual.poseTick, 0)
+
+    local function sample()
+      return {
+        player = game.runtime.player:renderPosition(0),
+        camera = game.runtime.camera:view(0),
+      }
+    end
+    local first = sample()
+    for _, alpha in ipairs({ 0.5, 1 }) do
+      Assert.deepEqual(game.runtime.player:renderPosition(alpha), first.player)
+      Assert.deepEqual(game.runtime.camera:view(alpha), first.camera)
+    end
+    Assert.deepEqual(first.player, {
+      x = game.runtime.player.worldX,
+      y = game.runtime.player.worldY,
+      z = game.runtime.player.worldZ,
+    })
+
+    game:step()
+    game:step()
+    game:step()
+    game:step()
+    local later = sample()
+    Assert.deepEqual(later.player, first.player)
+    Assert.deepEqual(later.camera, first.camera)
   end, { recordingScriptHosts = true })
 end
 
