@@ -34,7 +34,9 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field dialogue { message: string|table|nil, messageKey: string? }?
 ---@field revealFrameIndex integer|nil
----@field flashAlpha number
+---@field sceneBrightness number
+---@field revealBrightness number
+---@field revealOpacity number
 ---@field finalFadeAlpha number black overlay alpha for the final handoff
 ---@field genderFocus integer
 ---@field name string
@@ -68,7 +70,9 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _visual string
 ---@field private _visualFrameIndex integer
 ---@field private _visualFrameTimer integer?
----@field private _flashFrames integer
+---@field private _sceneBrightness integer
+---@field private _revealBrightness integer
+---@field private _revealOpacity integer
 ---@field private _finalFadeAlpha number
 ---@field private _revealFrameIndex integer|nil
 ---@field private _revealFrameTimer integer|nil
@@ -102,7 +106,6 @@ local MARILL_HIDE_WAIT = 30
 local NAME_LAUNCH_WAIT = 40
 local FINAL_FULL_ART_HOLD = 30
 local FINAL_FADE_FRAMES = 1
-local FLASH_FRAMES = 4
 local OAK_SLIDE_OFFSET = -52
 
 local function requireMessage(messages, key)
@@ -190,7 +193,9 @@ function OakIntroController.new(options)
     _visual = "background",
     _visualFrameIndex = 1,
     _visualFrameTimer = nil,
-    _flashFrames = 0,
+    _sceneBrightness = 0,
+    _revealBrightness = 0,
+    _revealOpacity = 16,
     _finalFadeAlpha = 0,
     _revealFrameIndex = nil,
     _revealFrameTimer = nil,
@@ -273,13 +278,14 @@ function OakIntroController:_setMessage(key)
 end
 
 function OakIntroController:_startAppearance()
-  self._flashFrames = FLASH_FRAMES
   self:_startReveal("marill_appear")
+  self._revealBrightness = 16
   self._phase = "marill_appear"
 end
 
 function OakIntroController:_startCry()
   self:_startReveal("marill")
+  self._revealBrightness = 0
   self._audio:playCry(184, 0)
   self:_event("marill_appears", "marill")
   self._phase = "marill_cry_wait"
@@ -323,18 +329,26 @@ function OakIntroController:_stepFrame()
   self._sourceFrames = self._sourceFrames + 1
   self._audio:updateSoundFrame()
   local startedCry = false
-  if self._flashFrames > 0 then
-    self._flashFrames = self._flashFrames - 1
-  end
   if self._phase == "shrink_animation" and self:_advanceVisual() then
     self:_finish()
     return
-  elseif self._phase == "ball_open_wait" or self._phase == "marill_appear" then
+  elseif self._phase == "ball_open_wait" then
+    self:_advanceReveal(true)
+  elseif self._phase == "scene_flash" then
+    self._sceneBrightness = math.max(0, self._sceneBrightness - 4)
+    if self._sceneBrightness == 0 then
+      self:_startAppearance()
+    end
+  elseif self._phase == "marill_appear" then
     if self:_advanceReveal(false) then
-      if self._phase == "marill_appear" then
-        self:_startCry()
-        startedCry = true
-      end
+      self._phase = "marill_brightness_fade"
+      self._revealBrightness = 16
+    end
+  elseif self._phase == "marill_brightness_fade" then
+    self._revealBrightness = math.max(0, self._revealBrightness - 1)
+    if self._revealBrightness == 0 then
+      self:_startCry()
+      startedCry = true
     end
   elseif self._phase == "marill_cry_wait" and not startedCry then
     self:_advanceReveal(true)
@@ -387,7 +401,8 @@ function OakIntroController:_stepFrame()
     if self._timer == 0 then
       self:_event("ball_flash", "opening")
       self._audio:play("SEQ_SE_DP_BOWA2")
-      self:_startAppearance()
+      self._sceneBrightness = 16
+      self._phase = "scene_flash"
     end
   elseif self._phase == "marill_cry_wait" and not startedCry then
     self._timer = self._timer - 1
@@ -395,6 +410,15 @@ function OakIntroController:_stepFrame()
       self._phase = "oak_live_alongside"
       self:_setVisual("oak")
       self:_setMessage("oak.live_alongside")
+    end
+  elseif self._phase == "marill_hide" then
+    self._revealOpacity = math.max(0, self._revealOpacity - 1)
+    if self._revealOpacity == 0 then
+      self._revealWidget = nil
+      self._revealFrameIndex = nil
+      self._revealFrameTimer = nil
+      self._phase = "marill_hide_wait"
+      self._timer = MARILL_HIDE_WAIT
     end
   elseif self._phase == "marill_hide_wait" then
     self._timer = self._timer - 1
@@ -554,11 +578,8 @@ function OakIntroController:press(action)
     self:_startReveal("ball_open")
     self:_event("ball_opened", "ball_open")
   elseif (action == "confirm" or action == "yes") and self._phase == "oak_live_alongside" then
-    self._phase = "marill_hide_wait"
-    self._timer = MARILL_HIDE_WAIT
-    self._revealWidget = nil
-    self._revealFrameIndex = nil
-    self._revealFrameTimer = nil
+    self._phase = "marill_hide"
+    self._revealOpacity = 16
     self:_setVisual("oak")
     self:_event("marill_hidden", "marill")
   elseif (action == "confirm" or action == "yes") and self._phase == "oak_tell_about_yourself" then
@@ -655,7 +676,9 @@ function OakIntroController:view()
     message = self._message,
     visual = self._visual,
     visualFrameIndex = self._visualFrameIndex,
-    flashAlpha = self._flashFrames / FLASH_FRAMES,
+    sceneBrightness = self._sceneBrightness / 16,
+    revealBrightness = self._revealBrightness / 16,
+    revealOpacity = self._revealOpacity / 16,
     genderFocus = self._genderFocus,
     name = self._name,
     virtualGlyphFocus = self._virtualFocus,

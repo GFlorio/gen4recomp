@@ -437,7 +437,9 @@ function T.tests.source_reveal_composition_draws_distinct_semantic_stages()
     visual = "oak",
     visualFrameIndex = 1,
     primaryWidget = "oak",
-    flashAlpha = 0,
+    sceneBrightness = 0,
+    revealBrightness = 0,
+    revealOpacity = 1,
     revealWidget = "ball_open",
     revealFrameIndex = 1,
   })
@@ -451,7 +453,9 @@ function T.tests.source_reveal_composition_draws_distinct_semantic_stages()
     visual = "oak",
     visualFrameIndex = 1,
     primaryWidget = "oak",
-    flashAlpha = 0,
+    sceneBrightness = 0,
+    revealBrightness = 0,
+    revealOpacity = 1,
     revealWidget = appearance.revealWidget,
     revealFrameIndex = appearance.revealFrameIndex,
   })

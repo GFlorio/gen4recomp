@@ -21,6 +21,15 @@ local REQUIRED_ASSETS = {
   "gender_female",
 }
 
+local REVEAL_SHADER = [[
+  uniform number brightness;
+  vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+    vec4 sampled = Texel(texture, texture_coords) * color;
+    sampled.rgb = mix(sampled.rgb, vec3(1.0), brightness);
+    return sampled;
+  }
+]]
+
 local function defaultImageLoader(path)
   return love.graphics.newImage(path, { linear = false, mipmaps = false })
 end
@@ -102,17 +111,27 @@ function OakIntroRenderer.new(options)
   local imageLoader = options.imageLoader or defaultImageLoader
   assert(type(imageLoader) == "function", "Oak renderer image loader must be callable")
   local images, bindings, renderedAssets = loadResources(options.manifest, graphics, imageLoader)
+  local ok, revealShader = pcall(graphics.newShader, REVEAL_SHADER)
+  if not ok then
+    local acquired = {}
+    for _, image in pairs(images) do
+      acquired[#acquired + 1] = image
+    end
+    releaseAll(acquired)
+    error(revealShader, 0)
+  end
   return setmetatable({
     assets = renderedAssets,
     graphics = graphics,
     text = text,
     images = images,
     bindings = bindings,
+    revealShader = revealShader,
     released = false,
   }, OakIntroRenderer)
 end
 
-local function drawAsset(self, assetId, frameIndex, region)
+local function drawAsset(self, assetId, frameIndex, region, opacity, brightness)
   local asset = self.assets[assetId]
   assert(asset ~= nil, "intro asset is missing: " .. assetId)
   local frame = asset.frames[frameIndex or 1]
@@ -121,8 +140,21 @@ local function drawAsset(self, assetId, frameIndex, region)
   local scale = math.min(region.width / frame.width, region.height / frame.height)
   local x = region.x + (region.width - frame.width * scale) / 2
   local y = region.y + (region.height - frame.height * scale) / 2
-  self.graphics.setColor(1, 1, 1, 1)
+  if brightness ~= nil then
+    assert(brightness >= 0 and brightness <= 1, "intro reveal brightness is out of range")
+  end
+  if opacity ~= nil then
+    assert(opacity >= 0 and opacity <= 1, "intro reveal opacity is out of range")
+  end
+  if brightness and brightness > 0 then
+    self.revealShader:send("brightness", brightness)
+    self.graphics.setShader(self.revealShader)
+  end
+  self.graphics.setColor(1, 1, 1, opacity or 1)
   self.graphics.draw(binding.image, binding.quad, x, y, 0, scale, scale)
+  if brightness and brightness > 0 then
+    self.graphics.setShader(nil)
+  end
 end
 
 local function drawBackground(self, region)
@@ -136,7 +168,7 @@ local function drawBackground(self, region)
 end
 
 ---@param view table
-function OakIntroRenderer:draw(view)
+function OakIntroRenderer:_draw(view)
   assert(not self.released, "Oak renderer is released")
   local graphics = self.graphics
   local layout = view.layout
@@ -148,10 +180,11 @@ function OakIntroRenderer:draw(view)
     drawAsset(self, view.visual, view.visualFrameIndex, layout.subject)
   end
   if view.revealWidget ~= nil and layout.reveal ~= nil then
-    drawAsset(self, view.revealWidget, view.revealFrameIndex, layout.reveal)
+    drawAsset(self, view.revealWidget, view.revealFrameIndex, layout.reveal, view.revealOpacity, view.revealBrightness)
   end
-  if view.flashAlpha > 0 then
-    graphics.setColor(1, 1, 1, view.flashAlpha)
+  if view.sceneBrightness > 0 then
+    assert(view.sceneBrightness <= 1, "intro scene brightness is out of range")
+    graphics.setColor(1, 1, 1, view.sceneBrightness)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
   local finalFadeAlpha = view.finalFadeAlpha or 0
@@ -202,6 +235,21 @@ function OakIntroRenderer:draw(view)
   end
 end
 
+function OakIntroRenderer:draw(view)
+  assert(not self.released, "Oak renderer is released")
+  local graphics = self.graphics
+  local red, green, blue, alpha = graphics.getColor()
+  local shader = graphics.getShader()
+  local ok, failure = xpcall(function()
+    self:_draw(view)
+  end, debug.traceback)
+  graphics.setShader(shader)
+  graphics.setColor(red, green, blue, alpha)
+  if not ok then
+    error(failure, 0)
+  end
+end
+
 function OakIntroRenderer:dispose()
   if self.released then
     return
@@ -214,6 +262,10 @@ function OakIntroRenderer:dispose()
   releaseAll(resources)
   self.images = {}
   self.bindings = {}
+  if self.revealShader and self.revealShader.release then
+    self.revealShader:release()
+  end
+  self.revealShader = nil
 end
 
 return OakIntroRenderer

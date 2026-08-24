@@ -25,7 +25,13 @@ end
 function OakIntroMessages:_format(key, context)
   local template = assert(self.templates[key], "generated Oak message is missing: " .. key)
   local function resolvePlayerName(control, args, resolverContext)
-    if control ~= FieldMessageText.STRVAR_1 + 3 or #args ~= 2 or args[1] ~= 0 or args[2] ~= 0 then
+    local canonical = control == FieldMessageText.STRVAR_1 + 3 and #args == 2 and args[1] == 0 and args[2] == 0
+    local sourceForm = control == FieldMessageText.STRVAR_1
+      and #args == 3
+      and args[1] == 3
+      and args[2] == 0
+      and args[3] == 0
+    if not canonical and not sourceForm then
       return nil
     end
     assert(type(resolverContext.playerName) == "string", "Oak player name is required")

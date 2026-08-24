@@ -63,7 +63,9 @@ local function view()
     phase = "oak_welcome",
     visual = "oak",
     visualFrameIndex = 2,
-    flashAlpha = 0,
+    sceneBrightness = 0,
+    revealBrightness = 0,
+    revealOpacity = 1,
     message = nil,
     name = "",
     layout = {
@@ -150,7 +152,7 @@ T.responsive_renderer_uses_declared_sampling_and_identity_tint = function()
   renderer:draw(normal)
   local flash = view()
   flash.primaryWidget = "oak"
-  flash.flashAlpha = 1
+  flash.sceneBrightness = 1
   renderer:draw(flash)
 
   Assert.equal(#graphics.draws, 4, "each frame draws background and Oak exactly once")

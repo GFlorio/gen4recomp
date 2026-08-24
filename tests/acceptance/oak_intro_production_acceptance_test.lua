@@ -2,6 +2,8 @@
 -- the selected generated cache without a test Oak factory.
 
 local Assert = require("tests.support.Assert")
+local FakeGraphics = require("tests.support.FakeGraphics")
+local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local FakeCache = require("tests.support.FakeCache")
 local App = require("game.src.game.App")
@@ -116,10 +118,40 @@ local function advanceUntilPhase(state, phase)
 end
 
 local function assertResolvedMessage(state, messageKey, playerName)
-  local message = assert(state:view().dialogue and state:view().dialogue.message)
   Assert.equal(state:view().messageKey, messageKey)
-  Assert.isFalse(message.hadUnresolvedSubstitutions)
-  Assert.isTrue(message.text:find(playerName, 1, true) ~= nil, "Oak message must contain the current player name")
+  for _ = 1, 2000 do
+    local visibleText = {}
+    for _, line in ipairs(state.dialogueController:status().visibleLines) do
+      for _, token in ipairs(line) do
+        if token.text then
+          visibleText[#visibleText + 1] = token.text
+        end
+      end
+    end
+    if table.concat(visibleText):find(playerName, 1, true) then
+      return
+    end
+    state.dialogueController:step()
+  end
+  error("Oak dialogue did not reveal the player name")
+end
+
+local function eventsNamed(state, kind)
+  local events = {}
+  for _, event in ipairs(state.controller:view().events) do
+    if event.kind == kind then
+      events[#events + 1] = event
+    end
+  end
+  return events
+end
+
+local function durationTotal(frames)
+  local total = 0
+  for _, frame in ipairs(frames) do
+    total = total + frame.duration
+  end
+  return total
 end
 
 hostSeams = function()
@@ -133,11 +165,7 @@ hostSeams = function()
   function image:setFilter() end
   function image:release() end
 
-  local graphics = {
-    newQuad = function()
-      return {}
-    end,
-  }
+  local graphics = FakeGraphics.new()
   local audio = FakeAudioOutput.new()
   return {
     graphics = graphics,
@@ -198,7 +226,7 @@ function T.tests.confirmation_text_requires_a_later_explicit_choice_edge()
   forEachReadyVersion(function(versionId)
     withProductionOak(versionId, function(state)
       advanceUntilMessage(state, "profile.gender_question")
-      state:keypressed("return")
+      finishDialogueBoundary(state)
       state:keypressed("return")
       Assert.equal(state:view().messageKey, "profile.gender_confirm.male")
 
@@ -211,7 +239,7 @@ function T.tests.confirmation_text_requires_a_later_explicit_choice_edge()
       state:keypressed("escape")
       Assert.equal(state:view().phase, "gender_question")
 
-      state:keypressed("return")
+      finishDialogueBoundary(state)
       state:keypressed("return")
       finishDialogueBoundary(state)
       Assert.equal(state:view().phase, "gender_confirm")
@@ -235,7 +263,7 @@ function T.tests.player_name_is_formatted_when_each_confirmation_message_opens()
   forEachReadyVersion(function(versionId)
     withProductionOak(versionId, function(state)
       advanceUntilMessage(state, "profile.gender_question")
-      state:keypressed("return")
+      finishDialogueBoundary(state)
       state:keypressed("right")
       state:keypressed("return")
       finishDialogueBoundary(state)
@@ -250,7 +278,7 @@ function T.tests.player_name_is_formatted_when_each_confirmation_message_opens()
       finishDialogueBoundary(state)
       state:keypressed("escape")
 
-      state:keypressed("return")
+      finishDialogueBoundary(state)
       state:keypressed("left")
       state:keypressed("return")
       finishDialogueBoundary(state)
@@ -263,6 +291,126 @@ function T.tests.player_name_is_formatted_when_each_confirmation_message_opens()
       finishDialogueBoundary(state)
       state:keypressed("return")
       assertResolvedMessage(state, "profile.final", "GOLD")
+    end)
+  end)
+end
+
+function T.tests.production_oak_reveal_uses_source_stage_boundaries()
+  local harness = AcceptanceHarness.new()
+  harness:forEachVersion(function(versionId)
+    withProductionOak(versionId, function(state)
+      advanceUntilMessage(state, "oak.world_inhabited")
+      finishDialogueBoundary(state)
+
+      local view = state:view()
+      Assert.equal(view.phase, "ball_open_wait")
+      Assert.equal(view.revealWidget, "ball_open")
+      local firstBallFrame = view.revealFrameIndex
+
+      advanceUntilPhase(state, "scene_flash")
+      view = state:view()
+      Assert.equal(view.revealWidget, "ball_open", "the ball must remain through the scene flash")
+      Assert.equal(
+        view.sceneBrightness,
+        1,
+        "the flash must begin at full scene brightness (phase=" .. tostring(view.phase) .. ")"
+      )
+      Assert.equal(#eventsNamed(state, "ball_flash"), 1)
+      Assert.equal(view.revealFrameIndex, firstBallFrame, "the ball hold must use its source timing")
+
+      local expectedBrightness = { 12 / 16, 8 / 16, 4 / 16, 0 }
+      for _, brightness in ipairs(expectedBrightness) do
+        state:tick(1)
+        view = state:view()
+        Assert.equal(view.sceneBrightness, brightness)
+        if brightness > 0 then
+          Assert.equal(view.revealWidget, "ball_open")
+        end
+      end
+      Assert.equal(view.revealWidget, "marill_appear")
+      Assert.equal(view.revealBrightness, 1)
+
+      local appearanceFrames = assert(state.manifest.widgets.marill_appear.frames)
+      local firstAppearanceFrame = view.revealFrameIndex
+      local firstDuration = appearanceFrames[firstAppearanceFrame].duration
+      if firstDuration > 1 then
+        state:tick(firstDuration - 1)
+        Assert.equal(state:view().revealFrameIndex, firstAppearanceFrame)
+      end
+
+      local brightnessTrace = {}
+      for _ = 1, 2000 do
+        state:tick(1)
+        view = state:view()
+        brightnessTrace[#brightnessTrace + 1] = view.revealBrightness
+        if view.revealWidget == "marill" and view.revealBrightness == 0 then
+          break
+        end
+      end
+      Assert.equal(view.revealWidget, "marill")
+      Assert.equal(view.revealBrightness, 0)
+      Assert.equal(#eventsNamed(state, "marill_appears"), 1)
+      Assert.isTrue(#brightnessTrace >= durationTotal(appearanceFrames) - firstDuration + 1 + 16)
+      Assert.equal(brightnessTrace[#brightnessTrace], 0)
+    end)
+  end)
+end
+
+function T.tests.production_oak_keeps_marill_visible_through_dialogue_and_hide()
+  local harness = AcceptanceHarness.new()
+  harness:forEachVersion(function(versionId)
+    withProductionOak(versionId, function(state)
+      advanceUntilMessage(state, "oak.world_inhabited")
+      finishDialogueBoundary(state)
+      state:tick(30)
+      state:tick(4)
+
+      advanceUntilMessage(state, "oak.live_alongside")
+      local view = state:view()
+      Assert.equal(view.revealWidget, "marill")
+      Assert.equal(view.revealBrightness, 0)
+      Assert.equal(view.revealOpacity, 1)
+
+      finishDialogueBoundary(state)
+      view = state:view()
+      Assert.equal(view.revealWidget, "marill")
+      Assert.equal(view.phase, "marill_hide")
+      Assert.equal(view.revealOpacity, 15 / 16, "dialogue completion must start, not skip, the hide")
+      Assert.equal(view.oakSlideOffset, -52)
+
+      local expectedOpacity = {
+        14 / 16,
+        13 / 16,
+        12 / 16,
+        11 / 16,
+        10 / 16,
+        9 / 16,
+        8 / 16,
+        7 / 16,
+        6 / 16,
+        5 / 16,
+        4 / 16,
+        3 / 16,
+        2 / 16,
+        1 / 16,
+        0,
+      }
+      for _, opacity in ipairs(expectedOpacity) do
+        state:tick(1)
+        view = state:view()
+        if opacity > 0 then
+          Assert.equal(view.revealWidget, "marill")
+        end
+        Assert.equal(view.revealOpacity, opacity)
+      end
+      Assert.isNil(view.revealWidget)
+      Assert.equal(view.phase, "marill_hide_wait")
+      Assert.equal(view.oakSlideOffset, -52)
+
+      state:tick(30)
+      view = state:view()
+      Assert.equal(view.phase, "oak_slide_left")
+      Assert.equal(view.oakSlideOffset, -52)
     end)
   end)
 end
