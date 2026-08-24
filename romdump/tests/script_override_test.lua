@@ -120,7 +120,7 @@ function T.tests.map_intents_match_the_compiler_canonical_id()
   Assert.equal(hit.trigger.scriptId, expected)
 end
 
-function T.tests.zero_raw_script_id_is_not_interactive()
+function T.tests.zero_raw_script_id_resolves_to_the_inert_interaction()
   local bindings = Bindings.new()
   local intent = {
     kind = "background",
@@ -130,7 +130,8 @@ function T.tests.zero_raw_script_id_is_not_interactive()
     playerFacing = "north",
     background = { eventIndex = 0, type = 1, direction = 4 },
   }
-  Assert.isNil(bindings:resolveIntent(intent, intent.playerFacing))
+  local resolved = assert(bindings:resolveIntent(intent, intent.playerFacing))
+  Assert.equal(resolved.scriptId, "runtime.inert_interaction")
 end
 
 function T.tests.synthetic_override_keeps_explicit_precedence()

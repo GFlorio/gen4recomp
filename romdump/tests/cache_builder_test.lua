@@ -37,6 +37,9 @@ local FAKE_PATHS = {
   "libs.assets.src.IntroAssetCache",
   "romdump.src.digest.FieldWeatherCompiler",
   "romdump.src.digest.FieldWeatherCacheWriter",
+  "romdump.src.digest.FieldEntranceIndicatorCompiler",
+  "romdump.src.digest.FieldEntranceIndicatorCacheWriter",
+  "libs.assets.src.FieldEffectAssetCache",
   "romdump.src.digest.script.ScriptCompiler",
   "romdump.src.digest.ScriptCacheWriter",
   "libs.assets.src.ScriptCache",
@@ -140,6 +143,7 @@ local function newEnv()
     uiBundle = { marker = "ui-v1" },
     introBundle = { marker = "intro-v1" },
     weatherBundle = { marker = "weather-v1" },
+    effectBundle = { marker = "effect-v1" },
     messageBundle = { marker = "msg-v1", index = { bankIds = { 4, 8 } } },
     scriptBundle = { marker = "scr-v1", index = { resourceCount = 2, scriptMemberCount = 9 } },
     audioBundle = { marker = "audio-v1", index = {} },
@@ -280,6 +284,11 @@ local function makeFakes()
       return env.weatherBundle
     end,
   }
+  fakes.FieldEntranceIndicatorCompiler = {
+    compile = function()
+      return env.effectBundle
+    end,
+  }
   fakes.FieldWeatherCacheWriter = {
     isReady = function()
       return not env.stale.FieldWeatherCacheWriter
@@ -366,6 +375,7 @@ function T.current_build_logs_every_class_and_stages_and_publishes_the_world_man
     "build-cache: heartgold field font current",
     "build-cache: heartgold field ui current",
     "build-cache: heartgold intro assets current",
+    "build-cache: heartgold warp entrance field effect current",
     "build-cache: heartgold field weather current",
     "build-cache: heartgold field messages current",
     "build-cache: heartgold scripts current",
@@ -454,6 +464,7 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     "build-cache: heartgold field font compiled",
     "build-cache: heartgold field ui compiled",
     "build-cache: heartgold intro assets current",
+    "build-cache: heartgold warp entrance field effect current",
     "build-cache: heartgold field weather compiled",
     "build-cache: heartgold field messages compiled (2 banks)",
     "build-cache: heartgold scripts compiled (2 resources, 9 members)",
@@ -479,11 +490,11 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
   Assert.isNil(report)
   Assert.equal(err, "cache preparation failed")
-  Assert.equal(capture.lines[10], "build-cache: heartgold scripts current")
-  Assert.equal(capture.lines[11], "build-cache: heartgold audio current")
-  Assert.equal(capture.lines[12], "build-cache: heartgold map 2 current")
+  Assert.equal(capture.lines[11], "build-cache: heartgold scripts current")
+  Assert.equal(capture.lines[12], "build-cache: heartgold audio current")
+  Assert.equal(capture.lines[13], "build-cache: heartgold map 2 current")
   Assert.equal(
-    capture.lines[13],
+    capture.lines[14],
     "build-cache: heartgold map 5 excluded: MAP_SCHEMA_INVALID: injected compile rejection"
   )
   Assert.deepEqual(env.worldStage.compileExcluded, {
@@ -496,11 +507,11 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
     },
   })
   Assert.equal(
-    capture.lines[14],
+    capture.lines[15],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
   Assert.equal(
-    capture.lines[15],
+    capture.lines[16],
     "build-cache: compile exclusions remain; " .. "rerun with --allow-compile-exclusions to accept them"
   )
   Assert.equal(env.worldPublishes, 0, "an unaccepted-exclusion build must never publish its staged world")
@@ -514,10 +525,10 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   Assert.isNil(err2)
   Assert.deepEqual(report2, { published = true, complete = false, exclusionCount = 1 })
   Assert.equal(
-    accepted.lines[14],
+    accepted.lines[15],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
-  Assert.equal(accepted.lines[15], "build-cache: heartgold world.lua published")
+  Assert.equal(accepted.lines[16], "build-cache: heartgold world.lua published")
   Assert.equal(env.worldPublishes, 1, "an accepted-exclusion build publishes its staged world")
   -- A build that accepted compile exclusions is not a strict success and must
   -- never publish the successful-build attestation.
@@ -691,6 +702,7 @@ function T.producer_mismatch_forces_every_writer_and_publishes_after_strict_succ
     "AudioCacheWriter.write",
     "FieldActorCacheWriter.write",
     "FieldCameraCacheWriter.write",
+    "FieldEntranceIndicatorCacheWriter.write",
     "FieldFontCacheWriter.write",
     "FieldMapDataCacheWriter.write",
     "FieldMapDataCacheWriter.write",

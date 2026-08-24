@@ -18,6 +18,16 @@ local ScriptHeader = require("romdump.src.digest.ScriptHeader")
 
 local FieldMapDataCompiler = {}
 
+local function transitionEnvironment(mapType)
+  if mapType == "CAVE" or mapType == "UNDERGROUND" then
+    return "cave"
+  end
+  if mapType == "INTERIOR" then
+    return "building"
+  end
+  return "outdoors"
+end
+
 -- The canonical audio sequence reference of a map-header music suffix: the
 -- frozen catalog carries the SDAT symbol without its class prefix, and the
 -- generated record carries the full reference so runtime field-music policy
@@ -257,6 +267,7 @@ local function compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
     mapId = map.id,
     mapSymbol = map.symbol,
     cameraType = map.cameraType,
+    transitionEnvironment = transitionEnvironment(map.mapType),
     -- Map-header message/script associations (src/data/map_headers.h via the
     -- frozen catalog). Runtime code must never branch on map IDs to choose a
     -- bank; it reads these fields.

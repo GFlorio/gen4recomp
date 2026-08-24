@@ -6,7 +6,7 @@ local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
-  metadata = { tags = { "acceptance-harness" } },
+  metadata = { tags = { "acceptance-harness" }, capabilities = { "rom_dump" } },
   tests = {},
 }
 

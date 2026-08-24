@@ -208,6 +208,11 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
           return { visible = false }
         end,
       },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
       actors = {
         drawRecords = function()
           return {}
@@ -248,11 +253,6 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
       },
       startMenuPlacement = nil,
       resizePresentation = function() end,
-      fieldEntranceIndicator = {
-        status = function()
-          return { visible = false }
-        end,
-      },
     },
     _pollPresentationTopology = true,
     topologyProvider = function()
@@ -310,6 +310,11 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
           return { visible = false }
         end,
       },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
       actors = {
         drawRecords = function()
           return {}
@@ -348,11 +353,6 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
         end,
       },
       resizePresentation = function() end,
-      fieldEntranceIndicator = {
-        status = function()
-          return { visible = false }
-        end,
-      },
     },
     _pollPresentationTopology = true,
     topologyProvider = function()
@@ -623,6 +623,11 @@ function T.destination_world_is_not_drawn_before_entry_presentation_is_ready()
   local state = setmetatable({
     runtime = {
       runtimeMap = { sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} } },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
       playerVisual = {
         drawRecord = function()
           return { visible = false }
@@ -783,11 +788,28 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
       bagUnlocked = function()
         return true
       end,
+      fieldEntranceIndicator = {
+        updateFixed = function() end,
+      },
+      eventResolver = {
+        resolveCoordinate = function() end,
+        resolvePassiveSign = function() end,
+      },
+      eventState = {
+        getVar = function()
+          return 0
+        end,
+      },
     })
     ---@diagnostic enable: missing-fields
     session.mapEntryStage = "transition"
     local runtime = {
       runtimeMap = { sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} } },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
       playerVisual = {
         drawRecord = function()
           return { visible = false }
@@ -841,6 +863,11 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
       _actorAssetLookup = function()
         return {}
       end,
+      fieldEntranceIndicatorRenderer = {
+        drawItems = function()
+          return {}
+        end,
+      },
     }, FieldState)
     return state, session
   end

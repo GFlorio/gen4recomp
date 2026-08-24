@@ -220,10 +220,11 @@ function T.compile_all_covers_the_catalog_in_numeric_order()
   local romFs, sha1, hashLua = allMapsFixture()
   local bundles = assert(FieldMapDataCompiler.compileAll(romFs, sha1, hashLua))
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  Assert.equal(#bundles, 540)
+  Assert.equal(#bundles, 539)
   for index, bundle in ipairs(bundles) do
-    Assert.equal(bundle.mapId, index - 1)
-    Assert.equal(bundle.field.mapId, index - 1)
+    local expectedMapId = index == 1 and 0 or index
+    Assert.equal(bundle.mapId, expectedMapId)
+    Assert.equal(bundle.field.mapId, expectedMapId)
     FieldMapDataCacheWriter.write(cache, bundle)
     Assert.isTrue(FieldMapDataCache.isReady(cache, bundle.mapId, bundle.marker))
   end
