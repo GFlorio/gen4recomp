@@ -31,9 +31,10 @@ local function withProductionOak(versionId, fn)
     versionId = App.versionId,
   }
   local store = GameSaveStore.new(SaveFs.global(FakeCache.new()))
+  local host = hostSeams()
   App.opts = {
     saveStore = store,
-    oakIntroHost = hostSeams(),
+    oakIntroHost = host,
     test = false,
     actors = false,
     dev = false,
@@ -46,7 +47,7 @@ local function withProductionOak(versionId, fn)
     App._bootMainMenu({ versionId })
     App.keypressed("return")
     Assert.equal(getmetatable(App.state).__index, OakIntroState)
-    fn(App.state)
+    fn(App.state, host)
   end, debug.traceback)
 
   App.setState(nil)
@@ -167,6 +168,7 @@ hostSeams = function()
 
   local graphics = FakeGraphics.new()
   local audio = FakeAudioOutput.new()
+  local textInputCalls = {}
   return {
     graphics = graphics,
     imageLoader = function()
@@ -181,7 +183,12 @@ hostSeams = function()
     randomU32 = function()
       return 0x12345678
     end,
-    textInputHost = { setTextInput = function() end },
+    textInputHost = {
+      setTextInput = function(_, enabled)
+        textInputCalls[#textInputCalls + 1] = enabled
+      end,
+    },
+    textInputCalls = textInputCalls,
   }
 end
 
@@ -291,6 +298,57 @@ function T.tests.player_name_is_formatted_when_each_confirmation_message_opens()
       finishDialogueBoundary(state)
       state:keypressed("return")
       assertResolvedMessage(state, "profile.final", "GOLD")
+    end)
+  end)
+end
+
+function T.tests.production_name_entry_resolves_blank_defaults_and_reenters_cleanly()
+  forEachReadyVersion(function(versionId)
+    withProductionOak(versionId, function(state, host)
+      advanceUntilMessage(state, "profile.gender_question")
+      finishDialogueBoundary(state)
+      state:keypressed("return")
+      finishDialogueBoundary(state)
+      state:keypressed("return")
+      finishDialogueBoundary(state)
+      advanceUntilPhase(state, "name_edit")
+
+      Assert.isTrue(state:view().nameInputEnabled)
+      Assert.equal(host.textInputCalls[#host.textInputCalls], true)
+      state:keypressed("return")
+      Assert.equal(state:view().phase, "name_confirm")
+      Assert.equal(state:view().name, "Ethan")
+      Assert.equal(host.textInputCalls[#host.textInputCalls], false)
+      assertResolvedMessage(state, "profile.name_confirm.male", "Ethan")
+
+      finishDialogueBoundary(state)
+      state:keypressed("escape")
+      Assert.equal(state:view().phase, "gender_question")
+      finishDialogueBoundary(state)
+      state:keypressed("return")
+      state:keypressed("right")
+      state:keypressed("return")
+      finishDialogueBoundary(state)
+      state:keypressed("return")
+      finishDialogueBoundary(state)
+      advanceUntilPhase(state, "name_edit")
+      Assert.equal(state:view().name, "")
+      Assert.isTrue(state:view().nameInputEnabled)
+
+      state:textinput("  ")
+      Assert.equal(state:view().name, "  ")
+      state:keypressed("backspace")
+      Assert.equal(state:view().name, " ")
+      state:keypressed("return")
+      Assert.equal(state:view().phase, "name_confirm")
+      local expectedDefault = state:view().genderFocus == 0 and "Ethan" or "Lyra"
+      Assert.equal(state:view().name, expectedDefault)
+      Assert.equal(host.textInputCalls[#host.textInputCalls], false)
+      assertResolvedMessage(
+        state,
+        state:view().genderFocus == 0 and "profile.name_confirm.male" or "profile.name_confirm.female",
+        expectedDefault
+      )
     end)
   end)
 end

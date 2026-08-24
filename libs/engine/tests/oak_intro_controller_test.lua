@@ -359,6 +359,26 @@ function T.name_buffer_has_shared_utf8_limits_and_deletes_glyphs()
   Assert.equal(state:view().phase, "name_confirm")
 end
 
+function T.blank_name_submission_uses_the_gender_default()
+  local state = nameConfirmation(false)
+  state:press("no")
+  state:messageCompleted("profile.gender_question")
+  state:press("confirm")
+  state:messageCompleted("profile.gender_confirm.male")
+  state:press("confirm")
+  state:messageCompleted("profile.name_prompt")
+  state:press("confirm")
+  state:tick(40)
+  Assert.equal(state:view().phase, "name_edit")
+
+  state:press("submit")
+  Assert.equal(state:view().phase, "name_confirm")
+  Assert.equal(state:view().name, "Ethan")
+
+  state:press("no")
+  Assert.equal(state:view().phase, "gender_question")
+end
+
 function T.name_rejection_clears_the_buffer_on_reentry()
   local state = controller()
   state:start()
@@ -659,7 +679,7 @@ function T.virtual_keyboard_focus_reaches_delete_and_confirm_actions()
   Assert.equal(state:view().name, "")
   state:press("right")
   state:press("confirm")
-  Assert.equal(state:view().name, "")
+  Assert.equal(state:view().name, "Ethan")
 end
 
 function T.name_editor_vertical_navigation_uses_the_configured_column_count()

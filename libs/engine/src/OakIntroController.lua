@@ -107,6 +107,7 @@ local NAME_LAUNCH_WAIT = 40
 local FINAL_FULL_ART_HOLD = 30
 local FINAL_FADE_FRAMES = 1
 local OAK_SLIDE_OFFSET = -52
+local DEFAULT_PROFILE_NAMES = { [0] = "Ethan", [1] = "Lyra" }
 
 local function requireMessage(messages, key)
   local message = messages[key]
@@ -130,6 +131,15 @@ local function requireAudio(audio)
       and type(audio.isMusicFadeActive) == "function",
     "Oak intro requires the core game audio facade"
   )
+end
+
+local function isBlankName(name)
+  for glyph in Utf8Glyphs.iter(name) do
+    if glyph ~= " " then
+      return false
+    end
+  end
+  return true
 end
 
 local function validateTickCount(frames)
@@ -600,9 +610,12 @@ function OakIntroController:press(action)
     self._phase = "name_launch_wait"
     self._timer = NAME_LAUNCH_WAIT
   elseif (action == "submit" or action == "confirm" or action == "yes") and self._phase == "name_edit" then
-    if #self._name > 0 then
-      local glyphs = appendGlyphs(self._name)
-      if #glyphs >= 1 and #glyphs <= 7 then
+    local glyphs = appendGlyphs(self._name)
+    if #glyphs <= 7 then
+      if isBlankName(self._name) then
+        self._name = assert(DEFAULT_PROFILE_NAMES[self._genderFocus])
+      end
+      if #appendGlyphs(self._name) >= 1 then
         self._phase = "name_confirm"
         self:_setMessage(self._genderFocus == 0 and "profile.name_confirm.male" or "profile.name_confirm.female")
       end
