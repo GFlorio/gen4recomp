@@ -83,7 +83,7 @@ local function goldenReference(frameIndex)
     { x = 0, y = 0, width = CANONICAL_WIDTH, height = CANONICAL_HEIGHT },
     FieldViewport.new(CANONICAL_WIDTH, CANONICAL_HEIGHT, { mode = "expanded" }):logicalPixelScale(1)
   )
-  local placements = FieldDialogueTheme.frameTilePlacements(FieldDialogueTheme.localBox)
+  local placements = FieldDialogueTheme.frameTilePlacements(FieldDialogueTheme.box)
   local function paste(x, y, r, g, b, a)
     reference:setPixel(x, y, r, g, b, a)
   end

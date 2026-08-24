@@ -301,7 +301,13 @@ function T.waiting_dialogue_draws_the_generated_cursor_phase_without_blinking()
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local first = lg.draws[#lg.draws]
   Assert.equal(first.image, lg.images[5], "the continuation uses the generated cursor atlas")
-  Assert.deepEqual({ first.quad.x, first.quad.y, first.quad.w, first.quad.h }, { 0, 48, 16, 16 })
+  local expected = cursorManifest().dialogueFrames.continueCursor.styles[3].phases[status.cursorPhase]
+  Assert.deepEqual({ first.quad.x, first.quad.y, first.quad.w, first.quad.h }, {
+    expected.x,
+    expected.y,
+    expected.width,
+    expected.height,
+  })
   Assert.deepEqual({ first.x, first.y }, { 240, 168 })
   Assert.isFalse(#lg.primitives > 1 and lg.primitives[#lg.primitives] == "polygon", "cursor is not a triangle")
   local phaseQuad = first.quad

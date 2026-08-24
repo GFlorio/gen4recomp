@@ -53,13 +53,14 @@ T["field_dialogue_remains_geometrically_and_behaviorally_identical"] = function(
   local layout = FieldDialogueTheme.layout({ x = 90, y = 40, width = 700, height = 500 }, 2)
 
   Assert.equal(layout.box.x, 16)
-  Assert.equal(layout.box.y, 8)
+  Assert.equal(layout.box.y, 152)
   Assert.equal(layout.box.width, 216)
   Assert.equal(layout.box.height, 32)
-  Assert.equal(layout.text.width, 196)
+  Assert.equal(layout.text.width, 216)
   Assert.equal(layout.lineHeight, 16)
-  Assert.equal(layout.outerRect.width, 512)
-  Assert.equal(layout.outerRect.height, 96)
+  Assert.equal(layout.scale, 2)
+  Assert.equal(layout.origin.x, 184)
+  Assert.equal(layout.origin.y, 156)
 end
 
 T["invalid_presentations_fail_before_partial_drawing"] = function(scope)

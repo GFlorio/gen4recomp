@@ -17,6 +17,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
@@ -33,6 +34,8 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@field _cursorQuadCache table<integer, table<integer, love.Quad>>|nil
 local FieldDialogueRenderer = {}
 FieldDialogueRenderer.__index = FieldDialogueRenderer
+
+---@alias FieldDialogueRenderer.Layout FieldDialogueTheme.Layout|DialoguePresentationLayout.Presentation
 
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
 -- class (frame strip PNGs); opts.manifest: the already-validated generated
@@ -162,7 +165,7 @@ end
 -- boundary. Timing and phase selection belong to the controller.
 
 ---@param status FieldDialogueController.Status
----@param _layout FieldDialogueTheme.Layout
+---@param _layout FieldDialogueRenderer.Layout
 function FieldDialogueRenderer:_drawCursor(status, _layout)
   if not status.waiting or status.cursorPhase == nil then
     return
@@ -188,7 +191,7 @@ end
 -- frame at all rather than inventing one.
 
 ---@param status FieldDialogueController.Status
----@param layout FieldDialogueTheme.Layout
+---@param layout FieldDialogueRenderer.Layout
 function FieldDialogueRenderer:_drawFrame(status, layout)
   local frameIndex = status.frameIndex
   if frameIndex == nil then
@@ -200,8 +203,10 @@ function FieldDialogueRenderer:_drawFrame(status, layout)
   local rect = frames.frameTiles[frameIndex]
   assert(rect ~= nil, "dialogue frame index " .. tostring(frameIndex) .. " is outside the generated frame set")
   local quads = self:_buildFrameQuads(frameIndex, rect)
+  local box = layout.box
+  ---@cast box FieldDialogueTheme.Rect
   lg.setColor(1, 1, 1, 1)
-  for _, placement in ipairs(self._theme.frameTilePlacements(layout.box)) do
+  for _, placement in ipairs(self._theme.frameTilePlacements(box)) do
     local tile = assert(quads[placement.tile])
     for row = 0, (placement.spanY or 1) - 1 do
       for col = 0, (placement.spanX or 1) - 1 do
@@ -219,7 +224,7 @@ end
 -- distinct source concepts and never suppress each other.
 
 ---@param status FieldDialogueController.Status
----@param layout FieldDialogueTheme.Layout
+---@param layout FieldDialogueRenderer.Layout
 function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
   local lines = status.scrollLines or status.visibleLines
   local tokensByLine = {}
@@ -236,39 +241,56 @@ function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
   end
 end
 
--- Draws the dialogue into viewport.referenceFrame at the field logical pixel
--- scale (viewport:logicalPixelScale(camera.zoom)). No-op (and no state
--- touched) when the controller is closed or this renderer is disposed.
+-- Draws the dialogue from a compact host presentation or into
+-- viewport.referenceFrame at the field logical pixel scale
+-- (viewport:logicalPixelScale(camera.zoom)). No-op (and no state touched)
+-- when the controller is closed or this renderer is disposed.
 -- Restores canvas, shader, scissor, blend, depth, wireframe, cull, and color
 -- afterwards so the HUD and host overlays draw normally. The fieldScale is
 -- presentation state, not controller state; it bottom-centers the 256x192
 -- surface and matches the world logical pixel scale.
 
 ---@param controller FieldDialogueController
----@param viewport { referenceFrame: FieldDialogueTheme.Rect }
----@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
-function FieldDialogueRenderer:draw(controller, viewport, fieldScale)
+---@param viewportOrPresentation { referenceFrame: FieldDialogueTheme.Rect }|FieldDialogueTheme.Layout|DialoguePresentationLayout.Presentation|nil
+---@param fieldScale number|nil field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
+---@param presentation DialoguePresentationLayout.Presentation|nil compact host-owned dialogue placement
+function FieldDialogueRenderer:draw(controller, viewportOrPresentation, fieldScale, presentation)
   -- Inactive (closed) is a pure no-op and checks no scale precondition; an
   -- inactive draw must not touch graphics state or require presentation
   -- parameters. The scale is only required for the active path.
   if not controller or not controller:isModal() or not self._frameImage then
     return
   end
-  assert(
-    type(fieldScale) == "number"
-      and fieldScale > 0
-      and fieldScale == fieldScale
-      and fieldScale ~= math.huge
-      and fieldScale ~= -math.huge,
-    "FieldDialogueRenderer:draw requires a finite positive field scale"
-  )
+  ---@type FieldDialogueRenderer.Layout
+  local layout
+  if presentation ~= nil then
+    DialoguePresentationLayout.validate(presentation)
+    layout = presentation
+  elseif fieldScale == nil and viewportOrPresentation and viewportOrPresentation.bounds ~= nil then
+    ---@cast viewportOrPresentation DialoguePresentationLayout.Presentation
+    DialoguePresentationLayout.validate(viewportOrPresentation)
+    layout = viewportOrPresentation
+  elseif fieldScale == nil then
+    assert(viewportOrPresentation, "FieldDialogueRenderer:draw requires a layout or presentation")
+    ---@cast viewportOrPresentation FieldDialogueTheme.Layout
+    layout = viewportOrPresentation
+  else
+    assert(
+      type(fieldScale) == "number"
+        and fieldScale > 0
+        and fieldScale == fieldScale
+        and fieldScale ~= math.huge
+        and fieldScale ~= -math.huge,
+      "FieldDialogueRenderer:draw requires a finite positive field scale"
+    )
+    layout = self._theme.layout(assert(viewportOrPresentation).referenceFrame, fieldScale)
+  end
   local lg = assert(self._graphics)
   local status = controller:status()
   FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the theme never returns
     -- screen-mapped rects, so nothing is scaled twice.
-    local layout = self._theme.layout(viewport.referenceFrame, fieldScale)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local background = self._text:windowBackgroundColor()

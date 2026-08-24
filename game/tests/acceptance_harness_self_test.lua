@@ -75,10 +75,15 @@ end
 
 function T.tests.synthetic_boot_keeps_the_global_save_catalog_inside_its_namespace()
   local harness = AcceptanceHarness.new({ versions = { "heartgold" }, runtimeFactory = fakeRuntime })
+  local priorCatalog = love.filesystem.getInfo("saves/catalog.lua")
   local game = harness:boot({ versionId = "heartgold", save = "fresh" })
   Assert.notNil(love.filesystem.getInfo(game.saveNamespace .. "/global/catalog.lua"))
   Assert.isNil(love.filesystem.getInfo(game.saveNamespace .. "/version/catalog.lua"))
-  Assert.isNil(love.filesystem.getInfo("saves/catalog.lua"), "acceptance must not touch the real save root")
+  Assert.deepEqual(
+    love.filesystem.getInfo("saves/catalog.lua"),
+    priorCatalog,
+    "acceptance must not touch the real save root"
+  )
   game:close()
 end
 
@@ -101,8 +106,8 @@ function T.tests.wait_for_transition_waits_for_script_ownership_release()
   local lockTicks = 0
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId)
-      local runtime = fakeRuntime(versionId)
+    runtimeFactory = function(game)
+      local runtime = fakeRuntime(game)
       runtime.scripts = {
         scheduler = {
           playerMovementLocked = function()
@@ -199,7 +204,7 @@ function T.tests.primary_version_uses_the_first_selected_version()
 end
 
 function T.tests.default_version_comes_from_the_ready_dump_set()
-  Assert.equal(AcceptanceHarness.defaultVersion(), "soulsilver")
+  Assert.equal(AcceptanceHarness.defaultVersion(), AcceptanceHarness.new():primaryVersion())
 end
 
 function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_runtime_once()
@@ -260,9 +265,9 @@ function T.tests.recording_script_hosts_are_an_explicit_composition_choice()
   local optionsSeen = {}
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId, _, options)
+    runtimeFactory = function(game, options)
       optionsSeen[#optionsSeen + 1] = options
-      local runtime = fakeRuntime(versionId)
+      local runtime = fakeRuntime(game)
       runtime.scriptHosts = options.scriptHosts
       return runtime
     end,

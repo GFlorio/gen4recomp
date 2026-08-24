@@ -227,6 +227,20 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     bagUnlocked = function()
       return true
     end,
+    fieldEntranceIndicator = { updateFixed = function() end },
+    eventResolver = {
+      resolveCoordinate = function()
+        return nil
+      end,
+      resolvePassiveSign = function()
+        return nil
+      end,
+    },
+    eventState = {
+      getVar = function()
+        return 0
+      end,
+    },
   })
 
   local directions = {

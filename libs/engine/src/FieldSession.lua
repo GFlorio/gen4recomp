@@ -40,12 +40,15 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field dialogue FieldDialogueController
 ---@field input FieldInput
 ---@field interactions FieldSession.Interactions
+---@field eventResolver table
+---@field eventState { getVar: fun(self: table, id: integer): integer }
 ---@field scriptScheduler Scheduler
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
+---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field audio { updateField: fun(self: table) }?
 ---@field initController table|nil
 ---@field enterMapActors fun()?
@@ -66,12 +69,15 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field dialogue FieldDialogueController
 ---@field input FieldInput
 ---@field interactions FieldSession.Interactions
+---@field eventResolver table
+---@field eventState { getVar: fun(self: table, id: integer): integer }
 ---@field scriptScheduler Scheduler
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
+---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field audio { updateField: fun(self: table) }?
 ---@field initController table|nil
 ---@field enterMapActors fun()?

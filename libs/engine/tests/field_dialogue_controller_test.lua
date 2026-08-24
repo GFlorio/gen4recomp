@@ -182,6 +182,18 @@ function T.fastest_reveals_consecutive_source_glyphs_without_skipping()
   Assert.equal(visible[2].code, 2)
 end
 
+function T.default_policy_is_fastest()
+  local tokens = { glyph("A", 1), glyph("B", 2), glyph("C", 3) }
+  local c = FieldDialogueController.new({
+    layout = function()
+      return { pages = { page({ line(tokens) }, "eos") }, warnings = {} }
+    end,
+  })
+  c:open(request("default-fastest", message()))
+  c:step({})
+  Assert.equal(c:status().revealedGlyphs, 3)
+end
+
 -- The player-selected HGSS user-frame index travels on the open request and
 -- stays on the presentation status for the whole open lifetime; closing
 -- clears it. The request may omit it (hosts without player options), in

@@ -196,8 +196,9 @@ function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
     status = function()
       return {}
     end,
-    draw = function(self)
+    draw = function(self, presentation)
       self.drawn = self.drawn + 1
+      self.presentation = presentation
     end,
     dispose = function(self)
       self.released = self.released + 1
@@ -225,6 +226,7 @@ function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
   Assert.equal(dialogue.stepped, 1)
   state:draw()
   Assert.equal(dialogue.drawn, 1)
+  Assert.notNil(dialogue.presentation, "Oak passes its compact dialogue presentation to the shared renderer")
   state:dispose()
   Assert.equal(dialogue.released, 1)
 end

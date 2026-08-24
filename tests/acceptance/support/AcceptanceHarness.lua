@@ -19,6 +19,8 @@ local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHo
 ---@field gameFactory fun(versionId: string, map: string|integer|nil): table
 ---@field saveNamespace fun(versionId: string, serial: integer): string
 ---@field removeSaveNamespace fun(namespace: string)
+---@field primaryVersion fun(self: AcceptanceHarness): string
+---@field defaultVersion fun(): string
 local AcceptanceHarness = {}
 AcceptanceHarness.__index = AcceptanceHarness
 
@@ -173,6 +175,7 @@ end
 ---@field fieldOptions table|nil
 ---@field saveStatus string?
 ---@field ownsNamespace boolean
+---@field hostEvents fun(self: AcceptanceGame): table
 local Game = {}
 Game.__index = Game
 
@@ -196,12 +199,9 @@ function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, field
       game.saveId = reservedSaveId
     end
   end
-  -- `audioHost = "production"` omits the recording audio adapter so the
-  -- production composition wires the real GameSound at scriptHosts.audio
-  -- (the field-audio acceptance scenarios); the default keeps the recording
-  -- adapter for every other scenario.
-  runtimeOptions.scriptHosts =
-    RecordingScriptHosts.new({ audio = fieldOptions and fieldOptions.audioHost ~= "production" })
+  if fieldOptions and fieldOptions.recordingScriptHosts == true then
+    runtimeOptions.scriptHosts = RecordingScriptHosts.new({ audio = fieldOptions.audioHost ~= "production" })
+  end
   return self.runtimeFactory(game, runtimeOptions)
 end
 
@@ -440,7 +440,19 @@ function Game:advanceDialogue()
 end
 
 function Game:hostEffects()
+  assert(
+    self.hosts.effects,
+    "recording hosts are disabled; boot with fieldOptions.recordingScriptHosts = true to inspect host effects"
+  )
   return self.hosts.effects
+end
+
+function Game:hostEvents()
+  assert(
+    self.hosts.events,
+    "recording hosts are disabled; boot with fieldOptions.recordingScriptHosts = true to inspect host events"
+  )
+  return self.hosts.events
 end
 
 -- Start a real ROM-derived script through the production FieldScripts
@@ -621,7 +633,7 @@ function Game:waitForTransition()
   end
   local source = self:snapshot()
   self:advanceUntil("transition completes", function(snapshot)
-    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle"
+    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle" and not snapshot.fieldLocked
   end, 120)
   local destination = self:snapshot()
   self.lastTransition = nil
@@ -813,6 +825,19 @@ function AcceptanceHarness:forEachVersion(fn)
   for _, versionId in ipairs(self.versions) do
     fn(versionId)
   end
+end
+
+---@return string
+function AcceptanceHarness.defaultVersion()
+  local versions = readyVersions()
+  assert(#versions > 0, "acceptance harness requires a ready game version")
+  return versions[1]
+end
+
+---@return string
+function AcceptanceHarness:primaryVersion()
+  assert(#self.versions > 0, "acceptance harness requires at least one selected version")
+  return self.versions[1]
 end
 
 ---@return AcceptanceGame

@@ -118,7 +118,7 @@ function FieldDialogueController.new(opts)
   )
   local policy = opts.policy
     or (opts.printerDelay and { interGlyphDelay = opts.printerDelay, glyphBudget = 1, abAcceleration = true })
-    or TextSpeedPolicy.forSpeed("mid")
+    or TextSpeedPolicy.forSpeed("fastest")
   return setmetatable({
     _layout = opts.layout,
     _policy = policy,

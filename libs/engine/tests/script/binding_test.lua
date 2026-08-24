@@ -443,7 +443,7 @@ T["session script phase"] = function()
         return nil
       end,
     },
-    eventState = { getVar = function() end },
+    eventState = p.services.world,
   })
   -- The script client starts the interaction and the tick is consumed: the
   -- player does not move while the foreground root owns the field.
