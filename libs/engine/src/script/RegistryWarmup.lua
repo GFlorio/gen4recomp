@@ -13,6 +13,7 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
+local StorageErrors = require("libs.storage.src.errors")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local Sha256 = require("libs.engine.src.script.Sha256")
 
@@ -82,12 +83,17 @@ function RegistryWarmup:_step()
 end
 
 -- Assemble the fingerprint from the stashed hashes, restore it as the memo,
--- and publish the snapshot while the world still matches the boot key. A
--- failed publish only costs the next boot's warm-up.
+-- and publish the snapshot while the world still matches the boot key.
 function RegistryWarmup:_complete()
   local fingerprint = self.registry:fingerprint()
   self.registry:restoreFingerprint(fingerprint)
-  RegistrySnapshot.save(self.cacheFs, self.overrideFs, fingerprint, self.snapshotKey)
+  if
+    self.snapshotKey ~= nil and not RegistrySnapshot.save(self.cacheFs, self.overrideFs, fingerprint, self.snapshotKey)
+  then
+    Errors.raise(StorageErrors.CACHE_WRITE_FAILED, "could not publish registry snapshot", {
+      path = RegistrySnapshot.FILE,
+    })
+  end
   self.complete = true
 end
 

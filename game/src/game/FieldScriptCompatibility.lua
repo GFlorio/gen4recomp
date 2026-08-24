@@ -9,8 +9,6 @@ local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 
 ---@class FieldScriptCompatibility
----@field cacheFs table CacheFs-shaped generated-asset filesystem
----@field overrideFs table read-shaped repository override filesystem
 ---@field registry Registry current production script registry
 ---@field registrySnapshotKey string|nil key the registry was built under
 ---@field registrySnapshotUsed boolean whether a matching snapshot supplied its fingerprint
@@ -69,8 +67,6 @@ function FieldScriptCompatibility.new(opts)
     registry:restoreFingerprint(snapshot.fingerprint)
   end
   local self = setmetatable({
-    cacheFs = opts.cacheFs,
-    overrideFs = opts.overrideFs,
     registry = registry,
     registrySnapshotKey = snapshot and snapshot.key or nil,
     registrySnapshotUsed = fast,
@@ -97,11 +93,7 @@ function FieldScriptCompatibility:registryFingerprint()
       Errors.raise(failure.code, failure.message, failure.context)
     end
   end
-  local fingerprint = self.registry:fingerprint()
-  if self.registrySnapshotKey ~= nil then
-    RegistrySnapshot.save(self.cacheFs, self.overrideFs, fingerprint, self.registrySnapshotKey)
-  end
-  return fingerprint
+  return self.registry:fingerprint()
 end
 
 ---@return table
