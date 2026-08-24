@@ -33,6 +33,8 @@ end
 local function fresh()
   App.state = nil
   App.importer = nil
+  App.drawableWidth = nil
+  App.drawableHeight = nil
 end
 
 local function withInputState(fn)
@@ -241,6 +243,105 @@ function T.resize_forwards_the_exact_tuple_only_to_resize_capable_states()
   App.setState({})
   Assert.isTrue(pcall(App.resize, 1280, 720), "states without resize remain a no-op")
   App.setState(nil)
+end
+
+-- The host resize callback can describe an intermediate drawable size. The
+-- dispatcher must reconcile the live graphics dimensions before the next
+-- state update so responsive state layout does not remain at that size.
+function T.settled_drawable_size_supersedes_the_resize_callback_size()
+  fresh()
+  local graphics = love.graphics
+  local originalGetDimensions = graphics.getDimensions
+  local liveWidth, liveHeight = 803, 600
+  local events = {}
+  local state = {
+    resize = function(_, width, height)
+      events[#events + 1] = { "resize", width, height }
+    end,
+    update = function()
+      events[#events + 1] = { "update" }
+    end,
+  }
+  graphics.getDimensions = function()
+    return liveWidth, liveHeight
+  end
+
+  local ok, err = pcall(function()
+    App.setState(state)
+    App.resize(803, 600)
+    liveHeight = 992
+    App.update(0.016)
+  end)
+  graphics.getDimensions = originalGetDimensions
+  App.setState(nil)
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.deepEqual(events, {
+    { "resize", 803, 600 },
+    { "resize", 803, 992 },
+    { "update" },
+  })
+end
+
+-- Reconciliation is change-based and must run before the first geometry
+-- consumer, whether that consumer is pointer hit testing or drawing.
+function T.settled_drawable_size_reconciles_once_before_pointer_and_draw()
+  fresh()
+  local graphics = love.graphics
+  local originalGetDimensions = graphics.getDimensions
+  local liveWidth, liveHeight = 800, 600
+  local events = {}
+  local state = {
+    resize = function(_, width, height)
+      events[#events + 1] = { "resize", width, height }
+    end,
+    update = function()
+      events[#events + 1] = { "update" }
+    end,
+    mousepressed = function(_, ...)
+      events[#events + 1] = { "mousepressed", ... }
+    end,
+    draw = function()
+      events[#events + 1] = { "draw" }
+    end,
+  }
+  graphics.getDimensions = function()
+    return liveWidth, liveHeight
+  end
+
+  local ok, err = pcall(function()
+    App.setState(state)
+    App.resize(800, 600)
+    App.update(0.016)
+
+    liveWidth, liveHeight = 900, 700
+    App.mousepressed(12.5, 34.5, 1, true, 2)
+    App.mousepressed(15.5, 36.5, 1, false, 1)
+
+    App.update(0.016)
+    liveWidth, liveHeight = 1024, 768
+    App.draw()
+    App.draw()
+  end)
+  graphics.getDimensions = originalGetDimensions
+  App.setState(nil)
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.deepEqual(events, {
+    { "resize", 800, 600 },
+    { "update" },
+    { "resize", 900, 700 },
+    { "mousepressed", 12.5, 34.5, 1, true, 2 },
+    { "mousepressed", 15.5, 36.5, 1, false, 1 },
+    { "update" },
+    { "resize", 1024, 768 },
+    { "draw" },
+    { "draw" },
+  })
 end
 
 function T.actor_preview_dispose_releases_exactly_once_and_is_repeat_safe()

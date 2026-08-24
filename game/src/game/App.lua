@@ -28,6 +28,8 @@ local RepoFs = require("game.src.game.RepoFs")
 ---@class App
 ---@field opts AppOptions
 ---@field saveStore (GameSaveStore|SaveStoreLike)?
+---@field drawableWidth number?
+---@field drawableHeight number?
 local App = {}
 
 ---@class AppOptions : GameOptions
@@ -59,6 +61,7 @@ end
 
 function App.load(opts)
   App.opts = opts or {}
+  App.drawableWidth, App.drawableHeight = love.graphics.getDimensions()
   App.saveValidation = App.opts.saveValidation
     or GameSaveValidation.new({ overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()) })
   App.saveStore = App.opts.saveStore
@@ -221,6 +224,7 @@ function App._bootExisting()
 end
 
 function App.update(dt)
+  App._syncDrawableSize()
   if App.importer and App.importer:isBusy() then
     App.importer:update()
   end
@@ -237,12 +241,27 @@ function App.update(dt)
 end
 
 function App.resize(width, height)
+  App.drawableWidth = width
+  App.drawableHeight = height
+  if App.state and App.state.resize then
+    App.state:resize(width, height)
+  end
+end
+
+function App._syncDrawableSize()
+  local width, height = love.graphics.getDimensions()
+  if width == App.drawableWidth and height == App.drawableHeight then
+    return
+  end
+  App.drawableWidth = width
+  App.drawableHeight = height
   if App.state and App.state.resize then
     App.state:resize(width, height)
   end
 end
 
 function App.draw()
+  App._syncDrawableSize()
   if App.state and App.state.draw then
     App.state:draw()
     return
@@ -301,18 +320,21 @@ function App.gamepadaxis(joystick, axis, value)
 end
 
 function App.mousepressed(x, y, button, istouch, presses)
+  App._syncDrawableSize()
   if App.state and App.state.mousepressed then
     App.state:mousepressed(x, y, button, istouch, presses)
   end
 end
 
 function App.mousemoved(x, y, dx, dy, istouch)
+  App._syncDrawableSize()
   if App.state and App.state.mousemoved then
     App.state:mousemoved(x, y, dx, dy, istouch)
   end
 end
 
 function App.mousereleased(x, y, button, istouch, presses)
+  App._syncDrawableSize()
   if App.state and App.state.mousereleased then
     App.state:mousereleased(x, y, button, istouch, presses)
   end
@@ -325,18 +347,21 @@ function App.wheelmoved(x, y)
 end
 
 function App.touchpressed(id, x, y, dx, dy, pressure)
+  App._syncDrawableSize()
   if App.state and App.state.touchpressed then
     App.state:touchpressed(id, x, y, dx, dy, pressure)
   end
 end
 
 function App.touchmoved(id, x, y, dx, dy, pressure)
+  App._syncDrawableSize()
   if App.state and App.state.touchmoved then
     App.state:touchmoved(id, x, y, dx, dy, pressure)
   end
 end
 
 function App.touchreleased(id, x, y, dx, dy, pressure)
+  App._syncDrawableSize()
   if App.state and App.state.touchreleased then
     App.state:touchreleased(id, x, y, dx, dy, pressure)
   end
