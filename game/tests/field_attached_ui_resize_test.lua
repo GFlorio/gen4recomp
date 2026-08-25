@@ -279,8 +279,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
       resizePresentation = function() end,
     },
     topologyProvider = function()
-      local ScreenTopology = require("libs.engine.src.ScreenTopology")
-      return ScreenTopology.oneDisplay({
+      return require("libs.engine.src.ScreenTopology").oneDisplay({
         id = "main",
         rect = { x = 0, y = 0, width = 1280, height = 600 },
         touch = false,

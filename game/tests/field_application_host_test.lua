@@ -203,7 +203,11 @@ function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_fiel
     Assert.equal(trainerCardFound, true, "the menu must include the trainer card action")
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
-    Assert.equal(FieldSave.canCapture(runtime.session), true, "closing the menu must restore the capturable boundary")
+    Assert.equal(
+      FieldSave.canCapture(runtime.session --[[@as FieldSave.Session]]),
+      true,
+      "closing the menu must restore the capturable boundary"
+    )
   end, debug.traceback)
   game:close()
   if not ok then
@@ -247,7 +251,7 @@ function T.tests.the_runtime_registers_production_destinations_only()
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
     Assert.equal(
-      FieldSave.canCapture(runtime.session),
+      FieldSave.canCapture(runtime.session --[[@as FieldSave.Session]]),
       true,
       "closing the menu must restore the capturable field boundary"
     )

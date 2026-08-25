@@ -15,6 +15,7 @@ local T = {}
 
 -- A fake resource whose named methods record how often they are called.
 ---@param ... "dispose"|"release"|"save"|"reset"
+---@return table resource
 local function fakeResource(...)
   local resource = {}
   for _, method in ipairs({ ... }) do
@@ -180,7 +181,7 @@ end
 function T.dispose_releases_runtime_and_presentation_resources_once()
   local state, resources = disposableState()
   local runtime = fakeResource("dispose")
-  state.runtime = runtime
+  state.runtime = runtime --[[@as FieldRuntime]]
   state:dispose()
   Assert.equal(runtime.calls, 1)
   Assert.equal(resources.renderer.calls, 1)

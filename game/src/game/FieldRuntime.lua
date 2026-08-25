@@ -177,6 +177,7 @@ end
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
 ---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
+---@field saveStore FieldSaveStore
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field fieldEntranceIndicatorAsset table
 local FieldRuntime = {}
@@ -363,7 +364,7 @@ function FieldRuntime:_load()
     local uiManifest = assert(
       cacheFs:loadLua(FieldUiAssetCache.manifestPath()),
       "field UI cache is cold -- run `scripts/buildcache.sh` first"
-    )
+    ) --[[@as FieldUiAssetCache.Manifest]]
     assert(FieldUiAssetCache.validateManifest(uiManifest), "field UI manifest is invalid")
     -- The window-style catalogue is composed per runtime from the generated
     -- manifest: the production-owned built-in styles, immutable from then on.
@@ -406,7 +407,7 @@ function FieldRuntime:_load()
     local weatherCatalog = assert(
       cacheFs:loadLua(FieldWeatherCache.catalogPath()),
       "field weather cache is cold -- run `scripts/buildcache.sh` first"
-    )
+    ) --[[@as FieldWeatherCache.Catalog]]
     assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
     self.weatherCatalog = weatherCatalog
     self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
@@ -423,7 +424,8 @@ function FieldRuntime:_load()
     if self.resumeSave then
       local saved, saveErr = self.saveStore:load()
       if saved then
-        restored, saveErr = FieldSave.restore(saved, self.mapLoader, self.versionId, saveValidation)
+        local candidate, restoreErr = FieldSave.restore(saved, self.mapLoader, self.versionId, saveValidation)
+        restored, saveErr = candidate, restoreErr
       end
       if saveErr and saveErr.code ~= StorageErrors.SAVE_FILE_MISSING then
         self.saveStatus = "Save ignored: " .. tostring(saveErr)
@@ -531,29 +533,29 @@ function FieldRuntime:_load()
     local doorAt
     local escalatorAt
     if self.presentation or self.runtimeMap.sceneRuntime or self.runtimeMap.scene then
-      doorAt = function(runtimeMap, fieldX, fieldZ)
+      doorAt = function(runtimeMap, doorFieldX, doorFieldZ)
         local sceneRuntime = runtimeMap.sceneRuntime
         if sceneRuntime then
-          return sceneRuntime.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
+          return sceneRuntime.mapProps:doorAt(runtimeMap, doorFieldX, doorFieldZ)
         end
         local props = headlessProps[runtimeMap.mapId]
         if not props then
           props = headlessMapProps(runtimeMap, cacheFs)
           headlessProps[runtimeMap.mapId] = props
         end
-        return props:doorAt(runtimeMap, fieldX, fieldZ)
+        return props:doorAt(runtimeMap, doorFieldX, doorFieldZ)
       end
-      escalatorAt = function(runtimeMap, fieldX, fieldZ)
+      escalatorAt = function(runtimeMap, escalatorFieldX, escalatorFieldZ)
         local sceneRuntime = runtimeMap.sceneRuntime
         if sceneRuntime then
-          return sceneRuntime.mapProps:propAt(runtimeMap, fieldX, fieldZ)
+          return sceneRuntime.mapProps:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
         end
         local props = headlessProps[runtimeMap.mapId]
         if not props then
           props = headlessMapProps(runtimeMap, cacheFs)
           headlessProps[runtimeMap.mapId] = props
         end
-        return props:propAt(runtimeMap, fieldX, fieldZ)
+        return props:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
       end
     end
     self.transition = createFieldTransition(self, doorAt, escalatorAt)
@@ -652,8 +654,8 @@ function FieldRuntime:_load()
     -- the binding audit guarantees every interactable event is bound.
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
-      actorAt = function(mapId, fieldX, fieldZ, surfaceId)
-        return self.actors and self.actors:getAt(mapId, fieldX, fieldZ, surfaceId) or nil
+      actorAt = function(mapId, actorFieldX, actorFieldZ, actorSurfaceId)
+        return self.actors and self.actors:getAt(mapId, actorFieldX, actorFieldZ, actorSurfaceId) or nil
       end,
     })
 
@@ -1034,7 +1036,8 @@ end
 ---@param successText string?
 ---@return boolean saved
 function FieldRuntime:saveSession(successText)
-  if not self.session or not FieldSave.canCapture(self.session) then
+  local session = self.session --[[@as FieldSave.Session?]]
+  if not session or not FieldSave.canCapture(session) then
     self.saveStatus = "Save deferred: movement or transition is active"
     return false
   end
@@ -1045,7 +1048,7 @@ function FieldRuntime:saveSession(successText)
     if self.audio then
       world.fieldMusicOverride = self.audio:musicOverride()
     end
-    self.saveStore:save(FieldSave.capture(self.session, {
+    self.saveStore:save(FieldSave.capture(session, {
       avatarId = self.avatar.id,
       scenario = FieldScenarioManifest.id,
       world = world,
@@ -1160,9 +1163,8 @@ end
 -- updates. A fault here is a fatal programming error; there is no
 -- transition-level rollback of partially committed state.
 ---@param resolution table
----@param facing FieldDirection
 ---@param prepared table
-function FieldRuntime:_commitSwap(resolution, facing, prepared)
+function FieldRuntime:_commitSwap(resolution, _, prepared)
   local runtimeMap = resolution.destinationMap
   local previousMapId = self.runtimeMap.mapId
   if runtimeMap.mapId ~= previousMapId then

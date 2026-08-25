@@ -17,7 +17,7 @@ local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
 local FieldAudio = {}
 
 ---@class FieldAudioComposeOptions
----@field cacheFs table
+---@field cacheFs CacheFs
 ---@field outputRate integer
 ---@field eventState any
 ---@field fieldPosition fun(): integer, integer
@@ -45,7 +45,7 @@ function FieldAudio.compose(opts)
     sampleRate = opts.outputRate,
     mixer = mixer,
     provider = provider,
-  })
+  }) --[[@as SequencePlayer]]
   -- The LÖVE output sink is built over the injected audio-output host
   -- boundary (acceptance fakes it); production defaults to the
   -- love.audio + love.sound namespaces, and a host with no audio module
@@ -68,7 +68,9 @@ function FieldAudio.compose(opts)
     provider = provider,
     player = player,
     completionAvailable = sink ~= nil,
-    cry = CryPlayer.new({ player = player }),
+    cry = CryPlayer.new({
+      player = player --[[@as CryPlayer.Player]],
+    }),
   })
   return {
     service = FieldAudioController.new({

@@ -59,10 +59,11 @@ local function taskRegistry()
   local registry = TaskRegistry.new()
   for _, moduleName in ipairs(TASK_MODULES) do
     local impl = require(moduleName)
+    ---@cast impl TaskImplementation
     registry:register(impl.type, impl.version, impl)
   end
   local pause = require("libs.engine.src.script.tasks.MovementPauseTask")
-  registry:register(pause.actorType, pause.version, pause)
+  registry:register(pause.actorType, pause.version, pause --[[@as TaskImplementation]])
   return registry
 end
 
@@ -242,7 +243,7 @@ function FieldScripts.new(opts)
       snapshotKey = snapshot and snapshot.key or nil,
     })
   end
-  local composition = Composition.new(registry)
+  local composition = Composition.new(registry --[[@as Registry]])
   local bindings = Bindings.new(opts.bindingsManifest)
   -- Load-time audit: every interactable event of every bound map must be
   -- bound by the manifest (or be noninteractive by the zone-event data).
@@ -292,8 +293,8 @@ function FieldScripts.new(opts)
   -- duplicates substitution semantics.
   local signpostHost = ScriptSignpostHost.new({
     controller = opts.signpost,
-    resolveMessage = function(message, bindings, textArgs)
-      return dialogueHost:resolveMessage(message, bindings, textArgs)
+    resolveMessage = function(message, signpostBindings, textArgs)
+      return dialogueHost:resolveMessage(message, signpostBindings, textArgs)
     end,
   })
 

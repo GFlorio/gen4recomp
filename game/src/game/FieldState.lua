@@ -143,7 +143,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     runtime.menuHost:setPresentationMetrics(function(text)
       return love.graphics.getFont():getWidth(text)
     end)
-    self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
+    self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs) --[[@as FieldActorAssetProvider]]
     self._actorAssetLookup = function(spriteId)
       local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
       return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
@@ -320,6 +320,10 @@ function FieldState:draw()
     return
   end
   local width, height = lg.getDimensions()
+  assert(width == math.floor(width) and height == math.floor(height))
+  width, height =
+    width, --[[@as integer]]
+    height --[[@as integer]]
   assert(width and height, "graphics dimensions are required for field presentation")
   local resized = false
   if width ~= self.runtime.viewport.width or height ~= self.runtime.viewport.height then
@@ -328,11 +332,14 @@ function FieldState:draw()
   end
   if self._pollPresentationTopology and not resized then
     local topology = self.topologyProvider(width, height)
-    if self:_geometrySignature(width, height, topology) ~= self._lastGeometrySignature then
+    ---@cast width integer
+    ---@cast height integer
+    local geometryWidth, geometryHeight = width, height
+    if self:_geometrySignature(geometryWidth, geometryHeight, topology) ~= self._lastGeometrySignature then
       -- Injected providers remain polling-enabled so same-size structural
       -- topology changes still reach the runtime geometry owner.
-      self.runtime:resizePresentation(width, height, topology)
-      self:_recordGeometrySignature(width, height, topology)
+      self.runtime:resizePresentation(geometryWidth, geometryHeight, topology)
+      self:_recordGeometrySignature(geometryWidth, geometryHeight, topology)
     end
   end
   local alpha = self.runtime.session:renderAlpha()
@@ -448,7 +455,14 @@ end
 function FieldState:_drawApplicationFade(alpha)
   local lg = love.graphics
   local world = self.runtime.viewport.worldViewport
-  local frame = assert(self.runtime.startMenuPlacement, "the application fade requires the placement record").frame
+  local placementFrame =
+    assert(self.runtime.startMenuPlacement, "the application fade requires the placement record").frame
+  local frame = {
+    x = placementFrame.x,
+    y = placementFrame.y,
+    width = placementFrame.width,
+    height = placementFrame.height,
+  } ---@type ScreenTopology.Rectangle
   lg.setColor(0, 0, 0, alpha)
   for _, rect in ipairs(fadeRects(world, frame)) do
     lg.rectangle("fill", rect.x, rect.y, rect.width, rect.height)
@@ -484,9 +498,7 @@ function FieldState:_drawHud()
 end
 
 ---@param key string
----@param scancode string?
----@param isrepeat boolean?
-function FieldState:keypressed(key, scancode, isrepeat)
+function FieldState:keypressed(key, _, _)
   if key == "escape" then
     love.event.quit(0)
   end
@@ -530,8 +542,7 @@ function FieldState:keypressed(key, scancode, isrepeat)
 end
 
 ---@param key string
----@param scancode string?
-function FieldState:keyreleased(key, scancode)
+function FieldState:keyreleased(key, _)
   -- Release mirrors press: one physical key may drive several held semantic
   -- states (e.g. Action bound to an arrow key), so every matching binding
   -- releases, never just the first.
@@ -617,9 +628,7 @@ end
 ---@param x number
 ---@param y number
 ---@param button integer
----@param istouch boolean?
----@param presses integer?
-function FieldState:mousepressed(x, y, button, istouch, presses)
+function FieldState:mousepressed(x, y, button, _, _)
   if button == 1 then
     self.runtime.input:pointerDown("mouse:1", x, y)
   end
@@ -627,10 +636,8 @@ end
 
 ---@param x number
 ---@param y number
----@param dx number
----@param dy number
 ---@param istouch boolean
-function FieldState:mousemoved(x, y, dx, dy, istouch)
+function FieldState:mousemoved(x, y, _, _, istouch)
   if not istouch then
     self.runtime.input:pointerMove("mouse:1", x, y)
   end
@@ -639,9 +646,7 @@ end
 ---@param x number
 ---@param y number
 ---@param button integer
----@param istouch boolean?
----@param presses integer?
-function FieldState:mousereleased(x, y, button, istouch, presses)
+function FieldState:mousereleased(x, y, button, _, _)
   if button == 1 then
     self.runtime.input:pointerUp("mouse:1", x, y)
   end

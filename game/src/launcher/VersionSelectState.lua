@@ -11,12 +11,10 @@ function VersionSelectState.new(readyVersions, onPick)
   return setmetatable({ ready = readyVersions, onPick = onPick }, VersionSelectState)
 end
 
-function VersionSelectState:update(dt) end
+function VersionSelectState:update(_) end
 
 ---@param key string
----@param scancode string
----@param isrepeat boolean
-function VersionSelectState:keypressed(key, scancode, isrepeat)
+function VersionSelectState:keypressed(key, _, _)
   local n = tonumber(key)
   if n and self.ready[n] then
     self.onPick(self.ready[n])

@@ -18,6 +18,9 @@ local TEMP_PATH = FieldSave.PATH .. ".tmp"
 ---@class FieldSaveStore
 ---@field saveFs SaveFs
 ---@field opts table
+---@field load fun(self: FieldSaveStore): table?, Errors.Error?
+---@field save fun(self: FieldSaveStore, record: table): boolean
+---@field reset fun(self: FieldSaveStore): boolean
 
 ---@param saveFs SaveFs
 ---@param opts table?

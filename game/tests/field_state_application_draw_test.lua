@@ -333,7 +333,7 @@ function T.the_application_fade_paints_disjoint_surfaces_separately_and_never_th
   -- The gap between the surfaces (256..320) is never covered: every painted
   -- rectangle stays inside one of the two surfaces.
   for _, rect in ipairs(rects) do
-    local x, y, w, h = rect[3], rect[4], rect[5], rect[6]
+    local x, w = rect[3], rect[5]
     local covered = (x < 256 and x + w <= 256) or (x >= 320)
     Assert.isTrue(covered, "no fade rectangle may span the gap between surfaces")
   end

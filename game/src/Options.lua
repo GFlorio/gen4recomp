@@ -32,7 +32,7 @@ function Options.parse(argv)
   -- with the usage exit status. Nothing here is validated once --test appears.
   for _, token in ipairs(argv) do
     if token == "--test" then
-      return { test = true }
+      return { test = true, field = nil, actors = false, dev = false, newFieldSession = false }
     end
   end
 
@@ -65,7 +65,7 @@ function Options.parse(argv)
     return nil, "conflicting execution modes: --actors and --field\n" .. Options.USAGE
   end
 
-  return opts
+  return opts --[[@as GameOptions]]
 end
 
 return Options

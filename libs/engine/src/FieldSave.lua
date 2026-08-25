@@ -521,6 +521,7 @@ local function restore(record, loader, expectedVersionId, opts)
   }
 end
 
+---@return table?, Errors.Error?
 function FieldSave.restore(record, loader, expectedVersionId, opts)
   assert(loader and loader.load, "field save restore loader required")
   local ok, result = pcall(restore, record, loader, expectedVersionId, opts or {})

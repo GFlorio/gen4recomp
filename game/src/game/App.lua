@@ -25,7 +25,8 @@ local function fieldTarget(option)
     return nil
   end
   if type(option) == "string" and option:match("^%d+$") then
-    return tonumber(option)
+    local n = assert(tonumber(option))
+    return n --[[@as integer]]
   end
   return option --[[@as string|integer|nil]]
 end

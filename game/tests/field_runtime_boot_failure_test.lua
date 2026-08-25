@@ -207,9 +207,9 @@ function T.tests.resume_restore_uses_the_full_save_validation_record()
   -- ScriptSave validation (an impossible environment mode) must be rejected at
   -- resume restore with the scripts attribution, and the runtime must boot
   -- fresh instead of crashing during the later scheduler restore.
-  local planted = assert(saveFs:loadLua(FieldSave.PATH), "the ignored boot must have written a fresh save")
-  planted.scripts.environments = { { environmentId = "env:0", mode = "impossible" } }
-  assert(saveFs:writeLua(FieldSave.PATH, planted))
+  local corruptedSave = assert(saveFs:loadLua(FieldSave.PATH), "the ignored boot must have written a fresh save")
+  corruptedSave.scripts.environments = { { environmentId = "env:0", mode = "impossible" } }
+  assert(saveFs:writeLua(FieldSave.PATH, corruptedSave))
   local resumed = FieldRuntime.new(versionId, LAB, { saveFs = saveFs, resumeSave = true })
   Assert.isTrue(
     resumed.saveStatus:find("Save ignored:", 1, true) ~= nil
