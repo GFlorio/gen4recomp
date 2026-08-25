@@ -10,7 +10,7 @@
 
 ---@class ScriptSignpostHost
 ---@field private _controller FieldSignpostController
----@field private _resolveMessage fun(message: any, bindings: table, textArgs: table): table
+---@field private _resolveMessage fun(message: any, bindings: table, textArgs: table): FieldMessageProvider.FormattedMessage
 local ScriptSignpostHost = {}
 ScriptSignpostHost.__index = ScriptSignpostHost
 

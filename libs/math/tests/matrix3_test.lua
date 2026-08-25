@@ -8,9 +8,15 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
+---@param a number
+---@param b number
+---@return boolean
 local function approx(a, b)
   return math.abs(a - b) < 1e-9
 end
+---@param a number[]
+---@param b number[]
+---@return boolean
 local function approxVec(a, b)
   return approx(a[1], b[1]) and approx(a[2], b[2]) and approx(a[3], b[3])
 end

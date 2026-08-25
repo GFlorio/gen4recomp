@@ -37,7 +37,7 @@ local SAVE_ERRORS = {
 ---@field versionId string
 ---@field private _prefix string
 ---@field private _root string
----@field backend table
+---@field backend ScopedFs.Backend
 ---@field prefix fun(self: SaveFs): string
 ---@field resolve fun(self: SaveFs, relativePath: string): string
 ---@field write fun(self: SaveFs, relativePath: string, data: string): boolean

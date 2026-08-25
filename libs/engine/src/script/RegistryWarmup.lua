@@ -108,7 +108,6 @@ function RegistryWarmup:update()
     end
     self.index = index.resources
   end
-  local entries = assert(self.index, "warm-up index is unavailable")
   local deadline = self.clock() + self.budget
   repeat
     local ok = self:_step()

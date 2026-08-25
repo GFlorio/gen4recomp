@@ -16,6 +16,8 @@ local FieldFontLoader = {}
 
 -- Returns nil + a reason string when the definition violates the v2 codec
 -- contract. No mutation.
+---@param definition table
+---@return boolean?, string?
 local function definitionValid(definition)
   local variants = definition.colorVariants
   if type(variants) ~= "table" or variants.count ~= FieldMessageText.COLOR_VARIANT_COUNT then
@@ -81,7 +83,7 @@ function FieldFontLoader.load(cacheFs, fontId)
       { fontId = fontId, path = path }
     )
   end
-  local valid, reason = definitionValid(definition)
+  local valid, reason = definitionValid(definition --[[@as table]])
   if not valid then
     Errors.raise(
       FieldErrors.FONT_DEF_INVALID,

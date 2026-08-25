@@ -31,11 +31,30 @@ local function buildRenders(def)
   return renderMeshesById
 end
 
+---@return FieldCamera
 local function identityCamera()
   local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
   return {
+    cameraSourceY = 0,
+    cameraAppliedY = 0,
+    zoom = 1,
+    projectionType = "orthographic",
+    profile = {},
     distance = 26,
+    near = 0.1,
     far = 400,
+    sourceTarget = { x = 0, y = 0, z = 0 },
+    target = { x = 0, y = 0, z = 0 },
+    previousTarget = { x = 0, y = 0, z = 0 },
+    eye = { x = 0, y = 0, z = 0 },
+    previousEye = { x = 0, y = 0, z = 0 },
+    up = { x = 0, y = 1, z = 0 },
+    history = {},
+    historyEnabled = false,
+    canonicalAspect = 1,
+    projectionAspect = 1,
+    _billboardDepthOffset = 0,
+    _projectionDirty = false,
     view = function()
       return identity
     end,
@@ -45,7 +64,7 @@ local function identityCamera()
     billboardProjection = function()
       return identity
     end,
-  }
+  } --[[@as FieldCamera]]
 end
 
 local function drawInstance(renderer, runtime, instance, alpha)

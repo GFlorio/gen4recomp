@@ -5,6 +5,12 @@
 
 local LuaWriter = {}
 
+---@class LuaWriter
+---@field encode fun(value: LuaWriter.Value): string
+
+---@alias LuaWriter.Value nil|boolean|number|string|table< number|string, LuaWriter.Value >
+---@alias LuaWriter.Key number|string
+
 ---@param s string
 ---@return boolean
 local function isIdentifier(s)
@@ -51,10 +57,11 @@ local function encodeNumber(n)
 end
 
 -- Sort keys deterministically: numbers ascending, then strings alphabetically.
----@param t table
+---@param t table<LuaWriter.Key, LuaWriter.Value>
 ---@return table
 local function sortedKeys(t)
-  local numeric, strings = {}, {}
+  local numeric = {} ---@type number[]
+  local strings = {} ---@type string[]
   for k in pairs(t) do
     if type(k) == "number" then
       numeric[#numeric + 1] = k
@@ -66,7 +73,7 @@ local function sortedKeys(t)
   end
   table.sort(numeric)
   table.sort(strings)
-  local keys = {}
+  local keys = {} ---@type LuaWriter.Key[]
   for _, k in ipairs(numeric) do
     keys[#keys + 1] = k
   end
@@ -76,12 +83,12 @@ local function sortedKeys(t)
   return keys
 end
 
----@type fun(value: any, indent: string, seen: table): string
+---@type fun(value: LuaWriter.Value, indent: string, seen: table<LuaWriter.Value, boolean>): string
 local encodeValue
 
----@param t table
+---@param t table<LuaWriter.Key, LuaWriter.Value>
 ---@param indent string
----@param seen table
+---@param seen table<LuaWriter.Value, boolean>
 ---@return string
 local function encodeTable(t, indent, seen)
   if seen[t] then
@@ -94,9 +101,10 @@ local function encodeTable(t, indent, seen)
     return "{}"
   end
   local inner = indent .. "  "
-  local parts = { "{\n" }
-  for _, k in ipairs(keys) do
-    local keyStr
+  local parts = { "{\n" } ---@type string[]
+  for i = 1, #keys do
+    local k = keys[i]
+    local keyStr = ""
     if type(k) == "number" then
       keyStr = "[" .. encodeNumber(k) .. "]"
     elseif isIdentifier(k) then
@@ -111,9 +119,9 @@ local function encodeTable(t, indent, seen)
   return table.concat(parts)
 end
 
----@param value any
+---@param value LuaWriter.Value
 ---@param indent string
----@param seen table
+---@param seen table<LuaWriter.Value, boolean>
 ---@return string
 encodeValue = function(value, indent, seen)
   local ty = type(value)
@@ -132,7 +140,7 @@ encodeValue = function(value, indent, seen)
   end
 end
 
----@param value any
+---@param value LuaWriter.Value
 ---@return string
 function LuaWriter.encode(value)
   return "return " .. encodeValue(value, "", {}) .. "\n"

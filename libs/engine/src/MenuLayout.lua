@@ -49,13 +49,6 @@ local function copyRectangle(rectangle)
   return { x = rectangle.x, y = rectangle.y, width = rectangle.width, height = rectangle.height }
 end
 
-local function contains(outer, inner)
-  return inner.x >= outer.x
-    and inner.y >= outer.y
-    and inner.x + inner.width <= outer.x + outer.width
-    and inner.y + inner.height <= outer.y + outer.height
-end
-
 local function overlaps(a, b)
   return a.x < b.x + b.width and b.x < a.x + a.width and a.y < b.y + b.height and b.y < a.y + a.height
 end
@@ -265,6 +258,12 @@ local function autoPresentation(surface, menu, mode)
   return "floating"
 end
 
+---@param frame ScreenTopology.Rectangle
+---@param menu { items: table[], selectedIndex?: integer, cancellable?: boolean }
+---@param rowHeight number
+---@param padding number
+---@param cancelHeight number
+---@return ScreenTopology.Rectangle, ScreenTopology.Rectangle[], number, number
 local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
   local content = {
     x = frame.x + padding,
@@ -407,8 +406,14 @@ function MenuLayout.resolve(spec)
       height = height,
     }
   end
+  local resolvedFrame = assert(frame, "menu layout did not resolve a frame")
+  local resolvedMenu = {
+    items = spec.menu.items,
+    selectedIndex = selectedIndex,
+    cancellable = spec.menu.cancellable == true,
+  }
   local contentRect, itemRects, scrollOffset, maxScrollOffset =
-    layoutItems(frame, spec.menu, rowHeight, padding, cancelHeight)
+    layoutItems(resolvedFrame, resolvedMenu, rowHeight, padding, cancelHeight)
   local itemTexts = {}
   for luaIndex = 1, #spec.menu.items do
     itemTexts[luaIndex - 1] = itemText(spec.menu.items[luaIndex])
@@ -425,7 +430,7 @@ function MenuLayout.resolve(spec)
   return {
     surface = surface,
     presentation = presentation,
-    frame = frame,
+    frame = resolvedFrame,
     contentRect = contentRect,
     itemCount = #spec.menu.items,
     itemRects = itemRects,

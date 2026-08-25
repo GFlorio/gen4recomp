@@ -21,6 +21,8 @@ local ScriptInstance = require("libs.engine.src.script.ScriptInstance")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
+---@cast WaitTicksTask TaskImplementation
+---@cast ChildScriptTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
 local FieldSave = require("libs.engine.src.FieldSave")
@@ -507,7 +509,7 @@ T["field save v3 round trip"] = function()
     },
     player = { motion = "idle", fieldX = 4, fieldZ = 6, worldY = 4, surfaceId = 11, facing = "north" },
     transition = { phase = "idle" },
-  }
+  } --[[@as FieldSave.Session]]
   local record = FieldSave.capture(session, {
     avatarId = "hero",
     scenario = "scenario-a",
@@ -716,6 +718,8 @@ end
 T["mid-audio-wait saves resume against a fresh audio service"] = function()
   local SoundWaitTask = require("libs.engine.src.script.tasks.SoundWaitTask")
   local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  ---@cast SoundWaitTask TaskImplementation
+  ---@cast MusicFadeTask TaskImplementation
   local freshAudio = function()
     return {
       playing = {},
@@ -940,7 +944,7 @@ end
 -- validation.
 ---@param mutate fun(bucket: table)
 ---@param context string
-local function expectCorruptBucketError(mutate, context)
+local function expectInstanceCorruptError(mutate, context)
   local h = harness()
   startForeground(
     h,
@@ -1009,10 +1013,10 @@ T["validate rejects malformed instance records"] = function()
   local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
   bucket.instances[1].contextSlot = 7
   expectValidationError(ScriptSave.validate(bucket, {}), "an instance record with an out-of-range context slot")
-  expectCorruptBucketError(function(corrupted)
+  expectInstanceCorruptError(function(corrupted)
     corrupted.instances[1].scriptId = nil
   end, "an instance record without a script identity")
-  expectCorruptBucketError(function(corrupted)
+  expectInstanceCorruptError(function(corrupted)
     corrupted.instances[1].frames[1].composition = nil
   end, "an instance record with a malformed frame composition")
 end

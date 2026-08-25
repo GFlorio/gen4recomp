@@ -148,8 +148,10 @@ function TerrainMaterialAnimator:updateFixed()
   if self.player then
     self.player:updateFixed()
     local frameFx = self.player.frameFx
+    local clip = assert(self.clip)
     for _, binding in ipairs(self.srtBindings) do
-      local sampled = CompiledNsbtaSampler.sample(self.clip, binding.targetIndex, frameFx)
+      local sampled = CompiledNsbtaSampler.sample(clip, binding.targetIndex, frameFx)
+      ---@cast sampled SampledTexSrtState
       binding.runtime.texMatrix = TextureSrtEvaluator.matrix(binding.record, sampled)
     end
   end

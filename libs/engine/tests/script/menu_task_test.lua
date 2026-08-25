@@ -10,6 +10,7 @@ local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local MenuTask = require("libs.engine.src.script.tasks.MenuTask")
+---@cast MenuTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 
 local T = {}

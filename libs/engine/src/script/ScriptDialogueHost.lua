@@ -44,11 +44,9 @@ local function resolveTextValue(descriptor, player, fontDef, world)
       return nil
     end
     if world == nil or world.getVar == nil then
-      Errors.raise(
-        ScriptErrors.SCRIPT_SERVICE_MISSING,
-        "integer text values require the world state",
-        { kind = kind, value = value }
-      )
+      local context = { kind = kind, value = value }
+      ---@cast context Errors.Context
+      Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "integer text values require the world state", context)
     end
     local worldState = world --[[@as { getVar: fun(self: table, id: any): any }]]
     return FieldMessageProvider.asciiGlyphTokens(tostring(worldState:getVar(value.id)), fontDef)
@@ -97,7 +95,7 @@ end
 ---@param message any string reference or external descriptor
 ---@param bindings table slot -> text value
 ---@param textArgs table slot -> text value
----@return table formatted { tokens, ... }
+---@return FieldMessageProvider.FormattedMessage formatted { tokens, ... }
 function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
   local bankId, messageId
   if type(message) == "string" then
@@ -121,13 +119,17 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
   local bank, bankErr = self._provider:acquireBank(bankId)
   if not bank then
     local err = bankErr --[[@as Errors.Error]]
-    Errors.raise(err.code, err.message, { bankId = bankId, cause = err.context })
+    local context = { bankId = bankId, cause = err.context }
+    ---@cast context Errors.Context
+    Errors.raise(err.code, err.message, context)
   end
   local template, templateErr = self._provider:get(bankId, messageId)
   if not template then
     self._provider:releaseBank(bankId)
     local err = templateErr --[[@as Errors.Error]]
-    Errors.raise(err.code, err.message, { bankId = bankId, messageId = messageId, cause = err.context })
+    local context = { bankId = bankId, messageId = messageId, cause = err.context }
+    ---@cast context Errors.Context
+    Errors.raise(err.code, err.message, context)
   end
   -- One resolver per substitution control; the buffer slot is each marker's
   -- own first argument, so a control occurring at several slots resolves
@@ -137,7 +139,7 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
   local templateTokens = template --[[@as table]].tokens
   for _, token in ipairs(templateTokens) do
     if token.kind == "substitution" and token.args ~= nil and resolvers[token.control] == nil then
-      resolvers[token.control] = function(control, args, context)
+      resolvers[token.control] = function(_, args, _)
         local slot = args and args[1]
         local descriptor = bindings[slot] or textArgs[slot]
         return resolveTextValue(descriptor, self._player, self._fontDef, self._world)

@@ -30,6 +30,9 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field pushFacingOverride fun(self: FieldObjectActor, request: { owner: string, facing: FieldDirection }): table
 ---@field releaseFacingOverride fun(self: FieldObjectActor, token: table)
 ---@field clearFacingOverride fun(self: FieldObjectActor)
+---@field setFacing fun(self: FieldObjectActor, direction: FieldDirection)
+---@field setVisible fun(self: FieldObjectActor, visible: boolean)
+---@field setPosition fun(self: FieldObjectActor, position: table)
 
 local FieldObjectActor = {}
 FieldObjectActor.__index = FieldObjectActor
@@ -86,10 +89,13 @@ end
 function FieldObjectActor:pushFacingOverride(request)
   assert(type(request) == "table" and type(request.owner) == "string", "a facing override requires an owner")
   if self.interactionFacingOverride then
+    local context =
+      { actorId = self.actorId, owner = self.interactionFacingOverride.owner, requestedBy = request.owner }
+    ---@cast context Errors.Context
     Errors.raise(
       FieldErrors.ACTOR_OVERRIDE_OWNER_MISMATCH,
       "actor " .. self.actorId .. " already has a facing override owned by " .. self.interactionFacingOverride.owner,
-      { actorId = self.actorId, owner = self.interactionFacingOverride.owner, requestedBy = request.owner }
+      context
     )
   end
   local token = {
@@ -104,10 +110,12 @@ end
 
 function FieldObjectActor:releaseFacingOverride(token)
   if self.interactionFacingOverride == nil or self.interactionFacingOverride ~= token then
+    local context = { actorId = self.actorId }
+    ---@cast context Errors.Context
     Errors.raise(
       FieldErrors.ACTOR_OVERRIDE_OWNER_MISMATCH,
       "released a facing override that actor " .. self.actorId .. " does not hold",
-      { actorId = self.actorId }
+      context
     )
   end
   self.facing = token.restoreFacing

@@ -4,29 +4,51 @@
 local Assert = require("tests.support.Assert")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
-local CacheFs = require("libs.storage.src.CacheFs")
-local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
 
+---@param manifest FieldUiManifestTest.Manifest
+---@return FieldUiTest.Signposts
+local function getSignposts(manifest)
+  return manifest.signposts
+end
+
+---@param typeEntry FieldUiTest.SignpostType
+---@return table<integer, FieldUiTest.Rect>
+local function getWayfinding(typeEntry)
+  return assert(typeEntry.wayfinding)
+end
+
+---@class FieldUiManifestTest.Manifest : FieldUiAssetCache.Manifest
+---@field schema string
+---@field reference table
+---@field assets table<string, FieldUiAssetCache.Asset>
+---@field dialogueFrames FieldUiTest.DialogueFrames
+---@field signposts FieldUiTest.Signposts
+---@field startMenu FieldUiTest.StartMenu
+---@field trainerCard table
+---@field [string] table
+
+---@return table<integer, FieldUiTest.Palette>
 local function validPalette()
-  local palette = {}
+  local palette = {} ---@type table<integer, FieldUiTest.Palette>
   for slot = 0, 15 do
     palette[slot] = { r = slot * 16, g = slot * 16, b = slot * 16 }
   end
   return palette
 end
 
+---@return FieldUiManifestTest.Manifest
 local function baseManifest()
-  local frameTiles = {}
+  local frameTiles = {} ---@type table<integer, table>
   for frame = 0, 19 do
     frameTiles[frame] = { x = 0, y = 0, width = 144, height = 8 }
   end
-  local slots = {}
+  local slots = {} ---@type table<integer, table>
   for id = 1, 10 do
     slots[id] = { x = (id % 2 == 1 and 0 or 128), y = math.floor((id - 1) / 2) * 38, width = 128, height = 38 }
   end
-  return {
+  local manifest = {
     schema = DerivedAssetContract.fieldUi.schema,
     reference = { width = 256, height = 192 },
     assets = {
@@ -63,7 +85,7 @@ local function baseManifest()
         framePrinterTicks = 9,
         placement = { x = 240, y = 168, width = 16, height = 16 },
         styles = (function()
-          local styles = {}
+          local styles = {} ---@type table<integer, FieldUiTest.Style>
           for style = 0, 19 do
             styles[style] = {
               phases = {
@@ -101,7 +123,8 @@ local function baseManifest()
       slots = slots,
     },
     trainerCard = { front = { x = 0, y = 0, width = 256, height = 192 } },
-  }
+  } ---@cast manifest FieldUiManifestTest.Manifest
+  return manifest
 end
 
 function T.final_surface_48x32_is_accepted_when_manifest_claims_v7()
@@ -110,7 +133,7 @@ function T.final_surface_48x32_is_accepted_when_manifest_claims_v7()
   manifest.schema = "g4-field-ui-v7"
   manifest.assets["hgss.signpost.wayfinding"] =
     { image = "assets/generated/field/ui/wayfinding-tiles.png", width = 48, height = 32 }
-  manifest.signposts.types[0].wayfinding[0] = { x = 0, y = 0, width = 48, height = 32 }
+  getWayfinding(getSignposts(manifest).types[0])[0] = { x = 0, y = 0, width = 48, height = 32 }
   local ok, err = FieldUiAssetCache.validateManifest(manifest)
   Assert.isTrue(ok, "48x32 final surface with v7 schema should be accepted")
   Assert.isNil(err)
@@ -121,22 +144,24 @@ function T.old_strip_192x8_is_rejected_under_final_surface_contract()
   manifest.schema = "g4-field-ui-v7"
   manifest.assets["hgss.signpost.wayfinding"] =
     { image = "assets/generated/field/ui/wayfinding-tiles.png", width = 192, height = 32 }
-  manifest.signposts.types[0].wayfinding[0] = { x = 0, y = 0, width = 192, height = 8 }
+  getWayfinding(getSignposts(manifest).types[0])[0] = { x = 0, y = 0, width = 192, height = 8 }
   local ok, err = FieldUiAssetCache.validateManifest(manifest)
   Assert.isFalse(ok, "old 192x8 strip must be rejected under final surface contract")
   Assert.isTrue(err ~= nil)
-  Assert.equal(err and err.code, "FIELD_UI_MANIFEST_INVALID")
+  local errorValue = assert(err)
+  Assert.equal(errorValue.code, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.stale_v5_schema_is_rejected()
   local manifest = baseManifest()
   manifest.schema = "g4-field-ui-v5"
-  manifest.signposts.types[0].wayfinding[0] = { x = 0, y = 0, width = 48, height = 32 }
+  getWayfinding(getSignposts(manifest).types[0])[0] = { x = 0, y = 0, width = 48, height = 32 }
   -- Even if rect is 48x32, old schema must be rejected
   local ok, err = FieldUiAssetCache.validateManifest(manifest)
   Assert.isFalse(ok, "v5 schema must be rejected as stale")
   Assert.isTrue(err ~= nil)
-  Assert.equal(err and err.code, "FIELD_UI_MANIFEST_INVALID")
+  local errorValue = assert(err)
+  Assert.equal(errorValue.code, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.final_surface_must_be_inside_atlas_bounds()
@@ -144,11 +169,12 @@ function T.final_surface_must_be_inside_atlas_bounds()
   manifest.schema = "g4-field-ui-v7"
   manifest.assets["hgss.signpost.wayfinding"] =
     { image = "assets/generated/field/ui/wayfinding-tiles.png", width = 48, height = 32 }
-  manifest.signposts.types[0].wayfinding[0] = { x = 10, y = 10, width = 48, height = 32 }
+  getWayfinding(getSignposts(manifest).types[0])[0] = { x = 10, y = 10, width = 48, height = 32 }
   local ok, err = FieldUiAssetCache.validateManifest(manifest)
   Assert.isFalse(ok, "wayfinding rect escaping atlas must be rejected")
   Assert.isTrue(err ~= nil)
-  Assert.equal(err and err.code, "FIELD_UI_MANIFEST_INVALID")
+  local errorValue = assert(err)
+  Assert.equal(errorValue.code, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.final_surface_must_be_exactly_48x32()
@@ -156,14 +182,14 @@ function T.final_surface_must_be_exactly_48x32()
   manifest.schema = "g4-field-ui-v7"
   manifest.assets["hgss.signpost.wayfinding"] =
     { image = "assets/generated/field/ui/wayfinding-tiles.png", width = 48, height = 32 }
-  manifest.signposts.types[0].wayfinding[0] = { x = 0, y = 0, width = 47, height = 32 }
+  getWayfinding(getSignposts(manifest).types[0])[0] = { x = 0, y = 0, width = 47, height = 32 }
   local ok, _ = FieldUiAssetCache.validateManifest(manifest)
   Assert.isFalse(ok, "47x32 must be rejected - exactly 48x32 required")
   local manifest2 = baseManifest()
   manifest2.schema = "g4-field-ui-v7"
   manifest2.assets["hgss.signpost.wayfinding"] =
     { image = "assets/generated/field/ui/wayfinding-tiles.png", width = 48, height = 32 }
-  manifest2.signposts.types[0].wayfinding[0] = { x = 0, y = 0, width = 48, height = 31 }
+  getWayfinding(getSignposts(manifest2).types[0])[0] = { x = 0, y = 0, width = 48, height = 31 }
   local ok2, _ = FieldUiAssetCache.validateManifest(manifest2)
   Assert.isFalse(ok2, "48x31 must be rejected")
 end
@@ -173,11 +199,12 @@ function T.missing_wayfinding_map_is_rejected()
   manifest.schema = "g4-field-ui-v7"
   manifest.assets["hgss.signpost.wayfinding"] =
     { image = "assets/generated/field/ui/wayfinding-tiles.png", width = 48, height = 32 }
-  manifest.signposts.types[0].wayfinding = {}
+  getSignposts(manifest).types[0].wayfinding = {}
   local ok, err = FieldUiAssetCache.validateManifest(manifest)
   Assert.isFalse(ok)
   Assert.isTrue(err ~= nil)
-  Assert.equal(err and err.code, "FIELD_UI_MANIFEST_INVALID")
+  local errorValue = assert(err)
+  Assert.equal(errorValue.code, "FIELD_UI_MANIFEST_INVALID")
 end
 
 return { tests = T }

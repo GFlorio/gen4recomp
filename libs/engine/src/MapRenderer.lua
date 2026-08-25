@@ -195,6 +195,7 @@ function MapRenderer.worldRasterDimensions(displayWidth, displayHeight, scale)
 end
 
 ---@param opts table?
+---@return MapRenderer
 function MapRenderer.new(opts)
   opts = opts or {}
   local graphics = opts.graphics
@@ -823,7 +824,9 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
   local mat = item.material
 
   -- Pass 1: source color through the ordinary color shader.
-  lg.setCanvas(assert(self._sourceColorTargets))
+  local sourceColorTargets = assert(self._sourceColorTargets)
+  ---@cast sourceColorTargets love.Canvas
+  lg.setCanvas(sourceColorTargets)
   lg.setShader(self.shader)
   lg.setDepthMode("less", false)
   lg.setBlendMode("replace", "premultiplied")
@@ -832,7 +835,9 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
 
   -- Pass 2: source metadata through source.glsl (same-ID rejection + fog flag
   -- + id).
-  lg.setCanvas(assert(self._sourceMetaTargets))
+  local sourceMetaTargets = assert(self._sourceMetaTargets)
+  ---@cast sourceMetaTargets love.Canvas
+  lg.setCanvas(sourceMetaTargets)
   lg.clear(0, 0, 0, 0, false, false)
   lg.setShader(self.sourceShader)
   lg.setDepthMode("less", false)
@@ -872,6 +877,8 @@ end
 ---@param spriteItems table[]?
 ---@param viewport { worldViewport: { x: number, y: number, width: number, height: number } }
 ---@param alpha number
+---@param sceneRuntime table
+---@param camera FieldCamera
 function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   -- The world MRT shader derives its depth from the host fragment's normalized
@@ -934,10 +941,15 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
     -- ---- world MRT pass: color and polygon state ----
-    lg.setCanvas(assert(self._stateClearTargets))
+    local stateClearTargets = assert(self._stateClearTargets)
+    ---@cast stateClearTargets love.Canvas
+    lg.setCanvas(stateClearTargets)
     lg.clear(DS_STATE_CLEAR, false, true)
-    lg.setCanvas(assert(self._colorClearTargets))
+    local colorClearTargets = assert(self._colorClearTargets)
+    ---@cast colorClearTargets love.Canvas
+    lg.setCanvas(colorClearTargets)
     lg.clear(self.clearColor, false, false)
+    ---@cast colorTargets love.Canvas
     lg.setCanvas(colorTargets)
     lg.setShader(self.worldShader)
     lg.setDepthMode("less", true)
@@ -977,7 +989,9 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     if self.translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE then
       if #queue.blended > 0 then
         self:_sendLighting(sceneRuntime, self.shader)
-        lg.setCanvas(assert(self._colorClearTargets))
+        local approximateClearTargets = assert(self._colorClearTargets)
+        ---@cast approximateClearTargets love.Canvas
+        lg.setCanvas(approximateClearTargets)
         lg.setShader(self.shader)
         lg.setDepthMode("less", false)
         lg.setBlendMode("alpha", "alphamultiply")
@@ -1038,7 +1052,9 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     -- target the ACTIVE color/state pair so the final resolve sees them
     -- composited with any translucent overlays.
     if #queue.wireframe > 0 then
-      lg.setCanvas(assert(self._colorTargets))
+      local wireframeTargets = assert(self._colorTargets)
+      ---@cast wireframeTargets love.Canvas
+      lg.setCanvas(wireframeTargets)
       lg.setShader(self.worldShader)
       self._activeShader = self.worldShader
       lg.setDepthMode("less", true)

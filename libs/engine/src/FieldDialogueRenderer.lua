@@ -165,8 +165,8 @@ end
 -- boundary. Timing and phase selection belong to the controller.
 
 ---@param status FieldDialogueController.Status
----@param _layout FieldDialogueTheme.Layout
-function FieldDialogueRenderer:_drawCursor(status, _layout)
+---@param _ FieldDialogueTheme.Layout
+function FieldDialogueRenderer:_drawCursor(status, _)
   if not status.waiting or status.cursorPhase == nil then
     return
   end

@@ -86,11 +86,11 @@ end
 function T.get_returns_immutable_templates_and_bounds_errors()
   local provider = assert(FieldMessageProvider.new(cacheWith({ [543] = bankArtifact(543, 3) })))
   provider:acquireBank(543)
-  local template = assert(provider:get(543, 1))
-  Assert.equal(template.bankId, 543)
-  Assert.equal(template.messageId, 1)
-  Assert.equal(template.text, "1") -- modder-facing text rides on the template
-  Assert.equal(template.tokens[1].kind, "glyph")
+  local firstTemplate = assert(provider:get(543, 1))
+  Assert.equal(firstTemplate.bankId, 543)
+  Assert.equal(firstTemplate.messageId, 1)
+  Assert.equal(firstTemplate.text, "1") -- modder-facing text rides on the template
+  Assert.equal(firstTemplate.tokens[1].kind, "glyph")
 
   local missing, err = provider:get(543, 9)
   Assert.isNil(missing)
@@ -113,7 +113,7 @@ end
 function T.format_substitutes_before_wrapping_and_never_mutates()
   local provider = assert(FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542, 1) })))
   provider:acquireBank(542)
-  local template = assert(provider:get(542, 0))
+  local formattedTemplate = assert(provider:get(542, 0))
   local context = { playerName = "GOLD" }
   local fontDef = {
     charmap = {
@@ -124,11 +124,11 @@ function T.format_substitutes_before_wrapping_and_never_mutates()
     },
   }
   local resolvers = {
-    [0x0103] = function(control, args, ctx)
+    [0x0103] = function(_, _, ctx)
       return FieldMessageProvider.asciiGlyphTokens(ctx.playerName, fontDef)
     end,
   }
-  local formatted = provider:format(template, context, resolvers)
+  local formatted = provider:format(formattedTemplate, context, resolvers)
   Assert.isFalse(formatted.hadUnresolvedSubstitutions)
   Assert.equal(formatted.messageId, 0)
   Assert.equal(formatted.text, "0")
@@ -150,7 +150,7 @@ function T.format_substitutes_before_wrapping_and_never_mutates()
   Assert.equal(withSub.text, "GOLD")
 
   -- The template is untouched by formatting.
-  Assert.equal(#template.tokens, 2)
+  Assert.equal(#formattedTemplate.tokens, 2)
 end
 
 function T.unresolved_substitution_stays_visible_and_traced()

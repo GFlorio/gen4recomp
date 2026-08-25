@@ -59,7 +59,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field playSound fun(soundId: string)?
 ---@field stopSound fun(soundId: string)?
 ---@field onStart fun(sourceMap: table, trigger: table, facing: FieldDirection)? -- invoked once per transition start, before ownership changes
----@field onProfile fun(profile: integer, phase: "exit"|"enter", family: string)? -- source-specific semantic hook
+---@field onProfile (fun(profile: integer, phase: "exit"|"enter", family: string)|fun(owner: table, profile: integer, phase: "exit"|"enter", family: string))? -- source-specific semantic hook
 ---@field cameraAdjust fun(...: any)?
 ---@field escalatorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table?
 ---@field onPanel fun(...: any)?
@@ -89,6 +89,9 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field prepared table?
 ---@field sourceMap RuntimeFieldMap?
 ---@field sourceWarp table?
+---@field escalator table?
+---@field destinationWarpX integer?
+---@field destinationWarpZ integer?
 local FieldTransition = {}
 FieldTransition.__index = FieldTransition
 
@@ -171,17 +174,22 @@ function FieldTransition:presentationStatus()
   }
 end
 
+---@param self FieldTransition
+---@return { ["exit"]: string, ["enter"]: string, exitSound: string?, enterSound: string?, adjustment: string?, fadeColor: integer?, entryAction: string? }
 local function profileFamily(self)
   return assert(FieldTransitionProfile.ROUTINE_FAMILIES[self.profileId], "transition profile routine missing")
 end
 
+---@param self FieldTransition
+---@param phase "exit"|"enter"
 local function invokeProfile(self, phase)
   local family = profileFamily(self)[phase]
+  local profileId = assert(self.profileId)
   if self.onProfile then
     if self.callbackOwner then
-      self.onProfile(self.callbackOwner, self.profileId, phase, family)
+      self.onProfile(self.callbackOwner, profileId, phase, family)
     else
-      self.onProfile(self.profileId, phase, family)
+      self.onProfile(profileId, phase, family)
     end
   end
 end
@@ -212,9 +220,10 @@ local function beginProfileMotion(self, phase)
   end
   if self.profileId == FieldTransitionProfile.ESCALATOR then
     assert(self.escalatorAt, "escalator prop resolver required")
-    local map, x, z = self.sourceMap, self.sourceWarp.x, self.sourceWarp.z
+    local map, x, z = assert(self.sourceMap), self.sourceWarp.x, self.sourceWarp.z
     if phase == "enter" then
-      map, x, z = self.resolution.destinationMap, self.resolution.fieldX, self.resolution.fieldZ
+      local resolution = assert(self.resolution)
+      map, x, z = assert(resolution.destinationMap), resolution.fieldX, resolution.fieldZ
     end
     self.escalator = self.escalatorAt(map, x, z)
     assert(self.escalator, "escalator transition prop required")

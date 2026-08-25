@@ -13,6 +13,19 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local FieldWeatherCache = {}
 
+---@class FieldWeatherCache.Preset
+---@field enabled boolean
+---@field color integer
+---@field offset integer
+---@field slope integer
+---@field alpha integer
+---@field table integer[]
+
+---@class FieldWeatherCache.Catalog
+---@field schema string
+---@field presets table<integer, FieldWeatherCache.Preset>
+---@field rules table[]
+
 FieldWeatherCache.FORMAT = Contract.fieldWeather.cacheFormat
 FieldWeatherCache.SCHEMA = Contract.fieldWeather.schema
 
@@ -41,6 +54,9 @@ function FieldWeatherCache.marker(romSha1, depHash)
 end
 
 -- Internal preset shape check used by validateCatalog (nil, err on failure).
+---@param id integer
+---@param preset FieldWeatherCache.Preset
+---@return boolean, Errors.Error?
 local function validatePreset(id, preset)
   if type(preset) ~= "table" then
     return false, Errors.new(CATALOG_INVALID, "preset " .. id .. " must be a table", { id = id })
@@ -49,7 +65,7 @@ local function validatePreset(id, preset)
     return false, Errors.new(CATALOG_INVALID, "preset " .. id .. " enabled must be a boolean", { id = id })
   end
   for _, field in ipairs({ "color", "offset", "slope", "alpha" }) do
-    local v = preset[field]
+    local v = preset[field] ---@type number
     if type(v) ~= "number" or v ~= math.floor(v) then
       return false,
         Errors.new(
@@ -82,11 +98,15 @@ local function validatePreset(id, preset)
   return true
 end
 
+---@param rule table
+---@param index integer
+---@param presets table<integer, FieldWeatherCache.Preset>
+---@return boolean, Errors.Error?
 local function validateRule(rule, index, presets)
   if type(rule) ~= "table" then
     return false, Errors.new(CATALOG_INVALID, "rule " .. index .. " must be a table", { index = index })
   end
-  local kind = rule.kind
+  local kind = rule.kind ---@type string
   if kind ~= "calendar_map_override" and kind ~= "map_var_equals" and kind ~= "weather_flag_override" then
     return false,
       Errors.new(
@@ -124,22 +144,24 @@ local function validateRule(rule, index, presets)
       return false,
         Errors.new(CATALOG_INVALID, "rule " .. index .. " dates must be a non-empty table", { index = index })
     end
-    for j, entry in ipairs(rule.dates) do
-      if type(entry) ~= "table" or type(entry.month) ~= "number" or type(entry.day) ~= "number" then
+    local dates = rule.dates ---@type table[]
+    for j, entry in ipairs(dates) do
+      local date = entry ---@type table
+      if type(date) ~= "table" or type(date.month) ~= "number" or type(date.day) ~= "number" then
         return false,
           Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " must have month and day", {
             index = index,
             entry = j,
           })
       end
-      if entry.month ~= math.floor(entry.month) or entry.month < 1 or entry.month > 12 then
+      if date.month ~= math.floor(date.month) or date.month < 1 or date.month > 12 then
         return false,
           Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " month must be 1..12", {
             index = index,
             entry = j,
           })
       end
-      if entry.day ~= math.floor(entry.day) or entry.day < 1 or entry.day > 31 then
+      if date.day ~= math.floor(date.day) or date.day < 1 or date.day > 31 then
         return false,
           Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " day must be 1..31", {
             index = index,
@@ -204,6 +226,8 @@ end
 
 -- Strict catalog validation: shared by the writer's readback and by runtime
 -- loading. Returns true on success, false, err otherwise.
+---@param catalog FieldWeatherCache.Catalog
+---@return boolean, Errors.Error?
 function FieldWeatherCache.validateCatalog(catalog)
   if type(catalog) ~= "table" then
     return false, Errors.new(CATALOG_INVALID, "catalog is not a table", {})
@@ -238,7 +262,7 @@ function FieldWeatherCache.validateCatalog(catalog)
   if #catalog.rules ~= 4 then
     return false, Errors.new(CATALOG_INVALID, "catalog must have exactly 4 rules", { count = #catalog.rules })
   end
-  local expectedKinds = {
+  local expectedKinds = { ---@type string[]
     "calendar_map_override",
     "map_var_equals",
     "weather_flag_override",
@@ -269,11 +293,12 @@ end
 FieldWeatherCache.validate = FieldWeatherCache.validateCatalog
 
 function FieldWeatherCache.hasCache(cacheFs)
-  local catalog = cacheFs:loadLua(FieldWeatherCache.catalogPath())
+  local catalog = cacheFs:loadLua(FieldWeatherCache.catalogPath()) ---@type table?
   if type(catalog) ~= "table" then
     return false
   end
-  return FieldWeatherCache.validateCatalog(catalog) == true
+  local catalogValue = catalog ---@cast catalogValue FieldWeatherCache.Catalog
+  return FieldWeatherCache.validateCatalog(catalogValue) == true
 end
 
 -- Readiness check matching nearby caches: marker must match exactly and the
@@ -282,11 +307,12 @@ function FieldWeatherCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldWeatherCache.markerPath()) ~= expectedMarker then
     return false
   end
-  local catalog = cacheFs:loadLua(FieldWeatherCache.catalogPath())
+  local catalog = cacheFs:loadLua(FieldWeatherCache.catalogPath()) ---@type table?
   if type(catalog) ~= "table" then
     return false
   end
-  local ok = FieldWeatherCache.validateCatalog(catalog)
+  local catalogValue = catalog ---@cast catalogValue FieldWeatherCache.Catalog
+  local ok = FieldWeatherCache.validateCatalog(catalogValue)
   if not ok then
     return false
   end

@@ -6,7 +6,6 @@
 -- criterion: New Bark woman and lab sign dialogue execute end-to-end.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -18,6 +17,11 @@ local WaitInputTask = require("libs.engine.src.script.tasks.WaitInputTask")
 local WaitInputOrTicksTask = require("libs.engine.src.script.tasks.WaitInputOrTicksTask")
 local DialogueTask = require("libs.engine.src.script.tasks.DialogueTask")
 local AskYesNoTask = require("libs.engine.src.script.tasks.AskYesNoTask")
+---@cast WaitTicksTask TaskImplementation
+---@cast WaitInputTask TaskImplementation
+---@cast WaitInputOrTicksTask TaskImplementation
+---@cast DialogueTask TaskImplementation
+---@cast AskYesNoTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local FakeDialogueHost = require("tests.support.script.FakeDialogueHost")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")

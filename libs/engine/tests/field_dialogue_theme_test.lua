@@ -142,11 +142,9 @@ function T.frame_tile_placements_match_the_draw_frame_and_window2_composition()
 end
 
 function T.font_metrics_resolve_advances_with_fallback()
-  local fontDef = {}
-  fontDef.glyphs = {
-    [1] = { advance = 6 },
-    [0] = { advance = 4 },
-  }
+  local fontDef = FieldUiFixture.cardFontDef()
+  fontDef.glyphs[1].advance = 6
+  fontDef.glyphs[0].advance = 4
   local metrics = FieldDialogueTheme.fontMetrics(fontDef)
   Assert.equal(metrics.glyphWidth(1), 6)
   Assert.equal(metrics.glyphWidth(99), 4, "unknown codes use the fallback glyph")

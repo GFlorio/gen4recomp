@@ -17,6 +17,7 @@ local function throwsCode(code, fn)
   if ok then
     error("expected a structured " .. code .. " error, got a result")
   end
+  ---@cast result Errors.Error
   Assert.equal(result.code, code)
 end
 

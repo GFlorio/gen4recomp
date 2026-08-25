@@ -41,19 +41,22 @@ local function unavailable(path)
   Errors.raise(AudioErrors.AUDIO_PROVIDER_INDEX_UNAVAILABLE, "no usable audio cache index at " .. path, { path = path })
 end
 
+---@return AudioAssetProvider
+---@param cacheFs CacheFs
 function AudioAssetProvider.new(cacheFs)
   assert(cacheFs, "AudioAssetProvider requires a CacheFs")
   local index = cacheFs:loadLua(AudioCache.indexPath())
   if type(index) ~= "table" or index.schema ~= AudioCache.INDEX_SCHEMA then
     unavailable(AudioCache.indexPath())
   end
-  return setmetatable({
+  local provider = setmetatable({
     _cacheFs = cacheFs,
     _index = index,
     _sequences = {},
     _banks = {},
     _samples = {},
   }, AudioAssetProvider)
+  return provider --[[@as AudioAssetProvider]]
 end
 
 -- Resolves a numeric id or a per-class symbol-map name to a numeric id in

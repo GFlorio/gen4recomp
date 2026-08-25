@@ -10,9 +10,10 @@ local T = {}
 
 -- A valid minimal implementation; `overrides` replace fields.
 ---@param overrides table|nil
----@return table
+---@return TaskImplementation
 local function impl(overrides)
   local base = {
+    type = "test",
     version = 1,
     create = function()
       return {}
@@ -27,7 +28,7 @@ local function impl(overrides)
   for field, value in pairs(overrides or {}) do
     base[field] = value
   end
-  return base
+  return base --[[@as TaskImplementation]]
 end
 
 ---@param pattern string
@@ -47,7 +48,8 @@ end
 T["fractional version rejected"] = function()
   local registry = TaskRegistry.new()
   assertRaises("task version must be an integer", function()
-    registry:register("test.fractional", 1.5, impl())
+    local fractionalVersion = 1.5
+    registry:register("test.fractional", fractionalVersion --[[@as integer]], impl())
   end)
   registry:register("test.fractional", 1, impl())
   Assert.notNil(registry:resolve("test.fractional", 1))
@@ -62,6 +64,7 @@ T["validate required"] = function()
   local registry = TaskRegistry.new()
   assertRaises("task implementation must supply validate", function()
     local noValidate = {
+      type = "test.novalidate",
       version = 1,
       create = function()
         return {}
@@ -69,7 +72,11 @@ T["validate required"] = function()
       poll = function()
         return { complete = false, state = {} }
       end,
-    } --[[@as any]]
+      validate = function()
+        return nil
+      end,
+    } --[[@as TaskImplementation]]
+    rawset(noValidate, "validate", 42)
     registry:register("test.novalidate", 1, noValidate)
   end)
   assertRaises("task implementation must supply validate", function()

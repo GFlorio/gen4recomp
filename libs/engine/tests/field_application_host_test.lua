@@ -21,6 +21,33 @@ local T = {
   tests = {},
 }
 
+---@class FieldApplicationHostTest.Controller
+---@field updateFixedCalls integer
+---@field disposeCount integer
+---@field cancelPointerCaptureCalls integer
+---@field result table|nil
+---@field receivedEvents table|nil
+---@field rememberedActionId string|nil
+---@field presentation table|nil
+---@field updateFixed fun(self: FieldApplicationHostTest.Controller, uiInput: table)
+---@field status fun(self: FieldApplicationHostTest.Controller): table
+---@field takeResult fun(self: FieldApplicationHostTest.Controller): table|nil
+---@field dispose fun(self: FieldApplicationHostTest.Controller)
+---@field cancelPointerCapture fun(self: FieldApplicationHostTest.Controller)
+---@class FieldApplicationHostTest.Registry
+---@field create fun(self: FieldApplicationHostTest.Registry, id: string): FieldApplicationHostTest.Controller
+---@field created string[]
+---@field controllers table<string, FieldApplicationHostTest.Controller|fun(): FieldApplicationHostTest.Controller>
+---@field menuControllers FieldApplicationHostTest.Controller[]
+---@class FieldApplicationHostTest.Input
+---@field beginUiTicks integer[]
+---@field clearUiCalls integer
+
+---@class FieldApplicationHostTest.PartialOptions
+---@field registry FieldApplicationHostTest.Registry?
+---@field menuFactory? fun(rememberedActionId: string?): FieldApplicationHostTest.Controller?
+---@field input FieldApplicationHostTest.Input?
+
 local function throws(fn)
   return Assert.throws(fn)
 end
@@ -34,27 +61,28 @@ local function fakeController(overrides)
     cancelPointerCaptureCalls = 0,
     result = nil,
     receivedEvents = nil,
-  }
-  function controller:updateFixed(uiInput)
-    self.updateFixedCalls = self.updateFixedCalls + 1
-    self.receivedEvents = uiInput
-  end
-  function controller:status()
-    return { open = true }
-  end
-  function controller:takeResult()
-    local result = self.result
-    self.result = nil
-    return result
-  end
-  function controller:dispose()
-    self.disposeCount = self.disposeCount + 1
-  end
-  function controller:cancelPointerCapture()
-    self.cancelPointerCaptureCalls = self.cancelPointerCaptureCalls + 1
-  end
-  for key, value in pairs(overrides or {}) do
-    controller[key] = value
+    presentation = nil,
+    updateFixed = function(self, uiInput)
+      self.updateFixedCalls = self.updateFixedCalls + 1
+      self.receivedEvents = uiInput
+    end,
+    status = function(_)
+      return { open = true }
+    end,
+    takeResult = function(self)
+      local result = self.result
+      self.result = nil
+      return result
+    end,
+    dispose = function(self)
+      self.disposeCount = self.disposeCount + 1
+    end,
+    cancelPointerCapture = function(self)
+      self.cancelPointerCaptureCalls = self.cancelPointerCaptureCalls + 1
+    end,
+  } --[[@as FieldApplicationHostTest.Controller]]
+  if overrides ~= nil then
+    controller.presentation = overrides.presentation
   end
   return controller
 end
@@ -63,6 +91,7 @@ local function fakeRegistry()
   local registry = {
     created = {},
     controllers = {},
+    menuControllers = {},
   }
   -- Stored entries are either factories (functions) or prebuilt controllers
   -- (returned as-is); create() takes only the application id.
@@ -74,14 +103,14 @@ local function fakeRegistry()
     end
     return stored
   end
-  return registry
+  return registry --[[@as FieldApplicationHostTest.Registry]]
 end
 
 local function fakeInput()
   local input = {
     beginUiTicks = {},
     clearUiCalls = 0,
-  }
+  } --[[@as FieldApplicationHostTest.Input]]
   function input:beginUi(tick)
     self.beginUiTicks[#self.beginUiTicks + 1] = tick
   end
@@ -89,6 +118,12 @@ local function fakeInput()
     self.clearUiCalls = self.clearUiCalls + 1
   end
   return input
+end
+
+---@param options FieldApplicationHostTest.PartialOptions
+---@return FieldApplicationHost
+local function newWithPartialOptions(options)
+  return FieldApplicationHost.new(options --[[@as FieldApplicationHostOptions]])
 end
 
 -- The test fixture: a registry holding one destination and a menu factory
@@ -102,17 +137,16 @@ local function fixture()
     fn = function(rememberedActionId)
       local controller = fakeController()
       controller.rememberedActionId = rememberedActionId
-      registry.menuControllers = registry.menuControllers or {}
       registry.menuControllers[#registry.menuControllers + 1] = controller
       return controller
     end,
   }
   local host = FieldApplicationHost.new({
-    registry = registry,
+    registry = registry --[[@as FieldApplicationRegistry]],
     menuFactory = function(rememberedActionId)
       return factory.fn(rememberedActionId)
     end,
-    input = input,
+    input = input --[[@as FieldInput]],
   })
   return host, input, registry, factory
 end
@@ -141,22 +175,22 @@ end
 function T.tests.construction_requires_the_registry_menu_factory_and_input()
   local registry = fakeRegistry()
   local input = fakeInput()
-  local menuFactory = function() end
+  ---@param _ string?
+  ---@return FieldApplicationHostTest.Controller?
+  local function menuFactory(_)
+    return nil
+  end
   throws(function()
-    local partial = { registry = registry, input = input } ---@type any
-    FieldApplicationHost.new(partial)
+    newWithPartialOptions({ registry = registry, input = input })
   end)
   throws(function()
-    local partial = { registry = registry, menuFactory = menuFactory } ---@type any
-    FieldApplicationHost.new(partial)
+    newWithPartialOptions({ registry = registry, menuFactory = menuFactory })
   end)
   throws(function()
-    local partial = { menuFactory = menuFactory, input = input } ---@type any
-    FieldApplicationHost.new(partial)
+    newWithPartialOptions({ menuFactory = menuFactory, input = input })
   end)
   throws(function()
-    local partial = {} ---@type any
-    FieldApplicationHost.new(partial)
+    newWithPartialOptions({})
   end)
 end
 
@@ -237,7 +271,7 @@ function T.tests.application_steps_the_destination_once_per_tick_until_close()
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
-  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   Assert.equal(host:status().phase, "application")
@@ -262,7 +296,7 @@ function T.tests.application_phase_exposes_the_destination_presentation_and_othe
   registry.controllers.trainer_card = destination
   host:updateFixed({})
   Assert.equal(host:status().application, nil, "the fade-out phase presents no application surface")
-  for tick = 13, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 13, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   Assert.equal(host:status().phase, "application")
@@ -283,7 +317,7 @@ function T.tests.destination_close_disposes_exactly_once_and_fades_back_in()
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
-  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   destination.result = { kind = "close" }
@@ -309,12 +343,12 @@ function T.tests.menu_rebuild_restores_the_remembered_selection_by_action_id()
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
-  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   destination.result = { kind = "close" }
   host:updateFixed({ { type = "cancel" } })
-  for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
+  for _ = 31, 30 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   Assert.equal(host:status().phase, "menu")
@@ -350,7 +384,7 @@ function T.tests.update_fixed_requires_an_active_host()
 end
 
 function T.tests.open_while_active_is_a_programming_invariant()
-  local host, _, registry = fixture()
+  local host = fixture()
   host:requestOpen(10)
   throws(function()
     host:requestOpen(11)
@@ -365,7 +399,7 @@ function T.tests.destination_factory_failure_after_fade_out_retains_the_error_an
   registry.controllers.trainer_card = function()
     error("injected destination factory failure")
   end
-  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   Assert.equal(host:status().phase, "failed")
@@ -387,7 +421,7 @@ end
 -- continue stepping the same tick). Nothing is acquired: no controller, no
 -- input lifetime.
 function T.tests.menu_composition_failure_at_open_consumes_the_tick()
-  local host, input, registry, factory = fixture()
+  local host, input, _, factory = fixture()
   factory.fn = function()
     error("injected menu composition failure")
   end
@@ -424,7 +458,7 @@ function T.tests.menu_rebuild_failure_after_return_is_retained_after_the_destina
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
-  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   destination.result = { kind = "close" }
@@ -433,7 +467,7 @@ function T.tests.menu_rebuild_failure_after_return_is_retained_after_the_destina
   factory.fn = function()
     error("injected rebuild failure")
   end
-  for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
+  for _ = 31, 30 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   Assert.equal(host:status().phase, "failed")
@@ -457,7 +491,7 @@ function T.tests.menu_unavailable_at_rebuild_returns_to_the_field()
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
-  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   destination.result = { kind = "close" }
@@ -466,7 +500,7 @@ function T.tests.menu_unavailable_at_rebuild_returns_to_the_field()
   factory.fn = function()
     return nil
   end
-  for tick = 31, 30 + FieldApplicationHost.FADE_TICKS do
+  for _ = 31, 30 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   Assert.equal(host:status().phase, "closed", "an unavailable rebuild must return to the field")
@@ -478,12 +512,12 @@ function T.tests.menu_unavailable_at_rebuild_returns_to_the_field()
 end
 
 function T.tests.reopen_request_is_consumed_by_take_reopen_once()
-  local host, input, registry = fixture()
+  local host, input = fixture()
   host:requestReopen()
   Assert.equal(host:takeReopen(20), true)
   Assert.equal(input.beginUiTicks[1], 20)
   Assert.equal(host:takeReopen(21), false, "a consumed reopen request never opens twice")
-  local second, secondInput, secondRegistry = fixture()
+  local second, secondInput = fixture()
   second:requestReopen()
   second:requestReopen()
   Assert.equal(second:takeReopen(22), true, "a repeated request is a single pending open")
@@ -492,7 +526,7 @@ function T.tests.reopen_request_is_consumed_by_take_reopen_once()
 end
 
 function T.tests.reopen_while_active_is_a_programming_invariant()
-  local host, _, registry = fixture()
+  local host = fixture()
   host:requestOpen(10)
   throws(function()
     host:requestReopen()
@@ -502,7 +536,7 @@ end
 -- A reopen with no interactive actions is consumed as a no-op: the pending
 -- request is cleared, nothing opens, and the host stays closed.
 function T.tests.take_reopen_with_an_unavailable_menu_is_a_noop()
-  local host, input, registry, factory = fixture()
+  local host, input, _, factory = fixture()
   factory.fn = function()
     return nil
   end
@@ -517,7 +551,7 @@ end
 -- the request is cleared and the host enters its terminal failed state, so
 -- takeReopen must report the tick as consumed, never as a no-op open.
 function T.tests.take_reopen_with_a_failing_factory_consumes_the_tick()
-  local host, input, registry, factory = fixture()
+  local host, input, _, factory = fixture()
   factory.fn = function()
     error("injected reopen composition failure")
   end
@@ -564,7 +598,7 @@ function T.tests.dispose_in_every_phase_releases_exactly_once()
         applicationId = "trainer_card",
         actionId = "vanilla.trainer_card",
       }
-      for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+      for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
         host:updateFixed({})
       end
     elseif case.phase == "fading_in" then
@@ -575,7 +609,7 @@ function T.tests.dispose_in_every_phase_releases_exactly_once()
         applicationId = "trainer_card",
         actionId = "vanilla.trainer_card",
       }
-      for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+      for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
         host:updateFixed({})
       end
       destination.result = { kind = "close" }
@@ -591,7 +625,7 @@ function T.tests.dispose_in_every_phase_releases_exactly_once()
       registry.controllers.trainer_card = function()
         error("injected failure")
       end
-      for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+      for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
         host:updateFixed({})
       end
     end
@@ -673,7 +707,7 @@ function T.tests.pointer_events_are_mapped_through_the_placement_for_the_menu_co
     { type = "pointer_up", pointerId = "p1", x = 64, y = 48 },
     { type = "pointer_scroll", pointerId = "p1", dx = 0, dy = -1 },
   })
-  local events = menu.receivedEvents
+  local events = assert(menu.receivedEvents)
   Assert.equal(events[1].type, "pointer_down")
   Assert.equal(events[1].x, 64, "host coordinates map to canonical logical coordinates")
   Assert.equal(events[1].y, 48)
@@ -701,7 +735,7 @@ function T.tests.destination_controllers_receive_events_passthrough()
   local destination = fakeController()
   registry.controllers.trainer_card = destination
   host:setMenuPlacement(canonicalPlacement())
-  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   host:updateFixed({ { type = "cancel" }, { type = "pointer_down", pointerId = "p1", x = 0, y = 0 } })
@@ -716,7 +750,7 @@ function T.tests.a_destination_launch_result_is_a_programming_invariant()
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()
   registry.controllers.trainer_card = destination
-  for tick = 12, 12 + FieldApplicationHost.FADE_TICKS do
+  for _ = 12, 12 + FieldApplicationHost.FADE_TICKS do
     host:updateFixed({})
   end
   destination.result = { kind = "launch", applicationId = "pokedex" }

@@ -9,7 +9,6 @@ local Assert = require("tests.support.Assert")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
-local NitroPoseBackend = require("libs.engine.src.NitroPoseBackend")
 
 local T = {}
 

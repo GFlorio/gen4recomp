@@ -132,7 +132,7 @@ function T.tests.escalator_source_lifecycle_orders_effects_and_pause_ownership()
       end
       self.finished = false
     end,
-    isFinished = function(self)
+    isFinished = function(_)
       if propPlayCount == 1 then
         sourcePropPolls = sourcePropPolls + 1
         return sourcePropPolls >= 3
@@ -614,11 +614,11 @@ local function runTransition(options)
     doorAt = function(map)
       if map == source then
         if options.doorAt then
-          return options.doorAt(map)
+          return options.doorAt()
         end
         return options.sourceDoor
       end
-      return options.destinationDoor or (options.doorAt and options.doorAt(map))
+      return options.destinationDoor or (options.doorAt and options.doorAt())
     end,
     playSound = options.playSound,
     player = player,
@@ -816,7 +816,7 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
     Assert.equal(events[1].phase, "exit")
     Assert.equal(events[1].family, FieldTransitionProfile.ROUTINE_FAMILIES[profile].exit)
     local enter
-    for index, event in ipairs(events) do
+    for _, event in ipairs(events) do
       if event.phase == "enter" then
         enter = event
         break
@@ -921,9 +921,9 @@ function T.tests.profile_hook_failure_aborts_before_commit_but_after_commit_prop
     transition = { mode = "fixed", profile = 4 },
   }, "south")
   advanceTo(after, "swap_map", 4)
-  local ok, err = pcall(after.updateFixed, after)
-  Assert.isFalse(ok)
-  Assert.equal(tostring(err), "enter failed")
+  local enterOk, enterErr = pcall(after.updateFixed, after)
+  Assert.isFalse(enterOk)
+  Assert.equal(tostring(enterErr), "enter failed")
   Assert.equal(after.phase, "swap_map")
 end
 

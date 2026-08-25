@@ -5,9 +5,9 @@ local Assert = require("tests.support.Assert")
 local FieldApplicationHost = require("libs.engine.src.FieldApplicationHost")
 local FieldApplicationRegistry = require("libs.engine.src.FieldApplicationRegistry")
 local FieldInput = require("libs.engine.src.FieldInput")
-local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldPlayerModule = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
-local FieldSession = require("libs.engine.src.FieldSession")
+local FieldSessionModule = require("libs.engine.src.FieldSession")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
@@ -15,6 +15,40 @@ local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}
+
+---@class FieldSessionTest.Module : FieldSession
+---@field FIXED_DT number
+---@field FIXED_HZ integer
+---@field MAX_CATCH_UP_TICKS integer
+---@field new fun(options: table): FieldSession
+local FieldSession = {
+  FIXED_DT = FieldSessionModule.FIXED_DT,
+  FIXED_HZ = FieldSessionModule.FIXED_HZ,
+  MAX_CATCH_UP_TICKS = FieldSessionModule.MAX_CATCH_UP_TICKS,
+}
+function FieldSession.new(options)
+  return FieldSessionModule.new(options --[[@as FieldSessionOptions]])
+end
+
+---@class FieldSessionTest.PlayerModule : FieldPlayer
+---@field WALK_STEP_TICKS integer
+---@field new fun(options: table): FieldPlayer
+local FieldPlayer = {
+  WALK_STEP_TICKS = FieldPlayerModule.WALK_STEP_TICKS,
+}
+function FieldPlayer.new(options)
+  return FieldPlayerModule.new(options --[[@as FieldPlayerOptions]])
+end
+
+---@class FieldSessionTest.Indicator
+---@field updates integer
+---@field lastRuntime table|nil
+---@field updateFixed fun(self: FieldSessionTest.Indicator, runtime: table)
+
+---@class FieldSessionTest.Input : FieldInput
+---@class FieldSessionTest.ApplicationInput : FieldSessionTest.Input
+---@field beginUiTicks integer[]
+---@field clearUiCalls integer
 
 -- Complete fakes for the collaborators FieldSession requires at
 -- construction: an idle transition (never completes, never locks, never
@@ -31,6 +65,7 @@ local function idleTransition()
   }
 end
 
+---@return FieldSessionTest.Input
 local function idleInput()
   return {
     snapshot = function()
@@ -117,7 +152,7 @@ local function baseOptions(overrides)
       self.updates = self.updates + 1
       self.lastRuntime = runtime
     end,
-  }
+  } --[[@as FieldSessionTest.Indicator]]
   local options = {
     versionId = "heartgold",
     currentMap = {
@@ -202,7 +237,7 @@ function T.indicator_is_required_and_advances_once_per_completed_tick()
   Assert.equal(indicator.updates, 5)
 end
 
-local function session()
+local function fixedSession()
   local targets = {}
   local camera = {
     updateFixed = function(_, target)
@@ -233,7 +268,7 @@ function T.actor_only_construction_is_rejected()
     currentMap = { mapId = 61 },
     actor = actor,
     camera = camera,
-  } --[[@as any]]
+  }
   local ok, err = pcall(FieldSession.new, options)
   Assert.isFalse(ok, "a session must require the player, not fall back to an actor option: " .. tostring(err))
 end
@@ -328,9 +363,9 @@ function T.audio_collaborator_requires_only_field_policy_advancement()
 end
 
 function T.fixed_ticks_are_render_cadence_independent()
-  local a = session()
+  local a = fixedSession()
   a:update(1 / 30)
-  local b = session()
+  local b = fixedSession()
   b:update(1 / 60)
   b:update(1 / 60)
   Assert.equal(a.tick, 1)
@@ -338,7 +373,7 @@ function T.fixed_ticks_are_render_cadence_independent()
 end
 
 function T.excess_backlog_is_discarded_after_max_catch_up()
-  local s = session()
+  local s = fixedSession()
   s:update(10 / 30)
   Assert.equal(s.tick, 5)
   -- The 5 excess ticks were dropped, not deferred to the next frame.
@@ -347,7 +382,7 @@ function T.excess_backlog_is_discarded_after_max_catch_up()
 end
 
 function T.camera_follows_the_player_xyz_each_fixed_tick()
-  local s, targets = session()
+  local s, targets = fixedSession()
   s:update(1 / 30)
   Assert.deepEqual(targets[1], { x = 1.25, y = 2.5, z = 3.75 })
 end
@@ -417,11 +452,11 @@ function T.script_completion_consumes_its_final_action_edge()
     motion = "idle",
     updateFixed = function() end,
   }
-  local map = { mapId = 61, updateAnimated = function() end } --[[@as any]]
+  local map = { mapId = 61, updateAnimated = function() end }
   local camera = {
     updateFixed = function() end,
     collapseRenderInterpolation = function() end,
-  } --[[@as any]]
+  }
   local interactions = {
     resolve = function()
       resolved = resolved + 1
@@ -853,7 +888,7 @@ local function dialogueSession(opts)
     isModal = function(self)
       return self.modal
     end,
-    step = function(self, snapshot)
+    step = function(_, snapshot)
       dialogueSteps = dialogueSteps + 1
       received = snapshot
     end,
@@ -926,13 +961,13 @@ end
 function T.modal_dialogue_blocks_warp_evaluation()
   local session, _, _ = dialogueSession()
   local map = { mapId = 61, fieldData = { events = { warps = {} } }, updateAnimated = function() end }
-  session.currentMap = map
+  session.currentMap = map --[[@as RuntimeFieldMap]]
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(session.player.fieldZ, 13, "no movement and no warp from the modal tick")
 end
 
 function T.world_resumes_once_the_dialogue_closes()
-  local session, worldSteps, dialogueState, dialogue = dialogueSession()
+  local session, worldSteps, _, dialogue = dialogueSession()
   session:updateFixed({})
   Assert.equal(worldSteps.player, 0)
   -- The dialogue closes (its own step dispatches the completion); the next
@@ -993,18 +1028,15 @@ end
 
 local function interactionSession(opts)
   opts = opts or {}
-  local resolved, consumed
   local interactions
   interactions = {
     resolve = function(_, snapshot)
-      resolved = snapshot
       interactions.resolveSnapshot = snapshot
       return opts.intent or nil
     end,
   }
   local client = {
-    consume = function(_, intent, tick)
-      consumed = intent
+    consume = function(_, intent, _)
       interactions.consumedIntent = intent
       return opts.result or ScriptInteractionClient.RESULTS.started
     end,
@@ -1073,7 +1105,7 @@ function T.consumed_interaction_owns_the_tick()
 end
 
 function T.unresolved_interaction_falls_through_to_movement()
-  local session, player, interactions, steps = interactionSession()
+  local session, player, _, steps = interactionSession()
   session:updateFixed({ actionPressed = true, heldDirection = "north" })
   Assert.equal(steps(), 1, "a nil intent leaves the tick to movement")
   Assert.equal(player.facing, "north")
@@ -1083,7 +1115,7 @@ end
 -- unmapped intent reaching the session is a composition fault that must fail
 -- loudly, never a silently absorbed Action press.
 function T.unmapped_interaction_is_a_composition_fault()
-  local session, player, interactions, steps = interactionSession({
+  local session, _, _, steps = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
     result = ScriptInteractionClient.RESULTS.unmapped,
   })
@@ -1096,7 +1128,7 @@ end
 -- A foreground script already owning the field blocks the new interaction;
 -- the tick is still consumed.
 function T.blocked_interaction_still_consumes_the_tick()
-  local session, player, interactions, steps = interactionSession({
+  local session, player, _, steps = interactionSession({
     intent = { kind = "background" },
     result = ScriptInteractionClient.RESULTS.blocked,
   })
@@ -1106,7 +1138,7 @@ function T.blocked_interaction_still_consumes_the_tick()
 end
 
 function T.interaction_resolve_snapshot_carries_the_player_state()
-  local session, player, interactions = interactionSession({
+  local session, _, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session:updateFixed({ actionPressed = true })
@@ -1129,7 +1161,7 @@ function T.interaction_never_resolves_while_walking()
 end
 
 function T.interaction_never_resolves_without_the_action_edge()
-  local session, player, interactions = interactionSession({
+  local session, _, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session:updateFixed({ actionDown = true, heldDirection = "north" })
@@ -1420,10 +1452,8 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
   }))
   -- A render delta spanning several fixed ticks: the one Action edge must be
   -- consumed by the first tick's snapshot and never replayed by catch-up.
-  -- update() takes no snapshot of its own -- each fixed step samples the input,
-  -- so even a stale snapshot passed along must be ignored.
-  ---@diagnostic disable-next-line: redundant-parameter -- intentional: a stale snapshot must never be replayed
-  session:update(5 * FieldSession.FIXED_DT, { actionPressed = true })
+  -- update() takes no snapshot argument -- each fixed step samples the input.
+  session:update(5 * FieldSession.FIXED_DT)
   Assert.equal(session.tick, 5, "the full catch-up ran")
   Assert.equal(resolved, 1, "one Action edge must not be replayed over catch-up ticks")
   Assert.isFalse(input.actionPressed, "the first tick consumed the edge")
@@ -1514,7 +1544,7 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   }))
 
   session:updateFixed({ heldDirection = "east", pressedDirection = "east" })
-  for tick = 2, 16 do
+  for _ = 2, 16 do
     session:updateFixed({ heldDirection = "east" })
   end
 
@@ -2199,7 +2229,7 @@ local function applicationCompositionFixture(menuFactory)
       worldSteps.camera = worldSteps.camera + 1
     end,
   }
-  local input = idleInput()
+  local input = idleInput() --[[@as FieldSessionTest.ApplicationInput]]
   input.beginUiTicks = {}
   input.beginUi = function(_, tick)
     input.beginUiTicks[#input.beginUiTicks + 1] = tick
@@ -2235,7 +2265,7 @@ end
 -- the camera on that same tick. The simultaneous Action edge must not reach
 -- the interaction resolver either: the failed open still owns the tick.
 function T.a_fatal_menu_composition_failure_freezes_the_faulting_tick()
-  local session, host, input, world = applicationCompositionFixture(function()
+  local session, host, _, world = applicationCompositionFixture(function()
     error("injected menu composition failure")
   end)
   session:updateFixed({ menuPressed = true, actionPressed = true })
@@ -2251,7 +2281,7 @@ end
 -- The pending script reopen path obeys the same contract: a throwing
 -- menuFactory consumes the faulting tick and freezes every world step.
 function T.a_failing_pending_reopen_freezes_the_faulting_tick()
-  local session, host, input, world = applicationCompositionFixture(function()
+  local session, host, _, world = applicationCompositionFixture(function()
     error("injected reopen composition failure")
   end)
   host:requestReopen()

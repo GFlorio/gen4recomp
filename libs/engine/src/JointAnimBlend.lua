@@ -169,6 +169,7 @@ end
 -- result. Returns nil when no attachment contributes (every ratio
 -- non-positive), a copy when exactly one contributes, and the blended result
 -- otherwise. Input results are never mutated.
+---@param entries table[]
 ---@return JointAnimResult|nil
 function JointAnimBlend.blend(entries)
   assert(type(entries) == "table", "JointAnimBlend.blend requires a table")

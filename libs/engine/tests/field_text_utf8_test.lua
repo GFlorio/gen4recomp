@@ -79,8 +79,8 @@ end
 function T.control_tokens_draw_nothing_and_do_not_offset_the_following_glyph()
   local lg = fakeGraphics()
   local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
-  local wait = { kind = "wait", control = 514, name = "WAIT", args = {} }
-  local glyph = { kind = "glyph", code = 1, text = "A", raw = { 1 } }
+  local wait = { kind = "wait", control = 514, name = "WAIT", args = {}, raw = {} } --[[@as MessageToken]]
+  local glyph = { kind = "glyph", code = 1, text = "A", raw = { 1 } } --[[@as MessageToken]]
   text:drawLine({ wait, glyph }, 10, 20)
   local draws = lg.draws
   Assert.equal(#draws, 1, "the control token draws no marker text")

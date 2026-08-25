@@ -99,11 +99,13 @@ end
 -- half-decoded grid must never move the player. `missingCode` names the
 -- structured failure for the caller's artifact class.
 local function loadCollision(cacheFs, descriptor, missingCode, context)
-  local bytes = cacheFs:read(descriptor.file)
+  local file = descriptor.file --[[@as string]]
+  local bytes = cacheFs:read(file)
   if type(bytes) ~= "string" then
-    Errors.raise(missingCode, "collision asset is unavailable", { path = descriptor.file, mapId = context.mapId })
+    Errors.raise(missingCode, "collision asset is unavailable", { path = file, mapId = context.mapId })
   end
-  local grid, decodeErr = CollisionGridAsset.decode(bytes, { mapId = context.mapId, path = descriptor.file })
+  local data = bytes --[[@as string]]
+  local grid, decodeErr = CollisionGridAsset.decode(data, { mapId = context.mapId, path = file })
   if not grid then
     error(decodeErr)
   end

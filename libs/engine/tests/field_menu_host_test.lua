@@ -7,15 +7,18 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {}
 
-local function host(opts)
+---@param opts table
+---@return FieldMenuHost
+local function makeHost(opts)
   opts.measureText = opts.measureText or function(text)
     return #text * 8
   end
-  return FieldMenuHost.new(opts)
+  ---@cast opts FieldMenuHost.Options
+  return FieldMenuHost.new(opts --[[@as FieldMenuHost.Options]])
 end
 
 function T.applies_the_semantic_menu_placement_preference()
-  local host = host({ width = 256, height = 192, input = FieldInput.new() })
+  local host = makeHost({ width = 256, height = 192, input = FieldInput.new() })
   host:sync({
     menuDefinition = {
       items = { { text = { text = "Take" }, value = 10 } },
@@ -29,7 +32,7 @@ function T.applies_the_semantic_menu_placement_preference()
 end
 
 function T.uses_the_supplied_auxiliary_surface_for_automatic_menus()
-  local host = host({
+  local host = makeHost({
     width = 1280,
     height = 720,
     input = FieldInput.new(),
@@ -52,7 +55,7 @@ function T.uses_the_supplied_auxiliary_surface_for_automatic_menus()
 end
 
 function T.keeps_the_supplied_topology_when_the_host_resizes()
-  local host = host({
+  local host = makeHost({
     width = 1280,
     height = 720,
     input = FieldInput.new(),
@@ -74,7 +77,7 @@ function T.keeps_the_supplied_topology_when_the_host_resizes()
 end
 
 function T.replaces_a_supplied_topology_and_rebuilds_active_geometry()
-  local host = host({
+  local host = makeHost({
     width = 256,
     height = 192,
     input = FieldInput.new(),
@@ -101,7 +104,7 @@ function T.replaces_a_supplied_topology_and_rebuilds_active_geometry()
 end
 
 function T.routes_the_touch_cancel_affordance_on_matching_release()
-  local host = host({
+  local host = makeHost({
     width = 256,
     height = 192,
     input = FieldInput.new(),
@@ -143,7 +146,7 @@ function T.routes_the_touch_cancel_affordance_on_matching_release()
 end
 
 function T.default_desktop_host_does_not_create_touch_affordances()
-  local host = host({ width = 256, height = 192, input = FieldInput.new() })
+  local host = makeHost({ width = 256, height = 192, input = FieldInput.new() })
   host:sync({
     menuDefinition = {
       items = { { text = "Take", value = 10 } },
@@ -158,7 +161,7 @@ function T.default_desktop_host_does_not_create_touch_affordances()
 end
 
 function T.uses_presentation_text_metrics_and_ui_scale()
-  local host = host({
+  local host = makeHost({
     width = 640,
     height = 480,
     input = FieldInput.new(),
@@ -187,7 +190,7 @@ function T.uses_presentation_text_metrics_and_ui_scale()
 end
 
 function T.horizontal_navigation_does_not_change_focus_in_a_relaid_out_single_column_menu()
-  local host = host({ width = 256, height = 192, input = FieldInput.new() })
+  local host = makeHost({ width = 256, height = 192, input = FieldInput.new() })
   local state = {
     menuDefinition = {
       items = { { text = "First", value = 1 }, { text = "Second", value = 2 } },
@@ -205,7 +208,7 @@ function T.horizontal_navigation_does_not_change_focus_in_a_relaid_out_single_co
 end
 
 function T.batched_navigation_uses_each_layout_resolved_focus_target_in_order()
-  local host = host({ width = 256, height = 192, input = FieldInput.new() })
+  local host = makeHost({ width = 256, height = 192, input = FieldInput.new() })
   host:sync({
     menuDefinition = {
       items = { { text = "First", value = 1 }, { text = "Second", value = 2 }, { text = "Third", value = 3 } },
@@ -227,7 +230,7 @@ function T.batched_navigation_uses_each_layout_resolved_focus_target_in_order()
 end
 
 function T.touch_drag_moves_focus_through_a_clipped_menu()
-  local host = host({
+  local host = makeHost({
     width = 256,
     height = 192,
     input = FieldInput.new(),
@@ -255,7 +258,7 @@ function T.touch_drag_moves_focus_through_a_clipped_menu()
 end
 
 function T.only_the_first_pointer_can_control_a_menu_gesture()
-  local host = host({ width = 256, height = 192, input = FieldInput.new() })
+  local host = makeHost({ width = 256, height = 192, input = FieldInput.new() })
   host:sync({
     menuDefinition = {
       items = { { text = "First", value = 1 }, { text = "Second", value = 2 } },

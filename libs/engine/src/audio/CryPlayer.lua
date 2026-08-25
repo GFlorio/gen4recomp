@@ -74,27 +74,34 @@ local function standinSequence(species)
   }
 end
 
+---@class CryPlayer.Player
+---@field createHandle fun(self: CryPlayer.Player): table
+---@field stopHandle fun(self: CryPlayer.Player, handle: table)
+---@field playSynthetic fun(self: CryPlayer.Player, handle: table, sequence: table, bank: table): boolean
+---@field isPlayerPlaying fun(self: CryPlayer.Player, playerId: integer): boolean
+
 ---@class CryPlayer
----@field new fun(opts: { player: SequencePlayer }): CryPlayer
+---@field new fun(opts: { player: CryPlayer.Player }): CryPlayer
 ---@field play fun(self: CryPlayer, species: integer, form: integer)
 ---@field isFinished fun(self: CryPlayer): boolean
 
----@param opts { player: SequencePlayer }
+---@param opts { player: CryPlayer.Player }
 ---@return CryPlayer
 function CryPlayer.new(opts)
   assert(opts and opts.player, "cry player requires the engine player")
-  return setmetatable({
+  local self = {
     _player = opts.player,
     _handle = opts.player:createHandle(),
-  }, CryPlayer)
+  } ---@type CryPlayer
+  return setmetatable(self, CryPlayer)
 end
 
 -- Starts the referenced cry as a stand-in on the cry slot. Cry replacement is
 -- an explicit policy of this subsystem, so an active prior cry is stopped
 -- before the private handle is reused.
 ---@param species integer
----@param form integer
-function CryPlayer:play(species, form)
+---@param _ integer
+function CryPlayer:play(species, _)
   self._player:stopHandle(self._handle)
   self._player:playSynthetic(self._handle, standinSequence(species), CRY_BANK)
 end

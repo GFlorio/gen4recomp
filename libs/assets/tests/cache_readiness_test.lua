@@ -300,7 +300,7 @@ local function writeCurrentFieldRecord(c, mapId, transitionEnvironment)
     nil,
     FieldMapDataCache.FIELD_SCHEMA
   )
-  local field = c:loadLua(FieldMapDataCache.fieldPath(mapId))
+  local field = assert(c:loadLua(FieldMapDataCache.fieldPath(mapId)))
   field.transitionEnvironment = transitionEnvironment
   c:writeLua(FieldMapDataCache.fieldPath(mapId), field)
 end

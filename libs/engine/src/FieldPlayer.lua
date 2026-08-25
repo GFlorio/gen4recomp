@@ -75,7 +75,11 @@ end
 -- terrain, and a current surface inconsistent with the player's own position,
 -- are corrupted state and propagate instead.
 local function recoverableMovementError(err)
-  return Errors.is(err) and (err.code == "FIELD_COORDINATES_OUT_OF_COVERAGE" or SurfaceResolver.isStepRejection(err))
+  if not Errors.is(err) then
+    return false
+  end
+  local errorObject = err --[[@as Errors.Error]]
+  return errorObject.code == "FIELD_COORDINATES_OUT_OF_COVERAGE" or SurfaceResolver.isStepRejection(errorObject)
 end
 
 ---@param options FieldPlayerOptions

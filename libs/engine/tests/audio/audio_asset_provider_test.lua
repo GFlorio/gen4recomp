@@ -40,7 +40,7 @@ end
 local function countingBackend(backend)
   local reads = {}
   local proxy = setmetatable({}, {
-    __index = function(self, key)
+    __index = function(_, key)
       if key == "read" then
         return function(_, path)
           local relative = path:gsub("^[^/]+/", "")

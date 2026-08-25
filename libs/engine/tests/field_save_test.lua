@@ -10,10 +10,16 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+---@param hash string
+---@param plates table[]
+---@param warps table[]?
+---@return RuntimeFieldMap
 local function runtimeMap(hash, plates, warps)
-  return {
+  local value = {
     mapId = 60,
+    mapSymbol = "test-map",
     coordinateOrigin = { x = 680, z = 390 },
+    scene = {},
     collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
@@ -24,8 +30,13 @@ local function runtimeMap(hash, plates, warps)
     },
     terrain = TerrainSurface.new({ plates = plates }),
     terrainDependencyHash = hash,
+    fieldRegion = {},
+    cameraType = 0,
     fieldData = { events = { warps = warps or {} } },
+    release = function() end,
+    updateAnimated = function() end,
   }
+  return value --[[@as RuntimeFieldMap]]
 end
 
 local function flat(id, y)
@@ -104,13 +115,92 @@ local function record(overrides)
   return value
 end
 
+---@param map RuntimeFieldMap
+---@return FieldSave.Session
 local function session(map)
-  return {
+  local captureMap = {
+    mapId = map.mapId,
+    terrainDependencyHash = map.terrainDependencyHash,
+  } --[[@as FieldSave.CaptureMap]]
+  local value = {
     versionId = "heartgold",
-    currentMap = map,
-    player = { motion = "idle", fieldX = 684, fieldZ = 393, worldY = 4, surfaceId = 11, facing = "north" },
-    transition = { phase = "idle" },
-  }
+    currentMap = captureMap,
+    player = {
+      fieldX = 684,
+      fieldZ = 393,
+      localX = 4,
+      localZ = 3,
+      worldX = 684,
+      worldY = 4,
+      worldZ = 393,
+      previousWorldX = 684,
+      previousWorldY = 4,
+      previousWorldZ = 393,
+      surfaceId = 11,
+      facing = "north",
+      motion = "idle",
+      progressTicks = 0,
+      durationTicks = 0,
+      animationPaused = false,
+    },
+    transition = {
+      loader = {},
+      prepare = function()
+        return {}
+      end,
+      commit = function() end,
+      resolveDestination = function() end,
+      doorAt = function()
+        return nil
+      end,
+      escalatorAt = function()
+        return nil
+      end,
+      phase = "idle",
+      fadeAlpha = 0,
+      fadeStarted = false,
+      destinationFacing = "north",
+      locked = false,
+      ownsPlayerAnimationPause = false,
+    },
+    dialogue = {
+      isModal = function()
+        return false
+      end,
+    },
+    signpost = {
+      isModal = function()
+        return false
+      end,
+    },
+    applicationHost = {
+      isActive = function()
+        return false
+      end,
+    },
+    camera = {},
+    actors = {},
+    input = {},
+    interactions = {
+      resolve = function()
+        return nil
+      end,
+    },
+    eventResolver = {},
+    eventState = {},
+    scriptScheduler = {},
+    scriptClient = {},
+    menuHost = {},
+    contextChoice = {},
+    fieldEntranceIndicator = {},
+    tick = 0,
+    accumulator = 0,
+  } --[[@as FieldSave.Session]]
+  return value
+end
+
+local function canCapture(value)
+  return FieldSave.canCapture(value --[[@as FieldSave.Session]])
 end
 
 local function capture(map, opts)
@@ -279,9 +369,10 @@ function T.event_flags_and_vars_round_trip()
   state:setFlag(744)
   state:setVar(0x4020, 97)
   local serialized = state:serialize()
-  local world = { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = { state = 1, calls = 0 } }
-  local saved = capture(map, { world = world, avatarId = "heroine" })
-  Assert.deepEqual(saved.world, world)
+  local worldState =
+    { flags = serialized.flags, variables = serialized.vars, objects = {}, rng = { state = 1, calls = 0 } }
+  local saved = capture(map, { world = worldState, avatarId = "heroine" })
+  Assert.deepEqual(saved.world, worldState)
   local result = assert(restore(saved, map))
   Assert.equal(result.avatar, "heroine")
   Assert.deepEqual(result.world, saved.world)
@@ -298,9 +389,9 @@ end
 
 function T.refuses_mid_step_and_mid_transition_capture()
   local walking = { player = { motion = "walking" }, transition = { phase = "idle" } }
-  Assert.isFalse(FieldSave.canCapture(walking))
+  Assert.isFalse(canCapture(walking))
   local fading = { player = { motion = "idle" }, transition = { phase = "fade_out" } }
-  Assert.isFalse(FieldSave.canCapture(fading))
+  Assert.isFalse(canCapture(fading))
   -- A half-open dialogue must never be captured.
   local halfOpen = {
     player = { motion = "idle" },
@@ -311,7 +402,7 @@ function T.refuses_mid_step_and_mid_transition_capture()
       end,
     },
   }
-  Assert.isFalse(FieldSave.canCapture(halfOpen))
+  Assert.isFalse(canCapture(halfOpen))
   local closed = {
     player = { motion = "idle" },
     transition = { phase = "idle" },
@@ -321,7 +412,7 @@ function T.refuses_mid_step_and_mid_transition_capture()
       end,
     },
   }
-  Assert.isTrue(FieldSave.canCapture(closed))
+  Assert.isTrue(canCapture(closed))
   -- A presented signpost window is transient state: capture stays closed
   -- until the signpost hides.
   local signpostOpen = {
@@ -333,7 +424,7 @@ function T.refuses_mid_step_and_mid_transition_capture()
       end,
     },
   }
-  Assert.isFalse(FieldSave.canCapture(signpostOpen))
+  Assert.isFalse(canCapture(signpostOpen))
   local signpostClosed = {
     player = { motion = "idle" },
     transition = { phase = "idle" },
@@ -343,7 +434,7 @@ function T.refuses_mid_step_and_mid_transition_capture()
       end,
     },
   }
-  Assert.isTrue(FieldSave.canCapture(signpostClosed))
+  Assert.isTrue(canCapture(signpostClosed))
   -- The application host (Start Menu, application fade, or a child
   -- application) is transient modal state: capture stays closed in every
   -- active phase and opens again at the settled field boundary.
@@ -357,7 +448,7 @@ function T.refuses_mid_step_and_mid_transition_capture()
     transition = { phase = "idle" },
     applicationHost = appHost,
   }
-  Assert.isFalse(FieldSave.canCapture(applicationOpen))
+  Assert.isFalse(canCapture(applicationOpen))
   local applicationClosed = {
     player = { motion = "idle" },
     transition = { phase = "idle" },
@@ -367,10 +458,10 @@ function T.refuses_mid_step_and_mid_transition_capture()
       end,
     },
   }
-  Assert.isTrue(FieldSave.canCapture(applicationClosed))
+  Assert.isTrue(canCapture(applicationClosed))
   -- A session without the host surface (older fixtures) still captures.
   local hostless = { player = { motion = "idle" }, transition = { phase = "idle" } } ---@type any
-  Assert.isTrue(FieldSave.canCapture(hostless))
+  Assert.isTrue(canCapture(hostless))
 end
 
 function T.stale_surface_id_resamples_nearest_saved_height()
@@ -534,10 +625,10 @@ end
 -- canCapture never consults it.
 function T.capture_requires_the_idle_tile_boundary()
   local map = runtimeMap("terrain-a", { flat(11, 4) })
-  Assert.isTrue(FieldSave.canCapture(session(map)))
+  Assert.isTrue(canCapture(session(map)))
   local walking = session(map)
   walking.player.motion = "walking"
-  Assert.isFalse(FieldSave.canCapture(walking))
+  Assert.isFalse(canCapture(walking))
 end
 
 return { tests = T }

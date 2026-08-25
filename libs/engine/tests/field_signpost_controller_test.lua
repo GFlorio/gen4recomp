@@ -11,6 +11,9 @@ local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 
 local T = {}
 
+---@class FieldSignpostControllerTest.Message : FieldMessageProvider.FormattedMessage
+---@field _lines { tokens: MessageToken[] }[]
+
 local function glyph(text, code)
   return { kind = "glyph", code = code, text = text, raw = { code } }
 end
@@ -20,6 +23,8 @@ local function line(tokens)
 end
 
 -- Formatted message carrying the layout lines the test layout returns.
+---@param lines { tokens: MessageToken[] }[]
+---@return FieldSignpostControllerTest.Message
 local function message(lines)
   local tokens = {}
   for _, ln in ipairs(lines) do
@@ -27,20 +32,31 @@ local function message(lines)
       tokens[#tokens + 1] = token
     end
   end
-  return { bankId = 543, messageId = 5, tokens = tokens, _lines = lines }
+  return {
+    bankId = 543,
+    messageId = 5,
+    text = "",
+    tokens = tokens,
+    hadUnresolvedSubstitutions = false,
+    _lines = lines,
+  }
+end
+
+---@param formatted FieldMessageProvider.FormattedMessage
+---@return { lines: { tokens: MessageToken[] }[] }
+local function layoutMessage(formatted)
+  local testMessage = formatted --[[@as FieldSignpostControllerTest.Message]]
+  return { lines = testMessage._lines }
 end
 
 -- Controller whose layout returns the message's precomputed lines verbatim.
----@param lines { tokens: MessageToken[] }[]
+---@param _ { tokens: MessageToken[] }[]
 ---@param opts { ticksPerGlyph: integer?, styleId: string? }?
 ---@return FieldSignpostController
-local function controller(lines, opts)
+local function controller(_, opts)
   opts = opts or {}
   return FieldSignpostController.new({
-    layout = function(msg)
-      ---@cast msg any
-      return { lines = msg._lines }
-    end,
+    layout = layoutMessage,
     policy = {
       interGlyphDelay = (opts.ticksPerGlyph or 2) - 1,
       glyphBudget = 1,
@@ -52,10 +68,7 @@ end
 
 local function acceleratedController()
   return FieldSignpostController.new({
-    layout = function(msg)
-      ---@cast msg any
-      return { lines = msg._lines }
-    end,
+    layout = layoutMessage,
     policy = TextSpeedPolicy.forSpeed("mid"),
   })
 end
@@ -93,7 +106,7 @@ end
 
 -- The high-level sign path routes a script-requested style id into the
 -- controller: setStyleId replaces the presentation style without touching
--- any other state.
+-- other state.
 function T.set_style_id_routes_the_requested_style()
   local c = controller({}, { styleId = "hgss.signpost" })
   c:setStyleId("mod.route_sign")
@@ -126,13 +139,13 @@ end
 -- The style id is routing data: malformed values are programming faults.
 function T.set_style_id_rejects_malformed_ids()
   local c = controller({})
-  local empty = "" ---@type any
-  local number = 7 ---@type any
+  local empty = ""
+  local number = 7
   Assert.throws(function()
     c:setStyleId(empty)
   end)
   Assert.throws(function()
-    c:setStyleId(number)
+    c:setStyleId(number --[[@as string]])
   end)
 end
 
@@ -191,7 +204,7 @@ function T.show_finishes_on_its_own_update_and_invents_no_text()
 end
 
 -- HIDE completes on its own audited source update and clears the active
--- presentation (window and any printed text), resetting the stored BG offset
+-- presentation (window and printed text), resetting the stored BG offset
 -- to 0 like the source case.
 function T.hide_finishes_on_its_own_update_and_clears_presentation()
   local c = controller({ line({ glyph("A", 1) }) })
@@ -288,8 +301,8 @@ end
 function T.rejects_an_unknown_command()
   local c = controller({})
   local err = Assert.throws(function()
-    local unknown = "explode" ---@type any
-    c:setCommand(unknown)
+    local unknown = "explode"
+    c:setCommand(unknown --[[@as "nop"]])
   end)
   Assert.isTrue(
     type(err) == "string" and err:find("unknown signpost command", 1, true) ~= nil,
@@ -441,12 +454,11 @@ function T.layout_failure_rejects_the_print_and_preserves_prior_state()
   local lines = { line({ glyph("A", 1) }) }
   local failLayout = false
   local failing = FieldSignpostController.new({
-    layout = function(msg)
-      ---@cast msg any
+    layout = function(_)
       if failLayout then
         error("layout exploded", 0)
       end
-      return { lines = msg._lines }
+      return { lines = lines }
     end,
     policy = TextSpeedPolicy.forSpeed("mid"),
   })
@@ -463,13 +475,13 @@ end
 
 function T.rejects_a_print_request_without_a_token_stream()
   local c = controller({})
-  local noTokens = { bankId = 1 } ---@type any
+  local noTokens = { bankId = 1 }
   Assert.throws(function()
-    c:printInstant(noTokens)
+    c:printInstant(noTokens --[[@as FieldMessageProvider.FormattedMessage]])
   end, "print requires a token stream")
-  local notAMessage = "hello" ---@type any
+  local notAMessage = "hello"
   Assert.throws(function()
-    c:printTyped(notAMessage)
+    c:printTyped(notAMessage --[[@as FieldMessageProvider.FormattedMessage]])
   end, "print requires a token stream")
 end
 

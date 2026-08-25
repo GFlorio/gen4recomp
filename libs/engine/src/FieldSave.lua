@@ -26,6 +26,69 @@ local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local FieldSave = {}
 
+---@class FieldSave.Record
+---@field schema string
+---@field versionId string
+---@field mapId integer
+---@field fieldX integer
+---@field fieldZ integer
+---@field worldY number
+---@field surfaceId integer
+---@field terrainDependencyHash string
+---@field facing string
+---@field avatar string
+---@field scenario string
+---@field world table
+---@field scripts table
+---@field auxiliaryUi table
+---@field playerData table
+
+---@class FieldSave.CaptureOptions
+---@field avatarId string
+---@field scenario string
+---@field world table
+---@field scriptsBucket table
+---@field auxiliaryUi table
+---@field playerData table
+
+---@class FieldSave.Player
+---@field fieldX number
+---@field fieldZ number
+---@field worldY number
+---@field surfaceId integer
+---@field facing string
+
+---@class FieldSave.RuntimeMap
+---@field mapId integer
+---@field terrainDependencyHash string
+---@field terrain table
+
+---@class FieldSave.Surface
+---@field worldY number
+---@field surfaceId integer
+---@field distance number?
+
+---@class FieldSave.CaptureMap
+---@field mapId integer
+---@field terrainDependencyHash string
+
+---@class FieldSave.PlayerState
+---@field motion "idle"|"walking"|"transition"
+---@field fieldX integer
+---@field fieldZ integer
+---@field worldY number
+---@field surfaceId integer
+---@field facing FieldDirection
+
+---@class FieldSave.Session
+---@field versionId string
+---@field currentMap FieldSave.CaptureMap
+---@field player FieldSave.PlayerState
+---@field transition { phase: string }?
+---@field dialogue { isModal: fun(self: table): boolean }?
+---@field signpost { isModal: fun(self: table): boolean }?
+---@field applicationHost { isActive: fun(self: table): boolean }?
+
 FieldSave.SCHEMA = "g4-field-save-v3"
 -- Relative to the SaveFs root (saves/<versionId>/), never the version cache.
 -- The live save is the only supported schema, so the path is the semantic
@@ -35,16 +98,22 @@ FieldSave.PATH = "field-session.lua"
 local FACING = { north = true, south = true, west = true, east = true }
 local HEIGHT_EPSILON = 1e-9
 
+---@param value number
+---@return boolean
 local function finite(value)
   return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
 end
 
+---@param value number
+---@return boolean
 local function integer(value)
   return finite(value) and value == math.floor(value)
 end
 
 -- The field-location subset of the schema. Raising variant; the public entry
 -- points wrap it in pcall per the project error convention.
+---@param record table
+---@return table
 local function validateFieldState(record)
   if type(record.versionId) ~= "string" or record.versionId == "" then
     Errors.raise(FieldErrors.FIELD_SAVE_VERSION_INVALID, "field save version is missing", {})
@@ -82,6 +151,8 @@ local function validateFieldState(record)
   return record
 end
 
+---@param record table
+---@param opts table?
 local function validateAvatar(record, opts)
   if type(record.avatar) ~= "string" or record.avatar == "" then
     Errors.raise(
@@ -115,15 +186,21 @@ end
 -- substructure validators -- FieldEventState for the numeric flag/var maps
 -- and ScriptRng for the serialized rng state -- so no caller can omit world
 -- validation.
+---@param record table
 local function validateWorld(record)
-  local world = record.world
+  local world = record.world ---@type table
   if type(world) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_WORLD_INVALID, "field save world must be a table", {})
   end
   if type(world.objects) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_WORLD_INVALID, "field save world objects must be a table", {})
   end
-  local ok, err = pcall(FieldEventState.new, { flags = world.flags, vars = world.variables })
+  local flags = world.flags ---@type table
+  local variables = world.variables ---@type table
+  local eventStateInput = { flags = flags, vars = variables } ---@type table
+  local ok, err = pcall(FieldEventState.new, eventStateInput)
+  ---@cast ok boolean
+  ---@cast err Errors.Error
   if not ok then
     ---@cast err Errors.Error
     Errors.raise(
@@ -155,12 +232,15 @@ end
 
 -- The scripts bucket, validated by the caller's `opts.scriptsValidate`
 -- (the game layer wires ScriptSave.validate for it).
+---@param record table
+---@param opts table?
 local function validateScripts(record, opts)
   if type(record.scripts) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_SCRIPTS_INVALID, "field save scripts bucket is required", {})
   end
   if opts and opts.scriptsValidate then
-    local err = opts.scriptsValidate(record.scripts)
+    local validateScriptsFn = opts.scriptsValidate ---@type fun(table): Errors.Error?
+    local err = validateScriptsFn(record.scripts)
     if err ~= nil then
       Errors.raise(
         FieldErrors.FIELD_SAVE_SCRIPTS_INVALID,
@@ -171,8 +251,9 @@ local function validateScripts(record, opts)
   end
 end
 
+---@param record table
 local function validateAuxiliaryUi(record)
-  local auxiliaryUi = record.auxiliaryUi
+  local auxiliaryUi = record.auxiliaryUi ---@type table
   if type(auxiliaryUi) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_AUXILIARY_UI_INVALID, "field save auxiliary UI state must be a table", {})
   end
@@ -201,6 +282,9 @@ end
 -- itself is a required composition contract: without it no call path may
 -- accept player data, so a missing context is a programming fault, not a
 -- validation downgrade.
+---@param record table
+---@param opts table?
+---@return table
 local function validatePlayerData(record, opts)
   if type(record.playerData) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_PLAYER_DATA_INVALID, "field save player data bucket is required", {})
@@ -217,13 +301,16 @@ local function validatePlayerData(record, opts)
       cause = err.code,
     })
   end
-  return valid
+  return assert(valid)
 end
 
 -- Strict schema validation (raising). Returns a shallow copy of the record
 -- whose player-data bucket is the canonical record produced by the player
 -- model: the deserialized bucket is validated exactly once here, and restore
 -- operates on this canonical record.
+---@param record table
+---@param opts table?
+---@return table
 local function validate(record, opts)
   if type(record) ~= "table" then
     Errors.raise(FieldErrors.FIELD_SAVE_INVALID, "field save must be a table", {})
@@ -238,12 +325,14 @@ local function validate(record, opts)
   validateScripts(record, opts)
   validateAuxiliaryUi(record)
   local canonicalPlayerData = validatePlayerData(record, opts)
-  local canonical = {}
-  for key, value in pairs(record) do
-    canonical[key] = value
+  local canonical = {} ---@type table
+  local source = record ---@type table<string, unknown>
+  for key in pairs(source) do
+    canonical[tostring(key)] = source[key]
   end
-  canonical.playerData = canonicalPlayerData
-  return canonical
+  local result = canonical ---@cast result FieldSave.Record
+  result.playerData = canonicalPlayerData
+  return result
 end
 
 function FieldSave.validate(record, opts)
@@ -264,7 +353,7 @@ end
 -- own (it is discarded on load and the restored wait tasks complete against
 -- the fresh audio service), so the gate never consults the audio
 -- collaborator.
----@param session FieldSession?
+---@param session FieldSave.Session?
 ---@return boolean?
 function FieldSave.canCapture(session)
   return session
@@ -281,7 +370,7 @@ end
 -- bucket is required because the current runtime capture always supplies
 -- it; `opts.scriptsBucket` is the ScriptSave capture output.
 
----@param session FieldSession
+---@param session FieldSave.Session
 ---@param opts table
 ---@return table record
 function FieldSave.capture(session, opts)
@@ -294,6 +383,8 @@ function FieldSave.capture(session, opts)
   assert(type(opts.playerData) == "table", "field save capture requires the player-data bucket")
   local player = session.player
   local runtimeMap = session.currentMap
+  local captureOptions = opts
+  ---@cast captureOptions FieldSave.CaptureOptions
   assert(type(runtimeMap.terrainDependencyHash) == "string", "runtime map terrain dependency identity required")
   return {
     schema = FieldSave.SCHEMA,
@@ -305,32 +396,37 @@ function FieldSave.capture(session, opts)
     surfaceId = player.surfaceId,
     terrainDependencyHash = runtimeMap.terrainDependencyHash,
     facing = player.facing,
-    avatar = opts.avatarId,
-    scenario = opts.scenario,
-    world = opts.world,
-    scripts = opts.scriptsBucket,
-    auxiliaryUi = opts.auxiliaryUi,
-    playerData = opts.playerData,
+    avatar = captureOptions.avatarId,
+    scenario = captureOptions.scenario,
+    world = captureOptions.world,
+    scripts = captureOptions.scriptsBucket,
+    auxiliaryUi = captureOptions.auxiliaryUi,
+    playerData = captureOptions.playerData,
   }
 end
 
+---@param runtimeMap RuntimeFieldMap
+---@param localX number
+---@param localZ number
+---@param savedY number
+---@return FieldSave.Surface
 local function closestSurface(runtimeMap, localX, localZ, savedY)
-  local samples = {}
-  for _, plate in
-    ipairs(
-      runtimeMap.terrain:candidatesAt(
-        localX + FieldCoordinates.TILE_CENTER_OFFSET,
-        localZ + FieldCoordinates.TILE_CENTER_OFFSET
-      )
-    )
-  do
+  local samples = {} ---@type FieldSave.Surface[]
+  local candidates = runtimeMap.terrain:candidatesAt(
+    localX + FieldCoordinates.TILE_CENTER_OFFSET,
+    localZ + FieldCoordinates.TILE_CENTER_OFFSET
+  )
+  ---@cast candidates table[]
+  for _, plate in ipairs(candidates) do
     local sample = runtimeMap.terrain:sample(
       plate.id,
       localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ + FieldCoordinates.TILE_CENTER_OFFSET
     )
-    sample.distance = math.abs(sample.worldY - savedY)
-    samples[#samples + 1] = sample
+    ---@cast sample FieldSave.Surface
+    local sampleRecord = sample
+    sampleRecord.distance = math.abs(sampleRecord.worldY - savedY)
+    samples[#samples + 1] = sampleRecord
   end
   table.sort(samples, function(a, b)
     if a.distance ~= b.distance then
@@ -359,7 +455,7 @@ local function closestSurface(runtimeMap, localX, localZ, savedY)
       }
     )
   end
-  return samples[1]
+  return assert(samples[1])
 end
 
 -- Strict restore of the only schema. Returns the restored location plus the
@@ -369,8 +465,14 @@ end
 -- game layer (ScriptSave.validate for the scripts bucket);
 -- `opts.playerDataContext` is the player-data validation context; the world
 -- bucket is validated by this boundary itself.
+---@param record table
+---@param loader table
+---@param expectedVersionId string
+---@param opts table
+---@return table
 local function restore(record, loader, expectedVersionId, opts)
   local canonical = validate(record, opts)
+  ---@cast canonical FieldSave.Record
   if canonical.versionId ~= expectedVersionId then
     Errors.raise(
       FieldErrors.FIELD_SAVE_VERSION_MISMATCH,
@@ -378,9 +480,9 @@ local function restore(record, loader, expectedVersionId, opts)
       { expected = expectedVersionId, actual = canonical.versionId }
     )
   end
-  local runtimeMap = loader:load(canonical.mapId)
-  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, canonical.fieldX, canonical.fieldZ)
-  local surface
+  local runtimeMap = loader:load(canonical.mapId) ---@type RuntimeFieldMap
+  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, canonical.fieldX, canonical.fieldZ) ---@type number, number
+  local surface ---@type FieldSave.Surface
   if
     canonical.terrainDependencyHash == runtimeMap.terrainDependencyHash
     and runtimeMap.terrain:contains(
@@ -394,10 +496,11 @@ local function restore(record, loader, expectedVersionId, opts)
       localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ + FieldCoordinates.TILE_CENTER_OFFSET
     )
+    ---@cast surface FieldSave.Surface
   else
     surface = closestSurface(runtimeMap, localX, localZ, canonical.worldY)
   end
-  local suppression
+  local suppression ---@type table?
   if WarpSystem.findAt(runtimeMap, canonical.fieldX, canonical.fieldZ) then
     suppression = { mapId = runtimeMap.mapId, fieldX = canonical.fieldX, fieldZ = canonical.fieldZ }
   end

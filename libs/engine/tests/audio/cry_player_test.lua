@@ -16,16 +16,13 @@ local CryPlayer = require("libs.engine.src.audio.CryPlayer")
 
 local T = {}
 
-local SAMPLE_RATE = 48000
+---@class CryPlayerTest.Player : CryPlayer.Player
+---@field play fun(self: CryPlayerTest.Player, handle: table, sequence: table, bank: table): boolean
+---@field stopSequence fun(self: CryPlayerTest.Player, sequenceId: integer)
+---@field render fun(self: CryPlayerTest.Player, frames: integer)
+---@field isHandlePlaying fun(self: CryPlayerTest.Player, handle: table): boolean
 
-local function voice(key)
-  return {
-    generator = { kind = "sample", sample = key },
-    originalKey = 60,
-    envelope = { attack = 127, decay = 0, sustain = 127, release = 127 },
-    pan = 0,
-  }
-end
+local SAMPLE_RATE = 48000
 
 -- The default fanfare fixture runs on player 3, the cry slot, so the
 -- player index carries a player-3 record for the stand-in to resolve.
@@ -34,6 +31,7 @@ local function defaultSequences()
     [0] = AudioFixture.sequence(0, "SEQ_TEST_BGM", 12, 1),
     [1] = AudioFixture.sequence(1, "SEQ_TEST_FANFARE", 12, 3, {
       entry = 1,
+      initialTrackMask = 0x0001,
       instructions = {
         { op = "program", program = 1 },
         { op = "note", key = 60, velocity = 127, duration = 1 },
@@ -72,26 +70,53 @@ local function newCryPlayer(opts)
     mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE }),
     provider = provider,
     observer = opts.observer,
-  })
-  return CryPlayer.new({ player = player }), player
+  }) --[[@as CryPlayerTest.Player]]
+  return CryPlayer.new({ player = player }), player, provider
 end
 
 function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
   local capturedSequence
   local capturedBank
   local player = {
+    _sampleRate = SAMPLE_RATE,
+    _mixer = {},
+    _provider = {},
+    _logicalPlayers = {},
+    _seqPlayers = {},
+    _freeSeqPlayerSlots = {},
+    _trackPool = {},
+    _handles = {},
+    _handleAttachments = {},
+    _soundPhase = 0,
     createHandle = function()
       return {}
+    end,
+    play = function()
+      return true
     end,
     playSynthetic = function(_, _, sequence, bank)
       capturedSequence = sequence
       capturedBank = bank
+      return true
     end,
+    render = function() end,
+    stop = function() end,
     isPlayerPlaying = function()
       return false
     end,
-  }
-  rawset(player, "stopHandle", function() end)
+    isPlaying = function()
+      return false
+    end,
+    setHandleFader = function() end,
+    pauseHandle = function() end,
+    resumeHandle = function() end,
+    stopHandle = function() end,
+    releaseHandle = function() end,
+    isHandlePlaying = function()
+      return false
+    end,
+    stopSequence = function() end,
+  } --[[@as CryPlayerTest.Player]]
   local cry = CryPlayer.new({ player = player })
 
   cry:play(25, 0)
@@ -103,8 +128,7 @@ function T.cry_passes_a_valid_current_schema_sequence_to_the_engine_player()
 end
 
 function T.stopping_ordinary_sequence_2000_does_not_stop_the_cry_standin()
-  local cry, player = newCryPlayer()
-  local provider = player._provider --[[@as AudioAssetProvider]]
+  local cry, player, provider = newCryPlayer()
   local handle = player:createHandle()
   local sequence = AudioFixture.sequence(2000, "SEQ_TEST_2000", 12, 1)
   player:play(handle, sequence, provider:bank(12))

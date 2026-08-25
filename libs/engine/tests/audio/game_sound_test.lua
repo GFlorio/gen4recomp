@@ -64,7 +64,11 @@ local function bank()
 end
 
 local function seq(id, symbol, playerId, instructions, playerPriority)
-  return AudioFixture.sequence(id, symbol, 12, playerId, { entry = 1, instructions = instructions }, {
+  return AudioFixture.sequence(id, symbol, 12, playerId, {
+    entry = 1,
+    initialTrackMask = 0x0001,
+    instructions = instructions,
+  }, {
     id = playerId,
     initialVolume = 127,
     playerPriority = playerPriority or 64,
@@ -174,6 +178,7 @@ end
 local function newGameSound(sequences, opts)
   opts = opts or {}
   local provider = AudioAssetProvider.new(AudioFixture.readyCache(engineBundle(sequences or defaultSequences(), opts)))
+  --[[@as AudioAssetProvider]]
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
   local spy = { readings = {}, faderWrites = {} }
   local realUpdateVoice = mixer.updateVoice
@@ -189,7 +194,7 @@ local function newGameSound(sequences, opts)
     mixer = mixer,
     provider = provider,
     observer = opts.observer,
-  })
+  }) --[[@as SequencePlayer]]
   -- The player-fader spy records every level GameSound asks the engine player
   -- to apply, in application order, so the one-level-per-player contract is
   -- observable as exact level sequences without rendering.
@@ -368,7 +373,7 @@ function T.stop_effect_is_sequence_scoped_but_wait_is_player_scoped()
 end
 
 function T.stop_detached_effect_preserves_the_canonical_fader_ramp()
-  local sound, player, spy = newGameSound()
+  local sound, _, spy = newGameSound()
   sound:play(1)
   sound:play(3)
   sound:moveSequenceVolume(3, 32, 10)
@@ -1043,8 +1048,9 @@ function T.invalid_fader_durations_fail_before_mutating_state()
   Assert.throws(function()
     sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, 0)
   end)
+  local nonIntegerDuration = 10.5
   Assert.throws(function()
-    sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, 10.5)
+    sound:moveSequenceVolume("SEQ_TEST_BGM_LONG", 64, nonIntegerDuration --[[@as integer]])
   end)
   Assert.throws(function()
     sound:stopSequenceWithFade("SEQ_TEST_BGM_LONG", 0)
@@ -1274,7 +1280,7 @@ function T.rejected_fanfare_pauses_bgm_and_completes_its_idle_wait()
 end
 
 function T.facade_effects_replace_canonical_handles_and_fades_do_not_touch_direct_handles()
-  local sound, player, spy, provider, mixer = newGameSound()
+  local sound, player, spy, provider, _ = newGameSound()
   sound:play(1)
   player:render(250)
   local direct = player:createHandle()

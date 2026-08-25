@@ -21,15 +21,79 @@ local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local T = {}
 
+---@class ModelAssetTest.Variant
+---@field name string?
+---@field texture string|number|nil
+---@field width number?
+---@field height number?
+---@field textureFormat number?
+---@field alphaUsage table?
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Material
+---@field variants ModelAssetTest.Variant[]?
+---@field colors table?
+---@field alphaUsage table?
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Batch
+---@field id string|integer?
+---@field geometry string?
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Target
+---@field channels ModelAssetTest.Channels
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Channel
+---@field source string
+---@field keys number[]
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Channels
+---@field [string] ModelAssetTest.Channel
+
+---@class ModelAssetTest.Pivot
+---@field control number
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Compiled
+---@field targets ModelAssetTest.Target[]
+---@field rotData ModelAssetTest.Pivot[]
+---@field pivotData table[]
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Animation
+---@field compiled ModelAssetTest.Compiled
+---@field tracks table[]
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Dynamic
+---@field batches ModelAssetTest.Batch[]
+---@field nodes table[]
+---@field transformProgram table
+---@field [string] table|string|number|boolean|nil
+
+---@class ModelAssetTest.Descriptor
+---@field dynamic ModelAssetTest.Dynamic?
+---@field materials ModelAssetTest.Material[]
+---@field animations ModelAssetTest.Animation[]
+---@field batches ModelAssetTest.Batch[]
+---@field [string] table|string|number|boolean|nil
+
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isTrue(not ok, "expected raise, got success")
-  Assert.equal(code, err.code, "error code")
+  if type(err) ~= "table" then
+    error("expected a structured model error")
+  end
+  Assert.equal(code, tostring(rawget(err, "code")), "error code")
 end
 
 -- The full dynamic material shape the animated compiler emits: the DS
 -- register block, the base color/alpha carrier, the render classification
 -- fields, the sampler state, and optional bound-texture metadata.
+---@return ModelAssetTest.Material
 local function dynamicMaterial()
   return {
     id = 0,
@@ -54,8 +118,10 @@ local function dynamicMaterial()
   }
 end
 
+---@param material ModelAssetTest.Material
+---@return ModelAssetTest.Descriptor
 local function dynamicDescriptor(material)
-  return {
+  local descriptor = {
     schema = ModelAsset.SCHEMA,
     key = "indoor:1:abc",
     memberId = 1,
@@ -63,9 +129,11 @@ local function dynamicDescriptor(material)
     dynamic = { nodes = {}, transformProgram = {}, batches = {} },
     materials = { material or dynamicMaterial() },
     animations = {},
-  }
+  } ---@cast descriptor ModelAssetTest.Descriptor
+  return descriptor
 end
 
+---@return ModelAssetTest.Material
 local function texturedDynamicMaterial()
   local material = dynamicMaterial()
   material.texture = "assets/generated/maps/textures/base.png"
@@ -74,6 +142,9 @@ local function texturedDynamicMaterial()
   return material
 end
 
+---@param name string
+---@param path string
+---@return ModelAssetTest.Variant
 local function texturedVariant(name, path)
   return {
     name = name,
@@ -111,7 +182,7 @@ end
 function T.validate_rejects_dynamic_texture_missing_alpha_usage_fields()
   for _, field in ipairs({ "hasPartial", "hasOpaque", "hasZero" }) do
     local material = texturedDynamicMaterial()
-    material.alphaUsage[field] = nil
+    rawset(material.alphaUsage, field, nil)
     throwsCode(ModelAsset.ERROR_INVALID, function()
       ModelAsset.validate(dynamicDescriptor(material))
     end)
@@ -150,7 +221,8 @@ function T.validate_accepts_a_complete_textured_variant()
 end
 
 function T.validate_rejects_an_incomplete_textured_variant()
-  local cases = {
+  local cases = {} ---@type (fun(variant: ModelAssetTest.Variant))[]
+  cases = {
     function(variant)
       variant.textureFormat = nil
     end,
@@ -280,6 +352,7 @@ end
 -- variant below must raise ModelAsset.ERROR_INVALID -- ModelAsset.validate is the
 -- pre-publish gate MapCacheWriter runs every compiled descriptor through.
 
+---@return table
 local function emittedNode()
   return {
     index = 0,
@@ -294,6 +367,7 @@ local function emittedNode()
   }
 end
 
+---@return table
 local function emittedDynamicBatch()
   return {
     id = "draw0.seg0",
@@ -315,6 +389,7 @@ local function emittedDynamicBatch()
   }
 end
 
+---@return table
 local function emittedStaticBatch()
   return {
     geometry = "assets/generated/maps/geometry/aaaaaaaa",
@@ -338,6 +413,7 @@ end
 -- The scene-form material record the static path emits: id/name plus the
 -- sampler state (wrap/flip), the diffuse carrier, and the bound texture
 -- metadata (present together, absent together).
+---@return table
 local function emittedStaticMaterial()
   return {
     id = 0,
@@ -350,6 +426,7 @@ local function emittedStaticMaterial()
   }
 end
 
+---@return table
 local function emittedDynamicMaterial()
   return {
     id = 0,
@@ -376,8 +453,9 @@ end
 
 -- A compiled NSBCA payload whose rotation curve spans all eight frames and
 -- references pivot entry 0 (inside the compiled table).
+---@return ModelAssetTest.Animation
 local function emittedTrsClip()
-  return {
+  local clip = {
     id = "build_anim-1",
     name = "door_op",
     category = "joint",
@@ -415,12 +493,14 @@ local function emittedTrsClip()
         },
       },
     },
-  }
+  } ---@cast clip ModelAssetTest.Animation
+  return clip
 end
 
 -- A compiled NSBTA payload: all five channels as explicit constants.
+---@return ModelAssetTest.Animation
 local function emittedTexsrtClip()
-  return {
+  local clip = {
     id = "build_anim-2",
     name = "en_sp1",
     category = "material",
@@ -444,13 +524,15 @@ local function emittedTexsrtClip()
         },
       },
     },
-  }
+  } ---@cast clip ModelAssetTest.Animation
+  return clip
 end
 
 -- A compiled NSBMA payload: all five material registers as explicit
 -- constants (the compiler emits every channel).
+---@return ModelAssetTest.Animation
 local function emittedColorClip()
-  return {
+  local clip = {
     id = "build_anim-4",
     name = "psentry_rode",
     category = "material",
@@ -474,11 +556,13 @@ local function emittedColorClip()
         },
       },
     },
-  }
+  } ---@cast clip ModelAssetTest.Animation
+  return clip
 end
 
+---@return ModelAssetTest.Descriptor
 local function emittedDynamicDescriptor()
-  return {
+  local descriptor = {
     schema = ModelAsset.SCHEMA,
     key = "outdoor:26:door",
     memberId = 26,
@@ -499,18 +583,21 @@ local function emittedDynamicDescriptor()
     materials = { emittedDynamicMaterial() },
     animations = { emittedTrsClip() },
     doorSoundType = 1,
-  }
+  } ---@cast descriptor ModelAssetTest.Descriptor
+  return descriptor
 end
 
+---@return ModelAssetTest.Descriptor
 local function emittedStaticDescriptor()
-  return {
+  local descriptor = {
     schema = ModelAsset.SCHEMA,
     key = "outdoor:12:map",
     memberId = 12,
     kind = "static",
     batches = { emittedStaticBatch() },
     materials = { emittedStaticMaterial() },
-  }
+  } ---@cast descriptor ModelAssetTest.Descriptor
+  return descriptor
 end
 
 function T.validate_accepts_the_current_emitted_dynamic_shape()
@@ -541,10 +628,13 @@ end
 
 function T.validate_rejects_duplicate_batch_ids()
   local desc = emittedDynamicDescriptor()
-  desc.dynamic.batches[2] = {}
-  for k, v in pairs(desc.dynamic.batches[1]) do
-    desc.dynamic.batches[2][k] = v
+  local duplicate = {} ---@type table<string, table|string|number|boolean|nil>
+  local source = desc.dynamic.batches[1]
+  local sourceTable = source ---@cast sourceTable table<string, table|string|number|boolean|nil>
+  for k, v in pairs(sourceTable) do
+    duplicate[k] = v
   end
+  rawset(desc.dynamic.batches, 2, duplicate)
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
@@ -799,7 +889,7 @@ end
 function T.validate_rejects_a_texsrt_clip_with_a_missing_channel()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedTexsrtClip()
-  desc.animations[1].compiled.targets[1].channels.rot = nil
+  rawset(desc.animations[1].compiled.targets[1].channels, "rot", nil)
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
@@ -808,7 +898,7 @@ end
 function T.validate_rejects_a_texsrt_clip_with_a_bad_channel_source()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedTexsrtClip()
-  desc.animations[1].compiled.targets[1].channels.rot = { source = "absent" }
+  rawset(desc.animations[1].compiled.targets[1].channels, "rot", { source = "absent" })
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
@@ -817,7 +907,7 @@ end
 function T.validate_rejects_a_color_clip_with_a_missing_channel()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedColorClip()
-  desc.animations[1].compiled.targets[1].channels.alpha = nil
+  rawset(desc.animations[1].compiled.targets[1].channels, "alpha", nil)
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
@@ -829,7 +919,7 @@ end
 function T.validate_rejects_a_texsrt_clip_with_a_model_source()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedTexsrtClip()
-  desc.animations[1].compiled.targets[1].channels.rot = { source = "model" }
+  rawset(desc.animations[1].compiled.targets[1].channels, "rot", { source = "model" })
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
@@ -840,8 +930,11 @@ end
 function T.validate_rejects_a_texsrt_curve_with_insufficient_keys()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedTexsrtClip()
-  desc.animations[1].compiled.targets[1].channels.transS =
+  rawset(
+    desc.animations[1].compiled.targets[1].channels,
+    "transS",
     { source = "curve", rate = 1, limit = 4, storage = "fx16", keys = { 0, 1, 2 } }
+  )
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
@@ -852,7 +945,7 @@ end
 function T.validate_rejects_texsrt_duplicate_track_target_names()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedTexsrtClip()
-  desc.animations[1].compiled.targets[2] = {
+  local duplicate = {
     index = 1,
     name = "wall",
     channels = {
@@ -862,7 +955,8 @@ function T.validate_rejects_texsrt_duplicate_track_target_names()
       scaleS = { source = "constant", value = 0x1000 },
       scaleT = { source = "constant", value = 0x1000 },
     },
-  }
+  } ---@cast duplicate ModelAssetTest.Target
+  rawset(desc.animations[1].compiled.targets, 2, duplicate)
   desc.animations[1].tracks = {
     { target = "wall", targetIndex = 0 },
     { target = "wall", targetIndex = 1 },
@@ -875,7 +969,7 @@ end
 function T.validate_rejects_a_color_clip_with_a_model_source()
   local desc = emittedDynamicDescriptor()
   desc.animations[1] = emittedColorClip()
-  desc.animations[1].compiled.targets[1].channels.diffuse = { source = "model" }
+  rawset(desc.animations[1].compiled.targets[1].channels, "diffuse", { source = "model" })
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
@@ -886,7 +980,7 @@ end
 -- variant lookup at draw time).
 function T.validate_rejects_a_pattern_key_index_out_of_range()
   local desc = emittedDynamicDescriptor()
-  desc.animations[1] = {
+  local pattern = {
     id = "build_anim-3",
     name = "pattern",
     category = "material",
@@ -907,7 +1001,8 @@ function T.validate_rejects_a_pattern_key_index_out_of_range()
         },
       },
     },
-  }
+  } ---@cast pattern ModelAssetTest.Animation
+  desc.animations[1] = pattern
   throwsCode(ModelAsset.ERROR_INVALID, function()
     ModelAsset.validate(desc)
   end)
@@ -919,7 +1014,7 @@ end
 function T.validate_accepts_a_pattern_payload_without_counts()
   local desc = emittedDynamicDescriptor()
   desc.doorSoundType = nil
-  desc.animations[1] = {
+  local pattern = {
     id = "build_anim-3",
     name = "pattern",
     category = "material",
@@ -940,7 +1035,8 @@ function T.validate_accepts_a_pattern_payload_without_counts()
         },
       },
     },
-  }
+  } ---@cast pattern ModelAssetTest.Animation
+  desc.animations[1] = pattern
   Assert.equal(ModelAsset.validate(desc), desc)
 end
 

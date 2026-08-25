@@ -202,6 +202,7 @@ function StartMenuRenderer:draw(presentation, placement)
       self.menu.cursor.frames[presentation.cursorFrameIndex + 1],
       "cursor frame " .. tostring(presentation.cursorFrameIndex) .. " is outside the generated frame set"
     )
+    ---@cast frame FieldDialogueTheme.Rect
     lg.draw(assert(self._backgroundImage), assert(self._backgroundQuad), self.menu.background.x, self.menu.background.y)
     local x, y = self:_cursorPosition(slot, frame)
     lg.draw(assert(self._cursorImage), assert(self._cursorQuads[presentation.cursorFrameIndex + 1]), x, y)

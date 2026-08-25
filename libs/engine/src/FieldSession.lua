@@ -25,7 +25,6 @@
 -- sound-frame clock is the runtime's wall-clock accumulator.
 
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
-local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local FieldTransition = require("libs.engine.src.FieldTransition")
@@ -250,7 +249,6 @@ function FieldSession:updateFixed(inputSnapshot)
   -- advance under the choreographed locked tick. The camera samples on
   -- every locked tick and on the completion tick -- never coupled to
   -- player motion -- so interpolation pairs collapse instead of replaying.
-  local walkingAtTickStart = self.player.motion == "walking"
   local playerAdvanced = self.transition:updateFixed()
   if self.transition.locked or self.transition.completed then
     if not playerAdvanced and self.player.motion == "idle" then

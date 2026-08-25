@@ -39,7 +39,7 @@ local CACHE_ERRORS = {
 ---@field versionId string
 ---@field private _prefix string
 ---@field private _root string
----@field backend table
+---@field backend ScopedFs.Backend
 ---@field prefix fun(self: CacheFs): string
 ---@field resolve fun(self: CacheFs, relativePath: string): string
 ---@field write fun(self: CacheFs, relativePath: string, data: string): boolean
@@ -67,6 +67,9 @@ CacheFs.__index = CacheFs
 -- per-artifact asides inside an artifact stage.
 CacheFs.STAGING_OLD_SUFFIX = ".old"
 
+---@param versionId string
+---@param backend table|nil
+---@return CacheFs
 function CacheFs.forVersion(versionId, backend)
   ScopedFs.validateVersionId(versionId)
   return setmetatable({
@@ -81,6 +84,9 @@ end
 -- sibling of the live version root. A completed staging tree is published over
 -- the live root with publishFromStage; stale staging is discarded at the next
 -- import.
+---@param versionId string
+---@param backend table|nil
+---@return CacheFs
 function CacheFs.forStaging(versionId, backend)
   ScopedFs.validateVersionId(versionId)
   local prefix = "staging/" .. versionId .. "/"
@@ -97,6 +103,10 @@ end
 -- ArtifactPublisher for the staged publication of derived caches; like the ROM
 -- staging root it is swept with the rest of `staging/<versionId>/` at the next
 -- import. `name` must be a single safe path component.
+---@param versionId string
+---@param name string
+---@param backend table|nil
+---@return CacheFs
 function CacheFs.forArtifactStage(versionId, name, backend)
   ScopedFs.validateVersionId(versionId)
   assert(name:match("^[%w%-_]+$"), "artifact name must be a single safe path component")
@@ -187,7 +197,9 @@ function CacheFs:_removeTreeAt(fullPath)
     end
     if info.type == "directory" then
       local items = self.backend:getDirectoryItems(path)
-      ScopedFs.ensureBackend(items, nil, CACHE_ERRORS.REMOVE_FAILED, "could not list directory", { path = path })
+      if not items then
+        Errors.raise(CACHE_ERRORS.REMOVE_FAILED, "could not list directory", { path = path })
+      end
       for _, name in ipairs(items) do
         rec(path .. "/" .. name)
       end
@@ -211,6 +223,9 @@ end
 -- Restore every aside a failed publish left behind, using the checked rename
 -- path (a falsy backend result becomes CACHE_REPLACE_FAILED). Returns the
 -- first rollback error, or nil when every aside was restored.
+---@param cacheFs CacheFs
+---@param stageCache CacheFs
+---@param roots string[]
 ---@param asides table<string, boolean>
 ---@return any|nil
 local function rollbackAsides(cacheFs, stageCache, roots, asides)
@@ -230,7 +245,10 @@ end
 -- Restore the already-published roots back to the stage, then every aside
 -- root, with the checked rename path. Returns the first rollback error, or
 -- nil when the previous artifact was fully restored.
+---@param cacheFs CacheFs
+---@param stageCache CacheFs
 ---@param movedIn string[]
+---@param roots string[]
 ---@param asides table<string, boolean>
 ---@return any|nil
 local function rollbackPublished(cacheFs, stageCache, movedIn, roots, asides)
@@ -260,13 +278,17 @@ end
 -- and CACHE_PUBLISH_ROLLBACK_INCOMPLETE raises with both failures. `cleanup`
 -- failing raises CACHE_PUBLISH_CLEANUP_FAILED: the new artifact is already
 -- live and must not be rolled back.
+---@param cacheFs CacheFs
+---@param stageCache CacheFs
+---@param roots string[]
 ---@param cleanup fun()
+---@return boolean
 local function publishStagedRoots(cacheFs, stageCache, roots, cleanup)
   -- Phase 1: move every existing live root aside. A failure (backend raise or
   -- backend-reported failure, which replaceAt translates into
   -- CACHE_REPLACE_FAILED) rolls back every aside already made and re-raises.
   local asides = {}
-  local ok, err = pcall(function()
+  local phase1Ok, phase1Err = pcall(function()
     for _, root in ipairs(roots) do
       if cacheFs:exists(root, "directory") then
         cacheFs:replaceAt(cacheFs:resolve(root), stageCache:resolve(root) .. CacheFs.STAGING_OLD_SUFFIX)
@@ -274,39 +296,39 @@ local function publishStagedRoots(cacheFs, stageCache, roots, cleanup)
       end
     end
   end)
-  if not ok then
+  if not phase1Ok then
     local rollbackErr = rollbackAsides(cacheFs, stageCache, roots, asides)
     if rollbackErr ~= nil then
       Errors.raise(StorageErrors.CACHE_PUBLISH_ROLLBACK_INCOMPLETE, "publish failed and the rollback was incomplete", {
-        cause = tostring(err),
+        cause = tostring(phase1Err),
         rollback = tostring(rollbackErr),
       })
     end
-    error(err, 0)
+    error(phase1Err, 0)
   end
   -- Phase 2: rename the staged roots into place, in the given order (the
   -- marker root last).
   local movedIn = {}
-  local ok, err = pcall(function()
+  local phase2Ok, phase2Err = pcall(function()
     for _, root in ipairs(roots) do
       cacheFs:replaceAt(stageCache:resolve(root), cacheFs:resolve(root))
       movedIn[#movedIn + 1] = root
     end
   end)
-  if not ok then
+  if not phase2Ok then
     local rollbackErr = rollbackPublished(cacheFs, stageCache, movedIn, roots, asides)
     if rollbackErr ~= nil then
       Errors.raise(StorageErrors.CACHE_PUBLISH_ROLLBACK_INCOMPLETE, "publish failed and the rollback was incomplete", {
-        cause = tostring(err),
+        cause = tostring(phase2Err),
         rollback = tostring(rollbackErr),
       })
     end
-    error(err, 0)
+    error(phase2Err, 0)
   end
   -- Phase 3: discard the recovery material. The new artifact is already live;
   -- a failing cleanup is a distinct outcome, never a failed publication.
-  local ok, cleanupErr = pcall(cleanup)
-  if not ok then
+  local cleanupOk, cleanupErr = pcall(cleanup)
+  if not cleanupOk then
     Errors.raise(
       StorageErrors.CACHE_PUBLISH_CLEANUP_FAILED,
       "the new artifact is live but its stage could not be removed",

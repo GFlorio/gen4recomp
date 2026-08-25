@@ -50,9 +50,25 @@ local DoorSound = require("libs.engine.src.DoorSound")
 
 ---@class MapProps
 ---@field placements table -- scene placement records (read only after assembly)
----@field placementIndex table -- [placementIndex] = { modelKey }
----@field doorIndex table -- ["localX:localZ"] = { placementIndex, modelKey, animation }
+---@field placementIndex table<integer, MapProps.Entry>
+---@field doorIndex table<string, MapProps.Entry>
 ---@field instances { [integer]: ModelInstance|nil }
+---@field prop fun(self: MapProps, placementIndex: integer): SceneProp?
+---@class MapProps.Placement
+---@field placementIndex integer
+---@field modelKey string
+---@field transform number[]
+
+---@class MapProps.Entry
+---@field placementIndex integer
+---@field modelKey string
+---@field animation table?
+---@field doorSoundType integer?
+
+---@class MapProps.DoorOptions
+---@field placements MapProps.Placement[]
+---@field instances table<integer, table>
+---@field doorTiles { x: integer, z: integer }[]
 local MapProps = {}
 MapProps.__index = MapProps
 
@@ -86,7 +102,7 @@ end
 -- within DOOR_TIE_EPSILON_SQ) and missing coverage (a door tile with no
 -- placement at all, or none within MAX_DOOR_PIVOT_DISTANCE_TILES) raise
 -- here, once, as generated-data failures rather than per-lookup surprises.
----@param opts { placements: table, instances: { [integer]: table|nil }, doorTiles: { x: integer, z: integer }[] }
+---@param opts MapProps.DoorOptions
 ---@return MapProps
 function MapProps.new(opts)
   assert(opts and opts.placements and opts.instances and opts.doorTiles, "map props options required")
@@ -96,14 +112,19 @@ function MapProps.new(opts)
     placementIndex = {},
     doorIndex = {},
   }, MapProps)
+  ---@cast self MapProps
   for _, placement in ipairs(opts.placements) do
     assert(placement.placementIndex ~= nil, "placement missing placementIndex: " .. tostring(placement.modelKey))
-    self.placementIndex[placement.placementIndex] = { modelKey = placement.modelKey }
+    self.placementIndex[placement.placementIndex] = {
+      placementIndex = placement.placementIndex,
+      modelKey = placement.modelKey,
+    }
   end
   for _, tile in ipairs(opts.doorTiles) do
     local wx, wz = FieldGrid.tileCenterToWorld(tile.x, tile.z)
-    local best
-    for _, placement in ipairs(opts.placements) do
+    local best ---@type { placement: MapProps.Placement, distance: number }?
+    local placements = opts.placements ---@type MapProps.Placement[]
+    for _, placement in ipairs(placements) do
       local dx, dz = placement.transform[13] - wx, placement.transform[15] - wz
       local distance = dx * dx + dz * dz
       if not best then
@@ -179,7 +200,7 @@ end
 ---@field placementIndex integer
 ---@field modelKey string
 ---@field doorSoundType integer|nil
----@field instance table|nil
+---@field instance ModelInstance|nil
 ---@field entry table -- the retained index record ({ animation = handle|nil })
 local MapDoor = {}
 MapDoor.__index = MapDoor
@@ -206,7 +227,7 @@ end
 -- handle is the LIVE attachment instance:play returned, so isFinished reads
 -- it directly and replays always restart.
 function MapDoor:_play(role)
-  if not self.instance or self.instance.soundOnly then
+  if not self.instance then
     return
   end
   local definition = self.instance.definition
@@ -242,9 +263,10 @@ end
 -- does not cover it. `instance` is read live from the current instance
 -- table, so a door whose model loses its animated instance after assembly
 -- resolves statically.
----@param runtimeMap table
+---@param runtimeMap RuntimeFieldMap
 ---@param fieldX integer
 ---@param fieldZ integer
+---@param self MapProps
 ---@return MapDoor?
 function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
   local origin = runtimeMap.coordinateOrigin
@@ -290,7 +312,7 @@ end
 ---@class SceneProp
 ---@field placementIndex integer
 ---@field modelKey string
----@field instance table|nil
+---@field instance ModelInstance|nil
 ---@field pause nil -- deliberately absent: no production caller
 ---@field resume nil
 ---@field setDirection nil
@@ -299,6 +321,9 @@ local SceneProp = {}
 SceneProp.__index = SceneProp
 
 -- The playing attachment of a prop's clip, or nil when nothing plays.
+---@param instance ModelInstance
+---@param clip table
+---@return table?
 local function attachmentByClip(instance, clip)
   for _, category in ipairs(ModelAnimationState.GROUPS) do
     for _, attachment in ipairs(instance.animationState:attachments(category)) do
@@ -346,7 +371,8 @@ function SceneProp:isFinished(animation)
   if not clip then
     raiseUnknown(self.instance.definition, animation)
   end
-  local attachment = attachmentByClip(self.instance, clip)
+  local instance = assert(self.instance)
+  local attachment = attachmentByClip(instance, clip)
   if not attachment then
     return nil
   end
@@ -357,6 +383,7 @@ end
 -- placement has that index. The placement index is precomputed at assembly
 -- like the door index: prop() never rescans the placement list per call.
 ---@param placementIndex integer
+---@param self MapProps
 ---@return SceneProp?
 function MapProps:prop(placementIndex)
   local entry = self.placementIndex[placementIndex]
@@ -373,6 +400,11 @@ end
 -- Resolve the prop nearest a semantic field tile. Transition choreography uses
 -- this only for map behaviors whose source animation is owned by a placed
 -- model; the returned handle still validates the requested clip on play.
+---@param self MapProps
+---@param runtimeMap RuntimeFieldMap
+---@param fieldX integer
+---@param fieldZ integer
+---@return SceneProp?
 function MapProps:propAt(runtimeMap, fieldX, fieldZ)
   local localX, localZ = fieldX - runtimeMap.coordinateOrigin.x, fieldZ - runtimeMap.coordinateOrigin.z
   local worldX, worldZ = FieldGrid.tileCenterToWorld(localX, localZ)

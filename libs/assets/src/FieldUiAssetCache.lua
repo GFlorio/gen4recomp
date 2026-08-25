@@ -13,6 +13,23 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local FieldUiAssetCache = {}
 
+---@class FieldUiAssetCache.Rect
+---@field x integer
+---@field y integer
+---@field width integer
+---@field height integer
+
+---@class FieldUiAssetCache.Asset
+---@field image string
+---@field width integer
+---@field height integer
+
+---@class FieldUiAssetCache.Manifest
+---@field schema string
+---@field reference FieldUiAssetCache.Rect
+---@field assets table<string, FieldUiAssetCache.Asset>
+---@field [string] table
+
 FieldUiAssetCache.FORMAT = Contract.fieldUi.cacheFormat
 FieldUiAssetCache.SCHEMA = Contract.fieldUi.schema
 
@@ -78,7 +95,7 @@ end
 -- rectangle/size/index finite, integral, non-negative, and inside its
 -- atlas. Returns nil, err on the first violation.
 
----@param manifest table
+---@param manifest FieldUiAssetCache.Manifest
 ---@return boolean, Errors.Error?
 function FieldUiAssetCache.validateManifest(manifest)
   if type(manifest) ~= "table" then
@@ -94,22 +111,25 @@ function FieldUiAssetCache.validateManifest(manifest)
   if type(manifest.reference) ~= "table" or manifest.reference.width ~= 256 or manifest.reference.height ~= 192 then
     return false,
       Errors.new(MANIFEST_INVALID, "manifest reference must be the 256x192 field screen", {
-        reference = manifest.reference,
+        reference = type(manifest.reference),
       })
   end
   if type(manifest.assets) ~= "table" or next(manifest.assets) == nil then
     return false, Errors.new(MANIFEST_INVALID, "manifest assets must be a non-empty table", {})
   end
-  local atlasSizes = {}
-  for key, entry in pairs(manifest.assets) do
+  local atlasSizes = {} ---@type table<string, { width: integer, height: integer }>
+  local assets = manifest.assets
+  for key, entry in pairs(assets) do
     if type(key) ~= "string" or key == "" then
       return false, Errors.new(MANIFEST_INVALID, "asset key must be a non-empty string", {})
     end
     if type(entry) ~= "table" or type(entry.image) ~= "string" or entry.image == "" then
       return false, Errors.new(MANIFEST_INVALID, "asset " .. key .. " must name an image path", { key = key })
     end
+    ---@param field string
+    ---@return boolean
     local function sizeField(field)
-      local v = entry[field]
+      local v = entry[field] ---@type number
       return type(v) == "number" and v % 1 == 0 and v >= 1
     end
     if not sizeField("width") or not sizeField("height") then
@@ -121,12 +141,16 @@ function FieldUiAssetCache.validateManifest(manifest)
     atlasSizes[key] = { width = entry.width, height = entry.height }
   end
 
+  ---@param rect table
+  ---@param atlasKey string
+  ---@param what string
+  ---@return boolean, Errors.Error?
   local function rectInAtlas(rect, atlasKey, what)
     if type(rect) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, what .. " must be a rectangle", { what = what })
     end
     for _, field in ipairs({ "x", "y", "width", "height" }) do
-      local v = rect[field]
+      local v = rect[field] ---@type number
       if type(v) ~= "number" or v % 1 ~= 0 or v < 0 then
         return false,
           Errors.new(MANIFEST_INVALID, what .. " " .. field .. " must be a non-negative integer", {
@@ -153,6 +177,11 @@ function FieldUiAssetCache.validateManifest(manifest)
   -- Dialogue/signpost frames are the 18-tile 144x8 row; wayfinding rects
   -- are validated separately as 48x32 final surfaces. The atlas-bound check
   -- additionally proves the rect is addressable in its PNG.
+  ---@param rect table
+  ---@param atlasKey string
+  ---@param what string
+  ---@param width integer
+  ---@return boolean, Errors.Error?
   local function stripInAtlas(rect, atlasKey, what, width)
     local ok, err = rectInAtlas(rect, atlasKey, what)
     if not ok then
@@ -169,6 +198,9 @@ function FieldUiAssetCache.validateManifest(manifest)
     return true
   end
 
+  ---@param name string
+  ---@param checker fun(section: table): boolean, Errors.Error?
+  ---@return boolean, Errors.Error?
   local function section(name, checker)
     if type(manifest[name]) ~= "table" then
       return false,
@@ -187,22 +219,23 @@ function FieldUiAssetCache.validateManifest(manifest)
       return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.frameTiles must be a table", {})
     end
     for frame = 0, s.count - 1 do
-      local ok, err = stripInAtlas(
-        s.frameTiles[frame],
+      local frameTiles = s.frameTiles ---@type table<integer, FieldUiAssetCache.Rect>
+      local frameTilesOk, frameTilesErr = stripInAtlas(
+        frameTiles[frame],
         FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES,
         "frame " .. frame .. " tiles",
         FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
       )
-      if not ok then
-        return false, err
+      if not frameTilesOk then
+        return false, frameTilesErr
       end
     end
-    local cursor = s.continueCursor
+    local cursor = s.continueCursor ---@type table
     if type(cursor) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.continueCursor must be a table", {})
     end
-    local cursorAsset = cursor.asset
-    local asset = atlasSizes[cursorAsset]
+    local cursorAsset = cursor.asset ---@type string
+    local asset = atlasSizes[cursorAsset] ---@type { width: integer, height: integer }?
     if cursorAsset ~= FieldUiAssetCache.ASSET.DIALOGUE_CONTINUE_CURSOR or not asset then
       return false, Errors.new(MANIFEST_INVALID, "dialogueFrames.continueCursor.asset is invalid", {})
     end
@@ -212,15 +245,16 @@ function FieldUiAssetCache.validateManifest(manifest)
     if type(cursor.cycle) ~= "table" or #cursor.cycle ~= 4 then
       return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor cycle is invalid", {})
     end
+    local cycle = cursor.cycle ---@type integer[]
     for index, phase in ipairs({ 0, 1, 2, 1 }) do
-      if cursor.cycle[index] ~= phase then
+      if cycle[index] ~= phase then
         return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor cycle is not source-faithful", {})
       end
     end
     if cursor.framePrinterTicks ~= 9 then
       return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor timing is invalid", {})
     end
-    local placement = cursor.placement
+    local placement = cursor.placement ---@type FieldUiAssetCache.Rect
     if
       type(placement) ~= "table"
       or placement.x ~= 240
@@ -233,13 +267,15 @@ function FieldUiAssetCache.validateManifest(manifest)
     if type(cursor.styles) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor styles are missing", {})
     end
+    local styles = cursor.styles ---@type table<integer, table>
     for style = 0, s.count - 1 do
-      local styleEntry = cursor.styles[style]
+      local styleEntry = styles[style] ---@type table
       if type(styleEntry) ~= "table" or type(styleEntry.phases) ~= "table" then
         return false, Errors.new(MANIFEST_INVALID, "dialogue continuation cursor style is missing", { style = style })
       end
+      local phases = styleEntry.phases ---@type table<integer, FieldUiAssetCache.Rect>
       for phase = 0, 2 do
-        local rect = styleEntry.phases[phase]
+        local rect = phases[phase] ---@type FieldUiAssetCache.Rect
         local expected = { x = phase * 16, y = style * 16, width = 16, height = 16 }
         if
           type(rect) ~= "table"
@@ -266,11 +302,14 @@ function FieldUiAssetCache.validateManifest(manifest)
     return false, err
   end
 
-  local ok, err = section("signposts", function(s)
+  local signpostOk, signpostErr = section("signposts", function(s)
     -- v5 schema requires textColors: the source palette slot assignments.
     if type(s.textColors) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "signposts.textColors must be a table", {})
     end
+    ---@param slot number
+    ---@param name string
+    ---@return boolean, Errors.Error?
     local function validateSlot(slot, name)
       if type(slot) ~= "number" or slot % 1 ~= 0 or slot < 0 or slot > 15 then
         return false,
@@ -281,9 +320,9 @@ function FieldUiAssetCache.validateManifest(manifest)
       end
       return true
     end
-    local ok, err = validateSlot(s.textColors.foreground, "foreground")
-    if not ok then
-      return false, err
+    local foregroundOk, foregroundErr = validateSlot(s.textColors.foreground, "foreground")
+    if not foregroundOk then
+      return false, foregroundErr
     end
     if s.textColors.foreground ~= 2 then
       return false,
@@ -291,9 +330,9 @@ function FieldUiAssetCache.validateManifest(manifest)
           value = s.textColors.foreground,
         })
     end
-    local ok, err = validateSlot(s.textColors.shadow, "shadow")
-    if not ok then
-      return false, err
+    local shadowOk, shadowErr = validateSlot(s.textColors.shadow, "shadow")
+    if not shadowOk then
+      return false, shadowErr
     end
     if s.textColors.shadow ~= 10 then
       return false,
@@ -301,9 +340,9 @@ function FieldUiAssetCache.validateManifest(manifest)
           value = s.textColors.shadow,
         })
     end
-    local ok, err = validateSlot(s.textColors.background, "background")
-    if not ok then
-      return false, err
+    local backgroundOk, backgroundErr = validateSlot(s.textColors.background, "background")
+    if not backgroundOk then
+      return false, backgroundErr
     end
     if s.textColors.background ~= 15 then
       return false,
@@ -315,7 +354,8 @@ function FieldUiAssetCache.validateManifest(manifest)
     if type(s.types) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "signposts.types must be a table", {})
     end
-    for key, typeEntry in pairs(s.types) do
+    local signpostTypes = s.types ---@type table<number, table>
+    for key, typeEntry in pairs(signpostTypes) do
       if type(key) ~= "number" or key % 1 ~= 0 or key < 0 then
         return false, Errors.new(MANIFEST_INVALID, "signpost type keys must be non-negative integers", { key = key })
       end
@@ -333,11 +373,14 @@ function FieldUiAssetCache.validateManifest(manifest)
             type = key,
           })
       end
+      ---@param val number
+      ---@return boolean
       local function isValidComponent(val)
         return type(val) == "number" and val % 1 == 0 and val >= 0 and val <= 255
       end
       for slot = 0, 15 do
-        local color = typeEntry.palette[slot]
+        local palette = typeEntry.palette ---@type table<integer, table<string, number>>
+        local color = palette[slot]
         if color == nil then
           return false,
             Errors.new(MANIFEST_INVALID, "signpost type " .. key .. " palette slot " .. slot .. " is missing", {
@@ -365,7 +408,8 @@ function FieldUiAssetCache.validateManifest(manifest)
       -- Every slot 0..15 was checked above; any other key means the table
       -- carries more than the exact 16-entry palette the schema requires.
       local paletteKeyCount = 0
-      for _ in pairs(typeEntry.palette) do
+      local palette = typeEntry.palette ---@type table<integer, table>
+      for _ in pairs(palette) do
         paletteKeyCount = paletteKeyCount + 1
       end
       if paletteKeyCount ~= 16 then
@@ -383,14 +427,14 @@ function FieldUiAssetCache.validateManifest(manifest)
             type = key,
           })
       end
-      local ok, err = stripInAtlas(
+      local frameTilesOk, frameTilesErr = stripInAtlas(
         typeEntry.frameTiles,
         FieldUiAssetCache.ASSET.SIGNPOST_TILES,
         "signpost type " .. key .. " frameTiles",
         FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
       )
-      if not ok then
-        return false, err
+      if not frameTilesOk then
+        return false, frameTilesErr
       end
 
       if typeEntry.wayfinding ~= nil then
@@ -401,17 +445,18 @@ function FieldUiAssetCache.validateManifest(manifest)
         if type(typeEntry.wayfinding) ~= "table" or next(typeEntry.wayfinding) == nil then
           return false, Errors.new(MANIFEST_INVALID, "signpost wayfinding must be a non-empty per-map table", {})
         end
-        for map, rect in pairs(typeEntry.wayfinding) do
+        local wayfinding = typeEntry.wayfinding ---@type table<number, FieldUiAssetCache.Rect>
+        for map, rect in pairs(wayfinding) do
           if type(map) ~= "number" or map % 1 ~= 0 or map < 0 then
             return false,
               Errors.new(MANIFEST_INVALID, "signpost wayfinding map keys must be non-negative integers", {
                 map = map,
               })
           end
-          local ok, err =
+          local wayfindingOk, wayfindingErr =
             rectInAtlas(rect, FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING, "signpost wayfinding map " .. map)
-          if not ok then
-            return false, err
+          if not wayfindingOk then
+            return false, wayfindingErr
           end
           if
             rect.width ~= FieldUiAssetCache.GEOMETRY.WAYFINDING_WIDTH
@@ -429,22 +474,25 @@ function FieldUiAssetCache.validateManifest(manifest)
     end
     return true
   end)
-  if not ok then
-    return false, err
+  if not signpostOk then
+    return false, signpostErr
   end
 
-  local ok, err = section("startMenu", function(s)
-    local ok, err = rectInAtlas(s.background, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu background")
-    if not ok then
-      return false, err
+  local startMenuOk, startMenuErr = section("startMenu", function(s)
+    local backgroundOk, backgroundErr =
+      rectInAtlas(s.background, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu background")
+    if not backgroundOk then
+      return false, backgroundErr
     end
     if type(s.cursor) ~= "table" or type(s.cursor.frames) ~= "table" or #s.cursor.frames < 1 then
       return false, Errors.new(MANIFEST_INVALID, "startMenu.cursor must carry at least one frame", {})
     end
-    for _, frameEntry in ipairs(s.cursor.frames) do
-      local ok, err = rectInAtlas(frameEntry, FieldUiAssetCache.ASSET.START_MENU_CURSOR, "start menu cursor frame")
-      if not ok then
-        return false, err
+    local frames = s.cursor.frames ---@type table[]
+    for _, frameEntry in ipairs(frames) do
+      local frameOk, frameErr =
+        rectInAtlas(frameEntry, FieldUiAssetCache.ASSET.START_MENU_CURSOR, "start menu cursor frame")
+      if not frameOk then
+        return false, frameErr
       end
       if type(frameEntry.duration) ~= "number" or frameEntry.duration % 1 ~= 0 or frameEntry.duration < 1 then
         return false, Errors.new(MANIFEST_INVALID, "cursor frame duration must be a positive integer", {})
@@ -457,37 +505,38 @@ function FieldUiAssetCache.validateManifest(manifest)
       return false, Errors.new(MANIFEST_INVALID, "startMenu.slots must be a table", {})
     end
     local slotCount = 0
-    for _ in pairs(s.slots) do
+    local slots = s.slots ---@type table<integer, FieldUiAssetCache.Rect>
+    for _ in pairs(slots) do
       slotCount = slotCount + 1
     end
     if slotCount ~= 10 then
       return false, Errors.new(MANIFEST_INVALID, "startMenu.slots must be exactly the ten-slot grid", {})
     end
     for id = 1, 10 do
-      local slot = s.slots[id]
+      local slot = slots[id]
       if slot == nil then
         return false, Errors.new(MANIFEST_INVALID, "startMenu.slots must be the dense 1..10 grid", {})
       end
-      local ok, err = rectInAtlas(slot, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu slot " .. id)
-      if not ok then
-        return false, err
+      local slotOk, slotErr = rectInAtlas(slot, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu slot " .. id)
+      if not slotOk then
+        return false, slotErr
       end
     end
     return true
   end)
-  if not ok then
-    return false, err
+  if not startMenuOk then
+    return false, startMenuErr
   end
 
-  local ok, err = section("trainerCard", function(s)
-    local ok, err = rectInAtlas(s.front, FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT, "trainer card front")
-    if not ok then
-      return false, err
+  local trainerCardOk, trainerCardErr = section("trainerCard", function(s)
+    local frontOk, frontErr = rectInAtlas(s.front, FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT, "trainer card front")
+    if not frontOk then
+      return false, frontErr
     end
     return true
   end)
-  if not ok then
-    return false, err
+  if not trainerCardOk then
+    return false, trainerCardErr
   end
 
   return true
@@ -500,7 +549,7 @@ function FieldUiAssetCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldUiAssetCache.markerPath()) ~= expectedMarker then
     return false
   end
-  local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
+  local manifest = cacheFs:loadLua(FieldUiAssetCache.manifestPath()) ---@type FieldUiAssetCache.Manifest?
   if type(manifest) ~= "table" then
     return false
   end

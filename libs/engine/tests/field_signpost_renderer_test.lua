@@ -10,9 +10,7 @@
 -- field_signpost_renderer_graphics_test.lua.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.storage.src.CacheFs")
 local Errors = require("libs.errors.src.Errors")
-local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
@@ -22,6 +20,10 @@ local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 
 local T = {}
+
+local function formattedMessage(lines)
+  return FieldSignpostFixture.message(lines) --[[@as FieldMessageProvider.FormattedMessage]]
+end
 
 -- The runtime-validated manifest every construction passes in: the renderer
 -- never reloads it from the cache itself.
@@ -566,7 +568,7 @@ function T.typed_print_draws_only_the_revealed_glyphs()
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
   local fieldScale = viewport:logicalPixelScale(1)
   local controller = FieldSignpostFixture.shown(lines, { type = 2, offset = 0, text = false })
-  controller:printTyped(FieldSignpostFixture.message(lines))
+  controller:printTyped(formattedMessage(lines))
   controller:updateFixed()
   controller:updateFixed()
   r:draw(controller, viewport, nil, fieldScale)
@@ -592,7 +594,7 @@ function T.an_active_window_without_appearance_draws_the_full_width_box()
   })
   controller:setCommand("show")
   controller:updateFixed()
-  controller:printInstant(FieldSignpostFixture.message(FieldSignpostFixture.textLines()))
+  controller:printInstant(formattedMessage(FieldSignpostFixture.textLines()))
   Assert.isTrue(controller:status().active)
   Assert.isNil(controller:status().sourceAppearance)
 

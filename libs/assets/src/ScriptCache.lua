@@ -8,6 +8,10 @@
 
 local ScriptCache = {}
 
+---@class ScriptCache.Index
+---@field schema string
+---@field resources table[]
+
 local Validate = require("libs.assets.src.Validate")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
@@ -51,10 +55,11 @@ function ScriptCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(ScriptCache.markerPath()) ~= expectedMarker then
     return false
   end
-  local index = cacheFs:loadLua(ScriptCache.indexPath())
+  local index = cacheFs:loadLua(ScriptCache.indexPath()) ---@type table?
   if type(index) ~= "table" or index.schema ~= ScriptCache.INDEX_SCHEMA then
     return false
   end
+  ---@cast index ScriptCache.Index
   if not Validate.isArray(index.resources) then
     return false
   end
@@ -62,7 +67,7 @@ function ScriptCache.isReady(cacheFs, expectedMarker)
     if type(entry) ~= "table" or type(entry.id) ~= "string" or entry.id == "" then
       return false
     end
-    local script = cacheFs:loadModule(ScriptCache.scriptPath(entry.id))
+    local script = cacheFs:loadModule(ScriptCache.scriptPath(entry.id)) ---@type table?
     if type(script) ~= "table" or script.kind ~= "field_script" or script.id ~= entry.id then
       return false
     end

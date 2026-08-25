@@ -3,31 +3,65 @@
 
 local Assert = require("tests.support.Assert")
 local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}
 
+local function terrain()
+  return { artifact = {}, plates = {}, plateById = {} }
+end
+
 local function map(coordinates, backgrounds)
-  return {
+  local value = {
     mapId = 60,
+    mapSymbol = "test-map",
+    coordinateOrigin = { x = 0, z = 0 },
+    scene = {},
     fieldData = {
       events = {
         coordinates = coordinates or {},
         background = backgrounds or {},
       },
     },
-  }
+    collision = {},
+    terrain = terrain(),
+    terrainDependencyHash = "test-terrain",
+    fieldRegion = {},
+    cameraType = 0,
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
+  return value
 end
 
 local function player(x, z, facing)
-  return { fieldX = x, fieldZ = z, facing = facing }
+  return {
+    currentMap = map({}, {}),
+    resolver = { terrain = terrain(), stepHeightLimit = 1.25 },
+    occupancy = function()
+      return nil
+    end,
+    fieldX = x,
+    fieldZ = z,
+    localX = x,
+    localZ = z,
+    worldX = x,
+    worldY = 0,
+    worldZ = z,
+    previousWorldX = x,
+    previousWorldY = 0,
+    previousWorldZ = z,
+    surfaceId = 0,
+    facing = facing,
+    motion = "idle",
+    progressTicks = 0,
+    durationTicks = 0,
+    animationPaused = false,
+  } --[[@as FieldPlayer]]
 end
 
 local function eventState(value)
-  return {
-    getVar = function()
-      return value
-    end,
-  }
+  return FieldEventState.new({ vars = { [7] = value } })
 end
 
 function T.coordinate_matching_uses_source_order_and_half_open_bounds()

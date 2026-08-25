@@ -324,17 +324,18 @@ function FieldDialogueController:open(request)
     )
   end
   local handle = {}
-  handle.onComplete = function(self, fn)
-    self._onComplete = fn
-    return self
+  ---@cast handle FieldDialogueController.Handle
+  handle.onComplete = function(callbackHandle, fn)
+    callbackHandle._onComplete = fn
+    return callbackHandle
   end
-  handle.onCancel = function(self, fn)
-    self._onCancel = fn
-    return self
+  handle.onCancel = function(callbackHandle, fn)
+    callbackHandle._onCancel = fn
+    return callbackHandle
   end
-  handle.onError = function(self, fn)
-    self._onError = fn
-    return self
+  handle.onError = function(callbackHandle, fn)
+    callbackHandle._onError = fn
+    return callbackHandle
   end
   -- The player-selected HGSS user-frame index is presentation data captured
   -- at open time: an already-open message keeps the frame it opened with.
@@ -420,6 +421,7 @@ function FieldDialogueController:_advancePage()
   return true
 end
 
+---@return nil
 function FieldDialogueController:_beginScroll()
   local statusLines = self:status().visibleLines
   assert(#statusLines > 0, "scroll break requires visible dialogue lines")
@@ -435,12 +437,14 @@ function FieldDialogueController:_beginScroll()
   self._state = "SCROLLING"
 end
 
+---@return nil
 function FieldDialogueController:_finishScroll()
   self._scrollLines = nil
   self._scrollRemaining = 0
   self:_advancePage()
 end
 
+---@return nil
 function FieldDialogueController:_enterWait()
   local page = self._pages[self._pageIndex]
   local state = page.breakKind == "eos" and "WAITING_CLOSE" or "WAITING_BOUNDARY"
@@ -451,6 +455,7 @@ end
 -- Called when the current page has fully revealed: prompt/page/eos pages
 -- wait for Action; line/overflow pages auto-scroll into the next page.
 
+---@return nil
 function FieldDialogueController:_atPageEnd()
   local page = self._pages[self._pageIndex]
   if waitsForAction(page) then
@@ -474,6 +479,7 @@ end
 
 ---@param sourceNew boolean
 ---@param sourceHeld boolean
+---@return boolean
 function FieldDialogueController:_printerSubstep(sourceNew, sourceHeld)
   self._scrollOffsetY = 0
   local total = self._pageGlyphs[self._pageIndex]

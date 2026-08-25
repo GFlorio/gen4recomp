@@ -5,6 +5,11 @@
 
 local Validate = {}
 
+---@class Validate
+---@field isArray fun(value: unknown): boolean
+---@field isNonNegativeInteger fun(value: unknown): boolean
+---@field isSha1Key fun(value: unknown): boolean
+
 -- True when `value` is a contiguous 1-based array (LuaWriter's array shape).
 -- Hash tables, zero-based tables, fractional keys, and holes are not arrays.
 ---@param value any
@@ -13,8 +18,9 @@ function Validate.isArray(value)
   if type(value) ~= "table" then
     return false
   end
+  local values = assert(value) ---@type table<number, unknown>
   local count = 0
-  for key in pairs(value) do
+  for key in pairs(values) do
     if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
       return false
     end
@@ -23,7 +29,7 @@ function Validate.isArray(value)
     end
   end
   for i = 1, count do
-    if value[i] == nil then
+    if values[i] == nil then
       return false
     end
   end

@@ -114,18 +114,24 @@ end
 ---@return Errors.Error|nil
 function SoundWaitTask.validate(state)
   if type(state) ~= "table" or state.kind == nil then
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "sound_wait state must hold its kind", { state = state })
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "sound_wait state must hold its kind", context)
   end
   if state.kind ~= "effect" and state.kind ~= "cry" and state.kind ~= "fanfare" then
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "sound_wait state holds an unknown kind", {
+    local context = {
       state = state,
-    })
+    }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "sound_wait state holds an unknown kind", context)
   end
   if state.kind == "effect" and state.sequence == nil then
+    local context = { state = state }
+    ---@cast context Errors.Context
     return Errors.new(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
       "effect wait state must hold its resolved sequence",
-      { state = state }
+      context
     )
   end
   return nil

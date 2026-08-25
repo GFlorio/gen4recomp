@@ -15,9 +15,9 @@ AskYesNoTask.type = "ask_yes_no"
 AskYesNoTask.version = 1
 
 ---@param spec table
----@param ctx table
+---@param _ table
 ---@return table state
-function AskYesNoTask.create(spec, ctx)
+function AskYesNoTask.create(spec, _)
   local node = assert(spec.node, "ask_yes_no requires its graph node")
   return {
     message = node.message,
@@ -76,11 +76,9 @@ end
 ---@return Errors.Error|nil
 function AskYesNoTask.validate(state)
   if type(state) ~= "table" or (state.phase ~= "opening" and state.phase ~= "waiting_selection") then
-    return Errors.new(
-      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "ask_yes_no state must hold a known phase",
-      { state = state }
-    )
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "ask_yes_no state must hold a known phase", context)
   end
   return nil
 end

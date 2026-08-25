@@ -3,6 +3,12 @@
 
 local FieldMapDataCache = {}
 
+---@class FieldMapDataCache.Field
+---@field schema string
+---@field mapId integer
+---@field events table
+---@field transitionEnvironment string
+
 local Validate = require("libs.assets.src.Validate")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
@@ -80,8 +86,8 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
   if cacheFs:read(FieldMapDataCache.markerPath(mapId)) ~= expectedMarker then
     return false
   end
-  local field = cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-  local dependencies = cacheFs:loadLua(FieldMapDataCache.dependenciesPath(mapId))
+  local field = cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) ---@type table?
+  local dependencies = cacheFs:loadLua(FieldMapDataCache.dependenciesPath(mapId)) ---@type table?
   if
     type(field) ~= "table"
     or field.schema ~= FieldMapDataCache.FIELD_SCHEMA
@@ -91,6 +97,7 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
   then
     return false
   end
+  ---@cast field FieldMapDataCache.Field
   local events = field.events
   if not FieldMapDataCache.hasRequiredEvents(events) or not hasAudioPolicy(field) then
     return false

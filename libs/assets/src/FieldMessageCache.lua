@@ -8,6 +8,10 @@
 
 local FieldMessageCache = {}
 
+---@class FieldMessageCache.Index
+---@field schema string
+---@field bankIds integer[]
+
 local Validate = require("libs.assets.src.Validate")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
@@ -46,19 +50,21 @@ function FieldMessageCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldMessageCache.markerPath()) ~= expectedMarker then
     return false
   end
-  local index = cacheFs:loadLua(FieldMessageCache.indexPath())
+  local index = cacheFs:loadLua(FieldMessageCache.indexPath()) ---@type table?
   if type(index) ~= "table" or index.schema ~= FieldMessageCache.INDEX_SCHEMA then
     return false
   end
-  if not Validate.isArray(index.bankIds) then
+  local indexValue = index ---@cast indexValue FieldMessageCache.Index
+  if not Validate.isArray(indexValue.bankIds) then
     return false
   end
-  for _, bankId in ipairs(index.bankIds) do
+  for _, bankId in ipairs(indexValue.bankIds) do
     if not Validate.isNonNegativeInteger(bankId) then
       return false
     end
-    local bank = cacheFs:loadLua(FieldMessageCache.bankPath(bankId))
-    if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA or bank.bankId ~= bankId then
+    local bank = cacheFs:loadLua(FieldMessageCache.bankPath(bankId)) ---@type table?
+    local bankValue = assert(bank) ---@type table
+    if type(bankValue) ~= "table" or bankValue.schema ~= FieldMessageCache.SCHEMA or bankValue.bankId ~= bankId then
       return false
     end
   end

@@ -45,7 +45,7 @@ local function compile(script, opts)
 end
 
 ---@param code string
----@param script any
+---@param script table
 ---@param opts table|nil
 ---@return Errors.Error
 local function compileError(code, script, opts)
@@ -652,6 +652,7 @@ end
 -- varied one at a time, so each revision change is attributable to exactly
 -- the varied dimension.
 ---@param overrides { source: table|nil, step1: table|nil, coverage: table|nil }|nil
+---@return table
 local function generatedScript(overrides)
   overrides = overrides or {}
   local source = {

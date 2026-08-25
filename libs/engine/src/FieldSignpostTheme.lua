@@ -47,13 +47,20 @@ FieldSignpostTheme.WAYFINDING_HEIGHT = 32
 function FieldSignpostTheme.frameTilePlacements(kind)
   assert(kind == "full" or kind == "graphic", "unknown signpost frame kind " .. tostring(kind))
   local box = FieldSignpostTheme.WINDOW_BOX
+  ---@cast box FieldDialogueTheme.Rect
   local placements = FieldDialogueTheme.frameTilePlacements(box)
   if kind == "graphic" then
+    local x = box.x + FieldSignpostTheme.WAYFINDING_WIDTH
+    local y = box.y
+    local spanY = box.height / 8
+    ---@cast x integer
+    ---@cast y integer
+    ---@cast spanY integer
     placements[#placements + 1] = {
       tile = 8,
-      x = box.x + FieldSignpostTheme.WAYFINDING_WIDTH,
-      y = box.y,
-      spanY = box.height / 8,
+      x = x,
+      y = y,
+      spanY = spanY,
     }
   end
   return placements

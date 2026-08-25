@@ -6,7 +6,6 @@ local Errors = require("libs.errors.src.Errors")
 local BindingAudit = require("libs.engine.src.script.BindingAudit")
 local Bindings = require("libs.engine.src.script.Bindings")
 local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
-local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local TilePermissions = require("tests.support.TilePermissions")
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
@@ -14,17 +13,31 @@ local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local T = {}
 local BEHAVIOR = MetatileBehavior.BEHAVIOR
 
+local function terrain()
+  return { artifact = {}, plates = {}, plateById = {} }
+end
+
 local function map(warpBehavior, tiles)
-  return {
+  local value = {
     mapId = 60,
+    mapSymbol = "test-map",
     coordinateOrigin = { x = 0, z = 0 },
+    scene = {},
     fieldData = { events = { warps = { { index = 0, x = 4, z = 4 } } } },
     collision = TilePermissions.new(tiles or { ["4:4"] = { behavior = warpBehavior } }),
-  }
+    terrain = terrain(),
+    terrainDependencyHash = "test-terrain",
+    fieldRegion = {},
+    cameraType = 0,
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
+  return value
 end
 
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
+  ---@cast err Errors.Error
   Assert.isFalse(ok)
   Assert.isTrue(Errors.is(err))
   Assert.equal(err.code, code)
@@ -77,13 +90,42 @@ end
 
 function T.coordinate_and_passive_sign_resolvers_emit_raw_zero()
   local state = {
+    _flags = {},
+    _vars = {},
+    _tick = 0,
+    _listeners = {},
     getVar = function()
       return 7
     end,
-  }
-  local player = { fieldX = 4, fieldZ = 4, facing = "north" }
+  } --[[@as FieldEventState]]
+  local player = {
+    currentMap = map(BEHAVIOR.WARP_ENTRANCE_SOUTH),
+    resolver = { terrain = terrain(), stepHeightLimit = 1.25 },
+    occupancy = function()
+      return nil
+    end,
+    fieldX = 4,
+    fieldZ = 4,
+    localX = 4,
+    localZ = 4,
+    worldX = 4,
+    worldY = 0,
+    worldZ = 4,
+    previousWorldX = 4,
+    previousWorldY = 0,
+    previousWorldZ = 4,
+    surfaceId = 0,
+    facing = "north",
+    motion = "idle",
+    progressTicks = 0,
+    durationTicks = 0,
+    animationPaused = false,
+  } --[[@as FieldPlayer]]
   local runtimeMap = {
     mapId = 60,
+    mapSymbol = "test-map",
+    coordinateOrigin = { x = 0, z = 0 },
+    scene = {},
     fieldData = {
       events = {
         coordinates = {
@@ -92,7 +134,14 @@ function T.coordinate_and_passive_sign_resolvers_emit_raw_zero()
         background = { { index = 0, scriptId = 0, type = 1, x = 4, z = 3, directionRaw = 4 } },
       },
     },
-  }
+    collision = {},
+    terrain = terrain(),
+    terrainDependencyHash = "test-terrain",
+    fieldRegion = {},
+    cameraType = 0,
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
   Assert.equal(assert(FieldEventResolver.resolveCoordinate(runtimeMap, player, state)).scriptId, 0)
   Assert.equal(assert(FieldEventResolver.resolvePassiveSign(runtimeMap, player)).scriptId, 0)
 end

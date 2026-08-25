@@ -10,6 +10,15 @@ local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local T = {}
 
+---@class MapAssetTest.ClipTarget
+---@field channels MapAssetTest.ClipChannels
+
+---@class MapAssetTest.ClipChannels
+---@field [string] table|nil
+
+---@class MapAssetTest.Clip
+---@field compiled { targets: MapAssetTest.ClipTarget[] }
+
 local function cache()
   return CacheFs.forVersion("heartgold", FakeCache.new())
 end
@@ -196,6 +205,7 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
     },
     terrainAnimations = { textureSrt = false },
   }
+  ---@cast scene MapAssetCache.Scene
   local paths = MapAssetCache.referencedPaths(scene, nil)
   Assert.isTrue(contains(paths, neighborGeometry), "missing neighbor geometry path")
   Assert.isTrue(contains(paths, neighborTexture), "missing neighbor texture path")
@@ -211,8 +221,9 @@ local ALT2_TEX = "assets/generated/maps/textures/alt2.png"
 
 -- A minimal current-schema scene: no batches, no models, no neighbors, and
 -- the required terrainAnimations table with the explicit false clip.
+---@return MapAssetCache.Scene
 local function baseScene()
-  return {
+  local scene = {
     schema = MapAssetCache.SCENE_SCHEMA,
     mapId = 61,
     mapBatches = {},
@@ -221,10 +232,14 @@ local function baseScene()
     neighbors = {},
     terrainAnimations = { textureSrt = false },
   }
+  ---@cast scene MapAssetCache.Scene
+  return scene
 end
 
 -- Build a scene and apply one mutation, so every malformed-shape case shares
 -- the exact same otherwise-valid base.
+---@param mutator fun(scene: MapAssetCache.Scene)
+---@return MapAssetCache.Scene
 local function patchedScene(mutator)
   local s = baseScene()
   mutator(s)
@@ -234,6 +249,9 @@ end
 -- A textured terrain material with the textureSwap record and the terrain
 -- fields (texWidth/texHeight/texMtxMode). The swap carries direct playback
 -- steps, each naming the replacement image and its duration in ticks.
+---@param texture string
+---@param steps table[]
+---@return table
 local function swapMaterial(texture, steps)
   return {
     id = 0,
@@ -264,8 +282,9 @@ end
 -- The data-only clip shape the terrain compiler emits (NsbtaClipCompiler
 -- payload plus the clip envelope, without physical source fields). The
 -- rate-1 curve covers all eight frames.
+---@return MapAssetTest.Clip
 local function srtClip()
-  return {
+  local clip = {
     id = "area00_ani",
     name = "area00_ani",
     category = "material",
@@ -308,9 +327,11 @@ local function srtClip()
         },
       },
     },
-  }
+  } ---@cast clip MapAssetTest.Clip
+  return clip
 end
 
+---@param scene MapAssetCache.Scene
 local function raisesSceneInvalid(scene)
   local err = Assert.throws(function()
     MapAssetCache.referencedPaths(scene, nil)
@@ -334,6 +355,8 @@ local function writeSceneArtifacts(c, scene, marker, imagePaths)
 end
 
 -- Mutator helpers for the malformed material/swap batteries below.
+---@param mutate fun(material: table)
+---@return MapAssetCache.Scene
 local function materialPatch(mutate)
   return patchedScene(function(s)
     local m = {
@@ -349,6 +372,8 @@ local function materialPatch(mutate)
   end)
 end
 
+---@param mutate fun(clip: MapAssetTest.Clip)
+---@return MapAssetCache.Scene
 local function clipPatch(mutate)
   return patchedScene(function(s)
     local clip = srtClip()
@@ -357,6 +382,8 @@ local function clipPatch(mutate)
   end)
 end
 
+---@param mutate fun(material: table)
+---@return MapAssetCache.Scene
 local function swapPatch(mutate)
   return patchedScene(function(s)
     local m = swapMaterial(BASE_TEX, {
@@ -375,9 +402,10 @@ function T.current_scene_requires_terrain_animations()
 end
 
 function T.malformed_terrain_animations_raise_scene_invalid()
-  local cases = {
+  local cases = {} ---@type (fun(scene: MapAssetCache.Scene))[]
+  cases = {
     function(s)
-      s.terrainAnimations = "animations"
+      rawset(s, "terrainAnimations", "animations")
     end,
     function(s)
       s.terrainAnimations = {}
@@ -498,7 +526,8 @@ function T.malformed_nsbta_failures_delegate_to_the_shared_validator()
 end
 
 function T.malformed_texture_swap_shapes_raise_scene_invalid()
-  local cases = {
+  local cases = {} ---@type (fun(material: table))[]
+  cases = {
     function(m)
       m.textureSwap.name = ""
     end,
@@ -532,7 +561,7 @@ function T.malformed_texture_swap_shapes_raise_scene_invalid()
     -- A swap attached to an untextured material has no base image to start
     -- from.
     function(m)
-      m.texture = nil
+      rawset(m, "texture", nil)
     end,
   }
   for _, mutate in ipairs(cases) do
@@ -555,7 +584,8 @@ function T.zero_duration_swap_steps_are_accepted()
 end
 
 function T.malformed_material_terrain_fields_raise_scene_invalid()
-  local cases = {
+  local cases = {} ---@type (fun(material: table))[]
+  cases = {
     function(m)
       m.texWidth = 0
     end,

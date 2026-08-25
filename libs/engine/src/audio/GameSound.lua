@@ -126,7 +126,7 @@ function GameSound.new(opts)
   if opts.mapMusic then
     assert(type(opts.mapMusic) == "function", "mapMusic resolver must be callable")
   end
-  return setmetatable({
+  local self = {
     _provider = opts.provider,
     _player = opts.player,
     _completionAvailable = opts.completionAvailable ~= false,
@@ -137,7 +137,8 @@ function GameSound.new(opts)
     _faders = {},
     _handles = {},
     _cryActive = false,
-  }, GameSound)
+  } ---@type GameSound
+  return setmetatable(self, GameSound)
 end
 
 -- Starts a resolved sequence on the engine player and resets fader bookkeeping

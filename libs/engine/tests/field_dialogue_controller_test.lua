@@ -10,6 +10,10 @@ local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 
 local T = {}
 
+---@class FieldDialogueControllerTest.Message : FieldMessageProvider.FormattedMessage
+---@field _pages table[]
+---@class FieldDialogueControllerTest.Request : FieldDialogueController.Request
+
 local function glyph(text, code)
   return { kind = "glyph", code = code, text = text, raw = { code } }
 end
@@ -27,7 +31,7 @@ local function controller(pages, opts)
   opts = opts or {}
   return FieldDialogueController.new({
     layout = function()
-      return { pages = pages, warnings = opts.warnings or {} }
+      return { pages = pages, warnings = opts.warnings or {}, lineHeight = 16, lineSpacing = 0 }
     end,
     policy = {
       interGlyphDelay = (opts.printerDelay or 2) - 1,
@@ -39,20 +43,24 @@ local function controller(pages, opts)
 end
 
 local function message(pages)
-  return {
+  local value = {
     bankId = 543,
     messageId = 5,
+    text = "",
     tokens = { glyph("A", 0x0121), glyph("B", 0x0122) },
+    hadUnresolvedSubstitutions = false,
     _pages = pages,
-  }
+  } --[[@as FieldDialogueControllerTest.Message]]
+  return value
 end
 
-local function request(id, message, allowCancel)
-  return {
+local function request(id, formattedMessage, allowCancel)
+  local value = {
     id = id,
-    message = message,
+    message = formattedMessage,
     allowCancel = allowCancel == true,
-  }
+  } --[[@as FieldDialogueControllerTest.Request]]
+  return value
 end
 
 local function glyphCount(status)
@@ -171,7 +179,7 @@ function T.fastest_reveals_consecutive_source_glyphs_without_skipping()
   local tokens = { glyph("A", 1), glyph("B", 2), glyph("C", 3) }
   local c = FieldDialogueController.new({
     layout = function()
-      return { pages = { page({ line(tokens) }, "eos") }, warnings = {} }
+      return { pages = { page({ line(tokens) }, "eos") }, warnings = {}, lineHeight = 16, lineSpacing = 0 }
     end,
     policy = TextSpeedPolicy.forSpeed("fastest"),
   })
@@ -300,7 +308,7 @@ function T.open_consumes_the_initiating_edge()
   })
   -- The opener consumes the edge that opened the dialogue; the first step
   -- carries only held state, so nothing is skipped or advanced.
-  local handle = c:open(request("t", message()))
+  c:open(request("t", message()))
   c:step({ actionDown = true })
   Assert.equal(c:status().revealedGlyphs, 1)
   Assert.equal(c:status().state, "REVEALING")

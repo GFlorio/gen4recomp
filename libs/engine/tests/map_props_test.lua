@@ -32,9 +32,19 @@ local FieldGrid = require("libs.engine.src.FieldGrid")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 local ModelInstance = require("libs.engine.src.ModelInstance")
-local MapProps = require("libs.engine.src.MapProps")
+local MapPropsModule = require("libs.engine.src.MapProps")
 
 local T = {}
+
+---@class MapPropsTest.Door : MapDoor
+---@class MapPropsTest.Prop : SceneProp
+---@class MapPropsTest.Props : MapProps
+---@field doorAt fun(self: MapPropsTest.Props, map: RuntimeFieldMap, fieldX: integer, fieldZ: integer): MapPropsTest.Door?
+---@field prop fun(self: MapPropsTest.Props, placementIndex: integer): MapPropsTest.Prop?
+local MapProps = {}
+function MapProps.new(options)
+  return MapPropsModule.new(options --[[@as MapProps.DoorOptions]]) --[[@as MapPropsTest.Props]]
+end
 
 local BEHAVIOR = MetatileBehavior.BEHAVIOR
 
@@ -43,17 +53,31 @@ local function throwsCode(code, fn)
   if ok then
     error("expected a structured " .. code .. " error, got a result")
   end
-  Assert.equal(result.code, code)
+  local errorObject = result --[[@as Errors.Error]]
+  Assert.equal(errorObject.code, code)
 end
 
 -- Stub runtime map in the transition_trigger_test shape: 32x32 permission
 -- grid addressed by "fieldX:fieldZ" tiles.
+---@return RuntimeFieldMap
+---@param originX number
+---@param originZ number
+---@param warps table
+---@param tiles table
 local function runtimeMap(originX, originZ, warps, tiles)
   return {
     mapId = 61,
+    mapSymbol = "test-map",
     coordinateOrigin = { x = originX, z = originZ },
+    scene = {},
     fieldData = { events = { warps = warps } },
     collision = TilePermissions.new(tiles),
+    terrain = { artifact = {}, plates = {}, plateById = {} },
+    terrainDependencyHash = "test-terrain",
+    fieldRegion = {},
+    cameraType = 0,
+    release = function() end,
+    updateAnimated = function() end,
   }
 end
 

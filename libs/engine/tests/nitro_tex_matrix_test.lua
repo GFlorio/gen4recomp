@@ -10,9 +10,6 @@ local NitroTexMatrix = require("libs.engine.src.NitroTexMatrix")
 
 local T = {}
 
-local function fx32(v)
-  return math.floor(v * 65536) % 4294967296
-end
 local function fx16(v)
   local w = math.floor(v * 4096)
   if w < 0 then
@@ -31,7 +28,20 @@ end
 -- the translation slots feed the fold terms.
 
 function T.maya_identity()
-  local cells = NitroTexMatrix.maya({ transOne = true, rotOne = true, scaleOne = true })
+  local identity = {
+    transS = 0,
+    transT = 0,
+    sin = 0,
+    cos = 0x1000,
+    scaleS = 0x1000,
+    scaleT = 0x1000,
+    width = 8,
+    height = 4,
+    transOne = true,
+    rotOne = true,
+    scaleOne = true,
+  }
+  local cells = NitroTexMatrix.maya(identity)
   Assert.equal(cells[1], 0x1000)
   Assert.equal(cells[2], 0)
   Assert.equal(cells[3], 0)
@@ -43,7 +53,12 @@ end
 function T.maya_rotation_only()
   -- 45 degrees: sin = 0x800, cos = 0xDD7 (0.8660), width 8, height 4.
   local srt = {
+    transS = 0,
+    transT = 0,
+    scaleS = 0x1000,
+    scaleT = 0x1000,
     transOne = true,
+    rotOne = false,
     scaleOne = true,
     sin = fx16(0.5),
     cos = fx16(0.8660),
@@ -62,7 +77,19 @@ end
 function T.maya_scale_only()
   -- transOne + rotOne: flagTR_ -- the scale sits in the diagonal, with the
   -- (0x2000 - 2*scaleT) anchor term in c21.
-  local srt = { transOne = true, rotOne = true, scaleS = 0x2000, scaleT = 0x1000, height = 4 }
+  local srt = {
+    transS = 0,
+    transT = 0,
+    sin = 0,
+    cos = 0x1000,
+    scaleS = 0x2000,
+    scaleT = 0x1000,
+    width = 8,
+    height = 4,
+    transOne = true,
+    rotOne = true,
+    scaleOne = false,
+  }
   local cells = NitroTexMatrix.maya(srt)
   Assert.equal(cells[1], 0x2000)
   Assert.equal(cells[4], 0x1000)
@@ -75,7 +102,19 @@ end
 function T.maya_translation_only()
   -- scaleOne + rotOne: flagRS_ -- translation folds into c20/c21 at
   -- 1/16-texel fixed point.
-  local srt = { rotOne = true, scaleOne = true, transS = 0x1000, transT = 0x2000, width = 8, height = 4 }
+  local srt = {
+    transS = 0x1000,
+    transT = 0x2000,
+    sin = 0,
+    cos = 0x1000,
+    scaleS = 0x1000,
+    scaleT = 0x1000,
+    width = 8,
+    height = 4,
+    transOne = false,
+    rotOne = true,
+    scaleOne = true,
+  }
   local cells = NitroTexMatrix.maya(srt)
   Assert.equal(cells[1], 0x1000)
   Assert.equal(cells[4], 0x1000)
@@ -89,6 +128,10 @@ function T.maya_scale_and_rotation()
   -- transOne: flagT_ -- the rotation cells are scale-multiplied, and the
   -- translation folds vanish.
   local srt = {
+    transS = 0,
+    transT = 0,
+    rotOne = false,
+    scaleOne = false,
     transOne = true,
     scaleS = 0x2000,
     scaleT = 0x1000,
@@ -112,8 +155,19 @@ end
 
 function T.maya_scale_and_translation()
   -- rotOne: flagR_ -- scale diagonal plus the (scale * trans) >> 8 folds.
-  local srt =
-    { rotOne = true, scaleS = 0x2000, scaleT = 0x1000, transS = 0x1000, transT = 0x2000, width = 8, height = 4 }
+  local srt = {
+    transS = 0x1000,
+    transT = 0x2000,
+    sin = 0,
+    cos = 0x1000,
+    scaleS = 0x2000,
+    scaleT = 0x1000,
+    width = 8,
+    height = 4,
+    transOne = false,
+    rotOne = true,
+    scaleOne = false,
+  }
   local cells = NitroTexMatrix.maya(srt)
   Assert.equal(cells[1], 0x2000)
   Assert.equal(cells[4], 0x1000)
@@ -135,6 +189,9 @@ function T.maya_all_components()
     cos = 0x1000,
     width = 8,
     height = 4,
+    transOne = false,
+    rotOne = false,
+    scaleOne = false,
   }
   local cells = NitroTexMatrix.maya(srt)
   Assert.equal(cells[1], 0x2000)
@@ -147,7 +204,13 @@ end
 
 function T.maya_ratios_apply()
   local srt = {
+    sin = 0,
+    cos = 0x1000,
+    scaleS = 0x1000,
+    scaleT = 0x1000,
     rotOne = true,
+    transOne = false,
+
     scaleOne = true,
     transS = 0x1000,
     transT = 0x2000,

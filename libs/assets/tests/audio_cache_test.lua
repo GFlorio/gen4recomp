@@ -91,7 +91,7 @@ end
 
 function T.negative_indexed_ids_are_not_ready()
   local bundle = AudioFixture.bundle()
-  bundle.index.sequences[-1] = { id = -1, bankId = 12 }
+  bundle.index.sequences[-1] = { id = -1, symbol = nil, bankId = 12, playerId = 1 }
   bundle.sequences[-1] = AudioFixture.sequence(-1, nil, 12, 1)
   local cache = AudioFixture.readyCache(bundle)
   Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "ids become path components; negatives are malformed")
@@ -205,7 +205,9 @@ end
 
 function T.bank_sample_reference_without_metadata_is_not_ready()
   local bundle = AudioFixture.bundle()
-  bundle.banks[12].instruments[0].voice.generator.sample = AudioFixture.key(99)
+  local instrument = bundle.banks[12].instruments[0]
+  local voice = assert(instrument.voice) ---@cast voice AudioFixture.Voice
+  voice.generator.sample = AudioFixture.key(99)
   local cache = AudioFixture.readyCache(bundle)
   Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "bank sample ids must resolve into sample metadata")
 end
@@ -223,7 +225,9 @@ end
 
 function T.bank_content_failing_its_validator_is_not_ready()
   local bundle = AudioFixture.bundle()
-  bundle.banks[12].instruments[0].voice.envelope.attack = 0xFFFF
+  local instrument = bundle.banks[12].instruments[0]
+  local voice = assert(instrument.voice) ---@cast voice AudioFixture.Voice
+  voice.envelope.attack = 0xFFFF
   local cache = AudioFixture.readyCache(bundle)
   Assert.isFalse(AudioCache.isReady(cache, bundle.marker), "an indexed bank must pass its validator")
 end

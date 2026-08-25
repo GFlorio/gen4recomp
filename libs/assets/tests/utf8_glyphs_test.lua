@@ -10,8 +10,9 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 local T = {}
 
 local function glyphs(text)
-  local out = {}
-  for glyph in Utf8Glyphs.iter(text) do
+  local out = {} ---@type string[]
+  local iterator = Utf8Glyphs.iter(text)
+  for glyph in iterator do
     out[#out + 1] = glyph
   end
   return out

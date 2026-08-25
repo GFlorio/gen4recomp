@@ -14,6 +14,7 @@ local FakeCache = require("tests.support.FakeCache")
 local T = {}
 
 local STUB_GRAPHICS = { newImage = function() end }
+---@cast STUB_GRAPHICS love.Graphics
 
 -- A fake mesh builder for the pool's GPU seam: SceneMesh.decode output
 -- becomes a plain object, so the ring's assembly runs headless.

@@ -6,16 +6,34 @@
 local Assert = require("tests.support.Assert")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
-local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
 local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
 
 local T = {}
+
+---@class MaterialEvaluatorTest.Definition : ModelDefinition
+---@field skins table
+
+---@class MaterialEvaluatorTest.EffectiveMaterial
+---@field matDiffuse number[]
+---@field matAmbient number[]
+---@field matSpecular number[]
+---@field matEmission number[]
+---@field colorsAnimated boolean
+---@field alphaClass string
+
+---@class MaterialEvaluatorTest.Instance : ModelInstance
+---@field updateFixed fun(self: MaterialEvaluatorTest.Instance)
+---@field evaluateMaterials fun(self: MaterialEvaluatorTest.Instance)
+---@field play fun(self: MaterialEvaluatorTest.Instance, nameOrSemantic: string): MaterialEvaluator.Attachment
+---@field stop fun(self: MaterialEvaluatorTest.Instance, nameOrHandle: string): integer
+---@field effectiveMaterial fun(self: MaterialEvaluatorTest.Instance, materialIndex: integer): MaterialEvaluatorTest.EffectiveMaterial
 
 local function throwsCode(code, fn)
   local ok, result = pcall(fn)
   if ok then
     error("expected a structured " .. code .. " error, got a result")
   end
+  ---@cast result Errors.Error
   Assert.equal(result.code, code)
 end
 
@@ -203,7 +221,7 @@ local function texturedDefinition(opts)
     },
     skins = {},
     animations = {},
-  })
+  }) --[[@as MaterialEvaluatorTest.Definition]]
 end
 
 -- A definition whose animations list carries the given clips (play resolves
@@ -220,8 +238,16 @@ local function definitionWith(def, clips)
   })
 end
 
+---@param definition ModelDefinition
+---@return MaterialEvaluatorTest.Instance
+local function newInstance(definition)
+  local instance = ModelInstance.new(definition)
+  ---@cast instance MaterialEvaluatorTest.Instance
+  return instance
+end
+
 local function instanceWith(def, clips)
-  local instance = ModelInstance.new(definitionWith(def, clips))
+  local instance = newInstance(definitionWith(def, clips))
   for _, clip in ipairs(clips or {}) do
     instance:play(clip.name)
   end
@@ -490,7 +516,7 @@ end
 -- (building sides, sprites).
 function T.no_colors_block_keeps_identity_emission_multiplier()
   local def = texturedDefinition()
-  local instance = ModelInstance.new(def)
+  local instance = newInstance(def)
   instance:evaluateMaterials()
   local m = instance:effectiveMaterial(0)
   Assert.deepEqual(m.matDiffuse, { 1, 1, 1 })
@@ -512,7 +538,7 @@ function T.base_material_state_reads_per_component_colors()
     specular = { r = 0, g = 0, b = 255 },
     emission = { r = 123, g = 123, b = 123 },
   }
-  local instance = ModelInstance.new(def)
+  local instance = newInstance(def)
   instance:evaluateMaterials()
   local state = instance.materialState[0]
   Assert.equal(state.colors.diffuse.r, 255)
@@ -587,7 +613,7 @@ function T.static_srt_composes_the_maya_matrix_without_an_attachment()
     rotOne = true,
     transOne = false,
   }
-  local instance = ModelInstance.new(def)
+  local instance = newInstance(def)
   instance:evaluateMaterials()
   local m = instance.materialState[0].texMatrix
   Assert.near(m[1], 1, 1e-9)
@@ -631,7 +657,7 @@ function T.missing_variant_raises()
   local def = texturedDefinition()
   local clip = patternClip()
   clip.compiled.textureNames = { "nope.a", "sign.b" }
-  local instance = ModelInstance.new(definitionWith(def, { clip }))
+  local instance = newInstance(definitionWith(def, { clip }))
   instance:play("pattern")
   throwsCode("ANIM_MATERIAL_VARIANT_MISSING", function()
     instance:evaluateMaterials()
@@ -644,7 +670,7 @@ end
 function T.unsupported_texture_matrix_mode_raises()
   for _, mode in ipairs({ 1, 2 }) do
     local def = texturedDefinition({ texMtxMode = mode })
-    local instance = ModelInstance.new(def)
+    local instance = newInstance(def)
     throwsCode(TextureSrtEvaluator.ERROR_UNSUPPORTED_TEXMTX_MODE, function()
       instance:evaluateMaterials()
     end)
@@ -682,7 +708,7 @@ function T.untextured_material_has_no_matrix()
     skins = {},
     animations = {},
   })
-  local instance = ModelInstance.new(def)
+  local instance = newInstance(def)
   instance:evaluateMaterials()
   Assert.equal(instance.materialState[0].texture, nil)
   Assert.equal(instance:effectiveMaterial(0).alphaClass, "opaque")

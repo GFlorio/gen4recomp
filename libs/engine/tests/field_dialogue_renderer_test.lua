@@ -351,6 +351,8 @@ local function openedWithTokens(tokens, opts)
       return {
         pages = { { lines = { { tokens = tokens, width = 0 } }, breakKind = "eos" } },
         warnings = {},
+        lineHeight = 16,
+        lineSpacing = 0,
       }
     end,
     policy = TextSpeedPolicy.forSpeed("mid"),

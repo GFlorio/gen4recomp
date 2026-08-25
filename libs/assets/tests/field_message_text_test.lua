@@ -151,9 +151,11 @@ end
 function T.parse_reads_marker_text_back_into_tokens()
   local tokens =
     assert(FieldMessageText.parse("Professor Elm: Hi, {STRVAR_1 3, 0, 0}!\nI’ve been waiting!\r{CURSOR_X 4}", FONT))
+  ---@cast tokens table[]
   Assert.equal(tokens[1].kind, "glyph")
   Assert.equal(tokens[1].code, 0x013A)
-  local strvar, cursor, breaks = nil, nil, {}
+  local strvar, cursor = nil, nil
+  local breaks = {} ---@type string[]
   for _, token in ipairs(tokens) do
     if token.kind == "substitution" and token.control == 0x0103 then
       strvar = token

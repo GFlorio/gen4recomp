@@ -302,9 +302,9 @@ function M.contextChoice(spec)
 end
 
 -- One serializable semantic menu entry. `metadata` is opaque to the core.
-function M.choice(messageRef, value, opts)
+function M.choice(messageRef, choiceValue, opts)
   assert(opts == nil or type(opts) == "table", "choice options must be a table")
-  local out = { text = messageRef, value = value }
+  local out = { text = messageRef, value = choiceValue }
   for key, option in pairs(opts or {}) do
     out[key] = option
   end

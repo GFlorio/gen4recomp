@@ -41,4 +41,4 @@ stylua --check .
 echo "==> lua-language-server --check"
 LUALS_LOG_DIR="$(mktemp -d)"
 trap 'rm -rf -- "$LUALS_LOG_DIR"' EXIT
-lua-language-server --check . --num_threads="4" --checklevel=Warning --logpath="$LUALS_LOG_DIR"
+lua-language-server --check . --num_threads="4" --checklevel=Hint --logpath="$LUALS_LOG_DIR"

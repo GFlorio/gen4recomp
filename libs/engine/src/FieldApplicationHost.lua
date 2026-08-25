@@ -43,7 +43,7 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 ---@field _failure any? retained factory/composition failure
 ---@field _uiHeld boolean the modal input lifetime is held (beginUi done, clearUi pending)
 ---@field _reopenPending boolean a script reopen request awaits the session
----@field _layout table? the StartMenuLayout placement record (setMenuPlacement)
+---@field _layout StartMenuLayout.Placement? the StartMenuLayout placement record (setMenuPlacement)
 local FieldApplicationHost = {}
 FieldApplicationHost.__index = FieldApplicationHost
 
@@ -410,7 +410,7 @@ end
 -- placement and re-applies it on presentation-geometry changes. A press held
 -- across a placement change must not activate a different post-change slot,
 -- so an active menu pointer capture is cancelled.
----@param placement table?
+---@param placement StartMenuLayout.Placement?
 function FieldApplicationHost:setMenuPlacement(placement)
   self._layout = placement
   -- Only the menu controller ever holds a pointer capture; destinations own

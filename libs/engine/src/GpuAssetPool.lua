@@ -30,7 +30,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field imageBuilder fun(path: string): any|nil
 ---@field meshes love.Mesh[]
 ---@field images love.Image[]
----@field triangles integer
+---@field triangles number
 local GpuAssetPool = {}
 GpuAssetPool.__index = GpuAssetPool
 

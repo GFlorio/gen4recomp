@@ -31,8 +31,14 @@ end
 
 local function raisesCode(code, fn, ...)
   local ok, err = pcall(fn, ...)
-  Assert.isTrue(not ok and Errors.is(err), "expected " .. code .. " to be raised")
-  Assert.equal(err.code, code)
+  Assert.isTrue(not ok, "expected " .. code .. " to be raised")
+  if not Errors.is(err) then
+    error("expected " .. code .. " to be raised")
+  end
+  if type(err) ~= "table" then
+    error("expected " .. code .. " to be raised")
+  end
+  Assert.equal(tostring(rawget(err, "code")), code)
 end
 
 function T.header_fields()

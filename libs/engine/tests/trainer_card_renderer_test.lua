@@ -30,6 +30,7 @@ local CANONICAL = FieldViewport.new(256, 192, { mode = "expanded" })
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   if not ok and Errors.is(err) then
+    ---@cast err Errors.Error
     Assert.equal(err.code, code)
     return
   end
@@ -95,8 +96,8 @@ end
 -- at offset (the number of glyphs already verified). Iteration goes through
 -- the shared UTF-8 glyph iterator, so expectations stay correct for
 -- multibyte names.
-local function drawnGlyphs(graphics, text, originX, originY, offset, fontDef)
-  local fontDef = fontDef or FieldUiFixture.cardFontDef()
+local function drawnGlyphs(graphics, text, originX, originY, offset, fontDefinition)
+  local fontDef = fontDefinition or FieldUiFixture.cardFontDef()
   local runs = {}
   local x = originX
   for char in Utf8Glyphs.iter(text) do
@@ -172,7 +173,7 @@ end
 function T.quad_failure_releases_the_acquired_card_image()
   local graphics = renderedGraphics({ failOnQuadCall = 66 })
   local text = withTextRenderer(fixtureCache(), graphics)
-  local ok, err = pcall(function()
+  local ok = pcall(function()
     TrainerCardRenderer.new({ cacheFs = fixtureCache(), manifest = MANIFEST, text = text, graphics = graphics })
   end)
   Assert.isFalse(ok, "the quad failure must propagate")

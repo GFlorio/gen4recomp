@@ -14,7 +14,8 @@ local T = {}
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isTrue(not ok, "expected raise, got success")
-  Assert.equal(code, err.code, "error code")
+  local errorValue = err ---@cast errorValue { code: string }
+  Assert.equal(code, errorValue.code, "error code")
 end
 
 local function validRecord()

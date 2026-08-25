@@ -12,10 +12,15 @@ local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = {}
 
+local function animation(def, name)
+  return assert(def:animation(name))
+end
+
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected error " .. code)
-  Assert.equal(type(err) == "table" and err.code or err, code)
+  local errorObject = err --[[@as Errors.Error]]
+  Assert.equal(type(errorObject) == "table" and errorObject.code or errorObject, code)
 end
 
 local function jointClip()
@@ -194,12 +199,12 @@ function T.binding_is_precomputed_for_node_and_material_clips()
   local s = definitionSpec()
   s.animations = { jointClip(), materialClip() }
   local def = ModelDefinition.new(s)
-  local joint = def:animation("open")
+  local joint = animation(def, "open")
   local jointBinding = def:binding(joint)
   Assert.notNil(jointBinding)
   Assert.deepEqual(jointBinding.map, { [0] = 0 })
 
-  local material = def:animation("fade")
+  local material = animation(def, "fade")
   local materialBinding = def:binding(material)
   Assert.notNil(materialBinding)
   Assert.deepEqual(materialBinding.map, { wall = 0 })

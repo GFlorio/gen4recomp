@@ -14,10 +14,10 @@ local FadeTask = {}
 FadeTask.type = "fade"
 FadeTask.version = 1
 
----@param spec table
+---@param _ table
 ---@param ctx table
 ---@return table state
-function FadeTask.create(spec, ctx)
+function FadeTask.create(_, ctx)
   local screen = ctx.services.screen
   if screen == nil then
     Errors.raise(

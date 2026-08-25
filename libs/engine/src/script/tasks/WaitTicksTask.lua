@@ -24,11 +24,9 @@ WaitTicksTask.version = 1
 function WaitTicksTask.create(spec, ctx)
   local ticks = spec.ticks or (spec.node and spec.node.ticks)
   if type(ticks) ~= "number" or ticks < 1 or ticks ~= math.floor(ticks) then
-    Errors.raise(
-      ScriptErrors.SCRIPT_SCHEMA_INVALID,
-      "wait_ticks requires an integer >= 1",
-      { ticks = ticks, scriptId = ctx.instance.scriptId }
-    )
+    local context = { ticks = ticks, scriptId = ctx.instance.scriptId }
+    ---@cast context Errors.Context
+    Errors.raise(ScriptErrors.SCRIPT_SCHEMA_INVALID, "wait_ticks requires an integer >= 1", context)
   end
   if spec.countdownVariable ~= nil then
     return { countdownVariable = spec.countdownVariable }
@@ -68,16 +66,20 @@ function WaitTicksTask.validate(state)
   -- var-driven form names the countdown variable whose value lives in the
   -- world store.
   if type(state) ~= "table" then
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "wait_ticks state must be a table", { state = state })
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "wait_ticks state must be a table", context)
   end
   if state.countdownVariable ~= nil then
     return nil
   end
   if type(state.remainingTicks) ~= "number" or state.remainingTicks < 0 then
+    local context = { state = state }
+    ---@cast context Errors.Context
     return Errors.new(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
       "wait_ticks state must hold remainingTicks >= 0",
-      { state = state }
+      context
     )
   end
   return nil

@@ -95,7 +95,7 @@ local PIVOT_UTIL = {
 }
 
 -- Reconstruct the nine cells of one rotation key (u16 value).
-local function reconstruct(clip, key, targetIndex)
+local function reconstruct(clip, key, _)
   local cells = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
   local index = key % 32768
   if key >= 0x8000 then

@@ -18,6 +18,11 @@ local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
 local MovementBarrierTask = require("libs.engine.src.script.tasks.MovementBarrierTask")
 local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
+---@cast WaitTicksTask TaskImplementation
+---@cast ChildScriptTask TaskImplementation
+---@cast MovementTask TaskImplementation
+---@cast MovementBarrierTask TaskImplementation
+---@cast MovementPauseTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
 

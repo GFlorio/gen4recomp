@@ -21,6 +21,27 @@ local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
 
 local MeshWriter = {}
 
+---@class MeshWriter.Vertex
+---@field x number
+---@field y number
+---@field z number
+---@field u number
+---@field v number
+---@field nx number
+---@field ny number
+---@field nz number
+---@field r integer
+---@field g integer
+---@field b integer
+---@field a integer
+---@field colorSource integer
+
+---@class MeshWriter.Batch
+---@field vertices MeshWriter.Vertex[]
+---@field indices integer[]
+
+---@param batch MeshWriter.Batch
+---@return string
 function MeshWriter.encode(batch)
   local vertices, indices = batch.vertices, batch.indices
   if not vertices or #vertices == 0 or not indices or #indices == 0 then

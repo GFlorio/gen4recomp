@@ -72,7 +72,9 @@ end
 ---@return Errors.Error|nil
 function MusicFadeTask.validate(state)
   if type(state) ~= "table" or state.op == nil then
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "music_fade state must hold its op", { state = state })
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "music_fade state must hold its op", context)
   end
   return nil
 end

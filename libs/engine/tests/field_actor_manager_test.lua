@@ -16,6 +16,26 @@ local POLICY = {
   variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
 }
 
+---@class FieldActorManagerTest.Assets
+---@field references table<integer, integer>
+---@field knows fun(self: FieldActorManagerTest.Assets, spriteId: integer): boolean
+---@field acquire fun(self: FieldActorManagerTest.Assets, spriteId: integer): table
+---@field release fun(self: FieldActorManagerTest.Assets, spriteId: integer)
+---@field total fun(self: FieldActorManagerTest.Assets): integer
+---@class FieldActorManagerTest.Manager : FieldActorManager
+---@field enterMap fun(self: FieldActorManagerTest.Manager, map: RuntimeFieldMap, state: FieldEventState)
+---@field leaveMap fun(self: FieldActorManagerTest.Manager, mapId: integer)
+---@field dispose fun(self: FieldActorManagerTest.Manager)
+---@field _destroy fun(self: FieldActorManagerTest.Manager, entry: table, actor: table)
+---@field collectSpriteIds fun(self: FieldActorManagerTest.Manager, out: table)
+---@field drawRecords fun(self: FieldActorManagerTest.Manager): table[]
+---@field getById fun(self: FieldActorManagerTest.Manager, actorId: string): table?
+---@field getAt fun(self: FieldActorManagerTest.Manager, mapId: integer, x: integer, z: integer, surface: integer): table?
+---@field isOccupied fun(self: FieldActorManagerTest.Manager, mapId: integer, x: integer, z: integer, surface: integer, except: string?): boolean
+---@field visualRevision fun(self: FieldActorManagerTest.Manager): integer
+---@field setPosition fun(self: FieldActorManagerTest.Manager, actorId: string, position: table)
+---@field hide fun(self: FieldActorManagerTest.Manager, actorId: string)
+
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
   Assert.isTrue(Errors.is(err), "expected a structured error, got " .. tostring(err))
@@ -82,15 +102,15 @@ local function object(overrides)
     x = 2,
     z = 3,
     y = 0,
-  }
+  } --[[@as table<string, unknown>]]
   for key, value in pairs(overrides or {}) do
-    event[key] = value
+    rawset(event, key, value)
   end
-  return event
+  return event --[[@as FieldActorEvent]]
 end
 
 local function runtimeMap(objects, mapId)
-  return {
+  local map = {
     mapId = mapId or 61,
     coordinateOrigin = { x = 0, z = 0 },
     collision = {
@@ -99,16 +119,25 @@ local function runtimeMap(objects, mapId)
       end,
     },
     terrain = terrain(),
+    mapSymbol = "test-map",
+    sceneRuntime = nil,
+    scene = {},
+    terrainDependencyHash = "test-terrain",
+    fieldRegion = {},
+    cameraType = 4,
     fieldData = { events = { objects = objects, background = {}, warps = {}, coordinates = {} } },
-  }
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
+  return map
 end
 
 -- Stands in for FieldActorAssetProvider: same acquire/release/knows contract,
 -- with a reference tally so leaks are visible to the tests.
 local function fakeAssets(known)
-  return {
+  local assets = {
     references = {},
-    knows = function(self, spriteId)
+    knows = function(_, spriteId)
       return known[spriteId] == true
     end,
     acquire = function(self, spriteId)
@@ -127,14 +156,15 @@ local function fakeAssets(known)
       end
       return sum
     end,
-  }
+  } --[[@as FieldActorManagerTest.Assets]]
+  return assets
 end
 
 local function manager(objects, opts)
   opts = opts or {}
   local assets = opts.assets or fakeAssets({ [99] = true, [34] = true, [29] = true, [0] = true })
   local eventState = opts.eventState or FieldEventState.new()
-  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY }) --[[@as FieldActorManagerTest.Manager]]
   local map = opts.map or runtimeMap(objects)
   mgr:enterMap(map, eventState)
   return mgr, eventState, assets, map
@@ -484,7 +514,7 @@ function T.script_set_position_cannot_overwrite_occupancy()
     object({ objectEventId = 0, x = 2, z = 3 }),
     object({ objectEventId = 1, x = 8, z = 3 }),
   })
-  local victim = mgr:getById("map:61:object:1")
+  local _ = mgr:getById("map:61:object:1")
   throwsCode("ACTOR_OCCUPANCY_CONFLICT", function()
     mgr:setPosition("map:61:object:0", { fieldX = 8, fieldZ = 3 })
   end)

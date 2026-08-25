@@ -18,6 +18,31 @@
 
 local AudioBank = {}
 
+---@class AudioBank
+---@field SCHEMA string
+---@field sampleKeys fun(bank: table): string[]?
+---@field selectVoice fun(instrument: table, midiKey: integer): table?
+---@field validate fun(bank: table): true
+---@class AudioBank.Instrument
+---@field kind string
+---@field voice table?
+---@field ranges table[]?
+---@field lowKey integer?
+---@field highKey integer?
+---@field voices table[]?
+
+---@class AudioBank.Range
+---@field lowKey integer
+---@field highKey integer
+---@field voice table
+
+---@class AudioBank.Voice
+---@field kind string?
+---@field generator table
+---@field originalKey integer
+---@field envelope table
+---@field pan integer
+
 local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.assets.src.AudioErrors")
@@ -25,14 +50,21 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 AudioBank.SCHEMA = Contract.audio.bankSchema
 
+---@param context table
 local function fail(context)
   Errors.raise(AudioErrors.AUDIO_BANK_INVALID, "malformed audio bank asset", context)
 end
 
+---@param value number
+---@param low number
+---@param high number
+---@return boolean
 local function isIntegerInRange(value, low, high)
   return type(value) == "number" and value % 1 == 0 and value >= low and value <= high
 end
 
+---@param value number
+---@return boolean
 local function isKey(value)
   return isIntegerInRange(value, 0, 0x7F)
 end
@@ -44,8 +76,8 @@ end
 -- integer program keys, known kinds, key-split range keys and order,
 -- drum-set bounds with full key coverage); leaf field validity is the
 -- validator's own strict check.
----@param instruments table
----@param visit fun(instrument: table, voice: table): boolean
+---@param instruments table<integer, AudioBank.Instrument>
+---@param visit fun(instrument: AudioBank.Instrument, voice: table): boolean
 ---@return boolean
 local function walkVoices(instruments, visit)
   if type(instruments) ~= "table" or next(instruments) == nil then
@@ -66,8 +98,9 @@ local function walkVoices(instruments, visit)
       -- The SDK split-key walk drops leaves with a smaller-low split key, so
       -- compiler output is an ordered, non-overlapping partition: every
       -- range's lowKey must be strictly above the previous range's highKey.
-      local previousHigh = nil
-      for _, range in ipairs(instrument.ranges) do
+      local previousHigh = nil ---@type integer?
+      local ranges = instrument.ranges ---@type AudioBank.Range[]
+      for _, range in ipairs(ranges) do
         if
           type(range) ~= "table"
           or not isKey(range.lowKey)
@@ -114,11 +147,12 @@ function AudioBank.sampleKeys(bank)
   if type(bank) ~= "table" then
     return nil
   end
-  local keys, seen = {}, {}
+  local keys = {} ---@type string[]
+  local seen = {} ---@type table<string, boolean>
   local ok = walkVoices(bank.instruments, function(_, voice)
-    local generator = voice.generator
+    local generator = voice.generator ---@type table
     if type(generator) == "table" and generator.kind == "sample" then
-      local key = generator.sample
+      local key = generator.sample ---@type string
       if not seen[key] then
         seen[key] = true
         keys[#keys + 1] = key
@@ -139,7 +173,7 @@ end
 -- transposed MIDI key before calling -- the NNS TrackPlayNote path clamps
 -- midiKey and SND_ReadInstData selects the leaf by it, so instrument
 -- selection always runs on the transposed key, never the source note key.
----@param instrument table
+---@param instrument AudioBank.Instrument
 ---@param midiKey integer
 ---@return table?
 function AudioBank.selectVoice(instrument, midiKey)
@@ -173,12 +207,14 @@ function AudioBank.selectVoice(instrument, midiKey)
   assert(false, "unknown instrument kind")
 end
 
+---@param voice table
 local function validateVoice(voice)
   if type(voice) ~= "table" then
     fail({ field = "voice" })
   end
   if voice.kind == "dummy" then
-    for key in pairs(voice) do
+    local fields = voice ---@type table<string, unknown>
+    for key in pairs(fields) do
       if key ~= "kind" then
         fail({ field = "voice" })
       end
@@ -188,7 +224,7 @@ local function validateVoice(voice)
   if voice.kind ~= nil then
     fail({ field = "voice.kind" })
   end
-  local generator = voice.generator
+  local generator = voice.generator ---@type table
   if type(generator) ~= "table" then
     fail({ field = "voice.generator" })
   end
@@ -212,7 +248,7 @@ local function validateVoice(voice)
   else
     fail({ field = "voice.generator.kind" })
   end
-  local envelope = voice.envelope
+  local envelope = voice.envelope ---@type table
   if type(envelope) ~= "table" then
     fail({ field = "voice.envelope" })
   end
@@ -226,6 +262,8 @@ local function validateVoice(voice)
   end
 end
 
+---@param bank table
+---@return true
 function AudioBank.validate(bank)
   if type(bank) ~= "table" then
     fail({})

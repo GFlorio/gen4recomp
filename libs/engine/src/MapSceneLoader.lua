@@ -50,9 +50,7 @@ local PoseContract = require("libs.assets.src.PoseContract")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapProps = require("libs.engine.src.MapProps")
-local MapRenderer = require("libs.engine.src.MapRenderer")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
-local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DoorTiles = require("libs.engine.src.DoorTiles")
@@ -61,6 +59,28 @@ local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 local MapSceneLoader = {}
+
+---@class MapSceneLoader.Runtime
+---@field scene table
+---@field assetPool GpuAssetPool
+---@field mapId integer
+---@field cameraType integer
+---@field collision CollisionGrid
+---@field bounds table
+---@field mapDraws table[]
+---@field staticBuildingDraws table[]
+---@field animatedBuildingDraws table[]
+---@field lighting table
+---@field edgeColors table
+---@field fog table
+---@field fieldTimeSeconds number
+---@field timeBand "day"|"night"
+---@field animatedInstances ModelInstance[]
+---@field updateAnimated fun(self: MapSceneLoader.Runtime)
+---@field setTimeBand fun(self: MapSceneLoader.Runtime, band: "day"|"night")
+---@field mapProps MapProps
+---@field stats table
+---@field release fun(self: MapSceneLoader.Runtime)
 
 -- The identity UV-transform matrix every assembled material starts with:
 -- the renderer sends u_texMatrix for every draw, so a material can never
@@ -444,7 +464,8 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- Re-setting the current band is a no-op. Unbanded instances are untouched.
   -- The swap does not mark the draw list dirty: the next scene tick rebuilds
   -- it unconditionally.
-  local function setTimeBand(self, band)
+  ---@param band "day"|"night"
+  local function setTimeBand(_, band)
     assert(VALID_BANDS[band], "unknown time-of-day band " .. tostring(band))
     if runtime.timeBand == band then
       return

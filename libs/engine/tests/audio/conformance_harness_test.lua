@@ -20,6 +20,7 @@ local function seq(instructions, opts)
   opts = opts or {}
   return AudioFixture.sequence(opts.id or 0, opts.symbol or "SEQ_TEST", 12, opts.playerId or 1, {
     entry = 1,
+    initialTrackMask = 0x0001,
     instructions = instructions,
   }, {
     id = opts.playerId or 1,

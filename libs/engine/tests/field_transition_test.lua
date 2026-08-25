@@ -21,7 +21,6 @@
 -- grid to classify the warp tile.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldTransitionFade = require("libs.engine.src.FieldTransitionFade")
 local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
@@ -84,7 +83,7 @@ local function recordingLoader()
   }
 end
 
-local function destination()
+local function defaultDestination()
   return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
 end
 
@@ -129,7 +128,7 @@ function T.fades_loads_swaps_while_black_and_completes()
   transition:start(source, { warp = warp }, "south")
   Assert.equal(transition.phase, "fade_out")
   Assert.isTrue(transition.locked)
-  for i = 1, FADE - 1 do
+  for _ = 1, FADE - 1 do
     step(transition)
   end
   Assert.isTrue(transition.fadeAlpha < 1, "the fade is not black before the last tick")
@@ -231,7 +230,7 @@ function T.resolve_failure_aborts_and_a_second_transition_succeeds()
         failures = failures - 1
         error("resolve failed", 0)
       end
-      return destination()
+      return defaultDestination()
     end,
     prepare = function() end,
     commit = function() end,
@@ -285,7 +284,7 @@ function T.prepare_failure_aborts_with_source_protection_untouched()
   local loader = recordingLoader()
   local transition = FieldTransition.new({
     loader = loader,
-    resolveDestination = destination,
+    resolveDestination = defaultDestination,
     prepare = function()
       error("prepare failed", 0)
     end,
@@ -314,7 +313,7 @@ function T.commit_fault_propagates_as_fatal()
   local loader = recordingLoader()
   local transition = FieldTransition.new({
     loader = loader,
-    resolveDestination = destination,
+    resolveDestination = defaultDestination,
     prepare = function() end,
     commit = function()
       error("commit failed", 0)
@@ -605,11 +604,9 @@ end
 function T.source_door_waits_for_the_open_before_the_ingress()
   local sourceDoor = doorStub()
   local player = stubPlayer()
-  local transition
-  local source
-  local swaps
+  local transition, source, _, swaps
   transition, source, _, swaps = transitionFixture({
-    doorAt = function(runtimeMap, x, z)
+    doorAt = function(runtimeMap, _, _)
       if runtimeMap == source then
         return sourceDoor
       end
@@ -868,10 +865,7 @@ end
 -- A headless door keeps its source classification and completes through the
 -- ordinary source fade without inventing a door resource.
 function T.door_kind_without_a_door_resolver_keeps_the_source_classification()
-  local transition
-  local source
-  local swaps
-  transition, source, _, swaps = transitionFixture()
+  local transition, source, _, swaps = transitionFixture()
   local ok, err = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "north")
   Assert.isTrue(ok, "a door-less composition never raises for a door-kind warp")
   Assert.isNil(err)
@@ -1024,7 +1018,7 @@ function T.source_door_open_failure_aborts_idle_without_touching_map_protection(
     end,
     player = stubPlayer(),
   })
-  local ok, err = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "south")
+  local ok = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "south")
   Assert.isFalse(ok, "a throwing source door open propagates out of start")
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
@@ -1148,7 +1142,7 @@ function T.finish_does_not_touch_map_protection()
   }
   local transition = FieldTransition.new({
     loader = loader,
-    resolveDestination = destination,
+    resolveDestination = defaultDestination,
     prepare = function() end,
     commit = function() end,
   })
@@ -1240,10 +1234,7 @@ function T.stair_source_climb_drives_the_player_locked_movement()
   -- Profile 3 owns the locked source step. It must not fall back to a
   -- duplicate presentation movement.
   local player = stubPlayer()
-  local transition
-  local source
-  local sounds
-  transition, source, _, _, sounds = transitionFixture({ kind = "stairs", player = player })
+  local transition, source, _, _, sounds = transitionFixture({ kind = "stairs", player = player })
   transition:start(source, trigger("stairs", DOOR_WARP), "west")
   Assert.isNil(transition.sourceDoor, "stairs never activate the door choreography")
   Assert.equal(transition.sourceKind, "stairs")
@@ -1282,10 +1273,7 @@ end
 
 function T.plain_warps_never_play_the_stair_choreography()
   local player = stubPlayer()
-  local transition
-  local source
-  local sounds
-  transition, source, _, _, sounds = transitionFixture({ kind = "generic", player = player })
+  local transition, source, _, _, sounds = transitionFixture({ kind = "generic", player = player })
   transition:start(source, {
     kind = "generic",
     warp = DOOR_WARP,
@@ -1305,10 +1293,10 @@ end
 function T.on_start_callback_fires_once_per_transition_start_before_ownership_changes()
   local starts = 0
   local transition, source = transitionFixture({})
-  transition.onStart = function(cbSource, trigger, facing)
+  transition.onStart = function(cbSource, triggerValue, facing)
     starts = starts + 1
     Assert.equal(cbSource, source, "the callback receives the source map")
-    Assert.equal(trigger.warp.x, 4, "the callback receives the warp trigger")
+    Assert.equal(triggerValue.warp.x, 4, "the callback receives the warp trigger")
     Assert.equal(facing, "south", "the callback receives the facing")
   end
   transition:start(source, trigger("generic", DOOR_WARP), "south")

@@ -98,10 +98,12 @@ function BindingAudit.check(manifest, loadFieldData)
     end
   end
   if #missing > 0 then
+    local context = { missing = missing }
+    ---@cast context Errors.Context
     Errors.raise(
       "SCRIPT_BINDING_AUDIT_INCOMPLETE",
       "interactable events are not bound; every interactable event must be bound or noninteractive",
-      { missing = missing }
+      context
     )
   end
   return true

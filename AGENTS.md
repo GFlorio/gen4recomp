@@ -14,6 +14,8 @@ This file provides guidance to Coding Agents when working with code in this repo
   private locals merely because their lines were touched. `scripts/lint.sh` stays clean.
 - Be concrete.
 - Look for opportunities for refactoring or trimming code at the end of each task.
+- LuaLS is intentionally strict: `scripts/lint.sh` must be clean through Hint. Fix findings at their source; do not weaken `.luarc.json`, add broad suppressions or globals, or erase types with `any`.
+- Exact `_` is the intentional unused discard; delete unused named bindings. Do not hand-edit vendored types or generated overrides to satisfy lint.
 - Flat is better than nested.
 - Look for root causes.
 - Descriptive names.

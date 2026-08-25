@@ -18,8 +18,23 @@ local WaitSignpostActionTask = require("libs.engine.src.script.tasks.WaitSignpos
 local TrainerTipsTask = require("libs.engine.src.script.tasks.TrainerTipsTask")
 local WaitSignpostTask = require("libs.engine.src.script.tasks.WaitSignpostTask")
 local SignTask = require("libs.engine.src.script.tasks.SignTask")
+---@cast WaitSignpostActionTask TaskImplementation
+---@cast TrainerTipsTask TaskImplementation
+---@cast WaitSignpostTask TaskImplementation
+---@cast SignTask TaskImplementation
 
 local T = {}
+
+---@class ScriptSignpostOpcodeTest.Host : ScriptSignpostHost
+---@field appearances table[]
+---@field commands string[]
+---@field advances integer
+---@field prints table[]
+---@field fills integer
+---@field closes integer
+---@field styles string[]
+---@field command string
+---@field printDone boolean
 
 -- The script host surface the handlers exercise, conforming to the real
 -- ScriptSignpostHost interface. Every method records its call; the scheduler
@@ -40,7 +55,7 @@ function RecordingSignpostHost.new()
     styles = {},
     command = "nop",
     printDone = false,
-  }, RecordingSignpostHost)
+  }, RecordingSignpostHost) --[[@as ScriptSignpostOpcodeTest.Host]]
 end
 
 function RecordingSignpostHost:setCommand(command)
@@ -1086,8 +1101,8 @@ end
 -- The stateless sign tasks create the empty state: creation serializes no
 -- waiting marker for behavior that never reads it.
 function T.stateless_sign_tasks_create_empty_state()
-  Assert.deepEqual(SignTask.create({ node = {} }), {})
-  Assert.deepEqual(WaitSignpostTask.create({ node = {} }), {})
+  Assert.deepEqual(SignTask.create({ node = {} }, {}), {})
+  Assert.deepEqual(WaitSignpostTask.create({ node = {} }, {}), {})
   local host = RecordingSignpostHost.new()
   local state = TrainerTipsTask.create(
     { node = { message = "msg.hgss.0542.00035" } },

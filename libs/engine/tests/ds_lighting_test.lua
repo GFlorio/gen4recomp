@@ -89,7 +89,7 @@ end
 -- survives both the correct pipeline and any single-light-free pipeline;
 -- required by the spec regardless of whether it happens to coincide with
 -- other implementations.
-function T.emission_only(scope)
+function T.emission_only(_)
   local c = DsLighting.vertexColorRgb5(params({ emission = rgb555(5, 10, 15), lightMask = 0 }))
   local r, g, b = DsLighting.unpackRgb555(c)
   Assert.equal(r, 5)
@@ -105,7 +105,7 @@ end
 --   130560 >> 14 = floor(130560/16384) = 7 (7*16384=114688, 8*16384=131072)
 -- melonDS's exact-shift ambient is not the same operation as a light-color/31
 -- normalization: floor(15*17/31) = floor(255/31) = 8, one unit brighter.
-function T.ambient_only_midrange_light_color(scope)
+function T.ambient_only_midrange_light_color(_)
   local c = DsLighting.vertexColorRgb5(params({
     ambient = rgb555(17, 17, 17),
     lights = { light(15, { 0, 0, -4096 }) },
@@ -129,7 +129,7 @@ end
 -- floor(126645/512) = 247, one unit off.
 -- vtxbuff = MatDiffuse(31)*LightColor(31)*246 = 961*246 = 236406
 --   236406 >> 14 = floor(236406/16384) = 14 (14*16384=229376, 15*16384=245760)
-function T.diffuse_dot_truncates_component_wise_not_after_summing(scope)
+function T.diffuse_dot_truncates_component_wise_not_after_summing(_)
   local c = DsLighting.vertexColorRgb5(params({
     normal = { 0.6794128682, -0.7314995667, 0.0575025088 },
     diffuse = rgb555(31, 31, 31),
@@ -157,7 +157,7 @@ end
 --   ambient term = (2<<9)*31 = 1024*31 = 31744; >>14 = 1
 --   correct (gate fails): vtxbuff = 31744 (ambient only); >>14 = 1
 --   wrong-order (gate fires): vtxbuff = 31744 + 17*31*2 = 32798; >>14 = 2
-function T.diffuse_dot_sign_boundary_from_component_wise_truncation(scope)
+function T.diffuse_dot_sign_boundary_from_component_wise_truncation(_)
   local c = DsLighting.vertexColorRgb5(params({
     normal = { -0.2203804515, 0.6715671726, -0.7074107642 },
     diffuse = rgb555(17, 17, 17),
@@ -185,7 +185,7 @@ end
 --   392088 >> 14 = floor(392088/16384) = 23 (23*16384=376832, 24*16384=393216)
 -- This is not a conventional Blinn half-vector/N.H^2 specular value; a
 -- half-vector implementation over the same inputs does not reproduce 23.
-function T.specular_uses_the_reciprocal_shinelevel_sequence(scope)
+function T.specular_uses_the_reciprocal_shinelevel_sequence(_)
   local c = DsLighting.vertexColorRgb5(params({
     normal = { 0.6, 0, 0.8 },
     specular = rgb555(31, 31, 31),
@@ -202,7 +202,7 @@ end
 -- Neither light's own contribution (337920>>14 = 20) exceeds 31 on its own;
 -- only the combined accumulator does, and only the final result saturates
 -- -- melonDS never clamps per light or per term.
-function T.multiple_lights_accumulate_past_31_and_saturate_only_at_the_end(scope)
+function T.multiple_lights_accumulate_past_31_and_saturate_only_at_the_end(_)
   local sameLight = light(30, { 0, 0, -4096 })
   local c = DsLighting.vertexColorRgb5(params({
     diffuse = rgb555(22, 22, 22),
@@ -217,7 +217,7 @@ end
 -- LightColor=9, head-on (ld=512):
 --   admitted: vtxbuff = 20*9*512 = 92160; >>14 = floor(92160/16384) = 5
 --   excluded: vtxbuff = 0 (emission only, here 0); final = 0
-function T.light_mask_excludes_a_light_entirely(scope)
+function T.light_mask_excludes_a_light_entirely(_)
   local theLight = light(9, { 0, 0, -4096 })
   local admitted =
     DsLighting.vertexColorRgb5(params({ diffuse = rgb555(20, 20, 20), lights = { theLight }, lightMask = 1 }))

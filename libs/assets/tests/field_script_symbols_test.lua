@@ -27,7 +27,7 @@ end
 
 function T.every_symbol_is_a_distinct_integer_id()
   local function check(catalog)
-    local ids = {}
+    local ids = {} ---@type table<number, boolean>
     for name, id in pairs(catalog) do
       Assert.isTrue(type(name) == "string" and name ~= "", "symbol names are non-empty strings")
       Assert.isTrue(

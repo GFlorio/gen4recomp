@@ -2,13 +2,27 @@
 -- Keeps the same indexing convention as Matrix4 (m[col*3 + row + 1]) so the
 -- two modules compose cleanly. Pure domain module: no love, arithmetic only.
 
+---@alias Matrix3.Values number[]
+---@class Matrix3
+---@field identity fun(): Matrix3.Values
+---@field from4x4 fun(m: Matrix4.Values): Matrix3.Values
+---@field multiply fun(a: Matrix3.Values, b: Matrix3.Values): Matrix3.Values
+---@field transpose fun(m: Matrix3.Values): Matrix3.Values
+---@field inverse fun(m: Matrix3.Values): Matrix3.Values?
+---@field transform fun(m: Matrix3.Values, x: number, y: number, z: number): number, number, number
+---@field modelNormal fun(model: Matrix4.Values): Matrix3.Values
+---@field normalMatrix fun(model: Matrix4.Values, view: Matrix4.Values): Matrix3.Values
+
 local Matrix3 = {}
 
+---@return Matrix3.Values
 function Matrix3.identity()
-  return { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+  return { 1, 0, 0, 0, 1, 0, 0, 0, 1 } ---@type Matrix3.Values
 end
 
 -- Extract the upper-left 3x3 of a 4x4 column-major matrix.
+---@param m Matrix4.Values
+---@return Matrix3.Values
 function Matrix3.from4x4(m)
   return {
     m[1],
@@ -24,11 +38,14 @@ function Matrix3.from4x4(m)
 end
 
 -- a * b, both 3x3 column-major.
+---@param a Matrix3.Values
+---@param b Matrix3.Values
+---@return Matrix3.Values
 function Matrix3.multiply(a, b)
-  local m = {}
+  local m = {} ---@type Matrix3.Values
   for col = 0, 2 do
     for row = 0, 2 do
-      local s = 0
+      local s = 0 ---@type number
       for k = 0, 2 do
         s = s + a[k * 3 + row + 1] * b[col * 3 + k + 1]
       end
@@ -38,6 +55,8 @@ function Matrix3.multiply(a, b)
   return m
 end
 
+---@param m Matrix3.Values
+---@return Matrix3.Values
 function Matrix3.transpose(m)
   return {
     m[1],
@@ -53,17 +72,21 @@ function Matrix3.transpose(m)
 end
 
 -- Determinant of a 3x3 matrix.
+---@param m Matrix3.Values
+---@return number
 local function determinant(m)
   return m[1] * (m[5] * m[9] - m[6] * m[8]) - m[4] * (m[2] * m[9] - m[3] * m[8]) + m[7] * (m[2] * m[6] - m[3] * m[5])
 end
 
 -- Inverse of a 3x3 matrix, or nil if singular.
+---@param m Matrix3.Values
+---@return Matrix3.Values?
 function Matrix3.inverse(m)
-  local det = determinant(m)
+  local det = determinant(m) ---@type number
   if math.abs(det) < 1e-12 then
     return nil
   end
-  local invDet = 1 / det
+  local invDet = 1 / det ---@type number
   return {
     (m[5] * m[9] - m[6] * m[8]) * invDet,
     (m[3] * m[8] - m[2] * m[9]) * invDet,
@@ -78,6 +101,11 @@ function Matrix3.inverse(m)
 end
 
 -- Transform a 3-vector by a 3x3 matrix.
+---@param m Matrix3.Values
+---@param x number
+---@param y number
+---@param z number
+---@return number, number, number
 function Matrix3.transform(m, x, y, z)
   return m[1] * x + m[4] * y + m[7] * z, m[2] * x + m[5] * y + m[8] * z, m[3] * x + m[6] * y + m[9] * z
 end
@@ -85,8 +113,8 @@ end
 -- Model normal transform: inverse-transpose of a 4x4 model matrix's linear
 -- component. Translation has no effect. A singular model transform has no
 -- normal transform and is invalid input.
----@param model number[] -- 4x4 column-major model matrix
----@return number[] -- 3x3 column-major inverse-transpose
+---@param model Matrix4.Values -- 4x4 column-major model matrix
+---@return Matrix3.Values -- 3x3 column-major inverse-transpose
 function Matrix3.modelNormal(model)
   local inv = Matrix3.inverse(Matrix3.from4x4(model))
   assert(inv, "singular model transform has no normal matrix")
@@ -98,6 +126,9 @@ end
 -- matrix suitable for sending to the vertex shader as a mat3 uniform.
 -- A singular model-view transform has no normal matrix; that is invalid input
 -- and fails loudly instead of degrading to identity.
+---@param model Matrix4.Values
+---@param view Matrix4.Values
+---@return Matrix3.Values
 function Matrix3.normalMatrix(model, view)
   local mv = Matrix3.multiply(Matrix3.from4x4(view), Matrix3.from4x4(model))
   local inv = Matrix3.inverse(mv)

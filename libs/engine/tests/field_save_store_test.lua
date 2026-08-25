@@ -16,6 +16,11 @@ local PlayerDataContext = require("tests.support.PlayerDataContext")
 
 local T = {}
 
+---@class FieldSaveStoreFixture
+---@field load fun(self: FieldSaveStoreFixture): table?, Errors.Error?
+---@field save fun(self: FieldSaveStoreFixture, record: table): boolean
+---@field reset fun(self: FieldSaveStoreFixture): boolean
+
 local SAVE_TEMP = "saves/heartgold/" .. FieldSave.PATH .. ".tmp"
 
 -- Restore is the domain validation boundary for deserialized records; the
@@ -30,8 +35,10 @@ end
 
 -- Mirrors the production resume call: the runtime passes the player-data
 -- context it also wired into the store.
+---@param overrides table<string, unknown>|nil
+---@return table<string, unknown>
 local function restoreOpts(overrides)
-  local value = { playerDataContext = PlayerDataContext.new() }
+  local value = { playerDataContext = PlayerDataContext.new() } ---@type table<string, unknown>
   for key, item in pairs(overrides or {}) do
     value[key] = item
   end
@@ -40,12 +47,15 @@ end
 
 -- The store's save boundary requires the player-data validation context
 -- (mirroring the runtime composition), so every fixture supplies it.
-local function store(saveFs, opts)
-  local value = { playerDataContext = PlayerDataContext.new() }
+---@param saveFs SaveFs
+---@param opts table<string, unknown>|nil
+---@return FieldSaveStoreFixture
+local function newStore(saveFs, opts)
+  local value = { playerDataContext = PlayerDataContext.new() } ---@type table<string, unknown>
   for key, item in pairs(opts or {}) do
     value[key] = item
   end
-  return FieldSaveStore.new(saveFs, value)
+  return FieldSaveStore.new(saveFs, value) --[[@as FieldSaveStoreFixture]]
 end
 
 local function record(versionId, overrides)
@@ -77,7 +87,7 @@ end
 
 function T.atomic_save_publishes_without_leaving_temporary_file()
   local backend = FakeCache.new()
-  local store = store(SaveFs.forVersion("heartgold", backend))
+  local store = newStore(SaveFs.forVersion("heartgold", backend))
   store:save(record("heartgold"))
   Assert.deepEqual(assert(store:load()), record("heartgold"))
   Assert.isNil(backend.files[SAVE_TEMP])
@@ -91,7 +101,7 @@ end
 function T.load_returns_the_deserialized_record_unchanged()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
-  local store = store(saveFs)
+  local store = newStore(saveFs)
   local value = record("heartgold")
   value.playerData.profile.transientThing = 123
   value.playerData.options.futureThing = true
@@ -111,7 +121,7 @@ end
 function T.load_returns_storage_errors_unchanged()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
-  local store = store(saveFs)
+  local store = newStore(saveFs)
   local missing, missingErr = store:load()
   Assert.isNil(missing)
   Assert.equal(missingErr and missingErr.code, "SAVE_FILE_MISSING")
@@ -123,8 +133,8 @@ end
 
 function T.imported_versions_have_independent_saves()
   local backend = FakeCache.new()
-  local hg = store(SaveFs.forVersion("heartgold", backend))
-  local ss = store(SaveFs.forVersion("soulsilver", backend))
+  local hg = newStore(SaveFs.forVersion("heartgold", backend))
+  local ss = newStore(SaveFs.forVersion("soulsilver", backend))
   hg:save(record("heartgold"))
   ss:save(record("soulsilver"))
   Assert.equal(assert(hg:load()).versionId, "heartgold")
@@ -147,7 +157,7 @@ function T.load_is_persistence_only_and_restore_rejects_unknown_schemas()
     terrainDependencyHash = "terrain",
     facing = "south",
   })
-  local store = store(saveFs)
+  local store = newStore(saveFs)
   local loaded, loadErr = store:load()
   Assert.isNil(loadErr, "persistence load must not validate; got " .. tostring(loadErr))
   local _, restoreErr = FieldSave.restore(assert(loaded), rejectingLoader(), "heartgold", restoreOpts())
@@ -167,7 +177,7 @@ function T.a_malformed_world_bucket_reaches_restore_and_is_rejected()
   local value = record("heartgold")
   value.world.rng = {}
   saveFs:writeLua(FieldSave.PATH, value)
-  local store = store(saveFs)
+  local store = newStore(saveFs)
   local loaded = assert(store:load(), "persistence load must return the raw record")
   local _, restoreErr = FieldSave.restore(loaded, rejectingLoader(), "heartgold", restoreOpts())
   Assert.equal(restoreErr and restoreErr.code, "FIELD_SAVE_WORLD_INVALID")
@@ -175,7 +185,7 @@ end
 
 function T.save_validates_the_compiled_avatar_set()
   local backend = FakeCache.new()
-  local store = store(SaveFs.forVersion("heartgold", backend), { avatars = { hero = true, heroine = true } })
+  local store = newStore(SaveFs.forVersion("heartgold", backend), { avatars = { hero = true, heroine = true } })
   local err = Assert.throws(function()
     store:save(record("heartgold", { avatar = "rival" }))
   end)
@@ -190,7 +200,7 @@ end
 
 function T.reset_removes_stable_and_temporary_files()
   local backend = FakeCache.new()
-  local store = store(SaveFs.forVersion("heartgold", backend))
+  local store = newStore(SaveFs.forVersion("heartgold", backend))
   store:save(record("heartgold"))
   backend.files[SAVE_TEMP] = "partial"
   store:reset()
@@ -205,7 +215,7 @@ function T.reset_does_not_touch_the_cache()
   local cacheFs = CacheFs.forVersion("heartgold", backend)
   cacheFs:write("rom-dump.complete", "MARKER")
   cacheFs:write("romfs/a/0/0/2", "DATA")
-  local store = store(SaveFs.forVersion("heartgold", backend))
+  local store = newStore(SaveFs.forVersion("heartgold", backend))
   store:save(record("heartgold"))
   store:reset()
   Assert.isNil(store:load())
@@ -232,7 +242,7 @@ function T.a_deeply_malformed_scripts_bucket_reaches_restore_and_is_rejected()
   local scriptsValidate = function(bucket)
     return ScriptSave.validate(bucket, {})
   end
-  local store = store(saveFs)
+  local store = newStore(saveFs)
   local value = record("heartgold")
   value.scripts = {
     schema = ScriptSave.SCHEMA_NAME,
@@ -257,7 +267,7 @@ end
 function T.a_deeply_invalid_player_data_bucket_reaches_restore_and_is_rejected()
   local backend = FakeCache.new()
   local saveFs = SaveFs.forVersion("heartgold", backend)
-  local store = store(saveFs)
+  local store = newStore(saveFs)
   local value = record("heartgold")
   value.playerData.profile.name = "GOLDGOLD"
   saveFs:writeLua(FieldSave.PATH, value)
@@ -271,7 +281,7 @@ end
 -- though load never canonicalizes.
 function T.save_persists_the_canonical_player_data()
   local backend = FakeCache.new()
-  local store = store(SaveFs.forVersion("heartgold", backend))
+  local store = newStore(SaveFs.forVersion("heartgold", backend))
   local value = record("heartgold")
   value.playerData.profile.transientThing = 123
   value.playerData.options.futureThing = true

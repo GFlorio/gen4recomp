@@ -17,6 +17,12 @@ local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 
 local T = {}
 
+---@class TimeOfDayPropsTest.AnimationState
+---@field attachments fun(self: TimeOfDayPropsTest.AnimationState, category: string): table[]
+---@class TimeOfDayPropsTest.Instance : TimeOfDayProps.Instance
+---@field animationState TimeOfDayPropsTest.AnimationState
+---@field updateFixed fun(self: TimeOfDayPropsTest.Instance)
+
 local function bandedClip(name, band)
   return {
     id = "fixture:" .. name,
@@ -127,6 +133,8 @@ end
 
 -- ---- the swap -----------------------------------------------------------
 
+---@param instance TimeOfDayPropsTest.Instance
+---@return string[]
 local function playingNames(instance)
   local out = {}
   for _, category in ipairs({ "joint", "material" }) do
@@ -146,7 +154,7 @@ function T.swap_stops_the_old_band_and_plays_the_new()
     bandedClip("kk_sky_n", "nite"),
   })
   local plan = assert(TimeOfDayProps.plan(def))
-  local instance = ModelInstance.new(def)
+  local instance = ModelInstance.new(def) --[[@as TimeOfDayPropsTest.Instance]]
   TimeOfDayProps.swap(instance, plan, nil, "morn")
   Assert.deepEqual(playingNames(instance), { "kk_sky_m" })
 
@@ -165,7 +173,7 @@ function T.swap_to_a_band_without_a_clip_stops_playback()
     bandedClip("o_moon_n2", "nite"),
   })
   local plan = assert(TimeOfDayProps.plan(def))
-  local instance = ModelInstance.new(def)
+  local instance = ModelInstance.new(def) --[[@as TimeOfDayPropsTest.Instance]]
   TimeOfDayProps.swap(instance, plan, nil, "nite")
   Assert.deepEqual(playingNames(instance), { "o_moon_n2" })
   TimeOfDayProps.swap(instance, plan, "nite", "day")
@@ -180,7 +188,7 @@ function T.swap_restarts_the_clip_from_frame_zero()
     bandedClip("kk_sky_n", "nite"),
   })
   local plan = assert(TimeOfDayProps.plan(def))
-  local instance = ModelInstance.new(def)
+  local instance = ModelInstance.new(def) --[[@as TimeOfDayPropsTest.Instance]]
   TimeOfDayProps.swap(instance, plan, nil, "morn")
   for _ = 1, 5 do
     instance:updateFixed()

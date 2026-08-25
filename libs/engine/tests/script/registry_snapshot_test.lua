@@ -21,7 +21,8 @@ local HEX = "^[0-9a-f]+$"
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected a raised error")
-  Assert.equal(err.code, code)
+  local errorObject = err --[[@as Errors.Error]]
+  Assert.equal(errorObject.code, code)
 end
 
 -- A cache whose script class is complete: marker, index, and script files.
@@ -60,7 +61,7 @@ local function overrideFs(files, manifestText)
     manifestText = manifestText .. "}\n"
   end
   return {
-    read = function(self, path)
+    read = function(_, path)
       if path == ScriptOverrides.MANIFEST then
         return manifestText
       end

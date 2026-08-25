@@ -26,7 +26,14 @@ end
 
 function T.rejects_wrong_length()
   local ok, err = pcall(PngWriter.encode, 2, 2, "short")
-  Assert.isTrue(not ok and Errors.is(err) and err.code == "PNG_BAD_RGBA_LENGTH", "raises")
+  Assert.isTrue(not ok, "raises")
+  if not Errors.is(err) then
+    error("raises")
+  end
+  if type(err) ~= "table" then
+    error("raises")
+  end
+  Assert.equal(tostring(rawget(err, "code")), "PNG_BAD_RGBA_LENGTH")
 end
 
 function T.decodes_back_to_the_same_pixels()
@@ -34,7 +41,7 @@ function T.decodes_back_to_the_same_pixels()
   local png = PngWriter.encode(2, 1, rgba)
   local data = love.image.newImageData(love.filesystem.newFileData(png, "t.png"))
   Assert.equal(data:getWidth(), 2)
-  local r, g, b, a = data:getPixel(0, 0)
+  local r, g, _, a = data:getPixel(0, 0)
   Assert.equal(math.floor(r * 255 + 0.5), 10)
   Assert.equal(math.floor(g * 255 + 0.5), 20)
   Assert.equal(math.floor(a * 255 + 0.5), 255)

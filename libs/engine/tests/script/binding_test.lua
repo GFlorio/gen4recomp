@@ -12,6 +12,7 @@ local Composition = require("libs.engine.src.script.Composition")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+---@cast WaitTicksTask TaskImplementation
 local Bindings = require("libs.engine.src.script.Bindings")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
@@ -46,6 +47,10 @@ local function throwsCode(code, fn)
   return err
 end
 
+---@param mapId integer
+---@param actorId string
+---@param playerFacing FieldDirection
+---@return InteractionIntent
 local function objectIntent(mapId, actorId, playerFacing)
   return {
     kind = "object",
@@ -54,9 +59,12 @@ local function objectIntent(mapId, actorId, playerFacing)
     sourceFieldZ = 6,
     targetFieldX = 4,
     targetFieldZ = 5,
+    sourceSurfaceId = 0,
     playerFacing = playerFacing or "north",
+    scriptId = 1,
+    tick = 0,
     object = { actorId = actorId, objectEventId = 3, spriteId = 1 },
-  }
+  } --[[@as InteractionIntent]]
 end
 
 local function backgroundIntent(mapId, eventIndex, playerFacing)
@@ -310,35 +318,35 @@ T["actor world adapter"] = function()
   local actors = {}
   actors.elm = { id = "elm", fieldX = 4, fieldZ = 5, facing = "north", visible = true, mapId = 61 }
   local manager = {
-    getActor = function(self, id)
+    getActor = function(_, id)
       return actors[id]
     end,
-    getPosition = function(self, id)
+    getPosition = function(_, id)
       return { fieldX = actors[id].fieldX, fieldZ = actors[id].fieldZ, worldY = 0 }
     end,
-    getFacing = function(self, id)
+    getFacing = function(_, id)
       return actors[id].facing
     end,
-    show = function(self, id)
+    show = function(_, id)
       actors[id].visible = true
     end,
-    hide = function(self, id)
+    hide = function(_, id)
       actors[id].visible = false
     end,
-    setPosition = function(self, id, position)
+    setPosition = function(_, id, position)
       actors[id].fieldX = position.fieldX
       actors[id].fieldZ = position.fieldZ
     end,
-    setFacing = function(self, id, direction)
+    setFacing = function(_, id, direction)
       actors[id].facing = direction
     end,
-    setMovementType = function(self, id, movementType)
+    setMovementType = function(_, id, movementType)
       actors[id].movementType = movementType
     end,
-    setAnimationPaused = function(self, id, paused)
+    setAnimationPaused = function(_, id, paused)
       actors[id].animationPaused = paused
     end,
-    numericId = function(self, id)
+    numericId = function(_, id)
       return actors[id] and 7 or nil
     end,
     actorIdForMapIndex = function()
@@ -351,6 +359,7 @@ T["actor world adapter"] = function()
       return nil
     end,
   }
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local player = {
     position = function()
       return { fieldX = 10, fieldZ = 10, worldY = 0 }
@@ -480,6 +489,7 @@ T["session script phase"] = function()
     scheduler = p.scheduler,
   })
   local moved = 0
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local player = {
     fieldX = 4,
     fieldZ = 6,
@@ -495,17 +505,20 @@ T["session script phase"] = function()
       return false
     end,
     collapseRenderInterpolation = function() end,
-  }
+  } --[[@as FieldPlayer]]
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local runtimeMap = {
     mapId = 57,
     -- Mirrors the simulation-only aggregate: no presentation runtimes, so the
     -- map clock entry is a safe no-op.
     updateAnimated = function() end,
-  }
+  } --[[@as RuntimeFieldMap]]
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local camera = {
     updateFixed = function() end,
     collapseRenderInterpolation = function() end,
-  }
+  } --[[@as FieldCamera]]
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local transition = {
     phase = "idle",
     locked = false,
@@ -513,25 +526,29 @@ T["session script phase"] = function()
     start = function()
       error("binding fixture never starts a warp", 2)
     end,
-  }
+  } --[[@as FieldTransition]]
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local input = {
     snapshot = function()
       return {}
     end,
     clearEdges = function() end,
-  }
-  local actors = { step = function() end }
+  } --[[@as FieldInput]]
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+  local actors = { step = function() end } --[[@as FieldActorManager]]
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local dialogue = {
     isModal = function()
       return false
     end,
-  }
+  } --[[@as FieldDialogueController]]
+  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local menuHost = {
     isModal = function()
       return false
     end,
     advance = function() end,
-  }
+  } --[[@as FieldMenuHost]]
   local contextChoice = {
     isActive = function()
       return false
@@ -539,24 +556,24 @@ T["session script phase"] = function()
   }
   local session = FieldSession.new({
     versionId = "heartgold",
-    currentMap = runtimeMap,
-    player = player,
+    currentMap = runtimeMap --[[@as RuntimeFieldMap]],
+    player = player --[[@as FieldPlayer]],
     fieldEntranceIndicator = { updateFixed = function() end },
-    camera = camera,
-    transition = transition,
-    input = input,
-    actors = actors,
+    camera = camera --[[@as FieldCamera]],
+    transition = transition --[[@as FieldTransition]],
+    input = input --[[@as FieldInput]],
+    actors = actors --[[@as FieldActorManager]],
     scriptScheduler = p.scheduler,
     scriptClient = client,
     interactions = {
-      resolve = function(_, snapshot)
+      resolve = function(_)
         return objectIntent(57, "obj_T20_gswoman1", "north")
       end,
     },
     eventResolver = FieldEventResolver,
     eventState = FieldEventState.new(),
-    dialogue = dialogue,
-    menuHost = menuHost,
+    dialogue = dialogue --[[@as FieldDialogueController]],
+    menuHost = menuHost --[[@as FieldMenuHost]],
     contextChoice = contextChoice,
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     signpost = {

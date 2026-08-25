@@ -15,6 +15,88 @@ local FakeCache = require("tests.support.FakeCache")
 
 local AudioFixture = {}
 
+---@class AudioFixture.Program
+---@field entry number
+---@field initialTrackMask number
+---@field instructions table[]
+
+---@class AudioFixture.Player
+---@field id number
+---@field maxSequences number?
+---@field channelMask number?
+---@field initialVolume number?
+---@field playerPriority number?
+---@field channelPriority number?
+
+---@class AudioFixture.SequenceIndex
+---@field id number
+---@field symbol string|number|nil
+---@field bankId number
+---@field playerId number?
+---@field file string?
+
+---@class AudioFixture.BankIndex
+---@field id number
+---@field symbol string|number
+---@field file string?
+
+---@class AudioFixture.SampleMetadata
+---@field schema string
+---@field key string
+---@field frames number
+---@field baseTimer number
+---@field loopEnabled boolean
+---@field loop table
+
+---@class AudioFixture.Sequence
+---@field schema string
+---@field id number
+---@field symbol string|number|nil
+---@field bankId number
+---@field player AudioFixture.Player
+---@field program AudioFixture.Program
+---@field [string] table|string|number|boolean|nil
+
+---@class AudioFixture.Bank
+---@field schema string
+---@field id number
+---@field symbol string|number
+---@field instruments table<integer, AudioBank.Instrument>
+
+---@class AudioFixture.Generator
+---@field kind string
+---@field sample string?
+---@field duty number?
+
+---@class AudioFixture.Voice
+---@field generator AudioFixture.Generator
+---@field originalKey number
+---@field envelope table
+---@field pan number
+
+---@class AudioFixture.SampleOptions
+---@field frames number?
+---@field baseTimer number?
+---@field loopEnabled boolean?
+---@field loop table?
+
+---@class AudioFixture.Index
+---@field schema string
+---@field sequences table<integer, AudioFixture.SequenceIndex>
+---@field banks table<integer, AudioFixture.BankIndex>
+---@field players table<integer, AudioFixture.Player>
+---@field sequenceBySymbol table<string, integer>
+---@field bankBySymbol table<string, integer>
+
+---@class AudioFixture.Bundle
+---@field marker string
+---@field index AudioFixture.Index
+---@field sequences table<integer, AudioFixture.Sequence>
+---@field banks table<integer, AudioFixture.Bank>
+---@field samples table<string, string>
+---@field sampleMetadata table<string, AudioFixture.SampleMetadata>
+---@field dependencies table
+
 -- A deterministic sha1-shaped content key (40 lowercase hex chars). Content
 -- addressing keys are also file-path components, so only the sha1 shape is
 -- ever valid.
@@ -37,36 +119,50 @@ function AudioFixture.pcm16le(samples)
   return table.concat(bytes)
 end
 
+---@param key string
+---@return AudioFixture.Voice
 function AudioFixture.sampleVoice(key)
-  return {
+  local voice = {
     generator = { kind = "sample", sample = key },
     originalKey = 60,
     envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
     pan = 64,
-  }
+  } ---@cast voice AudioFixture.Voice
+  return voice
 end
 
+---@return AudioFixture.Voice
 function AudioFixture.squareVoice()
-  return {
+  local voice = {
     generator = { kind = "square", duty = 4 },
     originalKey = 60,
     envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
     pan = 64,
-  }
+  } ---@cast voice AudioFixture.Voice
+  return voice
 end
 
+---@return AudioFixture.Voice
 function AudioFixture.noiseVoice()
-  return {
+  local voice = {
     generator = { kind = "noise" },
     originalKey = 60,
     envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
     pan = 64,
-  }
+  } ---@cast voice AudioFixture.Voice
+  return voice
 end
 
 -- A valid sequence asset. `program` overrides the default program so engine
 -- tests can author hand-written programs over the frozen
 -- instruction shapes; `player` overrides the player block fields.
+---@param id number
+---@param symbol string|number|nil
+---@param bankId number
+---@param playerId number
+---@param program AudioFixture.Program?
+---@param player AudioFixture.Player?
+---@return AudioFixture.Sequence
 function AudioFixture.sequence(id, symbol, bankId, playerId, program, player)
   if program ~= nil and program.initialTrackMask == nil then
     program.initialTrackMask = 0x0001
@@ -93,14 +189,19 @@ function AudioFixture.sequence(id, symbol, bankId, playerId, program, player)
       },
     },
   }
-  return sequence
+  return sequence ---@cast sequence AudioFixture.Sequence
 end
 
 -- `instruments` overrides the default instrument map so engine tests can
 -- author banks over the frozen instrument/voice shapes.
+---@param id number
+---@param symbol string|number
+---@param sampleKeys string[]?
+---@param instruments table<integer, AudioBank.Instrument>?
+---@return AudioFixture.Bank
 function AudioFixture.bank(id, symbol, sampleKeys, instruments)
   sampleKeys = sampleKeys or { AudioFixture.key(1), AudioFixture.key(2) }
-  return {
+  local bank = {
     schema = AudioCache.BANK_SCHEMA,
     id = id,
     symbol = symbol,
@@ -120,7 +221,8 @@ function AudioFixture.bank(id, symbol, sampleKeys, instruments)
         voices = { AudioFixture.squareVoice(), AudioFixture.noiseVoice() },
       },
     },
-  }
+  } ---@cast bank AudioFixture.Bank
+  return bank
 end
 
 -- `opts` overrides frames/baseTimer/loop/loopEnabled so engine tests can pin
@@ -132,29 +234,34 @@ end
 -- baseTimer defaults to 8006, the DS PSG base timer (the DS sample clock
 -- 16756991 Hz over 8006 is about 2093 Hz); it is the value the mixer suites
 -- pin, and it makes octave ratios exact (key 72 -> ratio exactly 2.0).
+---@param key string
+---@param opts AudioFixture.SampleOptions?
+---@return AudioFixture.SampleMetadata
 function AudioFixture.sampleMetadata(key, opts)
   opts = opts or {}
   local frames = opts.frames or 8214
   local loop = opts.loop or { startFrame = 0, endFrame = frames }
-  return {
+  local metadata = {
     schema = AudioCache.SAMPLE_SCHEMA,
     key = key,
     frames = frames,
     baseTimer = opts.baseTimer or 8006,
     loopEnabled = opts.loopEnabled ~= false,
     loop = loop,
-  }
+  } ---@cast metadata AudioFixture.SampleMetadata
+  return metadata
 end
 
 -- A full E1-shaped audio bundle over a small synthetic archive: two
 -- sequences on one bank, three instruments, two content-addressed samples
 -- whose payloads are real PCM16LE bytes matching their metadata frames.
+---@return AudioFixture.Bundle
 function AudioFixture.bundle()
   local keyA = AudioFixture.key(1)
   local keyB = AudioFixture.key(2)
   local pcmA = AudioFixture.pcm16le({ 1000, 2000, 3000, 4000 })
   local pcmB = AudioFixture.pcm16le({ 5000, 6000 })
-  return {
+  local bundle = {
     marker = AudioCache.marker("rom-sha", "dep-sha"),
     index = {
       schema = AudioCache.INDEX_SCHEMA,
@@ -200,11 +307,15 @@ function AudioFixture.bundle()
       versionRomSha1 = "rom-sha",
       soundArchive = { path = "data/sound/gs_sound_data.sdat", fileId = 13, sha1 = "archive-sha" },
     },
-  }
+  } ---@cast bundle AudioFixture.Bundle
+  return bundle
 end
 
 -- Writes a bundle into a fresh FakeCache-backed CacheFs at AudioCache's
 -- canonical paths, mirroring the writer's layout without using the writer.
+---@param bundle AudioFixture.Bundle?
+---@param backend table?
+---@return CacheFs
 function AudioFixture.readyCache(bundle, backend)
   bundle = bundle or AudioFixture.bundle()
   local cache = CacheFs.forVersion("heartgold", backend or FakeCache.new())

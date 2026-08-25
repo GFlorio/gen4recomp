@@ -83,15 +83,9 @@ local function nodeSrt(program, attachments)
       -- Targets that name nodes the program does not carry are ignored,
       -- like the digest-side provider's permissive binding.
       if nodeIndex ~= nil and program.nodes[nodeIndex + 1] then
-        srt[nodeIndex] = NitroJointState.srtFromBlend(
-          JointAnimBlend.blend({
-            {
-              ratio = FixedPoint.FX32_SCALE,
-              result = CompiledNsbcaSampler.sample(clip, track.targetIndex, attachment.player.frameFx),
-            },
-          }),
-          program.nodes[nodeIndex + 1]
-        )
+        local result = assert(CompiledNsbcaSampler.sample(clip, track.targetIndex, attachment.player.frameFx))
+        local blended = assert(JointAnimBlend.blend({ { ratio = FixedPoint.FX32_SCALE, result = result } }))
+        srt[nodeIndex] = NitroJointState.srtFromBlend(blended, program.nodes[nodeIndex + 1])
       end
     end
   end
@@ -103,7 +97,10 @@ end
 -- matrix-stack slot the draw's restore-stack snapshot does not hold is a
 -- broken compiled transform program and raises (drawing identity instead
 -- would silently misplace the geometry).
+---@param draw SbcDraw
 ---@param source DrawSource|nil
+---@param tileScale number
+---@param modelKey string
 ---@return number[] -- 16-element column-major matrix, engine units
 local function resolvePosition(draw, source, tileScale, modelKey)
   if source == PoseContract.DRAW then

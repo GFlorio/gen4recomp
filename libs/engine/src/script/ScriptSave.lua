@@ -439,8 +439,8 @@ function ScriptSave.restore(bucket, scheduler, restoreTick, opts)
       local err = resolveErr --[[@as Errors.Error]]
       Errors.raise(err.code, err.message, err.context)
     end
-    impl = impl --[[@as table]]
-    local stateErr = impl.validate(taskRecord.state)
+    local implementation = assert(impl)
+    local stateErr = implementation.validate(taskRecord.state)
     if stateErr ~= nil then
       Errors.raise(stateErr.code, stateErr.message, stateErr.context)
     end

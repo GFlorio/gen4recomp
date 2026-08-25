@@ -29,7 +29,7 @@ AlphaClassifier.MIXED = "mixed"
 -- final-alpha-aware: a MODULATE polygon at alpha 31 with mixed texture alpha
 -- (both opaque and partial texels) returns MIXED; DECAL at alpha 31 always
 -- returns OPAQUE regardless of texture alpha distribution.
-function AlphaClassifier.classify(polygonAlpha, polygonMode, textureFormat, alphaUsage)
+function AlphaClassifier.classify(polygonAlpha, polygonMode, _, alphaUsage)
   if polygonAlpha == 0 then
     return AlphaClassifier.WIREFRAME
   end

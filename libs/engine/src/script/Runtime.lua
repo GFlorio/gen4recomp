@@ -328,6 +328,7 @@ end
 -- Background-mode restriction: background scripts may never lock player
 -- input, open foreground dialogue, warp, or move the player.
 ---@param run table
+---@param op string
 local function requireForeground(run, op)
   if run.instance.mode == "background" then
     Errors.raise(
@@ -370,6 +371,7 @@ end
 ---@param taskType string
 ---@param spec table
 ---@param resultRef table|nil
+---@return string outcome
 local function blockOnTask(run, taskType, spec, resultRef)
   local taskId = run.scheduler:createTask(taskType, spec, run.instance, run.tick, run.input)
   run.blockTaskId = taskId
@@ -433,6 +435,7 @@ end
 ---@param composed table
 ---@param args table
 ---@param returnNodeId string|nil
+---@param nodeId string|nil
 local function pushComposedFrame(run, composed, args, returnNodeId, nodeId)
   local entries = composed.entries
   assert(#entries > 0, "composed script has no entries")
@@ -455,11 +458,11 @@ end
 -- The graph and entry node id of a composed script, entering at `label`
 -- when given (a label inside the composed entry graph) or at the entry
 -- otherwise. A missing label is an attributed label error.
----@param run table
+---@param _ table
 ---@param composed table
 ---@param label string|nil
 ---@return table graph, string nodeId
-local function composedEntryAt(run, composed, label)
+local function composedEntryAt(_, composed, label)
   local entries = composed.entries
   assert(#entries > 0, "composed script has no entries")
   local entry = entries[1]
@@ -517,15 +520,15 @@ local HANDLERS = {}
 -- The step budget consumes one unit per continue outcome; handlers below that
 -- continue set the frame's pc or push frames themselves.
 
-HANDLERS.noop = function(node, run)
+HANDLERS.noop = function(_, _)
   return Runtime.OUTCOME_CONTINUE
 end
 
-HANDLERS.label = function(node, run)
+HANDLERS.label = function(_, _)
   return Runtime.OUTCOME_CONTINUE
 end
 
-HANDLERS.stop = function(node, run)
+HANDLERS.stop = function(_, _)
   return Runtime.OUTCOME_STOP
 end
 
@@ -537,12 +540,12 @@ end
 -- service is an attributed fault, never a silent close. The STOP outcome
 -- ends this script context (a child context ending resumes the caller
 -- through the child-slot mechanics).
-HANDLERS.request_start_menu = function(node, run)
+HANDLERS.request_start_menu = function(_, run)
   requireService(run, "startMenuReopen"):request()
   return Runtime.OUTCOME_STOP
 end
 
-HANDLERS.yield_tick = function(node, run)
+HANDLERS.yield_tick = function(_, _)
   return Runtime.OUTCOME_YIELD_TICK
 end
 
@@ -655,11 +658,11 @@ end
 -- save pinning and ownership follow the target. Shared by the cross-script
 -- compare-state jump and `goto_script`; the jump continues in the same tick,
 -- matching the source `ScriptJump` semantics.
----@param run table
+---@param _ table
 ---@param frame table
 ---@param composed table
 ---@param nodeId string
-local function switchFrameToComposed(run, frame, composed, nodeId)
+local function switchFrameToComposed(_, frame, composed, nodeId)
   local entries = composed.entries
   local entry = entries[1]
   frame.graph = entry.graph
@@ -718,7 +721,7 @@ HANDLERS.call = function(node, run)
     return Runtime.OUTCOME_CONTINUE
   end
   local composed = resolveCallTarget(run, node.target or node.script)
-  local graph, nodeId = composedEntryAt(run, composed, node.label)
+  local _, nodeId = composedEntryAt(run, composed, node.label)
   pushComposedFrame(run, composed, args, returnNodeId, nodeId)
   return Runtime.OUTCOME_CONTINUE
 end
@@ -754,7 +757,7 @@ HANDLERS["return"] = function(node, run)
   return Runtime.OUTCOME_STOP
 end
 
-HANDLERS.next = function(node, run)
+HANDLERS.next = function(_, run)
   local frame = run.instance:topFrame()
   if frame.chain == nil or frame.composition == nil then
     Errors.raise(
@@ -772,7 +775,7 @@ end
 -- (std_signpost's hide branch is reachable only through its goto targets).
 -- The stop outcome ends the child; the caller's child_script task observes
 -- the signal on its next poll.
-HANDLERS.signal_caller = function(node, run)
+HANDLERS.signal_caller = function(_, run)
   local slot = run.instance.contextSlot
   if slot <= 0 then
     Errors.raise(
@@ -863,18 +866,18 @@ HANDLERS.buffer_text = function(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 
-HANDLERS.lock_player = function(node, run)
+HANDLERS.lock_player = function(_, run)
   requireForeground(run, "lock_player")
   run.environment:acquireLock(ScriptEnvironment.LOCK_PLAYER, nil, run.instance.instanceId)
   return Runtime.OUTCOME_CONTINUE
 end
 
-HANDLERS.release_player = function(node, run)
+HANDLERS.release_player = function(_, run)
   run.environment:releaseLock(ScriptEnvironment.LOCK_PLAYER, nil, run.instance.instanceId)
   return Runtime.OUTCOME_CONTINUE
 end
 
-HANDLERS.lock_all = function(node, run)
+HANDLERS.lock_all = function(_, run)
   requireForeground(run, "lock_all")
   run.environment:acquireLock(ScriptEnvironment.LOCK_PLAYER, nil, run.instance.instanceId)
   run.environment:acquireLock(ScriptEnvironment.LOCK_AUTONOMOUS, nil, run.instance.instanceId)
@@ -884,7 +887,7 @@ HANDLERS.lock_all = function(node, run)
   return Runtime.OUTCOME_YIELD_TICK
 end
 
-HANDLERS.release_all = function(node, run)
+HANDLERS.release_all = function(_, run)
   run.environment:releaseLock(ScriptEnvironment.LOCK_PLAYER, nil, run.instance.instanceId)
   run.environment:releaseLock(ScriptEnvironment.LOCK_AUTONOMOUS, nil, run.instance.instanceId)
   return Runtime.OUTCOME_CONTINUE
@@ -1157,13 +1160,13 @@ HANDLERS.play_music = function(node, run)
   requireService(run, "audio"):playMusic(node.music)
   return Runtime.OUTCOME_CONTINUE
 end
-HANDLERS.stop_music = function(node, run)
+HANDLERS.stop_music = function(_, run)
   -- The semantic stop_music operation takes no operand (the StopBGM
   -- operand is an erasure at lowering); the currently playing BGM stops.
   requireService(run, "audio"):stopMusic()
   return Runtime.OUTCOME_CONTINUE
 end
-HANDLERS.reset_music = function(node, run)
+HANDLERS.reset_music = function(_, run)
   requireService(run, "audio"):resetMusic()
   return Runtime.OUTCOME_CONTINUE
 end
@@ -1192,7 +1195,7 @@ end
 HANDLERS.fade_music_in = function(node, run)
   return blockOnTask(run, "music_fade", { node = node })
 end
-HANDLERS.process_soundplate = function(node, run)
+HANDLERS.process_soundplate = function(_, run)
   requireService(run, "audio"):processSoundplate()
   return Runtime.OUTCOME_CONTINUE
 end
@@ -1257,7 +1260,7 @@ end
 -- task polls the host's semantic idle query each tick and completes only
 -- when the command is idle again. Opcode 58 has no result operand, so no
 -- result reference rides along.
-HANDLERS.wait_signpost_action = function(node, run)
+HANDLERS.wait_signpost_action = function(_, run)
   requireForeground(run, "wait_signpost_action")
   local host = requireService(run, "signpost")
   ---@cast host ScriptSignpostHost
@@ -1349,15 +1352,15 @@ HANDLERS.close_message = function(node, run)
   requireService(run, "dialogue"):close(node.erase ~= false)
   return Runtime.OUTCOME_CONTINUE
 end
-HANDLERS.hold_message = function(node, run)
+HANDLERS.hold_message = function(_, run)
   requireService(run, "dialogue"):hold()
   return Runtime.OUTCOME_CONTINUE
 end
-HANDLERS.show_waiting_icon = function(node, run)
+HANDLERS.show_waiting_icon = function(_, run)
   requireService(run, "dialogue"):showWaitingIcon()
   return Runtime.OUTCOME_CONTINUE
 end
-HANDLERS.hide_waiting_icon = function(node, run)
+HANDLERS.hide_waiting_icon = function(_, run)
   requireService(run, "dialogue"):hideWaitingIcon()
   return Runtime.OUTCOME_CONTINUE
 end

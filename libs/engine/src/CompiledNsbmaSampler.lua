@@ -25,33 +25,68 @@
 
 local AnimationClip = require("libs.assets.src.AnimationClip")
 
+---@class CompiledNsbmaChannel
+---@field source "constant"|"curve"
+---@field value number
+---@field rate integer
+---@field limit integer
+---@field keys number[]
+---@field isAlpha boolean
+
+---@class CompiledNsbmaTarget
+---@field channels table<string, CompiledNsbmaChannel>
+
+---@class CompiledNsbmaClipPayload
+---@field targets CompiledNsbmaTarget[]
+
+---@class CompiledNsbmaClip
+---@field compiled CompiledNsbmaClipPayload
+---@field frameCount integer
+---@field id string|integer
+
 local CompiledNsbmaSampler = {}
 
 local FRAME_UNIT = AnimationClip.FRAME_UNIT
 
+---@param value number
+---@param bits integer
+---@return number
 local function asr(value, bits)
   return math.floor(value / 2 ^ bits)
 end
 
 -- 15-bit RGB555 channel masks, as the asm's 0x7C1F (B+R) and 0x3E0 (G)
 -- constants keep the per-channel averages clean.
+---@param v number
+---@return number
 local function brOf(v)
   return v % 32 + (v % 32768 - v % 1024)
 end
+---@param v number
+---@return number
 local function gOf(v)
   return v % 1024 - v % 32
 end
 
+---@param a number
+---@param b number
+---@return number
 local function avgColor(a, b)
   return asr(gOf(a) + gOf(b), 1) + asr(brOf(a) + brOf(b), 1)
 end
 
+---@param a number
+---@param b number
+---@return number
 local function weightedColor(a, b)
   return asr(3 * gOf(a) + gOf(b), 2) + asr(3 * brOf(a) + brOf(b), 2)
 end
 
 -- The shared odd-frame index logic; `isAlpha` selects u8 keys without the
 -- color-channel averaging, exactly like the decoder's sampleKeys.
+---@param chan CompiledNsbmaChannel
+---@param frame integer
+---@return number
 local function sampleKeys(chan, frame)
   local isAlpha = chan.isAlpha
   local keys = chan.keys
@@ -102,6 +137,10 @@ local CHANNEL_NAMES = { "diffuse", "ambient", "specular", "emission", "alpha" }
 -- the integer frame, clamped into [0, numFrame - 1]). Returns
 -- { diffuse, ambient, specular, emission, alpha } as raw values (15-bit
 -- RGB555 colors, 0..31 alpha), constants as stored.
+---@param clip CompiledNsbmaClip
+---@param targetIndex integer
+---@param frameFx number
+---@return table<string, number>
 function CompiledNsbmaSampler.sample(clip, targetIndex, frameFx)
   assert(type(clip) == "table" and clip.compiled ~= nil, "CompiledNsbmaSampler requires a clip with a compiled payload")
   local target = assert(
@@ -116,7 +155,7 @@ function CompiledNsbmaSampler.sample(clip, targetIndex, frameFx)
     frame = 0
   end
 
-  local out = {}
+  local out = {} ---@type table<string, number>
   for _, name in ipairs(CHANNEL_NAMES) do
     local chan = target.channels[name]
     assert(

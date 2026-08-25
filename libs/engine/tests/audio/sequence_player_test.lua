@@ -130,6 +130,7 @@ local function seq(instructions, opts)
   opts = opts or {}
   local sequence = AudioFixture.sequence(opts.id or 0, opts.symbol or "SEQ_TEST", 12, opts.playerId or 1, {
     entry = 1,
+    initialTrackMask = 0x0001,
     instructions = instructions,
   }, {
     id = opts.playerId or 1,
@@ -274,7 +275,7 @@ local function stubMixer()
     end,
     renderInto = function(_, out, frames)
       log.renders[#log.renders + 1] = frames
-      for i = 1, frames * 2 do
+      for _ = 1, frames * 2 do
         out[#out + 1] = 0
       end
     end,
@@ -300,7 +301,7 @@ function T.plays_a_note_and_ends_the_sequence()
   for i = 1, 16 do
     Assert.equal(before[i], 0, "nothing plays before play()")
   end
-  local handle = play(player, provider)
+  play(player, provider)
   Assert.isTrue(player:isPlaying())
   player:render(500)
   Assert.deepEqual(
@@ -2026,7 +2027,7 @@ function T.all_sixteen_tracks_play_in_parallel()
   main[#main + 1] = { op = "note", key = 60, velocity = 127, duration = 1 }
   main[#main + 1] = { op = "end" }
   local instructions = main
-  for track = 1, 15 do
+  for _ = 1, 15 do
     instructions[#instructions + 1] = { op = "note", key = 60, velocity = 127, duration = 1 }
     instructions[#instructions + 1] = { op = "end" }
   end
@@ -2802,7 +2803,7 @@ function T.tied_renote_writes_false_only_for_zero_portamento_time()
       { op = "end" },
     }),
   }, { mixer = mixer })
-  local handle = play(player, provider)
+  play(player, provider)
   Assert.isNil(mixer.log.updates[1].partial.autoSweep, "nonzero tied portamento preserves false by omission")
 
   local zeroMixer = stubMixer()
@@ -3660,7 +3661,7 @@ function BoundaryMixer:renderInto(out, frames)
     end
   end
   self.renders[#self.renders + 1] = self._frame
-  for i = 1, frames * 2 do
+  for _ = 1, frames * 2 do
     out[#out + 1] = 0
   end
 end

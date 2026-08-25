@@ -16,6 +16,10 @@ local SoundWaitTask = require("libs.engine.src.script.tasks.SoundWaitTask")
 local FadeTask = require("libs.engine.src.script.tasks.FadeTask")
 local WarpTask = require("libs.engine.src.script.tasks.WarpTask")
 local FakeServices = require("tests.support.script.FakeServices")
+---@cast WaitTicksTask TaskImplementation
+---@cast SoundWaitTask TaskImplementation
+---@cast FadeTask TaskImplementation
+---@cast WarpTask TaskImplementation
 
 local T = {}
 
@@ -442,7 +446,6 @@ end
 -- (never a silent "not found").
 T["real maps service warp"] = function()
   local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
-  local Errors = require("libs.errors.src.Errors")
   local started = nil
   local loader = {}
   loader.load = function(self, symbol)
@@ -453,7 +456,7 @@ T["real maps service warp"] = function()
     Errors.raise("FIELD_MAP_UNKNOWN", "no runtime map for " .. tostring(symbol), {})
   end
   local transition = {
-    start = function(self, sourceMap, trigger, facing)
+    start = function(_, _, trigger, facing)
       started = { warp = trigger.warp, facing = facing }
     end,
   }
@@ -555,7 +558,7 @@ T["failed scripted warp faults the script"] = function()
     error = nil,
     sourceMap = nil,
   }
-  transition.start = function(self, sourceMap, warp, facing)
+  transition.start = function(self, sourceMap, warp, _)
     self.phase = "fade_out"
     self.sourceMap = sourceMap
     self.startedWarp = warp
@@ -678,7 +681,7 @@ end
 T["music fades block until the backend reports the fade inactive"] = function()
   local h = harness({ audio = true })
   h.services.advanceAsync = nil
-  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask") --[[@as TaskImplementation]]
   h.taskRegistry:register("music_fade", 1, MusicFadeTask)
   local resource = script("test.fadeblock", {
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),
@@ -736,7 +739,7 @@ end
 -- completed fade.
 T["music fade without backend faults"] = function()
   local h = harness({ audio = false })
-  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask") --[[@as TaskImplementation]]
   h.taskRegistry:register("music_fade", 1, MusicFadeTask)
   local resource = script("test.fadefault", {
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),
@@ -775,20 +778,20 @@ T["music fade task completes exactly when the real fade reaches its target"] = f
   local GameSound = require("libs.engine.src.audio.GameSound")
   local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
   local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
-  local provider = AudioAssetProvider.new(AudioFixture.readyCache(AudioFixture.bundle()))
+  local provider = AudioAssetProvider.new(AudioFixture.readyCache(AudioFixture.bundle())) --[[@as AudioAssetProvider]]
   local mixer = VoiceMixer.new({ sampleRate = 48000 })
   local player = SequencePlayer.new({
     sampleRate = 48000,
     mixer = mixer,
     provider = provider,
-  })
+  }) --[[@as SequencePlayer]]
   local sound = GameSound.new({ provider = provider, player = player })
   local h = harness({ audio = false })
   h.services.audio = sound
   h.services.advanceAsync = function()
     sound:updateSoundFrame()
   end
-  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask") --[[@as TaskImplementation]]
   h.taskRegistry:register("music_fade", 1, MusicFadeTask)
   local resource = script("test.fadereal", {
     S.playMusic({ music = "SEQ_TEST_A" }),
@@ -947,7 +950,7 @@ T["process soundplate calls forced processing once and continues same tick"] = f
   local h = harness({ audio = true })
   local processCalls = 0
   ---@diagnostic disable-next-line: inject-field -- test records forced processing
-  h.audio.processSoundplate = function(self)
+  h.audio.processSoundplate = function(_)
     processCalls = processCalls + 1
   end
   local resource = script("test.soundplate", {
@@ -967,7 +970,7 @@ T["consecutive process soundplate calls run twice in one tick"] = function()
   local h = harness({ audio = true })
   local processCalls = 0
   ---@diagnostic disable-next-line: inject-field -- test records forced processing
-  h.audio.processSoundplate = function(self)
+  h.audio.processSoundplate = function(_)
     processCalls = processCalls + 1
   end
   local resource = script("test.double", {
@@ -997,7 +1000,7 @@ T["process soundplate after flag change sees updated event state"] = function()
   local h = harness({ audio = true })
   local seenFlag = nil
   ---@diagnostic disable-next-line: inject-field -- test observes flag through forced processing
-  h.audio.processSoundplate = function(self)
+  h.audio.processSoundplate = function(_)
     seenFlag = h.services.world:isFlagSet("FLAG_WATERFALL_DONE")
   end
   local resource = script("test.flagbefore", {

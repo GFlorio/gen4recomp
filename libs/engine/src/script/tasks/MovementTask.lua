@@ -218,11 +218,9 @@ end
 ---@return Errors.Error|nil
 function MovementTask.validate(state)
   if type(state) ~= "table" or type(state.sequence) ~= "table" then
-    return Errors.new(
-      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "movement state must hold its sequence",
-      { state = state }
-    )
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "movement state must hold its sequence", context)
   end
   return nil
 end

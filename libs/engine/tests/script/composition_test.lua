@@ -89,7 +89,7 @@ end
 
 -- 4. Unknown id resolves to nil.
 T["unknown id"] = function()
-  local registry, composition = newRegistry()
+  local _, composition = newRegistry()
   Assert.isNil(composition:effective("new_bark.lab_sign"))
 end
 

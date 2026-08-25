@@ -2,50 +2,87 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 
+---@class FieldWeatherTest.Cache
+---@field FORMAT string
+---@field SCHEMA string
+---@field marker fun(romSha1: string, depHash: string): string
+---@field catalogPath fun(): string
+---@field markerPath fun(): string
+---@field isReady fun(cacheFs: table, expectedMarker: string): boolean
+---@field validateCatalog fun(catalog: FieldWeatherTest.Catalog): boolean, table?
+
+---@return FieldWeatherTest.Cache
 local function requireCache()
   local ok, mod = pcall(require, "libs.assets.src.FieldWeatherCache")
   if not ok then
     error("FieldWeatherCache is absent: runtime has no generated weather catalog authority", 0)
   end
-  return mod
+  local cache = mod ---@cast cache FieldWeatherTest.Cache
+  return cache
 end
 
 local T = {}
 
+---@class FieldWeatherTest.Preset
+---@field enabled boolean|string
+---@field color number
+---@field offset number
+---@field slope number
+---@field alpha number
+---@field table number[]
+
+---@class FieldWeatherTest.Catalog
+---@field schema string
+---@field presets table<integer, FieldWeatherTest.Preset>
+---@field rules FieldWeatherTest.Rule[]
+
+---@class FieldWeatherTest.Rule
+---@field kind string
+---@field dates table[]?
+---@field [string] table|string|number|boolean|nil
+
+---@return table
 local function cache()
   return CacheFs.forVersion("heartgold", FakeCache.new())
 end
 
+---@return number[]
 local function rampTable()
-  local t = {}
+  local t = {} ---@type number[]
   for i = 1, 32 do
     t[i] = (i - 1) * 4
   end
   return t
 end
 
+---@return number[]
 local function flashTable()
-  local t = {}
+  local t = {} ---@type number[]
   for i = 1, 32 do
     t[i] = 255
   end
   return t
 end
 
+---@param id integer
+---@return FieldWeatherTest.Preset
 local function validPreset(id)
   local enabled = (id ~= 0 and id ~= 7)
-  return {
+  local preset = {
     enabled = enabled,
     color = 0,
     offset = 0,
     slope = enabled and 3 or 0,
     alpha = enabled and 31 or 0,
     table = rampTable(),
-  }
+  } ---@cast preset FieldWeatherTest.Preset
+  return preset
 end
 
+---@return FieldWeatherTest.Catalog
 local function validCatalog()
-  local presets = {}
+  local presets = {} ---@type table<integer, FieldWeatherTest.Preset>
+  local rules = {} ---@type FieldWeatherTest.Rule[]
   for id = 0, 13 do
     presets[id] = validPreset(id)
   end
@@ -53,22 +90,24 @@ local function validCatalog()
   presets[12].table = flashTable()
   presets[11].slope = 10
   presets[12].slope = 10
-  return {
+  rules = {
+    {
+      kind = "calendar_map_override",
+      mapId = 465,
+      weatherId = 8,
+      requireNoPenalty = true,
+      dates = { { month = 1, day = 1 } },
+    },
+    { kind = "map_var_equals", mapId = 88, varId = 0x4037, value = 0xF229, weatherId = 0 },
+    { kind = "weather_flag_override", fromWeatherId = 9, flagId = 2420, weatherId = 0 },
+    { kind = "weather_flag_override", fromWeatherId = 11, flagId = 2419, weatherId = 12 },
+  }
+  local catalog = {
     schema = "g4-field-weather-v1",
     presets = presets,
-    rules = {
-      {
-        kind = "calendar_map_override",
-        mapId = 465,
-        weatherId = 8,
-        requireNoPenalty = true,
-        dates = { { month = 1, day = 1 } },
-      },
-      { kind = "map_var_equals", mapId = 88, varId = 0x4037, value = 0xF229, weatherId = 0 },
-      { kind = "weather_flag_override", fromWeatherId = 9, flagId = 2420, weatherId = 0 },
-      { kind = "weather_flag_override", fromWeatherId = 11, flagId = 2419, weatherId = 12 },
-    },
-  }
+    rules = rules,
+  } ---@cast catalog FieldWeatherTest.Catalog
+  return catalog
 end
 
 function T.contract_constants_flow_from_the_contract_owner()

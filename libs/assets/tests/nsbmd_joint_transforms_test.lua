@@ -42,8 +42,18 @@ end
 
 local EPS = 1e-9
 
+---@param m number[]
+---@param from number[]
+---@param expected number[]
+---@param msg string?
 local function assertSends(m, from, expected, msg)
-  local x, y, z = Matrix4.transformPoint(m, from[1], from[2], from[3])
+  local fromX = from[1] ---@type number
+  local fromY = from[2] ---@type number
+  local fromZ = from[3] ---@type number
+  local transformed = { Matrix4.transformPoint(m, fromX, fromY, fromZ) } ---@type number[]
+  local x = transformed[1]
+  local y = transformed[2]
+  local z = transformed[3]
   if math.abs(x - expected[1]) > EPS or math.abs(y - expected[2]) > EPS or math.abs(z - expected[3]) > EPS then
     error(
       string.format(
@@ -64,7 +74,8 @@ local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected " .. code .. " to be raised")
   Assert.isTrue(Errors.is(err), "expected a structured Errors value, got " .. tostring(err))
-  Assert.equal(err.code, code)
+  local errorValue = err ---@cast errorValue Errors.Error
+  Assert.equal(errorValue.code, code)
 end
 
 -- ---- standard (rule 0) ----
