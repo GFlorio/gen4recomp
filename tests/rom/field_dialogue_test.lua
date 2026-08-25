@@ -14,10 +14,12 @@ local FieldFontCache = require("libs.assets.src.FieldFontCache")
 
 local T = {}
 
+---@param version string
+---@return FieldFontDef
 local function fontDef(version)
   local def = assert(CacheFs.forVersion(version):loadLua("data/generated/field/font/font-0.lua"))
   assert(def.schema == FieldFontCache.SCHEMA, "field font cache is cold")
-  return def
+  return def --[[@as FieldFontDef]]
 end
 
 -- Runs one real bank message through format -> layout -> controller and
@@ -69,7 +71,7 @@ local function runMessage(version, bankId, messageId)
   return #first.pages, completed
 end
 
-function T.target_fixture_messages_lay_out_and_close(romFs, version)
+function T.target_fixture_messages_lay_out_and_close(_, version)
   local cases = {
     { bankId = 542, messageId = 1 },
     { bankId = 543, messageId = 5 },
@@ -92,11 +94,10 @@ function T.target_fixture_messages_lay_out_and_close(romFs, version)
   end
 end
 
-function T.target_lines_stay_inside_the_reference_text_width(romFs, version)
+function T.target_lines_stay_inside_the_reference_text_width(_, version)
   local def = fontDef(version)
   local cache = CacheFs.forVersion(version)
   local provider = assert(FieldMessageProvider.new(cache))
-  local bank = provider:acquireBank(543)
   local metrics = FieldDialogueTheme.fontMetrics(def)
   local widths = {}
   for messageId = 0, 105 do

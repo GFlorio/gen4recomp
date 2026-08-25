@@ -25,9 +25,7 @@ local TimeOfDayProps = {}
 ---@field name string
 ---@field timeBand string?
 
----@class TimeOfDayProps.Instance
----@field play fun(self: TimeOfDayProps.Instance, name: string, opts: table)
----@field stop fun(self: TimeOfDayProps.Instance, name: string)
+---@class TimeOfDayProps.Instance: ModelInstance
 
 TimeOfDayProps.BANDS = AnimationClip.BANDS
 

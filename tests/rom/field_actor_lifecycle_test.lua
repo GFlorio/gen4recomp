@@ -92,7 +92,9 @@ local function labSession(romFs)
   FieldScenario.apply(scenarioManifest, eventState, reader)
   local assets = stubAssets()
   local manager = FieldActorManager.new({ assets = assets, policy = POLICY })
+  ---@cast manager FieldActorManager
   local map = labRuntimeMap(romFs, reader(LAB))
+  ---@cast map RuntimeFieldMap
   manager:enterMap(map, eventState)
   return manager, eventState, assets, map
 end
@@ -121,16 +123,19 @@ end
 
 function T.demo_scenario_shows_elm_and_the_aide_and_hides_the_story_actors(romFs)
   local manager = labSession(romFs)
+  ---@cast manager FieldActorManager
   Assert.notNil(manager:getById("map:61:object:0"), "Professor Elm must be visible")
   Assert.notNil(manager:getById("map:61:object:2"), "the aide must be visible")
   Assert.isNil(manager:getById("map:61:object:1"), "the officer must be hidden")
   Assert.isNil(manager:getById("map:61:object:3"), "the friend actor must be hidden")
-  Assert.equal(#manager:actorsOf(LAB), 2)
+  ---@cast manager FieldActorManager
+  Assert.equal(#FieldActorManager.actorsOf(manager, LAB), 2)
 end
 
 function T.visible_lab_actors_resolve_one_surface_and_occupy_their_cell(romFs)
   local manager = labSession(romFs)
-  for _, actor in ipairs(manager:actorsOf(LAB)) do
+  ---@cast manager FieldActorManager
+  for _, actor in ipairs(FieldActorManager.actorsOf(manager, LAB)) do
     Assert.equal(actor.surfaceId, 0)
     Assert.equal(actor.worldY, 0)
     Assert.isTrue(manager:isOccupied(LAB, actor.fieldX, actor.fieldZ, actor.surfaceId))
@@ -195,7 +200,7 @@ function T.repeated_lab_entry_keeps_identities_stable_and_visuals_balanced(romFs
     Assert.equal(assets:total(), 0)
     manager:enterMap(map, eventState)
     Assert.equal(assets:total(), baseline)
-    Assert.equal(#manager:actorsOf(LAB), 2)
+    Assert.equal(#FieldActorManager.actorsOf(manager, LAB), 2)
   end
   manager:dispose()
   Assert.equal(assets:total(), 0)

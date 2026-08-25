@@ -47,7 +47,7 @@ end
 -- section the HGSS sound system actually uses; exact counts are an inventory
 -- report, not an assertion target. Embedded-resource signatures and declared
 -- sizes are enforced by the parse itself and pinned by the component suite.
-function T.parses_and_reports_consistent_counts(romFs, version)
+function T.parses_and_reports_consistent_counts(romFs, _)
   local sdat = parseSdat(romFs)
   local counts = sdat.counts
   Assert.notNil(counts)
@@ -68,7 +68,7 @@ end
 
 -- Every sequence->bank reference resolves: the referenced bank slot is either
 -- none (0xFFFF) or a used bank record.
-function T.sequence_to_bank_references_resolve(romFs, version)
+function T.sequence_to_bank_references_resolve(romFs, _)
   local sdat = parseSdat(romFs)
   for _, id in ipairs(usedIds(sdat.sequences, sdat.counts.sequences)) do
     local bankId = sdat.sequences[id].bankId
@@ -84,7 +84,7 @@ end
 -- slot of a bank record names a used wave archive. The instrument-level
 -- wave-archive references are the compiler's contract (the audio_compile
 -- suite compiles every referenced bank and sample).
-function T.bank_to_wave_archive_references_resolve(romFs, version)
+function T.bank_to_wave_archive_references_resolve(romFs, _)
   local sdat = parseSdat(romFs)
   for _, id in ipairs(usedIds(sdat.banks, sdat.counts.banks)) do
     local bank = sdat.banks[id]
@@ -102,7 +102,7 @@ function T.bank_to_wave_archive_references_resolve(romFs, version)
 end
 
 -- The symbol block exists and names every used slot of every section.
-function T.symbol_block_covers_every_used_slot(romFs, version)
+function T.symbol_block_covers_every_used_slot(romFs, _)
   local sdat = parseSdat(romFs)
   Assert.notNil(sdat.symbols, "symbol block present")
   for _, cls in ipairs(RESOURCE_CLASSES) do
@@ -118,7 +118,7 @@ function T.symbol_block_covers_every_used_slot(romFs, version)
 end
 
 -- Parsing the archive twice yields identical counts, records, and symbols.
-function T.parsing_is_deterministic(romFs, version)
+function T.parsing_is_deterministic(romFs, _)
   local first = parseSdat(romFs)
   local second = parseSdat(romFs)
   Assert.deepEqual(second.counts, first.counts)

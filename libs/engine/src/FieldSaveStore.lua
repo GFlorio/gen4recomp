@@ -27,7 +27,8 @@ local TEMP_PATH = FieldSave.PATH .. ".tmp"
 ---@return FieldSaveStore
 function FieldSaveStore.new(saveFs, opts)
   assert(getmetatable(saveFs) == SaveFs, "field save SaveFs required")
-  local self = { saveFs = saveFs, opts = opts or {} } ---@type FieldSaveStore
+  local self = { saveFs = saveFs, opts = opts or {} }
+  ---@cast self FieldSaveStore
   return setmetatable(self, FieldSaveStore)
 end
 

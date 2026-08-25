@@ -106,6 +106,7 @@ end
 ---@param text string
 ---@param originX number
 ---@param originY number
+---@return number
 local function pasteText(reference, fontDef, text, originX, originY)
   local x = originX
   for i = 1, #text do
@@ -115,7 +116,7 @@ local function pasteText(reference, fontDef, text, originX, originY)
     local r, g, b = FieldUiFixture.cardGlyphColor(code)
     for y = 0, glyph.h - 1 do
       for gx = 0, glyph.w - 1 do
-        reference:setPixel(x + gx, originY + y, r / 255, g / 255, b / 255, 1)
+        reference:setPixel(math.floor(x + gx), math.floor(originY + y), r / 255, g / 255, b / 255, 1)
       end
     end
     x = x + glyph.advance
@@ -233,7 +234,7 @@ function T.canonical_golden_matches_the_real_generated_card_pixel_for_pixel(scop
   Assert.equal(fontDef.schema, FieldFontCache.SCHEMA, "the real font def schema")
 
   local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
-  local art = love.image.newImageData(love.filesystem.newFileData(cache:read(front.image), front.image))
+  local art = love.image.newImageData(love.filesystem.newFileData(assert(cache:read(front.image)), front.image))
   local function blend(target, source, originX, originY)
     for y = 0, source:getHeight() - 1 do
       for x = 0, source:getWidth() - 1 do
@@ -263,7 +264,7 @@ function T.canonical_golden_matches_the_real_generated_card_pixel_for_pixel(scop
       local code = fontDef.charmap[char]
       local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
       local glyphData = love.image.newImageData(
-        love.filesystem.newFileData(cache:read("assets/generated/field/font/font-0.png"), "font-0.png")
+        love.filesystem.newFileData(assert(cache:read("assets/generated/field/font/font-0.png")), "font-0.png")
       )
       local width, height = glyph.w, glyph.h
       local tile = love.image.newImageData(width, height)

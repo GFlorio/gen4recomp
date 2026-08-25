@@ -101,6 +101,7 @@ function T.field_state_avatar_and_events_resume_on_both_target_maps(romFs, versi
       },
       transition = { phase = "idle" },
     }
+    ---@cast session FieldSave.Session
     local serialized = state:serialize()
     local saved = FieldSave.capture(session, {
       avatarId = "heroine",
@@ -150,6 +151,7 @@ function T.a_resumed_event_store_keeps_scenario_actors_hidden(romFs)
     },
     transition = { phase = "idle" },
   }
+  ---@cast session FieldSave.Session
   local serialized = state:serialize()
   local saved = FieldSave.capture(session, {
     avatarId = "hero",
@@ -172,6 +174,7 @@ function T.a_resumed_event_store_keeps_scenario_actors_hidden(romFs)
     vars = restored.world.variables,
   })
   local manager = FieldActorManager.new({ assets = fakeAssets(), policy = POLICY })
+  ---@cast maps table<integer, RuntimeFieldMap>
   manager:enterMap(maps[LAB], revived)
   Assert.notNil(manager:getById("map:61:object:0"), "Elm stays visible on resume")
   Assert.notNil(manager:getById("map:61:object:2"), "the aide stays visible on resume")

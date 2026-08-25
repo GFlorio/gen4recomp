@@ -104,7 +104,7 @@ function NsbmdModelFixture.buildInfo(numNode, numMat, numShp, posScale, invPosSc
   fields[#fields + 1] = u16(1) -- numPolygon
   fields[#fields + 1] = u16(1) -- numTriangle
   fields[#fields + 1] = u16(0) -- numQuad
-  for i = 1, 6 do
+  for _ = 1, 6 do
     fields[#fields + 1] = u16(0)
   end -- box x,y,z,w,h,d
   fields[#fields + 1] = u32(0x4000) -- boxPosScale

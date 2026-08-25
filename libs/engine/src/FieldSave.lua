@@ -353,7 +353,7 @@ end
 -- own (it is discarded on load and the restored wait tasks complete against
 -- the fresh audio service), so the gate never consults the audio
 -- collaborator.
----@param session FieldSave.Session?
+---@param session FieldSave.Session|FieldSession?
 ---@return boolean?
 function FieldSave.canCapture(session)
   return session
@@ -521,14 +521,20 @@ local function restore(record, loader, expectedVersionId, opts)
   }
 end
 
+---@param record table
+---@param loader table
+---@param expectedVersionId string
+---@param opts table?
 ---@return table?, Errors.Error?
 function FieldSave.restore(record, loader, expectedVersionId, opts)
   assert(loader and loader.load, "field save restore loader required")
   local ok, result = pcall(restore, record, loader, expectedVersionId, opts or {})
   if ok then
+    ---@cast result table
     return result
   end
   if Errors.is(result) then
+    ---@cast result Errors.Error
     return nil, result
   end
   error(result)

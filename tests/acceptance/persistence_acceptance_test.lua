@@ -496,8 +496,8 @@ function T.tests.resume_reuses_the_registry_snapshot_after_a_saved_session()
     resumed.runtime.input:pointerDown("mouse:1", x, y)
     resumed:step()
     resumed.runtime.input:pointerUp("mouse:1", x, y)
-    resumed:advanceUntil("menu closes after selection", function(snapshot)
-      return snapshot.menu ~= nil and not snapshot.menu.modal
+    resumed:advanceUntil("menu closes after selection", function(menuSnapshot)
+      return menuSnapshot.menu ~= nil and not menuSnapshot.menu.modal
     end, 120)
     Assert.equal(resumed.runtime.scripts.worldState:getVar(RESULT_VARIABLE), 1)
   end, debug.traceback)

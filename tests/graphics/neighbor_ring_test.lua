@@ -82,9 +82,11 @@ end
 
 -- Injected graphics namespace tracking created images and their release calls,
 -- so the image side of a failed cell load can be observed without a GL context.
+---@class RingFakeGraphics: love.Graphics
+---@field images table[]
 local function fakeGraphics()
   local images = {}
-  return {
+  local graphics = {
     images = images,
     newImage = function()
       local image = { released = false }
@@ -97,6 +99,8 @@ local function fakeGraphics()
       return image
     end,
   }
+  ---@cast graphics RingFakeGraphics
+  return graphics
 end
 
 -- Two cells sharing one geometry path (dedup) and one material each. `wraps`

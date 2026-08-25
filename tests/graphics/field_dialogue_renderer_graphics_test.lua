@@ -8,8 +8,6 @@
 -- stay in field_dialogue_renderer_test.lua.
 
 local Assert = require("tests.support.Assert")
-local CacheFs = require("libs.storage.src.CacheFs")
-local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
@@ -81,7 +79,7 @@ local function goldenReference(frameIndex)
   local rgba = FieldUiFixture.framePixels(frameIndex)
   local placements = FieldDialogueTheme.frameTilePlacements(FieldDialogueTheme.box)
   local function paste(x, y, r, g, b, a)
-    reference:setPixel(x, y, r, g, b, a)
+    reference:setPixel(math.floor(x), math.floor(y), r, g, b, a)
   end
   for _, p in ipairs(placements) do
     for row = 0, (p.spanY or 1) - 1 do
@@ -213,14 +211,15 @@ function T.a_closed_controller_draws_nothing_and_changes_no_state(scope)
   local dialogue = renderer(scope)
   local controller = FieldDialogueController.new({
     layout = function()
-      return { pages = {}, warnings = {} }
+      return { pages = {}, warnings = {}, lineHeight = 16, lineSpacing = 0 }
     end,
   })
 
   lg.setColor(0.1, 0.2, 0.3, 0.4)
-  dialogue:draw(controller, FieldViewport.new(960, 720, { mode = "expanded" }))
+  dialogue:draw(controller, FieldViewport.new(960, 720, { mode = "expanded" }), 1)
 
-  Assert.near(lg.getColor(), 0.1, 1e-6)
+  local red = lg.getColor()
+  Assert.near(red, 0.1, 1e-6)
   Assert.isNil(lg.getShader())
 end
 
@@ -255,7 +254,6 @@ end
 -- changes while the content geometry (transparent content rect, text at the
 -- same origin) stays identical.
 function T.canonical_golden_matches_frame_one_pixel_for_pixel(scope)
-  local lg = love.graphics
   local frame0 = canonicalRender(scope, 0)
   local frame1 = canonicalRender(scope, 1)
   assertPixelsEqual(goldenReference(1), frame1, "frame 1 golden")
@@ -266,7 +264,7 @@ function T.canonical_golden_matches_frame_one_pixel_for_pixel(scope)
     return math.floor(v * 255 + 0.5)
   end
   local function pixel(data, x, y)
-    local r, g, b, a = data:getPixel(x, y)
+    local r, g, b, a = data:getPixel(math.floor(x), math.floor(y))
     return quantize(r), quantize(g), quantize(b), quantize(a)
   end
   local f0r, f0g, f0b = pixel(frame0, 0, 144)

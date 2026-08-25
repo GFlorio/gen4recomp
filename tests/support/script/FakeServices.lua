@@ -69,6 +69,7 @@ end
 
 -- Deterministic Lehmer-style RNG : never math.random.
 ---@return table rng
+---@param seed integer
 function FakeWorld:newRng(seed)
   local rng = { _seed = seed or 0x2545F491 }
   function rng:nextRaw()
@@ -240,6 +241,7 @@ local FakePlayer = {}
 FakePlayer.__index = FakePlayer
 
 ---@return FakePlayer
+---@param opts table
 function FakePlayer.new(opts)
   opts = opts or {}
   return setmetatable({

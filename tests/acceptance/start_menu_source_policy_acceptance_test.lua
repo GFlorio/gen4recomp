@@ -7,7 +7,6 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local FieldState = require("game.src.game.FieldState")
 
 local T = {
   metadata = {
@@ -30,17 +29,6 @@ local function withGame(fn)
   if not ok then
     error(err, 0)
   end
-end
-
-local function hostCallbacks(game)
-  return setmetatable({
-    runtime = {
-      input = game.runtime.input,
-      actionKeys = game.runtime.actionKeys,
-      cancelKeys = game.runtime.cancelKeys,
-      menuKeys = game.runtime.menuKeys,
-    },
-  }, FieldState)
 end
 
 local function isMenuOpen(snapshot)

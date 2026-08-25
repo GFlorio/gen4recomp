@@ -188,7 +188,7 @@ local function block(counts, magic, buildLists)
 end
 
 local function buildInfo(spec, counts, fileIds)
-  return block(counts, "INFO", function(parts, listOffsets, poolStart)
+  return block(counts, "INFO", function(parts, _, poolStart)
     local pool = {}
     local poolSize = 0
     for _, section in ipairs(SECTION_ORDER) do
@@ -215,7 +215,7 @@ local function buildInfo(spec, counts, fileIds)
 end
 
 local function buildSymbols(spec, counts)
-  return block(counts, "SYMB", function(parts, listOffsets, stringStart)
+  return block(counts, "SYMB", function(parts, _, stringStart)
     local strings = {}
     local stringOffset = stringStart
     local customNames = spec.symbolNames or {}
@@ -332,11 +332,6 @@ end
 
 local function patch(bytes, pos0, replacement)
   return bytes:sub(1, pos0) .. replacement .. bytes:sub(pos0 + #replacement + 1)
-end
-
-local function u16decode(bytes, pos0)
-  local b1, b2 = bytes:byte(pos0 + 1, pos0 + 2)
-  return b1 + b2 * 256
 end
 
 local function u32decode(bytes, pos0)

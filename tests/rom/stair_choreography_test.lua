@@ -95,7 +95,7 @@ end
 -- destination player before the black-screen commit, like FieldRuntime.
 -- Returns the final player, the transition, the first-tick phase timeline,
 -- and the recorded sound ids.
-local function runChoreography(romFs, sourceScene, destinationScene, warp, facing, spawn)
+local function runChoreography(_, sourceScene, destinationScene, warp, facing, spawn)
   local sourceMap, destinationMap = sourceScene.map, destinationScene.map
   local maps = { [sourceMap.mapId] = sourceMap, [destinationMap.mapId] = destinationMap }
   local propsByMapId = { [sourceMap.mapId] = sourceScene.props, [destinationMap.mapId] = destinationScene.props }
@@ -110,6 +110,7 @@ local function runChoreography(romFs, sourceScene, destinationScene, warp, facin
     protectMap = function() end,
   }
 
+  ---@cast sourceMap RuntimeFieldMap
   local player = FieldPlayer.new({
     currentMap = sourceMap,
     fieldX = spawn.x,
@@ -177,7 +178,7 @@ end
 -- 1F (3,3) -> 2F: the standing WARP_STAIRS_WEST tile climbs in place while
 -- the fade runs; the swap lands the player on the 2F stair tile (3,4), which
 -- is itself a standing stair warp -- pressing west there re-arms immediately.
-function T.house_1f_to_2f_stairs_choreograph(romFs, version)
+function T.house_1f_to_2f_stairs_choreograph(romFs, _)
   local h1 = compileScene(romFs, HOUSE_1F)
   local h2 = compileScene(romFs, HOUSE_2F)
   local warp = assert(WarpSystem.findAt(h1.map, 3, 3))
@@ -213,7 +214,7 @@ end
 
 -- 2F (3,4) -> 1F: the descent mirrors the ascent and lands back on the 1F
 -- stair tile (3,3), unlocked and immediately re-armed.
-function T.house_2f_to_1f_stairs_choreograph(romFs, version)
+function T.house_2f_to_1f_stairs_choreograph(romFs, _)
   local h2 = compileScene(romFs, HOUSE_2F)
   local h1 = compileScene(romFs, HOUSE_1F)
   local warp = assert(WarpSystem.findAt(h2.map, 3, 4))

@@ -7,6 +7,7 @@ local SaveFs = require("libs.storage.src.SaveFs")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local App = require("game.src.game.App")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
 local AcceptanceScriptFs = require("tests.acceptance.support.AcceptanceScriptFs")
@@ -268,6 +269,7 @@ function Game:restart(options)
     runtime and runtime.session,
     "acceptance restart runtime boot failed: " .. tostring(runtime and runtime.errorText)
   )
+  ---@cast runtime FieldRuntime
   self.runtime = runtime
   self.map = options.map or self.map
   self.hosts = runtime.scriptHosts or {}
@@ -285,7 +287,9 @@ function Game:snapshot()
   local scheduler = runtime.scripts and runtime.scripts.scheduler
   local actors, occupancy = {}, {}
   if runtime.actors and runtime.runtimeMap then
-    for _, actor in ipairs(runtime.actors:actorsOf(runtime.runtimeMap.mapId)) do
+    local runtimeActors = runtime.actors
+    ---@cast runtimeActors FieldActorManager
+    for _, actor in ipairs(FieldActorManager.actorsOf(runtimeActors, runtime.runtimeMap.mapId)) do
       actors[actor.actorId] = {
         fieldX = actor.fieldX,
         fieldZ = actor.fieldZ,
@@ -553,7 +557,6 @@ function Game:moveTo(target)
     return setmetatable(copy, getmetatable(source))
   end
   local directions = { "north", "south", "west", "east" }
-  local deltas = { north = { 0, -1 }, south = { 0, 1 }, west = { -1, 0 }, east = { 1, 0 } }
   local function findRoute(source)
     local queue = { { player = copyPlayer(source), route = {} } }
     local seen = { [source.fieldX .. ":" .. source.fieldZ] = true }
@@ -827,6 +830,7 @@ function AcceptanceHarness:forEachVersion(fn)
   end
 end
 
+---@param options table
 ---@return AcceptanceGame
 function AcceptanceHarness:boot(options)
   assert(options and type(options.versionId) == "string", "acceptance boot version required")

@@ -55,7 +55,7 @@ function T.hour_bands_match_the_hgss_tables()
   Assert.equal(TimeOfDayProps.bandForHour(22), "nite")
 end
 
-function T.violet_gym_sky_prop_is_banded_on_real_data(romFs, version)
+function T.violet_gym_sky_prop_is_banded_on_real_data(romFs, _)
   local _, bundle = compileInto(romFs, "MAP_VIOLET_GYM")
   local desc = descriptorOf(bundle, 113)
   assert(desc, "kk_sky descriptor present in Violet Gym")
@@ -85,6 +85,7 @@ function T.violet_gym_sky_prop_is_banded_on_real_data(romFs, version)
   -- Swapping bands on a real instance plays exactly the band's clip and
   -- advances it (the decomp's remove-and-add).
   local instance = ModelInstance.new(definition)
+  ---@cast instance TimeOfDayProps.Instance
   TimeOfDayProps.swap(instance, plan, nil, "morn")
   Assert.deepEqual(playingNames(instance), { "kk_sky_m" })
   TimeOfDayProps.swap(instance, plan, "morn", "day")
@@ -103,7 +104,7 @@ end
 
 -- The banded model must not leak into the ambient policy of ordinary props:
 -- New Bark's wind machine is a single-clip model and stays unbanded.
-function T.new_bark_door_and_machine_stay_unbanded(romFs, version)
+function T.new_bark_door_and_machine_stay_unbanded(romFs, _)
   local _, bundle = compileInto(romFs, "MAP_NEW_BARK")
   local door = descriptorOf(bundle, 26)
   assert(door and door.dynamic)

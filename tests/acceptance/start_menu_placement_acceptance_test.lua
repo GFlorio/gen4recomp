@@ -60,8 +60,14 @@ end
 -- draws at frame origin + canonical * scale, so a canonical slot center maps
 -- to exactly the host point the mapper must agree with.
 local function slotCenter(placement, slot)
-  return placement.frame.x + (slot.x + slot.width / 2) * placement.scale,
-    placement.frame.y + (slot.y + slot.height / 2) * placement.scale
+  ---@cast placement { frame: { x: number, y: number }, scale: number }
+  assert(placement.frame ~= nil)
+  assert(placement.scale ~= nil)
+  local frame = placement.frame
+  local scale = placement.scale
+  local x, y = assert(slot.x ~= nil and slot.x), assert(slot.y ~= nil and slot.y)
+  local width, height = assert(slot.width ~= nil and slot.width), assert(slot.height ~= nil and slot.height)
+  return frame.x + (x + width / 2) * scale, frame.y + (y + height / 2) * scale
 end
 
 local function tapAt(game, x, y)

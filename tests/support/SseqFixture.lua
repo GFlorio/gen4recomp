@@ -28,7 +28,7 @@ local FntWriter = require("tests.support.FntWriter")
 local SseqFixture = {}
 
 local function u8(v)
-  return string.char(v % 256)
+  return string.char(math.floor(v) % 256)
 end
 local u16, u32 = FntWriter.u16, FntWriter.u32
 
@@ -148,13 +148,13 @@ local function commandBytes(cmd, offsets)
     return u8(0xFF)
   end
   if op == "nop_op" then
-    local cmd = cmd.command or 0xFE
+    local command = cmd.command or 0xFE
     -- The 0x80-0x8F class consumes a variable-length operand even for
     -- reserved commands; every other reserved form is zero-operand.
-    if cmd >= 0x80 and cmd <= 0x8F then
-      return u8(cmd) .. varlen(0)
+    if command >= 0x80 and command <= 0x8F then
+      return u8(command) .. varlen(0)
     end
-    return u8(cmd)
+    return u8(command)
   end
   if VAR_OPS[op] then
     return u8(VAR_OPS[op]) .. u8(cmd.var) .. encodeAmount(cmd.amount, 16)

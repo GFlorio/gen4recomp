@@ -317,10 +317,10 @@ function SwarFixture.build(members)
   local content = {}
   local offsets = {}
   local cursor = 0x3C + #members * 4
-  for index, member in ipairs(members) do
+  for index, memberBytes in ipairs(members) do
     offsets[index - 1] = cursor
-    content[#content + 1] = member
-    cursor = cursor + #member
+    content[#content + 1] = memberBytes
+    cursor = cursor + #memberBytes
   end
   local parts = { u32(#members) }
   for i = 0, #members - 1 do

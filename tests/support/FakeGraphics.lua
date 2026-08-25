@@ -11,7 +11,7 @@
 -- suites assert exactly the record shapes this helper produces; the real
 -- love.graphics object is never touched.
 
----@class FakeGraphics
+---@class FakeGraphics: love.Graphics
 ---@field images table[]
 ---@field draws table[]
 ---@field transforms table[]
@@ -26,6 +26,7 @@ local FakeGraphics = {}
 -- a love.Graphics subset plus the recording fields; call sites pass it as
 -- the renderers' injectable graphics namespace.
 ---@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer, failOnImageCall?: integer, failOnShaderCall?: integer }
+---@return FakeGraphics
 function FakeGraphics.new(opts)
   opts = opts or {}
   local images = {}

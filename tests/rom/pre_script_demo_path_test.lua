@@ -31,7 +31,7 @@ local POLICY = {
 
 -- Manager + player on one map under the deterministic scenario. The scenario
 -- resolves flags across both target maps, so the reader serves all of them.
-local function scene(romFs, mapsById, map)
+local function scene(_, mapsById, map)
   local reader = function(mapId)
     return assert(mapsById[mapId], "scenario map " .. mapId .. " not compiled").fieldData
   end
@@ -47,11 +47,13 @@ local function scene(romFs, mapsById, map)
     release = function() end,
   }
   local manager = FieldActorManager.new({ assets = assets, policy = POLICY })
+  ---@cast map RuntimeFieldMap
   manager:enterMap(map, eventState)
   return manager, eventState
 end
 
 local function playerAt(map, manager, fieldX, fieldZ, facing)
+  ---@cast map RuntimeFieldMap
   local localX, localZ = fieldX - map.coordinateOrigin.x, fieldZ - map.coordinateOrigin.z
   local sample = assert(SurfaceResolver.new(map.terrain):resolve({
     localX = localX + 0.5,
@@ -182,7 +184,8 @@ function T.the_town_scenario_population_matches_the_demo(romFs)
   }
   local town = mapsById[TOWN]
   local manager = scene(romFs, mapsById, town)
-  local actors = manager:actorsOf(TOWN)
+  ---@cast manager FieldActorManager
+  local actors = FieldActorManager.actorsOf(manager, TOWN)
   local expected = { ["map:60:object:1"] = true, ["map:60:object:2"] = true, ["map:60:object:5"] = true }
   Assert.equal(#actors, 3)
   for _, actor in ipairs(actors) do

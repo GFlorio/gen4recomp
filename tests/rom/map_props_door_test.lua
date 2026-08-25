@@ -67,6 +67,9 @@ end
 -- every placement carries the model-space AABB the loader stamps from the
 -- geometry, and the door tiles (the permission grid's DOOR-behavior tiles)
 -- are precomputed into the ownership index the loader builds at assembly.
+---@param romFs table
+---@param symbol string
+---@return MapProps, table, table
 local function propsFor(romFs, symbol)
   local assets = assert(MapAssetCompiler.compile(romFs, symbol))
   local scene = assets.scene
@@ -91,12 +94,23 @@ local function propsFor(romFs, symbol)
     instances = instances,
     doorTiles = DoorTiles.fromGrid(map.collision),
   })
-  return props, map, instances
+  ---@cast props MapProps
+  return props,
+    map, --[[@as RuntimeFieldMap]]
+    instances
 end
 
 -- The door at (x, z) resolved to the placement whose model member id matches.
+---@param props MapProps
+---@param map table
+---@param x integer
+---@param z integer
+---@param memberId integer
+---@param destinationMapId integer
+---@return nil
 local function doorAtMember(props, map, x, z, memberId, destinationMapId)
-  local door = assert(props:doorAt(map, x, z), "door tile (" .. x .. "," .. z .. ") resolves")
+  ---@cast map RuntimeFieldMap
+  local door = assert(MapProps.doorAt(props, map, x, z), "door tile (" .. x .. "," .. z .. ") resolves")
   Assert.equal(door.x, x)
   Assert.equal(door.z, z)
   Assert.isTrue(door.modelKey:find("outdoor:" .. memberId .. ":", 1, true) == 1, "door model member " .. memberId)
@@ -133,8 +147,9 @@ end
 -- per-call scan that could re-resolve the tile to the decoy).
 function T.new_bark_town_door_resolution_is_precomputed_not_rescanned(romFs)
   local props, map = propsFor(romFs, "MAP_NEW_BARK")
+  ---@cast map RuntimeFieldMap
   local x, z = 684, 393
-  local door = assert(props:doorAt(map, x, z))
+  local door = assert(MapProps.doorAt(props, map, x, z))
   Assert.isTrue(door.modelKey:find("outdoor:26:", 1, true) == 1, "the town door model")
   local wx, wz = tileCenterWorld(map, x, z)
   props.placements[#props.placements + 1] = {
@@ -143,14 +158,15 @@ function T.new_bark_town_door_resolution_is_precomputed_not_rescanned(romFs)
     transform = Matrix4.translate(wx, 0, wz),
     bounds = { minX = -1, maxX = 1, minY = -1, maxY = 1, minZ = -1, maxZ = 1 },
   }
-  local again = assert(props:doorAt(map, x, z))
+  local again = assert(MapProps.doorAt(props, map, x, z))
   Assert.isTrue(again.modelKey:find("outdoor:26:", 1, true) == 1, "the index snapshot still resolves the town door")
   Assert.equal(again.placementIndex, door.placementIndex)
 end
 
 function T.new_bark_lab_door_plays_to_completion(romFs)
   local props, map, instances = propsFor(romFs, "MAP_NEW_BARK")
-  local door = assert(props:doorAt(map, 684, 393))
+  ---@cast map RuntimeFieldMap
+  local door = assert(MapProps.doorAt(props, map, 684, 393))
   local instance = assert(door.instance)
   Assert.equal(instance, instances[door.placementIndex])
   door:open()
@@ -175,11 +191,16 @@ end
 
 function T.interior_entrances_and_non_door_warps_resolve_nil(romFs)
   local labProps, labMap = propsFor(romFs, "MAP_NEW_BARK_ELMS_LAB_1F")
-  Assert.isNil(labProps:doorAt(labMap, 4, 14), "Elm Lab's entrance-south tile is not a door lookup")
+  ---@cast labMap RuntimeFieldMap
+  Assert.isNil(MapProps.doorAt(labProps, labMap, 4, 14), "Elm Lab's entrance-south tile is not a door lookup")
 
   local townProps, townMap = propsFor(romFs, "MAP_NEW_BARK")
-  Assert.isNil(townProps:doorAt(townMap, 688, 392), "the WARP_WEST tile is not a door lookup")
-  Assert.isNil(townProps:doorAt(townMap, 684, 394), "the walkable tile south of the lab door is not a door lookup")
+  ---@cast townMap RuntimeFieldMap
+  Assert.isNil(MapProps.doorAt(townProps, townMap, 688, 392), "the WARP_WEST tile is not a door lookup")
+  Assert.isNil(
+    MapProps.doorAt(townProps, townMap, 684, 394),
+    "the walkable tile south of the lab door is not a door lookup"
+  )
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

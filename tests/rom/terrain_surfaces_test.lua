@@ -91,7 +91,7 @@ function T.target_terrain_artifacts_are_deterministic(romFs)
 end
 
 function T.new_bark_east_staircase_facts_and_path_are_frozen(romFs)
-  local artifact, resolved = load(romFs, "MAP_NEW_BARK")
+  local artifact = load(romFs, "MAP_NEW_BARK")
   local terrain = TerrainSurface.new(artifact)
   local stair = artifact.plates[1]
   Assert.equal(stair.id, 0)
@@ -131,6 +131,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     -- map clock entry is a safe no-op.
     updateAnimated = function() end,
   }
+  ---@cast runtimeMap RuntimeFieldMap
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
     fieldX = resolved.worldOriginX + 16,
@@ -197,6 +198,15 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       return false
     end,
   }
+  ---@cast camera FieldCamera
+  ---@cast transition FieldTransition
+  ---@cast input FieldInput
+  ---@cast actors FieldActorManager
+  ---@cast dialogue FieldDialogueController
+  ---@cast scriptScheduler Scheduler
+  ---@cast scriptClient ScriptInteractionClient
+  ---@cast menuHost FieldMenuHost
+  ---@cast signpost FieldSignpostController
   local interactions = {
     resolve = function()
       return nil
@@ -300,6 +310,7 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     -- map clock entry is a safe no-op.
     updateAnimated = function() end,
   }
+  ---@cast runtimeMap RuntimeFieldMap
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
     fieldX = resolved.worldOriginX + 16,
@@ -316,6 +327,7 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
     player = player,
     transition = { phase = "idle" },
   }
+  ---@cast session FieldSave.Session
   local saved = FieldSave.capture(session, {
     avatarId = "hero",
     scenario = "terrain-surfaces",

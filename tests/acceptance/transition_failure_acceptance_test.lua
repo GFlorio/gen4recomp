@@ -39,6 +39,7 @@ local function failOneCacheRead(game, relativePath)
     end
     return original:read(path)
   end
+  ---@cast backend ScopedFs.Backend
   cacheFs.backend = backend
 end
 

@@ -168,6 +168,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     protectMap = function() end,
   }
   local spawn = opts.spawn
+  ---@cast spawn { map: RuntimeFieldMap, x: integer, z: integer, facing: string }
   local player = FieldPlayer.new({
     currentMap = spawn.map,
     fieldX = spawn.x,
@@ -230,6 +231,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     updateFixed = function() end,
     collapseRenderInterpolation = function() end,
   }
+  ---@cast camera FieldCamera
   local playerVisual = {
     updateFixed = function(_, walking)
       if walking then
@@ -237,7 +239,9 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       end
     end,
   }
+  ---@cast playerVisual FieldPlayerVisual
   local actors = { step = function() end }
+  ---@cast actors FieldActorManager
   session = FieldSession.new({
     versionId = versionId,
     currentMap = spawn.map,

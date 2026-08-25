@@ -22,7 +22,6 @@ local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 
 local Tex0Fixture = {}
 
-local PALETTE_BYTES = 8 -- four rgb555 entries
 local FORMAT_PALETTE16 = 3
 
 -- Texel byte length for a format/dimension pair, mirroring the Nsbtx

@@ -128,9 +128,11 @@ end
 
 -- Injected graphics namespace tracking created images and their release calls,
 -- so the image side of a failed load can be observed without a GL context.
+---@class SceneFakeGraphics: love.Graphics
+---@field images table[]
 local function fakeGraphics()
   local images = {}
-  return {
+  local graphics = {
     images = images,
     newImage = function()
       local image = { released = false }
@@ -143,6 +145,8 @@ local function fakeGraphics()
       return image
     end,
   }
+  ---@cast graphics SceneFakeGraphics
+  return graphics
 end
 
 local IDENTITY = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }

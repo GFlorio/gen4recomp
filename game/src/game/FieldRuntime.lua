@@ -156,6 +156,7 @@ end
 ---@field saveStatus string?
 ---@field playerData table the validated profile/options authority (FieldPlayerData shape)
 ---@field session FieldSession
+---@field actors FieldActorManager
 ---@field dialogue FieldDialogueController?
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (script-owned via ScriptSignpostHost)
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?

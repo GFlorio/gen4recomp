@@ -45,7 +45,7 @@ end
 ---@return string png
 function FieldDialogueFixture.focusIndicatorBytes()
   local rgba = {}
-  for y = 1, 32 do
+  for _ = 1, 32 do
     for x = 1, 96 do
       local frame = math.floor((x - 1) / 24)
       rgba[#rgba + 1] = px(80 + frame * 40, 60 + frame * 20, 220 - frame * 40, 255)
@@ -76,6 +76,10 @@ function FieldDialogueFixture.fontDef()
   return {
     schema = FieldFontCache.SCHEMA,
     fontId = 0,
+    glyphCount = 3,
+    fallbackCode = 0,
+    atlasPath = ATLAS_PATH,
+    source = {},
     maskAtlasPath = MASK_ATLAS_PATH,
     lineHeight = 16,
     maxLetterHeight = 16,
@@ -177,6 +181,8 @@ function FieldDialogueFixture.openDialogue(text, frameIndex)
       return {
         pages = { { lines = { { tokens = tokens, width = 12 } }, breakKind = "eos" } },
         warnings = {},
+        lineHeight = 16,
+        lineSpacing = 0,
       }
     end,
   })
@@ -196,6 +202,8 @@ end
 -- scissor) equals the pre-draw value, never a hard-coded default. The caller
 -- sets exactly this state before drawing.
 ---@param lg table love.graphics-shaped namespace
+---@param canvas any
+---@param shader any
 function FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
   Assert.equal(lg.getCanvas(), canvas)
   Assert.equal(lg.getShader(), shader)

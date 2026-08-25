@@ -30,7 +30,7 @@ local function withReadyVersion(fn, options)
       fieldOptions = fieldOptions,
     })
     local ok, err = xpcall(function()
-      fn(game, versionId)
+      fn(game)
       Assert.equal(game:renderAttempts(), 0, "field text acceptance must stop before GPU rendering")
     end, debug.traceback)
     game:close()
@@ -40,6 +40,10 @@ local function withReadyVersion(fn, options)
   end)
 end
 
+---@return { dialogue: { modal: boolean, textOriginX: integer, textOriginY: integer, contentWidth: integer, syntheticBreaks: integer } }
+---@param game table
+---@param target table|nil
+---@param facing string|nil
 local function openVanillaDialogue(game, target, facing)
   game:moveTo(target or WOMAN)
   game:face(facing or "north")

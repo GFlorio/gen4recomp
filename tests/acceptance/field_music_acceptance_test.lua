@@ -522,13 +522,13 @@ function T.tests.a_60_frame_fade_completes_after_one_wall_clock_second_for_every
     -- one-hundred-twentieths -- none of them a field tick -- summing to
     -- exactly one second (30/60 + 10/30 + 20/120 = 1).
     local irregular = {}
-    for index = 1, 30 do
+    for _ = 1, 30 do
       irregular[#irregular + 1] = 1 / 60
     end
-    for index = 1, 10 do
+    for _ = 1, 10 do
       irregular[#irregular + 1] = 1 / 30
     end
-    for index = 1, 20 do
+    for _ = 1, 20 do
       irregular[#irregular + 1] = 1 / 120
     end
     runSchedule("irregular sub-tick schedule", irregular)
