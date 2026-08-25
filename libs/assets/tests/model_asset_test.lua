@@ -339,6 +339,12 @@ function T.referenced_paths_cover_only_textured_variants()
   Assert.equal(1, found, "textured variant path is listed exactly once")
 end
 
+function T.referenced_paths_accept_materials_without_variants()
+  local paths = ModelAsset.referencedPaths(dynamicDescriptor(texturedDynamicMaterial()))
+  Assert.equal(paths[1], "assets/generated/maps/textures/base.png")
+  Assert.equal(#paths, 1)
+end
+
 -- ---- authoritative artifact validation ----
 --
 -- The fixtures are the exact shapes MapAssetCompiler emits today (schema

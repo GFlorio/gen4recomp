@@ -147,6 +147,7 @@ function RomImporter:_complete(report)
   collectgarbage("collect")
 end
 
+---@async
 function RomImporter:_onProgress(p)
   self._stage = p.stage
   self._stageLabel = p.stageLabel
@@ -179,9 +180,11 @@ function RomImporter:_beginWork()
 
     self.state = RomImporter.STATES.EXTRACTING
     self._lastYield = self._now()
-    local extractor = RomExtractor.new(rom, info, cache, self._manifest, function(p)
+    ---@async
+    local function onProgress(p)
       self:_onProgress(p)
-    end)
+    end
+    local extractor = RomExtractor.new(rom, info, cache, self._manifest, onProgress)
     local report, exErr = extractor:run()
     rom:release()
     if not report then

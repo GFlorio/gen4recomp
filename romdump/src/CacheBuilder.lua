@@ -100,7 +100,7 @@ function CacheBuilder.buildVersions(versionIds, options)
     log("build: no ready version to compile")
     return nil, "no ready version to compile"
   end
-  local producerFingerprint = ProducerFingerprint.compute(ProducerFingerprint.appBackend())
+  local producerFingerprint = ProducerFingerprint.compute(ProducerFingerprint.appBackend() --[[@as ProducerSourceTree]])
   local allOk, hasCompileExclusions, exclusionCount = true, false, 0
   local stagedWorlds = {}
   local strictVersions = {}

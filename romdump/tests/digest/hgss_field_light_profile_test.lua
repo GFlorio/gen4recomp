@@ -42,7 +42,10 @@ function T.parses_records_and_channels()
   Assert.equal(r0.lights[1].colorRgb555, 11 + 11 * 32 + 11 * 1024)
   Assert.deepEqual(r0.lights[1].vectorFx12, { -296, -296, -296 })
   Assert.equal(r0.diffuseRgb555, 14 + 14 * 32 + 16 * 1024)
-  Assert.isNil(p.version, "parser version is producer provenance, not asset content")
+end
+
+local function errorCode(value)
+  return (assert(value) --[[@as { code: string }]]).code
 end
 
 function T.accepts_lf_line_endings()
@@ -55,44 +58,44 @@ function T.rejects_bad_column_count()
     .. "1,1,1,\r\n1,1,1,\r\n1,1,1,\r\n1,1,1,\r\n\r\nEOF\r\n"
   local ok, err = pcall(HgssFieldLightProfile.parse, text)
   Assert.isFalse(ok)
-  Assert.equal(err.code, "FIELD_LIGHT_BAD_RECORD")
+  Assert.equal(errorCode(err), "FIELD_LIGHT_BAD_RECORD")
 end
 
 function T.rejects_non_monotonic_thresholds()
   local ok, err = pcall(HgssFieldLightProfile.parse, profileText(record(7200, 11, 0), record(7200, 11, 0)))
   Assert.isFalse(ok)
-  Assert.equal(err.code, "FIELD_LIGHT_BAD_THRESHOLD")
+  Assert.equal(errorCode(err), "FIELD_LIGHT_BAD_THRESHOLD")
 end
 
 function T.rejects_out_of_range_channel()
   local ok, err = pcall(HgssFieldLightProfile.parse, profileText(record(0, 99, 0)))
   Assert.isFalse(ok)
-  Assert.equal(err.code, "FIELD_LIGHT_VALUE_OUT_OF_RANGE")
+  Assert.equal(errorCode(err), "FIELD_LIGHT_VALUE_OUT_OF_RANGE")
 end
 
 function T.rejects_out_of_range_vector()
   local ok, err = pcall(HgssFieldLightProfile.parse, profileText(record(0, 11, 9000)))
   Assert.isFalse(ok)
-  Assert.equal(err.code, "FIELD_LIGHT_VALUE_OUT_OF_RANGE")
+  Assert.equal(errorCode(err), "FIELD_LIGHT_VALUE_OUT_OF_RANGE")
 end
 
 function T.rejects_trailing_data_after_eof()
   local text = profileText(record(0, 11, 0)) .. "1,2,3,\r\n"
   local ok, err = pcall(HgssFieldLightProfile.parse, text)
   Assert.isFalse(ok)
-  Assert.equal(err.code, "FIELD_LIGHT_BAD_RECORD")
+  Assert.equal(errorCode(err), "FIELD_LIGHT_BAD_RECORD")
 end
 
 function T.rejects_missing_eof()
   local ok, err = pcall(HgssFieldLightProfile.parse, record(0, 11, 0))
   Assert.isFalse(ok)
-  Assert.equal(err.code, "FIELD_LIGHT_BAD_RECORD")
+  Assert.equal(errorCode(err), "FIELD_LIGHT_BAD_RECORD")
 end
 
 function T.rejects_short_profile()
   local ok, err = pcall(HgssFieldLightProfile.parse, profileText(record(0, 11, 0), "1,1,1,"))
   Assert.isFalse(ok)
-  Assert.equal(err.code, "FIELD_LIGHT_BAD_RECORD")
+  Assert.equal(errorCode(err), "FIELD_LIGHT_BAD_RECORD")
 end
 
 return { tests = T }

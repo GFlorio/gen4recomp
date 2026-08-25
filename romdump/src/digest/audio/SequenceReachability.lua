@@ -184,9 +184,9 @@ end
 
 local function _analyze(bytes, context)
   local source = context or "SSEQ"
-  local seq, err = Sseq.open(bytes, source)
+  local seq, openErr = Sseq.open(bytes, source)
   if seq == nil then
-    error(err)
+    error(openErr)
   end
   local endPos = #bytes
   local dataOffset = seq.dataOffset
@@ -226,9 +226,10 @@ local function _analyze(bytes, context)
         rememberTrackStack(trackStacks, state.trackSlot, state.stack, queue, reopenTargets)
         local command = commandsByOffset[state.offset]
         if command == nil then
-          command, err = Sseq.decodeCommand(bytes, state.offset, endPos, source)
+          local commandErr
+          command, commandErr = Sseq.decodeCommand(bytes, state.offset, endPos, source)
           if command == nil then
-            error(err)
+            error(commandErr)
           end
           commandsByOffset[state.offset] = command
         end
@@ -262,7 +263,7 @@ function SequenceReachability.analyze(bytes, context)
     return result
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end

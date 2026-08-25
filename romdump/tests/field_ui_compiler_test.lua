@@ -531,7 +531,7 @@ function T.missing_source_palette_bank_fails_with_source_invalid()
   local romFs, sha1, hashLua = fixture({ signpostPalette = colors })
   local bundle, err = compileWithTestConfig(romFs, sha1, hashLua)
   Assert.isNil(bundle, "compilation must fail when a configured type has no palette bank")
-  local typed = assert(err)
+  local typed = assert(err) --[[@as Errors.Error]]
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
   Assert.equal(typed.context.sourceType, 3)
   Assert.equal(typed.context.slot, 0)
@@ -656,9 +656,10 @@ function T.unsupported_cursor_obj_geometry_is_a_typed_source_error()
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
   Assert.equal(typed.context.width, 16)
   Assert.equal(typed.context.height, 8)
-  Assert.equal(typed.context.source.member, 62)
-  Assert.equal(typed.context.source.cell, 0)
-  Assert.equal(typed.context.source.obj, 0)
+  local source = typed.context.source --[[@as { member: integer, cell: integer, obj: integer }]]
+  Assert.equal(source.member, 62)
+  Assert.equal(source.cell, 0)
+  Assert.equal(source.obj, 0)
 end
 
 -- A screen entry referencing a tile beyond the decoded char data is
@@ -911,12 +912,6 @@ function T.malformed_source_members_are_typed()
     local Narc = require("romdump.src.source.Narc")
     if alias == "start_menu" then
       -- A NARC whose background char member is not a G2D resource at all.
-      local members = {}
-      for i = 1, 65 do
-        members[i] = string.rep("\0", 4)
-      end
-      members[13] = "not-a-g2d-resource"
-      members[14] = romFs.read(romFs, 10)
       local data = romFs.read(romFs, 10)
       -- keep the other members from the real fixture narc by splicing: the
       -- simplest deterministic corruption is replacing member 12 only.

@@ -920,7 +920,7 @@ function ModelAsset.referencedPaths(desc)
     if m.texture then
       paths[#paths + 1] = m.texture
     end
-    local variants = m.variants ---@type ModelAsset.Variant[]
+    local variants = m.variants or {} ---@type ModelAsset.Variant[]
     for _, variant in ipairs(variants) do
       if variant.texture then
         paths[#paths + 1] = variant.texture

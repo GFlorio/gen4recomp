@@ -30,11 +30,12 @@ local function stageBundle(tx, bundle)
   if type(manifest) ~= "table" or manifest.schema ~= FieldUiAssetCache.SCHEMA then
     Errors.raise("FIELD_UI_CACHE_READBACK_FAILED", "ui manifest readback failed", {})
   end
-  local ok, err = FieldUiAssetCache.validateManifest(manifest)
+  local typedManifest = manifest --[[@as FieldUiAssetCache.Manifest]]
+  local ok, err = FieldUiAssetCache.validateManifest(typedManifest)
   if not ok then
     Errors.raise("FIELD_UI_CACHE_READBACK_FAILED", "ui manifest readback is invalid", { cause = err and err.message })
   end
-  for _, entry in pairs(manifest.assets) do
+  for _, entry in pairs(typedManifest.assets) do
     if not stage:exists(entry.image, "file") then
       Errors.raise("FIELD_UI_CACHE_READBACK_FAILED", "ui asset missing after stage: " .. entry.image, {
         image = entry.image,

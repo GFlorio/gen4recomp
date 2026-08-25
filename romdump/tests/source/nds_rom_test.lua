@@ -6,6 +6,16 @@ local NdsBuilder = require("tests.support.NdsBuilder")
 
 local T = {}
 
+---@class TestNdsRom
+---@field header fun(self: TestNdsRom): table
+---@field fatCount fun(self: TestNdsRom): integer
+---@field readFatFile fun(self: TestNdsRom, fileId: integer): string
+---@field nitroFs fun(self: TestNdsRom): table
+---@field arm9Overlays fun(self: TestNdsRom): table[]
+---@field arm7Overlays fun(self: TestNdsRom): table[]
+---@field fileMap fun(self: TestNdsRom): table
+---@field read fun(self: TestNdsRom, offset: integer, size: integer): string
+
 -- Canonical fixture: one arm9 overlay (fileId 0), one unmapped file (fileId 1),
 -- then a nested NitroFS tree (fileIds 2..4).
 local FIXTURE = {
@@ -50,15 +60,23 @@ local function corruptFixture(corrupt)
   return spec
 end
 
+---@param spec table?
+---@return TestNdsRom?
+---@return Errors.Error?
 local function openFixture(spec)
   spec = spec or FIXTURE
   local data = NdsBuilder.build(spec)
-  return NdsRom.open(RomSource.fromString(data), matchingVersions(data, spec.gameCode or "IPKE"))
+  local rom, err = NdsRom.open(RomSource.fromString(data), matchingVersions(data, spec.gameCode or "IPKE"))
+  local typedRom = rom --[[@as TestNdsRom?]]
+  return typedRom, err
 end
 
+---@param rom TestNdsRom?
+---@param err Errors.Error?
+---@return TestNdsRom
 local function assertOk(rom, err)
   Assert.notNil(rom, "expected NdsRom, got error: " .. Errors.format(err))
-  return rom
+  return assert(rom)
 end
 
 function T.parses_header_fields()

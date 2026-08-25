@@ -227,7 +227,9 @@ end
 -- handle is the LIVE attachment instance:play returned, so isFinished reads
 -- it directly and replays always restart.
 function MapDoor:_play(role)
-  if not self.instance then
+  -- Headless FieldRuntime supplies a sound-only adapter so door transitions
+  -- retain their source-selected audio without acquiring presentation models.
+  if not self.instance or rawget(self.instance, "soundOnly") == true then
     return
   end
   local definition = self.instance.definition

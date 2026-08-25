@@ -18,7 +18,6 @@ local BuildingPlacement = require("romdump.src.digest.BuildingPlacement")
 
 local LandData = {}
 
-local HEADER_SIZE = 0x10
 local BGS_OFFSET = 0x10
 local BGS_HEADER_SIZE = 4
 local MIN_SIZE = BGS_OFFSET + BGS_HEADER_SIZE -- must reach the BGS payload length

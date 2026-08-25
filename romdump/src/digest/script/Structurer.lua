@@ -61,7 +61,7 @@ end
 ---@return table<string, integer>
 local function labelRefCounts(items, positions)
   local counts = {}
-  for i, item in ipairs(items) do
+  for _, item in ipairs(items) do
     if item.op == "if_cond" or item.op == "goto" or item.op == "goto_if" then
       if positions[item.target] ~= nil then
         counts[item.target] = (counts[item.target] or 0) + 1
@@ -136,6 +136,8 @@ local structure
 ---@param items table[]
 ---@param entry integer
 ---@param join integer
+---@param terminal integer
+---@param refCounts table<string, integer>
 ---@param positions table<string, integer>
 ---@return table[] steps
 local function peelConditional(items, entry, join, terminal, positions, refCounts)
@@ -239,9 +241,9 @@ end
 
 -- Structure a lowered script into a steps array.
 ---@param lowered table
----@param scriptIndex integer
+---@param _ integer
 ---@return table steps
-function Structurer.structure(lowered, scriptIndex)
+function Structurer.structure(lowered, _)
   local items = lowered.items
   -- Label markers are inserted where if_cond/goto targets land.
   local positions = labelPositions(items)
@@ -249,7 +251,7 @@ function Structurer.structure(lowered, scriptIndex)
   -- resolveControlTargets turns unresolvable targets into explicit
   -- unsupported nodes), so an unresolved target here is an invariant
   -- violation, not a synthesizable fallback.
-  for i, item in ipairs(items) do
+  for _, item in ipairs(items) do
     if (item.op == "if_cond" or item.op == "goto_if" or item.op == "goto") and positions[item.target] == nil then
       assert(false, "unresolved branch target " .. tostring(item.target))
     end

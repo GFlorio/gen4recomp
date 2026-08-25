@@ -27,6 +27,10 @@ local function numbers(line)
   return out
 end
 
+---@param nums number[]
+---@param expected integer
+---@param lineNo integer
+---@param context Errors.Context|nil
 local function checkColumns(nums, expected, lineNo, context)
   if #nums ~= expected then
     Errors.raise(
@@ -37,6 +41,12 @@ local function checkColumns(nums, expected, lineNo, context)
   end
 end
 
+---@param value number
+---@param lo number
+---@param hi number
+---@param code string
+---@param lineNo integer
+---@param context Errors.Context|nil
 local function checkRange(value, lo, hi, code, lineNo, context)
   if value < lo or value > hi then
     Errors.raise(
@@ -52,6 +62,10 @@ local function rgb555(r, g, b)
 end
 
 -- Parse one light slot line "enabled,r,g,b,x,y,z,".
+---@param nums number[]
+---@param lineNo integer
+---@param context Errors.Context|nil
+---@return table
 local function parseLight(nums, lineNo, context)
   local enabled, r, g, b, x, y, z = nums[1], nums[2], nums[3], nums[4], nums[5], nums[6], nums[7]
   checkRange(enabled, 0, 1, "FIELD_LIGHT_VALUE_OUT_OF_RANGE", lineNo, context)
@@ -69,16 +83,23 @@ local function parseLight(nums, lineNo, context)
 end
 
 -- Parse one material color line "r,g,b,".
+---@param nums number[]
+---@param lineNo integer
+---@param context Errors.Context|nil
+---@return integer
 local function parseColor(nums, lineNo, context)
   for _, c in ipairs(nums) do
     checkRange(c, 0, 31, "FIELD_LIGHT_VALUE_OUT_OF_RANGE", lineNo, context)
   end
-  return rgb555(nums[1], nums[2], nums[3])
+  return rgb555(nums[1], nums[2], nums[3]) --[[@as integer]]
 end
 
 -- Split text into data lines (CRLF/LF tolerant), stopping at the EOF marker and
 -- rejecting any non-blank content after it. Blank lines separate records and are
 -- dropped. Returns { { text, lineNo }, ... }.
+---@param text string
+---@param context Errors.Context|nil
+---@return table[]
 local function dataLines(text, context)
   local lines = {}
   local lineNo = 0
@@ -109,7 +130,8 @@ end
 
 -- Parse profile text into { records = { record, ... } }.
 ---@param text string
----@param context table|nil
+---@param context Errors.Context|nil
+---@return { records: table[] }
 function HgssFieldLightProfile.parse(text, context)
   assert(type(text) == "string", "HgssFieldLightProfile.parse requires a string")
   local lines = dataLines(text, context)

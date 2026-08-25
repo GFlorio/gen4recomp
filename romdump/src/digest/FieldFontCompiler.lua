@@ -52,6 +52,10 @@ local function glyphMaskRgba(value)
   error("glyph mask value outside 0..3")
 end
 
+---@generic T
+---@param value T?
+---@param err any?
+---@return T
 local function must(value, err)
   if value == nil then
     error(err)
@@ -64,7 +68,8 @@ local function loadSource(romFs, sha1hex)
   if not archiveInfo then
     Errors.raise("ROMFS_NARC_UNRESOLVED", "font NARC is unavailable", { name = "font" })
   end
-  local archiveBytes = must(romFs:read(archiveInfo.fileId))
+  archiveInfo = assert(archiveInfo)
+  local archiveBytes = must(romFs:read(archiveInfo.fileId)) --[[@as string]]
   local archive = must(romFs:openNarc("font"))
   return {
     archive = archive,
@@ -86,7 +91,7 @@ end
 -- that chops the narrower glyphs placed before it.
 
 ---@param value integer
----@param palette FieldFontDecoder.Palette
+---@param palette { r: integer, g: integer, b: integer }[]
 ---@param colorVariant integer
 ---@return integer, integer, integer, integer
 local function pixelToRgba(value, palette, colorVariant)
@@ -353,7 +358,7 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     glyphs = glyphs,
     charmap = textToCode,
     palette = palette.colors,
-  }
+  } ---@type FieldFontDef
 
   local dependencies = {
     cacheFormat = FieldFontCache.FORMAT,
@@ -377,7 +382,7 @@ local function compileFont(romFs, source, sha1hex, hashLua)
   }
 
   local marker = FieldFontCache.marker(romFs:metadata().sha1, hashLua(dependencies))
-  return {
+  local bundle = {
     fontId = fontId,
     marker = marker,
     font = fontDef,
@@ -386,6 +391,7 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     focusIndicators = focusIndicatorsBytes,
     dependencies = dependencies,
   }
+  return bundle --[[@as FieldFontCompiler.Bundle]]
 end
 
 ---@param romFs RomFs

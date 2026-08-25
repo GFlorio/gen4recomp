@@ -64,6 +64,8 @@ local function offsetFor(locator, address, label)
   return offset
 end
 
+---@param packed integer
+---@return { movementProfile: integer, actorFamily: integer, visualDescriptor: integer }
 local function splitPacked(packed)
   return {
     movementProfile = packed % 32,

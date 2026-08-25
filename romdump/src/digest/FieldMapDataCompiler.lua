@@ -128,6 +128,10 @@ local function semanticSoundplate(record, ref, mapSymbol)
   return plate
 end
 
+---@generic T
+---@param value T?
+---@param err any?
+---@return T
 local function must(value, err)
   if value == nil then
     error(err)
@@ -171,6 +175,9 @@ end
 -- cannot render (the default header filler and the unused headers) carry no
 -- land payload and emit an empty soundplates array, exactly like maps whose
 -- land BGS payload is empty.
+---@param romFs RomFs
+---@param map table
+---@param sha1hex fun(bytes: string): string
 ---@return table plates, table audioSource { matrixMemberSha1, landDataMemberId?, landDataMemberSha1? }
 local function compileSoundplates(romFs, map, sha1hex)
   local matrixNarc = must(romFs:openNarc("map_matrices"))
@@ -193,9 +200,9 @@ local function compileSoundplates(romFs, map, sha1hex)
     local records = must(HgssSoundplate.decode(bgsBlock(land), {
       mapId = map.id,
       memberId = analysis.landDataMemberId,
-    }))
+    })) --[[@as { soundplateSoundID: integer, x: number, z: number, xBounds: table, zBounds: table, volumeIndex: integer }[] ]]
     for index, record in ipairs(records) do
-      local ref = fieldAudio.soundplates[record.soundplateSoundID + 1]
+      local ref = fieldAudio.soundplates[record.soundplateSoundID + 1] ---@type table?
       if not ref then
         Errors.raise(
           "FIELD_MAP_UNKNOWN_SOUNDPLATE_SOUND",
@@ -203,7 +210,7 @@ local function compileSoundplates(romFs, map, sha1hex)
           { mapId = map.id, recordIndex = index - 1, soundplateSoundID = record.soundplateSoundID }
         )
       end
-      plates[index] = semanticSoundplate(record, ref, map.symbol)
+      plates[index] = semanticSoundplate(record, assert(ref), map.symbol)
     end
   end
   return plates,

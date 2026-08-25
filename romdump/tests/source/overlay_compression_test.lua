@@ -1,7 +1,6 @@
 -- Nintendo DS backwards-LZ overlay decompression.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local OverlayCompression = require("romdump.src.source.OverlayCompression")
 
 local T = {}
@@ -10,7 +9,7 @@ local T = {}
 -- typed as the payload; cast to the Errors.Error contract the test has
 -- already verified.
 ---@param e any
----@return Errors.Error
+---@return { code: string }
 local function asError(e)
   return e
 end

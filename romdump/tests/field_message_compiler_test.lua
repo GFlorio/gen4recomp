@@ -55,6 +55,8 @@ local function fixture()
     { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
   }, 0xD191)
   local romFs = {
+    _version = "heartgold",
+    _metadata = { sha1 = "rom-sha" },
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "messages")
       return { symbol = "NARC_msgdata_msg", alias = "messages", narcId = 27, fileId = 77, path = "a/0/2/7" }
@@ -78,7 +80,7 @@ local function fixture()
     version = function()
       return "heartgold"
     end,
-  }
+  } --[[@as RomFs]]
   local function sha1(bytes)
     for bankId, memberBytes in pairs(members) do
       if bytes == memberBytes then
@@ -190,6 +192,8 @@ function T.unmapped_glyph_fails_compilation_with_context()
   local messages = { { 0x0001, 0xFFFF } } -- kana code outside the selected set
   local member = FieldMessageBank.encodeForTests(messages, 0x1234)
   local romFs = {
+    _version = "heartgold",
+    _metadata = { sha1 = "rom-sha" },
     resolvedNarc = function()
       return { symbol = "NARC_msgdata_msg", alias = "messages", narcId = 27, fileId = 77, path = "a/0/2/7" }
     end,
@@ -206,8 +210,8 @@ function T.unmapped_glyph_fails_compilation_with_context()
     metadata = function()
       return { sha1 = "rom-sha" }
     end,
-  }
-  local bundle, err = FieldMessageCompiler.compile(romFs)
+  } --[[@as RomFs]]
+  local bundle, err = FieldMessageCompiler.compile(romFs --[[@as RomFs]])
   Assert.isNil(bundle, "expected a failure result")
   Assert.isTrue(Errors.is(err))
   Assert.equal(assert(err).code, "MESSAGE_GLYPH_UNMAPPED")

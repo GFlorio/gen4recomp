@@ -199,6 +199,10 @@ end
 -- slice runs to the palette block end (over-inclusive but bounded), since a
 -- record carries no explicit length and the decoder indexes only what it needs.
 -- Direct-color (format 7) needs no palette.
+---@param pack table
+---@param texture table
+---@param palette table|nil
+---@return table<string, boolean|string|number|nil>
 function Nsbtx.decoderOpts(pack, texture, palette)
   local b = pack.bytes
   local opts = {

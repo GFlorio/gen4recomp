@@ -55,7 +55,7 @@ end
 -- instruction (track 0's first command), the entry points at it, and
 -- jump/call/open_track targets are instruction indices into the same list.
 function T.lowers_tracks_with_index_branch_targets()
-  local bytes, layout = SseqFixture.build({
+  local bytes = SseqFixture.build({
     { op = "fe", mask = 3 },
     { op = "open_track", track = 1, target = { cmd = 7 } },
     { op = "program", program = 4 },
@@ -247,7 +247,7 @@ end
 -- is resolved dynamically by the player (the SDK's posCallStack at the
 -- executed begin), so the emitted loop_end carries no static target.
 function T.lowers_loop_pairs_without_static_loop_end_targets()
-  local bytes, layout = SseqFixture.build({
+  local bytes = SseqFixture.build({
     { op = "u8", command = 0xD4, amount = 0 },
     { op = "note", key = 60, velocity = 96, duration = 24 },
     { op = "nop_op", command = 0xFC },
@@ -268,7 +268,7 @@ end
 -- into a min/max range (TrackParseValue is source arithmetic, not
 -- math.random(min,max)).
 function T.normalizes_packed_operand_modes()
-  local bytes, layout = SseqFixture.build({
+  local bytes = SseqFixture.build({
     {
       op = "prefix",
       kind = "random",
@@ -316,7 +316,7 @@ end
 -- in u16, so a test asserting an arbitrary >65535 program value survives
 -- would pin behavior nobody wants (the runtime gate owns that boundary).
 function T.large_durations_survive_while_velocity_stays_clamped()
-  local bytes, layout = SseqFixture.build({
+  local bytes = SseqFixture.build({
     { op = "note", key = 60, velocity = 193, duration = 300000 },
     { op = "wait", duration = 2089856 },
     { op = "fin" },
@@ -758,7 +758,7 @@ end
 
 -- Lowering is deterministic: the same bytes always produce the same program.
 function T.lowering_is_deterministic()
-  local bytes, layout = SseqFixture.build({
+  local bytes = SseqFixture.build({
     { op = "fe", mask = 3 },
     { op = "open_track", track = 1, target = { cmd = 3 } },
     { op = "note", key = 60, velocity = 96, duration = 24 },

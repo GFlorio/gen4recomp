@@ -8,7 +8,6 @@
 -- deterministic: identical dumps produce identical resources. Pure domain
 -- module: no love dependency.
 
-local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local ScriptBinaryDecoder = require("romdump.src.digest.script.ScriptBinaryDecoder")
 local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")

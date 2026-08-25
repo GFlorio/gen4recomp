@@ -50,7 +50,7 @@ local function loadSource(romFs, sha1hex)
   }
 end
 
-local function compileBank(romFs, source, bankId, sha1hex)
+local function compileBank(source, bankId, sha1hex)
   local memberBytes = must(source.archive:readMember(bankId))
   local bank = must(FieldMessageBank.decode(memberBytes, {
     label = "msgdata-member-" .. bankId,
@@ -101,7 +101,7 @@ local function _compile(romFs, sha1hex, hashLua)
   local banks = {}
   local bankSha1s = {}
   for _, bankId in ipairs(manifest.banks) do
-    banks[bankId], bankSha1s[bankId] = compileBank(romFs, source, bankId, sha1hex)
+    banks[bankId], bankSha1s[bankId] = compileBank(source, bankId, sha1hex)
   end
 
   local index = {

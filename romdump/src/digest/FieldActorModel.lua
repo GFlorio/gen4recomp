@@ -209,6 +209,8 @@ end
 
 -- The single draw mode shared by every batch of the actor model
 -- (TransformMode), or "mixed"/"unsupported" when it cannot be one.
+---@param modelBytes string
+---@param context Errors.Context
 ---@return TransformMode | "mixed" | "unsupported"
 function FieldActorModel.drawMode(modelBytes, context)
   local file = assert(Nsbmd.decode(modelBytes, context))

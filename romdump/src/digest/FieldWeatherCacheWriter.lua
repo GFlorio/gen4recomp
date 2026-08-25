@@ -21,7 +21,8 @@ local function stageBundle(tx, bundle)
   if type(catalog) ~= "table" then
     Errors.raise("FIELD_WEATHER_CACHE_READBACK_FAILED", "weather catalog readback failed", {})
   end
-  local ok, err = FieldWeatherCache.validateCatalog(catalog)
+  local typedCatalog = catalog --[[@as FieldWeatherCache.Catalog]]
+  local ok, err = FieldWeatherCache.validateCatalog(typedCatalog)
   if not ok then
     Errors.raise("FIELD_WEATHER_CACHE_READBACK_FAILED", "weather catalog readback is invalid", {
       cause = err and err.message or tostring(err),

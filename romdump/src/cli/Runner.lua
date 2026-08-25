@@ -386,6 +386,7 @@ end
 -- published into the version cache, and the only resource acquired here is
 -- the verification runtime, disposed on this same path.
 ---@param status table
+---@return nil
 function Runner._finishImport(status)
   local DumpAudit = require("romdump.src.source.DumpAudit")
   local versionId = status.versionId

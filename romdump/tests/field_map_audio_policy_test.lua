@@ -13,7 +13,6 @@ local Assert = require("tests.support.Assert")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
 local Fixture = require("tests.support.FieldMapDataFixture")
 local Builder = require("tests.support.SoundplateBuilder")
-local MapCatalog = require("romdump.src.digest.MapCatalog")
 local fieldAudio = require("romdump.src.reference.hgss.field_audio")
 
 local T = {}

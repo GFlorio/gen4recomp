@@ -14,7 +14,8 @@ local function returnsCode(code, fn)
   local result, err = fn()
   Assert.isNil(result, "expected a failure result")
   Assert.isTrue(Errors.is(err), "expected a structured error")
-  Assert.equal(err.code, code)
+  local errorValue = assert(err) --[[@as Errors.Error]]
+  Assert.equal(errorValue.code, code)
 end
 
 local function tokenize(units)

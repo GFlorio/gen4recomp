@@ -1,5 +1,4 @@
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local RomImporter = require("romdump.src.source.RomImporter")
 local RomSource = require("romdump.src.source.RomSource")
 local NdsBuilder = require("tests.support.NdsBuilder")

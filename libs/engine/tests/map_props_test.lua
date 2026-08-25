@@ -507,6 +507,25 @@ function T.static_door_playback_is_a_noop()
   Assert.isNil(door:isFinished())
 end
 
+function T.sound_only_door_playback_emits_audio_without_visual_animation()
+  local wx, wz = tileCenterWorld(4, 14)
+  local instances = {
+    [1] = {
+      soundOnly = true,
+      definition = { doorSoundType = 1 },
+    },
+  }
+  local props = MapProps.new({
+    placements = { placement(1, "fixture:door", wx, wz, 1) },
+    instances = instances,
+    doorTiles = { { x = 4, z = 14 } },
+  })
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  Assert.equal(door:open(), "SEQ_SE_DP_DOOR_OPEN")
+  Assert.equal(door:close(), "SEQ_SE_DP_DOOR_CLOSE2")
+  Assert.isNil(door:isFinished())
+end
+
 -- The collapsed door surface: the tile's index entry retains
 -- the PLAY HANDLE from instance:play -- not a role string -- so the finish
 -- state is read off the live attachment and survives every fresh resolution.

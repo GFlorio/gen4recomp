@@ -1,5 +1,4 @@
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local RomFs = require("romdump.src.source.RomFs")
 local MapMatrix = require("romdump.src.digest.MapMatrix")
 local DumpFixture = require("tests.support.DumpFixture")
@@ -9,7 +8,7 @@ local T = {}
 -- RomFs.open returns its error unannotated, so err arrives typed as RomFs
 -- itself; cast to the Errors.Error contract the test has already verified.
 ---@param e any
----@return Errors.Error
+---@return { code: string }
 local function asError(e)
   return e
 end

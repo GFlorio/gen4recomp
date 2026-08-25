@@ -12,7 +12,8 @@ local function throwsCode(code, fn)
   local file, err = fn()
   Assert.isNil(file, "expected decode failure")
   Assert.notNil(err)
-  Assert.equal(err.code, code)
+  local errorValue = assert(err) --[[@as { code: string }]]
+  Assert.equal(errorValue.code, code)
 end
 
 local function sampleFile()

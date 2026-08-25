@@ -49,6 +49,7 @@ local COLOR_1 = rgb555(1, 1, 1)
 
 -- The common generated density ramp `ov01_021EC828` produces on ordinary map
 -- load: 32 entries, 0, 4, 8, ..., 124.
+---@return integer[]
 function HgssFieldFog.rampTable()
   local t = {}
   for i = 1, 32 do
@@ -59,6 +60,7 @@ end
 
 -- Flash/Flash-2's handler fills a temporary 32-byte buffer with 0xFF and
 -- sends it directly, rather than using the generated ramp.
+---@return integer[]
 function HgssFieldFog.flashTable()
   local t = {}
   for i = 1, 32 do
@@ -134,7 +136,8 @@ local PRESETS = {
 -- 32-entry `table`. Bounds-checked with `assert` (0-13, the same
 -- `WeatherManager_New` 14-entry limit HGSS itself enforces) -- an internal
 -- producer call, not an `Errors.raise` boundary.
----@param weatherId integer 0-13, MapHeader's raw weather field
+---@param weatherId number 0-13, MapHeader's raw weather field
+---@return table
 function HgssFieldFog.resolve(weatherId)
   assert(
     type(weatherId) == "number" and weatherId == math.floor(weatherId) and weatherId >= 0 and weatherId <= 13,
@@ -152,6 +155,7 @@ end
 -- exercise the blend-mode invariant directly; call sites that only have a
 -- weatherId should resolve it first.
 ---@param full table a preset as returned by `HgssFieldFog.resolve`
+---@return table
 function HgssFieldFog.runtimePreset(full)
   assert(
     full.blendMode == 0,

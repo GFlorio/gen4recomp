@@ -405,8 +405,8 @@ function RomExtractor:run()
   -- owns the rollback/recovery material and this module must not remove the
   -- staging tree, or it could delete the last remaining copy of the previous
   -- dump.
-  local ok, pubErr = pcall(self._publish, self)
-  if not ok then
+  local publishOk, pubErr = pcall(self._publish, self)
+  if not publishOk then
     if Errors.is(pubErr) then
       return nil, pubErr
     end

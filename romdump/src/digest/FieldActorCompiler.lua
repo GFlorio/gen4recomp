@@ -17,7 +17,6 @@ local ZoneEvents = require("romdump.src.digest.ZoneEvents")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local Hashing = require("romdump.src.digest.Hashing")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
 local TextureDecoder = require("romdump.src.digest.nitro.TextureDecoder")
 local FieldActorGraphics = require("romdump.src.digest.FieldActorGraphics")
@@ -33,6 +32,10 @@ local FieldActorCompiler = {}
 local MODEL_MAGIC = "BMD0"
 local TEXTURE_MAGIC = "BTX0"
 
+---@generic T
+---@param value T?
+---@param err any?
+---@return T
 local function must(value, err)
   if value == nil then
     error(err)
@@ -84,6 +87,10 @@ local function selectedSpriteIds(romFs)
   return order, deferred
 end
 
+---@param pack table
+---@param frames table[]
+---@param context Errors.Context
+---@return table
 local function decodeAtlas(pack, frames, context)
   local width, height
   for _, frame in ipairs(frames) do
@@ -177,7 +184,7 @@ end
 -- 1-4 are the base directional set in global_fieldmap.h order; a descriptor with
 -- eight ranges carries a second set whose gameplay trigger is not yet traced, so
 -- it is preserved under a neutral name.
-local function buildPoses(perRange, ranges, context)
+local function buildPoses(perRange, ranges)
   local order = manifest.directionOrder
 
   local function poseFor(index)
@@ -252,6 +259,11 @@ local function finishStaticModel(spriteId, compiled)
   return visual, atlas
 end
 
+---@param spriteId integer
+---@param memberId integer
+---@param staticArchive Narc
+---@param context Errors.Context
+---@return table, table
 local function compileStaticModel(spriteId, memberId, staticArchive, context)
   local modelBytes = must(
     staticArchive:readMember(memberId),
@@ -265,8 +277,14 @@ local function compileStaticModel(spriteId, memberId, staticArchive, context)
   return finishStaticModel(spriteId, compiled)
 end
 
+---@param romFs RomFs
+---@param spriteId integer
+---@param graphics table
+---@param archive Narc
+---@param staticArchive Narc
+---@return table, table
 local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
-  local context = { spriteId = spriteId, romVersion = romFs:version() }
+  local context = { spriteId = spriteId, romVersion = romFs:version() } ---@type Errors.Context
   local resolved = must(FieldActorGraphics.resolve(graphics, spriteId))
   local record = resolved.record
   if resolved.staticModelMemberId then
@@ -282,6 +300,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
       { memberId = descriptor.modelMemberId, context = context }
     )
   end
+  modelBytes = assert(modelBytes)
   local textureBytes = archive:readMember(record.mapModelId)
   if not textureBytes or textureBytes:sub(1, 4) ~= TEXTURE_MAGIC then
     Errors.raise(
@@ -316,7 +335,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   local frameSet = FieldActorFrames.collect(timeline, descriptor.ranges, #pack.textures, #pack.palettes, context)
   local frames, perRange = frameSet.frames, frameSet.perRange
   local atlas = decodeAtlas(pack, frames, context)
-  local directions, alternate, animations = buildPoses(perRange, descriptor.ranges, context)
+  local directions, alternate, animations = buildPoses(perRange, descriptor.ranges)
 
   local placement = {
     sourceSize = { width = atlas.frameWidth, height = atlas.frameHeight },

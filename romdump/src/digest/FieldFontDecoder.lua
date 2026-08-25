@@ -155,7 +155,6 @@ local function openMember(data, opts)
         { glyphIndex = glyphIndex, numGlyphs = numGlyphs }
       )
     end
-    local tileBytes = TILE_BYTES * glyphWidth * glyphHeight
     local offset = headerSize + glyphIndex * glyphSize
     local width = glyphWidth * 8
     local height = glyphHeight * 8
@@ -178,7 +177,7 @@ local function openMember(data, opts)
     return { width = width, height = height, values = pixels }
   end
 
-  return font
+  return font --[[@as FieldFontDecoder.DecodedFont]]
 end
 
 -- Decodes an RLCN-wrapped TTLP palette member (16-bit colors). The container
@@ -245,7 +244,7 @@ local function decodePalette(data, opts)
     )
   end
   local colorCount = math.floor(paletteBytes / 2)
-  local colors = {}
+  local colors = {} ---@type { r: integer, g: integer, b: integer }[]
   for i = 0, colorCount - 1 do
     colors[i + 1] = Rgb555.decode(reader:u16le(colorsOffset + i * 2))
   end

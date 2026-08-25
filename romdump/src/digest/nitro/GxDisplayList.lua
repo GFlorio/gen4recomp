@@ -243,6 +243,7 @@ end
 -- A fresh segment record; `positionSource` describes how the runtime
 -- resolves the segment's draw matrix.
 ---@param positionSource DrawSource
+---@return table
 local function newSegment(positionSource)
   return {
     vertices = {},
@@ -262,13 +263,19 @@ end
 -- offset into the next segment's run.
 local function convertRun(d, offset, lenient)
   local run, t = d.run, d.primType
+  if run == nil then
+    error("primitive run is missing")
+  end
   local n = #run
   local tail = 0
   local indices = d.dynamic and d.currentSegment.indices or d.indices
+  local function vertex(index)
+    return run[index + 1] or error("primitive references a missing vertex")
+  end
   local function tri(a, b, c)
-    indices[#indices + 1] = run[a + 1]
-    indices[#indices + 1] = run[b + 1]
-    indices[#indices + 1] = run[c + 1]
+    indices[#indices + 1] = vertex(a)
+    indices[#indices + 1] = vertex(b)
+    indices[#indices + 1] = vertex(c)
   end
   if t == 0 then -- separate triangles
     local complete = n - n % 3
@@ -367,6 +374,7 @@ end
 -- Triangle strips carry the winding parity across the split so the sequence
 -- stays continuous.
 ---@param positionSource DrawSource
+---@param offset integer
 function Decoder:dynamicBoundary(positionSource, offset)
   assert(self.dynamic, "dynamicBoundary outside dynamic mode")
   local previousSource = self.positionSource
@@ -598,7 +606,7 @@ EXEC[0x14] = function(d, p, offset)
     d.directionMatrix = direction
   end
 end
-EXEC[0x15] = function(d, p, offset)
+EXEC[0x15] = function(d, _, offset)
   d:dynamicMatrixGuard(offset)
   if d.dynamic then
     if d:touchesPosition() then

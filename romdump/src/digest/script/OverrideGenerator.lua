@@ -11,7 +11,6 @@
 -- dependency.
 
 local S = require("gen4.script")
-local Errors = require("libs.errors.src.Errors")
 local ScriptBinaryDecoder = require("romdump.src.digest.script.ScriptBinaryDecoder")
 local SemanticLowering = require("romdump.src.digest.script.SemanticLowering")
 local Structurer = require("romdump.src.digest.script.Structurer")

@@ -34,15 +34,15 @@ local function fail(code, message, context)
   Errors.raise(code, message, context)
 end
 
-local function u8At(bytes, offset, source)
+local function u8At(bytes, offset, _)
   return string.byte(bytes, offset + 1)
 end
 
-local function u16At(bytes, offset, source)
+local function u16At(bytes, offset, _)
   return string.byte(bytes, offset + 1) + string.byte(bytes, offset + 2) * 256
 end
 
-local function u32At(bytes, offset, source)
+local function u32At(bytes, offset, _)
   return string.byte(bytes, offset + 1)
     + string.byte(bytes, offset + 2) * 256
     + string.byte(bytes, offset + 3) * 65536
@@ -206,7 +206,7 @@ function Sbnk.decode(bytes, context)
     return result
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end

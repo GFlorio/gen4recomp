@@ -204,7 +204,7 @@ local function dynamicBatches(dynamicModel, meshes)
       })
     end
     if poly.cullMode ~= "all" then
-      local sha1 = Hashing.sha1hex(MeshWriter.encode(mesh.batch))
+      local sha1 = Hashing.sha1hex(MeshWriter.encode(mesh.batch --[[@as MeshWriter.Batch]]))
       meshes[sha1] = mesh.batch
       local record = {
         id = mesh.id,

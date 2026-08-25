@@ -4,7 +4,7 @@
 
 local Errors = {}
 
----@alias Errors.Value string|number|boolean|nil|Errors.Context
+---@alias Errors.Value string|number|boolean|nil|Errors.Context|Errors.Value[]
 ---@alias Errors.Context table<string, Errors.Value>
 ---@class Errors.Error
 ---@field code string

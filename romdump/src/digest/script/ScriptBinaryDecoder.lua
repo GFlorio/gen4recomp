@@ -93,31 +93,6 @@ local SPAWN_OPERANDS = {
   [280] = { 1 }, -- SetSpawn
 }
 
----@param bytes string
----@return table reader
-local function reader(bytes)
-  return {
-    bytes = bytes,
-    pos = 0,
-    u16 = function(self)
-      if self.pos + 1 >= #self.bytes then
-        return nil
-      end
-      local value = self.bytes:byte(self.pos + 1) + self.bytes:byte(self.pos + 2) * 256
-      self.pos = self.pos + 2
-      return value
-    end,
-    u32 = function(self)
-      local lo = self:u16()
-      local hi = self:u16()
-      if lo == nil or hi == nil then
-        return nil
-      end
-      return lo + hi * 65536
-    end,
-  }
-end
-
 -- Scan the entry table: `{ pos, entry, label }` per script in index order.
 -- Returns an empty list when the member carries no script table (a header
 -- member, or garbage).
@@ -393,9 +368,9 @@ function ScriptBinaryDecoder.parseMember(bytes, member, sourcePath, opts)
                   end
                   local target = cursor + size + raw
                   if registerMovement(target) then
-                    local block = decodeMovement(bytes, target)
-                    if block ~= nil then
-                      movements[target] = block
+                    local movementBlock = decodeMovement(bytes, target)
+                    if movementBlock ~= nil then
+                      movements[target] = movementBlock
                     end
                   end
                 end
@@ -608,7 +583,7 @@ function ScriptBinaryDecoder.parseMember(bytes, member, sourcePath, opts)
     end
   end
 
-  for index, script in ipairs(scripts) do
+  for _, script in ipairs(scripts) do
     -- A table entry that lands on a shared-subroutine body (returns without
     -- any call: the callers live in other scripts) is a prelude-shaped
     -- library; the verifier's prelude tolerance applies to its balance.

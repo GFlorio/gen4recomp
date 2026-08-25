@@ -172,13 +172,19 @@ local function decodeCommandImpl(bytes, offset, endPos, source)
   return command
 end
 
+---@param bytes string
+---@param offset integer
+---@param endPos integer
+---@param source string
+---@return table?
+---@return Errors.Error?
 function Sseq.decodeCommand(bytes, offset, endPos, source)
   local ok, result = pcall(decodeCommandImpl, bytes, offset, endPos, source)
   if ok then
     return result
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end
@@ -215,7 +221,7 @@ function Sseq.open(bytes, context)
     return result
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end

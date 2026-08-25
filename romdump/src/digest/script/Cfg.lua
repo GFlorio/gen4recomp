@@ -106,7 +106,6 @@ function Cfg.build(script, memberIr)
   end
 
   local successors = {}
-  local terminators = {}
   for i, ins in ipairs(instructions) do
     successors[i] = successorsOf(ins, labels)
   end
@@ -164,7 +163,7 @@ function Cfg.build(script, memberIr)
     end
   end
   local blockCounter = 0
-  for i, ins in ipairs(instructions) do
+  for i, _ in ipairs(instructions) do
     if leaders[i] then
       closeBlock(blockCounter)
       blockCounter = blockCounter + 1

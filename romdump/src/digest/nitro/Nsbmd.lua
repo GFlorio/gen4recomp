@@ -123,6 +123,12 @@ local pivotUtil_ = {
 -- read three further fx32 there as the joint's inverse scale
 -- (NNSi_G3dGetJointScaleMaya reads p+3..p+5). Only the raw SRT components are
 -- returned -- composing them is the scaling rule's job, not the parser's.
+---@param r BinaryReader
+---@param nodeInfoBase integer
+---@param e table
+---@param scalingRule integer
+---@param context Errors.Context
+---@return table
 local function decodeNodeData(r, nodeInfoBase, e, scalingRule, context)
   local offset = BinaryReader.new(e.data, "node-ref"):u32le(0)
   if offset == 0 then
@@ -394,6 +400,11 @@ local MATERIAL_PREFIX = 0x2C
 -- repeat/flip booleans read the raw texImageParam wrap bits directly (every
 -- target material fully masks that register, so raw equals effective); wrap
 -- sourcing later moves onto DsMaterial.resolve and drops them.
+---@param r BinaryReader
+---@param matBase integer
+---@param blockOfs integer
+---@param context Errors.Context
+---@return table
 local function decodeMaterialData(r, matBase, blockOfs, context)
   local base = matBase + blockOfs
   if base + MATERIAL_PREFIX > r:length() then
