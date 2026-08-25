@@ -100,6 +100,7 @@ function T.target_lines_stay_inside_the_reference_text_width(_, version)
   local provider = assert(FieldMessageProvider.new(cache))
   local metrics = FieldDialogueTheme.fontMetrics(def)
   local widths = {}
+  assert(provider:acquireBank(543))
   for messageId = 0, 105 do
     local template = assert(provider:get(543, messageId))
     local formatted = provider:format(template, { playerName = "GOLD" }, {

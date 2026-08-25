@@ -159,7 +159,7 @@ end
 ---@param path string?
 ---@param wrapX string
 ---@param wrapY string
----@return love.Image?
+---@return GpuAssetPool.Image?
 function GpuAssetPool:imageFor(path, wrapX, wrapY)
   if not path then
     return nil
