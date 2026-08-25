@@ -6,6 +6,7 @@
 
 local Capabilities = require("tests.runner.Capabilities")
 local Cli = require("tests.runner.Cli")
+local Progress = require("tests.runner.Progress")
 local RepoFiles = require("tests.runner.RepoFiles")
 local Report = require("tests.runner.Report")
 local TestRunner = require("tests.runner.TestRunner")
@@ -18,38 +19,17 @@ local ENV = setmetatable({}, {
   end,
 })
 
----@type RunnerRoot[]
-local ROOTS = {
-  { path = "libs/codec/tests", prefix = "libs.codec.tests", layer = "unit" },
-  { path = "libs/errors/tests", prefix = "libs.errors.tests", layer = "unit" },
-  { path = "libs/storage/tests", prefix = "libs.storage.tests", layer = "unit" },
-  { path = "libs/math/tests", prefix = "libs.math.tests", layer = "unit" },
-  { path = "libs/assets/tests", prefix = "libs.assets.tests", layer = "unit" },
-  { path = "libs/engine/tests", prefix = "libs.engine.tests", layer = "unit" },
-  { path = "game/tests", prefix = "game.tests", layer = "component" },
-  { path = "romdump/tests", prefix = "romdump.tests", layer = "component" },
-  { path = "tests/runner/tests", prefix = "tests.runner.tests", layer = "unit" },
-  { path = "tests/architecture", prefix = "tests.architecture", layer = "unit" },
-  { path = "tests/graphics", prefix = "tests.graphics", layer = "graphics" },
-  { path = "tests/rom", prefix = "tests.rom", layer = "rom" },
-  { path = "tests/acceptance", prefix = "tests.acceptance", layer = "acceptance" },
-}
-
 -- `options` accepts `layer`, `filter`, and `capabilities`; `main` parses them
 -- out of the argv.
 ---@param options table|nil
 local function runnerOptions(options)
   options = options or {}
-  local paths = {}
-  for _, root in ipairs(ROOTS) do
-    paths[#paths + 1] = root.path
-  end
   return {
-    roots = ROOTS,
-    fs = RepoFiles.new(love.filesystem.getSourceBaseDirectory(), paths),
+    fs = RepoFiles.new(love.filesystem.getSourceBaseDirectory()),
     capabilities = options.capabilities,
     layer = options.layer,
     filter = options.filter,
+    onResult = options.onResult,
   }
 end
 
@@ -90,11 +70,19 @@ local function main(argv)
     return 0
   end
 
+  local progress = Progress.new(function(text)
+    io.write(text)
+    io.stdout:flush()
+  end)
   local result = TestRunner.run(runnerOptions({
     capabilities = capabilities,
     layer = plan.layer,
     filter = plan.filter,
+    onResult = function(entry)
+      progress:record(entry)
+    end,
   }))
+  progress:finish()
   result.versions = versions
   print(table.concat(Report.lines(result), "\n"))
 
@@ -111,4 +99,4 @@ local function main(argv)
   return outcome.exitCode
 end
 
-return { main = main, list = list, ROOTS = ROOTS }
+return { main = main, list = list }

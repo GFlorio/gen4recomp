@@ -10,6 +10,28 @@ local RomImporter = require("romdump.src.source.RomImporter")
 local Runner = require("romdump.src.cli.Runner")
 
 local T = {}
+local realPrint
+local capturedOutput
+
+local function captureOutput()
+  realPrint = print
+  capturedOutput = {}
+  ---@diagnostic disable: duplicate-set-field
+  _G.print = function(...)
+    local parts = {}
+    for index = 1, select("#", ...) do
+      parts[index] = tostring(select(index, ...))
+    end
+    capturedOutput[#capturedOutput + 1] = table.concat(parts, "\t")
+  end
+  ---@diagnostic enable: duplicate-set-field
+end
+
+local function restoreOutput()
+  _G.print = realPrint
+  realPrint = nil
+  capturedOutput = nil
+end
 
 function T.build_cache_without_a_ready_dump_exits_with_usage_failure()
   local realIsReady, realQuit = RomImporter.isReady, love.event.quit
@@ -534,4 +556,8 @@ function T.check_dump_audits_every_ready_version_once()
   Assert.deepEqual(exitCodes, { 1, 0 }, "any failing report must fail the exit code")
 end
 
-return { tests = T }
+return {
+  beforeAll = captureOutput,
+  afterAll = restoreOutput,
+  tests = T,
+}

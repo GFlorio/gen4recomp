@@ -4,13 +4,14 @@
 -- exists, so removing a line can never hide a test.
 --
 -- Options:
---   roots        RunnerRoot[]                 required; { path, prefix, layer }
+--   roots        table[]|nil                 legacy explicit roots for focused tests
 --   fs           love.filesystem-shaped       defaults to love.filesystem
 --   load         fun(moduleName): table       defaults to require
 --   capabilities table<string, boolean>       available capabilities, default {}
 --   layer        string|nil                   run only this layer
 --   filter       string|nil                   literal substring over
 --                                             "module :: test"
+--   onResult       fun(result: table)|nil      called after each result
 
 local Discovery = require("tests.runner.Discovery")
 local Execution = require("tests.runner.Execution")
@@ -30,6 +31,7 @@ local function resolve(options)
     capabilities = options.capabilities or {},
     layer = options.layer,
     filter = options.filter,
+    onResult = options.onResult,
   }
 end
 
@@ -159,13 +161,19 @@ function TestRunner.run(options)
     byLayer = {},
     capabilities = config.capabilities,
   }
+  local function record(entry)
+    tally(run, entry)
+    if config.onResult ~= nil then
+      config.onResult(entry)
+    end
+  end
   for _, item in ipairs(items) do
     if item.failure ~= nil then
-      tally(run, item.failure)
+      record(item.failure)
     else
       local suite = assert(item.suite, "collected item carries neither a suite nor a failure")
       for _, entry in ipairs(Execution.runSuite(suite, config)) do
-        tally(run, entry)
+        record(entry)
       end
     end
   end

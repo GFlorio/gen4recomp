@@ -35,7 +35,6 @@ export G4RECOMP_REQUIRE_GRAPHICS_TESTS="${G4RECOMP_REQUIRE_GRAPHICS_TESTS:-1}"
 # `love romdump/ --build-cache` exits 2 with "no ready dump" when there is
 # nothing to prepare; any other nonzero status is a real preparation failure.
 NO_DUMP_STATUS=2
-BUILD_LOG=.agents/tmp/buildcache.log
 
 # The runner's plan answer: preparation is needed for everything except a
 # listing and the three ROM-independent layers, and a supplied source is
@@ -66,13 +65,14 @@ if [ "$prepare" = 1 ]; then
     echo "== import and build $rom_source into $isolated =="
     love romdump/ --build-cache "$rom_source"
   else
-    mkdir -p "$(dirname "$BUILD_LOG")"
+    BUILD_LOG_DIR="$(mktemp -d)"
+    BUILD_LOG="$BUILD_LOG_DIR/buildcache.log"
+    trap 'rm -rf -- "$BUILD_LOG_DIR"' EXIT
     # The producer fingerprint + build-state check makes --build-cache cheap
     # when nothing relevant changed: an identity match with a fully available
     # cache means no ROM open and no compilation. A producer/contract/dump
     # change rebuilds once; a damaged cache takes the repair path. This
     # prevents tests from accepting a merely complete but stale cache.
-    echo "== prepare derived cache (log: $BUILD_LOG) =="
     love romdump/ --build-cache >"$BUILD_LOG" 2>&1 || status=$?
     if [ "$status" -ne 0 ] && [ "$status" -ne "$NO_DUMP_STATUS" ]; then
       tail -n 20 "$BUILD_LOG" >&2
@@ -90,5 +90,6 @@ fi
 # Not `exec`: the isolated save root of --rom-source is removed by the EXIT trap,
 # which a replaced process would never run.
 status=0
+echo "Running tests..."
 love game/ --test "$@" || status=$?
 exit "$status"
