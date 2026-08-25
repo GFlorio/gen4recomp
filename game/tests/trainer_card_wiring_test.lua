@@ -60,6 +60,7 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
+  game:waitForFieldEntry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
     ---@diagnostic disable-next-line: undefined-field -- the runtime application-registry surface is the contract under test
@@ -109,11 +110,11 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     Assert.equal(resumedStatus.name, "HIKARI", "the resumed card presents the saved name, not the manifest")
     Assert.equal(resumedStatus.trainerId, 54321)
   end, debug.traceback)
+  game:close()
   if not ok then
     error(err, 0)
   end
   Assert.equal(game:renderAttempts(), 0, "the card composition must not render")
-  game:close()
 end
 
 return T

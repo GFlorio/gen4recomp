@@ -172,6 +172,7 @@ end
 ---@field harness AcceptanceHarness
 ---@field versionId string
 ---@field map string|integer|nil
+---@field waitForFieldEntry fun(self: AcceptanceGame): table
 ---@field fieldOptions table|nil
 ---@field saveStatus string?
 ---@field ownsNamespace boolean
@@ -732,6 +733,16 @@ function Game:advanceUntil(label, predicate, maxTicks)
       .. tostring(self:snapshot().foregroundScript),
     2
   )
+end
+
+-- Production input must start only after the map-entry lifecycle reaches its
+-- settled boundary. The runtime intentionally returns before that lifecycle
+-- finishes, so callers that drive a field flow use this semantic wait rather
+-- than assuming a fixed number of setup ticks.
+function Game:waitForFieldEntry()
+  return self:advanceUntil("field entry ready for production input", function()
+    return self.runtime.session.mapEntryStage == nil
+  end, 120)
 end
 
 function Game:renderAttempts()

@@ -11,12 +11,6 @@ local DELTAS = {
   east = { x = 1, z = 0 },
 }
 
-local function waitForFieldEntry(game)
-  game:advanceUntil("field entry ready for production movement", function()
-    return game.runtime.session.mapEntryStage == nil
-  end, 120)
-end
-
 ---@param game table
 ---@param trigger { fieldX: integer, fieldZ: integer }
 ---@param direction string
@@ -55,7 +49,7 @@ end
 ---@return table[] snapshots
 function FieldMovement.productionRoute(game, directions)
   assert(type(directions) == "table", "production route directions required")
-  waitForFieldEntry(game)
+  game:waitForFieldEntry()
   local snapshots = {}
   for index, direction in ipairs(directions) do
     local before = game:snapshot()

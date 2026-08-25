@@ -39,6 +39,7 @@ local function bootGame()
     map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
+  game:waitForFieldEntry()
   game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
   return game
 end
@@ -137,6 +138,7 @@ function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_fiel
     map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
+  game:waitForFieldEntry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
     local world = runtime.scripts.worldState
@@ -209,6 +211,7 @@ function T.tests.the_runtime_registers_production_destinations_only()
     save = "fresh",
     fieldOptions = { saveStore = false },
   })
+  game:waitForFieldEntry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
     Assert.equal(

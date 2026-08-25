@@ -32,6 +32,7 @@ function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
     map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
+  game:waitForFieldEntry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
     local signpost = runtime.signpost
