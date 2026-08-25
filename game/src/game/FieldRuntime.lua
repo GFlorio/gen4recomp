@@ -1242,6 +1242,7 @@ function FieldRuntime:_commitSwap(resolution, _, prepared)
   self.session.playerVisual = prepared.playerVisual
   self.camera = prepared.camera
   self.session.currentMap = runtimeMap
+  self.zoneController.currentMap = runtimeMap
   self.session.player = prepared.player
   self.session.camera = prepared.camera
   -- The map-music policy follows the destination map through FieldAudioController.
