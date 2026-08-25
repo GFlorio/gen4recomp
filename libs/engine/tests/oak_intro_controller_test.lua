@@ -11,7 +11,26 @@ local OakIntroController = require("libs.engine.src.OakIntroController")
 
 local T = {}
 
-local CHARMAP = { A = 1, B = 2, C = 3, D = 4, E = 5, G = 6, O = 7, L = 8, ["é"] = 9 }
+-- Includes the lowercase glyphs of the generated Ethan/Lyra defaults so
+-- finalization tests can encode them through the same charmap contract.
+local CHARMAP = {
+  A = 1,
+  B = 2,
+  C = 3,
+  D = 4,
+  E = 5,
+  G = 6,
+  O = 7,
+  L = 8,
+  [" "] = 9,
+  ["é"] = 10,
+  a = 11,
+  h = 12,
+  n = 13,
+  r = 14,
+  t = 15,
+  y = 16,
+}
 local PLAYER_DATA_CONTEXT = { charmap = CHARMAP, frameIndexes = { [0] = true } }
 
 local function candidate()
@@ -153,6 +172,42 @@ end
 
 local function advanceThroughHide(state)
   advanceToPhase(state, "oak_tell_about_yourself")
+end
+
+-- Reaches name_edit without navigating the confirmation-choice UI (matching
+-- the other controller-only tests in this suite); an optional female flag
+-- selects gender focus before the name editor opens, and the virtual
+-- keyboard focus starts on the first glyph key, matching production.
+local function advanceToNameEdit(options, female)
+  local state = controller(options)
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  advanceToPhase(state, "oak_live_alongside")
+  state:press("confirm")
+  advanceThroughHide(state)
+  state:press("confirm")
+  state:press("confirm")
+  if female then
+    state:press("right")
+  end
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(40)
+  Assert.equal(state:view().phase, "name_edit")
+  return state
+end
+
+-- The Confirm virtual key is last in focus order (glyphs, then Delete, then
+-- Confirm); one left-navigation step from the initial glyph focus wraps
+-- directly onto it.
+local function focusConfirmKey(state)
+  state:press("left")
 end
 
 local function genderConfirmation(selectFemale, options)
@@ -761,6 +816,73 @@ function T.finalization_handoff_keeps_reserved_identity_without_storage_publicat
   Assert.equal(result.playerData.profile.name, "GOLD")
   Assert.equal(result.playerData.profile.trainerId, 0x12345678)
   Assert.equal(calls, 0)
+end
+
+function T.blank_and_whitespace_names_resolve_to_the_gender_default_through_the_confirm_key()
+  local cases = {
+    { text = nil, female = false, expected = "Ethan" },
+    { text = " ", female = false, expected = "Ethan" },
+    { text = "   ", female = false, expected = "Ethan" },
+    { text = nil, female = true, expected = "Lyra" },
+    { text = " ", female = true, expected = "Lyra" },
+    { text = "   ", female = true, expected = "Lyra" },
+  }
+  for _, case in ipairs(cases) do
+    local state = advanceToNameEdit(nil, case.female)
+    if case.text then
+      Assert.isTrue(state:inputText(case.text))
+    end
+    focusConfirmKey(state)
+    state:press("confirm")
+    Assert.equal(
+      state:view().phase,
+      "name_confirm",
+      "a blank/whitespace-only name must still reach confirmation: " .. tostring(case.text)
+    )
+    Assert.equal(state:view().name, case.expected)
+  end
+end
+
+function T.blank_name_default_survives_into_the_finalized_profile()
+  for _, female in ipairs({ false, true }) do
+    local state = advanceToNameEdit({ assets = finalSequenceAssets() }, female)
+    focusConfirmKey(state)
+    state:press("confirm")
+    local expected = female and "Lyra" or "Ethan"
+    Assert.equal(state:view().name, expected)
+    state:press("confirm") -- name_confirm -> final_dialogue
+    state:press("confirm") -- final_dialogue -> final_fade_out
+    state:tick(1) -- final_fade_out -> final_full_art_fade_in
+    state:tick(1) -- final_full_art_fade_in -> final_full_art_hold
+    advanceToPhase(state, "shrink_animation")
+    state:tick(8 * 4)
+    Assert.equal(state:view().phase, "complete")
+    Assert.equal(assert(state:result()).playerData.profile.name, expected)
+  end
+end
+
+function T.nonblank_names_are_preserved_exactly_through_the_confirm_key()
+  local cases = { "A", "GOLD", "ABCDEGO", "A B" }
+  for _, name in ipairs(cases) do
+    local state = advanceToNameEdit()
+    Assert.isTrue(state:inputText(name), "generated charmap must accept: " .. name)
+    focusConfirmKey(state)
+    state:press("confirm")
+    Assert.equal(state:view().phase, "name_confirm", "a valid nonblank name must reach confirmation: " .. name)
+    Assert.equal(state:view().name, name, "the entered name must not be trimmed or replaced")
+  end
+end
+
+function T.invalid_or_oversized_input_is_rejected_without_ever_defaulting()
+  local state = advanceToNameEdit()
+  Assert.isTrue(state:inputText("ABCDEGO"))
+  Assert.isFalse(state:inputText("L"), "an eighth glyph must be rejected by the existing capacity contract")
+  Assert.equal(state:view().name, "ABCDEGO")
+  Assert.isFalse(state:inputText("!"), "an unencodable glyph must be rejected by the generated charmap")
+  Assert.equal(state:view().name, "ABCDEGO")
+  focusConfirmKey(state)
+  state:press("confirm")
+  Assert.equal(state:view().name, "ABCDEGO", "rejected input must never be silently replaced by a default")
 end
 
 return { tests = T }

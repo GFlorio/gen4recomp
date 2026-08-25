@@ -114,6 +114,9 @@ local function completeOak(onDraw)
     local view = App.state:view()
     if view.phase == "name_edit" then
       App.textinput("GOLD")
+      -- Navigate keyboard focus onto the virtual Confirm key before
+      -- activating it, matching the one confirm-capable-device contract.
+      App.keypressed("left")
       App.keypressed("return")
     elseif interactive[view.phase] then
       press("a")

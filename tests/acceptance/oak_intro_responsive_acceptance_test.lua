@@ -695,6 +695,9 @@ T.tests.name_confirmation_draw_does_not_require_editor_preview_geometry = functi
   advanceToNameEdit(intro)
   Assert.equal(intro:view().phase, "name_edit")
   intro:textinput("A")
+  -- Navigate keyboard focus onto the virtual Confirm key before
+  -- activating it, matching the one confirm-capable-device contract.
+  intro:keypressed("left")
   intro:keypressed("return")
   local view = intro:view()
   Assert.equal(view.phase, "name_confirm")

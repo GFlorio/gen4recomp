@@ -176,12 +176,30 @@ function T.gamepad_confirm_uses_the_focused_semantic_key()
   Assert.deepEqual(controller.pressed, { "confirm", "confirm" })
 end
 
-function T.return_uses_the_shared_confirm_action()
+function T.confirm_capable_keys_activate_the_focused_virtual_key_like_gamepad_a()
   local state, controller = stateHarness()
+  Assert.equal(controller.phase, "name_edit")
   state:keypressed("return")
   state:keypressed("kpenter")
   state:keypressed("space")
-  Assert.deepEqual(controller.pressed, { "submit", "submit", "submit" })
+  state:gamepadpressed(nil, "a")
+  Assert.deepEqual(
+    controller.pressed,
+    { "confirm", "confirm", "confirm", "confirm" },
+    "keyboard Enter/KPEnter/Space must send the same focused-key action as gamepad A, never a direct submit"
+  )
+end
+
+function T.a_held_confirm_key_does_not_repeat_activation()
+  local state, controller = stateHarness()
+  state:keypressed("return", "return", false)
+  state:keypressed("return", "return", true)
+  state:keypressed("return", "return", true)
+  Assert.deepEqual(
+    controller.pressed,
+    { "confirm" },
+    "a held physical key must not activate the focused virtual key more than once"
+  )
 end
 
 function T.audio_lifetime_is_released_once_with_the_state()

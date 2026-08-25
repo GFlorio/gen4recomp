@@ -89,6 +89,14 @@ local function finishDialogueBoundary(state)
   error("Oak dialogue did not reach its semantic completion boundary: " .. tostring(initialKey))
 end
 
+-- Navigates keyboard focus onto the virtual Confirm key before activating
+-- it, matching the one confirm-capable-device contract (keyboard/gamepad
+-- both activate the focused virtual key rather than submitting directly).
+local function submitName(state)
+  state:keypressed("left")
+  state:keypressed("return")
+end
+
 local function advanceUntilMessage(state, messageKey)
   for _ = 1, 20000 do
     local view = state:view()
@@ -256,7 +264,7 @@ function T.tests.confirmation_text_requires_a_later_explicit_choice_edge()
       finishDialogueBoundary(state)
       advanceUntilPhase(state, "name_edit")
       state:textinput("GOLD")
-      state:keypressed("return")
+      submitName(state)
       finishDialogueBoundary(state)
       Assert.equal(state:view().phase, "name_confirm")
       Assert.equal(state:view().confirmationChoice.selected, 0)
@@ -280,20 +288,19 @@ function T.tests.player_name_is_formatted_when_each_confirmation_message_opens()
       finishDialogueBoundary(state)
       advanceUntilPhase(state, "name_edit")
       state:textinput("GOLD")
-      state:keypressed("return")
+      submitName(state)
       assertResolvedMessage(state, "profile.name_confirm.female", "GOLD")
       finishDialogueBoundary(state)
       state:keypressed("escape")
 
       finishDialogueBoundary(state)
-      state:keypressed("left")
-      state:keypressed("return")
+      submitName(state)
       finishDialogueBoundary(state)
       state:keypressed("return")
       finishDialogueBoundary(state)
       advanceUntilPhase(state, "name_edit")
       state:textinput("GOLD")
-      state:keypressed("return")
+      submitName(state)
       assertResolvedMessage(state, "profile.name_confirm.male", "GOLD")
       finishDialogueBoundary(state)
       state:keypressed("return")
@@ -315,7 +322,7 @@ function T.tests.production_name_entry_resolves_blank_defaults_and_reenters_clea
 
       Assert.isTrue(state:view().nameInputEnabled)
       Assert.equal(host.textInputCalls[#host.textInputCalls], true)
-      state:keypressed("return")
+      submitName(state)
       Assert.equal(state:view().phase, "name_confirm")
       Assert.equal(state:view().name, "Ethan")
       Assert.equal(host.textInputCalls[#host.textInputCalls], false)
@@ -339,7 +346,7 @@ function T.tests.production_name_entry_resolves_blank_defaults_and_reenters_clea
       Assert.equal(state:view().name, "  ")
       state:keypressed("backspace")
       Assert.equal(state:view().name, " ")
-      state:keypressed("return")
+      submitName(state)
       Assert.equal(state:view().phase, "name_confirm")
       local expectedDefault = state:view().genderFocus == 0 and "Ethan" or "Lyra"
       Assert.equal(state:view().name, expectedDefault)
@@ -469,6 +476,47 @@ function T.tests.production_oak_keeps_marill_visible_through_dialogue_and_hide()
       view = state:view()
       Assert.equal(view.phase, "oak_slide_left")
       Assert.equal(view.oakSlideOffset, -52)
+    end)
+  end)
+end
+
+-- The intentional fastest text speed is a protected product decision (not a
+-- reverted source regression): it must survive a full production Oak flow,
+-- including a default-name resolution, into the FieldRuntime that Oak hands
+-- off to.
+function T.tests.default_name_and_fastest_text_speed_survive_the_full_oak_handoff()
+  forEachReadyVersion(function(versionId)
+    withProductionOak(versionId, function(state)
+      advanceUntilMessage(state, "profile.gender_question")
+      finishDialogueBoundary(state)
+      state:keypressed("return")
+      finishDialogueBoundary(state)
+      Assert.equal(state:view().phase, "gender_confirm")
+      state:keypressed("return")
+
+      finishDialogueBoundary(state)
+      advanceUntilPhase(state, "name_edit")
+      Assert.equal(state:view().name, "")
+
+      submitName(state)
+      Assert.equal(state:view().phase, "name_confirm")
+      Assert.equal(state:view().name, "Ethan")
+
+      finishDialogueBoundary(state)
+      state:keypressed("return")
+      Assert.equal(state:view().phase, "final_dialogue")
+
+      finishDialogueBoundary(state)
+      state:keypressed("return")
+
+      advanceUntilPhase(state, "complete")
+      Assert.equal(getmetatable(App.state).__index ~= OakIntroState, true, "Oak completion must hand off to the field")
+      Assert.equal(App.state.runtime.playerData.profile.name, "Ethan")
+      Assert.equal(
+        App.state.runtime.playerData.options.textSpeed,
+        "fastest",
+        "the intentional fastest text speed must reach the field runtime unchanged"
+      )
     end)
   end)
 end

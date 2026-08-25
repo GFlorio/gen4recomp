@@ -124,7 +124,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field view fun(self: OakIntroState): OakIntroStateLayoutView
 ---@field draw fun(self: OakIntroState)
 ---@field resize fun(self: OakIntroState, width: number, height: number)
----@field keypressed fun(self: OakIntroState, key: string)
+---@field keypressed fun(self: OakIntroState, key: string, scancode: string?, isrepeat: boolean?)
 ---@field textinput fun(self: OakIntroState, text: string)
 ---@field gamepadpressed fun(self: OakIntroState, joystick: any, button: string)
 ---@field _pointer fun(self: OakIntroState, x: number, y: number)
@@ -348,23 +348,19 @@ function OakIntroState:resize(width, height)
   self.width, self.height = width, height
 end
 
-function OakIntroState:keypressed(key)
-  if
-    key == "left"
-    or key == "right"
-    or key == "up"
-    or key == "down"
-    or key == "return"
-    or key == "kpenter"
-    or key == "space"
-    or key == "escape"
-  then
+local CONFIRM_KEYS = { ["return"] = true, kpenter = true, space = true }
+
+---@param key string
+---@param scancode string?
+---@param isrepeat boolean?
+function OakIntroState:keypressed(key, scancode, isrepeat)
+  if isrepeat and CONFIRM_KEYS[key] then
+    return
+  end
+  if key == "left" or key == "right" or key == "up" or key == "down" or CONFIRM_KEYS[key] or key == "escape" then
     local action = key == "escape" and "cancel"
       or ({ ["left"] = "left", ["right"] = "right", ["up"] = "up", ["down"] = "down" })[key]
       or "confirm"
-    if action == "confirm" and self.controller:view().phase == "name_edit" then
-      action = "submit"
-    end
     if self.dialogueController and self.dialogueController:isModal() then
       self.dialogueController:step({ actionPressed = action == "confirm", cancelPressed = action == "cancel" })
       self:_sync()
