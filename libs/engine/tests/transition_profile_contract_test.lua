@@ -783,8 +783,13 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
     prepare = function() end,
     commit = function() end,
     player = player,
-    onProfile = function(profile, phase, family)
-      events[#events + 1] = { profile = profile, phase = phase, family = family }
+    onProfile = function(profile, phase, family, ...)
+      events[#events + 1] = {
+        profile = profile,
+        phase = phase,
+        family = family,
+        argumentCount = select("#", profile, phase, family, ...),
+      }
     end,
     cameraAdjust = function(profile, adjustment)
       events[#events + 1] = { profile = profile, phase = "camera", family = adjustment }
@@ -815,6 +820,7 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
     Assert.equal(events[1].profile, profile)
     Assert.equal(events[1].phase, "exit")
     Assert.equal(events[1].family, FieldTransitionProfile.ROUTINE_FAMILIES[profile].exit)
+    Assert.equal(events[1].argumentCount, 3)
     local enter
     for _, event in ipairs(events) do
       if event.phase == "enter" then

@@ -77,7 +77,7 @@ local function runtimeCameraAdjust(runtime, profile, adjustment, player)
   if player and type(runtime.camera.setTransitionPlayer) == "function" then
     runtime.camera:setTransitionPlayer(player)
   end
-  runtime.camera:adjustTransition(profile, adjustment, player)
+  runtime.camera:adjustTransition(profile, adjustment)
 end
 
 local function runtimePanelEffect(runtime, phase)
@@ -114,10 +114,15 @@ local function createFieldTransition(runtime, doorAt, escalatorAt)
       assert(audio and type(audio.stop) == "function", "field transition audio host required")
       audio:stop(soundRef)
     end,
-    callbackOwner = runtime,
-    onProfile = runtimeProfileEffect,
-    cameraAdjust = runtimeCameraAdjust,
-    onPanel = runtimePanelEffect,
+    onProfile = function(profile, phase, _)
+      runtimeProfileEffect(runtime, profile, phase)
+    end,
+    cameraAdjust = function(profile, adjustment, player)
+      runtimeCameraAdjust(runtime, profile, adjustment, player)
+    end,
+    onPanel = function(phase)
+      runtimePanelEffect(runtime, phase)
+    end,
   })
 end
 
@@ -169,6 +174,7 @@ end
 ---@field presentation boolean
 ---@field windowStyles FieldWindowStyles the immutable per-runtime window style catalogue
 ---@field scriptHosts FieldRuntimeScriptHosts?
+---@field transitionPanel "exit"|"enter"|nil
 ---@field applications FieldApplicationRegistry the immutable per-runtime destination application catalogue
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
 ---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share

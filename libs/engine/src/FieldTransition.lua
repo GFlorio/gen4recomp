@@ -59,11 +59,10 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field playSound fun(soundId: string)?
 ---@field stopSound fun(soundId: string)?
 ---@field onStart fun(sourceMap: table, trigger: table, facing: FieldDirection)? -- invoked once per transition start, before ownership changes
----@field onProfile (fun(profile: integer, phase: "exit"|"enter", family: string)|fun(owner: table, profile: integer, phase: "exit"|"enter", family: string))? -- source-specific semantic hook
+---@field onProfile fun(profile: integer, phase: "exit"|"enter", family: string)? -- source-specific semantic hook
 ---@field cameraAdjust fun(...: any)?
 ---@field escalatorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table?
 ---@field onPanel fun(...: any)?
----@field callbackOwner table?
 ---@field player table|nil -- FieldPlayer, bound by the owner across the swap
 ---@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"choreo_hold"
 ---@field fadeAlpha number
@@ -121,7 +120,6 @@ function FieldTransition.new(options)
     cameraAdjust = options.cameraAdjust,
     escalatorAt = options.escalatorAt,
     onPanel = options.onPanel,
-    callbackOwner = options.callbackOwner,
     player = options.player,
     profileId = nil,
     transitionMode = nil,
@@ -186,11 +184,7 @@ local function invokeProfile(self, phase)
   local family = profileFamily(self)[phase]
   local profileId = assert(self.profileId)
   if self.onProfile then
-    if self.callbackOwner then
-      self.onProfile(self.callbackOwner, profileId, phase, family)
-    else
-      self.onProfile(profileId, phase, family)
-    end
+    self.onProfile(profileId, phase, family)
   end
 end
 
@@ -716,11 +710,7 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.fadeAlpha = 0
   if self.transitionMode == FieldTransitionProfile.MODE_PANEL then
     if self.onPanel then
-      if self.callbackOwner then
-        self.onPanel(self.callbackOwner, "exit")
-      else
-        self.onPanel("exit")
-      end
+      self.onPanel("exit")
     end
   end
   runChoreo(self, beginSourceChoreography)
@@ -820,21 +810,13 @@ function FieldTransition:updateFixed()
     self.commit(self.resolution, self.destinationFacing, self.prepared)
     if self.transitionMode == FieldTransitionProfile.MODE_PANEL then
       if self.onPanel then
-        if self.callbackOwner then
-          self.onPanel(self.callbackOwner, "enter")
-        else
-          self.onPanel("enter")
-        end
+        self.onPanel("enter")
       end
     elseif self.profileId then
       invokeProfile(self, "enter")
       local family = profileFamily(self)
       if family.adjustment and self.cameraAdjust then
-        if self.callbackOwner then
-          self.cameraAdjust(self.callbackOwner, self.profileId, family.adjustment, self.player)
-        else
-          self.cameraAdjust(self.profileId, family.adjustment, self.player)
-        end
+        self.cameraAdjust(self.profileId, family.adjustment, self.player)
       end
       if beginProfileMotion(self, "enter") then
         self.destinationChoreo = "profile_motion"
