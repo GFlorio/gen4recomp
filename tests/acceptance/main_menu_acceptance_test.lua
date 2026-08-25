@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
 local Errors = require("libs.errors.src.Errors")
 local FieldState = require("game.src.game.FieldState")
+local NewGameInitialization = require("game.src.game.NewGameInitialization")
 local RomImporter = require("romdump.src.source.RomImporter")
 
 local T = {
@@ -189,6 +190,7 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
   local originalState = App.state
   local originalImporter = App.importer
   local originalFieldNew = FieldState.new
+  local originalApply = NewGameInitialization.apply
   local candidate = { saveId = "save-00000007", playerData = { profile = { name = "GOLD" } } }
   local handoffs = {}
   local fieldCalls = {}
@@ -261,6 +263,14 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
     fieldCalls[#fieldCalls + 1] = { game = game, options = options }
     return { kind = "field" }
   end
+  -- This suite's contract is the Main Menu -> Oak -> FieldState routing, not
+  -- the fresh-game startup initializer (owned by fresh_game_startup_flags_
+  -- acceptance_test); the initializer is stubbed through unchanged so the
+  -- fixture candidate needs no worldState/cache.
+  ---@diagnostic disable-next-line: duplicate-set-field
+  NewGameInitialization.apply = function(result)
+    return result
+  end
   App.state = nil
   App.importer = nil
 
@@ -287,6 +297,7 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
   App.state = originalState
   App.importer = originalImporter
   FieldState.new = originalFieldNew
+  NewGameInitialization.apply = originalApply
   if not ok then
     error(err, 0)
   end

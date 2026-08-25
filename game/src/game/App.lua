@@ -13,6 +13,7 @@ local SaveFs = require("libs.storage.src.SaveFs")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local NewGame = require("libs.engine.src.NewGame")
+local NewGameInitialization = require("game.src.game.NewGameInitialization")
 local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local MainMenuState = require("game.src.game.MainMenuState")
@@ -145,6 +146,7 @@ end
 -- reserved and unpublished until the receiving field flow explicitly writes it.
 function App._onOakComplete(result)
   assert(type(result) == "table" and result.playerData ~= nil, "Oak intro completed without a finalized game")
+  result = NewGameInitialization.apply(result)
   App.setState(FieldState.new(result, fieldStateOptions()))
 end
 

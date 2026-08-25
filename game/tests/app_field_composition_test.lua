@@ -5,11 +5,17 @@
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
 local FieldState = require("game.src.game.FieldState")
+local NewGameInitialization = require("game.src.game.NewGameInitialization")
 
 local T = {}
 
+-- This suite's contract is App's FieldState composition boundary, not the
+-- fresh-game startup initializer (owned by new_game_startup_continue_test);
+-- the initializer is stubbed through unchanged so the fixture games below
+-- need no worldState/cache.
 local function withFieldStateSpy(fn)
   local originalNew = FieldState.new
+  local originalApply = NewGameInitialization.apply
   local originalOpts = App.opts
   local originalState = App.state
   local originalSaveStore = App.saveStore
@@ -19,6 +25,10 @@ local function withFieldStateSpy(fn)
     captured.game = game
     captured.options = options
     return { dispose = function() end }
+  end
+  ---@diagnostic disable-next-line: duplicate-set-field -- stub the startup initializer for the FieldState composition contract only
+  NewGameInitialization.apply = function(candidate)
+    return candidate
   end
   ---@type AppOptions
   App.opts = {
@@ -38,6 +48,7 @@ local function withFieldStateSpy(fn)
     fn(captured)
   end)
   FieldState.new = originalNew
+  NewGameInitialization.apply = originalApply
   App.opts = originalOpts
   App.state = originalState
   App.saveStore = originalSaveStore

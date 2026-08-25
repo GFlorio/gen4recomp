@@ -17,6 +17,7 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 
@@ -65,6 +66,10 @@ function T.contract_pins_the_current_asset_identities()
     fieldWeather = {
       cacheFormat = "field-weather-cache-v1",
       schema = "g4-field-weather-v1",
+    },
+    newGameInit = {
+      cacheFormat = "g4-new-game-init-cache-v1",
+      schema = "g4-new-game-init-v1",
     },
     fieldEffects = {
       cacheFormat = "field-effect-cache-v2",
@@ -125,6 +130,8 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(AudioSample.SCHEMA, DerivedAssetContract.audio.sampleSchema)
   Assert.equal(FieldWeatherCache.FORMAT, DerivedAssetContract.fieldWeather.cacheFormat)
   Assert.equal(FieldWeatherCache.SCHEMA, DerivedAssetContract.fieldWeather.schema)
+  Assert.equal(NewGameInitCache.FORMAT, DerivedAssetContract.newGameInit.cacheFormat)
+  Assert.equal(NewGameInitCache.SCHEMA, DerivedAssetContract.newGameInit.schema)
 end
 
 return { tests = T }

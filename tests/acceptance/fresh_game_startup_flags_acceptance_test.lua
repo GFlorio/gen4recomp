@@ -1,0 +1,185 @@
+-- A fresh New Game must reach its first field runtime with the source
+-- standard-init hide flags already active, so startup-hidden actors are
+-- truly absent on first actor construction rather than repaired afterward.
+
+local Assert = require("tests.support.Assert")
+local App = require("game.src.game.App")
+local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
+local GameSaveStore = require("libs.engine.src.GameSaveStore")
+local SaveFs = require("libs.storage.src.SaveFs")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+
+local T = {
+  metadata = {
+    capabilities = { "rom_dump", "derived_cache" },
+    tags = { "new-game", "startup", "product" },
+  },
+  tests = {},
+}
+
+local JOYSTICK = {
+  getID = function()
+    return 1
+  end,
+}
+
+local function isolatedBackend(namespace)
+  local fs = love.filesystem
+  local function map(path)
+    return namespace .. "/" .. path:gsub("^saves/", "")
+  end
+  return {
+    write = function(_, path, data)
+      return fs.write(map(path), data)
+    end,
+    read = function(_, path)
+      return fs.read(map(path))
+    end,
+    getInfo = function(_, path)
+      return fs.getInfo(map(path))
+    end,
+    createDirectory = function(_, path)
+      return fs.createDirectory(map(path))
+    end,
+    remove = function(_, path)
+      return fs.remove(map(path))
+    end,
+    replace = function(_, source, destination)
+      return os.rename(fs.getSaveDirectory() .. "/" .. map(source), fs.getSaveDirectory() .. "/" .. map(destination))
+    end,
+  }
+end
+
+local function press(button)
+  App.gamepadpressed(JOYSTICK, button)
+  App.gamepadreleased(JOYSTICK, button)
+end
+
+local function tick(frames)
+  for _ = 1, frames do
+    App.update(1 / 60)
+  end
+end
+
+-- Skips through Oak by always confirming, without ever calling App.draw:
+-- this scenario only needs the finalized field runtime, not the Oak
+-- visuals, so no host draw call is ever attempted.
+local function completeOak()
+  local interactive = {
+    greeting = true,
+    oak_welcome = true,
+    oak_world_inhabited = true,
+    oak_live_alongside = true,
+    oak_tell_about_yourself = true,
+    gender_question = true,
+    gender_select = true,
+    gender_confirm = true,
+    name_prompt = true,
+    name_confirm = true,
+    final_dialogue = true,
+  }
+  for _ = 1, 3600 do
+    Assert.notNil(App.state, "Oak must remain active until the profile is finalized")
+    if App.state.runtime ~= nil then
+      return
+    end
+    local view = App.state:view()
+    if view.phase == "name_edit" then
+      App.textinput("GOLD")
+      App.keypressed("return")
+    elseif interactive[view.phase] then
+      press("a")
+    else
+      tick(1)
+    end
+  end
+  error("Oak did not reach the opening field")
+end
+
+function T.tests.fresh_new_game_hides_source_initial_actors_before_field_construction()
+  local namespace = "acceptance/fresh-game-startup-flags"
+  local audio = FakeAudioOutput.new()
+  local saveStore = GameSaveStore.new(SaveFs.global(isolatedBackend(namespace)))
+  local original = { opts = App.opts, state = App.state, saveStore = App.saveStore, versionId = App.versionId }
+  local ok, err = xpcall(function()
+    ---@diagnostic disable-next-line: missing-fields
+    App.opts = {
+      test = false,
+      actors = false,
+      dev = false,
+      saveStore = saveStore,
+      oakIntroHost = {
+        audioOutput = { audio = audio.audio, sound = audio.sound },
+        clock = {
+          nowLocal = function()
+            return { year = 2026, month = 8, day = 22, hour = 12, minute = 0, second = 0 }
+          end,
+        },
+        randomU32 = function()
+          return 0x12345678
+        end,
+      },
+    }
+    App.saveStore = saveStore
+    App.state = nil
+    App._bootMainMenu({ "heartgold" })
+    Assert.equal(App.state:view().kind, "main_menu")
+    press("a")
+    completeOak()
+
+    local runtime = assert(App.state.runtime)
+    for _ = 1, 240 do
+      tick(1)
+      if runtime:destinationWorldPresentable() then
+        runtime:acknowledgeDestinationPresentation()
+        break
+      end
+    end
+    -- Inspected before any ordinary player input reaches the field: the
+    -- source _std_init hide flags must already be true, and the hidden
+    -- Player Room trophy actors already absent from the first map's live
+    -- actor set, not repaired after occupancy is populated.
+    Assert.equal(runtime.runtimeMap.mapSymbol, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
+
+    local flags = FieldScriptSymbols.flagsByName
+    local world = runtime.scripts.worldState
+    local trophyFlags = {
+      flags.FLAG_HIDE_PLAYERS_ROOM_BRONZE_TROPHY,
+      flags.FLAG_HIDE_PLAYERS_ROOM_SILVER_TROPHY,
+      flags.FLAG_HIDE_PLAYERS_ROOM_GOLD_TROPHY,
+    }
+    for _, flagId in ipairs(trophyFlags) do
+      Assert.isTrue(world:isFlagSet(flagId), "trophy hide flag must already be set on first field construction")
+    end
+    Assert.isTrue(
+      world:isFlagSet(flags.FLAG_HIDE_NEW_BARK_FRIEND),
+      "New Bark friend hide flag must already be set on first field construction"
+    )
+    Assert.isTrue(
+      world:isFlagSet(flags.FLAG_HIDE_NEW_BARK_MOM),
+      "New Bark Mom hide flag must already be set on first field construction"
+    )
+
+    local trophySet = {}
+    for _, flagId in ipairs(trophyFlags) do
+      trophySet[flagId] = true
+    end
+    for _, actor in ipairs(runtime.actors:actorsOf(runtime.runtimeMap.mapId)) do
+      local eventFlag = actor.sourceEvent and actor.sourceEvent.eventFlag
+      Assert.isFalse(
+        eventFlag ~= nil and trophySet[eventFlag] == true,
+        "a startup-hidden trophy actor must not exist in the active actor set: " .. actor.actorId
+      )
+    end
+  end, debug.traceback)
+  App.setState(nil)
+  App.opts = original.opts
+  App.state = original.state
+  App.saveStore = original.saveStore
+  App.versionId = original.versionId
+  if not ok then
+    error(err, 0)
+  end
+end
+
+return T

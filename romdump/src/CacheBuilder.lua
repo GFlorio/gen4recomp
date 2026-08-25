@@ -30,6 +30,8 @@ local FieldWeatherCompiler = require("romdump.src.digest.FieldWeatherCompiler")
 local FieldWeatherCacheWriter = require("romdump.src.digest.FieldWeatherCacheWriter")
 local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
 local FieldEntranceIndicatorCacheWriter = require("romdump.src.digest.FieldEntranceIndicatorCacheWriter")
+local NewGameInitCompiler = require("romdump.src.digest.NewGameInitCompiler")
+local NewGameInitCacheWriter = require("romdump.src.digest.NewGameInitCacheWriter")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
@@ -220,6 +222,16 @@ function CacheBuilder.buildVersions(versionIds, options)
         log(string.format("build-cache: %s field weather compiled", version))
       else
         log(string.format("build-cache: %s field weather current", version))
+      end
+      local newGameInitBundle, newGameInitErr = NewGameInitCompiler.compileFromRom(romFs)
+      if not newGameInitBundle then
+        return versionFailure(newGameInitErr)
+      end
+      if forced or not NewGameInitCacheWriter.isReady(cacheFs, newGameInitBundle.marker) then
+        NewGameInitCacheWriter.write(cacheFs, newGameInitBundle)
+        log(string.format("build-cache: %s fresh-game startup initializer compiled", version))
+      else
+        log(string.format("build-cache: %s fresh-game startup initializer current", version))
       end
       local messageBundle, messageErr = FieldMessageCompiler.compile(romFs)
       if not messageBundle then
