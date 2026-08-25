@@ -175,10 +175,9 @@ end
 -- Plant a mutated session record at the live save path and boot a resume
 -- through the production resume boundary, both runtimes sharing one isolated
 -- namespace. The first runtime must stay alive until the resume boot reads
--- the planted file (its disposal save would overwrite it). Both runtimes are
--- returned; the caller asserts the resume outcome and closes them in
--- acquisition order. On a planting/boot failure the first runtime is closed
--- before rethrowing so the render trap cannot stay installed.
+-- the planted file (its disposal save would overwrite it). Successful boots
+-- return both runtimes; strict resume failures are asserted by a separate
+-- helper.
 local function plantAndResume(mutate, namespace)
   local harness = AcceptanceHarness.new({
     saveNamespace = function()
@@ -207,29 +206,35 @@ local function plantAndResume(mutate, namespace)
   return first, resumed
 end
 
--- Plant a mutated record and assert the resume boundary rejects it with the
--- structured error: rejection assertions run inside a guarded body so any
--- failure still closes both runtimes in order.
+-- Plant a mutated record and assert that strict resume rejects it with the
+-- structured error during boot.
 local function resumePlantedRecord(mutate, expectedCode)
-  local first, resumed = plantAndResume(mutate, "acceptance/player-data/planted")
-  local ok, err = xpcall(function()
-    assert(resumed.saveStatus, "the resume boot must report a save status")
-    Assert.isTrue(
-      resumed.saveStatus:find("Save ignored:", 1, true) ~= nil,
-      "the planted record must be rejected at the resume boundary, got: " .. tostring(resumed.saveStatus)
-    )
-    Assert.isTrue(
-      resumed.saveStatus:find(expectedCode, 1, true) ~= nil,
-      "the rejection must carry the structured " .. expectedCode .. " error, got: " .. tostring(resumed.saveStatus)
-    )
-    Assert.equal(resumed:renderAttempts(), 0)
-  end, debug.traceback)
-  resumed:close()
+  local first = AcceptanceHarness.new({
+    saveNamespace = function()
+      return "acceptance/player-data/planted"
+    end,
+  }):boot({ versionId = AcceptanceHarness.defaultVersion(), map = TOWN, save = "fresh" })
+  local record = currentSessionRecord(first)
+  mutate(record)
+  love.filesystem.createDirectory("acceptance/player-data/planted")
+  local written = love.filesystem.write("acceptance/player-data/planted/" .. FieldSave.PATH, LuaWriter.encode(record))
+  Assert.isTrue(written, "the planted save record must be written into the acceptance namespace")
+  local harness = AcceptanceHarness.new({
+    saveNamespace = function()
+      return "acceptance/player-data/planted"
+    end,
+  })
+  local ok, err = pcall(harness.boot, harness, {
+    versionId = AcceptanceHarness.defaultVersion(),
+    map = TOWN,
+    save = "resume",
+  })
   first:close()
-  if not ok then
-    error(err, 0)
-  end
-  return resumed
+  Assert.isFalse(ok, "the malformed current-schema save must fail resume boot")
+  Assert.isTrue(
+    tostring(err):find(expectedCode, 1, true) ~= nil,
+    "the rejection must carry the structured " .. expectedCode .. " error, got: " .. tostring(err)
+  )
 end
 
 -- The current save schema REQUIRES the player-data bucket. A record

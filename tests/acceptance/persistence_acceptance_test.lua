@@ -158,35 +158,23 @@ function T.tests.disposal_saves_once_and_a_failed_save_is_visible_without_double
   end)
 end
 
--- SAVE-08: a save that exists but cannot be read must be distinguishable from
--- a missing save at the resume boundary. The runtime just wrote the file on
--- disposal, then the injected filesystem I/O failure hits the resume read; if
--- the load boundary reclassified that read failure as "file missing", the
--- session would silently restart fresh and discard the user's save without
--- notice. The failure is the harness's own save-root host boundary.
-function T.tests.resume_reports_a_save_read_failure_instead_of_treating_it_as_missing()
+-- SAVE-08: a save that exists but cannot be read must fail resume at the
+-- persistence boundary rather than being reclassified as a missing save.
+function T.tests.resume_fails_on_a_save_read_failure()
   withGame(function(game)
     requireCapability(game, "failNextRead")
     game:moveTo({ fieldX = 6, fieldZ = 6 })
     game:failNextRead()
-    local resumed = restart(game, { save = "resume" })
-    Assert.equal(resumed.lifecycle.saveReads, 1, "the resume boot must have read the save exactly once")
-    Assert.notNil(
-      resumed.saveStatus,
-      "a save that exists but cannot be read must be reported at the resume boundary, not silently treated as a fresh session"
-    )
-    Assert.isTrue(
-      resumed.saveStatus:find("Save ignored:", 1, true) ~= nil,
-      "the resume boundary must present the read failure as 'Save ignored: ...', got " .. tostring(resumed.saveStatus)
-    )
+    local ok, err = pcall(restart, game, { save = "resume" })
+    Assert.isFalse(ok, "a save read failure must fail resume boot")
+    Assert.isTrue(tostring(err):find("SAVE_READ_FAILED", 1, true) ~= nil, tostring(err))
+    Assert.equal(game.lifecycle.saveReads, 1, "the resume boot must have read the save exactly once")
   end)
 end
 
 -- A save that loads raw but is structurally invalid reaches the restore
--- boundary, is rejected with a typed FIELD_SAVE_* error, and the runtime
--- treats it as ignored: the resume boot lands on the fresh spawn with the
--- initial player manifest, never the corrupted record's state.
-function T.tests.corrupt_save_is_ignored_and_fresh_state_boots()
+-- boundary and fails resume boot with its typed FIELD_SAVE_* error.
+function T.tests.corrupt_save_fails_resume_boot()
   withGame(LAB, function(game)
     requireCapability(game, "failNextSave")
     local fresh = game:snapshot()
@@ -220,34 +208,24 @@ function T.tests.corrupt_save_is_ignored_and_fresh_state_boots()
     -- The disposal write at restart would overwrite the planted file; fault
     -- it so the resume boot reads the corrupted record.
     game:failNextSave()
-    local resumed = restart(game, { save = "resume" })
+    local ok, err = pcall(restart, game, { save = "resume" })
+    Assert.isFalse(ok, "a malformed save must fail resume boot")
+    Assert.isTrue(
+      tostring(err):find("FIELD_SAVE_WORLD_INVALID", 1, true) ~= nil,
+      "the malformed save must carry its typed world error: " .. tostring(err)
+    )
     Assert.equal(
-      resumed.lifecycle.saveReads,
+      game.lifecycle.saveReads,
       1,
-      "the corrupted save must be read exactly once, got " .. tostring(resumed.lifecycle.saveReads)
+      "the corrupted save must be read exactly once, got " .. tostring(game.lifecycle.saveReads)
     )
-    Assert.isTrue(
-      resumed.runtime.saveStatus:find("Save ignored:", 1, true) ~= nil,
-      "the resume boundary must present the corrupted save as ignored, got " .. tostring(resumed.runtime.saveStatus)
-    )
-    Assert.isTrue(
-      resumed.runtime.saveStatus:find("FIELD_SAVE_WORLD_INVALID", 1, true) ~= nil,
-      "the ignored save must carry the typed FIELD_SAVE_* error"
-    )
-    Assert.deepEqual(
-      resumed:snapshot().player,
-      fresh.player,
-      "a corrupted save must boot the fresh spawn state, never the corrupted record"
-    )
-    Assert.equal(resumed.runtime.playerData.profile.name, "GOLD", "the fresh boot owns the initial player manifest")
   end)
 end
 
 -- A save naming a player graphic outside the compiled avatar set must be
 -- rejected by FieldSave.restore through the runtime's own resume wiring (the
--- same validation record the save store receives), reported as ignored, and
--- fall back to the fresh spawn instead of crashing runtime construction.
-function T.tests.resume_ignores_a_save_with_an_unknown_compiled_avatar()
+-- same validation record the save store receives), failing runtime construction.
+function T.tests.resume_rejects_a_save_with_an_unknown_compiled_avatar()
   withGame(function(game)
     requireCapability(game, "failNextSave")
     local fresh = game:snapshot()
@@ -259,34 +237,23 @@ function T.tests.resume_ignores_a_save_with_an_unknown_compiled_avatar()
     -- The disposal write at restart would overwrite the planted file; fault
     -- it so the resume boot reads the planted record.
     game:failNextSave()
-    local resumed = restart(game, { save = "resume" })
+    local ok, err = pcall(restart, game, { save = "resume" })
+    Assert.isFalse(ok, "an unknown compiled avatar must fail resume boot")
+    Assert.isTrue(tostring(err):find("FIELD_SAVE_AVATAR_INVALID", 1, true) ~= nil, tostring(err))
     Assert.equal(
-      resumed.lifecycle.saveReads,
+      game.lifecycle.saveReads,
       1,
-      "the invalid-avatar save must be read exactly once, got " .. tostring(resumed.lifecycle.saveReads)
-    )
-    Assert.isTrue(
-      resumed.runtime.saveStatus:find("Save ignored:", 1, true) ~= nil,
-      "the resume boundary must present the invalid avatar as ignored, got " .. tostring(resumed.runtime.saveStatus)
-    )
-    Assert.isTrue(
-      resumed.runtime.saveStatus:find("FIELD_SAVE_AVATAR_INVALID", 1, true) ~= nil,
-      "the ignored save must carry the typed avatar validation error, got " .. tostring(resumed.runtime.saveStatus)
-    )
-    Assert.deepEqual(
-      resumed:snapshot().player,
-      fresh.player,
-      "an unknown compiled avatar must boot the fresh spawn state, never the corrupted record"
+      "the invalid-avatar save must be read exactly once, got " .. tostring(game.lifecycle.saveReads)
     )
   end)
 end
 
 -- A scripts bucket that passes the outer table shape but fails deep
 -- ScriptSave.validate must be rejected at the restore boundary with the
--- scripts attribution, ignored, and fall back to the fresh spawn. The planted
+-- scripts attribution. The planted
 -- environment record carries an impossible mode; everything else is a valid
 -- empty capture, so only the deep validation can reject it.
-function T.tests.resume_ignores_a_save_with_a_deeply_malformed_scripts_bucket()
+function T.tests.resume_rejects_a_save_with_a_deeply_malformed_scripts_bucket()
   withGame(function(game)
     requireCapability(game, "failNextSave")
     local fresh = game:snapshot()
@@ -300,25 +267,13 @@ function T.tests.resume_ignores_a_save_with_a_deeply_malformed_scripts_bucket()
     -- The disposal write at restart would overwrite the planted file; fault
     -- it so the resume boot reads the planted record.
     game:failNextSave()
-    local resumed = restart(game, { save = "resume" })
+    local ok, err = pcall(restart, game, { save = "resume" })
+    Assert.isFalse(ok, "a malformed scripts bucket must fail resume boot")
+    Assert.isTrue(tostring(err):find("FIELD_SAVE_SCRIPTS_INVALID", 1, true) ~= nil, tostring(err))
     Assert.equal(
-      resumed.lifecycle.saveReads,
+      game.lifecycle.saveReads,
       1,
-      "the malformed-scripts save must be read exactly once, got " .. tostring(resumed.lifecycle.saveReads)
-    )
-    Assert.isTrue(
-      resumed.runtime.saveStatus:find("Save ignored:", 1, true) ~= nil,
-      "the resume boundary must present the malformed scripts bucket as ignored, got "
-        .. tostring(resumed.runtime.saveStatus)
-    )
-    Assert.isTrue(
-      resumed.runtime.saveStatus:find("FIELD_SAVE_SCRIPTS_INVALID", 1, true) ~= nil,
-      "the ignored save must carry the typed scripts validation error, got " .. tostring(resumed.runtime.saveStatus)
-    )
-    Assert.deepEqual(
-      resumed:snapshot().player,
-      fresh.player,
-      "a malformed scripts bucket must boot the fresh spawn state, never the corrupted record"
+      "the malformed-scripts save must be read exactly once, got " .. tostring(game.lifecycle.saveReads)
     )
   end)
 end

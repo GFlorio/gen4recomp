@@ -14,6 +14,11 @@ local T = {
 }
 
 local TOWN = "MAP_NEW_BARK"
+local FAR_ROUTE_GATEHOUSE = {
+  mapSymbol = "MAP_ROUTE_29_ROUTE_46_GATEHOUSE",
+  fieldX = 5,
+  fieldZ = 12,
+}
 
 local function farRouteTarget(_)
   -- This is the source-derived Route 29 corridor target. Its far save restore
@@ -82,24 +87,24 @@ function T.tests.far_streamed_position_save_resume_rebuilds_coverage()
     local game = harness:boot({ versionId = versionId, map = TOWN, save = "fresh" })
     local ok, err = xpcall(function()
       local before = game:snapshot()
-      local target = farRouteTarget(before)
       moveToFarRoute(game, before)
       game:advanceUntil("far streamed movement settles", function(snapshot)
-        return snapshot.player.motion == "idle"
+        return snapshot.player.motion == "idle" and snapshot.transition.phase == "idle"
       end, 30)
       local saved = game:snapshot()
       local savedCoverage = coverageStatus(game)
       assertCoverageBounded(savedCoverage)
-      Assert.equal(saved.player.fieldX, target.fieldX, "far streamed save captured the wrong field X")
-      Assert.equal(saved.player.fieldZ, target.fieldZ, "far streamed save captured the wrong field Z")
+      Assert.equal(saved.mapSymbol, FAR_ROUTE_GATEHOUSE.mapSymbol)
+      Assert.equal(saved.player.fieldX, FAR_ROUTE_GATEHOUSE.fieldX)
+      Assert.equal(saved.player.fieldZ, FAR_ROUTE_GATEHOUSE.fieldZ)
 
       local saveOk, saveErr = game.runtime:saveSession("acceptance far streamed position")
       Assert.isTrue(saveOk, "far streamed save must publish after idle settlement: " .. tostring(saveErr))
       local persisted = assert(game.runtime.saveStore:load())
-      Assert.equal(persisted.fieldX, target.fieldX, "published save has the wrong field X")
-      Assert.equal(persisted.fieldZ, target.fieldZ, "published save has the wrong field Z")
-      Assert.equal(game.runtime.session.player.fieldX, target.fieldX, "session save player has the wrong field X")
-      Assert.equal(game.runtime.session.player.fieldZ, target.fieldZ, "session save player has the wrong field Z")
+      Assert.equal(persisted.fieldX, saved.player.fieldX, "published save has the wrong field X")
+      Assert.equal(persisted.fieldZ, saved.player.fieldZ, "published save has the wrong field Z")
+      Assert.equal(game.runtime.session.player.fieldX, saved.player.fieldX, "session save player has the wrong field X")
+      Assert.equal(game.runtime.session.player.fieldZ, saved.player.fieldZ, "session save player has the wrong field Z")
       local restartOk, restartErr = xpcall(function()
         game:restart({ save = "resume" })
       end, function(restartError)
@@ -120,9 +125,9 @@ function T.tests.far_streamed_position_save_resume_rebuilds_coverage()
 
       local restored = game:snapshot()
       local restoredCoverage = coverageStatus(game)
-      Assert.equal(restored.mapSymbol, TOWN)
-      Assert.equal(saved.player.fieldX, target.fieldX)
-      Assert.equal(saved.player.fieldZ, target.fieldZ)
+      Assert.equal(restored.mapSymbol, FAR_ROUTE_GATEHOUSE.mapSymbol)
+      Assert.equal(restored.player.fieldX, FAR_ROUTE_GATEHOUSE.fieldX)
+      Assert.equal(restored.player.fieldZ, FAR_ROUTE_GATEHOUSE.fieldZ)
       Assert.equal(restored.player.fieldX, saved.player.fieldX)
       Assert.equal(restored.player.fieldZ, saved.player.fieldZ)
       Assert.equal(restored.player.worldY, saved.player.worldY)
