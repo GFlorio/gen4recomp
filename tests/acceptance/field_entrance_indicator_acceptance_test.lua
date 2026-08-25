@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FieldMovement = require("tests.acceptance.support.FieldMovement")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
+local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 
 local T = {
   metadata = {
@@ -61,6 +62,7 @@ local function entranceCell(game, behavior)
 end
 
 local function enterLab2F(game)
+  OpeningLifecycle.settleNewBarkFriendScene(game)
   FieldMovement.activate(game, { fieldX = 688, fieldZ = 392 }, "north")
   local transition = game:waitForTransition()
   Assert.equal(transition.destination.mapSymbol, LAB_2F)

@@ -201,6 +201,27 @@ function FieldPlayer:_beginStep(direction, destination)
   self.progressTicks = 0
 end
 
+-- Non-mutating production movement query: the same collision, terrain, and
+-- live-occupancy resolution `tryStep` uses, without committing a step. Callers
+-- (route planners, precondition checks) can ask "where would this direction
+-- lead" without duplicating `_resolveStep`'s domain rule.
+---@param direction FieldDirection
+---@return { fieldX: integer, fieldZ: integer, localX: integer, localZ: integer, worldX: number, worldY: number, worldZ: number, surfaceId: integer }|nil
+function FieldPlayer:resolveStep(direction)
+  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  return self:_resolveStep(direction)
+end
+
+-- Turn in place: the same facing-only mutation the script `turn` service
+-- performs, exposed as a narrow public operation so callers that need
+-- deterministic facing setup do not have to attempt a movement step.
+---@param direction FieldDirection
+function FieldPlayer:turn(direction)
+  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  assert(self.motion == "idle", "cannot turn while the player is moving")
+  self.facing = direction
+end
+
 function FieldPlayer:tryStep(direction)
   assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
   assert(self.motion == "idle", "cannot begin a field step while walking")

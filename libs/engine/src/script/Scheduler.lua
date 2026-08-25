@@ -1216,6 +1216,23 @@ function Scheduler:foregroundEnvironmentId()
   return self._foregroundEnvironmentId
 end
 
+-- The script identity of the foreground environment's root instance, or nil
+-- when no foreground environment owns the field. A thin public query over
+-- the same instance/environment bookkeeping `createForeground` and
+-- `cancelEnvironment` already use, so callers needing failure attribution
+-- (diagnostics, acceptance traces) do not read scheduler-private tables.
+---@return string|nil
+function Scheduler:foregroundScriptId()
+  local environmentId = self._foregroundEnvironmentId
+  if environmentId == nil then
+    return nil
+  end
+  local environment = self._environments[environmentId]
+  local root = environment and environment.rootInstanceId
+  local instance = root and self._instances[root]
+  return instance and instance.scriptId or nil
+end
+
 -- The immutable input snapshot of the current step (the game's dialogue host
 -- consumes it from the engine-owned async phase).
 ---@return table|nil

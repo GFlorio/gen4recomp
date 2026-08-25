@@ -72,6 +72,19 @@ function OpeningLifecycle.seedPostOpeningHouseState(game)
   game:setWorldState({ variable = VAR_SCENE_PLAYERS_HOUSE_1F, value = 1 })
 end
 
+-- The New Bark escort friend (source coords 688,392) and Marill sit on/near
+-- the Elm landing/warp tile and are source-solid until the friend/Marill
+-- on-frame scene runs and hides both actors (R10/C02: flags decide actor
+-- presence), not a passability heuristic. Scenarios about the Elm
+-- route/entrance-indicator effect rather than the scene itself seed its
+-- documented outcome -- both hide flags -- directly, without running the
+-- scripted scene or disabling any map-init evaluation.
+---@param game table an AcceptanceHarness game
+function OpeningLifecycle.settleNewBarkFriendScene(game)
+  game:setWorldState({ flag = FLAGS.FLAG_HIDE_NEW_BARK_FRIEND })
+  game:setWorldState({ flag = FLAGS.FLAG_HIDE_NEW_BARK_MARILL })
+end
+
 -- Read the canonical script id a generated on-frame-equal rule would start
 -- for the given variable/value pair, straight from the runtime's own
 -- generated map-init data. Returns nil if no such rule exists.

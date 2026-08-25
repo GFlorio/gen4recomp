@@ -251,6 +251,32 @@ function T.tests.door_fade_waits_for_source_ingress_and_preserves_anchor()
   end, { recordingScriptHosts = true })
 end
 
+-- The door choreography's semantic resolution (source door, ingress/egress
+-- anchor, destination arrival) is a production capability of `FieldTransition`
+-- itself; recording hosts only let a scenario additionally observe the door
+-- sound effect. This scenario proves the resolution/anchor/arrival contract
+-- holds with no `recordingScriptHosts` composed at all, and with zero
+-- graphics allocation.
+function T.tests.door_choreography_resolves_headlessly_without_recording_hosts()
+  withGame(TOWN, function(game)
+    local facts = factsFor(game)
+    beginTownDoor(game)
+    local transition = game.runtime.transition
+    Assert.notNil(transition.sourceDoor, "the production transition must resolve the source door without hosts")
+    game:advanceUntil("source door ingress completes", function()
+      return transition.resolution ~= nil
+    end, 120)
+    Assert.equal(transition.resolution.fieldX, facts.labDoorAnchor.fieldX)
+    Assert.equal(transition.resolution.fieldZ, facts.labDoorAnchor.fieldZ)
+    Assert.equal(transition:presentationStatus().entryAction, "step_down")
+    local completed = game:waitForTransition()
+    Assert.deepEqual(
+      { completed.destination.player.fieldX, completed.destination.player.fieldZ },
+      { facts.labFloor.fieldX, facts.labFloor.fieldZ }
+    )
+  end)
+end
+
 function T.tests.transition_post_state_reanchors_player_and_camera()
   withPostOpeningHouseGame(function(game)
     stepOntoHouseStairs(game)

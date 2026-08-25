@@ -264,6 +264,7 @@ function T.tests.manual_save_publishes_then_updates_through_the_menu_host()
     Assert.equal(runtime.savePublished, true)
     ---@type { list: fun(self: table): table[] }
     local saveStore = assert(runtime.saveStore)
+    Assert.equal(#saveStore:list(), 1, "the first manual save must publish exactly one reserved record")
     local first = assert(saveStore:list()[1])
     Assert.isTrue(first.saveId:find("^save%-", 1) ~= nil)
     local firstWrites = game.lifecycle.saveWrites
@@ -273,8 +274,24 @@ function T.tests.manual_save_publishes_then_updates_through_the_menu_host()
     game:step()
     runtime:release("south")
     confirmAction(game)
-    Assert.isTrue(#saveStore:list() >= 1)
-    Assert.equal(game.lifecycle.saveWrites > firstWrites, true)
+    Assert.equal(#saveStore:list(), 1, "a later save must update the reserved identity, not add a logical record")
+    Assert.equal(saveStore:list()[1].saveId, first.saveId, "the update must retain the same reserved save identity")
+    Assert.isTrue(game.lifecycle.saveWrites > firstWrites, "a real update must issue a backend write")
+
+    game:failNextSave()
+    openMenu(game)
+    runtime:press("south")
+    game:step()
+    runtime:release("south")
+    confirmAction(game)
+    Assert.equal(
+      runtime.applicationHost:status().phase,
+      "failed",
+      "the injected write failure must surface as the production error boundary, not be swallowed"
+    )
+    Assert.notNil(runtime.applicationHost:error(), "the surfaced failure must carry the underlying save error")
+    Assert.equal(#saveStore:list(), 1, "a failed write must not leave a duplicate or ghost logical record behind")
+    Assert.equal(saveStore:list()[1].saveId, first.saveId, "a failed write must not change the published identity")
   end, debug.traceback)
   game:close()
   if not ok then

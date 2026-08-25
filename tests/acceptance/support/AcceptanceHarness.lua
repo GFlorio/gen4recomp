@@ -12,6 +12,7 @@ local FieldEventState = require("libs.engine.src.FieldEventState")
 local LocalClock = require("libs.engine.src.LocalClock")
 local PlayTime = require("libs.engine.src.PlayTime")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
+local FieldMovement = require("tests.acceptance.support.FieldMovement")
 
 ---@class AcceptanceHarness
 ---@field versions string[]
@@ -41,8 +42,25 @@ local function defaultNamespace(versionId, index)
   return string.format("acceptance/%s/%d", versionId, index)
 end
 
+-- `love.filesystem.remove` only removes a file or an already-empty directory,
+-- so a shallow call silently leaves every namespace's catalog/games files
+-- behind on disk. Across process runs the numeric save-namespace serial
+-- restarts at 1, so a left-behind namespace directory is silently reused by
+-- the next run and its stale catalog corrupts save-cardinality assertions
+-- (an old run's higher-numbered save records reappear as if freshly
+-- published). Recurse depth-first so every acceptance boot leaves a
+-- genuinely empty namespace behind.
 local function removeNamespace(path)
   local fs = love.filesystem
+  local info = fs.getInfo(path)
+  if info == nil then
+    return
+  end
+  if info.type == "directory" then
+    for _, item in ipairs(fs.getDirectoryItems(path)) do
+      removeNamespace(path .. "/" .. item)
+    end
+  end
   fs.remove(path)
 end
 
@@ -328,6 +346,8 @@ function Game:snapshot()
     dialogue = dialogue and dialogue:status() or { modal = false },
     menu = appHostStatus.menu or (runtime.menuHost and runtime.menuHost:snapshot()) or nil,
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
+    mapEntryStage = runtime.session and runtime.session.mapEntryStage,
+    foregroundScript = scheduler and scheduler:foregroundScriptId(),
     transition = { phase = runtime.transition and runtime.transition.phase },
     -- The production script screen-fade controller (fade_screen/wait_fade),
     -- distinct from the ordinary FieldTransition fade. Synthetic
@@ -540,78 +560,47 @@ function Game:move(direction)
   self:step({ direction = direction })
 end
 
-function Game:_moveOne(direction)
-  local before = self:snapshot()
+-- Drive one production movement step and wait for the step to resolve.
+-- `expected`, when given, is the production-resolved destination the caller
+-- already asked `FieldMovement.route` for; a turn-in-place (facing changed,
+-- coordinates unchanged) is never accepted as a satisfied expectation.
+function Game:_moveOne(direction, expected)
   self:move(direction)
-  return self:advanceUntil("movement resolves", function(snapshot)
+  local after = self:advanceUntil("movement resolves", function(snapshot)
     return snapshot.player.motion == "idle"
-      and (
-        snapshot.player.fieldX ~= before.player.fieldX
-        or snapshot.player.fieldZ ~= before.player.fieldZ
-        or snapshot.player.facing == direction
-      )
   end, 120)
+  if expected then
+    assert(
+      after.player.fieldX == expected.fieldX and after.player.fieldZ == expected.fieldZ,
+      "expected production movement to reach "
+        .. expected.fieldX
+        .. ","
+        .. expected.fieldZ
+        .. " but the player is at "
+        .. after.player.fieldX
+        .. ","
+        .. after.player.fieldZ
+    )
+  end
+  return after
 end
 
+-- Plans and drives a route to `target` through production movement
+-- resolution only (`FieldMovement.route`, backed by
+-- `FieldPlayer:resolveStep`): map collision, terrain/surface, and live actor
+-- occupancy. Every planned edge asserts its own production-resolved
+-- destination coordinate after the step settles; a turn cannot substitute
+-- for arrival.
 function Game:moveTo(target)
   assert(type(target) == "table", "movement target required")
   assert(type(target.fieldX) == "number" and type(target.fieldZ) == "number", "integer field target required")
-  self:advanceUntil("field entry ready for production movement", function()
-    return self.runtime.session.mapEntryStage == nil
-  end, 120)
-  local player = assert(self.runtime.player, "acceptance runtime player required")
-  local targetKey = target.fieldX .. ":" .. target.fieldZ
-  local map = assert(player.currentMap, "acceptance movement map required")
-  local origin = assert(map.coordinateOrigin, "acceptance movement map origin required")
-  local queue = { { fieldX = player.fieldX, fieldZ = player.fieldZ, route = {} } }
-  local seen = { [player.fieldX .. ":" .. player.fieldZ] = true }
-  local route
-  local head = 1
-  local directions = { "east", "north", "south", "west" }
-  while queue[head] do
-    local node = queue[head]
-    head = head + 1
-    if node.fieldX .. ":" .. node.fieldZ == targetKey then
-      route = node.route
-      break
-    end
-    for _, direction in ipairs(directions) do
-      local deltaX, deltaZ = 0, 0
-      if direction == "north" then
-        deltaZ = -1
-      elseif direction == "south" then
-        deltaZ = 1
-      elseif direction == "west" then
-        deltaX = -1
-      else
-        deltaX = 1
-      end
-      local fieldX, fieldZ = node.fieldX + deltaX, node.fieldZ + deltaZ
-      local localX, localZ = fieldX - origin.x, fieldZ - origin.z
-      if map.collision:containsLocal(localX, localZ) and not map.collision:isBlockedLocal(localX, localZ) then
-        local key = fieldX .. ":" .. fieldZ
-        local isWarp = false
-        for _, warp in ipairs(map.fieldData.events.warps) do
-          if warp.x == fieldX and warp.z == fieldZ then
-            isWarp = true
-            break
-          end
-        end
-        if not seen[key] and (not isWarp or key == targetKey) then
-          seen[key] = true
-          local nextRoute = {}
-          for index, step in ipairs(node.route) do
-            nextRoute[index] = step
-          end
-          nextRoute[#nextRoute + 1] = direction
-          queue[#queue + 1] = { fieldX = fieldX, fieldZ = fieldZ, route = nextRoute }
-        end
-      end
-    end
-  end
-  assert(route, "no production movement route to " .. targetKey)
-  for _, direction in ipairs(route) do
-    self:_moveOne(direction)
+  self:waitForFieldEntry()
+  local route = assert(
+    FieldMovement.route(self, target),
+    "no production movement route to " .. target.fieldX .. ":" .. target.fieldZ
+  )
+  for _, step in ipairs(route) do
+    self:_moveOne(step.direction, step)
   end
   return self:snapshot()
 end
@@ -627,51 +616,70 @@ function Game:moveUntilBlocked(direction)
   return after
 end
 
+-- Turn-only facing setup: uses the public `FieldPlayer:turn` domain
+-- operation (the same facing-only mutation the script `turn` service
+-- performs), so it can never walk into an adjacent tile.
 function Game:face(direction)
   self:advanceUntil("prior movement resolves", function(snapshot)
     return snapshot.player.motion == "idle"
   end, 120)
-  self:_moveOne(direction)
-  return self:snapshot()
+  local before = self:snapshot()
+  self.runtime.player:turn(direction)
+  local after = self:snapshot()
+  assert(after.player.facing == direction, "face() must change facing to " .. direction)
+  assert(
+    after.player.fieldX == before.player.fieldX
+      and after.player.fieldZ == before.player.fieldZ
+      and after.player.surfaceId == before.player.surfaceId,
+    "face() must not change field coordinates or surface"
+  )
+  return after
 end
 
+-- Map-swap boundary: returns as soon as the destination map identity first
+-- changes. Half-transition state (fade still running, door choreography
+-- still mid-egress) may still be in effect; only a test intentionally
+-- inspecting that in-progress state should use this instead of
+-- `waitForTransition`.
+function Game:waitForMapSwap()
+  local source = self.lastTransition and self.lastTransition.source or self:snapshot()
+  local destination = self:advanceUntil("map swap", function(snapshot)
+    return snapshot.mapId ~= source.mapId
+  end, 480)
+  return { source = source, destination = destination }
+end
+
+-- Transition-completion boundary: the destination has swapped and
+-- `FieldTransition` itself is idle (not merely "field not locked" -- the
+-- scheduler's foreground-script lock is a separate concept a destination
+-- on-transition/on-resume lifecycle script may still legitimately hold).
+-- This never drives dialogue: an unrelated destination lifecycle owning the
+-- field is a fact this boundary observes, not one it resolves.
 function Game:waitForTransition()
   local source = self.lastTransition and self.lastTransition.source or self:snapshot()
-  for _ = 1, 480 do
-    local snapshot = self:snapshot()
-    if snapshot.mapId ~= source.mapId then
-      break
-    end
-    if snapshot.dialogue.modal then
-      self.runtime:pressAction()
-      self:step()
-      self.runtime:releaseAction()
-    else
-      self:step()
-    end
-    if _ == 480 then
-      local final = self:snapshot()
-      error(
-        "timed out waiting for transition completes; state="
-          .. tostring(final.mapSymbol)
-          .. ":"
-          .. tostring(final.player.fieldX)
-          .. ","
-          .. tostring(final.player.fieldZ)
-          .. ", phase="
-          .. tostring(final.transition.phase)
-          .. ", locked="
-          .. tostring(final.fieldLocked),
-        2
-      )
-    end
-  end
-  local destination = self:snapshot()
+  local destination = self:advanceUntil("transition completes", function(snapshot)
+    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle"
+  end, 480)
   if self.runtime.camera and self.runtime.camera.collapseRenderInterpolation then
     self.runtime.camera:collapseRenderInterpolation()
   end
   self.lastTransition = nil
   return { source = source, destination = destination }
+end
+
+-- Field-readiness boundary: the transition is settled, map-entry staging is
+-- complete, no foreground script/modal owns the field, and ordinary player
+-- input can proceed. This observes only; a caller whose scenario requires
+-- driving destination dialogue or seeding source progression to reach this
+-- boundary does so explicitly before/after calling it. A caller that only
+-- wants that diagnosis without waiting may pass `maxTicks = 0`.
+function Game:waitForFieldReady(maxTicks)
+  return self:advanceUntil("field ready for ordinary input", function(snapshot)
+    return snapshot.transition.phase == "idle"
+      and snapshot.mapEntryStage == nil
+      and not snapshot.fieldLocked
+      and not snapshot.dialogue.modal
+  end, maxTicks or 480)
 end
 
 function Game:ownership()
@@ -735,9 +743,38 @@ function Game:advanceUntil(label, predicate, maxTicks)
       .. ", entry="
       .. tostring(self:snapshot().mapEntryStage)
       .. ", foreground="
-      .. tostring(self:snapshot().foregroundScript),
+      .. tostring(self:snapshot().foregroundScript)
+      .. ", dialogueModal="
+      .. tostring(self:snapshot().dialogue.modal),
     2
   )
+end
+
+-- Named host-event records (`hostEvents()` payloads), in emission order.
+-- Requires recording hosts (`fieldOptions.recordingScriptHosts = true`).
+function Game:recordsNamed(name)
+  assert(type(name) == "string", "acceptance record name required")
+  local records = {}
+  for _, record in ipairs(self:hostEvents().records) do
+    if record.name == name then
+      records[#records + 1] = record
+    end
+  end
+  return records
+end
+
+-- Records for one canonical script identity, filtering by exact `scriptId`
+-- rather than total activity, so an unrelated startup/lifecycle script start
+-- cannot be mistaken for the trigger under test.
+function Game:recordsForScript(scriptId, name)
+  assert(type(scriptId) == "string", "acceptance script id required")
+  local records = {}
+  for _, record in ipairs(self:recordsNamed(name or "script.started")) do
+    if record.payload and record.payload.scriptId == scriptId then
+      records[#records + 1] = record
+    end
+  end
+  return records
 end
 
 -- Production input must start only after the map-entry lifecycle reaches its

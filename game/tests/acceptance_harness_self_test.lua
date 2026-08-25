@@ -116,6 +116,9 @@ function T.tests.wait_for_transition_returns_the_observed_destination_before_fol
           foregroundEnvironmentId = function()
             return nil
           end,
+          foregroundScriptId = function()
+            return nil
+          end,
         },
       }
       function runtime:update()
@@ -294,6 +297,139 @@ function T.tests.recording_script_hosts_are_an_explicit_composition_choice()
   Assert.notNil(optionsSeen[2].scriptHosts, "explicit recording composition must provide script hosts")
   Assert.notNil(recording:hostEvents().records, "explicit recording composition must expose event records")
   recording:close()
+end
+
+-- The three readiness boundaries are genuinely distinct: map identity,
+-- `FieldTransition` settlement, and ordinary-input availability clear at
+-- different ticks. A deterministic fake proves the harness observes each
+-- boundary independently instead of collapsing them into one wait.
+local function readinessRuntime(game)
+  local runtime = fakeRuntime(game)
+  runtime.session.mapEntryStage = "staging"
+  runtime.transition.phase = "fade_in"
+  runtime.dialogue = {
+    modal = true,
+    status = function(self)
+      return self
+    end,
+  }
+  local locked = true
+  runtime.scripts = {
+    scheduler = {
+      playerMovementLocked = function()
+        return locked
+      end,
+      foregroundScriptId = function()
+        return nil
+      end,
+    },
+  }
+  function runtime:update()
+    self.session.tick = self.session.tick + 1
+    local tick = self.session.tick
+    if tick >= 2 then
+      self.runtimeMap.mapId = 13
+      self.runtimeMap.mapSymbol = "MAP_DESTINATION"
+    end
+    if tick >= 4 then
+      self.transition.phase = "idle"
+    end
+    if tick >= 6 then
+      locked = false
+    end
+    if tick >= 8 then
+      self.dialogue.modal = false
+      self.session.mapEntryStage = nil
+    end
+  end
+  return runtime
+end
+
+function T.tests.map_swap_transition_completion_and_field_readiness_clear_at_distinct_ticks()
+  local harness = AcceptanceHarness.new({ versions = { "heartgold" }, runtimeFactory = readinessRuntime })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+
+  local swapped = game:waitForMapSwap()
+  Assert.equal(swapped.destination.mapSymbol, "MAP_DESTINATION")
+  Assert.equal(swapped.destination.tick, 2, "map swap must return as soon as the destination map identity changes")
+  Assert.isFalse(swapped.destination.transition.phase == "idle", "transition may still be settling at map swap")
+
+  local completed = game:waitForTransition()
+  Assert.equal(completed.destination.tick, 4, "transition completion must wait for the transition's own idle phase")
+  Assert.isTrue(completed.destination.fieldLocked, "a destination lifecycle script may still own the field")
+
+  local ready = game:waitForFieldReady()
+  Assert.equal(ready.tick, 8, "field readiness must wait for lifecycle, entry staging, and dialogue to all clear")
+  Assert.isFalse(ready.fieldLocked)
+  Assert.isFalse(ready.dialogue.modal)
+  Assert.isNil(ready.mapEntryStage)
+
+  game:close()
+end
+
+function T.tests.field_readiness_reports_the_blocking_state_when_it_never_clears()
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(game)
+      local runtime = fakeRuntime(game)
+      runtime.dialogue = {
+        modal = true,
+        status = function(self)
+          return self
+        end,
+      }
+      runtime.scripts = {
+        scheduler = {
+          playerMovementLocked = function()
+            return true
+          end,
+          foregroundScriptId = function()
+            return "vanilla.stuck_script"
+          end,
+        },
+      }
+      return runtime
+    end,
+  })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+
+  local err = Assert.throws(function()
+    game:waitForFieldReady(2)
+  end)
+  local message = tostring(err)
+  Assert.isTrue(message:find("dialogueModal=true", 1, true) ~= nil, "timeout must name the blocking dialogue state")
+  Assert.isTrue(
+    message:find("vanilla.stuck_script", 1, true) ~= nil,
+    "timeout must name the foreground script still owning the field"
+  )
+  game:close()
+end
+
+-- A step blocked by production movement resolution (an actor occupying the
+-- destination, in real composition) settles idle without reaching the
+-- expected coordinate. `_moveOne` must reject that outcome rather than
+-- accept it because facing already matches the requested direction.
+function T.tests.moveOne_rejects_a_blocked_step_even_when_facing_already_matches()
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(game)
+      local runtime = fakeRuntime(game)
+      runtime.player.facing = "east"
+      function runtime:press(direction)
+        -- Production blocked this step: facing updates, coordinates do not.
+        self.player.facing = direction
+      end
+      return runtime
+    end,
+  })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+
+  local err = Assert.throws(function()
+    game:_moveOne("east", { fieldX = 5, fieldZ = 7 })
+  end)
+  Assert.isTrue(tostring(err):find("expected production movement to reach", 1, true) ~= nil)
+  Assert.equal(game.runtime.player.fieldX, 4, "a blocked step must not silently commit the planned coordinate")
+  game:close()
 end
 
 return T
