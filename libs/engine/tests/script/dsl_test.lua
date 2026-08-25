@@ -179,6 +179,12 @@ local CASES = {
     end,
     { value = "player_gender_value" },
   },
+  friend_sprite_value = {
+    function()
+      return S.friendSpriteValue()
+    end,
+    { value = "friend_sprite_value" },
+  },
   object_id_value = {
     function()
       return S.objectIdValue(S.actor("elm"))

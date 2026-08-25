@@ -5,6 +5,7 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
+local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 
 local T = {
   metadata = {
@@ -94,12 +95,44 @@ local function enterHouse(game)
   Assert.equal(transition.destination.mapSymbol, HOUSE_1F)
 end
 
-function T.tests.player_house_stairs_remain_fixed_profile_three_indoors()
+-- The House 1F stair tile is a source WARP_STAIRS_WEST metatile: HGSS gates
+-- it on the player's next input direction while standing on the tile, not on
+-- the approach direction that reached it (pret/pokeheartgold
+-- src/field/field_control.c FieldSystem_CheckMapTransition,
+-- MetatileBehavior_IsWarpStairsWest requires DIR_WEST). Walking onto the
+-- landing from the south and then idling never fires the transition; the
+-- player must press west once settled on the stair tile.
+local function stepOntoHouseStairs(game)
+  game:moveTo({ fieldX = HOUSE_WARP.fieldX, fieldZ = HOUSE_WARP.fieldZ + 1 })
+  game:step({ direction = "north" })
+  game:advanceUntil("player reaches the stair landing", function(snapshot)
+    return snapshot.player.motion == "idle"
+      and snapshot.player.fieldX == HOUSE_WARP.fieldX
+      and snapshot.player.fieldZ == HOUSE_WARP.fieldZ
+  end, 60)
+  game:step({ direction = "west" })
+end
+
+-- Explicit post-opening fixture for tests whose purpose is the House 1F
+-- stair profile, not the source Mom scene itself: run the source Mom scene
+-- to completion first (the other lifecycle-safe strategy besides seeding).
+-- Seeding the scene variable directly while still on MAP_NEW_BARK is unsafe
+-- here: New Bark's own on-frame rule matches the same value 1 for the
+-- unrelated friend/Marill scene, which currently faults and keeps
+-- restarting. Running the real Mom scene keeps the player inside Player
+-- House 1F throughout and never returns to MAP_NEW_BARK's own lifecycle.
+local function withPostOpeningHouseGame(fn, fieldOptions)
   withGame(TOWN, function(game)
-    local facts = factsFor(game)
     enterHouse(game)
-    game:moveTo({ fieldX = HOUSE_WARP.fieldX, fieldZ = HOUSE_WARP.fieldZ + 1 })
-    game:step({ direction = "north" })
+    OpeningLifecycle.completeOpeningHouseScene(game)
+    fn(game)
+  end, fieldOptions)
+end
+
+function T.tests.player_house_stairs_remain_fixed_profile_three_indoors()
+  withPostOpeningHouseGame(function(game)
+    local facts = factsFor(game)
+    stepOntoHouseStairs(game)
     Assert.isFalse(game.runtime.player.motion == "climbing", "horizontal stairs must not use an in-place climb")
     local staged = game:advanceUntil("destination stair staging", function(snapshot)
       return snapshot.mapSymbol == HOUSE_2F
@@ -138,10 +171,8 @@ function T.tests.transition_sounds_are_emitted_once_by_profile_choreography()
     game:waitForTransition()
   end, { recordingScriptHosts = true })
 
-  withGame(TOWN, function(game)
-    enterHouse(game)
-    game:moveTo({ fieldX = HOUSE_WARP.fieldX, fieldZ = HOUSE_WARP.fieldZ + 1 })
-    game:step({ direction = "north" })
+  withPostOpeningHouseGame(function(game)
+    stepOntoHouseStairs(game)
     game:waitForTransition()
     local stairSoundCount = effectCount(game, "SEQ_SE_DP_KAIDAN2")
     Assert.equal(stairSoundCount, 1, "stair profile audio must be emitted once; got " .. tostring(stairSoundCount))
@@ -221,10 +252,8 @@ function T.tests.door_fade_waits_for_source_ingress_and_preserves_anchor()
 end
 
 function T.tests.transition_post_state_reanchors_player_and_camera()
-  withGame(TOWN, function(game)
-    enterHouse(game)
-    game:moveTo({ fieldX = HOUSE_WARP.fieldX, fieldZ = HOUSE_WARP.fieldZ + 1 })
-    game:step({ direction = "north" })
+  withPostOpeningHouseGame(function(game)
+    stepOntoHouseStairs(game)
     local transition = game:waitForTransition()
     local camera = assert(game.runtime.camera, "the production runtime must own a destination camera")
     Assert.notNil(camera.target, "post-transition camera target must be renderer-consumed state")

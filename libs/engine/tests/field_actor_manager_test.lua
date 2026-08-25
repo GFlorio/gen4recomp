@@ -503,9 +503,11 @@ function T.script_actor_world_resolves_map_indexes_and_visibility()
   end
 end
 
--- Scripted set_position onto another solid actor's cell is a conflict, never
--- a silent occupancy overwrite.
-function T.script_set_position_cannot_overwrite_occupancy()
+-- setPosition onto another solid actor's cell is a conflict, never a silent
+-- occupancy overwrite, for every caller that does not identify itself as
+-- script-driven (autonomous walk-AI/player-vs-object movement, and the
+-- default when no options are given).
+function T.set_position_cannot_overwrite_occupancy()
   local mgr = manager({
     object({ objectEventId = 0, x = 2, z = 3 }),
     object({ objectEventId = 1, x = 8, z = 3 }),
@@ -516,6 +518,20 @@ function T.script_set_position_cannot_overwrite_occupancy()
   end)
   Assert.equal(assert(mgr:getAt(61, 8, 3, 0), "the occupant entry survived the conflict").actorId, "map:61:object:1")
   Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
+end
+
+-- Pinned HGSS source performs no inter-object collision check while a
+-- script's ApplyMovement repositions an actor, so a script-driven setPosition
+-- (options.scripted) may land on another solid actor's cell without raising;
+-- the mover simply takes over the occupancy slot.
+function T.scripted_set_position_may_overwrite_occupancy()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3 }),
+  })
+  mgr:setPosition("map:61:object:0", { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  Assert.equal(assert(mgr:getAt(61, 8, 3, 0), "the mover now occupies the shared cell").actorId, "map:61:object:0")
+  Assert.isNil(mgr:getAt(61, 2, 3, 0), "the mover's old cell is vacated")
 end
 
 -- A coordinate-conversion failure must leave the actor in its old cell with

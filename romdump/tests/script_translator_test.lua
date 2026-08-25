@@ -942,6 +942,57 @@ T["opcode 729 writes the explicit no-follower result"] = function()
   Assert.equal(#lowered.unsupported, 0)
 end
 
+-- Opcode 144 (GetFriendSprite) always has real semantics: the opposite-gender
+-- friend NPC sprite constant, independent of any follower subsystem.
+T["opcode 144 lowers to the friend sprite value"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 144, args = { { value = 0x8008, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "set_var",
+    variable = { value = "var", id = "VAR_SPECIAL_x8008" },
+    value = { value = "friend_sprite_value" },
+    provenance = { offsets = { 32 }, opcodes = { 144 } },
+  })
+  Assert.equal(#lowered.unsupported, 0)
+end
+
+-- Opcode 294 (CheckBadge) has no persisted gym-badge subsystem; every badge
+-- check in the fresh-game opening window is source-correctly false, the same
+-- explicit-result pattern as opcode 729's no-follower query.
+T["opcode 294 writes the explicit no-badge result"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 294, args = { { value = 0, width = 2 }, { value = 0x8008, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "set_var",
+    variable = { value = "var", id = "VAR_SPECIAL_x8008" },
+    value = 0,
+    provenance = { offsets = { 32 }, opcodes = { 294 } },
+  })
+  Assert.equal(#lowered.unsupported, 0)
+end
+
 T["opcodes 596 and 600 stay explicitly unsupported without a follower subsystem"] = function()
   local bytes = ScriptFixture.member({
     scripts = {

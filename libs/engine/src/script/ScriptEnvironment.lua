@@ -219,6 +219,14 @@ end
 
 -- Release one lock for an owning instance; releasing a lock the instance does
 -- not own is a strict-mode error.
+--
+-- Actor locks are the one exception (pret/pokeheartgold src/scrcmd_c.c
+-- ScrCmd_Lock/ScrCmd_Release): the source command pair unconditionally
+-- pauses/unpauses the named object's own movement and never tracks which
+-- script issued a prior Lock. A standalone `Release <actor>` with no
+-- matching `Lock <actor>` from this instance is source-valid and means
+-- "resume this actor's own default autonomous movement", so it is a no-op
+-- here rather than a fault when this instance holds no such lock.
 ---@param kind string
 ---@param ref string|nil
 ---@param ownerId string
@@ -226,6 +234,9 @@ function ScriptEnvironment:releaseLock(kind, ref, ownerId)
   local entry = self.locks[kind]
   --[[@as { count: integer, owners: table<string, integer> }|nil]]
   if entry == nil or entry.owners[ownerId] == nil then
+    if isActorLock(kind) then
+      return
+    end
     Errors.raise(
       ScriptErrors.SCRIPT_LOCK_NOT_OWNED,
       "lock is not owned by this script instance",

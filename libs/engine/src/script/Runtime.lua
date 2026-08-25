@@ -23,6 +23,11 @@ Runtime.OUTCOME_STOP = "stop"
 -- The opposite facing, for `facePlayer` (the actor turns toward the player).
 local OPPOSITE_FACING = { north = "south", south = "north", west = "east", east = "west" }
 
+-- pret/pokeheartgold include/constants/global.h / constants/sprites.h.
+local PLAYER_GENDER_MALE = 0
+local SPRITE_HERO = 0
+local SPRITE_HEROINE = 97
+
 -- --- Reference evaluation -----------------------------------------------------
 
 -- Write a value reference: locals and vars are writable; args are read-only
@@ -91,6 +96,14 @@ function Runtime.evaluateValue(v, run)
     return run.services.world:isFlagSet(flagId) and 1 or 0
   elseif kind == "player_gender_value" then
     return run.services.player:gender()
+  elseif kind == "friend_sprite_value" then
+    -- pret/pokeheartgold src/scrcmd_c.c ScrCmd_GetFriendSprite: the friend
+    -- NPC always uses the sprite of the gender opposite the player's own
+    -- (SPRITE_HERO=0, SPRITE_HEROINE=97), independent of any follower state.
+    if run.services.player:gender() ~= PLAYER_GENDER_MALE then
+      return SPRITE_HERO
+    end
+    return SPRITE_HEROINE
   elseif kind == "object_id" then
     local actorId = Runtime.resolveActor(v.ref, run)
     local id = run.services.actors:id(actorId)

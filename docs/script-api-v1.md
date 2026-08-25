@@ -54,6 +54,7 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 |---|---|---|
 | `S.flagValue(flag)` | `value=flag_value` | Returns numeric 1 or 0; flag may be static or dynamic. |
 | `S.playerGenderValue()` | `value=player_gender_value` | HGSS-compatible numeric value. |
+| `S.friendSpriteValue()` | `value=friend_sprite_value` | Opposite-gender friend NPC sprite constant. |
 | `S.objectIdValue(ref)` | `value=object_id` | Used by imported trigger comparisons. |
 | `S.backgroundIdValue()` | `value=trigger_background_id` | Reads current trigger context. |
 | `S.triggerDirectionValue()` | `value=trigger_direction` | Reads normalized trigger direction. |
@@ -250,6 +251,10 @@ Constructors return ordinary serializable Lua tables. Direct table form is alway
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `flag` | id_or_var | yes |  |
+
+### `friend_sprite_value`
+
+No fields.
 
 ### `local`
 

@@ -1750,4 +1750,34 @@ T["later poll raise leaves earlier completions intact"] = function()
   Assert.equal(h.services.world:getVar("VAR_EARLY"), 1, "the earlier task completed on time")
 end
 
+-- 43. `friend_sprite_value` resolves the opposite-gender sprite constant
+-- (pret/pokeheartgold src/scrcmd_c.c ScrCmd_GetFriendSprite): a male player
+-- gets the heroine friend sprite and a female player gets the hero friend
+-- sprite.
+T["friend sprite value resolves the opposite-gender sprite"] = function()
+  local h = harness({ player = { gender = 0 } })
+  startForeground(
+    h,
+    script("test.friendspritemale", {
+      S.setVar({ variable = "VAR_OBJ_0", value = S.friendSpriteValue() }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_OBJ_0"), 97, "a male player's friend uses the heroine sprite")
+
+  local hFemale = harness({ player = { gender = 1 } })
+  startForeground(
+    hFemale,
+    script("test.friendspritefemale", {
+      S.setVar({ variable = "VAR_OBJ_0", value = S.friendSpriteValue() }),
+      S.stop(),
+    }),
+    100
+  )
+  hFemale.scheduler:step(100, nil)
+  Assert.equal(hFemale.services.world:getVar("VAR_OBJ_0"), 0, "a female player's friend uses the hero sprite")
+end
+
 return { tests = T }

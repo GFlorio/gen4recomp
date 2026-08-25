@@ -442,17 +442,25 @@ function FieldActorManager:setFacing(actorId, direction)
   actor:setFacing(direction)
 end
 
--- Scripted position set: resolves the destination surface from the terrain
--- (an explicit worldY selects the plate at that height; otherwise the actor's
+-- Position set: resolves the destination surface from the terrain (an
+-- explicit worldY selects the plate at that height; otherwise the actor's
 -- current surface is preserved whenever it covers the destination), then
 -- rekeys the occupancy index so collision and the draw list never disagree.
--- The whole destination is calculated and validated -- coordinates, surface,
--- and occupancy conflict -- before the actor or the occupancy index is
--- mutated, so a conversion or surface failure leaves the actor exactly where
--- it was. The destination occupancy slot is never overwritten: moving onto
--- another solid actor's cell is a conflict, the same invariant _instantiate
--- enforces.
-function FieldActorManager:setPosition(actorId, position)
+-- The whole destination is calculated and validated -- coordinates and
+-- surface -- before the actor or the occupancy index is mutated, so a
+-- conversion or surface failure leaves the actor exactly where it was.
+--
+-- The hard occupancy-conflict check (the same invariant _instantiate
+-- enforces) applies here too, with one narrowing: pinned HGSS source never
+-- performs an inter-object collision check while a script's `ApplyMovement`
+-- repositions an actor -- only autonomous walk-AI and player movement check
+-- it. `options.scripted` is how a script-driven caller (currently only
+-- `ScriptActorWorld`) identifies itself; every other caller keeps the
+-- default strict behavior, including two script-driven actors that briefly
+-- land on the same cell mid-sequence: the later `setPosition` call simply
+-- takes over the occupancy slot instead of raising.
+---@param options { scripted?: boolean }?
+function FieldActorManager:setPosition(actorId, position, options)
   local actor = self:getById(actorId)
   if actor == nil then
     Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
@@ -470,9 +478,10 @@ function FieldActorManager:setPosition(actorId, position)
   local sample = SurfaceResolver.new(entry.runtimeMap.terrain):resolve(surfaceOpts)
   local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, position.fieldX, position.fieldZ, sample.worldY)
   local newKey = occupancyKey(actor.mapId, position.fieldX, position.fieldZ, sample.surfaceId)
+  local scripted = options ~= nil and options.scripted == true
   if actor.solid then
     local occupant = entry.occupancy[newKey]
-    if occupant ~= nil and occupant ~= actor then
+    if occupant ~= nil and occupant ~= actor and not scripted then
       Errors.raise(
         FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
         actorId .. " cannot move onto " .. occupant.actorId .. "'s field cell",

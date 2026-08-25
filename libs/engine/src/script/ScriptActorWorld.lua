@@ -11,7 +11,7 @@
 ---@field getActor fun(self: ScriptActorManager, actorId: string): table|nil
 ---@field show fun(self: ScriptActorManager, actorId: string)
 ---@field hide fun(self: ScriptActorManager, actorId: string)
----@field setPosition fun(self: ScriptActorManager, actorId: string, position: table)
+---@field setPosition fun(self: ScriptActorManager, actorId: string, position: table, options: { scripted: boolean }?)
 ---@field setFacing fun(self: ScriptActorManager, actorId: string, direction: string)
 ---@field setMovementType fun(self: ScriptActorManager, actorId: string, movementType: string)
 ---@field setAnimationPaused fun(self: ScriptActorManager, actorId: string, paused: boolean)
@@ -145,6 +145,10 @@ function ScriptActorWorld:hide(actorId)
   self._manager:hide(actorId)
 end
 
+-- Every position set reaching the manager through this adapter is
+-- script-driven (`ApplyMovement`/`set_object_position`); pinned source never
+-- checks inter-object collision during scripted movement, so the manager is
+-- told to skip its hard occupancy-conflict check for these calls.
 ---@param actorId string
 ---@param position table { fieldX, fieldZ, worldY? }
 function ScriptActorWorld:setPosition(actorId, position)
@@ -154,7 +158,7 @@ function ScriptActorWorld:setPosition(actorId, position)
     end
     return
   end
-  self._manager:setPosition(actorId, position)
+  self._manager:setPosition(actorId, position, { scripted = true })
 end
 
 ---@param actorId string

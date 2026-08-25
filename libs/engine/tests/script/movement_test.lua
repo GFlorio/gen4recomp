@@ -420,6 +420,51 @@ T["lock actor waits for pausable boundary"] = function()
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
 end
 
+-- 12b. `release_actor` without a matching prior `lock_actor` from this
+-- instance is the source standalone-Release semantic (resume the actor's
+-- own default autonomous movement); it must complete like any other
+-- instruction, not fault as an unowned-lock release.
+T["release actor without a prior lock resumes without faulting"] = function()
+  local h = harness()
+  h.services.actors:add("marill", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local instanceId = startForeground(
+    h,
+    script("test.standalonerelease", {
+      S.lockAll(),
+      S.releaseActor({ actor = "marill" }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  h.scheduler:step(101, nil)
+  Assert.isNil(h.services.events:eventFor("script.error", instanceId), "standalone release_actor must not fault")
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
+-- 12c. Paired `lock_actor`/`release_actor` from the same instance keep their
+-- existing ownership accounting: releasing still clears the lock this
+-- instance holds.
+T["paired lock actor and release actor still clear the held lock"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local instanceId = startForeground(
+    h,
+    script("test.pairedactorlock", {
+      S.lockActor({ actor = "elm", waitUntilPausable = false }),
+      S.releaseActor({ actor = "elm" }),
+      S.waitTicks({ ticks = 5 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local env = assert(h.scheduler:environments()[1])
+  Assert.equal(env:lockCount("actor:elm"), 0)
+  Assert.isNil(h.services.events:eventFor("script.error", instanceId))
+end
+
 -- 13. An actor-scoped barrier created through the compiler's canonical
 -- actor-ref tables (not raw strings) resolves the references and freezes the
 -- matching movement task ids.

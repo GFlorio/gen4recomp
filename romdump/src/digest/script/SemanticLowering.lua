@@ -202,6 +202,15 @@ local HANDLERS = {
   [729] = function(ins)
     return { op = "set_var", variable = varRef(ins.operands[1]), value = 0 }
   end,
+  [294] = function(ins)
+    -- ScrCmd_CheckBadge: no gym-badge subsystem is implemented, so every
+    -- badge check in the fresh-game opening window is source-correctly
+    -- false (pret/pokeheartgold src/scrcmd_17.c ScrCmd_CheckBadge /
+    -- PlayerProfile_TestBadgeFlag), the same explicit-result pattern as
+    -- opcode 729's no-follower query. The badge-index operand only selects
+    -- which always-absent badge is being asked about.
+    return { op = "set_var", variable = varRef(ins.operands[2]), value = 0 }
+  end,
   [0] = function()
     return nil
   end, -- Nop
@@ -553,6 +562,11 @@ local HANDLERS = {
       x = varRef(ins.operands[2]),
       z = varRef(ins.operands[3]),
     }
+  end,
+  [144] = function(ins)
+    -- ScrCmd_GetFriendSprite: the opening friend NPC's sprite is always the
+    -- gender opposite the player's own; no follower subsystem is involved.
+    return { op = "set_var", variable = varRef(ins.operands[1]), value = { value = "friend_sprite_value" } }
   end,
   [132] = function(ins)
     return {

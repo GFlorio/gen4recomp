@@ -85,6 +85,7 @@ Schema.VALUES = {
   arg = { fields = { name = { type = "string", required = true } } },
   flag_value = { fields = { flag = { type = "id_or_var", required = true } } },
   player_gender_value = { fields = {} },
+  friend_sprite_value = { fields = {} },
   object_id = { fields = { ref = { type = "actor", required = true } } },
   trigger_background_id = { fields = {} },
   trigger_direction = { fields = {} },
@@ -777,6 +778,11 @@ Schema.CONSTRUCTORS = {
         signature = "S.playerGenderValue()",
         canonical = "value=player_gender_value",
         notes = "HGSS-compatible numeric value.",
+      },
+      {
+        signature = "S.friendSpriteValue()",
+        canonical = "value=friend_sprite_value",
+        notes = "Opposite-gender friend NPC sprite constant.",
       },
       {
         signature = "S.objectIdValue(ref)",
