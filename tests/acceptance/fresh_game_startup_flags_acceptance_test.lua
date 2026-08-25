@@ -8,6 +8,8 @@ local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local GameSaveStore = require("libs.engine.src.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 local T = {
   metadata = {
@@ -171,6 +173,32 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
         "a startup-hidden trophy actor must not exist in the active actor set: " .. actor.actorId
       )
     end
+
+    -- Occupancy, not merely the actor list, must agree: at each hidden
+    -- trophy's own source coordinate the manager holds no occupant at all,
+    -- for the source reason that the actor is hidden -- never because
+    -- collision independently exempted it (a warp/scriptId workaround would
+    -- pass this same check for the wrong reason, so this asserts the
+    -- resolved cell is entirely free).
+    local runtimeMap = runtime.runtimeMap
+    local objects = runtimeMap.fieldData.events.objects
+    local trophyEventsChecked = 0
+    for _, event in ipairs(objects) do
+      if trophySet[event.eventFlag] == true then
+        trophyEventsChecked = trophyEventsChecked + 1
+        local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, event.x, event.z)
+        local surface = SurfaceResolver.new(runtimeMap.terrain):resolve({
+          localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+          localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+          currentY = event.y / 16,
+        })
+        Assert.isNil(
+          runtime.actors:getAt(runtimeMap.mapId, event.x, event.z, surface.surfaceId),
+          "a startup-hidden trophy's own cell must hold no occupant"
+        )
+      end
+    end
+    Assert.isTrue(trophyEventsChecked > 0, "the fixture map must declare at least one hidden trophy event")
   end, debug.traceback)
   App.setState(nil)
   App.opts = original.opts

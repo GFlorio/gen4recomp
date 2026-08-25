@@ -40,8 +40,8 @@ local function sourceEvent(overrides)
   return event
 end
 
-local function actor(overrides)
-  return FieldObjectActor.new({
+local function actor(overrides, optsOverrides)
+  local opts = {
     mapId = 61,
     sourceEvent = sourceEvent(overrides),
     fieldX = 6,
@@ -50,7 +50,11 @@ local function actor(overrides)
     worldX = 6.5,
     worldY = 0,
     worldZ = 5.5,
-  })
+  }
+  for key, value in pairs(optsOverrides or {}) do
+    opts[key] = value
+  end
+  return FieldObjectActor.new(opts)
 end
 
 function T.actor_id_is_map_and_object_identity()
@@ -71,8 +75,17 @@ function T.runtime_state_starts_from_the_source_record()
   Assert.isNil(a.interactionFacingOverride)
 end
 
-function T.inert_source_objects_do_not_block_player_routes()
-  Assert.isFalse(actor({ scriptId = 0 }).solid)
+-- A zero interaction script is the source's inert map-object marker for
+-- A-button interaction, not a solidity signal: a visible zero-script actor
+-- still follows source collision semantics unless the event explicitly opts
+-- out.
+function T.zero_script_actors_remain_solid_by_default()
+  Assert.isTrue(actor({ scriptId = 0 }).solid)
+end
+
+function T.explicit_non_solid_semantic_is_honored_regardless_of_script_id()
+  Assert.isFalse(actor({ scriptId = 0 }, { solid = false }).solid)
+  Assert.isFalse(actor({ scriptId = 5 }, { solid = false }).solid)
 end
 
 function T.unknown_source_facing_is_rejected()

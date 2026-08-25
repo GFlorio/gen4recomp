@@ -75,10 +75,10 @@ function FieldObjectActor.new(opts)
     pose = "idle",
     poseTick = 0,
     visible = true,
-    -- A zero script id is the source's inert map-object marker. It may still
-    -- be present for coordinate/warp layout, but it has no actor interaction
-    -- and must not close the only route through that tile.
-    solid = opts.solid ~= false and event.scriptId ~= 0,
+    -- Solid unless the source/generated event explicitly says otherwise; a
+    -- zero interaction-script id is only "no A-button script" and carries no
+    -- collision meaning of its own.
+    solid = opts.solid ~= false,
     rawMovement = event.movement,
     interactionFacingOverride = nil,
   }, FieldObjectActor)

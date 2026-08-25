@@ -151,12 +151,30 @@ function T.visible_objects_become_actors_and_flagged_ones_do_not()
   Assert.equal(#mgr:drawRecords(), 1)
 end
 
-function T.warp_tile_objects_do_not_claim_movement_occupancy()
+-- Coinciding with a warp record is not a solidity input: actor collision must
+-- not infer intent from the mere presence of a warp at the same coordinate.
+-- Warp triggering itself is resolved by the player/warp system, independent
+-- of this occupancy index.
+function T.warp_tile_objects_are_solid_by_default_like_any_other_actor()
   local map = runtimeMap({ object({ x = 6, z = 5 }) })
   map.fieldData.events.warps = { { x = 6, z = 5 } }
   local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
   mgr:enterMap(map, FieldEventState.new())
-  Assert.isNil(mgr:getAt(map.mapId, 6, 5, 0), "a warp-tile object must not block its transition tile")
+  Assert.equal(
+    assert(mgr:getAt(map.mapId, 6, 5, 0), "a warp-coincident object keeps its default solidity").actorId,
+    "map:61:object:0"
+  )
+end
+
+-- An event's explicit non-solid semantic remains honored even when it
+-- coincides with a warp: this is the sole way a warp-coincident actor stays
+-- non-solid.
+function T.explicit_non_solid_warp_tile_objects_remain_non_solid()
+  local map = runtimeMap({ object({ x = 6, z = 5, solid = false }) })
+  map.fieldData.events.warps = { { x = 6, z = 5 } }
+  local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
+  mgr:enterMap(map, FieldEventState.new())
+  Assert.isNil(mgr:getAt(map.mapId, 6, 5, 0), "an explicitly non-solid object never occupies its cell")
 end
 
 function T.actor_resolves_position_surface_and_world_anchor()
@@ -585,6 +603,31 @@ function T.player_cannot_step_into_a_visible_solid_actor_cell()
   p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(p.facing, "south")
   Assert.equal(p.fieldZ, 2)
+  Assert.equal(p.motion, "idle")
+end
+
+-- A visible actor with no A-button script still follows source collision
+-- semantics: scriptId == 0 is not an independent solidity input, so the
+-- player's path is blocked exactly as it would be by any other solid actor.
+function T.player_cannot_step_into_a_zero_script_actor_cell()
+  local mgr, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3, scriptId = 0 }) })
+  local p = playerOn(mgr, map, 9, 2, 0)
+  p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(p.fieldZ, 2, "a zero-script actor must still block the player")
+  Assert.equal(p.motion, "idle")
+end
+
+-- Coinciding with a warp record is not a solidity input either: warp
+-- triggering is resolved by the player/warp system independently, and the
+-- actor manager must not infer non-solidity from the coincidence.
+function T.player_cannot_step_into_a_warp_coincident_actor_cell()
+  local map = runtimeMap({ object({ objectEventId = 0, x = 9, z = 3 }) })
+  map.fieldData.events.warps = { { x = 9, z = 3 } }
+  local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
+  mgr:enterMap(map, FieldEventState.new())
+  local p = playerOn(mgr, map, 9, 2, 0)
+  p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(p.fieldZ, 2, "a warp-coincident actor must still block the player")
   Assert.equal(p.motion, "idle")
 end
 
