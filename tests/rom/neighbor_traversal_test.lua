@@ -24,6 +24,7 @@ local function runtimeMap(romFs)
     local chunk = assert(bundle.neighborChunks[descriptor.landDataMemberId])
     neighbors[#neighbors + 1] = {
       offsetTilesX = descriptor.offsetTilesX,
+      offsetTilesY = descriptor.offsetTilesY,
       offsetTilesZ = descriptor.offsetTilesZ,
       collision = collision(chunk.collision),
       terrain = TerrainSurface.new(chunk.terrain),

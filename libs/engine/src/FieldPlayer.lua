@@ -28,7 +28,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field previousWorldZ number
 ---@field surfaceId integer
 ---@field facing FieldDirection
----@field motion "idle"|"walking"|"transition"
+---@field motion "idle"|"walking"|"turning"|"transition"
 ---@field progressTicks integer
 ---@field durationTicks integer
 ---@field animationPaused boolean
@@ -46,6 +46,7 @@ FieldPlayer.__index = FieldPlayer
 -- Gameplay timing constants, centralized so emulator calibration changes
 -- exactly one place.
 FieldPlayer.WALK_STEP_TICKS = 8
+FieldPlayer.TURN_TICKS = 2
 
 ---@alias FieldDirection "north"|"south"|"west"|"east"
 
@@ -203,6 +204,24 @@ function FieldPlayer:_beginStep(direction, destination)
   self.to = destination
   self.motion = "walking"
   self.progressTicks = 0
+  self.durationTicks = FieldPlayer.WALK_STEP_TICKS
+end
+
+function FieldPlayer:_beginTurn(direction)
+  self.facing = direction
+  self.motion = "turning"
+  self.progressTicks = 0
+  self.durationTicks = FieldPlayer.TURN_TICKS
+end
+
+function FieldPlayer:_advanceTurn()
+  assert(self.motion == "turning", "turning motion required")
+  self.progressTicks = self.progressTicks + 1
+  if self.progressTicks >= FieldPlayer.TURN_TICKS then
+    self.motion = "idle"
+    self.progressTicks = 0
+  end
+  return false
 end
 
 function FieldPlayer:tryStep(direction)
@@ -366,6 +385,10 @@ function FieldPlayer:updateFixed(input)
     return self:_advanceStep()
   end
 
+  if self.motion == "turning" then
+    return self:_advanceTurn()
+  end
+
   if self.motion == "transition" then
     self.progressTicks = self.progressTicks + 1
     local progress = self.progressTicks / self.durationTicks
@@ -386,8 +409,10 @@ function FieldPlayer:updateFixed(input)
   end
 
   local direction
+  local isWalkingContinuation = false
   if self.bufferedDirection and self.bufferedDirection == input.heldDirection then
     direction = self.bufferedDirection
+    isWalkingContinuation = true
   else
     self.bufferedDirection = nil
     direction = input.pressedDirection or input.heldDirection
@@ -396,6 +421,10 @@ function FieldPlayer:updateFixed(input)
     return false
   end
   self.bufferedDirection = nil
+  if not isWalkingContinuation and direction ~= self.facing then
+    self:_beginTurn(direction)
+    return self:_advanceTurn()
+  end
   if self:tryStep(direction) then
     self:_advanceStep()
   end

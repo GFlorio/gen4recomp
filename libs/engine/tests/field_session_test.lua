@@ -1523,7 +1523,7 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
     fieldX = 4,
     fieldZ = 13,
     surfaceId = 0,
-    facing = "south",
+    facing = "east",
     occupancy = function()
       return nil
     end,
@@ -1552,6 +1552,62 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   Assert.equal(player.motion, "idle")
   Assert.equal(visual.pose, "walk")
   Assert.equal(visual.poseTick, 16, "the session never lets the gait phase restart mid-walk")
+end
+
+function T.held_direction_walks_only_after_turn_completion_reenters_idle_arbitration()
+  local map = {
+    mapId = 61,
+    cameraType = 4,
+    coordinateOrigin = { x = 0, z = 0 },
+    fieldData = { events = { warps = {} } },
+    updateAnimated = function() end,
+    collision = {
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
+      getLocal = function()
+        return { behavior = nil }
+      end,
+    },
+    terrain = TerrainSurface.new({
+      plates = {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
+  }
+  local player = FieldPlayer.new({
+    currentMap = map,
+    fieldX = 4,
+    fieldZ = 13,
+    surfaceId = 0,
+    facing = "east",
+  })
+  local session = FieldSession.new(baseOptions({ currentMap = map, player = player }))
+
+  session:updateFixed({ heldDirection = "north", pressedDirection = "north" })
+  Assert.equal(player.motion, "turning")
+  Assert.equal(player.fieldZ, 13)
+
+  session:updateFixed({ heldDirection = "north" })
+  Assert.equal(player.motion, "idle")
+  Assert.equal(player.fieldZ, 13)
+
+  session:updateFixed({ heldDirection = "north" })
+  Assert.equal(player.motion, "walking")
+  Assert.equal(player.fieldZ, 13)
+  Assert.equal(player.facing, "north")
 end
 
 -- A locked door transition reports whether the choreography moved the player

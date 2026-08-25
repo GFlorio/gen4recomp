@@ -130,6 +130,7 @@ function T.tests.the_production_trainer_card_journey_runs_without_injected_appli
     -- opening any menu surface or pausing the walk; the walk completes
     -- normally and the ignored edge cannot poison the next open.
     local beforeWalk = game:snapshot()
+    runtime.player.facing = "west"
     runtime:press("west")
     game:step()
     Assert.equal(

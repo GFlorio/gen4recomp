@@ -76,6 +76,10 @@ end
 -- One full 8-tick step in the held direction; returns false when blocked.
 local function step(player, direction)
   player:updateFixed({ pressedDirection = direction, heldDirection = direction })
+  if player.motion == "turning" then
+    player:updateFixed({ heldDirection = direction })
+    player:updateFixed({ heldDirection = direction })
+  end
   if player.motion ~= "walking" then
     return false
   end
@@ -122,6 +126,8 @@ function T.the_demo_walk_to_elm_is_walkable_and_elm_blocks(romFs)
   -- Pressing north is rejected by Elm's occupied cell: turn only.
   player:updateFixed({ pressedDirection = "north", heldDirection = "north" })
   Assert.equal(player.facing, "north")
+  Assert.equal(player.motion, "turning")
+  player:updateFixed({ heldDirection = "north" })
   Assert.equal(player.motion, "idle")
   Assert.equal(player.fieldX, 6)
   Assert.equal(player.fieldZ, 6)

@@ -257,7 +257,8 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   local committedSurfaces = {}
   for _, direction in ipairs(directions) do
     local beforeY = player.worldY
-    for tick = 1, FieldPlayer.WALK_STEP_TICKS do
+    local turnTicks = direction == player.facing and 0 or FieldPlayer.TURN_TICKS
+    for tick = 1, turnTicks + FieldPlayer.WALK_STEP_TICKS do
       session:updateFixed({
         heldDirection = direction,
         pressedDirection = tick == 1 and direction or nil,

@@ -73,15 +73,15 @@ end
 
 -- A real FieldPlayer on an open flat map, for the tile-boundary phase tests.
 local function movingPlayer()
-  return FieldPlayer.new({ currentMap = runtimeMap(), fieldX = 0, fieldZ = 4, surfaceId = 0, facing = "south" })
+  return FieldPlayer.new({ currentMap = runtimeMap(), fieldX = 0, fieldZ = 4, surfaceId = 0, facing = "east" })
 end
 
--- Drive one full session-style tick: capture the pre-update walking state,
+-- Drive one full session-style tick: capture the pre-update walk-pose state,
 -- advance the player, then advance the visual with that capture.
 local function walkTick(subject, presentation, direction)
-  local walkingAtTickStart = subject.motion == "walking"
+  local walkPoseAtTickStart = subject.motion == "walking" or subject.motion == "turning"
   subject:updateFixed({ heldDirection = direction, pressedDirection = direction })
-  presentation:updateFixed(walkingAtTickStart)
+  presentation:updateFixed(walkPoseAtTickStart)
 end
 
 local function visual(subject)
@@ -108,6 +108,42 @@ function T.stands_still_until_the_player_walks()
   presentation:updateFixed()
   Assert.equal(presentation.pose, "idle")
   Assert.equal(presentation.poseTick, 0, "a settled player holds its facing's first frame")
+end
+
+function T.a_stationary_turn_uses_the_walk_pose_without_displacing_the_player()
+  local subject = FieldPlayer.new({
+    currentMap = runtimeMap(),
+    fieldX = 0,
+    fieldZ = 4,
+    surfaceId = 0,
+    facing = "south",
+  })
+  local presentation = visual(subject)
+  local start = { x = subject.worldX, y = subject.worldY, z = subject.worldZ }
+
+  local firstTurn = subject:updateFixed({ heldDirection = "north", pressedDirection = "north" })
+  presentation:updateFixed(true)
+  Assert.isFalse(firstTurn)
+  Assert.equal(subject.facing, "north")
+  Assert.equal(subject.motion, "turning")
+  Assert.equal(presentation.pose, "walk")
+  Assert.equal(presentation.poseTick, 1)
+  Assert.equal(presentation.spriteId, 0)
+
+  local secondTurn = subject:updateFixed({})
+  presentation:updateFixed(true)
+  Assert.isFalse(secondTurn)
+  Assert.equal(subject.motion, "idle")
+  Assert.equal(presentation.pose, "walk")
+  Assert.equal(presentation.poseTick, 2)
+  Assert.equal(subject.worldX, start.x)
+  Assert.equal(subject.worldY, start.y)
+  Assert.equal(subject.worldZ, start.z)
+
+  subject:updateFixed({})
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "idle")
+  Assert.equal(presentation.poseTick, 0)
 end
 
 function T.the_draw_record_interpolates_the_shared_render_position()
@@ -257,13 +293,15 @@ end
 function T.changing_facing_during_continuous_movement_resets_the_phase()
   local subject = movingPlayer()
   local presentation = visual(subject)
-  for _ = 1, 8 do
+  for _ = 1, 4 do
     walkTick(subject, presentation, "east")
   end
-  Assert.equal(presentation.poseTick, 8)
 
   -- Turning mid-walk (buffered to the next step) must start the new facing's
   -- range at its first frame, not import the old range's phase.
+  for _ = 1, 4 do
+    walkTick(subject, presentation, "south")
+  end
   for _ = 1, 4 do
     walkTick(subject, presentation, "south")
   end

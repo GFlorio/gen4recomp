@@ -85,9 +85,10 @@ end
 ---@param x integer
 ---@param z integer
 ---@param surfaceId integer
+---@param facing FieldDirection?
 ---@return FieldPlayer
-local function player(map, x, z, surfaceId)
-  return FieldPlayer.new({ currentMap = map, fieldX = x, fieldZ = z, surfaceId = surfaceId, facing = "south" })
+local function player(map, x, z, surfaceId, facing)
+  return FieldPlayer.new({ currentMap = map, fieldX = x, fieldZ = z, surfaceId = surfaceId, facing = facing or "south" })
 end
 
 function T.escalator_motion_is_horizontal_and_does_not_change_height()
@@ -189,7 +190,7 @@ local function tick(p, held, pressed)
 end
 
 function T.accepted_step_commits_on_exactly_tick_eight()
-  local p = player(runtimeMap(), 0, 4, 0)
+  local p = player(runtimeMap(), 0, 4, 0, "east")
   for index = 1, 7 do
     tick(p, "east", index == 1 and "east" or nil)
     Assert.equal(p.fieldX, 0)
@@ -202,25 +203,81 @@ function T.accepted_step_commits_on_exactly_tick_eight()
   near(p.worldY, 0.5)
 end
 
-function T.blocked_input_turns_without_moving()
-  local p = player(runtimeMap({ ["0:3"] = true }), 0, 4, 0)
-  tick(p, "north", "north")
+function T.different_facing_input_turns_in_place_for_two_updates()
+  local p = player(runtimeMap(), 0, 4, 0, "south")
+  local start = {
+    fieldX = p.fieldX,
+    fieldZ = p.fieldZ,
+    localX = p.localX,
+    localZ = p.localZ,
+    surfaceId = p.surfaceId,
+    worldX = p.worldX,
+    worldY = p.worldY,
+    worldZ = p.worldZ,
+  }
+
+  local firstResult = p:updateFixed({ heldDirection = "north", pressedDirection = "north" })
   Assert.equal(p.facing, "north")
-  Assert.equal(p.fieldZ, 4)
+  Assert.equal(p.motion, "turning")
+  Assert.equal(p.progressTicks, 1)
+  Assert.equal(p.durationTicks, 2)
+  Assert.isFalse(firstResult)
+  Assert.equal(p.fieldX, start.fieldX)
+  Assert.equal(p.fieldZ, start.fieldZ)
+  Assert.equal(p.localX, start.localX)
+  Assert.equal(p.localZ, start.localZ)
+  Assert.equal(p.surfaceId, start.surfaceId)
+  near(p.worldX, start.worldX)
+  near(p.worldY, start.worldY)
+  near(p.worldZ, start.worldZ)
+
+  local secondResult = p:updateFixed({})
+  Assert.equal(p.facing, "north")
   Assert.equal(p.motion, "idle")
+  Assert.equal(p.progressTicks, 0)
+  Assert.isFalse(secondResult)
+  Assert.equal(p.fieldX, start.fieldX)
+  Assert.equal(p.fieldZ, start.fieldZ)
+  Assert.equal(p.localX, start.localX)
+  Assert.equal(p.localZ, start.localZ)
+  Assert.equal(p.surfaceId, start.surfaceId)
+  near(p.worldX, start.worldX)
+  near(p.worldY, start.worldY)
+  near(p.worldZ, start.worldZ)
+end
+
+function T.different_facing_input_does_not_resolve_an_illegal_destination()
+  local resolutionCalls = 0
+  local map = runtimeMap({ ["0:3"] = true })
+  map.collision.isBlockedLocal = function()
+    resolutionCalls = resolutionCalls + 1
+    return true
+  end
+  local p = player(map, 0, 4, 0, "south")
+
+  Assert.isFalse(p:updateFixed({ heldDirection = "north", pressedDirection = "north" }))
+  Assert.isFalse(p:updateFixed({}))
+  Assert.equal(p.facing, "north")
+  Assert.equal(p.motion, "idle")
+  Assert.equal(p.fieldZ, 4)
+  Assert.equal(resolutionCalls, 0)
+
+  Assert.isFalse(p:updateFixed({ heldDirection = "north", pressedDirection = "north" }))
+  Assert.equal(resolutionCalls, 1)
+  Assert.equal(p.fieldZ, 4)
 end
 
 function T.disconnected_height_jump_is_rejected()
   local map = runtimeMap()
   map.terrain.plates[2].distance = 5 * ROOT_HALF
-  local p = player(map, 0, 4, 0)
+  local p = player(map, 0, 4, 0, "east")
   tick(p, "east", "east")
   Assert.equal(p.fieldX, 0)
   Assert.equal(p.motion, "idle")
 end
 
 function T.walking_samples_monotonic_slope_height()
-  local p = player(runtimeMap(), 0, 4, 0)
+  local p = player(runtimeMap(), 0, 4, 0, "east")
   local heights = {}
   for index = 1, 16 do
     tick(p, "east", index == 1 and "east" or nil)
@@ -235,7 +292,7 @@ function T.walking_samples_monotonic_slope_height()
 end
 
 function T.latest_pressed_direction_buffers_during_a_step()
-  local p = player(runtimeMap(), 0, 4, 0)
+  local p = player(runtimeMap(), 0, 4, 0, "east")
   tick(p, "east", "east")
   for _ = 2, 4 do
     tick(p, "east")
@@ -276,7 +333,7 @@ local function occupyingPlayer(map, x, z, surfaceId, occupantCells)
     fieldX = x,
     fieldZ = z,
     surfaceId = surfaceId,
-    facing = "south",
+    facing = "east",
     occupancy = function(cellX, cellZ, cellSurface)
       local key = cellX .. ":" .. cellZ .. ":" .. cellSurface
       return occupantCells[key] or nil
@@ -377,7 +434,7 @@ end
 function T.out_of_coverage_step_remains_blocked()
   -- Stepping past the coverage edge is the intended edge-of-map contract: a
   -- blocked move, not an error.
-  local p = player(runtimeMap(), 31, 4, 2)
+  local p = player(runtimeMap(), 31, 4, 2, "east")
   tick(p, "east", "east")
   Assert.equal(p.fieldX, 31)
   Assert.equal(p.motion, "idle")

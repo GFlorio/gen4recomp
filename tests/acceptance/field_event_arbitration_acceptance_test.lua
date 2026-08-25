@@ -223,6 +223,7 @@ end
 function T.tests.continuous_walking_carries_visual_gait_across_tile_commits()
   withGame(TOWN, function(game)
     game:moveTo({ fieldX = 688, fieldZ = 393 })
+    game.runtime.player.facing = "south"
     game:move("south")
     local first = game:advanceUntil("first ordinary step", function(snapshot)
       return snapshot.player.motion == "idle" and snapshot.player.fieldZ == 394
@@ -244,6 +245,7 @@ function T.tests.mid_step_direction_edge_cannot_start_passive_sign()
     local typeOne = assert(backgroundCell(game, 1), "a scripted type-one background event is required")
     game:moveTo({ fieldX = typeOne.x, fieldZ = typeOne.z + 1 })
     game:face("east")
+    game.runtime.player.facing = "south"
     game:step({ direction = "south" })
     local walking = game:snapshot()
     Assert.equal(walking.player.motion, "walking", "the arbitration setup must enter a real movement step")
