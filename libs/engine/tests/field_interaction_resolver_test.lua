@@ -23,6 +23,7 @@ local function map(backgrounds)
   local value = {
     mapId = 61,
     mapSymbol = "test-map",
+    mapSection = "test-section",
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     scene = {},

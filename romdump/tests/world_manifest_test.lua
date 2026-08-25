@@ -16,11 +16,19 @@ local function sample()
     {
       id = 61,
       symbol = "MAP_NEW_BARK_ELMS_LAB_1F",
+      mapSection = "NEW_BARK_TOWN",
       width = 1,
       height = 1,
       matrix = { memberId = 0, x = 0, z = 0 },
     },
-    { id = 60, symbol = "MAP_NEW_BARK", width = 3, height = 3, matrix = { memberId = 0, x = 21, z = 12 } },
+    {
+      id = 60,
+      symbol = "MAP_NEW_BARK",
+      mapSection = "NEW_BARK_TOWN",
+      width = 3,
+      height = 3,
+      matrix = { memberId = 0, x = 21, z = 12 },
+    },
   }
 end
 
@@ -96,6 +104,14 @@ function T.build_rejects_duplicate_symbol()
   dup[1].symbol = "MAP_NEW_BARK"
   Assert.throws(function()
     WorldManifest.build(dup)
+  end)
+end
+
+function T.build_rejects_missing_map_section()
+  local entries = sample()
+  entries[1].mapSection = nil
+  Assert.throws(function()
+    WorldManifest.build(entries)
   end)
 end
 

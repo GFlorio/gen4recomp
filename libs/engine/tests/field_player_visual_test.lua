@@ -16,6 +16,7 @@ local function runtimeMap()
   return {
     mapId = 60,
     mapSymbol = "test-map",
+    mapSection = "test-section",
     coordinateOrigin = { x = 0, z = 0 },
     scene = {},
     fieldData = { events = {} },

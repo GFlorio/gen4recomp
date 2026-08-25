@@ -181,6 +181,24 @@ function FieldCoverage:containsGlobal(fieldX, fieldZ)
   return self.cells[key(cellX, cellZ)] ~= nil
 end
 
+---@return table
+function FieldCoverage:currentCell()
+  return assert(self.cells[key(self.anchorX, self.anchorZ)], "coverage anchor cell is missing")
+end
+
+---@param fieldX integer
+---@param fieldZ integer
+---@return integer?
+function FieldCoverage:mapHeaderAt(fieldX, fieldZ)
+  local cellX, cellZ = math.floor(fieldX / 32), math.floor(fieldZ / 32)
+  local cell = self.cells[key(cellX, cellZ)]
+  if cell then
+    return cell.mapHeaderId or (cell.descriptor and cell.descriptor.mapHeaderId)
+  end
+  local descriptor = FieldCellCache.find(self.index, self.matrixMemberId, cellX, cellZ)
+  return descriptor and descriptor.mapHeaderId or nil
+end
+
 -- Read-only generated-cache lookup used by route planning before a committed
 -- step can recenter the resident window. It creates no resident ownership and
 -- releases the temporary CPU cell immediately.

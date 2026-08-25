@@ -308,6 +308,7 @@ function CacheBuilder.buildVersions(versionIds, options)
             entries[#entries + 1] = {
               id = bundle.mapId,
               symbol = bundle.scene.mapSymbol,
+              mapSection = result.mapSection,
               width = bundle.scene.matrix.width,
               height = bundle.scene.matrix.height,
               matrix = {

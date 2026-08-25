@@ -34,6 +34,7 @@ FieldMapLoader.__index = FieldMapLoader
 ---@class RuntimeFieldMap
 ---@field mapId integer
 ---@field mapSymbol string
+---@field mapSection string
 ---@field sceneRuntime table|nil
 ---@field scene table
 ---@field fieldData table
@@ -331,6 +332,7 @@ function FieldMapLoader:load(idOrSymbol, position)
     runtimeMap = {
       mapId = record.id,
       mapSymbol = record.symbol,
+      mapSection = record.mapSection,
       sceneRuntime = sceneRuntime,
       scene = scene,
       fieldData = fieldData,

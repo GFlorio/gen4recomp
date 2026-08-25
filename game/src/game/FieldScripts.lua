@@ -313,6 +313,7 @@ function FieldScripts.new(opts)
     menuHost = menuHost,
     signpostHost = signpostHost,
     player = player,
+    mapSource = opts.sourceMap,
   }, FieldScripts)
 
   -- The live task registry: the scheduler routes through it.
@@ -396,6 +397,12 @@ end
 function FieldScripts:onMapSwap(player, sourceMap)
   self.player:setPlayer(player)
   self.mapsService:setSourceMap(sourceMap)
+end
+
+---@param sourceMap RuntimeFieldMap
+function FieldScripts:onZoneChange(sourceMap)
+  self.mapsService:setSourceMap(sourceMap)
+  self.mapSource = sourceMap
 end
 
 return FieldScripts

@@ -94,11 +94,14 @@ local PARTNER_OBJECT_ID = 253
 ---@field _drawRecords FieldActorManager.DrawRecord[]
 ---@field _drawRecordByActorId table<string, FieldActorManager.DrawRecord>
 ---@field step fun(self: FieldActorManager, tick: integer)
----@field _resolveSpriteId fun(self: FieldActorManager, event: FieldActorEvent): integer
+---@field _resolveSpriteId fun(self: FieldActorManager, event: FieldActorEvent, eventState: FieldEventState?): integer
 ---@field _acquireVisual fun(self: FieldActorManager, spriteId: integer, actorId: string): FieldActorAsset
----@field _instantiate fun(self: FieldActorManager, entry: FieldActorManager.Entry, event: FieldActorEvent): FieldActorManager.Actor
+---@field _instantiate fun(self: FieldActorManager, entry: FieldActorManager.Entry, event: FieldActorEvent, eventState: FieldEventState?): FieldActorManager.Actor
 ---@field _destroy fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor)
 ---@field leaveMap fun(self: FieldActorManager, mapId: integer)
+---@field prepareMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState): FieldActorManager.PreparedMap
+---@field commitPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap, sourceMapId: integer)
+---@field discardPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap)
 ---@field enterMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState)
 ---@field dispose fun(self: FieldActorManager)
 ---@field visualRevision fun(self: FieldActorManager): integer
@@ -121,6 +124,11 @@ local PARTNER_OBJECT_ID = 253
 ---@field occupancy table<string, FieldActorManager.Actor>
 ---@field byFlag table<integer, FieldActorEvent[]>
 ---@field byIndex table<integer, string>
+
+---@class FieldActorManager.PreparedMap
+---@field entry FieldActorManager.Entry
+---@field eventState FieldEventState
+---@field state "prepared"|"committed"|"discarded"
 
 ---@class FieldActorManager.Position
 ---@field fieldX integer
@@ -240,15 +248,17 @@ end
 -- so this mirrors that call. The variables default to 0, the hero graphic, so a
 -- variable actor exists even when no script has written one.
 ---@param event FieldActorEvent
+---@param eventState FieldEventState?
 ---@return integer
 ---@param self FieldActorManager
-function FieldActorManager:_resolveSpriteId(event)
+function FieldActorManager:_resolveSpriteId(event, eventState)
   local sprites = self.variableSprites
   if event.spriteId < sprites.first or event.spriteId > sprites.last then
     return event.spriteId
   end
-  assert(self.eventState, "variable sprite resolution requires an event state")
-  return self.eventState:getVar(self.variableVarBase + (event.spriteId - sprites.first))
+  local state = eventState or self.eventState
+  assert(state, "variable sprite resolution requires an event state")
+  return state:getVar(self.variableVarBase + (event.spriteId - sprites.first))
 end
 
 ---@param self FieldActorManager
@@ -269,8 +279,9 @@ end
 ---@param self FieldActorManager
 ---@param entry FieldActorManager.Entry
 ---@param event FieldActorEvent
+---@param eventState FieldEventState?
 ---@return FieldActorManager.Actor
-function FieldActorManager:_instantiate(entry, event)
+function FieldActorManager:_instantiate(entry, event, eventState)
   local runtimeMap = entry.runtimeMap
   local actorId = FieldObjectActor.actorId(runtimeMap.mapId, event.objectEventId)
   if entry.actors[actorId] then
@@ -282,7 +293,7 @@ function FieldActorManager:_instantiate(entry, event)
   end
   local surface = resolveSurface(runtimeMap, event, actorId)
   local world = FieldCoordinates.fieldToWorld(runtimeMap, event.x, event.z, surface.worldY)
-  local spriteId = self:_resolveSpriteId(event)
+  local spriteId = self:_resolveSpriteId(event, eventState)
   self:_acquireVisual(spriteId, actorId)
 
   -- Local ownership: the visual is acquired for this construction only, so any
@@ -372,34 +383,27 @@ local function requireActor(manager, actorId)
   error("unreachable: actor lookup failure was raised")
 end
 
--- Idempotent for an already-active runtime map, so a transition's overlapping
--- load and commit phases cannot duplicate a map's actors.
----@param runtimeMap RuntimeFieldMap
----@param eventState FieldEventState
 ---@param self FieldActorManager
-function FieldActorManager:enterMap(runtimeMap, eventState)
-  assert(runtimeMap and runtimeMap.fieldData, "enterMap requires a runtime map")
-  assert(eventState, "enterMap requires a field event state")
+---@param eventState FieldEventState
+local function bindEventState(self, eventState)
   if self.eventState ~= eventState then
-    if self.unsubscribe then
-      self.unsubscribe()
-    end
-    self.eventState = eventState
-    self.unsubscribe = eventState:subscribe(function(change)
+    local oldUnsubscribe = self.unsubscribe
+    local unsubscribe = eventState:subscribe(function(change)
       local stateChange = change --[[@as FieldActorStateChange]]
       self:onEventStateChanged(stateChange)
     end)
-  end
-
-  local existing = self.maps[runtimeMap.mapId]
-  if existing then
-    if existing.runtimeMap == runtimeMap then
-      return
+    self.eventState = eventState
+    self.unsubscribe = unsubscribe
+    if oldUnsubscribe then
+      oldUnsubscribe()
     end
-    self:leaveMap(runtimeMap.mapId)
   end
+end
 
-  local entry = {
+---@param runtimeMap RuntimeFieldMap
+---@return FieldActorManager.Entry
+local function newEntry(runtimeMap)
+  return {
     runtimeMap = runtimeMap,
     actors = {},
     order = {},
@@ -407,8 +411,13 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
     byFlag = {},
     byIndex = {},
   } ---@type FieldActorManager.Entry
-  self.maps[runtimeMap.mapId] = entry
-  self.currentMapId = runtimeMap.mapId
+end
+
+---@param self FieldActorManager
+---@param entry FieldActorManager.Entry
+---@param eventState FieldEventState
+local function populateEntry(self, entry, eventState)
+  local runtimeMap = entry.runtimeMap
   local ok, err = pcall(function()
     -- The map loader validates the four event collections against the
     -- authoritative field-record rule, so a runtime map always carries the
@@ -424,14 +433,92 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
       entry.byFlag[event.eventFlag] = flagged
       local resident = not runtimeMap.coverage or runtimeMap.coverage:containsGlobal(event.x, event.z)
       if resident and not eventState:isFlagSet(event.eventFlag) then
-        self:_instantiate(entry, event)
+        self:_instantiate(entry, event, eventState)
       end
     end
   end)
   if not ok then
-    self:leaveMap(runtimeMap.mapId)
+    while #entry.order > 0 do
+      self:_destroy(entry, entry.order[#entry.order])
+    end
     error(err)
   end
+end
+
+-- Builds all destination actors in an unattached entry. The live map index,
+-- event subscription, and current-map identity remain untouched until commit.
+---@param runtimeMap RuntimeFieldMap
+---@param eventState FieldEventState
+---@param self FieldActorManager
+---@return FieldActorManager.PreparedMap
+function FieldActorManager:prepareMap(runtimeMap, eventState)
+  assert(runtimeMap and runtimeMap.fieldData, "prepareMap requires a runtime map")
+  assert(eventState, "prepareMap requires a field event state")
+  assert(not self.maps[runtimeMap.mapId], "cannot prepare an already-live map")
+  local entry = newEntry(runtimeMap)
+  populateEntry(self, entry, eventState)
+  return {
+    entry = entry,
+    eventState = eventState,
+    state = "prepared",
+  } ---@type FieldActorManager.PreparedMap
+end
+
+---@param prepared FieldActorManager.PreparedMap
+---@param self FieldActorManager
+function FieldActorManager:discardPrepared(prepared)
+  assert(prepared and prepared.state == "prepared", "prepared map is not disposable")
+  while #prepared.entry.order > 0 do
+    self:_destroy(prepared.entry, prepared.entry.order[#prepared.entry.order])
+  end
+  prepared.state = "discarded"
+end
+
+-- Publishes the prepared destination, then removes the source. Failures after
+-- this boundary are intentionally surfaced to the caller; the destination is
+-- already the live actor world and is not rolled back by this manager.
+---@param prepared FieldActorManager.PreparedMap
+---@param sourceMapId integer
+---@param self FieldActorManager
+function FieldActorManager:commitPrepared(prepared, sourceMapId)
+  assert(prepared and prepared.state == "prepared", "prepared map is not committable")
+  local entry = prepared.entry
+  local destinationMapId = entry.runtimeMap.mapId
+  assert(destinationMapId ~= sourceMapId, "prepared destination must differ from source")
+  assert(not self.maps[destinationMapId], "prepared destination is already live")
+
+  local bound, bindErr = pcall(bindEventState, self, prepared.eventState)
+  if not bound then
+    self:discardPrepared(prepared)
+    error(bindErr, 0)
+  end
+  self.maps[destinationMapId] = entry
+  self.currentMapId = destinationMapId
+  prepared.state = "committed"
+  self:leaveMap(sourceMapId)
+end
+
+-- Idempotent for an already-active runtime map, so a transition's overlapping
+-- load and commit phases cannot duplicate a map's actors.
+---@param runtimeMap RuntimeFieldMap
+---@param eventState FieldEventState
+---@param self FieldActorManager
+function FieldActorManager:enterMap(runtimeMap, eventState)
+  assert(runtimeMap and runtimeMap.fieldData, "enterMap requires a runtime map")
+  assert(eventState, "enterMap requires a field event state")
+  local existing = self.maps[runtimeMap.mapId]
+  if existing then
+    if existing.runtimeMap == runtimeMap then
+      bindEventState(self, eventState)
+      return
+    end
+    self:leaveMap(runtimeMap.mapId)
+  end
+  bindEventState(self, eventState)
+  local prepared = self:prepareMap(runtimeMap, eventState)
+  self.maps[runtimeMap.mapId] = prepared.entry
+  self.currentMapId = runtimeMap.mapId
+  prepared.state = "committed"
 end
 
 ---@param mapId integer

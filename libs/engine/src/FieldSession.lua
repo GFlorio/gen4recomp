@@ -450,7 +450,10 @@ function FieldSession:updateFixed(inputSnapshot)
   -- direction-gated standing door/stairs/warp on the player's own tile.
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
   if self.player.motion == "idle" and direction then
-    local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
+    local seam = self.navigationBoundary
+      and self.navigationBoundary:crossesLogicalZone(self.currentMap, self.player, direction)
+    local trigger = seam and nil
+      or TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
     if
       trigger
       and (
@@ -477,8 +480,18 @@ function FieldSession:updateFixed(inputSnapshot)
 
   local stepCompleted = self.player:updateFixed(inputSnapshot) == true
   if stepCompleted then
+    local zoneChanged = false
     if self.navigationBoundary then
-      self.navigationBoundary:afterCommittedMove(self.currentMap, self.player, self.camera)
+      local boundaryResult = self.navigationBoundary:afterCommittedMove(self.currentMap, self.player, self.camera)
+      if boundaryResult and boundaryResult.newMapId then
+        zoneChanged = true
+        self.currentMap = self.navigationBoundary.zoneController.currentMap
+        self.transition.suppression = {
+          mapId = boundaryResult.newMapId,
+          fieldX = self.player.fieldX,
+          fieldZ = self.player.fieldZ,
+        }
+      end
     end
     if self.audio then
       self.audio:updateField()
@@ -493,8 +506,8 @@ function FieldSession:updateFixed(inputSnapshot)
     -- Standing-trigger path: a completed step onto a warp tile
     -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
     -- behaviors only; direction-gated warps wait for the facing path above.
-    local trigger =
-      TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
+    local trigger = zoneChanged and nil
+      or TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
     if
       trigger
       and not WarpSystem.isSuppressed(

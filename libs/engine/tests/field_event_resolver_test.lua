@@ -15,6 +15,7 @@ local function map(coordinates, backgrounds)
   local value = {
     mapId = 60,
     mapSymbol = "test-map",
+    mapSection = "test-section",
     coordinateOrigin = { x = 0, z = 0 },
     scene = {},
     fieldData = {

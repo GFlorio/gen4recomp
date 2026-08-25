@@ -185,6 +185,7 @@ function T.tests.resume_restore_uses_the_full_save_validation_record()
   -- A structurally valid save naming a player graphic outside the compiled
   -- avatar set must fail resume with the avatar validation error.
   local planted = assert(saveFs:loadLua(FieldSave.PATH), "the fresh boot must have written its save")
+  local validAvatar = planted.avatar
   planted.avatar = "not-a-compiled-avatar"
   assert(saveFs:writeLua(FieldSave.PATH, planted))
   local ok, err = pcall(FieldRuntime.new, versionId, LAB, { saveFs = saveFs, resumeSave = true })
@@ -194,6 +195,7 @@ function T.tests.resume_restore_uses_the_full_save_validation_record()
   -- A scripts bucket that passes the outer table shape but fails deep
   -- ScriptSave validation must also fail resume with its attribution.
   local corruptedSave = assert(saveFs:loadLua(FieldSave.PATH), "the original save must remain available")
+  corruptedSave.avatar = validAvatar
   corruptedSave.scripts.environments = { { environmentId = "env:0", mode = "impossible" } }
   assert(saveFs:writeLua(FieldSave.PATH, corruptedSave))
   local scriptsOk, scriptsErr = pcall(FieldRuntime.new, versionId, LAB, { saveFs = saveFs, resumeSave = true })

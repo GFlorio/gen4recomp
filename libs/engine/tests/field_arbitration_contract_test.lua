@@ -21,6 +21,7 @@ local function map(warpBehavior, tiles)
   local value = {
     mapId = 60,
     mapSymbol = "test-map",
+    mapSection = "test-section",
     coordinateOrigin = { x = 0, z = 0 },
     scene = {},
     fieldData = { events = { warps = { { index = 0, x = 4, z = 4 } } } },
@@ -125,6 +126,7 @@ function T.coordinate_and_passive_sign_resolvers_emit_raw_zero()
   local runtimeMap = {
     mapId = 60,
     mapSymbol = "test-map",
+    mapSection = "test-section",
     coordinateOrigin = { x = 0, z = 0 },
     scene = {},
     fieldData = {

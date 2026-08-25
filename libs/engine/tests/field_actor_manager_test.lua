@@ -24,6 +24,9 @@ local POLICY = {
 ---@field total fun(self: FieldActorManagerTest.Assets): integer
 ---@class FieldActorManagerTest.Manager : FieldActorManager
 ---@field enterMap fun(self: FieldActorManagerTest.Manager, map: RuntimeFieldMap, state: FieldEventState)
+---@field prepareMap fun(self: FieldActorManagerTest.Manager, map: RuntimeFieldMap, state: FieldEventState): FieldActorManager.PreparedMap
+---@field commitPrepared fun(self: FieldActorManagerTest.Manager, prepared: FieldActorManager.PreparedMap, sourceMapId: integer)
+---@field discardPrepared fun(self: FieldActorManagerTest.Manager, prepared: FieldActorManager.PreparedMap)
 ---@field leaveMap fun(self: FieldActorManagerTest.Manager, mapId: integer)
 ---@field dispose fun(self: FieldActorManagerTest.Manager)
 ---@field _destroy fun(self: FieldActorManagerTest.Manager, entry: table, actor: table)
@@ -112,6 +115,7 @@ end
 local function runtimeMap(objects, mapId)
   local map = {
     mapId = mapId or 61,
+    mapSection = "test-section",
     coordinateOrigin = { x = 0, z = 0 },
     collision = {
       containsLocal = function(_, x, z)
@@ -406,6 +410,75 @@ function T.entering_the_same_map_twice_is_idempotent()
   mgr:enterMap(map, eventState)
   Assert.equal(#mgr:drawRecords(), 1)
   Assert.equal(assets:total(), 1)
+end
+
+function T.prepare_map_keeps_live_actors_until_commit()
+  local mgr, eventState, assets, source = manager({ object({}) })
+  local destination = runtimeMap({ object({ objectEventId = 1, spriteId = 34, x = 4 }) }, 60)
+
+  local prepared = mgr:prepareMap(destination, eventState)
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.isNil(mgr:getById("map:60:object:1"))
+  Assert.equal(assets:total(), 2)
+
+  mgr:commitPrepared(prepared, source.mapId)
+  Assert.isNil(mgr:getById("map:61:object:0"))
+  Assert.notNil(mgr:getById("map:60:object:1"))
+  Assert.equal(mgr.currentMapId, 60)
+  mgr:dispose()
+end
+
+function T.prepare_map_failure_discards_all_staged_visuals_without_live_mutation()
+  local mgr, eventState, assets = manager({ object({}) })
+  local destination = runtimeMap({ object({ facingDirection = "northwest" }) }, 60)
+
+  throwsCode("ACTOR_FACING_INVALID", function()
+    mgr:prepareMap(destination, eventState)
+  end)
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.isNil(mgr.maps[60])
+  Assert.equal(assets:total(), 1)
+  mgr:dispose()
+end
+
+function T.discarding_prepared_map_releases_only_staged_visuals()
+  local mgr, eventState, assets = manager({ object({}) })
+  local prepared = mgr:prepareMap(runtimeMap({ object({ spriteId = 34 }) }, 60), eventState)
+
+  mgr:discardPrepared(prepared)
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.isNil(mgr.maps[60])
+  Assert.equal(assets:total(), 1)
+  mgr:dispose()
+end
+
+function T.commit_bind_failure_discards_prepared_visuals_before_publication()
+  local mgr, _, assets = manager({ object({}) })
+  local failingState = {
+    _flags = {},
+    _vars = {},
+    _tick = 0,
+    _listeners = {},
+    isFlagSet = function()
+      return false
+    end,
+    subscribe = function()
+      error("event subscription failed", 0)
+    end,
+  }
+  ---@cast failingState FieldEventState
+  local prepared = mgr:prepareMap(runtimeMap({ object({ spriteId = 34 }) }, 60), failingState)
+
+  local ok, err = pcall(function()
+    mgr:commitPrepared(prepared, 61)
+  end)
+  Assert.isFalse(ok)
+  Assert.equal(err, "event subscription failed")
+  Assert.equal(prepared.state, "discarded")
+  Assert.isNil(mgr.maps[60])
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.equal(assets:total(), 1)
+  mgr:dispose()
 end
 
 -- A runtime map without the compiled object collection is a malformed

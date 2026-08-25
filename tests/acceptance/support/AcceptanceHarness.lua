@@ -544,7 +544,7 @@ function Game:_moveOne(direction)
   end, 120)
 end
 
-function Game:moveTo(target)
+function Game:moveTo(target, stopMapId)
   assert(type(target) == "table", "movement target required")
   assert(type(target.fieldX) == "number" and type(target.fieldZ) == "number", "integer field target required")
   local player = assert(self.runtime.player, "acceptance runtime player required")
@@ -604,7 +604,10 @@ function Game:moveTo(target)
     end
     local route = assert(findRoute(player), "no production movement route to " .. targetKey)
     local direction = assert(route[1], "production movement route made no progress")
-    self:_moveOne(direction)
+    local snapshot = self:_moveOne(direction)
+    if stopMapId ~= nil and snapshot.mapId == stopMapId then
+      return snapshot
+    end
   end
   error("production movement route exceeded 256 steps to " .. targetKey)
 end

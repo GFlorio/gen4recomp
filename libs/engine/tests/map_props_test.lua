@@ -68,6 +68,7 @@ local function runtimeMap(originX, originZ, warps, tiles)
   return {
     mapId = 61,
     mapSymbol = "test-map",
+    mapSection = "test-section",
     coordinateOrigin = { x = originX, z = originZ },
     scene = {},
     fieldData = { events = { warps = warps } },

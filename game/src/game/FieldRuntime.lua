@@ -720,6 +720,44 @@ function FieldRuntime:_load()
       self.scripts.worldState:restoreRng(restored.world)
     end
 
+    local FieldZoneController = require("libs.engine.src.FieldZoneController")
+    self.zoneController = FieldZoneController.new({
+      currentMap = self.runtimeMap,
+      loadMap = function(mapId, player)
+        return self.mapLoader:load(mapId, { fieldX = player.fieldX, fieldZ = player.fieldZ })
+      end,
+      stageActors = function(runtimeMap)
+        return self.actors:prepareMap(runtimeMap, self.eventState)
+      end,
+      discardActors = function(prepared)
+        self.actors:discardPrepared(prepared)
+      end,
+      actorsArePrepared = function(prepared)
+        return prepared.state == "prepared"
+      end,
+      commitActors = function(prepared, destination, source)
+        assert(destination.mapId ~= source.mapId, "zone actor commit requires a new map")
+        self.actors:commitPrepared(prepared, source.mapId)
+      end,
+      rebindScripts = function(runtimeMap, player)
+        self.runtimeMap = runtimeMap
+        player.currentMap = runtimeMap
+        self.scripts:onZoneChange(runtimeMap)
+      end,
+      applyWeather = function(runtimeMap)
+        self:_applyEffectiveWeather(runtimeMap)
+        self.weatherRuntime = { mapId = runtimeMap.mapId }
+      end,
+      enterAudio = function(runtimeMap)
+        if self.audio and self.audio.enterZone then
+          self.audio:enterZone(runtimeMap)
+        end
+      end,
+      onChange = function(change)
+        self.lastZoneChange = change
+      end,
+    })
+
     self.session = FieldSession.new({
       versionId = self.versionId,
       currentMap = self.runtimeMap,
@@ -740,7 +778,9 @@ function FieldRuntime:_load()
       -- GameSound only; a recording script adapter is a script service, not
       -- a session collaborator.
       audio = self.audio,
-      navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new(),
+      navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new({
+        zoneController = self.zoneController,
+      }),
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)
@@ -752,6 +792,8 @@ function FieldRuntime:_load()
     })
 
     self:_applyEffectiveWeather(self.runtimeMap)
+
+    self.weatherRuntime = { mapId = self.runtimeMap.mapId }
   end)
   -- Construction is binary: a failed boot releases everything acquired so
   -- far exactly once, then the original failure propagates to the caller.
