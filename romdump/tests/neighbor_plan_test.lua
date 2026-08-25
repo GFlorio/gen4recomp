@@ -17,10 +17,15 @@ end
 
 -- Assemble a 5x5 matrix member with explicit header/land grids (row-major,
 -- index = z*5 + x + 1).
-local function build(headers, landIds)
-  local parts = { u8(5), u8(5), u8(1), u8(0), u8(0) }
+local function build(headers, landIds, altitudes)
+  local parts = { u8(5), u8(5), u8(1), u8(altitudes and 1 or 0), u8(0) }
   for i = 1, 25 do
     parts[#parts + 1] = u16(headers[i])
+  end
+  if altitudes then
+    for i = 1, 25 do
+      parts[#parts + 1] = u8(altitudes[i])
+    end
   end
   for i = 1, 25 do
     parts[#parts + 1] = u16(landIds[i])
@@ -94,6 +99,34 @@ function T.offsets_are_exactly_32_tiles()
   local nw = assert(cellAt(plan, 1, 1)) -- north-west: dx=-1, dz=-1
   Assert.equal(nw.offsetTilesX, -32)
   Assert.equal(nw.offsetTilesZ, -32)
+end
+
+function T.plans_center_relative_altitude_without_changing_selection()
+  local headers, land, altitudes = {}, {}, {}
+  for i = 1, 25 do
+    headers[i] = 7
+    land[i] = 999
+    altitudes[i] = 4
+  end
+  headers[idx(2, 2)] = 60
+  land[idx(2, 2)] = 0
+  headers[idx(3, 2)] = 31
+  land[idx(3, 2)] = 11
+  altitudes[idx(3, 2)] = 2
+  headers[idx(1, 2)] = 33
+  land[idx(1, 2)] = 3
+  altitudes[idx(1, 2)] = 5
+  local matrix = assert(MapMatrix.decode(build(headers, land, altitudes)))
+
+  local plan = NeighborPlan.plan(matrix, 2, 2, areaForHeader)
+  local east = assert(cellAt(plan, 3, 2))
+  local west = assert(cellAt(plan, 1, 2))
+  Assert.equal(east.offsetTilesX, 32)
+  Assert.equal(east.offsetTilesZ, 0)
+  Assert.equal(east.offsetTilesY, -1)
+  Assert.equal(west.offsetTilesY, 0.5)
+  Assert.equal(#plan.cells, 2)
+  Assert.deepEqual(plan.uniqueLandMembers, { 3, 11 })
 end
 
 function T.dedups_shared_land_members()

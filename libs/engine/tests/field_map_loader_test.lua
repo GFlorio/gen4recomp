@@ -20,7 +20,7 @@ local function fixture(mapCount)
   for mapId = 0, mapCount - 1 do
     local symbol = "MAP_" .. mapId
     local scene = {
-      schema = "g4-map-scene-v8",
+      schema = "g4-map-scene-v9",
       mapId = mapId,
       mapSymbol = symbol,
       cameraType = mapId,
@@ -172,6 +172,7 @@ function T.composes_neighbor_collision_and_terrain_into_runtime_map()
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0.5,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
@@ -204,13 +205,15 @@ function T.composes_neighbor_collision_and_terrain_into_runtime_map()
   }
   local loader = FieldMapLoader.new(cache, world, { neighborLoader = neighborLoader })
   local map = loader:load(0)
-  Assert.equal(map.terrainDependencyHash, "g4-composite-terrain-v1|0:0:central-0|32:0:east")
+  Assert.equal(map.terrainDependencyHash, "g4-composite-terrain-v1|0:0:0:central-0|32:0.5:0:east")
   Assert.isTrue(map.collision:containsLocal(32, 4))
   Assert.isTrue(map.collision:isBlockedLocal(32, 4))
   Assert.isFalse(map.collision:isBlockedLocal(33, 4))
   local candidates = map.terrain:candidatesAt(32.5, 4.5)
   Assert.equal(#candidates, 1)
   Assert.equal(candidates[1].cellOffsetX, 32)
+  Assert.equal(candidates[1].cellOffsetY, 0.5)
+  Assert.equal(map.terrain:sampleHeight(candidates[1].id, 32.5, 4.5), 0.5)
   loader:release()
 end
 
@@ -220,7 +223,7 @@ end
 function T.failed_neighbor_load_releases_the_scene_runtime()
   local cache, world, sceneLoader, releases, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
-    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+    { offsetTilesX = 32, offsetTilesY = 0, offsetTilesZ = 0, batches = {}, materials = {} },
   }
   local neighborLoader = {
     load = function()
@@ -246,7 +249,7 @@ end
 function T.failed_central_collision_decode_releases_scene_and_neighbor()
   local cache, world, sceneLoader, releases, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
-    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+    { offsetTilesX = 32, offsetTilesY = 0, offsetTilesZ = 0, batches = {}, materials = {} },
   }
   files["data/generated/maps/0000/collision.g4collision"] = truncatedCollision()
   local neighborReleases = 0
@@ -282,7 +285,7 @@ end
 function T.failed_terrain_construction_releases_scene_and_neighbor()
   local cache, world, sceneLoader, releases, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
-    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+    { offsetTilesX = 32, offsetTilesY = 0, offsetTilesZ = 0, batches = {}, materials = {} },
   }
   files["data/generated/maps/0000/terrain.lua"] = {
     schema = "g4-terrain-surfaces-v1",
@@ -403,6 +406,7 @@ function T.map_without_a_neighbor_terrain_source_fails_to_load()
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
@@ -446,6 +450,7 @@ function T.failed_neighbor_collision_decode_releases_scene_and_neighbor()
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
@@ -489,6 +494,7 @@ function T.runtime_map_update_animated_advances_scene_and_neighbor_exactly_once(
   scene.neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
@@ -562,6 +568,7 @@ function T.neighbor_loader_receives_the_central_scene_texture_srt_clip()
   scene.neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },

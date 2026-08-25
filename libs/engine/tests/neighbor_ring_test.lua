@@ -72,9 +72,10 @@ end
 
 -- One neighbor cell descriptor with one material and one batch sampling it,
 -- the scene-form shape MapAssetCompiler emits per drawn surrounding cell.
-local function cell(offsetX, offsetZ, material, geometryPath)
+local function cell(offsetX, offsetY, offsetZ, material, geometryPath)
   return {
     offsetTilesX = offsetX,
+    offsetTilesY = offsetY,
     offsetTilesZ = offsetZ,
     materials = { material },
     batches = {
@@ -113,7 +114,7 @@ function T.neighbor_material_with_flip_resolves_to_mirrored_repeat()
     texHeight = 16,
     texMtxMode = 0,
   }
-  local descriptors = { cell(32, 0, material, geometryPath) }
+  local descriptors = { cell(32, 1, 0, material, geometryPath) }
   local images = {}
   local ring = NeighborRing.load(backend, descriptors, {
     meshBuilder = fakeMeshBuilder,
@@ -126,6 +127,31 @@ function T.neighbor_material_with_flip_resolves_to_mirrored_repeat()
     { { "mirroredrepeat", "repeat" } },
     "the neighbor image is requested with the resolved mirrored-repeat wrap, not the raw repeat pair"
   )
+  ring:release()
+end
+
+function T.neighbor_vertical_offset_reaches_the_draw_transform()
+  local geometryPath = "assets/generated/maps/geometry/neighbor-quad.g4mesh"
+  local backend = FakeCache.new()
+  backend:write(geometryPath, MeshWriter.encode(quad()))
+  local material = {
+    id = 0,
+    name = "ground",
+    texture = "neighbor-ground.png",
+    wrap = { x = "repeat", y = "repeat" },
+    flip = { x = false, y = false },
+    texWidth = 16,
+    texHeight = 16,
+    texMtxMode = 0,
+  }
+  local ring = NeighborRing.load(backend, { cell(32, 1, -32, material, geometryPath) }, {
+    meshBuilder = fakeMeshBuilder,
+    imageBuilder = recordingImageBuilder({}),
+    graphics = STUB_GRAPHICS,
+  })
+  Assert.equal(ring.draws[1].transform[13], 32)
+  Assert.equal(ring.draws[1].transform[14], 1)
+  Assert.equal(ring.draws[1].transform[15], -32)
   ring:release()
 end
 

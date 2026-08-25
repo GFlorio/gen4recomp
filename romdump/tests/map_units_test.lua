@@ -14,6 +14,13 @@ function T.to_runtime_folds_posscale_and_tile_size()
   Assert.isTrue(math.abs(z - (-3 * 64 / 16)) < 1e-9, "z")
 end
 
+function T.altitude_delta_to_tiles_preserves_source_scale_and_sign()
+  Assert.equal(MapUnits.altitudeDeltaToTiles(0), 0)
+  Assert.equal(MapUnits.altitudeDeltaToTiles(1), 0.5)
+  Assert.equal(MapUnits.altitudeDeltaToTiles(2), 1)
+  Assert.equal(MapUnits.altitudeDeltaToTiles(-1), -0.5)
+end
+
 function T.extent_tiles_matches_elm_scale()
   local bounds = { min = { -4.25, 0, -3.62 }, max = { -0.12, 1, 0 } }
   local ex, ez = MapUnits.extentTiles(bounds, 64)

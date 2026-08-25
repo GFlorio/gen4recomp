@@ -41,7 +41,7 @@ function BundleFixture.minimal(mapId)
   end
 
   local scene = {
-    schema = "g4-map-scene-v8",
+    schema = MapAssetCache.SCENE_SCHEMA,
     mapId = mapId,
     mapBatches = { { geometry = MapAssetCache.geometryPath(meshSha), material = 0, node = 0 } },
     materials = {

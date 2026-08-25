@@ -31,7 +31,7 @@ function T.contract_pins_the_current_asset_identities()
     revision = 7,
     map = {
       cacheFormat = "map-cache-v7",
-      sceneSchema = "g4-map-scene-v8",
+      sceneSchema = "g4-map-scene-v9",
       terrainSchema = "g4-terrain-surfaces-v1",
       collisionVersion = 1,
     },

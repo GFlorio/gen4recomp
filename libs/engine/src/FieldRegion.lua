@@ -1,12 +1,12 @@
 -- Composes one runtime map cell and its cached neighboring cells into a single
 -- collision and terrain view. Coordinates remain local to the central cell;
--- neighboring BDHC planes are translated without changing sampled height.
+-- neighboring BDHC planes are translated in all three axes.
 
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local FieldRegion = {}
 
-local function copyPlate(plate, id, offsetX, offsetZ)
+local function copyPlate(plate, id, offsetX, offsetY, offsetZ)
   local copy = {}
   for key, value in pairs(plate) do
     copy[key] = value
@@ -14,13 +14,14 @@ local function copyPlate(plate, id, offsetX, offsetZ)
   copy.id = id
   copy.sourceSurfaceId = plate.id
   copy.cellOffsetX = offsetX
+  copy.cellOffsetY = offsetY
   copy.cellOffsetZ = offsetZ
   copy.minX = plate.minX + offsetX
   copy.maxX = plate.maxX + offsetX
   copy.minZ = plate.minZ + offsetZ
   copy.maxZ = plate.maxZ + offsetZ
   copy.normal = { x = plate.normal.x, y = plate.normal.y, z = plate.normal.z }
-  copy.distance = plate.distance + plate.normal.x * offsetX + plate.normal.z * offsetZ
+  copy.distance = plate.distance + plate.normal.x * offsetX + plate.normal.y * offsetY + plate.normal.z * offsetZ
   return copy
 end
 
@@ -63,6 +64,7 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors)
   local cells = {
     {
       offsetTilesX = 0,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = centralCollision,
       terrain = centralTerrain,
@@ -70,19 +72,22 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors)
   }
   for _, neighbor in ipairs(neighbors or {}) do
     assert(neighbor.collision and neighbor.terrain, "neighbor collision and terrain required")
+    assert(type(neighbor.offsetTilesX) == "number", "neighbor X offset required")
+    assert(type(neighbor.offsetTilesY) == "number", "neighbor Y offset required")
+    assert(type(neighbor.offsetTilesZ) == "number", "neighbor Z offset required")
     cells[#cells + 1] = neighbor
   end
 
   local plates, maxSurfaceId = {}, -1
   for _, plate in ipairs(centralTerrain.plates) do
-    plates[#plates + 1] = copyPlate(plate, plate.id, 0, 0)
+    plates[#plates + 1] = copyPlate(plate, plate.id, 0, 0, 0)
     maxSurfaceId = math.max(maxSurfaceId, plate.id)
   end
   local nextSurfaceId = maxSurfaceId + 1
   for index = 2, #cells do
     local cell = cells[index]
     for _, plate in ipairs(cell.terrain.plates) do
-      plates[#plates + 1] = copyPlate(plate, nextSurfaceId, cell.offsetTilesX, cell.offsetTilesZ)
+      plates[#plates + 1] = copyPlate(plate, nextSurfaceId, cell.offsetTilesX, cell.offsetTilesY, cell.offsetTilesZ)
       nextSurfaceId = nextSurfaceId + 1
     end
   end

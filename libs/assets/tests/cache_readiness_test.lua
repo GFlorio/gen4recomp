@@ -248,7 +248,7 @@ end
 function T.map_neighbor_cell_without_batches_is_not_ready()
   local c = cache()
   local scene = mapScene(61)
-  scene.neighbors = { { offsetTilesX = 0, offsetTilesZ = 32, materials = {} } }
+  scene.neighbors = { { offsetTilesX = 0, offsetTilesY = 0, offsetTilesZ = 32, materials = {} } }
   writeMapScene(c, 61, scene)
   Assert.isFalse(MapAssetCache.isReady(c, 61, "m"), "neighbor cells must carry batches and materials arrays")
 end

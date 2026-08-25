@@ -61,12 +61,14 @@ DerivedAssetContract.revision = 7
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
+  -- v9: neighboring matrix cells carry required normalized X/Y/Z placement;
+  -- runtime consumers preserve the source-relative vertical placement.
   -- v6: render-state extension over v5 — scenes carry the real HGSS field
   -- edge-color table (scene.edgeColors), every batch/material record carries
   -- the per-polygon fog gate (fogEnabled, PolygonState.FIELDS), and scenes
   -- carry the map's base weather ID plus its resolved global HGSS fog preset
   -- (scene.weatherId, scene.fog).
-  sceneSchema = "g4-map-scene-v8",
+  sceneSchema = "g4-map-scene-v9",
   terrainSchema = "g4-terrain-surfaces-v1",
   collisionVersion = 1,
 }

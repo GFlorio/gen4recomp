@@ -188,7 +188,7 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
   local neighborCollision = "data/generated/maps/0060/neighbors/3/collision.g4collision"
   local neighborTerrain = "data/generated/maps/0060/neighbors/3/terrain.lua"
   local scene = {
-    schema = "g4-map-scene-v8",
+    schema = "g4-map-scene-v9",
     mapId = 61,
     mapBatches = {},
     materials = {},
@@ -196,6 +196,7 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
     neighbors = {
       {
         offsetTilesX = 1,
+        offsetTilesY = 0.5,
         offsetTilesZ = 0,
         batches = { { geometry = neighborGeometry, material = 0 } },
         materials = { { id = 0, texture = neighborTexture, texWidth = 16, texHeight = 16, texMtxMode = 0 } },
@@ -211,6 +212,45 @@ function T.referenced_paths_includes_neighbor_batches_and_materials()
   Assert.isTrue(contains(paths, neighborTexture), "missing neighbor texture path")
   Assert.isTrue(contains(paths, neighborCollision), "missing neighbor collision path")
   Assert.isTrue(contains(paths, neighborTerrain), "missing neighbor terrain path")
+end
+
+function T.current_scene_rejects_malformed_neighbor_xyz_placement()
+  local function sceneWith(placement)
+    local scene = {
+      schema = MapAssetCache.SCENE_SCHEMA,
+      kind = "map",
+      mapId = 61,
+      batches = {},
+      mapBatches = {},
+      materials = {},
+      buildingInstances = {},
+      neighbors = {},
+      terrainAnimations = { textureSrt = false },
+    }
+    scene.neighbors = {
+      {
+        offsetTilesX = placement.x,
+        offsetTilesY = placement.y,
+        offsetTilesZ = placement.z,
+        batches = {},
+        materials = {},
+      },
+    }
+    return scene
+  end
+
+  local valid = sceneWith({ x = 32, y = 0.5, z = -32 })
+  Assert.isTrue(type(MapAssetCache.referencedPaths(valid, nil)) == "table")
+  for _, placement in ipairs({
+    { x = 32, y = nil, z = 0 },
+    { x = 32, y = 0 / 0, z = 0 },
+    { x = 32.5, y = 0, z = 0 },
+    { x = 32, y = 0, z = 0.5 },
+  }) do
+    Assert.throws(function()
+      MapAssetCache.referencedPaths(sceneWith(placement), nil)
+    end)
+  end
 end
 
 -- ---- terrain-animation contract ----
@@ -449,6 +489,7 @@ function T.valid_clip_and_texture_swap_shapes_are_accepted()
   s.neighbors = {
     {
       offsetTilesX = 1,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       batches = {},
       materials = {
@@ -471,6 +512,7 @@ function T.referenced_paths_includes_every_swap_step_texture()
   s.neighbors = {
     {
       offsetTilesX = 1,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       batches = {},
       materials = {
@@ -681,6 +723,7 @@ function T.duplicate_material_ids_in_one_neighbor_list_raise_scene_invalid()
     s.neighbors = {
       {
         offsetTilesX = 1,
+        offsetTilesY = 0,
         offsetTilesZ = 0,
         batches = {},
         materials = {
@@ -700,6 +743,7 @@ function T.the_same_material_id_in_different_lists_is_valid()
   s.neighbors = {
     {
       offsetTilesX = 1,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       batches = {},
       materials = {
@@ -783,6 +827,7 @@ function T.same_name_swaps_with_different_timing_are_rejected()
     s.neighbors = {
       {
         offsetTilesX = 1,
+        offsetTilesY = 0,
         offsetTilesZ = 0,
         batches = {},
         materials = {
@@ -804,6 +849,7 @@ function T.same_name_swaps_with_different_timing_are_rejected()
     s.neighbors = {
       {
         offsetTilesX = 1,
+        offsetTilesY = 0,
         offsetTilesZ = 0,
         batches = {},
         materials = {

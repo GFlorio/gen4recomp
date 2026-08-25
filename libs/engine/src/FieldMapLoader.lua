@@ -129,10 +129,12 @@ local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerra
     requireTerrainSource(terrainArtifact, {
       mapId = scene.mapId,
       offsetTilesX = descriptor.offsetTilesX,
+      offsetTilesY = descriptor.offsetTilesY,
       offsetTilesZ = descriptor.offsetTilesZ,
     })
     neighbors[#neighbors + 1] = {
       offsetTilesX = descriptor.offsetTilesX,
+      offsetTilesY = descriptor.offsetTilesY,
       offsetTilesZ = descriptor.offsetTilesZ,
       collision = loadCollision(cacheFs, descriptor.collision, FieldErrors.FIELD_MAP_NEIGHBOR_CACHE_MISSING, {
         mapId = scene.mapId,
@@ -146,8 +148,13 @@ end
 local function terrainDependencyHash(region)
   local identities = { "g4-composite-terrain-v1" }
   for _, cell in ipairs(region.cells) do
-    identities[#identities + 1] =
-      string.format("%d:%d:%s", cell.offsetTilesX, cell.offsetTilesZ, cell.terrain.artifact.source.bdhcSha1)
+    identities[#identities + 1] = string.format(
+      "%d:%.17g:%d:%s",
+      cell.offsetTilesX,
+      cell.offsetTilesY,
+      cell.offsetTilesZ,
+      cell.terrain.artifact.source.bdhcSha1
+    )
   end
   return table.concat(identities, "|")
 end

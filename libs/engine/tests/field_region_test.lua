@@ -43,7 +43,13 @@ end
 
 function T.routes_collision_to_neighbor_cell_coordinates()
   local region = FieldRegion.new(collision(), flatTerrain(0), {
-    { offsetTilesX = 32, offsetTilesZ = 0, collision = collision({ ["0:4"] = true }), terrain = flatTerrain(0) },
+    {
+      offsetTilesX = 32,
+      offsetTilesY = 1,
+      offsetTilesZ = 0,
+      collision = collision({ ["0:4"] = true }),
+      terrain = flatTerrain(0),
+    },
   })
   Assert.isTrue(region.collision:containsLocal(63, 4))
   Assert.isFalse(region.collision:containsLocal(64, 4))
@@ -54,13 +60,14 @@ end
 
 function T.translates_neighbor_surfaces_and_connects_shared_edge()
   local region = FieldRegion.new(collision(), flatTerrain(2), {
-    { offsetTilesX = 32, offsetTilesZ = 0, collision = collision(), terrain = flatTerrain(2) },
+    { offsetTilesX = 32, offsetTilesY = 1, offsetTilesZ = 0, collision = collision(), terrain = flatTerrain(2) },
   })
   local candidates = region.terrain:candidatesAt(32.5, 4.5)
   Assert.equal(#candidates, 1)
   Assert.equal(candidates[1].sourceSurfaceId, 0)
   Assert.equal(candidates[1].cellOffsetX, 32)
-  Assert.equal(region.terrain:sampleHeight(candidates[1].id, 32.5, 4.5), 2)
+  Assert.equal(candidates[1].cellOffsetY, 1)
+  Assert.equal(region.terrain:sampleHeight(candidates[1].id, 32.5, 4.5), 3)
 
   local resolved = SurfaceResolver.new(region.terrain):resolve({
     localX = 32.5,
@@ -72,7 +79,7 @@ function T.translates_neighbor_surfaces_and_connects_shared_edge()
   Assert.equal(resolved.surfaceId, candidates[1].id)
 end
 
-function T.translates_sloped_plane_distance_without_changing_height()
+function T.translates_sloped_plane_distance_with_vertical_offset()
   local slope = TerrainSurface.new({
     plates = {
       {
@@ -89,10 +96,10 @@ function T.translates_sloped_plane_distance_without_changing_height()
     },
   })
   local region = FieldRegion.new(collision(), flatTerrain(0), {
-    { offsetTilesX = -32, offsetTilesZ = 32, collision = collision(), terrain = slope },
+    { offsetTilesX = -32, offsetTilesY = 1, offsetTilesZ = 32, collision = collision(), terrain = slope },
   })
   local plate = region.terrain:candidatesAt(-31.5, 32.5)[1]
-  Assert.equal(region.terrain:sampleHeight(plate.id, -31.5, 32.5), 0.5)
+  Assert.equal(region.terrain:sampleHeight(plate.id, -31.5, 32.5), 1.5)
 end
 
 return { tests = T }

@@ -575,6 +575,7 @@ local function _compile(romFs, idOrSymbol, opts)
       mapHeaderId = cell.mapHeaderId,
       landDataMemberId = cell.landDataMemberId,
       offsetTilesX = cell.offsetTilesX,
+      offsetTilesY = cell.offsetTilesY,
       offsetTilesZ = cell.offsetTilesZ,
       batches = chunk.batches,
       materials = chunk.materials,

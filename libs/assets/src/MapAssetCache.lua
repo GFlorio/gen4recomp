@@ -20,6 +20,14 @@ local MapAssetCache = {}
 ---@field terrainAnimations table
 ---@field [string] table|string|number|boolean|nil
 
+---@class MapAssetCache.Neighbor
+---@field offsetTilesX integer
+---@field offsetTilesY number
+---@field offsetTilesZ integer
+---@field batches table[]
+---@field materials table[]
+---@field [string] table|string|number|boolean|nil
+
 local Errors = require("libs.errors.src.Errors")
 local AssetErrors = require("libs.assets.src.errors")
 local Validate = require("libs.assets.src.Validate")
@@ -98,6 +106,10 @@ local TERRAIN_SRT_ONES = { "scaleOne", "transOne", "rotOne" }
 ---@return boolean
 local function isFiniteInteger(value)
   return type(value) == "number" and value % 1 == 0
+end
+
+local function isFiniteNumber(value)
+  return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
 end
 
 -- The optional fixed-point srt table (the MaterialEvaluator shape): the four
@@ -255,7 +267,7 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
 
   local mapBatches = scene.mapBatches ---@type table[]
   local materials = scene.materials ---@type table[]
-  local neighbors = scene.neighbors ---@type table[]
+  local neighbors = scene.neighbors ---@type MapAssetCache.Neighbor[]
   local buildingInstances = scene.buildingInstances ---@type table[]
   ---@cast mapBatches table[]
   ---@cast materials table[]
@@ -338,7 +350,19 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
     addMaterial(m)
   end
   for _, cell in ipairs(neighbors) do
-    if type(cell) ~= "table" or not Validate.isArray(cell.batches) or not Validate.isArray(cell.materials) then
+    if type(cell) ~= "table" then
+      invalid("a neighbor cell is not a record")
+    end
+    if not isFiniteInteger(cell.offsetTilesX) then
+      invalid("a neighbor offsetTilesX must be a finite integer")
+    end
+    if not isFiniteNumber(cell.offsetTilesY) then
+      invalid("a neighbor offsetTilesY must be a finite number")
+    end
+    if not isFiniteInteger(cell.offsetTilesZ) then
+      invalid("a neighbor offsetTilesZ must be a finite integer")
+    end
+    if not Validate.isArray(cell.batches) or not Validate.isArray(cell.materials) then
       invalid("a neighbor cell does not carry batches and materials arrays")
     end
     local cellBatches = cell.batches ---@type table[]

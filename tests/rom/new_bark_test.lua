@@ -173,7 +173,7 @@ end
 function T.mixed_alpha_materials_split_by_exact_final_alpha_not_format_alone(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   local scene = bundle.scene
-  Assert.equal(scene.schema, "g4-map-scene-v8")
+  Assert.equal(scene.schema, MapAssetCache.SCENE_SCHEMA)
 
   local VALID_CLASSES = {
     [AlphaClassifier.OPAQUE] = true,
@@ -427,16 +427,25 @@ function T.neighbor_ring_plans_and_compiles(romFs)
 end
 
 -- The compiled New Bark bundle carries the digested neighbour ring in
--- scene.neighbors: one descriptor per drawn cell with integer tile offsets and
+-- scene.neighbors: one descriptor per drawn cell with normalized XYZ offsets and
 -- real terrain batches, whose geometry is content-addressed into the shared mesh
 -- pool (so it dedups with the centre scene's assets rather than living apart).
 function T.neighbors_are_digested_into_the_scene(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local resolved = resolve(romFs)
   local neighbors = bundle.scene.neighbors
   Assert.isTrue(type(neighbors) == "table" and #neighbors > 0, "scene carries neighbor descriptors")
 
   for _, d in ipairs(neighbors) do
     Assert.isTrue(math.floor(d.offsetTilesX) == d.offsetTilesX, "integer offsetTilesX")
+    Assert.isTrue(type(d.offsetTilesY) == "number" and d.offsetTilesY == d.offsetTilesY, "finite offsetTilesY")
+    local dx = d.offsetTilesX / 32
+    local dz = d.offsetTilesZ / 32
+    local expectedY = (
+      resolved.matrix:altitudeAt(resolved.matrixX + dx, resolved.matrixZ + dz)
+      - resolved.matrix:altitudeAt(resolved.matrixX, resolved.matrixZ)
+    ) * 0.5
+    Assert.equal(d.offsetTilesY, expectedY, "neighbor Y is center-relative")
     Assert.isTrue(math.floor(d.offsetTilesZ) == d.offsetTilesZ, "integer offsetTilesZ")
     Assert.isTrue(#d.batches > 0, "descriptor has at least one batch")
     for _, b in ipairs(d.batches) do

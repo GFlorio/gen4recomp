@@ -13,6 +13,12 @@ local Errors = require("libs.errors.src.Errors")
 local MapUnits = {}
 
 MapUnits.MODEL_UNITS_PER_TILE = 16
+MapUnits.MODEL_UNITS_PER_MATRIX_ALTITUDE = 8
+
+-- Convert a relative HGSS matrix altitude into normalized runtime tiles.
+function MapUnits.altitudeDeltaToTiles(deltaAltitude)
+  return deltaAltitude * MapUnits.MODEL_UNITS_PER_MATRIX_ALTITUDE / MapUnits.MODEL_UNITS_PER_TILE
+end
 
 -- A model coordinate, folded through posScale and tile size, in runtime tiles.
 function MapUnits.toRuntime(x, y, z, posScale)
