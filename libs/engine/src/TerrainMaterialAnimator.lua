@@ -157,4 +157,45 @@ function TerrainMaterialAnimator:updateFixed()
   end
 end
 
+-- Seek playback to the shared field clock without replaying historical ticks.
+-- Texture schedules are periodic, so at most one schedule cycle is inspected;
+-- the SRT player is directly positioned in its fixed-point loop.
+function TerrainMaterialAnimator:seekFixedTick(fieldTick)
+  assert(
+    type(fieldTick) == "number" and fieldTick >= 0 and fieldTick % 1 == 0,
+    "field tick must be a non-negative integer"
+  )
+  for _, group in ipairs(self.groups) do
+    local cycle = 0
+    for _, step in ipairs(group.steps) do
+      cycle = cycle + math.max(1, step.durationTicks + 1)
+    end
+    local remaining = fieldTick % cycle
+    group.scheduleIndex, group.ticksInScheduleEntry = 1, 0
+    while true do
+      local duration = group.steps[group.scheduleIndex].durationTicks
+      local span = math.max(1, duration + 1)
+      if remaining < span then
+        break
+      end
+      remaining = remaining - span
+      group.scheduleIndex = group.scheduleIndex % #group.steps + 1
+    end
+    group.ticksInScheduleEntry = remaining
+    for _, member in ipairs(group.members) do
+      member.runtime.image = member.images[group.scheduleIndex]
+    end
+  end
+  if self.player then
+    local clip = self.clip
+    assert(type(clip) == "table", "terrain animation clip required")
+    self.player.frameFx = (fieldTick * AnimationPlayer.FRAME_UNIT) % (clip.frameCount * AnimationPlayer.FRAME_UNIT)
+    for _, binding in ipairs(self.srtBindings) do
+      local sampled = CompiledNsbtaSampler.sample(clip, binding.targetIndex, self.player.frameFx)
+      ---@cast sampled SampledTexSrtState
+      binding.runtime.texMatrix = TextureSrtEvaluator.matrix(binding.record, sampled)
+    end
+  end
+end
+
 return TerrainMaterialAnimator

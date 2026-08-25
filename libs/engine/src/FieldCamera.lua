@@ -160,6 +160,17 @@ function FieldCamera:updateFixed(playerTarget)
   self.cameraAppliedY = self.target.y - self.profile.targetOffsetTiles.y
 end
 
+-- Translate the local coordinate frame after physical coverage changes. This
+-- preserves interpolation and camera history while deliberately leaving all Y
+-- smoothing/profile state untouched.
+function FieldCamera:rebase(deltaX, deltaZ)
+  assert(type(deltaX) == "number" and type(deltaZ) == "number", "camera rebase delta required")
+  for _, vector in ipairs({ self.sourceTarget, self.target, self.previousTarget, self.eye, self.previousEye }) do
+    vector.x = vector.x + deltaX
+    vector.z = vector.z + deltaZ
+  end
+end
+
 function FieldCamera:setProjectionAspect(aspect)
   assert(type(aspect) == "number" and aspect > 0, "projection aspect must be positive")
   if self.projectionAspect == aspect then

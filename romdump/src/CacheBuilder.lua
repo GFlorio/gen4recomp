@@ -32,6 +32,8 @@ local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local AudioCacheWriter = require("romdump.src.digest.AudioCacheWriter")
+local FieldCellCompiler = require("romdump.src.digest.FieldCellCompiler")
+local FieldCellCacheWriter = require("romdump.src.digest.FieldCellCacheWriter")
 local RomFs = require("romdump.src.source.RomFs")
 local Errors = require("libs.errors.src.Errors")
 local DerivedCacheState = require("romdump.src.DerivedCacheState")
@@ -244,6 +246,16 @@ function CacheBuilder.buildVersions(versionIds, options)
         log(string.format("build-cache: %s audio compiled", version))
       else
         log(string.format("build-cache: %s audio current", version))
+      end
+      local fieldCellBundle, fieldCellErr = FieldCellCompiler.compile(romFs)
+      if not fieldCellBundle then
+        return versionFailure(fieldCellErr)
+      end
+      if forced or not FieldCellCacheWriter.isReady(cacheFs, fieldCellBundle.marker) then
+        FieldCellCacheWriter.write(cacheFs, fieldCellBundle)
+        log(string.format("build-cache: %s physical field cells compiled", version))
+      else
+        log(string.format("build-cache: %s physical field cells current", version))
       end
       local entries, excluded, compileExcluded = {}, {}, {}
       for _, result in ipairs(MapAnalysis.analyze(romFs)) do

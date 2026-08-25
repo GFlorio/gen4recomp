@@ -50,6 +50,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field audio { updateField: fun(self: table) }?
+---@field navigationBoundary table?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -77,6 +78,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field audio { updateField: fun(self: table) }?
 ---@field tick integer
 ---@field accumulator number
+---@field navigationBoundary table?
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
@@ -167,6 +169,7 @@ function FieldSession.new(options)
     applicationHost = options.applicationHost,
     fieldEntranceIndicator = options.fieldEntranceIndicator,
     audio = options.audio,
+    navigationBoundary = options.navigationBoundary,
     tick = 0,
     accumulator = 0,
   }, FieldSession)
@@ -474,6 +477,9 @@ function FieldSession:updateFixed(inputSnapshot)
 
   local stepCompleted = self.player:updateFixed(inputSnapshot) == true
   if stepCompleted then
+    if self.navigationBoundary then
+      self.navigationBoundary:afterCommittedMove(self.currentMap, self.player, self.camera)
+    end
     if self.audio then
       self.audio:updateField()
     end

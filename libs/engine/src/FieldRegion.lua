@@ -6,13 +6,14 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local FieldRegion = {}
 
-local function copyPlate(plate, id, offsetX, offsetY, offsetZ)
+local function copyPlate(plate, id, offsetX, offsetY, offsetZ, cellKey)
   local copy = {}
   for key, value in pairs(plate) do
     copy[key] = value
   end
   copy.id = id
   copy.sourceSurfaceId = plate.id
+  copy.cellKey = cellKey
   copy.cellOffsetX = offsetX
   copy.cellOffsetY = offsetY
   copy.cellOffsetZ = offsetZ
@@ -57,7 +58,7 @@ local function collisionRegion(cells)
   return collision
 end
 
-function FieldRegion.new(centralCollision, centralTerrain, neighbors)
+function FieldRegion.new(centralCollision, centralTerrain, neighbors, centralKey)
   assert(centralCollision and centralCollision.containsLocal, "central collision grid required")
   assert(centralTerrain and centralTerrain.plates, "central terrain surfaces required")
 
@@ -68,6 +69,7 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors)
       offsetTilesZ = 0,
       collision = centralCollision,
       terrain = centralTerrain,
+      key = centralKey,
     },
   }
   for _, neighbor in ipairs(neighbors or {}) do
@@ -80,14 +82,15 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors)
 
   local plates, maxSurfaceId = {}, -1
   for _, plate in ipairs(centralTerrain.plates) do
-    plates[#plates + 1] = copyPlate(plate, plate.id, 0, 0, 0)
+    plates[#plates + 1] = copyPlate(plate, plate.id, 0, 0, 0, cells[1].key)
     maxSurfaceId = math.max(maxSurfaceId, plate.id)
   end
   local nextSurfaceId = maxSurfaceId + 1
   for index = 2, #cells do
     local cell = cells[index]
     for _, plate in ipairs(cell.terrain.plates) do
-      plates[#plates + 1] = copyPlate(plate, nextSurfaceId, cell.offsetTilesX, cell.offsetTilesY, cell.offsetTilesZ)
+      plates[#plates + 1] =
+        copyPlate(plate, nextSurfaceId, cell.offsetTilesX, cell.offsetTilesY, cell.offsetTilesZ, cell.key)
       nextSurfaceId = nextSurfaceId + 1
     end
   end
@@ -96,6 +99,14 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors)
     collision = collisionRegion(cells),
     terrain = TerrainSurface.new({ schema = "g4-composite-terrain-v1", plates = plates }),
     cells = cells,
+    sourceSurface = function(self, cellKey, sourceSurfaceId)
+      for _, plate in ipairs(self.terrain.plates) do
+        if plate.cellKey == cellKey and plate.sourceSurfaceId == sourceSurfaceId then
+          return plate.id
+        end
+      end
+      return nil
+    end,
   }
 end
 

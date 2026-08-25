@@ -140,6 +140,36 @@ end
 function FieldPlayer:_resolveStep(direction, bypassBlocking)
   local delta = assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
   local destinationX, destinationZ = self.fieldX + delta.x, self.fieldZ + delta.z
+  local currentSurfaceCoversSource = self.currentMap.terrain:contains(
+    self.surfaceId,
+    self.localX + FieldCoordinates.TILE_CENTER_OFFSET,
+    self.localZ + FieldCoordinates.TILE_CENTER_OFFSET
+  )
+  if
+    not bypassBlocking
+    and self.currentMap.coverage
+    and (not self.currentMap.coverage:containsGlobal(destinationX, destinationZ) or not currentSurfaceCoversSource)
+  then
+    local probe = self.currentMap:probePhysicalCell(destinationX, destinationZ)
+    if not probe or probe.collision.blocked then
+      return nil
+    end
+    local localX = destinationX - self.currentMap.coordinateOrigin.x
+    local localZ = destinationZ - self.currentMap.coordinateOrigin.z
+    if self.occupancy and self.occupancy(destinationX, destinationZ, probe.surfaceId) then
+      return nil
+    end
+    return {
+      fieldX = destinationX,
+      fieldZ = destinationZ,
+      localX = localX,
+      localZ = localZ,
+      worldX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      worldY = probe.worldY,
+      worldZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      surfaceId = probe.surfaceId,
+    }
+  end
   local ok, result = pcall(function()
     local destinationLocalX, destinationLocalZ =
       FieldCoordinates.fieldToLocal(self.currentMap, destinationX, destinationZ)
@@ -254,6 +284,14 @@ function FieldPlayer:tryStep(direction)
   local delta = DELTAS[direction]
   local destinationX, destinationZ = self.fieldX + delta.x, self.fieldZ + delta.z
   local ok, destinationCell = pcall(function()
+    if
+      self.currentMap.coverage
+      and not self.currentMap.coverage:containsGlobal(destinationX, destinationZ)
+      and self.currentMap.probePhysicalCell
+    then
+      local probe = self.currentMap:probePhysicalCell(destinationX, destinationZ)
+      return probe and probe.collision or { blocked = true }
+    end
     if not self.currentMap.collision.getLocal then
       local blocked = false
       if self.currentMap.collision.isBlockedLocal then
@@ -583,6 +621,26 @@ end
 function FieldPlayer:collapseRenderInterpolation()
   assert(self.motion == "idle", "cannot collapse interpolation while the player is moving")
   self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+end
+
+-- Rebind the player to a newly committed physical coverage window. Global tile
+-- coordinates remain authoritative; only local frame and composite surface id
+-- change. Current and previous render positions receive the same frame delta.
+function FieldPlayer:rebindCoverage(runtimeMap, deltaX, deltaZ, cellKey, sourceSurfaceId)
+  assert(runtimeMap and runtimeMap.coordinateOrigin, "coverage runtime map required")
+  assert(type(deltaX) == "number" and type(deltaZ) == "number", "coverage rebase delta required")
+  self.currentMap = runtimeMap
+  self.resolver = SurfaceResolver.new(runtimeMap.terrain)
+  self.localX = self.fieldX - runtimeMap.coordinateOrigin.x
+  self.localZ = self.fieldZ - runtimeMap.coordinateOrigin.z
+  if runtimeMap.fieldRegion and runtimeMap.fieldRegion.sourceSurface and cellKey and sourceSurfaceId then
+    self.surfaceId =
+      assert(runtimeMap.fieldRegion:sourceSurface(cellKey, sourceSurfaceId), "player surface is absent from coverage")
+  end
+  self.worldX = self.worldX + deltaX
+  self.worldZ = self.worldZ + deltaZ
+  self.previousWorldX = self.previousWorldX + deltaX
+  self.previousWorldZ = self.previousWorldZ + deltaZ
 end
 
 function FieldPlayer:status()

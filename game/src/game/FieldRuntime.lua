@@ -437,7 +437,7 @@ function FieldRuntime:_load()
         restored, saveErr = candidate, restoreErr
       end
       if saveErr and saveErr.code ~= StorageErrors.SAVE_FILE_MISSING then
-        self.saveStatus = "Save ignored: " .. tostring(saveErr)
+        error(saveErr)
       elseif restored then
         self.saveStatus = "Resumed saved field session"
       end
@@ -740,6 +740,7 @@ function FieldRuntime:_load()
       -- GameSound only; a recording script adapter is a script service, not
       -- a session collaborator.
       audio = self.audio,
+      navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new(),
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)

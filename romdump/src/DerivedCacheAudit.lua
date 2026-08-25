@@ -14,6 +14,7 @@ local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
+local FieldCellCache = require("libs.assets.src.FieldCellCache")
 
 local DerivedCacheAudit = {}
 
@@ -27,6 +28,7 @@ local REQUIRED_MARKERS = {
   FieldWeatherCache.markerPath(),
   ScriptCache.markerPath(),
   FieldEffectAssetCache.markerPath(),
+  FieldCellCache.markerPath(),
 }
 
 ---@param cacheFs CacheFs

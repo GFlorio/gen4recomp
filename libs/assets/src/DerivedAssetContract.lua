@@ -73,6 +73,12 @@ DerivedAssetContract.map = {
   collisionVersion = 1,
 }
 
+DerivedAssetContract.fieldCells = {
+  cacheFormat = "field-cell-cache-v1",
+  indexSchema = "g4-field-cell-index-v1",
+  cellSchema = "g4-field-cell-v1",
+}
+
 DerivedAssetContract.fieldActors = {
   cacheFormat = "field-actor-cache-v1",
   schema = "g4-field-actor-v2",

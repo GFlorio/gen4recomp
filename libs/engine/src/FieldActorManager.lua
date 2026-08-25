@@ -422,7 +422,8 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
       local flagged = entry.byFlag[event.eventFlag] or {}
       flagged[#flagged + 1] = event
       entry.byFlag[event.eventFlag] = flagged
-      if not eventState:isFlagSet(event.eventFlag) then
+      local resident = not runtimeMap.coverage or runtimeMap.coverage:containsGlobal(event.x, event.z)
+      if resident and not eventState:isFlagSet(event.eventFlag) then
         self:_instantiate(entry, event)
       end
     end

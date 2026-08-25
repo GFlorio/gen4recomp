@@ -14,6 +14,8 @@ local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local FieldCoverage = require("libs.engine.src.FieldCoverage")
+local FieldCellCache = require("libs.assets.src.FieldCellCache")
 
 ---@class FieldMapLoader
 ---@field cacheFs CacheFs
@@ -21,6 +23,7 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 ---@field capacity integer
 ---@field sceneLoader table|nil presentation-only visual scene loader
 ---@field neighborLoader table|nil presentation-only finite neighbor-ring loader
+---@field fieldCellsEnabled boolean
 ---@field entries table<integer, table>
 ---@field protectedMaps table<integer, boolean>
 ---@field clock integer
@@ -41,6 +44,8 @@ FieldMapLoader.__index = FieldMapLoader
 ---@field cameraType integer
 ---@field coordinateOrigin { x: integer, z: integer }
 ---@field neighborRuntime table?
+---@field coverage FieldCoverage?
+---@field probePhysicalCell fun(self: RuntimeFieldMap, fieldX: integer, fieldZ: integer): table?|nil
 ---@field release fun(self: RuntimeFieldMap)
 ---@field updateAnimated fun(self: RuntimeFieldMap)
 
@@ -79,6 +84,9 @@ local function releaseAggregate(runtimeMap)
   runtimeMap.released = true
   if runtimeMap.neighborRuntime then
     runtimeMap.neighborRuntime:release()
+  end
+  if runtimeMap.coverage then
+    runtimeMap.coverage:release()
   end
   if runtimeMap.sceneRuntime then
     runtimeMap.sceneRuntime:release()
@@ -174,6 +182,7 @@ function FieldMapLoader.new(cacheFs, world, options)
     capacity = capacity,
     sceneLoader = options.sceneLoader,
     neighborLoader = options.neighborLoader,
+    fieldCellsEnabled = cacheFs.exists and cacheFs:exists(FieldCellCache.indexPath(), "file") or false,
     entries = {},
     protectedMaps = {},
     clock = 0,
@@ -202,7 +211,7 @@ function FieldMapLoader:_evict(skipMapId)
   end
 end
 
-function FieldMapLoader:load(idOrSymbol)
+function FieldMapLoader:load(idOrSymbol, position)
   assert(not self.released, "field map loader is released")
   local record = worldRecord(self.world, idOrSymbol)
   local existing = self.entries[record.id]
@@ -283,9 +292,21 @@ function FieldMapLoader:load(idOrSymbol)
   -- the error propagates; a failure inside the scene loader itself is that
   -- loader's own transaction.
   local neighborRuntime
+  local coverage
   local runtimeMap
   local ok, loadErr = pcall(function()
-    if self.neighborLoader and #scene.neighbors > 0 then
+    if self.fieldCellsEnabled then
+      local index = FieldCellCache.loadIndex(self.cacheFs)
+      local anchorX = position and math.floor(position.fieldX / 32) or scene.matrix.x
+      local anchorZ = position and math.floor(position.fieldZ / 32) or scene.matrix.z
+      coverage = FieldCoverage.new({
+        cacheFs = self.cacheFs,
+        index = index,
+        matrixMemberId = record.matrix.memberId,
+        anchorX = anchorX,
+        anchorZ = anchorZ,
+      })
+    elseif self.neighborLoader and #scene.neighbors > 0 then
       neighborRuntime = self.neighborLoader.load(self.cacheFs, scene.neighbors, {
         textureSrt = scene.terrainAnimations.textureSrt,
       })
@@ -305,7 +326,8 @@ function FieldMapLoader:load(idOrSymbol)
         worldOriginZ = scene.matrix.worldOriginZ,
       })
     local centralTerrain = TerrainSurface.new(terrainArtifact)
-    local region = loadNeighborRegion(self.cacheFs, scene, centralCollision, centralTerrain)
+    local region = coverage and coverage.region
+      or loadNeighborRegion(self.cacheFs, scene, centralCollision, centralTerrain)
     runtimeMap = {
       mapId = record.id,
       mapSymbol = record.symbol,
@@ -314,13 +336,18 @@ function FieldMapLoader:load(idOrSymbol)
       fieldData = fieldData,
       collision = region.collision,
       terrain = region.terrain,
-      terrainDependencyHash = terrainDependencyHash(region),
+      terrainDependencyHash = coverage and coverage.terrainDependencyHash or terrainDependencyHash(region),
       fieldRegion = region,
       cameraType = scene.cameraType,
-      coordinateOrigin = { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },
+      coordinateOrigin = coverage and { x = coverage.anchorX * 32, z = coverage.anchorZ * 32 }
+        or { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },
       neighborRuntime = neighborRuntime,
+      coverage = coverage,
       released = false,
     }
+    function runtimeMap:probePhysicalCell(fieldX, fieldZ)
+      return self.coverage and self.coverage:probe(fieldX, fieldZ) or nil
+    end
     function runtimeMap:release()
       releaseAggregate(self)
     end
@@ -343,6 +370,9 @@ function FieldMapLoader:load(idOrSymbol)
   if not ok then
     if neighborRuntime then
       neighborRuntime:release()
+    end
+    if coverage then
+      coverage:release()
     end
     if sceneRuntime then
       sceneRuntime:release()
@@ -382,6 +412,7 @@ function FieldMapLoader:get(mapId)
   return entry and entry.runtimeMap or nil
 end
 
+-- Counts currently resident map entries without acquiring or releasing them.
 function FieldMapLoader:residentCount()
   local count = 0
   for _ in pairs(self.entries) do

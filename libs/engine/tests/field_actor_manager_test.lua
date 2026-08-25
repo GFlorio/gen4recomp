@@ -181,6 +181,23 @@ function T.visible_objects_become_actors_and_flagged_ones_do_not()
   Assert.equal(#mgr:drawRecords(), 1)
 end
 
+function T.position_centered_coverage_ignores_nonresident_source_objects()
+  local map = runtimeMap({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 683, z = 399 }),
+  })
+  map.coverage = {
+    containsGlobal = function(_, fieldX, fieldZ)
+      return fieldX < 32 and fieldZ < 32
+    end,
+  }
+  local mgr, _, assets = manager(map.fieldData.events.objects, { map = map })
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.isNil(mgr:getById("map:61:object:1"))
+  Assert.equal(assets:total(), 1)
+  mgr:dispose()
+end
+
 function T.actor_resolves_position_surface_and_world_anchor()
   local mgr = manager({ object({ x = 9, z = 3 }) })
   local actor = assert(mgr:getById("map:61:object:0"))

@@ -480,7 +480,7 @@ local function restore(record, loader, expectedVersionId, opts)
       { expected = expectedVersionId, actual = canonical.versionId }
     )
   end
-  local runtimeMap = loader:load(canonical.mapId) ---@type RuntimeFieldMap
+  local runtimeMap = loader:load(canonical.mapId, { fieldX = canonical.fieldX, fieldZ = canonical.fieldZ }) ---@type RuntimeFieldMap
   local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, canonical.fieldX, canonical.fieldZ) ---@type number, number
   local surface ---@type FieldSave.Surface
   if

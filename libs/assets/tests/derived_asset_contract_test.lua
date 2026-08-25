@@ -35,6 +35,11 @@ function T.contract_pins_the_current_asset_identities()
       terrainSchema = "g4-terrain-surfaces-v1",
       collisionVersion = 1,
     },
+    fieldCells = {
+      cacheFormat = "field-cell-cache-v1",
+      indexSchema = "g4-field-cell-index-v1",
+      cellSchema = "g4-field-cell-v1",
+    },
     fieldActors = {
       cacheFormat = "field-actor-cache-v1",
       schema = "g4-field-actor-v2",
