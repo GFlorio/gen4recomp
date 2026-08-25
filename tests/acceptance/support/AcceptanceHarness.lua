@@ -324,9 +324,33 @@ function Game:snapshot()
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
     transition = { phase = runtime.transition and runtime.transition.phase },
     avatarId = runtime.avatar and runtime.avatar.id,
+    coverage = runtime.runtimeMap and runtime.runtimeMap.coverage and runtime.runtimeMap.coverage:status() or nil,
+    zoneChange = runtime.lastZoneChange and {
+      oldMapId = runtime.lastZoneChange.oldMapId,
+      newMapId = runtime.lastZoneChange.newMapId,
+      mapSectionChanged = runtime.lastZoneChange.mapSectionChanged,
+    } or nil,
+    terrainEffects = runtime.fieldTerrainEffectController and runtime.fieldTerrainEffectController:status() or nil,
     world = self.worldProbe,
     actors = actors,
     occupancy = occupancy,
+  }
+end
+
+function Game:save()
+  self.runtime:saveSession("Acceptance corridor checkpoint saved")
+  return self:snapshot()
+end
+
+function Game:warpDestination(warpIndex)
+  assert(type(warpIndex) == "number", "acceptance warp index required")
+  local warps = assert(self.runtime.runtimeMap.fieldData.events.warps, "production warp data is required")
+  local warp = assert(warps[warpIndex + 1], "acceptance warp index is unavailable")
+  return {
+    fieldX = warp.x or warp.fieldX,
+    fieldZ = warp.z or warp.fieldZ,
+    mapId = warp.destinationMapId,
+    warpId = warp.destinationWarpId,
   }
 end
 
@@ -568,12 +592,16 @@ function Game:moveTo(target, stopMapId)
         return node.route
       end
       for _, direction in ipairs(directions) do
-        local destination = node.player:_resolveStep(direction)
-        if destination then
-          local key = destination.fieldX .. ":" .. destination.fieldZ
+        local nextPlayer = copyPlayer(node.player)
+        if nextPlayer:tryStep(direction) then
+          local duration = nextPlayer.motion == "jumping" and 16 or 8
+          for _ = 1, duration do
+            nextPlayer:updateFixed({})
+          end
+          local key = nextPlayer.fieldX .. ":" .. nextPlayer.fieldZ
           local isWarp = false
           for _, warp in ipairs(node.player.currentMap.fieldData.events.warps) do
-            if warp.x == destination.fieldX and warp.z == destination.fieldZ then
+            if warp.x == nextPlayer.fieldX and warp.z == nextPlayer.fieldZ then
               isWarp = true
               break
             end
@@ -585,10 +613,6 @@ function Game:moveTo(target, stopMapId)
               nextRoute[index] = step
             end
             nextRoute[#nextRoute + 1] = direction
-            local nextPlayer = copyPlayer(node.player)
-            for field, value in pairs(destination) do
-              nextPlayer[field] = value
-            end
             queue[#queue + 1] = { player = nextPlayer, route = nextRoute }
           end
         end
