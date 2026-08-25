@@ -865,27 +865,6 @@ function T.static_destination_door_does_not_block_the_unlock()
   Assert.isFalse(transition.locked, "a static destination has nothing to wait for")
 end
 
--- A headless door keeps its source classification and completes through the
--- ordinary source fade without inventing a door resource.
-function T.door_kind_without_a_door_resolver_keeps_the_source_classification()
-  local transition
-  local source
-  local swaps
-  transition, source, _, swaps = transitionFixture()
-  local ok, err = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "north")
-  Assert.isTrue(ok, "a door-less composition never raises for a door-kind warp")
-  Assert.isNil(err)
-  Assert.equal(transition.sourceKind, "door")
-  Assert.equal(transition.sourceChoreo, "done")
-  Assert.isNil(transition.sourceDoor)
-  runTicks(transition, 2 * FADE + 2)
-  Assert.equal(transition.phase, "idle")
-  Assert.isFalse(transition.locked)
-  Assert.isNil(transition.error, "a door-less composition records no unresolved-door error")
-  Assert.equal(#swaps, 1, "the door-less door warp still swaps the map")
-  Assert.notNil(transition:consumeCompleted())
-end
-
 function T.missing_source_door_is_a_data_contract_failure()
   local transition
   local source
@@ -1333,6 +1312,20 @@ function T.a_raising_on_start_callback_aborts_the_start_coherently()
   Assert.isFalse(transition.locked)
   Assert.notNil(transition.error, "the abort records the callback failure")
   Assert.notNil(transition.warpContext, "the abort records the warp context")
+end
+
+-- A door-kind warp with no door resolver at all must fail the same way a
+-- resolver that returns no door fails: it is missing semantic door data, not
+-- a valid "headless, no choreography" composition. It must not degrade to a
+-- plain fade while still emitting the door-open sound and completing the
+-- swap, because that observes audio without proving semantic door ingress.
+function T.absent_door_resolver_is_a_data_contract_failure_not_a_synthetic_success()
+  local transition, source, _, swaps, sounds = transitionFixture({ player = stubPlayer() })
+  local ok, err = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "north")
+  Assert.isFalse(ok, "a door-kind warp with no door resolver must not silently succeed")
+  Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR")
+  Assert.equal(#sounds, 0, "no synthetic door-open sound may be emitted when door data cannot resolve")
+  Assert.equal(#swaps, 0, "no map swap may occur when door data cannot resolve")
 end
 
 return { tests = T }

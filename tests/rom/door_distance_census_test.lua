@@ -14,11 +14,13 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DoorTiles = require("libs.engine.src.DoorTiles")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local MapProps = require("libs.engine.src.MapProps")
+local Errors = require("libs.errors.src.Errors")
 
 local T = {
   metadata = {
@@ -127,6 +129,84 @@ function T.tests.real_door_tiles_stay_within_the_corpus_backed_bound(context)
         totalTiles
       )
     )
+  end
+end
+
+-- Every generated DOOR-kind warp in the supported corpus must resolve
+-- exactly one semantic door record through the real MapProps census
+-- FieldMapLoader runs for every composition (headless or not), or be
+-- explicitly excluded because it carries no warp at all (a purely visual
+-- door-behavior tile with no gameplay consumer -- HGSS pairs some door
+-- graphics with an adjacent tile that carries the actual warp). A DOOR tile
+-- that DOES carry a warp must never be ambiguous or uncovered: production
+-- map loading would otherwise fail outright.
+function T.tests.every_warp_bearing_door_tile_resolves_exactly_one_placement(context)
+  local runnable = {}
+  for _, versionId in ipairs(GameVersion.ORDER) do
+    if RomImporter.isReady(versionId) then
+      local cache = CacheFs.forVersion(versionId)
+      if cache:exists("data/generated/maps", "directory") then
+        runnable[#runnable + 1] = { versionId = versionId, cache = cache }
+      end
+    end
+  end
+  if #runnable == 0 then
+    context:skip("no ready version with a derived cache")
+  end
+
+  for _, entry in ipairs(runnable) do
+    local versionId = entry.versionId
+    local cache = entry.cache
+    local world = assert(cache:loadLua(MapAssetCache.worldPath()), versionId .. ": world manifest is loadable")
+    local warpDoorMaps = 0
+    local warpDoorTiles = 0
+    for _, map in ipairs(world.maps) do
+      local dir = MapAssetCache.mapDir(map.id)
+      if cache:exists(dir .. "/complete") then
+        local scene = assert(cache:loadLua(dir .. "/scene.lua"), "scene " .. map.id .. " is loadable")
+        local collisionBytes = assert(cache:read(MapAssetCache.collisionPath(map.id)), "collision asset readable")
+        local grid = CollisionGrid.new(assert(CollisionGridAsset.decode(collisionBytes, "map " .. map.id)))
+        local fieldData =
+          assert(cache:loadLua(FieldMapDataCache.fieldPath(map.id)), "field data " .. map.id .. " is loadable")
+        local warpedTiles = {}
+        for _, warp in ipairs(fieldData.events.warps) do
+          warpedTiles[(warp.x - scene.matrix.worldOriginX) .. ":" .. (warp.z - scene.matrix.worldOriginZ)] = true
+        end
+        local doorTiles = {}
+        for _, tile in ipairs(DoorTiles.fromGrid(grid)) do
+          if warpedTiles[tile.x .. ":" .. tile.z] then
+            doorTiles[#doorTiles + 1] = tile
+          end
+        end
+        if #doorTiles > 0 then
+          warpDoorMaps = warpDoorMaps + 1
+          warpDoorTiles = warpDoorTiles + #doorTiles
+          local ok, err = pcall(MapProps.new, {
+            placements = scene.buildingInstances,
+            instances = {},
+            doorTiles = doorTiles,
+          })
+          local reason = ""
+          if not ok and Errors.is(err) then
+            ---@cast err table
+            reason = err.code
+          elseif not ok then
+            reason = tostring(err)
+          end
+          Assert.isTrue(
+            ok,
+            string.format(
+              "%s: map %d has a warp-bearing door tile that does not resolve exactly one placement (%s)",
+              versionId,
+              map.id,
+              reason
+            )
+          )
+        end
+      end
+    end
+    Assert.isTrue(warpDoorMaps > 0, versionId .. ": the census found warp-bearing door maps")
+    Assert.isTrue(warpDoorTiles > 0, versionId .. ": the census found warp-bearing door tiles")
   end
 end
 

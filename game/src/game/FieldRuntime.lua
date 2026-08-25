@@ -468,17 +468,15 @@ function FieldRuntime:_load()
     -- through their own branch. Fallible destination preparation runs before
     -- the commit, so a failed warp never touches current-map ownership.
     -- The door choreography resolves doors through each scene's MapProps
-    -- facade: field coordinate -> building placement -> ModelInstance ->
-    -- semantic door animation. Nothing Nitro leaks into the transition. The
-    -- resolver is the door capability: only a presentation runtime supplies
-    -- one (every presentation map carries a scene runtime), so a door-less
-    -- composition is exactly "no door resolver, no door choreography" and a
-    -- door-kind warp there degrades to a plain fade instead of raising.
-    local doorAt
-    if self.presentation then
-      doorAt = function(runtimeMap, fieldX, fieldZ)
-        return runtimeMap.sceneRuntime.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
-      end
+    -- facade: field coordinate -> building placement -> semantic door
+    -- animation, generated data FieldMapLoader attaches to every runtime map
+    -- regardless of presentation. Nothing Nitro leaks into the transition,
+    -- and no GPU resource is required to resolve or advance a door
+    -- headlessly. Every production composition supplies this resolver: a
+    -- door-kind warp with no resolvable door is a data-contract failure, not
+    -- a headless capability gap.
+    local doorAt = function(runtimeMap, fieldX, fieldZ)
+      return runtimeMap.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
     end
     self.transition = FieldTransition.new({
       loader = self.mapLoader,

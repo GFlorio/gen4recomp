@@ -589,4 +589,90 @@ function T.prop_resolves_from_the_precomputed_index()
   Assert.equal(again.modelKey, "fixture:door")
 end
 
+-- ---- generated door duration (no live instance) --------------------------
+--
+-- A door's sound identity and role duration are generated data carried on
+-- the owning placement (`doorSoundType`, `doorRoles`), read at census time
+-- regardless of whether a live ModelInstance is ever attached. These tests
+-- exercise that authority directly, with no instance at all -- the shape
+-- FieldMapLoader builds for a headless composition.
+
+local function generatedDoorPlacement(index, wx, wz, doorSoundType, doorRoles)
+  return {
+    placementIndex = index,
+    modelKey = "fixture:generated-door",
+    transform = Matrix4.translate(wx, 0, wz),
+    doorSoundType = doorSoundType,
+    doorRoles = doorRoles,
+  }
+end
+
+-- A role with a real generated duration and no live instance is not
+-- immediate: it plays a semantic-only timer that only reaches completion
+-- once MapProps:updateFixed has advanced it the generated frame count.
+function T.generated_duration_role_is_not_immediate_without_a_live_instance()
+  local wx, wz = tileCenterWorld(4, 14)
+  local props = MapProps.new({
+    placements = { generatedDoorPlacement(0, wx, wz, 1, { open = { frameCount = 3 } }) },
+    instances = {},
+    doorTiles = { { x = 4, z = 14 } },
+  })
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  local sound = door:open()
+  Assert.equal(sound, "SEQ_SE_DP_DOOR_OPEN", "sound identity comes from the generated doorSoundType")
+  Assert.isFalse(door:isFinished(), "a real generated duration is not immediate")
+  props:updateFixed()
+  props:updateFixed()
+  Assert.isFalse(door:isFinished(), "the checked advance is not done before the terminal")
+  props:updateFixed()
+  Assert.isTrue(door:isFinished(), "the semantic timer finishes exactly at the generated frame count")
+end
+
+-- A role with NO generated duration and no live instance is the genuinely
+-- static case (HGSS's unanimated interior doors): nothing plays, and
+-- isFinished stays nil (nothing to wait for), exactly like a static building.
+function T.role_with_no_generated_duration_and_no_instance_is_static()
+  local wx, wz = tileCenterWorld(4, 14)
+  local props = MapProps.new({
+    placements = { generatedDoorPlacement(0, wx, wz, nil, nil) },
+    instances = {},
+    doorTiles = { { x = 4, z = 14 } },
+  })
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  Assert.isNil(door:open(), "no generated sound type means no sound")
+  Assert.isNil(door:isFinished(), "no generated duration means nothing to wait for")
+end
+
+-- updateFixed only advances the door role that is actually playing; a role
+-- that finished stays finished (no overshoot into a later close role), and a
+-- door with nothing playing is untouched.
+function T.update_fixed_only_advances_the_active_role_and_stops_at_completion()
+  local wx, wz = tileCenterWorld(4, 14)
+  local props = MapProps.new({
+    placements = {
+      generatedDoorPlacement(0, wx, wz, 1, { open = { frameCount = 2 }, close = { frameCount = 5 } }),
+    },
+    instances = {},
+    doorTiles = { { x = 4, z = 14 } },
+  })
+  local door = assert(props:doorAt(doorMap(), 4, 14))
+  door:open()
+  props:updateFixed()
+  props:updateFixed()
+  Assert.isTrue(door:isFinished(), "the open role finishes at its own generated duration")
+  local finishedFrame = door.entry.animation.player.frame
+  props:updateFixed()
+  props:updateFixed()
+  Assert.equal(door.entry.animation.player.frame, finishedFrame, "a finished role does not keep advancing")
+
+  door:close()
+  Assert.isFalse(door:isFinished(), "the close role restarts its own generated duration")
+  for _ = 1, 4 do
+    props:updateFixed()
+  end
+  Assert.isFalse(door:isFinished(), "the close role has its own, longer generated duration")
+  props:updateFixed()
+  Assert.isTrue(door:isFinished(), "the close role finishes at its own generated duration")
+end
+
 return { tests = T }

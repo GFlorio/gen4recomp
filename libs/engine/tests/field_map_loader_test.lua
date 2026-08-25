@@ -4,6 +4,9 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local CollisionFixture = require("tests.support.CollisionFixture")
+local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 
 local T = {}
@@ -25,6 +28,7 @@ local function fixture(mapCount)
       mapSymbol = symbol,
       cameraType = mapId,
       neighbors = {},
+      buildingInstances = {},
       terrainAnimations = { textureSrt = false },
       collision = { file = string.format("data/generated/maps/%04d/collision.g4collision", mapId) },
       matrix = { width = 1, height = 1, x = 0, z = 0, worldOriginX = mapId * 32, worldOriginZ = 0 },
@@ -232,9 +236,10 @@ function T.failed_neighbor_load_releases_the_scene_runtime()
   Assert.equal(releases[0], 1, "release stays exactly once")
 end
 
--- The central collision decodes inside the load transaction; malformed
--- generated data must fail the load after the acquired scene and neighbor
--- runtimes, and both must be released exactly once.
+-- The central collision decodes before the scene runtime is acquired (it
+-- seeds mapProps, the semantic door resolver the scene loader attaches
+-- instances into): malformed generated data must fail the load before any
+-- scene or neighbor runtime is ever created, so there is nothing to release.
 function T.failed_central_collision_decode_releases_scene_and_neighbor()
   local cache, world, sceneLoader, releases, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
@@ -260,11 +265,11 @@ function T.failed_central_collision_decode_releases_scene_and_neighbor()
     loader:load(0)
   end)
   Assert.isTrue(Errors.is(err) and err.code == "COLLISION_BAD_SIZE", "the collision failure propagates")
-  Assert.equal(releases[0], 1, "the scene runtime is released")
-  Assert.equal(neighborReleases, 1, "the neighbor runtime is released")
+  Assert.isNil(releases[0], "the collision decode fails before any scene runtime is acquired")
+  Assert.equal(neighborReleases, 0, "the collision decode fails before any neighbor runtime is acquired")
   loader:release()
-  Assert.equal(releases[0], 1, "scene release stays exactly once")
-  Assert.equal(neighborReleases, 1, "neighbor release stays exactly once")
+  Assert.isNil(releases[0])
+  Assert.equal(neighborReleases, 0)
 end
 
 -- A malformed terrain artifact fails construction after both the scene runtime
@@ -591,6 +596,68 @@ function T.neighbor_loader_receives_the_central_scene_texture_srt_clip()
   loader:load(0)
   Assert.notNil(received, "the neighbor loader receives the central scene's textureSrt clip")
   Assert.equal(received.textureSrt, clip, "the passed clip is the central scene's terrain animation")
+  loader:release()
+end
+
+-- A DOOR-behavior (105) collision cell at one tile, otherwise passable.
+local function doorCollisionAsset(width, height, doorTile)
+  local cells = {}
+  for z = 0, height - 1 do
+    for x = 0, width - 1 do
+      cells[z * width + x + 1] = { behavior = 0, terrainResponseId = 0, blocked = false }
+    end
+  end
+  cells[doorTile.z * width + doorTile.x + 1] = { behavior = 105, terrainResponseId = 0, blocked = true }
+  return CollisionGridAsset.encode({ width = width, height = height, cells = cells })
+end
+
+-- The semantic door resolver is present regardless of presentation: a
+-- non-presentation FieldMapLoader (no sceneLoader) still exposes
+-- `runtimeMap.mapProps`, still resolves the generated door at its tile with
+-- its generated sound identity, and creates no scene runtime at all.
+function T.headless_runtime_map_exposes_semantic_doors_with_no_scene_runtime()
+  local cache, world, _, _, files = fixture(1)
+  local scene = files["data/generated/maps/0000/scene.lua"]
+  local doorTile = { x = 4, z = 14 }
+  local wx, wz = FieldGrid.tileCenterToWorld(doorTile.x, doorTile.z)
+  scene.buildingInstances = {
+    {
+      placementIndex = 0,
+      modelKey = "fixture:generated-door",
+      transform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, wx, 0, wz, 1 },
+    },
+  }
+  files["data/generated/maps/0000/collision.g4collision"] = doorCollisionAsset(32, 32, doorTile)
+  files[MapAssetCache.modelPath("fixture:generated-door")] = {
+    doorSoundType = 1,
+    animations = {
+      { semanticNames = { "door.open" }, frameCount = 4 },
+      { semanticNames = { "door.close" }, frameCount = 4 },
+    },
+  }
+  files["data/generated/field/maps/0000/field.lua"].events.warps = {
+    { index = 0, x = doorTile.x, z = doorTile.z, destinationMapId = 1, destinationWarpId = 0 },
+  }
+
+  local loader = FieldMapLoader.new(cache, world)
+  local map = loader:load(0)
+  Assert.isNil(map.sceneRuntime, "a non-presentation loader creates no scene runtime")
+  Assert.notNil(map.mapProps, "every runtime map exposes the semantic door resolver")
+  local door = assert(map.mapProps:doorAt(map, doorTile.x, doorTile.z), "the generated door resolves headlessly")
+  Assert.equal(door:open(), "SEQ_SE_DP_DOOR_OPEN", "the generated sound identity resolves with no live instance")
+  loader:release()
+end
+
+-- Evicting a map and reloading it builds a fresh mapProps rather than
+-- reusing stale playback state across the aggregate's lifetime.
+function T.reloading_an_evicted_map_builds_a_fresh_map_props()
+  local cache, world = fixture(2)
+  local loader = FieldMapLoader.new(cache, world, { capacity = 1 })
+  local first = loader:load(0)
+  loader:load(1)
+  Assert.isNil(loader:get(0), "the first map was evicted")
+  local reloaded = loader:load(0)
+  Assert.isFalse(first.mapProps == reloaded.mapProps, "a reload builds a fresh mapProps, not the evicted one")
   loader:release()
 end
 

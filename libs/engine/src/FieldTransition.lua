@@ -396,27 +396,24 @@ end
 
 -- Begin the source choreography: resolve the source door at the warp tile and
 -- start its opening animation. The scripted ingress step is NOT started here
--- -- it waits for the opening to finish (advanceSourceChoreo), per HGSS, and
--- a door-kind warp whose door does not resolve is a data-contract failure.
--- The door is a capability contract: a transition without a door resolver is
--- a headless caller stating it has no door choreography, so the door warp
--- degrades to a plain fade; a supplied resolver returning no door for a
--- required door is bad data. Stair warps instead take movement ownership with
--- their locked source step and do not use the door choreography. Stairs
--- require a player (production FieldRuntime always binds one): a missing
--- player is a programming fault.
+-- -- it waits for the opening to finish (advanceSourceChoreo), per HGSS.
+-- Every production composition supplies a real door resolver (headless or
+-- presentation), so a door-kind warp that fails to resolve a door -- whether
+-- because no resolver was supplied at all, or a supplied resolver returns
+-- none -- is a generated-data failure, not a headless capability gap: it
+-- raises rather than degrading to a plain fade or a synthetic open sound.
+-- Stair warps instead take movement ownership with their locked source step
+-- and do not use the door choreography. Stairs require a player (production
+-- FieldRuntime always binds one): a missing player is a programming fault.
 local function beginSourceChoreography(self)
   local kind = self.sourceKind
   if kind == "door" then
-    if not self.doorAt then
-      self.sourceChoreo = "done"
-      if self.playSound then
-        self.playSound("SEQ_SE_DP_DOOR_OPEN")
-      end
-      startFade(self, "out", 0)
-      return
-    end
-    local door = self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
+    -- A door-kind warp always requires a resolved door: production
+    -- FieldRuntime supplies a real resolver unconditionally (headless or
+    -- presentation), so an absent resolver is the same generated-data
+    -- failure as a resolver that returns no door for the tile -- neither
+    -- degrades to a plain fade or a synthetic open sound.
+    local door = self.doorAt and self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
     if not door then
       Errors.raise(
         FieldErrors.MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR,

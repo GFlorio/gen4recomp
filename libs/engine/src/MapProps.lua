@@ -38,6 +38,26 @@
 -- depends on the disposable MapDoor identity. SceneProp keeps exactly
 -- play/stop/isFinished -- pause/resume/setDirection/animationsFor have no
 -- production caller and do not exist.
+--
+-- Door sound identity and role duration are generated data, carried on each
+-- placement record (`doorSoundType`, `doorRoles`) by whoever builds the
+-- placements array (FieldMapLoader reads them from the model descriptor
+-- cache -- see ModelDoorMetadata -- so both a headless and a presentation
+-- MapProps over the same generated data agree). A door with no live
+-- ModelInstance is not thereby "static": when the generated data carries a
+-- role duration for it, MapDoor plays a semantic-only timer (retained on the
+-- same entry.animation slot, advanced once per tick by MapProps:updateFixed,
+-- the deterministic engine clock) that reaches completion at the same source
+-- frame a presentation ModelInstance would. Only a role with NO generated
+-- duration and no live instance is immediate/nothing-to-wait-for (nil),
+-- matching HGSS's genuinely unanimated interior doors.
+--
+-- Production constructs exactly one MapProps per runtime map (FieldMapLoader
+-- builds it before the scene loader runs); a presentation load attaches its
+-- live ModelInstances into that SAME instance (MapProps:attachInstances)
+-- rather than constructing a second one, so headless and presentation always
+-- read the one retained per-tile playback slot -- there is no cross-instance
+-- census to keep in sync.
 
 local WarpSystem = require("libs.engine.src.WarpSystem")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
@@ -51,7 +71,7 @@ local DoorSound = require("libs.engine.src.DoorSound")
 ---@class MapProps
 ---@field placements table -- scene placement records (read only after assembly)
 ---@field placementIndex table -- [placementIndex] = { modelKey }
----@field doorIndex table -- ["localX:localZ"] = { placementIndex, modelKey, animation }
+---@field doorIndex table -- ["localX:localZ"] = { placementIndex, modelKey, doorSoundType, roles, animation }
 ---@field instances { [integer]: ModelInstance|nil }
 local MapProps = {}
 MapProps.__index = MapProps
@@ -80,55 +100,26 @@ local function raiseUnknown(definition, animation)
   )
 end
 
--- `doorTiles` are the DOOR-kind tiles of the scene's permission cell as
--- local indices -- exactly the list the assembly enumerates and the space
--- doorAt keys its index with. Ambiguity (two placements tied for one tile,
--- within DOOR_TIE_EPSILON_SQ) and missing coverage (a door tile with no
--- placement at all, or none within MAX_DOOR_PIVOT_DISTANCE_TILES) raise
--- here, once, as generated-data failures rather than per-lookup surprises.
----@param opts { placements: table, instances: { [integer]: table|nil }, doorTiles: { x: integer, z: integer }[] }
----@return MapProps
-function MapProps.new(opts)
-  assert(opts and opts.placements and opts.instances and opts.doorTiles, "map props options required")
-  local self = setmetatable({
-    placements = opts.placements,
-    instances = opts.instances,
-    placementIndex = {},
-    doorIndex = {},
-  }, MapProps)
-  for _, placement in ipairs(opts.placements) do
-    assert(placement.placementIndex ~= nil, "placement missing placementIndex: " .. tostring(placement.modelKey))
-    self.placementIndex[placement.placementIndex] = { modelKey = placement.modelKey }
-  end
-  for _, tile in ipairs(opts.doorTiles) do
+-- Build the door census once at assembly: ownership (nearest pivot,
+-- ambiguity, coverage -- unchanged from the original per-lookup-free
+-- assembly) plus each tile's generated sound type and role durations, read
+-- straight off the owning placement record (`doorSoundType`, `doorRoles`)
+-- rather than any live instance.
+local function buildDoorCensus(placements, doorTiles)
+  local doorIndex = {}
+  for _, tile in ipairs(doorTiles) do
     local wx, wz = FieldGrid.tileCenterToWorld(tile.x, tile.z)
+    -- Two passes: find the GLOBAL nearest placement first, then check for a
+    -- tie only against that global minimum. A single running-best scan is
+    -- order-dependent -- two far, irrelevant placements that happen to tie
+    -- with each other (neither anywhere near the tile) would wrongly abort
+    -- the tile before a much closer, unambiguous placement later in the
+    -- list is ever considered.
     local best
-    for _, placement in ipairs(opts.placements) do
+    for _, placement in ipairs(placements) do
       local dx, dz = placement.transform[13] - wx, placement.transform[15] - wz
       local distance = dx * dx + dz * dz
-      if not best then
-        best = { placement = placement, distance = distance }
-      elseif math.abs(distance - best.distance) < DOOR_TIE_EPSILON_SQ then
-        -- The ambiguity window is symmetric: a within-epsilon pair raises
-        -- whether or not the newcomer is nominally nearer -- the transform
-        -- data does not distinguish them.
-        Errors.raise(
-          FieldErrors.MAP_PROP_AMBIGUOUS_DOOR,
-          "door tile ("
-            .. tile.x
-            .. ","
-            .. tile.z
-            .. ") is tied between placements "
-            .. best.placement.placementIndex
-            .. " and "
-            .. placement.placementIndex,
-          {
-            x = tile.x,
-            z = tile.z,
-            placements = { best.placement.placementIndex, placement.placementIndex },
-          }
-        )
-      elseif distance < best.distance then
+      if not best or distance < best.distance then
         best = { placement = placement, distance = distance }
       end
     end
@@ -155,23 +146,98 @@ function MapProps.new(opts)
         { x = tile.x, z = tile.z, nearestDistance = nearestDistance }
       )
     end
-    self.doorIndex[tile.x .. ":" .. tile.z] = {
+    -- The ambiguity check runs only against the global minimum: any OTHER
+    -- placement within the tie window of the true nearest distance means the
+    -- tile has no single unambiguous owner.
+    for _, placement in ipairs(placements) do
+      if placement ~= best.placement then
+        local dx, dz = placement.transform[13] - wx, placement.transform[15] - wz
+        local distance = dx * dx + dz * dz
+        if math.abs(distance - best.distance) < DOOR_TIE_EPSILON_SQ then
+          Errors.raise(
+            FieldErrors.MAP_PROP_AMBIGUOUS_DOOR,
+            "door tile ("
+              .. tile.x
+              .. ","
+              .. tile.z
+              .. ") is tied between placements "
+              .. best.placement.placementIndex
+              .. " and "
+              .. placement.placementIndex,
+            {
+              x = tile.x,
+              z = tile.z,
+              placements = { best.placement.placementIndex, placement.placementIndex },
+            }
+          )
+        end
+      end
+    end
+    doorIndex[tile.x .. ":" .. tile.z] = {
       placementIndex = best.placement.placementIndex,
       modelKey = best.placement.modelKey,
       animation = nil,
-      doorSoundType = self.instances[best.placement.placementIndex]
-          and self.instances[best.placement.placementIndex].definition.doorSoundType
-        or nil,
+      doorSoundType = best.placement.doorSoundType,
+      roles = best.placement.doorRoles,
     }
+  end
+  return doorIndex
+end
+
+-- `doorTiles` are the DOOR-kind tiles of the scene's permission cell as
+-- local indices -- exactly the list the assembly enumerates and the space
+-- doorAt keys its index with. Ambiguity (two placements tied for one tile,
+-- within DOOR_TIE_EPSILON_SQ) and missing coverage (a door tile with no
+-- placement at all, or none within MAX_DOOR_PIVOT_DISTANCE_TILES) raise
+-- here, once, as generated-data failures rather than per-lookup surprises.
+---@param opts { placements: table, instances: { [integer]: table|nil }, doorTiles: { x: integer, z: integer }[] }
+---@return MapProps
+function MapProps.new(opts)
+  assert(opts and opts.placements and opts.instances and opts.doorTiles, "map props options required")
+  local self = setmetatable({
+    placements = opts.placements,
+    instances = opts.instances,
+    placementIndex = {},
+    doorIndex = buildDoorCensus(opts.placements, opts.doorTiles),
+  }, MapProps)
+  for _, placement in ipairs(opts.placements) do
+    assert(placement.placementIndex ~= nil, "placement missing placementIndex: " .. tostring(placement.modelKey))
+    self.placementIndex[placement.placementIndex] = { modelKey = placement.modelKey }
   end
   return self
 end
 
+-- Attach presentation ModelInstances after construction: the visual
+-- adapter over the SAME semantic door state a headless composition already
+-- built, never a second census. Merges into the existing instance table so
+-- a partial presentation load (a subset of placements) does not clobber
+-- instances attached earlier.
+---@param byPlacement { [integer]: table }
+function MapProps:attachInstances(byPlacement)
+  for placementIndex, instance in pairs(byPlacement) do
+    self.instances[placementIndex] = instance
+  end
+end
+
+-- Advance every currently-playing semantic-only door role (no live
+-- ModelInstance backing it) by one tick, on the deterministic engine clock
+-- RuntimeFieldMap:updateAnimated() drives every fixed tick regardless of
+-- presentation. A role with no generated duration, or with a live-instance
+-- handle (advanced by the instance's own updateFixed), is left alone.
+function MapProps:updateFixed()
+  for _, entry in pairs(self.doorIndex) do
+    local anim = entry.animation
+    if anim and anim.semantic and anim.player.frameCount and anim.player.frame < anim.player.frameCount then
+      anim.player.frame = anim.player.frame + 1
+    end
+  end
+end
+
 -- The MapDoor handle: the resolved door at a tile. `instance` is the door's
--- building ModelInstance (nil for static buildings) and `entry` is the
--- tile's retained index record -- the play handle lives there, not on the
--- disposable handle, so a fresh resolution of the tile observes the
--- animation the previous handle played.
+-- building ModelInstance (nil for static buildings, or in a headless
+-- composition) and `entry` is the tile's retained index record -- the play
+-- handle lives there, not on the disposable handle, so a fresh resolution of
+-- the tile observes the animation the previous handle played.
 ---@class MapDoor
 ---@field x integer
 ---@field z integer
@@ -180,15 +246,50 @@ end
 ---@field modelKey string
 ---@field doorSoundType integer|nil
 ---@field instance table|nil
----@field entry table -- the retained index record ({ animation = handle|nil })
+---@field entry table -- the retained index record ({ animation = handle|nil, roles = ... })
 local MapDoor = {}
 MapDoor.__index = MapDoor
 
+-- The generated frame-count duration of `role` for this door, or nil when
+-- the generated data carries no such role (a door whose model has no
+-- door.open/door.close clip at all -- HGSS's genuinely unanimated interior
+-- doors).
+local function roleFrameCount(entry, role)
+  if not entry.roles then
+    return nil
+  end
+  if role == AnimationClip.ROLES.DOOR_OPEN then
+    return entry.roles.open and entry.roles.open.frameCount or nil
+  end
+  if role == AnimationClip.ROLES.DOOR_CLOSE then
+    return entry.roles.close and entry.roles.close.frameCount or nil
+  end
+  return nil
+end
+
+-- A semantic-only playback handle: no live ModelInstance, but the generated
+-- duration is real, so completion must not be immediate. `frame` advances
+-- once per MapProps:updateFixed tick; isComplete mirrors the checked-advance
+-- rule real AnimationPlayers use (done exactly at frame == frameCount).
+local function newSemanticAnimation(frameCount)
+  return {
+    semantic = true,
+    player = {
+      frame = 0,
+      frameCount = frameCount,
+      isComplete = function(self)
+        return self.frame >= self.frameCount
+      end,
+    },
+  }
+end
+
 -- Play the door's opening animation: the semantic door.open role, once, from
 -- frame 0, stopping the door's previous play. A static door (no animated
--- instance) has nothing to play and does nothing, like HGSS doors without
--- animation records. Raises MAP_PROP_ANIM_UNKNOWN when the model's clips
--- lack the role (a data problem worth a diagnostic, not a silent fallback).
+-- instance and no generated duration) has nothing to play and does nothing,
+-- like HGSS doors without animation records. Raises MAP_PROP_ANIM_UNKNOWN
+-- when a live instance's clips lack the role (a data problem worth a
+-- diagnostic, not a silent fallback).
 function MapDoor:open()
   self:_play(AnimationClip.ROLES.DOOR_OPEN)
   return self.doorSoundType and DoorSound.sequence(self.doorSoundType, "open") or nil
@@ -203,31 +304,41 @@ end
 
 -- One door has one playing attachment: playing a role stops the tile's
 -- retained play handle first, then plays fresh from frame 0. The retained
--- handle is the LIVE attachment instance:play returned, so isFinished reads
--- it directly and replays always restart.
+-- handle is the LIVE attachment instance:play returned (or the semantic-only
+-- timer when no instance backs this door), so isFinished reads it directly
+-- and replays always restart.
 function MapDoor:_play(role)
-  if not self.instance or self.instance.soundOnly then
+  if self.instance and not self.instance.soundOnly then
+    local definition = self.instance.definition
+    if not definition:animation(role) then
+      raiseUnknown(definition, role)
+    end
+    if self.entry.animation then
+      self.instance:stop(self.entry.animation)
+    end
+    self.entry.animation = self.instance:play(role, { loopMode = "once" })
     return
   end
-  local definition = self.instance.definition
-  if not definition:animation(role) then
-    raiseUnknown(definition, role)
+  local frameCount = roleFrameCount(self.entry, role)
+  if frameCount == nil then
+    -- No live instance and no generated duration for this role: a genuinely
+    -- static door, like HGSS's unanimated interior doors. Nothing to play.
+    return
   end
-  if self.entry.animation then
-    self.instance:stop(self.entry.animation)
-  end
-  self.entry.animation = self.instance:play(role, { loopMode = "once" })
+  self.entry.animation = newSemanticAnimation(frameCount)
 end
 
 -- Whether the door's current animation has reached its end (the player's
 -- single checked-advance completion: a once-clip finishes exactly when its
--- frame reaches numFrame * FRAME_UNIT). Nil when nothing is playing -- a
--- static door, or a door that has not been opened or closed yet -- so a
--- waiter treats nil as "nothing to wait for". The handle is read from the
--- tile's retained index record, so any handle resolving this tile reports
--- the same finish state.
+-- frame reaches numFrame * FRAME_UNIT, whether that player is a live
+-- ModelInstance attachment or the semantic-only timer _play synthesizes).
+-- Nil when nothing is playing -- a static door with no generated duration,
+-- or a door that has not been opened or closed yet -- so a waiter treats nil
+-- as "nothing to wait for". The handle is read from the tile's retained
+-- index record, so any handle resolving this tile reports the same finish
+-- state regardless of whether IT carries a live instance.
 function MapDoor:isFinished()
-  if not self.instance or not self.entry.animation then
+  if not self.entry.animation then
     return nil
   end
   return self.entry.animation.player:isComplete()
@@ -274,9 +385,7 @@ function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
     modelKey = entry.modelKey,
     instance = self.instances[entry.placementIndex],
     entry = entry,
-    doorSoundType = entry.doorSoundType
-      or (self.instances[entry.placementIndex] and self.instances[entry.placementIndex].definition.doorSoundType)
-      or nil,
+    doorSoundType = entry.doorSoundType,
   }, MapDoor)
 end
 

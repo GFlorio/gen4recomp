@@ -512,22 +512,32 @@ local function buildScene(pool, cacheFs, scene, opts)
   runtime.setTimeBand = setTimeBand
   -- The door lookup: a MapProps facade over this scene's placements and
   -- instances resolves a field coordinate to the door of the building placed
-  -- there -- nothing Nitro leaks into gameplay. Ownership over the scene's
-  -- door tiles is precomputed here, once, from the nearest placement pivot.
-  local placements = {}
-  for _, inst in ipairs(scene.buildingInstances) do
-    placements[#placements + 1] = {
-      placementIndex = inst.placementIndex,
-      modelKey = inst.modelKey,
-      transform = inst.transform,
-      bounds = descriptorFor(inst.modelKey).bounds,
-    }
+  -- there -- nothing Nitro leaks into gameplay. `opts.mapProps` is the
+  -- semantic resolver FieldMapLoader already built from generated data
+  -- (headless-safe, same door census this presentation load would compute);
+  -- this attaches the freshly-created live instances into it rather than
+  -- building a second census. A caller that loads a scene standalone (tests
+  -- exercising MapSceneLoader in isolation, without FieldMapLoader) gets the
+  -- old self-contained construction.
+  if opts.mapProps then
+    opts.mapProps:attachInstances(instanceByPlacement)
+    runtime.mapProps = opts.mapProps
+  else
+    local placements = {}
+    for _, inst in ipairs(scene.buildingInstances) do
+      placements[#placements + 1] = {
+        placementIndex = inst.placementIndex,
+        modelKey = inst.modelKey,
+        transform = inst.transform,
+        bounds = descriptorFor(inst.modelKey).bounds,
+      }
+    end
+    runtime.mapProps = MapProps.new({
+      placements = placements,
+      instances = instanceByPlacement,
+      doorTiles = doorTiles,
+    })
   end
-  runtime.mapProps = MapProps.new({
-    placements = placements,
-    instances = instanceByPlacement,
-    doorTiles = doorTiles,
-  })
   runtime.stats = {
     meshCount = #pool.meshes,
     textureCount = #pool.images,
