@@ -54,17 +54,15 @@ function FieldMessageCache.isReady(cacheFs, expectedMarker)
   if type(index) ~= "table" or index.schema ~= FieldMessageCache.INDEX_SCHEMA then
     return false
   end
-  local indexValue = index ---@cast indexValue FieldMessageCache.Index
-  if not Validate.isArray(indexValue.bankIds) then
+  if not Validate.isArray(index.bankIds) then
     return false
   end
-  for _, bankId in ipairs(indexValue.bankIds) do
+  for _, bankId in ipairs(index.bankIds) do
     if not Validate.isNonNegativeInteger(bankId) then
       return false
     end
     local bank = cacheFs:loadLua(FieldMessageCache.bankPath(bankId)) ---@type table?
-    local bankValue = assert(bank) ---@type table
-    if type(bankValue) ~= "table" or bankValue.schema ~= FieldMessageCache.SCHEMA or bankValue.bankId ~= bankId then
+    if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA or bank.bankId ~= bankId then
       return false
     end
   end

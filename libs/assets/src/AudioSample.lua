@@ -27,7 +27,7 @@ local function fail(context)
   Errors.raise(AudioErrors.AUDIO_SAMPLE_INVALID, "malformed audio sample metadata", context)
 end
 
----@param value any
+---@param value unknown
 ---@return boolean
 local function isNonNegativeInteger(value)
   return type(value) == "number" and value % 1 == 0 and value >= 0
@@ -69,7 +69,7 @@ function AudioSample.validate(metadata, pcm)
   if type(loop) ~= "table" then
     fail({ field = "loop" })
   end
-  local loopValue = assert(loop) ---@type table
+  local loopValue = assert(loop)
   if type(metadata.loopEnabled) ~= "boolean" then
     fail({ field = "loopEnabled" })
   end

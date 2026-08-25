@@ -99,7 +99,10 @@ local function walkVoices(instruments, visit)
       -- compiler output is an ordered, non-overlapping partition: every
       -- range's lowKey must be strictly above the previous range's highKey.
       local previousHigh = nil ---@type integer?
-      local ranges = instrument.ranges ---@type AudioBank.Range[]
+      local ranges = instrument.ranges
+      if type(ranges) ~= "table" then
+        return false
+      end
       for _, range in ipairs(ranges) do
         if
           type(range) ~= "table"
@@ -150,7 +153,7 @@ function AudioBank.sampleKeys(bank)
   local keys = {} ---@type string[]
   local seen = {} ---@type table<string, boolean>
   local ok = walkVoices(bank.instruments, function(_, voice)
-    local generator = voice.generator ---@type table
+    local generator = voice.generator
     if type(generator) == "table" and generator.kind == "sample" then
       local key = generator.sample ---@type string
       if not seen[key] then
@@ -224,7 +227,7 @@ local function validateVoice(voice)
   if voice.kind ~= nil then
     fail({ field = "voice.kind" })
   end
-  local generator = voice.generator ---@type table
+  local generator = voice.generator
   if type(generator) ~= "table" then
     fail({ field = "voice.generator" })
   end
@@ -248,7 +251,7 @@ local function validateVoice(voice)
   else
     fail({ field = "voice.generator.kind" })
   end
-  local envelope = voice.envelope ---@type table
+  local envelope = voice.envelope
   if type(envelope) ~= "table" then
     fail({ field = "voice.envelope" })
   end

@@ -55,7 +55,7 @@ end
 
 -- Internal preset shape check used by validateCatalog (nil, err on failure).
 ---@param id integer
----@param preset FieldWeatherCache.Preset
+---@param preset unknown
 ---@return boolean, Errors.Error?
 local function validatePreset(id, preset)
   if type(preset) ~= "table" then
@@ -226,7 +226,7 @@ end
 
 -- Strict catalog validation: shared by the writer's readback and by runtime
 -- loading. Returns true on success, false, err otherwise.
----@param catalog FieldWeatherCache.Catalog
+---@param catalog unknown
 ---@return boolean, Errors.Error?
 function FieldWeatherCache.validateCatalog(catalog)
   if type(catalog) ~= "table" then
@@ -297,8 +297,7 @@ function FieldWeatherCache.hasCache(cacheFs)
   if type(catalog) ~= "table" then
     return false
   end
-  local catalogValue = catalog ---@cast catalogValue FieldWeatherCache.Catalog
-  return FieldWeatherCache.validateCatalog(catalogValue) == true
+  return FieldWeatherCache.validateCatalog(catalog) == true
 end
 
 -- Readiness check matching nearby caches: marker must match exactly and the
@@ -311,8 +310,7 @@ function FieldWeatherCache.isReady(cacheFs, expectedMarker)
   if type(catalog) ~= "table" then
     return false
   end
-  local catalogValue = catalog ---@cast catalogValue FieldWeatherCache.Catalog
-  local ok = FieldWeatherCache.validateCatalog(catalogValue)
+  local ok = FieldWeatherCache.validateCatalog(catalog)
   if not ok then
     return false
   end

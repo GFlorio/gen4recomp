@@ -138,7 +138,7 @@ end
 ---@param where string
 ---@param desc table
 local function checkWrap(m, where, desc)
-  local wrap = m.wrap ---@type table
+  local wrap = m.wrap
   if type(wrap) ~= "table" or not WRAP_MODES[wrap.x] or not WRAP_MODES[wrap.y] then
     invalid(where .. " material requires a wrap { x, y } of clamp/repeat", desc.key)
   end
@@ -148,7 +148,7 @@ end
 ---@param where string
 ---@param desc table
 local function checkFlip(m, where, desc)
-  local flip = m.flip ---@type table
+  local flip = m.flip
   if type(flip) ~= "table" or type(flip.x) ~= "boolean" or type(flip.y) ~= "boolean" then
     invalid(where .. " material requires flip { x, y } booleans", desc.key)
   end
@@ -159,7 +159,7 @@ end
 -- materials carry none (the compiler emits the trio together).
 ---@param alphaUsage table
 ---@param where string
----@param desc table
+---@param desc unknown
 local function checkAlphaUsage(alphaUsage, where, desc)
   if type(alphaUsage) ~= "table" then
     invalid(where .. " texture requires alphaUsage", desc.key)

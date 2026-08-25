@@ -137,7 +137,7 @@ end
 -- closed shape: extra keys (including the retired min/max names) are
 -- malformed. The optional nonNegative constraint applies to the plain
 -- integer form only; random endpoints keep the exact signed source pair.
----@param amount any
+---@param amount unknown
 ---@param nonNegative boolean?
 ---@return boolean
 local function isValidOperand(amount, nonNegative)
@@ -254,7 +254,7 @@ function AudioSequence.validate(sequence)
   if not isIntegerInRange(sequence.bankId, 0, 0xFFFF) then
     fail({ field = "bankId" })
   end
-  local player = sequence.player ---@type table
+  local player = sequence.player
   if type(player) ~= "table" then
     fail({ field = "player" })
   end
@@ -271,7 +271,7 @@ function AudioSequence.validate(sequence)
   if not isIntegerInRange(player.channelPriority, 0, 0xFF) then
     fail({ field = "player.channelPriority" })
   end
-  local program = sequence.program ---@type table
+  local program = sequence.program
   if type(program) ~= "table" then
     fail({ field = "program" })
   end
@@ -282,7 +282,7 @@ function AudioSequence.validate(sequence)
   if not Validate.isArray(program.instructions) or #program.instructions == 0 then
     fail({ field = "program.instructions" })
   end
-  local instructions = program.instructions ---@type table[]
+  local instructions = program.instructions
   if not isTarget(program.entry, #instructions) then
     fail({ field = "program.entry" })
   end

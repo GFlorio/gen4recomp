@@ -66,7 +66,6 @@ function FieldActorCache.isReady(cacheFs, expectedMarker)
   if type(index) ~= "table" or index.schema ~= FieldActorCache.INDEX_SCHEMA then
     return false
   end
-  ---@cast index FieldActorCache.Index
   if not Validate.isArray(index.spriteIds) then
     return false
   end

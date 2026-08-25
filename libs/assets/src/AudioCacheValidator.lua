@@ -73,12 +73,12 @@ end
 
 -- Every index entry of `section` is a self-identifying table under its own
 -- nonnegative integer id.
----@param section table<integer, AudioCacheValidator.IndexEntry>
+---@param section table
 ---@param name string
 ---@return string? problem
 local function sectionProblem(section, name)
   for id, rawEntry in pairs(section) do
-    local entry = rawEntry ---@type AudioCacheValidator.IndexEntry
+    local entry = rawEntry
     if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
       return name .. " index entry is malformed"
     end
@@ -89,7 +89,7 @@ end
 -- The symbol map and the indexed symbols must describe each other in both
 -- directions: every map entry resolves into `section` and agrees on its
 -- symbol, and every indexed symbol (when present) has a map entry back.
----@param section table<integer, AudioCacheValidator.IndexEntry>
+---@param section table
 ---@param symbolMap table<string, integer>
 ---@param name string
 ---@return string? problem
@@ -101,7 +101,7 @@ local function symbolMapProblem(section, symbolMap, name)
     end
   end
   for _, rawEntry in pairs(section) do
-    local entry = rawEntry ---@type AudioCacheValidator.IndexEntry
+    local entry = rawEntry
     if entry.symbol ~= nil and symbolMap[entry.symbol] ~= entry.id then
       return name .. " indexed symbol is not covered by the symbol map"
     end
@@ -116,7 +116,6 @@ function AudioCacheValidator.validate(cacheFs)
   if type(index) ~= "table" or index.schema ~= AudioCache.INDEX_SCHEMA then
     return "index is missing or carries an unexpected schema"
   end
-  ---@cast index AudioCacheValidator.Index
   if
     type(index.sequences) ~= "table"
     or type(index.banks) ~= "table"
@@ -131,7 +130,7 @@ function AudioCacheValidator.validate(cacheFs)
     if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
       return "sequence index entry is malformed"
     end
-    local entryValue = entry ---@type table
+    local entryValue = entry
     -- Index records store no payload path: every path derives from the
     -- numeric id (AudioCache.sequencePath), so a redundant `file` field is
     -- malformed index data, never tolerated.
