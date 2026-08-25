@@ -81,11 +81,39 @@ function T.tests.source_points_and_slide_direction_survive_responsive_hosts()
     Assert.near(revealPoint.x, scene.x + 160 / 256 * scene.width)
     Assert.near(revealPoint.y, scene.y + 80 / 192 * scene.height)
     local displacement = math.min(52 * centered.subject.scale, centered.stageContent.width * 0.24)
-    Assert.near(point(shifted.subject, data.widgets.oak.anchor).x - oakPoint.x, -displacement)
+    -- Source offset 0 -> -52 is the world-inhabited/Marill reveal: the subject
+    -- must move toward host-space right (increasing X), never left.
+    Assert.near(point(shifted.subject, data.widgets.oak.anchor).x - oakPoint.x, displacement)
     Assert.near(centered.subject.scale, centered.subject.scale)
     Assert.near(centered.reveal.scale, centered.reveal.scale)
     Assert.isTrue(inside(centered.subject, scene))
     Assert.isTrue(inside(centered.reveal, scene))
+  end
+end
+
+function T.tests.slide_progress_is_monotonic_right_then_monotonic_left()
+  local data = manifest()
+  for _, size in ipairs({ { 1024, 768 }, { 390, 844 } }) do
+    local baseX =
+      point(OakIntroLayout.compute(size[1], size[2], ordinaryView(0), {}, data).subject, data.widgets.oak.anchor).x
+    local previousX = baseX
+    for _, offset in ipairs({ -10, -20, -30, -40, -52 }) do
+      local layout = OakIntroLayout.compute(size[1], size[2], ordinaryView(offset), {}, data)
+      local x = point(layout.subject, data.widgets.oak.anchor).x
+      Assert.isTrue(x >= previousX, "slide progress toward -52 must not move host X left")
+      previousX = x
+    end
+    local fullyShiftedX = previousX
+    Assert.isTrue(fullyShiftedX > baseX, "the fully slid subject must be to the right of the base position")
+
+    previousX = fullyShiftedX
+    for _, offset in ipairs({ -40, -30, -20, -10, 0 }) do
+      local layout = OakIntroLayout.compute(size[1], size[2], ordinaryView(offset), {}, data)
+      local x = point(layout.subject, data.widgets.oak.anchor).x
+      Assert.isTrue(x <= previousX, "the return slide must not move host X right")
+      previousX = x
+    end
+    Assert.near(previousX, baseX, 1e-6)
   end
 end
 

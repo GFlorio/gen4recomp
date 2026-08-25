@@ -381,30 +381,35 @@ function T.tests.dialogue_visibility_keeps_the_main_oak_stage_stable()
 end
 
 function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
-  local state = controller()
-  state:start()
-  state:tick(40)
-  state:press("confirm")
-  state:tick(6 + 30)
-  local centered = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
-  state:press("confirm")
-  state:tick(26)
-  local endpoint = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
-  Assert.isTrue(endpoint.x < centered.x, "the completed first slide must be visibly shifted")
-  state:press("confirm")
-  advanceUntilPhase(state, "oak_live_alongside")
-  local held = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
-  Assert.near(held.x, endpoint.x)
-  Assert.near(held.y, endpoint.y)
-  state:press("confirm")
-  advanceUntilPhase(state, "oak_slide_left")
-  local reverse = state:view()
-  Assert.equal(reverse.phase, "oak_slide_left")
-  local reverseStart = OakIntroLayout.compute(800, 600, reverse, {}, manifest()).subject
-  Assert.near(reverseStart.x, held.x)
-  state:tick(1)
-  local moved = OakIntroLayout.compute(800, 600, state:view(), {}, manifest()).subject
-  Assert.isTrue(moved.x > reverseStart.x, "reverse slide moves monotonically toward center")
+  for _, size in ipairs({ { 800, 600 }, { 390, 844 } }) do
+    local state = controller()
+    state:start()
+    state:tick(40)
+    state:press("confirm")
+    state:tick(6 + 30)
+    local centered = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
+    state:press("confirm")
+    state:tick(26)
+    local endpoint = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
+    Assert.isTrue(
+      endpoint.x > centered.x,
+      "the completed first slide must be visibly shifted to host-space right at " .. size[1] .. "x" .. size[2]
+    )
+    state:press("confirm")
+    advanceUntilPhase(state, "oak_live_alongside")
+    local held = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
+    Assert.near(held.x, endpoint.x)
+    Assert.near(held.y, endpoint.y)
+    state:press("confirm")
+    advanceUntilPhase(state, "oak_slide_left")
+    local reverse = state:view()
+    Assert.equal(reverse.phase, "oak_slide_left")
+    local reverseStart = OakIntroLayout.compute(size[1], size[2], reverse, {}, manifest()).subject
+    Assert.near(reverseStart.x, held.x)
+    state:tick(1)
+    local moved = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
+    Assert.isTrue(moved.x < reverseStart.x, "reverse slide moves monotonically back toward the base position")
+  end
 end
 
 function T.tests.dialogue_contract_preserves_tokens_prompts_and_substitution_boundary()
@@ -562,11 +567,15 @@ T.tests.oak_motion_uses_normalized_progress_and_rendered_scale = function()
   state:tick(13)
   local during = state:view()
   local duringLayout = OakIntroLayout.compute(390, 844, during, { "A", "B" }, manifest())
-  local expected = math.min(52 * duringLayout.subject.scale, duringLayout.stageContent.width * 0.24)
+  local rightRoom =
+    math.max(0, duringLayout.stage.x + duringLayout.stage.width - (beforeLayout.subject.x + beforeLayout.subject.width))
+  local expected = math.min(52 * duringLayout.subject.scale, duringLayout.stageContent.width * 0.24, rightRoom)
     * (during.oakSlideOffset / -52)
   local beforeCenter = beforeLayout.subject.x + beforeLayout.subject.width / 2
   local duringCenter = duringLayout.subject.x + duringLayout.subject.width / 2
-  Assert.near(beforeCenter - duringCenter, expected)
+  -- The world-inhabited slide moves host X right (increasing), so the
+  -- in-progress center must be greater than the pre-slide center.
+  Assert.near(duringCenter - beforeCenter, expected)
 end
 
 T.tests.ball_reveal_channels_preserve_independent_animation_timing = function()

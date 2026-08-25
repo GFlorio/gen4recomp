@@ -155,9 +155,10 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     local oakPoint =
       sourcePoint(reference, { x = oak.sourceBounds.x + oak.anchor.x, y = oak.sourceBounds.y + oak.anchor.y }, scene)
     result.subject = imageAtPoint(oak, oakPoint, scene)
-    local maximumDisplacement = math.min(52 * result.subject.scale, sceneContent.width * 0.24)
+    local rightRoom = math.max(0, scene.x + scene.width - (result.subject.x + result.subject.width))
+    local maximumDisplacement = math.min(52 * result.subject.scale, sceneContent.width * 0.24, rightRoom)
     local displacement = maximumDisplacement * ((view.oakSlideOffset or 0) / -52)
-    result.subject.x = result.subject.x - displacement
+    result.subject.x = result.subject.x + displacement
     if view.revealWidget then
       result.reveal = sourceCentered(widget(manifest, view.revealWidget), reference, scene)
     end
