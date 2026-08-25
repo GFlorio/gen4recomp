@@ -204,6 +204,7 @@ function FieldScripts.new(opts)
     transition = opts.transition,
     loader = opts.mapLoader,
     sourceMap = opts.sourceMap,
+    screen = opts.screen,
   })
   local menuHost = ScriptMenuHost.new({
     provider = opts.messageProvider,

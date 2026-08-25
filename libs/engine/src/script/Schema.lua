@@ -636,6 +636,19 @@ Schema.OPERATIONS = {
     },
   },
   set_spawn = { fields = { spawn = { type = "string", required = true } } },
+  -- The source special-spawn setter (opcode 582): records a pending spawn
+  -- location distinct from `set_spawn`'s named spawn-point concept. warpId
+  -- and direction are source constants (-1, south) at every current call
+  -- site, not scalar_or_value operands.
+  set_special_spawn = {
+    fields = {
+      map = { type = "scalar_or_value", required = true },
+      fieldX = { type = "scalar_or_value", required = true },
+      fieldZ = { type = "scalar_or_value", required = true },
+      warpId = { type = "integer", required = true },
+      direction = { type = "enum:direction", required = true },
+    },
+  },
   shake_camera = {
     fields = {
       amplitudeX = { type = "number", required = true },

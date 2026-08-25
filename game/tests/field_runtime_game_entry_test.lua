@@ -240,6 +240,12 @@ function T.update_advances_play_time_once_even_when_fixed_ticks_are_dropped()
         return false
       end,
     },
+    screenFade = {
+      fadeDone = function()
+        return true
+      end,
+      updateSourceFrame = function() end,
+    },
     applicationHost = {
       error = function()
         return nil

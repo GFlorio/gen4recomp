@@ -3,10 +3,14 @@
 -- script warp targets a map symbol plus destination-local coordinates; the
 -- service loads the destination map, converts the coordinates to the global
 -- field space the transition expects, synthesizes a direct warp record, and
--- starts the transition. Completion is observed through the transition
--- returning to idle after the application consumed the finished swap, so the
--- warp task's poll cadence stays deterministic. Pure domain module: no love
--- dependency.
+-- starts a covered scripted swap under the source-authored screen cover
+-- (fade_screen/wait_fade), never the ordinary generic-fade transition
+-- lifecycle -- source `Warp` owns no fade of its own. Completion is observed
+-- through the transition returning to idle after the application consumed
+-- the finished swap, so the warp task's poll cadence stays deterministic.
+-- The service also holds the source special-spawn setter's semantic state
+-- (opcode 582): a named record, not a hidden side effect. Pure domain
+-- module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
@@ -19,12 +23,20 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field private _transition table FieldTransition-shaped
 ---@field private _loader table FieldMapLoader-shaped
 ---@field private _sourceMap table RuntimeFieldMap
+---@field private _screen table|nil screen-fade-cover-shaped: isOpaque(): boolean
 ---@field private pendingWarp table|nil
 ---@field private _error any|nil
+---@field private _specialSpawn table|nil
 local ScriptMapsService = {}
 ScriptMapsService.__index = ScriptMapsService
 
----@param opts table { transition, loader, sourceMap }
+-- `opts.screen` is optional at this narrow constructor: production always
+-- supplies one (FieldScripts wires FieldRuntime's screen-fade controller
+-- unconditionally), so a real scripted `Warp` always performs a covered
+-- swap. A caller with no screen cover (only exercised where a test's
+-- contract is unrelated to warp fade behavior) falls back to the ordinary
+-- transition lifecycle instead of asserting a capability it does not need.
+---@param opts table { transition, loader, sourceMap, screen? }
 ---@return ScriptMapsService
 function ScriptMapsService.new(opts)
   assert(
@@ -35,8 +47,10 @@ function ScriptMapsService.new(opts)
     _transition = opts.transition,
     _loader = opts.loader,
     _sourceMap = opts.sourceMap,
+    _screen = opts.screen,
     pendingWarp = nil,
     _error = nil,
+    _specialSpawn = nil,
   }, ScriptMapsService)
 end
 
@@ -133,7 +147,33 @@ function ScriptMapsService:startWarp(target)
   self._error = nil
   -- A scripted warp carries no trigger classification: it is a plain fade
   -- record ({ kind = nil, warp = warp }), never a door or stair choreography.
-  self._transition:start(self._sourceMap, { warp = warp }, target.facing)
+  local trigger = { warp = warp }
+  if self._screen ~= nil then
+    -- Source `Warp` owns no fade of its own: the source-authored
+    -- FadeScreen/WaitFade already owns visual cover, so the covered swap
+    -- must not synthesize a second ordinary fade pair. A source path that
+    -- reaches the warp without opaque cover is a script sequencing fault,
+    -- not a silently-inserted fade.
+    assert(self._screen:isOpaque(), "a covered scripted swap requires the screen cover to be fully opaque")
+    self._transition:startCoveredSwap(self._sourceMap, trigger, target.facing)
+  else
+    self._transition:start(self._sourceMap, trigger, target.facing)
+  end
+end
+
+-- Record the source special-spawn location (opcode 582): a named semantic
+-- setter, never a hidden side effect folded into the lowering. Full
+-- LocalFieldData persistence is out of scope; this state is only observable
+-- through `specialSpawn()`.
+---@param spawn { map: any, fieldX: integer, fieldZ: integer, warpId: integer, direction: string }
+function ScriptMapsService:setSpecialSpawn(spawn)
+  self._specialSpawn = spawn
+end
+
+-- The recorded special-spawn location, or nil before the source setter ran.
+---@return table|nil
+function ScriptMapsService:specialSpawn()
+  return self._specialSpawn
 end
 
 -- True when the started warp has run its course: the application consumed

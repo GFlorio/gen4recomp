@@ -329,6 +329,11 @@ function Game:snapshot()
     menu = appHostStatus.menu or (runtime.menuHost and runtime.menuHost:snapshot()) or nil,
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
     transition = { phase = runtime.transition and runtime.transition.phase },
+    -- The production script screen-fade controller (fade_screen/wait_fade),
+    -- distinct from the ordinary FieldTransition fade. Synthetic
+    -- harness-mechanics fakes (game/tests/acceptance_harness_self_test.lua)
+    -- do not model it; a real FieldRuntime always does.
+    screenFade = runtime.screenFade and runtime.screenFade:status() or nil,
     avatarId = runtime.avatar and runtime.avatar.id,
     world = self.worldProbe,
     actors = actors,

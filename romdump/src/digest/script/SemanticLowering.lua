@@ -184,17 +184,23 @@ local HANDLERS = {
   [609] = function()
     return { op = "yield_tick" }
   end, -- no-follower path of ScrCmd_609
-  [582] = function()
-    return { op = "noop" }
+  -- The source special-spawn setter: records the map/coordinates/direction
+  -- of a pending special spawn point. Not a query -- it must not vanish as a
+  -- noop. warpId -1 and south facing are the source constants (scrcmd_c.c).
+  [582] = function(ins)
+    return {
+      op = "set_special_spawn",
+      map = varRef(ins.operands[1]),
+      fieldX = varRef(ins.operands[2]),
+      fieldZ = varRef(ins.operands[3]),
+      warpId = -1,
+      direction = "south",
+    }
   end,
-  [596] = function()
-    return { op = "noop" }
-  end,
-  [600] = function()
-    return { op = "noop" }
-  end,
-  [729] = function()
-    return { op = "noop" }
+  -- The follower-active query: the opening no-follower composition has no
+  -- following Pokemon, so the source result is always false/0.
+  [729] = function(ins)
+    return { op = "set_var", variable = varRef(ins.operands[1]), value = 0 }
   end,
   [0] = function()
     return nil

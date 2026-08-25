@@ -160,9 +160,11 @@ function T.tests.walking_onto_elm_lab_enters_the_second_floor_without_a_turn()
     Assert.deepEqual({ before.player.fieldX, before.player.fieldZ }, { 688, 393 })
 
     game:move("north")
-    local phases = {}
+    local screenFadeDirections = {}
     game:advanceUntil("Elm Lab automatic route completes", function(snapshot)
-      phases[snapshot.transition.phase] = true
+      if snapshot.screenFade and snapshot.screenFade.active then
+        screenFadeDirections[snapshot.screenFade.direction] = true
+      end
       return snapshot.mapSymbol == LAB_2F and snapshot.transition.phase == "idle" and not snapshot.fieldLocked
     end, 120)
     local destination = game:snapshot()
@@ -172,8 +174,15 @@ function T.tests.walking_onto_elm_lab_enters_the_second_floor_without_a_turn()
     Assert.isFalse(destination.fieldLocked, "the completed route must release script ownership")
     Assert.equal(game.runtime.scripts.worldState:getVar(VAR_UNK_407C), 1)
 
-    Assert.isTrue(phases.fade_out, "the route must use the field transition fade-out")
-    Assert.isTrue(phases.fade_in, "the route must use the field transition fade-in")
+    -- The Elm route is covered by the source-authored script screen fade, not
+    -- an ordinary FieldTransition fade pair (source `FadeScreen -> WaitFade ->
+    -- Warp -> FadeScreen -> WaitFade`).
+    Assert.isTrue(screenFadeDirections["out"], "the route must use the production script screen fade-out")
+    Assert.isTrue(screenFadeDirections["in"], "the route must use the production script screen fade-in")
+    Assert.isTrue(
+      destination.screenFade == nil or destination.screenFade.completed,
+      "the final script screen fade must be clear at the settled destination"
+    )
   end, { audioOutput = FakeAudioOutput.new() })
 end
 

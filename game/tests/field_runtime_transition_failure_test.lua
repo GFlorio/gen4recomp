@@ -40,6 +40,12 @@ local function runtimeWithTransitionError(transitionError)
         return nil
       end,
     },
+    screenFade = {
+      fadeDone = function()
+        return true
+      end,
+      updateSourceFrame = function() end,
+    },
     applicationHost = {
       error = function()
         return nil

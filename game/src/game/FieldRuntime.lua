@@ -34,6 +34,7 @@ local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
 local GameSave = require("libs.engine.src.GameSave")
 local PlayTime = require("libs.engine.src.PlayTime")
 local FieldScripts = require("game.src.game.FieldScripts")
+local FieldScriptScreenFade = require("libs.engine.src.FieldScriptScreenFade")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
@@ -120,6 +121,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field audio FieldAudioController? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
+---@field screenFade FieldScriptScreenFade the production semantic script screen-fade controller (fade_screen/wait_fade); always composed, advanced only from the 60 Hz presentation-frame branch of update()
 ---@field presentationFrameAccumulator number elapsed wall-clock time awaiting transition presentation frames
 ---@field audioFrameAccumulator number elapsed wall-clock time awaiting semantic sound frames
 ---@field localClock LocalClock the shared host-local civil-time boundary
@@ -507,6 +509,13 @@ function FieldRuntime:_load()
     self.transition.player = self.player
     self.transition.suppression = nil
 
+    -- The production script screen-fade controller (fade_screen/wait_fade):
+    -- composed unconditionally so every supported field script has it,
+    -- regardless of presentation mode or scriptHosts injection. Advanced only
+    -- from the 60 Hz presentation-frame branch below; rendering only reads
+    -- its status().
+    self.screenFade = FieldScriptScreenFade.new()
+
     -- Modal dialogue is pure and fixed-tick. Runtime layout needs only the
     -- compiled font definition; presentation later owns the atlas and drawing.
     -- The text-speed cadence is captured from the player options at
@@ -648,7 +657,9 @@ function FieldRuntime:_load()
       seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
       audio = audioService,
       camera = self.scriptHosts and self.scriptHosts.camera,
-      screen = self.scriptHosts and self.scriptHosts.screen,
+      -- Always the production semantic screen-fade controller: a script
+      -- fade/covered-swap capability is never limited to test composition.
+      screen = self.screenFade,
       events = self.scriptHosts and self.scriptHosts.events,
       auxiliaryUi = self.auxiliaryFieldUi,
       contextChoice = self.contextChoiceProvider,
@@ -761,18 +772,22 @@ function FieldRuntime:update(dt)
     then
       self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT
       self.transition:updateSourceFrame()
+      self.screenFade:updateSourceFrame()
     elseif canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
       local transitionWasIdle = self.transition.phase == FieldTransition.PHASES.idle
+      local screenFadeWasDone = self.screenFade:fadeDone()
       self.session.accumulator = self.session.accumulator - FIXED_DT
       self.session:updateFixed()
       fieldExecuted = fieldExecuted + 1
       if
-        transitionWasIdle
-        and self.transition.phase ~= FieldTransition.PHASES.idle
-        and self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
+        (
+          (transitionWasIdle and self.transition.phase ~= FieldTransition.PHASES.idle)
+          or (screenFadeWasDone and not self.screenFade:fadeDone())
+        ) and self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
       then
         -- Presentation time before this boundary belongs to the old field
-        -- state and must not become the first frame of the new transition.
+        -- state and must not become the first frame of the new transition or
+        -- script screen fade.
         self.presentationFrameAccumulator = 0
       end
       if self.applicationHost:error() and not self.errorText then
@@ -1110,7 +1125,11 @@ end
 ---@param facing FieldDirection
 ---@return table prepared destination player, camera, and player visual
 function FieldRuntime:_prepareSwap(resolution, facing)
-  assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
+  -- The hidden-commit invariant accepts either cover: the ordinary
+  -- transition's own fade for a plain warp, or the source-authored script
+  -- screen fade for a covered scripted swap (the transition itself never
+  -- starts a fade there). Neither is weakened by the other's existence.
+  assert(self.transition.fadeAlpha == 1 or self.screenFade:isOpaque(), "field map swap must be hidden by fade")
   local runtimeMap = resolution.destinationMap
   self:_applyEffectiveWeather(runtimeMap)
   local fieldX, fieldZ = resolution.fieldX, resolution.fieldZ

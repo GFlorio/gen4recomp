@@ -1051,6 +1051,18 @@ No fields.
 | `provenance` | source_provenance |  |  |
 | `spawn` | string | yes |  |
 
+### `set_special_spawn`
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `direction` | enum:direction | yes |  |
+| `fieldX` | scalar_or_value | yes |  |
+| `fieldZ` | scalar_or_value | yes |  |
+| `key` | string |  |  |
+| `map` | scalar_or_value | yes |  |
+| `provenance` | source_provenance |  |  |
+| `warpId` | integer | yes |  |
+
 ### `set_var`
 
 | Field | Type | Required | Default |

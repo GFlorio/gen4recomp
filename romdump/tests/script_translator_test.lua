@@ -914,4 +914,88 @@ T["unclassified sound commands stay attributed unsupported"] = function()
   Assert.isFalse(report.complete)
 end
 
+-- No-follower opening semantics: opcode 729 (follower-active query) writes
+-- the explicit no-follower result to its destination variable instead of
+-- disappearing as a noop; opcodes 596/600 have no implemented follower
+-- subsystem, so they must stay attributed-unsupported rather than a
+-- fabricated successful no-op.
+T["opcode 729 writes the explicit no-follower result"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 729, args = { { value = 0x8008, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "set_var",
+    variable = { value = "var", id = "VAR_SPECIAL_x8008" },
+    value = 0,
+    provenance = { offsets = { 32 }, opcodes = { 729 } },
+  })
+  Assert.equal(#lowered.unsupported, 0)
+end
+
+T["opcodes 596 and 600 stay explicitly unsupported without a follower subsystem"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 596, args = { { value = 0x8008, width = 2 } } },
+          { op = 600, args = {} },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  Assert.equal(CommandCatalog.classification(596), CommandCatalog.UNSUPPORTED)
+  Assert.equal(CommandCatalog.classification(600), CommandCatalog.UNSUPPORTED)
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.equal(#lowered.unsupported, 2)
+  Assert.equal(lowered.unsupported[1].command, 596)
+  Assert.equal(lowered.unsupported[1].originalName, "ScrCmd_596")
+  Assert.equal(lowered.unsupported[2].command, 600)
+  Assert.equal(lowered.unsupported[2].originalName, "ScrCmd_600")
+end
+
+-- Opcode 582 (the source special-spawn setter) must lower to a named
+-- `set_special_spawn` node carrying map/coordinates/warpId/direction rather
+-- than disappearing as a noop.
+T["opcode 582 lowers to a named special-spawn setter"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          {
+            op = 582,
+            args = { { value = 0x8008, width = 2 }, { value = 688, width = 2 }, { value = 393, width = 2 } },
+          },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "set_special_spawn",
+    map = { value = "var", id = "VAR_SPECIAL_x8008" },
+    fieldX = 688,
+    fieldZ = 393,
+    warpId = -1,
+    direction = "south",
+    provenance = { offsets = { 32 }, opcodes = { 582 } },
+  })
+  Assert.equal(#lowered.unsupported, 0)
+end
+
 return { tests = T }

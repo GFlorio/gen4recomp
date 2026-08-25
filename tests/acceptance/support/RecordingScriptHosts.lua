@@ -2,7 +2,11 @@
 -- They acknowledge effects immediately, while retaining their semantic order.
 -- `options.audio = false` omits the audio adapter so the production composition
 -- can wire the real GameSound at the scriptHosts.audio slot (the field-audio
--- acceptance scenarios); camera/screen/events remain recorded.
+-- acceptance scenarios); camera/events remain recorded. There is no `screen`
+-- adapter here: production always composes its own semantic screen-fade
+-- controller (FieldRuntime's `screenFade`) regardless of scriptHosts
+-- injection, so a recording stand-in would be dead capability, not an
+-- observation seam.
 
 local RecordingScriptHosts = {}
 
@@ -12,7 +16,6 @@ function RecordingScriptHosts.new(options)
   options = options or {}
   local effects = {}
   local audio = { current = nil, fadeActive = false }
-  local screen = { fadeActive = false }
   local events = { records = {} }
 
   function audio:play(sound)
@@ -58,19 +61,11 @@ function RecordingScriptHosts.new(options)
     return self.fadeActive
   end
 
-  function screen:startFade()
-    self.fadeActive = false
-  end
-
-  function screen:fadeDone()
-    return not self.fadeActive
-  end
-
   function events:emit(name, payload)
     self.records[#self.records + 1] = { name = name, payload = payload }
   end
 
-  local hosts = { effects = effects, events = events, screen = screen }
+  local hosts = { effects = effects, events = events }
   if options.audio ~= false then
     hosts.audio = audio
   end

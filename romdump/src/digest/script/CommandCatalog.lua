@@ -31,13 +31,14 @@ end
 -- one scheduler yield; active followers remain explicitly unsupported.
 CommandCatalog.CLASSIFICATION[609] = CommandCatalog.YIELD
 
--- These source queries are part of the no-follower Elm Lab stair route. Their
--- result is only used to select an optional branch; the runtime has no
--- follower subsystem, so the no-follower result is the zero/default value.
--- The map-position query below is likewise redundant after the scripted warp
--- has supplied its destination coordinates. Keep all other unsupported source
--- commands explicit so an accidental reachable omission still faults.
-for _, opcode in ipairs({ 582, 596, 600, 729 }) do
+-- Opcode 582 (the special-spawn setter) and opcode 729 (the follower-active
+-- query) have real supported semantics with no follower subsystem required:
+-- 582 records a source location, 729 writes the no-follower false result.
+-- Opcodes 596/600 are genuine active-follower behavior with no implemented
+-- follower subsystem; they stay unclassified so they fall through to the
+-- explicit unsupported default and fault loudly if a script ever reaches
+-- them, instead of masquerading as a successful no-op.
+for _, opcode in ipairs({ 582, 729 }) do
   CommandCatalog.CLASSIFICATION[opcode] = CommandCatalog.CONTINUE
 end
 

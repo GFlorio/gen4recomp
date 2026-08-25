@@ -1197,7 +1197,15 @@ HANDLERS.play_fanfare = function(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.fade_screen = function(node, run)
-  requireService(run, "screen"):startFade(node)
+  -- The compiled node's duration field is named `kind` (the source
+  -- FadeScreen's first operand); the screen service's spec names it
+  -- `duration` explicitly since it is not an enumerated kind.
+  requireService(run, "screen"):startFade({
+    duration = node.kind,
+    speed = node.speed,
+    direction = node.direction,
+    color = node.color,
+  })
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.fade_music_out = function(node, run)
@@ -1219,6 +1227,16 @@ HANDLERS.shake_camera = function(node, run)
 end
 HANDLERS.set_spawn = function(node, run)
   requireService(run, "maps"):setSpawn(node.spawn)
+  return Runtime.OUTCOME_CONTINUE
+end
+HANDLERS.set_special_spawn = function(node, run)
+  requireService(run, "maps"):setSpecialSpawn({
+    map = Runtime.evaluateValue(node.map, run),
+    fieldX = Runtime.evaluateValue(node.fieldX, run),
+    fieldZ = Runtime.evaluateValue(node.fieldZ, run),
+    warpId = node.warpId,
+    direction = node.direction,
+  })
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.open_message = function(node, run)
