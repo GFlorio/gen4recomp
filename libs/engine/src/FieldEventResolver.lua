@@ -14,6 +14,7 @@ local function baseIntent(kind, runtimeMap, player, targetX, targetZ, scriptId)
     targetFieldX = targetX,
     targetFieldZ = targetZ,
     playerFacing = player.facing,
+    scriptBankId = runtimeMap.fieldData.scriptBankId,
     scriptId = scriptId,
     object = nil,
     background = nil,

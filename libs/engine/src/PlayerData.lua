@@ -135,7 +135,7 @@ function PlayerData.validate(record, context)
 end
 
 function PlayerData.defaultOptions()
-  return { textSpeed = "mid", textFrame = 0 }
+  return { textSpeed = "fastest", textFrame = 0 }
 end
 
 ---@param trainerId integer

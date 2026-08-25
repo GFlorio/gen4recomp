@@ -102,7 +102,7 @@ function T.tests.advance_until_timeout_contains_a_bounded_semantic_trace()
   game:close()
 end
 
-function T.tests.wait_for_transition_waits_for_script_ownership_release()
+function T.tests.wait_for_transition_returns_the_observed_destination_before_follow_up_scripts()
   local lockTicks = 0
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
@@ -113,6 +113,9 @@ function T.tests.wait_for_transition_waits_for_script_ownership_release()
           playerMovementLocked = function()
             return lockTicks < 4
           end,
+          foregroundEnvironmentId = function()
+            return nil
+          end,
         },
       }
       function runtime:update()
@@ -121,6 +124,9 @@ function T.tests.wait_for_transition_waits_for_script_ownership_release()
         if lockTicks == 2 then
           self.runtimeMap.mapId = 13
           self.runtimeMap.mapSymbol = "MAP_DESTINATION"
+        elseif lockTicks == 3 then
+          self.runtimeMap.mapId = 12
+          self.runtimeMap.mapSymbol = "MAP_TEST"
         end
       end
       return runtime
@@ -132,8 +138,8 @@ function T.tests.wait_for_transition_waits_for_script_ownership_release()
   local transition = game:waitForTransition()
 
   Assert.equal(transition.destination.mapSymbol, "MAP_DESTINATION")
-  Assert.isFalse(transition.destination.fieldLocked)
-  Assert.equal(transition.destination.tick, 4)
+  Assert.isTrue(transition.destination.fieldLocked)
+  Assert.equal(transition.destination.tick, 2)
   game:close()
 end
 

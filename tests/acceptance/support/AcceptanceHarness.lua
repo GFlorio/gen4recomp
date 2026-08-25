@@ -323,6 +323,7 @@ function Game:snapshot()
       facing = player.facing,
       motion = player.motion,
     },
+    playerVisual = runtime.playerVisual and runtime.playerVisual:status() or nil,
     dialogue = dialogue and dialogue:status() or { modal = false },
     menu = appHostStatus.menu or (runtime.menuHost and runtime.menuHost:snapshot()) or nil,
     fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
@@ -503,7 +504,7 @@ end
 
 function Game:_record()
   local snapshot = self:snapshot()
-  if self.lastSnapshot and self.lastSnapshot.mapId ~= snapshot.mapId then
+  if self.lastSnapshot and self.lastSnapshot.mapId ~= snapshot.mapId and not self.lastTransition then
     self.lastTransition = { source = self.lastSnapshot, destination = snapshot }
   end
   self.lastSnapshot = snapshot
@@ -530,9 +531,7 @@ function Game:step(input)
 end
 
 function Game:move(direction)
-  self.runtime:press(direction)
-  self:step()
-  self.runtime:release(direction)
+  self:step({ direction = direction })
 end
 
 function Game:_moveOne(direction)
@@ -551,34 +550,43 @@ end
 function Game:moveTo(target)
   assert(type(target) == "table", "movement target required")
   assert(type(target.fieldX) == "number" and type(target.fieldZ) == "number", "integer field target required")
+  self:advanceUntil("field entry ready for production movement", function()
+    return self.runtime.session.mapEntryStage == nil
+  end, 120)
   local player = assert(self.runtime.player, "acceptance runtime player required")
   local targetKey = target.fieldX .. ":" .. target.fieldZ
-  local function copyPlayer(source)
-    local copy = {}
-    for key, value in pairs(source) do
-      copy[key] = value
-    end
-    return setmetatable(copy, getmetatable(source))
-  end
-  local queue = { { player = copyPlayer(player), route = {} } }
+  local map = assert(player.currentMap, "acceptance movement map required")
+  local origin = assert(map.coordinateOrigin, "acceptance movement map origin required")
+  local queue = { { fieldX = player.fieldX, fieldZ = player.fieldZ, route = {} } }
   local seen = { [player.fieldX .. ":" .. player.fieldZ] = true }
   local route
   local head = 1
-  local directions = { "north", "south", "west", "east" }
+  local directions = { "east", "north", "south", "west" }
   while queue[head] do
     local node = queue[head]
     head = head + 1
-    if node.player.fieldX .. ":" .. node.player.fieldZ == targetKey then
+    if node.fieldX .. ":" .. node.fieldZ == targetKey then
       route = node.route
       break
     end
     for _, direction in ipairs(directions) do
-      local destination = node.player:_resolveStep(direction)
-      if destination then
-        local key = destination.fieldX .. ":" .. destination.fieldZ
+      local deltaX, deltaZ = 0, 0
+      if direction == "north" then
+        deltaZ = -1
+      elseif direction == "south" then
+        deltaZ = 1
+      elseif direction == "west" then
+        deltaX = -1
+      else
+        deltaX = 1
+      end
+      local fieldX, fieldZ = node.fieldX + deltaX, node.fieldZ + deltaZ
+      local localX, localZ = fieldX - origin.x, fieldZ - origin.z
+      if map.collision:containsLocal(localX, localZ) and not map.collision:isBlockedLocal(localX, localZ) then
+        local key = fieldX .. ":" .. fieldZ
         local isWarp = false
-        for _, warp in ipairs(node.player.currentMap.fieldData.events.warps) do
-          if warp.x == destination.fieldX and warp.z == destination.fieldZ then
+        for _, warp in ipairs(map.fieldData.events.warps) do
+          if warp.x == fieldX and warp.z == fieldZ then
             isWarp = true
             break
           end
@@ -590,11 +598,7 @@ function Game:moveTo(target)
             nextRoute[index] = step
           end
           nextRoute[#nextRoute + 1] = direction
-          local nextPlayer = copyPlayer(node.player)
-          for key, value in pairs(destination) do
-            nextPlayer[key] = value
-          end
-          queue[#queue + 1] = { player = nextPlayer, route = nextRoute }
+          queue[#queue + 1] = { fieldX = fieldX, fieldZ = fieldZ, route = nextRoute }
         end
       end
     end
@@ -626,16 +630,40 @@ function Game:face(direction)
 end
 
 function Game:waitForTransition()
-  if self.lastTransition then
-    local completed = self.lastTransition
-    self.lastTransition = nil
-    return completed
+  local source = self.lastTransition and self.lastTransition.source or self:snapshot()
+  for _ = 1, 480 do
+    local snapshot = self:snapshot()
+    if snapshot.mapId ~= source.mapId then
+      break
+    end
+    if snapshot.dialogue.modal then
+      self.runtime:pressAction()
+      self:step()
+      self.runtime:releaseAction()
+    else
+      self:step()
+    end
+    if _ == 480 then
+      local final = self:snapshot()
+      error(
+        "timed out waiting for transition completes; state="
+          .. tostring(final.mapSymbol)
+          .. ":"
+          .. tostring(final.player.fieldX)
+          .. ","
+          .. tostring(final.player.fieldZ)
+          .. ", phase="
+          .. tostring(final.transition.phase)
+          .. ", locked="
+          .. tostring(final.fieldLocked),
+        2
+      )
+    end
   end
-  local source = self:snapshot()
-  self:advanceUntil("transition completes", function(snapshot)
-    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle" and not snapshot.fieldLocked
-  end, 120)
   local destination = self:snapshot()
+  if self.runtime.camera and self.runtime.camera.collapseRenderInterpolation then
+    self.runtime.camera:collapseRenderInterpolation()
+  end
   self.lastTransition = nil
   return { source = source, destination = destination }
 end
@@ -683,7 +711,25 @@ function Game:advanceUntil(label, predicate, maxTicks)
       .. "; trace="
       .. tostring(#self.timeline)
       .. " snapshots; last tick="
-      .. tostring(self:snapshot().tick),
+      .. tostring(self:snapshot().tick)
+      .. "; state="
+      .. tostring(self:snapshot().mapSymbol)
+      .. ":"
+      .. tostring(self:snapshot().player.fieldX)
+      .. ","
+      .. tostring(self:snapshot().player.fieldZ)
+      .. "/"
+      .. tostring(self:snapshot().player.facing)
+      .. ":"
+      .. tostring(self:snapshot().player.motion)
+      .. ", transition="
+      .. tostring(self:snapshot().transition.phase)
+      .. ", locked="
+      .. tostring(self:snapshot().fieldLocked)
+      .. ", entry="
+      .. tostring(self:snapshot().mapEntryStage)
+      .. ", foreground="
+      .. tostring(self:snapshot().foregroundScript),
     2
   )
 end
@@ -804,13 +850,16 @@ function AcceptanceHarness.new(options)
         versionId = versionId,
         location = {
           mapSymbol = map or "MAP_BURNED_TOWER_1F",
-          fieldX = 6,
-          fieldZ = 6,
+          -- The rebuilt New Bark collision makes the old town fixture (6,6)
+          -- blocked. This is the first passable town cell with an open route
+          -- south/east in the generated map.
+          fieldX = 10,
+          fieldZ = 10,
           facing = "south",
         },
         playerData = {
           profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
-          options = { textSpeed = "mid", textFrame = 0 },
+          options = { textSpeed = "fastest", textFrame = 0 },
         },
         playTime = PlayTime.new(),
         worldState = FieldEventState.new(),

@@ -151,6 +151,14 @@ function T.visible_objects_become_actors_and_flagged_ones_do_not()
   Assert.equal(#mgr:drawRecords(), 1)
 end
 
+function T.warp_tile_objects_do_not_claim_movement_occupancy()
+  local map = runtimeMap({ object({ x = 6, z = 5 }) })
+  map.fieldData.events.warps = { { x = 6, z = 5 } }
+  local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
+  mgr:enterMap(map, FieldEventState.new())
+  Assert.isNil(mgr:getAt(map.mapId, 6, 5, 0), "a warp-tile object must not block its transition tile")
+end
+
 function T.actor_resolves_position_surface_and_world_anchor()
   local mgr = manager({ object({ x = 9, z = 3 }) })
   local actor = assert(mgr:getById("map:61:object:0"))

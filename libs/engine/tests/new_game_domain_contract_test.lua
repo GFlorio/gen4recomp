@@ -103,7 +103,7 @@ function T.new_candidate_uses_source_owned_opening_state()
     facing = "south",
   })
   Assert.equal(candidate.profileDraft.money, 3000)
-  Assert.deepEqual(candidate.options, { textSpeed = "mid", textFrame = 0 })
+  Assert.deepEqual(candidate.options, { textSpeed = "fastest", textFrame = 0 })
   Assert.equal(candidate.playTime:seconds(), 0)
   Assert.isTrue(candidate.worldState:isFlagSet(openingFlag), "the source opening flag is seeded semantically")
   Assert.isNil(candidate.surfaceId, "surface resolution belongs to field entry")
@@ -134,7 +134,7 @@ end
 function T.player_data_validates_source_shaped_profile_and_defaults()
   local PlayerData = requireDomain("libs.engine.src.PlayerData", "generalized PlayerData validation")
   local defaults = assert(PlayerData.defaultOptions())
-  Assert.deepEqual(defaults, { textSpeed = "mid", textFrame = 0 })
+  Assert.deepEqual(defaults, { textSpeed = "fastest", textFrame = 0 })
 
   local valid = assert(PlayerData.validate({
     profile = { name = "ABCDEFG", gender = 0, trainerId = 0, money = 0 },

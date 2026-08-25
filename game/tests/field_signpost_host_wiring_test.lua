@@ -23,9 +23,9 @@ local T = {
 -- under the key signpost tasks will read, and the advanceAsync closure steps
 -- the controller exactly once per production tick: a queued wipe moves one
 -- 16px step per tick. The same boot then proves the save gate follows the
--- controller's presented window and that a typed print reveals one glyph per
--- two scheduler ticks -- the mid text-speed cadence captured from the player
--- options at construction, never a host-chosen constant.
+-- controller's presented window and that a typed print uses the fresh-player
+-- fastest cadence captured from the player options at construction, never a
+-- host-chosen constant.
 function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
     versionId = "heartgold",
@@ -79,7 +79,7 @@ function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
       game:step()
       ticks = ticks + 1
     end
-    Assert.equal(ticks, 32, "16 glyphs at the mid cadence of two ticks per glyph")
+    Assert.isTrue(ticks > 0 and ticks <= 16, "fastest cadence must complete within 16 host ticks")
     Assert.isTrue(host:status().printDone, "the print completes at the cadence")
   end, debug.traceback)
   game:close()

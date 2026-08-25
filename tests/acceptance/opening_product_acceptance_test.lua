@@ -49,6 +49,12 @@ local function isolatedBackend(namespace)
   }
 end
 
+local function clearCheckpoints(saveStore)
+  for _, entry in ipairs(saveStore:list()) do
+    saveStore:delete(entry.saveId)
+  end
+end
+
 local function press(button)
   App.gamepadpressed(JOYSTICK, button)
   App.gamepadreleased(JOYSTICK, button)
@@ -154,6 +160,9 @@ local function waitForMom(runtime)
   local world = runtime.scripts.worldState
   local flags = FieldScriptSymbols.flagsByName
   for _ = 1, 2400 do
+    if runtime:destinationWorldPresentable() then
+      runtime:acknowledgeDestinationPresentation()
+    end
     tick(1)
     if runtime.errorText then
       error(runtime.errorText)
@@ -169,6 +178,12 @@ local function waitForMom(runtime)
       and world:isFlagSet(flags.FLAG_GOT_OPTIONS_BUTTON)
       and not world:isFlagSet(flags.FLAG_GOT_POKEGEAR)
     then
+      for _ = 1, 120 do
+        if not runtime.scripts.scheduler:playerMovementLocked() then
+          break
+        end
+        tick(1)
+      end
       return
     end
   end
@@ -176,20 +191,32 @@ local function waitForMom(runtime)
 end
 
 local function openMenu(runtime)
-  press("x")
-  tick(2)
-  local menu = runtime.applicationHost:status().menu
-  Assert.notNil(menu, "the source start menu must open after Mom")
-  return menu
+  for _ = 1, 120 do
+    local status = runtime.applicationHost:status()
+    if status.menu then
+      return status.menu
+    end
+    if status.phase == "closed" then
+      press("x")
+    end
+    tick(1)
+  end
+  Assert.fail("the source start menu must open after Mom")
 end
 
 local function choose(runtime, id)
   for _ = 1, 20 do
     local menu = runtime.applicationHost:status().menu
     for _, action in ipairs(menu.actions) do
-      if action.id == id then
+      if action.id == id and menu.cursorSlotId == action.slotId then
         press("a")
         tick(2)
+        for _ = 1, 120 do
+          if runtime.applicationHost:status().applicationId == id then
+            return
+          end
+          tick(1)
+        end
         return
       end
     end
@@ -203,6 +230,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
   local namespace = "acceptance/opening-product"
   local audio = FakeAudioOutput.new()
   local saveStore = GameSaveStore.new(SaveFs.global(isolatedBackend(namespace)))
+  clearCheckpoints(saveStore)
   local handoffDraws = {}
   local original = { opts = App.opts, state = App.state, saveStore = App.saveStore, versionId = App.versionId }
   local ok, err = xpcall(function()
@@ -258,6 +286,19 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     Assert.isTrue(#shrinkImages >= 2, "fewer than two shrink frames were drawn before field entry")
     Assert.isTrue(shrinkImages[1] ~= shrinkImages[2], "shrink frames reused one image")
     local runtime = assert(App.state.runtime)
+    for _ = 1, 240 do
+      tick(1)
+      if runtime:destinationWorldPresentable() then
+        runtime:acknowledgeDestinationPresentation()
+        break
+      end
+    end
+    for _ = 1, 240 do
+      if runtime.session.mapEntryStage == nil and not runtime.scripts.scheduler:playerMovementLocked() then
+        break
+      end
+      tick(1)
+    end
     Assert.equal(runtime.runtimeMap.mapSymbol, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
     ---@diagnostic disable-next-line: undefined-field
     Assert.equal(#saveStore:list(), 0)
@@ -297,6 +338,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
   App.state = original.state
   App.saveStore = original.saveStore
   App.versionId = original.versionId
+  clearCheckpoints(saveStore)
   if not ok then
     error(err, 0)
   end

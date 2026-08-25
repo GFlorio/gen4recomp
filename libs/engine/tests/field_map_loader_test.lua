@@ -542,6 +542,14 @@ function T.simulation_only_runtime_exposes_a_safe_update_animated()
   loader:release()
 end
 
+function T.exposes_loaded_map_transition_environment()
+  local cache, world, _, _, files = fixture(1)
+  files["data/generated/field/maps/0000/field.lua"].transitionEnvironment = "cave"
+  local loader = FieldMapLoader.new(cache, world)
+  Assert.equal(loader:transitionEnvironment(0), "cave")
+  loader:release()
+end
+
 -- The neighbor loader receives the central scene's textureSrt clip: the one
 -- area animation applies to the central terrain and all displayed neighbor
 -- cells, so the aggregate must pass the scene field through on the neighbor

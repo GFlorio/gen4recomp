@@ -340,6 +340,8 @@ local function adjustHorizontalStairDestination(self, resolution)
   self.destinationWarpZ = resolution.destinationWarp.z
 end
 
+-- Door arrivals stand on the floor immediately before the destination door;
+-- the warp record itself is the door anchor used for destination choreography.
 local function adjustVerticalDestination(self, resolution)
   self.destinationAnchorY = resolution.worldY
   local offset = self.profileId == FieldTransitionProfile.LADDER and -2 or 2
@@ -405,6 +407,9 @@ local function beginSourceChoreography(self)
   if kind == "door" then
     if not self.doorAt then
       self.sourceChoreo = "done"
+      if self.playSound then
+        self.playSound("SEQ_SE_DP_DOOR_OPEN")
+      end
       startFade(self, "out", 0)
       return
     end

@@ -184,6 +184,18 @@ local HANDLERS = {
   [609] = function()
     return { op = "yield_tick" }
   end, -- no-follower path of ScrCmd_609
+  [582] = function()
+    return { op = "noop" }
+  end,
+  [596] = function()
+    return { op = "noop" }
+  end,
+  [600] = function()
+    return { op = "noop" }
+  end,
+  [729] = function()
+    return { op = "noop" }
+  end,
   [0] = function()
     return nil
   end, -- Nop

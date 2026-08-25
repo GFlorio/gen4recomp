@@ -71,6 +71,10 @@ function T.runtime_state_starts_from_the_source_record()
   Assert.isNil(a.interactionFacingOverride)
 end
 
+function T.inert_source_objects_do_not_block_player_routes()
+  Assert.isFalse(actor({ scriptId = 0 }).solid)
+end
+
 function T.unknown_source_facing_is_rejected()
   throwsCode("ACTOR_FACING_INVALID", function()
     actor({ facingDirection = "unknown", facingDirectionRaw = 9 })

@@ -4,6 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local FieldMovement = require("tests.acceptance.support.FieldMovement")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
 local T = {
@@ -19,7 +20,7 @@ local LAB_2F = "MAP_NEW_BARK_ELMS_LAB_2F"
 
 local function withGame(map, fn)
   local game = AcceptanceHarness.new():boot({
-    versionId = AcceptanceHarness.defaultVersion(),
+    versionId = "heartgold",
     map = map,
     save = "fresh",
     fieldOptions = { recordingScriptHosts = true },
@@ -60,8 +61,7 @@ local function entranceCell(game, behavior)
 end
 
 local function enterLab2F(game)
-  game:moveTo({ fieldX = 688, fieldZ = 392 })
-  game:face("west")
+  FieldMovement.activate(game, { fieldX = 688, fieldZ = 392 }, "north")
   local transition = game:waitForTransition()
   Assert.equal(transition.destination.mapSymbol, LAB_2F)
 end

@@ -4,6 +4,7 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
+local FieldMovement = require("tests.acceptance.support.FieldMovement")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
@@ -21,7 +22,7 @@ local VAR_UNK_407C = FieldScriptSymbols.variablesByName.VAR_UNK_407C
 
 local function withGame(map, fn, fieldOptions)
   local game = AcceptanceHarness.new():boot({
-    versionId = AcceptanceHarness.defaultVersion(),
+    versionId = "heartgold",
     map = map,
     save = "fresh",
     fieldOptions = fieldOptions,
@@ -67,6 +68,20 @@ local function setCoordinatePredicate(game, event, matching)
   })
 end
 
+function T.tests.default_town_spawn_is_passable_in_the_generated_collision()
+  withGame(TOWN, function(game)
+    local player = game:snapshot().player
+    local map = game.runtime.runtimeMap
+    local origin = assert(map.coordinateOrigin)
+    local localX, localZ = player.fieldX - origin.x, player.fieldZ - origin.z
+
+    Assert.deepEqual({ player.fieldX, player.fieldZ }, { 682, 394 })
+    Assert.isFalse(map.collision:isBlockedLocal(localX, localZ), "default town spawn must be passable")
+    Assert.isFalse(map.collision:isBlockedLocal(localX, localZ + 1), "default town spawn must have a south exit")
+    Assert.isFalse(map.collision:isBlockedLocal(localX + 1, localZ), "default town spawn must have an east exit")
+  end)
+end
+
 local function warpCellWithBehavior(game, behavior)
   local map = game.runtime.runtimeMap
   local origin = assert(map.coordinateOrigin)
@@ -77,6 +92,35 @@ local function warpCellWithBehavior(game, behavior)
     end
   end
   return nil
+end
+
+function T.tests.literal_east_then_north_route_advances_each_production_move()
+  withGame(TOWN, function(game)
+    local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
+    setCoordinatePredicate(game, event, true)
+    local snapshots = FieldMovement.productionRoute(game, {
+      "east",
+      "east",
+      "east",
+      "east",
+      "east",
+      "east",
+      "north",
+      "north",
+    })
+
+    Assert.equal(#snapshots, 8)
+    for index = 1, 6 do
+      Assert.deepEqual(
+        { snapshots[index].player.fieldX, snapshots[index].player.fieldZ },
+        { 682 + index, 394 },
+        "east production move " .. tostring(index) .. " must advance"
+      )
+    end
+    Assert.deepEqual({ snapshots[7].player.fieldX, snapshots[7].player.fieldZ }, { 688, 393 })
+    Assert.deepEqual({ snapshots[8].player.fieldX, snapshots[8].player.fieldZ }, { 688, 392 })
+    Assert.equal(snapshots[8].mapSymbol, TOWN)
+  end)
 end
 
 local function backgroundCell(game, eventType)
@@ -101,8 +145,7 @@ end
 local function enterLab2F(game)
   local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
   setCoordinatePredicate(game, event, true)
-  game:moveTo({ fieldX = 688, fieldZ = 393 })
-  game:move("north")
+  FieldMovement.activate(game, { fieldX = event.x, fieldZ = event.z }, "north")
   local transition = game:waitForTransition()
   Assert.equal(transition.destination.mapSymbol, LAB_2F)
 end
@@ -138,7 +181,7 @@ function T.tests.coordinate_priority_and_variable_gate_control_the_landing()
   withGame(TOWN, function(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
     setCoordinatePredicate(game, event, true)
-    game:moveTo({ fieldX = 688, fieldZ = 392 })
+    FieldMovement.activate(game, { fieldX = event.x, fieldZ = event.z }, "north")
     local matching = recordsNamed(game, "script.started")
     Assert.isTrue(#matching > 0)
     Assert.equal(matching[#matching].payload.trigger.kind, "coordinate")
@@ -147,9 +190,13 @@ function T.tests.coordinate_priority_and_variable_gate_control_the_landing()
   withGame(TOWN, function(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
     setCoordinatePredicate(game, event, false)
-    game:moveTo({ fieldX = 688, fieldZ = 393 })
-    game:move("north")
-    Assert.equal(#recordsNamed(game, "script.started"), 0, "a mismatched coordinate variable must skip the script")
+    local startsBeforeStep = #recordsNamed(game, "script.started")
+    FieldMovement.activate(game, { fieldX = event.x, fieldZ = event.z }, "north")
+    Assert.equal(
+      #recordsNamed(game, "script.started"),
+      startsBeforeStep,
+      "a mismatched coordinate variable must skip the script"
+    )
     Assert.equal(game:snapshot().mapSymbol, TOWN)
   end, { recordingScriptHosts = true })
 end

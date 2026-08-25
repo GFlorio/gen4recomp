@@ -92,6 +92,10 @@ function FieldPlayerVisual:settle()
   self.lastFacing = self.player.facing
 end
 
+function FieldPlayerVisual:status()
+  return { pose = self.pose, poseTick = self.poseTick }
+end
+
 -- `alpha` is the render interpolation factor of the current fixed step.
 function FieldPlayerVisual:drawRecord(alpha)
   local point = self.player:renderPosition(alpha)

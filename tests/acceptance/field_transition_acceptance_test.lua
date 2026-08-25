@@ -26,7 +26,7 @@ local HOUSE_WARP = { fieldX = 3, fieldZ = 3 }
 -- releases use different arrival cells for the same named transitions.
 local VERSION_FACTS = {
   heartgold = {
-    house2fArrival = { fieldX = 2, fieldZ = 4 },
+    house2fArrival = { fieldX = 3, fieldZ = 4 },
     labFloor = { fieldX = 4, fieldZ = 13 },
     labDoorAnchor = { fieldX = 4, fieldZ = 14 },
   },
@@ -38,20 +38,24 @@ local VERSION_FACTS = {
 }
 
 local function withGame(map, fn, fieldOptions)
-  local game = AcceptanceHarness.new():boot({
-    versionId = AcceptanceHarness.defaultVersion(),
-    map = map,
-    save = "fresh",
-    fieldOptions = fieldOptions,
-  })
-  local ok, err = xpcall(function()
-    fn(game)
-    Assert.equal(game:renderAttempts(), 0, "transition acceptance must stop before GPU rendering")
-  end, debug.traceback)
-  game:close()
-  if not ok then
-    error(err, 0)
-  end
+  local harness = AcceptanceHarness.new()
+  harness:forEachVersion(function(versionId)
+    local game = harness:boot({
+      versionId = versionId,
+      map = map,
+      save = "fresh",
+      fieldOptions = fieldOptions,
+    })
+    game:advanceDialogue()
+    local ok, err = xpcall(function()
+      fn(game)
+      Assert.equal(game:renderAttempts(), 0, "transition acceptance must stop before GPU rendering")
+    end, debug.traceback)
+    game:close()
+    if not ok then
+      error(err, 0)
+    end
+  end)
 end
 
 local function factsFor(game)
@@ -94,8 +98,8 @@ function T.tests.player_house_stairs_remain_fixed_profile_three_indoors()
   withGame(TOWN, function(game)
     local facts = factsFor(game)
     enterHouse(game)
-    game:moveTo(HOUSE_WARP)
-    game:step({ direction = "west" })
+    game:moveTo({ fieldX = HOUSE_WARP.fieldX, fieldZ = HOUSE_WARP.fieldZ + 1 })
+    game:step({ direction = "north" })
     Assert.isFalse(game.runtime.player.motion == "climbing", "horizontal stairs must not use an in-place climb")
     local staged = game:advanceUntil("destination stair staging", function(snapshot)
       return snapshot.mapSymbol == HOUSE_2F
@@ -136,8 +140,8 @@ function T.tests.transition_sounds_are_emitted_once_by_profile_choreography()
 
   withGame(TOWN, function(game)
     enterHouse(game)
-    game:moveTo(HOUSE_WARP)
-    game:step({ direction = "west" })
+    game:moveTo({ fieldX = HOUSE_WARP.fieldX, fieldZ = HOUSE_WARP.fieldZ + 1 })
+    game:step({ direction = "north" })
     game:waitForTransition()
     local stairSoundCount = effectCount(game, "SEQ_SE_DP_KAIDAN2")
     Assert.equal(stairSoundCount, 1, "stair profile audio must be emitted once; got " .. tostring(stairSoundCount))
@@ -219,8 +223,8 @@ end
 function T.tests.transition_post_state_reanchors_player_and_camera()
   withGame(TOWN, function(game)
     enterHouse(game)
-    game:moveTo(HOUSE_WARP)
-    game:step({ direction = "west" })
+    game:moveTo({ fieldX = HOUSE_WARP.fieldX, fieldZ = HOUSE_WARP.fieldZ + 1 })
+    game:step({ direction = "north" })
     local transition = game:waitForTransition()
     local camera = assert(game.runtime.camera, "the production runtime must own a destination camera")
     Assert.notNil(camera.target, "post-transition camera target must be renderer-consumed state")
@@ -229,7 +233,7 @@ function T.tests.transition_post_state_reanchors_player_and_camera()
     Assert.equal(camera.previousTarget.x, camera.target.x)
     Assert.equal(camera.previousTarget.y, camera.target.y)
     Assert.equal(camera.previousTarget.z, camera.target.z)
-  end)
+  end, { recordingScriptHosts = true })
 end
 
 return T

@@ -55,6 +55,7 @@ local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
 local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
+local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
@@ -497,8 +498,9 @@ function FieldRuntime:_load()
       -- hook so stair completion (SEQ_SE_DP_KAIDAN2) emits through the
       -- production audio service.
       playSound = function(soundRef)
-        if self.audio then
-          self.audio:play(soundRef)
+        local audio = self.audio or (self.scriptHosts and self.scriptHosts.audio)
+        if audio then
+          audio:play(soundRef)
         end
       end,
     })
@@ -692,9 +694,6 @@ function FieldRuntime:_load()
           return self.interactionResolver:resolve(snapshot)
         end,
       },
-      bagUnlocked = function()
-        return self.scripts.worldState:isFlagSet(FieldScriptSymbols.flagsByName.FLAG_GOT_BAG)
-      end,
       eventResolver = FieldEventResolver,
       eventState = self.eventState,
       fieldEntranceIndicator = self.fieldEntranceIndicator,
@@ -813,7 +812,14 @@ function FieldRuntime:update(dt)
       self.errorText = tostring(self.transition.error)
     end
   end
-  self.transition:consumeCompleted()
+  local completed = self.transition:consumeCompleted()
+  if completed and self.camera then
+    -- The transition may finish on the same fixed tick that applies the
+    -- destination stair/door arrival. Publish a settled camera pair with the
+    -- completion event so the first post-transition presentation frame cannot
+    -- interpolate from the pre-arrival Y history.
+    self.camera:collapseRenderInterpolation()
+  end
 end
 
 -- Every semantic-input entry point below needs the same live-input guard;
@@ -1107,11 +1113,26 @@ function FieldRuntime:_prepareSwap(resolution, facing)
   assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
   local runtimeMap = resolution.destinationMap
   self:_applyEffectiveWeather(runtimeMap)
+  local fieldX, fieldZ = resolution.fieldX, resolution.fieldZ
+  local surfaceId, worldY = resolution.surfaceId, resolution.worldY
+  if self.transition.sourceKind == "door" then
+    assert(resolution.destinationWarp, "door destination warp required")
+    fieldX = resolution.destinationWarp.x
+    fieldZ = resolution.destinationWarp.z - 1
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
+    local sample = SurfaceResolver.new(runtimeMap.terrain):resolve({
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      currentY = worldY,
+    })
+    surfaceId, worldY = sample.surfaceId, sample.worldY
+  end
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
-    fieldX = resolution.fieldX,
-    fieldZ = resolution.fieldZ,
-    surfaceId = resolution.surfaceId,
+    fieldX = fieldX,
+    fieldZ = fieldZ,
+    surfaceId = surfaceId,
+    initialWorldY = worldY,
     facing = facing,
     occupancy = playerOccupancy(self),
   })

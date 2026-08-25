@@ -48,7 +48,20 @@ FieldMapLoader.__index = FieldMapLoader
 ---@param idOrSymbol string|integer
 ---@return table
 local function worldRecord(world, idOrSymbol)
-  local mapId = type(idOrSymbol) == "string" and world.bySymbol[idOrSymbol] or idOrSymbol
+  local mapId
+  if type(idOrSymbol) == "string" then
+    mapId = world.bySymbol[idOrSymbol]
+    if mapId == nil then
+      for _, candidate in ipairs(world.maps) do
+        if candidate.mapCode == idOrSymbol then
+          mapId = candidate.id
+          break
+        end
+      end
+    end
+  else
+    mapId = idOrSymbol
+  end
   local index = mapId ~= nil and world.byId[mapId] or nil
   local record = index and world.maps[index] or nil
   if not record then
@@ -348,6 +361,13 @@ end
 function FieldMapLoader:get(mapId)
   local entry = self.entries[mapId]
   return entry and entry.runtimeMap or nil
+end
+
+-- Transition profile selection needs only the destination map's generated
+-- environment, but the loader remains the owner of loading that field map.
+function FieldMapLoader:transitionEnvironment(mapId)
+  local runtimeMap = self:load(mapId)
+  return assert(runtimeMap.fieldData.transitionEnvironment, "field map transition environment required")
 end
 
 function FieldMapLoader:residentCount()

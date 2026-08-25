@@ -31,6 +31,16 @@ end
 -- one scheduler yield; active followers remain explicitly unsupported.
 CommandCatalog.CLASSIFICATION[609] = CommandCatalog.YIELD
 
+-- These source queries are part of the no-follower Elm Lab stair route. Their
+-- result is only used to select an optional branch; the runtime has no
+-- follower subsystem, so the no-follower result is the zero/default value.
+-- The map-position query below is likewise redundant after the scripted warp
+-- has supplied its destination coordinates. Keep all other unsupported source
+-- commands explicit so an accidental reachable omission still faults.
+for _, opcode in ipairs({ 582, 596, 600, 729 }) do
+  CommandCatalog.CLASSIFICATION[opcode] = CommandCatalog.CONTINUE
+end
+
 -- The supported opcodes: every opcode with an explicit timing
 -- descriptor; everything else decodes but stays an explicit unsupported node.
 CommandCatalog.SUPPORTED = {}

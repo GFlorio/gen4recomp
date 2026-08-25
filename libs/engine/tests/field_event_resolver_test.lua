@@ -6,18 +6,6 @@ local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 
 local T = {}
 
-local function map(coordinates, backgrounds)
-  return {
-    mapId = 60,
-    fieldData = {
-      events = {
-        coordinates = coordinates or {},
-        background = backgrounds or {},
-      },
-    },
-  }
-end
-
 local function player(x, z, facing)
   return { fieldX = x, fieldZ = z, facing = facing }
 end
@@ -28,6 +16,30 @@ local function eventState(value)
       return value
     end,
   }
+end
+
+local function map(coordinates, backgrounds)
+  return {
+    mapId = 60,
+    fieldData = {
+      scriptBankId = 842,
+      events = {
+        coordinates = coordinates or {},
+        background = backgrounds or {},
+      },
+    },
+  }
+end
+
+function T.coordinate_intents_keep_the_map_script_bank()
+  local resolved = assert(
+    FieldEventResolver.resolveCoordinate(
+      map({ { index = 0, x = 4, z = 6, width = 1, height = 1, variableId = 7, requiredValue = 3, scriptId = 10 } }),
+      player(4, 6, "north"),
+      eventState(3)
+    )
+  )
+  Assert.equal(resolved.scriptBankId, 842)
 end
 
 function T.coordinate_matching_uses_source_order_and_half_open_bounds()
@@ -54,6 +66,16 @@ function T.coordinate_matching_skips_variable_mismatch_and_preserves_zero_script
     assert(FieldEventResolver.resolveCoordinate(map({ event }), player(4, 6, "north"), eventState(3))).scriptId,
     0
   )
+end
+
+function T.coordinate_matching_reads_the_event_variable_not_an_unrelated_variable()
+  local event = { index = 5, x = 4, z = 6, width = 1, height = 1, variableId = 7, requiredValue = 3, scriptId = 10 }
+  local state = {
+    getVar = function(_, variableId)
+      return variableId == 8 and 3 or 0
+    end,
+  }
+  Assert.isNil(FieldEventResolver.resolveCoordinate(map({ event }), player(4, 6, "north"), state))
 end
 
 function T.passive_sign_uses_only_north_type_one_and_ignores_direction_raw()

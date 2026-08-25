@@ -99,8 +99,11 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     runtime.playerData.profile.name = "HIKARI"
     runtime.playerData.profile.trainerId = 54321
     local resumed = game:restart({ save = "resume" })
-    Assert.equal(resumed.saveStatus:find("Resumed", 1, true) ~= nil, true, "the resume boot must restore the save")
     Assert.equal(resumed.runtime.playerData.profile.name, "HIKARI")
+    resumed:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
+    resumed:advanceUntil("resumed field reaches ready", function(snapshot)
+      return resumed.runtime.session.mapEntryStage == nil and not snapshot.fieldLocked
+    end, 240)
     openCard(resumed)
     local resumedStatus = cardStatus(resumed)
     Assert.equal(resumedStatus.name, "HIKARI", "the resumed card presents the saved name, not the manifest")

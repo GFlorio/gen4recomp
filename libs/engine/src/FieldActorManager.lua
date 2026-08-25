@@ -87,6 +87,15 @@ local function occupancyKey(mapId, fieldX, fieldZ, surfaceId)
   return string.format("%d:%d:%d:%d", mapId, fieldX, fieldZ, surfaceId)
 end
 
+local function isWarpTile(runtimeMap, fieldX, fieldZ)
+  for _, warp in ipairs(runtimeMap.fieldData.events.warps) do
+    if warp.x == fieldX and warp.z == fieldZ then
+      return true
+    end
+  end
+  return false
+end
+
 local function resolveSurface(runtimeMap, event, actorId)
   local ok, result = pcall(function()
     local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, event.x, event.z)
@@ -167,7 +176,7 @@ function FieldActorManager:_instantiate(entry, event)
       mapId = runtimeMap.mapId,
       sourceEvent = event,
       spriteId = spriteId,
-      solid = event.solid,
+      solid = event.solid ~= false and not isWarpTile(runtimeMap, event.x, event.z),
       fieldX = event.x,
       fieldZ = event.z,
       surfaceId = surface.surfaceId,

@@ -53,7 +53,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field initController table|nil
 ---@field enterMapActors fun()?
 ---@field autoAcknowledgePresentation boolean?
----@field bagUnlocked fun(): boolean
+---@field constructActorsDuringTransition boolean?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -84,7 +84,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field mapEntryStage string?
 ---@field childResumePending boolean
 ---@field autoAcknowledgePresentation boolean
----@field bagUnlocked fun(): boolean
+---@field constructActorsDuringTransition boolean
 ---@field tick integer
 ---@field accumulator number
 local FieldSession = {}
@@ -106,6 +106,19 @@ local HIDDEN_ENTRY_STAGES = {
   load = true,
   load_running = true,
 }
+
+local DIRECTION_DELTAS = {
+  north = { x = 0, z = -1 },
+  south = { x = 0, z = 1 },
+  west = { x = -1, z = 0 },
+  east = { x = 1, z = 0 },
+}
+
+local function collapseCameraInterpolation(camera)
+  if camera.collapseRenderInterpolation then
+    camera:collapseRenderInterpolation()
+  end
+end
 
 ---@param options FieldSessionOptions
 ---@return FieldSession
@@ -147,7 +160,6 @@ function FieldSession.new(options)
     "field session application host required"
   )
   assert(options.interactions and options.interactions.resolve, "field session interaction resolver required")
-  assert(type(options.bagUnlocked) == "function", "field session bag unlock predicate required")
   assert(
     options.fieldEntranceIndicator and options.fieldEntranceIndicator.updateFixed,
     "field entrance indicator required"
@@ -171,7 +183,6 @@ function FieldSession.new(options)
     dialogue = options.dialogue,
     input = options.input,
     interactions = options.interactions,
-    bagUnlocked = options.bagUnlocked,
     eventResolver = options.eventResolver,
     eventState = options.eventState,
     scriptScheduler = options.scriptScheduler,
@@ -187,6 +198,7 @@ function FieldSession.new(options)
     mapEntryStage = nil,
     childResumePending = false,
     autoAcknowledgePresentation = options.autoAcknowledgePresentation == true,
+    constructActorsDuringTransition = options.constructActorsDuringTransition == true,
     tick = 0,
     accumulator = 0,
   }, FieldSession)
@@ -230,7 +242,11 @@ function FieldSession:_advanceMapEntryBoundary()
     end
     if hasEntryLifecycle(self, "on_transition") then
       if self.initController:startLifecycle("on_transition", self.tick + 1) then
-        self.mapEntryStage = "transition_running"
+        -- Headless production boots acknowledge presentation automatically;
+        -- construct actors at that boundary so the transition script can
+        -- address the destination map. The observable presentation path
+        -- still waits for the foreground lifecycle to finish.
+        self.mapEntryStage = self.constructActorsDuringTransition and "actors" or "transition_running"
       end
     else
       self.mapEntryStage = "actors"
@@ -306,8 +322,7 @@ end
 -- application branch above has already returned before this code runs.
 ---@return boolean
 local function canOpenStartMenu(self)
-  return self.bagUnlocked()
-    and self.player.motion == "idle"
+  return self.player.motion == "idle"
     and self.transition.phase == FieldTransition.PHASES.idle
     and not self.dialogue:isModal()
     and not self.signpost:isModal()
@@ -327,6 +342,48 @@ end
 
 local function resolveCoordinate(self)
   return self.eventResolver.resolveCoordinate(self.currentMap, self.player, self.eventState)
+end
+
+local function resolveCoordinateAhead(self, direction)
+  local offset = assert(DIRECTION_DELTAS[direction], "coordinate probe direction required")
+  return self.eventResolver.resolveCoordinate(self.currentMap, {
+    fieldX = self.player.fieldX + offset.x,
+    fieldZ = self.player.fieldZ + offset.z,
+    facing = direction,
+  }, self.eventState)
+end
+
+local function hasCoordinateAhead(self, direction)
+  local offset = assert(DIRECTION_DELTAS[direction], "coordinate probe direction required")
+  local targetX = self.player.fieldX + offset.x
+  local targetZ = self.player.fieldZ + offset.z
+  local events = self.currentMap.fieldData.events and self.currentMap.fieldData.events.coordinates or {}
+  for _, event in ipairs(events) do
+    if
+      targetX >= event.x
+      and targetX < event.x + event.width
+      and targetZ >= event.z
+      and targetZ < event.z + event.height
+    then
+      return true
+    end
+  end
+  return false
+end
+
+local function hasCoordinateAt(self, fieldX, fieldZ)
+  local events = self.currentMap.fieldData.events and self.currentMap.fieldData.events.coordinates or {}
+  for _, event in ipairs(events) do
+    if
+      fieldX >= event.x
+      and fieldX < event.x + event.width
+      and fieldZ >= event.z
+      and fieldZ < event.z + event.height
+    then
+      return true
+    end
+  end
+  return false
 end
 
 local function resolvePassiveSign(self)
@@ -356,6 +413,9 @@ function FieldSession:updateFixed(inputSnapshot)
       self.playerVisual:updateFixed(walkingAtTickStart)
     end
     self.camera:updateFixed(self:actorTarget())
+    if self.transition.completed then
+      collapseCameraInterpolation(self.camera)
+    end
     -- Keep the just-arrived tile stable until the application consumes the
     -- completion event and autosaves it, even when movement remains held.
     if self.transition.completed and self.input.clearEdges then
@@ -585,9 +645,16 @@ function FieldSession:updateFixed(inputSnapshot)
   -- direction-gated standing door/stairs/warp on the player's own tile.
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
   if self.player.motion == "idle" and direction then
+    -- A coordinate event on the tile being entered owns the step, even when
+    -- that tile is also a direction-triggered warp. The ROM evaluates the
+    -- arrival event after the step; pre-empting it here would leave the
+    -- generated coordinate script unresolved.
+    local coordinateAhead = resolveCoordinateAhead(self, direction)
     local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
     if
       trigger
+      and coordinateAhead == nil
+      and not hasCoordinateAhead(self, direction)
       and not WarpSystem.isSuppressed(
         self.transition.suppression,
         self.currentMap.mapId,
@@ -614,7 +681,18 @@ function FieldSession:updateFixed(inputSnapshot)
     end
     local coordinateIntent = resolveCoordinate(self)
     if coordinateIntent then
-      self.scriptClient:consume(coordinateIntent, self.tick + 1)
+      local coordinateResult = self.scriptClient:consume(coordinateIntent, self.tick + 1)
+      assert(
+        coordinateResult == ScriptInteractionClient.RESULTS.started
+          or coordinateResult == ScriptInteractionClient.RESULTS.blocked,
+        "a coordinate event must be bound: " .. tostring(coordinateIntent.mapId)
+      )
+      if self.playerVisual then
+        self.playerVisual:settle()
+      end
+      self.player:collapseRenderInterpolation()
+      self.camera:updateFixed(self:actorTarget())
+      collapseCameraInterpolation(self.camera)
       self:_advanceTick()
       return
     end
@@ -625,6 +703,7 @@ function FieldSession:updateFixed(inputSnapshot)
       TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
     if
       trigger
+      and not hasCoordinateAt(self, self.player.fieldX, self.player.fieldZ)
       and not WarpSystem.isSuppressed(
         self.transition.suppression,
         self.currentMap.mapId,
@@ -639,6 +718,12 @@ function FieldSession:updateFixed(inputSnapshot)
     local passiveIntent = resolvePassiveSign(self)
     if passiveIntent then
       self.scriptClient:consume(passiveIntent, self.tick + 1)
+      if self.playerVisual then
+        self.playerVisual:settle()
+      end
+      self.player:collapseRenderInterpolation()
+      self.camera:updateFixed(self:actorTarget())
+      collapseCameraInterpolation(self.camera)
       self:_advanceTick()
       return
     end
