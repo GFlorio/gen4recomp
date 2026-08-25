@@ -821,7 +821,7 @@ function T.animated_building_loads_advances_and_renders()
   assert(door)
   Assert.equal(door.instance, instance)
   Assert.equal(door.modelKey, "outdoor:26:door")
-  door:open()
+  Assert.equal(door:open(), "SEQ_SE_DP_DOOR_OPEN")
   for _ = 1, 7 do
     instance:updateFixed()
   end

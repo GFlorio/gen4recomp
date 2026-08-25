@@ -58,6 +58,7 @@ local DoorSound = require("libs.engine.src.DoorSound")
 ---@field placementIndex integer
 ---@field modelKey string
 ---@field transform number[]
+---@field doorSoundType integer?
 
 ---@class MapProps.Entry
 ---@field placementIndex integer
@@ -67,7 +68,7 @@ local DoorSound = require("libs.engine.src.DoorSound")
 
 ---@class MapProps.DoorOptions
 ---@field placements MapProps.Placement[]
----@field instances table<integer, table>
+---@field instances table<integer, ModelInstance>
 ---@field doorTiles { x: integer, z: integer }[]
 local MapProps = {}
 MapProps.__index = MapProps
@@ -180,9 +181,7 @@ function MapProps.new(opts)
       placementIndex = best.placement.placementIndex,
       modelKey = best.placement.modelKey,
       animation = nil,
-      doorSoundType = self.instances[best.placement.placementIndex]
-          and self.instances[best.placement.placementIndex].definition.doorSoundType
-        or nil,
+      doorSoundType = best.placement.doorSoundType,
     }
   end
   return self
@@ -227,9 +226,7 @@ end
 -- handle is the LIVE attachment instance:play returned, so isFinished reads
 -- it directly and replays always restart.
 function MapDoor:_play(role)
-  -- Headless FieldRuntime supplies a sound-only adapter so door transitions
-  -- retain their source-selected audio without acquiring presentation models.
-  if not self.instance or rawget(self.instance, "soundOnly") == true then
+  if not self.instance then
     return
   end
   local definition = self.instance.definition
@@ -298,9 +295,7 @@ function MapProps:doorAt(runtimeMap, fieldX, fieldZ)
     modelKey = entry.modelKey,
     instance = self.instances[entry.placementIndex],
     entry = entry,
-    doorSoundType = entry.doorSoundType
-      or (self.instances[entry.placementIndex] and self.instances[entry.placementIndex].definition.doorSoundType)
-      or nil,
+    doorSoundType = entry.doorSoundType,
   }, MapDoor)
 end
 

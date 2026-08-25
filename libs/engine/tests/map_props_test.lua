@@ -95,7 +95,7 @@ end
 -- (footprint) the loader stamps from the model's geometry. The precomputed
 -- ownership index resolves by pivot (transform translation), so bounds no
 -- longer participate in the door lookup.
-local function placement(index, modelKey, wx, wz, halfExtent)
+local function placement(index, modelKey, wx, wz, halfExtent, doorSoundType)
   return {
     placementIndex = index,
     modelKey = modelKey,
@@ -108,6 +108,7 @@ local function placement(index, modelKey, wx, wz, halfExtent)
       minZ = -halfExtent,
       maxZ = halfExtent,
     } or nil,
+    doorSoundType = doorSoundType,
   }
 end
 
@@ -507,20 +508,16 @@ function T.static_door_playback_is_a_noop()
   Assert.isNil(door:isFinished())
 end
 
-function T.sound_only_door_playback_emits_audio_without_visual_animation()
+function T.headless_door_playback_emits_audio_without_visual_animation()
   local wx, wz = tileCenterWorld(4, 14)
-  local instances = {
-    [1] = {
-      soundOnly = true,
-      definition = { doorSoundType = 1 },
-    },
-  }
+  local instances = {}
   local props = MapProps.new({
-    placements = { placement(1, "fixture:door", wx, wz, 1) },
+    placements = { placement(1, "fixture:door", wx, wz, 1, 1) },
     instances = instances,
     doorTiles = { { x = 4, z = 14 } },
   })
   local door = assert(props:doorAt(doorMap(), 4, 14))
+  Assert.isNil(door.instance)
   Assert.equal(door:open(), "SEQ_SE_DP_DOOR_OPEN")
   Assert.equal(door:close(), "SEQ_SE_DP_DOOR_CLOSE2")
   Assert.isNil(door:isFinished())

@@ -537,11 +537,13 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- door tiles is precomputed here, once, from the nearest placement pivot.
   local placements = {}
   for _, inst in ipairs(scene.buildingInstances) do
+    local descriptor = descriptorFor(inst.modelKey)
     placements[#placements + 1] = {
       placementIndex = inst.placementIndex,
       modelKey = inst.modelKey,
       transform = inst.transform,
-      bounds = descriptorFor(inst.modelKey).bounds,
+      bounds = descriptor.bounds,
+      doorSoundType = descriptor.descriptor.doorSoundType,
     }
   end
   runtime.mapProps = MapProps.new({

@@ -280,12 +280,14 @@ end
 -- door's semantic sound selector; no presentation instance is acquired.
 local function headlessMapProps(runtimeMap, cacheFs)
   local scene = runtimeMap.scene
-  local instances = {}
+  local placements = {}
   for _, placement in ipairs(scene.buildingInstances) do
     local descriptor = assert(cacheFs:loadLua(MapAssetCache.modelPath(placement.modelKey)))
-    instances[placement.placementIndex] = {
-      soundOnly = true,
-      definition = { doorSoundType = descriptor.doorSoundType },
+    placements[#placements + 1] = {
+      placementIndex = placement.placementIndex,
+      modelKey = placement.modelKey,
+      transform = placement.transform,
+      doorSoundType = descriptor.doorSoundType,
     }
   end
   local doorTiles = {}
@@ -300,8 +302,8 @@ local function headlessMapProps(runtimeMap, cacheFs)
     end
   end
   return MapProps.new({
-    placements = scene.buildingInstances,
-    instances = instances,
+    placements = placements,
+    instances = {},
     doorTiles = doorTiles,
   })
 end
