@@ -13,8 +13,12 @@ local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
 
-local STUB_GRAPHICS = { newImage = function() end }
----@cast STUB_GRAPHICS love.Graphics
+local STUB_GRAPHICS = {
+  newImage = function()
+    error("neighbor_ring does not build images in this test")
+  end,
+}
+---@cast STUB_GRAPHICS GpuAssetPool.Graphics
 
 -- A fake mesh builder for the pool's GPU seam: SceneMesh.decode output
 -- becomes a plain object, so the ring's assembly runs headless.

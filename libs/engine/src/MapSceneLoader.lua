@@ -572,7 +572,7 @@ end
 -- (see buildScene).
 ---@param cacheFs table
 ---@param scene table
----@param opts { graphics?: love.Graphics?, timeBand?: string, meshBuilder?: fun(decoded: table): any }?
+---@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder }?
 ---@return table
 function MapSceneLoader.load(cacheFs, scene, opts)
   opts = opts or {}

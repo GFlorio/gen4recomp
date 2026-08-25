@@ -147,7 +147,7 @@ end
 -- construction acquired before the error propagates.
 ---@param cacheFs table
 ---@param descriptors table[]
----@param opts { graphics?: love.Graphics?, textureSrt?: table|false }?
+---@param opts { graphics?: GpuAssetPool.Graphics, textureSrt?: table|false }?
 ---@return table
 function NeighborRing.load(cacheFs, descriptors, opts)
   opts = opts or {}

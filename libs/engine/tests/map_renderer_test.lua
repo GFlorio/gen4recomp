@@ -20,14 +20,14 @@ local RenderQueue = require("libs.engine.src.RenderQueue")
 
 local T = {}
 
----@class MapRendererTest.Shader
+---@class MapRendererTest.Shader : MapRenderer.Shader
 ---@field source string
 ---@field releaseCount integer
 ---@field sends { name: string, values: table }[]
 ---@field uniforms table<string, unknown>
 ---@field send fun(self: MapRendererTest.Shader, name: string, ...)
 ---@field release fun(self: MapRendererTest.Shader)
----@class MapRendererTest.Canvas
+---@class MapRendererTest.Canvas : MapRenderer.Canvas
 ---@field releaseCount integer
 ---@field w integer
 ---@field h integer
@@ -37,7 +37,7 @@ local T = {}
 ---@field release fun(self: MapRendererTest.Canvas)
 ---@class MapRendererTest.CanvasOptions
 ---@field format string?
----@class MapRendererTest.TargetDescriptor
+---@class MapRendererTest.TargetDescriptor : MapRenderer.TargetDescriptor
 ---@field [1] MapRendererTest.Canvas
 ---@field [2] MapRendererTest.Canvas
 ---@field depthstencil MapRendererTest.Canvas
@@ -48,13 +48,14 @@ local T = {}
 ---@field wireframe table[]
 ---@field clear table[]
 ---@field draw table[]
----@class MapRendererTest.Graphics
+---@class MapRendererTest.Graphics : MapRenderer.Graphics
 ---@field shaders MapRendererTest.Shader[]
 ---@field canvases MapRendererTest.Canvas[]
 ---@field calls MapRendererTest.GraphicsCalls
 ---@field setFailOnSend fun(value: table|nil)
 ---@field setFailOnNewCanvas fun(value: integer|nil)
 ---@field getDrawCalls fun(): integer
+---@field getDimensions fun(): integer, integer
 ---@field newShader fun(source: string): MapRendererTest.Shader
 ---@field newCanvas fun(width: integer, height: integer, opts: MapRendererTest.CanvasOptions?): MapRendererTest.Canvas
 ---@field getCanvas fun(): table?
@@ -207,6 +208,9 @@ local function fakeGraphics(opts)
     end,
     getDrawCalls = function()
       return drawCalls
+    end,
+    getDimensions = function()
+      return 256, 192
     end,
     newShader = function(source)
       shaderCount = shaderCount + 1
@@ -2057,6 +2061,12 @@ local function straddleGraphics()
     newMesh = function()
       error("straddle draw must not allocate a temporary mesh")
     end,
+    newCanvas = function()
+      local canvas = {}
+      canvas.setFilter = function() end
+      canvas.release = function() end
+      return canvas
+    end,
     setCanvas = function() end,
     setShader = function() end,
     setDepthMode = function() end,
@@ -2124,8 +2134,7 @@ function T.exact_source_meta_straddle_draw_uses_resident_mesh_without_readback_o
   local resident = sourceMesh()
   local item = straddleDrawItem(resident)
   item.material.alphaClass = "translucent"
-  renderer._sourceColorTargets = {}
-  renderer._sourceMetaTargets = {}
+  renderer:_ensureTargets(1, 1)
 
   renderer:_drawSourceItem(item, Matrix4.identity(), 1, Matrix4.identity(), 0, 1, 1)
   Assert.equal(fake.drawCalls[1], resident)

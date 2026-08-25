@@ -273,7 +273,7 @@ function T.empty_mesh_fails_and_releases_the_created_mesh()
         mesh.released = true
       end
       created[#created + 1] = mesh
-      return mesh
+      return mesh --[[@as GpuAssetPool.Mesh]]
     end,
   })
   local err = Assert.throws(function()
