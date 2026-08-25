@@ -11,6 +11,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+local FieldTraversal = require("libs.engine.src.FieldTraversal")
 
 ---@class FieldPlayer
 ---@field currentMap RuntimeFieldMap
@@ -28,11 +29,12 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field previousWorldZ number
 ---@field surfaceId integer
 ---@field facing FieldDirection
----@field motion "idle"|"walking"|"turning"|"transition"
+---@field motion "idle"|"walking"|"turning"|"jumping"|"transition"
 ---@field progressTicks integer
 ---@field durationTicks integer
 ---@field animationPaused boolean
 ---@field bufferedDirection FieldDirection?
+---@field bufferedDirectionFresh boolean
 ---@field from table?
 ---@field to table?
 ---@field transitionKind "ladder_exit"|"ladder_down_exit"|"vertical_return"|"held_stair"|nil
@@ -47,6 +49,7 @@ FieldPlayer.__index = FieldPlayer
 -- exactly one place.
 FieldPlayer.WALK_STEP_TICKS = 8
 FieldPlayer.TURN_TICKS = 2
+FieldPlayer.LEDGE_JUMP_TICKS = 16
 
 ---@alias FieldDirection "north"|"south"|"west"|"east"
 
@@ -126,6 +129,7 @@ function FieldPlayer.new(options)
     transitionKind = nil,
     transitionFacing = nil,
     transitionProgress = nil,
+    bufferedDirectionFresh = false,
   }, FieldPlayer)
 end
 
@@ -214,6 +218,24 @@ function FieldPlayer:_beginTurn(direction)
   self.durationTicks = FieldPlayer.TURN_TICKS
 end
 
+function FieldPlayer:_beginJump(direction, destination)
+  self.facing = direction
+  self.from = {
+    fieldX = self.fieldX,
+    fieldZ = self.fieldZ,
+    localX = self.localX,
+    localZ = self.localZ,
+    worldX = self.worldX,
+    worldY = self.worldY,
+    worldZ = self.worldZ,
+    surfaceId = self.surfaceId,
+  }
+  self.to = destination
+  self.motion = "jumping"
+  self.progressTicks = 0
+  self.durationTicks = FieldPlayer.LEDGE_JUMP_TICKS
+end
+
 function FieldPlayer:_advanceTurn()
   assert(self.motion == "turning", "turning motion required")
   self.progressTicks = self.progressTicks + 1
@@ -228,12 +250,85 @@ function FieldPlayer:tryStep(direction)
   assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
   assert(self.motion == "idle", "cannot begin a field step while walking")
   self.facing = direction
+
+  local delta = DELTAS[direction]
+  local destinationX, destinationZ = self.fieldX + delta.x, self.fieldZ + delta.z
+  local ok, destinationCell = pcall(function()
+    if not self.currentMap.collision.getLocal then
+      local blocked = false
+      if self.currentMap.collision.isBlockedLocal then
+        blocked = self.currentMap.collision:isBlockedLocal(destinationX, destinationZ)
+      end
+      return { blocked = blocked }
+    end
+    local localX, localZ = FieldCoordinates.fieldToLocal(self.currentMap, destinationX, destinationZ)
+    return self.currentMap.collision:getLocal(localX, localZ)
+  end)
+  if not ok then
+    if recoverableMovementError(destinationCell) then
+      return false
+    end
+    error(destinationCell)
+  end
+
+  local decision = FieldTraversal.classify(destinationCell, direction)
+  if decision.kind == "field_action" or decision.kind == "blocked" then
+    return false
+  elseif decision.kind == "ledge_jump" then
+    local destination = self:_resolveLedgeLanding(direction)
+    if not destination then
+      return false
+    end
+    self:_beginJump(direction, destination)
+    return true
+  end
+
   local destination = self:_resolveStep(direction)
   if not destination then
     return false
   end
   self:_beginStep(direction, destination)
   return true
+end
+
+function FieldPlayer:_resolveLedgeLanding(direction)
+  local delta = assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  local landingX, landingZ = self.fieldX + delta.x * 2, self.fieldZ + delta.z * 2
+  local ok, result = pcall(function()
+    local landingLocalX, landingLocalZ = FieldCoordinates.fieldToLocal(self.currentMap, landingX, landingZ)
+    if self.currentMap.collision:isBlockedLocal(landingLocalX, landingLocalZ) then
+      return nil
+    end
+    local landingCenterX = landingLocalX + FieldCoordinates.TILE_CENTER_OFFSET
+    local landingCenterZ = landingLocalZ + FieldCoordinates.TILE_CENTER_OFFSET
+    local sample = self.resolver:resolve({
+      localX = landingCenterX,
+      localZ = landingCenterZ,
+      currentSurfaceId = self.surfaceId,
+      currentY = self.worldY,
+    })
+    if self.occupancy and self.occupancy(landingX, landingZ, sample.surfaceId) then
+      return nil
+    end
+    local point = FieldCoordinates.fieldToWorld(self.currentMap, landingX, landingZ, sample.worldY)
+    return {
+      fieldX = landingX,
+      fieldZ = landingZ,
+      localX = landingLocalX,
+      localZ = landingLocalZ,
+      worldX = point.x,
+      worldY = sample.worldY,
+      worldZ = point.z,
+      surfaceId = sample.surfaceId,
+    }
+  end)
+  if not ok then
+    if recoverableMovementError(result) then
+      return nil
+    end
+    error(result)
+  end
+  return result
 end
 
 -- A scripted step for the door choreography: like tryStep, but the blocked
@@ -374,6 +469,28 @@ function FieldPlayer:_advanceStep()
   return true
 end
 
+function FieldPlayer:_advanceJump()
+  assert(self.motion == "jumping" and self.from and self.to, "jumping endpoints required")
+  self.progressTicks = self.progressTicks + 1
+  local progress = self.progressTicks / self.durationTicks
+  self.worldX = self.from.worldX + (self.to.worldX - self.from.worldX) * progress
+  self.worldZ = self.from.worldZ + (self.to.worldZ - self.from.worldZ) * progress
+  local linearY = self.from.worldY + (self.to.worldY - self.from.worldY) * progress
+  self.worldY = linearY + math.sin(math.pi * progress) * 0.5
+  if self.progressTicks < self.durationTicks then
+    return false
+  end
+
+  self.fieldX, self.fieldZ = self.to.fieldX, self.to.fieldZ
+  self.localX, self.localZ = self.to.localX, self.to.localZ
+  self.worldX, self.worldY, self.worldZ = self.to.worldX, self.to.worldY, self.to.worldZ
+  self.surfaceId = self.to.surfaceId
+  self.motion = "idle"
+  self.progressTicks = 0
+  self.from, self.to = nil, nil
+  return true
+end
+
 function FieldPlayer:updateFixed(input)
   input = input or {}
   self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
@@ -381,12 +498,25 @@ function FieldPlayer:updateFixed(input)
   if self.motion == "walking" then
     if input.pressedDirection then
       self.bufferedDirection = input.pressedDirection
+      self.bufferedDirectionFresh = false
     end
     return self:_advanceStep()
   end
 
   if self.motion == "turning" then
+    if input.pressedDirection then
+      self.bufferedDirection = input.pressedDirection
+      self.bufferedDirectionFresh = true
+    end
     return self:_advanceTurn()
+  end
+
+  if self.motion == "jumping" then
+    if input.pressedDirection then
+      self.bufferedDirection = input.pressedDirection
+      self.bufferedDirectionFresh = false
+    end
+    return self:_advanceJump()
   end
 
   if self.motion == "transition" then
@@ -410,11 +540,13 @@ function FieldPlayer:updateFixed(input)
 
   local direction
   local isWalkingContinuation = false
-  if self.bufferedDirection and self.bufferedDirection == input.heldDirection then
+  if self.bufferedDirection and (self.bufferedDirectionFresh or self.bufferedDirection == input.heldDirection) then
     direction = self.bufferedDirection
-    isWalkingContinuation = true
+    isWalkingContinuation = not self.bufferedDirectionFresh and input.heldDirection == self.bufferedDirection
+    self.bufferedDirectionFresh = false
   else
     self.bufferedDirection = nil
+    self.bufferedDirectionFresh = false
     direction = input.pressedDirection or input.heldDirection
   end
   if not direction then
@@ -426,7 +558,11 @@ function FieldPlayer:updateFixed(input)
     return self:_advanceTurn()
   end
   if self:tryStep(direction) then
-    self:_advanceStep()
+    if self.motion == "jumping" then
+      self:_advanceJump()
+    else
+      self:_advanceStep()
+    end
   end
   return false
 end

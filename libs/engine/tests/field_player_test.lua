@@ -500,4 +500,140 @@ function T.scripted_step_requires_an_idle_player()
   Assert.notNil(err)
 end
 
+-- These fixtures use the normalized HGSS behavior bytes that the production
+-- collision contract already carries. They deliberately keep permission open:
+-- traversal semantics must classify the behavior before ordinary stepping.
+local NAVIGATION_BEHAVIORS = {
+  riverWater = 16,
+  whirlpool = 17,
+  waterfall = 19,
+  seaWater = 21,
+  jumpEast = 56,
+  jumpNorth = 57,
+  jumpWest = 58,
+  jumpSouth = 59,
+  rockClimbEastWest = 75,
+  rockClimbNorthSouth = 76,
+}
+
+local function behaviorMap(behavior, plates)
+  local map = runtimeMap(nil, plates)
+  map.collision.getLocal = function(_, x, z)
+    if x == 1 and z == 4 then
+      return { blocked = false, behavior = behavior }
+    end
+    return { blocked = false, behavior = 0 }
+  end
+  return map
+end
+
+function T.wrong_direction_and_invalid_ledge_landings_do_not_displace()
+  local wrongDirectionMap = behaviorMap(NAVIGATION_BEHAVIORS.jumpEast)
+  wrongDirectionMap.collision.getLocal = function(_, x, z)
+    return { blocked = false, behavior = x == 0 and z == 3 and NAVIGATION_BEHAVIORS.jumpEast or 0 }
+  end
+  local wrongDirection = player(wrongDirectionMap, 0, 4, 0, "north")
+  tick(wrongDirection, "north", "north")
+  Assert.equal(wrongDirection.fieldX, 0)
+  Assert.equal(wrongDirection.fieldZ, 4)
+  Assert.equal(wrongDirection.motion, "idle")
+
+  local blockedLandingMap = behaviorMap(NAVIGATION_BEHAVIORS.jumpEast)
+  blockedLandingMap.collision.isBlockedLocal = function(_, x, z)
+    return x == 2 and z == 4
+  end
+  local blockedLanding = player(blockedLandingMap, 0, 4, 0, "east")
+  tick(blockedLanding, "east", "east")
+  Assert.equal(blockedLanding.fieldX, 0)
+  Assert.equal(blockedLanding.fieldZ, 4)
+  Assert.equal(blockedLanding.motion, "idle")
+
+  local occupiedLanding = player(behaviorMap(NAVIGATION_BEHAVIORS.jumpEast), 0, 4, 0, "east")
+  occupiedLanding.occupancy = function(fieldX, fieldZ)
+    return fieldX == 2 and fieldZ == 4 and "map:61:object:0" or nil
+  end
+  tick(occupiedLanding, "east", "east")
+  Assert.equal(occupiedLanding.fieldX, 0)
+  Assert.equal(occupiedLanding.fieldZ, 4)
+  Assert.equal(occupiedLanding.motion, "idle")
+
+  local outOfCoverageMap = runtimeMap()
+  outOfCoverageMap.collision.getLocal = function(_, x, z)
+    return { blocked = false, behavior = x == 31 and z == 4 and NAVIGATION_BEHAVIORS.jumpEast or 0 }
+  end
+  local outOfCoverage = player(outOfCoverageMap, 30, 4, 2, "east")
+  tick(outOfCoverage, "east", "east")
+  Assert.equal(outOfCoverage.fieldX, 30)
+  Assert.equal(outOfCoverage.fieldZ, 4)
+  Assert.equal(outOfCoverage.motion, "idle")
+
+  local malformedLanding = behaviorMap(NAVIGATION_BEHAVIORS.jumpEast, { flatPlate(0, 0, 1, 0), flatPlate(1, 3, 32, 0) })
+  local malformedPlayer = player(malformedLanding, 0, 4, 0, "east")
+  throwsCode("TERRAIN_SURFACE_NOT_FOUND", function()
+    malformedPlayer:tryStep("east")
+  end)
+end
+
+function T.field_move_behaviors_do_not_start_ordinary_walking()
+  for _, behavior in pairs({
+    NAVIGATION_BEHAVIORS.riverWater,
+    NAVIGATION_BEHAVIORS.seaWater,
+    NAVIGATION_BEHAVIORS.waterfall,
+    NAVIGATION_BEHAVIORS.whirlpool,
+    NAVIGATION_BEHAVIORS.rockClimbEastWest,
+    NAVIGATION_BEHAVIORS.rockClimbNorthSouth,
+  }) do
+    local p = player(behaviorMap(behavior), 0, 4, 0, "east")
+    tick(p, "east", "east")
+    Assert.equal(p.fieldX, 0)
+    Assert.equal(p.fieldZ, 4)
+    Assert.equal(p.motion, "idle")
+    Assert.equal(p.facing, "east")
+  end
+end
+
+function T.direction_matching_ledge_commits_a_two_tile_sixteen_tick_jump()
+  local p = player(behaviorMap(NAVIGATION_BEHAVIORS.jumpEast), 0, 4, 0, "east")
+  local startX, startZ = p.fieldX, p.fieldZ
+  local startWorldX, startWorldY = p.worldX, p.worldY
+
+  tick(p, "east", "east")
+  Assert.equal(p.motion, "jumping")
+  for _ = 1, 14 do
+    tick(p, "east")
+    Assert.equal(p.fieldX, startX)
+    Assert.equal(p.fieldZ, startZ)
+    Assert.equal(p.motion, "jumping")
+    Assert.isTrue(p.worldX > startWorldX and p.worldX < startWorldX + 2)
+    Assert.isTrue(p.worldY > startWorldY)
+  end
+
+  local committed = p:updateFixed({ heldDirection = "east" })
+  Assert.isTrue(committed)
+  Assert.equal(p.fieldX, startX + 2)
+  Assert.equal(p.fieldZ, startZ)
+  Assert.equal(p.motion, "idle")
+end
+
+function T.direction_tap_during_a_turn_is_consumed_at_the_next_boundary()
+  local p = player(runtimeMap(), 0, 4, 0, "south")
+  tick(p, "north", "north")
+  Assert.equal(p.motion, "turning")
+  tick(p, nil, "west")
+  Assert.equal(p.motion, "idle")
+  Assert.equal(p.facing, "north")
+  Assert.equal(p.fieldX, 0)
+  Assert.equal(p.fieldZ, 4)
+
+  tick(p)
+  Assert.equal(p.motion, "turning")
+  Assert.equal(p.facing, "west")
+  Assert.equal(p.fieldX, 0)
+  Assert.equal(p.fieldZ, 4)
+  tick(p)
+  Assert.equal(p.motion, "idle")
+  tick(p)
+  Assert.equal(p.motion, "idle")
+end
+
 return { tests = T }

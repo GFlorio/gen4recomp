@@ -67,7 +67,7 @@ local function crossesBoundary(map, sourceX, destinationX, direction)
   return nil
 end
 
-function T.new_bark_crosses_into_route_29_and_route_27_cells(romFs, versionId)
+function T.new_bark_crosses_into_route_29_and_rejects_route_27_water(romFs, versionId)
   -- Compiled-bundle region: the same crossings must hold from fresh ROM
   -- compilation, which also pins the neighbor header mapping.
   local map, descriptors = runtimeMap(romFs)
@@ -82,7 +82,7 @@ function T.new_bark_crosses_into_route_29_and_route_27_cells(romFs, versionId)
   Assert.equal(westHeader, 33)
   Assert.equal(eastHeader, 31)
   Assert.notNil(crossesBoundary(map, 0, -1, "west"), "no Route 29 boundary crossing")
-  Assert.notNil(crossesBoundary(map, 31, 32, "east"), "no Route 27 boundary crossing")
+  Assert.isNil(crossesBoundary(map, 31, 32, "east"), "Route 27 water is walkable")
 
   -- Generated-cache region: the production loader path must yield the same
   -- traversable neighbor ring for the same boundary steps. No scene loader is
@@ -92,7 +92,7 @@ function T.new_bark_crosses_into_route_29_and_route_27_cells(romFs, versionId)
   local loader = FieldMapLoader.new(cacheFs, world)
   local cached = loader:load(60)
   Assert.notNil(crossesBoundary(cached, 0, -1, "west"))
-  Assert.notNil(crossesBoundary(cached, 31, 32, "east"))
+  Assert.isNil(crossesBoundary(cached, 31, 32, "east"))
   loader:release()
 end
 
