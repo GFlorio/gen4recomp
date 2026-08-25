@@ -49,6 +49,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
+---@field terrainEffects FieldTerrainEffectController?
 ---@field audio { updateField: fun(self: table) }?
 ---@field navigationBoundary table?
 
@@ -75,6 +76,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
+---@field terrainEffects FieldTerrainEffectController?
 ---@field audio { updateField: fun(self: table) }?
 ---@field tick integer
 ---@field accumulator number
@@ -168,6 +170,7 @@ function FieldSession.new(options)
     signpost = options.signpost,
     applicationHost = options.applicationHost,
     fieldEntranceIndicator = options.fieldEntranceIndicator,
+    terrainEffects = options.terrainEffects,
     audio = options.audio,
     navigationBoundary = options.navigationBoundary,
     tick = 0,
@@ -202,6 +205,26 @@ function FieldSession:_advanceTick()
     transition = { ownsField = self.transition.phase == FieldTransition.PHASES.idle },
   })
   self.tick = self.tick + 1
+end
+
+function FieldSession:_emitTerrainResponse()
+  if not self.terrainEffects then
+    return
+  end
+  local origin = assert(self.currentMap.coordinateOrigin, "terrain response map origin is required")
+  local localX, localZ = self.player.fieldX - origin.x, self.player.fieldZ - origin.z
+  local cell = self.currentMap.collision:getLocal(localX, localZ)
+  local responses = require("libs.engine.src.FieldTerrainResponse").resolve({
+    committed = true,
+    destination = {
+      behavior = cell.behavior,
+      fieldX = self.player.fieldX,
+      fieldZ = self.player.fieldZ,
+      worldY = self.player.worldY,
+    },
+    direction = self.player.facing,
+  })
+  self.terrainEffects:emitAll(responses)
 end
 
 local function resolveCoordinate(self)
@@ -246,6 +269,9 @@ function FieldSession:updateFixed(inputSnapshot)
   -- test/legacy entry for those events; see FieldPlayer step commit and
   -- FieldAudioController:enterMap.
   inputSnapshot = inputSnapshot or self.input:snapshot()
+  if self.terrainEffects then
+    self.terrainEffects:updateFixed()
+  end
   -- The door/stair choreography drives the player during the locked
   -- transition: the pose clock hears the walking state at tick start, the
   -- camera tracks the continuous XYZ, and the scene's animated props
@@ -493,6 +519,7 @@ function FieldSession:updateFixed(inputSnapshot)
         }
       end
     end
+    self:_emitTerrainResponse()
     if self.audio then
       self.audio:updateField()
     end

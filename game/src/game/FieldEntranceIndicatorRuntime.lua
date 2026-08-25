@@ -9,12 +9,21 @@ local ModelAsset = require("libs.assets.src.ModelAsset")
 local M = {}
 
 function M.load(cacheFs)
-  local model = assert(
-    cacheFs:loadLua(FieldEffectAssetCache.modelPath()),
-    "warp entrance field effect cache is cold -- run `scripts/buildcache.sh` first"
+  local index = assert(
+    cacheFs:loadLua(FieldEffectAssetCache.indexPath()),
+    "field-effect cache is cold -- run `scripts/buildcache.sh` first"
   )
+  assert(index.schema == "g4-field-effect-index-v1", "field-effect index schema is unsupported")
+  local effects = {}
+  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass" }) do
+    local entry = assert(index.effects[kind], "field-effect index is missing " .. kind)
+    local definition = assert(cacheFs:loadLua(entry.path), "field-effect definition is missing: " .. kind)
+    ModelAsset.validate(definition.model)
+    effects[kind] = definition
+  end
+  local model = effects.warp_entrance.model
   ModelAsset.validate(model)
-  return { model = model }, FieldEntranceIndicator.new()
+  return { model = model, schema = index.schema, index = index, effects = effects }, FieldEntranceIndicator.new()
 end
 
 return M

@@ -187,6 +187,7 @@ end
 ---@field saveStore FieldSaveStore
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field fieldEntranceIndicatorAsset table
+---@field fieldEffectAssets table
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -420,6 +421,13 @@ function FieldRuntime:_load()
     assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
     self.weatherCatalog = weatherCatalog
     self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
+    self.fieldEffectAssets = self.fieldEntranceIndicatorAsset
+    self.fieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController").new({
+      effects = {
+        tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
+        very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
+      },
+    })
 
     -- FieldMapLoader owns the simulation assets (field data, collision,
     -- terrain) through the pure asset paths for every composition. The visual
@@ -789,6 +797,7 @@ function FieldRuntime:_load()
       eventResolver = FieldEventResolver,
       eventState = self.eventState,
       fieldEntranceIndicator = self.fieldEntranceIndicator,
+      terrainEffects = self.fieldTerrainEffectController,
     })
 
     self:_applyEffectiveWeather(self.runtimeMap)
@@ -1219,6 +1228,7 @@ end
 function FieldRuntime:_commitSwap(resolution, _, prepared)
   local runtimeMap = resolution.destinationMap
   local previousMapId = self.runtimeMap.mapId
+  self.fieldTerrainEffectController:clear()
   if runtimeMap.mapId ~= previousMapId then
     self.actors:leaveMap(previousMapId)
     self.mapLoader:protectMap(runtimeMap.mapId, true)
@@ -1318,6 +1328,8 @@ function FieldRuntime:_releaseAll()
   self.audio, self.audioSink, self.mapMusicDayNight = nil, nil, nil
   self.session, self.saveStore, self.scripts = nil, nil, nil
   self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
+  self.fieldTerrainEffectController = nil
+  self.fieldEffectAssets = nil
   self.fieldEntranceIndicator, self.fieldEntranceIndicatorAsset = nil, nil
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil

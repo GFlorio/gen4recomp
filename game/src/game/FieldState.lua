@@ -9,6 +9,7 @@ local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceIndicatorRenderer")
+local FieldTerrainEffectRenderer = require("libs.engine.src.FieldTerrainEffectRenderer")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
@@ -134,6 +135,17 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     self.fieldEntranceIndicatorPool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEntranceIndicatorRenderer =
       FieldEntranceIndicatorRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
+    if runtime.fieldEffectAssets and runtime.fieldEffectAssets.effects then
+      self.fieldTerrainEffectRenderer =
+        FieldTerrainEffectRenderer.new(runtime.fieldEffectAssets, self.fieldEntranceIndicatorPool)
+    else
+      self.fieldTerrainEffectRenderer = {
+        drawItems = function()
+          return {}
+        end,
+        dispose = function() end,
+      }
+    end
     local width, height = love.graphics.getDimensions()
     -- The initial presentation-geometry sync: pointer input must work
     -- before the user has resized the window, so the runtime computes and
@@ -270,6 +282,11 @@ function FieldState:_worldParts(alpha)
     end
   end
   worldParts[6] = worldActorItems
+  local terrain = self.runtime.fieldTerrainEffectController
+  local terrainRenderer = self.fieldTerrainEffectRenderer
+  worldParts[7] = terrainRenderer
+      and terrainRenderer:drawItems(terrain:status(), self.runtime.runtimeMap.coordinateOrigin)
+    or NO_DRAWS
   return worldParts
 end
 
@@ -708,6 +725,7 @@ function FieldState:dispose()
   self._actorAssetLookup = nil
   if self.worldParts then
     self.worldParts[5] = nil
+    self.worldParts[6] = nil
   end
   self.worldActorItems = nil
   self.spriteItems = nil
@@ -722,6 +740,10 @@ function FieldState:dispose()
   if self.fieldEntranceIndicatorRenderer then
     self.fieldEntranceIndicatorRenderer:dispose()
     self.fieldEntranceIndicatorRenderer = nil
+  end
+  if self.fieldTerrainEffectRenderer then
+    self.fieldTerrainEffectRenderer:dispose()
+    self.fieldTerrainEffectRenderer = nil
   end
   if self.fieldEntranceIndicatorPool then
     self.fieldEntranceIndicatorPool:release()

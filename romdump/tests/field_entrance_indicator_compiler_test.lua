@@ -48,7 +48,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       openNarc = function()
         return {
           memberCount = function()
-            return 86
+            return 127
           end,
           readMember = function()
             return "member-85"

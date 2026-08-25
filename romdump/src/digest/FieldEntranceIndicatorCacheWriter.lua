@@ -22,12 +22,15 @@ function Writer.write(cacheFs, bundle)
         PngWriter.encode(texture.width, texture.height, texture.pixels)
       )
     end
-    tx.stage:writeLua(FieldEffectAssetCache.modelPath(), bundle.model)
-    local model = assert(tx.stage:loadLua(FieldEffectAssetCache.modelPath()))
-    ModelAsset.validate(model)
-    for _, path in ipairs(ModelAsset.referencedPaths(model)) do
-      assert(tx.stage:exists(path), "field-effect referenced asset is missing: " .. path)
+    for kind, definition in pairs(bundle.effects) do
+      tx.stage:writeLua(FieldEffectAssetCache.definitionPath(kind), definition)
+      local model = assert(definition.model)
+      ModelAsset.validate(model)
+      for _, path in ipairs(ModelAsset.referencedPaths(model)) do
+        assert(tx.stage:exists(path), "field-effect referenced asset is missing: " .. path)
+      end
     end
+    tx.stage:writeLua(FieldEffectAssetCache.indexPath(), bundle.index)
     tx.stage:write(FieldEffectAssetCache.markerPath(), bundle.marker)
   end)
   if not ok then
