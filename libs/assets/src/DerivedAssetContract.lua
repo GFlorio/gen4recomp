@@ -125,7 +125,7 @@ DerivedAssetContract.fieldWeather = {
 
 DerivedAssetContract.newGameInit = {
   cacheFormat = "g4-new-game-init-cache-v1",
-  schema = "g4-new-game-init-v1",
+  schema = "g4-new-game-init-v2",
 }
 
 DerivedAssetContract.fieldEffects = {

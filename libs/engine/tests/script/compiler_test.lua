@@ -171,7 +171,7 @@ local function allOpsScript()
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),
     S.fadeMusicIn({ durationTicks = 30 }),
     S.processSoundplate(),
-    S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" }),
+    S.fadeScreen({ duration = 6, speed = 1, direction = "out", color = "black" }),
     S.waitFade(),
     S.warp({ map = "MAP_NEW_BARK", warp = 0, fieldX = 684, fieldZ = 393, facing = "south" }),
     S.setSpawn({ spawn = "SPAWN_NEW_BARK" }),

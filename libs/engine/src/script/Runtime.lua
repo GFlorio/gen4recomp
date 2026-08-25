@@ -1210,11 +1210,8 @@ HANDLERS.play_fanfare = function(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 HANDLERS.fade_screen = function(node, run)
-  -- The compiled node's duration field is named `kind` (the source
-  -- FadeScreen's first operand); the screen service's spec names it
-  -- `duration` explicitly since it is not an enumerated kind.
   requireService(run, "screen"):startFade({
-    duration = node.kind,
+    duration = node.duration,
     speed = node.speed,
     direction = node.direction,
     color = node.color,

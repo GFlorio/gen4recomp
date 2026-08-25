@@ -51,28 +51,53 @@ end
 ---@param game table an AcceptanceHarness game
 ---@param target { fieldX: integer, fieldZ: integer }
 ---@return { direction: string, fieldX: integer, fieldZ: integer, surfaceId: integer }[]|nil
+local function stateKey(fieldX, fieldZ, surfaceId)
+  return fieldX .. ":" .. fieldZ .. ":" .. tostring(surfaceId)
+end
+
+local function targetMatches(node, target)
+  if node.fieldX ~= target.fieldX or node.fieldZ ~= target.fieldZ then
+    return false
+  end
+  if target.surfaceId ~= nil then
+    return node.surfaceId == target.surfaceId
+  end
+  return true
+end
+
 function FieldMovement.route(game, target)
+  assert(type(target.fieldX) == "number" and target.fieldX % 1 == 0, "route target fieldX must be an integer")
+  assert(type(target.fieldZ) == "number" and target.fieldZ % 1 == 0, "route target fieldZ must be an integer")
+  if target.surfaceId ~= nil then
+    assert(
+      type(target.surfaceId) == "number" and target.surfaceId % 1 == 0,
+      "route target surfaceId must be an integer"
+    )
+  end
   local player = assert(game.runtime.player, "acceptance movement requires a live player")
   local map = assert(player.currentMap, "acceptance movement map required")
   local occupancy = player.occupancy
-  local targetKey = target.fieldX .. ":" .. target.fieldZ
 
   local start = { fieldX = player.fieldX, fieldZ = player.fieldZ, surfaceId = player.surfaceId, route = {} }
-  local seen = { [start.fieldX .. ":" .. start.fieldZ] = true }
+  local seen = { [stateKey(start.fieldX, start.fieldZ, start.surfaceId)] = true }
   local queue = { start }
   local head = 1
   while queue[head] do
     local node = queue[head]
     head = head + 1
-    if node.fieldX .. ":" .. node.fieldZ == targetKey then
+    if targetMatches(node, target) then
       return node.route
     end
     local probe = probeAt(map, occupancy, node)
     for _, direction in ipairs(DIRECTIONS) do
       local destination = probe:resolveStep(direction)
       if destination then
-        local key = destination.fieldX .. ":" .. destination.fieldZ
-        if not seen[key] and (key == targetKey or not isWarpTile(map, destination.fieldX, destination.fieldZ)) then
+        local key = stateKey(destination.fieldX, destination.fieldZ, destination.surfaceId)
+        local destNode = { fieldX = destination.fieldX, fieldZ = destination.fieldZ, surfaceId = destination.surfaceId }
+        if
+          not seen[key]
+          and (targetMatches(destNode, target) or not isWarpTile(map, destination.fieldX, destination.fieldZ))
+        then
           seen[key] = true
           local nextRoute = {}
           for index, step in ipairs(node.route) do

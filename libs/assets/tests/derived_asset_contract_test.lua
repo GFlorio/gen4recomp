@@ -69,7 +69,7 @@ function T.contract_pins_the_current_asset_identities()
     },
     newGameInit = {
       cacheFormat = "g4-new-game-init-cache-v1",
-      schema = "g4-new-game-init-v1",
+      schema = "g4-new-game-init-v2",
     },
     fieldEffects = {
       cacheFormat = "field-effect-cache-v2",

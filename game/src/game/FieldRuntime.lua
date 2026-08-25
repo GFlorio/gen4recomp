@@ -1236,6 +1236,7 @@ end
 ---@param height integer
 ---@param screenTopology ScreenTopology
 function FieldRuntime:resizePresentation(width, height, screenTopology)
+  self.screenTopology = screenTopology
   self.viewport:resize(width, height)
   self.menuHost:resize(width, height)
   self.menuHost:setScreenTopology(screenTopology)

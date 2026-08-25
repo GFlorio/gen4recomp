@@ -579,12 +579,30 @@ local HANDLERS = {
     }
   end,
   [174] = function(ins)
+    local rawType = operandValue(ins.operands[3])
+    local direction
+    if rawType == 0 then
+      direction = "out"
+    elseif rawType == 1 then
+      direction = "in"
+    else
+      assert(false, "unknown fade type " .. tostring(rawType))
+    end
+    local rawColor = operandValue(ins.operands[4])
+    local color
+    if rawColor == 0 then
+      color = "black"
+    elseif rawColor == 0x7FFF or rawColor == 32767 then
+      color = "white"
+    else
+      assert(false, "unknown fade color " .. tostring(rawColor))
+    end
     return {
       op = "fade_screen",
-      kind = operandValue(ins.operands[1]),
+      duration = operandValue(ins.operands[1]),
       speed = operandValue(ins.operands[2]),
-      direction = operandValue(ins.operands[3]) == 0 and "out" or "in",
-      color = "black",
+      direction = direction,
+      color = color,
     }
   end,
   [175] = function()

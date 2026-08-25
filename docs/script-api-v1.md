@@ -690,8 +690,8 @@ No fields.
 |---|---|---|---|
 | `color` | enum:fade_color | yes |  |
 | `direction` | enum:fade_direction | yes |  |
+| `duration` | integer | yes |  |
 | `key` | string |  |  |
-| `kind` | integer | yes |  |
 | `provenance` | source_provenance |  |  |
 | `speed` | integer | yes |  |
 

@@ -1,13 +1,10 @@
 -- Compiles the fresh-game standard-init event initializer from the decoded
 -- source `_std_init` standard script (pret/pokeheartgold
 -- files/fielddata/script/scr_seq/scr_seq_0149.s): every `SetFlag` becomes a
--- `set_flag` event operation resolved through the project-owned flag symbol
--- table, `LotoIDSet` is recorded as the one recognized non-field-state
--- startup side effect, and any other side-effecting source command fails the
--- build instead of being silently dropped or lowered to a noop. `compile` is
--- the pure semantic step (decoded instructions in, artifact out, raises on
--- drift); `compileFromRom` extracts those instructions from a real dump and
--- wraps the artifact for cache publication. Pure module: no love dependency.
+-- `set_flag` event operation and `LotoIDSet` becomes a `roll_loto_id`
+-- lottery operation, both in source order under a single `operations` array.
+-- Any other side-effecting source command fails the build instead of being
+-- silently dropped. Pure module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
@@ -21,24 +18,15 @@ NewGameInitCompiler.ERROR = {
   SOURCE_INVALID = "NEW_GAME_INIT_SOURCE_INVALID",
 }
 
--- Compiles decoded standard-init instructions into a validated artifact.
--- `input`: { versionId, standardScriptMember, instructions, symbolTable,
--- sourceSha1? }, where `instructions` is `{ { mnemonic, operands }, ... }`
--- (operand values already resolved to symbolic flag names by the decoder).
--- Raises a structured error on any unrecognized or misresolved command
--- instead of returning a partial artifact.
----@param input table
----@return table artifact
 function NewGameInitCompiler.compile(input)
   assert(type(input) == "table", "compile requires an input table")
   assert(type(input.versionId) == "string", "compile requires a versionId")
   assert(type(input.standardScriptMember) == "number", "compile requires the standard script member id")
   assert(type(input.instructions) == "table", "compile requires decoded instructions")
   assert(type(input.symbolTable) == "table", "compile requires the flag symbol table")
-
-  local eventOperations = {}
-  local nonFieldEffects = {}
+  local variableSymbols = input.variableSymbols or input.variableTable
   local terminated = false
+  local operations = {}
 
   for index, instruction in ipairs(input.instructions) do
     if terminated then
@@ -59,9 +47,29 @@ function NewGameInitCompiler.compile(input)
           { symbol = symbol, index = index }
         )
       end
-      eventOperations[#eventOperations + 1] = { op = "set_flag", id = id, symbol = symbol }
+      operations[#operations + 1] = { op = "set_flag", id = id, symbol = symbol }
     elseif mnemonic == "LotoIDSet" then
-      nonFieldEffects[#nonFieldEffects + 1] = "LotoIDSet"
+      local vars = require("libs.assets.src.FieldScriptSymbols").variablesByName
+      local lowId = vars.VAR_LOTO_NUMBER_LO
+      local highId = vars.VAR_LOTO_NUMBER_HI
+      if variableSymbols ~= nil then
+        if variableSymbols.VAR_LOTO_NUMBER_LO == nil or variableSymbols.VAR_LOTO_NUMBER_HI == nil then
+          Errors.raise(
+            NewGameInitCompiler.ERROR.SOURCE_INVALID,
+            "lottery variable symbols are missing",
+            { index = index }
+          )
+        end
+        lowId = variableSymbols.VAR_LOTO_NUMBER_LO
+        highId = variableSymbols.VAR_LOTO_NUMBER_HI
+      end
+      operations[#operations + 1] = {
+        op = "roll_loto_id",
+        lowVariableId = lowId,
+        lowVariableSymbol = "VAR_LOTO_NUMBER_LO",
+        highVariableId = highId,
+        highVariableSymbol = "VAR_LOTO_NUMBER_HI",
+      }
     elseif mnemonic == "End" then
       terminated = true
     else
@@ -79,8 +87,7 @@ function NewGameInitCompiler.compile(input)
   local artifact = {
     schema = NewGameInitCache.SCHEMA,
     versionId = input.versionId,
-    eventOperations = eventOperations,
-    nonFieldEffects = nonFieldEffects,
+    operations = operations,
     sourceDependency = {
       standardScriptMember = input.standardScriptMember,
       sha1 = input.sourceSha1 or "",
@@ -95,9 +102,6 @@ function NewGameInitCompiler.compile(input)
   return artifact
 end
 
--- Finds the standard-init script's member id through the pinned standard-
--- script catalog rather than a hardcoded literal, so a source renumbering
--- would move with the catalog instead of silently drifting.
 local function standardInitMember(stdCatalog)
   for _, group in ipairs(stdCatalog.groups) do
     if stdCatalog.namesById[group.threshold] == "init" then
@@ -107,13 +111,6 @@ local function standardInitMember(stdCatalog)
   error("standard-script catalog has no 'init' group")
 end
 
--- Extracts the standard-init script's decoded instructions from a real ROM
--- dump, compiles them, and wraps the artifact with the marker the cache
--- writer publishes under.
----@param romFs RomFs
----@param sha1hex? fun(bytes: string): string
----@param hashLua? fun(value: any): string
----@return table|nil bundle, Errors.Error? err
 function NewGameInitCompiler.compileFromRom(romFs, sha1hex, hashLua)
   sha1hex = sha1hex or Hashing.sha1hex
   hashLua = hashLua or Hashing.hashLua
@@ -137,10 +134,6 @@ function NewGameInitCompiler.compileFromRom(romFs, sha1hex, hashLua)
     local memberIr = assert(memberIrs[member], "standard init script member is not decodable")
     local script = assert(memberIr.scripts[0], "standard init script has no script index 0")
 
-    -- The catalog names every opcode "ScrCmd_<Name>" (romdump/src/reference/
-    -- hgss/script_commands.lua); `compile` works on the bare mnemonic so a
-    -- decoded ScrCmd_SetFlag and a hand-written test fixture's "SetFlag"
-    -- classify identically.
     local instructions = {}
     for _, ins in ipairs(script.instructions) do
       local operands = {}
@@ -157,6 +150,7 @@ function NewGameInitCompiler.compileFromRom(romFs, sha1hex, hashLua)
       standardScriptMember = member,
       instructions = instructions,
       symbolTable = FieldScriptSymbols.flagsByName,
+      variableSymbols = FieldScriptSymbols.variablesByName,
       sourceSha1 = sha1hex(memberBytes),
     })
 

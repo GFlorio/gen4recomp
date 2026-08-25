@@ -620,7 +620,7 @@ Schema.OPERATIONS = {
   process_soundplate = { fields = {} },
   fade_screen = {
     fields = {
-      kind = { type = "integer", required = true },
+      duration = { type = "integer", required = true },
       speed = { type = "integer", required = true },
       direction = { type = "enum:fade_direction", required = true },
       color = { type = "enum:fade_color", required = true },

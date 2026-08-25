@@ -1,16 +1,7 @@
--- Producer tests for the fresh-game standard-init compiler: the real pinned
--- HGSS standard-init script (scr_seq_0149, "SetFlag"x143 + one "LotoIDSet")
--- compiles to a complete flag-operation artifact with the lottery side
--- effect explicit, and any other unrecognized side-effecting command in the
--- semantic input fails the build instead of being lowered to a noop.
-
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 
--- Pinned pret/pokeheartgold files/fielddata/script/scr_seq/scr_seq_0149.s,
--- decoded to mnemonic+operand records: 143 SetFlag operations, one
--- LotoIDSet, terminated by End. Order matches the source file exactly.
 local PINNED_STD_INIT_SCRIPT = {
   { mnemonic = "SetFlag", operands = { "FLAG_HIDE_ELMS_LAB_OFFICER" } },
   { mnemonic = "SetFlag", operands = { "FLAG_HIDE_ROUTE_29_FRIEND" } },
@@ -177,25 +168,41 @@ end
 
 local T = {}
 
--- The real standard-init script compiles to every SetFlag as an event
--- operation plus the LotoIDSet classification, and an unrecognized
--- side-effecting command in a synthetic input fails instead of compiling a
--- partial artifact.
-function T.compiles_the_real_standard_init_script_and_rejects_semantic_drift()
+function T.compiles_the_real_standard_init_script_with_ordered_operations()
   local NewGameInitCompiler = require("romdump.src.digest.NewGameInitCompiler")
+  local vars = FieldScriptSymbols.variablesByName
 
   local artifact = NewGameInitCompiler.compile({
     versionId = "heartgold",
     standardScriptMember = 149,
     instructions = PINNED_STD_INIT_SCRIPT,
     symbolTable = FieldScriptSymbols.flagsByName,
+    variableSymbols = vars,
+    sourceSha1 = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
   })
-  Assert.equal(#artifact.eventOperations, PINNED_SET_FLAG_COUNT)
-  for _, operation in ipairs(artifact.eventOperations) do
-    Assert.equal(operation.op, "set_flag")
-    Assert.isTrue(type(operation.id) == "number", "compiled flag operation must resolve a numeric id")
+  Assert.equal(#artifact.operations, PINNED_SET_FLAG_COUNT + 1)
+  Assert.isNil(artifact.eventOperations)
+  Assert.isNil(artifact.nonFieldEffects)
+  local lotoIndex
+  for idx, op in ipairs(artifact.operations) do
+    if op.op == "roll_loto_id" then
+      lotoIndex = idx
+      Assert.equal(op.lowVariableId, vars.VAR_LOTO_NUMBER_LO)
+      Assert.equal(op.highVariableId, vars.VAR_LOTO_NUMBER_HI)
+      Assert.equal(op.lowVariableSymbol, "VAR_LOTO_NUMBER_LO")
+      Assert.equal(op.highVariableSymbol, "VAR_LOTO_NUMBER_HI")
+    elseif op.op == "set_flag" then
+      Assert.isTrue(type(op.id) == "number")
+    else
+      error("unexpected op " .. tostring(op.op))
+    end
   end
-  Assert.deepEqual(artifact.nonFieldEffects, { "LotoIDSet" })
+  Assert.notNil(lotoIndex)
+  -- Loto is between the two flag groups in source order (after index ~77, before next flag)
+  local beforeSymbol = artifact.operations[lotoIndex - 1].symbol
+  local afterSymbol = artifact.operations[lotoIndex + 1].symbol
+  Assert.isTrue(beforeSymbol ~= nil and afterSymbol ~= nil, "loto must be between two flag ops")
+  Assert.equal(artifact.schema, "g4-new-game-init-v2")
 
   local drifted = copyScript(PINNED_STD_INIT_SCRIPT)
   table.insert(drifted, #drifted, { mnemonic = "GivePokemon", operands = { "SPECIES_TOTODILE" } })
@@ -205,24 +212,30 @@ function T.compiles_the_real_standard_init_script_and_rejects_semantic_drift()
       standardScriptMember = 149,
       instructions = drifted,
       symbolTable = FieldScriptSymbols.flagsByName,
+      variableSymbols = vars,
     })
   end)
 end
 
--- LotoIDSet is the one recognized non-field startup side effect; any other
--- side-effecting command must fail validation loudly rather than being
--- silently classified alongside it or dropped.
 function T.non_field_side_effect_is_explicit_and_bounded_to_loto_id_set()
   local NewGameInitCompiler = require("romdump.src.digest.NewGameInitCompiler")
+  local vars = FieldScriptSymbols.variablesByName
 
   local artifact = NewGameInitCompiler.compile({
     versionId = "heartgold",
     standardScriptMember = 149,
     instructions = PINNED_STD_INIT_SCRIPT,
     symbolTable = FieldScriptSymbols.flagsByName,
+    variableSymbols = vars,
+    sourceSha1 = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
   })
-  Assert.equal(#artifact.nonFieldEffects, 1)
-  Assert.equal(artifact.nonFieldEffects[1], "LotoIDSet")
+  local lotoCount = 0
+  for _, op in ipairs(artifact.operations) do
+    if op.op == "roll_loto_id" then
+      lotoCount = lotoCount + 1
+    end
+  end
+  Assert.equal(lotoCount, 1)
 
   local mutated = copyScript(PINNED_STD_INIT_SCRIPT)
   for index, instruction in ipairs(mutated) do
@@ -237,6 +250,20 @@ function T.non_field_side_effect_is_explicit_and_bounded_to_loto_id_set()
       standardScriptMember = 149,
       instructions = mutated,
       symbolTable = FieldScriptSymbols.flagsByName,
+      variableSymbols = vars,
+    })
+  end)
+end
+
+function T.unknown_lottery_symbols_fail_explicitly()
+  local NewGameInitCompiler = require("romdump.src.digest.NewGameInitCompiler")
+  throwsCode("NEW_GAME_INIT_SOURCE_INVALID", function()
+    NewGameInitCompiler.compile({
+      versionId = "heartgold",
+      standardScriptMember = 149,
+      instructions = PINNED_STD_INIT_SCRIPT,
+      symbolTable = FieldScriptSymbols.flagsByName,
+      variableSymbols = {},
     })
   end)
 end

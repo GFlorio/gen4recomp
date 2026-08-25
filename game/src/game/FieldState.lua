@@ -347,6 +347,7 @@ function FieldState:draw()
     "field runtime destination presentation capability required"
   )
   if not self.runtime:destinationWorldPresentable() then
+    self:_drawScriptScreenFadeIfNeeded()
     return
   end
   local alpha = self.runtime.session:renderAlpha()
@@ -441,6 +442,83 @@ function FieldState:draw()
   if self.development then
     self:_drawHud()
   end
+  self:_drawScriptScreenFadeIfNeeded()
+end
+
+local function rectUnion(existing, rect)
+  if #existing == 0 then
+    return { { x = rect.x, y = rect.y, width = rect.width, height = rect.height } }
+  end
+  -- Start with rect, subtract every existing rect using axis-aligned subtraction.
+  local pending = { { x = rect.x, y = rect.y, width = rect.width, height = rect.height } }
+  local result = {}
+  for _, ex in ipairs(existing) do
+    result[#result + 1] = ex
+  end
+  local nextPending = {}
+  for _, piece in ipairs(pending) do
+    -- Subtract existing rects one by one
+    local pieces = { piece }
+    for _, ex in ipairs(existing) do
+      local newPieces = {}
+      for _, p in ipairs(pieces) do
+        local px2, py2 = p.x + p.width, p.y + p.height
+        local ex2x, ex2y = ex.x + ex.width, ex.y + ex.height
+        local ix1, iy1 = math.max(p.x, ex.x), math.max(p.y, ex.y)
+        local ix2, iy2 = math.min(px2, ex2x), math.min(py2, ex2y)
+        if ix2 <= ix1 or iy2 <= iy1 then
+          newPieces[#newPieces + 1] = p
+        else
+          if p.x < ix1 then
+            newPieces[#newPieces + 1] = { x = p.x, y = p.y, width = ix1 - p.x, height = p.height }
+          end
+          if px2 > ix2 then
+            newPieces[#newPieces + 1] = { x = ix2, y = p.y, width = px2 - ix2, height = p.height }
+          end
+          if p.y < iy1 then
+            newPieces[#newPieces + 1] = { x = ix1, y = p.y, width = ix2 - ix1, height = iy1 - p.y }
+          end
+          if py2 > iy2 then
+            newPieces[#newPieces + 1] = { x = ix1, y = iy2, width = ix2 - ix1, height = py2 - iy2 }
+          end
+        end
+      end
+      pieces = newPieces
+    end
+    for _, p in ipairs(pieces) do
+      nextPending[#nextPending + 1] = p
+    end
+  end
+  for _, p in ipairs(nextPending) do
+    result[#result + 1] = p
+  end
+  return result
+end
+
+function FieldState:_drawScriptScreenFadeIfNeeded()
+  local screenFade = self.runtime.screenFade
+  if screenFade == nil then
+    return
+  end
+  local status = screenFade:status()
+  if status.overlay == nil then
+    return
+  end
+  local topology = self.runtime.screenTopology
+  assert(topology ~= nil and type(topology.surfaces) == "table", "script screen fade requires a current topology")
+  local surfaces = topology.surfaces
+  local rects = {}
+  for _, surface in ipairs(surfaces) do
+    rects = rectUnion(rects, surface.rect)
+  end
+  local lg = love.graphics
+  local overlay = status.overlay
+  local prevR, prevG, prevB, prevA = lg.getColor()
+  lg.setColor(overlay.r, overlay.g, overlay.b, overlay.a)
+  for _, rect in ipairs(rects) do
+    lg.rectangle("fill", rect.x, rect.y, rect.width, rect.height)
+  end
+  lg.setColor(prevR, prevG, prevB, prevA)
 end
 
 -- The application fade coverage: the world viewport plus the Start Menu

@@ -44,9 +44,11 @@ end
 function T.opening_fade_in_reverses_to_clear()
   local fade = newFade()
   fade:startFade(OPENING_IN)
-  for _, expected in ipairs(ACTIVE_COEFFICIENTS) do
+  local expected = { 13, 10, 8, 5, 2, 0 }
+  Assert.equal(fade:status().coefficient, 16, "fade-in starts opaque before first update")
+  for index, want in ipairs(expected) do
     fade:updateSourceFrame()
-    Assert.equal(fade:status().coefficient, 16 - expected)
+    Assert.equal(fade:status().coefficient, want, "fade-in coefficient after update " .. index)
   end
   Assert.isTrue(fade:fadeDone())
   Assert.isFalse(fade:isOpaque(), "a completed fade-in must be fully clear")
@@ -55,9 +57,12 @@ end
 
 function T.white_color_is_supported()
   local fade = newFade()
-  fade:startFade({ direction = "out", color = "white", duration = 6, speed = 1 })
-  fade:updateSourceFrame()
+  fade:startFade({ direction = "out", color = "white", duration = 6, speed = 6 })
+  for _ = 1, 6 do
+    fade:updateSourceFrame()
+  end
   Assert.equal(fade:status().color, "white")
+  Assert.equal(fade:status().coefficient, 2)
 end
 
 function T.unsupported_color_raises_explicit_diagnostics()
@@ -69,12 +74,48 @@ function T.unsupported_color_raises_explicit_diagnostics()
   Assert.isTrue(tostring(err):find("color", 1, true) ~= nil, "the diagnostic names the unsupported color")
 end
 
-function T.unsupported_duration_speed_pair_raises_explicit_diagnostics()
+function T.invalid_duration_rejected()
   local fade = newFade()
   local ok = pcall(function()
-    fade:startFade({ direction = "out", color = "black", duration = 10, speed = 3 })
+    fade:startFade({ direction = "out", color = "black", duration = 0, speed = 1 })
   end)
-  Assert.isFalse(ok, "an unimplemented duration/speed combination must not silently interpolate")
+  Assert.isFalse(ok)
+end
+
+function T.invalid_speed_rejected()
+  local fade = newFade()
+  local ok = pcall(function()
+    fade:startFade({ direction = "out", color = "black", duration = 6, speed = 0 })
+  end)
+  Assert.isFalse(ok)
+end
+
+function T.white_fade_in_uses_signed_truncation()
+  local fade = newFade()
+  fade:startFade({ direction = "in", color = "white", duration = 6, speed = 1 })
+  Assert.equal(fade:status().coefficient, 16, "white fade-in starts opaque")
+  local expected = { 13, 10, 8, 5, 2, 0 }
+  for index, want in ipairs(expected) do
+    fade:updateSourceFrame()
+    Assert.equal(fade:status().coefficient, want, "white fade-in coefficient after update " .. index)
+  end
+end
+
+function T.speed_greater_than_one_gates_progression()
+  local fade = newFade()
+  fade:startFade({ direction = "out", color = "black", duration = 3, speed = 3 })
+  fade:updateSourceFrame()
+  Assert.equal(fade:status().coefficient, 0, "coefficient holds before speed gating")
+  fade:updateSourceFrame()
+  Assert.equal(fade:status().coefficient, 0)
+  fade:updateSourceFrame()
+  Assert.equal(fade:status().coefficient, 5)
+  fade:updateSourceFrame()
+  Assert.equal(fade:status().coefficient, 5)
+  fade:updateSourceFrame()
+  Assert.equal(fade:status().coefficient, 5)
+  fade:updateSourceFrame()
+  Assert.equal(fade:status().coefficient, 10)
 end
 
 function T.starting_a_second_fade_while_one_is_active_is_a_programming_error()

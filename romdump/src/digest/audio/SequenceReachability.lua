@@ -2,6 +2,8 @@
 -- continuation stack. This source-format analysis is shared by lowering and
 -- corpus inspection; it never produces runtime sequence instructions.
 
+local unpack = table.unpack or unpack
+
 local Errors = require("libs.errors.src.Errors")
 local Sseq = require("romdump.src.digest.audio.Sseq")
 
@@ -130,7 +132,7 @@ local function visitSuccessors(
       addSuccessor(queue, nextOffset, stack, state.trackSlot)
     else
       addSuccessor(queue, stack[#stack].returnOffset, {
-        table.unpack(stack, 1, #stack - 1),
+        unpack(stack, 1, #stack - 1),
       }, state.trackSlot)
     end
   elseif opcode == 0xD4 then
@@ -165,12 +167,12 @@ local function visitSuccessors(
       addSuccessor(queue, frame.returnOffset, stack, state.trackSlot)
     elseif frame.countClass == "one" then
       addSuccessor(queue, nextOffset, {
-        table.unpack(stack, 1, #stack - 1),
+        unpack(stack, 1, #stack - 1),
       }, state.trackSlot)
     else
       addSuccessor(queue, frame.returnOffset, stack, state.trackSlot)
       addSuccessor(queue, nextOffset, {
-        table.unpack(stack, 1, #stack - 1),
+        unpack(stack, 1, #stack - 1),
       }, state.trackSlot)
     end
   elseif opcode == 0xFF then

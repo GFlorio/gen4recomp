@@ -922,9 +922,9 @@ local CASES = {
   -- Screen, camera, and map constructors
   fade_screen = {
     function()
-      return S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" })
+      return S.fadeScreen({ duration = 6, speed = 1, direction = "out", color = "black" })
     end,
-    { op = "fade_screen", kind = 6, speed = 1, direction = "out", color = "black" },
+    { op = "fade_screen", duration = 6, speed = 1, direction = "out", color = "black" },
   },
   wait_fade = {
     function()

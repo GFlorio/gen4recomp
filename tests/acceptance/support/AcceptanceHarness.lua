@@ -581,6 +581,15 @@ function Game:_moveOne(direction, expected)
         .. ","
         .. after.player.fieldZ
     )
+    if expected.surfaceId ~= nil then
+      assert(
+        after.player.surfaceId == expected.surfaceId,
+        "expected production movement to reach surface "
+          .. tostring(expected.surfaceId)
+          .. " but the player is on surface "
+          .. tostring(after.player.surfaceId)
+      )
+    end
   end
   return after
 end
@@ -594,11 +603,15 @@ end
 function Game:moveTo(target)
   assert(type(target) == "table", "movement target required")
   assert(type(target.fieldX) == "number" and type(target.fieldZ) == "number", "integer field target required")
+  if target.surfaceId ~= nil then
+    assert(type(target.surfaceId) == "number" and target.surfaceId % 1 == 0, "target surfaceId must be an integer")
+  end
   self:waitForFieldEntry()
-  local route = assert(
-    FieldMovement.route(self, target),
-    "no production movement route to " .. target.fieldX .. ":" .. target.fieldZ
-  )
+  local targetLabel = target.fieldX .. ":" .. target.fieldZ
+  if target.surfaceId ~= nil then
+    targetLabel = targetLabel .. ":" .. target.surfaceId
+  end
+  local route = assert(FieldMovement.route(self, target), "no production movement route to " .. targetLabel)
   for _, step in ipairs(route) do
     self:_moveOne(step.direction, step)
   end

@@ -155,10 +155,28 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     local oakPoint =
       sourcePoint(reference, { x = oak.sourceBounds.x + oak.anchor.x, y = oak.sourceBounds.y + oak.anchor.y }, scene)
     result.subject = imageAtPoint(oak, oakPoint, scene)
-    local rightRoom = math.max(0, scene.x + scene.width - (result.subject.x + result.subject.width))
-    local maximumDisplacement = math.min(52 * result.subject.scale, sceneContent.width * 0.24, rightRoom)
-    local displacement = maximumDisplacement * ((view.oakSlideOffset or 0) / -52)
-    result.subject.x = result.subject.x + displacement
+    local maxSlide = 52 / reference.width * scene.width
+    local overflow = (result.subject.x + result.subject.width + maxSlide) - (scene.x + scene.width)
+    if overflow > 1e-6 then
+      local availableRight = scene.x + scene.width - oakPoint.x - maxSlide
+      local maxScaleForRight = availableRight / (oak.width - oak.anchor.x)
+      local availableLeft = oak.anchor.x > 0 and (oakPoint.x - scene.x) / oak.anchor.x or math.huge
+      local availableTop = oak.anchor.y > 0 and (oakPoint.y - scene.y) / oak.anchor.y or math.huge
+      local availableBottom = oak.anchor.y < oak.height
+          and (scene.y + scene.height - oakPoint.y) / (oak.height - oak.anchor.y)
+        or math.huge
+      local newScale = math.min(maxScaleForRight, availableLeft, availableTop, availableBottom, 6)
+      assert(newScale > 0 and newScale < math.huge, "Oak widget does not fit with slide containment")
+      result.subject = {
+        x = oakPoint.x - oak.anchor.x * newScale,
+        y = oakPoint.y - oak.anchor.y * newScale,
+        width = oak.width * newScale,
+        height = oak.height * newScale,
+        scale = newScale,
+      }
+    end
+    local hostDeltaX = -((view.oakSlideOffset or 0) / reference.width) * scene.width
+    result.subject.x = result.subject.x + hostDeltaX
     if view.revealWidget then
       result.reveal = sourceCentered(widget(manifest, view.revealWidget), reference, scene)
     end

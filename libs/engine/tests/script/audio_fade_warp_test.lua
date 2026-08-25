@@ -395,7 +395,7 @@ end
 T["fade and wait fade"] = function()
   local h = harness({ screen = true })
   local resource = script("test.fade", {
-    S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" }),
+    S.fadeScreen({ duration = 6, speed = 1, direction = "out", color = "black" }),
     S.waitFade(),
     S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
