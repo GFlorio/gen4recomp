@@ -278,13 +278,15 @@ local function projectionFor(runtimeMap, actor)
     surfaceId = sample.surfaceId
   end
   local plate = assert(runtimeMap.terrain:plate(surfaceId), "actor projected surface is missing")
+  local worldY = runtimeMap.terrain:sampleHeight(surfaceId, centerX, centerZ)
+  local world = FieldCoordinates.fieldToWorld(runtimeMap, actor.fieldX, actor.fieldZ, worldY)
   return {
     surfaceId = surfaceId,
     cellKey = actor.cellKey or plate.cellKey or cellKeyFor(actor.fieldX, actor.fieldZ),
     sourceSurfaceId = actor.sourceSurfaceId or plate.sourceSurfaceId or surfaceId,
-    worldX = centerX,
-    worldY = runtimeMap.terrain:sampleHeight(surfaceId, centerX, centerZ),
-    worldZ = centerZ,
+    worldX = world.x,
+    worldY = world.y,
+    worldZ = world.z,
   }
 end
 
@@ -697,7 +699,6 @@ function FieldActorManager:reconcilePhysicalWorld()
       })
     end
   end
-  self._visualRevision = self._visualRevision + 1
 end
 
 -- Monotonic signal for presentation residency. Movement, facing, pose, and

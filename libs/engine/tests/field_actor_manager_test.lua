@@ -221,6 +221,7 @@ function T.logical_actors_survive_and_reconcile_physical_residency()
     end,
   }
   local mgr = manager(map.fieldData.events.objects, { map = map })
+  local initialRevision = mgr:visualRevision()
   local nearId = "map:61:object:0"
   local farId = "map:61:object:1"
   local nearActor = assert(mgr:getById(nearId))
@@ -240,6 +241,32 @@ function T.logical_actors_survive_and_reconcile_physical_residency()
   Assert.isNil(mgr:getAt(61, 2, 3, nearActor.surfaceId))
   Assert.equal(mgr:getAt(61, 34, 3, farActor.surfaceId), farActor)
   Assert.equal(#mgr:drawRecords(), 1, "only the newly resident actor enters the draw projection")
+  Assert.equal(mgr:visualRevision(), initialRevision)
+  mgr:dispose()
+end
+
+function T.physical_projection_keeps_centered_world_coordinates()
+  local mgr = manager({ object({ x = 2, z = 3 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  local before = {
+    worldX = actor.worldX,
+    worldY = actor.worldY,
+    worldZ = actor.worldZ,
+  }
+
+  mgr:reconcilePhysicalWorld()
+
+  Assert.equal(actor.worldX, before.worldX)
+  Assert.equal(actor.worldY, before.worldY)
+  Assert.equal(actor.worldZ, before.worldZ)
+  Assert.equal(actor.worldX, -13.5)
+  Assert.equal(actor.worldY, 0)
+  Assert.equal(actor.worldZ, -12.5)
+  Assert.equal(assert(mgr:getAt(61, 2, 3, actor.surfaceId)), actor)
+  local record = mgr:drawRecords()[1]
+  Assert.equal(record.world.x, -13.5)
+  Assert.equal(record.world.y, 0)
+  Assert.equal(record.world.z, -12.5)
   mgr:dispose()
 end
 

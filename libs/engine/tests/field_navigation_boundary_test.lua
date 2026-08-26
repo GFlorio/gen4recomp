@@ -91,11 +91,13 @@ end
 
 function T.tests.does_not_reuse_outdoor_world_for_indoor_maps()
   local boundary = FieldNavigationBoundary.new({
-    physicalWorld = {
-      mapHeaderAt = function()
-        error("indoor movement must not query outdoor coverage")
-      end,
-    },
+    coverageProvider = function()
+      return {
+        mapHeaderAt = function()
+          error("indoor movement must not query outdoor coverage")
+        end,
+      }
+    end,
   })
   local runtimeMap = { scene = { type = "indoor" } }
   local player = { fieldX = 0, fieldZ = 0 }
@@ -136,7 +138,7 @@ function T.tests.uses_the_current_coverage_after_ownership_replacement()
   Assert.equal(destinationCalls, 1)
 end
 
-function T.tests.rebases_an_aliased_runtime_frame_on_the_commit_tick()
+function T.tests.rebases_runtime_frame_on_the_commit_tick()
   local coverage = FieldCoverage.new({
     matrixMemberId = 1,
     index = physicalIndex(),
@@ -167,7 +169,27 @@ function T.tests.rebases_an_aliased_runtime_frame_on_the_commit_tick()
   local previousWorldZ = player.previousWorldZ
   local oldOrigin = { x = coverage.origin.x, y = coverage.origin.y, z = coverage.origin.z }
 
-  local boundary = FieldNavigationBoundary.new({ physicalWorld = coverage })
+  local reconcileCalls = 0
+  local reconcileState
+  local boundary = FieldNavigationBoundary.new({
+    coverageProvider = function()
+      return coverage
+    end,
+    reconcilePhysicalWorld = function()
+      reconcileCalls = reconcileCalls + 1
+      reconcileState = {
+        anchorX = coverage.anchorX,
+        anchorZ = coverage.anchorZ,
+        physicalOriginX = runtimeMap.physicalOrigin.x,
+        playerLocalX = player.localX,
+        playerLocalZ = player.localZ,
+        playerWorldX = player.worldX,
+        playerWorldZ = player.worldZ,
+        cameraX = camera.x,
+        cameraZ = camera.z,
+      }
+    end,
+  })
   boundary:afterCommittedMove(runtimeMap, player, camera)
 
   Assert.equal(player.currentMap, runtimeMap)
@@ -184,6 +206,18 @@ function T.tests.rebases_an_aliased_runtime_frame_on_the_commit_tick()
   Assert.equal(player.previousWorldZ, previousWorldZ)
   Assert.equal(camera.x, oldOrigin.x - runtimeMap.physicalOrigin.x + 10)
   Assert.equal(camera.z, 20)
+  Assert.equal(reconcileCalls, 1)
+  Assert.deepEqual(reconcileState, {
+    anchorX = 1,
+    anchorZ = 0,
+    physicalOriginX = 32,
+    playerLocalX = 0,
+    playerLocalZ = 0,
+    playerWorldX = -15.5,
+    playerWorldZ = -15.5,
+    cameraX = -22,
+    cameraZ = 20,
+  })
   coverage:release()
 end
 
@@ -217,8 +251,16 @@ function T.tests.refreshes_same_anchor_surface_without_rebasing()
     end,
   }
 
-  local boundary = FieldNavigationBoundary.new({ physicalWorld = coverage })
-  boundary:afterCommittedMove(runtimeMap, player, camera)
+  local reconcileCalls = 0
+  local boundary = FieldNavigationBoundary.new({
+    coverageProvider = function()
+      return coverage
+    end,
+    reconcilePhysicalWorld = function()
+      reconcileCalls = reconcileCalls + 1
+    end,
+  })
+  local result = assert(boundary:afterCommittedMove(runtimeMap, player, camera))
 
   Assert.equal(player.localX, 1)
   Assert.equal(player.localZ, 1)
@@ -229,6 +271,11 @@ function T.tests.refreshes_same_anchor_surface_without_rebasing()
   Assert.equal(player.previousWorldY, before.previousWorldY)
   Assert.equal(player.previousWorldZ, before.previousWorldZ)
   Assert.equal(rebaseCalls, 0)
+  Assert.equal(reconcileCalls, 0)
+  Assert.equal(result.anchorX, coverage.anchorX)
+  Assert.equal(result.anchorZ, coverage.anchorZ)
+  Assert.equal(player.committedSourceCellKey, "0:0")
+  Assert.equal(player.committedSourceSurfaceId, 1)
   coverage:release()
 end
 

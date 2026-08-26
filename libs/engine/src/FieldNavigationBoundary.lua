@@ -13,15 +13,9 @@ local DIRECTION_DELTAS = {
 
 function FieldNavigationBoundary.new(options)
   options = options or {}
-  local coverageProvider = options.coverageProvider
-  if not coverageProvider and options.physicalWorld then
-    coverageProvider = function()
-      return options.physicalWorld
-    end
-  end
   return setmetatable({
     zoneController = options.zoneController,
-    coverageProvider = coverageProvider,
+    coverageProvider = options.coverageProvider,
     reconcilePhysicalWorld = options.reconcilePhysicalWorld,
   }, FieldNavigationBoundary)
 end
@@ -63,9 +57,6 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
   end
   if coverage.anchorX == targetX and coverage.anchorZ == targetZ then
     player:rebindCoverage(runtimeMap, 0, 0, 0, sourceCellKey, sourceSurfaceId)
-    if self.reconcilePhysicalWorld then
-      self.reconcilePhysicalWorld()
-    end
     return self.zoneController and self.zoneController:afterCoverageCommit(coverage, player) or coverage:status()
   end
   local currentOrigin = runtimeMap.physicalOrigin or coverage.origin
