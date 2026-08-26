@@ -38,6 +38,7 @@ local POLICY = {
 ---@field visualRevision fun(self: FieldActorManagerTest.Manager): integer
 ---@field setPosition fun(self: FieldActorManagerTest.Manager, actorId: string, position: table)
 ---@field hide fun(self: FieldActorManagerTest.Manager, actorId: string)
+---@field reconcilePhysicalWorld fun(self: FieldActorManagerTest.Manager)
 
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
@@ -185,20 +186,60 @@ function T.visible_objects_become_actors_and_flagged_ones_do_not()
   Assert.equal(#mgr:drawRecords(), 1)
 end
 
-function T.position_centered_coverage_ignores_nonresident_source_objects()
+-- Logical actors survive outside the resident physical window, then reconcile
+-- into draw/occupancy when the same logical zone admits their cell.
+function T.logical_actors_survive_and_reconcile_physical_residency()
   local map = runtimeMap({
     object({ objectEventId = 0, x = 2, z = 3 }),
-    object({ objectEventId = 1, x = 683, z = 399 }),
+    object({ objectEventId = 1, x = 34, z = 3 }),
   })
+  map.collision.containsLocal = function(_, fieldX, fieldZ)
+    return fieldX >= 0 and fieldX < 64 and fieldZ >= 0 and fieldZ < 32
+  end
+  map.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 64,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+    },
+  })
+  local nearResident = true
+  local farResident = false
   map.coverage = {
     containsGlobal = function(_, fieldX, fieldZ)
-      return fieldX < 32 and fieldZ < 32
+      if fieldZ < 0 or fieldZ >= 32 then
+        return false
+      end
+      return (fieldX < 32 and nearResident) or (fieldX >= 32 and farResident)
     end,
   }
-  local mgr, _, assets = manager(map.fieldData.events.objects, { map = map })
-  Assert.notNil(mgr:getById("map:61:object:0"))
-  Assert.isNil(mgr:getById("map:61:object:1"))
-  Assert.equal(assets:total(), 1)
+  local mgr = manager(map.fieldData.events.objects, { map = map })
+  local nearId = "map:61:object:0"
+  local farId = "map:61:object:1"
+  local nearActor = assert(mgr:getById(nearId))
+  local farActor = assert(mgr:getById(farId), "logical actors must not be culled by 3x3 residency")
+  nearActor:setFacing("west")
+  Assert.notNil(mgr:getAt(61, 2, 3, nearActor.surfaceId))
+  Assert.isNil(mgr:getAt(61, 34, 3, farActor.surfaceId))
+  Assert.equal(#mgr:drawRecords(), 1, "only resident actors enter the draw projection")
+
+  nearResident = false
+  farResident = true
+  mgr:reconcilePhysicalWorld()
+
+  Assert.equal(mgr:getById(nearId), nearActor, "departing residency must preserve actor identity")
+  Assert.equal(mgr:getById(farId), farActor, "entering residency must preserve actor identity")
+  Assert.equal(nearActor.facing, "west", "departing residency must preserve mutable actor state")
+  Assert.isNil(mgr:getAt(61, 2, 3, nearActor.surfaceId))
+  Assert.equal(mgr:getAt(61, 34, 3, farActor.surfaceId), farActor)
+  Assert.equal(#mgr:drawRecords(), 1, "only the newly resident actor enters the draw projection")
   mgr:dispose()
 end
 
@@ -661,6 +702,69 @@ function T.script_set_position_without_world_y_stays_on_the_current_surface()
   Assert.equal(actor.surfaceId, 0, "the current surface covers the destination and is preserved")
   Assert.equal(actor.worldY, 0)
   Assert.equal(assert(mgr:getAt(61, 9, 3, 0)).actorId, "map:61:object:0")
+end
+
+function T.script_set_position_preserves_logical_identity_until_destination_resides()
+  local map = runtimeMap({ object({ objectEventId = 0, x = 2, z = 3 }) })
+  map.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 64,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+        cellKey = "0:0",
+        sourceSurfaceId = 0,
+      },
+    },
+  })
+  local resident = false
+  map.coverage = {
+    containsGlobal = function(_, fieldX)
+      return fieldX < 32 or resident
+    end,
+  }
+  map.fieldRegion = {
+    sourceSurface = function(_, cellKey, sourceSurfaceId)
+      if (cellKey == "0:0" or cellKey == "1:0") and sourceSurfaceId == 0 then
+        return 0
+      end
+      return nil
+    end,
+  }
+  local mgr = manager(map.fieldData.events.objects, { map = map })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  Assert.equal(actor.cellKey, "0:0")
+  Assert.equal(actor.sourceSurfaceId, 0)
+
+  local candidatesAt = map.terrain.candidatesAt
+  map.terrain.candidatesAt = function()
+    error("nonresident actor movement must not resolve terrain")
+  end
+  mgr:setPosition(actor.actorId, { fieldX = 34, fieldZ = 3 })
+  map.terrain.candidatesAt = candidatesAt
+
+  Assert.equal(actor.fieldX, 34)
+  Assert.equal(actor.fieldZ, 3)
+  Assert.equal(actor.cellKey, "1:0", "scripted movement updates the logical cell identity")
+  Assert.isNil(actor.sourceSurfaceId, "a nonresident actor must not retain an old cell's surface slot")
+  Assert.isFalse(actor.resident)
+  Assert.isNil(mgr:getAt(61, 34, 3, 0), "a nonresident actor never enters guessed occupancy")
+  Assert.equal(#mgr:drawRecords(), 0, "a nonresident actor is absent from the physical draw projection")
+
+  resident = true
+  mgr:reconcilePhysicalWorld()
+
+  Assert.isTrue(actor.resident)
+  Assert.equal(actor.cellKey, "1:0")
+  Assert.equal(actor.sourceSurfaceId, 0)
+  Assert.equal(assert(mgr:getAt(61, 34, 3, 0)), actor)
+  Assert.equal(#mgr:drawRecords(), 1)
+  mgr:dispose()
 end
 
 -- Hidden actors stay solid for collision and report hidden snapshots: the

@@ -16,17 +16,20 @@ function Renderer.new(assets, pool)
   return setmetatable({ renderers = renderers }, Renderer)
 end
 
-function Renderer:drawItems(status, origin)
+function Renderer:drawItems(status, runtimeMap)
+  assert(runtimeMap and runtimeMap.projectPhysicalPoint, "terrain effect runtime map projection is required")
   local items = {}
   for _, instance in ipairs(status.instances) do
     local renderer = assert(self.renderers[instance.kind], "terrain renderer is missing " .. instance.kind)
+    local point =
+      runtimeMap:projectPhysicalPoint(instance.fieldX, instance.fieldZ, instance.cellKey, instance.sourceSurfaceId)
     local rendered = renderer:drawItems({
       visible = true,
       fieldEffect = instance.kind,
       position = {
-        x = instance.fieldX - origin.x + 0.5,
-        y = instance.worldY,
-        z = instance.fieldZ - origin.z + 0.5,
+        x = point.worldX,
+        y = point.worldY,
+        z = point.worldZ,
       },
       rotationDegrees = 0,
       scale = 1,

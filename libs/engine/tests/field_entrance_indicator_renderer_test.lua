@@ -51,6 +51,9 @@ T.tests["normalizes polygon alpha for map renderer draw items"] = function()
 
   Assert.equal(#items, 1)
   Assert.near(items[1].polygonAlpha, 1.0, 1e-9)
+  Assert.equal(items[1].alphaClass, "cutout", "the indicator keeps source transparency semantics")
+  Assert.isTrue(items[1].worldSpace)
+  Assert.equal(items[1].fieldEffect, "warp_entrance", "field effects opt into the shared depth-biased projection")
 end
 
 return T

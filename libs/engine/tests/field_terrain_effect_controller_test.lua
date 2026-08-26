@@ -41,11 +41,47 @@ T.tests["global anchors project against the current coverage origin"] = function
   Assert.equal(first.worldY, 7)
 end
 
+T.tests["grass instances retain stable source-surface identity"] = function()
+  local effects = controller()
+  effects:emit({
+    kind = "tall_grass",
+    fieldX = 34,
+    fieldZ = 5,
+    worldY = 7,
+    direction = "north",
+    cellKey = "1:0",
+    sourceSurfaceId = 3,
+  })
+  local instance = effects:status().instances[1]
+  Assert.equal(instance.cellKey, "1:0")
+  Assert.equal(instance.sourceSurfaceId, 3)
+end
+
 T.tests["discontinuous clear disposes all transient instances"] = function()
   local effects = controller()
   effects:emit({ kind = "tall_grass", fieldX = 1, fieldZ = 1, worldY = 0, direction = "south" })
   effects:clear()
   Assert.equal(#effects:status().instances, 0)
+end
+
+T.tests["committed grass animation completion controls effect lifetime"] = function()
+  local effects = FieldTerrainEffectController.new({
+    effects = {
+      tall_grass = {
+        definition = "field-effect:tall-grass",
+        lifetime = 99,
+        animation = { frames = { { duration = 1 }, { duration = 2 } } },
+      },
+    },
+  })
+  effects:emit({ kind = "tall_grass", fieldX = 7, fieldZ = 9, worldY = 3.5, direction = "north" })
+  Assert.equal(#effects:status().instances, 1)
+  effects:updateFixed()
+  Assert.equal(#effects:status().instances, 1)
+  effects:updateFixed()
+  Assert.equal(#effects:status().instances, 1)
+  effects:updateFixed()
+  Assert.equal(#effects:status().instances, 0, "the source animation's three ticks complete the effect")
 end
 
 return T

@@ -260,6 +260,38 @@ function FieldCoverage:sourceSurface(cellKey, sourceSurfaceId)
   return self.region:sourceSurface(cellKey, sourceSurfaceId)
 end
 
+-- Project a stable physical surface into the current resident frame. The
+-- returned world position is derived from the current composite terrain and
+-- normalized physical origin; callers must not retain it as semantic state.
+---@param fieldX integer
+---@param fieldZ integer
+---@param cellKey string
+---@param sourceSurfaceId integer
+---@return { fieldX: integer, fieldZ: integer, cellKey: string, sourceSurfaceId: integer, surfaceId: integer, localX: number, localZ: number, worldX: number, worldY: number, worldZ: number }
+function FieldCoverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
+  assert(type(fieldX) == "number" and fieldX % 1 == 0, "projected fieldX must be an integer")
+  assert(type(fieldZ) == "number" and fieldZ % 1 == 0, "projected fieldZ must be an integer")
+  assert(type(cellKey) == "string", "projected cell key is required")
+  assert(type(sourceSurfaceId) == "number", "projected source surface is required")
+  local surfaceId =
+    assert(self:sourceSurface(cellKey, sourceSurfaceId), "projected source surface is absent from coverage")
+  local localX = fieldX - self.origin.x
+  local localZ = fieldZ - self.origin.z
+  local centerX, centerZ = localX + 0.5, localZ + 0.5
+  return {
+    fieldX = fieldX,
+    fieldZ = fieldZ,
+    cellKey = cellKey,
+    sourceSurfaceId = sourceSurfaceId,
+    surfaceId = surfaceId,
+    localX = localX,
+    localZ = localZ,
+    worldX = centerX,
+    worldY = self.region.terrain:sampleHeight(surfaceId, centerX, centerZ),
+    worldZ = centerZ,
+  }
+end
+
 local function presentationDraws(presentation)
   if not presentation then
     return {}

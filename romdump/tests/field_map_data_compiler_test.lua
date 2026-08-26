@@ -66,41 +66,43 @@ end
 
 function T.compiles_map_header_types_to_transition_environments_and_rejects_unknown_types()
   local cases = {
-    { mapId = 0, expected = "outdoors" },
-    { mapId = 3, expected = "cave" },
-    { mapId = 7, expected = "cave" },
-    { mapId = 60, expected = "outdoors" },
-    { mapId = 61, expected = "building" },
-    { mapId = 2, expected = "building", sourceType = "POKEMON_CENTER" },
+    { sourceType = "CAVE", expected = "cave" },
+    { sourceType = "CITY_TOWN", expected = "outdoors" },
+    { sourceType = "ROUTE", expected = "outdoors" },
+    { sourceType = "INTERIOR", expected = "building" },
+    { sourceType = "POKEMON_CENTER", expected = "building" },
   }
   for _, case in ipairs(cases) do
-    local record = MapCatalog.require(case.mapId)
+    local record = MapCatalog.require(60)
     local originalMapType = record.mapType
-    record.mapType = case.sourceType or originalMapType
+    record.mapType = case.sourceType
     local romFs, sha1, hashLua = fixture()
     local ok, bundle = pcall(function()
-      return assert(FieldMapDataCompiler.compile(romFs, case.mapId, sha1, hashLua))
+      return assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
     end)
     record.mapType = originalMapType
     assert(ok, bundle)
-    Assert.equal(bundle.field.transitionEnvironment, case.expected, "map " .. case.mapId)
+    Assert.equal(bundle.field.transitionEnvironment, case.expected, case.sourceType)
   end
 
   local record = MapCatalog.require(60)
   local originalMapType = record.mapType
-  record.mapType = "UNKNOWN"
-  local ok, bundle, err = pcall(function()
-    local romFs, sha1, hashLua = fixture()
-    return FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua)
-  end)
-  record.mapType = originalMapType
-  Assert.isTrue(ok, "unknown map types must cross the compiler error boundary")
-  Assert.isNil(bundle)
-  Assert.notNil(err)
-  err = assert(err)
-  Assert.equal(err.context.mapId, 60)
-  Assert.equal(err.context.mapSymbol, "MAP_NEW_BARK")
-  Assert.equal(err.context.mapType, "UNKNOWN")
+  for _, sourceType in ipairs({ "UNDERGROUND", "UNKNOWN" }) do
+    record.mapType = sourceType
+    local ok, bundle, err = pcall(function()
+      local romFs, sha1, hashLua = fixture()
+      return FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua)
+    end)
+    record.mapType = originalMapType
+    Assert.isTrue(ok, "unmapped map types must cross the compiler error boundary")
+    Assert.isNil(bundle, sourceType)
+    Assert.notNil(err, sourceType)
+    err = assert(err)
+    Assert.equal(err.code, "FIELD_MAP_UNKNOWN_MAP_TYPE", sourceType)
+    Assert.equal(err.context.mapId, 60, sourceType)
+    Assert.equal(err.context.mapSymbol, "MAP_NEW_BARK", sourceType)
+    Assert.equal(err.context.mapType, sourceType, sourceType)
+  end
 end
 
 function T.map_header_music_fields_are_emitted_as_canonical_sequence_references()
@@ -202,18 +204,19 @@ function T.failed_rebuild_preserves_the_previous_record()
   Assert.isTrue(FieldMapDataCache.isReady(cache, 60, second.marker), "a retry publishes the new record")
 end
 
-function T.compile_all_skips_the_placeholder_map_but_keeps_actual_records()
+function T.compile_all_skips_non_field_placeholders_but_keeps_actual_records()
   local romFs, sha1, hashLua = allMapsFixture()
   local bundles, compileErr = FieldMapDataCompiler.compileAll(romFs, sha1, hashLua)
   assert(bundles ~= nil, compileErr)
   ---@cast bundles table
-  Assert.equal(#bundles, 539)
+  Assert.equal(#bundles, 538)
 
   local byId = {}
   for _, bundle in ipairs(bundles) do
     byId[bundle.mapId] = bundle
   end
   Assert.isNil(byId[1], "MAP_NOTHING is a catalog placeholder, not a field record")
+  Assert.isNil(byId[3], "MAP_UNDERGROUND has no field data, not a field record")
   Assert.notNil(byId[0])
   Assert.notNil(byId[2])
 end

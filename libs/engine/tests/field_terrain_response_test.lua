@@ -15,6 +15,8 @@ local function resolve(behavior)
       fieldX = 12,
       fieldZ = 18,
       worldY = 2.5,
+      cellKey = "1:2",
+      sourceSurfaceId = 7,
     },
     direction = "north",
   })
@@ -28,6 +30,8 @@ T.tests["grass behaviors produce distinct destination responses"] = function()
   Assert.equal(tall[1].fieldZ, 18)
   Assert.equal(tall[1].worldY, 2.5)
   Assert.equal(tall[1].direction, "north")
+  Assert.equal(tall[1].cellKey, "1:2")
+  Assert.equal(tall[1].sourceSurfaceId, 7)
 
   local veryTall = resolve(MetatileBehavior.BEHAVIOR.VERY_TALL_GRASS)
   Assert.equal(#veryTall, 1)

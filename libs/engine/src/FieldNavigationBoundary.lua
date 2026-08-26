@@ -16,6 +16,7 @@ function FieldNavigationBoundary.new(options)
   return setmetatable({
     zoneController = options.zoneController,
     physicalWorld = options.physicalWorld,
+    reconcilePhysicalWorld = options.reconcilePhysicalWorld,
   }, FieldNavigationBoundary)
 end
 
@@ -50,11 +51,19 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
   local sourceSurfaceId = player.committedSourceSurfaceId
   if coverage.anchorX == targetX and coverage.anchorZ == targetZ then
     if sourceCellKey and sourceSurfaceId then
-      player:rebindCoverage(runtimeMap, 0, 0, sourceCellKey, sourceSurfaceId)
+      player:rebindCoverage(runtimeMap, 0, 0, 0, sourceCellKey, sourceSurfaceId)
+    end
+    if self.reconcilePhysicalWorld then
+      self.reconcilePhysicalWorld()
     end
     return self.zoneController and self.zoneController:afterCoverageCommit(coverage, player) or coverage:status()
   end
-  local oldOriginX, oldOriginZ = runtimeMap.coordinateOrigin.x, runtimeMap.coordinateOrigin.z
+  local oldOrigin = runtimeMap.physicalOrigin
+    or {
+      x = runtimeMap.coordinateOrigin.x,
+      y = 0,
+      z = runtimeMap.coordinateOrigin.z,
+    }
   if not sourceCellKey then
     local plate = runtimeMap.terrain:plate(player.surfaceId)
     if plate then
@@ -72,9 +81,15 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
     runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
     runtimeMap.physicalOrigin = coverage.origin
   end
-  local deltaX, deltaZ = oldOriginX - runtimeMap.coordinateOrigin.x, oldOriginZ - runtimeMap.coordinateOrigin.z
-  player:rebindCoverage(runtimeMap, deltaX, deltaZ, sourceCellKey, sourceSurfaceId)
-  camera:rebase(deltaX, deltaZ)
+  local newOrigin = assert(runtimeMap.physicalOrigin)
+  local deltaX = oldOrigin.x - newOrigin.x
+  local deltaY = oldOrigin.y - newOrigin.y
+  local deltaZ = oldOrigin.z - newOrigin.z
+  player:rebindCoverage(runtimeMap, deltaX, deltaY, deltaZ, sourceCellKey, sourceSurfaceId)
+  camera:rebase(deltaX, deltaY, deltaZ)
+  if self.reconcilePhysicalWorld then
+    self.reconcilePhysicalWorld()
+  end
   local zoneChange
   if self.zoneController then
     zoneChange = self.zoneController:afterCoverageCommit(coverage, player)

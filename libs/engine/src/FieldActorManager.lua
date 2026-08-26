@@ -107,6 +107,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field visualRevision fun(self: FieldActorManager): integer
 ---@field collectSpriteIds fun(self: FieldActorManager, out: table<integer, boolean>)
 ---@field drawRecords fun(self: FieldActorManager): FieldActorManager.DrawRecord[]
+---@field reconcilePhysicalWorld fun(self: FieldActorManager)
 ---@field isOccupied fun(self: FieldActorManager, mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer, exceptActorId: string?): boolean
 ---@field onEventStateChanged fun(self: FieldActorManager, change: FieldActorStateChange)
 ---@field _applyFlag fun(self: FieldActorManager, change: FieldActorFlagChange)
@@ -138,7 +139,7 @@ local PARTNER_OBJECT_ID = 253
 ---@class FieldActorManager.ActorPosition
 ---@field fieldX integer
 ---@field fieldZ integer
----@field worldY number
+---@field worldY number?
 
 ---@class FieldActorManager.DrawRecord
 ---@field actorId string
@@ -202,21 +203,32 @@ end
 ---@param surfaceId integer
 ---@return string
 local function occupancyKey(mapId, fieldX, fieldZ, surfaceId)
+  assert(surfaceId ~= nil, "resident actor surface id is required")
   return string.format("%d:%d:%d:%d", mapId, fieldX, fieldZ, surfaceId)
 end
 
+local function cellKeyFor(fieldX, fieldZ)
+  return string.format("%d:%d", math.floor(fieldX / 32), math.floor(fieldZ / 32))
+end
+
+local function isResident(runtimeMap, fieldX, fieldZ)
+  return not runtimeMap.coverage or runtimeMap.coverage:containsGlobal(fieldX, fieldZ)
+end
+
 ---@param runtimeMap RuntimeFieldMap
----@param event FieldActorEvent
+---@param fieldX integer
+---@param fieldZ integer
+---@param sourceY number
 ---@param actorId string
 ---@return FieldActorSurfaceSample
-local function resolveSurface(runtimeMap, event, actorId)
+local function resolveSurfaceAt(runtimeMap, fieldX, fieldZ, sourceY, actorId)
   local ok, result = pcall(function()
-    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, event.x, event.z)
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
     -- Terrain is sampled at the tile centre, as the player and camera do.
     local surfaceOptions = {
       localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-      currentY = event.y / EVENT_Y_UNITS,
+      currentY = sourceY / EVENT_Y_UNITS,
     } ---@type FieldActorSurfaceOptions
     return SurfaceResolver.new(runtimeMap.terrain):resolve(surfaceOptions) --[[@as FieldActorSurfaceSample]]
   end)
@@ -237,9 +249,39 @@ local function resolveSurface(runtimeMap, event, actorId)
   Errors.raise(
     code,
     "actor " .. actorId .. " has no single terrain surface: " .. structuredError.message,
-    { actorId = actorId, fieldX = event.x, fieldZ = event.z, sourceY = event.y, cause = structuredError.code }
+    { actorId = actorId, fieldX = fieldX, fieldZ = fieldZ, sourceY = sourceY, cause = structuredError.code }
   )
   error("unreachable after actor surface error")
+end
+
+local function resolveSurface(runtimeMap, event, actorId)
+  return resolveSurfaceAt(runtimeMap, event.x, event.z, event.y, actorId)
+end
+
+local function projectionFor(runtimeMap, actor)
+  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, actor.fieldX, actor.fieldZ)
+  local centerX, centerZ = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET
+  local surfaceId = actor.surfaceId
+  if actor.cellKey and actor.sourceSurfaceId and runtimeMap.fieldRegion and runtimeMap.fieldRegion.sourceSurface then
+    surfaceId = assert(
+      runtimeMap.fieldRegion:sourceSurface(actor.cellKey, actor.sourceSurfaceId),
+      "actor source surface is absent from coverage"
+    )
+  end
+  if surfaceId == nil or not runtimeMap.terrain:contains(surfaceId, centerX, centerZ) then
+    local sample =
+      resolveSurfaceAt(runtimeMap, actor.fieldX, actor.fieldZ, actor.worldY or actor.sourceEvent.y, actor.actorId)
+    surfaceId = sample.surfaceId
+  end
+  local plate = assert(runtimeMap.terrain:plate(surfaceId), "actor projected surface is missing")
+  return {
+    surfaceId = surfaceId,
+    cellKey = actor.cellKey or plate.cellKey or cellKeyFor(actor.fieldX, actor.fieldZ),
+    sourceSurfaceId = actor.sourceSurfaceId or plate.sourceSurfaceId or surfaceId,
+    worldX = centerX,
+    worldY = runtimeMap.terrain:sampleHeight(surfaceId, centerX, centerZ),
+    worldZ = centerZ,
+  }
 end
 
 -- The runtime sprite of an object event. FieldSystem_ResolveObjectSpriteID
@@ -291,8 +333,10 @@ function FieldActorManager:_instantiate(entry, event, eventState)
       { actorId = actorId, mapId = runtimeMap.mapId, objectEventId = event.objectEventId }
     )
   end
-  local surface = resolveSurface(runtimeMap, event, actorId)
-  local world = FieldCoordinates.fieldToWorld(runtimeMap, event.x, event.z, surface.worldY)
+  local resident = isResident(runtimeMap, event.x, event.z)
+  local surface = resident and resolveSurface(runtimeMap, event, actorId) or nil
+  local world = surface and FieldCoordinates.fieldToWorld(runtimeMap, event.x, event.z, surface.worldY) or nil
+  local plate = surface and runtimeMap.terrain:plate(surface.surfaceId) or nil
   local spriteId = self:_resolveSpriteId(event, eventState)
   self:_acquireVisual(spriteId, actorId)
 
@@ -309,30 +353,35 @@ function FieldActorManager:_instantiate(entry, event, eventState)
       solid = event.solid,
       fieldX = event.x,
       fieldZ = event.z,
-      surfaceId = surface.surfaceId,
-      worldX = world.x,
-      worldY = world.y,
-      worldZ = world.z,
+      cellKey = plate and plate.cellKey or (resident and cellKeyFor(event.x, event.z) or nil),
+      sourceSurfaceId = plate and plate.sourceSurfaceId or nil,
+      surfaceId = surface and surface.surfaceId or nil,
+      worldX = world and world.x or nil,
+      worldY = world and world.y or nil,
+      worldZ = world and world.z or nil,
+      resident = resident,
     }) --[[@as FieldActorManager.Actor]]
 
-    local key = occupancyKey(runtimeMap.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
-    local occupant = entry.occupancy[key]
-    if actor.solid and occupant then
-      Errors.raise(
-        FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
-        actorId .. " and " .. occupant.actorId .. " occupy the same field cell and surface",
-        {
-          actorId = actorId,
-          otherActorId = occupant.actorId,
-          mapId = runtimeMap.mapId,
-          fieldX = actor.fieldX,
-          fieldZ = actor.fieldZ,
-          surfaceId = actor.surfaceId,
-        }
-      )
-    end
-    if actor.solid then
-      entry.occupancy[key] = actor
+    if actor.resident then
+      local key = occupancyKey(runtimeMap.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+      local occupant = entry.occupancy[key]
+      if actor.solid and occupant then
+        Errors.raise(
+          FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
+          actorId .. " and " .. occupant.actorId .. " occupy the same field cell and surface",
+          {
+            actorId = actorId,
+            otherActorId = occupant.actorId,
+            mapId = runtimeMap.mapId,
+            fieldX = actor.fieldX,
+            fieldZ = actor.fieldZ,
+            surfaceId = actor.surfaceId,
+          }
+        )
+      end
+      if actor.solid then
+        entry.occupancy[key] = actor
+      end
     end
     entry.actors[actorId] = actor
     entry.byIndex[actor.objectEventId] = actorId
@@ -356,9 +405,11 @@ function FieldActorManager:_destroy(entry, actor)
   -- Only solid actors ever occupy a cell, and only the exact occupant may
   -- vacate it: a non-solid or stale actor must never erase another actor's
   -- occupancy entry by coordinate.
-  local key = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
-  if actor.solid and entry.occupancy[key] == actor then
-    entry.occupancy[key] = nil
+  if actor.resident then
+    local key = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+    if actor.solid and entry.occupancy[key] == actor then
+      entry.occupancy[key] = nil
+    end
   end
   for index, candidate in ipairs(entry.order) do
     if candidate == actor then
@@ -431,8 +482,7 @@ local function populateEntry(self, entry, eventState)
       local flagged = entry.byFlag[event.eventFlag] or {}
       flagged[#flagged + 1] = event
       entry.byFlag[event.eventFlag] = flagged
-      local resident = not runtimeMap.coverage or runtimeMap.coverage:containsGlobal(event.x, event.z)
-      if resident and not eventState:isFlagSet(event.eventFlag) then
+      if not eventState:isFlagSet(event.eventFlag) then
         self:_instantiate(entry, event, eventState)
       end
     end
@@ -589,6 +639,63 @@ function FieldActorManager:step(tick)
   end
 end
 
+-- Rebuilds only the physical projection of semantic actors. The staging pass
+-- resolves every resident actor and detects occupancy conflicts before any
+-- actor or index is changed, so a fixed tick observes one complete index.
+---@param self FieldActorManager
+function FieldActorManager:reconcilePhysicalWorld()
+  for _, entry in pairs(self.maps) do
+    local staged = {}
+    local stagedOccupancy = {}
+    for _, actor in ipairs(entry.order) do
+      if isResident(entry.runtimeMap, actor.fieldX, actor.fieldZ) then
+        local projection = projectionFor(entry.runtimeMap, actor)
+        local key = actor.solid
+            and occupancyKey(entry.runtimeMap.mapId, actor.fieldX, actor.fieldZ, projection.surfaceId)
+          or nil
+        if key and stagedOccupancy[key] then
+          Errors.raise(
+            FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
+            actor.actorId .. " and " .. stagedOccupancy[key].actorId .. " occupy the same field cell and surface",
+            {
+              actorId = actor.actorId,
+              otherActorId = stagedOccupancy[key].actorId,
+              mapId = entry.runtimeMap.mapId,
+              fieldX = actor.fieldX,
+              fieldZ = actor.fieldZ,
+              surfaceId = projection.surfaceId,
+            }
+          )
+        end
+        if key then
+          stagedOccupancy[key] = actor
+        end
+        staged[#staged + 1] = { actor = actor, projection = projection }
+      end
+    end
+
+    entry.occupancy = stagedOccupancy
+    for _, actor in ipairs(entry.order) do
+      actor.resident = false
+    end
+    for _, item in ipairs(staged) do
+      local actor, projection = item.actor, item.projection
+      actor:setPosition({
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        cellKey = projection.cellKey,
+        sourceSurfaceId = projection.sourceSurfaceId,
+        surfaceId = projection.surfaceId,
+        worldX = projection.worldX,
+        worldY = projection.worldY,
+        worldZ = projection.worldZ,
+        resident = true,
+      })
+    end
+  end
+  self._visualRevision = self._visualRevision + 1
+end
+
 -- Monotonic signal for presentation residency. Movement, facing, pose, and
 -- visibility changes do not alter the set of sprite definitions the field
 -- presentation must hold.
@@ -618,6 +725,9 @@ function FieldActorManager:drawRecords()
   local count = 0
   for _, entry in pairs(self.maps) do
     for _, actor in ipairs(entry.order) do
+      if not actor.resident then
+        goto continue
+      end
       count = count + 1
       local record = self._drawRecordByActorId[actor.actorId]
       if not record then
@@ -642,6 +752,7 @@ function FieldActorManager:drawRecords()
       record.poseTick = actor.poseTick
       record.visible = actor.visible
       records[count] = record
+      ::continue::
     end
   end
   for index = #records, count + 1, -1 do
@@ -671,6 +782,9 @@ end
 ---@param self FieldActorManager
 function FieldActorManager:getAt(mapId, fieldX, fieldZ, surfaceId)
   local entry = self.maps[mapId]
+  if surfaceId == nil then
+    return nil
+  end
   return entry and entry.occupancy[occupancyKey(mapId, fieldX, fieldZ, surfaceId)] or nil
 end
 
@@ -750,20 +864,30 @@ end
 function FieldActorManager:setPosition(actorId, position)
   local actor = requireActor(self, actorId)
   local entry = assert(self.maps[actor.mapId], "actor map entry missing")
-  local localX, localZ = FieldCoordinates.fieldToLocal(entry.runtimeMap, position.fieldX, position.fieldZ)
-  local surfaceOpts = {
-    localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
-    localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-    currentY = position.worldY or actor.worldY,
-  } ---@type FieldActorSurfaceOptions
-  if position.worldY == nil then
-    surfaceOpts.currentSurfaceId = actor.surfaceId
+  local resident = isResident(entry.runtimeMap, position.fieldX, position.fieldZ)
+  local cellKey = cellKeyFor(position.fieldX, position.fieldZ)
+  local sample
+  local world
+  local sourceSurfaceId = resident and actor.sourceSurfaceId or nil
+  if resident then
+    local localX, localZ = FieldCoordinates.fieldToLocal(entry.runtimeMap, position.fieldX, position.fieldZ)
+    local surfaceOpts = {
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      currentY = position.worldY or actor.worldY,
+    } ---@type FieldActorSurfaceOptions
+    if position.worldY == nil then
+      surfaceOpts.currentSurfaceId = actor.surfaceId
+    end
+    sample = SurfaceResolver.new(entry.runtimeMap.terrain):resolve(surfaceOpts)
+    world = FieldCoordinates.fieldToWorld(entry.runtimeMap, position.fieldX, position.fieldZ, sample.worldY)
+    local plate = assert(entry.runtimeMap.terrain:plate(sample.surfaceId), "actor destination surface is missing")
+    sourceSurfaceId = plate.sourceSurfaceId or sourceSurfaceId
   end
-  local sample = SurfaceResolver.new(entry.runtimeMap.terrain):resolve(surfaceOpts)
-  local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, position.fieldX, position.fieldZ, sample.worldY)
-  local newKey = occupancyKey(actor.mapId, position.fieldX, position.fieldZ, sample.surfaceId)
-  if actor.solid then
-    local occupant = entry.occupancy[newKey]
+
+  local newKey = sample and occupancyKey(actor.mapId, position.fieldX, position.fieldZ, sample.surfaceId) or nil
+  if resident and actor.solid then
+    local occupant = newKey and entry.occupancy[newKey]
     if occupant ~= nil and occupant ~= actor then
       Errors.raise(
         FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
@@ -778,19 +902,26 @@ function FieldActorManager:setPosition(actorId, position)
         }
       )
     end
+  end
+  if actor.resident and actor.solid then
     local oldKey = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
     if entry.occupancy[oldKey] == actor then
       entry.occupancy[oldKey] = nil
     end
-    entry.occupancy[newKey] = actor
+  end
+  if resident and actor.solid then
+    entry.occupancy[assert(newKey)] = actor
   end
   actor:setPosition({
     fieldX = position.fieldX,
     fieldZ = position.fieldZ,
-    worldY = sample.worldY,
-    worldX = world.x,
-    worldZ = world.z,
-    surfaceId = sample.surfaceId,
+    worldY = sample and sample.worldY or nil,
+    worldX = world and world.x or nil,
+    worldZ = world and world.z or nil,
+    surfaceId = sample and sample.surfaceId or nil,
+    cellKey = cellKey,
+    sourceSurfaceId = sourceSurfaceId,
+    resident = resident,
   })
 end
 

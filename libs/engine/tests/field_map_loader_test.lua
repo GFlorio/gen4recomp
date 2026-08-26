@@ -96,6 +96,22 @@ function T.reads_transition_environment_without_loading_a_scene()
   loader:release()
 end
 
+function T.rejects_missing_or_unknown_transition_environment_at_runtime_load()
+  for _, case in ipairs({ { value = nil }, { value = "unknown" } }) do
+    local cache, world, sceneLoader, _, files = fixture(1)
+    files["data/generated/field/maps/0000/field.lua"].transitionEnvironment = case.value
+    local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+    local err = Assert.throws(function()
+      loader:load(0)
+    end)
+    Assert.isTrue(
+      Errors.is(err) and err.code == "FIELD_MAP_DATA_CACHE_INVALID",
+      "malformed v6 transition environment must fail the runtime boundary"
+    )
+    loader:release()
+  end
+end
+
 function T.outdoor_logical_load_does_not_acquire_physical_or_representative_geometry()
   local cache, world, sceneLoader, _, files = fixture(1)
   local scene = cache.loadLua(cache, "data/generated/maps/0000/scene.lua")

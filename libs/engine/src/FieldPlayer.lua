@@ -75,6 +75,33 @@ local function isInteger(value)
   return type(value) == "number" and value == math.floor(value)
 end
 
+local function projectPoint(runtimeMap, fieldX, fieldZ, cellKey, sourceSurfaceId)
+  if runtimeMap.projectPhysicalPoint then
+    return runtimeMap:projectPhysicalPoint(fieldX, fieldZ, cellKey, sourceSurfaceId)
+  end
+  local region = assert(runtimeMap.fieldRegion, "physical field region required")
+  local surfaceId = assert(region:sourceSurface(cellKey, sourceSurfaceId), "player surface is absent from coverage")
+  local origin = assert(runtimeMap.physicalOrigin or {
+    x = runtimeMap.coordinateOrigin.x,
+    y = 0,
+    z = runtimeMap.coordinateOrigin.z,
+  })
+  local localX, localZ = fieldX - origin.x, fieldZ - origin.z
+  local centerX, centerZ = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET
+  return {
+    fieldX = fieldX,
+    fieldZ = fieldZ,
+    cellKey = cellKey,
+    sourceSurfaceId = sourceSurfaceId,
+    surfaceId = surfaceId,
+    localX = localX,
+    localZ = localZ,
+    worldX = centerX,
+    worldY = runtimeMap.terrain:sampleHeight(surfaceId, centerX, centerZ),
+    worldZ = centerZ,
+  }
+end
+
 -- Only failures that genuinely mean the step was legally rejected are
 -- ordinary blocked moves: the destination outside permission coverage, or
 -- its terrain beyond the reachable step height. Malformed or ambiguous
@@ -108,6 +135,7 @@ function FieldPlayer.new(options)
       )
     or { surfaceId = options.surfaceId, worldY = options.initialWorldY }
   local point = FieldCoordinates.fieldToWorld(map, options.fieldX, options.fieldZ, sample.worldY)
+  local plate = map.terrain:plate(sample.surfaceId)
   return setmetatable({
     currentMap = map,
     resolver = SurfaceResolver.new(map.terrain),
@@ -123,6 +151,8 @@ function FieldPlayer.new(options)
     previousWorldY = point.y,
     previousWorldZ = point.z,
     surfaceId = sample.surfaceId,
+    committedSourceCellKey = plate and plate.cellKey or nil,
+    committedSourceSurfaceId = plate and plate.sourceSurfaceId or nil,
     facing = options.facing or "south",
     motion = "idle",
     progressTicks = 0,
@@ -197,6 +227,7 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
       },
     })
     local point = FieldCoordinates.fieldToWorld(self.currentMap, destinationX, destinationZ, sample.worldY)
+    local plate = assert(self.currentMap.terrain:plate(sample.surfaceId), "resolved destination surface missing")
     -- Occupancy is checked against the resolved destination surface, so an
     -- actor on a different surface never blocks a same-cell approach, and it
     -- runs only after terrain accepts the step.
@@ -214,6 +245,8 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
       worldY = point.y,
       worldZ = point.z,
       surfaceId = sample.surfaceId,
+      sourceCellKey = plate.cellKey,
+      sourceSurfaceId = plate.sourceSurfaceId,
     }
   end)
   if not ok then
@@ -353,6 +386,7 @@ function FieldPlayer:_resolveLedgeLanding(direction)
       return nil
     end
     local point = FieldCoordinates.fieldToWorld(self.currentMap, landingX, landingZ, sample.worldY)
+    local plate = assert(self.currentMap.terrain:plate(sample.surfaceId), "resolved landing surface missing")
     return {
       fieldX = landingX,
       fieldZ = landingZ,
@@ -362,6 +396,8 @@ function FieldPlayer:_resolveLedgeLanding(direction)
       worldY = sample.worldY,
       worldZ = point.z,
       surfaceId = sample.surfaceId,
+      sourceCellKey = plate.cellKey,
+      sourceSurfaceId = plate.sourceSurfaceId,
     }
   end)
   if not ok then
@@ -634,23 +670,36 @@ end
 -- Rebind the player to a newly committed physical coverage window. Global tile
 -- coordinates remain authoritative; only local frame and composite surface id
 -- change. Current and previous render positions receive the same frame delta.
-function FieldPlayer:rebindCoverage(runtimeMap, deltaX, deltaZ, cellKey, sourceSurfaceId)
+function FieldPlayer:rebindCoverage(runtimeMap, deltaX, deltaY, deltaZ, cellKey, sourceSurfaceId)
   assert(runtimeMap and runtimeMap.coordinateOrigin, "coverage runtime map required")
-  assert(type(deltaX) == "number" and type(deltaZ) == "number", "coverage rebase delta required")
+  assert(
+    type(deltaX) == "number" and type(deltaY) == "number" and type(deltaZ) == "number",
+    "coverage rebase delta required"
+  )
+  assert(cellKey and sourceSurfaceId, "player source surface identity required")
+  local oldPoint = projectPoint(self.currentMap, self.fieldX, self.fieldZ, cellKey, sourceSurfaceId)
+  local point = projectPoint(runtimeMap, self.fieldX, self.fieldZ, cellKey, sourceSurfaceId)
   self.currentMap = runtimeMap
   self.resolver = SurfaceResolver.new(runtimeMap.terrain)
-  self.localX = self.fieldX - runtimeMap.coordinateOrigin.x
-  self.localZ = self.fieldZ - runtimeMap.coordinateOrigin.z
-  if runtimeMap.fieldRegion and runtimeMap.fieldRegion.sourceSurface and cellKey and sourceSurfaceId then
-    self.surfaceId =
-      assert(runtimeMap.fieldRegion:sourceSurface(cellKey, sourceSurfaceId), "player surface is absent from coverage")
-  end
-  self.worldX = self.worldX + deltaX
-  self.worldZ = self.worldZ + deltaZ
-  self.previousWorldX = self.previousWorldX + deltaX
-  self.previousWorldZ = self.previousWorldZ + deltaZ
-  self.committedSourceCellKey = nil
-  self.committedSourceSurfaceId = nil
+  local projectedLocalX, projectedLocalZ = point.localX, point.localZ
+  assert(projectedLocalX % 1 == 0 and projectedLocalZ % 1 == 0, "projected local coordinates must be integers")
+  ---@cast projectedLocalX integer
+  ---@cast projectedLocalZ integer
+  self.localX, self.localZ = projectedLocalX, projectedLocalZ
+  self.surfaceId = point.surfaceId
+  local frameDelta = {
+    x = point.worldX - oldPoint.worldX,
+    y = point.worldY - oldPoint.worldY,
+    z = point.worldZ - oldPoint.worldZ,
+  }
+  self.worldX = self.worldX + frameDelta.x
+  self.worldY = self.worldY + frameDelta.y
+  self.worldZ = self.worldZ + frameDelta.z
+  self.previousWorldX = self.previousWorldX + frameDelta.x
+  self.previousWorldY = self.previousWorldY + frameDelta.y
+  self.previousWorldZ = self.previousWorldZ + frameDelta.z
+  self.committedSourceCellKey = cellKey
+  self.committedSourceSurfaceId = sourceSurfaceId
 end
 
 function FieldPlayer:status()

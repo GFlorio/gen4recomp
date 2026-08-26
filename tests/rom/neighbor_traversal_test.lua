@@ -47,10 +47,13 @@ local function crossesBoundary(map, sourceX, destinationX, direction)
   for z = 0, 31 do
     if not map.collision:isBlockedLocal(sourceX, z) and not map.collision:isBlockedLocal(destinationX, z) then
       for _, plate in ipairs(map.terrain:candidatesAt(sourceX + 0.5, z + 0.5)) do
+        local currentMap = map --[[@as RuntimeFieldMap]]
+        local fieldX = map.coordinateOrigin.x + sourceX --[[@as integer]]
+        local fieldZ = map.coordinateOrigin.z + z --[[@as integer]]
         local player = FieldPlayer.new({
-          currentMap = map,
-          fieldX = map.coordinateOrigin.x + sourceX,
-          fieldZ = map.coordinateOrigin.z + z,
+          currentMap = currentMap,
+          fieldX = fieldX,
+          fieldZ = fieldZ,
           surfaceId = plate.id,
           facing = direction,
         })
@@ -84,15 +87,26 @@ function T.new_bark_crosses_into_route_29_and_rejects_route_27_water(romFs, vers
   Assert.notNil(crossesBoundary(map, 0, -1, "west"), "no Route 29 boundary crossing")
   Assert.isNil(crossesBoundary(map, 31, 32, "east"), "Route 27 water is walkable")
 
-  -- Generated-cache region: the production loader path must yield the same
-  -- traversable neighbor ring for the same boundary steps. No scene loader is
-  -- needed: collision and terrain load through the pure asset paths.
+  -- Generated-cache region: the logical loader entry deliberately owns no
+  -- representative collision or terrain. The session-owned physical
+  -- coverage is the public path for the traversable cached region.
   local cacheFs = CacheFs.forVersion(versionId)
   local world = assert(cacheFs:loadLua(MapAssetCache.worldPath()))
   local loader = FieldMapLoader.new(cacheFs, world)
-  local cached = loader:load(60)
+  local logical = loader:load(60)
+  Assert.isNil(logical.collision)
+  Assert.isNil(logical.terrain)
+  local coverage = loader:createPhysicalCoverage(logical, { fieldX = 672, fieldZ = 384 })
+  local cached = {
+    mapId = logical.mapId,
+    coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z },
+    collision = coverage.region.collision,
+    terrain = coverage.region.terrain,
+  }
+  Assert.equal(coverage:mapHeaderAt(672, 384), 60)
   Assert.notNil(crossesBoundary(cached, 0, -1, "west"))
   Assert.isNil(crossesBoundary(cached, 31, 32, "east"))
+  coverage:release()
   loader:release()
 end
 

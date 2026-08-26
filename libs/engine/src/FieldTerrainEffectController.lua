@@ -17,6 +17,11 @@ end
 function FieldTerrainEffectController:emit(response)
   local definition = assert(self.effects[response.kind], "missing field-effect definition: " .. response.kind)
   local animation = assert(definition.animation, "field-effect animation is required")
+  local lifetime = 0
+  for _, frame in ipairs(animation.frames) do
+    lifetime = lifetime + assert(frame.duration, "field-effect animation frame duration is required")
+  end
+  assert(lifetime > 0, "field-effect animation must have a positive lifetime")
   self.nextId = self.nextId + 1
   self.instances[#self.instances + 1] = {
     id = self.nextId,
@@ -24,10 +29,13 @@ function FieldTerrainEffectController:emit(response)
     definition = definition.definition or response.kind,
     fieldX = response.fieldX,
     fieldZ = response.fieldZ,
+    cellKey = response.cellKey or response.sourceCellKey,
+    sourceSurfaceId = response.sourceSurfaceId,
+    sourceWorldY = response.worldY + (response.originY or 0),
     worldY = response.worldY,
     direction = response.direction,
     age = 0,
-    lifetime = assert(definition.lifetime, "field-effect lifetime is required"),
+    lifetime = lifetime,
     animation = animation,
   }
 end
@@ -64,6 +72,9 @@ function FieldTerrainEffectController:status()
       fieldX = instance.fieldX,
       fieldZ = instance.fieldZ,
       worldY = instance.worldY,
+      cellKey = instance.cellKey,
+      sourceSurfaceId = instance.sourceSurfaceId,
+      sourceWorldY = instance.sourceWorldY,
       direction = instance.direction,
       age = instance.age,
       frame = (function()
@@ -83,6 +94,7 @@ end
 
 function FieldTerrainEffectController:drawItems(origin)
   assert(type(origin) == "table", "terrain effect origin is required")
+  local originY = origin.y or 0
   local items = {}
   for index, instance in ipairs(self.instances) do
     items[index] = {
@@ -90,7 +102,9 @@ function FieldTerrainEffectController:drawItems(origin)
       definition = instance.definition,
       localX = instance.fieldX - origin.x,
       localZ = instance.fieldZ - origin.z,
-      worldY = instance.worldY,
+      worldY = instance.sourceWorldY - originY,
+      cellKey = instance.cellKey,
+      sourceSurfaceId = instance.sourceSurfaceId,
       age = instance.age,
       fieldX = instance.fieldX,
       fieldZ = instance.fieldZ,

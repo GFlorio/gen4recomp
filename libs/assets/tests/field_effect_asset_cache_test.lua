@@ -49,7 +49,7 @@ local function validModel()
   }
 end
 
-local function cache(model, present, wrongProvenance)
+local function cache(model, present, wrongProvenance, sourceOverride)
   local index = {
     schema = "g4-field-effect-index-v1",
     effects = {},
@@ -73,10 +73,18 @@ local function cache(model, present, wrongProvenance)
       if kind == "warp_entrance" then
         return { model = model, lifetime = 1, kind = "model" }
       end
-      local members = kind == "tall_grass" and { 140, 141, 142, 143 } or { 146 }
+      local defaultMembers = kind == "tall_grass" and { 140, 141, 142, 143 } or { 146 }
+      local source = sourceOverride and sourceOverride[kind]
+      local members = source and source.animationMembers or defaultMembers
       local frames = {}
       for _, memberId in ipairs(members) do
-        frames[#frames + 1] = { memberId = memberId, duration = 1, values = { 0 } }
+        frames[#frames + 1] = {
+          memberId = memberId,
+          duration = 1,
+          format = "NANR",
+          name = "frame",
+          values = { { numFrame = 1 } },
+        }
       end
       return {
         model = model,
@@ -84,7 +92,8 @@ local function cache(model, present, wrongProvenance)
         kind = "animated_model",
         source = {
           renderer = wrongProvenance and 99 or (kind == "tall_grass" and 8 or 12),
-          modelMembers = kind == "tall_grass" and { 126, 127 } or { 122 },
+          modelMembers = source and source.modelMembers or (kind == "tall_grass" and { 126, 127 } or { 122 }),
+          animationArchive = "build_anim",
           animationMembers = members,
         },
         animation = {
@@ -127,6 +136,26 @@ T.tests["rejects wrong renderer provenance"] = function()
     "expected"
   )
   Assert.isFalse(ready)
+end
+
+T.tests["rejects incomplete grass source members"] = function()
+  local ready = FieldEffectAssetCache.isReady(
+    cache(
+      validModel(),
+      {
+        ["mesh-a"] = true,
+        ["texture-a"] = true,
+        ["texture-variant"] = true,
+      },
+      false,
+      {
+        tall_grass = { modelMembers = { 126 }, animationMembers = { 140 } },
+        very_tall_grass = { modelMembers = { 122 }, animationMembers = { 146 } },
+      }
+    ),
+    "expected"
+  )
+  Assert.isFalse(ready, "incomplete grass source metadata must be rejected")
 end
 
 return T

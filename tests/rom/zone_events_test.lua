@@ -32,11 +32,11 @@ end
 
 function T.every_catalog_map_event_member_decodes(romFs)
   local bundles = assert(FieldMapDataCompiler.compileAll(romFs))
-  Assert.equal(#bundles, 539)
+  Assert.equal(#bundles, 538)
   for index, bundle in ipairs(bundles) do
-    -- MAP_NOTHING is omitted from the compiled runtime records, so the
-    -- catalog position after map 0 is one greater than the bundle index.
-    local expectedMapId = index == 1 and 0 or index
+    -- MAP_NOTHING and MAP_UNDERGROUND are source-header placeholders without
+    -- field-data members, so neither produces a runtime record.
+    local expectedMapId = index == 1 and 0 or index == 2 and 2 or index + 1
     Assert.equal(bundle.mapId, expectedMapId)
     Assert.equal(bundle.field.mapId, expectedMapId)
     Assert.isNil(bundle.field.source)

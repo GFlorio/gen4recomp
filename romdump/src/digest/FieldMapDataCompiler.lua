@@ -17,10 +17,17 @@ local fieldAudio = require("romdump.src.reference.hgss.field_audio")
 
 local FieldMapDataCompiler = {}
 
+-- These catalog entries are source-header placeholders without field-data
+-- members. Direct compilation remains strict, while the complete producer
+-- omits records that have no field data to publish.
+local NON_FIELD_MAP_SYMBOLS = {
+  MAP_NOTHING = true,
+  MAP_UNDERGROUND = true,
+}
+
 local TRANSITION_ENVIRONMENT_BY_MAP_TYPE = {
   CAVE = "cave",
   CITY_TOWN = "outdoors",
-  UNDERGROUND = "cave",
   ROUTE = "outdoors",
   INTERIOR = "building",
   POKEMON_CENTER = "building",
@@ -314,9 +321,7 @@ function FieldMapDataCompiler.compileAll(romFs, sha1hex, hashLua)
     local source = loadSource(romFs, sha1hex)
     local bundles = {}
     for map in MapCatalog.all() do
-      -- MAP_NOTHING is the catalog's unused header filler, not a runtime map.
-      -- Keep transitionEnvironment strict for every actual map record.
-      if map.symbol ~= "MAP_NOTHING" or map.mapType ~= "INVALID" then
+      if not NON_FIELD_MAP_SYMBOLS[map.symbol] then
         bundles[#bundles + 1] = compileMap(romFs, map, source, sha1hex, hashLua)
       end
     end

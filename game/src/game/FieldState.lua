@@ -289,9 +289,7 @@ function FieldState:_worldParts(alpha)
   worldParts[6] = worldActorItems
   local terrain = self.runtime.fieldTerrainEffectController
   local terrainRenderer = self.fieldTerrainEffectRenderer
-  worldParts[7] = terrainRenderer
-      and terrainRenderer:drawItems(terrain:status(), self.runtime.runtimeMap.coordinateOrigin)
-    or NO_DRAWS
+  worldParts[7] = terrainRenderer and terrainRenderer:drawItems(terrain:status(), self.runtime.runtimeMap) or NO_DRAWS
   return worldParts
 end
 

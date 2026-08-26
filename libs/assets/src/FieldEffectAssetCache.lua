@@ -12,8 +12,18 @@ local MARKER = DIR .. "/complete"
 local ASSET_DIR = "assets/generated/field/effects"
 
 local SOURCE = {
-  tall_grass = { renderer = 8, modelMembers = { 126, 127 }, animationMembers = { 140, 141, 142, 143 } },
-  very_tall_grass = { renderer = 12, modelMembers = { 122 }, animationMembers = { 146 } },
+  tall_grass = {
+    renderer = 8,
+    modelMembers = { 126, 127 },
+    animationArchive = "build_anim",
+    animationMembers = { 140, 141, 142, 143 },
+  },
+  very_tall_grass = {
+    renderer = 12,
+    modelMembers = { 122 },
+    animationArchive = "build_anim",
+    animationMembers = { 146 },
+  },
 }
 
 local function sameIntegerArray(actual, expected)
@@ -26,6 +36,19 @@ local function sameIntegerArray(actual, expected)
     end
   end
   return true
+end
+
+local function validSource(kind, definition)
+  local expected = SOURCE[kind]
+  if not expected then
+    return true
+  end
+  local source = definition.source
+  return type(source) == "table"
+    and source.renderer == expected.renderer
+    and sameIntegerArray(source.modelMembers, expected.modelMembers)
+    and source.animationArchive == expected.animationArchive
+    and sameIntegerArray(source.animationMembers, expected.animationMembers)
 end
 
 local function validAnimation(kind, definition)
@@ -50,6 +73,9 @@ local function validAnimation(kind, definition)
       or frame.duration ~= math.floor(frame.duration)
       or type(frame.values) ~= "table"
       or #frame.values == 0
+      or type(frame.format) ~= "string"
+      or type(frame.name) ~= "string"
+      or type(frame.values[1]) ~= "table"
     then
       return false
     end
@@ -81,6 +107,14 @@ function FieldEffectAssetCache.marker(romSha1, depHash)
   return string.format("%s:%s:%s", FieldEffectAssetCache.FORMAT, romSha1, depHash)
 end
 
+---@param kind string
+---@return table
+function FieldEffectAssetCache.source(kind)
+  local source = SOURCE[kind]
+  assert(source, "unknown field-effect source " .. tostring(kind))
+  return source
+end
+
 function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(MARKER) ~= expectedMarker then
     return false
@@ -90,6 +124,16 @@ function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
     return false
   end
   local required = { "warp_entrance", "tall_grass", "very_tall_grass" }
+  if type(index.effects) ~= "table" then
+    return false
+  end
+  local effectCount = 0
+  for _ in pairs(index.effects) do
+    effectCount = effectCount + 1
+  end
+  if effectCount ~= #required then
+    return false
+  end
   for _, kind in ipairs(required) do
     local entry = index.effects and index.effects[kind]
     local expectedKind = kind == "warp_entrance" and "model" or "animated_model"
@@ -118,19 +162,11 @@ function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
         return false
       end
     end
-    if type(definition.lifetime) ~= "number" or definition.lifetime <= 0 then
+    if type(definition.lifetime) ~= "number" or definition.lifetime <= 0 or not validSource(kind, definition) then
       return false
     end
     if kind == "tall_grass" or kind == "very_tall_grass" then
-      local source = definition.source
-      local expectedSource = SOURCE[kind]
-      if
-        type(source) ~= "table"
-        or source.renderer ~= expectedSource.renderer
-        or not sameIntegerArray(source.modelMembers, expectedSource.modelMembers)
-        or not sameIntegerArray(source.animationMembers, expectedSource.animationMembers)
-        or not validAnimation(kind, definition)
-      then
+      if not validAnimation(kind, definition) then
         return false
       end
     end

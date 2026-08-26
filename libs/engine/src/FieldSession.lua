@@ -221,6 +221,9 @@ function FieldSession:_emitTerrainResponse()
       fieldX = self.player.fieldX,
       fieldZ = self.player.fieldZ,
       worldY = self.player.worldY,
+      originY = self.currentMap.physicalOrigin and self.currentMap.physicalOrigin.y or 0,
+      cellKey = self.player.committedSourceCellKey,
+      sourceSurfaceId = self.player.committedSourceSurfaceId,
     },
     direction = self.player.facing,
   })

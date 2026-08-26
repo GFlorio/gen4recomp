@@ -286,6 +286,9 @@ local function composePhysicalMap(logicalMap, coverage)
   runtimeMap.probePhysicalCell = function(_, fieldX, fieldZ)
     return coverage:probe(fieldX, fieldZ)
   end
+  runtimeMap.projectPhysicalPoint = function(_, fieldX, fieldZ, cellKey, sourceSurfaceId)
+    return coverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
+  end
   runtimeMap.updateAnimated = function()
     coverage:updateAnimated()
   end
@@ -838,6 +841,9 @@ function FieldRuntime:_load()
       navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new({
         zoneController = self.zoneController,
         physicalWorld = self.physicalCoverage,
+        reconcilePhysicalWorld = function()
+          self.actors:reconcilePhysicalWorld()
+        end,
       }),
       interactions = {
         resolve = function(_, snapshot)

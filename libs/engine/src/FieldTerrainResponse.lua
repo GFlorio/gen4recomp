@@ -6,7 +6,7 @@ local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
 local FieldTerrainResponse = {}
 
----@param movement { committed: boolean, destination: { behavior: integer, fieldX: integer, fieldZ: integer, worldY: number }, direction: string }
+---@param movement { committed: boolean, destination: { behavior: integer, fieldX: integer, fieldZ: integer, worldY: number, cellKey: string?, sourceCellKey: string?, sourceSurfaceId: integer? }, direction: string }
 ---@return table[]
 function FieldTerrainResponse.resolve(movement)
   assert(type(movement) == "table", "terrain movement is required")
@@ -29,6 +29,8 @@ function FieldTerrainResponse.resolve(movement)
       fieldX = destination.fieldX,
       fieldZ = destination.fieldZ,
       worldY = destination.worldY,
+      cellKey = destination.cellKey or destination.sourceCellKey,
+      sourceSurfaceId = destination.sourceSurfaceId,
       direction = movement.direction,
     },
   }
