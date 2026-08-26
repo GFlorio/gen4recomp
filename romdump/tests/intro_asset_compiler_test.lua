@@ -32,7 +32,8 @@ function T.gender_selector_configuration_declares_animation_sources_and_centers(
   }) do
     local entry = assert(config.genderSelectors[id])
     Assert.equal(entry.animationIndex, 0)
-    Assert.equal(entry.paletteOverride, 0)
+    local expectedOverride = id == "female" and 1 or 0
+    Assert.equal(entry.paletteOverride, expectedOverride)
     Assert.equal(entry.resourceSet, expected.resourceSet)
     Assert.deepEqual(entry.sourceCenter, expected.sourceCenter)
     Assert.equal(entry.resourceResolution, config.ball_open.resourceResolution)
@@ -286,6 +287,7 @@ local function fixtureBundle(cache, marker)
   assets[cache.assetDir() .. "/background.png"] = "png"
   for _, id in ipairs(cache.REQUIRED_ASSETS) do
     local image = cache.assetDir() .. "/" .. id .. ".png"
+    local framePlacement = { element = "none", translateX = 0, translateY = 0, scaleX = 1, scaleY = 1, rotation = 0 }
     widgets[id] = {
       image = image,
       width = 1,
@@ -294,7 +296,21 @@ local function fixtureBundle(cache, marker)
       sourceBounds = { x = 0, y = 0, width = 1, height = 1 },
       sampling = "nearest",
       provenance = { rule = "fixture" },
-      frames = { { image = image, width = 1, height = 1, duration = 1, anchor = { x = 0, y = 0 } } },
+      frames = {
+        {
+          image = image,
+          width = 1,
+          height = 1,
+          duration = 1,
+          anchor = { x = 0, y = 0 },
+          element = framePlacement.element,
+          translateX = framePlacement.translateX,
+          translateY = framePlacement.translateY,
+          scaleX = framePlacement.scaleX,
+          scaleY = framePlacement.scaleY,
+          rotation = framePlacement.rotation,
+        },
+      },
     }
     if id == "gender_male" then
       widgets[id].sourceCenter = { x = 64, y = 104 }
@@ -308,7 +324,7 @@ local function fixtureBundle(cache, marker)
   return {
     marker = marker,
     manifest = {
-      schemaVersion = 3,
+      schemaVersion = 4,
       variant = "heartgold",
       sourceReference = { width = 256, height = 192 },
       background = {

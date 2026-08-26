@@ -166,10 +166,12 @@ local function cellBounds(cell, bounds)
   end
 end
 
-local function renderCell(char, palette, cell, bounds)
+local function renderCell(char, palette, cell, bounds, opts)
   if #cell.objs == 0 then
     sourceError("intro cell has no objects", { sourceOffset = 0 })
   end
+  opts = opts or {}
+  local effectivePaletteOverride = opts.paletteOverride
   local minX, minY = bounds.minX, bounds.minY
   local width, height = bounds.maxX - minX, bounds.maxY - minY
   local rgba = newRgba(width, height)
@@ -179,6 +181,10 @@ local function renderCell(char, palette, cell, bounds)
       for column = 0, columns - 1 do
         local tileColumn = object.flipH and columns - 1 - column or column
         local tileRow = object.flipV and rows - 1 - row or row
+        local effectivePalette = object.palette
+        if effectivePaletteOverride ~= nil then
+          effectivePalette = effectivePaletteOverride
+        end
         blitTile(
           rgba,
           width,
@@ -187,7 +193,7 @@ local function renderCell(char, palette, cell, bounds)
           object.y - minY + row * 8,
           object.tile + tileRow * columns + tileColumn,
           palette,
-          object.palette,
+          effectivePalette,
           object.flipH,
           object.flipV
         )
@@ -205,6 +211,9 @@ local function renderAnimations(char, palette, cells, animation, animationIndex,
     if char.depth == 3 and (paletteOverride + 1) * 16 > #palette then
       sourceError("intro palette override is outside decoded palette data", { paletteOverride = paletteOverride })
     end
+    if char.depth == 4 then
+      sourceError("intro palette override is invalid for 8bpp cell graphics", { paletteOverride = paletteOverride })
+    end
   end
   local animations = {}
   if animationIndex ~= nil then
@@ -215,7 +224,7 @@ local function renderAnimations(char, palette, cells, animation, animationIndex,
   else
     animations = animation.anims
   end
-  local selectedFrames, bounds = {}, { minX = 0, minY = 0, maxX = 0, maxY = 0 }
+  local selectedFrames, bounds = {}, nil
   for _, selected in ipairs(animations) do
     for _, sourceFrame in ipairs(selected.frames) do
       if sourceFrame.duration <= 0 then
@@ -225,25 +234,234 @@ local function renderAnimations(char, palette, cells, animation, animationIndex,
       if not cell then
         sourceError("intro animation references a missing cell", { cell = sourceFrame.cell })
       end
-      cellBounds(cell, bounds)
-      selectedFrames[#selectedFrames + 1] = { cell = cell, duration = sourceFrame.duration }
+      -- Compute transformed bounds for this frame. Translation moves the cell
+      -- bounds; SRT scales around the resource-set origin before translation.
+      -- For intro purposes the observed animation types are translate and affine
+      -- with scale+translate. We apply translation and uniform scale around the
+      -- origin (cell objects already carry their OAM offsets).
+      local tx = sourceFrame.translateX or 0
+      local ty = sourceFrame.translateY or 0
+      local sx = sourceFrame.scaleX or 1
+      local sy = sourceFrame.scaleY or 1
+      local rot = sourceFrame.rotation or 0
+      -- Compute cell bounds first, then apply transform to derive frame bounds.
+      local cellB = { minX = math.huge, minY = math.huge, maxX = -math.huge, maxY = -math.huge }
+      cellBounds(cell, cellB)
+      -- Transform corners: scale around origin (0,0) then translate.
+      -- Rotation, if present, rotates around origin as well.
+      local corners = {
+        { x = cellB.minX, y = cellB.minY },
+        { x = cellB.maxX, y = cellB.minY },
+        { x = cellB.minX, y = cellB.maxY },
+        { x = cellB.maxX, y = cellB.maxY },
+      }
+      local transformedMinX, transformedMinY, transformedMaxX, transformedMaxY
+      for _, pt in ipairs(corners) do
+        local sxPt = pt.x * sx
+        local syPt = pt.y * sy
+        local rx, ry
+        if rot ~= 0 then
+          local rad = math.rad(rot)
+          local cosR, sinR = math.cos(rad), math.sin(rad)
+          rx = sxPt * cosR - syPt * sinR
+          ry = sxPt * sinR + syPt * cosR
+        else
+          rx, ry = sxPt, syPt
+        end
+        rx = rx + tx
+        ry = ry + ty
+        if transformedMinX == nil then
+          transformedMinX, transformedMinY, transformedMaxX, transformedMaxY = rx, ry, rx, ry
+        else
+          transformedMinX = math.min(transformedMinX, rx)
+          transformedMinY = math.min(transformedMinY, ry)
+          transformedMaxX = math.max(transformedMaxX, rx)
+          transformedMaxY = math.max(transformedMaxY, ry)
+        end
+      end
+      if bounds == nil then
+        bounds = { minX = transformedMinX, minY = transformedMinY, maxX = transformedMaxX, maxY = transformedMaxY }
+      else
+        bounds.minX = math.min(bounds.minX, transformedMinX)
+        bounds.minY = math.min(bounds.minY, transformedMinY)
+        bounds.maxX = math.max(bounds.maxX, transformedMaxX)
+        bounds.maxY = math.max(bounds.maxY, transformedMaxY)
+      end
+      selectedFrames[#selectedFrames + 1] = {
+        cell = cell,
+        duration = sourceFrame.duration,
+        translateX = tx,
+        translateY = ty,
+        scaleX = sx,
+        scaleY = sy,
+        rotation = rot,
+        element = sourceFrame.element or "none",
+      }
     end
   end
   if #selectedFrames == 0 then
     sourceError("intro source animation is empty", { sourceOffset = 0 })
   end
+  assert(bounds ~= nil)
+  -- Union bounds are already transformed; snap to integer source pixels.
+  bounds.minX = math.floor(bounds.minX + 0.5)
+  bounds.minY = math.floor(bounds.minY + 0.5)
+  bounds.maxX = math.ceil(bounds.maxX - 0.5)
+  bounds.maxY = math.ceil(bounds.maxY - 0.5)
+  -- The canvas must contain both all transformed pixels and the resource-set
+  -- origin (0,0); otherwise a fully negative union would place the anchor
+  -- outside [0,width]x[0,height] and fail manifest validation.
+  bounds.minX = math.min(bounds.minX, 0)
+  bounds.minY = math.min(bounds.minY, 0)
+  bounds.maxX = math.max(bounds.maxX, 0)
+  bounds.maxY = math.max(bounds.maxY, 0)
   local width, height = bounds.maxX - bounds.minX, bounds.maxY - bounds.minY
+  if width <= 0 then
+    width = 1
+  end
+  if height <= 0 then
+    height = 1
+  end
   local anchor = { x = -bounds.minX, y = -bounds.minY }
+  -- Defensive clamp: rounding or an empty union must never escape the surface.
+  anchor.x = math.max(0, math.min(width, anchor.x))
+  anchor.y = math.max(0, math.min(height, anchor.y))
   local output = {}
   for index, selected in ipairs(selectedFrames) do
-    local image = renderCell(char, palette, selected.cell, bounds)
-    output[index] = { width = width, height = height, rgba = image.rgba, duration = selected.duration }
+    -- For transformed frames we need per-frame rasterization with transform.
+    -- Collect cell bounds and apply translation/scale per frame.
+    local cell = selected.cell
+    local tx, ty = selected.translateX, selected.translateY
+    local sx, sy = selected.scaleX, selected.scaleY
+    local rot = selected.rotation
+    if tx == 0 and ty == 0 and sx == 1 and sy == 1 and rot == 0 then
+      local image = renderCell(char, palette, cell, bounds, { paletteOverride = paletteOverride })
+      output[index] = {
+        width = width,
+        height = height,
+        rgba = image.rgba,
+        duration = selected.duration,
+        element = selected.element,
+        translateX = tx,
+        translateY = ty,
+        scaleX = sx,
+        scaleY = sy,
+        rotation = rot,
+      }
+    else
+      -- Render transformed cell into the shared union canvas.
+      -- We render the cell into its own bounds then composite with transform.
+      -- For translate-only (the common Oak case), offset the cell placement.
+      local cellB = { minX = math.huge, minY = math.huge, maxX = -math.huge, maxY = -math.huge }
+      cellBounds(cell, cellB)
+      local cellW, cellH = cellB.maxX - cellB.minX, cellB.maxY - cellB.minY
+      local cellImage = renderCell(char, palette, cell, cellB, { paletteOverride = paletteOverride })
+      -- Create union canvas
+      local rgba = newRgba(width, height)
+      -- Determine dest origin for this transformed cell: its transformed min maps to bounds.min
+      -- For simple translation: destX = cellB.minX + tx - bounds.minX, similarly for scale.
+      -- For scaled cells we need per-pixel resampling. Oak shrink uses uniform scale near 1,
+      -- so we support nearest-neighbor scaling of the cell image.
+      local destMinX = math.floor(cellB.minX * sx + tx + 0.5)
+      local destMinY = math.floor(cellB.minY * sy + ty + 0.5)
+      -- If rotation present, bounds already account for it but per-pixel rotation
+      -- needs full transform. Implement per-pixel affine mapping for correctness.
+      if rot ~= 0 then
+        local rad = math.rad(rot)
+        local cosR, sinR = math.cos(rad), math.sin(rad)
+        -- Iterate over dest canvas and sample source cell image via inverse transform.
+        for dy = 0, height - 1 do
+          for dx = 0, width - 1 do
+            -- World coord of dest pixel
+            local wx = bounds.minX + dx
+            local wy = bounds.minY + dy
+            -- Inverse translate then inverse rotate then inverse scale then offset to cell local
+            local ix = wx - tx
+            local iy = wy - ty
+            local sxInv = ix * cosR + iy * sinR
+            local syInv = -ix * sinR + iy * cosR
+            sxInv = sxInv / sx
+            syInv = syInv / sy
+            local srcX = math.floor(sxInv - cellB.minX + 0.5)
+            local srcY = math.floor(syInv - cellB.minY + 0.5)
+            if srcX >= 0 and srcX < cellW and srcY >= 0 and srcY < cellH then
+              local srcOff = (srcY * cellW + srcX) * 4
+              local r = string.byte(cellImage.rgba, srcOff + 1)
+              local g = string.byte(cellImage.rgba, srcOff + 2)
+              local b = string.byte(cellImage.rgba, srcOff + 3)
+              local a = string.byte(cellImage.rgba, srcOff + 4)
+              if a ~= 0 and a ~= nil then
+                local dstOff = (dy * width + dx) * 4
+                rgba[dstOff + 1], rgba[dstOff + 2], rgba[dstOff + 3], rgba[dstOff + 4] = r, g, b, a
+              end
+            end
+          end
+        end
+      elseif sx ~= 1 or sy ~= 1 then
+        -- Nearest-neighbor scale
+        for dy = 0, height - 1 do
+          for dx = 0, width - 1 do
+            local wx = bounds.minX + dx
+            local wy = bounds.minY + dy
+            local sxInv = (wx - tx) / sx
+            local syInv = (wy - ty) / sy
+            local srcX = math.floor(sxInv - cellB.minX + 0.5)
+            local srcY = math.floor(syInv - cellB.minY + 0.5)
+            if srcX >= 0 and srcX < cellW and srcY >= 0 and srcY < cellH then
+              local srcOff = (srcY * cellW + srcX) * 4
+              local r = string.byte(cellImage.rgba, srcOff + 1)
+              local g = string.byte(cellImage.rgba, srcOff + 2)
+              local b = string.byte(cellImage.rgba, srcOff + 3)
+              local a = string.byte(cellImage.rgba, srcOff + 4)
+              if a ~= 0 and a ~= nil then
+                local dstOff = (dy * width + dx) * 4
+                rgba[dstOff + 1], rgba[dstOff + 2], rgba[dstOff + 3], rgba[dstOff + 4] = r, g, b, a
+              end
+            end
+          end
+        end
+      else
+        -- Translate only: direct copy at translated position
+        destMinX = destMinX - bounds.minX
+        destMinY = destMinY - bounds.minY
+        for sy2 = 0, cellH - 1 do
+          for sx2 = 0, cellW - 1 do
+            local srcOff = (sy2 * cellW + sx2) * 4
+            local r = string.byte(cellImage.rgba, srcOff + 1)
+            local g = string.byte(cellImage.rgba, srcOff + 2)
+            local b = string.byte(cellImage.rgba, srcOff + 3)
+            local a = string.byte(cellImage.rgba, srcOff + 4)
+            if a ~= 0 and a ~= nil then
+              local dx = destMinX + sx2
+              local dy = destMinY + sy2
+              if dx >= 0 and dx < width and dy >= 0 and dy < height then
+                local dstOff = (dy * width + dx) * 4
+                rgba[dstOff + 1], rgba[dstOff + 2], rgba[dstOff + 3], rgba[dstOff + 4] = r, g, b, a
+              end
+            end
+          end
+        end
+      end
+      output[index] = {
+        width = width,
+        height = height,
+        rgba = concatBytes(rgba),
+        duration = selected.duration,
+        element = selected.element,
+        translateX = tx,
+        translateY = ty,
+        scaleX = sx,
+        scaleY = sy,
+        rotation = rot,
+      }
+    end
   end
+  local sourceBounds = { x = bounds.minX, y = bounds.minY, width = width, height = height }
   return {
     width = width,
     height = height,
     anchor = anchor,
-    sourceBounds = { x = 0, y = 0, width = width, height = height },
+    sourceBounds = sourceBounds,
     frames = output,
     rgba = output[1].rgba,
   },
@@ -363,8 +581,19 @@ local function addAsset(manifest, assets, id, image, frames, sourceBounds, ancho
     widget.sourceCenter = sourceCenter
   end
   for index, frame in ipairs(frames) do
-    widget.frames[index] =
-      { image = paths[index], width = frame.width, height = frame.height, duration = frame.duration, anchor = anchor }
+    widget.frames[index] = {
+      image = paths[index],
+      width = frame.width,
+      height = frame.height,
+      duration = frame.duration,
+      anchor = anchor,
+      element = frame.element or "none",
+      translateX = frame.translateX or 0,
+      translateY = frame.translateY or 0,
+      scaleX = frame.scaleX or 1,
+      scaleY = frame.scaleY or 1,
+      rotation = frame.rotation or 0,
+    }
   end
   manifest.widgets[id] = widget
 end
@@ -423,21 +652,38 @@ local function compileSingle(archive, dependencies, manifest, assets, id, spec, 
 end
 
 local function compileShrink(archive, dependencies, manifest, assets, id, spec)
-  local images, width, height = {}, nil, 0
+  -- Shrink frames are the portrait screen (NSCR 9) rendered with each
+  -- replacement NCGR. This matches OakSpeech_DrawPicOnBgLayer which loads
+  -- the portrait char then its screen map (member 9) and reuses that mapping
+  -- for every shrink replacement.
+  local screenMember = spec.screen or 9
+  local screenBytes = decodeMember(archive, screenMember, id .. " screen", spec.archive or config.archive)
+  addDependency(dependencies, spec.archive or config.archive, screenMember, screenBytes, id .. ":screen")
+  local screen = decode("decodeScreen", screenBytes, id .. " screen", screenMember, spec.archive or config.archive)
+  local images, width = {}, nil
   for frameIndex, charMember in ipairs(spec.chars) do
-    local char, palette = loadCharPalette(
-      archive,
-      dependencies,
-      { archive = spec.archive, char = charMember, palette = spec.palette },
-      id .. ":" .. frameIndex
+    local charBytes = decodeMember(archive, charMember, id .. " char " .. frameIndex, spec.archive or config.archive)
+    local paletteBytes =
+      decodeMember(archive, spec.palette, id .. " palette " .. frameIndex, spec.archive or config.archive)
+    if frameIndex == 1 then
+      addDependency(dependencies, spec.archive or config.archive, spec.palette, paletteBytes, id .. ":palette")
+    end
+    addDependency(dependencies, spec.archive or config.archive, charMember, charBytes, id .. ":char:" .. frameIndex)
+    local char =
+      decode("decodeChar", charBytes, id .. " char " .. frameIndex, charMember, spec.archive or config.archive)
+    local palette = decode(
+      "decodePalette",
+      paletteBytes,
+      id .. " palette " .. frameIndex,
+      spec.palette,
+      spec.archive or config.archive
     )
-    local image = renderChar(char, palette.colors)
+    local image = renderScreen(char, palette.colors, screen)
     if width ~= nil and image.width ~= width then
       sourceError("intro shrink frames have inconsistent dimensions", { asset = id, memberId = charMember })
     end
     width = width or image.width
     images[#images + 1] = image
-    height = height + image.height
   end
   local cropped = IntroAssetImage.cropAlphaUnion(images, { x = width / 2, y = images[1].height })
   local frames = {}
@@ -452,7 +698,7 @@ local function compileShrink(archive, dependencies, manifest, assets, id, spec)
     frames,
     cropped.sourceBounds,
     cropped.anchor,
-    { rule = "alpha-union-crop-bottom-center" }
+    { rule = "portrait-screen-alpha-union", screenMember = screenMember, paletteMember = spec.palette }
   )
 end
 
@@ -481,7 +727,7 @@ function IntroAssetCompiler.compile(romFs)
   local resourceDataArchive = sourceArchive(romFs, resourceResolution.archive)
   local dependencies, assets = {}, {}
   local manifest = {
-    schemaVersion = 3,
+    schemaVersion = 4,
     variant = variant,
     sourceReference = { width = 256, height = 192 },
     widgets = {},

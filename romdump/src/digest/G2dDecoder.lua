@@ -27,6 +27,14 @@ G2dDecoder.ERROR = {
   CHUNK_INVALID = "G2D_CHUNK_INVALID",
 }
 
+local function toScale(raw)
+  -- Fixed-point s32 20.12 -> float scale factor. Normalize exactly once.
+  if raw >= 2147483648 then
+    raw = raw - 4294967296
+  end
+  return raw / 4096
+end
+
 -- The container/chunk IDs are stored byte-swapped; the swap yields the
 -- canonical name.
 local function swapped(reader, offset)
@@ -408,7 +416,7 @@ end
 
 ---@param data string
 ---@param opts? { label?: string }
----@return { anims: { frames: { cell: integer, duration: integer }[] }[] }?
+---@return { anims: { frames: { cell: integer, duration: integer, element: string, translateX: integer, translateY: integer, scaleX: number, scaleY: number, rotation: number }[] }[] }?
 ---@return Errors.Error?
 function G2dDecoder.decodeAnimation(data, opts)
   assert(type(data) == "string", "G2dDecoder.decodeAnimation requires a string")
@@ -442,7 +450,24 @@ function G2dDecoder.decodeAnimation(data, opts)
     for a = 0, animCount - 1 do
       local abase = blk.payload + animsOffset + a * 16
       local numFrames = reader:u32le(abase)
+      local animationType = reader:u16le(abase + 4)
+      local cellType = reader:u16le(abase + 6)
       local firstFrame = reader:u32le(abase + 12)
+      -- Animation element type is authoritative NANR metadata. The decoder must
+      -- not infer transform size from frame-data length; it must use this type
+      -- to decide how many bytes to read for each frame property.
+      if animationType ~= 0 and animationType ~= 1 and animationType ~= 2 then
+        Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM animationType is unsupported", {
+          animationType = animationType,
+          animation = a,
+        })
+      end
+      if cellType ~= 1 and cellType ~= 2 then
+        Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM cellType is unsupported", {
+          cellType = cellType,
+          animation = a,
+        })
+      end
       -- The HGSS exporter stores this field as a byte offset into the frame
       -- table. Normalize it once at the source-format boundary; treating the
       -- same value as either bytes or an index would make valid resources
@@ -476,18 +501,119 @@ function G2dDecoder.decodeAnimation(data, opts)
         local fbase = blk.payload + framesOffset + (firstFrame + f) * 8
         local frameData = reader:u32le(fbase)
         local duration = reader:u16le(fbase + 4)
-        -- The cell index read must be inside the chunk.
-        if dataOffset + frameData + 2 > blk.size then
-          Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM frame data exceeds the chunk", {
-            frameData = frameData,
-            dataOffset = dataOffset,
-            chunkSize = blk.size,
+        if duration <= 0 then
+          Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM frame duration must be positive", {
+            duration = duration,
+            animation = a,
+            frame = f,
           })
         end
-        local cell = reader:u16le(blk.payload + dataOffset + frameData)
-        frames[f + 1] = { cell = cell, duration = duration }
+        local propBase = blk.payload + dataOffset + frameData
+        -- Validate property bounds according to the animation's element type.
+        -- The property size is fixed per type: 2 for type 0 (plus dword padding),
+        -- 8 for type 2 (translate), 16 for type 1 (SRT). The check must be
+        -- type-aware rather than inferring from remaining bytes.
+        local element, translateX, translateY, scaleX, scaleY, rotation
+        if animationType == 0 then
+          if dataOffset + frameData + 2 > blk.size then
+            Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM frame data exceeds the chunk", {
+              frameData = frameData,
+              dataOffset = dataOffset,
+              chunkSize = blk.size,
+            })
+          end
+          local cell = reader:u16le(propBase)
+          element = "none"
+          translateX, translateY = 0, 0
+          scaleX, scaleY = 1, 1
+          rotation = 0
+          frames[f + 1] = {
+            cell = cell,
+            duration = duration,
+            element = element,
+            translateX = translateX,
+            translateY = translateY,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            rotation = rotation,
+          }
+        elseif animationType == 2 then
+          if dataOffset + frameData + 8 > blk.size then
+            Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM frame data exceeds the chunk", {
+              frameData = frameData,
+              dataOffset = dataOffset,
+              chunkSize = blk.size,
+            })
+          end
+          local cell = reader:u16le(propBase)
+          local tx = reader:u16le(propBase + 4)
+          local ty = reader:u16le(propBase + 6)
+          if tx >= 32768 then
+            tx = tx - 65536
+          end
+          if ty >= 32768 then
+            ty = ty - 65536
+          end
+          element = "translate"
+          translateX, translateY = tx, ty
+          scaleX, scaleY = 1, 1
+          rotation = 0
+          frames[f + 1] = {
+            cell = cell,
+            duration = duration,
+            element = element,
+            translateX = translateX,
+            translateY = translateY,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            rotation = rotation,
+          }
+        else -- animationType == 1 : SRT (scale, rotate, translate)
+          if dataOffset + frameData + 16 > blk.size then
+            Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM frame data exceeds the chunk", {
+              frameData = frameData,
+              dataOffset = dataOffset,
+              chunkSize = blk.size,
+            })
+          end
+          local cell = reader:u16le(propBase)
+          local rotRaw = reader:u16le(propBase + 2)
+          local scaleWRaw = reader:u32le(propBase + 4)
+          local scaleHRaw = reader:u32le(propBase + 8)
+          local tx = reader:u16le(propBase + 12)
+          local ty = reader:u16le(propBase + 14)
+          if tx >= 32768 then
+            tx = tx - 65536
+          end
+          if ty >= 32768 then
+            ty = ty - 65536
+          end
+          element = "affine"
+          translateX, translateY = tx, ty
+          scaleX = toScale(scaleWRaw)
+          scaleY = toScale(scaleHRaw)
+          -- Rotation unit: degrees (0..360) derived from uint16 full turn.
+          rotation = rotRaw * 360 / 65536
+          if scaleX ~= scaleX or scaleY ~= scaleY or rotation ~= rotation then
+            Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM transform contains non-finite value", {
+              scaleX = scaleX,
+              scaleY = scaleY,
+              rotation = rotation,
+            })
+          end
+          frames[f + 1] = {
+            cell = cell,
+            duration = duration,
+            element = element,
+            translateX = translateX,
+            translateY = translateY,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            rotation = rotation,
+          }
+        end
       end
-      anims[a + 1] = { frames = frames }
+      anims[a + 1] = { frames = frames, animationType = animationType, cellType = cellType }
     end
     return { anims = anims }
   end)

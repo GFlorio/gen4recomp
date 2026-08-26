@@ -104,7 +104,20 @@ local function genderManifest()
     anchor = { x = 32, y = 48 },
     sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
     sourceCenter = { x = 64, y = 104 },
-    frames = { { image = "assets/generated/intro/gender-male.png", width = 64, height = 96, duration = 1 } },
+    frames = {
+      {
+        image = "assets/generated/intro/gender-male.png",
+        width = 64,
+        height = 96,
+        duration = 1,
+        element = "none",
+        translateX = 0,
+        translateY = 0,
+        scaleX = 1,
+        scaleY = 1,
+        rotation = 0,
+      },
+    },
   }
   widgets.gender_female = {
     image = "assets/generated/intro/gender-female.png",
@@ -114,7 +127,20 @@ local function genderManifest()
     anchor = { x = 32, y = 48 },
     sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
     sourceCenter = { x = 192, y = 104 },
-    frames = { { image = "assets/generated/intro/gender-female.png", width = 64, height = 96, duration = 1 } },
+    frames = {
+      {
+        image = "assets/generated/intro/gender-female.png",
+        width = 64,
+        height = 96,
+        duration = 1,
+        element = "none",
+        translateX = 0,
+        translateY = 0,
+        scaleX = 1,
+        scaleY = 1,
+        rotation = 0,
+      },
+    },
   }
   return data
 end
@@ -139,6 +165,11 @@ end
 manifest = function()
   local widgets = {}
   for index, id in ipairs(REQUIRED) do
+    local isAnimated = id == "ball_open"
+      or id == "marill_appear"
+      or id == "marill"
+      or id == "gender_male"
+      or id == "gender_female"
     widgets[id] = {
       image = "assets/generated/intro/" .. id .. ".png",
       width = 32 + index,
@@ -153,6 +184,12 @@ manifest = function()
           height = 48 + index,
           duration = 1,
           anchor = { x = (32 + index) / 2, y = 48 + index },
+          element = isAnimated and "none" or nil,
+          translateX = isAnimated and 0 or nil,
+          translateY = isAnimated and 0 or nil,
+          scaleX = isAnimated and 1 or nil,
+          scaleY = isAnimated and 1 or nil,
+          rotation = isAnimated and 0 or nil,
         },
       },
     }
@@ -165,7 +202,7 @@ manifest = function()
     end
   end
   return {
-    schemaVersion = 3,
+    schemaVersion = 4,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -288,7 +325,7 @@ end
 
 function T.tests.host_native_layout_contract_across_representative_viewports()
   local checked = IntroAssetCache.validateManifest(manifest())
-  Assert.isTrue(checked, "scenario requires a valid schema-3 semantic manifest")
+  Assert.isTrue(checked, "scenario requires a valid schema-4 semantic manifest")
   for _, size in ipairs({ { 320, 240 }, { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }) do
     local state = OakIntroState.new({
       controller = controller(),

@@ -65,12 +65,21 @@ local function bounds(id, value)
     return invalid("widget " .. id .. " sourceBounds is required", { widget = id })
   end
   for _, field in ipairs({ "x", "y", "width", "height" }) do
-    if not integer(value[field]) or value[field] < 0 then
+    if not integer(value[field]) then
       return invalid("widget " .. id .. " sourceBounds is invalid", { widget = id })
     end
   end
-  if value.width == 0 or value.height == 0 or value.x + value.width > 256 or value.y + value.height > 192 then
-    return invalid("widget " .. id .. " sourceBounds escape the source reference", { widget = id })
+  if value.width <= 0 or value.height <= 0 then
+    return invalid("widget " .. id .. " sourceBounds is invalid", { widget = id })
+  end
+  -- Transformed geometry may place the widget partly outside the nominal
+  -- 256x192 reference (negative origin or beyond screen); the runtime decides
+  -- clipping. Only reject absurd extents.
+  if value.width > 1024 or value.height > 1024 then
+    return invalid("widget " .. id .. " sourceBounds is invalid", { widget = id })
+  end
+  if value.x < -1024 or value.y < -1024 or value.x > 1024 or value.y > 1024 then
+    return invalid("widget " .. id .. " sourceBounds is invalid", { widget = id })
   end
   return true
 end
@@ -93,6 +102,44 @@ local function frame(id, widget, value, index)
     value.anchor ~= nil and (type(value.anchor) ~= "table" or not finite(value.anchor.x) or not finite(value.anchor.y))
   then
     return invalid("widget " .. id .. " frame anchor is invalid", { widget = id, frame = index })
+  end
+  local animatedSet =
+    { ball_open = true, marill_appear = true, marill = true, gender_male = true, gender_female = true }
+  local function finiteField(name)
+    return finite(value[name])
+  end
+  if animatedSet[id] then
+    if type(value.element) ~= "string" or value.element == "" then
+      return invalid("widget " .. id .. " frame element is required", { widget = id, frame = index })
+    end
+    if not finiteField("translateX") or not finiteField("translateY") then
+      return invalid("widget " .. id .. " frame translate is invalid", { widget = id, frame = index })
+    end
+    if not finiteField("scaleX") or not finiteField("scaleY") then
+      return invalid("widget " .. id .. " frame scale is invalid", { widget = id, frame = index })
+    end
+    if not finiteField("rotation") then
+      return invalid("widget " .. id .. " frame rotation is invalid", { widget = id, frame = index })
+    end
+  else
+    if value.element ~= nil and type(value.element) ~= "string" then
+      return invalid("widget " .. id .. " frame element is invalid", { widget = id, frame = index })
+    end
+    if value.translateX ~= nil and not finiteField("translateX") then
+      return invalid("widget " .. id .. " frame translate is invalid", { widget = id, frame = index })
+    end
+    if value.translateY ~= nil and not finiteField("translateY") then
+      return invalid("widget " .. id .. " frame translate is invalid", { widget = id, frame = index })
+    end
+    if value.scaleX ~= nil and not finiteField("scaleX") then
+      return invalid("widget " .. id .. " frame scale is invalid", { widget = id, frame = index })
+    end
+    if value.scaleY ~= nil and not finiteField("scaleY") then
+      return invalid("widget " .. id .. " frame scale is invalid", { widget = id, frame = index })
+    end
+    if value.rotation ~= nil and not finiteField("rotation") then
+      return invalid("widget " .. id .. " frame rotation is invalid", { widget = id, frame = index })
+    end
   end
   return true
 end
@@ -155,8 +202,8 @@ local function sourceCenter(id, reference, value)
 end
 
 function M.validateManifest(manifest)
-  if type(manifest) ~= "table" or manifest.schemaVersion ~= 3 then
-    return invalid("manifest schema mismatch", { expected = 3, actual = manifest and manifest.schemaVersion })
+  if type(manifest) ~= "table" or manifest.schemaVersion ~= 4 then
+    return invalid("manifest schema mismatch", { expected = 4, actual = manifest and manifest.schemaVersion })
   end
   if manifest.variant ~= "heartgold" and manifest.variant ~= "soulsilver" then
     return invalid("manifest variant is unsupported", { variant = manifest.variant })

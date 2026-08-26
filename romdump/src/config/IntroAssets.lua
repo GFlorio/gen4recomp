@@ -14,7 +14,7 @@ local resourceResolution = {
 }
 
 local IntroAssets = {
-  schema = 2,
+  schema = 3,
   provenance = {
     repo = "pret/pokeheartgold",
     commit = "f45f4fd1368e8809515540404408fd2bc71974a8",
@@ -53,14 +53,14 @@ local IntroAssets = {
       resourceSet = 2,
       archive = "intro",
       animationIndex = 0,
-      paletteOverride = 0,
+      paletteOverride = 1,
       sourceCenter = { x = 192, y = 104 },
       resourceResolution = resourceResolution,
     },
   },
   shrink = {
-    male = { palette = 16, chars = { 22, 23, 24, 25 } },
-    female = { palette = 21, chars = { 26, 27, 28, 29 } },
+    male = { palette = 16, chars = { 22, 23, 24, 25 }, screen = 9 },
+    female = { palette = 21, chars = { 26, 27, 28, 29 }, screen = 9 },
   },
   ball_open = {
     archive = "intro",

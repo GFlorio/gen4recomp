@@ -79,8 +79,8 @@ function T.contract_pins_the_current_asset_identities()
       schema = "g4-field-ui-v7",
     },
     intro = {
-      cacheFormat = "intro-cache-v3",
-      schema = "g4-intro-assets-v3",
+      cacheFormat = "intro-cache-v4",
+      schema = "g4-intro-assets-v4",
       provenanceSchema = "g4-intro-provenance-v1",
     },
     audio = {

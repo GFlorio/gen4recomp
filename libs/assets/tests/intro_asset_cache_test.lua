@@ -21,7 +21,19 @@ local WIDGETS = {
 }
 
 local function frame(path, width, height, duration)
-  return { image = path, width = width, height = height, duration = duration }
+  return {
+    image = path,
+    width = width,
+    height = height,
+    duration = duration,
+    element = "none",
+    translateX = 0,
+    translateY = 0,
+    scaleX = 1,
+    scaleY = 1,
+    rotation = 0,
+    anchor = { x = 16, y = 32 },
+  }
 end
 
 local function validManifest()
@@ -49,7 +61,7 @@ local function validManifest()
     frame("assets/generated/intro/ball-open-1.png", 32, 32, 4),
   }
   return {
-    schemaVersion = 3,
+    schemaVersion = 4,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -73,7 +85,7 @@ end
 
 function T.complete_schema_manifest_loads_and_declares_closed_inventory()
   local cache = require("libs.assets.src.IntroAssetCache")
-  Assert.equal(cache.SCHEMA, "g4-intro-assets-v3")
+  Assert.equal(cache.SCHEMA, "g4-intro-assets-v4")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
   local manifest = validManifest()
   Assert.isTrue(cache.validateManifest(manifest))
