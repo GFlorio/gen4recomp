@@ -182,7 +182,7 @@ local function waitForMom(runtime)
       and not world:isFlagSet(flags.FLAG_GOT_POKEGEAR)
     then
       for _ = 1, 120 do
-        if not runtime.scripts.scheduler:playerMovementLocked() then
+        if not runtime.scripts.scheduler:playerInputLocked() then
           break
         end
         tick(1)
@@ -297,7 +297,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
       end
     end
     for _ = 1, 240 do
-      if runtime.session.mapEntryStage == nil and not runtime.scripts.scheduler:playerMovementLocked() then
+      if runtime.session.mapEntryStage == nil and not runtime.scripts.scheduler:playerInputLocked() then
         break
       end
       tick(1)

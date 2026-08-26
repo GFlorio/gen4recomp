@@ -172,8 +172,11 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
   }
   local scriptScheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
     end,
   }
   local scriptClient = { consume = function() end }

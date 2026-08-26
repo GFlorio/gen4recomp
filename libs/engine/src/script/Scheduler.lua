@@ -1112,12 +1112,24 @@ function Scheduler:startInteraction(trigger, composed, tick)
   return instanceId
 end
 
--- True when player-controlled movement is suppressed: a live foreground
--- root owns the field (the session's documented control model), which holds
--- whether or not the foreground script has issued an explicit lock yet.
 ---@return boolean
-function Scheduler:playerMovementLocked()
-  return self._foregroundEnvironmentId ~= nil
+function Scheduler:playerInputLocked()
+  local envId = self._foregroundEnvironmentId
+  if envId == nil then
+    return false
+  end
+  local env = self._environments[envId]
+  return env ~= nil and env:playerLocked() or false
+end
+
+---@return boolean
+function Scheduler:autonomousActorsLocked()
+  local envId = self._foregroundEnvironmentId
+  if envId == nil then
+    return false
+  end
+  local env = self._environments[envId]
+  return env ~= nil and env:autonomousLocked() or false
 end
 
 -- --- Accessors -----------------------------------------------------------------

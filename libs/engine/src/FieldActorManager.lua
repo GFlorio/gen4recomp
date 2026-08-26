@@ -315,17 +315,22 @@ function FieldActorManager:_applyFlag(change)
   end
 end
 
+function FieldActorManager:syncEventStateChanges()
+  local pending = self.pendingFlags
+  if #pending == 0 then
+    return
+  end
+  self.pendingFlags = {}
+  for _, change in ipairs(pending) do
+    self:_applyFlag(change)
+  end
+end
+
 function FieldActorManager:step(tick)
   if self.eventState then
     self.eventState:setTick(tick)
   end
-  local pending = self.pendingFlags
-  if #pending > 0 then
-    self.pendingFlags = {}
-    for _, change in ipairs(pending) do
-      self:_applyFlag(change)
-    end
-  end
+  self:syncEventStateChanges()
   for _, entry in pairs(self.maps) do
     for _, actor in ipairs(entry.order) do
       -- Scripted pause_animation freezes the actor's pose animation; the

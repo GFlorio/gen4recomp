@@ -263,11 +263,14 @@ function ScriptEnvironment:lockCount(kind)
   return entry and entry.count or 0
 end
 
--- True when player movement and new interaction triggers are suppressed
--- (lockPlayer, lockAll, and any actor lock contribute).
 ---@return boolean
 function ScriptEnvironment:playerLocked()
-  return self:lockCount(LOCK_PLAYER) > 0 or self:lockCount(LOCK_AUTONOMOUS) > 0
+  return self:lockCount(LOCK_PLAYER) > 0
+end
+
+---@return boolean
+function ScriptEnvironment:autonomousLocked()
+  return self:lockCount(LOCK_AUTONOMOUS) > 0
 end
 
 -- Release every lock an owning instance holds (ending, cancelling, or

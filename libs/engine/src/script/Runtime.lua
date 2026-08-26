@@ -831,12 +831,18 @@ end
 HANDLERS.set_flag = function(node, run)
   local flagId = Runtime.resolveIdOperand(node.flag, run)
   run.services.world:setFlag(flagId)
+  if run.services.actors and run.services.actors.syncPresence then
+    run.services.actors:syncPresence()
+  end
   return Runtime.OUTCOME_CONTINUE
 end
 
 HANDLERS.clear_flag = function(node, run)
   local flagId = Runtime.resolveIdOperand(node.flag, run)
   run.services.world:clearFlag(flagId)
+  if run.services.actors and run.services.actors.syncPresence then
+    run.services.actors:syncPresence()
+  end
   return Runtime.OUTCOME_CONTINUE
 end
 

@@ -1124,8 +1124,11 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
       step = function() end,
-      playerMovementLocked = function()
+      playerInputLocked = function()
         return false
+      end,
+      foregroundEnvironmentId = function()
+        return nil
       end,
     },
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double

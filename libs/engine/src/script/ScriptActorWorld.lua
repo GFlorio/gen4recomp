@@ -23,6 +23,8 @@
 ---@field partnerId fun(self: ScriptActorManager): string|nil
 
 -- The manager methods the actor world calls; every one must be present.
+-- `syncEventStateChanges` is forwarded only when the manager provides it, so
+-- lightweight fakes (e.g. binding tests) do not need to stub presence sync.
 local REQUIRED_MANAGER_METHODS = {
   "getActor",
   "show",
@@ -213,6 +215,12 @@ function ScriptActorWorld:getFacing(actorId)
   local facing = self._manager:getFacing(actorId)
   assert(facing ~= nil, "actor world facing missing for " .. actorId)
   return facing
+end
+
+function ScriptActorWorld:syncPresence()
+  if self._manager.syncEventStateChanges then
+    self._manager:syncEventStateChanges()
+  end
 end
 
 ---@param actorId string

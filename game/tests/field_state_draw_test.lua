@@ -742,7 +742,7 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
       },
       scriptScheduler = {
         step = function() end,
-        playerMovementLocked = function()
+        playerInputLocked = function()
           return false
         end,
         foregroundEnvironmentId = function()

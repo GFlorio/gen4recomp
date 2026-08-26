@@ -261,8 +261,11 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
       step = function() end,
-      playerMovementLocked = function()
+      playerInputLocked = function()
         return false
+      end,
+      foregroundEnvironmentId = function()
+        return nil
       end,
     },
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double

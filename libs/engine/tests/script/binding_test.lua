@@ -457,8 +457,7 @@ T["session script phase"] = function()
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
 end
 
--- 18. A live foreground root locks player movement even before the script
--- has issued any explicit lock: foreground ownership is field ownership.
+-- 18. A live foreground root is execution ownership, not an implicit player lock.
 T["foreground root locks movement without an explicit lock"] = function()
   local p = platform()
   local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
@@ -468,13 +467,17 @@ T["foreground root locks movement without an explicit lock"] = function()
   p.registry:installBase(resource.id, resource, "generated")
   local composed = assert(p.composition:effective(resource.id))
   p.scheduler:createForeground(composed, nil, 100)
-  Assert.isTrue(p.scheduler:playerMovementLocked(), "a live foreground root suppresses movement without lock_player")
+  Assert.notNil(p.scheduler:foregroundEnvironmentId(), "foreground ownership is active on creation")
+  Assert.isFalse(
+    p.scheduler:playerInputLocked(),
+    "foreground without explicit lock must not report player input locked"
+  )
   p.scheduler:step(100, nil)
   p.scheduler:step(101, nil)
   p.scheduler:step(102, nil)
   p.scheduler:step(103, nil)
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
-  Assert.isFalse(p.scheduler:playerMovementLocked(), "the field unlocks when the foreground root ends")
+  Assert.isFalse(p.scheduler:playerInputLocked(), "the field unlocks when the foreground root ends")
 end
 
 return { tests = T }

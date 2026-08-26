@@ -39,6 +39,7 @@ end
 ---@param maxTicks integer|nil
 function OpeningLifecycle.completeOpeningHouseScene(game, maxTicks)
   local world = assert(game.runtime.scripts and game.runtime.scripts.worldState, "field world state unavailable")
+  local scheduler = assert(game.runtime.scripts and game.runtime.scripts.scheduler, "field scheduler unavailable")
   for _ = 1, maxTicks or 2400 do
     if game.runtime.errorText then
       error("the opening house scene faulted: " .. tostring(game.runtime.errorText))
@@ -51,7 +52,12 @@ function OpeningLifecycle.completeOpeningHouseScene(game, maxTicks)
     else
       game:step()
     end
-    if world:getVar(VAR_SCENE_PLAYERS_HOUSE_1F) == 1 and momFlagsGranted(world) and not game:snapshot().fieldLocked then
+    if
+      world:getVar(VAR_SCENE_PLAYERS_HOUSE_1F) == 1
+      and momFlagsGranted(world)
+      and not game:snapshot().fieldLocked
+      and scheduler:foregroundEnvironmentId() == nil
+    then
       return
     end
   end

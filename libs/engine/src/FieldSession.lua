@@ -144,7 +144,10 @@ function FieldSession.new(options)
   assert(options.input and options.input.snapshot, "field session input required")
   assert(options.dialogue and options.dialogue.isModal, "field session dialogue required")
   assert(
-    options.scriptScheduler and options.scriptScheduler.step and options.scriptScheduler.playerMovementLocked,
+    options.scriptScheduler
+      and options.scriptScheduler.step
+      and options.scriptScheduler.playerInputLocked
+      and options.scriptScheduler.foregroundEnvironmentId,
     "field session script scheduler required"
   )
   assert(options.scriptClient and options.scriptClient.consume, "field session script client required")
@@ -315,11 +318,20 @@ function FieldSession:actorTarget()
   return { x = self.player.worldX, y = self.player.worldY, z = self.player.worldZ }
 end
 
+local function isForegroundActive(scheduler)
+  return scheduler:foregroundEnvironmentId() ~= nil
+end
+
+local function isPlayerInputLocked(scheduler)
+  return scheduler:playerInputLocked()
+end
+
 -- The idle-boundary gate for the Start Menu open edge: the menu may open
 -- only at a settled field boundary -- player idle, transition idle, no
--- dialogue/signpost/script menu/context choice, and no script-owned
--- movement lock. Any non-idle player motion means "not idle"; the active
--- application branch above has already returned before this code runs.
+-- dialogue/signpost/script menu/context choice, no active foreground
+-- script owner and no explicit player input lock. Any non-idle player
+-- motion means "not idle"; the active application branch above has already
+-- returned before this code runs.
 ---@return boolean
 local function canOpenStartMenu(self)
   return self.player.motion == "idle"
@@ -328,7 +340,8 @@ local function canOpenStartMenu(self)
     and not self.signpost:isModal()
     and not self.menuHost:isModal()
     and not self.contextChoice:isActive()
-    and not self.scriptScheduler:playerMovementLocked()
+    and not isForegroundActive(self.scriptScheduler)
+    and not isPlayerInputLocked(self.scriptScheduler)
 end
 
 function FieldSession:_advanceTick()
@@ -507,7 +520,7 @@ function FieldSession:updateFixed(inputSnapshot)
   -- pre-scheduler lock state even though the scheduler step below can
   -- itself release the lock; the post-scheduler observation right below
   -- the step call is a second, deliberately distinct read.
-  local movementLockedAtTickStart = self.scriptScheduler:playerMovementLocked()
+  local playerInputLockedAtTickStart = self.scriptScheduler:playerInputLocked()
   local schedulerInput = {
     heldDirection = inputSnapshot.heldDirection,
     pressedDirection = inputSnapshot.pressedDirection,
@@ -542,12 +555,37 @@ function FieldSession:updateFixed(inputSnapshot)
     end
   end
 
-  -- A foreground root owns the field or a player lock suppresses movement
-  -- and new triggers; the tick is consumed.
-  if movementLockedAtTickStart or self.scriptScheduler:playerMovementLocked() then
+  local playerInputLockedAfterScheduler = isPlayerInputLocked(self.scriptScheduler)
+  local foregroundActive = isForegroundActive(self.scriptScheduler)
+  local inputSuppressedThisTick = playerInputLockedAtTickStart or playerInputLockedAfterScheduler
+
+  -- Start Menu arbitration: a pending script reopen request (opcode 61's
+  -- startMenuReopen service) opens the menu unconditionally at this point,
+  -- then the menu edge is gated by the idle-boundary check (checked after
+  -- the single script-scheduler step established the field lock state,
+  -- before actor stepping, interaction resolution, warps, or player
+  -- movement). The host's boolean answers "did the open consume this tick?":
+  -- true for a successful open and for a fatal composition failure (the
+  -- host has entered its terminal failed state, which must freeze the rest
+  -- of this tick); false means the menu is unavailable and the field
+  -- continues stepping normally. This arbitration freezes world
+  -- presentation (actors, player, camera) on its tick, so it runs before
+  -- the actor step.
+  if self.applicationHost:takeReopen(self.tick + 1) then
     self:_advanceTick()
     return
   end
+  if inputSnapshot.menuPressed and canOpenStartMenu(self) then
+    if self.applicationHost:requestOpen(self.tick + 1) then
+      self:_advanceTick()
+      return
+    end
+  end
+
+  -- World presentation advances even while a foreground script runs, and
+  -- exactly once per world-advancing tick (not once per same-run presence
+  -- flush). Input suppression does not freeze it.
+  self.actors:step(self.tick + 1)
 
   if self.childResumePending then
     self:_advanceTick()
@@ -562,28 +600,19 @@ function FieldSession:updateFixed(inputSnapshot)
     end
   end
 
-  -- Start Menu arbitration: a pending script reopen request (opcode 61's
-  -- startMenuReopen service) opens the menu unconditionally at this point,
-  -- then the menu edge is gated by the idle-boundary check (checked after
-  -- the single script-scheduler step established the field lock state,
-  -- before actor stepping, interaction resolution, warps, or player
-  -- movement). The host's boolean answers "did the open consume this tick?":
-  -- true for a successful open and for a fatal composition failure (the
-  -- host has entered its terminal failed state, which must freeze the rest
-  -- of this tick); false means the menu is unavailable and the field
-  -- continues stepping normally. The input snapshot has already consumed a
-  -- simultaneous Action edge, and the menu owns the tick, so no edge
-  -- clearing is part of this policy.
-  if self.applicationHost:takeReopen(self.tick + 1) then
+  if inputSuppressedThisTick then
+    if self.playerVisual then
+      local walkingAtTickStart = self.player.motion == "walking"
+      self.playerVisual:updateFixed(walkingAtTickStart)
+    end
+    self.camera:updateFixed(self:actorTarget())
     self:_advanceTick()
     return
   end
-  if inputSnapshot.menuPressed and canOpenStartMenu(self) then
-    if self.applicationHost:requestOpen(self.tick + 1) then
-      self:_advanceTick()
-      return
-    end
-  end
+
+  -- Active foreground blocks acquiring another foreground owner even without
+  -- an explicit player lock, but does not suppress player movement when
+  -- input is not locked.
 
   if self.transition.suppression then
     self.transition.suppression = WarpSystem.updateSuppression(
@@ -594,78 +623,76 @@ function FieldSession:updateFixed(inputSnapshot)
     )
   end
 
-  -- Queued visibility changes land before anything reads occupancy or starts a
-  -- move, so collision and the draw list never disagree within a tick.
-  self.actors:step(self.tick + 1)
-
-  local passiveDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
-  if self.player.motion == "idle" and passiveDirection == self.player.facing then
-    local intent = resolvePassiveSign(self)
-    if intent then
-      self.scriptClient:consume(intent, self.tick + 1)
-      self:_advanceTick()
-      return
+  if not foregroundActive then
+    local passiveDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+    if self.player.motion == "idle" and passiveDirection == self.player.facing then
+      local intent = resolvePassiveSign(self)
+      if intent then
+        self.scriptClient:consume(intent, self.tick + 1)
+        self:_advanceTick()
+        return
+      end
     end
-  end
 
-  -- An idle player's Action edge resolves an interaction
-  -- before movement or warps are evaluated. A consumed interaction owns the
-  -- tick (the dialogue becomes modal on it), so the same edge cannot also
-  -- start a move or warp. The edge itself was already consumed by the input
-  -- snapshot, so a held Action cannot re-open anything.
-  if self.player.motion == "idle" and inputSnapshot.actionPressed then
-    local intent = self.interactions:resolve({
-      runtimeMap = self.currentMap,
-      fieldX = self.player.fieldX,
-      fieldZ = self.player.fieldZ,
-      surfaceId = self.player.surfaceId,
-      worldY = self.player.worldY,
-      facing = self.player.facing,
-      tick = self.tick + 1,
-    })
-    if intent then
-      -- The script client resolves the binding, starts the composed script,
-      -- and runs it during this tick. There is no fallback client: the
-      -- binding audit at load time guarantees every interactable event is
-      -- bound, so an unmapped intent here is a composition fault, not a
-      -- silent absorption.
-      local result = self.scriptClient:consume(intent, self.tick + 1)
-      local results = ScriptInteractionClient.RESULTS
-      assert(
-        result == results.started or result == results.blocked,
-        "an interactable event must be bound: " .. tostring(intent.mapId)
-      )
-      self:_advanceTick()
-      return
+    -- An idle player's Action edge resolves an interaction
+    -- before movement or warps are evaluated. A consumed interaction owns the
+    -- tick (the dialogue becomes modal on it), so the same edge cannot also
+    -- start a move or warp. The edge itself was already consumed by the input
+    -- snapshot, so a held Action cannot re-open anything.
+    if self.player.motion == "idle" and inputSnapshot.actionPressed then
+      local intent = self.interactions:resolve({
+        runtimeMap = self.currentMap,
+        fieldX = self.player.fieldX,
+        fieldZ = self.player.fieldZ,
+        surfaceId = self.player.surfaceId,
+        worldY = self.player.worldY,
+        facing = self.player.facing,
+        tick = self.tick + 1,
+      })
+      if intent then
+        -- The script client resolves the binding, starts the composed script,
+        -- and runs it during this tick. There is no fallback client: the
+        -- binding audit at load time guarantees every interactable event is
+        -- bound, so an unmapped intent here is a composition fault, not a
+        -- silent absorption.
+        local result = self.scriptClient:consume(intent, self.tick + 1)
+        local results = ScriptInteractionClient.RESULTS
+        assert(
+          result == results.started or result == results.blocked,
+          "an interactable event must be bound: " .. tostring(intent.mapId)
+        )
+        self:_advanceTick()
+        return
+      end
     end
-  end
 
-  -- Facing-trigger path: an idle player pressing a direction
-  -- evaluates the HGSS input path -- a blocked DOOR tile ahead, or a
-  -- direction-gated standing door/stairs/warp on the player's own tile.
-  local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
-  if self.player.motion == "idle" and direction then
-    -- A coordinate event on the tile being entered owns the step, even when
-    -- that tile is also a direction-triggered warp. The ROM evaluates the
-    -- arrival event after the step; pre-empting it here would leave the
-    -- generated coordinate script unresolved.
-    local coordinateAhead = resolveCoordinateAhead(self, direction)
-    local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
-    if
-      trigger
-      and coordinateAhead == nil
-      and not hasCoordinateAhead(self, direction)
-      and not WarpSystem.isSuppressed(
-        self.transition.suppression,
-        self.currentMap.mapId,
-        trigger.warp.x,
-        trigger.warp.z
-      )
-    then
-      self.player.facing = direction
-      self.transition:start(self.currentMap, trigger, direction)
-      self:_advanceTick()
-      return
+    -- Facing-trigger path: an idle player pressing a direction
+    -- evaluates the HGSS input path -- a blocked DOOR tile ahead, or a
+    -- direction-gated standing door/stairs/warp on the player's own tile.
+    local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+    if self.player.motion == "idle" and direction then
+      -- A coordinate event on the tile being entered owns the step, even when
+      -- that tile is also a direction-triggered warp. The ROM evaluates the
+      -- arrival event after the step; pre-empting it here would leave the
+      -- generated coordinate script unresolved.
+      local coordinateAhead = resolveCoordinateAhead(self, direction)
+      local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
+      if
+        trigger
+        and coordinateAhead == nil
+        and not hasCoordinateAhead(self, direction)
+        and not WarpSystem.isSuppressed(
+          self.transition.suppression,
+          self.currentMap.mapId,
+          trigger.warp.x,
+          trigger.warp.z
+        )
+      then
+        self.player.facing = direction
+        self.transition:start(self.currentMap, trigger, direction)
+        self:_advanceTick()
+        return
+      end
     end
   end
 

@@ -129,7 +129,7 @@ local function baseOptions(overrides)
     },
     scriptScheduler = {
       step = function() end,
-      playerMovementLocked = function()
+      playerInputLocked = function()
         return false
       end,
       foregroundEnvironmentId = function()
@@ -333,8 +333,11 @@ function T.map_init_claims_the_tick_before_scheduler_and_player_input()
     step = function()
       order[#order + 1] = "scheduler"
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
     end,
   }
   local input = idleInput()
@@ -379,7 +382,7 @@ function T.map_lifecycle_events_are_queued_and_drained_before_frame_checks()
       order[#order + 1] = "scheduler"
       self.busy = false
     end,
-    playerMovementLocked = function(self)
+    playerInputLocked = function(self)
       return self.busy
     end,
     foregroundEnvironmentId = function(self)
@@ -459,7 +462,7 @@ function T.blocked_lifecycle_stays_at_head_until_foreground_is_free()
   local scheduler = {
     busy = true,
     step = function() end,
-    playerMovementLocked = function(self)
+    playerInputLocked = function(self)
       return self.busy
     end,
     foregroundEnvironmentId = function(self)
@@ -641,8 +644,11 @@ function T.script_completion_consumes_its_final_action_edge()
     step = function()
       locked = false
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return locked
+    end,
+    foregroundEnvironmentId = function()
+      return locked and "foreground" or nil
     end,
   }
   local player = {
@@ -689,8 +695,11 @@ function T.scheduler_edges_come_only_from_current_snapshot_properties()
     step = function(_, _, snapshot)
       received = snapshot
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
     end,
   }
   local s = FieldSession.new(baseOptions({ scriptScheduler = scheduler }))
@@ -719,8 +728,11 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
       Assert.equal(snapshot.menuEvents[1].type, "navigate")
       Assert.equal(snapshot.menuEvents[1].direction, "down")
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return true
+    end,
+    foregroundEnvironmentId = function()
+      return "foreground"
     end,
   }
   local player = {
@@ -1863,8 +1875,11 @@ function T.script_locked_ticks_still_advance_the_scene_clock()
   }
   local scheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return true
+    end,
+    foregroundEnvironmentId = function()
+      return "foreground"
     end,
   }
   local session = FieldSession.new(baseOptions({
@@ -1992,8 +2007,11 @@ function T.application_host_owns_the_tick_and_freezes_world_simulation()
     step = function()
       stepped.scheduler = stepped.scheduler + 1
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
     end,
   }
   local map = {
@@ -2137,8 +2155,11 @@ function T.a_movement_lock_blocks_the_menu_edge()
   local host = applicationHostFake()
   local scheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return true
+    end,
+    foregroundEnvironmentId = function()
+      return "foreground"
     end,
   }
   local session = FieldSession.new(baseOptions({
@@ -2344,8 +2365,11 @@ function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
   }
   local scheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return state.scriptLocked
+    end,
+    foregroundEnvironmentId = function()
+      return state.scriptLocked and "foreground" or nil
     end,
   }
   local player = {
@@ -2428,8 +2452,11 @@ function T.field_policy_runs_once_per_tick_and_never_touches_the_sound_frame_clo
   }
   local scheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
     end,
   }
   local committed = false
@@ -2480,7 +2507,7 @@ function T.map_entry_waits_for_yielding_transition_before_entering_actors()
       order[#order + 1] = "scheduler"
       self.busy = false
     end,
-    playerMovementLocked = function(self)
+    playerInputLocked = function(self)
       return self.busy
     end,
     foregroundEnvironmentId = function(self)
