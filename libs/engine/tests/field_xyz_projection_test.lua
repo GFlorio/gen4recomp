@@ -142,7 +142,13 @@ function T.altitude_recenter_translates_player_camera_terrain_and_effect_in_one_
   local camera = FieldCamera.new(cameraProfile(), { initialTarget = player:renderPosition() })
   camera:updateFixed({ x = player.worldX + 0.25, y = player.worldY + 0.5, z = player.worldZ + 0.75 })
   local effects = FieldTerrainEffectController.new({
-    effects = { tall_grass = { model = { animations = { { name = "grass", frameCount = 4 } } } } },
+    effects = {
+      tall_grass = {
+        lifecycle = { introTicks = 12, holdFrame = 12, holdUntilOwnerMoves = true },
+        placementOffset = { x = 0, y = 0, z = 0.625 },
+        model = { animations = { { name = "grass", frameCount = 13 } } },
+      },
+    },
     modelFactory = function()
       local animationPlayer = {
         frameFx = 0,

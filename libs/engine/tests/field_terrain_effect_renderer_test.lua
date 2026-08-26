@@ -1,5 +1,5 @@
 -- FieldTerrainEffectRenderer tests that physical effect anchors use the
--- runtime's authoritative C04 projection instead of a stale origin/Y copy.
+-- runtime's authoritative projection instead of a stale origin/Y copy.
 
 local Assert = require("tests.support.Assert")
 
@@ -31,7 +31,7 @@ local MODEL = {
   },
 }
 
-T.tests["projects stable effect anchors through the runtime map"] = function()
+T.tests["applies source placement after projection across a rebase"] = function()
   local moduleNames = {
     "libs.engine.src.FieldTerrainEffectRenderer",
     "libs.engine.src.ModelDefinition",
@@ -78,8 +78,8 @@ T.tests["projects stable effect anchors through the runtime map"] = function()
   }
   local renderer = Renderer.new({
     effects = {
-      tall_grass = { model = MODEL },
-      very_tall_grass = { model = MODEL },
+      tall_grass = { model = MODEL, placementOffset = { x = 0, y = 0, z = 0.625 } },
+      very_tall_grass = { model = MODEL, placementOffset = { x = 0, y = 0, z = 0.625 } },
     },
   }, pool)
   local calls = 0
@@ -90,14 +90,18 @@ T.tests["projects stable effect anchors through the runtime map"] = function()
       Assert.equal(fieldZ, 5)
       Assert.equal(cellKey, "1:0")
       Assert.equal(sourceSurfaceId, 3)
-      return {
+      return calls == 1 and {
         worldX = 101.25,
         worldY = 202.5,
         worldZ = 303.75,
+      } or {
+        worldX = 1.25,
+        worldY = 2.5,
+        worldZ = 3.75,
       }
     end,
   }
-  local items = renderer:drawItems({
+  local status = {
     instances = {
       {
         kind = "tall_grass",
@@ -109,14 +113,21 @@ T.tests["projects stable effect anchors through the runtime map"] = function()
         modelInstance = renderer:newInstance("tall_grass"),
       },
     },
-  }, runtimeMap)
+  }
+  local first = renderer:drawItems(status, runtimeMap)
 
-  Assert.equal(calls, 1)
-  Assert.equal(#items, 1)
-  Assert.equal(items[1].transform[13], 101.25)
-  Assert.equal(items[1].transform[14], 202.5)
-  Assert.equal(items[1].transform[15], 303.75)
-  Assert.equal(items[1].fieldEffect, "tall_grass")
+  Assert.equal(#first, 1)
+  Assert.equal(first[1].transform[13], 101.25)
+  Assert.equal(first[1].transform[14], 202.5)
+  Assert.equal(first[1].transform[15], 304.375)
+
+  local second = renderer:drawItems(status, runtimeMap)
+  Assert.equal(calls, 2)
+  Assert.equal(#second, 1)
+  Assert.equal(second[1].transform[13], 1.25)
+  Assert.equal(second[1].transform[14], 2.5)
+  Assert.equal(second[1].transform[15], 4.375)
+  Assert.equal(second[1].fieldEffect, "tall_grass")
   renderer:dispose()
   for _, name in ipairs(moduleNames) do
     package.loaded[name] = saved[name]

@@ -73,7 +73,7 @@ function T.contract_pins_the_current_asset_identities()
       schema = "g4-field-weather-v1",
     },
     fieldEffects = {
-      cacheFormat = "field-effect-cache-v4",
+      cacheFormat = "field-effect-cache-v5",
       indexSchema = "g4-field-effect-index-v1",
     },
     fieldUi = {

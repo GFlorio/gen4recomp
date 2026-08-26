@@ -22,11 +22,23 @@ return {
       renderer = 8,
       modelMembers = { 126 },
       animationMembers = { 140 },
+      lifecycle = {
+        introTicks = 12,
+        holdFrame = 12,
+        holdUntilOwnerMoves = true,
+      },
+      placementOffset = { x = 0, y = 0, z = 0.625 },
     },
     very_tall_grass = {
       renderer = 12,
       modelMembers = { 122 },
       animationMembers = { 146 },
+      lifecycle = {
+        introTicks = 12,
+        holdFrame = 12,
+        holdUntilOwnerMoves = true,
+      },
+      placementOffset = { x = 0, y = 0, z = 0.625 },
     },
   },
 }

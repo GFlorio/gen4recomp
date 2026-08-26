@@ -28,6 +28,7 @@ local SOURCE = {
 
 local ANIMATION_SOURCE_TYPE = "field-effect"
 local ANIMATION_SOURCE_FORMAT = "FIELD_EFFECT_PATTERN"
+local MARKER_PREFIX = FieldEffectAssetCache.FORMAT .. ":"
 
 local function sameIntegerArray(actual, expected)
   if type(actual) ~= "table" or #actual ~= #expected then
@@ -52,6 +53,19 @@ local function validSource(kind, definition)
     and sameIntegerArray(source.modelMembers, expected.modelMembers)
     and source.animationArchive == expected.animationArchive
     and sameIntegerArray(source.animationMembers, expected.animationMembers)
+end
+
+local function validGrassSemantics(definition)
+  local lifecycle = definition.lifecycle
+  local placementOffset = definition.placementOffset
+  return type(lifecycle) == "table"
+    and lifecycle.introTicks == 12
+    and lifecycle.holdFrame == 12
+    and lifecycle.holdUntilOwnerMoves == true
+    and type(placementOffset) == "table"
+    and placementOffset.x == 0
+    and placementOffset.y == 0
+    and placementOffset.z == 0.625
 end
 
 function FieldEffectAssetCache.modelPath()
@@ -86,6 +100,9 @@ function FieldEffectAssetCache.source(kind)
 end
 
 function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
+  if type(expectedMarker) ~= "string" or expectedMarker:sub(1, #MARKER_PREFIX) ~= MARKER_PREFIX then
+    return false
+  end
   if cacheFs:read(MARKER) ~= expectedMarker then
     return false
   end
@@ -157,6 +174,7 @@ function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
         or clipSource.archive ~= source.animationArchive
         or clipSource.memberId ~= source.animationMembers[1]
         or clipSource.sha1 ~= definition.animationSourceSha1
+        or not validGrassSemantics(definition)
       then
         return false
       end

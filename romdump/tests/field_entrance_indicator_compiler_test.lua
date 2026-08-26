@@ -1,4 +1,5 @@
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 
 local T = { tests = {} }
@@ -22,6 +23,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
 
   local modelMembers = {}
   local animationMembers = {}
+  local invalidSelector = false
   package.loaded["romdump.src.config.FieldEffects"] = {
     archive = { alias = "field_static_models" },
     animationArchive = { alias = "field_static_models" },
@@ -31,8 +33,16 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
         renderer = 8,
         modelMembers = { 126 },
         animationMembers = { 140 },
+        lifecycle = { introTicks = 12, holdFrame = 12, holdUntilOwnerMoves = true },
+        placementOffset = { x = 0, y = 0, z = 0.625 },
       },
-      very_tall_grass = { renderer = 12, modelMembers = { 122 }, animationMembers = { 146 } },
+      very_tall_grass = {
+        renderer = 12,
+        modelMembers = { 122 },
+        animationMembers = { 146 },
+        lifecycle = { introTicks = 12, holdFrame = 12, holdUntilOwnerMoves = true },
+        placementOffset = { x = 0, y = 0, z = 0.625 },
+      },
     },
   }
   package.loaded["romdump.src.digest.nitro.Nsbmd"] = {
@@ -40,7 +50,10 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       modelMembers[#modelMembers + 1] = context.memberId
       return {
         models = { { name = "model-" .. context.memberId, materials = { { name = "effect" } } } },
-        embeddedTextures = { textures = {}, palettes = {} },
+        embeddedTextures = {
+          textures = { { name = "texture" } },
+          palettes = { { name = "palette" } },
+        },
       }
     end,
   }
@@ -48,8 +61,11 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
     FORMAT = "FIELD_EFFECT_PATTERN",
     decode = function(_, context)
       animationMembers[#animationMembers + 1] = context.memberId
-      local frameCount = context.memberId == 146 and 120 or 2
-      return { frameCount = frameCount, keys = { { frame = 0, texIdx = 0, plttIdx = 0xFF } } }
+      local lastFrame = context.memberId == 146 and 119 or 1
+      return {
+        lastFrame = lastFrame,
+        keys = { { frame = 0, texIdx = invalidSelector and 1 or 0, plttIdx = 0 } },
+      }
     end,
   }
   package.loaded["romdump.src.digest.ModelAssetCompiler"] = {
@@ -116,7 +132,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   }
   package.loaded["romdump.src.digest.FieldEntranceIndicatorCompiler"] = nil
 
-  local ok, result = pcall(function()
+  local ok, result, compiler, romFs = pcall(function()
     local compiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
     local modelNarc = {
       memberCount = function()
@@ -135,7 +151,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       end,
     }
     local openCount = 0
-    return compiler.compile({
+    local romFs = {
       openNarc = function()
         openCount = openCount + 1
         return openCount == 1 and modelNarc or animationNarc
@@ -143,7 +159,8 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       metadata = function()
         return { sha1 = "rom-sha1" }
       end,
-    })
+    }
+    return compiler.compile(romFs), compiler, romFs
   end)
 
   for _, name in ipairs(names) do
@@ -161,7 +178,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   Assert.equal(animationMembers[2], 146)
   local animation = result.effects.tall_grass.model.animations[1]
   Assert.equal(animation.source.memberId, 140)
-  Assert.equal(animation.frameCount, 2)
+  Assert.equal(animation.frameCount, 13)
   Assert.equal(animation.source.type, "field-effect")
   Assert.equal(animation.source.format, "FIELD_EFFECT_PATTERN")
   Assert.equal(result.effects.tall_grass.model.kind, "nitro-dynamic")
@@ -171,6 +188,12 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   Assert.equal(result.effects.very_tall_grass.model.animations[1].frameCount, 120)
   Assert.equal(result.effects.very_tall_grass.model.kind, "nitro-dynamic")
   Assert.isNil(result.effects.very_tall_grass.lifetime)
+
+  invalidSelector = true
+  local invalidOk, invalidErr = pcall(compiler.compile, romFs)
+  Assert.isFalse(invalidOk)
+  Assert.isTrue(Errors.is(invalidErr))
+  Assert.equal(invalidErr.code, "FIELD_EFFECT_SOURCE_INVALID")
 end
 
 T.tests["rewrites compiled geometry and texture references into the effect root"] = function()
@@ -192,7 +215,10 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
     decode = function()
       return {
         models = { { materials = { { name = "effect" } } } },
-        embeddedTextures = { textures = {}, palettes = {} },
+        embeddedTextures = {
+          textures = { { name = "texture" } },
+          palettes = { { name = "palette" } },
+        },
       }
     end,
   }
@@ -201,7 +227,8 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
     decode = function()
       return {
         frameCount = 1,
-        keys = { { frame = 0, texIdx = 0, plttIdx = 0xFF } },
+        keys = { { frame = 0, texIdx = 0, plttIdx = 0 } },
+        lastFrame = 0,
       }
     end,
   }

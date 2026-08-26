@@ -228,6 +228,7 @@ function FieldSession:_emitTerrainResponse()
     direction = self.player.facing,
   })
   self.terrainEffects:emitAll(responses)
+  self.terrainEffects:removeOutside({ fieldX = self.player.fieldX, fieldZ = self.player.fieldZ })
 end
 
 local function resolveCoordinate(self)
@@ -273,7 +274,7 @@ function FieldSession:updateFixed(inputSnapshot)
   -- FieldAudioController:enterMap.
   inputSnapshot = inputSnapshot or self.input:snapshot()
   if self.terrainEffects then
-    self.terrainEffects:updateFixed()
+    self.terrainEffects:updateFixed({ fieldX = self.player.fieldX, fieldZ = self.player.fieldZ })
   end
   -- The door/stair choreography drives the player during the locked
   -- transition: the pose clock hears the walking state at tick start, the

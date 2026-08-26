@@ -132,7 +132,7 @@ DerivedAssetContract.fieldWeather = {
 }
 
 DerivedAssetContract.fieldEffects = {
-  cacheFormat = "field-effect-cache-v4",
+  cacheFormat = "field-effect-cache-v5",
   indexSchema = "g4-field-effect-index-v1",
 }
 

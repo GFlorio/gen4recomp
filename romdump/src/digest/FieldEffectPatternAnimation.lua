@@ -20,9 +20,11 @@ local function decode(bytes, context)
     Errors.raise("FIELD_EFFECT_ANIMATION_INVALID", "field-effect pattern has no keys", context)
   end
   local frameTable = 4
-  local valueTable = frameTable + keyCount * 2
+  local selectorATable = frameTable + keyCount * 2
+  local selectorBTable = selectorATable + keyCount
   reader:assertRange(frameTable, keyCount * 2, "field-effect-pattern-frames")
-  reader:assertRange(valueTable, keyCount, "field-effect-pattern-values")
+  reader:assertRange(selectorATable, keyCount, "field-effect-pattern-selector-a")
+  reader:assertRange(selectorBTable, keyCount, "field-effect-pattern-selector-b")
 
   local keys = {}
   local previousFrame = -1
@@ -36,9 +38,13 @@ local function decode(bytes, context)
       })
     end
     previousFrame = frame
-    keys[#keys + 1] = { frame = frame, texIdx = reader:u8(valueTable + index), plttIdx = 0xFF }
+    keys[#keys + 1] = {
+      frame = frame,
+      texIdx = reader:u8(selectorATable + index),
+      plttIdx = reader:u8(selectorBTable + index),
+    }
   end
-  return { frameCount = previousFrame + 1, keys = keys }
+  return { lastFrame = previousFrame, keys = keys }
 end
 
 ---@param bytes string

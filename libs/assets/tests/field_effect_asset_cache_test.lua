@@ -1,4 +1,4 @@
--- Field-effect readiness is defined by the strict v3 index and every
+-- Field-effect readiness is defined by the strict current index and every
 -- source-derived definition it references.
 
 local Assert = require("tests.support.Assert")
@@ -6,6 +6,7 @@ local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local T = { tests = {} }
+local EXPECTED_MARKER = "field-effect-cache-v5:rom:dep"
 
 local function validModel()
   return {
@@ -134,7 +135,7 @@ local function validDynamicModel(animationMemberId)
   }
 end
 
-local function cache(model, present, wrongProvenance, sourceOverride)
+local function cache(model, present, wrongProvenance, sourceOverride, marker, omitLifecycle, omitPlacement)
   local index = {
     schema = "g4-field-effect-index-v1",
     effects = {},
@@ -148,7 +149,7 @@ local function cache(model, present, wrongProvenance, sourceOverride)
   end
   return {
     read = function(_, path)
-      return path == FieldEffectAssetCache.markerPath() and "expected" or nil
+      return path == FieldEffectAssetCache.markerPath() and (marker or EXPECTED_MARKER) or nil
     end,
     loadLua = function(_, path)
       if path == FieldEffectAssetCache.indexPath() then
@@ -161,7 +162,7 @@ local function cache(model, present, wrongProvenance, sourceOverride)
       local defaultMembers = kind == "tall_grass" and { 140 } or { 146 }
       local source = sourceOverride and sourceOverride[kind]
       local members = source and source.animationMembers or defaultMembers
-      return {
+      local definition = {
         model = validDynamicModel(kind == "tall_grass" and 140 or 146),
         kind = "animated_model",
         source = {
@@ -172,11 +173,31 @@ local function cache(model, present, wrongProvenance, sourceOverride)
         },
         animationSourceSha1 = "anim-sha",
       }
+      if not omitLifecycle then
+        definition.lifecycle = { introTicks = 12, holdFrame = 12, holdUntilOwnerMoves = true }
+      end
+      if not omitPlacement then
+        definition.placementOffset = { x = 0, y = 0, z = 0.625 }
+      end
+      return definition
     end,
     exists = function(_, path)
       return present[path] == true
     end,
   }
+end
+
+T.tests["rejects a stale field-effect cache format"] = function()
+  local ready = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }, false, nil, "field-effect-cache-v4:rom:dep"),
+    "field-effect-cache-v4:rom:dep"
+  )
+  Assert.isFalse(ready)
 end
 
 T.tests["accepts a complete canonical model and every referenced asset"] = function()
@@ -187,14 +208,14 @@ T.tests["accepts a complete canonical model and every referenced asset"] = funct
       ["texture-variant"] = true,
       ["grass.mesh"] = true,
     }),
-    "expected"
+    EXPECTED_MARKER
   )
   Assert.isTrue(ready)
 end
 
 T.tests["rejects a missing referenced asset"] = function()
   local ready =
-    FieldEffectAssetCache.isReady(cache(validModel(), { ["mesh-a"] = true, ["grass.mesh"] = true }), "expected")
+    FieldEffectAssetCache.isReady(cache(validModel(), { ["mesh-a"] = true, ["grass.mesh"] = true }), EXPECTED_MARKER)
   Assert.isFalse(ready)
 end
 
@@ -206,7 +227,7 @@ T.tests["rejects wrong renderer provenance"] = function()
       ["texture-variant"] = true,
       ["grass.mesh"] = true,
     }, true),
-    "expected"
+    EXPECTED_MARKER
   )
   Assert.isFalse(ready)
 end
@@ -226,9 +247,35 @@ T.tests["rejects incomplete grass source members"] = function()
         very_tall_grass = { modelMembers = { 122 }, animationMembers = { 146 } },
       }
     ),
-    "expected"
+    EXPECTED_MARKER
   )
   Assert.isFalse(ready, "incomplete grass source metadata must be rejected")
+end
+
+T.tests["rejects grass definitions missing lifecycle metadata"] = function()
+  local ready = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }, false, nil, nil, true, false),
+    EXPECTED_MARKER
+  )
+  Assert.isFalse(ready)
+end
+
+T.tests["rejects grass definitions missing placement metadata"] = function()
+  local ready = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }, false, nil, nil, false, true),
+    EXPECTED_MARKER
+  )
+  Assert.isFalse(ready)
 end
 
 return T

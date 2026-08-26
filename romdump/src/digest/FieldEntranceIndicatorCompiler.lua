@@ -113,7 +113,8 @@ local function compileDynamicModel(
   animationMemberId,
   key,
   section,
-  role
+  role,
+  source
 )
   local modelBytes = member(narc, modelMemberId)
   local decodedModel = assert(Nsbmd.decode(modelBytes, {
@@ -143,6 +144,7 @@ local function compileDynamicModel(
     })
   end
   assert(decodedPattern)
+  assert(source.lifecycle and source.placementOffset, "grass source semantics are required")
   local material = model.materials[1]
   if not material then
     Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect model has no material target", {
@@ -158,24 +160,33 @@ local function compileDynamicModel(
     paletteNames[#paletteNames + 1] = palette.name
   end
   local keys = {}
-  for _, keyFrame in ipairs(decodedPattern.keys) do
-    local paletteIndex = keyFrame.plttIdx
-    if paletteIndex == 0xFF then
-      if #paletteNames == 1 then
-        paletteIndex = 0
-      elseif #paletteNames == #textureNames then
-        paletteIndex = keyFrame.texIdx
-      elseif #paletteNames > 1 then
-        Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect animation has ambiguous palette mapping", {
+  for index, keyFrame in ipairs(decodedPattern.keys) do
+    local function validateSelector(selector, names, selectorName)
+      if selector < 0 or selector >= #names then
+        Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect animation selector is out of range", {
+          effect = key,
           archive = animationArchive,
           memberId = animationMemberId,
-          textureCount = #textureNames,
-          paletteCount = #paletteNames,
+          keyIndex = index - 1,
+          frame = keyFrame.frame,
+          selector = selectorName,
+          value = selector,
+          count = #names,
         })
       end
     end
-    keys[#keys + 1] = { frame = keyFrame.frame, texIdx = keyFrame.texIdx, plttIdx = paletteIndex }
+    validateSelector(keyFrame.texIdx, textureNames, "texture")
+    validateSelector(keyFrame.plttIdx, paletteNames, "palette")
+    keys[#keys + 1] = {
+      frame = keyFrame.frame,
+      texIdx = keyFrame.texIdx,
+      plttIdx = keyFrame.plttIdx,
+    }
   end
+  local holdFrame = source.lifecycle.holdFrame
+  local lastFrame = decodedPattern.lastFrame
+  assert(type(holdFrame) == "number" and type(lastFrame) == "number", "grass source frame metadata is required")
+  local frameCount = math.max(holdFrame + 1, lastFrame + 1)
   local normalizedAnimation = {
     format = "NSBTP",
     bytes = animationBytes,
@@ -183,7 +194,7 @@ local function compileDynamicModel(
       {
         name = "field-effect-pattern",
         resource = {
-          numFrame = decodedPattern.frameCount,
+          numFrame = frameCount,
           textureNames = textureNames,
           paletteNames = paletteNames,
           targets = {
@@ -267,7 +278,8 @@ function Compiler.compile(romFs, hashLua)
     FieldEffects.effects.tall_grass.animationMembers[1],
     "field-effect:tall-grass",
     "tall-grass-renderer-8",
-    "field-effect-grass"
+    "field-effect-grass",
+    FieldEffects.effects.tall_grass
   )
   local veryTall, veryTallMeshes, veryTallTextures, veryTallSha, veryTallAnimationSha = compileDynamicModel(
     narc,
@@ -277,7 +289,8 @@ function Compiler.compile(romFs, hashLua)
     FieldEffects.effects.very_tall_grass.animationMembers[1],
     "field-effect:very-tall-grass",
     "tall-grass-renderer-12",
-    "field-effect-grass"
+    "field-effect-grass",
+    FieldEffects.effects.very_tall_grass
   )
   for sha1, mesh in pairs(tallMeshes) do
     meshes[sha1] = mesh
@@ -300,11 +313,15 @@ function Compiler.compile(romFs, hashLua)
       model = tall,
       source = FieldEffectAssetCache.source("tall_grass"),
       animationSourceSha1 = tallAnimationSha,
+      lifecycle = FieldEffects.effects.tall_grass.lifecycle,
+      placementOffset = FieldEffects.effects.tall_grass.placementOffset,
     },
     very_tall_grass = {
       model = veryTall,
       source = FieldEffectAssetCache.source("very_tall_grass"),
       animationSourceSha1 = veryTallAnimationSha,
+      lifecycle = FieldEffects.effects.very_tall_grass.lifecycle,
+      placementOffset = FieldEffects.effects.very_tall_grass.placementOffset,
     },
   }
   local index = {

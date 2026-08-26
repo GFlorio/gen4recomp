@@ -67,6 +67,15 @@ local function assertSeam(game, expectedMapId, expectedMapSymbol, label)
   Assert.isNil(game.runtime.transition.sourceKind, label .. " must remain outside the warp transition lifecycle")
 end
 
+local function findEffect(snapshot, fieldX, fieldZ)
+  for _, instance in ipairs(snapshot.terrainEffects.instances) do
+    if instance.fieldX == fieldX and instance.fieldZ == fieldZ then
+      return instance
+    end
+  end
+  return nil
+end
+
 function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns()
   withVersion(function(game, facts)
     local initial = game:snapshot()
@@ -96,9 +105,32 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     local grass = moveTo(game, facts.grass)
     Assert.notNil(grass.terrainEffects, "terrain effect status is required")
     Assert.isTrue(#grass.terrainEffects.instances > 0, "grass displacement must emit an effect")
+    local landedEffect = assert(
+      findEffect(grass, grass.player.fieldX, grass.player.fieldZ),
+      "the committed grass tile must own a semantic effect"
+    )
+    local anchorX, anchorZ = landedEffect.fieldX, landedEffect.fieldZ
+    local anchorCellKey, anchorSurfaceId = landedEffect.cellKey, landedEffect.sourceSurfaceId
+    for _ = 1, 13 do
+      game:step()
+    end
+    local heldSnapshot = game:snapshot()
+    local heldEffect = assert(
+      findEffect(heldSnapshot, anchorX, anchorZ),
+      "the grass effect must remain after its intro while the player is stationary"
+    )
+    Assert.equal(heldEffect.kind, landedEffect.kind)
+    Assert.equal(heldEffect.cellKey, anchorCellKey)
+    Assert.equal(heldEffect.sourceSurfaceId, anchorSurfaceId)
+    Assert.equal(heldEffect.frame, 12)
+    Assert.isTrue(heldEffect.age >= 13)
     assertResident(grass)
 
     local ledgeStart = moveTo(game, facts.ledge).player
+    Assert.isNil(
+      findEffect(game:snapshot(), anchorX, anchorZ),
+      "moving off the grass anchor must remove its transient effect"
+    )
     game:face(facts.ledge.direction)
     game:move(facts.ledge.direction)
     local landing = game:advanceUntil("ledge jump settles", function(snapshot)

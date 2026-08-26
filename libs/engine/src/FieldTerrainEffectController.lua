@@ -27,6 +27,13 @@ end
 
 function FieldTerrainEffectController:emit(response)
   local definition = assert(self.effects[response.kind], "missing field-effect definition: " .. response.kind)
+  local lifecycle = assert(definition.lifecycle, "field-effect lifecycle metadata is required: " .. response.kind)
+  assert(lifecycle.introTicks == 12, "field-effect intro must last twelve ticks: " .. response.kind)
+  assert(lifecycle.holdFrame == 12, "field-effect hold frame must be twelve: " .. response.kind)
+  assert(lifecycle.holdUntilOwnerMoves == true, "field-effect must hold until owner moves: " .. response.kind)
+  local placementOffset =
+    assert(definition.placementOffset, "field-effect placement metadata is required: " .. response.kind)
+  assert(placementOffset.x == 0 and placementOffset.y == 0 and placementOffset.z == 0.625)
   local modelFactory = assert(self.modelFactory, "terrain effect model factory is not configured")
   local modelInstance = assert(modelFactory(response.kind, definition), "terrain effect model factory returned nil")
   local model = assert(definition.model)
@@ -46,6 +53,8 @@ function FieldTerrainEffectController:emit(response)
     worldY = response.worldY,
     direction = response.direction,
     age = 0,
+    sourceFrame = 0,
+    lifecycle = lifecycle,
     modelInstance = modelInstance,
     animationHandle = handle,
   }
@@ -57,13 +66,26 @@ function FieldTerrainEffectController:emitAll(responses)
   end
 end
 
-function FieldTerrainEffectController:updateFixed()
+---@param owner { fieldX: integer, fieldZ: integer }
+function FieldTerrainEffectController:removeOutside(owner)
+  assert(type(owner) == "table", "terrain effect owner position is required")
+  assert(type(owner.fieldX) == "number" and type(owner.fieldZ) == "number", "terrain effect owner tile is required")
   for index = #self.instances, 1, -1 do
     local instance = self.instances[index]
-    instance.age = instance.age + 1
-    instance.modelInstance:updateFixed()
-    if instance.animationHandle.player:isComplete() then
+    if owner.fieldX ~= instance.fieldX or owner.fieldZ ~= instance.fieldZ then
       table.remove(self.instances, index)
+    end
+  end
+end
+
+---@param owner { fieldX: integer, fieldZ: integer }
+function FieldTerrainEffectController:updateFixed(owner)
+  self:removeOutside(owner)
+  for _, instance in ipairs(self.instances) do
+    instance.age = instance.age + 1
+    if instance.sourceFrame < instance.lifecycle.holdFrame then
+      instance.modelInstance:updateFixed()
+      instance.sourceFrame = math.min(instance.lifecycle.holdFrame, instance.sourceFrame + 1)
     end
   end
 end

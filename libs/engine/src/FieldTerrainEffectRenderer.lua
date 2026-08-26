@@ -1,6 +1,6 @@
 -- Presents source-derived grass effects through the engine's dynamic model
 -- stack. The controller owns each mutable ModelInstance; this adapter owns
--- immutable definitions, pooled meshes/images, and C04 placement.
+-- immutable definitions and pooled meshes/images.
 
 local Matrix4 = require("libs.math.src.Matrix4")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
@@ -26,6 +26,7 @@ function Renderer.new(assets, pool)
       end
       resources[kind] = {
         definition = definition,
+        placementOffset = assert(assets.effects[kind].placementOffset),
         renderMeshesById = renderMeshesById,
         wraps = SceneDescriptor.wrapByMaterial(descriptor.materials),
       }
@@ -53,7 +54,13 @@ function Renderer:drawItems(status, runtimeMap)
   for _, effect in ipairs(status.instances) do
     local point = runtimeMap:projectPhysicalPoint(effect.fieldX, effect.fieldZ, effect.cellKey, effect.sourceSurfaceId)
     local instance = assert(effect.modelInstance, "terrain effect model instance is missing")
-    instance.transform = Matrix4.translate(point.worldX, point.worldY, point.worldZ)
+    local resource = assert(self.resources[effect.kind], "terrain renderer is missing " .. effect.kind)
+    local placementOffset = resource.placementOffset
+    instance.transform = Matrix4.translate(
+      point.worldX + placementOffset.x,
+      point.worldY + placementOffset.y,
+      point.worldZ + placementOffset.z
+    )
     instance:evaluatePose()
     for _, item in ipairs(instance:drawItems(instance.renderMeshesById)) do
       item.worldSpace = true
