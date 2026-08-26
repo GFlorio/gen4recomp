@@ -248,7 +248,7 @@ local function compileDynamicModel(
   descriptor.key = key
   rewriteEffectPaths(descriptor)
   ModelAsset.validate(descriptor)
-  return descriptor, meshes, textures, Hashing.sha1hex(modelBytes), Hashing.sha1hex(animationBytes)
+  return descriptor, meshes, textures, Hashing.sha1hex(modelBytes)
 end
 
 function Compiler.compile(romFs, hashLua)
@@ -270,7 +270,7 @@ function Compiler.compile(romFs, hashLua)
     "warp-entrance-effect",
     "field-effect"
   )
-  local tall, tallMeshes, tallTextures, tallSha, tallAnimationSha = compileDynamicModel(
+  local tall, tallMeshes, tallTextures, tallSha = compileDynamicModel(
     narc,
     animationNarc,
     FieldEffects.animationArchive.alias,
@@ -281,7 +281,7 @@ function Compiler.compile(romFs, hashLua)
     "field-effect-grass",
     FieldEffects.effects.tall_grass
   )
-  local veryTall, veryTallMeshes, veryTallTextures, veryTallSha, veryTallAnimationSha = compileDynamicModel(
+  local veryTall, veryTallMeshes, veryTallTextures, veryTallSha = compileDynamicModel(
     narc,
     animationNarc,
     FieldEffects.animationArchive.alias,
@@ -311,16 +311,18 @@ function Compiler.compile(romFs, hashLua)
     },
     tall_grass = {
       model = tall,
-      source = FieldEffectAssetCache.source("tall_grass"),
-      animationSourceSha1 = tallAnimationSha,
-      lifecycle = FieldEffects.effects.tall_grass.lifecycle,
+      lifecycle = {
+        holdFrame = FieldEffects.effects.tall_grass.lifecycle.holdFrame,
+        holdUntilOwnerMoves = FieldEffects.effects.tall_grass.lifecycle.holdUntilOwnerMoves,
+      },
       placementOffset = FieldEffects.effects.tall_grass.placementOffset,
     },
     very_tall_grass = {
       model = veryTall,
-      source = FieldEffectAssetCache.source("very_tall_grass"),
-      animationSourceSha1 = veryTallAnimationSha,
-      lifecycle = FieldEffects.effects.very_tall_grass.lifecycle,
+      lifecycle = {
+        holdFrame = FieldEffects.effects.very_tall_grass.lifecycle.holdFrame,
+        holdUntilOwnerMoves = FieldEffects.effects.very_tall_grass.lifecycle.holdUntilOwnerMoves,
+      },
       placementOffset = FieldEffects.effects.very_tall_grass.placementOffset,
     },
   }

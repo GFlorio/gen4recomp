@@ -132,7 +132,9 @@ DerivedAssetContract.fieldWeather = {
 }
 
 DerivedAssetContract.fieldEffects = {
-  cacheFormat = "field-effect-cache-v5",
+  -- v6 keeps only source-independent model, lifecycle, and placement data in
+  -- generated grass definitions.
+  cacheFormat = "field-effect-cache-v6",
   indexSchema = "g4-field-effect-index-v1",
 }
 

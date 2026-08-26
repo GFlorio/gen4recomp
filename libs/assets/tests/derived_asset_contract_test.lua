@@ -13,6 +13,7 @@ local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
@@ -73,7 +74,7 @@ function T.contract_pins_the_current_asset_identities()
       schema = "g4-field-weather-v1",
     },
     fieldEffects = {
-      cacheFormat = "field-effect-cache-v5",
+      cacheFormat = "field-effect-cache-v6",
       indexSchema = "g4-field-effect-index-v1",
     },
     fieldUi = {
@@ -127,6 +128,7 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(AudioSample.SCHEMA, DerivedAssetContract.audio.sampleSchema)
   Assert.equal(FieldWeatherCache.FORMAT, DerivedAssetContract.fieldWeather.cacheFormat)
   Assert.equal(FieldWeatherCache.SCHEMA, DerivedAssetContract.fieldWeather.schema)
+  Assert.equal(FieldEffectAssetCache.FORMAT, DerivedAssetContract.fieldEffects.cacheFormat)
 end
 
 return { tests = T }

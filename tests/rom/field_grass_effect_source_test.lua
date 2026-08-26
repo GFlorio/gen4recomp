@@ -7,11 +7,12 @@ local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldEffects = require("romdump.src.config.FieldEffects")
 local FieldEffectPatternAnimation = require("romdump.src.digest.FieldEffectPatternAnimation")
 local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
+local Hashing = require("romdump.src.digest.Hashing")
 local RomSuite = require("tests.rom.support.RomSuite")
 
 local SOURCES = {
-  { kind = "tall_grass", animationMember = 140 },
-  { kind = "very_tall_grass", animationMember = 146 },
+  { kind = "tall_grass", renderer = 8, modelMember = 126, animationMember = 140 },
+  { kind = "very_tall_grass", renderer = 12, modelMember = 122, animationMember = 146 },
 }
 
 local function selectorB(bytes, keyCount, index)
@@ -69,8 +70,14 @@ local function assertSource(compiled, source, animationNarc)
   end
   Assert.equal(clip.source.archive, FieldEffects.animationArchive.alias)
   Assert.equal(clip.source.memberId, source.animationMember)
-  Assert.equal(definition.animationSourceSha1, clip.source.sha1)
-  Assert.equal(definition.lifecycle.introTicks, 12)
+  Assert.equal(clip.source.sha1, Hashing.sha1hex(raw))
+  Assert.equal(FieldEffects.effects[source.kind].renderer, source.renderer)
+  Assert.equal(FieldEffects.effects[source.kind].modelMembers[1], source.modelMember)
+  Assert.equal(FieldEffects.effects[source.kind].animationMembers[1], source.animationMember)
+  Assert.isNil(definition.animationSourceSha1)
+  Assert.isNil(definition.source)
+  Assert.isNil(definition.lifecycle.introTicks)
+  Assert.equal(FieldEffects.effects[source.kind].lifecycle.introTicks, 12)
   Assert.equal(definition.lifecycle.holdFrame, 12)
   Assert.isTrue(definition.lifecycle.holdUntilOwnerMoves)
   Assert.equal(definition.placementOffset.x, 0)
@@ -80,8 +87,8 @@ end
 
 local suite = RomSuite.fromFacts({
   ["compiles both source grass definitions without selector inference"] = function(romFs)
-    Assert.equal(Contract.fieldEffects.cacheFormat, "field-effect-cache-v5")
-    Assert.equal(FieldEffectAssetCache.FORMAT, "field-effect-cache-v5")
+    Assert.equal(Contract.fieldEffects.cacheFormat, "field-effect-cache-v6")
+    Assert.equal(FieldEffectAssetCache.FORMAT, "field-effect-cache-v6")
 
     local animationNarc = assert(romFs:openNarc(FieldEffects.animationArchive.alias))
     local compiled = FieldEntranceIndicatorCompiler.compile(romFs)

@@ -28,18 +28,18 @@ end
 function FieldTerrainEffectController:emit(response)
   local definition = assert(self.effects[response.kind], "missing field-effect definition: " .. response.kind)
   local lifecycle = assert(definition.lifecycle, "field-effect lifecycle metadata is required: " .. response.kind)
-  assert(lifecycle.introTicks == 12, "field-effect intro must last twelve ticks: " .. response.kind)
-  assert(lifecycle.holdFrame == 12, "field-effect hold frame must be twelve: " .. response.kind)
+  assert(type(lifecycle.holdFrame) == "number", "field-effect hold frame is required: " .. response.kind)
+  assert(lifecycle.holdFrame >= 0 and lifecycle.holdFrame == math.floor(lifecycle.holdFrame))
   assert(lifecycle.holdUntilOwnerMoves == true, "field-effect must hold until owner moves: " .. response.kind)
-  local placementOffset =
-    assert(definition.placementOffset, "field-effect placement metadata is required: " .. response.kind)
-  assert(placementOffset.x == 0 and placementOffset.y == 0 and placementOffset.z == 0.625)
-  local modelFactory = assert(self.modelFactory, "terrain effect model factory is not configured")
-  local modelInstance = assert(modelFactory(response.kind, definition), "terrain effect model factory returned nil")
   local model = assert(definition.model)
   local animations = assert(model.animations)
-  assert(#animations == 1, "terrain effect requires one source animation")
-  local handle = modelInstance:play(animations[1].name, { loopMode = "once" })
+  assert(model.kind == "nitro-dynamic", "terrain effect requires a dynamic model")
+  assert(#animations == 1, "terrain effect requires one animation")
+  local animation = animations[1]
+  assert(type(animation.frameCount) == "number" and lifecycle.holdFrame < animation.frameCount)
+  local modelFactory = assert(self.modelFactory, "terrain effect model factory is not configured")
+  local modelInstance = assert(modelFactory(response.kind, definition), "terrain effect model factory returned nil")
+  local handle = modelInstance:play(animation.name, { loopMode = "once" })
   self.nextId = self.nextId + 1
   self.instances[#self.instances + 1] = {
     id = self.nextId,
@@ -118,27 +118,6 @@ function FieldTerrainEffectController:status()
     }
   end
   return { instances = instances }
-end
-
-function FieldTerrainEffectController:drawItems(origin)
-  assert(type(origin) == "table", "terrain effect origin is required")
-  local originY = origin.y or 0
-  local items = {}
-  for index, instance in ipairs(self.instances) do
-    items[index] = {
-      kind = instance.kind,
-      definition = instance.definition,
-      localX = instance.fieldX - origin.x,
-      localZ = instance.fieldZ - origin.z,
-      worldY = instance.sourceWorldY - originY,
-      cellKey = instance.cellKey,
-      sourceSurfaceId = instance.sourceSurfaceId,
-      age = instance.age,
-      fieldX = instance.fieldX,
-      fieldZ = instance.fieldZ,
-    }
-  end
-  return items
 end
 
 return FieldTerrainEffectController

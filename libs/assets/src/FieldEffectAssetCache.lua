@@ -11,61 +11,41 @@ local INDEX = DIR .. "/index.lua"
 local MARKER = DIR .. "/complete"
 local ASSET_DIR = "assets/generated/field/effects"
 
-local SOURCE = {
-  tall_grass = {
-    renderer = 8,
-    modelMembers = { 126 },
-    animationArchive = "field_static_models",
-    animationMembers = { 140 },
-  },
-  very_tall_grass = {
-    renderer = 12,
-    modelMembers = { 122 },
-    animationArchive = "field_static_models",
-    animationMembers = { 146 },
-  },
-}
-
-local ANIMATION_SOURCE_TYPE = "field-effect"
-local ANIMATION_SOURCE_FORMAT = "FIELD_EFFECT_PATTERN"
 local MARKER_PREFIX = FieldEffectAssetCache.FORMAT .. ":"
 
-local function sameIntegerArray(actual, expected)
-  if type(actual) ~= "table" or #actual ~= #expected then
-    return false
-  end
-  for index, value in ipairs(expected) do
-    if actual[index] ~= value then
-      return false
-    end
-  end
-  return true
+local function finiteNumber(value)
+  return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
 end
 
-local function validSource(kind, definition)
-  local expected = SOURCE[kind]
-  if not expected then
-    return true
-  end
-  local source = definition.source
-  return type(source) == "table"
-    and source.renderer == expected.renderer
-    and sameIntegerArray(source.modelMembers, expected.modelMembers)
-    and source.animationArchive == expected.animationArchive
-    and sameIntegerArray(source.animationMembers, expected.animationMembers)
+local function validLifecycle(lifecycle, frameCount)
+  return type(lifecycle) == "table"
+    and finiteNumber(lifecycle.holdFrame)
+    and lifecycle.holdFrame >= 0
+    and lifecycle.holdFrame == math.floor(lifecycle.holdFrame)
+    and finiteNumber(frameCount)
+    and lifecycle.holdFrame < frameCount
+    and lifecycle.holdUntilOwnerMoves == true
 end
 
-local function validGrassSemantics(definition)
+local function validPlacement(offset)
+  return type(offset) == "table" and finiteNumber(offset.x) and finiteNumber(offset.y) and finiteNumber(offset.z)
+end
+
+local function validGrassDefinition(definition)
+  local model = definition.model
+  local animations = type(model) == "table" and model.animations
+  local clip = type(animations) == "table" and animations[1]
   local lifecycle = definition.lifecycle
   local placementOffset = definition.placementOffset
-  return type(lifecycle) == "table"
-    and lifecycle.introTicks == 12
-    and lifecycle.holdFrame == 12
-    and lifecycle.holdUntilOwnerMoves == true
-    and type(placementOffset) == "table"
-    and placementOffset.x == 0
-    and placementOffset.y == 0
-    and placementOffset.z == 0.625
+  return type(definition.lifetime) == "nil"
+    and type(definition.animation) == "nil"
+    and type(model) == "table"
+    and model.kind == "nitro-dynamic"
+    and type(animations) == "table"
+    and #animations == 1
+    and type(clip) == "table"
+    and validLifecycle(lifecycle, clip.frameCount)
+    and validPlacement(placementOffset)
 end
 
 function FieldEffectAssetCache.modelPath()
@@ -89,14 +69,6 @@ function FieldEffectAssetCache.texturePath(sha1)
 end
 function FieldEffectAssetCache.marker(romSha1, depHash)
   return string.format("%s:%s:%s", FieldEffectAssetCache.FORMAT, romSha1, depHash)
-end
-
----@param kind string
----@return table
-function FieldEffectAssetCache.source(kind)
-  local source = SOURCE[kind]
-  assert(source, "unknown field-effect source " .. tostring(kind))
-  return source
 end
 
 function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
@@ -149,33 +121,11 @@ function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
         return false
       end
     end
-    if not validSource(kind, definition) then
-      return false
-    end
     if kind == "warp_entrance" and (type(definition.lifetime) ~= "number" or definition.lifetime <= 0) then
       return false
     end
     if kind == "tall_grass" or kind == "very_tall_grass" then
-      local model = definition.model
-      local source = SOURCE[kind]
-      local clip = type(model) == "table" and model.animations and model.animations[1]
-      local clipSource = clip and clip.source
-      if
-        type(definition.lifetime) ~= "nil"
-        or type(definition.animation) ~= "nil"
-        or type(definition.animationSourceSha1) ~= "string"
-        or type(model) ~= "table"
-        or model.kind ~= "nitro-dynamic"
-        or type(model.animations) ~= "table"
-        or #model.animations ~= 1
-        or type(clipSource) ~= "table"
-        or clipSource.type ~= ANIMATION_SOURCE_TYPE
-        or clipSource.format ~= ANIMATION_SOURCE_FORMAT
-        or clipSource.archive ~= source.animationArchive
-        or clipSource.memberId ~= source.animationMembers[1]
-        or clipSource.sha1 ~= definition.animationSourceSha1
-        or not validGrassSemantics(definition)
-      then
+      if not validGrassDefinition(definition) then
         return false
       end
     end

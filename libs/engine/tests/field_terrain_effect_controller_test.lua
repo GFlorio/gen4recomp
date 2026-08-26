@@ -1,5 +1,5 @@
--- FieldTerrainEffectController tests ownership, fixed-tick lifetime, and
--- global-anchor projection independently from GPU rendering.
+-- FieldTerrainEffectController tests ownership and fixed-tick lifetime
+-- independently from GPU rendering.
 
 local Assert = require("tests.support.Assert")
 local FieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController")
@@ -18,12 +18,23 @@ local function definition(kind)
   return {
     definition = "renderer-" .. kind,
     lifecycle = {
-      introTicks = 12,
       holdFrame = 12,
       holdUntilOwnerMoves = true,
     },
-    placementOffset = { x = 0, y = 0, z = 0.625 },
-    model = { animations = { { name = "grass", frameCount = 12 } } },
+    placementOffset = { x = 0.25, y = 0, z = -0.5 },
+    model = { kind = "nitro-dynamic", animations = { { name = "grass", frameCount = 13 } } },
+  }
+end
+
+local function genericDefinition()
+  return {
+    definition = "renderer-tall_grass",
+    lifecycle = {
+      holdFrame = 3,
+      holdUntilOwnerMoves = true,
+    },
+    placementOffset = { x = 0.25, y = 0, z = -0.5 },
+    model = { kind = "nitro-dynamic", animations = { { name = "grass", frameCount = 4 } } },
   }
 end
 
@@ -76,16 +87,6 @@ T.tests["instances retain distinct semantic anchors"] = function()
   Assert.equal(effects:status().instances[2].fieldX, 2)
 end
 
-T.tests["global anchors project against the current coverage origin"] = function()
-  local effects = controller()
-  effects:emit({ kind = "very_tall_grass", fieldX = 34, fieldZ = 5, worldY = 7, direction = "north" })
-  local first = effects:drawItems({ x = 32, z = 0 })[1]
-  local second = effects:drawItems({ x = 0, z = 0 })[1]
-  Assert.equal(first.localX, 2)
-  Assert.equal(second.localX, 34)
-  Assert.equal(first.worldY, 7)
-end
-
 T.tests["grass instances retain stable source-surface identity"] = function()
   local effects = controller()
   effects:emit({
@@ -118,39 +119,66 @@ T.tests["post-commit cleanup removes effects left behind by the owner"] = functi
   Assert.equal(effects:status().instances[1].fieldX, 2)
 end
 
-T.tests["current tile grass holds after its intro until the owner moves"] = function()
+T.tests["a configured animation holds until the owner moves"] = function()
   local players = {}
-  for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
-    players = {}
-    local effects = controller(players)
-    effects:emit({ kind = kind, fieldX = 7, fieldZ = 9, worldY = 3.5, direction = "north" })
-    for tick = 1, 12 do
-      updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "north" })
-      local instance = effects:status().instances[1]
-      Assert.notNil(instance, kind .. " must remain during its intro")
-      Assert.equal(instance.age, tick)
-      Assert.equal(instance.frame, tick)
-    end
-    Assert.isTrue(effects:status().instances[1].animationComplete, kind .. " may complete its generic clip")
-    for _ = 1, 3 do
-      updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "east" })
-    end
-    local held = effects:status().instances[1]
-    Assert.notNil(held, kind .. " must hold while the owner stays on its tile")
-    Assert.equal(held.frame, 12)
-    Assert.equal(players[1].updateCount, 12)
-
-    updateWithOwner(effects, { fieldX = 8, fieldZ = 9, facing = "east" })
-    Assert.equal(#effects:status().instances, 0, kind .. " must expire after the owner leaves")
+  local effects = FieldTerrainEffectController.new({
+    effects = { tall_grass = genericDefinition() },
+    modelFactory = function(_, source)
+      local player = {
+        frameFx = 0,
+        frameCount = source.model.animations[1].frameCount,
+        complete = false,
+        updateCount = 0,
+      }
+      function player:updateFixed()
+        self.updateCount = self.updateCount + 1
+        self.frameFx = self.frameFx + 4096
+        if self.frameFx >= self.frameCount * 4096 then
+          self.frameFx = self.frameCount * 4096
+          self.complete = true
+        end
+      end
+      function player:isComplete()
+        return self.complete
+      end
+      local instance = {}
+      function instance:play()
+        return { player = player }
+      end
+      function instance:updateFixed()
+        player:updateFixed()
+      end
+      players[#players + 1] = player
+      return instance
+    end,
+  })
+  effects:emit({ kind = "tall_grass", fieldX = 7, fieldZ = 9, worldY = 3.5, direction = "north" })
+  for tick = 1, 3 do
+    updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "north" })
+    local instance = effects:status().instances[1]
+    Assert.notNil(instance)
+    Assert.equal(instance.age, tick)
+    Assert.equal(instance.frame, tick)
   end
+  Assert.equal(players[1].updateCount, 3)
+  for _ = 1, 2 do
+    updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "east" })
+  end
+  local held = effects:status().instances[1]
+  Assert.notNil(held)
+  Assert.equal(held.frame, 3)
+  Assert.equal(players[1].updateCount, 3)
+
+  updateWithOwner(effects, { fieldX = 8, fieldZ = 9, facing = "east" })
+  Assert.equal(#effects:status().instances, 0)
 end
 
 T.tests["dynamic grass instances change pose independently from their semantic age"] = function()
   local clip = NitroModelFixture.doorOpenClip()
   local effectDefinition = {
-    lifecycle = { introTicks = 12, holdFrame = 12, holdUntilOwnerMoves = true },
-    placementOffset = { x = 0, y = 0, z = 0.625 },
-    model = { animations = { { name = clip.name, frameCount = clip.frameCount } } },
+    lifecycle = { holdFrame = 12, holdUntilOwnerMoves = true },
+    placementOffset = { x = 0.25, y = 0, z = -0.5 },
+    model = { kind = "nitro-dynamic", animations = { { name = clip.name, frameCount = 13 } } },
   }
   local effects = FieldTerrainEffectController.new({
     effects = { tall_grass = effectDefinition },

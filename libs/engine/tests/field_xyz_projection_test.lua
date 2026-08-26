@@ -5,7 +5,6 @@ local Assert = require("tests.support.Assert")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoverage = require("libs.engine.src.FieldCoverage")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
-local FieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
@@ -110,6 +109,9 @@ local function mapFor(coverage)
     scene = {},
     fieldData = {},
     cameraType = 4,
+    projectPhysicalPoint = function(_, fieldX, fieldZ, cellKey, sourceSurfaceId)
+      return coverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
+    end,
     updateAnimated = function() end,
     release = function() end,
   } --[[@as RuntimeFieldMap]]
@@ -162,32 +164,6 @@ function T.altitude_recenter_translates_player_camera_terrain_and_effect_in_one_
   })
   local camera = FieldCamera.new(cameraProfile(), { initialTarget = player:renderPosition() })
   camera:updateFixed({ x = player.worldX + 0.25, y = player.worldY + 0.5, z = player.worldZ + 0.75 })
-  local effects = FieldTerrainEffectController.new({
-    effects = {
-      tall_grass = {
-        lifecycle = { introTicks = 12, holdFrame = 12, holdUntilOwnerMoves = true },
-        placementOffset = { x = 0, y = 0, z = 0.625 },
-        model = { animations = { { name = "grass", frameCount = 13 } } },
-      },
-    },
-    modelFactory = function()
-      local animationPlayer = {
-        frameFx = 0,
-        isComplete = function()
-          return false
-        end,
-      }
-      local instance = {
-        play = function()
-          return { player = animationPlayer }
-        end,
-        updateFixed = function() end,
-      }
-      return instance
-    end,
-  })
-  effects:emit({ kind = "tall_grass", fieldX = 33, fieldZ = 1, worldY = player.worldY, direction = "east" })
-
   local beforePlayer = { x = player.worldX, y = player.worldY, z = player.worldZ }
   player.previousWorldX = player.worldX - 0.25
   player.previousWorldY = player.worldY - 0.125
@@ -206,7 +182,7 @@ function T.altitude_recenter_translates_player_camera_terrain_and_effect_in_one_
   }
   local beforeSourceY = camera.cameraSourceY
   local beforeAppliedY = camera.cameraAppliedY
-  local beforeEffect = effects:drawItems(oldOrigin)[1]
+  local beforeEffect = runtimeMap:projectPhysicalPoint(33, 1, "1:0", 1)
   local beforeTerrainY = coverage.region.terrain:sampleHeight(sourceSurfaceId, 33.5, 1.5)
 
   coverage:recenter(1, 0)
@@ -220,7 +196,7 @@ function T.altitude_recenter_translates_player_camera_terrain_and_effect_in_one_
   player:rebindCoverage(runtimeMap, delta.x, delta.y, delta.z, "1:0", 1)
   camera:rebase(delta.x, delta.y, delta.z)
 
-  local afterEffect = effects:drawItems(newOrigin)[1]
+  local afterEffect = runtimeMap:projectPhysicalPoint(33, 1, "1:0", 1)
   local reboundSurfaceId = assert(coverage:sourceSurface("1:0", 1))
   local afterTerrainY = coverage.region.terrain:sampleHeight(reboundSurfaceId, 1.5, 1.5)
 
