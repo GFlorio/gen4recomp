@@ -137,9 +137,17 @@ local function drawAsset(self, assetId, frameIndex, region, opacity, brightness)
   local frame = asset.frames[frameIndex or 1]
   local binding = self.bindings[assetId] and self.bindings[assetId][frameIndex or 1]
   assert(binding ~= nil, "intro frame is missing: " .. assetId)
-  local scale = math.min(region.width / frame.width, region.height / frame.height)
-  local x = region.x + (region.width - frame.width * scale) / 2
-  local y = region.y + (region.height - frame.height * scale) / 2
+  local isSourcePlaced = region.scale ~= nil
+  local scale, x, y
+  if isSourcePlaced then
+    scale = region.scale
+    x = region.x
+    y = region.y
+  else
+    scale = math.min(region.width / frame.width, region.height / frame.height)
+    x = region.x + (region.width - frame.width * scale) / 2
+    y = region.y + (region.height - frame.height * scale) / 2
+  end
   if brightness ~= nil then
     assert(brightness >= 0 and brightness <= 1, "intro reveal brightness is out of range")
   end
@@ -193,12 +201,31 @@ function OakIntroRenderer:_draw(view)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
+    local delta = view.focusBlinkDelta
+    if delta == nil then
+      delta = view.focusBrightnessDelta or 0
+    end
+    assert(type(delta) == "number", "gender focus requires blink delta")
+    local focused = view.genderFocus
+    local function expandChannel(value)
+      return math.floor((value * 255 + 15) / 31) / 255
+    end
+    local function focusColor(isFocused)
+      if isFocused then
+        local channel = math.max(0, math.min(31, 16 + delta))
+        return expandChannel(channel), expandChannel(channel), expandChannel(channel)
+      else
+        return expandChannel(27), expandChannel(28), expandChannel(28)
+      end
+    end
     drawAsset(self, "gender_background", 1, assert(layout.genderBackground))
+    local mr, mg, mb = focusColor(focused == 0)
+    graphics.setColor(mr, mg, mb, 1)
     drawAsset(self, "gender_male", 1, assert(layout.genderChoices[0]))
+    local fr, fg, fb = focusColor(focused == 1)
+    graphics.setColor(fr, fg, fb, 1)
     drawAsset(self, "gender_female", 1, assert(layout.genderChoices[1]))
-    graphics.setColor(0.8, 0.9, 1, 1)
-    local card = assert(layout.genderChoices[view.genderFocus])
-    graphics.rectangle("line", card.x, card.y, card.width, card.height)
+    graphics.setColor(1, 1, 1, 1)
   end
   if view.confirmationChoice then
     local rows = assert(layout.choiceRows)

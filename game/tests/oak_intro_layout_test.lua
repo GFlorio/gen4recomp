@@ -77,15 +77,17 @@ function T.tests.source_points_and_slide_direction_survive_responsive_hosts()
     local shifted = OakIntroLayout.compute(size[1], size[2], ordinaryView(-52), {}, data)
     local scene = assert(centered.scene)
     local oakPoint = point(centered.subject, data.widgets.oak.anchor)
-    local revealPoint = point(centered.reveal, data.widgets.ball_open.anchor)
     Assert.near(oakPoint.x, scene.x + 40 / 256 * scene.width)
     Assert.near(oakPoint.y, scene.y + 130 / 192 * scene.height)
-    Assert.near(revealPoint.x, scene.x + 160 / 256 * scene.width)
-    Assert.near(revealPoint.y, scene.y + 80 / 192 * scene.height)
+    local revealPoint = point(centered.reveal, data.widgets.ball_open.anchor)
+    local canvasScale = math.min(scene.width / 256, scene.height / 192)
+    local canvasOriginX = scene.x + (scene.width - 256 * canvasScale) / 2
+    local canvasOriginY = scene.y + (scene.height - 192 * canvasScale) / 2
+    Assert.near(revealPoint.x, canvasOriginX + 160 * canvasScale, 1e-6)
+    Assert.near(revealPoint.y, canvasOriginY + 80 * canvasScale, 1e-6)
     local expectedDisplacement = 52 / data.sourceReference.width * scene.width
     Assert.near(point(shifted.subject, data.widgets.oak.anchor).x - oakPoint.x, expectedDisplacement, 1e-6)
     Assert.equal(centered.subject.scale, shifted.subject.scale)
-    Assert.equal(centered.reveal.scale, shifted.reveal.scale)
     local shiftedRevealPoint = point(shifted.reveal, data.widgets.ball_open.anchor)
     Assert.near(shiftedRevealPoint.x, revealPoint.x, 1e-6)
     Assert.near(shiftedRevealPoint.y, revealPoint.y, 1e-6)
@@ -137,7 +139,9 @@ function T.tests.tall_host_keeps_source_order_and_all_layout_rectangles_inside_v
   local revealPoint = point(layout.reveal, data.widgets.ball_open.anchor)
   Assert.isTrue(oakPoint.x < revealPoint.x)
   Assert.near(oakPoint.x / layout.scene.width, 40 / 256, 1e-9)
-  Assert.near(revealPoint.x / layout.scene.width, 160 / 256, 1e-9)
+  local canvasScale = math.min(layout.scene.width / 256, layout.scene.height / 192)
+  local canvasOriginX = layout.scene.x + (layout.scene.width - 256 * canvasScale) / 2
+  Assert.near((revealPoint.x - canvasOriginX) / canvasScale, 160, 1e-9)
 end
 
 function T.tests.gender_selection_is_a_single_source_aligned_composition()

@@ -108,6 +108,18 @@ local FINAL_FULL_ART_HOLD = 30
 local FINAL_FADE_FRAMES = 1
 local OAK_SLIDE_OFFSET = -52
 local DEFAULT_PROFILE_NAMES = { [0] = "Ethan", [1] = "Lyra" }
+local SHRINK_DELAY = 8
+
+local function focusBlinkDelta(timer)
+  local deg = (timer % 36) * 10
+  local rad = math.rad(deg)
+  local value = math.sin(rad) * 8
+  if value >= 0 then
+    return math.floor(value + 0.5)
+  else
+    return math.ceil(value - 0.5)
+  end
+end
 
 local function requireMessage(messages, key)
   local message = messages[key]
@@ -211,6 +223,9 @@ function OakIntroController.new(options)
     _revealFrameTimer = nil,
     _revealWidget = nil,
     _genderFocus = 0,
+    _focusTimer = 0,
+    _focusBlinkDelta = 0,
+    _shrinkDelay = 0,
     _name = "",
     _oakSlideOffset = 0,
     _result = nil,
@@ -335,12 +350,43 @@ function OakIntroController:_finish()
   self:_event("handoff", finalized.saveId)
 end
 
+function OakIntroController:_stepShrink()
+  local frames = framesFor(self._assets, self._visual)
+  assert(frames ~= nil, "shrink animation requires frames")
+  local isShrinkWidget = self._visual == "shrink_male" or self._visual == "shrink_female"
+  local hasSourceSemantic = false
+  for _, f in ipairs(frames) do
+    if f.element ~= nil then
+      hasSourceSemantic = true
+      break
+    end
+  end
+  if isShrinkWidget and hasSourceSemantic then
+    if self._shrinkDelay > 0 then
+      self._shrinkDelay = self._shrinkDelay - 1
+      return false
+    end
+    if self._visualFrameIndex >= #frames then
+      return true
+    end
+    self._visualFrameIndex = self._visualFrameIndex + 1
+    self._shrinkDelay = SHRINK_DELAY
+    return false
+  end
+  if self:_advanceVisual() then
+    return true
+  end
+  return false
+end
+
 function OakIntroController:_stepFrame()
   self._sourceFrames = self._sourceFrames + 1
   self._audio:updateSoundFrame()
   local startedCry = false
-  if self._phase == "shrink_animation" and self:_advanceVisual() then
-    self:_finish()
+  if self._phase == "shrink_animation" then
+    if self:_stepShrink() then
+      self:_finish()
+    end
     return
   elseif self._phase == "ball_open_wait" then
     self:_advanceReveal(true)
@@ -467,8 +513,12 @@ function OakIntroController:_stepFrame()
         self:_finish()
       else
         self._phase = "shrink_animation"
+        self._shrinkDelay = SHRINK_DELAY
       end
     end
+  elseif self._phase == "gender_select" then
+    self._focusBlinkDelta = focusBlinkDelta(self._focusTimer)
+    self._focusTimer = self._focusTimer + 1
   end
 end
 
@@ -556,9 +606,13 @@ function OakIntroController:press(action)
   end
   if action == "left" and self._phase == "gender_select" then
     self._genderFocus = 0
+    self._focusTimer = 0
+    self._focusBlinkDelta = 0
     self._audio:play("SEQ_SE_DP_SELECT")
   elseif action == "right" and self._phase == "gender_select" then
     self._genderFocus = 1
+    self._focusTimer = 0
+    self._focusBlinkDelta = 0
     self._audio:play("SEQ_SE_DP_SELECT")
   elseif
     self._phase == "name_edit" and (action == "left" or action == "right" or action == "up" or action == "down")
@@ -597,7 +651,11 @@ function OakIntroController:press(action)
     self:_setMessage("profile.gender_question")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_question" then
     self._phase = "gender_select"
+    self._focusTimer = 0
+    self._focusBlinkDelta = 0
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_select" then
+    self._focusTimer = 0
+    self._focusBlinkDelta = 0
     self._phase = "gender_confirm"
     self:_setMessage(self._genderFocus == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female")
   elseif (action == "cancel" or action == "no") and self._phase == "gender_confirm" then
@@ -693,6 +751,8 @@ function OakIntroController:view()
     revealBrightness = self._revealBrightness / 16,
     revealOpacity = self._revealOpacity / 16,
     genderFocus = self._genderFocus,
+    focusTimer = self._focusTimer,
+    focusBlinkDelta = self._focusBlinkDelta,
     name = self._name,
     virtualGlyphFocus = self._virtualFocus,
     virtualKeys = virtualKeys,

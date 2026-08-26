@@ -54,9 +54,57 @@ local function sourceAligned(asset, reference, sourceRegion)
   return imageAtPoint(asset, point, sourceRegion)
 end
 
-local function sourceCentered(asset, reference, sourceRegion)
-  assert(asset.sourceCenter, "Oak widget source center is missing")
-  return imageAtPoint(asset, sourcePoint(reference, asset.sourceCenter, sourceRegion), sourceRegion)
+local function canvasForRegion(region, reference)
+  local scale = math.min(region.width / reference.width, region.height / reference.height)
+  local origin = {
+    x = region.x + (region.width - reference.width * scale) / 2,
+    y = region.y + (region.height - reference.height * scale) / 2,
+  }
+  assert(scale > 0, "source-canvas scale must be positive")
+  return { scale = scale, origin = origin }
+end
+
+local function sourceCanvas(scene, reference)
+  local canvas = canvasForRegion(scene, reference)
+  canvas.scene = scene
+  canvas.reference = reference
+  return canvas
+end
+
+local function canvasPoint(canvas, sourcePointValue)
+  return {
+    x = canvas.origin.x + sourcePointValue.x * canvas.scale,
+    y = canvas.origin.y + sourcePointValue.y * canvas.scale,
+  }
+end
+
+local function canvasBounds(canvas, sourceBounds)
+  return {
+    x = canvas.origin.x + sourceBounds.x * canvas.scale,
+    y = canvas.origin.y + sourceBounds.y * canvas.scale,
+    width = sourceBounds.width * canvas.scale,
+    height = sourceBounds.height * canvas.scale,
+    scale = canvas.scale,
+  }
+end
+
+local function revealRect(revealWidget, _reference, canvas, frameIndex)
+  assert(revealWidget.sourceCenter, "Oak reveal source center is missing")
+  local frame = frameIndex and revealWidget.frames and revealWidget.frames[frameIndex] or nil
+  local tx = frame and frame.translateX or 0
+  local ty = frame and frame.translateY or 0
+  local sourcePos = {
+    x = revealWidget.sourceCenter.x + tx,
+    y = revealWidget.sourceCenter.y + ty,
+  }
+  local hostCenter = canvasPoint(canvas, sourcePos)
+  return {
+    x = hostCenter.x - revealWidget.anchor.x * canvas.scale,
+    y = hostCenter.y - revealWidget.anchor.y * canvas.scale,
+    width = revealWidget.width * canvas.scale,
+    height = revealWidget.height * canvas.scale,
+    scale = canvas.scale,
+  }
 end
 
 local function selectorRegions(safeFrame, gap)
@@ -78,6 +126,24 @@ local function containedPanel(region, aspect)
     width = height * aspect
   end
   return rect(region.x + (region.width - width) / 2, region.y + (region.height - height) / 2, width, height)
+end
+
+local function genderCanvas(selectorPanel, reference)
+  local canvas = canvasForRegion(selectorPanel, reference)
+  canvas.panel = selectorPanel
+  canvas.reference = reference
+  return canvas
+end
+
+local function genderChoiceRect(choiceWidget, genderCanvasValue, sourceCenterPoint)
+  local hostCenter = canvasPoint(genderCanvasValue, sourceCenterPoint)
+  return {
+    x = hostCenter.x - choiceWidget.anchor.x * genderCanvasValue.scale,
+    y = hostCenter.y - choiceWidget.anchor.y * genderCanvasValue.scale,
+    width = choiceWidget.width * genderCanvasValue.scale,
+    height = choiceWidget.height * genderCanvasValue.scale,
+    scale = genderCanvasValue.scale,
+  }
 end
 
 ---@param width number
@@ -145,9 +211,13 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     result.oakRegion, result.selectorRegion = oakRegion, selectorRegion
     result.subject = sourceAligned(oak, reference, oakRegion)
     result.selectorPanel = containedPanel(selectorRegion, 4 / 3)
-    result.genderBackground = sourceAligned(widget(manifest, "gender_background"), reference, result.selectorPanel)
+    local gCanvas = genderCanvas(result.selectorPanel, reference)
+    result.genderCanvas = gCanvas
+    result.genderBackground = canvasBounds(gCanvas, widget(manifest, "gender_background").sourceBounds)
+    result.genderBackground.scale = gCanvas.scale
     for gender, id in pairs({ [0] = "gender_male", [1] = "gender_female" }) do
-      result.genderChoices[gender] = sourceCentered(widget(manifest, id), reference, result.selectorPanel)
+      local w = widget(manifest, id)
+      result.genderChoices[gender] = genderChoiceRect(w, gCanvas, w.sourceCenter)
     end
     result.genderHitRegions = result.genderChoices
     result.cards, result.profileCards = result.genderChoices, result.genderChoices
@@ -178,7 +248,10 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     local hostDeltaX = -((view.oakSlideOffset or 0) / reference.width) * scene.width
     result.subject.x = result.subject.x + hostDeltaX
     if view.revealWidget then
-      result.reveal = sourceCentered(widget(manifest, view.revealWidget), reference, scene)
+      local revealWidget = widget(manifest, view.revealWidget)
+      local canvas = sourceCanvas(scene, reference)
+      result.revealCanvas = canvas
+      result.reveal = revealRect(revealWidget, reference, canvas, view.revealFrameIndex)
     end
   end
   if view.confirmationChoice then
