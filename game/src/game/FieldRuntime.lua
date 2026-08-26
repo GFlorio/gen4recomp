@@ -251,11 +251,20 @@ local function avatarIdSet(actorIndex)
   return set
 end
 
--- The player consults the manager's occupancy index through this predicate,
--- keyed by the map the player is on, so FieldPlayer never imports the manager.
+-- The player consults live actors for its current logical map and source events
+-- for an unloaded logical destination. The latter is a read-only preflight.
 local function playerOccupancy(self)
   return function(fieldX, fieldZ, surfaceId)
-    local occupant = self.actors:getAt(self.runtimeMap.mapId, fieldX, fieldZ, surfaceId)
+    local mapId = self.runtimeMap.mapId
+    local coverage = self.physicalCoverage or self.runtimeMap.coverage
+    local destinationMapId = coverage and coverage:mapHeaderAt(fieldX, fieldZ) or nil
+    local occupant
+    if destinationMapId == nil or destinationMapId == mapId then
+      occupant = self.actors:getAt(mapId, fieldX, fieldZ, surfaceId)
+    else
+      local destination = self.zoneController:mapForPreflight(destinationMapId, self.player)
+      occupant = self.actors:probeAt(destination, self.eventState, fieldX, fieldZ, surfaceId)
+    end
     return occupant and occupant.actorId or nil
   end
 end

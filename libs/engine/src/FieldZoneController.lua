@@ -7,6 +7,7 @@ FieldZoneController.__index = FieldZoneController
 ---@class FieldZoneController
 ---@field currentMap RuntimeFieldMap
 ---@field afterCoverageCommit fun(self: FieldZoneController, coverage: FieldZoneCoverage, player: FieldZonePlayer): FieldZoneChange?
+---@field mapForPreflight fun(self: FieldZoneController, mapId: integer, player: FieldZonePlayer|FieldPlayer): RuntimeFieldMap
 ---@field loadMap fun(mapId: integer, player: FieldZonePlayer): RuntimeFieldMap
 ---@field stageActors fun(runtimeMap: RuntimeFieldMap): unknown
 ---@field discardActors fun(stagedActors: unknown)
@@ -55,6 +56,23 @@ function FieldZoneController.new(options)
     onChange = options.onChange,
     lastChange = nil,
   }, FieldZoneController) --[[@as FieldZoneController]]
+end
+
+-- Load or compose a logical destination view for collision preflight. The
+-- returned map is borrowed by the caller; this method never publishes zone
+-- state or invokes any actor/transition side effects.
+---@param mapId integer
+---@param player FieldZonePlayer|FieldPlayer
+---@return RuntimeFieldMap
+function FieldZoneController:mapForPreflight(mapId, player)
+  assert(type(mapId) == "number", "preflight map id required")
+  assert(player, "preflight player required")
+  if mapId == self.currentMap.mapId then
+    return self.currentMap
+  end
+  local destination = self.loadMap(mapId, player)
+  assert(destination and destination.mapId == mapId, "preflight logical map identity mismatch")
+  return destination
 end
 
 ---@param self FieldZoneController

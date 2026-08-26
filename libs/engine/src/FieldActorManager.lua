@@ -113,6 +113,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field _applyFlag fun(self: FieldActorManager, change: FieldActorFlagChange)
 ---@field getById fun(self: FieldActorManager, actorId: string): FieldActorManager.Actor?
 ---@field getAt fun(self: FieldActorManager, mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer): FieldActorManager.Actor?
+---@field probeAt fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, fieldX: integer, fieldZ: integer, surfaceId: integer): FieldActorManager.ProbeResult?
 ---@field actorIdForMapIndex fun(self: FieldActorManager, index: integer): string?
 ---@class FieldActorManager.Actor: FieldObjectActor
 ---@field scriptMovementType string?
@@ -149,6 +150,9 @@ local PARTNER_OBJECT_ID = 253
 ---@field pose string
 ---@field poseTick integer
 ---@field visible boolean
+---@class FieldActorManager.ProbeResult
+---@field actorId string
+---@field objectEventId integer
 local FieldActorManager = {}
 FieldActorManager.__index = FieldActorManager
 
@@ -786,6 +790,51 @@ function FieldActorManager:getAt(mapId, fieldX, fieldZ, surfaceId)
     return nil
   end
   return entry and entry.occupancy[occupancyKey(mapId, fieldX, fieldZ, surfaceId)] or nil
+end
+
+-- Inspect destination object events without creating actors. This deliberately
+-- repeats only the event filtering and surface comparison needed for collision;
+-- actor construction remains the ownership-bearing path used after a commit.
+---@param runtimeMap RuntimeFieldMap
+---@param eventState FieldEventState
+---@param fieldX integer
+---@param fieldZ integer
+---@param surfaceId integer
+---@return FieldActorManager.ProbeResult?
+function FieldActorManager:probeAt(runtimeMap, eventState, fieldX, fieldZ, surfaceId)
+  assert(runtimeMap and runtimeMap.fieldData, "probeAt requires a runtime map")
+  assert(eventState, "probeAt requires a field event state")
+  assert(type(surfaceId) == "number", "probeAt requires a surface id")
+  local occupant
+  for _, event in ipairs(runtimeMap.fieldData.events.objects) do
+    if
+      event.x == fieldX
+      and event.z == fieldZ
+      and not eventState:isFlagSet(event.eventFlag)
+      and event.solid ~= false
+    then
+      local actorId = FieldObjectActor.actorId(runtimeMap.mapId, event.objectEventId)
+      local sample = resolveSurface(runtimeMap, event, actorId)
+      if sample.surfaceId == surfaceId then
+        if occupant then
+          Errors.raise(
+            FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
+            actorId .. " and " .. occupant.actorId .. " occupy the same field cell and surface",
+            {
+              actorId = actorId,
+              otherActorId = occupant.actorId,
+              mapId = runtimeMap.mapId,
+              fieldX = fieldX,
+              fieldZ = fieldZ,
+              surfaceId = surfaceId,
+            }
+          )
+        end
+        occupant = { actorId = actorId, objectEventId = event.objectEventId }
+      end
+    end
+  end
+  return occupant
 end
 
 ---@param mapId integer

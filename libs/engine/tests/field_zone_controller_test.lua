@@ -71,6 +71,32 @@ function T.tests.same_header_is_a_noop()
   Assert.equal(count, 0)
 end
 
+function T.tests.preflight_map_lookup_loads_without_publishing_zone_state()
+  local source = { mapId = 1, mapSection = "OLD" }
+  local destination = { mapId = 2, mapSection = "NEW" }
+  local loads = 0
+  local controller = FieldZoneController.new({
+    currentMap = source,
+    loadMap = function(mapId, player)
+      loads = loads + 1
+      Assert.equal(mapId, 2)
+      Assert.equal(player.fieldX, 7)
+      return destination
+    end,
+    protectMap = function()
+      error("preflight must not change protection")
+    end,
+    stageActors = function()
+      error("preflight must not stage actors")
+    end,
+  })
+
+  local result = controller:mapForPreflight(2, { fieldX = 7, fieldZ = 8 })
+  Assert.equal(result, destination)
+  Assert.equal(loads, 1)
+  Assert.equal(controller.currentMap, source)
+end
+
 function T.tests.commit_failure_discards_only_unpublished_stage()
   local staged = { state = "prepared" }
   local discarded = 0

@@ -410,6 +410,41 @@ function T.occupancy_is_keyed_by_map_cell_and_surface()
   Assert.equal(assert(mgr:getAt(61, 9, 3, 0)).actorId, "map:61:object:0")
 end
 
+function T.preflight_probe_uses_event_rules_without_publishing_actors()
+  local eventState = FieldEventState.new({ flags = { [401] = true } })
+  local mgr, _, assets, source = manager({}, { eventState = eventState })
+  local destination = runtimeMap({
+    object({ objectEventId = 0, eventFlag = 401 }),
+    object({ objectEventId = 1, solid = false }),
+    object({ objectEventId = 2, x = 9, y = 4 * 16 }),
+  }, 62)
+  local revision = mgr:visualRevision()
+
+  Assert.isNil(mgr:probeAt(destination, eventState, 2, 3, 0), "flagged and non-solid events do not occupy")
+  Assert.isNil(mgr:probeAt(destination, eventState, 9, 3, 0), "a different surface does not occupy")
+  local occupant = assert(mgr:probeAt(destination, eventState, 9, 3, 1))
+  Assert.equal(occupant.objectEventId, 2)
+  Assert.isNil(mgr.maps[62], "preflight must not publish a destination map")
+  Assert.equal(mgr.currentMapId, source.mapId)
+  Assert.equal(assets:total(), 0, "preflight must not acquire visuals")
+  Assert.equal(mgr:visualRevision(), revision)
+  mgr:dispose()
+end
+
+function T.preflight_probe_rejects_two_solid_events_on_one_surface()
+  local mgr, _, _, source = manager({})
+  local destination = runtimeMap({
+    object({ objectEventId = 0 }),
+    object({ objectEventId = 1, spriteId = 34 }),
+  }, 62)
+  throwsCode("ACTOR_OCCUPANCY_CONFLICT", function()
+    mgr:probeAt(destination, FieldEventState.new(), 2, 3, 0)
+  end)
+  Assert.equal(mgr.currentMapId, source.mapId)
+  Assert.isNil(mgr.maps[62])
+  mgr:dispose()
+end
+
 function T.setting_a_flag_removes_draw_and_occupancy_on_one_tick()
   local mgr, eventState, assets = manager({ object({ eventFlag = 401 }) })
   Assert.equal(assets:total(), 1)
