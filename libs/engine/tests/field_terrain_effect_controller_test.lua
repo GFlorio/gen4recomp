@@ -3,19 +3,46 @@
 
 local Assert = require("tests.support.Assert")
 local FieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController")
+local ModelInstance = require("libs.engine.src.ModelInstance")
+local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = { metadata = { capabilities = {} }, tests = {} }
 
-local function animation(lifetime)
-  return { frames = { { duration = lifetime } } }
+local function definition(lifetime, kind)
+  return {
+    definition = "renderer-" .. kind,
+    model = { animations = { { name = "grass", frameCount = lifetime } } },
+  }
 end
 
 local function controller()
+  local function factory(_, source)
+    local player = { frameFx = 0, frameCount = source.model.animations[1].frameCount, complete = false }
+    function player:updateFixed()
+      self.frameFx = self.frameFx + 4096
+      if self.frameFx >= self.frameCount * 4096 then
+        self.frameFx = self.frameCount * 4096
+        self.complete = true
+      end
+    end
+    function player:isComplete()
+      return self.complete
+    end
+    local instance = {}
+    function instance:play()
+      return { player = player }
+    end
+    function instance:updateFixed()
+      player:updateFixed()
+    end
+    return instance
+  end
   return FieldTerrainEffectController.new({
     effects = {
-      tall_grass = { definition = "renderer-8", lifetime = 3, animation = animation(3) },
-      very_tall_grass = { definition = "renderer-12", lifetime = 2, animation = animation(2) },
+      tall_grass = definition(3, 8),
+      very_tall_grass = definition(2, 12),
     },
+    modelFactory = factory,
   })
 end
 
@@ -69,10 +96,30 @@ T.tests["committed grass animation completion controls effect lifetime"] = funct
     effects = {
       tall_grass = {
         definition = "field-effect:tall-grass",
-        lifetime = 99,
-        animation = { frames = { { duration = 1 }, { duration = 2 } } },
+        model = { animations = { { name = "grass", frameCount = 3 } } },
       },
     },
+    modelFactory = function(_, source)
+      local player = { frameFx = 0, frameCount = source.model.animations[1].frameCount, complete = false }
+      function player:updateFixed()
+        self.frameFx = self.frameFx + 4096
+        if self.frameFx >= self.frameCount * 4096 then
+          self.frameFx = self.frameCount * 4096
+          self.complete = true
+        end
+      end
+      function player:isComplete()
+        return self.complete
+      end
+      local instance = {}
+      function instance:play()
+        return { player = player }
+      end
+      function instance:updateFixed()
+        player:updateFixed()
+      end
+      return instance
+    end,
   })
   effects:emit({ kind = "tall_grass", fieldX = 7, fieldZ = 9, worldY = 3.5, direction = "north" })
   Assert.equal(#effects:status().instances, 1)
@@ -82,6 +129,30 @@ T.tests["committed grass animation completion controls effect lifetime"] = funct
   Assert.equal(#effects:status().instances, 1)
   effects:updateFixed()
   Assert.equal(#effects:status().instances, 0, "the source animation's three ticks complete the effect")
+end
+
+T.tests["dynamic grass instances change pose independently from their semantic age"] = function()
+  local clip = NitroModelFixture.doorOpenClip()
+  local effectDefinition = { model = { animations = { { name = clip.name, frameCount = clip.frameCount } } } }
+  local effects = FieldTerrainEffectController.new({
+    effects = { tall_grass = effectDefinition },
+    modelFactory = function()
+      local instance = ModelInstance.new(NitroModelFixture.doorDefinition({ clip }))
+      instance.renderMeshesById = { ["draw0.seg0"] = {} }
+      return instance
+    end,
+  })
+  effects:emit({ kind = "tall_grass", fieldX = 1, fieldZ = 1, worldY = 0, direction = "east" })
+  local first = effects:status().instances[1].modelInstance
+  first:evaluatePose()
+  local firstTransform = first:drawItems(first.renderMeshesById)[1].transform
+  Assert.equal(effects:status().instances[1].frame, 0)
+
+  effects:updateFixed()
+  local second = effects:status().instances[1].modelInstance
+  second:evaluatePose()
+  local secondTransform = second:drawItems(second.renderMeshesById)[1].transform
+  Assert.isFalse(firstTransform[1] == secondTransform[1] and firstTransform[3] == secondTransform[3])
 end
 
 return T

@@ -54,9 +54,23 @@ local function moveTo(game, point)
   return game:moveTo({ fieldX = point.fieldX, fieldZ = point.fieldZ })
 end
 
+local function assertSeam(game, expectedMapId, expectedMapSymbol, label)
+  local transition = assert(game.lastTransition, label .. " must publish a seam transition")
+  local source = transition.source
+  local destination = transition.destination
+  local displacement = math.abs(destination.player.fieldX - source.player.fieldX)
+    + math.abs(destination.player.fieldZ - source.player.fieldZ)
+  Assert.equal(displacement, 1, label .. " must commit exactly one tile")
+  Assert.equal(destination.mapId, expectedMapId)
+  Assert.equal(destination.mapSymbol, expectedMapSymbol)
+  Assert.equal(destination.transition.phase, "idle", label .. " must not start a fade transition")
+  Assert.isNil(game.runtime.transition.sourceKind, label .. " must remain outside the warp transition lifecycle")
+end
+
 function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns()
   withVersion(function(game, facts)
     local initial = game:snapshot()
+    local physicalOwner = assert(game.runtime.physicalCoverage, "physical coverage owner is required")
     assertResident(initial)
 
     local waterApproach = moveTo(game, facts.water.approach)
@@ -73,6 +87,8 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     Assert.equal(route.mapId, 33)
     Assert.equal(route.transition.phase, "idle", "seam crossing must not start a transition")
     Assert.notNil(route.zoneChange, "seam crossing must publish zone ownership")
+    assertSeam(game, 33, "MAP_ROUTE_29", "New Bark to Route 29")
+    Assert.equal(game.runtime.physicalCoverage, physicalOwner, "seam crossing must preserve the physical world")
     assertResident(route)
 
     local far = moveTo(game, facts.far)
@@ -93,6 +109,19 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     )
     assertResident(landing)
 
+    local returned = moveTo(game, facts.newBark)
+    assertSeam(game, facts.newBark.mapId, "MAP_NEW_BARK", "Route 29 to New Bark")
+    Assert.equal(returned.player.fieldX, facts.newBark.fieldX)
+    Assert.equal(returned.player.fieldZ, facts.newBark.fieldZ)
+    Assert.equal(game.runtime.physicalCoverage, physicalOwner, "reverse seam must preserve the physical world")
+    Assert.equal(game.lifecycle.runtimeDisposals, 0, "the live return must occur before any save/restart")
+    assertResident(returned)
+
+    local farSavePosition = moveTo(game, facts.far)
+    Assert.equal(farSavePosition.mapId, 33)
+    Assert.equal(farSavePosition.player.fieldX, facts.far.fieldX)
+    Assert.equal(farSavePosition.player.fieldZ, facts.far.fieldZ)
+    assertResident(farSavePosition)
     local saved = game:save()
     local resumed = game:restart({ save = "resume" }):snapshot()
     Assert.equal(resumed.player.fieldX, saved.player.fieldX)

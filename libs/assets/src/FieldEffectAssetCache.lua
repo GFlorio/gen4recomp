@@ -14,9 +14,9 @@ local ASSET_DIR = "assets/generated/field/effects"
 local SOURCE = {
   tall_grass = {
     renderer = 8,
-    modelMembers = { 126, 127 },
+    modelMembers = { 126 },
     animationArchive = "build_anim",
-    animationMembers = { 140, 141, 142, 143 },
+    animationMembers = { 140 },
   },
   very_tall_grass = {
     renderer = 12,
@@ -49,39 +49,6 @@ local function validSource(kind, definition)
     and sameIntegerArray(source.modelMembers, expected.modelMembers)
     and source.animationArchive == expected.animationArchive
     and sameIntegerArray(source.animationMembers, expected.animationMembers)
-end
-
-local function validAnimation(kind, definition)
-  local animation = definition.animation
-  local source = SOURCE[kind]
-  if type(animation) ~= "table" or animation.schema ~= "g4-field-effect-animation-v1" then
-    return false
-  end
-  if not sameIntegerArray(animation.sourceMembers, source.animationMembers) then
-    return false
-  end
-  if type(animation.frames) ~= "table" or #animation.frames ~= #source.animationMembers then
-    return false
-  end
-  local lifetime = 0
-  for index, frame in ipairs(animation.frames) do
-    if
-      type(frame) ~= "table"
-      or frame.memberId ~= source.animationMembers[index]
-      or type(frame.duration) ~= "number"
-      or frame.duration < 1
-      or frame.duration ~= math.floor(frame.duration)
-      or type(frame.values) ~= "table"
-      or #frame.values == 0
-      or type(frame.format) ~= "string"
-      or type(frame.name) ~= "string"
-      or type(frame.values[1]) ~= "table"
-    then
-      return false
-    end
-    lifetime = lifetime + frame.duration
-  end
-  return definition.lifetime == lifetime
 end
 
 function FieldEffectAssetCache.modelPath()
@@ -162,11 +129,30 @@ function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
         return false
       end
     end
-    if type(definition.lifetime) ~= "number" or definition.lifetime <= 0 or not validSource(kind, definition) then
+    if not validSource(kind, definition) then
+      return false
+    end
+    if kind == "warp_entrance" and (type(definition.lifetime) ~= "number" or definition.lifetime <= 0) then
       return false
     end
     if kind == "tall_grass" or kind == "very_tall_grass" then
-      if not validAnimation(kind, definition) then
+      local model = definition.model
+      local source = SOURCE[kind]
+      local clip = type(model) == "table" and model.animations and model.animations[1]
+      local clipSource = clip and clip.source
+      if
+        type(definition.lifetime) ~= "nil"
+        or type(definition.animation) ~= "nil"
+        or type(definition.animationSourceSha1) ~= "string"
+        or type(model) ~= "table"
+        or model.kind ~= "nitro-dynamic"
+        or type(model.animations) ~= "table"
+        or #model.animations ~= 1
+        or type(clipSource) ~= "table"
+        or clipSource.archive ~= source.animationArchive
+        or clipSource.memberId ~= source.animationMembers[1]
+        or clipSource.sha1 ~= definition.animationSourceSha1
+      then
         return false
       end
     end

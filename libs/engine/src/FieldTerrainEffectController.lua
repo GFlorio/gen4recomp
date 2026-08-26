@@ -11,17 +11,28 @@ FieldTerrainEffectController.__index = FieldTerrainEffectController
 
 function FieldTerrainEffectController.new(options)
   assert(type(options) == "table" and type(options.effects) == "table", "terrain effects are required")
-  return setmetatable({ effects = options.effects, instances = {}, nextId = 0 }, FieldTerrainEffectController)
+  return setmetatable({
+    effects = options.effects,
+    modelFactory = options.modelFactory,
+    instances = {},
+    nextId = 0,
+  }, FieldTerrainEffectController)
+end
+
+function FieldTerrainEffectController:setModelFactory(factory)
+  assert(type(factory) == "function", "terrain effect model factory is required")
+  assert(#self.instances == 0, "terrain effect model factory cannot change while effects are active")
+  self.modelFactory = factory
 end
 
 function FieldTerrainEffectController:emit(response)
   local definition = assert(self.effects[response.kind], "missing field-effect definition: " .. response.kind)
-  local animation = assert(definition.animation, "field-effect animation is required")
-  local lifetime = 0
-  for _, frame in ipairs(animation.frames) do
-    lifetime = lifetime + assert(frame.duration, "field-effect animation frame duration is required")
-  end
-  assert(lifetime > 0, "field-effect animation must have a positive lifetime")
+  local modelFactory = assert(self.modelFactory, "terrain effect model factory is not configured")
+  local modelInstance = assert(modelFactory(response.kind, definition), "terrain effect model factory returned nil")
+  local model = assert(definition.model)
+  local animations = assert(model.animations)
+  assert(#animations == 1, "terrain effect requires one source animation")
+  local handle = modelInstance:play(animations[1].name, { loopMode = "once" })
   self.nextId = self.nextId + 1
   self.instances[#self.instances + 1] = {
     id = self.nextId,
@@ -35,8 +46,8 @@ function FieldTerrainEffectController:emit(response)
     worldY = response.worldY,
     direction = response.direction,
     age = 0,
-    lifetime = lifetime,
-    animation = animation,
+    modelInstance = modelInstance,
+    animationHandle = handle,
   }
 end
 
@@ -50,7 +61,8 @@ function FieldTerrainEffectController:updateFixed()
   for index = #self.instances, 1, -1 do
     local instance = self.instances[index]
     instance.age = instance.age + 1
-    if instance.age >= instance.lifetime then
+    instance.modelInstance:updateFixed()
+    if instance.animationHandle.player:isComplete() then
       table.remove(self.instances, index)
     end
   end
@@ -77,16 +89,10 @@ function FieldTerrainEffectController:status()
       sourceWorldY = instance.sourceWorldY,
       direction = instance.direction,
       age = instance.age,
-      frame = (function()
-        local elapsed = 0
-        for frameIndex, frame in ipairs(instance.animation.frames) do
-          elapsed = elapsed + frame.duration
-          if instance.age < elapsed then
-            return frameIndex
-          end
-        end
-        return #instance.animation.frames
-      end)(),
+      frame = instance.animationHandle.player.frameFx / 4096,
+      frameCount = instance.animationHandle.player.frameCount,
+      modelInstance = instance.modelInstance,
+      animationComplete = instance.animationHandle.player:isComplete(),
     }
   end
   return { instances = instances }

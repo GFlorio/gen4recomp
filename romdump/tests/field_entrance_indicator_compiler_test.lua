@@ -9,6 +9,8 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
     "romdump.src.digest.nitro.Nsbmd",
     "romdump.src.digest.nitro.NitroAnimation",
     "romdump.src.digest.ModelAssetCompiler",
+    "romdump.src.digest.MapAssetCompiler",
+    "romdump.src.digest.MapPropAnimCompiler",
     "libs.assets.src.ModelAsset",
     "romdump.src.digest.Hashing",
     "romdump.src.config.FieldEffects",
@@ -27,8 +29,8 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       warp_entrance = { renderer = 3, modelMembers = { 85 }, animationMembers = {} },
       tall_grass = {
         renderer = 8,
-        modelMembers = { 126, 127 },
-        animationMembers = { 140, 141, 142, 143 },
+        modelMembers = { 126 },
+        animationMembers = { 140 },
       },
       very_tall_grass = { renderer = 12, modelMembers = { 122 }, animationMembers = { 146 } },
     },
@@ -62,6 +64,47 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
         batches = { { geometry = "assets/generated/maps/geometry/mesh.g4mesh" } },
         materials = { { name = context.modelName, texture = "assets/generated/maps/textures/texture.png" } },
       }
+    end,
+  }
+  package.loaded["romdump.src.digest.MapPropAnimCompiler"] = {
+    compileDecoded = function(decoded, opts)
+      return {
+        id = opts.id,
+        name = opts.name,
+        category = "joint",
+        kind = "trs",
+        frameCount = decoded.animations[1].resource.numFrame,
+        tracks = { { target = "target", targetIndex = 0 } },
+        semanticNames = {},
+        source = opts.source,
+        compiled = { targets = { { name = "target", index = 0, channels = { trans = {}, rot = {}, scale = {} } } } },
+      }
+    end,
+  }
+  package.loaded["romdump.src.digest.MapAssetCompiler"] = {
+    compileDynamicModel = function(_, _, _, animResult, _, memberId, meshes, textures)
+      meshes["mesh"] = {}
+      textures["texture"] = { width = 1, height = 1, pixels = "pixel" }
+      return {
+        schema = "g4-model-v1",
+        memberId = memberId,
+        kind = "nitro-dynamic",
+        dynamic = {
+          nodes = {},
+          transformProgram = {},
+          batches = { { geometry = "assets/generated/maps/geometry/mesh.g4mesh" } },
+        },
+        materials = {
+          {
+            id = 0,
+            name = "effect",
+            texture = "assets/generated/maps/textures/texture.png",
+            wrap = { x = "clamp", y = "clamp" },
+            flip = { x = false, y = false },
+          },
+        },
+        animations = animResult.clips,
+      }, {}
     end,
   }
   package.loaded["libs.assets.src.ModelAsset"] = {
@@ -112,24 +155,24 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   package.loaded["romdump.src.digest.FieldEntranceIndicatorCompiler"] = nil
 
   Assert.isTrue(ok, tostring(result))
-  Assert.equal(#modelMembers, 4)
+  Assert.equal(#modelMembers, 3)
   Assert.equal(modelMembers[1], 85)
   Assert.equal(modelMembers[2], 126)
-  Assert.equal(modelMembers[3], 127)
-  Assert.equal(modelMembers[4], 122)
-  Assert.equal(#animationMembers, 5)
+  Assert.equal(modelMembers[3], 122)
+  Assert.equal(#animationMembers, 2)
   Assert.equal(animationMembers[1], 140)
-  Assert.equal(animationMembers[2], 141)
-  Assert.equal(animationMembers[3], 142)
-  Assert.equal(animationMembers[4], 143)
-  Assert.equal(animationMembers[5], 146)
-  local animation = result.effects.tall_grass.animation
-  Assert.equal(animation.frames[1].memberId, 140)
-  Assert.equal(animation.frames[1].duration, 2)
-  Assert.equal(animation.frames[1].format, "NSBTA")
-  Assert.equal(result.effects.tall_grass.lifetime, 66)
-  Assert.equal(result.effects.very_tall_grass.animation.frames[1].duration, 120)
-  Assert.equal(result.effects.very_tall_grass.lifetime, 120)
+  Assert.equal(animationMembers[2], 146)
+  local animation = result.effects.tall_grass.model.animations[1]
+  Assert.equal(animation.source.memberId, 140)
+  Assert.equal(animation.frameCount, 2)
+  Assert.equal(animation.source.format, "NSBTA")
+  Assert.equal(result.effects.tall_grass.model.kind, "nitro-dynamic")
+  Assert.equal(result.effects.tall_grass.source.modelMembers[1], 126)
+  Assert.equal(result.effects.tall_grass.source.animationMembers[1], 140)
+  Assert.isNil(result.effects.tall_grass.lifetime)
+  Assert.equal(result.effects.very_tall_grass.model.animations[1].frameCount, 120)
+  Assert.equal(result.effects.very_tall_grass.model.kind, "nitro-dynamic")
+  Assert.isNil(result.effects.very_tall_grass.lifetime)
 end
 
 T.tests["rewrites compiled geometry and texture references into the effect root"] = function()
@@ -138,6 +181,8 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
     "romdump.src.digest.nitro.Nsbmd",
     "romdump.src.digest.nitro.NitroAnimation",
     "romdump.src.digest.ModelAssetCompiler",
+    "romdump.src.digest.MapAssetCompiler",
+    "romdump.src.digest.MapPropAnimCompiler",
     "libs.assets.src.ModelAsset",
     "romdump.src.digest.Hashing",
   }
@@ -167,6 +212,39 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
         batches = { { geometry = "assets/generated/maps/geometry/mesh.g4mesh" } },
         materials = { { name = "effect", texture = "assets/generated/maps/textures/texture.png" } },
       }
+    end,
+  }
+  package.loaded["romdump.src.digest.MapPropAnimCompiler"] = {
+    compileDecoded = function(decoded, opts)
+      return {
+        id = opts.id,
+        name = opts.name,
+        category = "joint",
+        kind = "trs",
+        frameCount = decoded.animations[1].resource.numFrame,
+        tracks = { { target = "target", targetIndex = 0 } },
+        semanticNames = {},
+        source = opts.source,
+        compiled = {},
+      }
+    end,
+  }
+  package.loaded["romdump.src.digest.MapAssetCompiler"] = {
+    compileDynamicModel = function(_, _, _, animResult, _, memberId, meshes, textures)
+      meshes.mesh = {}
+      textures.texture = { width = 1, height = 1, pixels = "pixel" }
+      return {
+        schema = "g4-model-v1",
+        memberId = memberId,
+        kind = "nitro-dynamic",
+        dynamic = {
+          nodes = {},
+          transformProgram = {},
+          batches = { { geometry = "assets/generated/maps/geometry/mesh.g4mesh" } },
+        },
+        materials = { { id = 0, name = "effect", texture = "assets/generated/maps/textures/texture.png" } },
+        animations = animResult.clips,
+      }, {}
     end,
   }
   package.loaded["libs.assets.src.ModelAsset"] = { SCHEMA = "g4-model-v1", validate = function() end }

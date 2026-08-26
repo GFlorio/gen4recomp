@@ -462,6 +462,7 @@ function FieldRuntime:_load()
         tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
         very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
       },
+      modelFactory = require("libs.engine.src.FieldTerrainEffectModelFactory").new(),
     })
 
     self.mapLoader = FieldMapLoader.new(cacheFs, world, {

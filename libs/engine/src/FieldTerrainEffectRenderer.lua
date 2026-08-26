@@ -1,40 +1,63 @@
--- Adapts normalized terrain-effect models to the field world draw-item
--- contract. Simulation owns anchors and ages; this adapter owns GPU-backed
--- model preparation and converts global anchors into the current local frame.
+-- Presents source-derived grass effects through the engine's dynamic model
+-- stack. The controller owns each mutable ModelInstance; this adapter owns
+-- immutable definitions, pooled meshes/images, and C04 placement.
 
-local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceIndicatorRenderer")
+local Matrix4 = require("libs.math.src.Matrix4")
+local ModelDefinition = require("libs.engine.src.ModelDefinition")
+local ModelInstance = require("libs.engine.src.ModelInstance")
+local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 
 local Renderer = {}
 Renderer.__index = Renderer
 
 function Renderer.new(assets, pool)
   assert(type(assets) == "table" and type(assets.effects) == "table", "terrain effect assets are required")
-  local renderers = {}
-  for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
-    renderers[kind] = FieldEntranceIndicatorRenderer.new(assets.effects[kind].model, pool)
-  end
-  return setmetatable({ renderers = renderers }, Renderer)
+  assert(pool and pool.meshFor and pool.imageFor and pool.build, "field effect asset pool is required")
+  local resources = {}
+  pool:build(function()
+    for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
+      local descriptor = assert(assets.effects[kind].model)
+      local definition = ModelDefinition.fromNitroDescriptor(descriptor, { key = "field-effect:" .. kind })
+      local renderMeshesById = {}
+      for _, mesh in ipairs(definition.meshes) do
+        local resource = pool:meshFor(mesh.geometry)
+        renderMeshesById[mesh.id] = resource.mesh
+        mesh.center = resource.center
+      end
+      resources[kind] = {
+        definition = definition,
+        renderMeshesById = renderMeshesById,
+        wraps = SceneDescriptor.wrapByMaterial(descriptor.materials),
+      }
+    end
+    return resources
+  end)
+  return setmetatable({ resources = resources, pool = pool }, Renderer)
+end
+
+function Renderer:newInstance(kind)
+  local resource = assert(self.resources[kind], "terrain renderer is missing " .. kind)
+  local instance = ModelInstance.new(resource.definition, {
+    resolveImage = function(path, materialId)
+      local wrap = assert(resource.wraps[materialId], "missing grass material wrap")
+      return self.pool:imageFor(path, wrap.x, wrap.y)
+    end,
+  })
+  instance.renderMeshesById = resource.renderMeshesById
+  return instance
 end
 
 function Renderer:drawItems(status, runtimeMap)
   assert(runtimeMap and runtimeMap.projectPhysicalPoint, "terrain effect runtime map projection is required")
   local items = {}
-  for _, instance in ipairs(status.instances) do
-    local renderer = assert(self.renderers[instance.kind], "terrain renderer is missing " .. instance.kind)
-    local point =
-      runtimeMap:projectPhysicalPoint(instance.fieldX, instance.fieldZ, instance.cellKey, instance.sourceSurfaceId)
-    local rendered = renderer:drawItems({
-      visible = true,
-      fieldEffect = instance.kind,
-      position = {
-        x = point.worldX,
-        y = point.worldY,
-        z = point.worldZ,
-      },
-      rotationDegrees = 0,
-      scale = 1,
-    })
-    for _, item in ipairs(rendered) do
+  for _, effect in ipairs(status.instances) do
+    local point = runtimeMap:projectPhysicalPoint(effect.fieldX, effect.fieldZ, effect.cellKey, effect.sourceSurfaceId)
+    local instance = assert(effect.modelInstance, "terrain effect model instance is missing")
+    instance.transform = Matrix4.translate(point.worldX, point.worldY, point.worldZ)
+    instance:evaluatePose()
+    for _, item in ipairs(instance:drawItems(instance.renderMeshesById)) do
+      item.worldSpace = true
+      item.fieldEffect = effect.kind
       items[#items + 1] = item
     end
   end
@@ -42,10 +65,8 @@ function Renderer:drawItems(status, runtimeMap)
 end
 
 function Renderer:dispose()
-  for _, renderer in pairs(self.renderers) do
-    renderer:dispose()
-  end
-  self.renderers = nil
+  self.resources = nil
+  self.pool = nil
 end
 
 return Renderer

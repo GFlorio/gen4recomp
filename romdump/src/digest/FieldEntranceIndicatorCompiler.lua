@@ -6,6 +6,8 @@ local Errors = require("libs.errors.src.Errors")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local Hashing = require("romdump.src.digest.Hashing")
@@ -31,61 +33,6 @@ local function sourceHashes(narc, members, archive)
     hashes[#hashes + 1] = { memberId = memberId, sha1 = Hashing.sha1hex(member(narc, memberId, archive)) }
   end
   return hashes
-end
-
-local function animation(narc, members)
-  local frames = {}
-  for _, memberId in ipairs(members) do
-    local bytes = member(narc, memberId, "build_anim")
-    local decoded, err = NitroAnimation.decode(bytes, {
-      alias = "build_anim",
-      memberId = memberId,
-      section = "field-effect-grass-animation",
-    })
-    if not decoded then
-      Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "grass animation could not be decoded", {
-        archive = "build_anim",
-        memberId = memberId,
-        error = err,
-      })
-    end
-    assert(decoded)
-    if #decoded.animations ~= 1 then
-      Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "grass animation must contain one animation", {
-        archive = "build_anim",
-        memberId = memberId,
-        count = #decoded.animations,
-      })
-    end
-    local sourceAnimation = decoded.animations[1]
-    local resource = sourceAnimation.resource
-    if type(resource) ~= "table" or type(resource.numFrame) ~= "number" or resource.numFrame < 1 then
-      Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "grass animation has no positive source frame count", {
-        archive = "build_anim",
-        memberId = memberId,
-      })
-    end
-    frames[#frames + 1] = {
-      memberId = memberId,
-      duration = resource.numFrame,
-      format = decoded.format,
-      name = sourceAnimation.name,
-      values = { resource },
-    }
-  end
-  return {
-    schema = "g4-field-effect-animation-v1",
-    sourceMembers = members,
-    frames = frames,
-  }
-end
-
-local function animationLifetime(value)
-  local lifetime = 0
-  for _, frame in ipairs(value.frames) do
-    lifetime = lifetime + frame.duration
-  end
-  return lifetime
 end
 
 local function compileModel(narc, memberId, key, section, role)
@@ -139,6 +86,103 @@ local function compileModel(narc, memberId, key, section, role)
   return descriptor, meshes, textures, Hashing.sha1hex(bytes)
 end
 
+local function rewriteEffectPaths(descriptor)
+  for _, batch in ipairs(descriptor.dynamic.batches) do
+    local sha1 = assert(batch.geometry:match("/([^/]+)%.g4mesh$"))
+    batch.geometry = FieldEffectAssetCache.geometryPath(sha1)
+  end
+  for _, material in ipairs(descriptor.materials) do
+    if material.texture then
+      local sha1 = assert(material.texture:match("/([^/]+)%.png$"))
+      material.texture = FieldEffectAssetCache.texturePath(sha1)
+    end
+    for _, variant in ipairs(material.variants or {}) do
+      if variant.texture then
+        local sha1 = assert(variant.texture:match("/([^/]+)%.png$"))
+        variant.texture = FieldEffectAssetCache.texturePath(sha1)
+      end
+    end
+  end
+end
+
+local function compileDynamicModel(narc, animationNarc, modelMemberId, animationMemberId, key, section, role)
+  local modelBytes = member(narc, modelMemberId)
+  local decodedModel = assert(Nsbmd.decode(modelBytes, {
+    alias = "field_static_models",
+    memberId = modelMemberId,
+    section = section,
+  }))
+  local model = decodedModel.models[1]
+  if not model or not decodedModel.embeddedTextures then
+    Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect dynamic model is incomplete", {
+      archive = "field_static_models",
+      memberId = modelMemberId,
+    })
+  end
+
+  local animationBytes = member(animationNarc, animationMemberId, "build_anim")
+  local decodedAnimation, err = NitroAnimation.decode(animationBytes, {
+    alias = "build_anim",
+    memberId = animationMemberId,
+    section = "field-effect-grass-animation",
+  })
+  if not decodedAnimation then
+    Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect animation could not be decoded", {
+      archive = "build_anim",
+      memberId = animationMemberId,
+      error = err,
+    })
+  end
+  assert(decodedAnimation)
+  local sourceAnimation = decodedAnimation.animations[1]
+  if not sourceAnimation then
+    Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect animation has no resource", {
+      archive = "build_anim",
+      memberId = animationMemberId,
+    })
+  end
+  local clip = MapPropAnimCompiler.compileDecoded(decodedAnimation, {
+    name = sourceAnimation.name,
+    id = key .. ":animation",
+    source = {
+      type = "nitro",
+      format = decodedAnimation.format,
+      archive = "build_anim",
+      memberId = animationMemberId,
+      sha1 = Hashing.sha1hex(animationBytes),
+    },
+  })
+  local meshes, textures = {}, {}
+  local descriptor, unresolved = MapAssetCompiler.compileDynamicModel(
+    model,
+    decodedModel,
+    decodedModel.embeddedTextures,
+    { clips = { clip } },
+    {
+      role = role,
+      modelArchive = "field_static_models",
+      modelMemberId = modelMemberId,
+      modelName = model.name,
+      textureArchive = "field_static_models",
+      textureMemberId = modelMemberId,
+    },
+    modelMemberId,
+    textures,
+    meshes
+  )
+  if #unresolved > 0 then
+    Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect dynamic model has unresolved materials", {
+      archive = "field_static_models",
+      memberId = modelMemberId,
+      unresolved = unresolved,
+    })
+  end
+  descriptor.key = key
+  rewriteEffectPaths(descriptor)
+  ModelAsset.validate(descriptor)
+  return descriptor, meshes, textures, Hashing.sha1hex(modelBytes), Hashing.sha1hex(animationBytes)
+end
+
 function Compiler.compile(romFs, hashLua)
   assert(romFs and romFs.openNarc, "field-effect compiler requires RomFs")
   hashLua = hashLua or Hashing.hashLua
@@ -158,23 +202,20 @@ function Compiler.compile(romFs, hashLua)
     "warp-entrance-effect",
     "field-effect"
   )
-  local tall, tallMeshes, tallTextures, tallSha = compileModel(
+  local tall, tallMeshes, tallTextures, tallSha, tallAnimationSha = compileDynamicModel(
     narc,
+    animationNarc,
     FieldEffects.effects.tall_grass.modelMembers[1],
+    FieldEffects.effects.tall_grass.animationMembers[1],
     "field-effect:tall-grass",
     "tall-grass-renderer-8",
     "field-effect-grass"
   )
-  local _, tallSecondaryMeshes, tallSecondaryTextures = compileModel(
+  local veryTall, veryTallMeshes, veryTallTextures, veryTallSha, veryTallAnimationSha = compileDynamicModel(
     narc,
-    FieldEffects.effects.tall_grass.modelMembers[2],
-    "field-effect:tall-grass-secondary",
-    "tall-grass-renderer-8-secondary",
-    "field-effect-grass"
-  )
-  local veryTall, veryTallMeshes, veryTallTextures, veryTallSha = compileModel(
-    narc,
+    animationNarc,
     FieldEffects.effects.very_tall_grass.modelMembers[1],
+    FieldEffects.effects.very_tall_grass.animationMembers[1],
     "field-effect:very-tall-grass",
     "tall-grass-renderer-12",
     "field-effect-grass"
@@ -185,20 +226,12 @@ function Compiler.compile(romFs, hashLua)
   for sha1, texture in pairs(tallTextures) do
     textures[sha1] = texture
   end
-  for sha1, mesh in pairs(tallSecondaryMeshes) do
-    meshes[sha1] = mesh
-  end
-  for sha1, texture in pairs(tallSecondaryTextures) do
-    textures[sha1] = texture
-  end
   for sha1, mesh in pairs(veryTallMeshes) do
     meshes[sha1] = mesh
   end
   for sha1, texture in pairs(veryTallTextures) do
     textures[sha1] = texture
   end
-  local tallAnimation = animation(animationNarc, FieldEffects.effects.tall_grass.animationMembers)
-  local veryTallAnimation = animation(animationNarc, FieldEffects.effects.very_tall_grass.animationMembers)
   local effects = {
     warp_entrance = {
       model = model,
@@ -206,15 +239,13 @@ function Compiler.compile(romFs, hashLua)
     },
     tall_grass = {
       model = tall,
-      lifetime = animationLifetime(tallAnimation),
       source = FieldEffectAssetCache.source("tall_grass"),
-      animation = tallAnimation,
+      animationSourceSha1 = tallAnimationSha,
     },
     very_tall_grass = {
       model = veryTall,
-      lifetime = animationLifetime(veryTallAnimation),
       source = FieldEffectAssetCache.source("very_tall_grass"),
-      animation = veryTallAnimation,
+      animationSourceSha1 = veryTallAnimationSha,
     },
   }
   local index = {

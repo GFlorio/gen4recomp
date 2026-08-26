@@ -20,8 +20,8 @@ return {
     },
     tall_grass = {
       renderer = 8,
-      modelMembers = { 126, 127 },
-      animationMembers = { 140, 141, 142, 143 },
+      modelMembers = { 126 },
+      animationMembers = { 140 },
     },
     very_tall_grass = {
       renderer = 12,

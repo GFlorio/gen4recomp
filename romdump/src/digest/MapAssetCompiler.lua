@@ -241,6 +241,15 @@ end
 -- compiled clips are plain serializable data. The runtime assembles the
 -- ModelDefinition from this descriptor. The caller stamps `key` after hashing
 -- the descriptor's content into the model key.
+---@param buildingModel table
+---@param buildingNsbmd table
+---@param texPack table
+---@param animResult table
+---@param context table
+---@param memberId integer
+---@param textures table<string, table>
+---@param meshes table<string, table>
+---@return table, table[]
 local function compileAnimatedModel(
   buildingModel,
   buildingNsbmd,
@@ -305,6 +314,12 @@ local function compileAnimatedModel(
   },
     wrapped
 end
+
+-- Shared dynamic-model assembly for source-derived effect producers. The
+-- caller supplies the decoded model, its texture pack, compiled clips, and
+-- bundle accumulators; this keeps the descriptor/material/mesh contract in
+-- one place with placed animated models.
+MapAssetCompiler.compileDynamicModel = compileAnimatedModel
 
 -- Compile placed buildings for one decoded land/area pair. Map and field-cell
 -- producers share this path so model selection, animation compilation,

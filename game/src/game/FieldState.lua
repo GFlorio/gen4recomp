@@ -138,6 +138,9 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     if runtime.fieldEffectAssets and runtime.fieldEffectAssets.effects then
       self.fieldTerrainEffectRenderer =
         FieldTerrainEffectRenderer.new(runtime.fieldEffectAssets, self.fieldEntranceIndicatorPool)
+      runtime.fieldTerrainEffectController:setModelFactory(function(kind)
+        return self.fieldTerrainEffectRenderer:newInstance(kind)
+      end)
     else
       self.fieldTerrainEffectRenderer = {
         drawItems = function()

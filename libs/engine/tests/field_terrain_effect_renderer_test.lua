@@ -2,7 +2,6 @@
 -- runtime's authoritative C04 projection instead of a stale origin/Y copy.
 
 local Assert = require("tests.support.Assert")
-local Renderer = require("libs.engine.src.FieldTerrainEffectRenderer")
 
 local T = { metadata = { capabilities = {} }, tests = {} }
 
@@ -33,6 +32,39 @@ local MODEL = {
 }
 
 T.tests["projects stable effect anchors through the runtime map"] = function()
+  local moduleNames = {
+    "libs.engine.src.FieldTerrainEffectRenderer",
+    "libs.engine.src.ModelDefinition",
+    "libs.engine.src.ModelInstance",
+    "libs.engine.src.SceneDescriptor",
+  }
+  local saved = {}
+  for _, name in ipairs(moduleNames) do
+    saved[name] = package.loaded[name]
+  end
+  package.loaded["libs.engine.src.ModelDefinition"] = {
+    fromNitroDescriptor = function(_, descriptor)
+      return { key = descriptor.key, meshes = { { id = "grass", geometry = "grass.mesh" } } }
+    end,
+  }
+  package.loaded["libs.engine.src.ModelInstance"] = {
+    new = function()
+      return {
+        transform = {},
+        evaluatePose = function() end,
+        drawItems = function(self)
+          return { { transform = self.transform } }
+        end,
+      }
+    end,
+  }
+  package.loaded["libs.engine.src.SceneDescriptor"] = {
+    wrapByMaterial = function()
+      return { [0] = { x = "clamp", y = "clamp" } }
+    end,
+  }
+  package.loaded["libs.engine.src.FieldTerrainEffectRenderer"] = nil
+  local Renderer = require("libs.engine.src.FieldTerrainEffectRenderer")
   local pool = {
     build = function(_, fn)
       return fn()
@@ -74,6 +106,7 @@ T.tests["projects stable effect anchors through the runtime map"] = function()
         worldY = -99,
         cellKey = "1:0",
         sourceSurfaceId = 3,
+        modelInstance = renderer:newInstance("tall_grass"),
       },
     },
   }, runtimeMap)
@@ -85,6 +118,9 @@ T.tests["projects stable effect anchors through the runtime map"] = function()
   Assert.equal(items[1].transform[15], 303.75)
   Assert.equal(items[1].fieldEffect, "tall_grass")
   renderer:dispose()
+  for _, name in ipairs(moduleNames) do
+    package.loaded[name] = saved[name]
+  end
 end
 
 return T
