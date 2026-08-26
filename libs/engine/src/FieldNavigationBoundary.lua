@@ -33,21 +33,28 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
   end
   local targetX = math.floor(player.fieldX / 32)
   local targetZ = math.floor(player.fieldZ / 32)
+  local sourceCellKey = player.committedSourceCellKey
+  local sourceSurfaceId = player.committedSourceSurfaceId
   if coverage.anchorX == targetX and coverage.anchorZ == targetZ then
+    if sourceCellKey and sourceSurfaceId then
+      player:rebindCoverage(runtimeMap, 0, 0, sourceCellKey, sourceSurfaceId)
+    end
     return self.zoneController and self.zoneController:afterCoverageCommit(coverage, player) or coverage:status()
   end
   local oldOriginX, oldOriginZ = runtimeMap.coordinateOrigin.x, runtimeMap.coordinateOrigin.z
-  local sourceCellKey, sourceSurfaceId
-  local plate = runtimeMap.terrain:plate(player.surfaceId)
-  if plate then
-    sourceCellKey, sourceSurfaceId = plate.cellKey, plate.sourceSurfaceId
+  if not sourceCellKey then
+    local plate = runtimeMap.terrain:plate(player.surfaceId)
+    if plate then
+      sourceCellKey, sourceSurfaceId = plate.cellKey, plate.sourceSurfaceId
+    end
   end
   coverage:recenter(targetX, targetZ)
   runtimeMap.fieldRegion = coverage.region
   runtimeMap.collision = coverage.region.collision
   runtimeMap.terrain = coverage.region.terrain
   runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
-  runtimeMap.coordinateOrigin = { x = targetX * 32, z = targetZ * 32 }
+  runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
+  runtimeMap.physicalOrigin = coverage.origin
   local deltaX, deltaZ = oldOriginX - runtimeMap.coordinateOrigin.x, oldOriginZ - runtimeMap.coordinateOrigin.z
   player:rebindCoverage(runtimeMap, deltaX, deltaZ, sourceCellKey, sourceSurfaceId)
   camera:rebase(deltaX, deltaZ)

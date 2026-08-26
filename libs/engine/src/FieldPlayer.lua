@@ -37,6 +37,8 @@ local FieldTraversal = require("libs.engine.src.FieldTraversal")
 ---@field bufferedDirectionFresh boolean
 ---@field from table?
 ---@field to table?
+---@field committedSourceCellKey string?
+---@field committedSourceSurfaceId integer?
 ---@field transitionKind "ladder_exit"|"ladder_down_exit"|"vertical_return"|"held_stair"|nil
 ---@field transitionFacing FieldDirection?
 ---@field transitionFrom table?
@@ -156,7 +158,7 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
     end
     local localX = destinationX - self.currentMap.coordinateOrigin.x
     local localZ = destinationZ - self.currentMap.coordinateOrigin.z
-    if self.occupancy and self.occupancy(destinationX, destinationZ, probe.surfaceId) then
+    if self.occupancy and self.occupancy(destinationX, destinationZ, probe.sourceSurfaceId) then
       return nil
     end
     return {
@@ -167,7 +169,9 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
       worldX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
       worldY = probe.worldY,
       worldZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-      surfaceId = probe.surfaceId,
+      surfaceId = self.surfaceId,
+      sourceCellKey = probe.cellKey,
+      sourceSurfaceId = probe.sourceSurfaceId,
     }
   end
   local ok, result = pcall(function()
@@ -482,7 +486,7 @@ function FieldPlayer:_advanceStep()
   local progress = self.progressTicks / self.durationTicks
   self.worldX = self.from.worldX + (self.to.worldX - self.from.worldX) * progress
   self.worldZ = self.from.worldZ + (self.to.worldZ - self.from.worldZ) * progress
-  if self.from.surfaceId == self.to.surfaceId then
+  if not self.to.sourceCellKey and self.from.surfaceId == self.to.surfaceId then
     local localX = self.from.localX
       + FieldCoordinates.TILE_CENTER_OFFSET
       + (self.to.localX - self.from.localX) * progress
@@ -500,7 +504,11 @@ function FieldPlayer:_advanceStep()
   self.fieldX, self.fieldZ = self.to.fieldX, self.to.fieldZ
   self.localX, self.localZ = self.to.localX, self.to.localZ
   self.worldX, self.worldY, self.worldZ = self.to.worldX, self.to.worldY, self.to.worldZ
-  self.surfaceId = self.to.surfaceId
+  if not self.to.sourceCellKey then
+    self.surfaceId = self.to.surfaceId
+  end
+  self.committedSourceCellKey = self.to.sourceCellKey
+  self.committedSourceSurfaceId = self.to.sourceSurfaceId
   self.motion = "idle"
   self.progressTicks = 0
   self.from, self.to = nil, nil
@@ -641,6 +649,8 @@ function FieldPlayer:rebindCoverage(runtimeMap, deltaX, deltaZ, cellKey, sourceS
   self.worldZ = self.worldZ + deltaZ
   self.previousWorldX = self.previousWorldX + deltaX
   self.previousWorldZ = self.previousWorldZ + deltaZ
+  self.committedSourceCellKey = nil
+  self.committedSourceSurfaceId = nil
 end
 
 function FieldPlayer:status()

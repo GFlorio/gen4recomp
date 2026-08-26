@@ -46,7 +46,9 @@ local function collisionRegion(cells)
   function collision:getLocal(localX, localZ)
     local cell, x, z = cellAt(localX, localZ)
     assert(cell, "field coordinate outside composed region")
-    return cell.collision:getLocal(x, z)
+    local result = cell.collision:getLocal(x, z)
+    result.cellKey = cell.key
+    return result
   end
 
   function collision:isBlockedLocal(localX, localZ)
@@ -58,7 +60,7 @@ local function collisionRegion(cells)
   return collision
 end
 
-function FieldRegion.new(centralCollision, centralTerrain, neighbors, centralKey)
+function FieldRegion.new(centralCollision, centralTerrain, neighbors, centralKey, surfaceIdBase)
   assert(centralCollision and centralCollision.containsLocal, "central collision grid required")
   assert(centralTerrain and centralTerrain.plates, "central terrain surfaces required")
 
@@ -80,12 +82,11 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors, centralKey
     cells[#cells + 1] = neighbor
   end
 
-  local plates, maxSurfaceId = {}, -1
+  local plates, nextSurfaceId = {}, surfaceIdBase or 0
   for _, plate in ipairs(centralTerrain.plates) do
-    plates[#plates + 1] = copyPlate(plate, plate.id, 0, 0, 0, cells[1].key)
-    maxSurfaceId = math.max(maxSurfaceId, plate.id)
+    plates[#plates + 1] = copyPlate(plate, nextSurfaceId, 0, 0, 0, cells[1].key)
+    nextSurfaceId = nextSurfaceId + 1
   end
-  local nextSurfaceId = maxSurfaceId + 1
   for index = 2, #cells do
     local cell = cells[index]
     for _, plate in ipairs(cell.terrain.plates) do

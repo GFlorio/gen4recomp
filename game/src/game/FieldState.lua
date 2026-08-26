@@ -249,20 +249,25 @@ function FieldState:_actorDraws(alpha)
   return FieldActorDraw.itemsInto(records, assetLookup, storage)
 end
 
--- Refresh the persistent ordered scene parts: map geometry, static buildings,
--- animated buildings, the neighbour ring, then actors. Queue traversal
--- preserves this source order, so equal-depth translucent ties break map
--- before static building before animated building before neighbour before
--- actor. Scene draw arrays live on the runtime map's scene runtime and are
--- read every frame because animated updates replace animatedBuildingDraws;
--- staticBuildingDraws is built once at load and never replaces its table.
+-- Refresh the persistent ordered scene parts: the session-owned physical
+-- window when outdoor cells are active, otherwise the full logical scene,
+-- then actors and transient effects. Logical scene geometry is retained for
+-- environment and discontinuous maps but is never drawn alongside cells.
 function FieldState:_worldParts(alpha)
-  local sceneRuntime = self.runtime.runtimeMap.sceneRuntime
+  local runtimeMap = self.runtime.runtimeMap
   local worldParts = self.worldParts
-  worldParts[1] = sceneRuntime.mapDraws
-  worldParts[2] = sceneRuntime.staticBuildingDraws
-  worldParts[3] = sceneRuntime.animatedBuildingDraws
-  worldParts[4] = self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or NO_DRAWS
+  if runtimeMap.coverage then
+    worldParts[1] = runtimeMap.coverage:worldParts()
+    worldParts[2] = NO_DRAWS
+    worldParts[3] = NO_DRAWS
+    worldParts[4] = NO_DRAWS
+  else
+    local sceneRuntime = assert(runtimeMap.sceneRuntime, "field scene presentation is unavailable")
+    worldParts[1] = sceneRuntime.mapDraws
+    worldParts[2] = sceneRuntime.staticBuildingDraws
+    worldParts[3] = sceneRuntime.animatedBuildingDraws
+    worldParts[4] = runtimeMap.neighborRuntime and runtimeMap.neighborRuntime.draws or NO_DRAWS
+  end
   local indicator = assert(self.runtime.fieldEntranceIndicator, "field entrance indicator is unavailable")
   worldParts[5] = self.fieldEntranceIndicatorRenderer:drawItems(indicator:status())
   local actorItems = self:_actorDraws(alpha)

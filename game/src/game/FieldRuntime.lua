@@ -47,7 +47,6 @@ local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MapProps = require("libs.engine.src.MapProps")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
-local NeighborRing = require("libs.engine.src.NeighborRing")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
 local FieldWeatherResolver = require("libs.engine.src.FieldWeatherResolver")
@@ -435,7 +434,6 @@ function FieldRuntime:_load()
     -- collaborators: a non-presentation runtime simply leaves them out.
     self.mapLoader = FieldMapLoader.new(cacheFs, world, {
       sceneLoader = self.presentation and MapSceneLoader or nil,
-      neighborLoader = self.presentation and NeighborRing or nil,
     })
     local restored
     if self.resumeSave then
@@ -483,7 +481,25 @@ function FieldRuntime:_load()
     else
       assert(spawn, "spawn manifest must define a spawn for " .. self.runtimeMap.mapSymbol)
       fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
-      surfaceId, facing = spawnSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
+      if self.runtimeMap.coverage then
+        local anchorX, anchorZ = math.floor(fieldX / 32), math.floor(fieldZ / 32)
+        if self.runtimeMap.coverage.anchorX ~= anchorX or self.runtimeMap.coverage.anchorZ ~= anchorZ then
+          self.runtimeMap.coverage:recenter(anchorX, anchorZ)
+          self.runtimeMap.fieldRegion = self.runtimeMap.coverage.region
+          self.runtimeMap.collision = self.runtimeMap.coverage.region.collision
+          self.runtimeMap.terrain = self.runtimeMap.coverage.region.terrain
+          self.runtimeMap.terrainDependencyHash = self.runtimeMap.coverage.terrainDependencyHash
+          self.runtimeMap.coordinateOrigin = {
+            x = self.runtimeMap.coverage.origin.x,
+            z = self.runtimeMap.coverage.origin.z,
+          }
+          self.runtimeMap.physicalOrigin = self.runtimeMap.coverage.origin
+        end
+        local spawnLocalX, spawnLocalZ = FieldCoordinates.fieldToLocal(self.runtimeMap, fieldX, fieldZ)
+        surfaceId, facing = spawnSurface(self.runtimeMap, spawnLocalX, spawnLocalZ).surfaceId, spawn.facing
+      else
+        surfaceId, facing = spawnSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
+      end
     end
     self.player = FieldPlayer.new({
       currentMap = self.runtimeMap,

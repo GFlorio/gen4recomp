@@ -15,6 +15,7 @@ local function makeIndex()
         index = index,
         x = x,
         z = z,
+        origin = { x = x * 32, y = ((x + z) % 2) * 0.5, z = z * 32 },
         mapHeaderId = 60,
         altitude = (x + z) % 2,
         landDataMemberId = 1,
@@ -24,7 +25,7 @@ local function makeIndex()
     end
   end
   return {
-    schema = "g4-field-cell-index-v1",
+    schema = "g4-field-cell-index-v2",
     matrices = { { matrixMemberId = 1, width = 5, height = 3, cells = cells } },
   }
 end

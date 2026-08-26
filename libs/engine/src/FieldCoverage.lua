@@ -7,19 +7,22 @@ local FieldRegion = require("libs.engine.src.FieldRegion")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local FieldCellCache = require("libs.assets.src.FieldCellCache")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local Matrix4 = require("libs.math.src.Matrix4")
+local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 ---@class FieldCoverage
 ---@field cacheFs CacheFs?
 ---@field index table
 ---@field matrixMemberId integer
 ---@field loadCell fun(descriptor: table): table
+---@field presentationLoader fun(runtime: table, descriptor: table): table?
 ---@field cells table<string, table>
 ---@field anchorX integer
 ---@field anchorZ integer
+---@field origin { x: number, y: number, z: number }
 ---@field region table
 ---@field terrainDependencyHash string
 ---@field released boolean
----@field probes table<string, table>
 local FieldCoverage = {}
 FieldCoverage.__index = FieldCoverage
 
@@ -29,7 +32,7 @@ end
 
 local function desired(x, z)
   local result = {}
-  for dz = -1, 1 do
+  for _, dz in ipairs({ 0, -1, 1 }) do
     for dx = -1, 1 do
       result[#result + 1] = { x = x + dx, z = z + dz }
     end
@@ -37,36 +40,86 @@ local function desired(x, z)
   return result
 end
 
-local function runtimeFromDescriptor(self, descriptor)
-  if self.loadCell then
-    return self.loadCell(descriptor)
+local function cellOrigin(runtime, descriptor)
+  local origin = assert(runtime.origin or descriptor.origin, "field cell normalized origin is missing")
+  assert(type(origin.x) == "number" and type(origin.y) == "number" and type(origin.z) == "number")
+  return { x = origin.x, y = origin.y, z = origin.z }
+end
+
+local function ownPresentation(runtime, presentation)
+  local releaseRuntime = runtime.release
+  local released = false
+  runtime.presentation = presentation
+  runtime.release = function(self)
+    if released then
+      return
+    end
+    released = true
+    if presentation and presentation ~= self and presentation.release then
+      presentation:release()
+    end
+    if releaseRuntime then
+      releaseRuntime(self)
+    end
   end
-  local cell = assert(self.cacheFs:loadLua(descriptor.file), "field cell descriptor is missing")
-  local collisionBytes = assert(self.cacheFs:read(cell.collision.file), "field cell collision is missing")
-  local collision = assert(CollisionGridAsset.decode(collisionBytes))
-  local terrainArtifact = assert(self.cacheFs:loadLua(cell.terrain.file), "field cell terrain is missing")
-  return {
-    key = key(cell.x, cell.z),
-    x = cell.x,
-    z = cell.z,
-    altitude = cell.altitude,
-    collision = CollisionGrid.new(collision),
-    terrain = TerrainSurface.new(terrainArtifact),
-    descriptor = cell,
-    release = function() end,
-  }
+  return runtime
+end
+
+local function runtimeFromDescriptor(self, descriptor, acquirePresentation)
+  local runtime
+  if self.loadCell then
+    runtime = self.loadCell(descriptor)
+  else
+    local cell = assert(self.cacheFs:loadLua(descriptor.file), "field cell descriptor is missing")
+    local collisionBytes = assert(self.cacheFs:read(cell.collision.file), "field cell collision is missing")
+    local collision = assert(CollisionGridAsset.decode(collisionBytes))
+    local terrainArtifact = assert(self.cacheFs:loadLua(cell.terrain.file), "field cell terrain is missing")
+    runtime = {
+      key = key(cell.x, cell.z),
+      x = cell.x,
+      z = cell.z,
+      altitude = cell.altitude,
+      origin = cell.origin,
+      collision = CollisionGrid.new(collision),
+      terrain = TerrainSurface.new(terrainArtifact),
+      descriptor = cell,
+      release = function() end,
+    }
+  end
+  runtime = assert(runtime, "field cell loader returned no runtime")
+  runtime.key = runtime.key or key(descriptor.x, descriptor.z)
+  runtime.x, runtime.z = runtime.x or descriptor.x, runtime.z or descriptor.z
+  runtime.altitude = runtime.altitude or descriptor.altitude
+  runtime.origin = cellOrigin(runtime, descriptor)
+  local presentationDescriptor = runtime.descriptor or descriptor
+  local presentation
+  if acquirePresentation and self.presentationLoader then
+    local ok, result = pcall(self.presentationLoader, runtime, presentationDescriptor)
+    if not ok then
+      if runtime.release then
+        runtime:release()
+      end
+      error(result, 0)
+    end
+    presentation = result
+  else
+    presentation = runtime.presentation
+  end
+  return ownPresentation(runtime, presentation)
 end
 
 local function buildRegion(cells, anchor)
   local central = assert(cells[key(anchor.x, anchor.z)], "coverage anchor cell is missing")
   local neighbors = {}
+  local centralOrigin = assert(central.origin, "coverage cell origin is missing")
   for cellKey, cell in pairs(cells) do
     if cellKey ~= central.key then
+      local origin = assert(cell.origin, "coverage cell origin is missing")
       neighbors[#neighbors + 1] = {
         key = cell.key,
-        offsetTilesX = (cell.x - anchor.x) * 32,
-        offsetTilesY = (cell.altitude - central.altitude) * 0.5,
-        offsetTilesZ = (cell.z - anchor.z) * 32,
+        offsetTilesX = origin.x - centralOrigin.x,
+        offsetTilesY = origin.y - centralOrigin.y,
+        offsetTilesZ = origin.z - centralOrigin.z,
         collision = cell.collision,
         terrain = cell.terrain,
       }
@@ -75,7 +128,7 @@ local function buildRegion(cells, anchor)
   table.sort(neighbors, function(a, b)
     return a.key < b.key
   end)
-  return FieldRegion.new(central.collision, central.terrain, neighbors, central.key)
+  return FieldRegion.new(central.collision, central.terrain, neighbors, central.key, 1)
 end
 
 function FieldCoverage.new(options)
@@ -87,8 +140,8 @@ function FieldCoverage.new(options)
     index = options.index or FieldCellCache.loadIndex(options.cacheFs),
     matrixMemberId = options.matrixMemberId,
     loadCell = options.loadCell,
+    presentationLoader = options.presentationLoader,
     cells = {},
-    probes = {},
     released = false,
   }, FieldCoverage)
   self:recenter(options.anchorX, options.anchorZ)
@@ -109,7 +162,7 @@ function FieldCoverage:recenter(anchorX, anchorZ)
         if existing then
           staged[cellKey] = existing
         else
-          local runtime = assert(runtimeFromDescriptor(self, descriptor))
+          local runtime = assert(runtimeFromDescriptor(self, descriptor, true))
           runtime.key = runtime.key or cellKey
           runtime.x, runtime.z = position.x, position.z
           runtime.altitude = runtime.altitude or descriptor.altitude
@@ -124,6 +177,7 @@ function FieldCoverage:recenter(anchorX, anchorZ)
       anchorZ = anchorZ,
       cells = staged,
       region = buildRegion(staged, { x = anchorX, z = anchorZ }),
+      origin = assert(staged[key(anchorX, anchorZ)].origin),
     }
   end)
   if not ok then
@@ -139,6 +193,7 @@ function FieldCoverage:recenter(anchorX, anchorZ)
   self.cells = candidate.cells
   self.anchorX, self.anchorZ = candidate.anchorX, candidate.anchorZ
   self.region = candidate.region
+  self.origin = candidate.origin
   self.terrainDependencyHash = self:_dependencyIdentity()
   for cellKey, cell in pairs(old) do
     if not self.cells[cellKey] and cell.release then
@@ -173,6 +228,8 @@ function FieldCoverage:status()
     residentCellKeys = resident,
     residentCount = #resident,
     terrainDependencyHash = self.terrainDependencyHash,
+    physicalOrigin = { x = self.origin.x, y = self.origin.y, z = self.origin.z },
+    probeCount = 0,
   }
 end
 
@@ -199,36 +256,124 @@ function FieldCoverage:mapHeaderAt(fieldX, fieldZ)
   return descriptor and descriptor.mapHeaderId or nil
 end
 
+function FieldCoverage:sourceSurface(cellKey, sourceSurfaceId)
+  return self.region:sourceSurface(cellKey, sourceSurfaceId)
+end
+
+local function presentationDraws(presentation)
+  if not presentation then
+    return {}
+  end
+  if type(presentation.parts) == "table" then
+    return presentation.parts
+  end
+  local result = {}
+  for _, field in ipairs({ "mapDraws", "staticBuildingDraws", "animatedBuildingDraws", "draws" }) do
+    local draws = presentation[field]
+    if type(draws) == "table" then
+      for _, draw in ipairs(draws) do
+        result[#result + 1] = draw
+      end
+    end
+  end
+  if #result == 0 and presentation.cellKey then
+    result[1] = presentation
+  end
+  return result
+end
+
+local function translatedPart(part, cell, origin)
+  local result = {}
+  for field, value in pairs(part) do
+    result[field] = value
+  end
+  result.cellKey = cell.key
+  result.translation = {
+    x = cell.origin.x - origin.x,
+    y = cell.origin.y - origin.y,
+    z = cell.origin.z - origin.z,
+  }
+  if part.transform then
+    result.transform = Matrix4.multiply(
+      Matrix4.translate(result.translation.x, result.translation.y, result.translation.z),
+      part.transform
+    )
+  end
+  if part.billboardBase then
+    result.billboardBase = Matrix4.multiply(
+      Matrix4.translate(result.translation.x, result.translation.y, result.translation.z),
+      part.billboardBase
+    )
+    result.billboardCenter, result.billboardScale = BillboardTransform.components(result.billboardBase)
+  end
+  return result
+end
+
+function FieldCoverage:worldParts()
+  local result = {}
+  local keys = {}
+  for cellKey in pairs(self.cells) do
+    keys[#keys + 1] = cellKey
+  end
+  table.sort(keys)
+  for _, cellKey in ipairs(keys) do
+    local cell = self.cells[cellKey]
+    for _, part in ipairs(presentationDraws(cell.presentation)) do
+      result[#result + 1] = translatedPart(part, cell, self.origin)
+    end
+  end
+  return result
+end
+
+function FieldCoverage:updateAnimated()
+  assert(not self.released, "coverage is released")
+  local keys = {}
+  for cellKey in pairs(self.cells) do
+    keys[#keys + 1] = cellKey
+  end
+  table.sort(keys)
+  for _, cellKey in ipairs(keys) do
+    local presentation = self.cells[cellKey].presentation
+    if presentation and presentation.updateAnimated then
+      presentation:updateAnimated()
+    end
+  end
+end
+
 -- Read-only generated-cache lookup used by route planning before a committed
 -- step can recenter the resident window. It creates no resident ownership and
 -- releases the temporary CPU cell immediately.
 function FieldCoverage:probe(fieldX, fieldZ)
-  local probeKey = string.format("%d:%d", fieldX, fieldZ)
-  if self.probes[probeKey] then
-    return self.probes[probeKey]
-  end
   local cellX, cellZ = math.floor(fieldX / 32), math.floor(fieldZ / 32)
   local descriptor = FieldCellCache.find(self.index, self.matrixMemberId, cellX, cellZ)
   if not descriptor then
-    return nil
+    return {
+      cellKey = key(cellX, cellZ),
+      collision = { blocked = true, cellKey = key(cellX, cellZ) },
+      sourceSurfaceId = nil,
+    }
   end
-  local runtime = assert(runtimeFromDescriptor(self, descriptor))
+  local cellKey = key(cellX, cellZ)
+  local runtime = self.cells[cellKey]
+  local temporary = runtime == nil
+  runtime = runtime or assert(runtimeFromDescriptor(self, descriptor, false))
   local localX, localZ = fieldX - cellX * 32, fieldZ - cellZ * 32
   local collision = runtime.collision:getLocal(localX, localZ)
+  collision.cellKey = cellKey
   local candidates = runtime.terrain:candidatesAt(localX + 0.5, localZ + 0.5)
   local plate = candidates[1]
-  if runtime.release then
+  if temporary and runtime.release then
     runtime:release()
   end
   if not plate then
     return nil
   end
   local result = {
+    cellKey = cellKey,
     collision = collision,
-    surfaceId = plate.id,
+    sourceSurfaceId = plate.id,
     worldY = (plate.distance - plate.normal.x * (localX + 0.5) - plate.normal.z * (localZ + 0.5)) / plate.normal.y,
   }
-  self.probes[probeKey] = result
   return result
 end
 
@@ -243,7 +388,6 @@ function FieldCoverage:release()
     end
   end
   self.cells = {}
-  self.probes = {}
 end
 
 return FieldCoverage

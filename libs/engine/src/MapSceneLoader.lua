@@ -592,4 +592,44 @@ function MapSceneLoader.load(cacheFs, scene, opts)
   end)
 end
 
+-- Build the logical render environment without acquiring geometry or model
+-- resources. Outdoor physical cells own all rendered geometry; the renderer
+-- still needs the logical scene's lighting, edge colors, and fog state.
+---@param scene table
+---@return table
+function MapSceneLoader.loadEnvironment(scene)
+  assert(type(scene) == "table" and scene.schema == MapAssetCache.SCENE_SCHEMA, "field scene required")
+  return {
+    scene = scene,
+    lighting = scene.lighting,
+    edgeColors = scene.edgeColors,
+    fog = scene.fog,
+    release = function() end,
+  }
+end
+
+-- Build a presentation runtime for one generated physical cell. The cell uses
+-- the same normalized scene and model descriptors as a full map scene, while
+-- the physical-world owner supplies its translated render origin.
+function MapSceneLoader.loadCell(cacheFs, cell, opts)
+  assert(type(cell) == "table", "field cell descriptor required")
+  local scene = {
+    schema = MapAssetCache.SCENE_SCHEMA,
+    kind = "field-cell",
+    mapId = cell.mapHeaderId,
+    cameraType = 0,
+    matrix = { worldOriginX = 0, worldOriginZ = 0 },
+    mapBatches = cell.batches,
+    materials = cell.materials,
+    buildingInstances = cell.buildingInstances,
+    terrainAnimations = cell.terrainAnimations,
+    neighbors = {},
+    collision = cell.collision,
+    lighting = {},
+    edgeColors = {},
+    fog = {},
+  }
+  return MapSceneLoader.load(cacheFs, scene, opts)
+end
+
 return MapSceneLoader

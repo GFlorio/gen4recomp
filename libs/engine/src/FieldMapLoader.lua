@@ -23,6 +23,8 @@ local FieldCellCache = require("libs.assets.src.FieldCellCache")
 ---@field capacity integer
 ---@field sceneLoader table|nil presentation-only visual scene loader
 ---@field neighborLoader table|nil presentation-only finite neighbor-ring loader
+---@field sceneOptions table|nil options passed to physical-cell presentation loading
+---@field physicalCoverage FieldCoverage?
 ---@field fieldCellsEnabled boolean
 ---@field entries table<integer, table>
 ---@field protectedMaps table<integer, boolean>
@@ -44,6 +46,7 @@ FieldMapLoader.__index = FieldMapLoader
 ---@field fieldRegion table
 ---@field cameraType integer
 ---@field coordinateOrigin { x: integer, z: integer }
+---@field physicalOrigin { x: number, y: number, z: number }?
 ---@field neighborRuntime table?
 ---@field coverage FieldCoverage?
 ---@field probePhysicalCell fun(self: RuntimeFieldMap, fieldX: integer, fieldZ: integer): table?|nil
@@ -85,9 +88,6 @@ local function releaseAggregate(runtimeMap)
   runtimeMap.released = true
   if runtimeMap.neighborRuntime then
     runtimeMap.neighborRuntime:release()
-  end
-  if runtimeMap.coverage then
-    runtimeMap.coverage:release()
   end
   if runtimeMap.sceneRuntime then
     runtimeMap.sceneRuntime:release()
@@ -183,6 +183,8 @@ function FieldMapLoader.new(cacheFs, world, options)
     capacity = capacity,
     sceneLoader = options.sceneLoader,
     neighborLoader = options.neighborLoader,
+    sceneOptions = options.sceneOptions,
+    physicalCoverage = nil,
     fieldCellsEnabled = cacheFs.exists and cacheFs:exists(FieldCellCache.indexPath(), "file") or false,
     entries = {},
     protectedMaps = {},
@@ -282,9 +284,11 @@ function FieldMapLoader:load(idOrSymbol, position)
   -- path whether or not presentation is enabled, so simulation and rendering
   -- can never disagree about blocking. The visual scene runtime is optional:
   -- only a presentation composition supplies a scene loader.
+  local physicalCells = self.fieldCellsEnabled and scene.type == "outdoor"
   local sceneRuntime
   if self.sceneLoader then
-    sceneRuntime = self.sceneLoader.load(self.cacheFs, scene)
+    sceneRuntime = physicalCells and self.sceneLoader.loadEnvironment(scene)
+      or self.sceneLoader.load(self.cacheFs, scene)
   end
   -- One transaction covers every step after the scene runtime is acquired:
   -- neighbor-ring load, collision decode, terrain construction, neighbor decoding,
@@ -294,19 +298,32 @@ function FieldMapLoader:load(idOrSymbol, position)
   -- loader's own transaction.
   local neighborRuntime
   local coverage
+  local createdCoverage = false
   local runtimeMap
   local ok, loadErr = pcall(function()
-    if self.fieldCellsEnabled then
-      local index = FieldCellCache.loadIndex(self.cacheFs)
-      local anchorX = position and math.floor(position.fieldX / 32) or scene.matrix.x
-      local anchorZ = position and math.floor(position.fieldZ / 32) or scene.matrix.z
-      coverage = FieldCoverage.new({
-        cacheFs = self.cacheFs,
-        index = index,
-        matrixMemberId = record.matrix.memberId,
-        anchorX = anchorX,
-        anchorZ = anchorZ,
-      })
+    if physicalCells then
+      coverage = self.physicalCoverage
+      if not coverage then
+        local index = FieldCellCache.loadIndex(self.cacheFs)
+        local anchorX = position and math.floor(position.fieldX / 32) or scene.matrix.x
+        local anchorZ = position and math.floor(position.fieldZ / 32) or scene.matrix.z
+        local presentationLoader
+        if self.sceneLoader and self.sceneLoader.loadCell then
+          presentationLoader = function(_, cell)
+            return self.sceneLoader.loadCell(self.cacheFs, cell, self.sceneOptions)
+          end
+        end
+        coverage = FieldCoverage.new({
+          cacheFs = self.cacheFs,
+          index = index,
+          matrixMemberId = record.matrix.memberId,
+          anchorX = anchorX,
+          anchorZ = anchorZ,
+          presentationLoader = presentationLoader,
+        })
+        self.physicalCoverage = coverage
+        createdCoverage = true
+      end
     elseif self.neighborLoader and #scene.neighbors > 0 then
       neighborRuntime = self.neighborLoader.load(self.cacheFs, scene.neighbors, {
         textureSrt = scene.terrainAnimations.textureSrt,
@@ -341,8 +358,9 @@ function FieldMapLoader:load(idOrSymbol, position)
       terrainDependencyHash = coverage and coverage.terrainDependencyHash or terrainDependencyHash(region),
       fieldRegion = region,
       cameraType = scene.cameraType,
-      coordinateOrigin = coverage and { x = coverage.anchorX * 32, z = coverage.anchorZ * 32 }
+      coordinateOrigin = coverage and { x = coverage.origin.x, z = coverage.origin.z }
         or { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },
+      physicalOrigin = coverage and coverage.origin or nil,
       neighborRuntime = neighborRuntime,
       coverage = coverage,
       released = false,
@@ -353,15 +371,18 @@ function FieldMapLoader:load(idOrSymbol, position)
     function runtimeMap:release()
       releaseAggregate(self)
     end
-    -- The one fixed-tick entry FieldSession steps: fans out to the central
-    -- scene runtime and the neighbor ring runtime, each guarded so a
-    -- simulation-only aggregate (no presentation runtimes) stays a safe no-op.
+    -- The one fixed-tick entry FieldSession steps the physical window when
+    -- field cells are active; logical scene animation is used otherwise.
     function runtimeMap:updateAnimated()
-      if self.sceneRuntime then
-        self.sceneRuntime:updateAnimated()
-      end
-      if self.neighborRuntime then
-        self.neighborRuntime:updateAnimated()
+      if self.coverage then
+        self.coverage:updateAnimated()
+      else
+        if self.sceneRuntime then
+          self.sceneRuntime:updateAnimated()
+        end
+        if self.neighborRuntime then
+          self.neighborRuntime:updateAnimated()
+        end
       end
     end
 
@@ -374,7 +395,10 @@ function FieldMapLoader:load(idOrSymbol, position)
       neighborRuntime:release()
     end
     if coverage then
-      coverage:release()
+      if createdCoverage then
+        self.physicalCoverage = nil
+        coverage:release()
+      end
     end
     if sceneRuntime then
       sceneRuntime:release()
@@ -439,7 +463,10 @@ function FieldMapLoader:release()
   for _, entry in pairs(self.entries) do
     releaseAggregate(entry.runtimeMap)
   end
-  self.entries, self.protectedMaps = {}, {}
+  if self.physicalCoverage then
+    self.physicalCoverage:release()
+  end
+  self.entries, self.protectedMaps, self.physicalCoverage = {}, {}, nil
 end
 
 return FieldMapLoader
