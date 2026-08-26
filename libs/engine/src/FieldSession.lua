@@ -228,7 +228,6 @@ function FieldSession:_emitTerrainResponse()
     direction = self.player.facing,
   })
   self.terrainEffects:emitAll(responses)
-  self.terrainEffects:removeOutside({ fieldX = self.player.fieldX, fieldZ = self.player.fieldZ })
 end
 
 local function resolveCoordinate(self)
