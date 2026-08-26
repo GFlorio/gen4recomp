@@ -96,6 +96,9 @@ local function drawableState(options)
   viewport.worldViewport = worldViewport
   local runtime = {
     errorText = nil,
+    uiManifest = {
+      dialogueFrames = { continueCursor = { placement = { x = 240, y = 168, width = 16, height = 16 } } },
+    },
     runtimeMap = {
       mapId = 61,
       mapSymbol = "MAP_NEW_BARK",

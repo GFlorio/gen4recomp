@@ -22,6 +22,9 @@ local function line(tokens)
   return { tokens = tokens, width = 0 }
 end
 
+local CURSOR =
+  { cycle = { 0, 1, 2, 1 }, framePrinterTicks = 9, placement = { x = 240, y = 168, width = 16, height = 16 } }
+
 -- Controller whose layout returns the caller's precomputed pages verbatim.
 local function controller(pages, opts)
   opts = opts or {}
@@ -35,6 +38,7 @@ local function controller(pages, opts)
       abAcceleration = true,
     },
     audio = opts.audio,
+    continueCursor = opts.continueCursor or CURSOR,
   })
 end
 
@@ -174,6 +178,7 @@ function T.fastest_reveals_consecutive_source_glyphs_without_skipping()
       return { pages = { page({ line(tokens) }, "eos") }, warnings = {} }
     end,
     policy = TextSpeedPolicy.forSpeed("fastest"),
+    continueCursor = CURSOR,
   })
   c:open(request("fastest", message()))
   c:step({})
@@ -188,6 +193,7 @@ function T.default_policy_is_fastest()
     layout = function()
       return { pages = { page({ line(tokens) }, "eos") }, warnings = {} }
     end,
+    continueCursor = CURSOR,
   })
   c:open(request("default-fastest", message()))
   c:step({})
@@ -386,6 +392,7 @@ function T.scroll_break_moves_exactly_one_line_in_fixed_increments()
       }
     end,
     policy = TextSpeedPolicy.forSpeed("fast"),
+    continueCursor = CURSOR,
   })
   c:open(request("scroll-distance", message()))
   while c:status().state == "REVEALING" or c:status().state == "OPENING" do
@@ -457,6 +464,7 @@ function T.malformed_message_fires_error_once_and_stays_closed()
     layout = function()
       error(Errors.new("FONT_GLYPH_MISSING", "fixture layout failure", { code = 0x9999 }))
     end,
+    continueCursor = CURSOR,
   })
   local errors = 0
   local handle = c:open(request("t", message()))
@@ -561,15 +569,31 @@ end
 function T.cursor_phase_is_source_animated()
   local c = controller({ page({ line({ glyph("A", 1) }) }, "prompt") })
   c:open(request("t", message()))
-  c:step({}) -- open -> revealing
-  c:step({}) -- reveal the glyph, wait begins
-  Assert.equal(c:status().state, "WAITING_BOUNDARY")
-  local pattern = {}
-  for _ = 1, 8 do
+  for _ = 1, 10 do
+    if c:status().waiting then
+      break
+    end
     c:step({})
-    pattern[#pattern + 1] = c:status().cursorPhase
   end
-  Assert.deepEqual(pattern, { 2, 1, 0, 1, 2, 1, 0, 1 })
+  Assert.equal(c:status().state, "WAITING_BOUNDARY")
+  Assert.equal(c:status().cursorPhase, 0, "new wait starts at phase 0")
+  local cycle = { 0, 1, 2, 1 }
+  for tick = 1, 36 do
+    c:step({})
+    local expected = cycle[math.floor(tick / 9) % #cycle + 1]
+    if tick == 8 then
+      Assert.equal(c:status().cursorPhase, 0, "tick 8 stays at phase 0")
+    elseif tick == 9 then
+      Assert.equal(c:status().cursorPhase, 1, "tick 9 advances to phase 1")
+    elseif tick == 18 then
+      Assert.equal(c:status().cursorPhase, 2, "tick 18 advances to phase 2")
+    elseif tick == 27 then
+      Assert.equal(c:status().cursorPhase, 1, "tick 27 advances to phase 1")
+    elseif tick == 36 then
+      Assert.equal(c:status().cursorPhase, 0, "tick 36 cycles back to 0")
+    end
+    Assert.equal(c:status().cursorPhase, expected, "phase at tick " .. tick .. " must match cycle")
+  end
 end
 
 -- The terminal close releases the request, handle, and page state, so

@@ -232,6 +232,7 @@ function T.a_closed_controller_draws_nothing_and_changes_no_state(scope)
     layout = function()
       return { pages = {}, warnings = {} }
     end,
+    continueCursor = { cycle = { 0, 1, 2, 1 }, framePrinterTicks = 9 },
   })
 
   lg.setColor(0.1, 0.2, 0.3, 0.4)

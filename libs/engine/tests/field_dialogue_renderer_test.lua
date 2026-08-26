@@ -412,6 +412,7 @@ local function openedWithTokens(tokens, opts)
       }
     end,
     policy = TextSpeedPolicy.forSpeed("mid"),
+    continueCursor = { cycle = { 0, 1, 2, 1 }, framePrinterTicks = 9 },
   })
   controller:open({
     id = "focus",

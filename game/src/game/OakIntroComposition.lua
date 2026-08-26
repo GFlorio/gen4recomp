@@ -179,6 +179,7 @@ function OakIntroComposition.compose(options)
           { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
         )
       end,
+      continueCursor = uiManifest.dialogueFrames.continueCursor,
     })
     local controller = OakIntroController.new({
       candidate = options.candidate,
@@ -206,6 +207,7 @@ function OakIntroComposition.compose(options)
       dialogueRenderer = dialogueRenderer,
       dialogueText = textRenderer,
       dialogueFormatter = messageFormatter,
+      dialogueCursorPlacement = uiManifest.dialogueFrames.continueCursor.placement,
       screenTopology = options.screenTopology,
     })
   end)

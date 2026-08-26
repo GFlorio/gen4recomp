@@ -47,7 +47,10 @@ local function runMessage(version, bankId, messageId)
   local second = layout(formatted)
   Assert.deepEqual(first, second, "layout is deterministic for the same tokens")
 
-  local controller = FieldDialogueController.new({ layout = layout })
+  local controller = FieldDialogueController.new({
+    layout = layout,
+    continueCursor = { cycle = { 0, 1, 2, 1 }, framePrinterTicks = 9 },
+  })
   local completed = nil
   local handle = controller:open({
     id = string.format("target-%d-%d", bankId, messageId),

@@ -419,6 +419,7 @@ function FieldState:draw()
     }
     local dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
       scale = fieldScale,
+      cursorPlacement = self.runtime.uiManifest.dialogueFrames.continueCursor.placement,
     })
     if self.runtime.dialogue:isModal() then
       self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale, dialoguePresentation)

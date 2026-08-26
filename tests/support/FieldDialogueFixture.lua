@@ -179,6 +179,11 @@ function FieldDialogueFixture.openDialogue(text, frameIndex)
         warnings = {},
       }
     end,
+    continueCursor = {
+      cycle = { 0, 1, 2, 1 },
+      framePrinterTicks = 9,
+      placement = { x = 240, y = 168, width = 16, height = 16 },
+    },
   })
   local request = {
     id = "smoke",

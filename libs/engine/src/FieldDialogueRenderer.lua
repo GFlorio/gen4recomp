@@ -180,7 +180,7 @@ function FieldDialogueRenderer:_drawCursor(status, layout)
   local cursor = assert(self._manifest.dialogueFrames.continueCursor)
   local quads = assert(self._cursorQuadCache)[frameIndex]
   local quad = assert(quads)[status.cursorPhase]
-  local placement = layout.cursor or cursor.placement
+  local placement = assert(layout.cursor, "dialogue layout must supply a cursor rectangle")
   lg.setColor(1, 1, 1, 1)
   lg.draw(assert(self._cursorImage), quad, placement.x, placement.y)
 end
@@ -277,8 +277,33 @@ function FieldDialogueRenderer:draw(controller, viewportOrPresentation, fieldSca
     layout = viewportOrPresentation
   elseif fieldScale == nil then
     assert(viewportOrPresentation, "FieldDialogueRenderer:draw requires a layout or presentation")
-    ---@cast viewportOrPresentation FieldDialogueTheme.Layout
-    layout = viewportOrPresentation
+    -- Compact presentation can arrive as the second arg when fieldScale is
+    -- omitted; detect it by its bounds field. Field theme layouts may not
+    -- carry a cursor yet, so synthesize one from the manifest for that path.
+    if viewportOrPresentation.bounds ~= nil then
+      layout = viewportOrPresentation --[[@as DialoguePresentationLayout.Presentation]]
+      DialoguePresentationLayout.validate(layout)
+    else
+      local themeLayout = viewportOrPresentation --[[@as FieldDialogueTheme.Layout]]
+      if themeLayout.cursor == nil then
+        local cursorPlacement = assert(self._manifest.dialogueFrames.continueCursor).placement
+        layout = {
+          scale = themeLayout.scale,
+          origin = themeLayout.origin,
+          box = themeLayout.box,
+          text = themeLayout.text,
+          lineHeight = themeLayout.lineHeight,
+          cursor = {
+            x = assert(cursorPlacement).x,
+            y = assert(cursorPlacement).y,
+            width = assert(cursorPlacement).width,
+            height = assert(cursorPlacement).height,
+          },
+        }
+      else
+        layout = themeLayout
+      end
+    end
   else
     assert(
       type(fieldScale) == "number"
@@ -288,7 +313,28 @@ function FieldDialogueRenderer:draw(controller, viewportOrPresentation, fieldSca
         and fieldScale ~= -math.huge,
       "FieldDialogueRenderer:draw requires a finite positive field scale"
     )
-    layout = self._theme.layout(assert(viewportOrPresentation).referenceFrame, fieldScale)
+    local themeLayout = self._theme.layout(assert(viewportOrPresentation).referenceFrame, fieldScale)
+    -- Field presentation has no separate cursor layout yet; synthesize a
+    -- source-derived cursor in the theme's 256x192 coordinate space so the
+    -- shared _drawCursor path can remain presentation-agnostic. Callers that
+    -- already supply a presentation carry the transformed cursor.
+    local cursorPlacement = assert(self._manifest.dialogueFrames.continueCursor).placement
+    local cursor = {
+      x = assert(cursorPlacement).x,
+      y = assert(cursorPlacement).y,
+      width = assert(cursorPlacement).width,
+      height = assert(cursorPlacement).height,
+    }
+    -- Avoid mutating the caller-owned theme layout; expose a distinct layout
+    -- that carries the cursor for the draw path.
+    layout = {
+      scale = themeLayout.scale,
+      origin = themeLayout.origin,
+      box = themeLayout.box,
+      text = themeLayout.text,
+      lineHeight = themeLayout.lineHeight,
+      cursor = cursor,
+    }
   end
   local lg = assert(self._graphics)
   local status = controller:status()

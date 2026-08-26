@@ -22,8 +22,13 @@ local Layout = {}
 local WIDTH = 256
 local HEIGHT = 48
 local BOX = { x = 16, y = 8, width = 216, height = 32 }
-local TEXT = { x = 26, y = 8, width = 196, height = 32 }
-local CURSOR = { x = 202, y = 26, width = 10, height = 8 }
+-- Source placement is 240,168 in the 256x192 reference; the dialogue window
+-- strip occupies 256x48 bottom-aligned, so the source-relative local origin
+-- is offset by 192-48=144. Cursor local = source - window origin.
+local SOURCE_CURSOR = { x = 240, y = 168, width = 16, height = 16 }
+local SOURCE_WINDOW_Y = 144
+local TEXT_INSET_X = 10
+local CURSOR_RESERVED_WIDTH = 20
 local LINE_HEIGHT = 16
 local EPSILON = 1e-9
 
@@ -51,7 +56,7 @@ local function validateBounds(bounds)
 end
 
 ---@param bounds { x: number, y: number, width: number, height: number }
----@param options? { scale?: number, maxScale?: number }
+---@param options? { scale?: number, maxScale?: number, cursorPlacement?: { x: number, y: number, width: number, height: number } }
 ---@return DialoguePresentationLayout.Presentation
 function Layout.compute(bounds, options)
   validateBounds(bounds)
@@ -73,14 +78,36 @@ function Layout.compute(bounds, options)
     x = bounds.x + (bounds.width - WIDTH * scale) / 2,
     y = bounds.y + bounds.height - HEIGHT * scale,
   }
+  local cursorPlacement = options.cursorPlacement
+  if cursorPlacement == nil then
+    cursorPlacement = SOURCE_CURSOR
+  end
+  assert(
+    type(cursorPlacement) == "table"
+      and type(cursorPlacement.x) == "number"
+      and type(cursorPlacement.y) == "number"
+      and type(cursorPlacement.width) == "number"
+      and type(cursorPlacement.height) == "number",
+    "dialogue cursor placement must be a rectangle"
+  )
+  local cursor = {
+    x = cursorPlacement.x,
+    y = cursorPlacement.y - SOURCE_WINDOW_Y,
+    width = cursorPlacement.width,
+    height = cursorPlacement.height,
+  }
+  -- Text reserves the cursor area so glyphs never draw underneath.
+  -- The text box is fixed at the source-derived inset; the cursor is placed
+  -- outside the text reservation, not clipped inside it.
+  local text = { x = BOX.x + TEXT_INSET_X, y = BOX.y, width = BOX.width - CURSOR_RESERVED_WIDTH, height = BOX.height }
   return {
     bounds = { x = bounds.x, y = bounds.y, width = bounds.width, height = bounds.height },
     origin = origin,
     scale = scale,
     outerRect = { x = origin.x, y = origin.y, width = WIDTH * scale, height = HEIGHT * scale },
     box = { x = BOX.x, y = BOX.y, width = BOX.width, height = BOX.height },
-    text = { x = TEXT.x, y = TEXT.y, width = TEXT.width, height = TEXT.height },
-    cursor = { x = CURSOR.x, y = CURSOR.y, width = CURSOR.width, height = CURSOR.height },
+    text = text,
+    cursor = cursor,
     lineHeight = LINE_HEIGHT,
   }
 end
@@ -123,8 +150,18 @@ function Layout.validate(presentation)
     end
   end
   requireRect(presentation.box, BOX, "box")
-  requireRect(presentation.text, TEXT, "text box")
-  requireRect(presentation.cursor, CURSOR, "cursor")
+  -- Text must be the source-derived reserved rect; cursor must be the
+  -- source placement transformed into the 256x48 window (240,168 -> 240,24).
+  local expectedText =
+    { x = BOX.x + TEXT_INSET_X, y = BOX.y, width = BOX.width - CURSOR_RESERVED_WIDTH, height = BOX.height }
+  local expectedCursor = {
+    x = SOURCE_CURSOR.x,
+    y = SOURCE_CURSOR.y - SOURCE_WINDOW_Y,
+    width = SOURCE_CURSOR.width,
+    height = SOURCE_CURSOR.height,
+  }
+  requireRect(presentation.text, expectedText, "text box")
+  requireRect(presentation.cursor, expectedCursor, "cursor")
   assert(presentation.lineHeight == LINE_HEIGHT, "dialogue presentation has invalid line height")
 end
 

@@ -93,6 +93,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field dialogueMessages table?
 ---@field dialogueFormatter table?
 ---@field dialogueMessageKey string?
+---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 
 ---@class OakIntroState
 ---@field new fun(options: OakIntroStateOptions): OakIntroState
@@ -116,6 +117,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field choiceLabels table<integer, string>?
 ---@field dialogueText table?
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
+---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 ---@field disposed boolean
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
@@ -233,6 +235,7 @@ function OakIntroState.new(options)
       dialogueText = options.dialogueText,
       dialoguePresentation = nil,
       dialogueMessageKey = nil,
+      dialogueCursorPlacement = options.dialogueCursorPlacement,
     }, OakIntroState)
     self:_setTextInput(false)
     self.controller:start()
@@ -327,7 +330,10 @@ function OakIntroState:view()
   if self.dialogueController then
     view.dialogueStatus = self.dialogueController:status()
     view.dialoguePresentation = view.layout.dialogue
-        and DialoguePresentationLayout.compute(view.layout.dialogue.outerRect, { scale = view.layout.dialogue.scale })
+        and DialoguePresentationLayout.compute(view.layout.dialogue.outerRect, {
+          scale = view.layout.dialogue.scale,
+          cursorPlacement = self.dialogueCursorPlacement,
+        })
       or nil
   end
   view.choiceLabels = self.choiceLabels

@@ -546,6 +546,7 @@ function FieldRuntime:_load()
       layout = layoutMessage,
       policy = TextSpeedPolicy.forSpeed(self.playerData.options.textSpeed),
       audio = audioService,
+      continueCursor = uiManifest.dialogueFrames.continueCursor,
     })
     -- The signpost controller is fixed-tick and pure; the script platform
     -- advances it once per scheduler tick through the signpost host. The
