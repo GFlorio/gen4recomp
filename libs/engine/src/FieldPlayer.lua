@@ -540,9 +540,7 @@ function FieldPlayer:_advanceStep()
   self.fieldX, self.fieldZ = self.to.fieldX, self.to.fieldZ
   self.localX, self.localZ = self.to.localX, self.to.localZ
   self.worldX, self.worldY, self.worldZ = self.to.worldX, self.to.worldY, self.to.worldZ
-  if not self.to.sourceCellKey then
-    self.surfaceId = self.to.surfaceId
-  end
+  self.surfaceId = self.to.surfaceId
   self.committedSourceCellKey = self.to.sourceCellKey
   self.committedSourceSurfaceId = self.to.sourceSurfaceId
   self.motion = "idle"

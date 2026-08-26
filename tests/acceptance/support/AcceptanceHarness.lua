@@ -597,13 +597,75 @@ function Game:moveTo(target, stopMapId)
     end
     return route
   end
+
+  local function estimateRemaining(source)
+    return math.abs(source.fieldX - target.fieldX) + math.abs(source.fieldZ - target.fieldZ)
+  end
+
+  local function before(first, second)
+    if first.f < second.f then
+      return true
+    elseif first.f > second.f then
+      return false
+    end
+    if first.h < second.h then
+      return true
+    elseif first.h > second.h then
+      return false
+    end
+    return first.sequence < second.sequence
+  end
+
+  local function push(open, node)
+    open[#open + 1] = node
+    local index = #open
+    while index > 1 do
+      local parent = math.floor(index / 2)
+      if before(open[parent], open[index]) then
+        break
+      end
+      open[parent], open[index] = open[index], open[parent]
+      index = parent
+    end
+  end
+
+  local function pop(open)
+    local result = open[1]
+    local last = table.remove(open)
+    if #open > 0 then
+      open[1] = last
+      local index = 1
+      while true do
+        local left = index * 2
+        local right = left + 1
+        local smallest = index
+        if left <= #open and before(open[left], open[smallest]) then
+          smallest = left
+        end
+        if right <= #open and before(open[right], open[smallest]) then
+          smallest = right
+        end
+        if smallest == index then
+          break
+        end
+        open[index], open[smallest] = open[smallest], open[index]
+        index = smallest
+      end
+    end
+    return result
+  end
+
   local function findRoute(source)
-    local queue = { { player = copyPlayer(source) } }
-    local seen = { [source.fieldX .. ":" .. source.fieldZ] = true }
-    local head = 1
-    while queue[head] do
-      local node = queue[head]
-      head = head + 1
+    local sequence = 0
+    local open = {}
+    local bestCost = { [source.fieldX .. ":" .. source.fieldZ] = 0 }
+    local first = { player = copyPlayer(source), g = 0, h = estimateRemaining(source) }
+    first.f = first.g + first.h
+    sequence = sequence + 1
+    first.sequence = sequence
+    push(open, first)
+    while #open > 0 do
+      local node = pop(open)
       if node.player.fieldX .. ":" .. node.player.fieldZ == targetKey then
         return buildRoute(node)
       end
@@ -622,13 +684,20 @@ function Game:moveTo(target, stopMapId)
               break
             end
           end
-          if not seen[key] and (not isWarp or key == targetKey) then
-            seen[key] = true
-            queue[#queue + 1] = {
+          local cost = node.g + 1
+          if (not isWarp or key == targetKey) and (bestCost[key] == nil or cost < bestCost[key]) then
+            bestCost[key] = cost
+            local h = estimateRemaining(nextPlayer)
+            sequence = sequence + 1
+            push(open, {
               player = nextPlayer,
               parent = node,
               direction = direction,
-            }
+              g = cost,
+              h = h,
+              f = cost + h,
+              sequence = sequence,
+            })
           end
         end
       end

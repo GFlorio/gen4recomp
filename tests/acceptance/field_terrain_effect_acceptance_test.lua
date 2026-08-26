@@ -17,6 +17,15 @@ local NEW_BARK = "MAP_NEW_BARK"
 local ROUTE_29_ID = 33
 local ROUTE_29_TARGET = { fieldX = 626, fieldZ = 389 }
 local TALL_GRASS = 2
+local MAX_GRASS_CANDIDATES = 32
+local INTERESTING_LOCALS = {
+  { x = 0, z = 7 },
+  { x = 1, z = 7 },
+  { x = 2, z = 7 },
+  { x = 0, z = 8 },
+  { x = 1, z = 8 },
+  { x = 2, z = 8 },
+}
 
 local function withTown(fn)
   local harness = AcceptanceHarness.new()
@@ -55,18 +64,35 @@ local function findCells(game, behavior)
   local collision = assert(map.collision, "production collision grid is required")
   local origin = assert(map.coordinateOrigin, "production coordinate origin is required")
   local cells = {}
-  for localZ = -32, 95 do
-    for localX = -32, 95 do
-      if collision:containsLocal(localX, localZ) then
-        local cell = collision:getLocal(localX, localZ)
-        if cell.behavior == behavior and not cell.blocked then
-          local fieldX, fieldZ = origin.x + localX, origin.z + localZ
-          cells[#cells + 1] = { fieldX = fieldX, fieldZ = fieldZ }
-        end
-      end
+  local seen = {}
+  local function consider(localX, localZ)
+    if #cells >= MAX_GRASS_CANDIDATES or not collision:containsLocal(localX, localZ) then
+      return
+    end
+    local key = localX .. ":" .. localZ
+    if seen[key] then
+      return
+    end
+    seen[key] = true
+    local cell = collision:getLocal(localX, localZ)
+    if cell.behavior == behavior and not cell.blocked then
+      cells[#cells + 1] = { fieldX = origin.x + localX, fieldZ = origin.z + localZ }
     end
   end
+
+  for _, point in ipairs(INTERESTING_LOCALS) do
+    consider(point.x, point.z)
+  end
+  local state = 0x5EED
+  for _ = 1, 48 do
+    state = (state * 25173 + 13849) % 65536
+    local localX = state % 96
+    state = (state * 25173 + 13849) % 65536
+    local localZ = state % 96
+    consider(localX, localZ)
+  end
   Assert.isTrue(#cells > 0, "the ROM-backed route must expose the requested grass behavior")
+  Assert.isTrue(#cells <= MAX_GRASS_CANDIDATES, "grass candidate discovery must remain bounded")
   return cells
 end
 
@@ -135,13 +161,8 @@ T.tests["overlapping grass effects survive a coverage rebase"] = function()
     local second
     for _, candidate in ipairs(grassCells) do
       if adjacent(first, candidate) then
-        local ok = pcall(function()
-          game:moveTo(candidate)
-        end)
-        if ok then
-          second = candidate
-          break
-        end
+        second = candidate
+        break
       end
     end
     Assert.notNil(second, "the ROM-backed route must expose adjacent reachable grass tiles")

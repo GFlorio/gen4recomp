@@ -43,7 +43,7 @@ local function fakePlayer(metrics)
   return player
 end
 
-local function fakeRuntime(metrics)
+local function fakeRuntime(metrics, changeMapAt)
   local map = { mapId = 1, fieldData = { events = { warps = {} } } }
   local player = fakePlayer(metrics)
   player.currentMap = map
@@ -69,7 +69,7 @@ local function fakeRuntime(metrics)
     end
     assert(self.player:tryStep(direction))
     self.player:updateFixed({})
-    if self.player.fieldX == 3 then
+    if changeMapAt ~= false and self.player.fieldX == 3 then
       self.runtimeMap.mapId = 2
     end
   end
@@ -101,6 +101,35 @@ function T.tests.move_to_reuses_a_route_until_the_stop_map()
     Assert.equal(snapshot.player.fieldX, 3)
     Assert.equal(snapshot.player.fieldZ, 0)
     Assert.isTrue(metrics.tryStepCalls < 400, "moveTo must not replan after every tile")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
+end
+
+function T.tests.move_to_prefers_a_direct_route_through_a_large_open_area()
+  local metrics = { tryStepCalls = 0 }
+  local runtime = fakeRuntime(metrics, false)
+  local harness = AcceptanceHarness.new({
+    versions = { "test" },
+    runtimeFactory = function()
+      return runtime
+    end,
+    saveNamespace = function()
+      return "acceptance-harness-open-area-test"
+    end,
+    removeSaveNamespace = function() end,
+  })
+  local game = harness:boot({ versionId = "test", save = "fresh" })
+  local ok, err = xpcall(function()
+    local snapshot = game:moveTo({ fieldX = 12, fieldZ = 0 })
+    Assert.equal(snapshot.player.fieldX, 12)
+    Assert.equal(snapshot.player.fieldZ, 0)
+    Assert.isTrue(
+      metrics.tryStepCalls < 100,
+      "moveTo must prioritize the target instead of exploring the whole wavefront: " .. metrics.tryStepCalls
+    )
   end, debug.traceback)
   game:close()
   if not ok then

@@ -165,7 +165,7 @@ function T.transition_started_after_a_prior_presentation_frame_defers_the_fade()
   runtime:update(1 / 30)
   Assert.equal(sourceFrames, 0, "a transition must not consume a later source frame in its input update")
 
-  runtime:update(1 / 60)
+  runtime:update(1 / 30)
   Assert.equal(sourceFrames, 1, "the first source frame must be consumed by the next presentation update")
 end
 

@@ -108,9 +108,9 @@ local function validDynamicModel(animationMemberId)
         tracks = { { target = 0, targetIndex = 0 } },
         semanticNames = {},
         source = {
-          type = "nitro",
-          format = "NSBCA",
-          archive = "build_anim",
+          type = "field-effect",
+          format = "FIELD_EFFECT_PATTERN",
+          archive = "field_static_models",
           memberId = animationMemberId,
           sha1 = "anim-sha",
         },
@@ -167,7 +167,7 @@ local function cache(model, present, wrongProvenance, sourceOverride)
         source = {
           renderer = wrongProvenance and 99 or (kind == "tall_grass" and 8 or 12),
           modelMembers = source and source.modelMembers or (kind == "tall_grass" and { 126 } or { 122 }),
-          animationArchive = "build_anim",
+          animationArchive = "field_static_models",
           animationMembers = members,
         },
         animationSourceSha1 = "anim-sha",

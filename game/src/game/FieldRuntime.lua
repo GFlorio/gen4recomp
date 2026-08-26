@@ -87,7 +87,7 @@ local function runtimePanelEffect(runtime, phase)
   end
 end
 
-local function createFieldTransition(runtime, doorAt, escalatorAt)
+local function createFieldTransition(runtime, doorAt, escalatorAt, resolveDestination)
   return FieldTransition.new({
     loader = runtime.mapLoader,
     prepare = function(resolution, facing)
@@ -98,6 +98,7 @@ local function createFieldTransition(runtime, doorAt, escalatorAt)
     end,
     doorAt = doorAt,
     escalatorAt = escalatorAt,
+    resolveDestination = resolveDestination,
     onStart = function(_, trigger)
       if runtime.audio then
         runtime.audio:beginWarp(trigger.warp.destinationMapId)
@@ -470,7 +471,15 @@ function FieldRuntime:_load()
     })
     local function composeLoadedMap(logicalMap, position)
       if logicalMap.scene.type == "outdoor" and self.mapLoader.fieldCellsEnabled then
-        if not self.physicalCoverage then
+        local mapIndex = assert(self.mapLoader.world.byId[logicalMap.mapId], "outdoor map catalog record is required")
+        local mapRecord = assert(self.mapLoader.world.maps[mapIndex], "outdoor map catalog record is missing")
+        local matrixMemberId = assert(mapRecord.matrix.memberId, "outdoor map matrix member is required")
+        if self.physicalCoverage and self.physicalCoverage.matrixMemberId ~= matrixMemberId then
+          local previous = assert(self.physicalCoverage)
+          local replacement = self.mapLoader:createPhysicalCoverage(logicalMap, position)
+          self.physicalCoverage = replacement
+          previous:release()
+        elseif not self.physicalCoverage then
           self.physicalCoverage = self.mapLoader:createPhysicalCoverage(logicalMap, position)
         end
         return composePhysicalMap(logicalMap, self.physicalCoverage)
@@ -624,7 +633,23 @@ function FieldRuntime:_load()
         return props:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
       end
     end
-    self.transition = createFieldTransition(self, doorAt, escalatorAt)
+    self.transition = createFieldTransition(self, doorAt, escalatorAt, function(_, sourceMap, warp)
+      return require("libs.engine.src.WarpSystem").resolveDestination({
+        load = function(_, mapId)
+          assert(mapId == warp.destinationMapId, "transition destination map mismatch")
+          local logicalMap = self.mapLoader:load(mapId)
+          local destinationPosition
+          if warp.direct then
+            destinationPosition = { fieldX = warp.x, fieldZ = warp.z }
+          else
+            local destinationWarp = logicalMap.fieldData.events.warps[warp.destinationWarpId + 1]
+            assert(destinationWarp, "transition destination warp is missing")
+            destinationPosition = { fieldX = destinationWarp.x, fieldZ = destinationWarp.z }
+          end
+          return composeLoadedMap(logicalMap, destinationPosition)
+        end,
+      }, sourceMap, warp)
+    end)
     self.transition.player = self.player
     self.transition.suppression = restored and restored.suppression or nil
 
@@ -881,6 +906,8 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
+  local presentationAccumulatorBefore = self.presentationFrameAccumulator
+  local fieldAccumulatorBefore = self.session.accumulator
   self.presentationFrameAccumulator = self.presentationFrameAccumulator + dt
   self.session.accumulator = self.session.accumulator + dt
   if self.audio then
@@ -890,6 +917,7 @@ function FieldRuntime:update(dt)
   local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
   local EPSILON = 1e-12
   local fieldExecuted = 0
+  local transitionTiePresentationConsumed = false
   while true do
     local canPresentation = self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
     local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
@@ -900,15 +928,23 @@ function FieldRuntime:update(dt)
     local nextPresentationDelta = PRESENTATION_FRAME_DT - self.presentationFrameAccumulator
     local nextFieldDelta = FIXED_DT - self.session.accumulator
     local nextAudioDelta = self.audio and AUDIO_FRAME_DT - self.audioFrameAccumulator or math.huge
+    local transitionActive = self.transition.phase ~= nil and self.transition.phase ~= FieldTransition.PHASES.idle
+    local transitionWinsTie = transitionActive
+      and not transitionTiePresentationConsumed
+      and nextPresentationDelta <= nextFieldDelta
     -- A field tick at the same timestamp starts the transition before its
-    -- source-frame presentation is consumed.
+    -- source-frame presentation is consumed. Once active, the presentation
+    -- frame wins ties so a 30 Hz caller cannot starve the 60 Hz fade clock.
     if
       canPresentation
-      and (not canField or nextPresentationDelta < nextFieldDelta)
+      and (not canField or nextPresentationDelta + EPSILON < nextFieldDelta or transitionWinsTie)
       and (not canAudio or nextPresentationDelta <= nextAudioDelta)
     then
       self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT
       self.transition:updateSourceFrame()
+      if transitionWinsTie then
+        transitionTiePresentationConsumed = true
+      end
     elseif canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
       local transitionWasIdle = self.transition.phase == FieldTransition.PHASES.idle
       self.session.accumulator = self.session.accumulator - FIXED_DT
@@ -918,10 +954,14 @@ function FieldRuntime:update(dt)
         transitionWasIdle
         and self.transition.phase ~= FieldTransition.PHASES.idle
         and self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
+        and PRESENTATION_FRAME_DT - presentationAccumulatorBefore + EPSILON < FIXED_DT - fieldAccumulatorBefore
       then
         -- A presentation frame before this fixed boundary belongs to the
         -- previous field state. Do not let a later frame from this same
         -- update call become the first frame of the new transition.
+        self.presentationFrameAccumulator = 0
+      end
+      if transitionTiePresentationConsumed then
         self.presentationFrameAccumulator = 0
       end
       if self.applicationHost:error() and not self.errorText then
@@ -1247,12 +1287,21 @@ function FieldRuntime:_prepareSwap(resolution, facing)
   assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
   local runtimeMap = resolution.destinationMap
   self:_applyEffectiveWeather(runtimeMap)
+  local surfaceId, worldY = resolution.surfaceId, resolution.worldY
+  if runtimeMap.terrain then
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, resolution.fieldX, resolution.fieldZ)
+    local surface = require("libs.engine.src.SurfaceResolver").new(runtimeMap.terrain):resolve({
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+    })
+    surfaceId, worldY = surface.surfaceId, surface.worldY
+  end
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
     fieldX = resolution.fieldX,
     fieldZ = resolution.fieldZ,
-    surfaceId = resolution.surfaceId,
-    initialWorldY = resolution.worldY,
+    surfaceId = surfaceId,
+    initialWorldY = worldY,
     facing = facing,
     occupancy = playerOccupancy(self),
   })

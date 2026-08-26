@@ -9,8 +9,8 @@ return {
     path = "a/1/0/3",
   },
   animationArchive = {
-    alias = "build_anim",
-    path = "a/1/0/6",
+    alias = "field_static_models",
+    path = "a/1/0/3",
   },
   effects = {
     warp_entrance = {

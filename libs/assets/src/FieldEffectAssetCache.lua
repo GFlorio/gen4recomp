@@ -15,16 +15,19 @@ local SOURCE = {
   tall_grass = {
     renderer = 8,
     modelMembers = { 126 },
-    animationArchive = "build_anim",
+    animationArchive = "field_static_models",
     animationMembers = { 140 },
   },
   very_tall_grass = {
     renderer = 12,
     modelMembers = { 122 },
-    animationArchive = "build_anim",
+    animationArchive = "field_static_models",
     animationMembers = { 146 },
   },
 }
+
+local ANIMATION_SOURCE_TYPE = "field-effect"
+local ANIMATION_SOURCE_FORMAT = "FIELD_EFFECT_PATTERN"
 
 local function sameIntegerArray(actual, expected)
   if type(actual) ~= "table" or #actual ~= #expected then
@@ -149,6 +152,8 @@ function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
         or type(model.animations) ~= "table"
         or #model.animations ~= 1
         or type(clipSource) ~= "table"
+        or clipSource.type ~= ANIMATION_SOURCE_TYPE
+        or clipSource.format ~= ANIMATION_SOURCE_FORMAT
         or clipSource.archive ~= source.animationArchive
         or clipSource.memberId ~= source.animationMembers[1]
         or clipSource.sha1 ~= definition.animationSourceSha1

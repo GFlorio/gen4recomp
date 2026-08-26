@@ -4,7 +4,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
-local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
+local FieldEffectPatternAnimation = require("romdump.src.digest.FieldEffectPatternAnimation")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
@@ -105,7 +105,16 @@ local function rewriteEffectPaths(descriptor)
   end
 end
 
-local function compileDynamicModel(narc, animationNarc, modelMemberId, animationMemberId, key, section, role)
+local function compileDynamicModel(
+  narc,
+  animationNarc,
+  animationArchive,
+  modelMemberId,
+  animationMemberId,
+  key,
+  section,
+  role
+)
   local modelBytes = member(narc, modelMemberId)
   local decodedModel = assert(Nsbmd.decode(modelBytes, {
     alias = "field_static_models",
@@ -120,34 +129,82 @@ local function compileDynamicModel(narc, animationNarc, modelMemberId, animation
     })
   end
 
-  local animationBytes = member(animationNarc, animationMemberId, "build_anim")
-  local decodedAnimation, err = NitroAnimation.decode(animationBytes, {
-    alias = "build_anim",
+  local animationBytes = member(animationNarc, animationMemberId, animationArchive)
+  local decodedPattern, err = FieldEffectPatternAnimation.decode(animationBytes, {
+    alias = animationArchive,
     memberId = animationMemberId,
     section = "field-effect-grass-animation",
   })
-  if not decodedAnimation then
+  if not decodedPattern then
     Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect animation could not be decoded", {
-      archive = "build_anim",
+      archive = animationArchive,
       memberId = animationMemberId,
       error = err,
     })
   end
-  assert(decodedAnimation)
-  local sourceAnimation = decodedAnimation.animations[1]
-  if not sourceAnimation then
-    Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect animation has no resource", {
-      archive = "build_anim",
-      memberId = animationMemberId,
+  assert(decodedPattern)
+  local material = model.materials[1]
+  if not material then
+    Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect model has no material target", {
+      archive = "field_static_models",
+      memberId = modelMemberId,
     })
   end
-  local clip = MapPropAnimCompiler.compileDecoded(decodedAnimation, {
-    name = sourceAnimation.name,
+  local textureNames, paletteNames = {}, {}
+  for _, texture in ipairs(decodedModel.embeddedTextures.textures) do
+    textureNames[#textureNames + 1] = texture.name
+  end
+  for _, palette in ipairs(decodedModel.embeddedTextures.palettes) do
+    paletteNames[#paletteNames + 1] = palette.name
+  end
+  local keys = {}
+  for _, keyFrame in ipairs(decodedPattern.keys) do
+    local paletteIndex = keyFrame.plttIdx
+    if paletteIndex == 0xFF then
+      if #paletteNames == 1 then
+        paletteIndex = 0
+      elseif #paletteNames == #textureNames then
+        paletteIndex = keyFrame.texIdx
+      elseif #paletteNames > 1 then
+        Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect animation has ambiguous palette mapping", {
+          archive = animationArchive,
+          memberId = animationMemberId,
+          textureCount = #textureNames,
+          paletteCount = #paletteNames,
+        })
+      end
+    end
+    keys[#keys + 1] = { frame = keyFrame.frame, texIdx = keyFrame.texIdx, plttIdx = paletteIndex }
+  end
+  local normalizedAnimation = {
+    format = "NSBTP",
+    bytes = animationBytes,
+    animations = {
+      {
+        name = "field-effect-pattern",
+        resource = {
+          numFrame = decodedPattern.frameCount,
+          textureNames = textureNames,
+          paletteNames = paletteNames,
+          targets = {
+            {
+              index = 0,
+              name = material.name,
+              rate = 1,
+              keys = keys,
+            },
+          },
+        },
+      },
+    },
+  }
+  local clip = MapPropAnimCompiler.compileDecoded(normalizedAnimation, {
+    name = normalizedAnimation.animations[1].name,
     id = key .. ":animation",
     source = {
-      type = "nitro",
-      format = decodedAnimation.format,
-      archive = "build_anim",
+      type = "field-effect",
+      format = FieldEffectPatternAnimation.FORMAT,
+      archive = animationArchive,
       memberId = animationMemberId,
       sha1 = Hashing.sha1hex(animationBytes),
     },
@@ -205,6 +262,7 @@ function Compiler.compile(romFs, hashLua)
   local tall, tallMeshes, tallTextures, tallSha, tallAnimationSha = compileDynamicModel(
     narc,
     animationNarc,
+    FieldEffects.animationArchive.alias,
     FieldEffects.effects.tall_grass.modelMembers[1],
     FieldEffects.effects.tall_grass.animationMembers[1],
     "field-effect:tall-grass",
@@ -214,6 +272,7 @@ function Compiler.compile(romFs, hashLua)
   local veryTall, veryTallMeshes, veryTallTextures, veryTallSha, veryTallAnimationSha = compileDynamicModel(
     narc,
     animationNarc,
+    FieldEffects.animationArchive.alias,
     FieldEffects.effects.very_tall_grass.modelMembers[1],
     FieldEffects.effects.very_tall_grass.animationMembers[1],
     "field-effect:very-tall-grass",

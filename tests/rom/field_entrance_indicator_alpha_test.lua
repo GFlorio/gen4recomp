@@ -4,6 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local RomSuite = require("tests.rom.support.RomSuite")
@@ -41,6 +42,31 @@ local function testMember85Alpha(romFs)
   Assert.isTrue(transparentSource, "member 85 must expose its source color-zero alpha flag")
 
   local bundle = assert(FieldEntranceIndicatorCompiler.compile(romFs))
+  for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
+    local effect = bundle.effects[kind] ---@as { model: ModelDefinition.Descriptor }
+    local model = effect.model --[[@as ModelDefinition.Descriptor]]
+    local definition = ModelDefinition.fromNitroDescriptor(model, { key = "field-effect:" .. kind })
+    local clip = assert(definition.animations[1])
+    local targets = {}
+    for _, track in ipairs(clip.tracks) do
+      targets[#targets + 1] = tostring(track.target)
+    end
+    local materials = {}
+    for _, material in ipairs(definition.materials) do
+      materials[#materials + 1] = tostring(material.name)
+    end
+    Assert.notNil(
+      next(definition:binding(clip).map),
+      kind
+        .. " animation ("
+        .. clip.category
+        .. ") targets ["
+        .. table.concat(targets, ",")
+        .. "] but model materials are ["
+        .. table.concat(materials, ",")
+        .. "]"
+    )
+  end
   local transparentOutput = false
   local compiledByName = {}
   for _, material in ipairs(bundle.model.materials) do

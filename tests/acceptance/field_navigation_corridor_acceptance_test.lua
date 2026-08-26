@@ -99,6 +99,7 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     assertResident(grass)
 
     local ledgeStart = moveTo(game, facts.ledge).player
+    game:face(facts.ledge.direction)
     game:move(facts.ledge.direction)
     local landing = game:advanceUntil("ledge jump settles", function(snapshot)
       return snapshot.player.motion == "idle"
