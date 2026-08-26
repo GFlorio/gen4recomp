@@ -2,6 +2,8 @@
 -- runtime's authoritative projection instead of a stale origin/Y copy.
 
 local Assert = require("tests.support.Assert")
+local FieldCoverage = require("libs.engine.src.FieldCoverage")
+local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = { metadata = { capabilities = {} }, tests = {} }
 
@@ -31,7 +33,7 @@ local MODEL = {
   },
 }
 
-T.tests["applies source placement after projection across a rebase"] = function()
+local function newRenderer()
   local moduleNames = {
     "libs.engine.src.FieldTerrainEffectRenderer",
     "libs.engine.src.ModelDefinition",
@@ -82,6 +84,135 @@ T.tests["applies source placement after projection across a rebase"] = function(
       very_tall_grass = { model = MODEL, placementOffset = { x = 0, y = 0, z = 0.625 } },
     },
   }, pool)
+  local function cleanup()
+    renderer:dispose()
+    for _, name in ipairs(moduleNames) do
+      package.loaded[name] = saved[name]
+    end
+  end
+  return renderer, cleanup
+end
+
+local function projectionCoverage()
+  local cells = {}
+  local index = 0
+  for z = -1, 1 do
+    for x = -1, 1 do
+      cells[#cells + 1] = {
+        matrixMemberId = 1,
+        index = index,
+        x = x,
+        z = z,
+        origin = { x = x * 32, y = 0, z = z * 32 },
+        terrain = { file = "data/generated/field/cells/projection/terrain.lua" },
+      }
+      index = index + 1
+    end
+  end
+  return FieldCoverage.new({
+    matrixMemberId = 1,
+    index = {
+      schema = "g4-field-cell-index-v2",
+      matrices = { { matrixMemberId = 1, width = 3, height = 3, cells = cells } },
+    },
+    anchorX = 0,
+    anchorZ = 0,
+    loadCell = function(descriptor)
+      return {
+        key = string.format("%d:%d", descriptor.x, descriptor.z),
+        x = descriptor.x,
+        z = descriptor.z,
+        origin = descriptor.origin,
+        collision = {
+          containsLocal = function()
+            return true
+          end,
+        },
+        terrain = TerrainSurface.new({
+          source = { bdhcSha1 = "projection-" .. descriptor.x .. ":" .. descriptor.z },
+          plates = {
+            {
+              id = 7,
+              minX = 0,
+              minZ = 0,
+              maxX = 32,
+              maxZ = 32,
+              normal = { x = 0, y = 1, z = 0 },
+              distance = 3,
+            },
+          },
+        }),
+        release = function() end,
+      }
+    end,
+  })
+end
+
+T.tests["empty status does not require physical projection"] = function()
+  local renderer, cleanup = newRenderer()
+  local ok, err = pcall(function()
+    local items = renderer:drawItems({ instances = {} }, {})
+    Assert.equal(#items, 0)
+  end)
+  cleanup()
+  Assert.isTrue(ok, tostring(err))
+end
+
+T.tests["active status requires physical projection"] = function()
+  local renderer, cleanup = newRenderer()
+  local ok, err = pcall(function()
+    renderer:drawItems({
+      instances = {
+        {
+          kind = "tall_grass",
+          fieldX = 2,
+          fieldZ = 5,
+          cellKey = "0:0",
+          sourceSurfaceId = 7,
+          modelInstance = renderer:newInstance("tall_grass"),
+        },
+      },
+    }, {})
+  end)
+  cleanup()
+  Assert.isFalse(ok)
+  Assert.isTrue(tostring(err):find("terrain effect runtime map projection is required", 1, true) ~= nil)
+end
+
+T.tests["coverage projection places grass on the centered tile"] = function()
+  local coverage = projectionCoverage()
+  local renderer, cleanup = newRenderer()
+  local runtimeMap = {
+    projectPhysicalPoint = function(_, fieldX, fieldZ, cellKey, sourceSurfaceId)
+      return coverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
+    end,
+  }
+  local ok, result = pcall(function()
+    return renderer:drawItems({
+      instances = {
+        {
+          kind = "tall_grass",
+          fieldX = 2,
+          fieldZ = 5,
+          cellKey = "0:0",
+          sourceSurfaceId = 7,
+          modelInstance = renderer:newInstance("tall_grass"),
+        },
+      },
+    }, runtimeMap)
+  end)
+  cleanup()
+  coverage:release()
+  Assert.isTrue(ok, tostring(result))
+  Assert.equal(#result, 1)
+  Assert.equal(result[1].transform[13], -13.5)
+  Assert.equal(result[1].transform[14], 3)
+  Assert.equal(result[1].transform[15], -9.875)
+  Assert.equal(result[1].fieldEffect, "tall_grass")
+end
+
+T.tests["applies source placement after projection across a rebase"] = function()
+  local renderer, cleanup = newRenderer()
   local calls = 0
   local runtimeMap = {
     projectPhysicalPoint = function(_, fieldX, fieldZ, cellKey, sourceSurfaceId)
@@ -128,10 +259,7 @@ T.tests["applies source placement after projection across a rebase"] = function(
   Assert.equal(second[1].transform[14], 2.5)
   Assert.equal(second[1].transform[15], 4.375)
   Assert.equal(second[1].fieldEffect, "tall_grass")
-  renderer:dispose()
-  for _, name in ipairs(moduleNames) do
-    package.loaded[name] = saved[name]
-  end
+  cleanup()
 end
 
 return T

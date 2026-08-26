@@ -220,6 +220,79 @@ function T.failed_runtime_normalization_releases_acquired_cell()
   Assert.equal(releases, 1, "normalization failure releases the acquired cell")
 end
 
+local function projectionCoverage()
+  local cells = {}
+  local index = 0
+  for z = -1, 1 do
+    for x = -1, 1 do
+      cells[#cells + 1] = {
+        matrixMemberId = 1,
+        index = index,
+        x = x,
+        z = z,
+        origin = { x = x * 32, y = 0, z = z * 32 },
+        terrain = { file = "data/generated/field/cells/projection/terrain.lua" },
+      }
+      index = index + 1
+    end
+  end
+  return FieldCoverage.new({
+    matrixMemberId = 1,
+    index = {
+      schema = "g4-field-cell-index-v2",
+      matrices = { { matrixMemberId = 1, width = 3, height = 3, cells = cells } },
+    },
+    anchorX = 0,
+    anchorZ = 0,
+    loadCell = function(descriptor)
+      return {
+        key = string.format("%d:%d", descriptor.x, descriptor.z),
+        x = descriptor.x,
+        z = descriptor.z,
+        origin = descriptor.origin,
+        collision = {
+          containsLocal = function()
+            return true
+          end,
+        },
+        terrain = TerrainSurface.new({
+          source = { bdhcSha1 = "projection-" .. descriptor.x .. ":" .. descriptor.z },
+          plates = {
+            {
+              id = 7,
+              minX = 0,
+              minZ = 0,
+              maxX = 32,
+              maxZ = 32,
+              normal = { x = 0, y = 1, z = 0 },
+              distance = 3,
+            },
+          },
+        }),
+        release = function() end,
+      }
+    end,
+  })
+end
+
+function T.projects_tiles_in_the_centered_render_frame()
+  local coverage = projectionCoverage()
+  local ok, result = pcall(function()
+    return coverage:project(2, 5, "0:0", 7)
+  end)
+  coverage:release()
+  Assert.isTrue(ok, tostring(result))
+  local projection = assert(result)
+
+  Assert.equal(projection.localX, 2)
+  Assert.equal(projection.localZ, 5)
+  Assert.equal(projection.worldX, -13.5)
+  Assert.equal(projection.worldZ, -10.5)
+  Assert.equal(projection.worldY, 3)
+  Assert.equal(projection.cellKey, "0:0")
+  Assert.equal(projection.sourceSurfaceId, 7)
+end
+
 local function adjacentIndex(reverse)
   local destinationPlates = {
     {

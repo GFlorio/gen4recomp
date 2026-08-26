@@ -5,6 +5,7 @@
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local FieldRegion = require("libs.engine.src.FieldRegion")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldCellCache = require("libs.assets.src.FieldCellCache")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -328,7 +329,9 @@ function FieldCoverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
     assert(self:sourceSurface(cellKey, sourceSurfaceId), "projected source surface is absent from coverage")
   local localX = fieldX - self.origin.x
   local localZ = fieldZ - self.origin.z
-  local centerX, centerZ = localX + 0.5, localZ + 0.5
+  local sampleX = localX + 0.5
+  local sampleZ = localZ + 0.5
+  local worldX, worldZ = FieldGrid.tileCenterToWorld(localX, localZ)
   return {
     fieldX = fieldX,
     fieldZ = fieldZ,
@@ -337,9 +340,9 @@ function FieldCoverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
     surfaceId = surfaceId,
     localX = localX,
     localZ = localZ,
-    worldX = centerX,
-    worldY = self.region.terrain:sampleHeight(surfaceId, centerX, centerZ),
-    worldZ = centerZ,
+    worldX = worldX,
+    worldY = self.region.terrain:sampleHeight(surfaceId, sampleX, sampleZ),
+    worldZ = worldZ,
   }
 end
 

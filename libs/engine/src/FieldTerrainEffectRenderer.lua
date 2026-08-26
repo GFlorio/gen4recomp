@@ -49,6 +49,10 @@ function Renderer:newInstance(kind)
 end
 
 function Renderer:drawItems(status, runtimeMap)
+  assert(status and type(status.instances) == "table", "terrain effect status instances are required")
+  if #status.instances == 0 then
+    return {}
+  end
   assert(runtimeMap and runtimeMap.projectPhysicalPoint, "terrain effect runtime map projection is required")
   local items = {}
   for _, effect in ipairs(status.instances) do
