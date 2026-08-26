@@ -121,6 +121,24 @@ local function destinationMap(coverage)
   }
 end
 
+---@param runtimeMap table
+---@param physicalCoverage table?
+---@param actors table
+---@param zoneController table
+---@param player table?
+---@param eventState table?
+---@return table
+local function occupancyRuntime(runtimeMap, physicalCoverage, actors, zoneController, player, eventState)
+  return setmetatable({
+    physicalCoverage = physicalCoverage,
+    runtimeMap = runtimeMap,
+    actors = actors,
+    zoneController = zoneController,
+    player = player or {},
+    eventState = eventState or {},
+  }, FieldRuntime)
+end
+
 local function preparedSwap(coverage, previous)
   return {
     player = {},
@@ -183,6 +201,93 @@ function T.runtime_disposal_discards_an_uncommitted_replacement()
 
   Assert.equal(sourceCoverage.releases, 1)
   Assert.equal(destinationCoverage.releases, 1)
+end
+
+function T.indoor_occupancy_uses_the_current_map_actor_index()
+  local calls = { getAt = 0, preflight = 0 }
+  local retainedCoverage = {
+    mapHeaderCalls = 0,
+  }
+  function retainedCoverage:mapHeaderAt()
+    self.mapHeaderCalls = self.mapHeaderCalls + 1
+    error("retained coverage must not participate in indoor occupancy", 0)
+  end
+
+  local actors = {}
+  function actors:getAt(mapId, fieldX, fieldZ, surfaceId)
+    calls.getAt = calls.getAt + 1
+    Assert.equal(mapId, "indoor")
+    Assert.equal(fieldX, 12)
+    Assert.equal(fieldZ, 8)
+    Assert.equal(surfaceId, 3)
+    return { actorId = "indoor-blocker" }
+  end
+  function actors:probeAt()
+    error("indoor occupancy must not preflight a destination map", 0)
+  end
+
+  local zoneController = {}
+  function zoneController:mapForPreflight()
+    calls.preflight = calls.preflight + 1
+    error("indoor occupancy must not load a destination map", 0)
+  end
+
+  local runtime = occupancyRuntime({ mapId = "indoor", coverage = nil }, retainedCoverage, actors, zoneController)
+
+  local occupant = runtime:_playerOccupantAt(12, 8, 3)
+
+  Assert.equal(occupant, "indoor-blocker")
+  Assert.equal(calls.getAt, 1)
+  Assert.equal(calls.preflight, 0)
+  Assert.equal(retainedCoverage.mapHeaderCalls, 0)
+end
+
+function T.outdoor_seam_occupancy_preflights_destination_actors()
+  local calls = { mapHeaderAt = 0, getAt = 0, mapForPreflight = 0, probeAt = 0 }
+  local player = {}
+  local eventState = {}
+  local destination = { mapId = "destination" }
+  local activeCoverage = {}
+  function activeCoverage:mapHeaderAt(fieldX, fieldZ)
+    calls.mapHeaderAt = calls.mapHeaderAt + 1
+    Assert.equal(fieldX, 19)
+    Assert.equal(fieldZ, 7)
+    return "destination"
+  end
+
+  local actors = {}
+  function actors:getAt()
+    calls.getAt = calls.getAt + 1
+    error("an outdoor seam must probe the destination map", 0)
+  end
+  function actors:probeAt(map, state, fieldX, fieldZ, surfaceId)
+    calls.probeAt = calls.probeAt + 1
+    Assert.equal(map, destination)
+    Assert.equal(state, eventState)
+    Assert.equal(fieldX, 19)
+    Assert.equal(fieldZ, 7)
+    Assert.equal(surfaceId, 2)
+    return { actorId = "destination-blocker" }
+  end
+
+  local zoneController = {}
+  function zoneController:mapForPreflight(mapId, requestedPlayer)
+    calls.mapForPreflight = calls.mapForPreflight + 1
+    Assert.equal(mapId, "destination")
+    Assert.equal(requestedPlayer, player)
+    return destination
+  end
+
+  local runtime =
+    occupancyRuntime({ mapId = "source", coverage = activeCoverage }, nil, actors, zoneController, player, eventState)
+
+  local occupant = runtime:_playerOccupantAt(19, 7, 2)
+
+  Assert.equal(occupant, "destination-blocker")
+  Assert.equal(calls.mapHeaderAt, 1)
+  Assert.equal(calls.mapForPreflight, 1)
+  Assert.equal(calls.probeAt, 1)
+  Assert.equal(calls.getAt, 0)
 end
 
 return { tests = T }

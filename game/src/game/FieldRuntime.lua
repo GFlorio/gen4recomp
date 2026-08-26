@@ -253,19 +253,27 @@ end
 
 -- The player consults live actors for its current logical map and source events
 -- for an unloaded logical destination. The latter is a read-only preflight.
+---@param fieldX integer
+---@param fieldZ integer
+---@param surfaceId integer
+---@return string?
+function FieldRuntime:_playerOccupantAt(fieldX, fieldZ, surfaceId)
+  local currentMap = self.runtimeMap
+  local coverage = currentMap.coverage
+  local destinationMapId = coverage and coverage:mapHeaderAt(fieldX, fieldZ) or nil
+  local occupant
+  if destinationMapId == nil or destinationMapId == currentMap.mapId then
+    occupant = self.actors:getAt(currentMap.mapId, fieldX, fieldZ, surfaceId)
+  else
+    local destination = self.zoneController:mapForPreflight(destinationMapId, self.player)
+    occupant = self.actors:probeAt(destination, self.eventState, fieldX, fieldZ, surfaceId)
+  end
+  return occupant and occupant.actorId or nil
+end
+
 local function playerOccupancy(self)
   return function(fieldX, fieldZ, surfaceId)
-    local mapId = self.runtimeMap.mapId
-    local coverage = self.physicalCoverage or self.runtimeMap.coverage
-    local destinationMapId = coverage and coverage:mapHeaderAt(fieldX, fieldZ) or nil
-    local occupant
-    if destinationMapId == nil or destinationMapId == mapId then
-      occupant = self.actors:getAt(mapId, fieldX, fieldZ, surfaceId)
-    else
-      local destination = self.zoneController:mapForPreflight(destinationMapId, self.player)
-      occupant = self.actors:probeAt(destination, self.eventState, fieldX, fieldZ, surfaceId)
-    end
-    return occupant and occupant.actorId or nil
+    return self:_playerOccupantAt(fieldX, fieldZ, surfaceId)
   end
 end
 
