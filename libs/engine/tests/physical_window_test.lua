@@ -65,6 +65,7 @@ local function makeRuntimeFactory(loads, releaseCounts)
     }
     local terrain = {
       cellKey = key,
+      artifact = { source = { bdhcSha1 = key } },
       plates = { plate },
       candidatesAt = function()
         return { plate }

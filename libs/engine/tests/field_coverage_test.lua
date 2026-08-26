@@ -71,6 +71,91 @@ local function runtimeFactory(releases)
   end
 end
 
+local function identityCoverage(sourceHash, changedCellKey, reverse, releaseCounter)
+  local cells = {}
+  for z = 0, 2 do
+    for x = 0, 2 do
+      local cellKey = string.format("%d:%d", x, z)
+      cells[#cells + 1] = {
+        matrixMemberId = 1,
+        index = z * 3 + x,
+        x = x,
+        z = z,
+        origin = { x = x * 32, y = cellKey == changedCellKey and 0.5 or 0, z = z * 32 },
+        terrain = { file = "data/generated/field/cells/shared/terrain.lua" },
+      }
+    end
+  end
+  if reverse then
+    for index = 1, math.floor(#cells / 2) do
+      local other = #cells - index + 1
+      cells[index], cells[other] = cells[other], cells[index]
+    end
+  end
+  return FieldCoverage.new({
+    matrixMemberId = 1,
+    index = {
+      schema = "g4-field-cell-index-v2",
+      matrices = { { matrixMemberId = 1, width = 3, height = 3, cells = cells } },
+    },
+    anchorX = 1,
+    anchorZ = 1,
+    loadCell = function(descriptor)
+      return {
+        key = string.format("%d:%d", descriptor.x, descriptor.z),
+        x = descriptor.x,
+        z = descriptor.z,
+        origin = descriptor.origin,
+        descriptor = descriptor,
+        collision = {
+          containsLocal = function()
+            return true
+          end,
+        },
+        terrain = TerrainSurface.new({
+          source = { bdhcSha1 = sourceHash },
+          plates = {},
+        }),
+        release = function()
+          if releaseCounter then
+            releaseCounter.count = releaseCounter.count + 1
+          end
+        end,
+      }
+    end,
+  })
+end
+
+function T.identity_rejects_missing_source_hash_and_releases_staged_cells()
+  local releaseCounter = { count = 0 }
+  local err = Assert.throws(function()
+    identityCoverage(nil, nil, nil, releaseCounter)
+  end)
+  Assert.isTrue(tostring(err):find("bdhcSha1", 1, true) ~= nil)
+  Assert.equal(releaseCounter.count, 9, "failed identity construction releases staged cells")
+end
+
+function T.identity_tracks_terrain_content_and_cell_placement_deterministically()
+  local baseline = identityCoverage("bdhc-a")
+  local baselineHash = baseline:status().terrainDependencyHash
+  Assert.equal(baselineHash, baseline:_dependencyIdentity())
+
+  local changedContent = identityCoverage("bdhc-b")
+  Assert.isFalse(baselineHash == changedContent:status().terrainDependencyHash)
+
+  local changedOrigin = identityCoverage("bdhc-a", "1:1")
+  Assert.isFalse(baselineHash == changedOrigin:status().terrainDependencyHash)
+
+  local reordered = identityCoverage("bdhc-a", nil, true)
+  Assert.equal(baselineHash, reordered:status().terrainDependencyHash)
+  Assert.isTrue(baselineHash:find("g4%-coverage%-v2") ~= nil)
+
+  baseline:release()
+  changedContent:release()
+  changedOrigin:release()
+  reordered:release()
+end
+
 function T.recenters_reusing_overlap_and_releases_departures()
   local releases = {}
   local coverage = FieldCoverage.new({
@@ -188,7 +273,10 @@ local function adjacentCoverage(reverse, plates)
             return { blocked = false }
           end,
         },
-        terrain = TerrainSurface.new({ plates = cellPlates }),
+        terrain = TerrainSurface.new({
+          source = { bdhcSha1 = "cell-" .. descriptor.x .. ":" .. descriptor.z },
+          plates = cellPlates,
+        }),
         release = function() end,
       }
     end,
@@ -274,6 +362,7 @@ local function temporaryProbeCoverage(destinationX, destinationDistance, release
           end,
         },
         terrain = TerrainSurface.new({
+          source = { bdhcSha1 = "cell-" .. cellKey },
           plates = {
             {
               id = 0,

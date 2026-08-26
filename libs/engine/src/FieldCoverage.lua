@@ -10,6 +10,8 @@ local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local Matrix4 = require("libs.math.src.Matrix4")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
 
 ---@class PhysicalProbeContext
 ---@field currentCellKey string
@@ -51,6 +53,53 @@ local function cellOrigin(runtime, descriptor)
   local origin = assert(runtime.origin or descriptor.origin, "field cell normalized origin is missing")
   assert(type(origin.x) == "number" and type(origin.y) == "number" and type(origin.z) == "number")
   return { x = origin.x, y = origin.y, z = origin.z }
+end
+
+local function finiteNumber(value)
+  return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
+end
+
+local function identityNumber(value, context)
+  if not finiteNumber(value) then
+    Errors.raise(FieldErrors.FIELD_COVERAGE_TERRAIN_CACHE_INVALID, "field cell origin is not finite", context)
+  end
+  return string.format("%.17g", value)
+end
+
+local function dependencyIdentity(cells, matrixMemberId, anchorX, anchorZ)
+  local identities = {
+    "g4-coverage-v2",
+    tostring(matrixMemberId),
+    tostring(anchorX),
+    tostring(anchorZ),
+  }
+  local keys = {}
+  for cellKey in pairs(cells) do
+    keys[#keys + 1] = cellKey
+  end
+  table.sort(keys)
+  for _, cellKey in ipairs(keys) do
+    local cell = assert(cells[cellKey])
+    local origin = assert(cell.origin)
+    local terrain = assert(cell.terrain)
+    local artifact = assert(terrain.artifact)
+    local source = artifact.source
+    if type(source) ~= "table" or type(source.bdhcSha1) ~= "string" or source.bdhcSha1 == "" then
+      Errors.raise(
+        FieldErrors.FIELD_COVERAGE_TERRAIN_CACHE_INVALID,
+        "field cell terrain source bdhcSha1 is missing; rebuild the derived cache",
+        { cellKey = cellKey }
+      )
+    end
+    identities[#identities + 1] = table.concat({
+      cellKey,
+      identityNumber(origin.x, { cellKey = cellKey, axis = "x" }),
+      identityNumber(origin.y, { cellKey = cellKey, axis = "y" }),
+      identityNumber(origin.z, { cellKey = cellKey, axis = "z" }),
+      source.bdhcSha1,
+    }, ":")
+  end
+  return table.concat(identities, "|")
 end
 
 local function ownPresentation(runtime, presentation)
@@ -185,6 +234,7 @@ function FieldCoverage:recenter(anchorX, anchorZ)
       cells = staged,
       region = buildRegion(staged, { x = anchorX, z = anchorZ }),
       origin = assert(staged[key(anchorX, anchorZ)].origin),
+      terrainDependencyHash = dependencyIdentity(staged, self.matrixMemberId, anchorX, anchorZ),
     }
   end)
   if not ok then
@@ -201,7 +251,7 @@ function FieldCoverage:recenter(anchorX, anchorZ)
   self.anchorX, self.anchorZ = candidate.anchorX, candidate.anchorZ
   self.region = candidate.region
   self.origin = candidate.origin
-  self.terrainDependencyHash = self:_dependencyIdentity()
+  self.terrainDependencyHash = candidate.terrainDependencyHash
   for cellKey, cell in pairs(old) do
     if not self.cells[cellKey] and cell.release then
       cell:release()
@@ -211,15 +261,7 @@ function FieldCoverage:recenter(anchorX, anchorZ)
 end
 
 function FieldCoverage:_dependencyIdentity()
-  local keys = {}
-  for cellKey, cell in pairs(self.cells) do
-    keys[#keys + 1] = cellKey .. ":" .. tostring(cell.descriptor and cell.descriptor.terrain.file or "runtime")
-  end
-  table.sort(keys)
-  return table.concat(
-    { "g4-coverage-v1", self.matrixMemberId, self.anchorX, self.anchorZ, table.concat(keys, "|") },
-    "|"
-  )
+  return dependencyIdentity(self.cells, self.matrixMemberId, self.anchorX, self.anchorZ)
 end
 
 function FieldCoverage:status()

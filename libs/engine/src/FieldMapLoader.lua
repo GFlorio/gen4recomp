@@ -20,7 +20,7 @@ local FieldCellCache = require("libs.assets.src.FieldCellCache")
 ---@field sceneLoader table|nil presentation-only visual scene loader
 ---@field neighborLoader table|nil presentation-only finite neighbor-ring loader
 ---@field sceneOptions table|nil options passed to physical-cell presentation loading
----@field fieldCellsEnabled boolean
+---@field fieldCellIndex table?
 ---@field entries table<integer, table>
 ---@field protectedMaps table<integer, boolean>
 ---@field clock integer
@@ -74,6 +74,26 @@ local function loadRequired(cacheFs, path, code)
     })
   end
   return value --[[@as table]]
+end
+
+---@param cacheFs CacheFs
+---@return table
+local function loadFieldCellIndex(cacheFs)
+  local path = FieldCellCache.indexPath()
+  local index, err = cacheFs:loadLua(path)
+  if index == nil then
+    Errors.raise(FieldErrors.FIELD_CELL_CACHE_MISSING, "field cell index is unavailable; rebuild the derived cache", {
+      path = path,
+      cause = err and Errors.format(err),
+    })
+  end
+  local loadedIndex = index --[[@as table]]
+  if not FieldCellCache.validateIndex(loadedIndex) then
+    Errors.raise(FieldErrors.FIELD_CELL_CACHE_INVALID, "field cell index is malformed; rebuild the derived cache", {
+      path = path,
+    })
+  end
+  return loadedIndex
 end
 
 local function releaseAggregate(runtimeMap)
@@ -179,7 +199,7 @@ function FieldMapLoader.new(cacheFs, world, options)
     sceneLoader = options.sceneLoader,
     neighborLoader = options.neighborLoader,
     sceneOptions = options.sceneOptions,
-    fieldCellsEnabled = cacheFs.exists and cacheFs:exists(FieldCellCache.indexPath(), "file") or false,
+    fieldCellIndex = nil,
     entries = {},
     protectedMaps = {},
     clock = 0,
@@ -265,7 +285,10 @@ function FieldMapLoader:load(idOrSymbol, _)
     )
   end
 
-  local physicalCells = self.fieldCellsEnabled and scene.type == "outdoor"
+  local physicalCells = scene.type == "outdoor"
+  if physicalCells and not self.fieldCellIndex then
+    self.fieldCellIndex = loadFieldCellIndex(self.cacheFs)
+  end
   if not physicalCells then
     terrainArtifact =
       loadRequired(self.cacheFs, MapAssetCache.terrainPath(record.id), FieldErrors.FIELD_MAP_TERRAIN_CACHE_MISSING)
@@ -379,7 +402,7 @@ end
 function FieldMapLoader:createPhysicalCoverage(runtimeMap, position)
   assert(not self.released, "field map loader is released")
   assert(runtimeMap and runtimeMap.scene and runtimeMap.scene.type == "outdoor", "outdoor logical map required")
-  assert(self.fieldCellsEnabled, "field cell cache is unavailable")
+  local fieldCellIndex = assert(self.fieldCellIndex, "field cell cache is unavailable")
   assert(type(position) == "table", "physical coverage position required")
   local record = worldRecord(self.world, runtimeMap.mapId)
   local matrix = assert(record.matrix, "outdoor map matrix metadata is required")
@@ -392,7 +415,7 @@ function FieldMapLoader:createPhysicalCoverage(runtimeMap, position)
   end
   return FieldCoverage.new({
     cacheFs = self.cacheFs,
-    index = FieldCellCache.loadIndex(self.cacheFs),
+    index = fieldCellIndex,
     matrixMemberId = matrixMemberId,
     anchorX = math.floor(position.fieldX / 32),
     anchorZ = math.floor(position.fieldZ / 32),

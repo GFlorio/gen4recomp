@@ -60,6 +60,7 @@ local function loadCell(descriptor)
       end,
     },
     terrain = TerrainSurface.new({
+      source = { bdhcSha1 = string.format("cell-%d-%d", descriptor.x, descriptor.z) },
       plates = {
         {
           id = 1,

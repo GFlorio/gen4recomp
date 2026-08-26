@@ -470,7 +470,7 @@ function FieldRuntime:_load()
       sceneLoader = self.presentation and MapSceneLoader or nil,
     })
     local function composeLoadedMap(logicalMap, position)
-      if logicalMap.scene.type == "outdoor" and self.mapLoader.fieldCellsEnabled then
+      if logicalMap.scene.type == "outdoor" then
         local mapIndex = assert(self.mapLoader.world.byId[logicalMap.mapId], "outdoor map catalog record is required")
         local mapRecord = assert(self.mapLoader.world.maps[mapIndex], "outdoor map catalog record is missing")
         local matrixMemberId = assert(mapRecord.matrix.memberId, "outdoor map matrix member is required")
@@ -532,7 +532,7 @@ function FieldRuntime:_load()
       surfaceId, facing = restored.surfaceId, restored.facing
     else
       assert(spawn, "spawn manifest must define a spawn for " .. self.runtimeMap.mapSymbol)
-      if self.runtimeMap.scene.type == "outdoor" and self.mapLoader.fieldCellsEnabled then
+      if self.runtimeMap.scene.type == "outdoor" then
         fieldX = self.runtimeMap.coordinateOrigin.x + spawn.x
         fieldZ = self.runtimeMap.coordinateOrigin.z + spawn.z
         self.runtimeMap = composeLoadedMap(self.runtimeMap, { fieldX = fieldX, fieldZ = fieldZ })

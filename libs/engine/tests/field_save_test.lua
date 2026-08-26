@@ -5,6 +5,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldCoverage = require("libs.engine.src.FieldCoverage")
 local FieldSave = require("libs.engine.src.FieldSave")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
@@ -215,13 +216,55 @@ local function capture(map, opts)
   })
 end
 
-local function restore(value, map)
+local function restore(value, map, composeRuntimeMap)
   return FieldSave.restore(value, {
     load = function(_, mapId)
       Assert.equal(mapId, 60)
       return map
     end,
-  }, "heartgold", { playerDataContext = playerDataContext() })
+  }, "heartgold", { playerDataContext = playerDataContext(), composeRuntimeMap = composeRuntimeMap })
+end
+
+local function identityCoverage(sourceHash, originY)
+  local cells = {}
+  for z = 0, 2 do
+    for x = 0, 2 do
+      local descriptor = {
+        matrixMemberId = 1,
+        index = z * 3 + x,
+        x = x,
+        z = z,
+        origin = { x = x * 32, y = x == 1 and z == 1 and originY or 0, z = z * 32 },
+        terrain = { file = "data/generated/field/cells/shared/terrain.lua" },
+      }
+      cells[#cells + 1] = descriptor
+    end
+  end
+  return FieldCoverage.new({
+    matrixMemberId = 1,
+    index = {
+      schema = "g4-field-cell-index-v2",
+      matrices = { { matrixMemberId = 1, width = 3, height = 3, cells = cells } },
+    },
+    anchorX = 1,
+    anchorZ = 1,
+    loadCell = function(descriptor)
+      return {
+        key = string.format("%d:%d", descriptor.x, descriptor.z),
+        x = descriptor.x,
+        z = descriptor.z,
+        origin = descriptor.origin,
+        descriptor = descriptor,
+        collision = {
+          containsLocal = function()
+            return true
+          end,
+        },
+        terrain = TerrainSurface.new({ source = { bdhcSha1 = sourceHash }, plates = {} }),
+        release = function() end,
+      }
+    end,
+  })
 end
 
 local function throwsCode(code, fn)
@@ -469,6 +512,43 @@ function T.stale_surface_id_resamples_nearest_saved_height()
   local result = assert(restore(record(), map))
   Assert.equal(result.surfaceId, 7)
   Assert.equal(result.worldY, 4.25)
+end
+
+function T.save_surface_recovery_uses_changed_terrain_identity_without_migration()
+  local oldCoverage = identityCoverage("bdhc-old", 0)
+  local newCoverage = identityCoverage("bdhc-new", 0.5)
+  local oldHash = oldCoverage:status().terrainDependencyHash
+  local newHash = newCoverage:status().terrainDependencyHash
+  Assert.isFalse(oldHash == newHash)
+
+  local saved = record({ terrainDependencyHash = oldHash, surfaceId = 2, worldY = 0 })
+  local valid = assert(FieldSave.validate(saved, { playerDataContext = playerDataContext() }))
+  Assert.equal(valid.schema, "g4-field-save-v3")
+  Assert.equal(saved.schema, "g4-field-save-v3")
+
+  local logicalMap = runtimeMap(oldHash, { flat(2, 3), flat(7, 0.5) })
+  logicalMap.scene.type = "outdoor"
+  local currentMap = runtimeMap(newHash, { flat(2, 3), flat(7, 0.5) })
+  currentMap.scene.type = "outdoor"
+  local recovered = assert(restore(saved, logicalMap, function()
+    return currentMap
+  end))
+  Assert.equal(recovered.surfaceId, 7)
+  Assert.equal(recovered.worldY, 0.5)
+
+  local matching = record({ terrainDependencyHash = newHash, surfaceId = 2, worldY = 0 })
+  local reused = assert(restore(matching, logicalMap, function()
+    return currentMap
+  end))
+  Assert.equal(reused.surfaceId, 2)
+  Assert.equal(reused.worldY, 3)
+  Assert.equal(
+    assert(FieldSave.validate(matching, { playerDataContext = playerDataContext() })).schema,
+    "g4-field-save-v3"
+  )
+
+  oldCoverage:release()
+  newCoverage:release()
 end
 
 function T.stale_surface_rejects_ambiguous_height()

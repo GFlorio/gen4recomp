@@ -73,6 +73,81 @@ local function fixture(mapCount)
   return cache, world, sceneLoader, releases, files
 end
 
+local function outdoorCacheFixture(indexState)
+  local cache, world, sceneLoader, _, files = fixture(1)
+  local scenePath = "data/generated/maps/0000/scene.lua"
+  local terrainPath = "data/generated/maps/0000/terrain.lua"
+  local collisionPath = "data/generated/maps/0000/collision.g4collision"
+  local calls = { terrain = 0, collision = 0 }
+  local realLoadLua = cache.loadLua
+  local realRead = cache.read
+  cache.loadLua = function(_, path)
+    if path == terrainPath then
+      calls.terrain = calls.terrain + 1
+    end
+    return realLoadLua(cache, path)
+  end
+  cache.read = function(_, path)
+    if path == collisionPath then
+      calls.collision = calls.collision + 1
+    end
+    return realRead(cache, path)
+  end
+  cache.exists = function(_, path)
+    return indexState ~= "missing" and path == FieldCellCache.indexPath()
+  end
+  if indexState == "invalid" then
+    files[FieldCellCache.indexPath()] = { schema = "wrong-field-cell-schema" }
+  end
+  local scene = files[scenePath]
+  scene.type = "outdoor"
+  sceneLoader.loadEnvironment = function(_, environmentScene)
+    return { scene = environmentScene, release = function() end }
+  end
+  return cache, world, sceneLoader, calls
+end
+
+function T.requires_physical_cells_for_outdoor_maps_but_keeps_indoor_aggregate_loading()
+  local failures = {}
+  for _, case in ipairs({
+    { state = "missing", code = "FIELD_CELL_CACHE_MISSING" },
+    { state = "invalid", code = "FIELD_CELL_CACHE_INVALID" },
+  }) do
+    local cache, world, sceneLoader, calls = outdoorCacheFixture(case.state)
+    local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+    local ok, err = pcall(loader.load, loader, 0)
+    if ok then
+      failures[#failures + 1] = case.state .. " cache was accepted"
+    elseif not Errors.is(err) then
+      failures[#failures + 1] = case.state .. " cache raised an unstructured error"
+    elseif err.code ~= case.code then
+      failures[#failures + 1] = case.state .. " cache raised " .. err.code
+    elseif tostring(err):find("rebuild", 1, true) == nil then
+      failures[#failures + 1] = case.state .. " cache error omitted rebuild guidance"
+    end
+    if calls.terrain ~= 0 or calls.collision ~= 0 then
+      failures[#failures + 1] = case.state .. " cache used aggregate terrain or collision"
+    end
+    loader:release()
+  end
+  Assert.equal(
+    table.concat(failures, "; "),
+    "",
+    "outdoor physical-cell cache contract failures: " .. table.concat(failures, "; ")
+  )
+
+  local cache, world, sceneLoader, calls = outdoorCacheFixture("missing")
+  local scene = cache:loadLua("data/generated/maps/0000/scene.lua")
+  scene.type = nil
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  local map = loader:load(0)
+  Assert.notNil(map.terrain)
+  Assert.notNil(map.collision)
+  Assert.equal(calls.terrain, 1)
+  Assert.equal(calls.collision, 1)
+  loader:release()
+end
+
 function T.loads_visual_field_collision_and_terrain_into_one_aggregate()
   local cache, world, sceneLoader = fixture(1)
   local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader, capacity = 4 })
@@ -165,6 +240,7 @@ function T.outdoor_logical_load_does_not_acquire_physical_or_representative_geom
   Assert.equal(map.sceneRuntime.scene, scene)
   local coverage = loader:createPhysicalCoverage(map, { fieldX = 0, fieldZ = 0 })
   Assert.equal(coverage.matrixMemberId, 0, "physical coverage identity comes from the world manifest")
+  Assert.equal(coverage.index, files[FieldCellCache.indexPath()], "coverage reuses the validated index")
   coverage:release()
   loader:release()
 end
