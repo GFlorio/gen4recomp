@@ -285,6 +285,18 @@ function T.raw_event_y_hint_selects_the_stacked_surface()
   Assert.equal(mgr:getById("map:61:object:0").surfaceId, 1)
 end
 
+function T.reprojection_uses_the_raw_event_y_hint_when_the_surface_is_stale()
+  local mgr = manager({ object({ x = 9, z = 3, y = 4 * 16 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  actor.surfaceId = 99
+
+  mgr:reconcilePhysicalWorld()
+
+  Assert.equal(actor.surfaceId, 1)
+  Assert.equal(actor.worldY, 4)
+  mgr:dispose()
+end
+
 function T.actor_off_the_terrain_is_fatal()
   throwsCode("ACTOR_SURFACE_MISSING", function()
     manager({ object({ x = 35, z = 3 }) })

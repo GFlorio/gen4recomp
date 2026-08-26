@@ -273,8 +273,7 @@ local function projectionFor(runtimeMap, actor)
     )
   end
   if surfaceId == nil or not runtimeMap.terrain:contains(surfaceId, centerX, centerZ) then
-    local sample =
-      resolveSurfaceAt(runtimeMap, actor.fieldX, actor.fieldZ, actor.worldY or actor.sourceEvent.y, actor.actorId)
+    local sample = resolveSurfaceAt(runtimeMap, actor.fieldX, actor.fieldZ, actor.sourceEvent.y, actor.actorId)
     surfaceId = sample.surfaceId
   end
   local plate = assert(runtimeMap.terrain:plate(surfaceId), "actor projected surface is missing")
