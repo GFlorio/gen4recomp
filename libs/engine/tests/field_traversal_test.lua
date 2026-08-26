@@ -20,11 +20,37 @@ function T.metatile_behavior_names_cover_navigation_categories()
   Assert.isFalse(MetatileBehavior.isSurfableWater(BEHAVIOR.TALL_GRASS))
 end
 
-function T.ledge_behavior_names_cover_all_directions()
-  Assert.equal(MetatileBehavior.ledgeDirection(BEHAVIOR.JUMP_EAST), "east")
-  Assert.equal(MetatileBehavior.ledgeDirection(BEHAVIOR.JUMP_NORTH), "north")
-  Assert.equal(MetatileBehavior.ledgeDirection(BEHAVIOR.JUMP_WEST), "west")
-  Assert.equal(MetatileBehavior.ledgeDirection(BEHAVIOR.JUMP_SOUTH), "south")
+function T.source_behavior_values_and_directions_are_exact()
+  local ledges = {
+    { name = "JUMP_EAST", value = 56, direction = "east" },
+    { name = "JUMP_WEST", value = 57, direction = "west" },
+    { name = "JUMP_NORTH", value = 58, direction = "north" },
+    { name = "JUMP_SOUTH", value = 59, direction = "south" },
+  }
+  for _, expected in ipairs(ledges) do
+    Assert.equal(BEHAVIOR[expected.name], expected.value)
+    Assert.equal(MetatileBehavior.ledgeDirection(expected.value), expected.direction)
+  end
+  Assert.equal(BEHAVIOR.ROCK_CLIMB_NORTH_SOUTH, 75)
+  Assert.equal(BEHAVIOR.ROCK_CLIMB_EAST_WEST, 76)
+  Assert.equal(MetatileBehavior.fieldAction(75), "rock_climb")
+  Assert.equal(MetatileBehavior.fieldAction(76), "rock_climb")
+end
+
+function T.ledge_traversal_requires_the_source_direction()
+  local ledges = {
+    { behavior = 56, direction = "east" },
+    { behavior = 57, direction = "west" },
+    { behavior = 58, direction = "north" },
+    { behavior = 59, direction = "south" },
+  }
+  for _, ledge in ipairs(ledges) do
+    local matching = FieldTraversal.classify({ behavior = ledge.behavior, blocked = true }, ledge.direction)
+    Assert.equal(matching.kind, "ledge_jump")
+    local wrongDirection = ledge.direction == "east" and "north" or "east"
+    local wrong = FieldTraversal.classify({ behavior = ledge.behavior, blocked = true }, wrongDirection)
+    Assert.equal(wrong.kind, "blocked")
+  end
 end
 
 function T.field_actions_are_semantic_even_when_permission_is_blocked()

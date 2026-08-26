@@ -18,11 +18,11 @@ MetatileBehavior.BEHAVIOR = {
   WATERFALL = 19,
   SEA_WATER = 21,
   JUMP_EAST = 56,
-  JUMP_NORTH = 57,
-  JUMP_WEST = 58,
+  JUMP_WEST = 57,
+  JUMP_NORTH = 58,
   JUMP_SOUTH = 59,
-  ROCK_CLIMB_EAST_WEST = 75,
-  ROCK_CLIMB_NORTH_SOUTH = 76,
+  ROCK_CLIMB_NORTH_SOUTH = 75,
+  ROCK_CLIMB_EAST_WEST = 76,
   LADDER_NORTH = 60,
   LADDER_SOUTH = 61,
   LADDER_DOWN = 62,
@@ -43,8 +43,8 @@ MetatileBehavior.BEHAVIOR = {
 }
 
 LEDGE_DIRECTIONS[MetatileBehavior.BEHAVIOR.JUMP_EAST] = "east"
-LEDGE_DIRECTIONS[MetatileBehavior.BEHAVIOR.JUMP_NORTH] = "north"
 LEDGE_DIRECTIONS[MetatileBehavior.BEHAVIOR.JUMP_WEST] = "west"
+LEDGE_DIRECTIONS[MetatileBehavior.BEHAVIOR.JUMP_NORTH] = "north"
 LEDGE_DIRECTIONS[MetatileBehavior.BEHAVIOR.JUMP_SOUTH] = "south"
 
 -- Whether a behavior byte is the DOOR metatile (behavior 105).

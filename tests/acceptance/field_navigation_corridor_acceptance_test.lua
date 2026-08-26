@@ -82,24 +82,11 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     Assert.isTrue(#grass.terrainEffects.instances > 0, "grass displacement must emit an effect")
     assertResident(grass)
 
-    local landing
-    local ledgeStart
-    for _, candidate in ipairs(facts.ledgeCandidates) do
-      local approach = moveTo(game, candidate)
-      local landingBefore = approach.player
-      game:move(candidate.direction)
-      local settled = game:advanceUntil("ledge jump settles", function(snapshot)
-        return snapshot.player.motion == "idle"
-      end, 48)
-      local distance = math.abs(settled.player.fieldX - landingBefore.fieldX)
-        + math.abs(settled.player.fieldZ - landingBefore.fieldZ)
-      if distance == 2 then
-        landing = settled
-        ledgeStart = landingBefore
-        break
-      end
-    end
-    Assert.notNil(landing, "a discovered Route 29 ledge must complete through production traversal")
+    local ledgeStart = moveTo(game, facts.ledge).player
+    game:move(facts.ledge.direction)
+    local landing = game:advanceUntil("ledge jump settles", function(snapshot)
+      return snapshot.player.motion == "idle"
+    end, 48)
     Assert.equal(
       math.abs(landing.player.fieldX - ledgeStart.fieldX) + math.abs(landing.player.fieldZ - ledgeStart.fieldZ),
       2

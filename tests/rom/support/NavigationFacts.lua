@@ -18,6 +18,15 @@ local DIRECTIONS = {
   { name = "east", x = 1, z = 0 },
 }
 
+-- HGSS's fixed metatile behavior values. This table is deliberately local to
+-- fact discovery: production traversal remains the system under test.
+local SOURCE_LEDGE_DIRECTIONS = {
+  [56] = "east",
+  [57] = "west",
+  [58] = "north",
+  [59] = "south",
+}
+
 local function key(fieldX, fieldZ)
   return fieldX .. ":" .. fieldZ
 end
@@ -207,16 +216,15 @@ function NavigationFacts.discover(cacheFs, romFs)
     "Route 29 has no reachable grass target"
   )
 
-  local ledgeCandidates = {}
+  local ledgeApproach
   for _, node in ipairs(nodes) do
     for _, direction in ipairs(DIRECTIONS) do
       local tile, cell = tileAt(cells, node.fieldX + direction.x, node.fieldZ + direction.z)
       if cell and cell.descriptor.mapHeaderId == route29.map.id and tile then
-        local decision = FieldTraversal.classify(tile, direction.name)
-        if decision.kind == "ledge_jump" then
+        if SOURCE_LEDGE_DIRECTIONS[tile.behavior] == direction.name then
           local landingTile = tileAt(cells, node.fieldX + direction.x * 2, node.fieldZ + direction.z * 2)
           if landingTile and not landingTile.blocked then
-            ledgeCandidates[#ledgeCandidates + 1] = {
+            ledgeApproach = {
               fieldX = node.fieldX,
               fieldZ = node.fieldZ,
               direction = direction.name,
@@ -228,8 +236,11 @@ function NavigationFacts.discover(cacheFs, romFs)
         end
       end
     end
+    if ledgeApproach then
+      break
+    end
   end
-  local ledgeApproach = assert(ledgeCandidates[1], "Route 29 has no reachable directional ledge")
+  assert(ledgeApproach, "Route 29 has no reachable directional ledge")
 
   local far
   for _, node in ipairs(nodes) do
@@ -286,7 +297,6 @@ function NavigationFacts.discover(cacheFs, romFs)
     water = water,
     grass = { fieldX = grass.fieldX, fieldZ = grass.fieldZ, route = grass.route },
     ledge = ledgeApproach,
-    ledgeCandidates = ledgeCandidates,
     far = { fieldX = far.fieldX, fieldZ = far.fieldZ, route = far.route },
     buildingWarp = buildingWarp,
   }

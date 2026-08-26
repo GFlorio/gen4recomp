@@ -25,4 +25,6 @@ function T.discovers_stable_new_bark_route_29_targets(romFs, versionId)
   Assert.equal(facts.buildingWarp.destinationMapId ~= facts.newBark.mapId, true)
 end
 
-return require("tests.rom.support.RomSuite").fromFacts(T)
+local suite = require("tests.rom.support.RomSuite").fromFacts(T)
+suite.metadata.capabilities = { "rom_dump", "derived_cache" }
+return suite
