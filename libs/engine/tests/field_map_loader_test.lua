@@ -4,6 +4,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local CollisionFixture = require("tests.support.CollisionFixture")
+local FieldCellCache = require("libs.assets.src.FieldCellCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 
 local T = {}
@@ -92,6 +93,63 @@ function T.reads_transition_environment_without_loading_a_scene()
   local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
   Assert.equal(loader:transitionEnvironment(0), "outdoors")
   Assert.equal(loader:residentCount(), 0)
+  loader:release()
+end
+
+function T.outdoor_logical_load_does_not_acquire_physical_or_representative_geometry()
+  local cache, world, sceneLoader, _, files = fixture(1)
+  local scene = cache.loadLua(cache, "data/generated/maps/0000/scene.lua")
+  scene.type = "outdoor"
+  world.maps[1].matrix = { memberId = 0 }
+  sceneLoader.load = function()
+    error("representative scene geometry must not be acquired")
+  end
+  sceneLoader.loadEnvironment = function(environmentScene)
+    return { scene = environmentScene, release = function() end }
+  end
+  cache.exists = function(_, path)
+    return path == FieldCellCache.indexPath()
+  end
+  local cell = {
+    schema = FieldCellCache.CELL_SCHEMA,
+    matrixMemberId = 0,
+    index = 0,
+    x = 0,
+    z = 0,
+    mapHeaderId = 0,
+    altitude = 0,
+    origin = { x = 0, y = 0, z = 0 },
+    landDataMemberId = 0,
+    areaDataMemberId = 0,
+    file = FieldCellCache.cellPath(0, 0),
+    collision = { file = FieldCellCache.collisionPath(0, 0) },
+    terrain = { file = FieldCellCache.terrainPath(0, 0), schema = "g4-terrain-surfaces-v1" },
+    batches = {},
+    materials = {},
+    buildingInstances = {},
+    terrainAnimations = { textureSrt = false },
+  }
+  files[FieldCellCache.indexPath()] = {
+    schema = FieldCellCache.INDEX_SCHEMA,
+    matrices = { { matrixMemberId = 0, width = 1, height = 1, cells = { cell } } },
+  }
+  files[cell.file] = cell
+  files[cell.collision.file] = CollisionFixture.asset(32, 32)
+  files[cell.terrain.file] = {
+    schema = "g4-terrain-surfaces-v1",
+    source = { bdhcSha1 = "cell-0" },
+    plates = {},
+  }
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+
+  local map = loader:load(0)
+
+  Assert.isNil(map.coverage, "logical map entries must not own physical coverage")
+  Assert.isNil(map.collision, "outdoor logical maps must not load representative collision")
+  Assert.equal(map.sceneRuntime.scene, scene)
+  local coverage = loader:createPhysicalCoverage(map, { fieldX = 0, fieldZ = 0 })
+  Assert.equal(coverage.matrixMemberId, 0, "physical coverage identity comes from the world manifest")
+  coverage:release()
   loader:release()
 end
 

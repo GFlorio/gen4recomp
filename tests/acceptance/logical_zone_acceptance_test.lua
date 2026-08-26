@@ -18,6 +18,7 @@ local NEW_BARK = "MAP_NEW_BARK"
 local ROUTE_29_ID = 33
 local ROUTE_29 = "MAP_ROUTE_29"
 local ROUTE_29_TARGET = { fieldX = 626, fieldZ = 389 }
+local NEW_BARK_ID = 60
 
 local function withTown(fn)
   local harness = AcceptanceHarness.new()
@@ -46,6 +47,7 @@ function T.tests.new_bark_to_route_29_is_a_seamless_zone_change()
     local player = assert(game.runtime.player, "production player is required")
     local camera = assert(game.runtime.camera, "production camera is required")
     local playerVisual = assert(game.runtime.playerVisual, "production player visual is required")
+    local physicalOwner = assert(game.runtime.physicalCoverage, "production physical world is required")
     local before = game:snapshot()
 
     local after = moveToRoute29(game)
@@ -72,6 +74,8 @@ function T.tests.new_bark_to_route_29_is_a_seamless_zone_change()
     Assert.equal(game.runtime.player, player, "zone ownership must preserve the player object")
     Assert.equal(game.runtime.camera, camera, "zone ownership must preserve the camera object")
     Assert.equal(game.runtime.playerVisual, playerVisual, "zone ownership must preserve the player visual")
+    Assert.equal(game.runtime.physicalCoverage, physicalOwner, "zone ownership must preserve the physical world")
+    Assert.equal(game.runtime.runtimeMap.coverage, physicalOwner, "logical view must use the session physical world")
     local seamSource = assert(game.lastTransition and game.lastTransition.source, "zone source snapshot required")
     local displacement = math.abs(after.player.fieldX - seamSource.player.fieldX)
       + math.abs(after.player.fieldZ - seamSource.player.fieldZ)
@@ -105,6 +109,8 @@ function T.tests.destination_context_is_authoritative_after_crossing()
     Assert.equal(runtime.weatherRuntime.mapId, ROUTE_29_ID)
     Assert.equal(runtime.audio:currentMapId(), ROUTE_29_ID)
     Assert.equal(game.runtime.lastZoneChange.newMapId, ROUTE_29_ID)
+    Assert.equal(runtime.runtimeMap.coverage, runtime.physicalCoverage)
+    Assert.isNil(runtime.mapLoader.physicalCoverage, "logical loader must not own the physical world")
   end)
 end
 
@@ -130,6 +136,40 @@ function T.tests.same_header_step_is_a_zone_noop()
     Assert.equal(game.runtime.camera, camera)
     Assert.equal(game.runtime.playerVisual, playerVisual)
     Assert.isNil(game.runtime.lastZoneChange, "same-header movement must not emit a zone-change record")
+  end)
+end
+
+-- A live session must cross the same outdoor seam repeatedly without
+-- replacing the physical-world owner. Each committed seam remains one tile,
+-- updates the current logical map, and settles without a transition phase.
+function T.tests.repeated_new_bark_route_29_round_trip_preserves_physical_identity()
+  withTown(function(game)
+    local initial = game:snapshot()
+    local physicalOwner = assert(game.runtime.physicalCoverage, "physical coverage owner is required")
+
+    local function assertSeam(destinationMapId, destinationSymbol)
+      local transition = assert(game.lastTransition, "logical seam transition record is required")
+      local destination = transition.destination
+      local displacement = math.abs(destination.player.fieldX - transition.source.player.fieldX)
+        + math.abs(destination.player.fieldZ - transition.source.player.fieldZ)
+      Assert.equal(displacement, 1, "logical seam must commit exactly one tile")
+      Assert.equal(destination.mapId, destinationMapId)
+      Assert.equal(destination.mapSymbol, destinationSymbol)
+      Assert.equal(destination.transition.phase, "idle")
+      Assert.equal(game:snapshot().mapId, destinationMapId)
+      Assert.equal(game:snapshot().mapSymbol, destinationSymbol)
+      Assert.equal(game.runtime.runtimeMap.coverage, physicalOwner)
+      Assert.equal(game.runtime.physicalCoverage, physicalOwner)
+      Assert.isNil(game.runtime.mapLoader.physicalCoverage, "logical cache must not own physical coverage")
+    end
+
+    for _ = 1, 2 do
+      moveToRoute29(game)
+      assertSeam(ROUTE_29_ID, ROUTE_29)
+
+      game:moveTo({ fieldX = initial.player.fieldX, fieldZ = initial.player.fieldZ }, NEW_BARK_ID)
+      assertSeam(NEW_BARK_ID, NEW_BARK)
+    end
   end)
 end
 

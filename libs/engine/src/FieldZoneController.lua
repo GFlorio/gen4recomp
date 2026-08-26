@@ -15,6 +15,7 @@ FieldZoneController.__index = FieldZoneController
 ---@field rebindScripts fun(runtimeMap: RuntimeFieldMap, player: FieldZonePlayer)
 ---@field applyWeather fun(runtimeMap: RuntimeFieldMap)
 ---@field enterAudio fun(runtimeMap: RuntimeFieldMap)
+---@field protectMap fun(mapId: integer, protected: boolean)
 ---@field lastChange table?
 ---@field onChange fun(change: table)?
 
@@ -36,7 +37,10 @@ FieldZoneController.__index = FieldZoneController
 ---@return FieldZoneController
 function FieldZoneController.new(options)
   assert(type(options) == "table", "field zone controller options required")
-  assert(options.currentMap and options.loadMap, "field zone controller map contract required")
+  assert(
+    options.currentMap and options.loadMap and type(options.protectMap) == "function",
+    "field zone controller map contract required"
+  )
   return setmetatable({
     currentMap = options.currentMap,
     loadMap = options.loadMap,
@@ -47,6 +51,7 @@ function FieldZoneController.new(options)
     rebindScripts = options.rebindScripts,
     applyWeather = options.applyWeather,
     enterAudio = options.enterAudio,
+    protectMap = options.protectMap,
     onChange = options.onChange,
     lastChange = nil,
   }, FieldZoneController) --[[@as FieldZoneController]]
@@ -92,6 +97,8 @@ function FieldZoneController:afterCoverageCommit(coverage, player)
     end
     error(commitErr, 0)
   end
+  self.protectMap(destination.mapId, true)
+  self.protectMap(source.mapId, false)
   self.currentMap = destination
   if self.rebindScripts then
     self.rebindScripts(destination, player)

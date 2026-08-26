@@ -13,11 +13,24 @@ local DIRECTION_DELTAS = {
 
 function FieldNavigationBoundary.new(options)
   options = options or {}
-  return setmetatable({ zoneController = options.zoneController }, FieldNavigationBoundary)
+  return setmetatable({
+    zoneController = options.zoneController,
+    physicalWorld = options.physicalWorld,
+  }, FieldNavigationBoundary)
+end
+
+local function coverageFor(self, runtimeMap)
+  if runtimeMap.coverage then
+    return runtimeMap.coverage
+  end
+  if runtimeMap.scene and runtimeMap.scene.type == "outdoor" then
+    return self.physicalWorld
+  end
+  return nil
 end
 
 function FieldNavigationBoundary:crossesLogicalZone(runtimeMap, player, direction)
-  local coverage = runtimeMap.coverage
+  local coverage = coverageFor(self, runtimeMap)
   local delta = DIRECTION_DELTAS[direction]
   if not coverage or not delta or not self.zoneController then
     return false
@@ -27,7 +40,7 @@ function FieldNavigationBoundary:crossesLogicalZone(runtimeMap, player, directio
 end
 
 function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
-  local coverage = runtimeMap.coverage
+  local coverage = coverageFor(self, runtimeMap)
   if not coverage then
     return nil
   end
@@ -49,12 +62,16 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
     end
   end
   coverage:recenter(targetX, targetZ)
-  runtimeMap.fieldRegion = coverage.region
-  runtimeMap.collision = coverage.region.collision
-  runtimeMap.terrain = coverage.region.terrain
-  runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
-  runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
-  runtimeMap.physicalOrigin = coverage.origin
+  if runtimeMap.syncPhysicalFields then
+    runtimeMap:syncPhysicalFields()
+  else
+    runtimeMap.fieldRegion = coverage.region
+    runtimeMap.collision = coverage.region.collision
+    runtimeMap.terrain = coverage.region.terrain
+    runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
+    runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
+    runtimeMap.physicalOrigin = coverage.origin
+  end
   local deltaX, deltaZ = oldOriginX - runtimeMap.coordinateOrigin.x, oldOriginZ - runtimeMap.coordinateOrigin.z
   player:rebindCoverage(runtimeMap, deltaX, deltaZ, sourceCellKey, sourceSurfaceId)
   camera:rebase(deltaX, deltaZ)

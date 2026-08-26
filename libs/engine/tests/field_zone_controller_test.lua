@@ -4,6 +4,11 @@
 local Assert = require("tests.support.Assert")
 local FieldZoneController = require("libs.engine.src.FieldZoneController")
 
+---@class TestLogicalMap
+---@field mapId integer
+---@field mapSection string
+---@field physicalOwner table
+
 local T = {
   metadata = { capabilities = {} },
   tests = {},
@@ -18,6 +23,7 @@ function T.tests.switches_once_and_preserves_the_player()
     loadMap = function(mapId)
       return { mapId = mapId, mapSection = "NEW", fieldData = {} }
     end,
+    protectMap = function() end,
     stageActors = function(map)
       calls[#calls + 1] = "stage:" .. map.mapId
       return { mapId = map.mapId }
@@ -50,6 +56,7 @@ function T.tests.same_header_is_a_noop()
     loadMap = function()
       count = count + 1
     end,
+    protectMap = function() end,
   })
   ---@type FieldZoneCoverage
   local fakeCoverage = {
@@ -72,6 +79,7 @@ function T.tests.commit_failure_discards_only_unpublished_stage()
     loadMap = function(mapId)
       return { mapId = mapId, mapSection = "NEW", fieldData = {} }
     end,
+    protectMap = function() end,
     stageActors = function()
       return staged
     end,
@@ -100,6 +108,48 @@ function T.tests.commit_failure_discards_only_unpublished_stage()
   Assert.equal(err, "pre-publication actor commit failed")
   Assert.equal(discarded, 1)
   Assert.equal(controller.currentMap.mapId, 1)
+end
+
+function T.tests.protects_the_destination_without_releasing_physical_owner()
+  local physicalOwner = {
+    releaseCalls = 0,
+    logicalEntries = {},
+    protections = { [1] = true },
+  }
+  function physicalOwner:release()
+    self.releaseCalls = self.releaseCalls + 1
+  end
+  function physicalOwner:protectMap(mapId, protected)
+    self.protections[mapId] = protected and true or nil
+  end
+
+  local source ---@type TestLogicalMap
+  source = { mapId = 1, mapSection = "OLD", physicalOwner = physicalOwner }
+  local destination ---@type TestLogicalMap
+  destination = { mapId = 2, mapSection = "NEW", physicalOwner = physicalOwner }
+  physicalOwner.logicalEntries[1] = source
+  physicalOwner.logicalEntries[2] = destination
+  local controller = FieldZoneController.new({
+    currentMap = source,
+    loadMap = function(mapId)
+      return assert(physicalOwner.logicalEntries[mapId])
+    end,
+    protectMap = function(mapId, protected)
+      physicalOwner:protectMap(mapId, protected)
+    end,
+  })
+
+  controller:afterCoverageCommit({
+    currentCell = function()
+      return { mapHeaderId = 2 }
+    end,
+  }, { fieldX = 0, fieldZ = 0 })
+
+  Assert.isTrue(physicalOwner.protections[2], "the destination logical entry must be protected")
+  Assert.isNil(physicalOwner.protections[1], "the source logical entry must become evictable")
+  Assert.equal(controller.currentMap, destination)
+  Assert.equal(destination.physicalOwner, physicalOwner, "logical loading must preserve physical ownership")
+  Assert.equal(physicalOwner.releaseCalls, 0, "logical loading must not release the physical owner")
 end
 
 return T

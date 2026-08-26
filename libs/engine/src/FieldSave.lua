@@ -58,10 +58,12 @@ local FieldSave = {}
 ---@field surfaceId integer
 ---@field facing string
 
----@class FieldSave.RuntimeMap
+---@class FieldSave.RuntimeMap : RuntimeFieldMap
 ---@field mapId integer
 ---@field terrainDependencyHash string
----@field terrain table
+---@field terrain TerrainSurface
+---@field coordinateOrigin { x: number, z: number }
+---@field collision table
 
 ---@class FieldSave.Surface
 ---@field worldY number
@@ -405,20 +407,19 @@ function FieldSave.capture(session, opts)
   }
 end
 
----@param runtimeMap RuntimeFieldMap
 ---@param localX number
 ---@param localZ number
 ---@param savedY number
 ---@return FieldSave.Surface
+---@param runtimeMap FieldSave.RuntimeMap
 local function closestSurface(runtimeMap, localX, localZ, savedY)
+  local terrain = assert(runtimeMap.terrain)
   local samples = {} ---@type FieldSave.Surface[]
-  local candidates = runtimeMap.terrain:candidatesAt(
-    localX + FieldCoordinates.TILE_CENTER_OFFSET,
-    localZ + FieldCoordinates.TILE_CENTER_OFFSET
-  )
+  local candidates =
+    terrain:candidatesAt(localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET)
   ---@cast candidates table[]
   for _, plate in ipairs(candidates) do
-    local sample = runtimeMap.terrain:sample(
+    local sample = terrain:sample(
       plate.id,
       localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ + FieldCoordinates.TILE_CENTER_OFFSET
@@ -480,18 +481,24 @@ local function restore(record, loader, expectedVersionId, opts)
       { expected = expectedVersionId, actual = canonical.versionId }
     )
   end
-  local runtimeMap = loader:load(canonical.mapId, { fieldX = canonical.fieldX, fieldZ = canonical.fieldZ }) ---@type RuntimeFieldMap
+  local logicalMap = loader:load(canonical.mapId, { fieldX = canonical.fieldX, fieldZ = canonical.fieldZ })
+  local composeRuntimeMap = opts.composeRuntimeMap
+  local runtimeMap = composeRuntimeMap
+      and composeRuntimeMap(logicalMap, { fieldX = canonical.fieldX, fieldZ = canonical.fieldZ })
+    or logicalMap
+  ---@cast runtimeMap FieldSave.RuntimeMap
   local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, canonical.fieldX, canonical.fieldZ) ---@type number, number
+  local terrain = assert(runtimeMap.terrain)
   local surface ---@type FieldSave.Surface
   if
     canonical.terrainDependencyHash == runtimeMap.terrainDependencyHash
-    and runtimeMap.terrain:contains(
+    and terrain:contains(
       canonical.surfaceId,
       localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ + FieldCoordinates.TILE_CENTER_OFFSET
     )
   then
-    surface = runtimeMap.terrain:sample(
+    surface = terrain:sample(
       canonical.surfaceId,
       localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ + FieldCoordinates.TILE_CENTER_OFFSET

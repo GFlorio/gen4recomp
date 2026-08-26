@@ -187,6 +187,7 @@ end
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field fieldEntranceIndicatorAsset table
 ---@field fieldEffectAssets table
+---@field physicalCoverage FieldCoverage?
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -266,6 +267,38 @@ local function spawnSurface(runtimeMap, localX, localZ)
   end
   assert(best, string.format("spawn tile (%d,%d) has no walkable terrain surface", localX, localZ))
   return best
+end
+
+-- Compose the current logical context with the session-owned physical world.
+-- Cached loader entries remain logical-only; this view is disposable and never
+-- releases either collaborator.
+local function composePhysicalMap(logicalMap, coverage)
+  if not coverage then
+    return logicalMap
+  end
+  local runtimeMap = {}
+  for key, value in pairs(logicalMap) do
+    runtimeMap[key] = value
+  end
+  runtimeMap.logicalMap = logicalMap
+  runtimeMap.coverage = coverage
+  runtimeMap.release = function() end
+  runtimeMap.probePhysicalCell = function(_, fieldX, fieldZ)
+    return coverage:probe(fieldX, fieldZ)
+  end
+  runtimeMap.updateAnimated = function()
+    coverage:updateAnimated()
+  end
+  runtimeMap.syncPhysicalFields = function()
+    runtimeMap.fieldRegion = coverage.region
+    runtimeMap.collision = coverage.region.collision
+    runtimeMap.terrain = coverage.region.terrain
+    runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
+    runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
+    runtimeMap.physicalOrigin = coverage.origin
+  end
+  runtimeMap:syncPhysicalFields()
+  return runtimeMap
 end
 
 ---@return table
@@ -428,13 +461,19 @@ function FieldRuntime:_load()
       },
     })
 
-    -- FieldMapLoader owns the simulation assets (field data, collision,
-    -- terrain) through the pure asset paths for every composition. The visual
-    -- scene loader and finite neighbor ring are presentation-only
-    -- collaborators: a non-presentation runtime simply leaves them out.
     self.mapLoader = FieldMapLoader.new(cacheFs, world, {
       sceneLoader = self.presentation and MapSceneLoader or nil,
     })
+    local function composeLoadedMap(logicalMap, position)
+      if logicalMap.scene.type == "outdoor" and self.mapLoader.fieldCellsEnabled then
+        if not self.physicalCoverage then
+          self.physicalCoverage = self.mapLoader:createPhysicalCoverage(logicalMap, position)
+        end
+        return composePhysicalMap(logicalMap, self.physicalCoverage)
+      end
+      return logicalMap
+    end
+    saveValidation.composeRuntimeMap = composeLoadedMap
     local restored
     if self.resumeSave then
       local saved, saveErr = self.saveStore:load()
@@ -480,24 +519,14 @@ function FieldRuntime:_load()
       surfaceId, facing = restored.surfaceId, restored.facing
     else
       assert(spawn, "spawn manifest must define a spawn for " .. self.runtimeMap.mapSymbol)
-      fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
-      if self.runtimeMap.coverage then
-        local anchorX, anchorZ = math.floor(fieldX / 32), math.floor(fieldZ / 32)
-        if self.runtimeMap.coverage.anchorX ~= anchorX or self.runtimeMap.coverage.anchorZ ~= anchorZ then
-          self.runtimeMap.coverage:recenter(anchorX, anchorZ)
-          self.runtimeMap.fieldRegion = self.runtimeMap.coverage.region
-          self.runtimeMap.collision = self.runtimeMap.coverage.region.collision
-          self.runtimeMap.terrain = self.runtimeMap.coverage.region.terrain
-          self.runtimeMap.terrainDependencyHash = self.runtimeMap.coverage.terrainDependencyHash
-          self.runtimeMap.coordinateOrigin = {
-            x = self.runtimeMap.coverage.origin.x,
-            z = self.runtimeMap.coverage.origin.z,
-          }
-          self.runtimeMap.physicalOrigin = self.runtimeMap.coverage.origin
-        end
+      if self.runtimeMap.scene.type == "outdoor" and self.mapLoader.fieldCellsEnabled then
+        fieldX = self.runtimeMap.coordinateOrigin.x + spawn.x
+        fieldZ = self.runtimeMap.coordinateOrigin.z + spawn.z
+        self.runtimeMap = composeLoadedMap(self.runtimeMap, { fieldX = fieldX, fieldZ = fieldZ })
         local spawnLocalX, spawnLocalZ = FieldCoordinates.fieldToLocal(self.runtimeMap, fieldX, fieldZ)
         surfaceId, facing = spawnSurface(self.runtimeMap, spawnLocalX, spawnLocalZ).surfaceId, spawn.facing
       else
+        fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
         surfaceId, facing = spawnSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
       end
     end
@@ -568,7 +597,7 @@ function FieldRuntime:_load()
     if self.presentation or self.runtimeMap.sceneRuntime or self.runtimeMap.scene then
       doorAt = function(runtimeMap, doorFieldX, doorFieldZ)
         local sceneRuntime = runtimeMap.sceneRuntime
-        if sceneRuntime then
+        if sceneRuntime and sceneRuntime.mapProps then
           return sceneRuntime.mapProps:doorAt(runtimeMap, doorFieldX, doorFieldZ)
         end
         local props = headlessProps[runtimeMap.mapId]
@@ -580,7 +609,7 @@ function FieldRuntime:_load()
       end
       escalatorAt = function(runtimeMap, escalatorFieldX, escalatorFieldZ)
         local sceneRuntime = runtimeMap.sceneRuntime
-        if sceneRuntime then
+        if sceneRuntime and sceneRuntime.mapProps then
           return sceneRuntime.mapProps:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
         end
         local props = headlessProps[runtimeMap.mapId]
@@ -748,7 +777,8 @@ function FieldRuntime:_load()
     self.zoneController = FieldZoneController.new({
       currentMap = self.runtimeMap,
       loadMap = function(mapId, player)
-        return self.mapLoader:load(mapId, { fieldX = player.fieldX, fieldZ = player.fieldZ })
+        local logicalMap = self.mapLoader:load(mapId, { fieldX = player.fieldX, fieldZ = player.fieldZ })
+        return composeLoadedMap(logicalMap, { fieldX = player.fieldX, fieldZ = player.fieldZ })
       end,
       stageActors = function(runtimeMap)
         return self.actors:prepareMap(runtimeMap, self.eventState)
@@ -777,6 +807,9 @@ function FieldRuntime:_load()
           self.audio:enterZone(runtimeMap)
         end
       end,
+      protectMap = function(mapId, protected)
+        self.mapLoader:protectMap(mapId, protected)
+      end,
       onChange = function(change)
         self.lastZoneChange = change
       end,
@@ -804,6 +837,7 @@ function FieldRuntime:_load()
       audio = self.audio,
       navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new({
         zoneController = self.zoneController,
+        physicalWorld = self.physicalCoverage,
       }),
       interactions = {
         resolve = function(_, snapshot)
@@ -1335,6 +1369,9 @@ function FieldRuntime:_releaseAll()
   if self.actorAssets then
     self.actorAssets:dispose()
   end
+  if self.physicalCoverage then
+    self.physicalCoverage:release()
+  end
   if self.mapLoader then
     self.mapLoader:release()
   end
@@ -1344,7 +1381,7 @@ function FieldRuntime:_releaseAll()
   self.actors, self.actorAssets, self.mapLoader = nil, nil, nil
   self.audio, self.audioSink, self.mapMusicDayNight = nil, nil, nil
   self.session, self.saveStore, self.scripts = nil, nil, nil
-  self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
+  self.transition, self.camera, self.player, self.runtimeMap, self.physicalCoverage = nil, nil, nil, nil, nil
   self.fieldTerrainEffectController = nil
   self.fieldEffectAssets = nil
   self.fieldEntranceIndicator, self.fieldEntranceIndicatorAsset = nil, nil

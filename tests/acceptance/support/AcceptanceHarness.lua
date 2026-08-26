@@ -581,15 +581,31 @@ function Game:moveTo(target, stopMapId)
     return setmetatable(copy, getmetatable(source))
   end
   local directions = { "north", "south", "west", "east" }
+  local function buildRoute(node)
+    local reversed = {}
+    while node.parent do
+      reversed[#reversed + 1] = {
+        direction = node.direction,
+        fieldX = node.player.fieldX,
+        fieldZ = node.player.fieldZ,
+      }
+      node = node.parent
+    end
+    local route = {}
+    for index = #reversed, 1, -1 do
+      route[#route + 1] = reversed[index]
+    end
+    return route
+  end
   local function findRoute(source)
-    local queue = { { player = copyPlayer(source), route = {} } }
+    local queue = { { player = copyPlayer(source) } }
     local seen = { [source.fieldX .. ":" .. source.fieldZ] = true }
     local head = 1
     while queue[head] do
       local node = queue[head]
       head = head + 1
       if node.player.fieldX .. ":" .. node.player.fieldZ == targetKey then
-        return node.route
+        return buildRoute(node)
       end
       for _, direction in ipairs(directions) do
         local nextPlayer = copyPlayer(node.player)
@@ -608,12 +624,11 @@ function Game:moveTo(target, stopMapId)
           end
           if not seen[key] and (not isWarp or key == targetKey) then
             seen[key] = true
-            local nextRoute = {}
-            for index, step in ipairs(node.route) do
-              nextRoute[index] = step
-            end
-            nextRoute[#nextRoute + 1] = direction
-            queue[#queue + 1] = { player = nextPlayer, route = nextRoute }
+            queue[#queue + 1] = {
+              player = nextPlayer,
+              parent = node,
+              direction = direction,
+            }
           end
         end
       end
@@ -621,14 +636,29 @@ function Game:moveTo(target, stopMapId)
     return nil
   end
 
+  local route
+  local routeIndex = 1
   for _ = 1, 256 do
     player = assert(self.runtime.player, "acceptance runtime player required")
     if player.fieldX .. ":" .. player.fieldZ == targetKey then
       return self:snapshot()
     end
-    local route = assert(findRoute(player), "no production movement route to " .. targetKey)
-    local direction = assert(route[1], "production movement route made no progress")
-    local snapshot = self:_moveOne(direction)
+    if not route or routeIndex > #route then
+      route = assert(findRoute(player), "no production movement route to " .. targetKey)
+      routeIndex = 1
+    end
+    local step = assert(route[routeIndex], "production movement route made no progress")
+    local sourceMapId = player.currentMap and player.currentMap.mapId
+    local snapshot = self:_moveOne(step.direction)
+    if
+      snapshot.mapId == sourceMapId
+      and snapshot.player.fieldX == step.fieldX
+      and snapshot.player.fieldZ == step.fieldZ
+    then
+      routeIndex = routeIndex + 1
+    else
+      route = nil
+    end
     if stopMapId ~= nil and snapshot.mapId == stopMapId then
       return snapshot
     end
