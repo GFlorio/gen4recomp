@@ -4,7 +4,11 @@
 
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local MapMatrix = require("romdump.src.digest.MapMatrix")
+local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapUnits = require("romdump.src.digest.MapUnits")
+local AreaData = require("romdump.src.digest.AreaData")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
+local TerrainAnimationCompiler = require("romdump.src.digest.TerrainAnimationCompiler")
 local FieldCellCache = require("libs.assets.src.FieldCellCache")
 local Hashing = require("romdump.src.digest.Hashing")
 local Errors = require("libs.errors.src.Errors")
@@ -19,8 +23,9 @@ end
 local function compile(romFs)
   local matrixNarc = assert(romFs:openNarc("map_matrices"))
   local matrices, cells = {}, {}
-  local seen = {}
+  local meshes, textures, models = {}, {}, {}
   local matrixMembers = {}
+  local buildingCache, terrainAnimationCompilers, terrainAnimationClips = {}, {}, {}
   for record in MapCatalog.all() do
     if not matrixMembers[record.matrixMemberId] then
       matrixMembers[record.matrixMemberId] = true
@@ -39,11 +44,58 @@ local function compile(romFs)
           local header = MapCatalog.areaForMapHeader(source.mapHeaderId)
           if header and source.landDataMemberId ~= 0xFFFF then
             local key = string.format("%d:%d", record.matrixMemberId, matrix:index(x, z))
-            if not seen[key] then
+            if not cells[key] then
+              local animationKey = tostring(header.areaDataMemberId)
+              local terrainAnimationCompiler = terrainAnimationCompilers[animationKey]
+              if terrainAnimationCompiler == nil then
+                local area = assert(
+                  AreaData.decode(
+                    readMember(assert(romFs:openNarc("area_data")), header.areaDataMemberId),
+                    { alias = "area_data", memberId = header.areaDataMemberId }
+                  )
+                )
+                terrainAnimationCompiler = TerrainAnimationCompiler.new(romFs, {
+                  mapId = source.mapHeaderId,
+                  dynamicTextureType = area.dynamicTextureType,
+                })
+                terrainAnimationCompilers[animationKey] = terrainAnimationCompiler
+              end
               local chunk = NeighborChunkCompiler.compile(romFs, source.landDataMemberId, header.areaDataMemberId, {
                 mapId = source.mapHeaderId,
                 mapSymbol = header.symbol,
+                terrainAnimationCompiler = terrainAnimationCompiler,
               })
+              for sha1, mesh in pairs(chunk.meshes) do
+                meshes[sha1] = mesh
+              end
+              for sha1, texture in pairs(chunk.textures) do
+                textures[sha1] = texture
+              end
+
+              local buildingKey = string.format("%d:%d", source.landDataMemberId, header.areaDataMemberId)
+              local building = buildingCache[buildingKey]
+              if building == nil then
+                building = MapAssetCompiler.compileBuildings(romFs, chunk.area, chunk.land, {
+                  mapId = source.mapHeaderId,
+                  mapSymbol = header.symbol,
+                  areaDataMemberId = header.areaDataMemberId,
+                  landDataMemberId = source.landDataMemberId,
+                  meshes = meshes,
+                  textures = textures,
+                })
+                buildingCache[buildingKey] = building
+              end
+              for modelKey, model in pairs(building.models) do
+                models[modelKey] = model
+              end
+              local textureSrt
+              if terrainAnimationClips[animationKey] == nil then
+                textureSrt = terrainAnimationCompiler:compileTextureSrt()
+                terrainAnimationClips[animationKey] = textureSrt
+              else
+                textureSrt = terrainAnimationClips[animationKey]
+              end
+
               local index = matrix:index(x, z)
               local descriptor = {
                 matrixMemberId = record.matrixMemberId,
@@ -64,13 +116,18 @@ local function compile(romFs)
                 x = x,
                 z = z,
                 mapHeaderId = source.mapHeaderId,
+                origin = {
+                  x = x * 32,
+                  y = MapUnits.altitudeDeltaToTiles(source.altitude),
+                  z = z * 32,
+                },
                 altitude = source.altitude,
                 landDataMemberId = source.landDataMemberId,
                 areaDataMemberId = header.areaDataMemberId,
                 batches = chunk.batches,
                 materials = chunk.materials,
-                buildingInstances = {},
-                terrainAnimations = { textureSrt = false },
+                buildingInstances = building.buildingInstances,
+                terrainAnimations = { textureSrt = textureSrt },
                 collision = {
                   width = 32,
                   height = 32,
@@ -83,7 +140,6 @@ local function compile(romFs)
                 collisionData = chunk.collision,
                 terrainData = chunk.terrain,
               }
-              seen[key] = true
             end
           end
         end
@@ -98,11 +154,18 @@ local function compile(romFs)
       return a.index < b.index
     end)
   end
-  local dependency = Hashing.hashLua(matrices)
+  local dependency = Hashing.hashLua({
+    matrices = matrices,
+    cells = cells,
+    terrainAnimations = terrainAnimationClips,
+  })
   return {
     marker = FieldCellCache.marker(romFs:metadata().sha1, dependency),
     index = { schema = FieldCellCache.INDEX_SCHEMA, matrices = matrices },
     cells = cells,
+    meshes = meshes,
+    textures = textures,
+    models = models,
   }
 end
 

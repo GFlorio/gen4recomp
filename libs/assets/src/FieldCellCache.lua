@@ -3,7 +3,15 @@
 
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local Contract = require("libs.assets.src.DerivedAssetContract")
+local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Validate = require("libs.assets.src.Validate")
+local Errors = require("libs.errors.src.Errors")
+local AssetErrors = require("libs.assets.src.errors")
+
+---@class FieldCellCache.FileSystem
+---@field exists fun(self: FieldCellCache.FileSystem, path: string, expectedType?: string): boolean
+---@field read fun(self: FieldCellCache.FileSystem, path: string): string?
+---@field loadLua fun(self: FieldCellCache.FileSystem, path: string): table?
 
 local FieldCellCache = {}
 FieldCellCache.FORMAT = Contract.fieldCells.cacheFormat
@@ -41,8 +49,13 @@ local function validId(value)
   return Validate.isNonNegativeInteger(value)
 end
 
+local function finiteNumber(value)
+  return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
+end
+
 local function validCell(record, matrix)
   return type(record) == "table"
+    and validId(record.matrixMemberId)
     and validId(record.index)
     and validId(record.x)
     and validId(record.z)
@@ -93,8 +106,36 @@ local function validateIndex(index)
   return true
 end
 
-function FieldCellCache.validateCell(cacheFs, cell)
+---@param index table
+---@return boolean
+function FieldCellCache.validateIndex(index)
+  return validateIndex(index)
+end
+
+---@param cacheFs CacheFs|FieldCellCache.FileSystem
+---@param cell table
+---@param expected table?
+---@return boolean
+function FieldCellCache.validateCell(cacheFs, cell, expected)
   if type(cell) ~= "table" or cell.schema ~= FieldCellCache.CELL_SCHEMA then
+    return false
+  end
+  if expected ~= nil and type(expected) ~= "table" then
+    return false
+  end
+  if
+    expected ~= nil
+    and (
+      cell.matrixMemberId ~= expected.matrixMemberId
+      or cell.index ~= expected.index
+      or cell.x ~= expected.x
+      or cell.z ~= expected.z
+      or cell.mapHeaderId ~= expected.mapHeaderId
+      or cell.altitude ~= expected.altitude
+      or cell.landDataMemberId ~= expected.landDataMemberId
+      or cell.areaDataMemberId ~= expected.areaDataMemberId
+    )
+  then
     return false
   end
   for _, key in ipairs({
@@ -112,15 +153,45 @@ function FieldCellCache.validateCell(cacheFs, cell)
     end
   end
   if
+    type(cell.origin) ~= "table"
+    or not validId(cell.origin.x)
+    or not finiteNumber(cell.origin.y)
+    or not validId(cell.origin.z)
+    or cell.origin.x ~= cell.x * 32
+    or cell.origin.z ~= cell.z * 32
+  then
+    return false
+  end
+  if
     type(cell.collision) ~= "table"
     or type(cell.collision.file) ~= "string"
     or type(cell.terrain) ~= "table"
     or type(cell.terrain.file) ~= "string"
+    or cell.collision.file ~= FieldCellCache.collisionPath(cell.matrixMemberId, cell.index)
+    or cell.terrain.file ~= FieldCellCache.terrainPath(cell.matrixMemberId, cell.index)
+    or cell.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA
     or not Validate.isArray(cell.batches)
     or not Validate.isArray(cell.materials)
     or not Validate.isArray(cell.buildingInstances)
+    or type(cell.terrainAnimations) ~= "table"
   then
     return false
+  end
+  for _, instance in ipairs(cell.buildingInstances) do
+    if
+      type(instance) ~= "table"
+      or not validId(instance.placementIndex)
+      or type(instance.modelKey) ~= "string"
+      or not Validate.isArray(instance.transform)
+      or #instance.transform ~= 16
+    then
+      return false
+    end
+    for _, value in ipairs(instance.transform) do
+      if not finiteNumber(value) then
+        return false
+      end
+    end
   end
   if
     cell.collision.width ~= 32
@@ -130,9 +201,38 @@ function FieldCellCache.validateCell(cacheFs, cell)
   then
     return false
   end
+  local terrain = cacheFs:loadLua(cell.terrain.file)
+  if type(terrain) ~= "table" or terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA then
+    return false
+  end
   local bytes = cacheFs:read(cell.collision.file)
   local collision = bytes and CollisionGridAsset.decode(bytes)
-  return collision ~= nil and collision.width == 32 and collision.height == 32
+  if collision == nil or collision.width ~= 32 or collision.height ~= 32 then
+    return false
+  end
+
+  local ok, paths = pcall(MapAssetCache.referencedPaths, {
+    schema = MapAssetCache.SCENE_SCHEMA,
+    kind = "field-cell",
+    terrainAnimations = cell.terrainAnimations,
+    mapBatches = cell.batches,
+    materials = cell.materials,
+    buildingInstances = cell.buildingInstances,
+    neighbors = {},
+  }, cacheFs)
+  if not ok then
+    local errorValue = paths ---@cast errorValue Errors.Error
+    if Errors.is(errorValue) and errorValue.code == AssetErrors.MAP_CACHE_SCENE_INVALID then
+      return false
+    end
+    error(errorValue)
+  end
+  for _, path in ipairs(paths) do
+    if not cacheFs:exists(path, "file") then
+      return false
+    end
+  end
+  return true
 end
 
 function FieldCellCache.isReady(cacheFs, expectedMarker)
@@ -146,7 +246,7 @@ function FieldCellCache.isReady(cacheFs, expectedMarker)
   for _, matrix in ipairs(index.matrices) do
     for _, entry in ipairs(matrix.cells) do
       local cell = cacheFs:loadLua(entry.file)
-      if not FieldCellCache.validateCell(cacheFs, cell) then
+      if not FieldCellCache.validateCell(cacheFs, cell, entry) then
         return false
       end
     end

@@ -74,9 +74,9 @@ DerivedAssetContract.map = {
 }
 
 DerivedAssetContract.fieldCells = {
-  cacheFormat = "field-cell-cache-v1",
-  indexSchema = "g4-field-cell-index-v1",
-  cellSchema = "g4-field-cell-v1",
+  cacheFormat = "field-cell-cache-v2",
+  indexSchema = "g4-field-cell-index-v2",
+  cellSchema = "g4-field-cell-v2",
 }
 
 DerivedAssetContract.fieldActors = {

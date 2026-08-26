@@ -96,6 +96,8 @@ function NeighborChunkCompiler.compile(romFs, landMemberId, areaMemberId, contex
   end
 
   return {
+    area = area,
+    land = land,
     batches = compiled.batches,
     materials = compiled.materials,
     unresolved = compiled.unresolved,

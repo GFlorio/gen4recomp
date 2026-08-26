@@ -13,7 +13,6 @@ local MapAssetCache = {}
 ---@field schema string
 ---@field kind string
 ---@field materials table[]
----@field batches table[]
 ---@field mapBatches table[]
 ---@field buildingInstances table[]
 ---@field neighbors table[]
