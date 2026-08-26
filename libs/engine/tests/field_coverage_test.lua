@@ -198,6 +198,28 @@ function T.failed_acquisition_keeps_active_anchor()
   Assert.equal(coverage:status().anchorZ, 1)
 end
 
+function T.failed_runtime_normalization_releases_acquired_cell()
+  local releases = 0
+  Assert.throws(function()
+    FieldCoverage.new({
+      matrixMemberId = 1,
+      index = makeIndex(),
+      anchorX = 1,
+      anchorZ = 1,
+      loadCell = function(descriptor)
+        return {
+          key = string.format("%d:%d", descriptor.x, descriptor.z),
+          origin = { x = descriptor.origin.x, y = descriptor.origin.y },
+          release = function()
+            releases = releases + 1
+          end,
+        }
+      end,
+    })
+  end)
+  Assert.equal(releases, 1, "normalization failure releases the acquired cell")
+end
+
 local function adjacentIndex(reverse)
   local destinationPlates = {
     {

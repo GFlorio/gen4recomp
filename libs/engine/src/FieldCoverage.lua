@@ -143,25 +143,27 @@ local function runtimeFromDescriptor(self, descriptor, acquirePresentation)
     }
   end
   runtime = assert(runtime, "field cell loader returned no runtime")
-  runtime.key = runtime.key or key(descriptor.x, descriptor.z)
-  runtime.x, runtime.z = runtime.x or descriptor.x, runtime.z or descriptor.z
-  runtime.altitude = runtime.altitude or descriptor.altitude
-  runtime.origin = cellOrigin(runtime, descriptor)
-  local presentationDescriptor = runtime.descriptor or descriptor
-  local presentation
-  if acquirePresentation and self.presentationLoader then
-    local ok, result = pcall(self.presentationLoader, runtime, presentationDescriptor)
-    if not ok then
-      if runtime.release then
-        runtime:release()
-      end
-      error(result, 0)
+  local ok, result = pcall(function()
+    runtime.key = runtime.key or key(descriptor.x, descriptor.z)
+    runtime.x, runtime.z = runtime.x or descriptor.x, runtime.z or descriptor.z
+    runtime.altitude = runtime.altitude or descriptor.altitude
+    runtime.origin = cellOrigin(runtime, descriptor)
+    local presentationDescriptor = runtime.descriptor or descriptor
+    local presentation
+    if acquirePresentation and self.presentationLoader then
+      presentation = self.presentationLoader(runtime, presentationDescriptor)
+    else
+      presentation = runtime.presentation
     end
-    presentation = result
-  else
-    presentation = runtime.presentation
+    return ownPresentation(runtime, presentation)
+  end)
+  if not ok then
+    if runtime.release then
+      runtime:release()
+    end
+    error(result, 0)
   end
-  return ownPresentation(runtime, presentation)
+  return result
 end
 
 local function buildRegion(cells, anchor)
