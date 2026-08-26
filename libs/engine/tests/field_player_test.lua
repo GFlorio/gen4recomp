@@ -655,4 +655,59 @@ function T.direction_tap_during_a_turn_is_consumed_at_the_next_boundary()
   Assert.equal(p.motion, "idle")
 end
 
+function T.physical_probe_occupancy_uses_the_current_surface_domain()
+  local queriedSurfaceId
+  local map = runtimeMap()
+  map.terrain.plates[1].cellKey = "0:0"
+  map.terrain.plates[1].sourceSurfaceId = 0
+  local coverage = {
+    index = {},
+    matrixMemberId = 1,
+    loadCell = function() end,
+    presentationLoader = nil,
+    cells = {},
+    anchorX = 0,
+    anchorZ = 0,
+    origin = { x = 0, y = 0, z = 0 },
+    region = {},
+    terrainDependencyHash = "test-coverage",
+    released = false,
+  }
+  ---@cast coverage FieldCoverage
+  map.coverage = coverage
+  function coverage:containsGlobal()
+    return false
+  end
+  map.probePhysicalCell = function()
+    return {
+      cellKey = "1:0",
+      sourceSurfaceId = 0,
+      worldY = 0,
+      collision = { blocked = false },
+    }
+  end
+  map.fieldRegion = {
+    sourceSurface = function(_, cellKey, sourceSurfaceId)
+      if cellKey == "1:0" and sourceSurfaceId == 0 then
+        return 7
+      end
+      return nil
+    end,
+  }
+  local p = FieldPlayer.new({
+    currentMap = map,
+    fieldX = 31,
+    fieldZ = 4,
+    surfaceId = 0,
+    facing = "east",
+    occupancy = function(_, _, surfaceId)
+      queriedSurfaceId = surfaceId
+      return surfaceId == 7 and "solid-destination" or nil
+    end,
+  })
+
+  Assert.isFalse(p:tryStep("east"))
+  Assert.equal(queriedSurfaceId, 7)
+end
+
 return { tests = T }

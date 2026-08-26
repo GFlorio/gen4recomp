@@ -33,7 +33,7 @@ local function cellIndex()
             x = 1,
             z = 0,
             altitude = 1,
-            origin = { x = 32, y = 1, z = 0 },
+            origin = { x = 32, y = 0.5, z = 0 },
           },
         },
       },
@@ -62,7 +62,7 @@ local function loadCell(descriptor)
     terrain = TerrainSurface.new({
       plates = {
         {
-          id = 0,
+          id = 1,
           minX = 0,
           minZ = 0,
           maxX = 32,
@@ -87,21 +87,41 @@ local function newCoverage()
   })
 end
 
-local function mapFor(coverage, coordinateOriginX)
-  return {
+local function integerOrigin(value)
+  assert(value % 1 == 0, "fixture origin must be an integer")
+  ---@cast value integer
+  return value
+end
+
+local function mapFor(coverage)
+  local originX = integerOrigin(coverage.origin.x)
+  local originZ = integerOrigin(coverage.origin.z)
+  local map = {
     mapId = 60,
     mapSymbol = "projection-test",
     mapSection = "test-section",
-    coordinateOrigin = { x = math.floor(coordinateOriginX), z = 0 },
+    coordinateOrigin = { x = originX, z = originZ },
+    physicalOrigin = coverage.origin,
     collision = coverage.region.collision,
     terrain = coverage.region.terrain,
     fieldRegion = coverage.region,
+    coverage = coverage,
     scene = {},
     fieldData = {},
     cameraType = 4,
     updateAnimated = function() end,
     release = function() end,
   } --[[@as RuntimeFieldMap]]
+  function map:syncPhysicalFields()
+    local syncedOriginX = integerOrigin(coverage.origin.x)
+    local syncedOriginZ = integerOrigin(coverage.origin.z)
+    self.fieldRegion = coverage.region
+    self.collision = coverage.region.collision
+    self.terrain = coverage.region.terrain
+    self.coordinateOrigin = { x = syncedOriginX, z = syncedOriginZ }
+    self.physicalOrigin = coverage.origin
+  end
+  return map
 end
 
 local function cameraProfile()
@@ -131,10 +151,10 @@ end
 function T.altitude_recenter_translates_player_camera_terrain_and_effect_in_one_xyz_frame()
   local coverage = newCoverage()
   local oldOrigin = coverage:status().physicalOrigin
-  local oldMap = mapFor(coverage, oldOrigin.x)
-  local sourceSurfaceId = assert(coverage:sourceSurface("1:0", 0))
+  local runtimeMap = mapFor(coverage)
+  local sourceSurfaceId = assert(coverage:sourceSurface("1:0", 1))
   local player = FieldPlayer.new({
-    currentMap = oldMap,
+    currentMap = runtimeMap,
     fieldX = 33,
     fieldZ = 1,
     surfaceId = sourceSurfaceId,
@@ -168,6 +188,14 @@ function T.altitude_recenter_translates_player_camera_terrain_and_effect_in_one_
   effects:emit({ kind = "tall_grass", fieldX = 33, fieldZ = 1, worldY = player.worldY, direction = "east" })
 
   local beforePlayer = { x = player.worldX, y = player.worldY, z = player.worldZ }
+  player.previousWorldX = player.worldX - 0.25
+  player.previousWorldY = player.worldY - 0.125
+  player.previousWorldZ = player.worldZ + 0.5
+  local beforePreviousPlayer = {
+    x = player.previousWorldX,
+    y = player.previousWorldY,
+    z = player.previousWorldZ,
+  }
   local beforeCamera = {
     sourceTarget = copyPoint(camera.sourceTarget),
     target = copyPoint(camera.target),
@@ -187,17 +215,21 @@ function T.altitude_recenter_translates_player_camera_terrain_and_effect_in_one_
     y = oldOrigin.y - newOrigin.y,
     z = oldOrigin.z - newOrigin.z,
   }
-  local newMap = mapFor(coverage, newOrigin.x)
-  -- The current boundary accepts only the horizontal frame delta; these
-  -- assertions define the full-frame extension that must carry the same XYZ delta.
-  player:rebindCoverage(newMap, delta.x, 0, delta.z, "1:0", 0)
+  runtimeMap:syncPhysicalFields()
+  player:rebindCoverage(runtimeMap, delta.x, delta.y, delta.z, "1:0", 1)
   camera:rebase(delta.x, delta.y, delta.z)
 
   local afterEffect = effects:drawItems(newOrigin)[1]
-  local reboundSurfaceId = assert(coverage:sourceSurface("1:0", 0))
+  local reboundSurfaceId = assert(coverage:sourceSurface("1:0", 1))
   local afterTerrainY = coverage.region.terrain:sampleHeight(reboundSurfaceId, 1.5, 1.5)
 
   assertTranslated(player:renderPosition(), beforePlayer, delta, "player")
+  assertTranslated(
+    { x = player.previousWorldX, y = player.previousWorldY, z = player.previousWorldZ },
+    beforePreviousPlayer,
+    delta,
+    "previous player"
+  )
   Assert.equal(player.surfaceId, reboundSurfaceId, "player surface identity must survive composite-id remapping")
   for name, before in pairs(beforeCamera) do
     assertTranslated(camera[name], before, delta, "camera " .. name)

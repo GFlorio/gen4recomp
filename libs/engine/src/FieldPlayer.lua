@@ -10,6 +10,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldGrid = require("libs.engine.src.FieldGrid")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldTraversal = require("libs.engine.src.FieldTraversal")
 
@@ -182,13 +183,26 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
     and self.currentMap.coverage
     and (not self.currentMap.coverage:containsGlobal(destinationX, destinationZ) or not currentSurfaceCoversSource)
   then
-    local probe = self.currentMap:probePhysicalCell(destinationX, destinationZ)
+    local currentSourceSurfaceId = self.committedSourceSurfaceId
+    assert(currentSourceSurfaceId ~= nil, "player stable source id is missing")
+    local probe = self.currentMap:probePhysicalCell(destinationX, destinationZ, {
+      currentCellKey = assert(self.committedSourceCellKey, "player stable source cell identity is missing"),
+      currentSourceSurfaceId = currentSourceSurfaceId,
+      currentY = self.worldY,
+      fromFieldX = self.fieldX,
+      fromFieldZ = self.fieldZ,
+    })
     if not probe or probe.collision.blocked then
       return nil
     end
     local localX = destinationX - self.currentMap.coordinateOrigin.x
     local localZ = destinationZ - self.currentMap.coordinateOrigin.z
-    if self.occupancy and self.occupancy(destinationX, destinationZ, probe.sourceSurfaceId) then
+    local worldX, worldZ = FieldGrid.tileCenterToWorld(localX, localZ)
+    local surfaceId = probe.surfaceId
+    if surfaceId == nil and self.currentMap.fieldRegion then
+      surfaceId = self.currentMap.fieldRegion:sourceSurface(probe.cellKey, probe.sourceSurfaceId)
+    end
+    if surfaceId ~= nil and self.occupancy and self.occupancy(destinationX, destinationZ, surfaceId) then
       return nil
     end
     return {
@@ -196,10 +210,10 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
       fieldZ = destinationZ,
       localX = localX,
       localZ = localZ,
-      worldX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      worldX = worldX,
       worldY = probe.worldY,
-      worldZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-      surfaceId = self.surfaceId,
+      worldZ = worldZ,
+      surfaceId = surfaceId,
       sourceCellKey = probe.cellKey,
       sourceSurfaceId = probe.sourceSurfaceId,
     }
@@ -326,7 +340,13 @@ function FieldPlayer:tryStep(direction)
       and not self.currentMap.coverage:containsGlobal(destinationX, destinationZ)
       and self.currentMap.probePhysicalCell
     then
-      local probe = self.currentMap:probePhysicalCell(destinationX, destinationZ)
+      local probe = self.currentMap:probePhysicalCell(destinationX, destinationZ, {
+        currentCellKey = assert(self.committedSourceCellKey, "player stable source cell identity is missing"),
+        currentSourceSurfaceId = assert(self.committedSourceSurfaceId, "player stable source id is missing"),
+        currentY = self.worldY,
+        fromFieldX = self.fieldX,
+        fromFieldZ = self.fieldZ,
+      })
       return probe and probe.collision or { blocked = true }
     end
     if not self.currentMap.collision.getLocal then
@@ -565,6 +585,8 @@ function FieldPlayer:_advanceJump()
   self.localX, self.localZ = self.to.localX, self.to.localZ
   self.worldX, self.worldY, self.worldZ = self.to.worldX, self.to.worldY, self.to.worldZ
   self.surfaceId = self.to.surfaceId
+  self.committedSourceCellKey = self.to.sourceCellKey
+  self.committedSourceSurfaceId = self.to.sourceSurfaceId
   self.motion = "idle"
   self.progressTicks = 0
   self.from, self.to = nil, nil
@@ -674,8 +696,7 @@ function FieldPlayer:rebindCoverage(runtimeMap, deltaX, deltaY, deltaZ, cellKey,
     type(deltaX) == "number" and type(deltaY) == "number" and type(deltaZ) == "number",
     "coverage rebase delta required"
   )
-  assert(cellKey and sourceSurfaceId, "player source surface identity required")
-  local oldPoint = projectPoint(self.currentMap, self.fieldX, self.fieldZ, cellKey, sourceSurfaceId)
+  assert(cellKey ~= nil and sourceSurfaceId ~= nil, "player source surface identity required")
   local point = projectPoint(runtimeMap, self.fieldX, self.fieldZ, cellKey, sourceSurfaceId)
   self.currentMap = runtimeMap
   self.resolver = SurfaceResolver.new(runtimeMap.terrain)
@@ -685,17 +706,12 @@ function FieldPlayer:rebindCoverage(runtimeMap, deltaX, deltaY, deltaZ, cellKey,
   ---@cast projectedLocalZ integer
   self.localX, self.localZ = projectedLocalX, projectedLocalZ
   self.surfaceId = point.surfaceId
-  local frameDelta = {
-    x = point.worldX - oldPoint.worldX,
-    y = point.worldY - oldPoint.worldY,
-    z = point.worldZ - oldPoint.worldZ,
-  }
-  self.worldX = self.worldX + frameDelta.x
-  self.worldY = self.worldY + frameDelta.y
-  self.worldZ = self.worldZ + frameDelta.z
-  self.previousWorldX = self.previousWorldX + frameDelta.x
-  self.previousWorldY = self.previousWorldY + frameDelta.y
-  self.previousWorldZ = self.previousWorldZ + frameDelta.z
+  self.worldX = self.worldX + deltaX
+  self.worldY = self.worldY + deltaY
+  self.worldZ = self.worldZ + deltaZ
+  self.previousWorldX = self.previousWorldX + deltaX
+  self.previousWorldY = self.previousWorldY + deltaY
+  self.previousWorldZ = self.previousWorldZ + deltaZ
   self.committedSourceCellKey = cellKey
   self.committedSourceSurfaceId = sourceSurfaceId
 end

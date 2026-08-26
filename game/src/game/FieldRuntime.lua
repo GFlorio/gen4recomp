@@ -284,8 +284,8 @@ local function composePhysicalMap(logicalMap, coverage)
   runtimeMap.logicalMap = logicalMap
   runtimeMap.coverage = coverage
   runtimeMap.release = function() end
-  runtimeMap.probePhysicalCell = function(_, fieldX, fieldZ)
-    return coverage:probe(fieldX, fieldZ)
+  runtimeMap.probePhysicalCell = function(_, fieldX, fieldZ, context)
+    return coverage:probe(fieldX, fieldZ, context)
   end
   runtimeMap.projectPhysicalPoint = function(_, fieldX, fieldZ, cellKey, sourceSurfaceId)
     return coverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)

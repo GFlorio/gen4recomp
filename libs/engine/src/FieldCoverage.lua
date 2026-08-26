@@ -9,7 +9,14 @@ local FieldCellCache = require("libs.assets.src.FieldCellCache")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local Matrix4 = require("libs.math.src.Matrix4")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
+local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
+---@class PhysicalProbeContext
+---@field currentCellKey string
+---@field currentSourceSurfaceId integer
+---@field currentY number
+---@field fromFieldX integer
+---@field fromFieldZ integer
 ---@class FieldCoverage
 ---@field cacheFs CacheFs?
 ---@field index table
@@ -375,7 +382,106 @@ end
 -- Read-only generated-cache lookup used by route planning before a committed
 -- step can recenter the resident window. It creates no resident ownership and
 -- releases the temporary CPU cell immediately.
-function FieldCoverage:probe(fieldX, fieldZ)
+local function terrainFor(runtime)
+  if runtime.terrain.candidatesAt and runtime.terrain.plate and runtime.terrain.sampleHeight then
+    return runtime.terrain
+  end
+  return TerrainSurface.new(runtime.terrain)
+end
+
+local function resolveProbe(self, runtime, sourceRuntime, fieldX, fieldZ, context)
+  local terrain
+  local localX, localZ
+  local region
+  if context then
+    local source = assert(sourceRuntime, "probe source cell runtime is missing")
+    local sourceOrigin = assert(source.origin, "probe source cell origin is missing")
+    if runtime == source and self.cells[context.currentCellKey] then
+      region = self.region
+      localX = fieldX - self.origin.x + 0.5
+      localZ = fieldZ - self.origin.z + 0.5
+      local fromX = context.fromFieldX - self.origin.x + 0.5
+      local fromZ = context.fromFieldZ - self.origin.z + 0.5
+      terrain = region.terrain
+      local currentSurfaceId = assert(
+        region:sourceSurface(context.currentCellKey, context.currentSourceSurfaceId),
+        "probe source surface is absent from current coverage"
+      )
+      local sample = SurfaceResolver.new(terrain):resolve({
+        localX = localX,
+        localZ = localZ,
+        currentSurfaceId = currentSurfaceId,
+        currentY = context.currentY,
+        crossing = { fromX = fromX, fromZ = fromZ, toX = localX, toZ = localZ },
+      })
+      return sample, terrain, region, 0
+    end
+
+    local destinationOrigin = assert(runtime.origin, "probe destination cell origin is missing")
+    local neighbors = {}
+    if runtime ~= source then
+      neighbors[1] = {
+        key = runtime.key,
+        offsetTilesX = destinationOrigin.x - sourceOrigin.x,
+        offsetTilesY = destinationOrigin.y - sourceOrigin.y,
+        offsetTilesZ = destinationOrigin.z - sourceOrigin.z,
+        collision = runtime.collision,
+        terrain = runtime.terrain,
+      }
+    end
+    region = FieldRegion.new(source.collision, source.terrain, neighbors, source.key, 1)
+    local currentSurfaceId = assert(
+      region:sourceSurface(context.currentCellKey, context.currentSourceSurfaceId),
+      "probe source surface is absent from temporary region"
+    )
+    local fromX = context.fromFieldX - sourceOrigin.x + 0.5
+    local fromZ = context.fromFieldZ - sourceOrigin.z + 0.5
+    local destinationX = fieldX - sourceOrigin.x + 0.5
+    local destinationZ = fieldZ - sourceOrigin.z + 0.5
+    local frameOffsetY = sourceOrigin.y - self.origin.y
+    local sample = SurfaceResolver.new(region.terrain):resolve({
+      localX = destinationX,
+      localZ = destinationZ,
+      currentSurfaceId = currentSurfaceId,
+      currentY = context.currentY - frameOffsetY,
+      crossing = { fromX = fromX, fromZ = fromZ, toX = destinationX, toZ = destinationZ },
+    })
+    return sample, region.terrain, region, frameOffsetY
+  end
+
+  local destinationX = fieldX - math.floor(fieldX / 32) * 32 + 0.5
+  local destinationZ = fieldZ - math.floor(fieldZ / 32) * 32 + 0.5
+  terrain = terrainFor(runtime)
+  local sample = SurfaceResolver.new(terrain):resolve({ localX = destinationX, localZ = destinationZ })
+  return sample, terrain, nil, 0
+end
+
+local function cellCoordinates(cellKey)
+  local x, z = string.match(cellKey, "^(-?%d+):(-?%d+)$")
+  assert(x and z, "physical cell key must contain integer coordinates")
+  return assert(tonumber(x)), assert(tonumber(z))
+end
+
+local function acquireProbeCell(self, cellKey)
+  local runtime = self.cells[cellKey]
+  if runtime then
+    return runtime, false
+  end
+  local cellX, cellZ = cellCoordinates(cellKey)
+  local descriptor = assert(
+    FieldCellCache.find(self.index, self.matrixMemberId, cellX, cellZ),
+    "probe source cell descriptor is missing"
+  )
+  return assert(runtimeFromDescriptor(self, descriptor, false)), true
+end
+
+---@param fieldX integer
+---@param fieldZ integer
+---@param context PhysicalProbeContext?
+---@return table?
+function FieldCoverage:probe(fieldX, fieldZ, context)
+  assert(type(fieldX) == "number" and fieldX % 1 == 0, "probed fieldX must be an integer")
+  assert(type(fieldZ) == "number" and fieldZ % 1 == 0, "probed fieldZ must be an integer")
   local cellX, cellZ = math.floor(fieldX / 32), math.floor(fieldZ / 32)
   local descriptor = FieldCellCache.find(self.index, self.matrixMemberId, cellX, cellZ)
   if not descriptor then
@@ -388,24 +494,45 @@ function FieldCoverage:probe(fieldX, fieldZ)
   local cellKey = key(cellX, cellZ)
   local runtime = self.cells[cellKey]
   local temporary = runtime == nil
-  runtime = runtime or assert(runtimeFromDescriptor(self, descriptor, false))
+  local sourceRuntime
+  local sourceTemporary = false
   local localX, localZ = fieldX - cellX * 32, fieldZ - cellZ * 32
-  local collision = runtime.collision:getLocal(localX, localZ)
-  collision.cellKey = cellKey
-  local candidates = runtime.terrain:candidatesAt(localX + 0.5, localZ + 0.5)
-  local plate = candidates[1]
+  local ok, result = pcall(function()
+    if context then
+      if context.currentCellKey == cellKey then
+        if runtime == nil then
+          runtime, temporary = acquireProbeCell(self, cellKey)
+        end
+        sourceRuntime = runtime
+      else
+        sourceRuntime, sourceTemporary = acquireProbeCell(self, context.currentCellKey)
+      end
+    end
+    runtime = runtime or assert(runtimeFromDescriptor(self, descriptor, false))
+    local collision = runtime.collision:getLocal(localX, localZ)
+    collision.cellKey = cellKey
+    local sample, terrain, region, frameOffsetY = resolveProbe(self, runtime, sourceRuntime, fieldX, fieldZ, context)
+    local plate = assert(terrain:plate(sample.surfaceId), "probed terrain surface is missing")
+    return {
+      cellKey = plate.cellKey or cellKey,
+      collision = collision,
+      sourceSurfaceId = plate.sourceSurfaceId ~= nil and plate.sourceSurfaceId or plate.id,
+      surfaceId = context and region == self.region and sample.surfaceId or nil,
+      worldY = sample.worldY + frameOffsetY,
+    }
+  end)
   if temporary and runtime.release then
     runtime:release()
   end
-  if not plate then
-    return nil
+  if sourceTemporary and sourceRuntime.release then
+    sourceRuntime:release()
   end
-  local result = {
-    cellKey = cellKey,
-    collision = collision,
-    sourceSurfaceId = plate.id,
-    worldY = (plate.distance - plate.normal.x * (localX + 0.5) - plate.normal.z * (localZ + 0.5)) / plate.normal.y,
-  }
+  if not ok then
+    if SurfaceResolver.isStepRejection(result) then
+      return nil
+    end
+    error(result, 0)
+  end
   return result
 end
 

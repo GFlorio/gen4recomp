@@ -49,27 +49,25 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
   local targetZ = math.floor(player.fieldZ / 32)
   local sourceCellKey = player.committedSourceCellKey
   local sourceSurfaceId = player.committedSourceSurfaceId
+  if sourceCellKey == nil or sourceSurfaceId == nil then
+    local plate = assert(runtimeMap.terrain:plate(player.surfaceId), "player surface is missing after movement")
+    sourceCellKey = assert(plate.cellKey, "player stable source cell identity is missing")
+    sourceSurfaceId =
+      assert(plate.sourceSurfaceId ~= nil and plate.sourceSurfaceId, "player stable source id is missing")
+  end
   if coverage.anchorX == targetX and coverage.anchorZ == targetZ then
-    if sourceCellKey and sourceSurfaceId then
-      player:rebindCoverage(runtimeMap, 0, 0, 0, sourceCellKey, sourceSurfaceId)
-    end
+    player:rebindCoverage(runtimeMap, 0, 0, 0, sourceCellKey, sourceSurfaceId)
     if self.reconcilePhysicalWorld then
       self.reconcilePhysicalWorld()
     end
     return self.zoneController and self.zoneController:afterCoverageCommit(coverage, player) or coverage:status()
   end
-  local oldOrigin = runtimeMap.physicalOrigin
-    or {
-      x = runtimeMap.coordinateOrigin.x,
-      y = 0,
-      z = runtimeMap.coordinateOrigin.z,
-    }
-  if not sourceCellKey then
-    local plate = runtimeMap.terrain:plate(player.surfaceId)
-    if plate then
-      sourceCellKey, sourceSurfaceId = plate.cellKey, plate.sourceSurfaceId
-    end
-  end
+  local currentOrigin = runtimeMap.physicalOrigin or coverage.origin
+  local oldOrigin = {
+    x = currentOrigin.x,
+    y = currentOrigin.y,
+    z = currentOrigin.z,
+  }
   coverage:recenter(targetX, targetZ)
   if runtimeMap.syncPhysicalFields then
     runtimeMap:syncPhysicalFields()

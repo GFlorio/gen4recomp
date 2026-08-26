@@ -44,7 +44,7 @@ FieldMapLoader.__index = FieldMapLoader
 ---@field physicalOrigin { x: number, y: number, z: number }?
 ---@field neighborRuntime table?
 ---@field coverage FieldCoverage? only on a session-owned composed field view
----@field probePhysicalCell fun(self: RuntimeFieldMap, fieldX: integer, fieldZ: integer): table?|nil
+---@field probePhysicalCell fun(self: RuntimeFieldMap, fieldX: integer, fieldZ: integer, context: PhysicalProbeContext?): table?|nil
 ---@field release fun(self: RuntimeFieldMap)
 ---@field updateAnimated fun(self: RuntimeFieldMap)
 

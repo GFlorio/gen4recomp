@@ -283,6 +283,7 @@ end
 function Game:snapshot()
   local runtime = self.runtime
   local player = runtime.player or {}
+  local camera = runtime.camera
   local dialogue = runtime.dialogue
   local scheduler = runtime.scripts and runtime.scripts.scheduler
   local actors, occupancy = {}, {}
@@ -310,11 +311,29 @@ function Game:snapshot()
     player = {
       fieldX = player.fieldX,
       fieldZ = player.fieldZ,
+      localX = player.localX,
+      localZ = player.localZ,
+      worldX = player.worldX,
       worldY = player.worldY,
+      worldZ = player.worldZ,
+      previousWorldX = player.previousWorldX,
+      previousWorldY = player.previousWorldY,
+      previousWorldZ = player.previousWorldZ,
       surfaceId = player.surfaceId,
       facing = player.facing,
       motion = player.motion,
     },
+    camera = camera and {
+      sourceTarget = {
+        x = camera.sourceTarget.x,
+        y = camera.sourceTarget.y,
+        z = camera.sourceTarget.z,
+      },
+      target = { x = camera.target.x, y = camera.target.y, z = camera.target.z },
+      previousTarget = { x = camera.previousTarget.x, y = camera.previousTarget.y, z = camera.previousTarget.z },
+      eye = { x = camera.eye.x, y = camera.eye.y, z = camera.eye.z },
+      previousEye = { x = camera.previousEye.x, y = camera.previousEye.y, z = camera.previousEye.z },
+    } or nil,
     playerVisual = runtime.playerVisual and {
       pose = runtime.playerVisual.pose,
       poseTick = runtime.playerVisual.poseTick,

@@ -65,6 +65,33 @@ local function assertSeam(game, expectedMapId, expectedMapSymbol, label)
   Assert.equal(destination.mapSymbol, expectedMapSymbol)
   Assert.equal(destination.transition.phase, "idle", label .. " must not start a fade transition")
   Assert.isNil(game.runtime.transition.sourceKind, label .. " must remain outside the warp transition lifecycle")
+
+  local origin =
+    assert(destination.coverage and destination.coverage.physicalOrigin, label .. " physical origin is required")
+  Assert.equal(destination.player.localX, destination.player.fieldX - origin.x, label .. " local X")
+  Assert.equal(destination.player.localZ, destination.player.fieldZ - origin.z, label .. " local Z")
+  Assert.near(destination.player.worldX, destination.player.localX - 15.5, 1e-9, label .. " world X")
+  Assert.near(destination.player.worldZ, destination.player.localZ - 15.5, 1e-9, label .. " world Z")
+  Assert.isTrue(
+    math.abs(destination.player.worldX - destination.player.previousWorldX) < 1,
+    label .. " current and previous X must share the physical frame"
+  )
+  Assert.isTrue(
+    math.abs(destination.player.worldZ - destination.player.previousWorldZ) < 1,
+    label .. " current and previous Z must share the physical frame"
+  )
+  Assert.notNil(destination.camera, label .. " camera frame is required")
+  Assert.near(destination.camera.target.x, destination.player.worldX, 1e-9, label .. " camera target X")
+  Assert.near(destination.camera.target.y, destination.player.worldY, 1e-9, label .. " camera target Y")
+  Assert.near(destination.camera.target.z, destination.player.worldZ, 1e-9, label .. " camera target Z")
+  for _, axis in ipairs({ "x", "y", "z" }) do
+    Assert.near(
+      destination.camera.eye[axis] - destination.camera.target[axis],
+      source.camera.eye[axis] - source.camera.target[axis],
+      1e-9,
+      label .. " camera eye offset " .. axis
+    )
+  end
 end
 
 local function findEffect(snapshot, fieldX, fieldZ)
