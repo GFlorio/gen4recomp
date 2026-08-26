@@ -616,6 +616,24 @@ function T.direction_matching_ledge_commits_a_two_tile_sixteen_tick_jump()
   Assert.equal(p.motion, "idle")
 end
 
+function T.normal_steps_preserve_source_surface_identity_for_effects()
+  local map = runtimeMap()
+  map.terrain:plate(0).cellKey = "0:0"
+  map.terrain:plate(0).sourceSurfaceId = 0
+  map.terrain:plate(1).cellKey = "0:0"
+  map.terrain:plate(1).sourceSurfaceId = 1
+  local p = player(map, 0, 4, 0, "east")
+
+  Assert.isTrue(p:tryStep("east"))
+  for _ = 1, FieldPlayer.WALK_STEP_TICKS do
+    p:updateFixed({})
+  end
+
+  Assert.equal(p.fieldX, 1)
+  Assert.equal(p.committedSourceCellKey, "0:0")
+  Assert.equal(p.committedSourceSurfaceId, 1)
+end
+
 function T.direction_tap_during_a_turn_is_consumed_at_the_next_boundary()
   local p = player(runtimeMap(), 0, 4, 0, "south")
   tick(p, "north", "north")
