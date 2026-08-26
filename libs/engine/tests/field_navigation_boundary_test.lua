@@ -104,6 +104,38 @@ function T.tests.does_not_reuse_outdoor_world_for_indoor_maps()
   Assert.isNil(boundary:afterCommittedMove(runtimeMap, player, {}))
 end
 
+function T.tests.uses_the_current_coverage_after_ownership_replacement()
+  local sourceCalls = 0
+  local destinationCalls = 0
+  local sourceCoverage = {
+    mapHeaderAt = function()
+      sourceCalls = sourceCalls + 1
+      return 60
+    end,
+  }
+  local destinationCoverage = {
+    mapHeaderAt = function()
+      destinationCalls = destinationCalls + 1
+      return 61
+    end,
+  }
+  local currentCoverage = sourceCoverage
+  local boundary = FieldNavigationBoundary.new({
+    coverageProvider = function()
+      return currentCoverage
+    end,
+    zoneController = { currentMap = { mapId = 60 } },
+  })
+  local runtimeMap = { scene = { type = "outdoor" } }
+  local player = { fieldX = 0, fieldZ = 0 }
+
+  Assert.isFalse(boundary:crossesLogicalZone(runtimeMap, player, "south"))
+  currentCoverage = destinationCoverage
+  Assert.isTrue(boundary:crossesLogicalZone(runtimeMap, player, "south"))
+  Assert.equal(sourceCalls, 1)
+  Assert.equal(destinationCalls, 1)
+end
+
 function T.tests.rebases_an_aliased_runtime_frame_on_the_commit_tick()
   local coverage = FieldCoverage.new({
     matrixMemberId = 1,

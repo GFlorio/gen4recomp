@@ -107,6 +107,7 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
   withVersion(function(game, facts)
     local initial = game:snapshot()
     local physicalOwner = assert(game.runtime.physicalCoverage, "physical coverage owner is required")
+    Assert.equal(game.runtime.runtimeMap.coverage, physicalOwner, "fresh boot must install one committed owner")
     assertResident(initial)
 
     local waterApproach = moveTo(game, facts.water.approach)
@@ -125,6 +126,7 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     Assert.notNil(route.zoneChange, "seam crossing must publish zone ownership")
     assertSeam(game, 33, "MAP_ROUTE_29", "New Bark to Route 29")
     Assert.equal(game.runtime.physicalCoverage, physicalOwner, "seam crossing must preserve the physical world")
+    Assert.equal(game.runtime.runtimeMap.coverage, physicalOwner, "same-matrix composition must reuse the owner")
     assertResident(route)
 
     local far = moveTo(game, facts.far)
@@ -174,6 +176,11 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     Assert.equal(returned.player.fieldX, facts.newBark.fieldX)
     Assert.equal(returned.player.fieldZ, facts.newBark.fieldZ)
     Assert.equal(game.runtime.physicalCoverage, physicalOwner, "reverse seam must preserve the physical world")
+    Assert.equal(
+      game.runtime.runtimeMap.coverage,
+      physicalOwner,
+      "reverse same-matrix composition must reuse the owner"
+    )
     Assert.equal(game.lifecycle.runtimeDisposals, 0, "the live return must occur before any save/restart")
     assertResident(returned)
 
@@ -191,6 +198,7 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     Assert.equal(resumed.mapId, saved.mapId)
     Assert.equal(resumed.coverage.anchorX, saved.coverage.anchorX)
     Assert.equal(resumed.coverage.anchorZ, saved.coverage.anchorZ)
+    Assert.equal(game.runtime.runtimeMap.coverage, game.runtime.physicalCoverage, "restore must install one owner")
     assertResident(resumed)
     local returnSnapshot = moveTo(game, facts.newBark)
     Assert.equal(returnSnapshot.mapId, facts.newBark.mapId)

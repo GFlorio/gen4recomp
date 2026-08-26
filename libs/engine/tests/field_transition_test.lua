@@ -305,6 +305,53 @@ function T.prepare_failure_aborts_with_source_protection_untouched()
   Assert.deepEqual(loader.protections, {})
 end
 
+function T.preparation_failure_disposes_transition_owned_resources()
+  local releases = 0
+  local staged = {
+    release = function()
+      releases = releases + 1
+    end,
+  }
+  local disposedResolution
+  local disposedPrepared
+  local transition = FieldTransition.new({
+    loader = recordingLoader(),
+    resolveDestination = function()
+      return {
+        destinationMap = { mapId = 60 },
+        fieldX = 0,
+        fieldZ = 0,
+        surfaceId = 0,
+        worldY = 0,
+        physical = { coverage = staged, replacement = true, state = "prepared" },
+      }
+    end,
+    prepare = function()
+      error("destination preparation failed", 0)
+    end,
+    disposePrepared = function(resolution, prepared)
+      disposedResolution = resolution
+      disposedPrepared = prepared
+      resolution.physical.coverage:release()
+      resolution.physical.state = "released"
+    end,
+    commit = function()
+      error("preparation failure must not commit", 0)
+    end,
+  })
+
+  transition:start(sourceMap(), { warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 } }, "south")
+  for _ = 1, 4 do
+    step(transition)
+  end
+
+  Assert.equal(releases, 1)
+  Assert.notNil(disposedResolution)
+  Assert.isNil(disposedPrepared)
+  Assert.equal(transition.phase, "idle")
+  Assert.equal(tostring(transition.error), "destination preparation failed")
+end
+
 -- A fault inside the commit (the irreversible black-frame ownership
 -- transfer) is a fatal programming error: it propagates out of updateFixed
 -- and the transition does not pretend to roll back arbitrary partially

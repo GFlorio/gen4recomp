@@ -13,9 +13,15 @@ local DIRECTION_DELTAS = {
 
 function FieldNavigationBoundary.new(options)
   options = options or {}
+  local coverageProvider = options.coverageProvider
+  if not coverageProvider and options.physicalWorld then
+    coverageProvider = function()
+      return options.physicalWorld
+    end
+  end
   return setmetatable({
     zoneController = options.zoneController,
-    physicalWorld = options.physicalWorld,
+    coverageProvider = coverageProvider,
     reconcilePhysicalWorld = options.reconcilePhysicalWorld,
   }, FieldNavigationBoundary)
 end
@@ -25,7 +31,7 @@ local function coverageFor(self, runtimeMap)
     return runtimeMap.coverage
   end
   if runtimeMap.scene and runtimeMap.scene.type == "outdoor" then
-    return self.physicalWorld
+    return self.coverageProvider and self.coverageProvider() or nil
   end
   return nil
 end

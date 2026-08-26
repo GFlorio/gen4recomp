@@ -93,6 +93,9 @@ local function createFieldTransition(runtime, doorAt, escalatorAt, resolveDestin
     prepare = function(resolution, facing)
       return runtime:_prepareSwap(resolution, facing)
     end,
+    disposePrepared = function(resolution, prepared)
+      runtime:_disposePreparedSwap(resolution, prepared)
+    end,
     commit = function(resolution, facing, prepared)
       runtime:_commitSwap(resolution, facing, prepared)
     end,
@@ -191,6 +194,12 @@ end
 ---@field physicalCoverage FieldCoverage?
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
+
+---@class FieldRuntimePhysicalSwap
+---@field coverage FieldCoverage
+---@field replacement boolean
+---@field previous FieldCoverage?
+---@field state "prepared"|"committed"|"released"
 
 -- The audio-output sample rate of the production composition (the mixer and
 -- the LÖVE sink render at this rate, the DS SPU rate; source waves are
@@ -469,24 +478,71 @@ function FieldRuntime:_load()
     self.mapLoader = FieldMapLoader.new(cacheFs, world, {
       sceneLoader = self.presentation and MapSceneLoader or nil,
     })
-    local function composeLoadedMap(logicalMap, position)
-      if logicalMap.scene.type == "outdoor" then
-        local mapIndex = assert(self.mapLoader.world.byId[logicalMap.mapId], "outdoor map catalog record is required")
-        local mapRecord = assert(self.mapLoader.world.maps[mapIndex], "outdoor map catalog record is missing")
-        local matrixMemberId = assert(mapRecord.matrix.memberId, "outdoor map matrix member is required")
-        if self.physicalCoverage and self.physicalCoverage.matrixMemberId ~= matrixMemberId then
-          local previous = assert(self.physicalCoverage)
-          local replacement = self.mapLoader:createPhysicalCoverage(logicalMap, position)
-          self.physicalCoverage = replacement
-          previous:release()
-        elseif not self.physicalCoverage then
-          self.physicalCoverage = self.mapLoader:createPhysicalCoverage(logicalMap, position)
-        end
-        return composePhysicalMap(logicalMap, self.physicalCoverage)
-      end
-      return logicalMap
+    local function mapMatrixMemberId(logicalMap)
+      local mapIndex = assert(self.mapLoader.world.byId[logicalMap.mapId], "outdoor map catalog record is required")
+      local mapRecord = assert(self.mapLoader.world.maps[mapIndex], "outdoor map catalog record is missing")
+      return assert(mapRecord.matrix.memberId, "outdoor map matrix member is required")
     end
-    saveValidation.composeRuntimeMap = composeLoadedMap
+
+    -- Initial boot and restore have no live source owner to protect. They are
+    -- the only paths allowed to publish a newly created initial coverage.
+    local function composeInitialMap(logicalMap, position)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap
+      end
+      assert(not self.physicalCoverage, "initial physical coverage already exists")
+      self.physicalCoverage = self.mapLoader:createPhysicalCoverage(logicalMap, position)
+      return composePhysicalMap(logicalMap, self.physicalCoverage)
+    end
+
+    -- Logical zone changes reuse the committed owner. A matrix mismatch here
+    -- indicates that a logical seam was routed through the wrong boundary.
+    local function composeCurrentMap(logicalMap)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap
+      end
+      local coverage = assert(self.physicalCoverage, "current outdoor coverage is required")
+      assert(
+        mapMatrixMemberId(logicalMap) == coverage.matrixMemberId,
+        "logical outdoor map does not belong to the current physical matrix"
+      )
+      return composePhysicalMap(logicalMap, coverage)
+    end
+
+    -- A live warp receives an explicit ownership record. The replacement is
+    -- transition-owned until commit and never mutates physicalCoverage here.
+    local function composePreparedMap(logicalMap, position)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap, nil
+      end
+      local matrixMemberId = mapMatrixMemberId(logicalMap)
+      local current = self.physicalCoverage
+      if current and current.matrixMemberId == matrixMemberId then
+        return composePhysicalMap(logicalMap, current),
+          {
+            coverage = current,
+            replacement = false,
+            previous = nil,
+            state = "prepared",
+          }
+      end
+
+      local replacement = self.mapLoader:createPhysicalCoverage(logicalMap, position)
+      local ok, runtimeMap = pcall(composePhysicalMap, logicalMap, replacement)
+      if not ok then
+        replacement:release()
+        error(runtimeMap, 0)
+      end
+      return runtimeMap,
+        {
+          coverage = replacement,
+          replacement = true,
+          previous = current,
+          state = "prepared",
+        }
+    end
+
+    saveValidation.composeRuntimeMap = composeInitialMap
     local restored
     if self.resumeSave then
       local saved, saveErr = self.saveStore:load()
@@ -535,7 +591,7 @@ function FieldRuntime:_load()
       if self.runtimeMap.scene.type == "outdoor" then
         fieldX = self.runtimeMap.coordinateOrigin.x + spawn.x
         fieldZ = self.runtimeMap.coordinateOrigin.z + spawn.z
-        self.runtimeMap = composeLoadedMap(self.runtimeMap, { fieldX = fieldX, fieldZ = fieldZ })
+        self.runtimeMap = composeInitialMap(self.runtimeMap, { fieldX = fieldX, fieldZ = fieldZ })
         local spawnLocalX, spawnLocalZ = FieldCoordinates.fieldToLocal(self.runtimeMap, fieldX, fieldZ)
         surfaceId, facing = spawnSurface(self.runtimeMap, spawnLocalX, spawnLocalZ).surfaceId, spawn.facing
       else
@@ -634,21 +690,35 @@ function FieldRuntime:_load()
       end
     end
     self.transition = createFieldTransition(self, doorAt, escalatorAt, function(_, sourceMap, warp)
-      return require("libs.engine.src.WarpSystem").resolveDestination({
-        load = function(_, mapId)
-          assert(mapId == warp.destinationMapId, "transition destination map mismatch")
-          local logicalMap = self.mapLoader:load(mapId)
-          local destinationPosition
-          if warp.direct then
-            destinationPosition = { fieldX = warp.x, fieldZ = warp.z }
-          else
-            local destinationWarp = logicalMap.fieldData.events.warps[warp.destinationWarpId + 1]
-            assert(destinationWarp, "transition destination warp is missing")
-            destinationPosition = { fieldX = destinationWarp.x, fieldZ = destinationWarp.z }
-          end
-          return composeLoadedMap(logicalMap, destinationPosition)
-        end,
-      }, sourceMap, warp)
+      local physical
+      local ok, result = pcall(function()
+        return require("libs.engine.src.WarpSystem").resolveDestination({
+          load = function(_, mapId)
+            assert(mapId == warp.destinationMapId, "transition destination map mismatch")
+            local logicalMap = self.mapLoader:load(mapId)
+            local destinationPosition
+            if warp.direct then
+              destinationPosition = { fieldX = warp.x, fieldZ = warp.z }
+            else
+              local destinationWarp = logicalMap.fieldData.events.warps[warp.destinationWarpId + 1]
+              assert(destinationWarp, "transition destination warp is missing")
+              destinationPosition = { fieldX = destinationWarp.x, fieldZ = destinationWarp.z }
+            end
+            local composed, ownership = composePreparedMap(logicalMap, destinationPosition)
+            physical = ownership
+            return composed
+          end,
+        }, sourceMap, warp)
+      end)
+      if not ok then
+        if physical and physical.replacement and physical.state == "prepared" then
+          physical.coverage:release()
+          physical.state = "released"
+        end
+        error(result, 0)
+      end
+      result.physical = physical
+      return result
     end)
     self.transition.player = self.player
     self.transition.suppression = restored and restored.suppression or nil
@@ -807,7 +877,7 @@ function FieldRuntime:_load()
       currentMap = self.runtimeMap,
       loadMap = function(mapId, player)
         local logicalMap = self.mapLoader:load(mapId, { fieldX = player.fieldX, fieldZ = player.fieldZ })
-        return composeLoadedMap(logicalMap, { fieldX = player.fieldX, fieldZ = player.fieldZ })
+        return composeCurrentMap(logicalMap)
       end,
       stageActors = function(runtimeMap)
         return self.actors:prepareMap(runtimeMap, self.eventState)
@@ -866,7 +936,9 @@ function FieldRuntime:_load()
       audio = self.audio,
       navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new({
         zoneController = self.zoneController,
-        physicalWorld = self.physicalCoverage,
+        coverageProvider = function()
+          return self.physicalCoverage
+        end,
         reconcilePhysicalWorld = function()
           self.actors:reconcilePhysicalWorld()
         end,
@@ -1321,7 +1393,26 @@ function FieldRuntime:_prepareSwap(resolution, facing)
     player = player,
     camera = camera,
     playerVisual = playerVisual,
+    physical = resolution.physical,
   }
+end
+
+-- Dispose only transition-owned physical state. A reused coverage remains
+-- owned by the runtime, while a staged replacement is released once on abort.
+---@param resolution table?
+---@param prepared table?
+function FieldRuntime:_disposePreparedSwap(resolution, prepared)
+  local physical = (prepared and prepared.physical) or (resolution and resolution.physical)
+  if not physical or not physical.replacement then
+    return
+  end
+  if physical.state == "released" or physical.state == "committed" then
+    return
+  end
+  assert(physical.state == "prepared", "physical swap is not disposable")
+  assert(physical.coverage ~= self.physicalCoverage, "staged physical coverage is already committed")
+  physical.coverage:release()
+  physical.state = "released"
 end
 
 -- The irreversible current-map ownership transfer, run by FieldTransition
@@ -1333,6 +1424,21 @@ end
 ---@param prepared table
 function FieldRuntime:_commitSwap(resolution, _, prepared)
   local runtimeMap = resolution.destinationMap
+  local physical = (prepared and prepared.physical) or resolution.physical
+  local previousCoverage
+  if physical then
+    assert(physical.state == "prepared", "physical swap is not committable")
+    assert(physical.coverage, "physical swap coverage is required")
+    if physical.replacement then
+      assert(physical.previous == self.physicalCoverage, "physical swap source owner changed")
+      previousCoverage = self.physicalCoverage
+      self.physicalCoverage = physical.coverage
+    else
+      assert(physical.coverage == self.physicalCoverage, "reused physical coverage is not current")
+    end
+    assert(runtimeMap.coverage == self.physicalCoverage, "destination map coverage is not the committed owner")
+    physical.state = "committed"
+  end
   local previousMapId = self.runtimeMap.mapId
   self.fieldTerrainEffectController:clear()
   if runtimeMap.mapId ~= previousMapId then
@@ -1358,6 +1464,9 @@ function FieldRuntime:_commitSwap(resolution, _, prepared)
     self.audio:enterMap(runtimeMap, { clearMusicOverride = true, play = true })
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
+  if previousCoverage then
+    previousCoverage:release()
+  end
 end
 
 function FieldRuntime:_updateCameraProjection()
@@ -1396,6 +1505,9 @@ end
 -- dialogue -- and the field clearing means reset never leaves a hand-picked
 -- subset behind for its re-boot.
 function FieldRuntime:_releaseAll()
+  if self.transition then
+    self:_disposePreparedSwap(self.transition.resolution, self.transition.prepared)
+  end
   if self.dialogue then
     self.dialogue:dispose()
   end
