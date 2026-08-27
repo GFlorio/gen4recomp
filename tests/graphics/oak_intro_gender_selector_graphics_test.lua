@@ -70,6 +70,7 @@ local function renderPortraits(scope, cache, manifest, layout)
   for gender, id in ipairs({ "gender_male", "gender_female" }) do
     local widget = manifest.widgets[id]
     local image = scope:own(newImage(cache, widget.frames[1].image))
+    image:setFilter(widget.sampling, widget.sampling)
     local choice = layout.genderChoices[gender - 1]
     love.graphics.draw(image, choice.x, choice.y, 0, choice.scale, choice.scale)
   end
