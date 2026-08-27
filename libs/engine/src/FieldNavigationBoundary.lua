@@ -15,6 +15,7 @@ function FieldNavigationBoundary.new(options)
   options = options or {}
   return setmetatable({
     zoneController = options.zoneController,
+    residencyCoordinator = options.residencyCoordinator,
     coverageProvider = options.coverageProvider,
     reconcilePhysicalWorld = options.reconcilePhysicalWorld,
   }, FieldNavigationBoundary)
@@ -57,6 +58,9 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
   end
   if coverage.anchorX == targetX and coverage.anchorZ == targetZ then
     player:rebindCoverage(runtimeMap, 0, 0, 0, sourceCellKey, sourceSurfaceId)
+    if self.residencyCoordinator then
+      return self.residencyCoordinator:afterCommittedMove(player)
+    end
     return self.zoneController and self.zoneController:afterCoverageCommit(coverage, player) or coverage:status()
   end
   local currentOrigin = runtimeMap.physicalOrigin or coverage.origin
@@ -65,23 +69,33 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
     y = currentOrigin.y,
     z = currentOrigin.z,
   }
-  coverage:recenter(targetX, targetZ)
-  if runtimeMap.syncPhysicalFields then
-    runtimeMap:syncPhysicalFields()
-  else
-    runtimeMap.fieldRegion = coverage.region
-    runtimeMap.collision = coverage.region.collision
-    runtimeMap.terrain = coverage.region.terrain
-    runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
-    runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
-    runtimeMap.physicalOrigin = coverage.origin
+  local function syncPhysicalCommit()
+    if runtimeMap.syncPhysicalFields then
+      runtimeMap:syncPhysicalFields()
+    else
+      runtimeMap.fieldRegion = coverage.region
+      runtimeMap.collision = coverage.region.collision
+      runtimeMap.terrain = coverage.region.terrain
+      runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
+      runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
+      runtimeMap.physicalOrigin = coverage.origin
+    end
+    local newOrigin = assert(runtimeMap.physicalOrigin)
+    local deltaX = oldOrigin.x - newOrigin.x
+    local deltaY = oldOrigin.y - newOrigin.y
+    local deltaZ = oldOrigin.z - newOrigin.z
+    player:rebindCoverage(runtimeMap, deltaX, deltaY, deltaZ, sourceCellKey, sourceSurfaceId)
+    camera:rebase(deltaX, deltaY, deltaZ)
   end
-  local newOrigin = assert(runtimeMap.physicalOrigin)
-  local deltaX = oldOrigin.x - newOrigin.x
-  local deltaY = oldOrigin.y - newOrigin.y
-  local deltaZ = oldOrigin.z - newOrigin.z
-  player:rebindCoverage(runtimeMap, deltaX, deltaY, deltaZ, sourceCellKey, sourceSurfaceId)
-  camera:rebase(deltaX, deltaY, deltaZ)
+  if self.residencyCoordinator then
+    return self.residencyCoordinator:afterCommittedMove(player, {
+      targetX = targetX,
+      targetZ = targetZ,
+      onPhysicalCommit = syncPhysicalCommit,
+    })
+  end
+  coverage:recenter(targetX, targetZ)
+  syncPhysicalCommit()
   if self.reconcilePhysicalWorld then
     self.reconcilePhysicalWorld()
   end

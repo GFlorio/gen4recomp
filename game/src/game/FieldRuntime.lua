@@ -190,6 +190,7 @@ end
 ---@field fieldEntranceIndicatorAsset table
 ---@field fieldEffectAssets table
 ---@field physicalCoverage FieldCoverage?
+---@field residency FieldResidencyCoordinator?
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
 
@@ -914,22 +915,11 @@ function FieldRuntime:_load()
     local FieldZoneController = require("libs.engine.src.FieldZoneController")
     self.zoneController = FieldZoneController.new({
       currentMap = self.runtimeMap,
-      loadMap = function(mapId, player)
-        local logicalMap = self.mapLoader:load(mapId, { fieldX = player.fieldX, fieldZ = player.fieldZ })
-        return composeCurrentMap(logicalMap)
+      mapForId = function(mapId)
+        return assert(self.residency):mapForId(mapId)
       end,
-      stageActors = function(runtimeMap)
-        return self.actors:prepareMap(runtimeMap, self.eventState)
-      end,
-      discardActors = function(prepared)
-        self.actors:discardPrepared(prepared)
-      end,
-      actorsArePrepared = function(prepared)
-        return prepared.state == "prepared"
-      end,
-      commitActors = function(prepared, destination, source)
-        assert(destination.mapId ~= source.mapId, "zone actor commit requires a new map")
-        self.actors:commitPrepared(prepared, source.mapId)
+      mapForPreflightId = function(mapId)
+        return assert(self.residency):mapForPreflight(mapId)
       end,
       rebindScripts = function(runtimeMap, player)
         self.runtimeMap = runtimeMap
@@ -945,13 +935,21 @@ function FieldRuntime:_load()
           self.audio:enterZone(runtimeMap)
         end
       end,
-      protectMap = function(mapId, protected)
-        self.mapLoader:protectMap(mapId, protected)
-      end,
       onChange = function(change)
         self.lastZoneChange = change
       end,
     })
+
+    local FieldResidencyCoordinator = require("libs.engine.src.FieldResidencyCoordinator")
+    self.residency = FieldResidencyCoordinator.new({
+      coverage = self.physicalCoverage,
+      mapLoader = self.mapLoader,
+      actors = self.actors,
+      zoneController = self.zoneController,
+      eventState = self.eventState,
+      composeMap = composeCurrentMap,
+    })
+    self.residency:initialize()
 
     self.session = FieldSession.new({
       versionId = self.versionId,
@@ -975,11 +973,9 @@ function FieldRuntime:_load()
       audio = self.audio,
       navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new({
         zoneController = self.zoneController,
+        residencyCoordinator = self.residency,
         coverageProvider = function()
           return self.physicalCoverage
-        end,
-        reconcilePhysicalWorld = function()
-          self.actors:reconcilePhysicalWorld()
         end,
       }),
       interactions = {
@@ -1010,6 +1006,10 @@ end
 function FieldRuntime:update(dt)
   if self.errorText then
     return
+  end
+
+  if self.residency then
+    self.residency:updatePrefetch(1)
   end
 
   -- The background registry warm-up (snapshot-miss boot) runs one time
@@ -1600,6 +1600,10 @@ function FieldRuntime:_releaseAll()
     self.messageProvider:dispose()
   end
   self.messageProvider = nil
+  if self.residency then
+    self.residency:dispose()
+  end
+  self.residency = nil
   if self.actors then
     self.actors:dispose()
   end

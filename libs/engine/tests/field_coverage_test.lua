@@ -236,9 +236,13 @@ function T.recenters_reusing_overlap_and_releases_departures()
   coverage:recenter(2, 1)
   local status = coverage:status()
   Assert.equal(status.residentCount, 9)
-  Assert.equal(releases["0:0"], 1)
-  Assert.equal(releases["0:1"], 1)
-  Assert.equal(releases["0:2"], 1)
+  Assert.isNil(releases["0:0"], "overlap cells are demoted into the ready halo")
+  Assert.isNil(releases["0:1"], "overlap cells are demoted into the ready halo")
+  Assert.isNil(releases["0:2"], "overlap cells are demoted into the ready halo")
+  coverage:recenter(4, 1)
+  Assert.equal(releases["0:0"], 1, "cells release after leaving the 5x5 footprint")
+  Assert.equal(releases["0:1"], 1, "cells release after leaving the 5x5 footprint")
+  Assert.equal(releases["0:2"], 1, "cells release after leaving the 5x5 footprint")
   coverage:release()
   Assert.equal(releases["1:1"], 1)
 end
@@ -644,6 +648,44 @@ function T.temporary_probe_releases_its_cell_on_success_and_rejection()
   })
   Assert.equal(assert(result).sourceSurfaceId, 0)
   Assert.equal(releases["2:0"], 1)
+  coverage:release()
+end
+
+function T.ready_halo_cells_promote_without_boundary_acquisition()
+  local loads = { count = 0 }
+  local coverage = FieldCoverage.new({
+    matrixMemberId = 1,
+    index = makeIndex(),
+    anchorX = 1,
+    anchorZ = 1,
+    loadCell = function(descriptor)
+      loads.count = loads.count + 1
+      return runtimeFactory({})(descriptor)
+    end,
+  })
+
+  local initialLoads = loads.count
+  Assert.isTrue(type(coverage.queuePrefetch) == "function", "coverage must expose halo prefetching")
+  Assert.isTrue(type(coverage.updatePrefetch) == "function", "coverage must expose bounded prefetch work")
+  coverage:queuePrefetch(1, 1)
+  local queued = coverage:status().queuedPrefetchCount
+  local availableHalo = #coverage:prefetchDescriptors(1, 1) - #coverage:descriptorsFor(1, 1)
+  Assert.equal(queued, availableHalo)
+  Assert.equal(queued, 3, "the available 5x3 matrix has three cells in the one-cell halo")
+
+  for _ = 1, queued do
+    coverage:updatePrefetch(1)
+  end
+  Assert.equal(loads.count, initialLoads + queued)
+  Assert.equal(coverage:status().readyPrefetchCount, queued)
+
+  coverage:recenter(2, 1)
+  local status = coverage:status()
+  Assert.equal(loads.count, initialLoads + queued, "a ready one-cell promotion must not load a physical cell")
+  Assert.equal(status.synchronousPhysicalFallbackLoads, 0)
+  Assert.equal(status.committedCount, 9)
+  Assert.equal(status.readyPrefetchCount, 3)
+  Assert.equal(status.queuedPrefetchCount, 3)
   coverage:release()
 end
 

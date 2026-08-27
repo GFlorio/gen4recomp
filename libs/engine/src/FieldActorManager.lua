@@ -100,7 +100,8 @@ local PARTNER_OBJECT_ID = 253
 ---@field _destroy fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor)
 ---@field leaveMap fun(self: FieldActorManager, mapId: integer)
 ---@field prepareMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState): FieldActorManager.PreparedMap
----@field commitPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap, sourceMapId: integer)
+---@field commitPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap)
+---@field setActiveMap fun(self: FieldActorManager, mapId: integer)
 ---@field discardPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap)
 ---@field enterMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState)
 ---@field dispose fun(self: FieldActorManager)
@@ -594,13 +595,11 @@ end
 -- this boundary are intentionally surfaced to the caller; the destination is
 -- already the live actor world and is not rolled back by this manager.
 ---@param prepared FieldActorManager.PreparedMap
----@param sourceMapId integer
 ---@param self FieldActorManager
-function FieldActorManager:commitPrepared(prepared, sourceMapId)
+function FieldActorManager:commitPrepared(prepared)
   assert(prepared and prepared.state == "prepared", "prepared map is not committable")
   local entry = prepared.entry
   local destinationMapId = entry.runtimeMap.mapId
-  assert(destinationMapId ~= sourceMapId, "prepared destination must differ from source")
   assert(not self.maps[destinationMapId], "prepared destination is already live")
 
   local bound, bindErr = pcall(bindEventState, self, prepared.eventState)
@@ -609,9 +608,14 @@ function FieldActorManager:commitPrepared(prepared, sourceMapId)
     error(bindErr, 0)
   end
   self.maps[destinationMapId] = entry
-  self.currentMapId = destinationMapId
   prepared.state = "committed"
-  self:leaveMap(sourceMapId)
+end
+
+---@param mapId integer
+---@param self FieldActorManager
+function FieldActorManager:setActiveMap(mapId)
+  assert(self.maps[mapId], "active actor map is not resident")
+  self.currentMapId = mapId
 end
 
 -- Idempotent for an already-active runtime map, so a transition's overlapping

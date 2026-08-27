@@ -1,206 +1,124 @@
--- FieldZoneController tests cover logical ownership changes after physical
--- coverage commits, including no-op headers and transactional preparation.
+-- FieldZoneController tests cover active logical-map selection after physical
+-- coverage commits. Residency, protection, and actor ownership are external.
 
 local Assert = require("tests.support.Assert")
 local FieldZoneController = require("libs.engine.src.FieldZoneController")
 
----@class TestLogicalMap
----@field mapId integer
----@field mapSection string
----@field physicalOwner table
+local function newController(options)
+  local ok, result = pcall(FieldZoneController.new, options)
+  Assert.isTrue(ok, "active-only zone controller must accept a resident lookup: " .. tostring(result))
+  return assert(result)
+end
 
-local T = {
-  metadata = { capabilities = {} },
-  tests = {},
-}
-
-function T.tests.switches_once_and_preserves_the_player()
-  ---@type FieldZonePlayer
-  local player = { fieldX = 0, fieldZ = 0 }
-  local calls = {}
-  local controller = FieldZoneController.new({
-    currentMap = { mapId = 1, mapSection = "OLD" },
-    loadMap = function(mapId)
-      return { mapId = mapId, mapSection = "NEW", fieldData = {} }
-    end,
-    protectMap = function() end,
-    stageActors = function(map)
-      calls[#calls + 1] = "stage:" .. map.mapId
-      return { mapId = map.mapId }
-    end,
-    commitActors = function()
-      calls[#calls + 1] = "commit"
+local function controllerFor(source, destination, calls)
+  return newController({
+    currentMap = source,
+    mapForId = function(mapId)
+      calls.lookup = calls.lookup + 1
+      return mapId == destination.mapId and destination or nil
     end,
     rebindScripts = function(map)
       calls[#calls + 1] = "scripts:" .. map.mapId
     end,
-  })
-  ---@type FieldZoneCoverage
-  local coverage = {
-    mapHeaderAt = function()
-      return 2
+    applyWeather = function(map)
+      calls[#calls + 1] = "weather:" .. map.mapId
     end,
-  }
-  local record = controller:afterCoverageCommit(coverage, player)
-  assert(record ~= nil)
-  Assert.equal(record.oldMapId, 1)
-  Assert.equal(record.newMapId, 2)
-  Assert.isTrue(controller.currentMap.mapId == 2)
-  Assert.equal(table.concat(calls, ","), "stage:2,commit,scripts:2")
+    enterAudio = function(map)
+      calls[#calls + 1] = "audio:" .. map.mapId
+    end,
+    onChange = function(change)
+      calls[#calls + 1] = "change:" .. change.newMapId
+    end,
+  })
 end
 
-function T.tests.same_header_is_a_noop()
-  local count = 0
-  local controller = FieldZoneController.new({
-    currentMap = { mapId = 4, mapSection = "SAME" },
-    loadMap = function()
-      count = count + 1
-    end,
-    protectMap = function() end,
-  })
-  ---@type FieldZoneCoverage
-  local fakeCoverage = {
-    mapHeaderAt = function()
-      return 4
-    end,
-  }
-  ---@type FieldZonePlayer
-  local fakePlayer = { fieldX = 0, fieldZ = 0 }
-  local result = controller:afterCoverageCommit(fakeCoverage, fakePlayer)
-  Assert.isNil(result)
-  Assert.equal(count, 0)
-end
+local function switches_to_a_resident_map_and_preserves_active_side_effect_order()
+  local source = { mapId = 1, mapSection = "OLD", fieldData = {} }
+  local destination = { mapId = 2, mapSection = "NEW", fieldData = {} }
+  local calls = { lookup = 0 }
+  local controller = controllerFor(source, destination, calls)
+  local player = { fieldX = 31, fieldZ = 4 }
 
-function T.tests.uses_the_players_cell_not_the_coverage_anchor_for_zone_selection()
-  local loads = 0
-  local controller = FieldZoneController.new({
-    currentMap = { mapId = 1, mapSection = "OLD" },
-    loadMap = function(mapId)
-      loads = loads + 1
-      Assert.equal(mapId, 2)
-      return { mapId = mapId, mapSection = "NEW", fieldData = {} }
-    end,
-    protectMap = function() end,
-  })
-  ---@type FieldZoneCoverage
-  local coverage = {
+  local change = assert(controller:afterCoverageCommit({
     mapHeaderAt = function(_, fieldX, fieldZ)
-      Assert.equal(fieldX, 31)
-      Assert.equal(fieldZ, 4)
-      return 2
+      Assert.equal(fieldX, player.fieldX)
+      Assert.equal(fieldZ, player.fieldZ)
+      return destination.mapId
     end,
-  }
+  }, player))
 
-  local change = assert(controller:afterCoverageCommit(coverage, { fieldX = 31, fieldZ = 4 }))
-  Assert.equal(change.newMapId, 2)
-  Assert.equal(loads, 1)
+  Assert.equal(change.oldMapId, source.mapId)
+  Assert.equal(change.newMapId, destination.mapId)
+  Assert.equal(controller.currentMap, destination)
+  Assert.equal(calls.lookup, 1)
+  Assert.equal(table.concat(calls, ","), "scripts:2,weather:2,audio:2,change:2")
 end
 
-function T.tests.preflight_map_lookup_loads_without_publishing_zone_state()
-  local source = { mapId = 1, mapSection = "OLD" }
-  local destination = { mapId = 2, mapSection = "NEW" }
-  local loads = 0
-  local controller = FieldZoneController.new({
+local function same_header_is_a_noop_without_lookup_or_side_effects()
+  local calls = { lookup = 0 }
+  local source = { mapId = 4, mapSection = "SAME", fieldData = {} }
+  local controller = newController({
     currentMap = source,
-    loadMap = function(mapId, player)
-      loads = loads + 1
-      Assert.equal(mapId, 2)
-      Assert.equal(player.fieldX, 7)
-      return destination
-    end,
-    protectMap = function()
-      error("preflight must not change protection")
-    end,
-    stageActors = function()
-      error("preflight must not stage actors")
+    mapForId = function()
+      calls.lookup = calls.lookup + 1
+      return nil
     end,
   })
 
-  local result = controller:mapForPreflight(2, { fieldX = 7, fieldZ = 8 })
+  local result = controller:afterCoverageCommit({
+    mapHeaderAt = function()
+      return source.mapId
+    end,
+  }, { fieldX = 0, fieldZ = 0 })
+
+  Assert.isNil(result)
+  Assert.equal(calls.lookup, 0)
+end
+
+local function preflight_uses_resident_lookup_without_publishing_or_loading()
+  local source = { mapId = 1, mapSection = "OLD", fieldData = {} }
+  local destination = { mapId = 2, mapSection = "NEW", fieldData = {} }
+  local calls = { lookup = 0 }
+  local controller = controllerFor(source, destination, calls)
+  local player = { fieldX = 7, fieldZ = 8 }
+
+  local result = controller:mapForPreflight(destination.mapId, player)
+
   Assert.equal(result, destination)
-  Assert.equal(loads, 1)
+  Assert.equal(calls.lookup, 1)
   Assert.equal(controller.currentMap, source)
 end
 
-function T.tests.commit_failure_discards_only_unpublished_stage()
-  local staged = { state = "prepared" }
-  local discarded = 0
-  local controller = FieldZoneController.new({
-    currentMap = { mapId = 1, mapSection = "OLD" },
-    loadMap = function(mapId)
-      return { mapId = mapId, mapSection = "NEW", fieldData = {} }
-    end,
-    protectMap = function() end,
-    stageActors = function()
-      return staged
-    end,
-    discardActors = function(candidate)
-      Assert.equal(candidate, staged)
-      Assert.equal(candidate.state, "prepared")
-      discarded = discarded + 1
-      candidate.state = "discarded"
-    end,
-    actorsArePrepared = function(candidate)
-      return candidate.state == "prepared"
-    end,
-    commitActors = function()
-      error("pre-publication actor commit failed", 0)
+local function missing_resident_destination_is_a_programming_fault()
+  local calls = { lookup = 0 }
+  local source = { mapId = 1, mapSection = "OLD", fieldData = {} }
+  local controller = newController({
+    currentMap = source,
+    mapForId = function()
+      calls.lookup = calls.lookup + 1
+      return nil
     end,
   })
 
-  local ok, err = pcall(function()
+  local err = Assert.throws(function()
     controller:afterCoverageCommit({
       mapHeaderAt = function()
         return 2
       end,
     }, { fieldX = 0, fieldZ = 0 })
   end)
-  Assert.isFalse(ok)
-  Assert.equal(err, "pre-publication actor commit failed")
-  Assert.equal(discarded, 1)
-  Assert.equal(controller.currentMap.mapId, 1)
+
+  Assert.isTrue(tostring(err):find("resident", 1, true) ~= nil)
+  Assert.equal(calls.lookup, 1)
+  Assert.equal(controller.currentMap, source)
 end
 
-function T.tests.protects_the_destination_without_releasing_physical_owner()
-  local physicalOwner = {
-    releaseCalls = 0,
-    logicalEntries = {},
-    protections = { [1] = true },
-  }
-  function physicalOwner:release()
-    self.releaseCalls = self.releaseCalls + 1
-  end
-  function physicalOwner:protectMap(mapId, protected)
-    self.protections[mapId] = protected and true or nil
-  end
-
-  local source ---@type TestLogicalMap
-  source = { mapId = 1, mapSection = "OLD", physicalOwner = physicalOwner }
-  local destination ---@type TestLogicalMap
-  destination = { mapId = 2, mapSection = "NEW", physicalOwner = physicalOwner }
-  physicalOwner.logicalEntries[1] = source
-  physicalOwner.logicalEntries[2] = destination
-  local controller = FieldZoneController.new({
-    currentMap = source,
-    loadMap = function(mapId)
-      return assert(physicalOwner.logicalEntries[mapId])
-    end,
-    protectMap = function(mapId, protected)
-      physicalOwner:protectMap(mapId, protected)
-    end,
-  })
-
-  controller:afterCoverageCommit({
-    mapHeaderAt = function()
-      return 2
-    end,
-  }, { fieldX = 0, fieldZ = 0 })
-
-  Assert.isTrue(physicalOwner.protections[2], "the destination logical entry must be protected")
-  Assert.isNil(physicalOwner.protections[1], "the source logical entry must become evictable")
-  Assert.equal(controller.currentMap, destination)
-  Assert.equal(destination.physicalOwner, physicalOwner, "logical loading must preserve physical ownership")
-  Assert.equal(physicalOwner.releaseCalls, 0, "logical loading must not release the physical owner")
-end
-
-return T
+return {
+  metadata = { capabilities = {} },
+  tests = {
+    switches_to_a_resident_map_and_preserves_active_side_effect_order = switches_to_a_resident_map_and_preserves_active_side_effect_order,
+    same_header_is_a_noop_without_lookup_or_side_effects = same_header_is_a_noop_without_lookup_or_side_effects,
+    preflight_uses_resident_lookup_without_publishing_or_loading = preflight_uses_resident_lookup_without_publishing_or_loading,
+    missing_resident_destination_is_a_programming_fault = missing_resident_destination_is_a_programming_fault,
+  },
+}

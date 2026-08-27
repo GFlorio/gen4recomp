@@ -159,7 +159,7 @@ function T.recentering_preserves_overlap_and_shared_origin_offsets()
   local status = coverage:status()
   Assert.equal(status.residentCount, 9)
   Assert.equal(loads[cellKey(1, 1)], 1, "overlap cells must be retained")
-  Assert.equal(releases[cellKey(0, 1)], 1, "departed cells must be released after commit")
+  Assert.equal(releases[cellKey(0, 1)] or 0, 0, "departed cells stay ready in the prefetch halo")
 
   local parts = worldParts(coverage)
   for z = 0, 2 do
@@ -176,6 +176,8 @@ function T.recentering_preserves_overlap_and_shared_origin_offsets()
       Assert.near(regionCell.offsetTilesZ, part.translation.z)
     end
   end
+  coverage:recenter(5, 1)
+  Assert.equal(releases[cellKey(0, 1)], 1, "cells leave ownership after leaving the prefetch halo")
   coverage:release()
 end
 

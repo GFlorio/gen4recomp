@@ -27,6 +27,10 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field loadCell fun(descriptor: table): table
 ---@field presentationLoader fun(runtime: table, descriptor: table): table?
 ---@field cells table<string, table>
+---@field prefetched table<string, table>
+---@field prefetchQueue table[]
+---@field prefetchError unknown?
+---@field synchronousPhysicalFallbackLoads integer
 ---@field anchorX integer
 ---@field anchorZ integer
 ---@field origin { x: number, y: number, z: number }
@@ -45,6 +49,16 @@ local function desired(x, z)
   for _, dz in ipairs({ 0, -1, 1 }) do
     for dx = -1, 1 do
       result[#result + 1] = { x = x + dx, z = z + dz }
+    end
+  end
+  return result
+end
+
+local function footprint(x, z)
+  local result = {}
+  for offsetZ = -2, 2 do
+    for offsetX = -2, 2 do
+      result[#result + 1] = { x = x + offsetX, z = z + offsetZ }
     end
   end
   return result
@@ -202,6 +216,10 @@ function FieldCoverage.new(options)
     loadCell = options.loadCell,
     presentationLoader = options.presentationLoader,
     cells = {},
+    prefetched = {},
+    prefetchQueue = {},
+    prefetchError = nil,
+    synchronousPhysicalFallbackLoads = 0,
     released = false,
   }, FieldCoverage)
   self:recenter(options.anchorX, options.anchorZ)
@@ -211,14 +229,19 @@ end
 function FieldCoverage:recenter(anchorX, anchorZ)
   assert(not self.released, "coverage is released")
   assert(type(anchorX) == "number" and anchorX % 1 == 0 and type(anchorZ) == "number" and anchorZ % 1 == 0)
+  if anchorX == self.anchorX and anchorZ == self.anchorZ then
+    self:queuePrefetch(anchorX, anchorZ)
+    return self
+  end
   local staged, acquired = {}, {}
+  local hadCommittedCells = next(self.cells) ~= nil
   local candidate
   local ok, err = pcall(function()
     for _, position in ipairs(desired(anchorX, anchorZ)) do
       local descriptor = FieldCellCache.find(self.index, self.matrixMemberId, position.x, position.z)
       if descriptor then
         local cellKey = key(position.x, position.z)
-        local existing = self.cells[cellKey]
+        local existing = self.cells[cellKey] or self.prefetched[cellKey]
         if existing then
           staged[cellKey] = existing
         else
@@ -228,6 +251,9 @@ function FieldCoverage:recenter(anchorX, anchorZ)
           runtime.altitude = runtime.altitude or descriptor.altitude
           staged[cellKey] = runtime
           acquired[#acquired + 1] = runtime
+          if hadCommittedCells then
+            self.synchronousPhysicalFallbackLoads = self.synchronousPhysicalFallbackLoads + 1
+          end
         end
       end
     end
@@ -250,18 +276,131 @@ function FieldCoverage:recenter(anchorX, anchorZ)
     error(err, 0)
   end
   candidate = assert(candidate)
-  local old = self.cells
+  local old = {}
+  for cellKey, cell in pairs(self.cells) do
+    old[cellKey] = cell
+  end
+  for cellKey, cell in pairs(self.prefetched) do
+    old[cellKey] = cell
+  end
   self.cells = candidate.cells
+  self.prefetched = {}
   self.anchorX, self.anchorZ = candidate.anchorX, candidate.anchorZ
   self.region = candidate.region
   self.origin = candidate.origin
   self.terrainDependencyHash = candidate.terrainDependencyHash
+  local newFootprint = self:_descriptorSet(candidate.anchorX, candidate.anchorZ, 2)
   for cellKey, cell in pairs(old) do
-    if not self.cells[cellKey] and cell.release then
+    if not self.cells[cellKey] and newFootprint[cellKey] then
+      self.prefetched[cellKey] = cell
+    elseif not self.cells[cellKey] and cell.release then
       cell:release()
     end
   end
+  self:queuePrefetch(candidate.anchorX, candidate.anchorZ)
   return self
+end
+
+---@param anchorX integer
+---@param anchorZ integer
+---@param radius integer
+---@return table<string, boolean>
+function FieldCoverage:_descriptorSet(anchorX, anchorZ, radius)
+  local result = {}
+  for offsetZ = -radius, radius do
+    for offsetX = -radius, radius do
+      local descriptor = FieldCellCache.find(self.index, self.matrixMemberId, anchorX + offsetX, anchorZ + offsetZ)
+      if descriptor then
+        result[key(descriptor.x, descriptor.z)] = true
+      end
+    end
+  end
+  return result
+end
+
+---@param anchorX integer
+---@param anchorZ integer
+---@return table[]
+function FieldCoverage:descriptorsFor(anchorX, anchorZ)
+  local result = {}
+  for _, position in ipairs(desired(anchorX, anchorZ)) do
+    local descriptor = FieldCellCache.find(self.index, self.matrixMemberId, position.x, position.z)
+    if descriptor then
+      result[#result + 1] = descriptor
+    end
+  end
+  return result
+end
+
+---@return table[]
+function FieldCoverage:committedDescriptors()
+  local result = {}
+  local keys = {}
+  for cellKey in pairs(self.cells) do
+    keys[#keys + 1] = cellKey
+  end
+  table.sort(keys)
+  for _, cellKey in ipairs(keys) do
+    local cell = assert(self.cells[cellKey])
+    result[#result + 1] = cell.descriptor
+      or assert(FieldCellCache.find(self.index, self.matrixMemberId, cell.x, cell.z))
+  end
+  return result
+end
+
+---@param anchorX integer?
+---@param anchorZ integer?
+---@return table[]
+function FieldCoverage:prefetchDescriptors(anchorX, anchorZ)
+  anchorX, anchorZ = anchorX or self.anchorX, anchorZ or self.anchorZ
+  local result = {}
+  for _, position in ipairs(footprint(anchorX, anchorZ)) do
+    local descriptor = FieldCellCache.find(self.index, self.matrixMemberId, position.x, position.z)
+    if descriptor then
+      result[#result + 1] = descriptor
+    end
+  end
+  return result
+end
+
+---@param anchorX integer?
+---@param anchorZ integer?
+---@return FieldCoverage
+function FieldCoverage:queuePrefetch(anchorX, anchorZ)
+  anchorX, anchorZ = anchorX or self.anchorX, anchorZ or self.anchorZ
+  assert(anchorX and anchorZ, "coverage anchor is required before prefetching")
+  local committed = self:_descriptorSet(anchorX, anchorZ, 1)
+  local queued = {}
+  for _, descriptor in ipairs(self:prefetchDescriptors(anchorX, anchorZ)) do
+    local cellKey = key(descriptor.x, descriptor.z)
+    if not committed[cellKey] and not self.prefetched[cellKey] then
+      queued[#queued + 1] = descriptor
+    end
+  end
+  self.prefetchQueue = queued
+  self.prefetchError = nil
+  return self
+end
+
+---@param maxItems integer
+---@return integer
+function FieldCoverage:updatePrefetch(maxItems)
+  assert(not self.released, "coverage is released")
+  assert(type(maxItems) == "number" and maxItems >= 0 and maxItems % 1 == 0)
+  local completed = 0
+  while completed < maxItems and #self.prefetchQueue > 0 do
+    local descriptor = self.prefetchQueue[1]
+    local cellKey = key(descriptor.x, descriptor.z)
+    local ok, runtime = pcall(runtimeFromDescriptor, self, descriptor, true)
+    if not ok then
+      self.prefetchError = runtime
+      break
+    end
+    table.remove(self.prefetchQueue, 1)
+    self.prefetched[cellKey] = assert(runtime)
+    completed = completed + 1
+  end
+  return completed
 end
 
 function FieldCoverage:_dependencyIdentity()
@@ -274,12 +413,23 @@ function FieldCoverage:status()
     resident[#resident + 1] = cellKey
   end
   table.sort(resident)
+  local prefetched = {}
+  for cellKey in pairs(self.prefetched) do
+    prefetched[#prefetched + 1] = cellKey
+  end
+  table.sort(prefetched)
   return {
     matrixMemberId = self.matrixMemberId,
     anchorX = self.anchorX,
     anchorZ = self.anchorZ,
     residentCellKeys = resident,
     residentCount = #resident,
+    committedCount = #resident,
+    readyPrefetchCount = #prefetched,
+    queuedPrefetchCount = #self.prefetchQueue,
+    prefetchedCellKeys = prefetched,
+    synchronousPhysicalFallbackLoads = self.synchronousPhysicalFallbackLoads,
+    prefetchError = self.prefetchError,
     terrainDependencyHash = self.terrainDependencyHash,
     physicalOrigin = { x = self.origin.x, y = self.origin.y, z = self.origin.z },
     probeCount = 0,
@@ -589,7 +739,14 @@ function FieldCoverage:release()
       cell:release()
     end
   end
+  for _, cell in pairs(self.prefetched) do
+    if cell.release then
+      cell:release()
+    end
+  end
   self.cells = {}
+  self.prefetched = {}
+  self.prefetchQueue = {}
 end
 
 return FieldCoverage

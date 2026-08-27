@@ -25,7 +25,7 @@ local POLICY = {
 ---@class FieldActorManagerTest.Manager : FieldActorManager
 ---@field enterMap fun(self: FieldActorManagerTest.Manager, map: RuntimeFieldMap, state: FieldEventState)
 ---@field prepareMap fun(self: FieldActorManagerTest.Manager, map: RuntimeFieldMap, state: FieldEventState): FieldActorManager.PreparedMap
----@field commitPrepared fun(self: FieldActorManagerTest.Manager, prepared: FieldActorManager.PreparedMap, sourceMapId: integer)
+---@field commitPrepared fun(self: FieldActorManagerTest.Manager, prepared: FieldActorManager.PreparedMap)
 ---@field discardPrepared fun(self: FieldActorManagerTest.Manager, prepared: FieldActorManager.PreparedMap)
 ---@field leaveMap fun(self: FieldActorManagerTest.Manager, mapId: integer)
 ---@field dispose fun(self: FieldActorManagerTest.Manager)
@@ -39,6 +39,7 @@ local POLICY = {
 ---@field setPosition fun(self: FieldActorManagerTest.Manager, actorId: string, position: table)
 ---@field hide fun(self: FieldActorManagerTest.Manager, actorId: string)
 ---@field reconcilePhysicalWorld fun(self: FieldActorManagerTest.Manager)
+---@field setActiveMap fun(self: FieldActorManagerTest.Manager, mapId: integer)
 
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
@@ -716,10 +717,14 @@ function T.prepare_map_keeps_live_actors_until_commit()
   Assert.isNil(mgr:getById("map:60:object:1"))
   Assert.equal(assets:total(), 2)
 
-  mgr:commitPrepared(prepared, source.mapId)
-  Assert.isNil(mgr:getById("map:61:object:0"))
+  mgr:commitPrepared(prepared)
+  Assert.notNil(mgr:getById("map:61:object:0"), "committing a prepared map does not evict the source")
   Assert.notNil(mgr:getById("map:60:object:1"))
-  Assert.equal(mgr.currentMapId, 60)
+  Assert.equal(mgr.currentMapId, source.mapId)
+  mgr:setActiveMap(destination.mapId)
+  Assert.equal(mgr.currentMapId, destination.mapId)
+  mgr:leaveMap(source.mapId)
+  Assert.isNil(mgr:getById("map:61:object:0"))
   mgr:dispose()
 end
 
@@ -765,7 +770,7 @@ function T.commit_bind_failure_discards_prepared_visuals_before_publication()
   local prepared = mgr:prepareMap(runtimeMap({ object({ spriteId = 34 }) }, 60), failingState)
 
   local ok, err = pcall(function()
-    mgr:commitPrepared(prepared, 61)
+    mgr:commitPrepared(prepared)
   end)
   Assert.isFalse(ok)
   Assert.equal(err, "event subscription failed")
