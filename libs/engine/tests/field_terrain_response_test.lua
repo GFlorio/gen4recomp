@@ -22,20 +22,26 @@ local function resolve(behavior)
   })
 end
 
-T.tests["grass behaviors produce distinct destination responses"] = function()
+T.tests["grass behaviors produce non-directional destination responses"] = function()
   local tall = resolve(MetatileBehavior.BEHAVIOR.TALL_GRASS)
   Assert.equal(#tall, 1)
   Assert.equal(tall[1].kind, "tall_grass")
   Assert.equal(tall[1].fieldX, 12)
   Assert.equal(tall[1].fieldZ, 18)
   Assert.equal(tall[1].worldY, 2.5)
-  Assert.equal(tall[1].direction, "north")
+  Assert.keySet(tall[1], "cellKey,fieldX,fieldZ,kind,sourceSurfaceId,worldY")
   Assert.equal(tall[1].cellKey, "1:2")
   Assert.equal(tall[1].sourceSurfaceId, 7)
 
   local veryTall = resolve(MetatileBehavior.BEHAVIOR.VERY_TALL_GRASS)
   Assert.equal(#veryTall, 1)
   Assert.equal(veryTall[1].kind, "very_tall_grass")
+  Assert.equal(veryTall[1].fieldX, 12)
+  Assert.equal(veryTall[1].fieldZ, 18)
+  Assert.equal(veryTall[1].worldY, 2.5)
+  Assert.keySet(veryTall[1], "cellKey,fieldX,fieldZ,kind,sourceSurfaceId,worldY")
+  Assert.equal(veryTall[1].cellKey, "1:2")
+  Assert.equal(veryTall[1].sourceSurfaceId, 7)
 end
 
 T.tests["uncommitted or non-grass movement produces no response"] = function()

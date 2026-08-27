@@ -3,6 +3,8 @@
 
 local Assert = require("tests.support.Assert")
 local FieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController")
+local FieldTerrainResponse = require("libs.engine.src.FieldTerrainResponse")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 
@@ -139,7 +141,7 @@ T.tests["grass intro completes before owner displacement retires it"] = function
   end
 end
 
-T.tests["grass facing changes only retire held instances"] = function()
+T.tests["explicit directional grass responses retire on facing changes"] = function()
   for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
     local players = {}
     local effects = controller(players, { [kind] = genericDefinition(kind) })
@@ -161,6 +163,45 @@ T.tests["grass facing changes only retire held instances"] = function()
     Assert.equal(players[1].updateCount, 3)
 
     updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "east" })
+    Assert.equal(#effects:status().instances, 0)
+  end
+end
+
+T.tests["ordinary grass responses survive turns and retire after displacement"] = function()
+  local behaviors = {
+    { behavior = MetatileBehavior.BEHAVIOR.TALL_GRASS, kind = "tall_grass" },
+    { behavior = MetatileBehavior.BEHAVIOR.VERY_TALL_GRASS, kind = "very_tall_grass" },
+  }
+  for _, grass in ipairs(behaviors) do
+    local effects = controller(nil, { [grass.kind] = genericDefinition(grass.kind) })
+    local responses = FieldTerrainResponse.resolve({
+      committed = true,
+      destination = {
+        behavior = grass.behavior,
+        fieldX = 7,
+        fieldZ = 9,
+        worldY = 3.5,
+        cellKey = "1:2",
+        sourceSurfaceId = 4,
+      },
+      direction = "north",
+    })
+    Assert.equal(#responses, 1)
+    effects:emitAll(responses)
+
+    for tick = 1, 3 do
+      local facing = tick % 2 == 0 and "east" or "north"
+      updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = facing })
+      local instance = effects:status().instances[1]
+      Assert.notNil(instance)
+      Assert.equal(instance.age, tick)
+      Assert.equal(instance.frame, tick)
+    end
+
+    updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "east" })
+    Assert.equal(#effects:status().instances, 1)
+
+    updateWithOwner(effects, { fieldX = 8, fieldZ = 9, facing = "east" })
     Assert.equal(#effects:status().instances, 0)
   end
 end

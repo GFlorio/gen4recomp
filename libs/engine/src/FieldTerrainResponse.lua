@@ -31,7 +31,6 @@ function FieldTerrainResponse.resolve(movement)
       worldY = destination.worldY,
       cellKey = destination.cellKey or destination.sourceCellKey,
       sourceSurfaceId = destination.sourceSurfaceId,
-      direction = movement.direction,
     },
   }
 end
