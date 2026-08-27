@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local OakIntroState = require("game.src.game.OakIntroState")
 
 local T = {}
+local DIALOGUE_CURSOR_PLACEMENT = { x = 240, y = 168, width = 16, height = 16 }
 
 local INTRO_MANIFEST = {
   sourceReference = { width = 256, height = 192 },
@@ -121,6 +122,7 @@ local function stateHarness()
     glyphs = { "A", "B", "é" },
     width = 640,
     height = 480,
+    dialogueCursorPlacement = DIALOGUE_CURSOR_PLACEMENT,
   })
   return state, controller, input, renderer
 end

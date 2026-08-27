@@ -354,11 +354,34 @@ function T.auto_scroll_pages_advance_without_action()
   Assert.equal(c:status().state, "WAITING_CLOSE")
 end
 
+function T.page_break_advances_directly_without_scrolling()
+  local c = controller({
+    page({ line({ glyph("A", 1) }), line({ glyph("B", 2) }) }, "page"),
+    page({ line({ glyph("C", 3) }) }, "eos"),
+  })
+  c:open(request("page", message()))
+  while c:status().state == "REVEALING" or c:status().state == "OPENING" do
+    c:step({})
+  end
+  Assert.equal(c:status().state, "WAITING_BOUNDARY")
+
+  c:step({ actionPressed = true })
+  local status = c:status()
+  Assert.equal(status.pageIndex, 2)
+  Assert.equal(status.state, "REVEALING")
+  Assert.equal(status.scrollRemaining, 0)
+  Assert.equal(status.scrollOffsetY, 0)
+  Assert.equal(#status.visibleLines, 0, "direct page advance clears the prior bottom line")
+
+  c:step({})
+  Assert.isFalse(c:status().state == "SCROLLING", "ordinary page advance never enters scrolling")
+end
+
 -- A scroll continuation retains the old bottom line while the next source
 -- tokens print into the newly exposed bottom line.
 function T.scroll_break_retains_the_prior_bottom_line()
   local c = controller({
-    page({ line({ glyph("A", 1) }), line({ glyph("B", 2) }) }, "page"),
+    page({ line({ glyph("A", 1) }), line({ glyph("B", 2) }) }, "scroll"),
     page({ line({ glyph("C", 3) }) }, "eos"),
   })
   c:open(request("scroll", message()))
@@ -382,7 +405,7 @@ function T.scroll_break_moves_exactly_one_line_in_fixed_increments()
         pages = {
           {
             lines = { line({ glyph("A", 1) }), line({ glyph("B", 2) }) },
-            breakKind = "page",
+            breakKind = "scroll",
           },
           { lines = { line({ glyph("C", 3) }) }, breakKind = "eos" },
         },

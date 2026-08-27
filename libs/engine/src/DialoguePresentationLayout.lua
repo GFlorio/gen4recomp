@@ -21,12 +21,11 @@ local Layout = {}
 
 local WIDTH = 256
 local HEIGHT = 48
+local SOURCE_HEIGHT = 192
 local BOX = { x = 16, y = 8, width = 216, height = 32 }
--- Source placement is 240,168 in the 256x192 reference; the dialogue window
--- strip occupies 256x48 bottom-aligned, so the source-relative local origin
--- is offset by 192-48=144. Cursor local = source - window origin.
-local SOURCE_CURSOR = { x = 240, y = 168, width = 16, height = 16 }
-local SOURCE_WINDOW_Y = 144
+-- The dialogue window strip is the bottom 48 pixels of the 256x192 source
+-- canvas, so source-relative local Y is converted by subtracting 144.
+local SOURCE_WINDOW_Y = SOURCE_HEIGHT - HEIGHT
 local TEXT_INSET_X = 10
 local CURSOR_RESERVED_WIDTH = 20
 local LINE_HEIGHT = 16
@@ -55,12 +54,25 @@ local function validateBounds(bounds)
   finitePositive(bounds.height, "dialogue presentation bounds.height")
 end
 
+local function validateCursorPlacement(placement)
+  assert(type(placement) == "table", "dialogue cursor placement must be a rectangle")
+  for _, key in ipairs({ "x", "y", "width", "height" }) do
+    finite(placement[key], "dialogue cursor placement." .. key)
+  end
+  finitePositive(placement.width, "dialogue cursor placement.width")
+  finitePositive(placement.height, "dialogue cursor placement.height")
+  assert(placement.x >= 0 and placement.y >= SOURCE_WINDOW_Y, "dialogue cursor placement is outside the source window")
+  assert(
+    placement.x + placement.width <= WIDTH and placement.y + placement.height <= SOURCE_HEIGHT,
+    "dialogue cursor placement is outside the source canvas"
+  )
+end
+
 ---@param bounds { x: number, y: number, width: number, height: number }
----@param options? { scale?: number, maxScale?: number, cursorPlacement?: { x: number, y: number, width: number, height: number } }
+---@param options { scale?: number, maxScale?: number, cursorPlacement: { x: number, y: number, width: number, height: number } }
 ---@return DialoguePresentationLayout.Presentation
 function Layout.compute(bounds, options)
   validateBounds(bounds)
-  options = options or {}
   assert(type(options) == "table", "dialogue presentation options must be a table")
   if options.scale ~= nil then
     finitePositive(options.scale, "dialogue presentation scale")
@@ -78,18 +90,8 @@ function Layout.compute(bounds, options)
     x = bounds.x + (bounds.width - WIDTH * scale) / 2,
     y = bounds.y + bounds.height - HEIGHT * scale,
   }
-  local cursorPlacement = options.cursorPlacement
-  if cursorPlacement == nil then
-    cursorPlacement = SOURCE_CURSOR
-  end
-  assert(
-    type(cursorPlacement) == "table"
-      and type(cursorPlacement.x) == "number"
-      and type(cursorPlacement.y) == "number"
-      and type(cursorPlacement.width) == "number"
-      and type(cursorPlacement.height) == "number",
-    "dialogue cursor placement must be a rectangle"
-  )
+  local cursorPlacement = assert(options.cursorPlacement, "dialogue presentation requires generated cursor placement")
+  validateCursorPlacement(cursorPlacement)
   local cursor = {
     x = cursorPlacement.x,
     y = cursorPlacement.y - SOURCE_WINDOW_Y,
@@ -140,28 +142,30 @@ function Layout.validate(presentation)
       and math.abs(presentation.outerRect.height - HEIGHT * presentation.scale) <= EPSILON,
     "dialogue presentation has inconsistent outer rectangle"
   )
-  local function requireRect(rect, expected, name)
+  local function requireRect(rect, name, expected)
     assert(type(rect) == "table", "dialogue presentation requires " .. name)
     for _, key in ipairs({ "x", "y", "width", "height" }) do
       finite(rect[key], "dialogue presentation " .. name .. "." .. key)
     end
-    for _, key in ipairs({ "x", "y", "width", "height" }) do
-      assert(rect[key] == expected[key], "dialogue presentation has invalid " .. name)
+    if expected then
+      for _, key in ipairs({ "x", "y", "width", "height" }) do
+        assert(rect[key] == expected[key], "dialogue presentation has invalid " .. name)
+      end
     end
+    return rect
   end
-  requireRect(presentation.box, BOX, "box")
-  -- Text must be the source-derived reserved rect; cursor must be the
-  -- source placement transformed into the 256x48 window (240,168 -> 240,24).
+  requireRect(presentation.box, "box", BOX)
+  -- Text must be the source-derived reserved rect. Cursor geometry is supplied
+  -- by generated field UI and has already been transformed by compute().
   local expectedText =
     { x = BOX.x + TEXT_INSET_X, y = BOX.y, width = BOX.width - CURSOR_RESERVED_WIDTH, height = BOX.height }
-  local expectedCursor = {
-    x = SOURCE_CURSOR.x,
-    y = SOURCE_CURSOR.y - SOURCE_WINDOW_Y,
-    width = SOURCE_CURSOR.width,
-    height = SOURCE_CURSOR.height,
-  }
-  requireRect(presentation.text, expectedText, "text box")
-  requireRect(presentation.cursor, expectedCursor, "cursor")
+  requireRect(presentation.text, "text box", expectedText)
+  local cursor = requireRect(presentation.cursor, "cursor")
+  assert(cursor.x >= 0 and cursor.y >= 0, "dialogue cursor must be inside the local strip")
+  assert(
+    cursor.x + cursor.width <= WIDTH and cursor.y + cursor.height <= HEIGHT,
+    "dialogue cursor must be inside the local strip"
+  )
   assert(presentation.lineHeight == LINE_HEIGHT, "dialogue presentation has invalid line height")
 end
 

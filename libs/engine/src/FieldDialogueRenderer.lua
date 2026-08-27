@@ -278,31 +278,15 @@ function FieldDialogueRenderer:draw(controller, viewportOrPresentation, fieldSca
   elseif fieldScale == nil then
     assert(viewportOrPresentation, "FieldDialogueRenderer:draw requires a layout or presentation")
     -- Compact presentation can arrive as the second arg when fieldScale is
-    -- omitted; detect it by its bounds field. Field theme layouts may not
-    -- carry a cursor yet, so synthesize one from the manifest for that path.
+    -- omitted; detect it by its bounds field. Theme layouts for dialogue must
+    -- already carry the generated cursor placement.
     if viewportOrPresentation.bounds ~= nil then
       layout = viewportOrPresentation --[[@as DialoguePresentationLayout.Presentation]]
       DialoguePresentationLayout.validate(layout)
     else
       local themeLayout = viewportOrPresentation --[[@as FieldDialogueTheme.Layout]]
-      if themeLayout.cursor == nil then
-        local cursorPlacement = assert(self._manifest.dialogueFrames.continueCursor).placement
-        layout = {
-          scale = themeLayout.scale,
-          origin = themeLayout.origin,
-          box = themeLayout.box,
-          text = themeLayout.text,
-          lineHeight = themeLayout.lineHeight,
-          cursor = {
-            x = assert(cursorPlacement).x,
-            y = assert(cursorPlacement).y,
-            width = assert(cursorPlacement).width,
-            height = assert(cursorPlacement).height,
-          },
-        }
-      else
-        layout = themeLayout
-      end
+      layout = themeLayout
+      assert(layout.cursor, "dialogue theme layout must carry generated cursor placement")
     end
   else
     assert(
@@ -313,28 +297,8 @@ function FieldDialogueRenderer:draw(controller, viewportOrPresentation, fieldSca
         and fieldScale ~= -math.huge,
       "FieldDialogueRenderer:draw requires a finite positive field scale"
     )
-    local themeLayout = self._theme.layout(assert(viewportOrPresentation).referenceFrame, fieldScale)
-    -- Field presentation has no separate cursor layout yet; synthesize a
-    -- source-derived cursor in the theme's 256x192 coordinate space so the
-    -- shared _drawCursor path can remain presentation-agnostic. Callers that
-    -- already supply a presentation carry the transformed cursor.
     local cursorPlacement = assert(self._manifest.dialogueFrames.continueCursor).placement
-    local cursor = {
-      x = assert(cursorPlacement).x,
-      y = assert(cursorPlacement).y,
-      width = assert(cursorPlacement).width,
-      height = assert(cursorPlacement).height,
-    }
-    -- Avoid mutating the caller-owned theme layout; expose a distinct layout
-    -- that carries the cursor for the draw path.
-    layout = {
-      scale = themeLayout.scale,
-      origin = themeLayout.origin,
-      box = themeLayout.box,
-      text = themeLayout.text,
-      lineHeight = themeLayout.lineHeight,
-      cursor = cursor,
-    }
+    layout = self._theme.layout(assert(viewportOrPresentation).referenceFrame, fieldScale, cursorPlacement)
   end
   local lg = assert(self._graphics)
   local status = controller:status()

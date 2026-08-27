@@ -96,6 +96,11 @@ local function charData(tiles, base)
   return container("RGCN", { block("CHAR", payload .. table.concat(body)) })
 end
 
+local function charDataWithTiles(tileBytes)
+  local payload = u16(8) .. u16(0x20) .. u32(3) .. u16(0) .. u16(0) .. u32(0) .. u32(#tileBytes * 32) .. u32(0x18)
+  return container("RGCN", { block("CHAR", payload .. table.concat(tileBytes)) })
+end
+
 local function screenData(entries)
   local body = {}
   for _, e in ipairs(entries) do
@@ -284,7 +289,7 @@ local function fixture(opts)
       for i = 1, 20 do
         members[26 + i] = lz10Wrap(paletteOr16(opts.framePalette))
       end
-      members[0x16 + 1] = lz10Wrap(charData(12))
+      members[0x16 + 1] = lz10Wrap(opts.cursorChar or charData(12))
     elseif alias == "signpost_graphics" then
       members = signposts
     else
@@ -434,6 +439,40 @@ function T.atlas_pixels_and_dimensions_follow_the_source_mapping()
   -- Same tile 0 / value 1 mapping as the dialogue frame above -> colors[2].
   Assert.equal(aB, 255)
   Assert.deepEqual({ rB, gB, bB }, { 181, 206, 8 })
+end
+
+function T.dialogue_cursor_phases_compose_frame_backing_and_payload()
+  local cursorTiles = {}
+  for phase = 0, 2 do
+    cursorTiles[phase * 4 + 1] = string.rep("\0", 32)
+    cursorTiles[phase * 4 + 2] = string.rep(string.char(0x22), 32)
+    cursorTiles[phase * 4 + 3] = string.rep("\0", 32)
+    cursorTiles[phase * 4 + 4] = string.rep("\0", 32)
+  end
+  local romFs, sha1, hashLua = fixture({ cursorChar = charDataWithTiles(cursorTiles) })
+  local bundle = assert(compileWithTestConfig(romFs, sha1, hashLua))
+  local cursorEntry = bundle.manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_CONTINUE_CURSOR]
+  local cursorWidth, _, cursorRgba = PngReader.rgba(bundle.assets[cursorEntry.image])
+  local frameEntry = bundle.manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES]
+  local frameWidth, _, frameRgba = PngReader.rgba(bundle.assets[frameEntry.image])
+
+  for style = 0, bundle.manifest.dialogueFrames.count - 1 do
+    local frameY = style * 8
+    local backing = { PngReader.pixel(frameRgba, frameWidth, 10 * 8, frameY) }
+    local payload = { PngReader.pixel(frameRgba, frameWidth, 8, frameY) }
+    for phase = 0, 2 do
+      local cursorX = phase * 16
+      local backedPixel = { PngReader.pixel(cursorRgba, cursorWidth, cursorX + 1, style * 16 + 1) }
+      local payloadPixel = { PngReader.pixel(cursorRgba, cursorWidth, cursorX + 8 + 1, style * 16 + 1) }
+      Assert.deepEqual(backedPixel, backing, "phase " .. phase .. " keeps the frame backing for style " .. style)
+      Assert.deepEqual(payloadPixel, payload, "phase " .. phase .. " keeps the cursor payload for style " .. style)
+      Assert.deepEqual(
+        bundle.manifest.dialogueFrames.continueCursor.styles[style].phases[phase],
+        { x = cursorX, y = style * 16, width = 16, height = 16 },
+        "phase " .. phase .. " keeps the generated placement for style " .. style
+      )
+    end
+  end
 end
 
 -- Every (type, map) pair gets its own atlas row, and the map-0 and map-1

@@ -7,6 +7,7 @@ local FieldZoom = require("libs.engine.src.FieldZoom")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldState = require("game.src.game.FieldState")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local FieldUiFixture = require("tests.support.FieldUiFixture")
 
 local T = {}
 
@@ -240,6 +241,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
   local state = setmetatable({
     runtime = {
       viewport = viewport,
+      uiManifest = FieldUiFixture.manifest(),
       camera = camera,
       runtimeMap = fakeRuntimeMap,
       player = { fieldX = 0, fieldZ = 0, worldY = 0, surfaceId = 0, facing = "south", motion = "idle" },

@@ -426,29 +426,14 @@ function FieldState:draw()
       width = math.max(bounds.width, 256 * fieldScale),
       height = math.max(bounds.height, 48 * fieldScale),
     }
-    local manifestPlacement = self.runtime.uiManifest
-        and self.runtime.uiManifest.dialogueFrames
-        and self.runtime.uiManifest.dialogueFrames.continueCursor
-        and self.runtime.uiManifest.dialogueFrames.continueCursor.placement
-      or nil
+    local dialogueModal = self.runtime.dialogue:isModal()
     local dialoguePresentation
-    if manifestPlacement then
+    if dialogueModal then
+      local manifestPlacement = assert(self.runtime.uiManifest).dialogueFrames.continueCursor.placement
       dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
         scale = fieldScale,
         cursorPlacement = manifestPlacement,
       })
-    else
-      -- Component harnesses stub the field runtime without a derived UI
-      -- manifest. Dialogue presentation still needs a cursor rectangle for the
-      -- shared overlay, but the production manifest remains the sole source of
-      -- truth: FieldUiAssetCache validates generated placement (240,168,16,16)
-      -- before a real FieldState is ever constructed. Only the stub path
-      -- degrades gracefully by using the layout default placement.
-      dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
-        scale = fieldScale,
-      })
-    end
-    if self.runtime.dialogue:isModal() then
       self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale, dialoguePresentation)
     end
     if self.runtime.signpost:isModal() then

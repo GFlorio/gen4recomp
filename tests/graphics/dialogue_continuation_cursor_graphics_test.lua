@@ -25,9 +25,13 @@ T["cursor_is_source_placed_and_text_does_not_overlap_for_both_presentations"] = 
   Assert.equal(placement.height, 16)
 
   -- Ordinary field: wide bounds resembling FieldState worldViewport
-  local ordinary = DialoguePresentationLayout.compute({ x = 37, y = 11, width = 900, height = 420 })
+  local ordinary = DialoguePresentationLayout.compute({ x = 37, y = 11, width = 900, height = 420 }, {
+    cursorPlacement = placement,
+  })
   -- Compact Oak: host-owned outerRect scale path exercises compact geometry
-  local compact = DialoguePresentationLayout.compute({ x = 0, y = 0, width = 390, height = 844 })
+  local compact = DialoguePresentationLayout.compute({ x = 0, y = 0, width = 390, height = 844 }, {
+    cursorPlacement = placement,
+  })
 
   for _, pres in ipairs({ ordinary, compact }) do
     -- Cursor must be manifest-sized in local reference space (no invented 10x8)
@@ -124,7 +128,9 @@ T["renderer_is_passive_and_uses_layout_cursor"] = function(scope)
   end
   Assert.isTrue(status.waiting, "cursor must be visible")
 
-  local presentation = DialoguePresentationLayout.compute({ x = 37, y = 11, width = 900, height = 420 })
+  local presentation = DialoguePresentationLayout.compute({ x = 37, y = 11, width = 900, height = 420 }, {
+    cursorPlacement = sourcePlacement(),
+  })
   local beforePhase = status.cursorPhase
   renderer:draw(controller, presentation)
   local draws = graphics.draws

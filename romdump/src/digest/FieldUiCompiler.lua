@@ -122,6 +122,31 @@ local function newRgba(width, height)
   return rgba
 end
 
+-- Compose the 16x16 continuation surface exactly as the source window code
+-- does: the cursor member supplies the phase payload, while frame tiles 10
+-- and 11 provide the backing that surrounds that payload.
+local function composeCursorPhase(rgba, atlasWidth, destX, destY, frameChar, framePalette, cursorChar, phase, source)
+  for row = 0, 1 do
+    blitTile(rgba, atlasWidth, destX, destY + row * 8, frameChar, 10, 0, framePalette, false, false, source)
+    blitTile(rgba, atlasWidth, destX + 8, destY + row * 8, frameChar, 11, 0, framePalette, false, false, source)
+  end
+  for tile = 0, 3 do
+    blitTile(
+      rgba,
+      atlasWidth,
+      destX + (tile % 2) * 8,
+      destY + math.floor(tile / 2) * 8,
+      cursorChar,
+      phase * 4 + tile,
+      0,
+      framePalette,
+      false,
+      false,
+      source
+    )
+  end
+end
+
 -- Render a screen (BG tilemap with flips) into a PNG.
 local function renderScreen(charData, palette, screen, source)
   local width = screen.width
@@ -373,21 +398,17 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
       })
     end
     for phase = 0, 2 do
-      for tile = 0, 3 do
-        blitTile(
-          cursorRgba,
-          cursorWidth,
-          phase * 16 + (tile % 2) * 8,
-          frame * 16 + math.floor(tile / 2) * 8,
-          cursorChar,
-          phase * 4 + tile,
-          0,
-          framePal.colors,
-          false,
-          false,
-          { asset = "dialogue continuation cursor", member = cfg.continueCursorMember, frame = frame, phase = phase }
-        )
-      end
+      composeCursorPhase(
+        cursorRgba,
+        cursorWidth,
+        phase * 16,
+        frame * 16,
+        frameChar,
+        framePal.colors,
+        cursorChar,
+        phase,
+        { asset = "dialogue continuation cursor", member = cfg.continueCursorMember, frame = frame, phase = phase }
+      )
     end
     frameTiles[frame] = { x = 0, y = frame * 8, width = atlasWidth, height = 8 }
     deps[#deps + 1] = {

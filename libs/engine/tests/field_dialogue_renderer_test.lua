@@ -276,7 +276,7 @@ function T.request_without_a_frame_index_draws_no_frame_tiles()
   renderer:release()
 end
 
--- A waiting dialogue samples C01's phase and frame index: it draws the
+-- A waiting dialogue samples the generated phase and frame index: it draws the
 -- generated cursor quad at the source placement, never a local blink polygon,
 -- and repeated draws do not advance the controller-owned phase.
 function T.waiting_dialogue_draws_the_generated_cursor_phase_without_blinking()
@@ -339,7 +339,9 @@ function T.compact_presentation_places_the_cursor_inside_its_window()
     controller:step({})
   end
   local status = controller:status()
-  local presentation = DialoguePresentationLayout.compute({ x = 37, y = 11, width = 900, height = 420 })
+  local presentation = DialoguePresentationLayout.compute({ x = 37, y = 11, width = 900, height = 420 }, {
+    cursorPlacement = cursorManifest().dialogueFrames.continueCursor.placement,
+  })
 
   renderer:draw(controller, presentation)
   local cursor = lg.draws[#lg.draws]
@@ -387,7 +389,11 @@ function T.dialogue_content_uses_the_source_background_palette_slot()
   local controller = FieldDialogueFixture.openDialogue("AB", 0)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
-  local layout = FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1))
+  local layout = FieldDialogueTheme.layout(
+    viewport.referenceFrame,
+    viewport:logicalPixelScale(1),
+    MANIFEST.dialogueFrames.continueCursor.placement
+  )
   Assert.equal(#lg.rectangles, 1, "the content rectangle is explicitly filled")
   Assert.equal(lg.rectangles[1].mode, "fill")
   Assert.deepEqual(lg.rectangles[1].color, text.fontDef.palette[16])
@@ -475,7 +481,11 @@ function T.reached_focus_indicator_draws_at_the_content_window_right_edge()
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local focus = focusDraws(lg)
   Assert.equal(#focus, 1, "exactly one indicator frame is drawn")
-  local layout = FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1))
+  local layout = FieldDialogueTheme.layout(
+    viewport.referenceFrame,
+    viewport:logicalPixelScale(1),
+    MANIFEST.dialogueFrames.continueCursor.placement
+  )
   Assert.equal(focus[1].x, layout.box.x + layout.box.width - 24, "the indicator sits at the content-window right edge")
   Assert.equal(focus[1].y, layout.box.y, "the indicator sits at the content-window top")
   Assert.deepEqual(
@@ -503,7 +513,11 @@ function T.the_last_visible_focus_field_wins()
   controller:step({ actionPressed = true })
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local focus = focusDraws(lg)
-  local layout = FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1))
+  local layout = FieldDialogueTheme.layout(
+    viewport.referenceFrame,
+    viewport:logicalPixelScale(1),
+    MANIFEST.dialogueFrames.continueCursor.placement
+  )
   Assert.equal(#focus, 1, "multiple visible controls still draw one frame")
   Assert.equal(focus[1].quad.x, 3 * 24, "the last visible field in source order wins")
   Assert.equal(

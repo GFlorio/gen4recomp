@@ -26,7 +26,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field textWidth integer
 ---@field textHeight integer
 ---@field frameTilePlacements fun(box: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
----@field layout fun(referenceFrame: FieldDialogueTheme.Rect, fieldScale: number): FieldDialogueTheme.Layout
+---@field layout fun(referenceFrame: FieldDialogueTheme.Rect, fieldScale: number, cursorPlacement?: FieldDialogueTheme.Rect): FieldDialogueTheme.Layout
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
 ---@field measureText fun(fontDef: FieldFontDef): fun(text: string): number
 local FieldDialogueTheme = {}
@@ -108,8 +108,9 @@ end
 
 ---@param referenceFrame FieldDialogueTheme.Rect
 ---@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom)), must be finite > 0
+---@param cursorPlacement? FieldDialogueTheme.Rect generated source cursor placement for dialogue rendering
 ---@return FieldDialogueTheme.Layout
-function FieldDialogueTheme.layout(referenceFrame, fieldScale)
+function FieldDialogueTheme.layout(referenceFrame, fieldScale, cursorPlacement)
   assert(
     type(referenceFrame) == "table"
       and type(referenceFrame.x) == "number"
@@ -145,12 +146,32 @@ function FieldDialogueTheme.layout(referenceFrame, fieldScale)
     width = FieldDialogueTheme.textWidth,
     height = FieldDialogueTheme.textHeight,
   }
+  local cursor
+  if cursorPlacement ~= nil then
+    assert(
+      type(cursorPlacement) == "table"
+        and type(cursorPlacement.x) == "number"
+        and type(cursorPlacement.y) == "number"
+        and type(cursorPlacement.width) == "number"
+        and type(cursorPlacement.height) == "number"
+        and cursorPlacement.width > 0
+        and cursorPlacement.height > 0,
+      "FieldDialogueTheme.layout requires a generated cursor placement"
+    )
+    cursor = {
+      x = cursorPlacement.x,
+      y = cursorPlacement.y,
+      width = cursorPlacement.width,
+      height = cursorPlacement.height,
+    }
+  end
   return {
     scale = scale,
     origin = origin,
     box = box,
     text = text,
     lineHeight = FieldDialogueTheme.lineHeight,
+    cursor = cursor,
   }
 end
 
@@ -215,7 +236,7 @@ end
 ---@field box FieldDialogueTheme.Rect
 ---@field text FieldDialogueTheme.Rect
 ---@field lineHeight number
----@field cursor { x: number, y: number }?
+---@field cursor FieldDialogueTheme.Rect?
 
 -- Metrics consumed by DialogueLayout: glyph advances from the generated font
 -- definition. Non-glyph tokens get no width here, so DialogueLayout measures

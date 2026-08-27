@@ -12,6 +12,7 @@ local FakeGraphics = require("tests.support.FakeGraphics")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 
 local T = {}
+local CURSOR_PLACEMENT = FieldUiFixture.manifest().dialogueFrames.continueCursor.placement
 
 local function renderer(scope)
   local cache = FieldUiFixture.cacheWithFontAndFrames()
@@ -50,7 +51,7 @@ T["authentic_window_renders_inside_arbitrary_host_bounds"] = function(scope)
 end
 
 T["field_dialogue_remains_geometrically_and_behaviorally_identical"] = function()
-  local layout = FieldDialogueTheme.layout({ x = 90, y = 40, width = 700, height = 500 }, 2)
+  local layout = FieldDialogueTheme.layout({ x = 90, y = 40, width = 700, height = 500 }, 2, CURSOR_PLACEMENT)
 
   Assert.equal(layout.box.x, 16)
   Assert.equal(layout.box.y, 152)

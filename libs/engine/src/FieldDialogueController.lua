@@ -598,7 +598,7 @@ function FieldDialogueController:step(snapshot)
       end
       if self._state == "WAITING_BOUNDARY" then
         local page = assert(self._pages[self._pageIndex])
-        if page.breakKind == "page" or page.breakKind == "scroll" then
+        if page.breakKind == "scroll" then
           self:_beginScroll()
         else
           self._retainedLines = {}
