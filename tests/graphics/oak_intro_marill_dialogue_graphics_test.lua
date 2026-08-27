@@ -83,6 +83,135 @@ local function render(scope, state, view, includeDialogue)
   return scope:own(canvas:newImageData())
 end
 
+local function finishDialogueBoundary(state)
+  local initialKey = state:view().messageKey
+  Assert.notNil(initialKey, "profile flow requires an active dialogue")
+  for _ = 1, 12000 do
+    local view = state:view()
+    if view.messageKey ~= initialKey then
+      return
+    end
+    local status = state.dialogueController:status()
+    if status.state == "WAITING_BOUNDARY" or status.state == "WAITING_CLOSE" then
+      state:keypressed("return")
+    else
+      state:tick(1)
+    end
+  end
+  error("profile dialogue did not reach its semantic completion boundary")
+end
+
+local function reachFinalFullArtHold(state, female)
+  for _ = 1, 20000 do
+    if state:view().messageKey == "profile.gender_question" then
+      break
+    end
+    if state.dialogueController:isModal() then
+      finishDialogueBoundary(state)
+    else
+      state:tick(1)
+    end
+  end
+  Assert.equal(state:view().messageKey, "profile.gender_question")
+  finishDialogueBoundary(state)
+  if female then
+    state:keypressed("right")
+  end
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  for _ = 1, 20000 do
+    if state:view().phase == "name_edit" then
+      break
+    end
+    if state.dialogueController:isModal() then
+      finishDialogueBoundary(state)
+    else
+      state:tick(1)
+    end
+  end
+  Assert.equal(state:view().phase, "name_edit")
+  state:textinput("GOLD")
+  state:keypressed("left")
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  state:keypressed("return")
+  for _ = 1, 20000 do
+    if state:view().phase == "final_full_art_hold" then
+      return
+    end
+    state:tick(1)
+  end
+  error("profile flow did not reach the full-art hold")
+end
+
+local function copyView(view)
+  local copy = {}
+  for key, value in pairs(view) do
+    copy[key] = value
+  end
+  return copy
+end
+
+local function renderWithoutSubject(scope, state, view)
+  local canvas = scope:own(love.graphics.newCanvas(state.width, state.height))
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear(0, 0, 0, 0)
+  local background = copyView(view)
+  background.visual = "background"
+  background.primaryWidget = nil
+  background.revealWidget = nil
+  background.revealFrameIndex = nil
+  state.renderer:draw(background)
+  love.graphics.setCanvas()
+  return scope:own(canvas:newImageData())
+end
+
+local function renderWithSubject(scope, state, view)
+  local canvas = scope:own(love.graphics.newCanvas(state.width, state.height))
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear(0, 0, 0, 0)
+  state.renderer:draw(view)
+  love.graphics.setCanvas()
+  return scope:own(canvas:newImageData())
+end
+
+local function assertSubjectPixelsUseSourceBounds(scope, state, view, widgetId, label)
+  local widget = assert(state.manifest.widgets[widgetId])
+  local layout = assert(view.layout)
+  local canvas = assert(layout.sourceCanvas)
+  local expected = {
+    x = canvas.origin.x + widget.sourceBounds.x * canvas.scale,
+    y = canvas.origin.y + widget.sourceBounds.y * canvas.scale,
+    width = widget.width * canvas.scale,
+    height = widget.height * canvas.scale,
+  }
+  local background = renderWithoutSubject(scope, state, view)
+  local subject = renderWithSubject(scope, state, view)
+  local changed, outside = 0, 0
+  for y = 0, subject:getHeight() - 1 do
+    for x = 0, subject:getWidth() - 1 do
+      if differs(background, subject, x, y) then
+        changed = changed + 1
+        local centerX, centerY = x + 0.5, y + 0.5
+        if
+          centerX < expected.x
+          or centerX >= expected.x + expected.width
+          or centerY < expected.y
+          or centerY >= expected.y + expected.height
+        then
+          outside = outside + 1
+        end
+      end
+    end
+  end
+  Assert.isTrue(changed > 0, label .. " must render visible profile pixels")
+  Assert.equal(outside, 0, label .. " pixels must use the widget source bounds")
+end
+
 local function withProductionState(versionId, body)
   local state
   local ok, failure = xpcall(function()
@@ -220,6 +349,49 @@ function T.marill_pixels_remain_visible_above_the_dialogue_at_host_sizes(scope)
         end
         Assert.equal(initialView.revealWidget, "marill")
       end)
+    end
+  end
+  Assert.isTrue(readyCount > 0, "derived-cache capability promised a ready game version")
+end
+
+function T.profile_and_shrink_pixels_follow_their_generated_source_bounds(scope)
+  local readyCount = 0
+  for _, versionId in ipairs(GameVersion.ORDER) do
+    if RomImporter.isReady(versionId) then
+      readyCount = readyCount + 1
+      for _, female in ipairs({ false, true }) do
+        withProductionState(versionId, function(state)
+          reachFinalFullArtHold(state, female)
+          local genderId = female and "female" or "male"
+          local shrinkId = female and "shrink_female" or "shrink_male"
+
+          state:resize(800, 600)
+          local full = state:view()
+          Assert.equal(full.primaryWidget, genderId)
+          assertSubjectPixelsUseSourceBounds(scope, state, full, genderId, versionId .. " " .. genderId)
+
+          state:resize(390, 844)
+          full = state:view()
+          assertSubjectPixelsUseSourceBounds(scope, state, full, genderId, versionId .. " resized " .. genderId)
+
+          state:tick(30)
+          for frameIndex = 1, 4 do
+            local view = state:view()
+            Assert.equal(view.primaryWidget, shrinkId)
+            Assert.equal(view.visualFrameIndex, frameIndex)
+            assertSubjectPixelsUseSourceBounds(
+              scope,
+              state,
+              view,
+              shrinkId,
+              versionId .. " " .. shrinkId .. " frame " .. frameIndex
+            )
+            if frameIndex < 4 then
+              state:tick(9)
+            end
+          end
+        end)
+      end
     end
   end
   Assert.isTrue(readyCount > 0, "derived-cache capability promised a ready game version")

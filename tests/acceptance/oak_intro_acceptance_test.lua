@@ -20,11 +20,34 @@ local READY_VERSION = "heartgold"
 local VIRTUAL_GLYPHS = { "A", "B", "C", "D", "E", "F", "G", "O", "L", "é" }
 local CHARMAP = { A = 1, B = 2, C = 3, D = 4, E = 5, F = 6, G = 7, O = 8, L = 9, ["é"] = 10 }
 local PLAYER_DATA_CONTEXT = { charmap = CHARMAP, frameIndexes = { [0] = true } }
+
+local function animation(duration, count)
+  local frames = {}
+  for index = 1, count do
+    frames[index] = { duration = duration }
+  end
+  return { frames = frames }
+end
+
 local INTRO_ASSETS = {
   marill = { frames = { { duration = 1 } } },
   marill_appear = { frames = { { duration = 1 } } },
   ball_open = { frames = { { duration = 1 } } },
+  male = animation(1, 1),
+  female = animation(1, 1),
+  shrink_male = animation(9, 4),
+  shrink_female = animation(9, 4),
 }
+
+local function profileWidget(width, height, x, y)
+  return {
+    width = width,
+    height = height,
+    anchor = { x = width / 2, y = height },
+    sourceBounds = { x = x, y = y, width = width, height = height },
+  }
+end
+
 local INTRO_MANIFEST = {
   sourceReference = { width = 256, height = 192 },
   background = { width = 1, height = 192, sampling = "linear" },
@@ -76,6 +99,10 @@ local INTRO_MANIFEST = {
       sourceBounds = { x = 140, y = 50, width = 40, height = 30 },
       sourceCenter = { x = 160, y = 80 },
     },
+    male = profileWidget(96, 120, 36, 24),
+    female = profileWidget(88, 116, 48, 28),
+    shrink_male = profileWidget(44, 68, 142, 70),
+    shrink_female = profileWidget(40, 64, 150, 72),
   },
 }
 
@@ -379,7 +406,7 @@ function T.tests.new_game_routes_through_the_core_oak_sequence()
     submitName()
     confirm()
     confirm()
-    advance(1 + 1 + 30 + 1)
+    advance(1 + 1 + 30 + 9 * 4)
     Assert.equal(#context.fieldCalls, 1)
     Assert.equal(context.fieldCalls[1].game.playerData.profile.name, "GOLD")
     Assert.equal(App.state.kind, "field")
@@ -504,7 +531,7 @@ function T.tests.final_confirmation_hands_off_a_valid_unpublished_game()
     Assert.isNil(context.controller:candidate().playerData)
     advance(1)
     Assert.equal(App.state:view().phase, "final_full_art_fade_in")
-    advance(1 + 30 + 8 * 4)
+    advance(1 + 30 + 9 * 4)
 
     Assert.equal(App.state.kind, "field")
     Assert.equal(#context.fieldCalls, 1)

@@ -324,6 +324,40 @@ function T.shrink_source_configuration_starts_after_the_displayed_full_portrait(
   Assert.deepEqual(config.shrink.female.chars, { 26, 27, 28, 29 })
 end
 
+function T.shrink_assets_keep_source_order_and_use_nine_tick_replacements()
+  local Compiler = compiler()
+  local source, restore = syntheticCompilerSource()
+  local ok, result = xpcall(function()
+    return Compiler.compile(source)
+  end, debug.traceback)
+  restore()
+  if not ok then
+    error(result, 0)
+  end
+
+  for _, expected in ipairs({
+    { id = "shrink_male", chars = { 22, 23, 24, 25 }, palette = 16 },
+    { id = "shrink_female", chars = { 26, 27, 28, 29 }, palette = 21 },
+  }) do
+    local widget = assert(result.manifest.widgets[expected.id])
+    Assert.equal(#widget.frames, 4)
+    for _, frame in ipairs(widget.frames) do
+      Assert.equal(frame.duration, 9)
+    end
+    Assert.equal(widget.provenance.rule, "portrait-screen-alpha-union")
+    Assert.equal(widget.provenance.screenMember, 9)
+    Assert.equal(widget.provenance.paletteMember, expected.palette)
+
+    local members = {}
+    for _, dependency in ipairs(result.dependencies.dependencies) do
+      if dependency.role:match("^" .. expected.id .. ":char:") then
+        members[#members + 1] = dependency.memberId
+      end
+    end
+    Assert.deepEqual(members, expected.chars)
+  end
+end
+
 local function introCache()
   local ok, cache = pcall(require, "libs.assets.src.IntroAssetCache")
   if not ok then

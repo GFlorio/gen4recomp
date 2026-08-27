@@ -182,15 +182,17 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     nameKeys = {},
     genderFocus = view.genderFocus,
   }
-  local oak = widget(manifest, "oak")
   local canvas = sourceCanvas(scene, reference)
   result.sourceCanvas = canvas
-  -- Oak's base source-to-host mapping is the same scene canvas in every
-  -- phase; only the source-space slide displacement changes it, never a
-  -- phase-specific region. This keeps the transition into gender selection
-  -- continuous instead of teleporting Oak to a separately fitted rectangle.
-  local oakVisibleSourceX = -(view.oakBgScrollX or 0)
-  result.subject = sourceWidgetRect(oak, canvas, oakVisibleSourceX)
+  local subjectId = view.primaryWidget
+  if subjectId == nil and view.visual ~= "background" then
+    subjectId = view.visual
+  end
+  if subjectId ~= nil then
+    local subjectWidget = widget(manifest, subjectId)
+    local visibleSourceX = subjectId == "oak" and -(view.oakBgScrollX or 0) or 0
+    result.subject = sourceWidgetRect(subjectWidget, canvas, visibleSourceX)
+  end
   if view.revealWidget then
     local revealWidget = widget(manifest, view.revealWidget)
     result.revealCanvas = canvas

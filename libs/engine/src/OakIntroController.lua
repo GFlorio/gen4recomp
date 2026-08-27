@@ -110,7 +110,6 @@ local FINAL_FULL_ART_HOLD = 30
 local FINAL_FADE_FRAMES = 1
 local OAK_BG_SCROLL_END_X = -52
 local DEFAULT_PROFILE_NAMES = { [0] = "Ethan", [1] = "Lyra" }
-local SHRINK_DELAY = 8
 
 local function focusBlinkDelta(timer)
   local deg = (timer % 36) * 10
@@ -227,7 +226,6 @@ function OakIntroController.new(options)
     _genderFocus = 0,
     _focusTimer = 0,
     _focusBlinkDelta = 0,
-    _shrinkDelay = 0,
     _name = "",
     _oakBgScrollX = 0,
     _result = nil,
@@ -243,11 +241,9 @@ function OakIntroController:_setVisual(visual)
 end
 
 function OakIntroController:_advanceVisual()
-  local frames = framesFor(self._assets, self._visual)
-  if frames == nil or #frames <= 1 or self._visualFrameTimer == nil then
-    return false
-  end
-  self._visualFrameTimer = self._visualFrameTimer - 1
+  local frames =
+    assert(framesFor(self._assets, self._visual), "generated visual animation is missing: " .. self._visual)
+  self._visualFrameTimer = assert(self._visualFrameTimer) - 1
   if self._visualFrameTimer > 0 then
     return false
   end
@@ -352,41 +348,12 @@ function OakIntroController:_finish()
   self:_event("handoff", finalized.saveId)
 end
 
-function OakIntroController:_stepShrink()
-  local frames = framesFor(self._assets, self._visual)
-  assert(frames ~= nil, "shrink animation requires frames")
-  local isShrinkWidget = self._visual == "shrink_male" or self._visual == "shrink_female"
-  local hasSourceSemantic = false
-  for _, f in ipairs(frames) do
-    if f.element ~= nil then
-      hasSourceSemantic = true
-      break
-    end
-  end
-  if isShrinkWidget and hasSourceSemantic then
-    if self._shrinkDelay > 0 then
-      self._shrinkDelay = self._shrinkDelay - 1
-      return false
-    end
-    if self._visualFrameIndex >= #frames then
-      return true
-    end
-    self._visualFrameIndex = self._visualFrameIndex + 1
-    self._shrinkDelay = SHRINK_DELAY
-    return false
-  end
-  if self:_advanceVisual() then
-    return true
-  end
-  return false
-end
-
 function OakIntroController:_stepFrame()
   self._sourceFrames = self._sourceFrames + 1
   self._audio:updateSoundFrame()
   local startedCry = false
   if self._phase == "shrink_animation" then
-    if self:_stepShrink() then
+    if self:_advanceVisual() then
       self:_finish()
     end
     return
@@ -518,7 +485,6 @@ function OakIntroController:_stepFrame()
         self:_finish()
       else
         self._phase = "shrink_animation"
-        self._shrinkDelay = SHRINK_DELAY
       end
     end
   elseif self._phase == "gender_select" then

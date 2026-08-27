@@ -16,6 +16,9 @@ local config = require("romdump.src.config.IntroAssets")
 local IntroAssetCompiler = {}
 
 IntroAssetCompiler.ERROR = { SOURCE_INVALID = "INTRO_SOURCE_INVALID" }
+-- The source shrink task spends eight calls decrementing its post-change delay,
+-- so each replacement remains visible for nine source ticks.
+local SHRINK_FRAME_DURATION = 9
 
 local function sourceError(message, context)
   Errors.raise(IntroAssetCompiler.ERROR.SOURCE_INVALID, message, context or {})
@@ -705,7 +708,12 @@ local function compileShrink(archive, dependencies, manifest, assets, id, spec)
   local cropped = IntroAssetImage.cropAlphaUnion(images, { x = width / 2, y = images[1].height })
   local frames = {}
   for frameIndex, image in ipairs(cropped.frames) do
-    frames[frameIndex] = { width = cropped.width, height = cropped.height, rgba = image.rgba, duration = 8 }
+    frames[frameIndex] = {
+      width = cropped.width,
+      height = cropped.height,
+      rgba = image.rgba,
+      duration = SHRINK_FRAME_DURATION,
+    }
   end
   addAsset(
     manifest,

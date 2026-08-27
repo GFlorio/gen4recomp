@@ -39,6 +39,15 @@ local function manifest()
   return manifestWithWidth(256)
 end
 
+local function profileManifest()
+  local data = manifest()
+  data.widgets.male = widget(96, 120, { x = 24, y = 110 }, { x = 36, y = 24, width = 96, height = 120 })
+  data.widgets.female = widget(88, 116, { x = 22, y = 108 }, { x = 48, y = 28, width = 88, height = 116 })
+  data.widgets.shrink_male = widget(44, 68, { x = 12, y = 62 }, { x = 142, y = 70, width = 44, height = 68 })
+  data.widgets.shrink_female = widget(40, 64, { x = 11, y = 58 }, { x = 150, y = 72, width = 40, height = 64 })
+  return data
+end
+
 local function ordinaryView(sourceBgScrollX)
   return {
     phase = "oak_world_inhabited",
@@ -206,6 +215,24 @@ function T.tests.slide_displacement_uses_manifest_reference_width_not_hardcoded_
     expected,
     1e-6
   )
+end
+
+function T.tests.profile_widgets_use_their_manifest_source_geometry()
+  local data = profileManifest()
+  for _, id in ipairs({ "male", "female", "shrink_male", "shrink_female" }) do
+    local value = data.widgets[id]
+    local layout = OakIntroLayout.compute(800, 600, {
+      phase = "final_full_art_hold",
+      visual = id,
+      primaryWidget = id,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local scale = layout.sourceCanvas.scale
+    Assert.equal(layout.subject.width, value.width * scale)
+    Assert.equal(layout.subject.height, value.height * scale)
+    Assert.near(layout.subject.x, layout.sourceCanvas.origin.x + value.sourceBounds.x * scale, 1e-9)
+    Assert.near(layout.subject.y, layout.sourceCanvas.origin.y + value.sourceBounds.y * scale, 1e-9)
+  end
 end
 
 return T

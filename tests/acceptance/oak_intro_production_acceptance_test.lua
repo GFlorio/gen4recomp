@@ -163,6 +163,53 @@ local function durationTotal(frames)
   return total
 end
 
+local function reachFinalFullArtHold(state, female)
+  advanceUntilMessage(state, "profile.gender_question")
+  finishDialogueBoundary(state)
+  if female then
+    state:keypressed("right")
+  end
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  advanceUntilPhase(state, "name_edit")
+  state:textinput("GOLD")
+  submitName(state)
+  finishDialogueBoundary(state)
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  state:keypressed("return")
+  advanceUntilPhase(state, "final_full_art_hold")
+end
+
+local function assertSubjectUsesOwnSourceGeometry(state, widgetId, width, height)
+  state:resize(width, height)
+  local view = state:view()
+  Assert.equal(view.primaryWidget, widgetId, "the rendered profile visual must be the selected widget")
+  local layout = assert(view.layout)
+  local subject = assert(layout.subject)
+  local widget = assert(state.manifest.widgets[widgetId])
+  local canvas = assert(layout.sourceCanvas)
+  Assert.near(subject.width, widget.width * canvas.scale, 1e-6, widgetId .. " width must use its generated geometry")
+  Assert.near(subject.height, widget.height * canvas.scale, 1e-6, widgetId .. " height must use its generated geometry")
+  local sourceX = (subject.x + widget.anchor.x * subject.scale - canvas.origin.x) / canvas.scale
+  local sourceY = (subject.y + widget.anchor.y * subject.scale - canvas.origin.y) / canvas.scale
+  Assert.near(
+    sourceX,
+    widget.sourceBounds.x + widget.anchor.x,
+    1e-6,
+    widgetId .. " anchor must map to its generated source X"
+  )
+  Assert.near(
+    sourceY,
+    widget.sourceBounds.y + widget.anchor.y,
+    1e-6,
+    widgetId .. " anchor must map to its generated source Y"
+  )
+  return view, { x = sourceX, y = sourceY }
+end
+
 hostSeams = function()
   local image = {}
   function image:getWidth()
@@ -357,6 +404,84 @@ function T.tests.production_name_entry_resolves_blank_defaults_and_reenters_clea
         expectedDefault
       )
     end)
+  end)
+end
+
+function T.tests.profile_visuals_keep_their_source_screen_geometry()
+  forEachReadyVersion(function(versionId)
+    for _, female in ipairs({ false, true }) do
+      withProductionOak(versionId, function(state)
+        reachFinalFullArtHold(state, female)
+        local genderId = female and "female" or "male"
+        local _, fullSource = assertSubjectUsesOwnSourceGeometry(state, genderId, 800, 600)
+        local _, resizedSource = assertSubjectUsesOwnSourceGeometry(state, genderId, 390, 844)
+        Assert.near(resizedSource.x, fullSource.x, 1e-6, "resizing must preserve the profile source X")
+        Assert.near(resizedSource.y, fullSource.y, 1e-6, "resizing must preserve the profile source Y")
+
+        state:tick(30)
+        local shrinkId = female and "shrink_female" or "shrink_male"
+        for frameIndex = 1, 4 do
+          local view = assertSubjectUsesOwnSourceGeometry(state, shrinkId, 390, 844)
+          Assert.equal(view.visualFrameIndex, frameIndex, "shrink frames must remain discrete and ordered")
+          local canvas = view.layout.sourceCanvas
+          Assert.equal(canvas.reference.width, state.manifest.sourceReference.width)
+          Assert.equal(canvas.reference.height, state.manifest.sourceReference.height)
+          if frameIndex < 4 then
+            state:tick(9)
+          end
+        end
+        assertSubjectUsesOwnSourceGeometry(state, shrinkId, 800, 600)
+      end)
+    end
+  end)
+end
+
+function T.tests.profile_shrink_replacements_follow_nine_source_tick_boundaries()
+  forEachReadyVersion(function(versionId)
+    for _, female in ipairs({ false, true }) do
+      withProductionOak(versionId, function(state)
+        reachFinalFullArtHold(state, female)
+        local shrinkId = female and "shrink_female" or "shrink_male"
+        local frames = assert(state.manifest.widgets[shrinkId].frames)
+        Assert.equal(#frames, 4, "the selected profile must have four replacement frames")
+        for _, frame in ipairs(frames) do
+          Assert.equal(frame.duration, 9, "replacement frames must use nine source ticks")
+        end
+
+        local holdStart = state:view().sourceFrames
+        for tick = 1, 29 do
+          state:tick(1)
+          Assert.equal(state:view().phase, "final_full_art_hold", "full art must hold for thirty source ticks")
+        end
+        state:tick(1)
+        local shrinkStart = state:view()
+        Assert.equal(shrinkStart.sourceFrames - holdStart, 30)
+        Assert.equal(shrinkStart.phase, "shrink_animation")
+        Assert.equal(shrinkStart.primaryWidget, shrinkId)
+        Assert.equal(shrinkStart.visualFrameIndex, 1)
+
+        for frameIndex = 1, 3 do
+          for _ = 1, 8 do
+            state:tick(1)
+            Assert.equal(state:view().phase, "shrink_animation")
+            Assert.equal(state:view().visualFrameIndex, frameIndex)
+          end
+          state:tick(1)
+          Assert.equal(state:view().phase, "shrink_animation")
+          Assert.equal(state:view().visualFrameIndex, frameIndex + 1)
+        end
+        for _ = 1, 8 do
+          state:tick(1)
+          Assert.equal(state:view().phase, "shrink_animation")
+          Assert.equal(state:view().visualFrameIndex, 4)
+        end
+        state:tick(1)
+        local complete = state:view()
+        Assert.equal(complete.phase, "complete")
+        Assert.equal(complete.sourceFrames - shrinkStart.sourceFrames, 36)
+        Assert.equal(#eventsNamed(state, "handoff"), 1)
+      end)
+    end
   end)
 end
 

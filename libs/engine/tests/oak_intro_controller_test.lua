@@ -155,8 +155,22 @@ local function finalSequenceAssets()
     ball_open = { frames = { { duration = 1 } } },
     male = { frames = { { duration = 1 } } },
     female = { frames = { { duration = 1 } } },
-    shrink_male = { frames = { { duration = 8 }, { duration = 8 }, { duration = 8 }, { duration = 8 } } },
-    shrink_female = { frames = { { duration = 8 }, { duration = 8 }, { duration = 8 }, { duration = 8 } } },
+    shrink_male = {
+      frames = {
+        { duration = 9 },
+        { duration = 9 },
+        { duration = 9 },
+        { duration = 9 },
+      },
+    },
+    shrink_female = {
+      frames = {
+        { duration = 9 },
+        { duration = 9 },
+        { duration = 9 },
+        { duration = 9 },
+      },
+    },
   }
 end
 
@@ -686,9 +700,16 @@ function T.final_handoff_shows_selected_full_art_then_source_timed_shrink_for_bo
     end
     Assert.equal(soundCount, 1)
     state:tick(8)
-    Assert.equal(state:view().visualFrameIndex, 2)
+    Assert.equal(state:view().visualFrameIndex, 1)
     Assert.isNil(state:result())
-    state:tick(8 * 3)
+    state:tick(1)
+    Assert.equal(state:view().visualFrameIndex, 2)
+    state:tick(9)
+    Assert.equal(state:view().visualFrameIndex, 3)
+    state:tick(9)
+    Assert.equal(state:view().visualFrameIndex, 4)
+    Assert.isNil(state:result())
+    state:tick(9)
     Assert.equal(state:view().phase, "complete")
     Assert.notNil(state:result())
     local handoffs = 0
@@ -707,6 +728,46 @@ function T.final_handoff_shows_selected_full_art_then_source_timed_shrink_for_bo
     end
     Assert.equal(repeatedHandoffs, 1)
   end
+end
+
+function T.shrink_animation_uses_each_generated_frame_duration()
+  local assets = finalSequenceAssets()
+  assets.shrink_male.frames = {
+    { duration = 2 },
+    { duration = 3 },
+    { duration = 4 },
+    { duration = 5 },
+  }
+  local state = nameConfirmation(false, { assets = assets })
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(2)
+  Assert.equal(state:view().phase, "final_full_art_hold")
+  state:tick(30)
+  Assert.equal(state:view().phase, "shrink_animation")
+  Assert.equal(state:view().visualFrameIndex, 1)
+
+  state:tick(2)
+  Assert.equal(state:view().visualFrameIndex, 2)
+  state:tick(3)
+  Assert.equal(state:view().visualFrameIndex, 3)
+  state:tick(4)
+  Assert.equal(state:view().visualFrameIndex, 4)
+  state:tick(5)
+  Assert.equal(state:view().phase, "complete")
+
+  local oneFrameAssets = finalSequenceAssets()
+  oneFrameAssets.shrink_male.frames = { { duration = 2 } }
+  state = nameConfirmation(false, { assets = oneFrameAssets })
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(2)
+  state:tick(30)
+  Assert.equal(state:view().phase, "shrink_animation")
+  state:tick(1)
+  Assert.equal(state:view().phase, "shrink_animation")
+  state:tick(1)
+  Assert.equal(state:view().phase, "complete")
 end
 
 function T.virtual_keyboard_focus_reaches_delete_and_confirm_actions()
@@ -878,7 +939,7 @@ function T.blank_name_default_survives_into_the_finalized_profile()
     state:tick(1) -- final_fade_out -> final_full_art_fade_in
     state:tick(1) -- final_full_art_fade_in -> final_full_art_hold
     advanceToPhase(state, "shrink_animation")
-    state:tick(8 * 4)
+    state:tick(9 * 4)
     Assert.equal(state:view().phase, "complete")
     Assert.equal(assert(state:result()).playerData.profile.name, expected)
   end
