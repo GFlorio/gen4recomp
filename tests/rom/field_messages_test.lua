@@ -10,7 +10,6 @@ local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
-local FieldMessages = require("romdump.src.config.FieldMessages")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
 local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 local G2dDecoder = require("romdump.src.digest.G2dDecoder")
@@ -44,15 +43,14 @@ function T.target_bank_counts_and_decryption_vectors(romFs)
   end
 end
 
-function T.selected_bank_control_census_is_stable(romFs)
-  -- Inventory the control census of every bank the FieldMessages manifest
-  -- selects, reported as semantic kind + control code. YESNO (0x0200) is the
-  -- focus-indicator control; CURSOR_X (0x0203) and ALN_CENTER (0x0205) are
-  -- selected-bank controls that remain unsupported, so their presence in the
-  -- census is expected but their playback is not.
+function T.source_bank_control_census_is_stable(romFs)
+  -- Inventory the control census of every source-referenced bank, reported as
+  -- semantic kind + control code. YESNO (0x0200) is the focus-indicator
+  -- control; CURSOR_X (0x0203) and ALN_CENTER (0x0205) remain unsupported, so
+  -- their presence in the census is expected but their playback is not.
   local messages = assert(romFs:openNarc("messages"))
   local signatures = {}
-  for _, bankId in ipairs(FieldMessages.banks) do
+  for _, bankId in ipairs(FieldMessageCompiler.requiredBankIds()) do
     local bank = assert(FieldMessageBank.decode(messages:readMember(bankId), {}))
     for _, message in ipairs(bank.messages) do
       local tokens = assert(FieldMessageTokenizer.tokenize(message.raw, charmap, {}))

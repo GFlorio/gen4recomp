@@ -7,11 +7,31 @@ local FieldMessageBank = require("romdump.src.digest.FieldMessageBank")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
 local FieldMessageCacheWriter = require("romdump.src.digest.FieldMessageCacheWriter")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
+local MapCatalog = require("romdump.src.digest.MapCatalog")
+local ScriptMembers = require("romdump.src.reference.hgss.script_members")
+local FieldMessages = require("romdump.src.config.FieldMessages")
 
 local T = {}
+
+local function sourceReferenceBankIds()
+  local ids = {}
+  for map in MapCatalog.all() do
+    ids[assert(map.messageMemberId)] = true
+  end
+  for _, bankId in pairs(ScriptMembers.banks) do
+    ids[assert(bankId)] = true
+  end
+  local out = {}
+  for bankId in pairs(ids) do
+    out[#out + 1] = bankId
+  end
+  table.sort(out)
+  return out
+end
 
 local function fixture()
   local messages = {
@@ -41,19 +61,11 @@ local function fixture()
       { 0x012F, 0x0150, 0x0151, 0x01DE, 0x0131, 0x0148, 0x01DE, 0xFFFF },
     }, 0xB447),
   }
-  -- The New Bark interior banks (544-549) joined the selected set with the
-  -- script override slice; each fixture member is one short message.
-  local interiorKeys = { 0x4C11, 0x5C22, 0x6C33, 0x7C44, 0x8C55, 0x9C66 }
-  for index, bankId in ipairs({ 544, 545, 546, 547, 548, 549 }) do
-    members[bankId] = FieldMessageBank.encodeForTests({
+  local function generatedMember(bankId)
+    return FieldMessageBank.encodeForTests({
       { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
-    }, interiorKeys[index])
+    }, 0x4000 + bankId)
   end
-  -- Bank 191 joined the selected set with the menu-items slice; serve it the
-  -- same way, one short message with its own key.
-  members[191] = FieldMessageBank.encodeForTests({
-    { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
-  }, 0xD191)
   local romFs = {
     _version = "heartgold",
     _metadata = { sha1 = "rom-sha" },
@@ -69,7 +81,7 @@ local function fixture()
       Assert.equal(alias, "messages")
       return {
         readMember = function(_, memberId)
-          Assert.notNil(members[memberId])
+          members[memberId] = members[memberId] or generatedMember(memberId)
           return members[memberId]
         end,
       }
@@ -97,7 +109,7 @@ end
 function T.compiles_tokenized_lossless_banks()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMessageCompiler.compile(romFs, sha1, hashLua))
-  Assert.deepEqual(bundle.index.bankIds, { 542, 543, 544, 545, 546, 547, 548, 549, 191 })
+  Assert.deepEqual(bundle.index.bankIds, sourceReferenceBankIds())
   Assert.equal(bundle.index.schema, FieldMessageCache.INDEX_SCHEMA)
 
   local bank = bundle.banks[542]
@@ -117,8 +129,84 @@ function T.compiles_tokenized_lossless_banks()
   Assert.equal(bundle.dependencies.messageNarc.narcId, 27)
   Assert.equal(bundle.dependencies.bank542MemberSha1, "member-542-sha")
   Assert.equal(bundle.dependencies.bank543MemberSha1, "member-543-sha")
-  Assert.equal(bundle.dependencies.bank191MemberSha1, "member-191-sha")
+  for _, bankId in ipairs(bundle.index.bankIds) do
+    Assert.equal(bundle.dependencies["bank" .. bankId .. "MemberSha1"], "member-" .. bankId .. "-sha")
+  end
   Assert.equal(bundle.marker, "field-message-cache-v3:rom-sha:dependency-sha")
+end
+
+function T.source_references_form_one_sorted_bank_set()
+  Assert.equal(
+    type(FieldMessageCompiler.requiredBankIds),
+    "function",
+    "the compiler must expose source-derived bank selection"
+  )
+  local required = FieldMessageCompiler.requiredBankIds()
+  local expected = {}
+  for map in MapCatalog.all() do
+    expected[assert(map.messageMemberId)] = true
+  end
+  for _, bankId in pairs(ScriptMembers.banks) do
+    expected[assert(bankId)] = true
+  end
+
+  Assert.deepEqual(required, sourceReferenceBankIds())
+
+  local seen = {}
+  for index, bankId in ipairs(required) do
+    Assert.equal(type(bankId), "number")
+    Assert.isNil(seen[bankId], "a source bank must be emitted only once")
+    if index > 1 then
+      Assert.isTrue(required[index - 1] < bankId, "source bank IDs must be ascending")
+    end
+    seen[bankId] = true
+  end
+  for bankId in pairs(expected) do
+    Assert.isTrue(seen[bankId], "every map/script message bank must be selected: " .. bankId)
+  end
+  local expectedCount = 0
+  for _ in pairs(expected) do
+    expectedCount = expectedCount + 1
+  end
+  Assert.equal(#required, expectedCount)
+
+  local repeated = FieldMessageCompiler.requiredBankIds()
+  Assert.isFalse(required == repeated, "each selection call must return a fresh array")
+  Assert.deepEqual(repeated, required)
+end
+
+function T.route_29_bank_is_published_and_served_by_the_provider()
+  local route29 = MapCatalog.require("MAP_ROUTE_29")
+  Assert.equal(route29.messageMemberId, 373)
+
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldMessageCompiler.compile(romFs, sha1, hashLua))
+  local occurrences = 0
+  for _, bankId in ipairs(bundle.index.bankIds) do
+    if bankId == route29.messageMemberId then
+      occurrences = occurrences + 1
+    end
+  end
+  Assert.equal(occurrences, 1, "Route 29's message bank must be indexed exactly once")
+
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  FieldMessageCacheWriter.write(cache, bundle)
+  local provider = assert(FieldMessageProvider.new(cache))
+  local bank, err = provider:acquireBank(route29.messageMemberId)
+  Assert.notNil(bank, err and err.message or "Route 29 message bank must be generated")
+  Assert.equal(assert(bank).schema, FieldMessageCache.SCHEMA)
+  Assert.equal(assert(bank).bankId, route29.messageMemberId)
+  Assert.equal(provider:stats().loads, 1)
+  provider:releaseBank(route29.messageMemberId)
+end
+
+function T.message_manifest_has_no_selected_bank_policy()
+  Assert.isNil(FieldMessages.banks, "message bank selection must not live in the config manifest")
+  Assert.equal(
+    type(FieldMessageCompiler.requiredBankIds),
+    "function",
+    "message bank selection must be derived by the compiler"
+  )
 end
 
 function T.compilation_is_deterministic()
@@ -189,8 +277,11 @@ function T.failed_rebuild_preserves_the_previous_messages()
 end
 
 function T.unmapped_glyph_fails_compilation_with_context()
-  local messages = { { 0x0001, 0xFFFF } } -- kana code outside the selected set
+  local messages = { { 0x0001, 0xFFFF } } -- kana code outside the charmap
   local member = FieldMessageBank.encodeForTests(messages, 0x1234)
+  local function validMember(bankId)
+    return FieldMessageBank.encodeForTests({ { 0x012F, 0xFFFF } }, 0x5000 + bankId)
+  end
   local romFs = {
     _version = "heartgold",
     _metadata = { sha1 = "rom-sha" },
@@ -202,13 +293,19 @@ function T.unmapped_glyph_fails_compilation_with_context()
     end,
     openNarc = function()
       return {
-        readMember = function()
-          return member
+        readMember = function(_, memberId)
+          if memberId == 542 then
+            return member
+          end
+          return validMember(memberId)
         end,
       }
     end,
     metadata = function()
       return { sha1 = "rom-sha" }
+    end,
+    version = function()
+      return "heartgold"
     end,
   } --[[@as RomFs]]
   local bundle, err = FieldMessageCompiler.compile(romFs --[[@as RomFs]])

@@ -392,7 +392,7 @@ function FieldMessageProvider:dispose()
 end
 
 -- Converts display text into glyph-kind tokens for substitution contexts such
--- as the demo player name. The text->code mapping comes from the generated
+-- as a player name. The text->code mapping comes from the generated
 -- font definition's charmap metadata (digested at import time), so the runtime
 -- never imports the raw charmap reference. No eos token is produced: the
 -- replacement splices into an existing message stream. Returns nil, err with
