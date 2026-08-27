@@ -57,7 +57,7 @@ local function candidate()
   return NewGame.createCandidate({
     saveService = {
       reserve = function()
-        return "save-acceptance-d03"
+        return "save-acceptance-oak"
       end,
     },
     versionId = "heartgold",
@@ -80,6 +80,7 @@ local function genderView()
     visual = "oak",
     primaryWidget = "oak",
     genderFocus = 0,
+    genderCompositionProgress = 1,
     oakBgScrollX = 0,
   }
 end
@@ -333,6 +334,7 @@ local function advanceToNameEdit(state)
   advanceUntilPhase(state, "oak_tell_about_yourself")
   confirm()
   confirm()
+  state:tick(26)
   confirm()
   confirm()
   confirm()
@@ -603,6 +605,7 @@ function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangle
   advanceUntilPhase(state, "oak_tell_about_yourself")
   state:press("confirm")
   state:press("confirm")
+  state:tick(26)
   Assert.equal(state:view().phase, "gender_select")
   Assert.notNil(OakIntroLayout.compute(390, 844, state:view(), { "A", "B" }, manifest()).profileCards)
   state:press("confirm")

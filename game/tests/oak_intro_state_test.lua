@@ -50,6 +50,7 @@ local function fakeController()
     started = 0,
     disposed = 0,
     choice = nil,
+    compositionProgress = 1,
   }
   function controller:start()
     self.started = self.started + 1
@@ -73,6 +74,7 @@ local function fakeController()
   function controller:view()
     return {
       phase = self.phase,
+      genderCompositionProgress = self.compositionProgress,
       name = "A",
       nameInputEnabled = self.phase == "name_edit",
       genderFocus = 0,
@@ -158,6 +160,17 @@ function T.pointer_hits_the_same_choice_rows_used_by_presentation()
   state:mousepressed(layout.choiceRows[0].x + 1, layout.choiceRows[0].y + 1, 1)
   state:mousepressed(layout.choiceRows[1].x + 1, layout.choiceRows[1].y + 1, 1)
   Assert.deepEqual(controller.pressed, { "yes", "no" })
+end
+
+function T.pointer_cannot_activate_gender_selection_during_host_composition()
+  local state, controller = stateHarness()
+  controller.phase = "gender_composition_transition"
+  controller.compositionProgress = 0
+  local layout = state:view().layout
+  Assert.isNil(layout.genderHitRegions)
+  state:mousepressed(320, 240, 1)
+  state:touchpressed(1, 320, 240)
+  Assert.deepEqual(controller.pressed, {})
 end
 
 function T.keyboard_and_gamepad_use_one_controller_buffer_path()
@@ -287,6 +300,7 @@ function T.dialogue_completion_edge_does_not_enter_the_new_choice()
       messageKey = modal and "profile.gender_confirm.male" or nil,
       message = modal and { tokens = {} } or nil,
       confirmationChoice = not modal and { kind = "gender", selected = 0 } or nil,
+      genderCompositionProgress = 1,
       name = "",
       nameInputEnabled = false,
       genderFocus = 0,

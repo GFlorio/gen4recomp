@@ -85,6 +85,21 @@ local function revealRect(revealWidget, canvas)
   }
 end
 
+local function composedOakRect(startRect, oak, oakRegion, progress)
+  local targetScale = math.min(startRect.scale, oakRegion.width / oak.width, oakRegion.height / oak.height)
+  local targetWidth, targetHeight = oak.width * targetScale, oak.height * targetScale
+  local targetX = oakRegion.x + (oakRegion.width - targetWidth) / 2
+  local targetY = oakRegion.y + (oakRegion.height - targetHeight) / 2
+  local scale = startRect.scale + (targetScale - startRect.scale) * progress
+  return {
+    x = startRect.x + (targetX - startRect.x) * progress,
+    y = startRect.y + (targetY - startRect.y) * progress,
+    width = oak.width * scale,
+    height = oak.height * scale,
+    scale = scale,
+  }
+end
+
 local function selectorRegions(safeFrame, gap)
   if safeFrame.width >= safeFrame.height * 1.15 then
     local oakWidth = (safeFrame.width - gap) * 0.46
@@ -182,26 +197,48 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     nameKeys = {},
     genderFocus = view.genderFocus,
   }
-  local canvas = sourceCanvas(scene, reference)
-  result.sourceCanvas = canvas
   local subjectId = view.primaryWidget
   if subjectId == nil and view.visual ~= "background" then
     subjectId = view.visual
   end
+  local canvas = sourceCanvas(scene, reference)
+  result.sourceCanvas = canvas
+  local subjectWidget
   if subjectId ~= nil then
-    local subjectWidget = widget(manifest, subjectId)
+    subjectWidget = widget(manifest, subjectId)
     local visibleSourceX = subjectId == "oak" and -(view.oakBgScrollX or 0) or 0
     result.subject = sourceWidgetRect(subjectWidget, canvas, visibleSourceX)
+  end
+  local selectorActive = view.phase == "gender_select" or view.phase == "gender_confirm"
+  local compositionProgress = view.genderCompositionProgress
+  local oakRegion, selectorRegion
+  local compositionActive = selectorActive
+    or view.phase == "gender_composition_transition"
+    or compositionProgress ~= nil and compositionProgress > 0
+  if compositionActive then
+    assert(
+      type(compositionProgress) == "number"
+        and compositionProgress == compositionProgress
+        and compositionProgress > -math.huge
+        and compositionProgress < math.huge
+        and compositionProgress >= 0
+        and compositionProgress <= 1,
+      "Oak gender composition progress is invalid"
+    )
+  end
+  if compositionActive then
+    oakRegion, selectorRegion = selectorRegions(scene, gap)
+    result.oakRegion, result.selectorRegion = oakRegion, selectorRegion
+    if subjectId == "oak" then
+      result.subject = composedOakRect(assert(result.subject), assert(subjectWidget), oakRegion, compositionProgress)
+    end
   end
   if view.revealWidget then
     local revealWidget = widget(manifest, view.revealWidget)
     result.revealCanvas = canvas
     result.reveal = revealRect(revealWidget, canvas)
   end
-  local selectorActive = view.phase == "gender_select" or view.phase == "gender_confirm"
   if selectorActive then
-    local oakRegion, selectorRegion = selectorRegions(scene, gap)
-    result.oakRegion, result.selectorRegion = oakRegion, selectorRegion
     result.selectorPanel = containedPanel(selectorRegion, 4 / 3)
     local gCanvas = genderCanvas(result.selectorPanel, reference)
     result.genderCanvas = gCanvas

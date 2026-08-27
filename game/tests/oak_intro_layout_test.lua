@@ -58,6 +58,17 @@ local function ordinaryView(sourceBgScrollX)
   }
 end
 
+local function compositionView(progress, phase)
+  return {
+    phase = phase or "gender_composition_transition",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = progress,
+    oakBgScrollX = 0,
+  }
+end
+
 local function point(region, anchor)
   return {
     x = region.x + anchor.x * region.scale,
@@ -161,6 +172,7 @@ function T.tests.gender_selection_is_a_single_source_aligned_composition()
       visual = "oak",
       primaryWidget = "oak",
       genderFocus = 0,
+      genderCompositionProgress = 1,
       oakBgScrollX = 0,
     }, {}, data)
     Assert.deepEqual(layout.viewport, { x = 0, y = 0, width = size[1], height = size[2] })
@@ -178,6 +190,34 @@ function T.tests.gender_selection_is_a_single_source_aligned_composition()
       Assert.deepEqual(layout.genderHitRegions[gender], choice)
     end
   end
+end
+
+function T.tests.gender_composition_interpolates_oak_into_the_contained_region()
+  local data = manifest()
+  local start = OakIntroLayout.compute(1920, 1080, compositionView(0), {}, data)
+  local middle = OakIntroLayout.compute(1920, 1080, compositionView(0.5), {}, data)
+  local final = OakIntroLayout.compute(1920, 1080, compositionView(1, "gender_select"), {}, data)
+
+  Assert.isTrue(inside(final.subject, final.oakRegion))
+  Assert.isTrue(disjoint(final.oakRegion, final.selectorRegion))
+  Assert.near(middle.subject.x, (start.subject.x + final.subject.x) / 2)
+  Assert.near(middle.subject.y, (start.subject.y + final.subject.y) / 2)
+  Assert.near(middle.subject.scale, (start.subject.scale + final.subject.scale) / 2)
+  Assert.near(middle.subject.width, data.widgets.oak.width * middle.subject.scale)
+  Assert.near(middle.subject.height, data.widgets.oak.height * middle.subject.scale)
+end
+
+function T.tests.gender_composition_uniformly_shrinks_oak_when_the_region_is_small()
+  local data = manifest()
+  data.widgets.oak.width = 400
+  data.widgets.oak.height = 500
+  local start = OakIntroLayout.compute(390, 844, compositionView(0), {}, data)
+  local final = OakIntroLayout.compute(390, 844, compositionView(1, "gender_select"), {}, data)
+
+  Assert.isTrue(final.subject.scale < start.subject.scale)
+  Assert.near(final.subject.width, data.widgets.oak.width * final.subject.scale)
+  Assert.near(final.subject.height, data.widgets.oak.height * final.subject.scale)
+  Assert.isTrue(inside(final.subject, final.oakRegion))
 end
 
 -- Full source scroll must inverse-transform to exactly the pinned -52 source

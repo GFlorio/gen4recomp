@@ -30,6 +30,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field primaryWidget string|nil
 ---@field revealWidget string|nil
 ---@field oakBgScrollX number source BG scroll X, 0 centered and -52 shifted
+---@field genderCompositionProgress number normalized host composition progress
 ---@field messageKey string|nil
 ---@field confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field dialogue { message: string|table|nil, messageKey: string? }?
@@ -82,6 +83,8 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _genderFocus integer
 ---@field private _name string
 ---@field private _oakBgScrollX number source BG scroll X, 0 centered and -52 shifted
+---@field private _genderCompositionProgress number normalized host composition progress
+---@field private _genderCompositionTimer integer
 ---@field private _result table|nil
 ---@field private _events OakIntroEvent[]
 ---@field tick fun(self: OakIntroController, frames: integer)
@@ -109,6 +112,7 @@ local NAME_LAUNCH_WAIT = 40
 local FINAL_FULL_ART_HOLD = 30
 local FINAL_FADE_FRAMES = 1
 local OAK_BG_SCROLL_END_X = -52
+local GENDER_COMPOSITION_FRAMES = 26
 local DEFAULT_PROFILE_NAMES = { [0] = "Ethan", [1] = "Lyra" }
 
 local function focusBlinkDelta(timer)
@@ -228,6 +232,8 @@ function OakIntroController.new(options)
     _focusBlinkDelta = 0,
     _name = "",
     _oakBgScrollX = 0,
+    _genderCompositionProgress = 0,
+    _genderCompositionTimer = 0,
     _result = nil,
     _events = {},
   }, OakIntroController)
@@ -351,6 +357,18 @@ end
 function OakIntroController:_stepFrame()
   self._sourceFrames = self._sourceFrames + 1
   self._audio:updateSoundFrame()
+  if self._phase == "gender_composition_transition" then
+    self._genderCompositionTimer = self._genderCompositionTimer - 1
+    self._genderCompositionProgress = (GENDER_COMPOSITION_FRAMES - self._genderCompositionTimer)
+      / GENDER_COMPOSITION_FRAMES
+    if self._genderCompositionTimer == 0 then
+      self._genderCompositionProgress = 1
+      self._phase = "gender_select"
+      self._focusTimer = 0
+      self._focusBlinkDelta = 0
+    end
+    return
+  end
   local startedCry = false
   if self._phase == "shrink_animation" then
     if self:_advanceVisual() then
@@ -621,9 +639,14 @@ function OakIntroController:press(action)
     self._phase = "gender_question"
     self:_setMessage("profile.gender_question")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_question" then
-    self._phase = "gender_select"
-    self._focusTimer = 0
-    self._focusBlinkDelta = 0
+    if self._genderCompositionProgress < 1 then
+      self._phase = "gender_composition_transition"
+      self._genderCompositionTimer = GENDER_COMPOSITION_FRAMES
+    else
+      self._phase = "gender_select"
+      self._focusTimer = 0
+      self._focusBlinkDelta = 0
+    end
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_select" then
     self._focusTimer = 0
     self._focusBlinkDelta = 0
@@ -742,6 +765,7 @@ function OakIntroController:view()
     revealWidget = self._revealWidget,
     revealFrameIndex = self._revealFrameIndex,
     oakBgScrollX = self._oakBgScrollX,
+    genderCompositionProgress = self._genderCompositionProgress,
     finalFadeAlpha = self._finalFadeAlpha,
   }
 end

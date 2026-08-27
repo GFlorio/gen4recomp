@@ -36,7 +36,7 @@ local function candidate()
   return NewGame.createCandidate({
     saveService = {
       reserve = function()
-        return "save-acceptance-d02"
+        return "save-acceptance-oak"
       end,
     },
     versionId = "heartgold",
@@ -127,6 +127,15 @@ local function advanceUntilPhase(ctrl, phase)
     ctrl:tick(1)
   end
   error("did not reach phase " .. phase .. " current=" .. ctrl:view().phase)
+end
+
+local function enterGenderSelection(ctrl)
+  ctrl:press("confirm")
+  Assert.equal(ctrl:view().phase, "gender_composition_transition")
+  Assert.equal(ctrl:view().genderCompositionProgress, 0)
+  ctrl:tick(26)
+  Assert.equal(ctrl:view().phase, "gender_select")
+  Assert.equal(ctrl:view().genderCompositionProgress, 1)
 end
 
 local function driveToBallOpen(manifest)
@@ -267,7 +276,7 @@ end
 
 function T.tests.gender_select_preserves_source_centers_and_female_palette()
   local manifest = loadManifest("heartgold")
-  local view = { phase = "gender_select", genderFocus = 0, oakBgScrollX = 0 }
+  local view = { phase = "gender_select", genderFocus = 0, genderCompositionProgress = 1, oakBgScrollX = 0 }
   for _, sz in ipairs({ { 800, 600 }, { 390, 844 } }) do
     local w, h = sz[1], sz[2]
     local layout = OakIntroLayout.compute(w, h, view, {}, manifest)
@@ -327,7 +336,7 @@ function T.tests.gender_select_preserves_source_centers_and_female_palette()
   local maleOverride = selMale.frames[1].paletteOverride or 0
   -- Compiler stores paletteOverride only via asset spec, but manifest frames carry element/translate; palette bank is implicit via image composition
   -- Verify female image differs and provenance indicates correct palette member
-  Assert.isTrue(selFemale.image ~= selMale.image, "female selector must use distinct derived image from C02")
+  Assert.isTrue(selFemale.image ~= selMale.image, "female selector must use a distinct generated image")
   -- Verify female widget height matches expected derived composition (not tinted male)
   Assert.isTrue(selFemale.height > 0 and selMale.height > 0, "selector dimensions present")
 end
@@ -348,7 +357,7 @@ function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
   ctrl:press("confirm")
   advanceUntilPhase(ctrl, "oak_tell_about_yourself")
   ctrl:press("confirm")
-  ctrl:press("confirm")
+  enterGenderSelection(ctrl)
   Assert.equal(ctrl:view().phase, "gender_select", "must reach gender_select")
   -- Focus blink contract: view should expose deterministic blink delta/timer
   local view0 = ctrl:view()
@@ -430,7 +439,7 @@ function T.tests.shrink_sequence_uses_composed_frames_and_source_delay()
   ctrl:press("confirm")
   advanceUntilPhase(ctrl, "oak_tell_about_yourself")
   ctrl:press("confirm")
-  ctrl:press("confirm")
+  enterGenderSelection(ctrl)
   Assert.equal(ctrl:view().phase, "gender_select")
   ctrl:press("confirm")
   ctrl:press("confirm")
@@ -504,39 +513,32 @@ function T.tests.shrink_sequence_uses_composed_frames_and_source_delay()
   Assert.equal(ctrl:view().phase, "complete", "controller must be complete after shrink")
 end
 
--- Entering gender selection must not relocate Oak: his host position just
--- before the phase boundary and on the first gender_select tick must differ
--- only by the usual per-tick slide step transformed through the same
--- source canvas, not by a jump to a separately computed selector region.
-function T.tests.entering_gender_selection_does_not_relocate_oak()
+-- Gender selection activates only after the host composition has completed;
+-- the completed layout places Oak in the disjoint gender-selection region.
+function T.tests.gender_selection_waits_for_host_composition()
   local manifest = loadManifest("heartgold")
   local ctrl = driveToBallOpen(manifest)
   advanceUntilPhase(ctrl, "oak_live_alongside")
   ctrl:press("confirm")
   advanceUntilPhase(ctrl, "oak_tell_about_yourself")
   ctrl:press("confirm")
-  ctrl:press("confirm")
+  enterGenderSelection(ctrl)
   Assert.equal(ctrl:view().phase, "gender_select", "must reach gender_select")
 
   local w, h = 800, 600
   local beforeView = ctrl:view()
-  beforeView.phase = "oak_tell_about_yourself" -- last ordinary-path phase, same slide offset (0)
+  beforeView.phase = "oak_tell_about_yourself"
+  beforeView.genderCompositionProgress = nil
   local beforeLayout = OakIntroLayout.compute(w, h, beforeView, {}, manifest)
   local afterLayout = OakIntroLayout.compute(w, h, ctrl:view(), {}, manifest)
 
   local beforeCenterX = beforeLayout.subject.x + beforeLayout.subject.width / 2
   local afterCenterX = afterLayout.subject.x + afterLayout.subject.width / 2
-  Assert.near(
-    beforeCenterX,
-    afterCenterX,
-    0.5,
-    "Oak must not teleport when the selector phase begins with unchanged slide offset"
-  )
-  Assert.near(
-    beforeLayout.subject.scale,
-    afterLayout.subject.scale,
-    1e-6,
-    "Oak scale must remain the canvas scale across the selector phase boundary"
+  Assert.isTrue(afterCenterX < beforeCenterX, "completed gender composition must move Oak into the left region")
+  Assert.isTrue(
+    afterLayout.subject.x >= afterLayout.oakRegion.x
+      and afterLayout.subject.x + afterLayout.subject.width <= afterLayout.oakRegion.x + afterLayout.oakRegion.width,
+    "completed gender composition must contain Oak in the left region"
   )
 end
 
@@ -547,8 +549,7 @@ function T.tests.full_slide_position_matches_base_position_by_exactly_fifty_two_
   local w, h = 800, 600
   local baseView = { phase = "oak_welcome", visual = "oak", primaryWidget = "oak", oakBgScrollX = 0 }
   local baseLayout = OakIntroLayout.compute(w, h, baseView, {}, manifest)
-  local selectorView =
-    { phase = "gender_select", visual = "oak", primaryWidget = "oak", genderFocus = 0, oakBgScrollX = -52 }
+  local selectorView = { phase = "oak_live_alongside", visual = "oak", primaryWidget = "oak", oakBgScrollX = -52 }
   local selectorLayout = OakIntroLayout.compute(w, h, selectorView, {}, manifest)
   local baseX = baseLayout.subject.x + baseLayout.subject.width / 2
   local selectorX = selectorLayout.subject.x + selectorLayout.subject.width / 2
@@ -664,7 +665,7 @@ function T.tests.full_art_hold_lasts_thirty_ticks_and_shrink_sfx_fires_once()
   ctrl:press("confirm")
   advanceUntilPhase(ctrl, "oak_tell_about_yourself")
   ctrl:press("confirm")
-  ctrl:press("confirm")
+  enterGenderSelection(ctrl)
   ctrl:press("confirm")
   ctrl:press("confirm")
   ctrl:press("confirm")
@@ -724,7 +725,7 @@ function T.tests.oak_is_restored_immediately_after_name_editing_and_stays_throug
   ctrl:press("confirm")
   advanceUntilPhase(ctrl, "oak_tell_about_yourself")
   ctrl:press("confirm")
-  ctrl:press("confirm")
+  enterGenderSelection(ctrl)
   ctrl:press("confirm")
   ctrl:press("confirm")
   ctrl:press("confirm")

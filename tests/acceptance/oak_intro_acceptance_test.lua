@@ -357,6 +357,7 @@ local function reachGenderSelect(audio)
   advanceUntilPhase("oak_tell_about_yourself")
   confirm()
   confirm()
+  advance(26)
   Assert.equal(App.state:view().phase, "gender_select")
 end
 
@@ -395,6 +396,7 @@ function T.tests.new_game_routes_through_the_core_oak_sequence()
     Assert.equal(context.controller:view().phase, "gender_question")
 
     confirm()
+    advance(26)
     confirm()
     confirm()
     confirm()

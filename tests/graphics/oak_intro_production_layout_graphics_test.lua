@@ -84,6 +84,7 @@ T.tests.gender_selection_uses_the_production_manifest_at_representative_sizes = 
         visual = "oak",
         primaryWidget = "oak",
         genderFocus = 0,
+        genderCompositionProgress = 1,
         oakBgScrollX = 0,
       }
       local layout = OakIntroLayout.compute(size[1], size[2], view, {}, entry.manifest)

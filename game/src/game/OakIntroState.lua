@@ -34,6 +34,9 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field width number
 ---@field height number
 
+---@class OakIntroStateSubjectRectangle: OakIntroStateRectangle
+---@field scale number
+
 ---@class OakIntroStateLayout
 ---@field viewport OakIntroStateRectangle
 ---@field message OakIntroStateRectangle
@@ -47,6 +50,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field choiceRows table<integer, OakIntroStateRectangle>?
 ---@field virtualKeyColumns integer
 ---@field genderFocus integer
+---@field subject OakIntroStateSubjectRectangle
 ---@field safeFrame OakIntroStateRectangle
 ---@field scene OakIntroStateRectangle
 ---@field oakRegion OakIntroStateRectangle?
@@ -298,10 +302,16 @@ function OakIntroState:update(dt)
   self.accumulator = self.accumulator + dt
   while self.accumulator >= 1 / 60 do
     self.accumulator = self.accumulator - 1 / 60
+    local phaseBeforeDialogue = self.controller:view().phase
     if self.dialogueController then
       self.dialogueController:step()
     end
-    self.controller:tick(1)
+    local phaseAfterDialogue = self.controller:view().phase
+    local genderCompositionStarted = phaseBeforeDialogue == "gender_question"
+      and phaseAfterDialogue == "gender_composition_transition"
+    if not genderCompositionStarted then
+      self.controller:tick(1)
+    end
     if self.controller:view().phase == "complete" then
       break
     end
@@ -315,10 +325,16 @@ end
 function OakIntroState:tick(frames)
   assert(frames >= 0 and frames % 1 == 0, "Oak tick count must be a non-negative integer")
   for _ = 1, frames do
+    local phaseBeforeDialogue = self.controller:view().phase
     if self.dialogueController then
       self.dialogueController:step()
     end
-    self.controller:tick(1)
+    local phaseAfterDialogue = self.controller:view().phase
+    local genderCompositionStarted = phaseBeforeDialogue == "gender_question"
+      and phaseAfterDialogue == "gender_composition_transition"
+    if not genderCompositionStarted then
+      self.controller:tick(1)
+    end
   end
   self:_sync()
 end

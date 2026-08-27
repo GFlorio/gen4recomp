@@ -37,7 +37,9 @@ end
 
 local function newImage(cache, path)
   local bytes = assert(cache:read(path), "missing generated image " .. path)
-  return love.graphics.newImage(love.filesystem.newFileData(bytes, path), { linear = false, mipmaps = false })
+  local image = love.graphics.newImage(love.filesystem.newFileData(bytes, path), { linear = false, mipmaps = false })
+  image:setFilter("nearest", "nearest")
+  return image
 end
 
 local function loadImageData(scope, cache, path)
@@ -94,6 +96,7 @@ local function selectorView(manifest, width, height)
     messageKey = nil,
     name = "",
     genderFocus = 0,
+    genderCompositionProgress = 1,
     focusBlinkDelta = 0,
   }
   view.layout = OakIntroLayout.compute(width, height, view, {}, manifest)
