@@ -90,7 +90,7 @@ local function runVersion(scope, versionId)
     local changed = false
     local frameItems = firstItems
     for _ = 1, 12 do
-      updateWithOwner(controller, { fieldX = 0, fieldZ = 0 })
+      updateWithOwner(controller, { fieldX = 0, fieldZ = 0, facing = "north" })
       frameItems = renderer:drawItems(controller:status(), runtimeMap)
       Assert.isTrue(#frameItems > 0, kind .. " must remain drawable during its intro")
       if frameItems[1].material.image ~= firstImage then
@@ -100,7 +100,7 @@ local function runVersion(scope, versionId)
     Assert.isTrue(changed, kind .. " must change its effective material during the intro")
     local heldImage = frameItems[1].material.image
     for _ = 1, 3 do
-      updateWithOwner(controller, { fieldX = 0, fieldZ = 0 })
+      updateWithOwner(controller, { fieldX = 0, fieldZ = 0, facing = "north" })
     end
     local heldItems = renderer:drawItems(controller:status(), runtimeMap)
     Assert.isTrue(#heldItems > 0, kind .. " must remain drawable after the intro")
