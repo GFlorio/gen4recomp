@@ -23,7 +23,6 @@ return {
       modelMembers = { 126 },
       animationMembers = { 140 },
       lifecycle = {
-        introTicks = 12,
         holdFrame = 12,
         holdUntilOwnerMoves = true,
       },
@@ -34,7 +33,6 @@ return {
       modelMembers = { 122 },
       animationMembers = { 146 },
       lifecycle = {
-        introTicks = 12,
         holdFrame = 12,
         holdUntilOwnerMoves = true,
       },

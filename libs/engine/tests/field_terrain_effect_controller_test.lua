@@ -26,9 +26,10 @@ local function definition(kind)
   }
 end
 
-local function genericDefinition()
+local function genericDefinition(kind)
+  kind = kind or "tall_grass"
   return {
-    definition = "renderer-tall_grass",
+    definition = "renderer-" .. kind,
     lifecycle = {
       holdFrame = 3,
       holdUntilOwnerMoves = true,
@@ -38,7 +39,12 @@ local function genericDefinition()
   }
 end
 
-local function controller(players)
+local function controller(players, definitions)
+  definitions = definitions
+    or {
+      tall_grass = definition("tall_grass"),
+      very_tall_grass = definition("very_tall_grass"),
+    }
   local function factory(_, source)
     local player = {
       frameFx = 0,
@@ -70,10 +76,7 @@ local function controller(players)
     return instance
   end
   return FieldTerrainEffectController.new({
-    effects = {
-      tall_grass = definition("tall_grass"),
-      very_tall_grass = definition("very_tall_grass"),
-    },
+    effects = definitions,
     modelFactory = factory,
   })
 end
@@ -110,67 +113,72 @@ T.tests["discontinuous clear disposes all transient instances"] = function()
   Assert.equal(#effects:status().instances, 0)
 end
 
-T.tests["post-commit cleanup removes effects left behind by the owner"] = function()
-  local effects = controller()
-  effects:emit({ kind = "tall_grass", fieldX = 1, fieldZ = 1, worldY = 0, direction = "east" })
-  effects:emit({ kind = "tall_grass", fieldX = 2, fieldZ = 1, worldY = 0, direction = "east" })
-  effects:removeOutside({ fieldX = 2, fieldZ = 1 })
-  Assert.equal(#effects:status().instances, 1)
-  Assert.equal(effects:status().instances[1].fieldX, 2)
+T.tests["grass intro completes before owner displacement retires it"] = function()
+  for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
+    local players = {}
+    local effects = controller(players, { [kind] = genericDefinition(kind) })
+    effects:emit({ kind = kind, fieldX = 7, fieldZ = 9, worldY = 3.5, direction = "north" })
+
+    updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "north" })
+    local first = effects:status().instances[1]
+    Assert.notNil(first)
+    Assert.equal(first.age, 1)
+    Assert.equal(first.frame, 1)
+
+    for tick = 2, 3 do
+      updateWithOwner(effects, { fieldX = 8, fieldZ = 9, facing = "north" })
+      local instance = effects:status().instances[1]
+      Assert.notNil(instance)
+      Assert.equal(instance.age, tick)
+      Assert.equal(instance.frame, tick)
+    end
+    Assert.equal(players[1].updateCount, 3)
+
+    updateWithOwner(effects, { fieldX = 8, fieldZ = 9, facing = "north" })
+    Assert.equal(#effects:status().instances, 0)
+  end
 end
 
-T.tests["a configured animation holds until the owner moves"] = function()
-  local players = {}
-  local effects = FieldTerrainEffectController.new({
-    effects = { tall_grass = genericDefinition() },
-    modelFactory = function(_, source)
-      local player = {
-        frameFx = 0,
-        frameCount = source.model.animations[1].frameCount,
-        complete = false,
-        updateCount = 0,
-      }
-      function player:updateFixed()
-        self.updateCount = self.updateCount + 1
-        self.frameFx = self.frameFx + 4096
-        if self.frameFx >= self.frameCount * 4096 then
-          self.frameFx = self.frameCount * 4096
-          self.complete = true
-        end
-      end
-      function player:isComplete()
-        return self.complete
-      end
-      local instance = {}
-      function instance:play()
-        return { player = player }
-      end
-      function instance:updateFixed()
-        player:updateFixed()
-      end
-      players[#players + 1] = player
-      return instance
-    end,
-  })
-  effects:emit({ kind = "tall_grass", fieldX = 7, fieldZ = 9, worldY = 3.5, direction = "north" })
-  for tick = 1, 3 do
-    updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "north" })
-    local instance = effects:status().instances[1]
-    Assert.notNil(instance)
-    Assert.equal(instance.age, tick)
-    Assert.equal(instance.frame, tick)
-  end
-  Assert.equal(players[1].updateCount, 3)
-  for _ = 1, 2 do
-    updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "east" })
-  end
-  local held = effects:status().instances[1]
-  Assert.notNil(held)
-  Assert.equal(held.frame, 3)
-  Assert.equal(players[1].updateCount, 3)
+T.tests["grass facing changes only retire held instances"] = function()
+  for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
+    local players = {}
+    local effects = controller(players, { [kind] = genericDefinition(kind) })
+    effects:emit({ kind = kind, fieldX = 7, fieldZ = 9, worldY = 3.5, direction = "north" })
 
-  updateWithOwner(effects, { fieldX = 8, fieldZ = 9, facing = "east" })
-  Assert.equal(#effects:status().instances, 0)
+    for tick = 1, 3 do
+      updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "east" })
+      local instance = effects:status().instances[1]
+      Assert.notNil(instance)
+      Assert.equal(instance.age, tick)
+      Assert.equal(instance.frame, tick)
+    end
+    Assert.equal(players[1].updateCount, 3)
+
+    updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "north" })
+    local held = effects:status().instances[1]
+    Assert.notNil(held)
+    Assert.equal(held.frame, 3)
+    Assert.equal(players[1].updateCount, 3)
+
+    updateWithOwner(effects, { fieldX = 7, fieldZ = 9, facing = "east" })
+    Assert.equal(#effects:status().instances, 0)
+  end
+end
+
+T.tests["held grass removals do not skip neighboring instances"] = function()
+  local effects = controller(nil, { tall_grass = genericDefinition("tall_grass") })
+  effects:emit({ kind = "tall_grass", fieldX = 1, fieldZ = 1, worldY = 0, direction = "north" })
+  effects:emit({ kind = "tall_grass", fieldX = 1, fieldZ = 1, worldY = 0, direction = "east" })
+  effects:emit({ kind = "tall_grass", fieldX = 1, fieldZ = 1, worldY = 0, direction = "south" })
+
+  for _ = 1, 3 do
+    updateWithOwner(effects, { fieldX = 1, fieldZ = 1, facing = "north" })
+  end
+  updateWithOwner(effects, { fieldX = 1, fieldZ = 1, facing = "north" })
+
+  local instances = effects:status().instances
+  Assert.equal(#instances, 1)
+  Assert.equal(instances[1].fieldX, 1)
 end
 
 T.tests["dynamic grass instances change pose independently from their semantic age"] = function()
@@ -194,7 +202,7 @@ T.tests["dynamic grass instances change pose independently from their semantic a
   local firstTransform = first:drawItems(first.renderMeshesById)[1].transform
   Assert.equal(effects:status().instances[1].frame, 0)
 
-  effects:updateFixed({ fieldX = 1, fieldZ = 1 })
+  effects:updateFixed({ fieldX = 1, fieldZ = 1, facing = "east" })
   local second = effects:status().instances[1].modelInstance
   second:evaluatePose()
   local secondTransform = second:drawItems(second.renderMeshesById)[1].transform

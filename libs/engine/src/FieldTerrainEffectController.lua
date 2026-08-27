@@ -66,26 +66,24 @@ function FieldTerrainEffectController:emitAll(responses)
   end
 end
 
----@param owner { fieldX: integer, fieldZ: integer }
-function FieldTerrainEffectController:removeOutside(owner)
-  assert(type(owner) == "table", "terrain effect owner position is required")
+---@param owner { fieldX: integer, fieldZ: integer, facing: string }
+function FieldTerrainEffectController:updateFixed(owner)
+  assert(type(owner) == "table", "terrain effect owner is required")
   assert(type(owner.fieldX) == "number" and type(owner.fieldZ) == "number", "terrain effect owner tile is required")
+  assert(type(owner.facing) == "string", "terrain effect owner facing is required")
   for index = #self.instances, 1, -1 do
     local instance = self.instances[index]
-    if owner.fieldX ~= instance.fieldX or owner.fieldZ ~= instance.fieldZ then
-      table.remove(self.instances, index)
-    end
-  end
-end
-
----@param owner { fieldX: integer, fieldZ: integer }
-function FieldTerrainEffectController:updateFixed(owner)
-  self:removeOutside(owner)
-  for _, instance in ipairs(self.instances) do
+    local wasIntro = instance.sourceFrame < instance.lifecycle.holdFrame
     instance.age = instance.age + 1
-    if instance.sourceFrame < instance.lifecycle.holdFrame then
+    if wasIntro then
       instance.modelInstance:updateFixed()
       instance.sourceFrame = math.min(instance.lifecycle.holdFrame, instance.sourceFrame + 1)
+    elseif
+      owner.fieldX ~= instance.fieldX
+      or owner.fieldZ ~= instance.fieldZ
+      or (instance.direction ~= nil and owner.facing ~= instance.direction)
+    then
+      table.remove(self.instances, index)
     end
   end
 end

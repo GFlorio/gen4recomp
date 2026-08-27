@@ -273,7 +273,11 @@ function FieldSession:updateFixed(inputSnapshot)
   -- FieldAudioController:enterMap.
   inputSnapshot = inputSnapshot or self.input:snapshot()
   if self.terrainEffects then
-    self.terrainEffects:updateFixed({ fieldX = self.player.fieldX, fieldZ = self.player.fieldZ })
+    self.terrainEffects:updateFixed({
+      fieldX = self.player.fieldX,
+      fieldZ = self.player.fieldZ,
+      facing = self.player.facing,
+    })
   end
   -- The door/stair choreography drives the player during the locked
   -- transition: the pose clock hears the walking state at tick start, the
