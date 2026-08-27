@@ -6,12 +6,17 @@ local Assert = require("tests.support.Assert")
 local FieldNavigationBoundary = require("libs.engine.src.FieldNavigationBoundary")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 local FieldRuntime = require("game.src.game.FieldRuntime")
+local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local WarpSystem = require("libs.engine.src.WarpSystem")
 
 local T = {}
 
-local function releaseSpy(name)
+local function releaseSpy(name, matrixMemberId, anchorX, anchorZ)
   local spy = {
     name = name,
+    matrixMemberId = matrixMemberId,
+    anchorX = anchorX,
+    anchorZ = anchorZ,
     releases = 0,
     released = false,
     probes = 0,
@@ -36,6 +41,198 @@ end
 
 local function newSourceMap()
   return { mapId = 61 }
+end
+
+local function outdoorMap(coverage)
+  return {
+    mapId = 60,
+    scene = { type = "outdoor" },
+    coverage = coverage,
+  }
+end
+
+local function runtimeForSwap(sourceCoverage)
+  local sourceRuntimeMap = { mapId = 61 }
+  local runtime = setmetatable({
+    physicalCoverage = sourceCoverage,
+    runtimeMap = sourceRuntimeMap,
+    transition = FieldTransition.new({ loader = {}, prepare = function() end, commit = function() end }),
+    session = {},
+    zoneController = { currentMap = sourceRuntimeMap },
+    fieldTerrainEffectController = { clear = function() end },
+    actors = { leaveMap = function() end, dispose = function() end },
+    mapLoader = { protectMap = function() end, release = function() end },
+    scripts = { onMapSwap = function() end },
+  }, FieldRuntime)
+  return runtime, sourceRuntimeMap
+end
+
+local function stagingRuntime(sourceCoverage, replacementCoverage)
+  local runtime = runtimeForSwap(sourceCoverage)
+  local calls = {}
+  runtime.mapLoader.createPhysicalCoverage = function(_, logicalMap, position)
+    calls[#calls + 1] = { logicalMap = logicalMap, position = position }
+    return replacementCoverage
+  end
+  return runtime, calls
+end
+
+local function stage(runtime, logicalMap, position, matrixMemberId)
+  return runtime:_stagePhysicalCoverage(logicalMap --[[@as RuntimeFieldMap]], position, matrixMemberId)
+end
+
+local function destinationTerrain()
+  return TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+    },
+  })
+end
+
+local function destinationCollision()
+  return {
+    containsLocal = function(_, localX, localZ)
+      return localX >= 0 and localX < 32 and localZ >= 0 and localZ < 32
+    end,
+  }
+end
+
+function T.same_matrix_non_anchor_warp_stages_a_destination_centered_owner()
+  local sourceCoverage = releaseSpy("source", 7, 0, 0)
+  local replacementCoverage = releaseSpy("replacement", 7, 1, 0)
+  local runtime, calls = stagingRuntime(sourceCoverage, replacementCoverage)
+  local destination = outdoorMap(replacementCoverage)
+  local position = { fieldX = 32 + 5, fieldZ = 11 }
+
+  local staged = stage(runtime, destination, position, 7)
+
+  Assert.equal(staged.coverage, replacementCoverage)
+  Assert.isTrue(staged.replacement)
+  Assert.equal(staged.previous, sourceCoverage)
+  Assert.equal(staged.state, "prepared")
+  Assert.equal(#calls, 1)
+  Assert.equal(calls[1].logicalMap, destination)
+  Assert.deepEqual(calls[1].position, position)
+  Assert.equal(runtime.physicalCoverage, sourceCoverage)
+  Assert.equal(sourceCoverage.releases, 0)
+
+  local reused = stage(runtime, destination, { fieldX = 5, fieldZ = 11 }, 7)
+
+  Assert.equal(reused.coverage, sourceCoverage)
+  Assert.isFalse(reused.replacement)
+  Assert.isNil(reused.previous)
+  Assert.equal(reused.state, "prepared")
+  Assert.equal(#calls, 1)
+end
+
+function T.far_same_matrix_warp_supplies_destination_terrain_before_resolution()
+  local sourceCoverage = releaseSpy("source", 7, 0, 0)
+  local replacementCoverage = releaseSpy("replacement", 7, 4, 0)
+  replacementCoverage.terrain = destinationTerrain()
+  local runtime, calls = stagingRuntime(sourceCoverage, replacementCoverage)
+  local destination = outdoorMap(replacementCoverage)
+  destination.coordinateOrigin = { x = 4 * 32, z = 0 }
+  destination.fieldData = {
+    events = {
+      warps = {
+        { index = 0, x = 4 * 32 + 8, z = 16, y = 0, destinationMapId = 61, destinationWarpId = 0 },
+      },
+    },
+  }
+  local source = {
+    mapId = 61,
+    fieldData = { events = { warps = {} } },
+  }
+  local position = { fieldX = 4 * 32 + 8, fieldZ = 16 }
+
+  local staged = stage(runtime, destination, position, 7)
+  Assert.equal(staged.coverage, replacementCoverage)
+  Assert.equal(replacementCoverage.anchorX, 4)
+  Assert.equal(replacementCoverage.anchorZ, 0)
+  Assert.equal(#calls, 1)
+  Assert.equal(runtime.physicalCoverage, sourceCoverage)
+  Assert.equal(sourceCoverage.releases, 0)
+
+  -- This minimal candidate is the same physical-map view consumed by the
+  -- resolver: the staged terrain, not the source-centered region, owns the
+  -- destination's local coordinates.
+  local candidate = {
+    mapId = destination.mapId,
+    coordinateOrigin = destination.coordinateOrigin,
+    fieldData = destination.fieldData,
+    collision = destinationCollision(),
+    terrain = replacementCoverage.terrain,
+    coverage = staged.coverage,
+  }
+  local resolved = WarpSystem.resolveDestination(
+    {
+      load = function()
+        return candidate
+      end,
+    },
+    source,
+    {
+      index = 0,
+      x = 1,
+      z = 1,
+      destinationMapId = 60,
+      destinationWarpId = 0,
+    }
+  )
+
+  Assert.equal(resolved.fieldX, position.fieldX)
+  Assert.equal(resolved.fieldZ, position.fieldZ)
+  Assert.equal(resolved.surfaceId, 0)
+  Assert.equal(resolved.worldY, 0)
+  Assert.equal(sourceCoverage.releases, 0)
+end
+
+function T.same_matrix_replacement_uses_abort_and_commit_ownership_transaction()
+  local sourceCoverage = releaseSpy("source", 7, 0, 0)
+  local replacementCoverage = releaseSpy("replacement", 7, 1, 0)
+  local runtime = stagingRuntime(sourceCoverage, replacementCoverage)
+  local destination = outdoorMap(replacementCoverage)
+  local staged = stage(runtime, destination, { fieldX = 32 + 5, fieldZ = 11 }, 7)
+
+  runtime:_disposePreparedSwap(nil, { physical = staged })
+  runtime:_disposePreparedSwap(nil, { physical = staged })
+
+  Assert.equal(replacementCoverage.releases, 1)
+  Assert.equal(sourceCoverage.releases, 0)
+  Assert.equal(runtime.physicalCoverage, sourceCoverage)
+  Assert.equal(staged.state, "released")
+  Assert.equal(sourceCoverage:probe(), "source")
+
+  local committedSource = releaseSpy("committed-source", 7, 0, 0)
+  local committedReplacement = releaseSpy("committed-replacement", 7, 1, 0)
+  local committedRuntime = stagingRuntime(committedSource, committedReplacement)
+  local committedDestination = outdoorMap(committedReplacement)
+  local committed = stage(committedRuntime, committedDestination, { fieldX = 32 + 5, fieldZ = 11 }, 7)
+
+  committedRuntime:_commitSwap(
+    { destinationMap = committedDestination },
+    "south",
+    { player = {}, camera = {}, playerVisual = {}, physical = committed }
+  )
+
+  Assert.equal(committedRuntime.physicalCoverage, committedReplacement)
+  Assert.equal(committed.state, "committed")
+  Assert.equal(committedSource.releases, 1)
+  Assert.equal(committedReplacement.releases, 0)
+
+  committedRuntime:_releaseAll()
+  committedRuntime:_releaseAll()
+  Assert.equal(committedSource.releases, 1)
+  Assert.equal(committedReplacement.releases, 1)
 end
 
 function T.destination_preparation_failure_discards_only_the_staged_owner()
@@ -95,22 +292,6 @@ function T.destination_preparation_failure_discards_only_the_staged_owner()
   Assert.equal(destinationCoverage.releases, 1)
   Assert.equal(cleanupCalls, 1)
   Assert.equal(sourceCoverage:probe(), "source")
-end
-
-local function runtimeForSwap(sourceCoverage)
-  local sourceRuntimeMap = { mapId = 61 }
-  local runtime = setmetatable({
-    physicalCoverage = sourceCoverage,
-    runtimeMap = sourceRuntimeMap,
-    transition = FieldTransition.new({ loader = {}, prepare = function() end, commit = function() end }),
-    session = {},
-    zoneController = { currentMap = sourceRuntimeMap },
-    fieldTerrainEffectController = { clear = function() end },
-    actors = { leaveMap = function() end, dispose = function() end },
-    mapLoader = { protectMap = function() end, release = function() end },
-    scripts = { onMapSwap = function() end },
-  }, FieldRuntime)
-  return runtime, sourceRuntimeMap
 end
 
 local function destinationMap(coverage)

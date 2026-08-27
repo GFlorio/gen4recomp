@@ -16,6 +16,7 @@ local FieldApplicationIds = require("libs.engine.src.FieldApplicationIds")
 local FieldApplicationRegistry = require("libs.engine.src.FieldApplicationRegistry")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
@@ -533,30 +534,16 @@ function FieldRuntime:_load()
         return logicalMap, nil
       end
       local matrixMemberId = mapMatrixMemberId(logicalMap)
-      local current = self.physicalCoverage
-      if current and current.matrixMemberId == matrixMemberId then
-        return composePhysicalMap(logicalMap, current),
-          {
-            coverage = current,
-            replacement = false,
-            previous = nil,
-            state = "prepared",
-          }
-      end
-
-      local replacement = self.mapLoader:createPhysicalCoverage(logicalMap, position)
-      local ok, runtimeMap = pcall(composePhysicalMap, logicalMap, replacement)
+      local physical = self:_stagePhysicalCoverage(logicalMap, position, matrixMemberId)
+      local ok, runtimeMap = pcall(composePhysicalMap, logicalMap, physical.coverage)
       if not ok then
-        replacement:release()
+        if physical.replacement then
+          physical.coverage:release()
+          physical.state = "released"
+        end
         error(runtimeMap, 0)
       end
-      return runtimeMap,
-        {
-          coverage = replacement,
-          replacement = true,
-          previous = current,
-          state = "prepared",
-        }
+      return runtimeMap, physical
     end
 
     saveValidation.composeRuntimeMap = composeInitialMap
@@ -1361,6 +1348,41 @@ function FieldRuntime:_applyEffectiveWeather(runtimeMap)
       runtimeMap.sceneRuntime.fog = assert(self.weatherCatalog.presets[effective])
     end
   end
+end
+
+-- Select the physical owner for a discontinuous outdoor destination. A
+-- matching matrix is reusable only when its resident window is centered on
+-- the destination cell; otherwise the new owner remains transition-owned
+-- until the prepared swap commits.
+---@param logicalMap RuntimeFieldMap
+---@param position { fieldX: integer, fieldZ: integer }
+---@param matrixMemberId integer
+---@return FieldRuntimePhysicalSwap
+function FieldRuntime:_stagePhysicalCoverage(logicalMap, position, matrixMemberId)
+  local destinationAnchorX = math.floor(position.fieldX / FieldGrid.CELL_TILES)
+  local destinationAnchorZ = math.floor(position.fieldZ / FieldGrid.CELL_TILES)
+  local current = self.physicalCoverage
+  if
+    current
+    and current.matrixMemberId == matrixMemberId
+    and current.anchorX == destinationAnchorX
+    and current.anchorZ == destinationAnchorZ
+  then
+    return {
+      coverage = current,
+      replacement = false,
+      previous = nil,
+      state = "prepared",
+    }
+  end
+
+  local replacement = self.mapLoader:createPhysicalCoverage(logicalMap, position)
+  return {
+    coverage = replacement,
+    replacement = true,
+    previous = current,
+    state = "prepared",
+  }
 end
 
 -- Fallible warp preparation, run by FieldTransition while the source map is
