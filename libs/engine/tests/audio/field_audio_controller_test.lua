@@ -203,6 +203,87 @@ local function runtimeMap(fieldData)
   return { fieldData = fieldData } --[[@as RuntimeFieldMap]]
 end
 
+local function prewarmProvider()
+  local sequences = {
+    [20] = { id = 20, bankId = 7 },
+    [21] = { id = 21, bankId = 8 },
+    [22] = { id = 22, bankId = 9 },
+  }
+  local calls = { sequences = {}, banks = {}, samples = 0 }
+  local provider = {}
+  function provider:sequence(id)
+    calls.sequences[#calls.sequences + 1] = id
+    return assert(sequences[id])
+  end
+  function provider:bank(id)
+    calls.banks[#calls.banks + 1] = id
+    return { id = id }
+  end
+  function provider:loadSample()
+    calls.samples = calls.samples + 1
+    error("prewarm must not load PCM samples", 0)
+  end
+  return provider, calls
+end
+
+local function prewarmSound()
+  local state = {
+    currentMusic = 10,
+    playCalls = {},
+    queueCalls = {},
+    stopCalls = 0,
+    fadeCalls = {},
+    moveCalls = {},
+  }
+  local sound = {}
+  function sound:currentMusic()
+    return state.currentMusic
+  end
+  function sound:playMusic(id)
+    state.playCalls[#state.playCalls + 1] = id
+    state.currentMusic = id
+  end
+  function sound:queueMusicReplacement(id, duration)
+    state.queueCalls[#state.queueCalls + 1] = { id = id, duration = duration }
+    state.currentMusic = id
+  end
+  function sound:stopMusic()
+    state.stopCalls = state.stopCalls + 1
+    state.currentMusic = nil
+  end
+  function sound:isMusicFadeActive()
+    return true
+  end
+  function sound:fadeMusicOut(spec)
+    state.fadeCalls[#state.fadeCalls + 1] = spec
+  end
+  function sound:moveSequenceVolume(id, target, duration)
+    state.moveCalls[#state.moveCalls + 1] = { id = id, target = target, duration = duration }
+  end
+  function sound:stopSequenceWithFade(id, duration)
+    state.fadeCalls[#state.fadeCalls + 1] = { id = id, duration = duration }
+  end
+  return sound, state
+end
+
+local function prewarmController(provider, sound, dayNight, flags)
+  local eventFlags = flags or {}
+  local event = eventState(eventFlags)
+  return FieldAudioController.new({
+    sound = sound --[[@as GameSound]],
+    provider = provider --[[@as AudioAssetProvider]],
+    eventState = event,
+    fieldPosition = function()
+      return 0, 0
+    end,
+    dayNight = dayNight,
+    fieldDataForMap = function()
+      return nil
+    end,
+  }),
+    eventFlags
+end
+
 local function musicScenario()
   local keyA = AudioFixture.key(1)
   local bgmA =
@@ -492,6 +573,80 @@ function T.map_entry_with_play_disabled_does_not_change_music()
   Assert.equal(#spy.plays, 0, "play=false map entry must not start music")
   Assert.equal(#spy.stops, 0, "play=false map entry must not stop music")
   Assert.equal(sound:currentMusic(), 10)
+end
+
+function T.prepared_map_music_loads_only_sequence_and_bank_metadata()
+  local provider, calls = prewarmProvider()
+  local sound, soundState = prewarmSound()
+  local controller = prewarmController(provider, sound, function()
+    return "day"
+  end)
+  local fieldData = fieldDataWithSoundplates({}, {
+    day = 20,
+    night = 21,
+    flagOverrides = {},
+    traversalOverrides = {},
+  })
+  local pending = { sourceMusicId = 10, destinationMusicId = 11, target = 64, durationFrames = 15 }
+  controller._fieldMusic = 10
+  controller._musicOverride = 99
+  controller._environment = { sequence = 30 }
+  controller._pendingFieldMusicPolicy = pending
+
+  ---@diagnostic disable-next-line: undefined-field -- acceptance contract is authored before production implementation
+  local prewarmMapMusic = controller.prewarmMapMusic
+  Assert.isTrue(
+    type(prewarmMapMusic) == "function",
+    "prepared map music must have a non-playing metadata warmup operation"
+  )
+  prewarmMapMusic(controller, runtimeMap(fieldData))
+
+  Assert.deepEqual(calls.sequences, { 20 }, "the selected map-header sequence must be requested")
+  Assert.deepEqual(calls.banks, { 7 }, "the selected sequence bank must be requested")
+  Assert.equal(calls.samples, 0)
+  Assert.equal(#soundState.playCalls, 0)
+  Assert.equal(#soundState.queueCalls, 0)
+  Assert.equal(soundState.stopCalls, 0)
+  Assert.equal(#soundState.fadeCalls, 0)
+  Assert.equal(#soundState.moveCalls, 0)
+  Assert.equal(soundState.currentMusic, 10)
+  Assert.equal(controller._fieldMusic, 10)
+  Assert.equal(controller:musicOverride(), 99)
+  Assert.equal(controller._environment.sequence, 30)
+  Assert.equal(controller._pendingFieldMusicPolicy, pending)
+  Assert.isNil(controller._currentMap, "prewarming must not activate the prepared map")
+end
+
+function T.prewarming_does_not_decode_samples_or_pin_stale_music_policy()
+  local provider, calls = prewarmProvider()
+  local sound = prewarmSound()
+  local useNight = false
+  local flags = {}
+  local controller = prewarmController(provider, sound, function()
+    return useNight and "night" or "day"
+  end, flags)
+  local fieldData = fieldDataWithSoundplates({}, {
+    day = 20,
+    night = 21,
+    flagOverrides = { { flagId = 5, sequence = 22 } },
+    traversalOverrides = {},
+  })
+
+  ---@diagnostic disable-next-line: undefined-field -- acceptance contract is authored before production implementation
+  local prewarmMapMusic = controller.prewarmMapMusic
+  Assert.isTrue(
+    type(prewarmMapMusic) == "function",
+    "prepared map music must have a non-playing metadata warmup operation"
+  )
+  prewarmMapMusic(controller, runtimeMap(fieldData))
+  useNight = true
+  flags[5] = true
+  controller:enterZone(runtimeMap(fieldData))
+
+  Assert.equal(calls.samples, 0, "metadata prewarm must not decode PCM")
+  Assert.deepEqual(calls.sequences, { 20 }, "active entry must re-resolve current day/night and flags")
+  Assert.deepEqual(calls.banks, { 7 }, "activation must not turn metadata prewarm into sample work")
+  Assert.equal(sound:currentMusic(), 22, "active entry must choose the current destination policy")
 end
 
 function T.production_position_is_read_through_a_narrow_fieldX_fieldZ_provider()

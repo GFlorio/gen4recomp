@@ -948,6 +948,9 @@ function FieldRuntime:_load()
       zoneController = self.zoneController,
       eventState = self.eventState,
       composeMap = composeCurrentMap,
+      onPreparedMap = self.audio and function(runtimeMap)
+        self.audio:prewarmMapMusic(runtimeMap)
+      end or nil,
     })
     self.residency:initialize()
 

@@ -2,6 +2,7 @@
 -- preparation, promotion, activation, eviction, and fallback ownership.
 
 local Assert = require("tests.support.Assert")
+local FieldAudioController = require("libs.engine.src.audio.FieldAudioController")
 
 local function coordinatorClass()
   local ok, loaded = pcall(require, "libs.engine.src.FieldResidencyCoordinator")
@@ -211,6 +212,57 @@ local function coordinatorFixture()
   return coordinator, coverage, loader, actors, zone, calls
 end
 
+local function preparedMusicAudio()
+  local calls = { sequences = {}, banks = {}, sound = 0 }
+  local provider = {}
+  function provider:sequence(id)
+    calls.sequences[#calls.sequences + 1] = id
+    return { id = id, bankId = 7 }
+  end
+  function provider:bank(id)
+    calls.banks[#calls.banks + 1] = id
+    return { id = id }
+  end
+
+  local sound = {}
+  local function record()
+    calls.sound = calls.sound + 1
+  end
+  function sound:currentMusic()
+    record()
+    return 10
+  end
+  function sound:playMusic()
+    record()
+  end
+  function sound:queueMusicReplacement()
+    record()
+  end
+  function sound:stopMusic()
+    record()
+  end
+
+  local controller = FieldAudioController.new({
+    sound = sound --[[@as GameSound]],
+    provider = provider --[[@as AudioAssetProvider]],
+    eventState = {
+      isFlagSet = function()
+        return false
+      end,
+    },
+    fieldPosition = function()
+      return 0, 0
+    end,
+    dayNight = function()
+      return "day"
+    end,
+    fieldDataForMap = function()
+      return nil
+    end,
+  })
+  return controller, calls
+end
+
 local function actors_remain_live_across_active_map_switch_until_their_last_cell_leaves()
   local coordinator, coverage, _, actors, zone, calls = coordinatorFixture()
   coordinator:initialize()
@@ -317,6 +369,46 @@ local function outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks
   coordinator:dispose()
 end
 
+local function prepared_map_hook_warms_music_before_activation()
+  local coverage = coverageFixture()
+  local loader, actors, zone = logicalOwners(coverage)
+  loader.maps[30].fieldData = {
+    music = { day = 20, night = 20, flagOverrides = {}, traversalOverrides = {} },
+  }
+  local audio, calls = preparedMusicAudio()
+  local coordinator = coordinatorClass().new({
+    coverage = coverage,
+    mapLoader = loader,
+    actors = actors,
+    zoneController = zone,
+    eventState = {},
+    onPreparedMap = function(runtimeMap)
+      if runtimeMap.mapId == 30 then
+        ---@diagnostic disable-next-line: undefined-field -- acceptance contract is authored before production implementation
+        local prewarmMapMusic = audio.prewarmMapMusic
+        Assert.isTrue(
+          type(prewarmMapMusic) == "function",
+          "prepared map lifecycle must expose non-playing music metadata warmup"
+        )
+        prewarmMapMusic(audio, runtimeMap)
+      end
+    end,
+  })
+
+  coordinator:initialize()
+  Assert.equal(coordinator:updatePrefetch(1), 1)
+
+  Assert.deepEqual(calls.sequences, { 20 }, "prepared map hook must warm the map-header sequence")
+  Assert.deepEqual(calls.banks, { 7 }, "prepared map hook must warm the sequence bank")
+  Assert.equal(calls.sound, 0, "prepared-map warmup must not enter playback")
+  Assert.deepEqual(coordinator:status().residentMapIds, { 10, 20 })
+  Assert.deepEqual(coordinator:status().preparedMapIds, { 30 })
+  Assert.isNil(actors.maps[30], "a prepared map must not become actor-resident before promotion")
+  Assert.equal(actors.currentMapId, 10, "preparing a map must not activate it")
+  Assert.equal(zone.currentMap.mapId, 10, "preparing a map must not switch the active zone")
+  coordinator:dispose()
+end
+
 return {
   metadata = { capabilities = {} },
   tests = {
@@ -325,5 +417,6 @@ return {
     failed_physical_prefetch_does_not_consume_the_logical_budget = failed_physical_prefetch_does_not_consume_the_logical_budget,
     prepared_hook_failure_releases_actor_and_map_ownership = prepared_hook_failure_releases_actor_and_map_ownership,
     outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks = outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks,
+    prepared_map_hook_warms_music_before_activation = prepared_map_hook_warms_music_before_activation,
   },
 }

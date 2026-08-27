@@ -117,6 +117,17 @@ function FieldAudioController:mapHeaderMusic(fieldData)
   return sequence
 end
 
+-- Loads a prepared map's selected music metadata without changing playback state.
+---@param runtimeMap RuntimeFieldMap
+function FieldAudioController:prewarmMapMusic(runtimeMap)
+  local reference = self:mapHeaderMusic(assert(runtimeMap.fieldData))
+  if reference == nil then
+    return
+  end
+  local sequence = self._provider:sequence(reference)
+  self._provider:bank(sequence.bankId)
+end
+
 -- Returns the effective field music: persisted override > map-header
 ---@return integer|nil
 function FieldAudioController:effectiveMusic()
