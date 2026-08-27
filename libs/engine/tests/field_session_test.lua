@@ -2569,4 +2569,53 @@ function T.field_policy_runs_once_per_tick_and_never_touches_the_sound_frame_clo
   Assert.equal(fieldCalls, 1, "an idle follow-up tick carries no further event")
 end
 
+function T.zone_change_owns_crossing_audio_selection_while_same_zone_keeps_step_audio()
+  local function run(zoneChanged)
+    local events = {}
+    local map = {
+      mapId = 61,
+      fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
+      updateAnimated = function() end,
+    }
+    local player = defaultPlayer()
+    player.updateFixed = function()
+      return true
+    end
+    local audio = {
+      updateField = function()
+        events[#events + 1] = "ordinary audio"
+      end,
+    }
+    local boundary = {
+      zoneController = { currentMap = map },
+      afterCommittedMove = function()
+        if zoneChanged then
+          events[#events + 1] = "zone-entry audio"
+          return { newMapId = 62 }
+        end
+        return nil
+      end,
+    }
+    local session = FieldSession.new(baseOptions({
+      audio = audio,
+      currentMap = map,
+      player = player,
+      navigationBoundary = boundary,
+    }))
+    session:updateFixed({})
+    return events
+  end
+
+  Assert.deepEqual(
+    run(true),
+    { "zone-entry audio" },
+    "a zone-changing completed step must not repeat ordinary field audio"
+  )
+  Assert.deepEqual(
+    run(false),
+    { "ordinary audio" },
+    "a same-zone completed step must keep one ordinary field-audio update"
+  )
+end
+
 return { tests = T }

@@ -35,11 +35,18 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 ---@field _fieldMusic integer|nil
 ---@field _musicOverride integer|nil
 ---@field _environment { sequence: integer }|nil
+---@field _pendingFieldMusicPolicy FieldAudioControllerPendingMusicPolicy|nil
 ---@field _eventState any
 ---@field isEffectPlaying fun(self: FieldAudioController, idOrSymbol: integer|string): boolean
 ---@field isEffectWaitComplete fun(self: FieldAudioController, idOrSymbol: integer|string): boolean
 local FieldAudioController = {}
 FieldAudioController.__index = FieldAudioController
+
+---@class FieldAudioControllerPendingMusicPolicy
+---@field sourceMusicId integer
+---@field destinationMusicId integer
+---@field target integer|nil
+---@field durationFrames integer
 
 ---@param opts FieldAudioControllerOptions
 ---@return FieldAudioController
@@ -66,6 +73,7 @@ function FieldAudioController.new(opts)
     _fieldMusic = nil,
     _musicOverride = nil,
     _environment = nil,
+    _pendingFieldMusicPolicy = nil,
   }, FieldAudioController)
 end
 
@@ -121,6 +129,7 @@ end
 -- Plays the map-header music (not effective music; ignores persisted override).
 -- This is the source ResetBGM behavior.
 function FieldAudioController:resetMusic()
+  self._pendingFieldMusicPolicy = nil
   local reference = self:mapHeaderMusic()
   if reference == nil then
     self._sound:stopMusic()
@@ -207,14 +216,39 @@ end
 
 ---@param runtimeMap RuntimeFieldMap
 function FieldAudioController:enterZone(runtimeMap)
+  local currentMusic = self._sound:currentMusic()
+  local destinationMusic = self:mapHeaderMusic(runtimeMap.fieldData)
+  local changedMusic = currentMusic ~= nil and destinationMusic ~= nil and currentMusic ~= destinationMusic
+
+  if changedMusic then
+    local sourceMusicId = assert(currentMusic)
+    local destinationMusicId = assert(destinationMusic)
+    self._pendingFieldMusicPolicy = {
+      sourceMusicId = sourceMusicId,
+      destinationMusicId = destinationMusicId,
+      target = 128,
+      durationFrames = 15,
+    }
+  else
+    self._pendingFieldMusicPolicy = nil
+  end
+
   self:_deactivateSoundplate()
   self._musicOverride = nil
   self._currentMap = runtimeMap
-  self._fieldMusic = self:mapHeaderMusic()
+  self._fieldMusic = destinationMusic
   local effective = self:effectiveMusic()
   if effective == nil then
+    self._pendingFieldMusicPolicy = nil
     self._sound:stopMusic()
+    self:updateField()
+  elseif currentMusic == nil then
+    self._sound:queueMusicReplacement(effective, 60)
+    self:updateField()
+  elseif effective == currentMusic then
+    self:updateField()
   else
+    self:updateField()
     self._sound:queueMusicReplacement(effective, 60)
   end
 end
@@ -262,6 +296,9 @@ function FieldAudioController:_processSelection(fieldX, fieldZ)
     if self._environment ~= nil then
       self:_deactivateSoundplate()
     end
+    if self._pendingFieldMusicPolicy ~= nil then
+      self._pendingFieldMusicPolicy.target = nil
+    end
     return
   end
 
@@ -279,6 +316,9 @@ function FieldAudioController:_processSelection(fieldX, fieldZ)
   if selectedPlate ~= nil then
     -- Test disabled flag (no fallback if disabled)
     if selectedPlate.disabledWhenFlag ~= nil and self._eventState:isFlagSet(selectedPlate.disabledWhenFlag) then
+      if self._pendingFieldMusicPolicy ~= nil then
+        self._pendingFieldMusicPolicy.target = nil
+      end
       return
     end
 
@@ -301,7 +341,9 @@ function FieldAudioController:_processSelection(fieldX, fieldZ)
     self._environment = { sequence = seqId }
 
     if selectedPlate.bgmTarget ~= nil and self._fieldMusic ~= nil then
-      self._sound:moveSequenceVolume(self._fieldMusic, selectedPlate.bgmTarget, 15)
+      self:_applyOrDeferFieldMusicTarget(selectedPlate.bgmTarget, 15)
+    elseif self._pendingFieldMusicPolicy ~= nil then
+      self._pendingFieldMusicPolicy.target = nil
     end
     if selectedPlate.ambientTarget ~= nil then
       self._sound:moveSequenceVolume(selectedPlate.sequence, selectedPlate.ambientTarget, 5)
@@ -309,6 +351,9 @@ function FieldAudioController:_processSelection(fieldX, fieldZ)
   else
     if self._environment ~= nil then
       self:_deactivateSoundplate()
+    end
+    if self._pendingFieldMusicPolicy ~= nil then
+      self._pendingFieldMusicPolicy.target = nil
     end
   end
 end
@@ -343,15 +388,47 @@ function FieldAudioController:_deactivateSoundplate()
   self._sound:stopSequenceWithFade(self._environment.sequence, 10)
 
   if self._fieldMusic ~= nil then
-    self._sound:moveSequenceVolume(self._fieldMusic, 128, 15)
+    self:_applyOrDeferFieldMusicTarget(128, 15)
   end
 
   self._environment = nil
 end
 
+-- Applies a soundplate BGM target immediately, or records it while a seamless
+-- map replacement still owns the source player's music ramp.
+---@param target integer
+---@param durationFrames integer
+function FieldAudioController:_applyOrDeferFieldMusicTarget(target, durationFrames)
+  assert(target >= 0 and target <= 128, "volume target must be an integer in 0..128")
+  assert(durationFrames > 0 and durationFrames % 1 == 0, "fader ramp duration must be a positive integer")
+
+  local pending = self._pendingFieldMusicPolicy
+  if pending ~= nil then
+    pending.target = target
+    pending.durationFrames = durationFrames
+    return
+  end
+
+  if self._fieldMusic ~= nil then
+    self._sound:moveSequenceVolume(self._fieldMusic, target, durationFrames)
+  end
+end
+
 -- Delegates to GameSound:updateSoundFrame() for 60 Hz sound-frame clock
 function FieldAudioController:updateSoundFrame()
   self._sound:updateSoundFrame()
+  local pending = self._pendingFieldMusicPolicy
+  if pending ~= nil then
+    local current = self._sound:currentMusic()
+    if current ~= nil and current == pending.destinationMusicId then
+      self._pendingFieldMusicPolicy = nil
+      if pending.target ~= nil then
+        self._sound:moveSequenceVolume(current, pending.target, pending.durationFrames)
+      end
+    elseif current ~= pending.sourceMusicId or not self._sound:isMusicFadeActive() then
+      self._pendingFieldMusicPolicy = nil
+    end
+  end
 end
 
 -- Script facade delegation to GameSound
@@ -373,10 +450,12 @@ function FieldAudioController:isEffectWaitComplete(idOrSymbol)
 end
 
 function FieldAudioController:playMusic(idOrSymbol)
+  self._pendingFieldMusicPolicy = nil
   self._sound:playMusic(idOrSymbol)
 end
 
 function FieldAudioController:stopMusic()
+  self._pendingFieldMusicPolicy = nil
   self._sound:stopMusic()
 end
 
@@ -401,6 +480,7 @@ function FieldAudioController:fadeMusicOut(spec)
 end
 
 function FieldAudioController:fadeMusicIn(spec)
+  self._pendingFieldMusicPolicy = nil
   self._sound:fadeMusicIn(spec)
 end
 
@@ -409,6 +489,7 @@ function FieldAudioController:isMusicFadeActive()
 end
 
 function FieldAudioController:temporaryMusic(idOrSymbol)
+  self._pendingFieldMusicPolicy = nil
   self._sound:temporaryMusic(idOrSymbol)
 end
 

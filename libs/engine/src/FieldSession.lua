@@ -527,7 +527,7 @@ function FieldSession:updateFixed(inputSnapshot)
       end
     end
     self:_emitTerrainResponse()
-    if self.audio then
+    if self.audio and not zoneChanged then
       self.audio:updateField()
     end
     local coordinateIntent = resolveCoordinate(self)

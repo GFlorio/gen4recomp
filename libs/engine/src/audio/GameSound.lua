@@ -389,7 +389,10 @@ function GameSound:queueMusicReplacement(idOrSymbol, durationTicks)
   end
 
   local source = self._provider:sequence(self._currentMusic)
-  self:_replaceFaderRamp(source.player.id, 0, durationTicks, "music", false)
+  local fader = self:_faderFor(source.player.id)
+  if fader.ramp == nil or fader.ramp.kind ~= "music" then
+    self:_replaceFaderRamp(source.player.id, 0, durationTicks, "music", false)
+  end
   self._queuedMusicReplacement = {
     sourceMusicId = source.id,
     sourcePlayerId = source.player.id,

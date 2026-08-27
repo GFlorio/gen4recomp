@@ -16,6 +16,18 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
 local T = {}
 
+---@class FieldAudioControllerTest.FaderRamp
+---@field start integer
+---@field target integer
+---@field durationFrames integer
+---@field elapsedFrames integer
+
+---@class FieldAudioControllerTest.Fader
+---@field ramp FieldAudioControllerTest.FaderRamp|nil
+
+---@class FieldAudioControllerTest.InspectableSound : GameSound
+---@field _faders table<integer, FieldAudioControllerTest.Fader>
+
 ---@class FieldAudioControllerTest.SequencePlayer : SequencePlayer
 ---@field playWithBankOverride fun(self: FieldAudioControllerTest.SequencePlayer, handle: table, sequence: table, bank: table): boolean
 ---@field isPlayerPlaying fun(self: FieldAudioControllerTest.SequencePlayer, playerId: integer): boolean
@@ -231,6 +243,83 @@ local function musicScenario()
   end
 end
 
+local function seamlessSoundplateScenario()
+  local keyA = AudioFixture.key(1)
+  local bgmA =
+    seq(10, "SEQ_GS_T_WAKABA", 12, 1, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
+  local bgmB =
+    seq(11, "SEQ_GS_UTSUGI_RABO", 12, 7, { { op = "note", key = 62, velocity = 127, duration = 1 }, { op = "end" } })
+  local bgmC =
+    seq(12, "SEQ_GS_T_TOBARI", 12, 7, { { op = "note", key = 64, velocity = 127, duration = 1 }, { op = "end" } })
+  local environmentB =
+    seq(20, "SEQ_SE_GS_N_SESERAGI", 12, 2, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
+  local environmentC =
+    seq(21, "SEQ_SE_GS_N_HUUSHA", 12, 2, { { op = "note", key = 62, velocity = 127, duration = 1 }, { op = "end" } })
+  local provider = providerFor(
+    { [10] = bgmA, [11] = bgmB, [12] = bgmC, [20] = environmentB, [21] = environmentC },
+    { [12] = bankWithSamples(12, "BANK_A", keyA) }
+  )
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local player = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local sound, spy = recordingSound(provider, player)
+  local starts = {}
+  local originalPlay = player.play
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
+  player.play = function(self, handle, sequence, bankRecord)
+    starts[sequence.id] = (starts[sequence.id] or 0) + 1
+    return originalPlay(self, handle, sequence, bankRecord)
+  end
+  local fdA = fieldDataWithSoundplates(
+    {},
+    { day = "SEQ_GS_T_WAKABA", night = "SEQ_GS_T_WAKABA", flagOverrides = {}, traversalOverrides = {} }
+  )
+  fdA.mapId = 111
+  local fdB = fieldDataWithSoundplates({
+    {
+      x = 0,
+      xBounds = 31,
+      z = 0,
+      zBounds = 31,
+      sequence = "SEQ_SE_GS_N_SESERAGI",
+      useFieldMusicBank = false,
+      bgmTarget = 64,
+    },
+  }, { day = "SEQ_GS_UTSUGI_RABO", night = "SEQ_GS_UTSUGI_RABO", flagOverrides = {}, traversalOverrides = {} })
+  fdB.mapId = 112
+  local fdC = fieldDataWithSoundplates({
+    {
+      x = 0,
+      xBounds = 31,
+      z = 0,
+      zBounds = 31,
+      sequence = "SEQ_SE_GS_N_HUUSHA",
+      useFieldMusicBank = false,
+      bgmTarget = 32,
+    },
+  }, { day = "SEQ_GS_T_TOBARI", night = "SEQ_GS_T_TOBARI", flagOverrides = {}, traversalOverrides = {} })
+  fdC.mapId = 113
+  local controller = FieldAudioController.new({
+    sound = sound,
+    provider = provider,
+    eventState = eventState(),
+    fieldPosition = function()
+      return 0, 0
+    end,
+    dayNight = function()
+      return "day"
+    end,
+    fieldDataForMap = function()
+      return fdB
+    end,
+  })
+  controller:enterMap({ fieldData = fdA }, { play = true })
+  for id in pairs(starts) do
+    starts[id] = nil
+  end
+  spy.plays = {}
+  return controller, sound, player, starts, spy, fdA, fdB, fdC
+end
+
 function T.same_map_music_entry_preserves_the_running_sequence()
   local controller, sound, spy, fdA, fdB, setDestination = musicScenario()
   fdB.music.day = "SEQ_GS_T_WAKABA"
@@ -271,6 +360,93 @@ function T.seamless_zone_entry_clears_matching_override_without_restarting_music
   Assert.isNil(controller:musicOverride(), "zone entry clears even a matching override")
   Assert.equal(#spy.plays, 0, "same destination music does not restart at a seamless boundary")
   Assert.equal(sound:currentMusic(), 11, "the current BGM identity remains unchanged")
+end
+
+function T.seamless_zone_entry_selects_destination_soundplate_before_music_admission()
+  local controller, sound, player, starts, _, _, fdB = seamlessSoundplateScenario()
+  controller:enterZone(runtimeMap(fdB))
+
+  Assert.equal(controller:currentMusic(), 10, "the source remains current during the seamless fade")
+  Assert.equal(starts[20], 1, "the destination environment starts at zone entry")
+  for _ = 1, 59 do
+    controller:updateSoundFrame()
+  end
+  Assert.equal(controller:currentMusic(), 10, "the destination BGM remains queued before frame 60")
+  Assert.isTrue(player:isPlayerPlaying(1), "the source player remains active before admission")
+
+  controller:updateSoundFrame()
+  controller:updateSoundFrame()
+  Assert.equal(controller:currentMusic(), 11, "the destination BGM is admitted after the source fade")
+  Assert.equal(starts[11], 1, "the destination BGM starts exactly once")
+  Assert.isFalse(player:isPlayerPlaying(1), "the source BGM player is stopped after admission")
+  local inspectableSound = sound --[[@as FieldAudioControllerTest.InspectableSound]]
+  Assert.equal(
+    assert(inspectableSound._faders[7].ramp).target,
+    64,
+    "the destination soundplate target applies after admission"
+  )
+end
+
+function T.seamless_zone_without_soundplate_does_not_add_destination_fade()
+  local controller, sound, _, fdA, fdB = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { play = true })
+  controller:enterZone(runtimeMap(fdB))
+
+  for _ = 1, 60 do
+    controller:updateSoundFrame()
+  end
+
+  local inspectableSound = sound --[[@as FieldAudioControllerTest.InspectableSound]]
+  local fader = assert(inspectableSound._faders[1])
+  Assert.isNil(fader.ramp, "a destination without a soundplate must not add a BGM fade-in")
+end
+
+function T.seamless_zone_retarget_preserves_fade_and_latest_soundplate_policy()
+  local controller, sound, _, starts, _, _, fdB, fdC = seamlessSoundplateScenario()
+  controller:enterZone(runtimeMap(fdB))
+  for _ = 1, 10 do
+    controller:updateSoundFrame()
+  end
+  local inspectableSound = sound --[[@as FieldAudioControllerTest.InspectableSound]]
+  local sourceFader = inspectableSound._faders[1]
+  local sourceRamp = assert(sourceFader.ramp)
+  local elapsedFrames = sourceRamp.elapsedFrames
+
+  controller:enterZone(runtimeMap(fdC))
+  Assert.equal(sourceFader.ramp, sourceRamp, "retargeting keeps the original source ramp")
+  Assert.equal(sourceRamp.elapsedFrames, elapsedFrames, "retargeting does not reset elapsed fade time")
+  Assert.isNil(starts[11], "the first destination BGM never starts")
+  Assert.equal(starts[21], 1, "the latest destination environment starts once")
+
+  for _ = 1, 50 do
+    controller:updateSoundFrame()
+  end
+  Assert.equal(controller:currentMusic(), 12, "the latest destination BGM is admitted on the original schedule")
+  Assert.isNil(starts[11], "the superseded destination BGM remains unstarted")
+  Assert.equal(starts[12], 1, "the latest destination BGM starts exactly once")
+  controller:updateSoundFrame()
+  Assert.equal(assert(inspectableSound._faders[7].ramp).target, 32, "the latest destination soundplate target wins")
+end
+
+function T.canceled_zone_music_drops_deferred_soundplate_policy()
+  local controller, sound, _, _, _, _, fdB = seamlessSoundplateScenario()
+  controller:enterZone(runtimeMap(fdB))
+  Assert.isTrue(controller._pendingFieldMusicPolicy ~= nil, "a changed-BGM entry owns deferred plate policy")
+
+  sound:stopMusic()
+  controller:updateSoundFrame()
+
+  Assert.isNil(controller._pendingFieldMusicPolicy, "canceled music must discard deferred plate policy")
+end
+
+function T.fade_in_cancels_deferred_zone_music_policy()
+  local controller, _, _, _, _, _, fdB = seamlessSoundplateScenario()
+  controller:enterZone(runtimeMap(fdB))
+  Assert.isTrue(controller._pendingFieldMusicPolicy ~= nil, "a changed-BGM entry owns deferred plate policy")
+
+  controller:fadeMusicIn({ durationTicks = 3 })
+
+  Assert.isNil(controller._pendingFieldMusicPolicy, "a canceled queue must discard deferred plate policy")
 end
 
 function T.different_map_music_entry_starts_the_destination_once()
