@@ -218,8 +218,8 @@ local function renderAnimations(char, colors, cells, animation, animationIndex, 
   -- The source template selector is validated and recorded as provenance
   -- (the pinned .pal fact) but does not drive rasterization: it names a
   -- sprite-system-wide slot, not a bank inside this resource's own decoded
-  -- palette (GD-03). Real per-object color selection comes from the OAM
-  -- cell data resolved per object in renderCell.
+  -- palette. Real per-object color selection comes from the OAM cell data
+  -- resolved per object in renderCell.
   local validationOk, validationResult, resolvedSlot =
     pcall(IntroObjPaletteResolver.resolve, colors, char.depth, paletteOverride)
   if not validationOk then
