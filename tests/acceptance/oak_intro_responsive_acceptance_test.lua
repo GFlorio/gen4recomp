@@ -453,8 +453,8 @@ function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
     state:tick(26)
     local endpoint = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
     Assert.isTrue(
-      endpoint.x > centered.x,
-      "the completed first slide must be visibly shifted to host-space right at " .. size[1] .. "x" .. size[2]
+      endpoint.x < centered.x,
+      "the completed first slide must be visibly shifted to host-space left at " .. size[1] .. "x" .. size[2]
     )
     state:press("confirm")
     advanceUntilPhase(state, "oak_live_alongside")
@@ -469,7 +469,7 @@ function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
     Assert.near(reverseStart.x, held.x)
     state:tick(1)
     local moved = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
-    Assert.isTrue(moved.x < reverseStart.x, "reverse slide moves monotonically back toward the base position")
+    Assert.isTrue(moved.x > reverseStart.x, "reverse slide moves monotonically back toward the base position")
   end
 end
 
@@ -615,7 +615,10 @@ function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangle
   Assert.equal(layout.nameKeys[1].label, "A")
 end
 
-T.tests.oak_motion_uses_normalized_progress_and_rendered_scale = function()
+-- Oak's in-progress slide displacement is the source-space offset times the
+-- uniform source-canvas scale, with no host-space cap (stage percentage,
+-- right-room clipping, etc.) shortening it.
+T.tests.oak_motion_uses_source_offset_times_uniform_canvas_scale = function()
   local state = controller()
   state:start()
   state:tick(40)
@@ -628,14 +631,9 @@ T.tests.oak_motion_uses_normalized_progress_and_rendered_scale = function()
   state:tick(13)
   local during = state:view()
   local duringLayout = OakIntroLayout.compute(390, 844, during, { "A", "B" }, manifest())
-  local rightRoom =
-    math.max(0, duringLayout.stage.x + duringLayout.stage.width - (beforeLayout.subject.x + beforeLayout.subject.width))
-  local expected = math.min(52 * duringLayout.subject.scale, duringLayout.stageContent.width * 0.24, rightRoom)
-    * (during.oakSlideOffset / -52)
+  local expected = during.oakSlideOffset * duringLayout.subject.scale
   local beforeCenter = beforeLayout.subject.x + beforeLayout.subject.width / 2
   local duringCenter = duringLayout.subject.x + duringLayout.subject.width / 2
-  -- The world-inhabited slide moves host X right (increasing), so the
-  -- in-progress center must be greater than the pre-slide center.
   Assert.near(duringCenter - beforeCenter, expected)
 end
 

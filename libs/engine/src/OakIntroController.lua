@@ -408,7 +408,10 @@ function OakIntroController:_stepFrame()
       self:_startCry()
       startedCry = true
     end
-  elseif self._phase == "marill_cry_wait" and not startedCry then
+  elseif self._revealWidget ~= nil and not startedCry then
+    -- Marill (or another reveal widget) keeps looping its idle animation for
+    -- every remaining source phase in which it is still the visible reveal,
+    -- including dialogue waits such as oak_live_alongside.
     self:_advanceReveal(true)
   end
   if self._phase == "opening_wait" then
@@ -677,6 +680,7 @@ function OakIntroController:press(action)
       end
       if #appendGlyphs(self._name) >= 1 then
         self._phase = "name_confirm"
+        self:_setVisual("oak")
         self:_setMessage(self._genderFocus == 0 and "profile.name_confirm.male" or "profile.name_confirm.female")
       end
     end
@@ -690,6 +694,7 @@ function OakIntroController:press(action)
     self._phase = "final_fade_out"
     self._timer = FINAL_FADE_FRAMES
     self._finalFadeAlpha = 0
+    self:_setVisual("background")
     self._message = nil
     self._messageKey = nil
     self:_event("final_handoff_started", "player")

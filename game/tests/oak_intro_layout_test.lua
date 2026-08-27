@@ -76,16 +76,16 @@ function T.tests.source_points_and_slide_direction_survive_responsive_hosts()
     local centered = OakIntroLayout.compute(size[1], size[2], ordinaryView(0), {}, data)
     local shifted = OakIntroLayout.compute(size[1], size[2], ordinaryView(-52), {}, data)
     local scene = assert(centered.scene)
-    local oakPoint = point(centered.subject, data.widgets.oak.anchor)
-    Assert.near(oakPoint.x, scene.x + 40 / 256 * scene.width)
-    Assert.near(oakPoint.y, scene.y + 130 / 192 * scene.height)
-    local revealPoint = point(centered.reveal, data.widgets.ball_open.anchor)
     local canvasScale = math.min(scene.width / 256, scene.height / 192)
     local canvasOriginX = scene.x + (scene.width - 256 * canvasScale) / 2
     local canvasOriginY = scene.y + (scene.height - 192 * canvasScale) / 2
+    local oakPoint = point(centered.subject, data.widgets.oak.anchor)
+    Assert.near(oakPoint.x, canvasOriginX + 40 * canvasScale, 1e-6)
+    Assert.near(oakPoint.y, canvasOriginY + 130 * canvasScale, 1e-6)
+    local revealPoint = point(centered.reveal, data.widgets.ball_open.anchor)
     Assert.near(revealPoint.x, canvasOriginX + 160 * canvasScale, 1e-6)
     Assert.near(revealPoint.y, canvasOriginY + 80 * canvasScale, 1e-6)
-    local expectedDisplacement = 52 / data.sourceReference.width * scene.width
+    local expectedDisplacement = -52 * canvasScale
     Assert.near(point(shifted.subject, data.widgets.oak.anchor).x - oakPoint.x, expectedDisplacement, 1e-6)
     Assert.equal(centered.subject.scale, shifted.subject.scale)
     local shiftedRevealPoint = point(shifted.reveal, data.widgets.ball_open.anchor)
@@ -105,17 +105,17 @@ function T.tests.slide_progress_is_monotonic_right_then_monotonic_left()
     for _, offset in ipairs({ -10, -20, -30, -40, -52 }) do
       local layout = OakIntroLayout.compute(size[1], size[2], ordinaryView(offset), {}, data)
       local x = point(layout.subject, data.widgets.oak.anchor).x
-      Assert.isTrue(x >= previousX, "slide progress toward -52 must not move host X left")
+      Assert.isTrue(x <= previousX, "slide progress toward -52 must not move host X right")
       previousX = x
     end
     local fullyShiftedX = previousX
-    Assert.isTrue(fullyShiftedX > baseX, "the fully slid subject must be to the right of the base position")
+    Assert.isTrue(fullyShiftedX < baseX, "the fully slid subject must be to the left of the base position")
 
     previousX = fullyShiftedX
     for _, offset in ipairs({ -40, -30, -20, -10, 0 }) do
       local layout = OakIntroLayout.compute(size[1], size[2], ordinaryView(offset), {}, data)
       local x = point(layout.subject, data.widgets.oak.anchor).x
-      Assert.isTrue(x <= previousX, "the return slide must not move host X right")
+      Assert.isTrue(x >= previousX, "the return slide must not move host X left")
       previousX = x
     end
     Assert.near(previousX, baseX, 1e-6)
@@ -138,9 +138,9 @@ function T.tests.tall_host_keeps_source_order_and_all_layout_rectangles_inside_v
   local oakPoint = point(layout.subject, data.widgets.oak.anchor)
   local revealPoint = point(layout.reveal, data.widgets.ball_open.anchor)
   Assert.isTrue(oakPoint.x < revealPoint.x)
-  Assert.near(oakPoint.x / layout.scene.width, 40 / 256, 1e-9)
   local canvasScale = math.min(layout.scene.width / 256, layout.scene.height / 192)
   local canvasOriginX = layout.scene.x + (layout.scene.width - 256 * canvasScale) / 2
+  Assert.near((oakPoint.x - canvasOriginX) / canvasScale, 40, 1e-9)
   Assert.near((revealPoint.x - canvasOriginX) / canvasScale, 160, 1e-9)
 end
 
@@ -171,12 +171,36 @@ function T.tests.gender_selection_is_a_single_source_aligned_composition()
   end
 end
 
+-- Full left slide must inverse-transform to exactly the pinned -52 source
+-- pixels under the uniform source-canvas scale, on every viewport shape --
+-- not merely ones where the safe frame happens to be 4:3.
+function T.tests.full_slide_inverse_transforms_to_exactly_fifty_two_source_pixels_on_every_viewport()
+  local data = manifest()
+  for _, size in ipairs({ { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }) do
+    local w, h = size[1], size[2]
+    local atZero = OakIntroLayout.compute(w, h, ordinaryView(0), {}, data)
+    local atFull = OakIntroLayout.compute(w, h, ordinaryView(-52), {}, data)
+    local xZero = point(atZero.subject, data.widgets.oak.anchor).x
+    local xFull = point(atFull.subject, data.widgets.oak.anchor).x
+    local canvasScale = math.min(atZero.scene.width / 256, atZero.scene.height / 192)
+    Assert.near(
+      (xFull - xZero) / canvasScale,
+      -52,
+      1e-6,
+      "inverse-transformed slide must equal -52 source pixels at " .. w .. "x" .. h
+    )
+    Assert.equal(atZero.subject.y, atFull.subject.y, "slide must not move Oak vertically")
+    Assert.equal(atZero.subject.scale, atFull.subject.scale, "slide must not rescale Oak")
+  end
+end
+
 function T.tests.slide_displacement_uses_manifest_reference_width_not_hardcoded_256()
   local data = manifestWithWidth(512)
   local scene = OakIntroLayout.compute(1024, 768, ordinaryView(0), {}, data).scene
   local centered = OakIntroLayout.compute(1024, 768, ordinaryView(0), {}, data)
   local shifted = OakIntroLayout.compute(1024, 768, ordinaryView(-52), {}, data)
-  local expected = 52 / 512 * scene.width
+  local canvasScale = math.min(scene.width / 512, scene.height / 192)
+  local expected = -52 * canvasScale
   Assert.near(
     point(shifted.subject, data.widgets.oak.anchor).x - point(centered.subject, data.widgets.oak.anchor).x,
     expected,

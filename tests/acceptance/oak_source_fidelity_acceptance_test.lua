@@ -91,7 +91,7 @@ local function fakeAudio()
   }
 end
 
-local function makeController(manifest)
+local function makeController(manifest, audio)
   local assets = manifest and manifest.widgets
     or {
       oak = { frames = { { duration = 1 } } },
@@ -108,7 +108,7 @@ local function makeController(manifest)
         return { hour = 12, minute = 0 }
       end,
     },
-    audio = fakeAudio(),
+    audio = audio or fakeAudio(),
     messages = MESSAGES,
     assets = assets,
     playerDataContext = { charmap = { A = 1, B = 2, G = 3, O = 4, L = 5, D = 6 }, frameIndexes = { [0] = true } },
@@ -499,6 +499,254 @@ function T.tests.shrink_sequence_uses_composed_frames_and_source_delay()
   local last = trace[#trace]
   Assert.equal(last.phase, "complete", "shrink must complete via sentinel without fabricated extra replacement")
   Assert.equal(ctrl:view().phase, "complete", "controller must be complete after shrink")
+end
+
+-- Entering gender selection must not relocate Oak: his host position just
+-- before the phase boundary and on the first gender_select tick must differ
+-- only by the usual per-tick slide step transformed through the same
+-- source canvas, not by a jump to a separately computed selector region.
+function T.tests.entering_gender_selection_does_not_relocate_oak()
+  local manifest = loadManifest("heartgold")
+  local ctrl = driveToBallOpen(manifest)
+  advanceUntilPhase(ctrl, "oak_live_alongside")
+  ctrl:press("confirm")
+  advanceUntilPhase(ctrl, "oak_tell_about_yourself")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  Assert.equal(ctrl:view().phase, "gender_select", "must reach gender_select")
+
+  local w, h = 800, 600
+  local beforeView = ctrl:view()
+  beforeView.phase = "oak_tell_about_yourself" -- last ordinary-path phase, same slide offset (0)
+  local beforeLayout = OakIntroLayout.compute(w, h, beforeView, {}, manifest)
+  local afterLayout = OakIntroLayout.compute(w, h, ctrl:view(), {}, manifest)
+
+  local beforeCenterX = beforeLayout.subject.x + beforeLayout.subject.width / 2
+  local afterCenterX = afterLayout.subject.x + afterLayout.subject.width / 2
+  Assert.near(
+    beforeCenterX,
+    afterCenterX,
+    0.5,
+    "Oak must not teleport when the selector phase begins with unchanged slide offset"
+  )
+  Assert.near(
+    beforeLayout.subject.scale,
+    afterLayout.subject.scale,
+    1e-6,
+    "Oak scale must remain the canvas scale across the selector phase boundary"
+  )
+end
+
+-- Once fully slid, Oak sits exactly 52 source pixels left of his base
+-- position under the same canvas used for the ordinary (non-selector) phase.
+function T.tests.full_slide_position_matches_base_position_by_exactly_fifty_two_source_pixels()
+  local manifest = loadManifest("heartgold")
+  local w, h = 800, 600
+  local baseView = { phase = "oak_welcome", visual = "oak", primaryWidget = "oak", oakSlideOffset = 0 }
+  local baseLayout = OakIntroLayout.compute(w, h, baseView, {}, manifest)
+  local selectorView =
+    { phase = "gender_select", visual = "oak", primaryWidget = "oak", genderFocus = 0, oakSlideOffset = -52 }
+  local selectorLayout = OakIntroLayout.compute(w, h, selectorView, {}, manifest)
+  local baseX = baseLayout.subject.x + baseLayout.subject.width / 2
+  local selectorX = selectorLayout.subject.x + selectorLayout.subject.width / 2
+  local canvasScale = math.min(baseLayout.scene.width / REFERENCE.width, baseLayout.scene.height / REFERENCE.height)
+  Assert.near(
+    (baseX - selectorX) / canvasScale,
+    52,
+    1e-6,
+    "full slide must place Oak exactly 52 source pixels left of the base (non-selector) canvas position"
+  )
+end
+
+-- Ball/Marill must present at source center (160,80) plus the current
+-- frame's translate, and must remain visually above (not obscured by) the
+-- dialogue box while dialogue is active alongside a visible Marill.
+function T.tests.marill_preserves_source_center_and_stays_above_dialogue_while_visible()
+  local manifest = loadManifest("heartgold")
+  local ctrl = driveToBallOpen(manifest)
+  advanceUntilPhase(ctrl, "oak_live_alongside")
+  local view = ctrl:view()
+  Assert.notNil(view.dialogue, "oak_live_alongside must present dialogue")
+  Assert.equal(view.revealWidget, "marill", "Marill must remain the active reveal while its dialogue plays")
+
+  local w, h = 390, 844
+  local layout = OakIntroLayout.compute(w, h, view, {}, manifest)
+  Assert.notNil(layout.reveal, "layout must place the Marill reveal")
+  Assert.notNil(layout.dialogue, "layout must reserve the dialogue box while its message is active")
+
+  local canvas = layout.revealCanvas
+  Assert.notNil(canvas, "layout must expose the source canvas used to place the reveal")
+  local marillWidget = assert(manifest.widgets.marill)
+  local frame = marillWidget.frames[view.revealFrameIndex]
+  local expectedSourceCenter = {
+    x = marillWidget.sourceCenter.x + (frame.translateX or 0),
+    y = marillWidget.sourceCenter.y + (frame.translateY or 0),
+  }
+  local hostCenter = {
+    x = layout.reveal.x + marillWidget.anchor.x * canvas.scale,
+    y = layout.reveal.y + marillWidget.anchor.y * canvas.scale,
+  }
+  local actualSourceCenter = {
+    x = (hostCenter.x - canvas.origin.x) / canvas.scale,
+    y = (hostCenter.y - canvas.origin.y) / canvas.scale,
+  }
+  Assert.near(
+    actualSourceCenter.x,
+    expectedSourceCenter.x,
+    0.5,
+    "Marill source center x must remain (160,80)+translate"
+  )
+  Assert.near(
+    actualSourceCenter.y,
+    expectedSourceCenter.y,
+    0.5,
+    "Marill source center y must remain (160,80)+translate"
+  )
+
+  Assert.isTrue(
+    layout.reveal.y + layout.reveal.height <= layout.dialogue.outerRect.y + 0.5,
+    "Marill must remain fully above the dialogue box rather than overlapping/appearing beneath it"
+  )
+end
+
+-- Marill's idle animation must keep advancing on every source tick for as
+-- long as it remains the active reveal widget, even while dialogue holds
+-- for player input (oak_live_alongside waits on a confirm press).
+function T.tests.marill_idle_animation_continues_advancing_while_dialogue_is_held()
+  local manifest = loadManifest("heartgold")
+  local widget = assert(manifest.widgets.marill)
+  Assert.isTrue(#widget.frames > 1, "marill idle widget must have multiple frames to prove looping")
+
+  local ctrl = driveToBallOpen(manifest)
+  advanceUntilPhase(ctrl, "oak_live_alongside")
+  local seenFrames = { [ctrl:view().revealFrameIndex] = true }
+  local distinct = 1
+  for _ = 1, 400 do
+    Assert.equal(ctrl:view().phase, "oak_live_alongside", "dialogue wait must not itself advance the phase")
+    Assert.equal(ctrl:view().revealWidget, "marill", "Marill must remain the visible reveal during this wait")
+    ctrl:tick(1)
+    local idx = assert(ctrl:view().revealFrameIndex, "reveal frame index must be set while Marill is visible")
+    if not seenFrames[idx] then
+      seenFrames[idx] = true
+      distinct = distinct + 1
+    end
+  end
+  Assert.isTrue(
+    distinct > 1,
+    "Marill idle frame index must advance across multiple frames while dialogue is held, not freeze on one frame"
+  )
+end
+
+-- The full player-art hold must last exactly 30 source ticks, the shrink
+-- SFX must fire exactly once at shrink start, and the first shrink frame
+-- must already be the active image the moment shrink begins (no extra
+-- fabricated hold frame before frame 1).
+function T.tests.full_art_hold_lasts_thirty_ticks_and_shrink_sfx_fires_once()
+  local manifest = loadManifest("heartgold")
+  local trace = {}
+  local audio = fakeAudio()
+  local originalPlay = audio.play
+  audio.play = function(self, id)
+    trace[#trace + 1] = id
+    return originalPlay(self, id)
+  end
+  local ctrl = makeController(manifest, audio)
+  ctrl:start()
+  ctrl:tick(40)
+  ctrl:press("confirm")
+  ctrl:tick(6)
+  ctrl:tick(30)
+  ctrl:press("confirm")
+  ctrl:tick(26)
+  ctrl:press("confirm")
+  advanceUntilPhase(ctrl, "oak_live_alongside")
+  ctrl:press("confirm")
+  advanceUntilPhase(ctrl, "oak_tell_about_yourself")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  advanceUntilPhase(ctrl, "name_edit")
+  ctrl:inputText("GOLD")
+  ctrl:press("submit")
+  ctrl:press("confirm")
+  Assert.equal(ctrl:view().phase, "final_dialogue")
+  ctrl:press("confirm")
+  advanceUntilPhase(ctrl, "final_full_art_hold")
+
+  local shrinkSfxCountBefore = 0
+  for _, id in ipairs(trace) do
+    if id == "SEQ_SE_GS_HERO_SHUKUSHOU" then
+      shrinkSfxCountBefore = shrinkSfxCountBefore + 1
+    end
+  end
+  Assert.equal(shrinkSfxCountBefore, 0, "shrink SFX must not fire before the hold elapses")
+
+  for tick = 1, 29 do
+    ctrl:tick(1)
+    Assert.equal(
+      ctrl:view().phase,
+      "final_full_art_hold",
+      "full-art hold must last exactly 30 ticks (still holding at tick " .. tick .. ")"
+    )
+  end
+  ctrl:tick(1)
+  local view = ctrl:view()
+  Assert.equal(view.phase, "shrink_animation", "hold must end at exactly the 30th tick")
+  Assert.equal(view.visualFrameIndex, 1, "the first shrink image must already be active on entry")
+
+  local shrinkSfxCount = 0
+  for _, id in ipairs(trace) do
+    if id == "SEQ_SE_GS_HERO_SHUKUSHOU" then
+      shrinkSfxCount = shrinkSfxCount + 1
+    end
+  end
+  Assert.equal(shrinkSfxCount, 1, "shrink SFX must fire exactly once")
+end
+
+-- Oak must be the visible subject on the first tick after leaving the name
+-- editor, and must remain visible through name confirmation and the final
+-- Oak dialogue until the explicit player-art transition.
+function T.tests.oak_is_restored_immediately_after_name_editing_and_stays_through_final_dialogue()
+  local manifest = loadManifest("heartgold")
+  local ctrl = makeController(manifest)
+  ctrl:start()
+  ctrl:tick(40)
+  ctrl:press("confirm")
+  ctrl:tick(6)
+  ctrl:tick(30)
+  ctrl:press("confirm")
+  ctrl:tick(26)
+  ctrl:press("confirm")
+  advanceUntilPhase(ctrl, "oak_live_alongside")
+  ctrl:press("confirm")
+  advanceUntilPhase(ctrl, "oak_tell_about_yourself")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  ctrl:press("confirm")
+  advanceUntilPhase(ctrl, "name_edit")
+  ctrl:inputText("GOLD")
+  ctrl:press("submit")
+
+  local view = ctrl:view()
+  Assert.equal(view.phase, "name_confirm", "must reach name confirmation")
+  Assert.equal(
+    view.primaryWidget or (view.visual ~= "background" and view.visual or nil),
+    "oak",
+    "Oak must be the visible subject on the first post-editor confirmation tick"
+  )
+
+  ctrl:press("confirm")
+  Assert.equal(ctrl:view().phase, "final_dialogue")
+  view = ctrl:view()
+  Assert.equal(
+    view.primaryWidget or (view.visual ~= "background" and view.visual or nil),
+    "oak",
+    "Oak must remain the visible subject through the final Oak dialogue"
+  )
 end
 
 return T

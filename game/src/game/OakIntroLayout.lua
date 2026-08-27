@@ -19,41 +19,6 @@ local function widget(manifest, id)
   return value
 end
 
-local function sourcePoint(reference, point, region)
-  return {
-    x = region.x + point.x / reference.width * region.width,
-    y = region.y + point.y / reference.height * region.height,
-  }
-end
-
-local function imageAtPoint(asset, point, bounds)
-  local left = asset.anchor.x > 0 and (point.x - bounds.x) / asset.anchor.x or math.huge
-  local top = asset.anchor.y > 0 and (point.y - bounds.y) / asset.anchor.y or math.huge
-  local right = asset.anchor.x < asset.width and (bounds.x + bounds.width - point.x) / (asset.width - asset.anchor.x)
-    or math.huge
-  local bottom = asset.anchor.y < asset.height
-      and (bounds.y + bounds.height - point.y) / (asset.height - asset.anchor.y)
-    or math.huge
-  local scale = math.min(left, top, right, bottom, 6)
-  assert(scale > 0 and scale < math.huge, "Oak widget does not fit its source point")
-  return {
-    x = point.x - asset.anchor.x * scale,
-    y = point.y - asset.anchor.y * scale,
-    width = asset.width * scale,
-    height = asset.height * scale,
-    scale = scale,
-  }
-end
-
-local function sourceAligned(asset, reference, sourceRegion)
-  local point = sourcePoint(
-    reference,
-    { x = asset.sourceBounds.x + asset.anchor.x, y = asset.sourceBounds.y + asset.anchor.y },
-    sourceRegion
-  )
-  return imageAtPoint(asset, point, sourceRegion)
-end
-
 local function canvasForRegion(region, reference)
   local scale = math.min(region.width / reference.width, region.height / reference.height)
   local origin = {
@@ -84,6 +49,26 @@ local function canvasBounds(canvas, sourceBounds)
     y = canvas.origin.y + sourceBounds.y * canvas.scale,
     width = sourceBounds.width * canvas.scale,
     height = sourceBounds.height * canvas.scale,
+    scale = canvas.scale,
+  }
+end
+
+-- Maps a widget's own anchor point (plus an optional source-space
+-- displacement) through the shared canvas. A widget's rendered pixel
+-- dimensions equal its sourceBounds dimensions, so scaling by canvas.scale
+-- alone reproduces its source size; this is the single mapper for any
+-- source-positioned, anchor-addressed widget (Oak's slide included).
+local function sourceWidgetRect(widgetValue, canvas, displaceX, displaceY)
+  local anchorSource = {
+    x = widgetValue.sourceBounds.x + widgetValue.anchor.x + (displaceX or 0),
+    y = widgetValue.sourceBounds.y + widgetValue.anchor.y + (displaceY or 0),
+  }
+  local hostAnchor = canvasPoint(canvas, anchorSource)
+  return {
+    x = hostAnchor.x - widgetValue.anchor.x * canvas.scale,
+    y = hostAnchor.y - widgetValue.anchor.y * canvas.scale,
+    width = widgetValue.width * canvas.scale,
+    height = widgetValue.height * canvas.scale,
     scale = canvas.scale,
   }
 end
@@ -205,11 +190,22 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     genderFocus = view.genderFocus,
   }
   local oak = widget(manifest, "oak")
+  local canvas = sourceCanvas(scene, reference)
+  result.sourceCanvas = canvas
+  -- Oak's base source-to-host mapping is the same scene canvas in every
+  -- phase; only the source-space slide displacement changes it, never a
+  -- phase-specific region. This keeps the transition into gender selection
+  -- continuous instead of teleporting Oak to a separately fitted rectangle.
+  result.subject = sourceWidgetRect(oak, canvas, view.oakSlideOffset or 0)
+  if view.revealWidget then
+    local revealWidget = widget(manifest, view.revealWidget)
+    result.revealCanvas = canvas
+    result.reveal = revealRect(revealWidget, reference, canvas, view.revealFrameIndex)
+  end
   local selectorActive = view.phase == "gender_select" or view.phase == "gender_confirm"
   if selectorActive then
     local oakRegion, selectorRegion = selectorRegions(scene, gap)
     result.oakRegion, result.selectorRegion = oakRegion, selectorRegion
-    result.subject = sourceAligned(oak, reference, oakRegion)
     result.selectorPanel = containedPanel(selectorRegion, 4 / 3)
     local gCanvas = genderCanvas(result.selectorPanel, reference)
     result.genderCanvas = gCanvas
@@ -221,38 +217,6 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     end
     result.genderHitRegions = result.genderChoices
     result.cards, result.profileCards = result.genderChoices, result.genderChoices
-  else
-    local oakPoint =
-      sourcePoint(reference, { x = oak.sourceBounds.x + oak.anchor.x, y = oak.sourceBounds.y + oak.anchor.y }, scene)
-    result.subject = imageAtPoint(oak, oakPoint, scene)
-    local maxSlide = 52 / reference.width * scene.width
-    local overflow = (result.subject.x + result.subject.width + maxSlide) - (scene.x + scene.width)
-    if overflow > 1e-6 then
-      local availableRight = scene.x + scene.width - oakPoint.x - maxSlide
-      local maxScaleForRight = availableRight / (oak.width - oak.anchor.x)
-      local availableLeft = oak.anchor.x > 0 and (oakPoint.x - scene.x) / oak.anchor.x or math.huge
-      local availableTop = oak.anchor.y > 0 and (oakPoint.y - scene.y) / oak.anchor.y or math.huge
-      local availableBottom = oak.anchor.y < oak.height
-          and (scene.y + scene.height - oakPoint.y) / (oak.height - oak.anchor.y)
-        or math.huge
-      local newScale = math.min(maxScaleForRight, availableLeft, availableTop, availableBottom, 6)
-      assert(newScale > 0 and newScale < math.huge, "Oak widget does not fit with slide containment")
-      result.subject = {
-        x = oakPoint.x - oak.anchor.x * newScale,
-        y = oakPoint.y - oak.anchor.y * newScale,
-        width = oak.width * newScale,
-        height = oak.height * newScale,
-        scale = newScale,
-      }
-    end
-    local hostDeltaX = -((view.oakSlideOffset or 0) / reference.width) * scene.width
-    result.subject.x = result.subject.x + hostDeltaX
-    if view.revealWidget then
-      local revealWidget = widget(manifest, view.revealWidget)
-      local canvas = sourceCanvas(scene, reference)
-      result.revealCanvas = canvas
-      result.reveal = revealRect(revealWidget, reference, canvas, view.revealFrameIndex)
-    end
   end
   if view.confirmationChoice then
     local panelHeight = math.min(math.max(94, sceneContent.height * 0.32), sceneContent.height)

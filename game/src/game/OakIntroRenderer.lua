@@ -5,6 +5,7 @@
 ---@class OakIntroRenderer
 ---@field graphics table
 ---@field text FieldTextRenderer
+---@field genderSelector table generated C01 neutral surface/pulse/accent/tone semantics
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
 local REQUIRED_ASSETS = {
@@ -42,6 +43,32 @@ local function releaseAll(resources)
   end
 end
 
+-- Gender selector masks/neutral surface are single-frame source-cropped
+-- images, same as any other widget asset, addressed under synthetic
+-- "genderSelector.<gender>.<kind>" ids so the ordinary widget loader/binder
+-- can load and quad them without a second resource-loading path.
+local function genderSelectorAssets(selector)
+  local assets = {}
+  local function single(id, image, width, height)
+    assets[id] = {
+      image = image,
+      width = width,
+      height = height,
+      sampling = "nearest",
+      frames = { { x = 0, y = 0, image = image, width = width, height = height, duration = 1 } },
+    }
+  end
+  single("genderSelector.neutral", selector.neutral.image, selector.neutral.width, selector.neutral.height)
+  for _, gender in ipairs({ "male", "female" }) do
+    local button = selector.buttons[gender]
+    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+      local mask = button[kind]
+      single("genderSelector." .. gender .. "." .. kind, mask.image, mask.width, mask.height)
+    end
+  end
+  return assets
+end
+
 local function loadResources(manifest, graphics, imageLoader)
   local bindings, acquired = {}, {}
   local imagesByPath = {}
@@ -66,6 +93,9 @@ local function loadResources(manifest, graphics, imageLoader)
         },
       },
     }
+    for assetId, asset in pairs(genderSelectorAssets(manifest.genderSelector)) do
+      assets[assetId] = asset
+    end
     for assetId, asset in pairs(assets) do
       bindings[assetId] = {}
       for frameIndex, frame in ipairs(asset.frames) do
@@ -105,6 +135,25 @@ function OakIntroRenderer.new(options)
   for _, assetId in ipairs(REQUIRED_ASSETS) do
     assert(assets[assetId], "Oak renderer requires generated asset " .. assetId)
   end
+  local selector = options.manifest.genderSelector
+  assert(type(selector) == "table", "Oak renderer requires the generated gender selector semantics")
+  assert(
+    type(selector.neutral) == "table" and type(selector.neutral.image) == "string",
+    "Oak renderer requires the gender selector neutral surface"
+  )
+  assert(type(selector.defaultTone) == "table", "Oak renderer requires the gender selector default tone")
+  assert(type(selector.buttons) == "table", "Oak renderer requires gender selector buttons")
+  for _, gender in ipairs({ "male", "female" }) do
+    local button = selector.buttons[gender]
+    assert(type(button) == "table", "Oak renderer is missing the gender selector " .. gender .. " button")
+    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+      local mask = button[kind]
+      assert(
+        type(mask) == "table" and type(mask.image) == "string" and type(mask.bounds) == "table",
+        "Oak renderer is missing the gender selector " .. gender .. " " .. kind
+      )
+    end
+  end
   local graphics = options.graphics or love.graphics
   local text = assert(options.text, "Oak renderer requires the shared FieldTextRenderer")
   assert(type(text.drawText) == "function", "Oak renderer requires FieldTextRenderer.drawText")
@@ -122,6 +171,7 @@ function OakIntroRenderer.new(options)
   end
   return setmetatable({
     assets = renderedAssets,
+    genderSelector = selector,
     graphics = graphics,
     text = text,
     images = images,
@@ -131,7 +181,7 @@ function OakIntroRenderer.new(options)
   }, OakIntroRenderer)
 end
 
-local function drawAsset(self, assetId, frameIndex, region, opacity, brightness)
+local function drawAsset(self, assetId, frameIndex, region, opacity, brightness, tint)
   local asset = self.assets[assetId]
   assert(asset ~= nil, "intro asset is missing: " .. assetId)
   local frame = asset.frames[frameIndex or 1]
@@ -158,7 +208,11 @@ local function drawAsset(self, assetId, frameIndex, region, opacity, brightness)
     self.revealShader:send("brightness", brightness)
     self.graphics.setShader(self.revealShader)
   end
-  self.graphics.setColor(1, 1, 1, opacity or 1)
+  local tr, tg, tb = 1, 1, 1
+  if tint ~= nil then
+    tr, tg, tb = tint[1], tint[2], tint[3]
+  end
+  self.graphics.setColor(tr, tg, tb, opacity or 1)
   self.graphics.draw(binding.image, binding.quad, x, y, 0, scale, scale)
   if brightness and brightness > 0 then
     self.graphics.setShader(nil)
@@ -173,6 +227,65 @@ local function drawBackground(self, region)
   local sy = region.height / frame.height
   self.graphics.setColor(1, 1, 1, 1)
   self.graphics.draw(binding.image, binding.quad, region.x, region.y, 0, sx, sy)
+end
+
+-- OakSpeech_BlinkHighlightedGenderFrame (pinned source) sine-modulates the
+-- selected button's frame tone and reddens its accent, restoring the
+-- unselected frame to the neutral default tone/gray accent. Both channels
+-- are RGB555-domain values (0..31) expanded to renderer color space.
+local SELECTED_ACCENT = { 31, 7, 7 }
+local UNSELECTED_ACCENT = { 27, 28, 28 }
+
+local function expandChannel(value)
+  return math.floor((value * 255 + 15) / 31) / 255
+end
+
+local function canvasRect(canvas, bounds)
+  return {
+    x = canvas.origin.x + bounds.x * canvas.scale,
+    y = canvas.origin.y + bounds.y * canvas.scale,
+    width = bounds.width * canvas.scale,
+    height = bounds.height * canvas.scale,
+    scale = canvas.scale,
+  }
+end
+
+---@param view table
+---@param layout table
+function OakIntroRenderer:_drawGenderFocus(view, layout)
+  local canvas = assert(layout.genderCanvas, "Oak layout must expose the gender selector canvas")
+  local selector = self.genderSelector
+  local delta = view.focusBlinkDelta
+  assert(type(delta) == "number", "gender focus requires a blink delta")
+  local pulseChannel = math.max(0, math.min(31, 16 + delta))
+  local focusedTone = expandChannel(pulseChannel)
+  local defaultTone = selector.defaultTone
+  local defaultToneTint = { defaultTone.r / 255, defaultTone.g / 255, defaultTone.b / 255 }
+  for gender, key in pairs({ [0] = "male", [1] = "female" }) do
+    local isFocused = view.genderFocus == gender
+    local button = assert(selector.buttons[key])
+    local toneTint = isFocused and { focusedTone, focusedTone, focusedTone } or defaultToneTint
+    local accent = isFocused and SELECTED_ACCENT or UNSELECTED_ACCENT
+    local accentTint = { expandChannel(accent[1]), expandChannel(accent[2]), expandChannel(accent[3]) }
+    drawAsset(
+      self,
+      "genderSelector." .. key .. ".pulseMask",
+      1,
+      canvasRect(canvas, button.pulseMask.bounds),
+      1,
+      nil,
+      toneTint
+    )
+    drawAsset(
+      self,
+      "genderSelector." .. key .. ".accentMask",
+      1,
+      canvasRect(canvas, button.accentMask.bounds),
+      1,
+      nil,
+      accentTint
+    )
+  end
 end
 
 ---@param view table
@@ -201,31 +314,10 @@ function OakIntroRenderer:_draw(view)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
-    local delta = view.focusBlinkDelta
-    if delta == nil then
-      delta = view.focusBrightnessDelta or 0
-    end
-    assert(type(delta) == "number", "gender focus requires blink delta")
-    local focused = view.genderFocus
-    local function expandChannel(value)
-      return math.floor((value * 255 + 15) / 31) / 255
-    end
-    local function focusColor(isFocused)
-      if isFocused then
-        local channel = math.max(0, math.min(31, 16 + delta))
-        return expandChannel(channel), expandChannel(channel), expandChannel(channel)
-      else
-        return expandChannel(27), expandChannel(28), expandChannel(28)
-      end
-    end
     drawAsset(self, "gender_background", 1, assert(layout.genderBackground))
-    local mr, mg, mb = focusColor(focused == 0)
-    graphics.setColor(mr, mg, mb, 1)
     drawAsset(self, "gender_male", 1, assert(layout.genderChoices[0]))
-    local fr, fg, fb = focusColor(focused == 1)
-    graphics.setColor(fr, fg, fb, 1)
     drawAsset(self, "gender_female", 1, assert(layout.genderChoices[1]))
-    graphics.setColor(1, 1, 1, 1)
+    self:_drawGenderFocus(view, layout)
   end
   if view.confirmationChoice then
     local rows = assert(layout.choiceRows)
