@@ -81,16 +81,44 @@ end
 
 function ScriptPlayerFacade:turn(direction)
   local player = assert(self._player, "player facade has no live player")
-  player.facing = direction
+  assert(player.turn, "player facade requires turn")
+  player:turn(direction)
 end
 
 function ScriptPlayerFacade:setPosition(position)
   local player = assert(self._player, "player facade has no live player")
-  player.fieldX = position.fieldX
-  player.fieldZ = position.fieldZ
-  if position.worldY ~= nil then
-    player.worldY = position.worldY
-  end
+  assert(player.setScriptPosition, "player facade requires setScriptPosition")
+  player:setScriptPosition(position)
+end
+
+function ScriptPlayerFacade:beginScriptedAction(action)
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.beginScriptedAction, "player missing beginScriptedAction")
+  player:beginScriptedAction(action)
+end
+
+function ScriptPlayerFacade:advanceScriptedAction(progressTicks, durationTicks)
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.advanceScriptedAction, "player missing advanceScriptedAction")
+  player:advanceScriptedAction(progressTicks, durationTicks)
+end
+
+function ScriptPlayerFacade:commitScriptedAction()
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.commitScriptedAction, "player missing commitScriptedAction")
+  player:commitScriptedAction()
+end
+
+function ScriptPlayerFacade:cancelScriptedMovement()
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.cancelScriptedMovement, "player missing cancelScriptedMovement")
+  player:cancelScriptedMovement()
+end
+
+function ScriptPlayerFacade:isScriptedMoving()
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.isScriptedMoving, "player missing isScriptedMoving")
+  return player:isScriptedMoving()
 end
 
 ---@class FieldScriptsOptions

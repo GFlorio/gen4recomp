@@ -333,9 +333,9 @@ function FieldActorManager:step(tick)
   self:syncEventStateChanges()
   for _, entry in pairs(self.maps) do
     for _, actor in ipairs(entry.order) do
-      -- Scripted pause_animation freezes the actor's pose animation; the
-      -- pose clock only advances while the actor is not paused.
-      if not actor.animationPaused then
+      if actor:isScriptedMoving() then
+        -- poseTick is driven by scripted advancement; the manager does not double-advance.
+      elseif not actor.animationPaused then
         actor.poseTick = actor.poseTick + 1
       end
     end
@@ -550,6 +550,200 @@ function FieldActorManager:setAnimationPaused(actorId, paused)
     Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
   end
   actor.animationPaused = paused == true
+end
+
+-- --- Scripted motion presentation (manager owns occupancy/terrain) -------
+
+-- Resolve destination for a scripted action without mutating actor or occupancy.
+-- Returns start/dest world anchors.
+function FieldActorManager:_resolveScriptedDestination(actor, direction, distance)
+  local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  local deltaMap = {
+    north = { fieldX = 0, fieldZ = -1 },
+    south = { fieldX = 0, fieldZ = 1 },
+    west = { fieldX = -1, fieldZ = 0 },
+    east = { fieldX = 1, fieldZ = 0 },
+  }
+  local startFieldX, startFieldZ = actor.fieldX, actor.fieldZ
+  local startWorldX, startWorldY, startWorldZ = actor.worldX, actor.worldY, actor.worldZ
+  local destFieldX, destFieldZ = startFieldX, startFieldZ
+  local destWorldX, destWorldY, destWorldZ = startWorldX, startWorldY, startWorldZ
+  local destSurfaceId = actor.surfaceId
+  if direction ~= nil and distance ~= "zero" then
+    local delta = assert(deltaMap[direction], "unknown direction " .. tostring(direction))
+    destFieldX = startFieldX + delta.fieldX
+    destFieldZ = startFieldZ + delta.fieldZ
+    -- Resolve surface at destination center.
+    local localX, localZ = FieldCoordinates.fieldToLocal(entry.runtimeMap, destFieldX, destFieldZ)
+    local sample = SurfaceResolver.new(entry.runtimeMap.terrain):resolve({
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      currentY = actor.worldY,
+      currentSurfaceId = actor.surfaceId,
+    })
+    local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, destFieldX, destFieldZ, sample.worldY)
+    destWorldX, destWorldY, destWorldZ = world.x, world.y, world.z
+    destSurfaceId = sample.surfaceId
+  elseif direction ~= nil and distance == "zero" then
+    -- zero jump stays on same tile; no surface change.
+    destFieldX, destFieldZ = startFieldX, startFieldZ
+    destWorldX, destWorldY, destWorldZ = startWorldX, startWorldY, startWorldZ
+    destSurfaceId = actor.surfaceId
+  end
+  return {
+    start = {
+      fieldX = startFieldX,
+      fieldZ = startFieldZ,
+      worldX = startWorldX,
+      worldY = startWorldY,
+      worldZ = startWorldZ,
+      surfaceId = actor.surfaceId,
+    },
+    dest = {
+      fieldX = destFieldX,
+      fieldZ = destFieldZ,
+      worldX = destWorldX,
+      worldY = destWorldY,
+      worldZ = destWorldZ,
+      surfaceId = destSurfaceId,
+    },
+  }
+end
+
+function FieldActorManager:beginScriptedAction(actorId, action)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  local kind = action.action
+  -- Face is instantaneous; do not start scripted motion while a walk is
+  -- interpolating — just update facing.
+  if kind == "face" then
+    if action.direction ~= nil then
+      actor:setFacing(action.direction)
+    end
+    return
+  end
+  local direction = action.direction
+  local distance = action.distance
+  local speed = action.speed
+  local durationTicks
+  if
+    kind == "walk"
+    or kind == "walk_in_place"
+    or kind == "jump"
+    or kind == "face"
+    or kind == "delay"
+    or kind == "emote"
+    or kind == "gesture"
+  then
+    local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+    durationTicks = MovementCalibration.actionTicks(action)
+  else
+    Errors.raise(
+      ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE,
+      "unsupported scripted action " .. tostring(kind),
+      { actor = actorId }
+    )
+  end
+  local destInfo
+  if kind == "walk" then
+    destInfo = self:_resolveScriptedDestination(actor, direction, "near")
+    -- For walk, treat as one-tile displacement.
+    -- distance param not used; use direction delta.
+  elseif kind == "jump" then
+    destInfo = self:_resolveScriptedDestination(actor, direction, distance)
+  elseif kind == "walk_in_place" or kind == "face" or kind == "delay" or kind == "emote" or kind == "gesture" then
+    destInfo = {
+      start = {
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        worldX = actor.worldX,
+        worldY = actor.worldY,
+        worldZ = actor.worldZ,
+        surfaceId = actor.surfaceId,
+      },
+      dest = {
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        worldX = actor.worldX,
+        worldY = actor.worldY,
+        worldZ = actor.worldZ,
+        surfaceId = actor.surfaceId,
+      },
+    }
+  end
+  actor:beginScriptedAction({
+    action = kind,
+    direction = direction,
+    distance = distance,
+    speed = speed,
+    start = destInfo.start,
+    dest = destInfo.dest,
+    durationTicks = durationTicks,
+  })
+end
+
+function FieldActorManager:advanceScriptedAction(actorId, progressTicks, durationTicks)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  actor:advanceScriptedAction(progressTicks, durationTicks)
+end
+
+function FieldActorManager:commitScriptedAction(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  local m = actor:scriptedMotionState()
+  if not m then
+    return
+  end
+  -- Only walk/jump change occupancy; walk_in_place/face never.
+  if m.action == "walk" or m.action == "jump" then
+    if m.destFieldX ~= m.startFieldX or m.destFieldZ ~= m.startFieldZ or m.destSurfaceId ~= m.startSurfaceId then
+      local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+      if actor.solid then
+        local newKey = occupancyKey(actor.mapId, m.destFieldX, m.destFieldZ, m.destSurfaceId)
+        local oldKey = occupancyKey(actor.mapId, actor.fieldX, actor.fieldZ, actor.surfaceId)
+        if entry.occupancy[oldKey] == actor then
+          entry.occupancy[oldKey] = nil
+        end
+        -- Scripted movement bypasses inter-object collision check: takes over slot.
+        entry.occupancy[newKey] = actor
+      end
+    end
+  end
+  actor:commitScriptedAction()
+end
+
+function FieldActorManager:cancelScriptedMovement(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    return
+  end
+  if actor:isScriptedMoving() then
+    actor:cancelScriptedAction()
+  else
+    -- Also settle any fractional world drift: recompute world from committed tile.
+    local entry = self.maps[actor.mapId]
+    if entry then
+      local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, actor.fieldX, actor.fieldZ, actor.worldY)
+      actor.worldX = world.x
+      actor.worldZ = world.z
+      -- worldY stays as committed surface height; actor.worldY already correct.
+    end
+  end
+end
+
+function FieldActorManager:isScriptedMoving(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    return false
+  end
+  return actor:isScriptedMoving()
 end
 
 -- The numeric local map-object index of one actor (the pinned HGSS object

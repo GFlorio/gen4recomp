@@ -67,7 +67,9 @@ end
 -- original timeline: a standing actor holds the first frame of its facing
 -- range, and a turn starts the new range at its first frame.
 function FieldPlayerVisual:updateFixed(walkingAtTickStart)
-  local walking = not self.player.animationPaused and (walkingAtTickStart == true or self.player.motion == "walking")
+  local isScriptedWalking = self.player.isScriptedMoving and self.player:isScriptedMoving()
+  local walking = not self.player.animationPaused
+    and (walkingAtTickStart == true or self.player.motion == "walking" or isScriptedWalking == true)
 
   local facingChanged = self.lastFacing ~= self.player.facing
   if facingChanged then

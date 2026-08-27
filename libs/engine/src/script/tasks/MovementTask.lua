@@ -86,6 +86,8 @@ local function actionCount(action)
 end
 
 -- Advance one action by one tick. Returns the action's completion flag.
+-- The manager owns occupancy and world interpolation; the task drives it
+-- through begin/advance/commit and keeps the unit destination in sync.
 ---@param state table
 ---@param action table
 ---@param ctx table
@@ -110,7 +112,21 @@ local function advanceAction(state, action, ctx)
     end
     return true
   end
+  local isFace = kind == "face"
+  -- Lock facing controls whether the task's internal facing (and the actor
+  -- facing applied at action end) follows the command; it does not gate the
+  -- test-observable fake facing because the production beginScriptedAction
+  -- path covers direction updates for non-locked walks. Move the early
+  -- presentation begin before the facing gate so locked faces never touch the
+  -- actor.
+  local shouldBegin = not isFace or not state.facingLocked
+  if state.progressTicks == 0 and shouldBegin then
+    ctx.services.actors:beginScriptedAction(state.actor, action)
+  end
   state.progressTicks = state.progressTicks + 1
+  if shouldBegin then
+    ctx.services.actors:advanceScriptedAction(state.actor, state.progressTicks, state.durationTicks)
+  end
   if state.progressTicks < state.durationTicks then
     return false
   end
@@ -118,6 +134,9 @@ local function advanceAction(state, action, ctx)
   if not state.facingLocked then
     if kind == "face" or kind == "walk" or kind == "walk_in_place" or kind == "jump" then
       state.facing = action.direction
+      if not isFace then
+        ctx.services.actors:setFacing(state.actor, state.facing)
+      end
     end
   end
   if kind == "walk" or kind == "walk_in_place" then
@@ -136,6 +155,9 @@ local function advanceAction(state, action, ctx)
     -- pose-only; the renderer consumes the recorded action.
   elseif kind == "delay" then
     -- countdown only
+  end
+  if shouldBegin then
+    ctx.services.actors:commitScriptedAction(state.actor)
   end
   return true
 end
@@ -179,27 +201,12 @@ function MovementTask._advancePlan(state, ctx)
   return false
 end
 
--- Apply the actor's current position and facing through the actor world.
----@param state table
----@param ctx table
-local function applyPosition(state, ctx)
-  ctx.services.actors:setPosition(state.actor, {
-    fieldX = state.destination.fieldX,
-    fieldZ = state.destination.fieldZ,
-    worldY = nil,
-  })
-  if state.facing ~= nil and not state.facingLocked then
-    ctx.services.actors:setFacing(state.actor, state.facing)
-  end
-end
-
 ---@param state table
 ---@param ctx table
 ---@return table
 function MovementTask.poll(state, ctx)
   if not state.completed then
     local done = MovementTask._advancePlan(state, ctx)
-    applyPosition(state, ctx)
     if done then
       if state.blocking then
         -- The blocking record completes through the scheduler's poll-result
@@ -212,6 +219,19 @@ function MovementTask.poll(state, ctx)
     end
   end
   return { complete = false, state = state }
+end
+
+function MovementTask.cancel(state, reason, ctx)
+  if state == nil or ctx == nil or ctx.services == nil or ctx.services.actors == nil then
+    return
+  end
+  local actors = ctx.services.actors
+  local ok, err = pcall(function()
+    actors:cancelScriptedMovement(state.actor)
+  end)
+  if not ok and Errors.is(err) then
+    error(err, 0)
+  end
 end
 
 ---@param state table

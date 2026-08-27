@@ -601,6 +601,10 @@ function FieldSession:updateFixed(inputSnapshot)
   end
 
   if inputSuppressedThisTick then
+    if self.player.motion == "idle" and type(self.player.collapseRenderInterpolation) == "function" then
+      self.player:collapseRenderInterpolation()
+    end
+    collapseCameraInterpolation(self.camera)
     if self.playerVisual then
       local walkingAtTickStart = self.player.motion == "walking"
       self.playerVisual:updateFixed(walkingAtTickStart)

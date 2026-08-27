@@ -217,6 +217,55 @@ function ScriptActorWorld:getFacing(actorId)
   return facing
 end
 
+function ScriptActorWorld:beginScriptedAction(actorId, action)
+  if actorId == "player" then
+    assert(self._player.beginScriptedAction, "player facade missing beginScriptedAction")
+    self._player:beginScriptedAction(action)
+    return
+  end
+  assert(self._manager.beginScriptedAction, "actor manager missing beginScriptedAction")
+  self._manager:beginScriptedAction(actorId, action)
+end
+
+function ScriptActorWorld:advanceScriptedAction(actorId, progressTicks, durationTicks)
+  if actorId == "player" then
+    assert(self._player.advanceScriptedAction, "player facade missing advanceScriptedAction")
+    self._player:advanceScriptedAction(progressTicks, durationTicks)
+    return
+  end
+  assert(self._manager.advanceScriptedAction, "actor manager missing advanceScriptedAction")
+  self._manager:advanceScriptedAction(actorId, progressTicks, durationTicks)
+end
+
+function ScriptActorWorld:commitScriptedAction(actorId)
+  if actorId == "player" then
+    assert(self._player.commitScriptedAction, "player facade missing commitScriptedAction")
+    self._player:commitScriptedAction()
+    return
+  end
+  assert(self._manager.commitScriptedAction, "actor manager missing commitScriptedAction")
+  self._manager:commitScriptedAction(actorId)
+end
+
+function ScriptActorWorld:cancelScriptedMovement(actorId)
+  if actorId == "player" then
+    assert(self._player.cancelScriptedMovement, "player facade missing cancelScriptedMovement")
+    self._player:cancelScriptedMovement()
+    return
+  end
+  assert(self._manager.cancelScriptedMovement, "actor manager missing cancelScriptedMovement")
+  self._manager:cancelScriptedMovement(actorId)
+end
+
+function ScriptActorWorld:isScriptedMoving(actorId)
+  if actorId == "player" then
+    assert(self._player.isScriptedMoving, "player facade missing isScriptedMoving")
+    return self._player:isScriptedMoving()
+  end
+  assert(self._manager.isScriptedMoving, "actor manager missing isScriptedMoving")
+  return self._manager:isScriptedMoving(actorId)
+end
+
 function ScriptActorWorld:syncPresence()
   if self._manager.syncEventStateChanges then
     self._manager:syncEventStateChanges()

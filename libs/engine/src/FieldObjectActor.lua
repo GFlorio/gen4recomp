@@ -128,6 +128,141 @@ function FieldObjectActor:clearFacingOverride()
   self.interactionFacingOverride = nil
 end
 
+-- --- Scripted motion presentation --------------------------------
+
+-- Transient scripted motion state: committed anchor + in-progress presentation.
+-- Occupancy stays on committed field until commit. Draw uses presentation
+-- world while motion is active.
+
+function FieldObjectActor:beginScriptedAction(descriptor)
+  -- descriptor: { action, direction, distance, speed, start, dest, durationTicks }
+  local start = descriptor.start
+  local dest = descriptor.dest
+  self._scriptedMotion = {
+    action = descriptor.action,
+    direction = descriptor.direction,
+    distance = descriptor.distance,
+    speed = descriptor.speed,
+    durationTicks = descriptor.durationTicks,
+    progressTicks = 0,
+    startFieldX = start.fieldX,
+    startFieldZ = start.fieldZ,
+    startWorldX = start.worldX,
+    startWorldY = start.worldY,
+    startWorldZ = start.worldZ,
+    startSurfaceId = start.surfaceId,
+    destFieldX = dest.fieldX,
+    destFieldZ = dest.fieldZ,
+    destWorldX = dest.worldX,
+    destWorldY = dest.worldY,
+    destWorldZ = dest.worldZ,
+    destSurfaceId = dest.surfaceId,
+    startPose = self.pose,
+    startPoseTick = self.poseTick,
+  }
+  -- Enter walking pose for walk/jump; walk_in_place also walks.
+  if descriptor.action == "walk" or descriptor.action == "walk_in_place" or descriptor.action == "jump" then
+    if not self.animationPaused then
+      self.pose = "walk"
+    end
+  end
+end
+
+function FieldObjectActor:advanceScriptedAction(progressTicks, durationTicks)
+  local m = self._scriptedMotion
+  if not m then
+    return
+  end
+  m.progressTicks = progressTicks
+  m.durationTicks = durationTicks
+  local t = durationTicks > 0 and (progressTicks / durationTicks) or 1
+  if m.action == "walk" or m.action == "jump" then
+    self.worldX = m.startWorldX + (m.destWorldX - m.startWorldX) * t
+    self.worldZ = m.startWorldZ + (m.destWorldZ - m.startWorldZ) * t
+    if m.action == "jump" then
+      local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+      local h = MovementCalibration.JUMP_HEIGHTS[m.distance] or 0
+      -- Parabolic arc: 4*h*t*(1-t)
+      local arc = 4 * h * t * (1 - t)
+      local baseY = m.startWorldY + (m.destWorldY - m.startWorldY) * t
+      self.worldY = baseY + arc
+    else
+      self.worldY = m.startWorldY + (m.destWorldY - m.startWorldY) * t
+    end
+  elseif m.action == "walk_in_place" then
+    -- No translation; keep at start anchor.
+    self.worldX = m.startWorldX
+    self.worldZ = m.startWorldZ
+    self.worldY = m.startWorldY
+  elseif m.action == "face" or m.action == "delay" or m.action == "emote" or m.action == "gesture" then
+    -- No translation.
+    self.worldX = m.startWorldX
+    self.worldZ = m.startWorldZ
+    self.worldY = m.startWorldY
+  end
+  -- Advance pose clock once per eligible tick while walking/jumping/walk_in_place.
+  if not self.animationPaused then
+    if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" then
+      self.pose = "walk"
+      self.poseTick = m.startPoseTick + progressTicks
+    end
+  end
+  if progressTicks == durationTicks then
+    if m.action == "walk" or m.action == "jump" then
+      self.worldX = m.destWorldX
+      self.worldY = m.destWorldY
+      self.worldZ = m.destWorldZ
+    end
+  end
+end
+
+function FieldObjectActor:commitScriptedAction()
+  local m = self._scriptedMotion
+  if not m then
+    return nil
+  end
+  local result = {
+    fieldX = m.destFieldX,
+    fieldZ = m.destFieldZ,
+    surfaceId = m.destSurfaceId,
+    worldX = m.destWorldX,
+    worldY = m.destWorldY,
+    worldZ = m.destWorldZ,
+  }
+  self.fieldX = m.destFieldX
+  self.fieldZ = m.destFieldZ
+  self.surfaceId = m.destSurfaceId
+  self.worldX = m.destWorldX
+  self.worldY = m.destWorldY
+  self.worldZ = m.destWorldZ
+  self._scriptedMotion = nil
+  return result
+end
+
+function FieldObjectActor:cancelScriptedAction()
+  local m = self._scriptedMotion
+  if not m then
+    return
+  end
+  -- Snap back to last committed logical anchor's world position.
+  self.worldX = m.startWorldX
+  self.worldY = m.startWorldY
+  self.worldZ = m.startWorldZ
+  if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" then
+    self.pose = m.startPose
+    self.poseTick = m.startPoseTick
+  end
+  self._scriptedMotion = nil
+end
+
+function FieldObjectActor:isScriptedMoving()
+  return self._scriptedMotion ~= nil
+end
+
+function FieldObjectActor:scriptedMotionState()
+  return self._scriptedMotion
+end
+
 -- --- Scripted mutation  ------------------------------------
 
 -- Direct facing set for scripted operations (`face_player`, `face`, movement
