@@ -124,7 +124,7 @@ local function selectorResourceTables()
   }
 end
 
-local function syntheticCompilerSource()
+local function syntheticCompilerSource(animationFrames)
   local decoder = require("romdump.src.digest.G2dDecoder")
   local original = {}
   for _, name in ipairs({ "decodeChar", "decodePalette", "decodeScreen", "decodeCell", "decodeAnimation" }) do
@@ -173,7 +173,9 @@ local function syntheticCompilerSource()
     }
   end)
   rawset(decoder, "decodeAnimation", function()
-    local selected = { frames = { { cell = 0, duration = 2 }, { cell = 1, duration = 3 } } }
+    local selected = {
+      frames = animationFrames or { { cell = 0, duration = 2 }, { cell = 1, duration = 3 } },
+    }
     return { anims = { selected, selected, selected, selected } }
   end)
 
@@ -265,6 +267,31 @@ function T.cell_animation_frames_preserve_one_source_origin()
   Assert.equal(widget.frames[2].height, widget.height)
   Assert.equal(widget.frames[1].duration, 2)
   Assert.equal(widget.frames[2].duration, 3)
+end
+
+function T.transformed_animation_frames_share_one_generated_anchor()
+  local Compiler = compiler()
+  local source, restore = syntheticCompilerSource({
+    { cell = 0, duration = 2, translateX = 0, translateY = 0 },
+    { cell = 0, duration = 3, translateX = 8, translateY = 4 },
+  })
+  local ok, result = xpcall(function()
+    return Compiler.compile(source)
+  end, debug.traceback)
+  restore()
+  if not ok then
+    error(result, 0)
+  end
+
+  local widget = result.manifest.widgets.ball_open
+  Assert.deepEqual(widget.anchor, { x = 8, y = 8 })
+  Assert.equal(widget.frames[1].width, widget.frames[2].width)
+  Assert.equal(widget.frames[1].height, widget.frames[2].height)
+  Assert.equal(widget.frames[1].translateX, 0)
+  Assert.equal(widget.frames[2].translateX, 8)
+  Assert.equal(widget.frames[1].translateY, 0)
+  Assert.equal(widget.frames[2].translateY, 4)
+  Assert.isTrue(result.assets[widget.frames[1].image] ~= result.assets[widget.frames[2].image])
 end
 
 function T.shrink_source_configuration_starts_after_the_displayed_full_portrait()

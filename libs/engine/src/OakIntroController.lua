@@ -29,7 +29,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field visualFrameIndex integer
 ---@field primaryWidget string|nil
 ---@field revealWidget string|nil
----@field oakSlideOffset number source-relative horizontal offset, 0 centered and -52 shifted
+---@field oakBgScrollX number source BG scroll X, 0 centered and -52 shifted
 ---@field messageKey string|nil
 ---@field confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field dialogue { message: string|table|nil, messageKey: string? }?
@@ -81,7 +81,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _revealWidget string|nil
 ---@field private _genderFocus integer
 ---@field private _name string
----@field private _oakSlideOffset number source-relative horizontal offset, 0 centered and -52 shifted
+---@field private _oakBgScrollX number source BG scroll X, 0 centered and -52 shifted
 ---@field private _result table|nil
 ---@field private _events OakIntroEvent[]
 ---@field tick fun(self: OakIntroController, frames: integer)
@@ -108,7 +108,7 @@ local MARILL_HIDE_WAIT = 30
 local NAME_LAUNCH_WAIT = 40
 local FINAL_FULL_ART_HOLD = 30
 local FINAL_FADE_FRAMES = 1
-local OAK_SLIDE_OFFSET = -52
+local OAK_BG_SCROLL_END_X = -52
 local DEFAULT_PROFILE_NAMES = { [0] = "Ethan", [1] = "Lyra" }
 local SHRINK_DELAY = 8
 
@@ -229,7 +229,7 @@ function OakIntroController.new(options)
     _focusBlinkDelta = 0,
     _shrinkDelay = 0,
     _name = "",
-    _oakSlideOffset = 0,
+    _oakBgScrollX = 0,
     _result = nil,
     _events = {},
   }, OakIntroController)
@@ -442,17 +442,17 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     local progress = (OAK_SLIDE_FRAMES - self._timer) / OAK_SLIDE_FRAMES
     if self._phase == "oak_slide_right" then
-      self._oakSlideOffset = OAK_SLIDE_OFFSET * progress
+      self._oakBgScrollX = OAK_BG_SCROLL_END_X * progress
     else
-      self._oakSlideOffset = OAK_SLIDE_OFFSET * (1 - progress)
+      self._oakBgScrollX = OAK_BG_SCROLL_END_X * (1 - progress)
     end
     if self._timer == 0 then
       if self._phase == "oak_slide_right" then
-        self._oakSlideOffset = OAK_SLIDE_OFFSET
+        self._oakBgScrollX = OAK_BG_SCROLL_END_X
         self._phase = "oak_world_inhabited"
         self:_setMessage("oak.world_inhabited")
       else
-        self._oakSlideOffset = 0
+        self._oakBgScrollX = 0
         self._phase = "oak_tell_about_yourself"
         self:_setMessage("oak.tell_about_yourself")
       end
@@ -775,7 +775,7 @@ function OakIntroController:view()
     primaryWidget = primaryWidget,
     revealWidget = self._revealWidget,
     revealFrameIndex = self._revealFrameIndex,
-    oakSlideOffset = self._oakSlideOffset,
+    oakBgScrollX = self._oakBgScrollX,
     finalFadeAlpha = self._finalFadeAlpha,
   }
 end

@@ -73,16 +73,9 @@ local function sourceWidgetRect(widgetValue, canvas, displaceX, displaceY)
   }
 end
 
-local function revealRect(revealWidget, _reference, canvas, frameIndex)
+local function revealRect(revealWidget, canvas)
   assert(revealWidget.sourceCenter, "Oak reveal source center is missing")
-  local frame = frameIndex and revealWidget.frames and revealWidget.frames[frameIndex] or nil
-  local tx = frame and frame.translateX or 0
-  local ty = frame and frame.translateY or 0
-  local sourcePos = {
-    x = revealWidget.sourceCenter.x + tx,
-    y = revealWidget.sourceCenter.y + ty,
-  }
-  local hostCenter = canvasPoint(canvas, sourcePos)
+  local hostCenter = canvasPoint(canvas, revealWidget.sourceCenter)
   return {
     x = hostCenter.x - revealWidget.anchor.x * canvas.scale,
     y = hostCenter.y - revealWidget.anchor.y * canvas.scale,
@@ -196,11 +189,12 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   -- phase; only the source-space slide displacement changes it, never a
   -- phase-specific region. This keeps the transition into gender selection
   -- continuous instead of teleporting Oak to a separately fitted rectangle.
-  result.subject = sourceWidgetRect(oak, canvas, view.oakSlideOffset or 0)
+  local oakVisibleSourceX = -(view.oakBgScrollX or 0)
+  result.subject = sourceWidgetRect(oak, canvas, oakVisibleSourceX)
   if view.revealWidget then
     local revealWidget = widget(manifest, view.revealWidget)
     result.revealCanvas = canvas
-    result.reveal = revealRect(revealWidget, reference, canvas, view.revealFrameIndex)
+    result.reveal = revealRect(revealWidget, canvas)
   end
   local selectorActive = view.phase == "gender_select" or view.phase == "gender_confirm"
   if selectorActive then

@@ -441,7 +441,7 @@ function T.tests.production_oak_keeps_marill_visible_through_dialogue_and_hide()
       Assert.equal(view.revealWidget, "marill")
       Assert.equal(view.phase, "marill_hide")
       Assert.equal(view.revealOpacity, 15 / 16, "dialogue completion must start, not skip, the hide")
-      Assert.equal(view.oakSlideOffset, -52)
+      Assert.equal(view.oakBgScrollX, -52)
 
       local expectedOpacity = {
         14 / 16,
@@ -470,12 +470,12 @@ function T.tests.production_oak_keeps_marill_visible_through_dialogue_and_hide()
       end
       Assert.isNil(view.revealWidget)
       Assert.equal(view.phase, "marill_hide_wait")
-      Assert.equal(view.oakSlideOffset, -52)
+      Assert.equal(view.oakBgScrollX, -52)
 
       state:tick(30)
       view = state:view()
       Assert.equal(view.phase, "oak_slide_left")
-      Assert.equal(view.oakSlideOffset, -52)
+      Assert.equal(view.oakBgScrollX, -52)
     end)
   end)
 end

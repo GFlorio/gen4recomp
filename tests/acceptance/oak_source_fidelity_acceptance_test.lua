@@ -143,58 +143,61 @@ local function driveToBallOpen(manifest)
   return ctrl
 end
 
--- Verifies the ball and marill reveal is placed through source
--- transformed geometry instead of a fixed centered crop. Every
--- animation frame should contribute a distinct host position when
--- its source translate changes.
-function T.tests.ball_trajectory_uses_per_frame_source_placement()
+-- The producer's transformed pixels move inside one stable generated union
+-- surface; layout addresses that surface by its source center only.
+function T.tests.transformed_reveal_frames_keep_one_source_anchor()
   local manifest = loadManifest("heartgold")
   local widget = assert(manifest.widgets.marill_appear, "marill_appear missing")
   Assert.isTrue(#widget.frames > 1, "marill_appear must have multiple frames for trajectory")
-  local hasTranslate = false
-  for _, f in ipairs(widget.frames) do
-    if f.translateX ~= 0 or f.translateY ~= 0 then
-      hasTranslate = true
+  local firstIndex, secondIndex
+  for index, frame in ipairs(widget.frames) do
+    if frame.translateX ~= 0 or frame.translateY ~= 0 then
+      if firstIndex == nil then
+        firstIndex = index
+      else
+        secondIndex = index
+        break
+      end
     end
   end
-  Assert.isTrue(hasTranslate, "manifest frames must carry source translate for placement")
+  Assert.notNil(firstIndex, "manifest must contain a translated reveal frame")
+  Assert.notNil(secondIndex, "manifest must contain two translated reveal frames")
 
   local ctrl = driveToBallOpen(manifest)
   advanceUntilPhase(ctrl, "marill_appear")
-  -- Record host reveal rectangles for every marill_appear frame
-  local rects = {}
-  for idx = 1, #widget.frames do
+  local cache = CacheFs.forVersion("heartgold")
+  local frameBytes = {}
+  local anchors = {}
+  for _, index in ipairs({ firstIndex, secondIndex }) do
     local view = ctrl:view()
     view.revealWidget = "marill_appear"
-    view.revealFrameIndex = idx
-    -- ensure layout sees revealWidget
+    view.revealFrameIndex = index
+    view.oakBgScrollX = 0
     local layout = OakIntroLayout.compute(800, 600, view, {}, manifest)
     Assert.notNil(layout.reveal, "layout must produce reveal rect")
-    rects[idx] = { x = layout.reveal.x, y = layout.reveal.y, w = layout.reveal.width, h = layout.reveal.height }
-    -- advance controller by frame duration to next frame for realism, but layout test uses explicit index
+    local canvas = assert(layout.revealCanvas)
+    anchors[#anchors + 1] = {
+      x = layout.reveal.x + widget.anchor.x * canvas.scale,
+      y = layout.reveal.y + widget.anchor.y * canvas.scale,
+    }
+    frameBytes[#frameBytes + 1] = assert(cache:read(widget.frames[index].image))
   end
-  -- At least one consecutive pair must be displaced in source space
-  local displaced = false
-  for i = 2, #rects do
-    if math.abs(rects[i].x - rects[i - 1].x) > 0.5 or math.abs(rects[i].y - rects[i - 1].y) > 0.5 then
-      displaced = true
-      break
-    end
-  end
-  Assert.isTrue(
-    displaced,
-    "consecutive reveal frames must be visibly displaced via source placement, not centered identically"
-  )
-  -- Also ensure not glued to oak portrait anchor
-  local view = ctrl:view()
-  view.revealWidget = "marill_appear"
-  view.revealFrameIndex = 1
-  local layout = OakIntroLayout.compute(800, 600, view, {}, manifest)
-  local oak = layout.subject
-  Assert.isTrue(
-    math.abs(layout.reveal.x - oak.x) > 1 or math.abs(layout.reveal.y - oak.y) > 1,
-    "reveal must not be glued to oak anchor"
-  )
+  Assert.near(anchors[1].x, anchors[2].x, 1e-6)
+  Assert.near(anchors[1].y, anchors[2].y, 1e-6)
+  local canvas = OakIntroLayout.compute(
+    800,
+    600,
+    { phase = "marill_appear", revealWidget = "marill_appear", revealFrameIndex = firstIndex, oakBgScrollX = 0 },
+    {},
+    manifest
+  ).revealCanvas
+  local sourceAnchor = {
+    x = (anchors[1].x - canvas.origin.x) / canvas.scale,
+    y = (anchors[1].y - canvas.origin.y) / canvas.scale,
+  }
+  Assert.near(sourceAnchor.x, widget.sourceCenter.x, 1e-6)
+  Assert.near(sourceAnchor.y, widget.sourceCenter.y, 1e-6)
+  Assert.isTrue(frameBytes[1] ~= frameBytes[2], "translated reveal frames must contain different generated pixels")
 end
 
 function T.tests.ball_and_marill_geometry_stable_across_viewport_shapes()
@@ -205,7 +208,7 @@ function T.tests.ball_and_marill_geometry_stable_across_viewport_shapes()
     primaryWidget = "oak",
     revealWidget = "marill_appear",
     revealFrameIndex = 12,
-    oakSlideOffset = -52,
+    oakBgScrollX = -52,
   }
   local sizes = { { 320, 240 }, { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }
   local function safeFrame(w, h)
@@ -264,7 +267,7 @@ end
 
 function T.tests.gender_select_preserves_source_centers_and_female_palette()
   local manifest = loadManifest("heartgold")
-  local view = { phase = "gender_select", genderFocus = 0, oakSlideOffset = 0 }
+  local view = { phase = "gender_select", genderFocus = 0, oakBgScrollX = 0 }
   for _, sz in ipairs({ { 800, 600 }, { 390, 844 } }) do
     local w, h = sz[1], sz[2]
     local layout = OakIntroLayout.compute(w, h, view, {}, manifest)
@@ -542,25 +545,24 @@ end
 function T.tests.full_slide_position_matches_base_position_by_exactly_fifty_two_source_pixels()
   local manifest = loadManifest("heartgold")
   local w, h = 800, 600
-  local baseView = { phase = "oak_welcome", visual = "oak", primaryWidget = "oak", oakSlideOffset = 0 }
+  local baseView = { phase = "oak_welcome", visual = "oak", primaryWidget = "oak", oakBgScrollX = 0 }
   local baseLayout = OakIntroLayout.compute(w, h, baseView, {}, manifest)
   local selectorView =
-    { phase = "gender_select", visual = "oak", primaryWidget = "oak", genderFocus = 0, oakSlideOffset = -52 }
+    { phase = "gender_select", visual = "oak", primaryWidget = "oak", genderFocus = 0, oakBgScrollX = -52 }
   local selectorLayout = OakIntroLayout.compute(w, h, selectorView, {}, manifest)
   local baseX = baseLayout.subject.x + baseLayout.subject.width / 2
   local selectorX = selectorLayout.subject.x + selectorLayout.subject.width / 2
   local canvasScale = math.min(baseLayout.scene.width / REFERENCE.width, baseLayout.scene.height / REFERENCE.height)
   Assert.near(
     (baseX - selectorX) / canvasScale,
-    52,
+    -52,
     1e-6,
-    "full slide must place Oak exactly 52 source pixels left of the base (non-selector) canvas position"
+    "full source scroll must place Oak exactly 52 source pixels right of the base canvas position"
   )
 end
 
--- Ball/Marill must present at source center (160,80) plus the current
--- frame's translate, and must remain visually above (not obscured by) the
--- dialogue box while dialogue is active alongside a visible Marill.
+-- Marill must present at its fixed source center and remain above the dialogue
+-- box while its message is active.
 function T.tests.marill_preserves_source_center_and_stays_above_dialogue_while_visible()
   local manifest = loadManifest("heartgold")
   local ctrl = driveToBallOpen(manifest)
@@ -577,10 +579,9 @@ function T.tests.marill_preserves_source_center_and_stays_above_dialogue_while_v
   local canvas = layout.revealCanvas
   Assert.notNil(canvas, "layout must expose the source canvas used to place the reveal")
   local marillWidget = assert(manifest.widgets.marill)
-  local frame = marillWidget.frames[view.revealFrameIndex]
   local expectedSourceCenter = {
-    x = marillWidget.sourceCenter.x + (frame.translateX or 0),
-    y = marillWidget.sourceCenter.y + (frame.translateY or 0),
+    x = marillWidget.sourceCenter.x,
+    y = marillWidget.sourceCenter.y,
   }
   local hostCenter = {
     x = layout.reveal.x + marillWidget.anchor.x * canvas.scale,
@@ -594,13 +595,13 @@ function T.tests.marill_preserves_source_center_and_stays_above_dialogue_while_v
     actualSourceCenter.x,
     expectedSourceCenter.x,
     0.5,
-    "Marill source center x must remain (160,80)+translate"
+    "Marill source center x must remain fixed at the generated source center"
   )
   Assert.near(
     actualSourceCenter.y,
     expectedSourceCenter.y,
     0.5,
-    "Marill source center y must remain (160,80)+translate"
+    "Marill source center y must remain fixed at the generated source center"
   )
 
   Assert.isTrue(

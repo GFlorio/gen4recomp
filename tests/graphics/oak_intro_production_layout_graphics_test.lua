@@ -60,7 +60,7 @@ T.tests.reveal_scene_is_one_surface_at_wide_and_tall_sizes = function()
         visual = "oak",
         primaryWidget = "oak",
         revealWidget = "ball_open",
-        oakSlideOffset = -52,
+        oakBgScrollX = -52,
       }
       local layout = OakIntroLayout.compute(size[1], size[2], view, {}, entry.manifest)
       Assert.deepEqual(layout.viewport, { x = 0, y = 0, width = size[1], height = size[2] })
@@ -84,7 +84,7 @@ T.tests.gender_selection_uses_the_production_manifest_at_representative_sizes = 
         visual = "oak",
         primaryWidget = "oak",
         genderFocus = 0,
-        oakSlideOffset = 0,
+        oakBgScrollX = 0,
       }
       local layout = OakIntroLayout.compute(size[1], size[2], view, {}, entry.manifest)
       Assert.isTrue(inside(layout.oakRegion, layout.viewport), entry.versionId .. " Oak region leaves the drawable")

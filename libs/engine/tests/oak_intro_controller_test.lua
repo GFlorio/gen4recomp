@@ -764,25 +764,48 @@ function T.name_editor_vertical_navigation_uses_the_configured_column_count()
   Assert.equal(state:view().virtualGlyphFocus, 1)
 end
 
-function T.slide_endpoint_survives_non_slide_phases_and_reverse_starts_there()
+function T.source_scroll_endpoint_survives_non_slide_phases_and_reverse_starts_there()
   local state = controller()
   state:start()
   state:tick(40)
   state:press("confirm")
   state:tick(6 + 30)
   state:press("confirm")
-  state:tick(26)
+  Assert.equal(state:view().phase, "oak_slide_right")
+  local sourceScroll = { state:view().oakBgScrollX }
+  for _ = 1, 26 do
+    state:tick(1)
+    sourceScroll[#sourceScroll + 1] = state:view().oakBgScrollX
+  end
+  for index = 2, #sourceScroll do
+    Assert.isTrue(
+      sourceScroll[index] <= sourceScroll[index - 1],
+      "Oak source BG scroll must decrease during right slide"
+    )
+  end
   local world = state:view()
   Assert.equal(world.phase, "oak_world_inhabited")
-  Assert.equal(world.oakSlideOffset, -52)
+  Assert.equal(world.oakBgScrollX, -52)
   state:press("confirm")
   advanceToPhase(state, "oak_live_alongside")
   Assert.equal(state:view().phase, "oak_live_alongside")
-  Assert.equal(state:view().oakSlideOffset, -52)
+  Assert.equal(state:view().oakBgScrollX, -52)
   state:press("confirm")
   advanceToPhase(state, "oak_slide_left")
   Assert.equal(state:view().phase, "oak_slide_left")
-  Assert.equal(state:view().oakSlideOffset, -52)
+  Assert.equal(state:view().oakBgScrollX, -52)
+  local reverseScroll = { state:view().oakBgScrollX }
+  for _ = 1, 26 do
+    state:tick(1)
+    reverseScroll[#reverseScroll + 1] = state:view().oakBgScrollX
+  end
+  for index = 2, #reverseScroll do
+    Assert.isTrue(
+      reverseScroll[index] >= reverseScroll[index - 1],
+      "Oak source BG scroll must increase during left slide"
+    )
+  end
+  Assert.equal(reverseScroll[#reverseScroll], 0)
 end
 
 function T.finalization_handoff_keeps_reserved_identity_without_storage_publication()

@@ -80,7 +80,7 @@ local function genderView()
     visual = "oak",
     primaryWidget = "oak",
     genderFocus = 0,
-    oakSlideOffset = 0,
+    oakBgScrollX = 0,
   }
 end
 
@@ -424,13 +424,13 @@ function T.tests.dialogue_visibility_keeps_the_main_oak_stage_stable()
       phase = "oak_slide_right",
       visual = "oak",
       primaryWidget = "oak",
-      oakSlideOffset = 0,
+      oakBgScrollX = 0,
     }
     local open = {
       phase = closed.phase,
       visual = closed.visual,
       primaryWidget = closed.primaryWidget,
-      oakSlideOffset = closed.oakSlideOffset,
+      oakBgScrollX = closed.oakBgScrollX,
       dialogue = { message = "oak.welcome", messageKey = "oak.welcome" },
     }
     local closedLayout = OakIntroLayout.compute(size[1], size[2], closed, {}, data)
@@ -453,8 +453,8 @@ function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
     state:tick(26)
     local endpoint = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
     Assert.isTrue(
-      endpoint.x < centered.x,
-      "the completed first slide must be visibly shifted to host-space left at " .. size[1] .. "x" .. size[2]
+      endpoint.x > centered.x,
+      "the completed source scroll must visibly shift Oak to host-space right at " .. size[1] .. "x" .. size[2]
     )
     state:press("confirm")
     advanceUntilPhase(state, "oak_live_alongside")
@@ -469,7 +469,7 @@ function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
     Assert.near(reverseStart.x, held.x)
     state:tick(1)
     local moved = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
-    Assert.isTrue(moved.x > reverseStart.x, "reverse slide moves monotonically back toward the base position")
+    Assert.isTrue(moved.x < reverseStart.x, "reverse source scroll moves monotonically back toward the base position")
   end
 end
 
@@ -631,7 +631,7 @@ T.tests.oak_motion_uses_source_offset_times_uniform_canvas_scale = function()
   state:tick(13)
   local during = state:view()
   local duringLayout = OakIntroLayout.compute(390, 844, during, { "A", "B" }, manifest())
-  local expected = during.oakSlideOffset * duringLayout.subject.scale
+  local expected = -during.oakBgScrollX * duringLayout.subject.scale
   local beforeCenter = beforeLayout.subject.x + beforeLayout.subject.width / 2
   local duringCenter = duringLayout.subject.x + duringLayout.subject.width / 2
   Assert.near(duringCenter - beforeCenter, expected)
