@@ -52,6 +52,7 @@ local function bootWithCapturedRuntimeOptions(options, cache)
       cacheFs = cache or presentationCache(),
       uiManifest = FieldUiFixture.manifest(),
       fieldEntranceIndicatorAsset = { model = { batches = {}, materials = {} } },
+      fieldEmoteModels = { exclamation = { batches = {}, materials = {} } },
       windowStyles = {
         resolve = function() end,
       },

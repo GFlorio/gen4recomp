@@ -10,6 +10,7 @@ local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceIndicatorRenderer")
+local FieldActorEmoteRenderer = require("libs.engine.src.FieldActorEmoteRenderer")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
@@ -47,7 +48,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _actorRecords table[]
 ---@field _actorDrawStorage FieldActorDrawStorage
 ---@field _actorAssetLookup fun(spriteId: integer): table
----@field worldParts table[][] ordered map, static building, animated building, neighbor, and actor draw arrays
+---@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, and movement-emote draw arrays
 ---@field worldActorItems table[] persistent actor items kept in the world raster
 ---@field spriteItems table[] persistent presentation-resolution actor sprites
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
@@ -141,6 +142,8 @@ function FieldState.new(game, options)
     self.fieldEntranceIndicatorPool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEntranceIndicatorRenderer =
       FieldEntranceIndicatorRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
+    self.fieldEmotePool = GpuAssetPool.new(runtime.cacheFs)
+    self.fieldEmoteRenderer = FieldActorEmoteRenderer.new(runtime.fieldEmoteModels, self.fieldEmotePool)
     local width, height = love.graphics.getDimensions()
     -- The initial presentation-geometry sync: pointer input must work
     -- before the user has resized the window, so the runtime computes and
@@ -277,6 +280,10 @@ function FieldState:_worldParts(alpha)
     end
   end
   worldParts[6] = worldActorItems
+  -- _actorDraws (above) refreshed self._actorRecords with this frame's
+  -- presentation-neutral records, which is the only place activeEmoteKind
+  -- survives; FieldActorDraw's rendered items do not carry it.
+  worldParts[7] = self.fieldEmoteRenderer:drawItems(self._actorRecords)
   return worldParts
 end
 
@@ -832,6 +839,7 @@ function FieldState:dispose()
   self._actorAssetLookup = nil
   if self.worldParts then
     self.worldParts[5] = nil
+    self.worldParts[7] = nil
   end
   self.worldActorItems = nil
   self.spriteItems = nil
@@ -850,6 +858,14 @@ function FieldState:dispose()
   if self.fieldEntranceIndicatorPool then
     self.fieldEntranceIndicatorPool:release()
     self.fieldEntranceIndicatorPool = nil
+  end
+  if self.fieldEmoteRenderer then
+    self.fieldEmoteRenderer:dispose()
+    self.fieldEmoteRenderer = nil
+  end
+  if self.fieldEmotePool then
+    self.fieldEmotePool:release()
+    self.fieldEmotePool = nil
   end
   if self.renderer then
     self.renderer:release()

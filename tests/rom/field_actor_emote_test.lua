@@ -1,0 +1,39 @@
+-- ROM-backed provenance for the compiled movement-emote billboard: proves
+-- the exclamation model compiles from field_static_models member 118 into a
+-- nonempty, source-dimensioned texture surface rather than an invented or
+-- degenerate one. Mirrors field_entrance_indicator_alpha_test's shape for
+-- the sibling field-effect model.
+
+local Assert = require("tests.support.Assert")
+local FieldActorEmoteCompiler = require("romdump.src.digest.FieldActorEmoteCompiler")
+local RomSuite = require("tests.rom.support.RomSuite")
+
+local function testExclamationModelSurface(romFs)
+  local bundle = assert(FieldActorEmoteCompiler.compile(romFs))
+
+  Assert.equal(bundle.model.key, "field-emote:exclamation")
+  Assert.isTrue(#bundle.model.batches > 0, "the compiled exclamation model must have at least one drawable batch")
+  Assert.isTrue(#bundle.model.materials > 0, "the compiled exclamation model must have at least one material")
+
+  local textureCount = 0
+  for _, texture in pairs(bundle.textures) do
+    textureCount = textureCount + 1
+    Assert.isTrue(texture.width > 0, "the compiled exclamation texture must have a nonzero width")
+    Assert.isTrue(texture.height > 0, "the compiled exclamation texture must have a nonzero height")
+    Assert.equal(#texture.pixels, texture.width * texture.height * 4, "pixel buffer must match its own dimensions")
+
+    local nonTransparentFound = false
+    for offset = 4, #texture.pixels, 4 do
+      if string.byte(texture.pixels, offset) ~= 0 then
+        nonTransparentFound = true
+        break
+      end
+    end
+    Assert.isTrue(nonTransparentFound, "the compiled exclamation texture must not be fully transparent/blank")
+  end
+  Assert.isTrue(textureCount > 0, "member 118 must bind at least one source texture")
+end
+
+return RomSuite.fromFacts({
+  ["member 118 compiles a nonempty source-dimensioned exclamation surface"] = testExclamationModelSurface,
+})

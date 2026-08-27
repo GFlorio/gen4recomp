@@ -175,6 +175,11 @@ local function drawableState(options)
         return {}
       end,
     },
+    fieldEmoteRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
     _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
     _actorAssetLookup = function()
       error("no actor in this scenario is visible, so the asset lookup must not run")

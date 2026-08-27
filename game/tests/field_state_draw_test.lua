@@ -106,6 +106,12 @@ local function presentationState(assets, actorIds)
       end,
       dispose = function() end,
     },
+    fieldEmoteRenderer = {
+      drawItems = function()
+        return {}
+      end,
+      dispose = function() end,
+    },
   }, FieldState),
     actors,
     runtime
@@ -131,6 +137,11 @@ local function stateWith(runtime)
       end,
     },
     fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
+    fieldEmoteRenderer = {
       drawItems = function()
         return {}
       end,
@@ -280,6 +291,11 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
         return {}
       end,
     },
+    fieldEmoteRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
   }, FieldState)
   state:draw()
   Assert.equal(received.scene, sceneRuntime, "the renderer receives the runtime map's scene runtime")
@@ -372,6 +388,11 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
     worldActorItems = {},
     spriteItems = {},
     fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
+    fieldEmoteRenderer = {
       drawItems = function()
         return {}
       end,
@@ -867,6 +888,11 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
         return {}
       end,
       fieldEntranceIndicatorRenderer = {
+        drawItems = function()
+          return {}
+        end,
+      },
+      fieldEmoteRenderer = {
         drawItems = function()
           return {}
         end,

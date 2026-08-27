@@ -56,6 +56,7 @@ local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
 local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
+local FieldActorEmoteRuntime = require("game.src.game.FieldActorEmoteRuntime")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
@@ -396,6 +397,7 @@ function FieldRuntime:_load()
     assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
     self.weatherCatalog = weatherCatalog
     self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
+    self.fieldEmoteModels = FieldActorEmoteRuntime.load(cacheFs)
 
     -- FieldMapLoader owns the simulation assets (field data, collision,
     -- terrain) through the pure asset paths for every composition. The visual

@@ -12,11 +12,22 @@
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+local EmoteSoundCatalog = require("libs.engine.src.script.EmoteSoundCatalog")
 
 local MovementTask = {}
 
 MovementTask.type = "movement"
 MovementTask.version = 1
+
+-- The only source-proven automatic movement-emote sound: HGSS spawns the
+-- shared exclamation/question field-effect object with a "play sound" flag
+-- set for both MapObjectMovementCmd075 (exclamation) and
+-- MapObjectMovementCmd103 (question), and the effect's init function
+-- (ov01_0220059C) issues PlaySE(SEQ_SE_DP_DECIDE) when that flag is set.
+-- Only the exclamation mapping is wired here: this task owns the
+-- exclamation movement action and its own flag is confirmed set; a question
+-- mapping stays unproven at this call site until traced independently.
+local EMOTE_SOUND_CATALOG = EmoteSoundCatalog.new({ exclamation = "SEQ_SE_DP_DECIDE" })
 
 -- Field-coordinate step deltas per direction (north decreases fieldZ).
 local DIRECTION_DELTA = {
@@ -134,6 +145,12 @@ local function advanceAction(state, action, ctx)
     end
     if shouldBegin then
       ctx.services.actors:beginScriptedAction(state.actor, action)
+    end
+    if kind == "emote" then
+      local effectId = EMOTE_SOUND_CATALOG:effectFor(action.name)
+      if effectId ~= nil then
+        assert(ctx.services.audio, "an emote with a proven sound mapping requires the audio service"):play(effectId)
+      end
     end
   end
   state.progressTicks = state.progressTicks + 1

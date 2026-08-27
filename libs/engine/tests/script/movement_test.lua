@@ -16,6 +16,7 @@ local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
+local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
 local Runtime = require("libs.engine.src.script.Runtime")
 local MovementBarrierTask = require("libs.engine.src.script.tasks.MovementBarrierTask")
 local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
@@ -667,6 +668,54 @@ T["raw movement task owns the generation and rejects conflicts"] = function()
   end
   Assert.isFalse(env:hasOutstandingMovement(), "the completed raw movement left the generation")
   Assert.equal(h.services.actors.actors.elm.fieldX, 5, "the raw movement plan reached its destination")
+end
+
+-- The only source-proven automatic movement-emote sound: exclamation plays
+-- SEQ_SE_DP_DECIDE exactly once, at the emote action's start tick, never on
+-- a later tick or a second time. An unmapped kind (question, still unproven
+-- at this call site) must never touch the audio service at all.
+T["exclamation plays its proven sound once at the action start tick"] = function()
+  local h = harness()
+  h.services.actors:add("marill", { fieldX = 2, fieldZ = 3, facing = "south" })
+  local calls = {}
+  h.services.audio = {
+    play = function(_, effectId)
+      calls[#calls + 1] = effectId
+    end,
+  }
+  local resource = script("test.exclaim", { S.stop() })
+  local instanceId = startForeground(h, resource, 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local spec = {
+    actor = "marill",
+    sequence = { { action = "emote", name = "exclamation" } },
+  }
+  h.scheduler:createTask("movement", spec, instance, 100, nil)
+  for tick = 101, 100 + MovementCalibration.EMOTE_TICKS do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.equal(#calls, 1, "the exclamation sound plays exactly once")
+  Assert.equal(calls[1], "SEQ_SE_DP_DECIDE")
+end
+
+T["an unmapped emote kind never touches the audio service"] = function()
+  local h = harness()
+  h.services.actors:add("marill", { fieldX = 2, fieldZ = 3, facing = "south" })
+  h.services.audio = nil
+  local resource = script("test.question", { S.stop() })
+  local instanceId = startForeground(h, resource, 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local spec = {
+    actor = "marill",
+    sequence = { { action = "emote", name = "question" } },
+  }
+  local ok, err = pcall(function()
+    h.scheduler:createTask("movement", spec, instance, 100, nil)
+    for tick = 101, 100 + MovementCalibration.EMOTE_TICKS do
+      h.scheduler:step(tick, nil)
+    end
+  end)
+  Assert.isTrue(ok, "an unmapped emote kind must not require the audio service: " .. tostring(err))
 end
 
 return { tests = T }

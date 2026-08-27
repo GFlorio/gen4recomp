@@ -24,6 +24,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field pose string
 ---@field poseTick integer
 ---@field presentationOffset { x: number, y: number } render-only locomotion offset; zero outside its owning action
+---@field activeEmoteKind string? the active semantic emote (e.g. "exclamation") while an emote action is live, else nil
 ---@field visible boolean
 ---@field solid boolean
 ---@field rawMovement integer
@@ -96,6 +97,7 @@ function FieldObjectActor.new(opts)
     -- Render-only locomotion presentation offset (walk-in-place bob); never
     -- mutates worldX/worldY/worldZ, which stay the logical/committed anchor.
     presentationOffset = { x = 0, y = 0 },
+    activeEmoteKind = nil,
     visible = true,
     -- Solid unless the source/generated event explicitly says otherwise; a
     -- zero interaction-script id is only "no A-button script" and carries no
@@ -157,7 +159,9 @@ end
 -- world while motion is active.
 
 function FieldObjectActor:beginScriptedAction(descriptor)
-  -- descriptor: { action, direction, distance, speed, start, dest, durationTicks }
+  -- descriptor: { action, direction, distance, speed, start, dest, durationTicks, name }
+  -- `name` is the decoded semantic emote kind (e.g. "exclamation"); present
+  -- only when action == "emote".
   local start = descriptor.start
   local dest = descriptor.dest
   self._scriptedMotion = {
@@ -186,6 +190,10 @@ function FieldObjectActor:beginScriptedAction(descriptor)
   -- walk_in_place's advance re-populates it while it is the active action.
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  -- The emote indicator is active only for the action instance that carries
+  -- it; every other action (including a later emote with a different kind)
+  -- starts from a clean slate.
+  self.activeEmoteKind = descriptor.action == "emote" and descriptor.name or nil
   -- Locomotion pose is true exactly while a locomotion action is active:
   -- walk/jump/walk_in_place enter walking presentation, everything else
   -- (face/delay/emote/gesture) settles to idle here so a non-locomotion
@@ -276,6 +284,7 @@ function FieldObjectActor:commitScriptedAction()
   -- render-only offset for the next action (or idle) to inherit.
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  self.activeEmoteKind = nil
   self._scriptedMotion = nil
   return result
 end
@@ -295,6 +304,7 @@ function FieldObjectActor:cancelScriptedAction()
   end
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  self.activeEmoteKind = nil
   self._scriptedMotion = nil
 end
 
@@ -313,6 +323,7 @@ function FieldObjectActor:settlePresentation()
   self.poseTick = 0
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  self.activeEmoteKind = nil
 end
 
 -- The active semantic action kind (`walk`, `walk_in_place`, `jump`, `face`,

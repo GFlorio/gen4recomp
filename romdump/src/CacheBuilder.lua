@@ -30,9 +30,12 @@ local FieldWeatherCompiler = require("romdump.src.digest.FieldWeatherCompiler")
 local FieldWeatherCacheWriter = require("romdump.src.digest.FieldWeatherCacheWriter")
 local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
 local FieldEntranceIndicatorCacheWriter = require("romdump.src.digest.FieldEntranceIndicatorCacheWriter")
+local FieldActorEmoteCompiler = require("romdump.src.digest.FieldActorEmoteCompiler")
+local FieldActorEmoteCacheWriter = require("romdump.src.digest.FieldActorEmoteCacheWriter")
 local NewGameInitCompiler = require("romdump.src.digest.NewGameInitCompiler")
 local NewGameInitCacheWriter = require("romdump.src.digest.NewGameInitCacheWriter")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
+local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
@@ -216,6 +219,16 @@ function CacheBuilder.buildVersions(versionIds, options)
         log(string.format("build-cache: %s warp entrance field effect compiled", version))
       else
         log(string.format("build-cache: %s warp entrance field effect current", version))
+      end
+      local emoteBundle, emoteErr = FieldActorEmoteCompiler.compile(romFs)
+      if not emoteBundle then
+        return versionFailure(emoteErr)
+      end
+      if forced or not FieldEmoteAssetCache.isReady(cacheFs, emoteBundle.marker) then
+        FieldActorEmoteCacheWriter.write(cacheFs, emoteBundle)
+        log(string.format("build-cache: %s field emote indicator compiled", version))
+      else
+        log(string.format("build-cache: %s field emote indicator current", version))
       end
       if forced or not FieldWeatherCacheWriter.isReady(cacheFs, weatherBundle.marker) then
         FieldWeatherCacheWriter.write(cacheFs, weatherBundle)

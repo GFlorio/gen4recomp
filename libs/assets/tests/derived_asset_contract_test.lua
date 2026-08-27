@@ -74,6 +74,9 @@ function T.contract_pins_the_current_asset_identities()
     fieldEffects = {
       cacheFormat = "field-effect-cache-v2",
     },
+    fieldEmotes = {
+      cacheFormat = "field-emote-cache-v1",
+    },
     fieldUi = {
       cacheFormat = "field-ui-cache-v1",
       schema = "g4-field-ui-v7",

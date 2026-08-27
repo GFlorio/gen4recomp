@@ -386,6 +386,7 @@ function FieldActorManager:drawRecords()
       record.facing = actor.facing
       record.pose = actor.pose
       record.poseTick = actor.poseTick
+      record.activeEmoteKind = actor.activeEmoteKind
       record.visible = actor.visible
       records[count] = record
     end
@@ -685,6 +686,9 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     start = destInfo.start,
     dest = destInfo.dest,
     durationTicks = durationTicks,
+    -- The decoded semantic emote kind (e.g. "exclamation"); only meaningful
+    -- when kind == "emote".
+    name = action.name,
   })
 end
 
