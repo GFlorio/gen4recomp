@@ -116,6 +116,21 @@ local function defaultSequences()
   }
 end
 
+local function seamlessReplacementSequences()
+  local sequences = defaultSequences()
+  sequences[6] = seq(6, "SEQ_TEST_BGM_QUEUED", 7, {
+    { op = "program", program = 1 },
+    { op = "note", key = 62, velocity = 127, duration = 1 },
+    { op = "jump", target = 2 },
+  })
+  sequences[7] = seq(7, "SEQ_TEST_BGM_RETARGETED", 7, {
+    { op = "program", program = 2 },
+    { op = "note", key = 64, velocity = 127, duration = 1 },
+    { op = "jump", target = 2 },
+  })
+  return sequences
+end
+
 local function engineBundle(sequences, opts)
   opts = opts or {}
   local keyA, keyB, keyC = AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3)
@@ -313,6 +328,71 @@ function T.play_music_replaces_the_running_bgm_on_its_player()
   Assert.equal(sound:currentMusic(), 4)
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM_B"), "the replacement plays")
   Assert.isTrue(maxAbs(left(player:render(500), 500)) > 0, "the replacement is audible")
+end
+
+function T.queued_music_replacement_admits_destination_only_on_the_final_frame()
+  local sound, player = newGameSound(seamlessReplacementSequences())
+  sound:playMusic("SEQ_TEST_BGM")
+  Assert.isTrue(player:isPlayerPlaying(1), "the source BGM is playing")
+
+  sound:queueMusicReplacement("SEQ_TEST_BGM_QUEUED", 60)
+
+  for _ = 1, 59 do
+    sound:updateSoundFrame()
+    Assert.equal(sound:currentMusic(), 0, "the source remains current before frame 60")
+    Assert.isTrue(player:isPlayerPlaying(1), "the source keeps playing before frame 60")
+    Assert.isFalse(player:isPlayerPlaying(7), "the destination is not admitted before frame 60")
+  end
+
+  sound:updateSoundFrame()
+  Assert.equal(sound:currentMusic(), 6, "the destination becomes current on frame 60")
+  Assert.isFalse(player:isPlayerPlaying(1), "the source is retired before destination admission")
+  Assert.isTrue(player:isPlayerPlaying(7), "the destination starts on frame 60")
+  Assert.isFalse(sound:isMusicFadeActive(), "the destination has no fade-in ramp")
+end
+
+function T.queued_music_replacement_retargets_without_restarting_source_fade()
+  local sound, player, spy = newGameSound(seamlessReplacementSequences())
+  sound:playMusic("SEQ_TEST_BGM")
+  sound:queueMusicReplacement("SEQ_TEST_BGM_QUEUED", 60)
+  for _ = 1, 10 do
+    sound:updateSoundFrame()
+  end
+
+  local expectedLevel = 127 + NnsSoundMath.cDiv(10 * (0 - 127), 60)
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, expectedLevel, "the source fade has progressed 10 frames")
+  local writesBeforeRetarget = #spy.faderWrites
+  sound:queueMusicReplacement("SEQ_TEST_BGM_RETARGETED", 60)
+  Assert.equal(#spy.faderWrites, writesBeforeRetarget, "retargeting does not restart or rewrite the source fade")
+
+  for _ = 1, 49 do
+    sound:updateSoundFrame()
+    Assert.isTrue(player:isPlayerPlaying(1), "the source remains active through frame 59")
+    Assert.isFalse(player:isPlayerPlaying(7), "neither queued destination starts before frame 60")
+  end
+  Assert.equal(sound:currentMusic(), 0, "the source remains current through frame 59")
+
+  sound:updateSoundFrame()
+  Assert.equal(sound:currentMusic(), 7, "the latest destination starts at the original frame 60")
+  Assert.isFalse(player:isPlayerPlaying(1), "the source is retired at completion")
+  Assert.isTrue(player:isPlayerPlaying(7), "the retargeted destination is playing")
+end
+
+function T.explicit_music_replacement_cancels_a_pending_queued_destination()
+  local sound, player = newGameSound(seamlessReplacementSequences())
+  sound:playMusic("SEQ_TEST_BGM")
+  sound:queueMusicReplacement("SEQ_TEST_BGM_QUEUED", 60)
+  for _ = 1, 10 do
+    sound:updateSoundFrame()
+  end
+
+  sound:playMusic("SEQ_TEST_BGM_RETARGETED")
+  for _ = 1, 60 do
+    sound:updateSoundFrame()
+  end
+
+  Assert.equal(sound:currentMusic(), 7, "explicit music remains current after the old fade schedule")
+  Assert.isTrue(player:isPlayerPlaying(7), "explicit music remains playing")
 end
 
 function T.effects_overlap_bgm_and_report_player_completion()

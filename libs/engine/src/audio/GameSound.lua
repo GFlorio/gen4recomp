@@ -47,6 +47,7 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field private _cry table?
 ---@field private _mapMusic fun(): integer|string|nil?
 ---@field private _currentMusic integer|nil
+---@field private _queuedMusicReplacement GameSoundQueuedMusicReplacement|nil
 ---@field private _fanfare table|nil
 ---@field private _faders table<integer, GameSoundPlayerFader>
 ---@field private _handles table<integer, table>
@@ -65,6 +66,7 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field isCryFinished fun(self: GameSound): boolean
 ---@field fadeMusicOut fun(self: GameSound, spec: { target: integer, durationTicks: integer })
 ---@field fadeMusicIn fun(self: GameSound, spec: { durationTicks: integer })
+---@field queueMusicReplacement fun(self: GameSound, idOrSymbol: integer|string, durationTicks: integer)
 ---@field isMusicFadeActive fun(self: GameSound): boolean
 ---@field resetMusic fun(self: GameSound)
 ---@field temporaryMusic fun(self: GameSound, idOrSymbol: integer|string)
@@ -95,6 +97,11 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field elapsedFrames integer
 ---@field kind "music"|"generic"
 ---@field stopWhenDone boolean
+
+---@class GameSoundQueuedMusicReplacement
+---@field sourceMusicId integer
+---@field sourcePlayerId integer
+---@field destinationId integer
 
 local GameSound = {}
 GameSound.__index = GameSound
@@ -133,6 +140,7 @@ function GameSound.new(opts)
     _cry = opts.cry,
     _mapMusic = opts.mapMusic,
     _currentMusic = nil,
+    _queuedMusicReplacement = nil,
     _fanfare = nil,
     _faders = {},
     _handles = {},
@@ -229,6 +237,9 @@ end
 ---@param kind "music"|"generic"
 ---@param stopWhenDone boolean
 function GameSound:_replaceFaderRamp(playerId, target, durationFrames, kind, stopWhenDone)
+  if self._queuedMusicReplacement ~= nil and self._queuedMusicReplacement.sourcePlayerId == playerId then
+    self._queuedMusicReplacement = nil
+  end
   local fader = self:_faderFor(playerId)
   self:_applyFader(playerId, fader.level)
   fader.ramp = {
@@ -305,6 +316,7 @@ end
 -- and semantic current-music bookkeeping are separate state domains.
 ---@param idOrSymbol integer|string
 function GameSound:playMusic(idOrSymbol)
+  self._queuedMusicReplacement = nil
   local sequence = self:_startSequence(idOrSymbol)
   self._currentMusic = sequence.id
 end
@@ -313,6 +325,7 @@ end
 -- music fade belongs to the BGM it fades; the StopBGM operand is an
 -- erasure both at lowering and here -- the service takes no arguments).
 function GameSound:stopMusic()
+  self._queuedMusicReplacement = nil
   self:_stopBgmPlayer()
   self._currentMusic = nil
 end
@@ -346,6 +359,42 @@ end
 ---@return boolean
 function GameSound:isFanfarePlaying()
   return self._fanfare ~= nil
+end
+
+-- Queues a changed field BGM behind one source fade. The destination remains
+-- private until the source ramp completes; a later request only retargets the
+-- existing queue and never changes its elapsed frame count.
+---@param idOrSymbol integer|string
+---@param durationTicks integer
+function GameSound:queueMusicReplacement(idOrSymbol, durationTicks)
+  local destination = self._provider:sequence(idOrSymbol)
+  assert(
+    durationTicks > 0 and durationTicks % 1 == 0,
+    "queued music replacement duration must be a positive tick count"
+  )
+
+  if self._queuedMusicReplacement ~= nil then
+    self._queuedMusicReplacement.destinationId = destination.id
+    return
+  end
+
+  if self._currentMusic == nil then
+    self:_startResolvedSequence(destination)
+    self._currentMusic = destination.id
+    return
+  end
+
+  if destination.id == self._currentMusic then
+    return
+  end
+
+  local source = self._provider:sequence(self._currentMusic)
+  self:_replaceFaderRamp(source.player.id, 0, durationTicks, "music", false)
+  self._queuedMusicReplacement = {
+    sourceMusicId = source.id,
+    sourcePlayerId = source.player.id,
+    destinationId = destination.id,
+  }
 end
 
 -- The cry boundary. Without an injected cry subsystem a reachable cry is
@@ -410,6 +459,7 @@ end
 -- player.
 ---@param spec { durationTicks: integer }
 function GameSound:fadeMusicIn(spec)
+  self._queuedMusicReplacement = nil
   if self._currentMusic == nil then
     return
   end
@@ -460,6 +510,7 @@ end
 -- selection and future resetMusic).
 ---@param idOrSymbol integer|string
 function GameSound:temporaryMusic(idOrSymbol)
+  self._queuedMusicReplacement = nil
   local sequence = self:_startSequence(idOrSymbol)
   self._currentMusic = sequence.id
 end
@@ -507,6 +558,17 @@ function GameSound:_advanceFaderRamps()
           if ramp.stopWhenDone then
             self._player:stopHandle(self:_handleForPlayer(playerId))
             self:_resetPlayerFader(playerId)
+          elseif
+            self._queuedMusicReplacement ~= nil
+            and ramp.kind == "music"
+            and self._queuedMusicReplacement.sourceMusicId == self._currentMusic
+            and self._queuedMusicReplacement.sourcePlayerId == playerId
+          then
+            local destinationId = self._queuedMusicReplacement.destinationId
+            self._queuedMusicReplacement = nil
+            self:_stopBgmPlayer()
+            local destination = self:_startSequence(destinationId)
+            self._currentMusic = destination.id
           end
         end
       end

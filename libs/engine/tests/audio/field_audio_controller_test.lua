@@ -184,6 +184,13 @@ local function gameplayPlayer(fieldX, fieldZ)
   }
 end
 
+---@param fieldData table
+---@return RuntimeFieldMap
+local function runtimeMap(fieldData)
+  ---@diagnostic disable-next-line: missing-fields -- focused audio runtime-map fixture
+  return { fieldData = fieldData } --[[@as RuntimeFieldMap]]
+end
+
 local function musicScenario()
   local keyA = AudioFixture.key(1)
   local bgmA =
@@ -237,6 +244,33 @@ function T.same_map_music_entry_preserves_the_running_sequence()
   Assert.equal(#spy.plays, 0, "map entry must not restart the current effective BGM")
   Assert.equal(#spy.fades, 0, "same-BGM map entry must not start a warp fade")
   Assert.equal(sound:currentMusic(), 10)
+end
+
+function T.seamless_zone_entry_clears_override_before_selecting_destination_music()
+  local controller, sound, _, fdA, fdB = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { restoredMusicOverride = 10, play = true })
+  Assert.equal(controller:musicOverride(), 10)
+
+  controller:enterZone(runtimeMap(fdB))
+  Assert.isNil(controller:musicOverride(), "zone entry clears the source music override immediately")
+
+  for _ = 1, 60 do
+    sound:updateSoundFrame()
+  end
+  Assert.equal(sound:currentMusic(), 11, "the destination map-header BGM replaces the overridden source")
+end
+
+function T.seamless_zone_entry_clears_matching_override_without_restarting_music()
+  local controller, sound, spy, fdA, fdB = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { restoredMusicOverride = 11, play = true })
+  Assert.equal(sound:currentMusic(), 11)
+  spy.plays = {}
+
+  controller:enterZone(runtimeMap(fdB))
+
+  Assert.isNil(controller:musicOverride(), "zone entry clears even a matching override")
+  Assert.equal(#spy.plays, 0, "same destination music does not restart at a seamless boundary")
+  Assert.equal(sound:currentMusic(), 11, "the current BGM identity remains unchanged")
 end
 
 function T.different_map_music_entry_starts_the_destination_once()

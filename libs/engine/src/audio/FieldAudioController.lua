@@ -207,18 +207,15 @@ end
 
 ---@param runtimeMap RuntimeFieldMap
 function FieldAudioController:enterZone(runtimeMap)
-  local previous = self._sound:currentMusic()
   self:_deactivateSoundplate()
+  self._musicOverride = nil
   self._currentMap = runtimeMap
   self._fieldMusic = self:mapHeaderMusic()
   local effective = self:effectiveMusic()
-  if effective ~= previous then
-    if effective == nil then
-      self._sound:stopMusic()
-    else
-      self._sound:fadeMusicOut({ target = 0, durationTicks = 60 })
-      self._sound:playMusic(effective)
-    end
+  if effective == nil then
+    self._sound:stopMusic()
+  else
+    self._sound:queueMusicReplacement(effective, 60)
   end
 end
 
