@@ -65,7 +65,11 @@ local IntroAssets = {
   ball_open = {
     archive = "intro",
     animationIndex = 3,
-    paletteOverride = 5,
+    -- Source palette-slot selector resolved by IntroObjPaletteResolver against
+    -- resourceSet 5's loaded palette resource, not a local 4bpp bank index
+    -- picked independently per sprite. sSpriteTemplates assigns `.pal = 4`
+    -- uniformly to every sprite built from resourceSet 5.
+    paletteOverride = 4,
     resourceSet = 5,
     resourceResolution = resourceResolution,
     sourceCenter = { x = 160, y = 80 },

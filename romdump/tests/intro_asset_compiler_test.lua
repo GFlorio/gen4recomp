@@ -10,7 +10,7 @@ local T = {}
 
 function T.reveal_source_configuration_uses_resource_set_five_sequences_and_palettes()
   local config = require("romdump.src.config.IntroAssets")
-  for id, sequence, palette in pairs({ ball_open = { 3, 5 }, marill_appear = { 1, 4 }, marill = { 2, 4 } }) do
+  for id, sequence, palette in pairs({ ball_open = { 3, 4 }, marill_appear = { 1, 4 }, marill = { 2, 4 } }) do
     local entry = assert(config[id])
     Assert.equal(entry.archive, "intro")
     Assert.isNil(entry.char)
@@ -136,17 +136,24 @@ local function syntheticCompilerSource()
     end
   end
 
+  -- Intro cell-animation OBJs (male/female/ball/Marill) are 4bpp source
+  -- sprites: depth 3, 32 bytes per 8x8 tile, two 4-bit pixel indices per
+  -- byte. Both nibbles carry the same non-zero value so each tile stays
+  -- opaque after alpha-union cropping.
   rawset(decoder, "decodeChar", function()
     local tiles = {}
     for tile = 0, 23 do
-      tiles[#tiles + 1] = string.rep(string.char(tile % 15 + 1), 64)
+      local nibble = tile % 15 + 1
+      tiles[#tiles + 1] = string.rep(string.char(nibble * 17), 32)
     end
-    return { depth = 4, tiles = table.concat(tiles) }
+    return { depth = 3, tiles = table.concat(tiles) }
   end)
+  -- Six 16-color banks so every configured selector (male=0, female=1,
+  -- ball/Marill=4) resolves within the decoded palette resource.
   rawset(decoder, "decodePalette", function()
     local colors = {}
-    for index = 1, 16 do
-      colors[index] = { r = index, g = index + 1, b = index + 2 }
+    for index = 1, 96 do
+      colors[index] = { r = index % 256, g = (index + 1) % 256, b = (index + 2) % 256 }
     end
     return { colors = colors }
   end)
@@ -321,10 +328,28 @@ local function fixtureBundle(cache, marker)
     end
     assets[image] = "png"
   end
+  local genderSelector = { neutral = {}, buttons = { male = {}, female = {} } }
+  local neutralImage = cache.assetDir() .. "/gender-selector-neutral.png"
+  genderSelector.neutral = { image = neutralImage, width = 256, height = 192 }
+  genderSelector.defaultTone = { r = 200, g = 200, b = 200 }
+  assets[neutralImage] = "png"
+  for _, gender in ipairs({ "male", "female" }) do
+    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+      local maskImage = cache.assetDir() .. "/gender-selector-" .. gender .. "-" .. kind .. ".png"
+      genderSelector.buttons[gender][kind] = {
+        image = maskImage,
+        width = 4,
+        height = 4,
+        bounds = { x = 0, y = 0, width = 4, height = 4 },
+      }
+      assets[maskImage] = "png"
+    end
+    genderSelector.buttons[gender].bounds = { x = 0, y = 0, width = 4, height = 4 }
+  end
   return {
     marker = marker,
     manifest = {
-      schemaVersion = 4,
+      schemaVersion = 5,
       variant = "heartgold",
       sourceReference = { width = 256, height = 192 },
       background = {
@@ -335,6 +360,7 @@ local function fixtureBundle(cache, marker)
         provenance = { fixture = true },
       },
       widgets = widgets,
+      genderSelector = genderSelector,
     },
     dependencies = {
       schema = cache.PROVENANCE_SCHEMA,

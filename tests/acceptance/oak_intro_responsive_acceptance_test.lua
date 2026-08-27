@@ -201,8 +201,16 @@ manifest = function()
       widgets[id].sourceCenter = { x = 192, y = 104 }
     end
   end
+  local function mask(gender, kind)
+    return {
+      image = "assets/generated/intro/gender-selector-" .. gender .. "-" .. kind .. ".png",
+      width = 4,
+      height = 4,
+      bounds = { x = 0, y = 0, width = 4, height = 4 },
+    }
+  end
   return {
-    schemaVersion = 4,
+    schemaVersion = 5,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -212,6 +220,22 @@ manifest = function()
       sampling = "linear",
     },
     widgets = widgets,
+    genderSelector = {
+      neutral = { image = "assets/generated/intro/gender-selector-neutral.png", width = 256, height = 192 },
+      defaultTone = { r = 200, g = 200, b = 200 },
+      buttons = {
+        male = {
+          bounds = { x = 0, y = 0, width = 4, height = 4 },
+          pulseMask = mask("male", "pulseMask"),
+          accentMask = mask("male", "accentMask"),
+        },
+        female = {
+          bounds = { x = 0, y = 0, width = 4, height = 4 },
+          pulseMask = mask("female", "pulseMask"),
+          accentMask = mask("female", "accentMask"),
+        },
+      },
+    },
   }
 end
 

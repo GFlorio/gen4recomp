@@ -1,5 +1,7 @@
--- Generated-intro smoke: every real Marill idle frame must contain visible
--- chromatic pixels after loading through the LÖVE image-data boundary.
+-- Generated-intro smoke: every frame of the critical Oak-speech widgets
+-- (female, ball, Marill reveal, Marill idle) must contain visible chromatic
+-- pixels after loading through the LÖVE image-data boundary, independent of
+-- OakIntroRenderer.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -14,32 +16,36 @@ local T = {
   tests = {},
 }
 
-T.tests.every_generated_marill_idle_frame_is_visible_and_chromatic = function(context)
+local CRITICAL_WIDGETS = { "female", "ball_open", "marill_appear", "marill" }
+
+T.tests.every_critical_intro_widget_frame_is_visible_and_chromatic = function(context)
   local ready = 0
   for _, versionId in ipairs(GameVersion.ORDER) do
     if RomImporter.isReady(versionId) then
       ready = ready + 1
       local cache = CacheFs.forVersion(versionId)
       local manifest = assert(cache:loadLua("data/generated/intro/intro.lua"))
-      local widget = assert(manifest.widgets.marill)
-      for index, frame in ipairs(widget.frames) do
-        local bytes = assert(cache:read(frame.image), "missing Marill frame " .. index)
-        local data = love.image.newImageData(love.filesystem.newFileData(bytes, frame.image))
-        local visible, chromatic = false, false
-        for y = 0, data:getHeight() - 1 do
-          for x = 0, data:getWidth() - 1 do
-            local r, g, b, a = data:getPixel(x, y)
-            if a > 0 then
-              visible = true
-              if math.max(r, g, b) - math.min(r, g, b) > 0 then
-                chromatic = true
+      for _, widgetId in ipairs(CRITICAL_WIDGETS) do
+        local widget = assert(manifest.widgets[widgetId], versionId .. " missing widget " .. widgetId)
+        for index, frame in ipairs(widget.frames) do
+          local bytes = assert(cache:read(frame.image), "missing " .. widgetId .. " frame " .. index)
+          local data = love.image.newImageData(love.filesystem.newFileData(bytes, frame.image))
+          local visible, chromatic = false, false
+          for y = 0, data:getHeight() - 1 do
+            for x = 0, data:getWidth() - 1 do
+              local r, g, b, a = data:getPixel(x, y)
+              if a > 0 then
+                visible = true
+                if math.max(r, g, b) - math.min(r, g, b) > 0 then
+                  chromatic = true
+                end
               end
             end
           end
+          data:release()
+          Assert.isTrue(visible, versionId .. " " .. widgetId .. " frame " .. index .. " is empty")
+          Assert.isTrue(chromatic, versionId .. " " .. widgetId .. " frame " .. index .. " is monochrome")
         end
-        data:release()
-        Assert.isTrue(visible, versionId .. " Marill frame " .. index .. " is empty")
-        Assert.isTrue(chromatic, versionId .. " Marill frame " .. index .. " is monochrome")
       end
     end
   end

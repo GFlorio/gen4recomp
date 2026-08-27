@@ -129,178 +129,69 @@ local function screenRgba(char, palette, screen)
   return table.concat(out), width, height
 end
 
-function T.female_selector_uses_source_palette_bank(romFs)
+function T.gender_selector_pixels_follow_oam_embedded_palette_not_the_raw_template_selector(romFs)
   local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
   local IntroAssets = require("romdump.src.config.IntroAssets")
   local PngReader = require("tests.support.PngReader")
   local G2dDecoder = require("romdump.src.digest.G2dDecoder")
+  local BinaryReader = require("libs.codec.src.BinaryReader")
 
-  Assert.equal(IntroAssets.genderSelectors.male.paletteOverride, 0, "male template selects bank 0")
-  Assert.equal(
-    IntroAssets.genderSelectors.female.paletteOverride,
-    1,
-    "female template must select bank 1: source template uses palette 1"
-  )
+  Assert.equal(IntroAssets.genderSelectors.male.paletteOverride, 0, "male template selects slot 0")
+  Assert.equal(IntroAssets.genderSelectors.female.paletteOverride, 1, "female template selects slot 1")
 
   local bundle = assert(IntroAssetCompiler.compile(romFs))
-  for _, id in ipairs({ "gender_male", "gender_female" }) do
-    Assert.notNil(bundle.manifest.widgets[id], id .. " widget present")
-  end
+  local female = assert(bundle.manifest.widgets.gender_female, "female selector widget present")
+  local _, _, bundleRgba = PngReader.rgba(assert(bundle.assets[female.frames[1].image]))
 
-  local function pngPixels(path)
-    local png = assert(bundle.assets[path], "missing image " .. tostring(path))
-    local w, h, rgba = PngReader.rgba(png)
-    return w, h, rgba
-  end
-
-  local male = bundle.manifest.widgets.gender_male
-  local female = bundle.manifest.widgets.gender_female
-  local _, _, maleRgba = pngPixels(male.frames[1].image)
-  local _, _, femaleRgba = pngPixels(female.frames[1].image)
-
-  -- Decode palette banks for the selector's shared resource: same cell
-  -- table, different effective palette. Compare which bank produced the
-  -- female pixels by inspecting the raw palette selection path.
-  -- Build oracle palettes for bank 0 and bank 1 and verify female pixels
-  -- match bank 1: render the female cell animation both ways via the
-  -- compiler's paletteOverride contract and compare.
-
-  -- The strongest assertion: recompiling through G2dDecoder with explicit
-  -- palette banks must show that female bank 1 differs from bank 0, and the
-  -- bundle's female output matches the bank-1 oracle rather than bank-0.
-
-  local archive = assert(romFs:openNarc(IntroAssets.genderSelectors.female.archive or IntroAssets.archive))
+  -- Resolve female's own resource set exactly like the production compiler,
+  -- then decode its first animation cell directly. The pinned source
+  -- template's raw `.pal` selector (1) names a sprite-system VRAM slot, not a
+  -- bank inside this resource's own decoded palette; the real per-object
+  -- color choice is the OAM cell's own decoded palette-bank field.
   local femaleSpec = IntroAssets.genderSelectors.female
-  local maleSpec = IntroAssets.genderSelectors.male
-
-  -- Resolve female/male animation cells via production resolution
-  local BinaryReader = require("libs.codec.src.BinaryReader")
-  local function resolveSpec(spec)
-    local res = assert(spec.resourceResolution)
-    local resArchive = assert(romFs:openNarc(res.archive))
-    local hdr = getBytes(resArchive, res.header)
-    local hr = BinaryReader.new(hdr, "hdr")
-    local off = spec.resourceSet * 32
-    local charId = hr:u32le(off)
-    local paletteId = hr:u32le(off + 4)
-    local cellId = hr:u32le(off + 8)
-    local animId = hr:u32le(off + 12)
-    local function readTable(memberId)
-      local b = getBytes(resArchive, memberId)
-      local r = BinaryReader.new(b, "t")
-      local out = {}
-      local o = 4
-      while true do
-        local narcId = r:u32le(o)
-        if narcId == 0xFFFFFFFE then
-          break
-        end
-        local fileId = r:u32le(o + 4)
-        local objectId = r:u32le(o + 12)
-        out[objectId] = { narcId = narcId, fileId = fileId }
-        o = o + 24
+  local res = assert(femaleSpec.resourceResolution)
+  local resArchive = assert(romFs:openNarc(res.archive))
+  local hdr = getBytes(resArchive, res.header)
+  local hr = BinaryReader.new(hdr, "hdr")
+  local off = femaleSpec.resourceSet * 32
+  local charId, paletteId, cellId, animId = hr:u32le(off), hr:u32le(off + 4), hr:u32le(off + 8), hr:u32le(off + 12)
+  local function readTable(memberId)
+    local b = getBytes(resArchive, memberId)
+    local r = BinaryReader.new(b, "t")
+    local out, o = {}, 4
+    while true do
+      local narcId = r:u32le(o)
+      if narcId == 0xFFFFFFFE then
+        break
       end
-      return out
+      out[r:u32le(o + 12)] = { fileId = r:u32le(o + 4) }
+      o = o + 24
     end
-    local charMap = readTable(res.charTable)
-    local palMap = readTable(res.paletteTable)
-    local cellMap = readTable(res.cellTable)
-    local animMap = readTable(res.animationTable)
-    return {
-      charFile = assert(charMap[charId]).fileId,
-      paletteFile = assert(palMap[paletteId]).fileId,
-      cellFile = assert(cellMap[cellId]).fileId,
-      animFile = assert(animMap[animId]).fileId,
-    }
+    return out
   end
+  local charFile = assert(readTable(res.charTable)[charId]).fileId
+  local paletteFile = assert(readTable(res.paletteTable)[paletteId]).fileId
+  local cellFile = assert(readTable(res.cellTable)[cellId]).fileId
+  local animFile = assert(readTable(res.animationTable)[animId]).fileId
 
-  local fResolved = resolveSpec(femaleSpec)
-  local mResolved = resolveSpec(maleSpec)
+  local archive = assert(romFs:openNarc(femaleSpec.archive or IntroAssets.archive))
+  local char = assert(G2dDecoder.decodeChar(getBytes(archive, charFile)))
+  local palette = assert(G2dDecoder.decodePalette(getBytes(archive, paletteFile)))
+  local cells = assert(G2dDecoder.decodeCell(getBytes(archive, cellFile)))
+  local animation = assert(G2dDecoder.decodeAnimation(getBytes(archive, animFile)))
+  local anim = assert(animation.anims[femaleSpec.animationIndex + 1])
+  local cell = assert(cells.cells[anim.frames[1].cell + 1])
+  Assert.isTrue(#cell.objs > 0, "female selector cell has OAM objects")
 
-  -- Load palettes and compare bank colors to ensure distinction
-  local introArchive = assert(romFs:openNarc(IntroAssets.archive))
-  local palBytes = getBytes(introArchive, fResolved.paletteFile)
-  -- Palette table path uses resdat palette archive indirection? Actually
-  -- palette comes via resource resolution mapping fileId; load from intro
-  -- archive bytes already handled via getBytes above with correct fileId
-  -- against the intro archive (same archive for char/palette/cell/anim).
-  -- Verify by trying both archives; fallback logic uses resdat char table
-  -- member mapping which already is correct for intro resources.
-  local pal = assert(G2dDecoder.decodePalette(palBytes))
-  Assert.isTrue(#pal.colors >= 32, "selector palette must have at least two banks (32 colors)")
-
-  -- Check that the two banks are not identical at any used index
-  local banksDiffer = false
-  for i = 1, 16 do
-    local a = pal.colors[i]
-    local b = pal.colors[16 + i]
-    if a and b and (a.r ~= b.r or a.g ~= b.g or a.b ~= b.b) then
-      banksDiffer = true
-      break
-    end
-  end
-  if not banksDiffer then
-    error("selector palette banks are identical; cannot validate palette override semantics from pixels", 0)
-  end
-
-  -- Now verify the compiled female pixels are from bank 1: sample a pixel
-  -- that differs between banks and is non-transparent in both renders.
-  -- The most direct failure mode of the current code is that renderCell
-  -- ignores override and uses object.palette (0), making female identical
-  -- to what bank-0 would produce.
-  -- Instead of pixel hunting, assert that female and male compiled images
-  -- are not identical bytes: if override were ignored they'd still differ
-  -- only if the source cells themselves differ; but we also know the source
-  -- resource sets 1 and 2 share structure except palette, so identical
-  -- output would prove the override is ignored. Stronger: re-derive the
-  -- incorrect (bank-0) oracle for female and show bundle female != bank-0 oracle.
-  -- We compare bundle male vs bundle female as a weak indicator is insufficient,
-  -- so do oracle comparison.
-
-  -- Build oracle: female's cells/palette rendered with bank 0 vs bank 1.
-  local charBytesF = getBytes(introArchive, fResolved.charFile)
-  local cellBytesF = getBytes(introArchive, fResolved.cellFile)
-  local animBytesF = getBytes(introArchive, fResolved.animFile)
-  local charF = assert(G2dDecoder.decodeChar(charBytesF))
-  local cellsF = assert(G2dDecoder.decodeCell(cellBytesF))
-  local animF = assert(G2dDecoder.decodeAnimation(animBytesF))
-
-  -- Pick the female's animation selection (IntroAssets.genderSelectors.female uses animationIndex 0)
-  local selF = assert(animF.anims[femaleSpec.animationIndex + 1])
-  local firstCellF = assert(cellsF.cells[selF.frames[1].cell + 1])
-
-  -- Helper to render one cell with an explicit palette bank
-  local function renderCellWithBank(cell, bank)
-    local bounds = { minX = math.huge, minY = math.huge, maxX = -math.huge, maxY = -math.huge }
-    for _, o in ipairs(cell.objs) do
-      bounds.minX = math.min(bounds.minX, o.x)
-      bounds.minY = math.min(bounds.minY, o.y)
-      bounds.maxX = math.max(bounds.maxX, o.x + o.width)
-      bounds.maxY = math.max(bounds.maxY, o.y + o.height)
-    end
-    local w, h = bounds.maxX - bounds.minX, bounds.maxY - bounds.minY
-    local rgba = {}
-    for i = 1, w * h * 4 do
-      rgba[i] = 0
-    end
-    local tileBytes = charF.depth == 3 and 32 or 64
-    local tileCount = #charF.tiles / tileBytes
-    local function put(px, py, value, bankIdx)
-      if value == 0 then
-        return
-      end
-      local pi = value + 1
-      if charF.depth == 3 then
-        pi = pi + bankIdx * 16
-      end
-      local color = pal.colors[pi]
-      if not color then
-        error("missing palette entry", 0)
-      end
-      local off = (py * w + px) * 4
-      rgba[off + 1], rgba[off + 2], rgba[off + 3], rgba[off + 4] = color.r, color.g, color.b, 255
-    end
+  -- Collect the opaque colors each hypothesis would produce for this cell:
+  -- one bank per object chosen either from the object's own decoded OAM
+  -- field, or (the wrong hypothesis) from the raw template selector treated
+  -- as a local bank index.
+  local function colorsFor(bankFor)
+    local colors = {}
+    local tileBytes = char.depth == 3 and 32 or 64
     for _, object in ipairs(cell.objs) do
+      local bank = bankFor(object)
       local cols, rows = object.width / 8, object.height / 8
       for row = 0, rows - 1 do
         for col = 0, cols - 1 do
@@ -308,53 +199,15 @@ function T.female_selector_uses_source_palette_bank(romFs)
           local tileRow = object.flipV and rows - 1 - row or row
           local tile = object.tile + tileRow * cols + tileCol
           local base = tile * tileBytes
-          local ox = object.x - bounds.minX + col * 8
-          local oy = object.y - bounds.minY + row * 8
-          if charF.depth == 3 then
-            for rr = 0, 7 do
-              for cc = 0, 3 do
-                local b = string.byte(charF.tiles, base + rr * 4 + cc + 1)
-                local v1 = b % 16
-                local v2 = math.floor(b / 16)
-                local tx1 = object.flipH and 7 - cc * 2 or cc * 2
-                local tx2 = object.flipH and 7 - (cc * 2 + 1) or cc * 2 + 1
-                local ty = object.flipV and 7 - rr or rr
-                if v1 ~= 0 then
-                  local pi = v1 + 1 + bank * 16
-                  local c = pal.colors[pi]
-                  if not c then
-                    error("missing palette entry", 0)
+          for rr = 0, 7 do
+            for cc = 0, 3 do
+              local b = string.byte(char.tiles, base + rr * 4 + cc + 1)
+              for _, value in ipairs({ b % 16, math.floor(b / 16) }) do
+                if value ~= 0 then
+                  local color = palette.colors[value + 1 + bank * 16]
+                  if color then
+                    colors[string.char(color.r, color.g, color.b)] = true
                   end
-                  local px = ox + tx1
-                  local py = oy + ty
-                  local off = (py * w + px) * 4
-                  rgba[off + 1], rgba[off + 2], rgba[off + 3], rgba[off + 4] = c.r, c.g, c.b, 255
-                end
-                if v2 ~= 0 then
-                  local pi = v2 + 1 + bank * 16
-                  local c = pal.colors[pi]
-                  if not c then
-                    error("missing palette entry", 0)
-                  end
-                  local px = ox + tx2
-                  local py = oy + ty
-                  local off = (py * w + px) * 4
-                  rgba[off + 1], rgba[off + 2], rgba[off + 3], rgba[off + 4] = c.r, c.g, c.b, 255
-                end
-              end
-            end
-          else
-            for rr = 0, 7 do
-              for cc = 0, 7 do
-                local v = string.byte(charF.tiles, base + rr * 8 + cc + 1)
-                if v ~= 0 then
-                  local c = pal.colors[v + 1]
-                  local tx = object.flipH and 7 - cc or cc
-                  local ty = object.flipV and 7 - rr or rr
-                  local px = ox + tx
-                  local py = oy + ty
-                  local off = (py * w + px) * 4
-                  rgba[off + 1], rgba[off + 2], rgba[off + 3], rgba[off + 4] = c.r, c.g, c.b, 255
                 end
               end
             end
@@ -362,94 +215,43 @@ function T.female_selector_uses_source_palette_bank(romFs)
         end
       end
     end
-    local out = {}
-    for i = 1, #rgba, 4096 do
-      out[#out + 1] = string.char(unpack(rgba, i, math.min(i + 4095, #rgba)))
-    end
-    return table.concat(out), w, h
+    return colors
   end
 
-  local rgbaBank0, w0, h0 = renderCellWithBank(firstCellF, 0)
-  local rgbaBank1, w1, h1 = renderCellWithBank(firstCellF, 1)
-  Assert.equal(w0, w1)
-  Assert.equal(h0, h1)
-  if rgbaBank0 == rgbaBank1 then
-    error("female cell banks 0 and 1 produce identical pixels; palette test cannot discriminate", 0)
-  end
+  local embeddedColors = colorsFor(function(object)
+    return object.palette
+  end)
+  local rawSelectorColors = colorsFor(function()
+    return femaleSpec.paletteOverride
+  end)
 
-  -- Compare bundle female frame against both oracles (cropped size may differ due to compiler's union crop).
-  -- For the female selector the compiler's union crop is the cell's own bounds, so sizes match.
-  -- If sizes differ, compare by hashing the frame image region.
-  local PngReader = require("tests.support.PngReader")
-  local fw, fh, fRgba = (function()
-    local png = assert(bundle.assets[female.frames[1].image])
-    return PngReader.rgba(png)
-  end)()
-
-  -- The bundle's female frame must match bank 1, not bank 0.
-  -- We compare exact bytes when dimensions match; otherwise require that at
-  -- least one pixel uses a color unique to bank 1.
-  if fw == w1 and fh == h1 then
-    if fRgba == rgbaBank0 and fRgba ~= rgbaBank1 then
-      error("female selector was rendered with bank 0 instead of its source bank 1", 0)
-    end
-    if fRgba ~= rgbaBank1 then
-      -- Allow minor crop differences: scan for a bank-1-unique color.
-      local usesBank1Color = false
-      for off = 1, #fRgba, 4 do
-        local r, g, b, a = string.byte(fRgba, off, off + 3)
-        if a ~= 0 then
-          -- check if this color appears in bank 1's oracle but not bank 0's
-          local inBank0 = false
-          for o = 1, #rgbaBank0, 4 do
-            local r0, g0, b0 = string.byte(rgbaBank0, o, o + 2)
-            if r0 == r and g0 == g and b0 == b then
-              inBank0 = true
-              break
-            end
-          end
-          local inBank1 = false
-          for o = 1, #rgbaBank1, 4 do
-            local r1, g1, b1 = string.byte(rgbaBank1, o, o + 2)
-            if r1 == r and g1 == g and b1 == b then
-              inBank1 = true
-              break
-            end
-          end
-          if inBank1 and not inBank0 then
-            usesBank1Color = true
-            break
-          end
-        end
-      end
-      if not usesBank1Color then
-        error("female selector output does not match any bank-1 pixel set", 0)
-      end
-    end
-  else
-    -- Fallback: at least one visible pixel must be a bank-1-unique color
-    local found = false
-    for off = 1, #fRgba, 4 do
-      local r, g, b, a = string.byte(fRgba, off, off + 3)
-      if a ~= 0 then
-        local inBank1 = false
-        for o = 1, #rgbaBank1, 4 do
-          local r1, g1, b1 = string.byte(rgbaBank1, o, o + 2)
-          if r1 == r and g1 == g and b1 == b then
-            inBank1 = true
-            break
-          end
-        end
-        if inBank1 then
-          found = true
-          break
-        end
-      end
-    end
-    if not found then
-      error("female selector output does not contain colors from source bank 1", 0)
+  local embeddedOnly = {}
+  for color in pairs(embeddedColors) do
+    if not rawSelectorColors[color] then
+      embeddedOnly[color] = true
     end
   end
+  if next(embeddedOnly) == nil then
+    error(
+      "the OAM-embedded bank and the raw template-selector-as-bank hypothesis produce identical colors; "
+        .. "this fixture cannot discriminate between them",
+      0
+    )
+  end
+
+  local sawEmbeddedOnlyColor = false
+  for offset = 1, #bundleRgba, 4 do
+    local r, g, b, a = string.byte(bundleRgba, offset, offset + 3)
+    if a and a > 0 and embeddedOnly[string.char(r, g, b)] then
+      sawEmbeddedOnlyColor = true
+      break
+    end
+  end
+  Assert.isTrue(
+    sawEmbeddedOnlyColor,
+    "compiled female pixels must follow each object's own decoded OAM palette bank, not the raw template "
+      .. "selector treated as a local bank index"
+  )
 end
 
 function T.shrink_frames_are_portrait_compositions(romFs)
@@ -651,6 +453,96 @@ function T.shrink_frames_are_portrait_compositions(romFs)
   end
   if not seenScreenDep then
     error("provenance missing portrait screen member 9 for shrink composition", 0)
+  end
+end
+
+-- The pinned source (src/oaks_speech_obj.c, sSpriteTemplates) assigns exactly
+-- one explicit OBJ palette selector per Oak-speech resource set: resourceSet
+-- 1 (male) selects 0, resourceSet 2 (female) selects 1, and resourceSet 5
+-- (ball/Marill) selects 4 for every sprite built from it. Selector zero must
+-- resolve like any other explicit selector, never as an absent value.
+local sourceSelectorByResourceSet = { [1] = 0, [2] = 1, [5] = 4 }
+
+function T.oak_speech_selectors_match_pinned_source_sprite_templates(romFs)
+  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+  local IntroAssets = require("romdump.src.config.IntroAssets")
+
+  Assert.equal(IntroAssets.genderSelectors.male.paletteOverride, sourceSelectorByResourceSet[1], "male selector")
+  Assert.equal(IntroAssets.genderSelectors.female.paletteOverride, sourceSelectorByResourceSet[2], "female selector")
+  Assert.equal(
+    IntroAssets.marill.paletteOverride,
+    sourceSelectorByResourceSet[5],
+    "marill selector matches its resource set's source template"
+  )
+  Assert.equal(
+    IntroAssets.marill_appear.paletteOverride,
+    sourceSelectorByResourceSet[5],
+    "marill_appear selector matches its resource set's source template"
+  )
+  Assert.equal(
+    IntroAssets.ball_open.paletteOverride,
+    sourceSelectorByResourceSet[5],
+    "ball_open shares resourceSet 5 with Marill and must select the same source palette (4), not an adjacent bank"
+  )
+
+  local bundle = assert(IntroAssetCompiler.compile(romFs))
+  for id, resourceSet in pairs({ ball_open = 5, marill_appear = 5, marill = 5, gender_male = 1, gender_female = 2 }) do
+    local widget = assert(bundle.manifest.widgets[id], id .. " widget present")
+    local provenance = widget.provenance or {}
+    local recordedSelector
+    for key, value in pairs(provenance) do
+      if type(value) == "number" and (tostring(key):find("pal") or tostring(key):find("slot")) then
+        recordedSelector = value
+      end
+    end
+    Assert.equal(
+      recordedSelector,
+      sourceSelectorByResourceSet[resourceSet],
+      id .. " provenance must record the resolved source palette selector actually used to rasterize it"
+    )
+  end
+end
+
+function T.critical_widget_geometry_and_centers_survive_palette_resolution(romFs)
+  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+  local bundle = assert(IntroAssetCompiler.compile(romFs))
+  local widgets = bundle.manifest.widgets
+
+  local expectedCenters = {
+    gender_female = { x = 192, y = 104 },
+    ball_open = { x = 160, y = 80 },
+    marill_appear = { x = 160, y = 80 },
+    marill = { x = 160, y = 80 },
+  }
+  for id, center in pairs(expectedCenters) do
+    local widget = assert(widgets[id], id .. " widget present")
+    Assert.deepEqual(widget.sourceCenter, center, id .. " source center is preserved through palette resolution")
+    Assert.isTrue(
+      widget.sourceBounds.width > 0 and widget.sourceBounds.height > 0,
+      id .. " retains finite transformed source bounds"
+    )
+    Assert.isTrue(#widget.frames > 0, id .. " retains at least one decoded animation frame")
+  end
+end
+
+function T.gender_selector_frame_highlight_semantics_are_generated(romFs)
+  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+  local bundle = assert(IntroAssetCompiler.compile(romFs))
+  local selector = bundle.manifest.genderSelector
+  if selector == nil then
+    error(
+      "compiled intro manifest has no semantic gender-selector frame data (neutral surface plus per-button "
+        .. "pulse-tone and accent masks); the renderer would have to tint portraits instead",
+      0
+    )
+  end
+  Assert.notNil(selector.neutral, "neutral selector surface is present")
+  Assert.notNil(selector.defaultTone, "source default tone is preserved for the sine pulse")
+  for _, gender in ipairs({ "male", "female" }) do
+    local button = assert(selector.buttons and selector.buttons[gender], gender .. " selector button entry present")
+    Assert.notNil(button.pulseMask, gender .. " pulse-tone mask is present")
+    Assert.notNil(button.accentMask, gender .. " selected/unselected accent mask is present")
+    Assert.notNil(button.bounds, gender .. " selector button source bounds are present")
   end
 end
 

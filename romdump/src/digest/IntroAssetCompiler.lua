@@ -10,6 +10,7 @@ local Lz10 = require("romdump.src.digest.Lz10")
 local PngWriter = require("libs.assets.src.PngWriter")
 local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
 local IntroAssetImage = require("romdump.src.digest.IntroAssetImage")
+local IntroObjPaletteResolver = require("romdump.src.digest.IntroObjPaletteResolver")
 local config = require("romdump.src.config.IntroAssets")
 
 local IntroAssetCompiler = {}
@@ -166,25 +167,35 @@ local function cellBounds(cell, bounds)
   end
 end
 
-local function renderCell(char, palette, cell, bounds, opts)
+-- `colors` here is the sprite's full decoded palette resource (not yet
+-- sliced). Each OAM object in the cell carries its own decoded palette-bank
+-- field, which is the sprite system's real, unambiguous per-object color
+-- selection; resolving per object (rather than once per sprite from the
+-- source template selector) is required because one resource can multiplex
+-- more than one real 16-color bank across the objects that share it.
+local function renderCell(char, colors, cell, bounds)
   if #cell.objs == 0 then
     sourceError("intro cell has no objects", { sourceOffset = 0 })
   end
-  opts = opts or {}
-  local effectivePaletteOverride = opts.paletteOverride
   local minX, minY = bounds.minX, bounds.minY
   local width, height = bounds.maxX - minX, bounds.maxY - minY
   local rgba = newRgba(width, height)
   for _, object in ipairs(cell.objs) do
+    local objectSlot = char.depth == 4 and nil or object.palette
+    local ok, objectPalette = pcall(IntroObjPaletteResolver.resolve, colors, char.depth, objectSlot)
+    if not ok then
+      local err = objectPalette
+      if Errors.is(err) then
+        ---@cast err Errors.Error
+        sourceError(err.message, err.context)
+      end
+      error(err, 0)
+    end
     local columns, rows = object.width / 8, object.height / 8
     for row = 0, rows - 1 do
       for column = 0, columns - 1 do
         local tileColumn = object.flipH and columns - 1 - column or column
         local tileRow = object.flipV and rows - 1 - row or row
-        local effectivePalette = object.palette
-        if effectivePaletteOverride ~= nil then
-          effectivePalette = effectivePaletteOverride
-        end
         blitTile(
           rgba,
           width,
@@ -192,8 +203,8 @@ local function renderCell(char, palette, cell, bounds, opts)
           object.x - minX + column * 8,
           object.y - minY + row * 8,
           object.tile + tileRow * columns + tileColumn,
-          palette,
-          effectivePalette,
+          objectPalette,
+          0,
           object.flipH,
           object.flipV
         )
@@ -203,17 +214,21 @@ local function renderCell(char, palette, cell, bounds, opts)
   return { width = width, height = height, rgba = concatBytes(rgba) }
 end
 
-local function renderAnimations(char, palette, cells, animation, animationIndex, paletteOverride)
-  if paletteOverride ~= nil then
-    if type(paletteOverride) ~= "number" or paletteOverride % 1 ~= 0 or paletteOverride < 0 then
-      sourceError("intro palette override is invalid", { paletteOverride = paletteOverride })
+local function renderAnimations(char, colors, cells, animation, animationIndex, paletteOverride)
+  -- The source template selector is validated and recorded as provenance
+  -- (the pinned .pal fact) but does not drive rasterization: it names a
+  -- sprite-system-wide slot, not a bank inside this resource's own decoded
+  -- palette (GD-03). Real per-object color selection comes from the OAM
+  -- cell data resolved per object in renderCell.
+  local validationOk, validationResult, resolvedSlot =
+    pcall(IntroObjPaletteResolver.resolve, colors, char.depth, paletteOverride)
+  if not validationOk then
+    local err = validationResult
+    if Errors.is(err) then
+      ---@cast err Errors.Error
+      sourceError(err.message, err.context)
     end
-    if char.depth == 3 and (paletteOverride + 1) * 16 > #palette then
-      sourceError("intro palette override is outside decoded palette data", { paletteOverride = paletteOverride })
-    end
-    if char.depth == 4 then
-      sourceError("intro palette override is invalid for 8bpp cell graphics", { paletteOverride = paletteOverride })
-    end
+    error(err, 0)
   end
   local animations = {}
   if animationIndex ~= nil then
@@ -335,7 +350,7 @@ local function renderAnimations(char, palette, cells, animation, animationIndex,
     local sx, sy = selected.scaleX, selected.scaleY
     local rot = selected.rotation
     if tx == 0 and ty == 0 and sx == 1 and sy == 1 and rot == 0 then
-      local image = renderCell(char, palette, cell, bounds, { paletteOverride = paletteOverride })
+      local image = renderCell(char, colors, cell, bounds)
       output[index] = {
         width = width,
         height = height,
@@ -355,7 +370,7 @@ local function renderAnimations(char, palette, cells, animation, animationIndex,
       local cellB = { minX = math.huge, minY = math.huge, maxX = -math.huge, maxY = -math.huge }
       cellBounds(cell, cellB)
       local cellW, cellH = cellB.maxX - cellB.minX, cellB.maxY - cellB.minY
-      local cellImage = renderCell(char, palette, cell, cellB, { paletteOverride = paletteOverride })
+      local cellImage = renderCell(char, colors, cell, cellB)
       -- Create union canvas
       local rgba = newRgba(width, height)
       -- Determine dest origin for this transformed cell: its transformed min maps to bounds.min
@@ -465,7 +480,8 @@ local function renderAnimations(char, palette, cells, animation, animationIndex,
     frames = output,
     rgba = output[1].rgba,
   },
-    output
+    output,
+    resolvedSlot
 end
 
 local function addDependency(dependencies, archiveName, memberId, bytes, role)
@@ -609,10 +625,11 @@ local function compileCellAnimation(archive, dependencies, manifest, assets, id,
   addDependency(dependencies, spec.archive, spec.animation, animationBytes, dependencyRole .. ":animation")
   local cells = decode("decodeCell", cellBytes, id .. " cell", spec.cell, spec.archive)
   local animation = decode("decodeAnimation", animationBytes, id .. " animation", spec.animation, spec.archive)
-  local image, frames =
+  local image, frames, resolvedPaletteSlot =
     renderAnimations(char, palette.colors, cells, animation, spec.animationIndex, spec.paletteOverride)
   addAsset(manifest, assets, id, image, frames, image.sourceBounds, image.anchor, {
     resourceSet = spec.resourceSet,
+    paletteSlot = resolvedPaletteSlot,
     rule = "stable-oam-origin",
   }, spec.sourceCenter)
 end
@@ -702,6 +719,116 @@ local function compileShrink(archive, dependencies, manifest, assets, id, spec)
   )
 end
 
+-- OakSpeech_BlinkHighlightedGenderFrame (src/oaks_speech.c) rewrites two
+-- palette entries per gender button on the gender-selector background layer:
+-- a "pulse tone" entry that sine-modulates when selected, and an "accent"
+-- entry that becomes red when selected or gray when not. Both live in bank 0
+-- of the selector's own loaded palette (sButtonBlinkPalOffsets = {12, 14}).
+local GENDER_SELECTOR_MASK_TARGETS = {
+  { gender = "male", kind = "pulseMask", bank = 0, value = 12 },
+  { gender = "male", kind = "accentMask", bank = 0, value = 13 },
+  { gender = "female", kind = "pulseMask", bank = 0, value = 14 },
+  { gender = "female", kind = "accentMask", bank = 0, value = 15 },
+}
+
+local function classifyGenderSelectorMasks(char, screen)
+  if char.depth ~= 3 then
+    sourceError("gender selector background requires 4bpp source tiles", { depth = char.depth })
+  end
+  local tileBytes = 32
+  local tileCount = #char.tiles / tileBytes
+  local width, height = screen.width, screen.height
+  local masks = {}
+  for _, target in ipairs(GENDER_SELECTOR_MASK_TARGETS) do
+    masks[target.gender] = masks[target.gender] or {}
+    masks[target.gender][target.kind] = newRgba(width, height)
+  end
+  local columns = width / 8
+  for row = 0, height / 8 - 1 do
+    for column = 0, columns - 1 do
+      local entry = screen.entries[row * columns + column + 1]
+      if entry.tile < 0 or entry.tile >= tileCount then
+        sourceError("intro gender selector screen references a missing tile", { tile = entry.tile })
+      end
+      local base = entry.tile * tileBytes
+      for tileRow = 0, 7 do
+        for pairColumn = 0, 3 do
+          local byte = string.byte(char.tiles, base + tileRow * 4 + pairColumn + 1)
+          local values = { byte % 16, math.floor(byte / 16) }
+          for pairOffset, value in ipairs(values) do
+            local localX = pairColumn * 2 + (pairOffset - 1)
+            local targetX = entry.flipH and 7 - localX or localX
+            local targetY = entry.flipV and 7 - tileRow or tileRow
+            local px, py = column * 8 + targetX, row * 8 + targetY
+            for _, target in ipairs(GENDER_SELECTOR_MASK_TARGETS) do
+              if entry.palette == target.bank and value == target.value then
+                local offset = (py * width + px) * 4
+                local mask = masks[target.gender][target.kind]
+                mask[offset + 1], mask[offset + 2], mask[offset + 3], mask[offset + 4] = 255, 255, 255, 255
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  return masks, width, height
+end
+
+local function compileGenderSelector(archive, dependencies, manifest, assets, spec)
+  local char, palette = loadCharPalette(archive, dependencies, spec, "gender-selector")
+  local screenBytes = decodeMember(archive, spec.screen, "gender selector screen", spec.archive)
+  addDependency(dependencies, spec.archive, spec.screen, screenBytes, "gender-selector:screen")
+  local screen = decode("decodeScreen", screenBytes, "gender selector screen", spec.screen, spec.archive)
+  local rendered = renderScreen(char, palette.colors, screen)
+  local neutralPath = IntroAssetCache.assetDir() .. "/gender-selector-neutral.png"
+  assets[neutralPath] = PngWriter.encode(rendered.width, rendered.height, rendered.rgba)
+
+  local masks, width, height = classifyGenderSelectorMasks(char, screen)
+  local buttons = {}
+  for _, gender in ipairs({ "male", "female" }) do
+    local button, unionBounds = {}, nil
+    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+      local surface = { width = width, height = height, rgba = concatBytes(masks[gender][kind]) }
+      local cropped = IntroAssetImage.cropAlphaUnion({ surface }, { x = width / 2, y = height / 2 })
+      local path = assetPath("gender-selector-" .. gender .. "-" .. kind)
+      assets[path] = PngWriter.encode(cropped.width, cropped.height, cropped.frames[1].rgba)
+      button[kind] = {
+        image = path,
+        width = cropped.width,
+        height = cropped.height,
+        bounds = cropped.sourceBounds,
+      }
+      local b = cropped.sourceBounds
+      if unionBounds == nil then
+        unionBounds = { minX = b.x, minY = b.y, maxX = b.x + b.width, maxY = b.y + b.height }
+      else
+        unionBounds.minX = math.min(unionBounds.minX, b.x)
+        unionBounds.minY = math.min(unionBounds.minY, b.y)
+        unionBounds.maxX = math.max(unionBounds.maxX, b.x + b.width)
+        unionBounds.maxY = math.max(unionBounds.maxY, b.y + b.height)
+      end
+    end
+    button.bounds = {
+      x = unionBounds.minX,
+      y = unionBounds.minY,
+      width = unionBounds.maxX - unionBounds.minX,
+      height = unionBounds.maxY - unionBounds.minY,
+    }
+    buttons[gender] = button
+  end
+
+  local defaultToneColor = palette.colors[13]
+  if not defaultToneColor then
+    sourceError("gender selector default tone palette entry is missing", {})
+  end
+  manifest.genderSelector = {
+    neutral = { image = neutralPath, width = rendered.width, height = rendered.height },
+    defaultTone = { r = defaultToneColor.r, g = defaultToneColor.g, b = defaultToneColor.b },
+    buttons = buttons,
+  }
+end
+
 local function sourceArchive(romFs, archiveName)
   local archive, err = romFs:openNarc(archiveName)
   if not archive then
@@ -727,7 +854,7 @@ function IntroAssetCompiler.compile(romFs)
   local resourceDataArchive = sourceArchive(romFs, resourceResolution.archive)
   local dependencies, assets = {}, {}
   local manifest = {
-    schemaVersion = 4,
+    schemaVersion = 5,
     variant = variant,
     sourceReference = { width = 256, height = 192 },
     widgets = {},
@@ -773,6 +900,7 @@ function IntroAssetCompiler.compile(romFs)
     screen = config.genderBackground.screen,
   }
   compileSingle(archive, dependencies, manifest, assets, "gender_background", genderBackground, "gender-background")
+  compileGenderSelector(archive, dependencies, manifest, assets, genderBackground)
   compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
   compileShrink(archive, dependencies, manifest, assets, "shrink_female", config.shrink.female)
   local ballArchive = sourceArchive(romFs, config.ball_open.archive)

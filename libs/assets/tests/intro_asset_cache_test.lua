@@ -60,8 +60,32 @@ local function validManifest()
     frame("assets/generated/intro/ball-open-0.png", 32, 32, 1),
     frame("assets/generated/intro/ball-open-1.png", 32, 32, 4),
   }
+  local function mask(gender, kind)
+    return {
+      image = "assets/generated/intro/gender-selector-" .. gender .. "-" .. kind .. ".png",
+      width = 4,
+      height = 4,
+      bounds = { x = 0, y = 0, width = 4, height = 4 },
+    }
+  end
+  local genderSelector = {
+    neutral = { image = "assets/generated/intro/gender-selector-neutral.png", width = 256, height = 192 },
+    defaultTone = { r = 200, g = 200, b = 200 },
+    buttons = {
+      male = {
+        bounds = { x = 0, y = 0, width = 4, height = 4 },
+        pulseMask = mask("male", "pulseMask"),
+        accentMask = mask("male", "accentMask"),
+      },
+      female = {
+        bounds = { x = 0, y = 0, width = 4, height = 4 },
+        pulseMask = mask("female", "pulseMask"),
+        accentMask = mask("female", "accentMask"),
+      },
+    },
+  }
   return {
-    schemaVersion = 4,
+    schemaVersion = 5,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -72,6 +96,7 @@ local function validManifest()
       provenance = { charMember = 0, screenMember = 3, paletteMember = 1 },
     },
     widgets = widgets,
+    genderSelector = genderSelector,
   }
 end
 
@@ -85,7 +110,7 @@ end
 
 function T.complete_schema_manifest_loads_and_declares_closed_inventory()
   local cache = require("libs.assets.src.IntroAssetCache")
-  Assert.equal(cache.SCHEMA, "g4-intro-assets-v4")
+  Assert.equal(cache.SCHEMA, "g4-intro-assets-v5")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
   local manifest = validManifest()
   Assert.isTrue(cache.validateManifest(manifest))
@@ -137,10 +162,22 @@ function T.stale_and_malformed_manifests_fail_before_composition()
   reject(cache, function(manifest)
     manifest.widgets.gender_female.sourceCenter.y = 193
   end, "out-of-range female selector source center")
+  reject(cache, function(manifest)
+    manifest.genderSelector = nil
+  end, "missing gender selector data")
+  reject(cache, function(manifest)
+    manifest.genderSelector.buttons.female = nil
+  end, "missing gender selector button")
+  reject(cache, function(manifest)
+    manifest.genderSelector.buttons.male.pulseMask.bounds = { x = 0, y = 0, width = 300, height = 4 }
+  end, "gender selector mask bounds outside the source reference")
+  reject(cache, function(manifest)
+    manifest.genderSelector.defaultTone = { r = 256, g = 0, b = 0 }
+  end, "invalid gender selector default tone")
 end
 
 function T.intro_contract_revision_requires_the_new_obj_geometry()
-  Assert.equal(DerivedAssetContract.revision, 8)
+  Assert.equal(DerivedAssetContract.revision, 9)
 end
 
 return { tests = T }

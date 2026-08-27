@@ -56,7 +56,7 @@
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 8
+DerivedAssetContract.revision = 9
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
@@ -138,8 +138,8 @@ DerivedAssetContract.fieldUi = {
 }
 
 DerivedAssetContract.intro = {
-  cacheFormat = "intro-cache-v4",
-  schema = "g4-intro-assets-v4",
+  cacheFormat = "intro-cache-v5",
+  schema = "g4-intro-assets-v5",
   provenanceSchema = "g4-intro-provenance-v1",
 }
 

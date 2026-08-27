@@ -201,9 +201,92 @@ local function sourceCenter(id, reference, value)
   return true
 end
 
+local function positiveInteger(value)
+  return integer(value) and value > 0
+end
+
+local function maskEntry(id, gender, kind, reference, value)
+  local label = "gender selector " .. gender .. " " .. kind
+  if type(value) ~= "table" or type(value.image) ~= "string" or value.image == "" then
+    return invalid(label .. " is invalid", { widget = id })
+  end
+  if not positiveInteger(value.width) or not positiveInteger(value.height) then
+    return invalid(label .. " dimensions are invalid", { widget = id })
+  end
+  local ok, err = bounds(label, value.bounds)
+  if not ok then
+    return false, err
+  end
+  if
+    value.bounds.x < 0
+    or value.bounds.y < 0
+    or value.bounds.x + value.bounds.width > reference.width
+    or value.bounds.y + value.bounds.height > reference.height
+  then
+    return invalid(label .. " bounds fall outside the source reference", { widget = id })
+  end
+  return true
+end
+
+local function rgbColor(label, value)
+  if type(value) ~= "table" then
+    return invalid(label .. " is invalid", {})
+  end
+  for _, channel in ipairs({ "r", "g", "b" }) do
+    if not integer(value[channel]) or value[channel] < 0 or value[channel] > 255 then
+      return invalid(label .. " is invalid", {})
+    end
+  end
+  return true
+end
+
+local function genderSelector(reference, value)
+  if type(value) ~= "table" then
+    return invalid("manifest genderSelector is required")
+  end
+  if
+    type(value.neutral) ~= "table"
+    or type(value.neutral.image) ~= "string"
+    or value.neutral.image == ""
+    or not positiveInteger(value.neutral.width)
+    or not positiveInteger(value.neutral.height)
+  then
+    return invalid("manifest genderSelector neutral surface is invalid")
+  end
+  local toneOk, toneErr = rgbColor("manifest genderSelector defaultTone", value.defaultTone)
+  if not toneOk then
+    return false, toneErr
+  end
+  if type(value.buttons) ~= "table" then
+    return invalid("manifest genderSelector buttons are required")
+  end
+  for _, gender in ipairs({ "male", "female" }) do
+    local button = value.buttons[gender]
+    if type(button) ~= "table" then
+      return invalid("manifest genderSelector is missing the " .. gender .. " button", { gender = gender })
+    end
+    local boundsOk, boundsErr = bounds("gender selector " .. gender .. " button", button.bounds)
+    if not boundsOk then
+      return false, boundsErr
+    end
+    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+      local ok, err = maskEntry("gender_selector", gender, kind, reference, button[kind])
+      if not ok then
+        return false, err
+      end
+    end
+  end
+  for gender in pairs(value.buttons) do
+    if gender ~= "male" and gender ~= "female" then
+      return invalid("manifest genderSelector has an unknown button " .. tostring(gender), { gender = gender })
+    end
+  end
+  return true
+end
+
 function M.validateManifest(manifest)
-  if type(manifest) ~= "table" or manifest.schemaVersion ~= 4 then
-    return invalid("manifest schema mismatch", { expected = 4, actual = manifest and manifest.schemaVersion })
+  if type(manifest) ~= "table" or manifest.schemaVersion ~= 5 then
+    return invalid("manifest schema mismatch", { expected = 5, actual = manifest and manifest.schemaVersion })
   end
   if manifest.variant ~= "heartgold" and manifest.variant ~= "soulsilver" then
     return invalid("manifest variant is unsupported", { variant = manifest.variant })
@@ -245,6 +328,10 @@ function M.validateManifest(manifest)
       return invalid("manifest contains unknown widget " .. tostring(id), { widget = id })
     end
   end
+  local selectorOk, selectorErr = genderSelector(reference, manifest.genderSelector)
+  if not selectorOk then
+    return false, selectorErr
+  end
   return true
 end
 
@@ -283,6 +370,17 @@ function M.isReady(cacheFs, expectedMarker)
     end
     for _, item in ipairs(value.frames) do
       if not cacheFs:exists(item.image, "file") then
+        return false
+      end
+    end
+  end
+  if not cacheFs:exists(manifest.genderSelector.neutral.image, "file") then
+    return false
+  end
+  for _, gender in ipairs({ "male", "female" }) do
+    local button = manifest.genderSelector.buttons[gender]
+    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+      if not cacheFs:exists(button[kind].image, "file") then
         return false
       end
     end
