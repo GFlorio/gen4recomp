@@ -188,6 +188,9 @@ end
 function FakeActors:beginScriptedAction(actorId, action)
   local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
   if action.action == "face" then
+    if action.direction ~= nil then
+      actor.facing = action.direction
+    end
     actor._scriptedAction = action
     return
   end

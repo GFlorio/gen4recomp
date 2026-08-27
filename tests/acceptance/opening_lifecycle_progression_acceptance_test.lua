@@ -279,40 +279,136 @@ function T.tests.new_bark_friend_and_marill_scene_follows_the_house_scene()
   end, { recordingScriptHosts = true })
 end
 
--- The friend/Marill scene's own generated movement includes a FaceWest,
--- EmoteExclamationMark, WalkOnSpotFastNorth sequence for Marill
--- (map:60:object:3). Marill must show the exclamation indicator for the
--- encoded action lifetime and then hand off immediately into visible
--- walk-in-place presentation, without an engine-invented standstill between
--- the two actions.
-function T.tests.new_bark_marill_exclamation_hands_off_into_walk_on_spot_without_an_artificial_pause()
+-- The friend/Marill scene's generated movement is observed through the live
+-- actor and task records. The two Marill plans in this scene must retain the
+-- source waits, repeated turns, walk-in-place presentation, and tile commits.
+function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreography()
   withGame(TOWN, function(game)
     OpeningLifecycle.seedPostOpeningHouseState(game)
     local world = game.runtime.scripts.worldState
     local MARILL_ID = "map:60:object:3"
 
-    local observations = {}
+    local plans = {}
+    local planOrder = {}
+    local function marillTask()
+      for _, task in ipairs(game.runtime.scripts.scheduler:tasks()) do
+        if task.status == "active" and task.taskType == "movement" and task.state.actor == MARILL_ID then
+          return task
+        end
+      end
+      return nil
+    end
+
+    local function drawRecord()
+      for _, record in ipairs(game.runtime.actors:drawRecords()) do
+        if record.actorId == MARILL_ID then
+          return record
+        end
+      end
+      return nil
+    end
+
+    local function isImmediate(action)
+      return action.action == "set_visible"
+        or action.action == "lock_facing"
+        or action.action == "unlock_facing"
+        or action.action == "pause_animation"
+        or action.action == "resume_animation"
+    end
+
     for step = 1, 900 do
       if game.runtime.errorText then
         error("runtime fault: " .. tostring(game.runtime.errorText))
       end
       local actor = game.runtime.actors:getById(MARILL_ID)
-      if actor then
-        local record
-        for _, r in ipairs(game.runtime.actors:drawRecords()) do
-          if r.actorId == MARILL_ID then
-            record = r
-            break
+      local task = marillTask()
+      if task and actor then
+        local state = task.state
+        local action = state.sequence[state.actionIndex + 1]
+        if action then
+          local record = assert(drawRecord(), "Marill draw record must be available while its task runs")
+          local trace = plans[task.taskId]
+          if trace == nil then
+            trace = { records = {} }
+            plans[task.taskId] = trace
+            planOrder[#planOrder + 1] = task.taskId
           end
-        end
-        if record then
-          observations[#observations + 1] = {
-            fieldX = actor.fieldX,
-            fieldZ = actor.fieldZ,
-            worldY = record.world.y,
-            pose = record.pose,
+          local before = {
+            action = action.action,
+            direction = action.direction,
+            name = action.name,
+            repeatIndex = state.actionRepeat,
             activeEmoteKind = record.activeEmoteKind,
           }
+          local beforeActionIndex = state.actionIndex
+
+          if game:snapshot().dialogue.modal then
+            game.runtime:pressAction()
+            game:step()
+            game.runtime:releaseAction()
+          else
+            game:step()
+          end
+
+          local afterActor = game.runtime.actors:getById(MARILL_ID)
+          local afterRecord = drawRecord()
+          local tracedAction = nil
+          local tracedRepeat = nil
+          local tracedDirection = nil
+          local tracedName = nil
+          if not isImmediate(action) then
+            tracedAction = before.action
+            tracedRepeat = before.repeatIndex
+            tracedDirection = before.direction
+            tracedName = before.name
+          else
+            local successorIndex = beforeActionIndex + 1
+            local successor = state.sequence[successorIndex + 1]
+            while successor ~= nil and isImmediate(successor) do
+              successorIndex = successorIndex + 1
+              successor = state.sequence[successorIndex + 1]
+            end
+            local successorState = task.state
+            local successorProgressed = successor ~= nil
+              and (
+                successorState.actionIndex > successorIndex
+                or (
+                  successorState.actionIndex == successorIndex
+                  and (successorState.progressTicks > 0 or successorState.actionRepeat > 0)
+                )
+              )
+            if successorProgressed then
+              tracedAction = successor.action
+              tracedRepeat = successorState.actionRepeat > 0 and successorState.actionRepeat - 1 or 0
+              tracedDirection = successor.direction
+              tracedName = successor.name
+            end
+          end
+          if tracedAction ~= nil then
+            trace.records[#trace.records + 1] = {
+              action = tracedAction,
+              direction = tracedDirection,
+              name = tracedName,
+              repeatIndex = tracedRepeat,
+              activeEmoteKind = before.activeEmoteKind,
+              afterAction = afterActor and afterActor:currentAction() or nil,
+              fieldX = afterActor and afterActor.fieldX or nil,
+              fieldZ = afterActor and afterActor.fieldZ or nil,
+              worldY = afterRecord and afterRecord.world.y or nil,
+              pose = afterRecord and afterRecord.pose or nil,
+              afterEmoteKind = afterRecord and afterRecord.activeEmoteKind or nil,
+            }
+          end
+        else
+          game:step()
+        end
+      else
+        if game:snapshot().dialogue.modal then
+          game.runtime:pressAction()
+          game:step()
+          game.runtime:releaseAction()
+        else
+          game:step()
         end
       end
       if
@@ -322,72 +418,108 @@ function T.tests.new_bark_marill_exclamation_hands_off_into_walk_on_spot_without
       then
         break
       end
-      if game:snapshot().dialogue.modal then
-        game.runtime:pressAction()
-        game:step()
-        game.runtime:releaseAction()
-      else
-        game:step()
-      end
       if step == 900 then
         error("the friend/Marill scene did not complete")
       end
     end
 
-    local exclaimIndex
-    for i, obs in ipairs(observations) do
-      if obs.activeEmoteKind == "exclamation" then
-        exclaimIndex = i
-        break
+    Assert.isTrue(#planOrder >= 2, "the scene must run both Marill movement plans")
+
+    local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+    local function appendExpected(out, descriptor, repetitions)
+      local ticks = MovementCalibration.actionTicks(descriptor)
+      for repetition = 1, repetitions do
+        for _ = 1, ticks do
+          out[#out + 1] = {
+            action = descriptor.action,
+            direction = descriptor.direction,
+            name = descriptor.name,
+            repeatIndex = repetition - 1,
+          }
+        end
       end
     end
-    Assert.notNil(exclaimIndex, "Marill's exclamation must render during the friend/Marill scene")
 
-    local afterExclaimIndex = exclaimIndex
-    while
-      observations[afterExclaimIndex + 1] ~= nil
-      and observations[afterExclaimIndex + 1].activeEmoteKind == "exclamation"
-    do
-      afterExclaimIndex = afterExclaimIndex + 1
+    local function assertTimeline(trace, expected, label)
+      Assert.equal(
+        #trace.records,
+        #expected,
+        label
+          .. " keeps one record per calibrated action tick (expected "
+          .. #expected
+          .. ", got "
+          .. #trace.records
+          .. ")"
+      )
+      for index, wanted in ipairs(expected) do
+        local got = trace.records[index]
+        Assert.equal(got.action, wanted.action, label .. " action at tick " .. index)
+        Assert.equal(got.direction, wanted.direction, label .. " direction at tick " .. index)
+        Assert.equal(got.name, wanted.name, label .. " name at tick " .. index)
+        Assert.equal(got.repeatIndex, wanted.repeatIndex, label .. " repeat index at tick " .. index)
+      end
     end
-    local handoff = observations[afterExclaimIndex + 1]
-    Assert.notNil(handoff, "there must be an observation immediately after the exclamation ends")
-    Assert.isNil(handoff.activeEmoteKind, "the exclamation indicator must be gone once its action ends")
-    Assert.equal(
-      handoff.fieldX,
-      observations[exclaimIndex].fieldX,
-      "the immediate walk-in-place must stay on Marill's current tile"
-    )
-    Assert.equal(
-      handoff.fieldZ,
-      observations[exclaimIndex].fieldZ,
-      "the immediate walk-in-place must stay on Marill's current tile"
-    )
-    Assert.equal(handoff.pose, "walk", "walk-in-place must begin immediately with no invented idle dwell")
 
-    -- Across the walk-in-place window, Marill must stay on the same tile
-    -- while visibly bobbing (multiple distinct worldY samples), not stand
-    -- frozen for a runtime-inserted pause.
-    local sampledY = {}
-    local i = afterExclaimIndex + 1
-    while
-      observations[i] ~= nil
-      and observations[i].fieldX == handoff.fieldX
-      and observations[i].fieldZ == handoff.fieldZ
-      and observations[i].pose == "walk"
-    do
-      sampledY[#sampledY + 1] = observations[i].worldY
-      i = i + 1
+    local first = plans[planOrder[1]]
+    local firstExpected = {}
+    appendExpected(firstExpected, { action = "delay", ticks = 32 }, 1)
+    appendExpected(firstExpected, { action = "walk", direction = "north", speed = "fast", tiles = 8 }, 8)
+    appendExpected(firstExpected, { action = "jump", direction = "south", distance = "near", speed = "fast" }, 1)
+    appendExpected(firstExpected, { action = "face", direction = "east" }, 5)
+    appendExpected(firstExpected, { action = "face", direction = "north" }, 5)
+    appendExpected(firstExpected, { action = "face", direction = "west" }, 5)
+    appendExpected(firstExpected, { action = "face", direction = "north" }, 5)
+    appendExpected(firstExpected, { action = "walk", direction = "north", speed = "normal", tiles = 1 }, 1)
+    appendExpected(firstExpected, { action = "delay", ticks = 32 }, 1)
+    assertTimeline(first, firstExpected, "the arrival movement")
+
+    local second = plans[planOrder[2]]
+    local secondExpected = {}
+    appendExpected(secondExpected, { action = "face", direction = "west" }, 1)
+    appendExpected(secondExpected, { action = "emote", name = "exclamation" }, 1)
+    appendExpected(secondExpected, { action = "walk_in_place", direction = "north", speed = "fast" }, 4)
+    appendExpected(secondExpected, { action = "face", direction = "south" }, 2)
+    appendExpected(secondExpected, { action = "face", direction = "east" }, 2)
+    appendExpected(secondExpected, { action = "face", direction = "north" }, 2)
+    appendExpected(secondExpected, { action = "face", direction = "west" }, 2)
+    appendExpected(secondExpected, { action = "walk_in_place", direction = "west", speed = "fast" }, 4)
+    appendExpected(secondExpected, { action = "walk", direction = "west", speed = "fast", tiles = 6 }, 6)
+    assertTimeline(second, secondExpected, "the friend movement")
+
+    local emoteSeen = false
+    for _, record in ipairs(second.records) do
+      if record.action == "emote" and record.afterEmoteKind == "exclamation" then
+        emoteSeen = true
+      end
     end
+    Assert.isTrue(emoteSeen, "the exclamation remains visible during its action")
+
+    local walkInPlaceRecords = {}
+    for _, record in ipairs(second.records) do
+      if record.action == "walk_in_place" then
+        walkInPlaceRecords[#walkInPlaceRecords + 1] = record
+        Assert.equal(record.pose, "walk", "walk-in-place uses walking presentation")
+      end
+    end
+    Assert.equal(#walkInPlaceRecords, 32, "both walk-in-place repetitions retain their calibrated ticks")
+    local firstTileX, firstTileZ = walkInPlaceRecords[1].fieldX, walkInPlaceRecords[1].fieldZ
     local distinctY = {}
-    for _, y in ipairs(sampledY) do
-      distinctY[y] = true
+    for _, record in ipairs(walkInPlaceRecords) do
+      Assert.equal(record.fieldX, firstTileX, "walk-in-place does not change logical X")
+      Assert.equal(record.fieldZ, firstTileZ, "walk-in-place does not change logical Z")
+      distinctY[record.worldY] = true
     end
     local distinctCount = 0
     for _ in pairs(distinctY) do
       distinctCount = distinctCount + 1
     end
-    Assert.isTrue(distinctCount >= 2, "walk-in-place must visibly bob rather than stand frozen after the exclamation")
+    Assert.isTrue(distinctCount >= 2, "walk-in-place visibly bobs across fixed ticks")
+
+    for index, record in ipairs(walkInPlaceRecords) do
+      if index % 4 == 0 then
+        Assert.isNil(record.afterAction, "a completed walk-in-place instance yields before its successor")
+      end
+    end
   end, { recordingScriptHosts = true })
 end
 

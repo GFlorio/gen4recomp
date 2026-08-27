@@ -87,6 +87,140 @@ local function script(id, stepsOrSpec)
   return S.script({ api = 1, id = id, steps = stepsOrSpec })
 end
 
+T["repeated one-tick actions advance one instance per poll"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local instanceId = startForeground(h, script("test.repeated_face", { S.waitTicks({ ticks = 20 }) }), 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local taskId = h.scheduler:createTask("movement", {
+    actor = "elm",
+    sequence = { { action = "face", direction = "east", count = 5 } },
+    blocking = true,
+  }, instance, 100, nil)
+
+  local task = assert(h.scheduler:taskById(taskId))
+  for repetition = 1, 5 do
+    h.scheduler:step(100 + repetition, nil)
+    Assert.equal(
+      h.services.actors.actors.elm.facing,
+      "east",
+      "face poll "
+        .. repetition
+        .. " status="
+        .. task.status
+        .. " index="
+        .. task.state.actionIndex
+        .. " repeat="
+        .. task.state.actionRepeat
+    )
+    if repetition < 5 then
+      Assert.equal(task.status, "active", "a repeated face remains active before its final instance")
+      Assert.equal(task.state.actionIndex, 0)
+      Assert.equal(task.state.actionRepeat, repetition)
+    else
+      Assert.equal(task.status, "completed", "the fifth face instance completes on the fifth poll")
+      Assert.equal(task.state.actionIndex, 1)
+      Assert.equal(task.state.actionRepeat, 0)
+      Assert.equal(task.completedAtTick, 105)
+    end
+  end
+end
+
+T["timed completion yields successors while final completion settles"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local instanceId = startForeground(h, script("test.timed_successor", { S.waitTicks({ ticks = 20 }) }), 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local taskId = h.scheduler:createTask("movement", {
+    actor = "elm",
+    sequence = {
+      { action = "face", direction = "east" },
+      { action = "set_visible", visible = false },
+      { action = "face", direction = "south" },
+    },
+    blocking = true,
+  }, instance, 100, nil)
+  local task = assert(h.scheduler:taskById(taskId))
+  h.scheduler:step(101, nil)
+  Assert.equal(task.status, "active", "a timed completion leaves successor work for the next poll")
+  Assert.equal(task.state.actionIndex, 1)
+  Assert.equal(task.state.actionRepeat, 0)
+  Assert.equal(h.services.actors.actors.elm.facing, "east")
+  Assert.isTrue(h.services.actors.actors.elm.visible, "the immediate successor must not run on the completion poll")
+
+  h.scheduler:step(102, nil)
+  Assert.equal(task.status, "completed")
+  Assert.equal(h.services.actors.actors.elm.facing, "south")
+  Assert.isFalse(h.services.actors.actors.elm.visible)
+
+  local final = harness()
+  final.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local finalInstanceId = startForeground(final, script("test.final_timed", { S.waitTicks({ ticks = 20 }) }), 100)
+  local finalInstance = assert(final.scheduler:instance(finalInstanceId))
+  local finalTaskId = final.scheduler:createTask("movement", {
+    actor = "elm",
+    sequence = { { action = "face", direction = "west" } },
+    blocking = true,
+  }, finalInstance, 100, nil)
+  final.scheduler:step(101, nil)
+  local finalTask = assert(final.scheduler:taskById(finalTaskId))
+  Assert.equal(finalTask.status, "completed", "a final timed action settles on its completion poll")
+  Assert.isNil(final.scheduler:activeMovementForActor(assert(final.scheduler:foregroundEnvironmentId()), "elm"))
+  Assert.isFalse(assert(final.scheduler:environments()[1]):hasOutstandingMovement())
+  Assert.equal(final.services.actors.actors.elm.facing, "west")
+end
+
+T["immediate-only movement plans finish in one poll"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local instanceId = startForeground(h, script("test.immediate_only", { S.waitTicks({ ticks = 20 }) }), 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local taskId = h.scheduler:createTask("movement", {
+    actor = "elm",
+    sequence = {
+      { action = "set_visible", visible = false },
+      { action = "lock_facing" },
+      { action = "unlock_facing" },
+      { action = "pause_animation" },
+      { action = "resume_animation" },
+    },
+    blocking = true,
+  }, instance, 100, nil)
+
+  h.scheduler:step(101, nil)
+  local task = assert(h.scheduler:taskById(taskId))
+  Assert.equal(task.status, "completed", "immediate operations may chain and settle in one poll")
+  Assert.isFalse(h.services.actors.actors.elm.visible)
+  Assert.isFalse(h.services.actors.actors.elm.animationPaused)
+  Assert.isNil(h.scheduler:activeMovementForActor(assert(h.scheduler:foregroundEnvironmentId()), "elm"))
+end
+
+T["immediate prelude starts one timed action in the same poll"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local instanceId = startForeground(h, script("test.immediate_prelude", { S.waitTicks({ ticks = 20 }) }), 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local taskId = h.scheduler:createTask("movement", {
+    actor = "elm",
+    sequence = {
+      { action = "set_visible", visible = false },
+      { action = "face", direction = "east", count = 2 },
+    },
+    blocking = true,
+  }, instance, 100, nil)
+
+  h.scheduler:step(101, nil)
+  local task = assert(h.scheduler:taskById(taskId))
+  Assert.equal(task.status, "active", "the first timed instance follows the immediate prelude")
+  Assert.equal(task.state.actionIndex, 1)
+  Assert.equal(task.state.actionRepeat, 1)
+  Assert.isFalse(h.services.actors.actors.elm.visible)
+  Assert.equal(h.services.actors.actors.elm.facing, "east")
+
+  h.scheduler:step(102, nil)
+  Assert.equal(task.status, "completed", "the repeated timed action finishes on its second poll")
+end
+
 -- 1. apply_movement starts asynchronous movement and continues the same
 -- tick; the actor's position advances per poll; the environment barrier
 -- completes when the generation empties.

@@ -143,11 +143,9 @@ local function startForeground(h, resource, tick)
 end
 
 -- `walk -> delay -> face` (fast walk = 4 ticks, a 3-tick delay, and an
--- immediate face) chains within the scheduler's own same-tick continuation:
--- the walk's completing tick already begins the delay, and the delay's
--- completing tick already begins and finishes the face. Presentation pose
--- must settle to idle exactly when the walk ends, not continue to read
--- "walk" through the delay and face that follow.
+-- immediate face) keeps each timed action on its own scheduler boundary.
+-- Presentation pose must settle to idle when the delay begins, not carry the
+-- completed walk's pose through the later delay ticks.
 function T.walk_then_delay_then_face_settles_idle_once_the_walk_ends()
   local h = harness()
   local resource = S.script({
@@ -173,23 +171,27 @@ function T.walk_then_delay_then_face_settles_idle_once_the_walk_ends()
     h.scheduler:step(tick, nil)
     Assert.equal(actor.pose, "walk", "the walk action must show walking presentation on tick " .. tick)
   end
-  -- The walk's final tick (104) commits and the chained delay begins in the
-  -- same tick; the actor must already read idle, not carry the walk pose.
+  -- The walk's final tick (104) commits. The delay begins on the next poll,
+  -- so the completed walk remains the observable presentation for tick 104.
   h.scheduler:step(104, nil)
-  Assert.equal(actor.pose, "idle", "pose must settle to idle once the walk ends and delay begins")
+  Assert.equal(actor.pose, "walk", "the completed walk remains visible on its boundary tick")
   h.scheduler:step(105, nil)
   Assert.equal(actor.pose, "idle", "delay must never carry a stale walking pose")
-  -- Tick 106 completes the delay and chains straight through the immediate
-  -- face action to sequence completion, all in the same tick.
   h.scheduler:step(106, nil)
+  Assert.equal(actor.pose, "idle", "delay must remain idle while it advances")
+  -- Tick 107 completes the delay. The face begins on tick 108, then the
+  -- exhausted plan settles in that same poll.
+  h.scheduler:step(107, nil)
+  Assert.equal(actor.pose, "idle", "the completed delay remains idle on its boundary tick")
+  h.scheduler:step(108, nil)
   Assert.equal(actor.pose, "idle", "face must not create or inherit a walking pose")
   Assert.equal(actor.facing, "south", "the face action still applies its facing")
 end
 
--- `walk -> walk -> walk_in_place -> delay` (all "fast", 4 ticks per action)
--- must present one continuous locomotion pose across every boundary between
--- the three locomotion actions, then settle to idle exactly when the trailing
--- delay begins.
+-- `walk -> walk -> walk_in_place (two repetitions) -> delay` (all "fast", 4
+-- ticks per action) must present one continuous locomotion pose across every
+-- timed boundary. Each walk-in-place repetition gets a fresh action
+-- transaction and leaves no residual presentation offset when it commits.
 function T.contiguous_locomotion_stays_continuous_then_settles_at_the_first_non_locomotion_boundary()
   local h = harness()
   local resource = S.script({
@@ -201,7 +203,7 @@ function T.contiguous_locomotion_stays_continuous_then_settles_at_the_first_non_
         movement = {
           S.m.walk({ direction = "east", speed = "fast", tiles = 1 }),
           S.m.walk({ direction = "east", speed = "fast", tiles = 1 }),
-          S.m.walkInPlace({ direction = "east", speed = "fast", count = 1 }),
+          S.m.walkInPlace({ direction = "east", speed = "fast", count = 2 }),
           S.m.delay({ ticks = 2 }),
         },
       }),
@@ -212,15 +214,45 @@ function T.contiguous_locomotion_stays_continuous_then_settles_at_the_first_non_
   startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
   local actor = assert(h.mgr:getById(ACTOR_ID))
-  for tick = 101, 109 do
+  for tick = 101, 108 do
     h.scheduler:step(tick, nil)
     Assert.equal(actor.pose, "walk", "the locomotion chain must show no idle flash at tick " .. tick)
   end
-  -- Tick 110 commits the walk_in_place action and chains straight into the
-  -- trailing delay; presentation must settle to idle in that same tick.
-  h.scheduler:step(110, nil)
-  Assert.equal(actor.pose, "idle", "pose must settle to idle exactly when locomotion ends")
-  h.scheduler:step(111, nil)
+  local fieldX, fieldZ = actor.fieldX, actor.fieldZ
+  local sawBob = false
+  for tick = 109, 111 do
+    h.scheduler:step(tick, nil)
+    Assert.equal(actor:currentAction(), "walk_in_place", "the first walk-in-place instance is active")
+    Assert.equal(actor.pose, "walk", "walk-in-place uses walking presentation")
+    Assert.equal(actor.fieldX, fieldX, "walk-in-place keeps logical X fixed")
+    Assert.equal(actor.fieldZ, fieldZ, "walk-in-place keeps logical Z fixed")
+    sawBob = sawBob or actor.presentationOffset.y ~= 0
+  end
+  Assert.isTrue(sawBob, "walk-in-place visibly bobs during its action")
+  -- The first walk-in-place repetition commits at 112's boundary. Its
+  -- transaction clears the bob, and the second repetition begins on the next
+  -- poll with a fresh presentation offset.
+  h.scheduler:step(112, nil)
+  Assert.isNil(actor:currentAction(), "a completed walk-in-place yields before its repetition")
+  Assert.equal(actor.presentationOffset.y, 0, "a committed walk-in-place clears its bob")
+  h.scheduler:step(113, nil)
+  Assert.equal(actor:currentAction(), "walk_in_place", "the second walk-in-place instance starts next poll")
+  Assert.isTrue(actor.presentationOffset.y ~= 0, "the second instance gets a fresh bob")
+  Assert.equal(actor.fieldX, fieldX, "the second walk-in-place keeps logical X fixed")
+  Assert.equal(actor.fieldZ, fieldZ, "the second walk-in-place keeps logical Z fixed")
+  for tick = 114, 115 do
+    h.scheduler:step(tick, nil)
+    Assert.equal(actor.pose, "walk", "the second walk-in-place remains walking")
+    Assert.equal(actor.fieldX, fieldX, "the second walk-in-place keeps logical X fixed")
+    Assert.equal(actor.fieldZ, fieldZ, "the second walk-in-place keeps logical Z fixed")
+  end
+  h.scheduler:step(116, nil)
+  Assert.isNil(actor:currentAction(), "the second walk-in-place commits independently")
+  Assert.equal(actor.presentationOffset.y, 0, "the second commit clears its bob")
+  -- The trailing delay begins on the following poll.
+  h.scheduler:step(117, nil)
+  Assert.equal(actor.pose, "idle", "pose settles when the trailing delay begins")
+  h.scheduler:step(118, nil)
   Assert.equal(actor.pose, "idle", "the sequence's completion must not leave a stale walking pose")
 end
 

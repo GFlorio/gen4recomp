@@ -224,6 +224,13 @@ function MovementTask._advancePlan(state, ctx)
         state.actionIndex = state.actionIndex + 1
         state.actionRepeat = 0
       end
+
+      -- A completed timed instance is the scheduler's fixed-tick boundary.
+      -- Immediate actions may chain on a later poll, but another repetition
+      -- or successor action must not become observable in this poll.
+      if not IMMEDIATE_ACTIONS[kind] and state.sequence[state.actionIndex + 1] ~= nil then
+        return false
+      end
     else
       break
     end
