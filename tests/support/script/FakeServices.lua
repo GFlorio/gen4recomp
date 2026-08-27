@@ -18,6 +18,9 @@
 ---@field numericId integer|nil
 ---@field movementOwner string|nil
 ---@field movementState table|nil
+---@field _scriptedAction table|nil
+---@field _scriptedStart { fieldX: integer, fieldZ: integer }|nil
+---@field _scriptedDest { fieldX: integer, fieldZ: integer }|nil
 
 ---@class FakeWorld
 ---@field flags table<string, boolean>
@@ -479,8 +482,8 @@ function FakeEvents:eventFor(name, instanceId)
 end
 
 ---@class FakeServices
----@field world FakeWorld
----@field actors FakeActors
+---@field world FakeWorld|FieldEventState
+---@field actors FakeActors|ScriptActorWorld
 ---@field player FakePlayer
 ---@field events FakeEvents
 ---@field dialogue table|nil

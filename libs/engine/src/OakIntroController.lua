@@ -39,6 +39,8 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field revealOpacity number
 ---@field finalFadeAlpha number black overlay alpha for the final handoff
 ---@field genderFocus integer
+---@field focusTimer integer
+---@field focusBlinkDelta number
 ---@field name string
 ---@field virtualGlyphFocus integer
 ---@field virtualKeys table<integer, { kind: string, glyph: string? }>

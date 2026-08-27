@@ -21,6 +21,12 @@
 ---@field actorIdForMapIndex fun(self: ScriptActorManager, index: integer): string|nil
 ---@field cameraTargetId fun(self: ScriptActorManager): string|nil
 ---@field partnerId fun(self: ScriptActorManager): string|nil
+---@field beginScriptedAction? fun(self: ScriptActorManager, actorId: string, action: table)
+---@field advanceScriptedAction? fun(self: ScriptActorManager, actorId: string, progressTicks: number, durationTicks: number)
+---@field commitScriptedAction? fun(self: ScriptActorManager, actorId: string)
+---@field cancelScriptedMovement? fun(self: ScriptActorManager, actorId: string)
+---@field isScriptedMoving? fun(self: ScriptActorManager, actorId: string): boolean
+---@field syncEventStateChanges? fun(self: ScriptActorManager)
 
 -- The manager methods the actor world calls; every one must be present.
 -- `syncEventStateChanges` is forwarded only when the manager provides it, so

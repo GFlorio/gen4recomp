@@ -153,8 +153,7 @@ function T.clearFlag_then_showObject_materializes_in_same_tick_without_advancing
   local fault = services.events:eventFor("script.error", instanceId)
   Assert.isNil(fault, "clearFlag -> showObject must not fault when presence is synchronized")
 
-  local actor = mgr:getById("map:61:object:0")
-  Assert.notNil(actor, "actor must be live after clearFlag + sync")
+  local actor = assert(mgr:getById("map:61:object:0"), "actor must be live after clearFlag + sync")
   Assert.equal(actor.poseTick, 0, "zero-time presence sync must not increment poseTick")
 
   -- A normal fixed advancement must still happen exactly once via the session,

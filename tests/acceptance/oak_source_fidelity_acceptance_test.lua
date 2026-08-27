@@ -352,17 +352,14 @@ function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
   -- The focused selection uses sin(timer*10deg)*8 additive RGB555 delta
   -- Unfocused uses default + gray. Timer resets on focus change.
   -- Check view exposes blink state (implementation may expose delta or timer)
-  local hasBlink = view0.focusBlinkDelta ~= nil
-    or view0.focusTimer ~= nil
-    or view0.focusBrightnessDelta ~= nil
-    or view0.genderFocusBlink ~= nil
+  local hasBlink = view0.focusBlinkDelta ~= nil or view0.focusTimer ~= nil
   Assert.isTrue(hasBlink, "gender focus view must expose source blink timer or derived delta")
   -- Timer reset semantics: moving focus right must reset phase to zero
-  local deltaBefore = view0.focusBlinkDelta or view0.focusBrightnessDelta or 0
+  local deltaBefore = view0.focusBlinkDelta or 0
   ctrl:press("right")
   local viewAfter = ctrl:view()
   Assert.equal(viewAfter.genderFocus, 1, "focus must move right")
-  local deltaAfter = viewAfter.focusBlinkDelta or viewAfter.focusBrightnessDelta or viewAfter.focusTimer or 0
+  local deltaAfter = viewAfter.focusBlinkDelta or viewAfter.focusTimer or 0
   -- After reset, delta/timer must be zero
   if viewAfter.focusBlinkDelta ~= nil then
     Assert.equal(viewAfter.focusBlinkDelta, 0, "focus blink delta must reset to 0 on focus change")

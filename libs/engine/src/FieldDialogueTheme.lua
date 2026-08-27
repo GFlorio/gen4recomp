@@ -215,6 +215,7 @@ end
 ---@field box FieldDialogueTheme.Rect
 ---@field text FieldDialogueTheme.Rect
 ---@field lineHeight number
+---@field cursor { x: number, y: number }?
 
 -- Metrics consumed by DialogueLayout: glyph advances from the generated font
 -- definition. Non-glyph tokens get no width here, so DialogueLayout measures

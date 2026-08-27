@@ -76,8 +76,8 @@ function T.cancelled_movement_must_settle_to_last_committed_anchor()
   local committed = { fieldX = actor.fieldX, fieldZ = actor.fieldZ, surfaceId = actor.surfaceId }
   local expectedWorld = FieldCoordinates.fieldToWorld(map({}), committed.fieldX, committed.fieldZ, 0)
 
-  -- After D05, starting a scripted walk advances presentation world; cancelling
-  -- must collapse it back to the committed anchor.
+  -- Starting a scripted walk advances presentation world; cancelling must
+  -- collapse it back to the committed anchor.
   mgr:beginScriptedAction(actorId, { action = "walk", direction = "east", speed = "normal" })
   mgr:advanceScriptedAction(actorId, 4, 8)
   Assert.isTrue(

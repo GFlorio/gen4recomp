@@ -42,15 +42,6 @@ local function probeAt(map, occupancy, node)
   })
 end
 
--- Plan a route to `target` using the exact production step-resolution rule
--- (`FieldPlayer:resolveStep`): map collision, terrain/surface crossing, and
--- live actor occupancy. Live actors are assumed stationary for the duration
--- of the search (true unless the scenario itself drives a script mid-plan).
--- A warp tile is only enterable as the final target, never as a
--- pass-through, matching the older BFS's warp-avoidance contract.
----@param game table an AcceptanceHarness game
----@param target { fieldX: integer, fieldZ: integer }
----@return { direction: string, fieldX: integer, fieldZ: integer, surfaceId: integer }[]|nil
 local function stateKey(fieldX, fieldZ, surfaceId)
   return fieldX .. ":" .. fieldZ .. ":" .. tostring(surfaceId)
 end
@@ -65,6 +56,15 @@ local function targetMatches(node, target)
   return true
 end
 
+-- Plan a route to `target` using the exact production step-resolution rule
+-- (`FieldPlayer:resolveStep`): map collision, terrain/surface crossing, and
+-- live actor occupancy. Live actors are assumed stationary for the duration
+-- of the search (true unless the scenario itself drives a script mid-plan).
+-- A warp tile is only enterable as the final target, never as a
+-- pass-through, matching the older BFS's warp-avoidance contract.
+---@param game table an AcceptanceHarness game
+---@param target { fieldX: integer, fieldZ: integer, surfaceId: integer? }
+---@return { direction: string, fieldX: integer, fieldZ: integer, surfaceId: integer }[]|nil
 function FieldMovement.route(game, target)
   assert(type(target.fieldX) == "number" and target.fieldX % 1 == 0, "route target fieldX must be an integer")
   assert(type(target.fieldZ) == "number" and target.fieldZ % 1 == 0, "route target fieldZ must be an integer")
@@ -79,6 +79,7 @@ function FieldMovement.route(game, target)
   local occupancy = player.occupancy
 
   local start = { fieldX = player.fieldX, fieldZ = player.fieldZ, surfaceId = player.surfaceId, route = {} }
+  ---@type table<string, boolean>
   local seen = { [stateKey(start.fieldX, start.fieldZ, start.surfaceId)] = true }
   local queue = { start }
   local head = 1

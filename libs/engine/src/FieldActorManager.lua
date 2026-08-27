@@ -26,7 +26,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field acquire fun(self: FieldActorAssets, spriteId: integer): table
 ---@field release fun(self: FieldActorAssets, spriteId: integer)
 
----@class FieldActorManager
+---@class FieldActorManager: ScriptActorManager
 ---@field assets FieldActorAssets
 ---@field variableSprites { first: integer, last: integer, variableBase: integer }
 ---@field variableVarBase integer

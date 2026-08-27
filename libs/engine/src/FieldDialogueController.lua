@@ -34,6 +34,10 @@ local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 ---@field _scrollLines FieldDialogueController.VisibleLine[]?
 ---@field _scrollRemaining integer
 ---@field _scrollOffsetY integer
+---@field _cursorCycle integer[]
+---@field _cursorTicksPerPhase integer
+---@field _cursorCycleIndex integer
+---@field _cursorTicksIntoPhase integer
 local FieldDialogueController = {}
 FieldDialogueController.__index = FieldDialogueController
 
