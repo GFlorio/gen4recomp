@@ -8,8 +8,11 @@
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
+local FieldActorManager = require("libs.engine.src.FieldActorManager")
+local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
@@ -108,6 +111,105 @@ local function presentationState(assets, actorIds)
   }, FieldState),
     actors,
     runtime
+end
+
+---@param assets table
+---@param actors FieldActorManager
+---@return FieldState state
+local function presentationStateWithActors(assets, actors)
+  local state, _, runtime = presentationState(assets, {})
+  runtime.actors = actors
+  runtime.dispose = function()
+    actors:dispose()
+  end
+  return state
+end
+
+local ACTOR_POLICY = {
+  variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
+}
+
+local function actorEvent(objectEventId, spriteId)
+  return {
+    index = objectEventId,
+    objectEventId = objectEventId,
+    spriteId = spriteId,
+    movement = 0,
+    type = 0,
+    eventFlag = 0,
+    scriptId = 1,
+    facingDirection = "south",
+    facingDirectionRaw = 1,
+    param0 = 0,
+    param1 = 0,
+    param2 = 0,
+    xRange = 0,
+    yRange = 0,
+    x = 2 + objectEventId,
+    z = 3,
+    y = 0,
+  }
+end
+
+---@param mapId integer
+---@param events table[]
+---@return RuntimeFieldMap
+local function actorMap(mapId, events)
+  return {
+    mapId = mapId,
+    mapSection = "test-section",
+    mapSymbol = "test-map",
+    coordinateOrigin = { x = 0, z = 0 },
+    collision = {
+      containsLocal = function(_, localX, localZ)
+        return localX >= 0 and localX < 32 and localZ >= 0 and localZ < 32
+      end,
+    },
+    terrain = TerrainSurface.new({
+      plates = {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
+    fieldData = { events = { objects = events } },
+    scene = {},
+    cameraType = 4,
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
+end
+
+---@return FieldActorAssets
+local function actorDefinitionAssets()
+  local known = { [99] = true, [34] = true }
+  local assets = { references = {} }
+  function assets:knows(spriteId)
+    return known[spriteId] == true
+  end
+  function assets:acquire(spriteId)
+    self.references[spriteId] = (self.references[spriteId] or 0) + 1
+    return { spriteId = spriteId, visual = {} }
+  end
+  function assets:release(spriteId)
+    local count = assert(self.references[spriteId])
+    assert(count > 0)
+    self.references[spriteId] = count - 1
+  end
+  return assets --[[@as FieldActorAssets]]
+end
+
+local function realActorManager()
+  local eventState = FieldEventState.new()
+  local manager = FieldActorManager.new({ assets = actorDefinitionAssets(), policy = ACTOR_POLICY })
+  return manager, eventState
 end
 
 -- A bare FieldState over a fake runtime that carries only the canonical
@@ -479,6 +581,37 @@ function T.presentation_residency_is_distinct_change_driven_and_balanced()
   Assert.equal(assets.releases[99], 1, "disposal releases the player reference")
   Assert.equal(assets.releases[34], 2, "disposal releases the changed player reference")
   Assert.isTrue(assets.disposed)
+end
+
+function T.published_actor_revision_refreshes_presentation_assets()
+  local assets = presentationAssets({ [99] = presentationEntry(99), [34] = presentationEntry(34) })
+  local actors, eventState = realActorManager()
+  actors:enterMap(actorMap(61, { actorEvent(0, 99) }), eventState)
+  local state = presentationStateWithActors(assets, actors)
+  local prepared = actors:prepareMap(actorMap(60, { actorEvent(1, 34) }), eventState)
+  local revisionBeforePublication = actors:visualRevision()
+
+  state:update(0.016)
+  Assert.isNil(assets.acquisitions[34], "staged actors must not acquire presentation assets")
+
+  actors:commitPrepared(prepared)
+  Assert.equal(
+    actors:visualRevision(),
+    revisionBeforePublication + 1,
+    "publishing a nonempty actor map must invalidate presentation synchronization"
+  )
+  state:update(0.016)
+  Assert.equal(assets.acquisitions[34], 1, "the published actor sprite is acquired before drawing")
+
+  local destinationDraw
+  for _, item in ipairs(state:_actorDraws(0.5)) do
+    if item.actorId == "map:60:object:1" then
+      destinationDraw = item
+      break
+    end
+  end
+  Assert.notNil(destinationDraw, "the published destination actor has a presentation draw item")
+  state:dispose()
 end
 
 function T.presentation_sync_releases_partial_acquisition_on_failure()

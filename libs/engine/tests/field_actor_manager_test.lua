@@ -474,6 +474,21 @@ function T.visual_sprite_requirements_are_distinct_and_revisioned()
   Assert.isTrue(spriteIds[34])
 end
 
+function T.published_flag_actor_creation_and_destruction_invalidate_revision()
+  local eventState = FieldEventState.new({ flags = { [401] = true } })
+  local mgr = manager({ object({ eventFlag = 401 }) }, { eventState = eventState })
+  local initialRevision = mgr:visualRevision()
+
+  eventState:clearFlag(401)
+  mgr:step(1)
+  Assert.equal(mgr:visualRevision(), initialRevision + 1)
+
+  eventState:setFlag(401)
+  mgr:step(2)
+  Assert.equal(mgr:visualRevision(), initialRevision + 2)
+  mgr:dispose()
+end
+
 function T.occupancy_is_keyed_by_map_cell_and_surface()
   local mgr = manager({ object({ x = 9, z = 3 }) })
   Assert.isTrue(isOccupied(mgr, 61, 9, 3, 0))
@@ -703,9 +718,23 @@ end
 
 function T.entering_the_same_map_twice_is_idempotent()
   local mgr, eventState, assets, map = manager({ object({}) })
+  local initialRevision = mgr:visualRevision()
   mgr:enterMap(map, eventState)
   Assert.equal(#mgr:drawRecords(), 1)
   Assert.equal(assets:total(), 1)
+  Assert.equal(mgr:visualRevision(), initialRevision)
+end
+
+function T.publishing_an_empty_map_does_not_change_revision()
+  local assets = fakeAssets({ [99] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  local eventState = FieldEventState.new()
+  Assert.equal(mgr:visualRevision(), 0)
+
+  mgr:enterMap(runtimeMap({}, 61), eventState)
+
+  Assert.equal(mgr:visualRevision(), 0)
+  mgr:dispose()
 end
 
 function T.prepare_map_keeps_live_actors_until_commit()
@@ -743,17 +772,30 @@ end
 
 function T.discarding_prepared_map_releases_only_staged_visuals()
   local mgr, eventState, assets = manager({ object({}) })
+  local initialRevision = mgr:visualRevision()
+  local initialSpriteIds = {}
+  mgr:collectSpriteIds(initialSpriteIds)
   local prepared = mgr:prepareMap(runtimeMap({ object({ spriteId = 34 }) }, 60), eventState)
 
   mgr:discardPrepared(prepared)
   Assert.notNil(mgr:getById("map:61:object:0"))
   Assert.isNil(mgr.maps[60])
+  Assert.equal(mgr:visualRevision(), initialRevision, "discarding staged actors does not change live revision")
+  local finalSpriteIds = {}
+  mgr:collectSpriteIds(finalSpriteIds)
+  Assert.deepEqual(
+    finalSpriteIds,
+    initialSpriteIds,
+    "discarding staged actors does not change live sprite dependencies"
+  )
+  Assert.equal(assets.references[34], 0, "the staged visual is released exactly once")
   Assert.equal(assets:total(), 1)
   mgr:dispose()
 end
 
 function T.commit_bind_failure_discards_prepared_visuals_before_publication()
   local mgr, _, assets = manager({ object({}) })
+  local initialRevision = mgr:visualRevision()
   local failingState = {
     _flags = {},
     _vars = {},
@@ -777,6 +819,7 @@ function T.commit_bind_failure_discards_prepared_visuals_before_publication()
   Assert.equal(prepared.state, "discarded")
   Assert.isNil(mgr.maps[60])
   Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.equal(mgr:visualRevision(), initialRevision)
   Assert.equal(assets:total(), 1)
   mgr:dispose()
 end
@@ -799,11 +842,13 @@ function T.enter_map_without_object_collection_fails_and_rolls_back()
 end
 
 function T.leaving_a_map_releases_every_visual()
-  local mgr, _, assets = manager({ object({}) })
+  local mgr, _, assets = manager({ object({}), object({ objectEventId = 1, spriteId = 34, x = 4 }) })
+  local initialRevision = mgr:visualRevision()
   mgr:leaveMap(61)
   Assert.equal(assets:total(), 0)
   Assert.isNil(mgr:getById("map:61:object:0"))
   Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0))
+  Assert.equal(mgr:visualRevision(), initialRevision + 1)
 end
 
 function T.repeated_map_round_trips_do_not_leak_actors_or_visuals()

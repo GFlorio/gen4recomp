@@ -123,6 +123,7 @@ local PARTNER_OBJECT_ID = 253
 
 ---@class FieldActorManager.Entry
 ---@field runtimeMap RuntimeFieldMap
+---@field published boolean
 ---@field actors table<string, FieldActorManager.Actor>
 ---@field order FieldActorManager.Actor[]
 ---@field occupancy table<string, FieldActorManager.Actor>
@@ -453,7 +454,9 @@ function FieldActorManager:_instantiate(entry, event, eventState)
     entry.actors[actorId] = actor
     entry.byIndex[actor.objectEventId] = actorId
     entry.order[#entry.order + 1] = actor
-    self._visualRevision = self._visualRevision + 1
+    if entry.published then
+      self._visualRevision = self._visualRevision + 1
+    end
   end)
   if not ok then
     self.assets:release(spriteId)
@@ -486,7 +489,9 @@ function FieldActorManager:_destroy(entry, actor)
   end
   self.assets:release(actor.spriteId)
   self._drawRecordByActorId[actor.actorId] = nil
-  self._visualRevision = self._visualRevision + 1
+  if entry.published then
+    self._visualRevision = self._visualRevision + 1
+  end
 end
 
 ---@param manager FieldActorManager
@@ -523,6 +528,7 @@ end
 local function newEntry(runtimeMap)
   return {
     runtimeMap = runtimeMap,
+    published = false,
     actors = {},
     order = {},
     occupancy = {},
@@ -607,7 +613,11 @@ function FieldActorManager:commitPrepared(prepared)
     self:discardPrepared(prepared)
     error(bindErr, 0)
   end
+  entry.published = true
   self.maps[destinationMapId] = entry
+  if #entry.order > 0 then
+    self._visualRevision = self._visualRevision + 1
+  end
   prepared.state = "committed"
 end
 
@@ -634,11 +644,9 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
     end
     self:leaveMap(runtimeMap.mapId)
   end
-  bindEventState(self, eventState)
   local prepared = self:prepareMap(runtimeMap, eventState)
-  self.maps[runtimeMap.mapId] = prepared.entry
+  self:commitPrepared(prepared)
   self.currentMapId = runtimeMap.mapId
-  prepared.state = "committed"
 end
 
 ---@param mapId integer
@@ -651,6 +659,11 @@ function FieldActorManager:leaveMap(mapId)
   self.maps[mapId] = nil
   if self.currentMapId == mapId then
     self.currentMapId = nil
+  end
+  local hadActors = #entry.order > 0
+  entry.published = false
+  if hadActors then
+    self._visualRevision = self._visualRevision + 1
   end
   while #entry.order > 0 do
     self:_destroy(entry, entry.order[#entry.order])
