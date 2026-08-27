@@ -17,6 +17,22 @@ local fieldAudio = require("romdump.src.reference.hgss.field_audio")
 
 local FieldMapDataCompiler = {}
 
+-- The retail zone-event format uses 0xFFFF as a second unbound script
+-- marker. Generated field data uses zero as its single no-script value so
+-- runtime binding and interaction audits do not need to interpret ROM data.
+local NO_SCRIPT_ID = 0xFFFF
+
+---@param decoded table decoded zone-event member
+local function normalizeUnboundScripts(decoded)
+  for _, events in ipairs({ decoded.backgroundEvents, decoded.objectEvents, decoded.coordinateEvents }) do
+    for _, event in ipairs(events) do
+      if event.scriptId == NO_SCRIPT_ID then
+        event.scriptId = 0
+      end
+    end
+  end
+end
+
 -- These catalog entries are source-header placeholders without field-data
 -- members. Direct compilation remains strict, while the complete producer
 -- omits records that have no field data to publish.
@@ -235,6 +251,7 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     eventMemberId = map.eventMemberId,
     source = "fielddata_eventdata_zone_event",
   }))
+  normalizeUnboundScripts(decoded)
 
   local memberSha1 = sha1hex(memberBytes)
   local soundplates, audioSource = compileSoundplates(romFs, map, sha1hex)

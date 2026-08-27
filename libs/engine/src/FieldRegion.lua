@@ -12,8 +12,8 @@ local function copyPlate(plate, id, offsetX, offsetY, offsetZ, cellKey)
     copy[key] = value
   end
   copy.id = id
-  copy.sourceSurfaceId = plate.id
   copy.cellKey = cellKey
+  copy.sourceSurfaceId = cellKey ~= nil and plate.id or nil
   copy.cellOffsetX = offsetX
   copy.cellOffsetY = offsetY
   copy.cellOffsetZ = offsetZ

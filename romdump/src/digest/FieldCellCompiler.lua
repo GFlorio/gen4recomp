@@ -42,7 +42,7 @@ local function compile(romFs)
         for x = 0, matrix.width - 1 do
           local source = matrix:cell(x, z)
           local header = MapCatalog.areaForMapHeader(source.mapHeaderId)
-          if header and source.landDataMemberId ~= 0xFFFF then
+          if source.mapHeaderId ~= 0 and header and source.landDataMemberId ~= 0xFFFF then
             local key = string.format("%d:%d", record.matrixMemberId, matrix:index(x, z))
             if not cells[key] then
               local animationKey = tostring(header.areaDataMemberId)

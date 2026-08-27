@@ -86,6 +86,58 @@ end
 ---@type fun(value: LuaWriter.Value, indent: string, seen: table<LuaWriter.Value, boolean>): string
 local encodeValue
 
+local TABLE_CHUNK_SIZE = 128
+
+---@param key LuaWriter.Key
+---@return string
+local function encodeKey(key)
+  if type(key) == "number" then
+    return "[" .. encodeNumber(key) .. "]"
+  end
+  if isIdentifier(key) then
+    return key
+  end
+  return "[" .. encodeString(key) .. "]"
+end
+
+---@param key LuaWriter.Key
+---@return string
+local function encodeIndex(key)
+  if type(key) == "number" then
+    return "[" .. encodeNumber(key) .. "]"
+  end
+  return "[" .. encodeString(key) .. "]"
+end
+
+---@param t table<LuaWriter.Key, LuaWriter.Value>
+---@param keys LuaWriter.Key[]
+---@param indent string
+---@param seen table<LuaWriter.Value, boolean>
+---@return string
+local function encodeChunkedTable(t, keys, indent, seen)
+  local inner = indent .. "  "
+  local parts = { "(function()\n", inner .. "local result = {}\n", inner .. "local chunk\n" }
+  for start = 1, #keys, TABLE_CHUNK_SIZE do
+    local finish = math.min(start + TABLE_CHUNK_SIZE - 1, #keys)
+    parts[#parts + 1] = inner .. "chunk = (function()\n"
+    parts[#parts + 1] = inner .. "  return {\n"
+    local chunkIndent = inner .. "    "
+    for i = start, finish do
+      local key = keys[i]
+      parts[#parts + 1] = chunkIndent .. encodeKey(key) .. " = " .. encodeValue(t[key], chunkIndent, seen) .. ",\n"
+    end
+    parts[#parts + 1] = inner .. "  }\n"
+    parts[#parts + 1] = inner .. "end)()\n"
+    for i = start, finish do
+      local key = keys[i]
+      parts[#parts + 1] = inner .. "result" .. encodeIndex(key) .. " = chunk" .. encodeIndex(key) .. "\n"
+    end
+  end
+  parts[#parts + 1] = indent .. "return result\n"
+  parts[#parts + 1] = indent .. "end)()"
+  return table.concat(parts)
+end
+
 ---@param t table<LuaWriter.Key, LuaWriter.Value>
 ---@param indent string
 ---@param seen table<LuaWriter.Value, boolean>
@@ -100,19 +152,16 @@ local function encodeTable(t, indent, seen)
     seen[t] = nil
     return "{}"
   end
+  if #keys > TABLE_CHUNK_SIZE then
+    local result = encodeChunkedTable(t, keys, indent, seen)
+    seen[t] = nil
+    return result
+  end
   local inner = indent .. "  "
   local parts = { "{\n" } ---@type string[]
   for i = 1, #keys do
     local k = keys[i]
-    local keyStr = ""
-    if type(k) == "number" then
-      keyStr = "[" .. encodeNumber(k) .. "]"
-    elseif isIdentifier(k) then
-      keyStr = k
-    else
-      keyStr = "[" .. encodeString(k) .. "]"
-    end
-    parts[#parts + 1] = inner .. keyStr .. " = " .. encodeValue(t[k], inner, seen) .. ",\n"
+    parts[#parts + 1] = inner .. encodeKey(k) .. " = " .. encodeValue(t[k], inner, seen) .. ",\n"
   end
   parts[#parts + 1] = indent .. "}"
   seen[t] = nil

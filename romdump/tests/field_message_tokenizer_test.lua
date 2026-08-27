@@ -48,6 +48,32 @@ function T.tokenizes_normal_glyphs_with_utf8_text()
   Assert.deepEqual(tokens[6].raw, { 0xFFFF })
 end
 
+function T.tokenizes_source_symbol_glyphs()
+  local tokens = tokenize({ 0x0014, 0x0051, 0x002C, 0x0022, 0x0030, 0x00EE, 0x0100, 0x0105, 0x011F, 0x0120, 0xFFFF })
+  Assert.equal(tokens[1].kind, "glyph")
+  Assert.equal(tokens[1].text, "こ")
+  Assert.equal(tokens[2].text, "ん")
+  Assert.equal(tokens[3].text, "に")
+  Assert.equal(tokens[4].text, "ち")
+  Assert.equal(tokens[5].text, "は")
+  Assert.equal(tokens[6].text, "㊚")
+  Assert.equal(tokens[7].text, "○")
+  Assert.equal(tokens[8].text, "♫")
+  Assert.equal(tokens[9].text, "‣")
+  Assert.equal(tokens[10].text, "＆")
+  Assert.equal(tokens[11].kind, "eos")
+end
+
+function T.tokenizes_packed_trainer_name_without_losing_the_message_eos()
+  local tokens = tokenize({ FieldMessageText.TRNAME, 0x592B, 0x0FFC, 0xFFFF })
+  Assert.equal(#tokens, 2)
+  Assert.equal(tokens[1].kind, "substitution")
+  Assert.equal(tokens[1].control, FieldMessageText.TRNAME)
+  Assert.deepEqual(tokens[1].raw, { FieldMessageText.TRNAME, 0x592B, 0x0FFC })
+  Assert.equal(tokens[2].kind, "eos")
+  Assert.deepEqual(tokens[2].raw, { FieldMessageText.EOS })
+end
+
 function T.tokenizes_breaks_losslessly()
   local tokens = tokenize({ 0x0121, 0xE000, 0x0122, 0x25BC, 0x0123, 0x25BD, 0x0124, 0xFFFF })
   Assert.equal(tokens[2].kind, "line_break")
@@ -148,6 +174,12 @@ function T.truncated_extended_control_is_typed()
   end)
   returnsCode("MESSAGE_CONTROL_TRUNCATED", function()
     return Tokenizer.tokenize({ 0xFFFE, 0x0100, 0x0005, 0x0001 }, charmap)
+  end)
+end
+
+function T.truncated_packed_trainer_name_is_typed()
+  returnsCode("MESSAGE_TRNAME_TRUNCATED", function()
+    return Tokenizer.tokenize({ FieldMessageText.TRNAME, 0x012B }, charmap)
   end)
 end
 

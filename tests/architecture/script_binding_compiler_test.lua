@@ -147,6 +147,31 @@ function T.tests.reuses_public_ids_and_explicit_elm_override_target()
   )
 end
 
+function T.tests.resolves_standard_event_scripts_through_the_common_catalog()
+  local manifest = compiler().compile(
+    {
+      fieldBundle(4, 137, {
+        objects = {
+          { objectEventId = 0, scriptId = 9100 },
+          { objectEventId = 1, scriptId = 9101 },
+          { objectEventId = 2, scriptId = 3280 },
+        },
+        background = {},
+        coordinates = {},
+      }),
+    },
+    scriptBundle({
+      { member = 0, scriptIndex = 0 },
+      { member = 0, scriptIndex = 1 },
+      { member = 953, scriptIndex = 280 },
+    })
+  )
+
+  Assert.equal(manifest.maps[4].objects[0], "common.colosseum_pcwoman3")
+  Assert.equal(manifest.maps[4].objects[1], "common.colosseum_exit")
+  Assert.equal(manifest.maps[4].objects[2], ScriptCompiler.publicId(953, 280, SourceCatalog.catalog()))
+end
+
 function T.tests.rejects_duplicate_event_id_with_context()
   local base = fieldBundle(60, 842, {
     objects = {

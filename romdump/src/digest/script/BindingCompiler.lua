@@ -47,6 +47,16 @@ local function targetFor(mapId, kind, scriptBankId, event, source, stdCatalog)
   local rawScriptId = event.scriptId
   assert(type(rawScriptId) == "number" and rawScriptId > 0, "bindable event requires a positive script id")
   assert(rawScriptId % 1 == 0, "bindable event script id must be an integer")
+
+  local standard = stdCatalog.locate(rawScriptId)
+  if standard ~= nil then
+    local member = source[standard.member]
+    if member == nil or not member[standard.scriptIndex] then
+      sourceFailure(mapId, kind, scriptBankId, event, standard.scriptIndex)
+    end
+    return ScriptCompiler.publicId(standard.member, standard.scriptIndex, stdCatalog)
+  end
+
   local scriptIndex = (rawScriptId - 1) --[[@as integer]]
   local member = source[scriptBankId]
   if member == nil or not member[scriptIndex] then
