@@ -26,7 +26,7 @@ local function writeActorIndex(c, spriteIds)
     schema = FieldActorCache.INDEX_SCHEMA,
     spriteIds = spriteIds,
     runtime = {
-      avatars = { { id = "hero", spriteId = 0 } },
+      avatars = { { id = "hero", spriteId = 0, gender = 0 } },
       variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
     },
   })
@@ -60,6 +60,20 @@ function T.actor_index_without_runtime_config_is_not_ready()
   c:writeLua(FieldActorCache.indexPath(), { schema = FieldActorCache.INDEX_SCHEMA, spriteIds = { 0 } })
   c:write(FieldActorCache.markerPath(), "m")
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "the runtime avatar/sprite config is required by the schema")
+end
+
+function T.actor_index_avatar_without_gender_is_not_ready()
+  local c = cache()
+  c:writeLua(FieldActorCache.indexPath(), {
+    schema = FieldActorCache.INDEX_SCHEMA,
+    spriteIds = { 0 },
+    runtime = {
+      avatars = { { id = "hero", spriteId = 0 } },
+      variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
+    },
+  })
+  c:write(FieldActorCache.markerPath(), "m")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "avatar gender is required by the current actor contract")
 end
 
 function T.actor_visual_with_wrong_schema_is_not_ready()

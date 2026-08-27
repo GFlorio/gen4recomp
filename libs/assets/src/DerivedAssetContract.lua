@@ -82,7 +82,7 @@ DerivedAssetContract.fieldCells = {
 DerivedAssetContract.fieldActors = {
   cacheFormat = "field-actor-cache-v1",
   schema = "g4-field-actor-v2",
-  indexSchema = "g4-field-actor-index-v1",
+  indexSchema = "g4-field-actor-index-v2",
 }
 
 DerivedAssetContract.fieldCamera = {

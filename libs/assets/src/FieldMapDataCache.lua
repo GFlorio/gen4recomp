@@ -41,7 +41,7 @@ end
 
 -- The authoritative event-collection rule of the current field-map record:
 -- true only when every required collection is present as an array. Runtime
--- consumers that read field records (the map loader, the scenario) validate
+-- consumers that read field records validate
 -- against this single rule; a record that fails it is malformed generated
 -- data, never an empty feature.
 ---@param events unknown

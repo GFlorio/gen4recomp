@@ -1,5 +1,5 @@
 -- Save and resume tests: the serializable
--- scripts bucket of g4-field-save-v3. They pin relative-timing capture and
+-- scripts bucket of g4-field-save-v4. They pin relative-timing capture and
 -- rebasing: no tick is duplicated or skipped across a
 -- capture/restore boundary, completed-but-unconsumed tasks restore as
 -- completed and are never polled again, resume_pending owners preserve their
@@ -473,9 +473,9 @@ T["capture requires phase boundary"] = function()
   Assert.isFalse(ok)
 end
 
--- 12. g4-field-save-v3: the field bucket stays valid and the scripts bucket
+-- 12. g4-field-save-v4: the field bucket stays valid and the scripts bucket
 -- rides along.
-T["field save v3 round trip"] = function()
+T["field save v4 round trip"] = function()
   local FieldEventState = require("libs.engine.src.FieldEventState")
   local eventState = FieldEventState.new()
   eventState:setFlag(0x800)
@@ -512,7 +512,6 @@ T["field save v3 round trip"] = function()
   } --[[@as FieldSave.Session]]
   local record = FieldSave.capture(session, {
     avatarId = "hero",
-    scenario = "scenario-a",
     world = { flags = { [5] = true }, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scriptsBucket = { schema = ScriptSave.SCHEMA_NAME, placeholder = true },
     auxiliaryUi = { requested = "shown", state = "shown" },

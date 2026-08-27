@@ -1,7 +1,6 @@
--- ROM-conformance test for the object-actor lifecycle against real ROM data: the
--- deterministic scenario hides exactly the intended laboratory actors, every
--- visible target actor resolves one BDHC surface with no override, and repeated
--- map entry neither duplicates an identity nor leaks a visual reference.
+-- ROM-conformance test for the object-actor lifecycle against real ROM data:
+-- actors resolve their source events and terrain surfaces, and repeated map
+-- entry neither duplicates an identity nor leaks a visual reference.
 --
 -- Visual loading is stubbed here on purpose: the compiled bundle is the subject
 -- of field_actors_test. This test is about lifecycle over real
@@ -11,13 +10,11 @@ local Assert = require("tests.support.Assert")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
-local FieldScenario = require("libs.engine.src.FieldScenario")
 local HgssBdhc = require("romdump.src.digest.HgssBdhc")
 local LandData = require("romdump.src.digest.LandData")
 local MapResolver = require("romdump.src.digest.MapResolver")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local actorManifest = require("romdump.src.config.FieldActors")
-local scenarioManifest = require("data.manifests.field_scenario")
 
 local T = {}
 
@@ -89,7 +86,6 @@ end
 local function labSession(romFs)
   local reader = fieldDataFor(romFs)
   local eventState = FieldEventState.new()
-  FieldScenario.apply(scenarioManifest, eventState, reader)
   local assets = stubAssets()
   local manager = FieldActorManager.new({ assets = assets, policy = POLICY })
   ---@cast manager FieldActorManager
@@ -97,17 +93,6 @@ local function labSession(romFs)
   ---@cast map RuntimeFieldMap
   manager:enterMap(map, eventState)
   return manager, eventState, assets, map
-end
-
-function T.scenario_resolves_every_listed_object_to_a_rom_flag(romFs)
-  local applied = FieldScenario.apply(scenarioManifest, FieldEventState.new(), fieldDataFor(romFs))
-  Assert.equal(#applied, #scenarioManifest.visibility)
-  for _, entry in ipairs(applied) do
-    Assert.isTrue(
-      entry.eventFlag > 0,
-      "scenario entry " .. entry.mapId .. "/" .. entry.objectEventId .. " resolved to flag 0"
-    )
-  end
 end
 
 function T.every_target_map_object_event_id_is_unique(romFs)
@@ -119,17 +104,6 @@ function T.every_target_map_object_event_id_is_unique(romFs)
       seen[event.objectEventId] = true
     end
   end
-end
-
-function T.demo_scenario_shows_elm_and_the_aide_and_hides_the_story_actors(romFs)
-  local manager = labSession(romFs)
-  ---@cast manager FieldActorManager
-  Assert.notNil(manager:getById("map:61:object:0"), "Professor Elm must be visible")
-  Assert.notNil(manager:getById("map:61:object:2"), "the aide must be visible")
-  Assert.isNil(manager:getById("map:61:object:1"), "the officer must be hidden")
-  Assert.isNil(manager:getById("map:61:object:3"), "the friend actor must be hidden")
-  ---@cast manager FieldActorManager
-  Assert.equal(#FieldActorManager.actorsOf(manager, LAB), 2)
 end
 
 function T.visible_lab_actors_resolve_one_surface_and_occupy_their_cell(romFs)
@@ -151,38 +125,6 @@ function T.visible_lab_actors_resolve_one_surface_and_occupy_their_cell(romFs)
   Assert.equal(elm.facing, "south")
   Assert.equal(elm.sourceEvent.eventFlag, 401)
   Assert.equal(elm.sourceEvent.scriptId, 1)
-end
-
-function T.no_visible_scenario_actor_stands_on_a_warp_cell(romFs)
-  local reader = fieldDataFor(romFs)
-  local eventState = FieldEventState.new()
-  FieldScenario.apply(scenarioManifest, eventState, reader)
-  for _, mapId in ipairs({ 60, LAB }) do
-    local field = reader(mapId)
-    local warpCells = {}
-    for _, warp in ipairs(field.events.warps) do
-      warpCells[warp.x .. ":" .. warp.z] = warp
-    end
-    for _, event in ipairs(field.events.objects) do
-      -- The same visibility rule the manager applies: an object exists only
-      -- while its event flag is clear. A visible actor on a warp cell would
-      -- block a walking entry into the warp.
-      if not eventState:isFlagSet(event.eventFlag) then
-        Assert.isNil(
-          warpCells[event.x .. ":" .. event.z],
-          "map "
-            .. mapId
-            .. " visible object "
-            .. event.objectEventId
-            .. " stands on warp cell ("
-            .. event.x
-            .. ","
-            .. event.z
-            .. ")"
-        )
-      end
-    end
-  end
 end
 
 function T.flag_toggles_remove_and_restore_elm_on_one_step(romFs)
@@ -218,7 +160,7 @@ function T.repeated_lab_entry_keeps_identities_stable_and_visuals_balanced(romFs
     Assert.equal(assets:total(), 0)
     manager:enterMap(map, eventState)
     Assert.equal(assets:total(), baseline)
-    Assert.equal(#FieldActorManager.actorsOf(manager, LAB), 2)
+    Assert.equal(#FieldActorManager.actorsOf(manager, LAB), baseline)
   end
   manager:dispose()
   Assert.equal(assets:total(), 0)

@@ -34,7 +34,6 @@ local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
 local FieldSave = require("libs.engine.src.FieldSave")
-local FieldScenario = require("libs.engine.src.FieldScenario")
 local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
 local FieldScripts = require("game.src.game.FieldScripts")
 local FieldSession = require("libs.engine.src.FieldSession")
@@ -59,7 +58,6 @@ local FieldAudio = require("game.src.game.audio.FieldAudio")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
-local FieldScenarioManifest = require("data.manifests.field_scenario")
 local FieldPlayerManifest = require("data.manifests.field_player")
 local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
@@ -251,6 +249,54 @@ local function avatarIdSet(actorIndex)
   return set
 end
 
+---@param avatars table[]
+local function validateAvatarConfig(avatars)
+  assert(type(avatars) == "table" and #avatars > 0, "field actor index must contain avatars")
+  local genders = {}
+  for _, avatar in ipairs(avatars) do
+    assert(type(avatar) == "table", "field actor avatar metadata must be a table")
+    assert(type(avatar.id) == "string" and avatar.id ~= "", "field actor avatar id must be a non-empty string")
+    assert(
+      type(avatar.spriteId) == "number" and avatar.spriteId >= 0 and avatar.spriteId % 1 == 0,
+      "field actor avatar spriteId must be a non-negative integer"
+    )
+    assert(FieldPlayerData.GENDERS[avatar.gender] == true, "field actor avatar gender is unsupported")
+    assert(genders[avatar.gender] == nil, "field actor index contains duplicate playable avatar genders")
+    genders[avatar.gender] = true
+  end
+  for gender in pairs(FieldPlayerData.GENDERS) do
+    assert(genders[gender] == true, "field actor index has no avatar for player gender " .. gender)
+  end
+end
+
+---@param avatars table[]
+---@param id string
+---@return table
+local function avatarById(avatars, id)
+  assert(type(id) == "string" and id ~= "", "field avatar id must be a non-empty string")
+  for index, avatar in ipairs(avatars) do
+    if avatar.id == id then
+      return { index = index, id = avatar.id, spriteId = avatar.spriteId, gender = avatar.gender }
+    end
+  end
+  error("compiled avatars have no entry for " .. id, 0)
+end
+
+---@param avatars table[]
+---@param gender integer
+---@return table
+local function avatarForGender(avatars, gender)
+  assert(FieldPlayerData.GENDERS[gender] == true, "field player gender is unsupported")
+  local match
+  for _, avatar in ipairs(avatars) do
+    if avatar.gender == gender then
+      assert(match == nil, "compiled avatars contain duplicate playable gender")
+      match = avatar
+    end
+  end
+  return assert(match, "compiled avatars have no entry for player gender " .. gender)
+end
+
 -- The player consults live actors for its current logical map and source events
 -- for an unloaded logical destination. The latter is a read-only preflight.
 ---@param candidate FieldOccupancyCandidate
@@ -425,6 +471,7 @@ function FieldRuntime:_load()
       "field actor index has no runtime configuration"
     )
     self.actorConfig = actorIndex.runtime
+    validateAvatarConfig(self.actorConfig.avatars)
     -- The player-data validation context: the generated field font charmap
     -- and the imported dialogue frame-index set, loaded once and injected
     -- into fresh-session construction and the save store (the same pattern
@@ -619,20 +666,13 @@ function FieldRuntime:_load()
     local width, height = self.viewportWidth, self.viewportHeight
     self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
     self:_updateCameraProjection()
-    -- Event state: a persisted save owns the flags/vars and wins over the
-    -- demo scenario. Only a fresh boot (no save) seeds the scenario. The
-    -- save's world bucket carries the numeric flag/var maps in the
-    -- event-state shape.
+    -- A resumed save owns the persisted flags/vars. A fresh session receives
+    -- an empty event state; scripts own all later world-state changes.
     local restoredWorld = restored and restored.world
     self.eventState = FieldEventState.new(restoredWorld and {
       flags = restoredWorld.flags,
       vars = restoredWorld.variables,
     } or nil)
-    if not restored then
-      FieldScenario.apply(FieldScenarioManifest, self.eventState, function(mapId)
-        return cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-      end)
-    end
     self.actorAssets = FieldActorDefinitionProvider.new(cacheFs)
     self.actors = FieldActorManager.new({
       assets = self.actorAssets,
@@ -642,11 +682,10 @@ function FieldRuntime:_load()
 
     -- The player's graphic is one more compiled actor visual: it is acquired from
     -- the same reference-counted provider, and FieldPlayer keeps every bit of
-    -- movement authority. A resumed save names the avatar; a fresh boot uses the
-    -- scenario's configured pick. Avatar selection validates against the
-    -- generated actor configuration.
-    self.avatar =
-      FieldScenario.avatarById(self.actorConfig.avatars, (restored and restored.avatar) or FieldScenarioManifest.avatar)
+    -- movement authority. A resumed save names the avatar; a fresh boot derives
+    -- it from the validated player profile and generated avatar capabilities.
+    self.avatar = restored and avatarById(self.actorConfig.avatars, restored.avatar)
+      or avatarForGender(self.actorConfig.avatars, self.playerData.profile.gender)
     self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
     self.playerVisual = FieldPlayerVisual.new({
       player = self.player,
@@ -1280,7 +1319,6 @@ function FieldRuntime:saveSession(successText)
     end
     self.saveStore:save(FieldSave.capture(session, {
       avatarId = self.avatar.id,
-      scenario = FieldScenarioManifest.id,
       world = world,
       scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
         registryFingerprint = self.scripts:registryFingerprint(),

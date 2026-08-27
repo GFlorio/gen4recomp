@@ -1,6 +1,6 @@
--- Declared fresh-boot starting locations for the two target maps, keyed by
--- semantic symbol. These are boot spawns consumed by FieldRuntime's declared-
--- spawn contract, not runtime warp objects. Coordinates are decomp-derived:
+-- Declared fresh-field starting locations for the currently configured maps,
+-- keyed by semantic symbol. These are boot spawns consumed by FieldRuntime's
+-- declared-spawn contract, not runtime warp objects. Coordinates are source-derived:
 -- Elm's Lab starts on the New Bark warp side of the lab; New Bark starts on
 -- the lab-entry side. No love dependency.
 

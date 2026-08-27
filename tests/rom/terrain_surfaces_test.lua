@@ -340,7 +340,6 @@ function T.upper_new_bark_staircase_state_reloads_on_the_same_surface(romFs, ver
   ---@cast session FieldSave.Session
   local saved = FieldSave.capture(session, {
     avatarId = "hero",
-    scenario = "terrain-surfaces",
     world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scriptsBucket = {},
     auxiliaryUi = { requested = "shown", state = "shown" },

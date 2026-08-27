@@ -104,7 +104,6 @@ local function record(overrides)
     terrainDependencyHash = "terrain-a",
     facing = "north",
     avatar = "hero",
-    scenario = "pre-script-demo-v1",
     world = world(),
     scripts = {},
     auxiliaryUi = { requested = "shown", state = "shown" },
@@ -209,7 +208,6 @@ local function capture(map, opts)
   return FieldSave.capture(session(map), {
     avatarId = opts.avatarId or "hero",
     world = opts.world or world(),
-    scenario = opts.scenario or "pre-script-demo-v1",
     scriptsBucket = opts.scriptsBucket or {},
     auxiliaryUi = opts.auxiliaryUi or { requested = "shown", state = "shown" },
     playerData = opts.playerData or playerData(),
@@ -281,7 +279,6 @@ function T.stable_state_round_trips_exactly()
   Assert.equal(result.surfaceId, 11)
   Assert.equal(result.worldY, 4)
   Assert.equal(result.avatar, "hero")
-  Assert.equal(result.scenario, "pre-script-demo-v1")
   Assert.deepEqual(result.world, { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } })
 end
 
@@ -523,8 +520,8 @@ function T.save_surface_recovery_uses_changed_terrain_identity_without_migration
 
   local saved = record({ terrainDependencyHash = oldHash, surfaceId = 2, worldY = 0 })
   local valid = assert(FieldSave.validate(saved, { playerDataContext = playerDataContext() }))
-  Assert.equal(valid.schema, "g4-field-save-v3")
-  Assert.equal(saved.schema, "g4-field-save-v3")
+  Assert.equal(valid.schema, "g4-field-save-v4")
+  Assert.equal(saved.schema, "g4-field-save-v4")
 
   local logicalMap = runtimeMap(oldHash, { flat(2, 3), flat(7, 0.5) })
   logicalMap.scene.type = "outdoor"
@@ -544,7 +541,7 @@ function T.save_surface_recovery_uses_changed_terrain_identity_without_migration
   Assert.equal(reused.worldY, 3)
   Assert.equal(
     assert(FieldSave.validate(matching, { playerDataContext = playerDataContext() })).schema,
-    "g4-field-save-v3"
+    "g4-field-save-v4"
   )
 
   oldCoverage:release()
@@ -635,25 +632,6 @@ function T.invalid_avatar_identifiers_are_rejected()
     avatars = { hero = true, heroine = true },
     playerDataContext = playerDataContext(),
   }))
-end
-
-function T.invalid_scenario_ids_are_rejected()
-  throwsCode("FIELD_SAVE_SCENARIO_INVALID", function()
-    local _, err = FieldSave.validate(record({ scenario = 5 }))
-    error(err)
-  end)
-  throwsCode("FIELD_SAVE_SCENARIO_INVALID", function()
-    local _, err = FieldSave.validate(record({ scenario = "" }))
-    error(err)
-  end)
-  -- The current runtime capture always emits the scenario id: absence is
-  -- invalid, not a defaulting case.
-  throwsCode("FIELD_SAVE_SCENARIO_INVALID", function()
-    local missing = record()
-    missing.scenario = nil
-    local _, err = FieldSave.validate(missing)
-    error(err)
-  end)
 end
 
 -- The schema boundary itself owns deep world validation through the

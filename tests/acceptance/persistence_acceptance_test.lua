@@ -8,7 +8,6 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FieldSave = require("libs.engine.src.FieldSave")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local FieldScenarioManifest = require("data.manifests.field_scenario")
 
 local T = {
   metadata = {
@@ -84,7 +83,6 @@ local function plantSave(game, overrides)
     terrainDependencyHash = game.runtime.runtimeMap.terrainDependencyHash,
     facing = "south",
     avatar = "hero",
-    scenario = FieldScenarioManifest.id,
     world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scripts = validScriptsBucket(game),
     auxiliaryUi = { requested = "shown", state = "shown" },
@@ -195,7 +193,6 @@ function T.tests.corrupt_save_fails_resume_boot()
         terrainDependencyHash = "corrupted",
         facing = "south",
         avatar = "hero",
-        scenario = FieldScenarioManifest.id,
         world = { flags = {}, variables = {}, objects = {}, rng = {} },
         scripts = {},
         auxiliaryUi = { requested = "shown", state = "shown" },
@@ -308,7 +305,6 @@ function T.tests.obsolete_save_filename_is_not_read_as_the_current_save()
         terrainDependencyHash = resumed.runtime.runtimeMap.terrainDependencyHash,
         facing = "south",
         avatar = before.avatarId,
-        scenario = FieldScenarioManifest.id,
         world = resumed.runtime.scripts.worldState:capture(),
         auxiliaryUi = { requested = "shown", state = "shown" },
       })

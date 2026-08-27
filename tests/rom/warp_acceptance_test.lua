@@ -30,7 +30,6 @@ local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 local PlayerDataContext = require("tests.support.PlayerDataContext")
 local SceneLoaderFixture = require("tests.rom.support.SceneLoaderFixture")
 local SaveFs = require("libs.storage.src.SaveFs")
-local FieldScenarioManifest = require("data.manifests.field_scenario")
 
 local T = {}
 
@@ -54,8 +53,7 @@ local WALK_TICKS = FieldPlayer.WALK_STEP_TICKS + 2
 local function autosaveRoundTrip(harness)
   Assert.isTrue(FieldSave.canCapture(harness.session), "a stable idle boundary can be captured")
   local record = FieldSave.capture(harness.session, {
-    avatarId = FieldScenarioManifest.avatar,
-    scenario = FieldScenarioManifest.id,
+    avatarId = "hero",
     world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scriptsBucket = {},
     auxiliaryUi = { requested = "shown", state = "shown" },

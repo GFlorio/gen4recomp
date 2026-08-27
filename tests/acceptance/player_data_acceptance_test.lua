@@ -19,7 +19,6 @@ local LuaWriter = require("libs.codec.src.LuaWriter")
 local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
-local FieldScenarioManifest = require("data.manifests.field_scenario")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
@@ -162,7 +161,6 @@ local function currentSessionRecord(game)
     terrainDependencyHash = game.runtime.runtimeMap.terrainDependencyHash,
     facing = snapshot.player.facing,
     avatar = snapshot.avatarId,
-    scenario = FieldScenarioManifest.id,
     world = game.runtime.scripts.worldState:capture(),
     scripts = ScriptSave.capture(game.runtime.scripts.scheduler, snapshot.tick, {
       registryFingerprint = game.runtime.scripts:registryFingerprint(),

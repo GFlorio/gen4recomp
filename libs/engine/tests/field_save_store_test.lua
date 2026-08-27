@@ -70,7 +70,6 @@ local function record(versionId, overrides)
     terrainDependencyHash = "terrain",
     facing = "south",
     avatar = "hero",
-    scenario = "pre-script-demo-v1",
     world = { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
     scripts = {},
     auxiliaryUi = { requested = "shown", state = "shown" },

@@ -1,6 +1,6 @@
 -- Defines and restores the project-owned field session save. The one schema
--- `g4-field-save-v3` carries the player field location, the persisted avatar
--- id, the scenario id that explains initialization, the required player-data
+-- `g4-field-save-v4` carries the player field location, the persisted avatar
+-- id, the required player-data
 -- bucket (the strict profile/options model, validated through the injected
 -- font charmap and frame-index context), the `world` bucket
 -- (project-owned serializable state: flags, variables, objects, rng, and
@@ -37,7 +37,6 @@ local FieldSave = {}
 ---@field terrainDependencyHash string
 ---@field facing string
 ---@field avatar string
----@field scenario string
 ---@field world table
 ---@field scripts table
 ---@field auxiliaryUi table
@@ -45,7 +44,6 @@ local FieldSave = {}
 
 ---@class FieldSave.CaptureOptions
 ---@field avatarId string
----@field scenario string
 ---@field world table
 ---@field scriptsBucket table
 ---@field auxiliaryUi table
@@ -91,7 +89,7 @@ local FieldSave = {}
 ---@field signpost { isModal: fun(self: table): boolean }?
 ---@field applicationHost { isActive: fun(self: table): boolean }?
 
-FieldSave.SCHEMA = "g4-field-save-v3"
+FieldSave.SCHEMA = "g4-field-save-v4"
 -- Relative to the SaveFs root (saves/<versionId>/), never the version cache.
 -- The live save is the only supported schema, so the path is the semantic
 -- name rather than a schema-numbered development filename.
@@ -169,16 +167,6 @@ local function validateAvatar(record, opts)
       FieldErrors.FIELD_SAVE_AVATAR_INVALID,
       "field save avatar is not one of the compiled player graphics",
       { avatar = record.avatar }
-    )
-  end
-end
-
-local function validateScenario(record)
-  if type(record.scenario) ~= "string" or record.scenario == "" then
-    Errors.raise(
-      FieldErrors.FIELD_SAVE_SCENARIO_INVALID,
-      "field save scenario must be an id string",
-      { scenario = record.scenario }
     )
   end
 end
@@ -322,7 +310,6 @@ local function validate(record, opts)
   end
   validateFieldState(record)
   validateAvatar(record, opts)
-  validateScenario(record)
   validateWorld(record)
   validateScripts(record, opts)
   validateAuxiliaryUi(record)
@@ -378,7 +365,6 @@ end
 function FieldSave.capture(session, opts)
   assert(FieldSave.canCapture(session), "field save requires an idle tile boundary")
   assert(opts and type(opts.avatarId) == "string" and opts.avatarId ~= "", "field save capture requires an avatar id")
-  assert(type(opts.scenario) == "string" and opts.scenario ~= "", "field save capture requires a scenario id")
   assert(type(opts.world) == "table", "field save capture requires a world bucket")
   assert(type(opts.scriptsBucket) == "table", "field save capture requires a scripts bucket")
   assert(type(opts.auxiliaryUi) == "table", "field save capture requires auxiliary UI state")
@@ -399,7 +385,6 @@ function FieldSave.capture(session, opts)
     terrainDependencyHash = runtimeMap.terrainDependencyHash,
     facing = player.facing,
     avatar = captureOptions.avatarId,
-    scenario = captureOptions.scenario,
     world = captureOptions.world,
     scripts = captureOptions.scriptsBucket,
     auxiliaryUi = captureOptions.auxiliaryUi,
@@ -520,7 +505,6 @@ local function restore(record, loader, expectedVersionId, opts)
     facing = canonical.facing,
     suppression = suppression,
     avatar = canonical.avatar,
-    scenario = canonical.scenario,
     world = canonical.world,
     scripts = canonical.scripts,
     auxiliaryUi = canonical.auxiliaryUi,

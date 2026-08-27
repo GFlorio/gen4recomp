@@ -1,6 +1,6 @@
 -- Stable error codes for the engine field layer: event state, actors,
 -- terrain surfaces, render-queue classification, warp resolution, map
--- loading/saving, field coordinates, transitions, scenario/dialogue state,
+-- loading/saving, field coordinates, transitions, dialogue state,
 -- animated models/materials, scene/mesh/GPU asset loading.
 -- Every module in this layer raises Errors with exactly these codes; modules
 -- must reference the named constants, never bare literals, so a rename stays
@@ -44,10 +44,6 @@ FieldErrors.TERRAIN_SURFACE_DISCONNECTED = "TERRAIN_SURFACE_DISCONNECTED"
 
 FieldErrors.FIELD_COORDINATES_INVALID = "FIELD_COORDINATES_INVALID"
 FieldErrors.FIELD_COORDINATES_OUT_OF_COVERAGE = "FIELD_COORDINATES_OUT_OF_COVERAGE"
-
-FieldErrors.SCENARIO_FLAG_RESOLUTION_FAILED = "SCENARIO_FLAG_RESOLUTION_FAILED"
-FieldErrors.SCENARIO_OBJECT_NOT_FOUND = "SCENARIO_OBJECT_NOT_FOUND"
-FieldErrors.SCENARIO_AVATAR_UNKNOWN = "SCENARIO_AVATAR_UNKNOWN"
 
 FieldErrors.MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR = "MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR"
 FieldErrors.MAP_TRANSITION_INGRESS_FAILED = "MAP_TRANSITION_INGRESS_FAILED"
@@ -154,7 +150,6 @@ FieldErrors.FIELD_SAVE_SURFACE_INVALID = "FIELD_SAVE_SURFACE_INVALID"
 FieldErrors.FIELD_SAVE_TERRAIN_DEPENDENCY_INVALID = "FIELD_SAVE_TERRAIN_DEPENDENCY_INVALID"
 FieldErrors.FIELD_SAVE_FACING_INVALID = "FIELD_SAVE_FACING_INVALID"
 FieldErrors.FIELD_SAVE_AVATAR_INVALID = "FIELD_SAVE_AVATAR_INVALID"
-FieldErrors.FIELD_SAVE_SCENARIO_INVALID = "FIELD_SAVE_SCENARIO_INVALID"
 FieldErrors.FIELD_SAVE_WORLD_INVALID = "FIELD_SAVE_WORLD_INVALID"
 FieldErrors.FIELD_SAVE_SCRIPTS_INVALID = "FIELD_SAVE_SCRIPTS_INVALID"
 FieldErrors.FIELD_SAVE_AUXILIARY_UI_INVALID = "FIELD_SAVE_AUXILIARY_UI_INVALID"
