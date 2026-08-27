@@ -311,7 +311,8 @@ function FieldState:_recordGeometrySignature(width, height, topology)
 end
 
 function FieldState:resize(width, height)
-  local topology = self.topologyProvider(width, height)
+  local provider = self.topologyProvider or defaultScreenTopology
+  local topology = provider(width, height)
   self.runtime:resizePresentation(width, height, topology)
   if self._pollPresentationTopology then
     self:_recordGeometrySignature(width, height, topology)
@@ -334,7 +335,8 @@ function FieldState:draw()
     resized = true
   end
   if self._pollPresentationTopology and not resized then
-    local topology = self.topologyProvider(width, height)
+    local provider = self.topologyProvider or defaultScreenTopology
+    local topology = provider(width, height)
     if self:_geometrySignature(width, height, topology) ~= self._lastGeometrySignature then
       -- Injected providers remain polling-enabled so same-size structural
       -- topology changes still reach the runtime geometry owner.
@@ -417,10 +419,28 @@ function FieldState:draw()
       width = math.max(bounds.width, 256 * fieldScale),
       height = math.max(bounds.height, 48 * fieldScale),
     }
-    local dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
-      scale = fieldScale,
-      cursorPlacement = self.runtime.uiManifest.dialogueFrames.continueCursor.placement,
-    })
+    local manifestPlacement = self.runtime.uiManifest
+        and self.runtime.uiManifest.dialogueFrames
+        and self.runtime.uiManifest.dialogueFrames.continueCursor
+        and self.runtime.uiManifest.dialogueFrames.continueCursor.placement
+      or nil
+    local dialoguePresentation
+    if manifestPlacement then
+      dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
+        scale = fieldScale,
+        cursorPlacement = manifestPlacement,
+      })
+    else
+      -- Component harnesses stub the field runtime without a derived UI
+      -- manifest. Dialogue presentation still needs a cursor rectangle for the
+      -- shared overlay, but the production manifest remains the sole source of
+      -- truth: FieldUiAssetCache validates generated placement (240,168,16,16)
+      -- before a real FieldState is ever constructed. Only the stub path
+      -- degrades gracefully by using the layout default placement.
+      dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
+        scale = fieldScale,
+      })
+    end
     if self.runtime.dialogue:isModal() then
       self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale, dialoguePresentation)
     end
