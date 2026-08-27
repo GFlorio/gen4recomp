@@ -209,8 +209,26 @@ function T.animation_chunk_reports_frames_with_durations()
   local anim = assert(G2dDecoder.decodeAnimation(data))
   Assert.equal(#anim.anims, 1)
   Assert.equal(#anim.anims[1].frames, 2)
-  Assert.deepEqual(anim.anims[1].frames[1], { cell = 0, duration = 12 })
-  Assert.deepEqual(anim.anims[1].frames[2], { cell = 1, duration = 3 })
+  Assert.deepEqual(anim.anims[1].frames[1], {
+    cell = 0,
+    duration = 12,
+    element = "none",
+    translateX = 0,
+    translateY = 0,
+    scaleX = 1,
+    scaleY = 1,
+    rotation = 0,
+  })
+  Assert.deepEqual(anim.anims[1].frames[2], {
+    cell = 1,
+    duration = 3,
+    element = "none",
+    translateX = 0,
+    translateY = 0,
+    scaleX = 1,
+    scaleY = 1,
+    rotation = 0,
+  })
 end
 
 -- firstFrame is a byte offset and numFrames a frame count: the normalized range
@@ -235,7 +253,16 @@ function T.source_animation_frame_offsets_are_decoded_in_frame_units()
   })
   local anim = assert(G2dDecoder.decodeAnimation(data))
   Assert.equal(#anim.anims[1].frames, 1)
-  Assert.deepEqual(anim.anims[1].frames[1], { cell = 1, duration = 2 })
+  Assert.deepEqual(anim.anims[1].frames[1], {
+    cell = 1,
+    duration = 2,
+    element = "none",
+    translateX = 0,
+    translateY = 0,
+    scaleX = 1,
+    scaleY = 1,
+    rotation = 0,
+  })
 end
 
 -- The frame data offset must point inside the chunk before the cell index is
