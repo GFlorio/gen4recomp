@@ -373,10 +373,15 @@ function FieldActorManager:drawRecords()
         record = { world = {} }
         self._drawRecordByActorId[actor.actorId] = record
       end
+      -- Render-only presentation offset (e.g. walk-in-place bob) is applied
+      -- here, at the final draw-position boundary; the actor's logical
+      -- worldX/worldY/worldZ (read by terrain, collision, and save) never
+      -- carry it. A fake actor without the field draws at zero offset.
+      local offset = actor.presentationOffset
       record.actorId = actor.actorId
       record.spriteId = actor.spriteId
-      record.world.x = actor.worldX
-      record.world.y = actor.worldY
+      record.world.x = actor.worldX + (offset and offset.x or 0)
+      record.world.y = actor.worldY + (offset and offset.y or 0)
       record.world.z = actor.worldZ
       record.facing = actor.facing
       record.pose = actor.pose
@@ -616,13 +621,12 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
   end
   local kind = action.action
-  -- Face is instantaneous; do not start scripted motion while a walk is
-  -- interpolating — just update facing.
-  if kind == "face" then
-    if action.direction ~= nil then
-      actor:setFacing(action.direction)
-    end
-    return
+  -- Face is instantaneous: apply the facing directly, then still flow
+  -- through the generic actor transaction below (with a stay-put start/dest)
+  -- so pose settles to idle and any residual locomotion presentation offset
+  -- clears exactly like every other non-locomotion action.
+  if kind == "face" and action.direction ~= nil then
+    actor:setFacing(action.direction)
   end
   local direction = action.direction
   local distance = action.distance
@@ -736,6 +740,17 @@ function FieldActorManager:cancelScriptedMovement(actorId)
       -- worldY stays as committed surface height; actor.worldY already correct.
     end
   end
+end
+
+-- Called once a movement plan is fully exhausted, when there is no further
+-- action to begin (the usual locomotion-to-idle settle point). Guarantees
+-- the actor never keeps its final action's presentation after the task ends.
+function FieldActorManager:settleScriptedAction(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  actor:settlePresentation()
 end
 
 function FieldActorManager:isScriptedMoving(actorId)

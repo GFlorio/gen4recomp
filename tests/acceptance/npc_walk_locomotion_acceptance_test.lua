@@ -81,9 +81,11 @@ function T.tests.npc_walk_shows_intermediate_world_and_locomotion_frames()
           fieldX = actor.fieldX,
           fieldZ = actor.fieldZ,
           worldX = draw.world.x,
+          worldY = draw.world.y,
           worldZ = draw.world.z,
           pose = draw.pose,
           poseTick = draw.poseTick,
+          facing = actor.facing,
         }
       end
       local snapshot = game:snapshot()
@@ -140,6 +142,73 @@ function T.tests.npc_walk_shows_intermediate_world_and_locomotion_frames()
     Assert.isTrue(foundWalk, "mother must use walking pose during walk")
     Assert.isTrue(foundTickAdvance, "mother pose clock must advance during walk")
     Assert.equal(world:getVar(VAR_SCENE_PLAYERS_HOUSE_1F), 1)
+
+    -- Facing must already read the travel direction while the mother is
+    -- mid-step toward the next tile, not only once that tile commits.
+    local DIRECTION_FOR_DELTA = {
+      ["0:-1"] = "north",
+      ["0:1"] = "south",
+      ["-1:0"] = "west",
+      ["1:0"] = "east",
+    }
+    local checkedFacing = 0
+    for i = 2, #observations - 1 do
+      local prev = observations[i - 1]
+      local cur = observations[i]
+      if
+        cur.fieldX == prev.fieldX
+        and cur.fieldZ == prev.fieldZ
+        and (cur.worldX ~= prev.worldX or cur.worldZ ~= prev.worldZ)
+      then
+        for j = i + 1, #observations do
+          local later = observations[j]
+          if later.fieldX ~= prev.fieldX or later.fieldZ ~= prev.fieldZ then
+            local key = (later.fieldX - prev.fieldX) .. ":" .. (later.fieldZ - prev.fieldZ)
+            local expected = DIRECTION_FOR_DELTA[key]
+            if expected then
+              checkedFacing = checkedFacing + 1
+              Assert.equal(
+                cur.facing,
+                expected,
+                "mother must already face her travel direction while mid-step, not only after the tile commits"
+              )
+            end
+            break
+          end
+        end
+      end
+    end
+    Assert.isTrue(checkedFacing > 0, "must have observed at least one in-flight facing sample")
+
+    -- While logically and visually stationary outside walk-in-place, the
+    -- mother must not read as walking. Walk-in-place keeps fieldX/fieldZ and
+    -- worldX/worldZ fixed too, but its render-only vertical bob keeps worldY
+    -- moving; requiring worldY to also hold across the window is what
+    -- distinguishes true standstill from an active walk-in-place cycle.
+    local checkedIdle = 0
+    for i = 4, #observations do
+      local a, b, c, d = observations[i - 3], observations[i - 2], observations[i - 1], observations[i]
+      local stationary = a.fieldX == b.fieldX
+        and b.fieldX == c.fieldX
+        and c.fieldX == d.fieldX
+        and a.fieldZ == b.fieldZ
+        and b.fieldZ == c.fieldZ
+        and c.fieldZ == d.fieldZ
+        and a.worldX == b.worldX
+        and b.worldX == c.worldX
+        and c.worldX == d.worldX
+        and a.worldZ == b.worldZ
+        and b.worldZ == c.worldZ
+        and c.worldZ == d.worldZ
+        and a.worldY == b.worldY
+        and b.worldY == c.worldY
+        and c.worldY == d.worldY
+      if stationary then
+        checkedIdle = checkedIdle + 1
+        Assert.isFalse(d.pose == "walk", "mother must not show walking presentation while logically stationary")
+      end
+    end
+    Assert.isTrue(checkedIdle > 0, "must have observed at least one stationary sample")
   end)
 end
 

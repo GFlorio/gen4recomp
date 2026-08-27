@@ -23,6 +23,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field facing FieldDirection
 ---@field pose string
 ---@field poseTick integer
+---@field presentationOffset { x: number, y: number } render-only locomotion offset; zero outside its owning action
 ---@field visible boolean
 ---@field solid boolean
 ---@field rawMovement integer
@@ -35,6 +36,24 @@ local FieldObjectActor = {}
 FieldObjectActor.__index = FieldObjectActor
 
 local FACINGS = { north = true, south = true, west = true, east = true }
+
+-- Walk-in-place bob amplitude, in world units (source-presentation scale,
+-- applied before any host/camera transform). Two footstep bounces per cycle.
+local WALK_IN_PLACE_BOB_AMPLITUDE = 0.15
+
+-- Render-only vertical bob for a walk-in-place cycle, derived deterministically
+-- from the action's own fixed progress/duration ticks (never from draw
+-- frequency). Two bounded bounces per cycle, zero at both boundaries.
+---@param progressTicks integer
+---@param durationTicks integer
+---@return number
+local function walkInPlaceBobOffset(progressTicks, durationTicks)
+  if durationTicks <= 0 then
+    return 0
+  end
+  local t = progressTicks / durationTicks
+  return (WALK_IN_PLACE_BOB_AMPLITUDE / 2) * (1 - math.cos(4 * math.pi * t))
+end
 
 -- Identity is derived only from map and object-event identity, so it survives
 -- array reordering, coordinate changes, and repeated map entry.
@@ -74,6 +93,9 @@ function FieldObjectActor.new(opts)
     facing = facing,
     pose = "idle",
     poseTick = 0,
+    -- Render-only locomotion presentation offset (walk-in-place bob); never
+    -- mutates worldX/worldY/worldZ, which stay the logical/committed anchor.
+    presentationOffset = { x = 0, y = 0 },
     visible = true,
     -- Solid unless the source/generated event explicitly says otherwise; a
     -- zero interaction-script id is only "no A-button script" and carries no
@@ -160,11 +182,22 @@ function FieldObjectActor:beginScriptedAction(descriptor)
     startPose = self.pose,
     startPoseTick = self.poseTick,
   }
-  -- Enter walking pose for walk/jump; walk_in_place also walks.
+  -- Every action transaction starts from a zero presentation offset; only
+  -- walk_in_place's advance re-populates it while it is the active action.
+  self.presentationOffset.x = 0
+  self.presentationOffset.y = 0
+  -- Locomotion pose is true exactly while a locomotion action is active:
+  -- walk/jump/walk_in_place enter walking presentation, everything else
+  -- (face/delay/emote/gesture) settles to idle here so a non-locomotion
+  -- action never inherits a stale walking pose, and a contiguous locomotion
+  -- successor simply re-enters "walk" without an observable idle frame.
   if descriptor.action == "walk" or descriptor.action == "walk_in_place" or descriptor.action == "jump" then
     if not self.animationPaused then
       self.pose = "walk"
     end
+  else
+    self.pose = "idle"
+    self.poseTick = 0
   end
 end
 
@@ -190,10 +223,14 @@ function FieldObjectActor:advanceScriptedAction(progressTicks, durationTicks)
       self.worldY = m.startWorldY + (m.destWorldY - m.startWorldY) * t
     end
   elseif m.action == "walk_in_place" then
-    -- No translation; keep at start anchor.
+    -- No translation; keep at start anchor. The visible bob is a render-only
+    -- offset derived deterministically from the fixed action tick, never
+    -- written into worldY: terrain, camera, save, and collision all keep
+    -- reading the unchanged anchor.
     self.worldX = m.startWorldX
     self.worldZ = m.startWorldZ
     self.worldY = m.startWorldY
+    self.presentationOffset.y = walkInPlaceBobOffset(progressTicks, durationTicks)
   elseif m.action == "face" or m.action == "delay" or m.action == "emote" or m.action == "gesture" then
     -- No translation.
     self.worldX = m.startWorldX
@@ -235,6 +272,10 @@ function FieldObjectActor:commitScriptedAction()
   self.worldX = m.destWorldX
   self.worldY = m.destWorldY
   self.worldZ = m.destWorldZ
+  -- The transaction settles: a completed action never leaves a residual
+  -- render-only offset for the next action (or idle) to inherit.
+  self.presentationOffset.x = 0
+  self.presentationOffset.y = 0
   self._scriptedMotion = nil
   return result
 end
@@ -252,11 +293,35 @@ function FieldObjectActor:cancelScriptedAction()
     self.pose = m.startPose
     self.poseTick = m.startPoseTick
   end
+  self.presentationOffset.x = 0
+  self.presentationOffset.y = 0
   self._scriptedMotion = nil
 end
 
 function FieldObjectActor:isScriptedMoving()
   return self._scriptedMotion ~= nil
+end
+
+-- Force a stable idle baseline with no residual presentation offset. A
+-- completed movement plan has no further action to `beginScriptedAction`
+-- (which is where locomotion-to-idle settling normally happens), so the task
+-- calls this once the whole sequence is exhausted to guarantee the actor
+-- never keeps showing its final locomotion action's walking pose.
+function FieldObjectActor:settlePresentation()
+  assert(self._scriptedMotion == nil, "cannot settle presentation while a scripted action is active")
+  self.pose = "idle"
+  self.poseTick = 0
+  self.presentationOffset.x = 0
+  self.presentationOffset.y = 0
+end
+
+-- The active semantic action kind (`walk`, `walk_in_place`, `jump`, `face`,
+-- `delay`, `emote`, `gesture`), or nil while idle. This is the stable,
+-- renderer/emote-facing anchor for "what is this actor currently doing"
+-- without reaching into MovementTask's private plan state.
+---@return string|nil
+function FieldObjectActor:currentAction()
+  return self._scriptedMotion and self._scriptedMotion.action or nil
 end
 
 function FieldObjectActor:scriptedMotionState()

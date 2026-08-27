@@ -603,6 +603,33 @@ T["lock all pauses on blocking movement"] = function()
   Assert.equal(h.services.actors.actors.elm.fieldX, 5)
 end
 
+-- 18. A directional walk must already show its intended facing on the very
+-- first advanced tick of the action, not only once that tile's ticks are
+-- exhausted: the observable actor-facing lags the logical action today.
+T["directional walk establishes facing before the first advanced tick, not at the end"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "east" })
+  local resource = script("test.facingstart", {
+    S.applyMovement({
+      actor = "elm",
+      movement = { S.m.walk({ direction = "north", speed = "slow", tiles = 1 }) },
+    }),
+    S.waitMovement(),
+    S.stop(),
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  -- The first poll of a slow walk (16 ticks/tile) already advances the actor
+  -- toward its destination; the actor must already face north on this tick.
+  h.scheduler:step(101, nil)
+  local elm = h.services.actors.actors.elm
+  Assert.equal(elm.facing, "north", "facing must be established before the first advanced movement tick")
+  for tick = 102, 116 do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.equal(elm.fieldZ, 5, "the walk still completes its logical displacement north")
+end
+
 -- 17. A raw movement task (the ctx.tasks.movement descriptor path, created
 -- through the registry exactly as the lua-node handler does) joins the
 -- environment's movement generation at creation and rejects a second raw

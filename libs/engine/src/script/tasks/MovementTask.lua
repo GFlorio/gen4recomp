@@ -113,6 +113,7 @@ local function advanceAction(state, action, ctx)
     return true
   end
   local isFace = kind == "face"
+  local isLocomotion = kind == "walk" or kind == "walk_in_place" or kind == "jump"
   -- Lock facing controls whether the task's internal facing (and the actor
   -- facing applied at action end) follows the command; it does not gate the
   -- test-observable fake facing because the production beginScriptedAction
@@ -120,8 +121,20 @@ local function advanceAction(state, action, ctx)
   -- presentation begin before the facing gate so locked faces never touch the
   -- actor.
   local shouldBegin = not isFace or not state.facingLocked
-  if state.progressTicks == 0 and shouldBegin then
-    ctx.services.actors:beginScriptedAction(state.actor, action)
+  if state.progressTicks == 0 then
+    -- A directional locomotion action's facing is established atomically
+    -- before its first presentation is observable: the actor must never show
+    -- a walking frame with the previous facing and correct it only once the
+    -- action ends. `face` applies its own facing through beginScriptedAction
+    -- below (or the fake's commit path); direction lock silences the sprite
+    -- facing but never cancels the action's logical displacement vector.
+    if isLocomotion and not state.facingLocked and action.direction ~= nil then
+      state.facing = action.direction
+      ctx.services.actors:setFacing(state.actor, state.facing)
+    end
+    if shouldBegin then
+      ctx.services.actors:beginScriptedAction(state.actor, action)
+    end
   end
   state.progressTicks = state.progressTicks + 1
   if shouldBegin then
@@ -131,13 +144,8 @@ local function advanceAction(state, action, ctx)
     return false
   end
   state.progressTicks = 0
-  if not state.facingLocked then
-    if kind == "face" or kind == "walk" or kind == "walk_in_place" or kind == "jump" then
-      state.facing = action.direction
-      if not isFace then
-        ctx.services.actors:setFacing(state.actor, state.facing)
-      end
-    end
+  if not state.facingLocked and isFace then
+    state.facing = action.direction
   end
   if kind == "walk" or kind == "walk_in_place" then
     if kind == "walk" then
@@ -174,6 +182,11 @@ function MovementTask._advancePlan(state, ctx)
   while true do
     local action = state.sequence[state.actionIndex + 1]
     if action == nil then
+      -- The plan is exhausted: there is no further action to begin, which is
+      -- normally where locomotion presentation settles to idle. Settle here
+      -- so a sequence that ends on a locomotion action never leaves the
+      -- actor showing its final walking/bob presentation.
+      ctx.services.actors:settleAction(state.actor)
       state.completed = true
       return true
     end
