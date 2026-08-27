@@ -138,7 +138,13 @@ function T.visible_lab_actors_resolve_one_surface_and_occupy_their_cell(romFs)
   for _, actor in ipairs(FieldActorManager.actorsOf(manager, LAB)) do
     Assert.equal(actor.surfaceId, 0)
     Assert.equal(actor.worldY, 0)
-    Assert.isTrue(manager:isOccupied(LAB, actor.fieldX, actor.fieldZ, actor.surfaceId))
+    Assert.isTrue(manager:isOccupied(LAB, {
+      fieldX = actor.fieldX,
+      fieldZ = actor.fieldZ,
+      surfaceId = actor.surfaceId,
+      cellKey = actor.cellKey,
+      sourceSurfaceId = actor.sourceSurfaceId,
+    }))
   end
   local elm = assert(manager:getById("map:61:object:0"))
   Assert.equal(elm.spriteId, 99)
@@ -185,11 +191,23 @@ function T.flag_toggles_remove_and_restore_elm_on_one_step(romFs)
   eventState:setFlag(elm.sourceEvent.eventFlag)
   manager:step(1)
   Assert.isNil(manager:getById("map:61:object:0"))
-  Assert.isFalse(manager:isOccupied(LAB, elm.fieldX, elm.fieldZ, elm.surfaceId))
+  Assert.isFalse(manager:isOccupied(LAB, {
+    fieldX = elm.fieldX,
+    fieldZ = elm.fieldZ,
+    surfaceId = elm.surfaceId,
+    cellKey = elm.cellKey,
+    sourceSurfaceId = elm.sourceSurfaceId,
+  }))
   eventState:clearFlag(elm.sourceEvent.eventFlag)
   manager:step(2)
   Assert.notNil(manager:getById("map:61:object:0"))
-  Assert.isTrue(manager:isOccupied(LAB, elm.fieldX, elm.fieldZ, elm.surfaceId))
+  Assert.isTrue(manager:isOccupied(LAB, {
+    fieldX = elm.fieldX,
+    fieldZ = elm.fieldZ,
+    surfaceId = elm.surfaceId,
+    cellKey = elm.cellKey,
+    sourceSurfaceId = elm.sourceSurfaceId,
+  }))
 end
 
 function T.repeated_lab_entry_keeps_identities_stable_and_visuals_balanced(romFs)

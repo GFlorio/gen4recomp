@@ -4,9 +4,8 @@
 --
 -- Collision order: collision, then terrain surface
 -- transition, then dynamic occupancy. The occupancy check is injected as a
--- pure predicate -- `occupancy(fieldX, fieldZ, surfaceId) -> blockingActorId or
--- nil` -- so the player never knows which object blocks it, and the actor
--- manager stays the only owner of the occupancy index.
+-- pure predicate over a physical candidate, so the player never knows which
+-- object blocks it, and the actor manager stays the only owner of the index.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
@@ -17,7 +16,7 @@ local FieldTraversal = require("libs.engine.src.FieldTraversal")
 ---@class FieldPlayer
 ---@field currentMap RuntimeFieldMap
 ---@field resolver SurfaceResolver
----@field occupancy fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil?
+---@field occupancy fun(candidate: FieldOccupancyCandidate): string|nil
 ---@field fieldX integer
 ---@field fieldZ integer
 ---@field localX integer
@@ -62,7 +61,14 @@ FieldPlayer.LEDGE_JUMP_TICKS = 16
 ---@field surfaceId integer
 ---@field facing FieldDirection?
 ---@field initialWorldY number?
----@field occupancy? fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil
+---@field occupancy? fun(candidate: FieldOccupancyCandidate): string|nil
+
+---@class FieldOccupancyCandidate
+---@field fieldX integer
+---@field fieldZ integer
+---@field surfaceId integer?
+---@field cellKey string?
+---@field sourceSurfaceId integer?
 
 local DELTAS = {
   north = { x = 0, z = -1 },
@@ -73,6 +79,22 @@ local DELTAS = {
 
 local function isInteger(value)
   return type(value) == "number" and value == math.floor(value)
+end
+
+---@param fieldX integer
+---@param fieldZ integer
+---@param surfaceId integer?
+---@param cellKey string?
+---@param sourceSurfaceId integer?
+---@return FieldOccupancyCandidate
+local function occupancyCandidate(fieldX, fieldZ, surfaceId, cellKey, sourceSurfaceId)
+  return {
+    fieldX = fieldX,
+    fieldZ = fieldZ,
+    surfaceId = surfaceId,
+    cellKey = cellKey,
+    sourceSurfaceId = sourceSurfaceId,
+  }
 end
 
 local function projectPoint(runtimeMap, fieldX, fieldZ, cellKey, sourceSurfaceId)
@@ -193,14 +215,13 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
     if not probe or probe.collision.blocked then
       return nil
     end
+    assert(probe.cellKey ~= nil and probe.sourceSurfaceId ~= nil, "physical probe stable surface identity is missing")
     local localX = destinationX - self.currentMap.coordinateOrigin.x
     local localZ = destinationZ - self.currentMap.coordinateOrigin.z
     local worldX, worldZ = FieldGrid.tileCenterToWorld(localX, localZ)
-    local surfaceId = probe.surfaceId
-    if surfaceId == nil and self.currentMap.fieldRegion then
-      surfaceId = self.currentMap.fieldRegion:sourceSurface(probe.cellKey, probe.sourceSurfaceId)
-    end
-    if surfaceId ~= nil and self.occupancy and self.occupancy(destinationX, destinationZ, surfaceId) then
+    local candidate =
+      occupancyCandidate(destinationX, destinationZ, probe.surfaceId, probe.cellKey, probe.sourceSurfaceId)
+    if self.occupancy and self.occupancy(candidate) then
       return nil
     end
     return {
@@ -211,7 +232,7 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
       worldX = worldX,
       worldY = probe.worldY,
       worldZ = worldZ,
-      surfaceId = surfaceId,
+      surfaceId = probe.surfaceId,
       sourceCellKey = probe.cellKey,
       sourceSurfaceId = probe.sourceSurfaceId,
     }
@@ -244,7 +265,9 @@ function FieldPlayer:_resolveStep(direction, bypassBlocking)
     -- actor on a different surface never blocks a same-cell approach, and it
     -- runs only after terrain accepts the step.
     if not bypassBlocking and self.occupancy then
-      if self.occupancy(destinationX, destinationZ, sample.surfaceId) then
+      local candidate =
+        occupancyCandidate(destinationX, destinationZ, sample.surfaceId, plate.cellKey, plate.sourceSurfaceId)
+      if self.occupancy(candidate) then
         return nil
       end
     end
@@ -400,11 +423,12 @@ function FieldPlayer:_resolveLedgeLanding(direction)
       currentSurfaceId = self.surfaceId,
       currentY = self.worldY,
     })
-    if self.occupancy and self.occupancy(landingX, landingZ, sample.surfaceId) then
+    local plate = assert(self.currentMap.terrain:plate(sample.surfaceId), "resolved landing surface missing")
+    local candidate = occupancyCandidate(landingX, landingZ, sample.surfaceId, plate.cellKey, plate.sourceSurfaceId)
+    if self.occupancy and self.occupancy(candidate) then
       return nil
     end
     local point = FieldCoordinates.fieldToWorld(self.currentMap, landingX, landingZ, sample.worldY)
-    local plate = assert(self.currentMap.terrain:plate(sample.surfaceId), "resolved landing surface missing")
     return {
       fieldX = landingX,
       fieldZ = landingZ,

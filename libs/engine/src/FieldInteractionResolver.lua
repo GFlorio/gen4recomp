@@ -32,7 +32,7 @@ local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 ---@class FieldInteractionResolver
----@field actorAt fun(mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer): table|nil
+---@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table|nil
 ---@field _surfaceResolver SurfaceResolver?
 local FieldInteractionResolver = {}
 FieldInteractionResolver.__index = FieldInteractionResolver
@@ -72,7 +72,7 @@ FieldInteractionResolver.__index = FieldInteractionResolver
 ---@field tick integer
 
 ---@class FieldInteractionResolverOptions
----@field actorAt fun(mapId: integer, fieldX: integer, fieldZ: integer, surfaceId: integer): table|nil
+---@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table|nil
 
 -- Named facing -> raw player-facing code. Raw codes match the zone-event
 -- decoder's DIRECTIONS table (0 north, 1 south, 2 west, 3 east).
@@ -134,7 +134,7 @@ function FieldInteractionResolver.backgroundDirectionCompatible(playerFacingRaw,
   return false
 end
 
--- opts.actorAt: function(mapId, fieldX, fieldZ, surfaceId) -> actor | nil.
+-- opts.actorAt: function(mapId, candidate) -> actor | nil.
 -- The actor manager's occupancy index is the lookup;
 -- hidden actors never appear there.
 ---@param opts FieldInteractionResolverOptions
@@ -276,7 +276,11 @@ function FieldInteractionResolver:resolve(snapshot)
   -- boundary looks up the actor where it actually stands, and a same-x/z
   -- actor on another surface stays ineligible. Raw script zero remains an
   -- intent and is canonicalized by the script binding authority.
-  local actor = self.actorAt(map.mapId, targetX, targetZ, targetSample.surfaceId)
+  local actor = self.actorAt(map.mapId, {
+    fieldX = targetX,
+    fieldZ = targetZ,
+    surfaceId = targetSample.surfaceId,
+  })
   if actor then
     local intent = baseIntent("object", snapshot, targetX, targetZ, actor.sourceEvent.scriptId)
     intent.object = {

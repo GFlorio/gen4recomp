@@ -350,8 +350,8 @@ local function occupyingPlayer(map, x, z, surfaceId, occupantCells)
     fieldZ = z,
     surfaceId = surfaceId,
     facing = "east",
-    occupancy = function(cellX, cellZ, cellSurface)
-      local key = cellX .. ":" .. cellZ .. ":" .. cellSurface
+    occupancy = function(candidate)
+      local key = candidate.fieldX .. ":" .. candidate.fieldZ .. ":" .. candidate.surfaceId
       return occupantCells[key] or nil
     end,
   })
@@ -565,8 +565,8 @@ function T.wrong_direction_and_invalid_ledge_landings_do_not_displace()
   Assert.equal(blockedLanding.motion, "idle")
 
   local occupiedLanding = player(behaviorMap(NAVIGATION_BEHAVIORS.jumpEast), 0, 4, 0, "east")
-  occupiedLanding.occupancy = function(fieldX, fieldZ)
-    return fieldX == 2 and fieldZ == 4 and "map:61:object:0" or nil
+  occupiedLanding.occupancy = function(candidate)
+    return candidate.fieldX == 2 and candidate.fieldZ == 4 and "map:61:object:0" or nil
   end
   tick(occupiedLanding, "east", "east")
   Assert.equal(occupiedLanding.fieldX, 0)
@@ -666,8 +666,8 @@ function T.direction_tap_during_a_turn_is_not_remembered_by_the_player()
   Assert.equal(p.fieldZ, 4)
 end
 
-function T.physical_probe_occupancy_uses_the_current_surface_domain()
-  local queriedSurfaceId
+function T.physical_probe_occupancy_preserves_stable_source_identity()
+  local queriedCandidate
   local map = runtimeMap()
   map.terrain.plates[1].cellKey = "0:0"
   map.terrain.plates[1].sourceSurfaceId = 0
@@ -711,14 +711,18 @@ function T.physical_probe_occupancy_uses_the_current_surface_domain()
     fieldZ = 4,
     surfaceId = 0,
     facing = "east",
-    occupancy = function(_, _, surfaceId)
-      queriedSurfaceId = surfaceId
-      return surfaceId == 7 and "solid-destination" or nil
+    occupancy = function(candidate)
+      queriedCandidate = candidate
+      return candidate.cellKey == "1:0" and candidate.sourceSurfaceId == 0 and "solid-destination" or nil
     end,
   })
 
   Assert.isFalse(p:tryStep("east"))
-  Assert.equal(queriedSurfaceId, 7)
+  Assert.equal(queriedCandidate.fieldX, 32)
+  Assert.equal(queriedCandidate.fieldZ, 4)
+  Assert.isNil(queriedCandidate.surfaceId)
+  Assert.equal(queriedCandidate.cellKey, "1:0")
+  Assert.equal(queriedCandidate.sourceSurfaceId, 0)
 end
 
 return { tests = T }

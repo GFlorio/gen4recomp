@@ -395,12 +395,12 @@ function T.indoor_occupancy_uses_the_current_map_actor_index()
   end
 
   local actors = {}
-  function actors:getAt(mapId, fieldX, fieldZ, surfaceId)
+  function actors:getAt(mapId, candidate)
     calls.getAt = calls.getAt + 1
     Assert.equal(mapId, "indoor")
-    Assert.equal(fieldX, 12)
-    Assert.equal(fieldZ, 8)
-    Assert.equal(surfaceId, 3)
+    Assert.equal(candidate.fieldX, 12)
+    Assert.equal(candidate.fieldZ, 8)
+    Assert.equal(candidate.surfaceId, 3)
     return { actorId = "indoor-blocker" }
   end
   function actors:probeAt()
@@ -415,7 +415,7 @@ function T.indoor_occupancy_uses_the_current_map_actor_index()
 
   local runtime = occupancyRuntime({ mapId = "indoor", coverage = nil }, retainedCoverage, actors, zoneController)
 
-  local occupant = runtime:_playerOccupantAt(12, 8, 3)
+  local occupant = runtime:_playerOccupantAt({ fieldX = 12, fieldZ = 8, surfaceId = 3 })
 
   Assert.equal(occupant, "indoor-blocker")
   Assert.equal(calls.getAt, 1)
@@ -441,13 +441,13 @@ function T.outdoor_seam_occupancy_preflights_destination_actors()
     calls.getAt = calls.getAt + 1
     error("an outdoor seam must probe the destination map", 0)
   end
-  function actors:probeAt(map, state, fieldX, fieldZ, surfaceId)
+  function actors:probeAt(map, state, candidate)
     calls.probeAt = calls.probeAt + 1
     Assert.equal(map, destination)
     Assert.equal(state, eventState)
-    Assert.equal(fieldX, 19)
-    Assert.equal(fieldZ, 7)
-    Assert.equal(surfaceId, 2)
+    Assert.equal(candidate.fieldX, 19)
+    Assert.equal(candidate.fieldZ, 7)
+    Assert.equal(candidate.surfaceId, 2)
     return { actorId = "destination-blocker" }
   end
 
@@ -462,7 +462,7 @@ function T.outdoor_seam_occupancy_preflights_destination_actors()
   local runtime =
     occupancyRuntime({ mapId = "source", coverage = activeCoverage }, nil, actors, zoneController, player, eventState)
 
-  local occupant = runtime:_playerOccupantAt(19, 7, 2)
+  local occupant = runtime:_playerOccupantAt({ fieldX = 19, fieldZ = 7, surfaceId = 2 })
 
   Assert.equal(occupant, "destination-blocker")
   Assert.equal(calls.mapHeaderAt, 1)

@@ -254,27 +254,25 @@ end
 
 -- The player consults live actors for its current logical map and source events
 -- for an unloaded logical destination. The latter is a read-only preflight.
----@param fieldX integer
----@param fieldZ integer
----@param surfaceId integer
+---@param candidate FieldOccupancyCandidate
 ---@return string?
-function FieldRuntime:_playerOccupantAt(fieldX, fieldZ, surfaceId)
+function FieldRuntime:_playerOccupantAt(candidate)
   local currentMap = self.runtimeMap
   local coverage = currentMap.coverage
-  local destinationMapId = coverage and coverage:mapHeaderAt(fieldX, fieldZ) or nil
+  local destinationMapId = coverage and coverage:mapHeaderAt(candidate.fieldX, candidate.fieldZ) or nil
   local occupant
   if destinationMapId == nil or destinationMapId == currentMap.mapId then
-    occupant = self.actors:getAt(currentMap.mapId, fieldX, fieldZ, surfaceId)
+    occupant = self.actors:getAt(currentMap.mapId, candidate)
   else
     local destination = self.zoneController:mapForPreflight(destinationMapId, self.player)
-    occupant = self.actors:probeAt(destination, self.eventState, fieldX, fieldZ, surfaceId)
+    occupant = self.actors:probeAt(destination, self.eventState, candidate)
   end
   return occupant and occupant.actorId or nil
 end
 
 local function playerOccupancy(self)
-  return function(fieldX, fieldZ, surfaceId)
-    return self:_playerOccupantAt(fieldX, fieldZ, surfaceId)
+  return function(candidate)
+    return self:_playerOccupantAt(candidate)
   end
 end
 
@@ -819,8 +817,8 @@ function FieldRuntime:_load()
     -- the binding audit guarantees every interactable event is bound.
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
-      actorAt = function(mapId, actorFieldX, actorFieldZ, actorSurfaceId)
-        return self.actors and self.actors:getAt(mapId, actorFieldX, actorFieldZ, actorSurfaceId) or nil
+      actorAt = function(mapId, candidate)
+        return self.actors and self.actors:getAt(mapId, candidate) or nil
       end,
     })
 

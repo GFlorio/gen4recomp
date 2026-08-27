@@ -721,8 +721,8 @@ function T.actor_on_a_blocked_door_cell_does_not_block_the_facing_warp()
     fieldZ = 13,
     surfaceId = 0,
     facing = "south",
-    occupancy = function(x, z, surface)
-      if x == 4 and z == 14 and surface == 0 then
+    occupancy = function(candidate)
+      if candidate.fieldX == 4 and candidate.fieldZ == 14 and candidate.surfaceId == 0 then
         return "map:61:object:0"
       end
       return nil
@@ -788,8 +788,8 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
     fieldZ = 13,
     surfaceId = 0,
     facing = "south",
-    occupancy = function(x, z, surface)
-      if x == 4 and z == 14 and surface == 0 then
+    occupancy = function(candidate)
+      if candidate.fieldX == 4 and candidate.fieldZ == 14 and candidate.surfaceId == 0 then
         return "map:61:object:0"
       end
       return nil
@@ -2742,8 +2742,8 @@ function T.rejected_ledge_attempts_and_ordinary_steps_stay_silent()
     },
     {
       name = "occupied landing",
-      occupancy = function(fieldX, fieldZ)
-        return fieldX == 2 and fieldZ == 4 and "map:61:object:0" or nil
+      occupancy = function(candidate)
+        return candidate.fieldX == 2 and candidate.fieldZ == 4 and "map:61:object:0" or nil
       end,
       direction = "east",
     },

@@ -66,8 +66,8 @@ local function playerAt(map, manager, fieldX, fieldZ, facing)
     fieldZ = fieldZ,
     surfaceId = sample.surfaceId,
     facing = facing,
-    occupancy = function(x, z, surfaceId)
-      local occupant = manager:getAt(map.mapId, x, z, surfaceId)
+    occupancy = function(candidate)
+      local occupant = manager:getAt(map.mapId, candidate)
       return occupant and occupant.actorId or nil
     end,
   })

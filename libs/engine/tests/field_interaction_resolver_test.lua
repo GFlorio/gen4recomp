@@ -144,9 +144,9 @@ end
 
 -- resolver with an actor lookup table keyed by "x:z"
 local function resolver(actorsByCell)
-  local actorAt = function(_, fieldX, fieldZ, surfaceId)
-    local entry = actorsByCell and actorsByCell[fieldX .. ":" .. fieldZ]
-    return entry and entry.surfaceId == surfaceId and entry.actor or nil
+  local actorAt = function(_, candidate)
+    local entry = actorsByCell and actorsByCell[candidate.fieldX .. ":" .. candidate.fieldZ]
+    return entry and entry.surfaceId == candidate.surfaceId and entry.actor or nil
   end
   return FieldInteractionResolver.new({ actorAt = actorAt })
 end
@@ -419,8 +419,8 @@ function T.actor_on_another_surface_is_ineligible()
   -- occupancy lookup misses and the compatible background on the facing cell
   -- wins: different surfaces do not interact.
   local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
-  local actorAt = function(_, _, _, surfaceId)
-    if surfaceId == 0 then
+  local actorAt = function(_, candidate)
+    if candidate.surfaceId == 0 then
       return nil
     end
     return elm
