@@ -6,6 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
+local ScriptCache = require("libs.assets.src.ScriptCache")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -23,15 +24,17 @@ local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}
 
+---@type table
 local MANIFEST = {
+  schema = ScriptCache.BINDINGS_SCHEMA,
   maps = {
     [57] = {
-      objects = { obj_T20_gswoman1 = "new_bark.npc.woman_1" },
+      objects = { [3] = "new_bark.npc.woman_1" },
       backgrounds = {},
       coordinates = {},
     },
     [58] = {
-      objects = { obj_T20R0101_doctor = "elms_lab.elm" },
+      objects = { [3] = "elms_lab.elm" },
       backgrounds = { [9] = "new_bark.lab_sign" },
       coordinates = {},
     },
@@ -50,8 +53,9 @@ end
 ---@param mapId integer
 ---@param actorId string
 ---@param playerFacing FieldDirection
+---@param objectEventId integer?
 ---@return InteractionIntent
-local function objectIntent(mapId, actorId, playerFacing)
+local function objectIntent(mapId, actorId, playerFacing, objectEventId)
   return {
     kind = "object",
     mapId = mapId,
@@ -63,10 +67,14 @@ local function objectIntent(mapId, actorId, playerFacing)
     playerFacing = playerFacing or "north",
     scriptId = 1,
     tick = 0,
-    object = { actorId = actorId, objectEventId = 3, spriteId = 1 },
+    object = { actorId = actorId, objectEventId = objectEventId or 3, spriteId = 1 },
   } --[[@as InteractionIntent]]
 end
 
+---@param mapId integer
+---@param eventIndex integer
+---@param playerFacing FieldDirection?
+---@return InteractionIntent
 local function backgroundIntent(mapId, eventIndex, playerFacing)
   return {
     kind = "background",
@@ -75,11 +83,15 @@ local function backgroundIntent(mapId, eventIndex, playerFacing)
     sourceFieldZ = 6,
     targetFieldX = 6,
     targetFieldZ = 3,
+    sourceSurfaceId = 0,
     playerFacing = playerFacing or "south",
+    scriptId = 1,
+    tick = 0,
     background = { eventIndex = eventIndex, type = 1, direction = 4 },
-  }
+  } --[[@as InteractionIntent]]
 end
 
+---@return { services: table, registry: Registry, composition: Composition, scheduler: Scheduler }
 local function platform()
   local services = FakeServices.new()
   local registry = Registry.new()
@@ -96,6 +108,9 @@ local function platform()
   return { services = services, registry = registry, composition = composition, scheduler = scheduler }
 end
 
+---@param id string
+---@param steps table[]
+---@return table
 local function script(id, steps)
   return S.script({ api = 1, id = id, steps = steps })
 end
@@ -104,7 +119,7 @@ end
 -- trigger descriptor.
 T["object binding and trigger"] = function()
   local bindings = Bindings.new(MANIFEST)
-  Assert.equal(bindings:scriptFor(57, "object", "obj_T20_gswoman1"), "new_bark.npc.woman_1")
+  Assert.equal(bindings:scriptFor(57, "object", 3), "new_bark.npc.woman_1")
   local hit = bindings:resolveIntent(objectIntent(57, "obj_T20_gswoman1", "north"), "north")
   local trigger = assert(hit).trigger
   Assert.equal(trigger.kind, "object")
@@ -130,6 +145,7 @@ end
 
 T["coordinate binding and trigger"] = function()
   local bindings = Bindings.new({
+    schema = ScriptCache.BINDINGS_SCHEMA,
     maps = { [60] = { objects = {}, backgrounds = {}, coordinates = { [1] = "landing.script" } } },
   })
   local hit = bindings:resolveIntent({
@@ -153,7 +169,7 @@ end
 -- 3. Unbound events resolve to nil (no-script event).
 T["unbound event"] = function()
   local bindings = Bindings.new(MANIFEST)
-  Assert.isNil(bindings:resolveIntent(objectIntent(58, "obj_unknown", "north"), "north"))
+  Assert.isNil(bindings:resolveIntent(objectIntent(58, "obj_unknown", "north", 99), "north"))
   Assert.isNil(bindings:resolveIntent(backgroundIntent(58, 0, "south"), "south"))
   Assert.isNil(bindings:scriptFor(57, "background", 0))
 end
@@ -206,42 +222,48 @@ end
 -- ids.
 T["invalid binding key and target types are rejected"] = function()
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = { [0] = "a" }, backgrounds = {}, coordinates = {} } } })
+    Bindings.new({
+      schema = ScriptCache.BINDINGS_SCHEMA,
+      maps = { [57] = { objects = { ["zero"] = "a" }, backgrounds = {}, coordinates = {} } },
+    })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [-1] = "a" }, coordinates = {} } } })
+    Bindings.new({
+      schema = ScriptCache.BINDINGS_SCHEMA,
+      maps = { [57] = { objects = {}, backgrounds = { [-1] = "a" }, coordinates = {} } },
+    })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {}, backgrounds = { [0.5] = "a" }, coordinates = {} } } })
+    Bindings.new({
+      schema = ScriptCache.BINDINGS_SCHEMA,
+      maps = { [57] = { objects = {}, backgrounds = { [0.5] = "a" }, coordinates = {} } },
+    })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = { ["map:57:object:0"] = 7 }, backgrounds = {}, coordinates = {} } } })
+    Bindings.new({
+      schema = ScriptCache.BINDINGS_SCHEMA,
+      maps = { [57] = { objects = { [0] = 7 }, backgrounds = {}, coordinates = {} } },
+    })
   end)
   throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { ["57"] = { objects = {}, backgrounds = {}, coordinates = {} } } })
+    Bindings.new({
+      schema = ScriptCache.BINDINGS_SCHEMA,
+      maps = { ["57"] = { objects = {}, backgrounds = {}, coordinates = {} } },
+    })
   end)
 end
 
--- 9. An object binding key identifies one event and may not repeat across the
--- manifest: the same key bound twice is a duplicate, the same key bound to
--- two targets is a conflict.
-T["duplicate and conflicting bindings are rejected"] = function()
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      maps = {
-        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {}, coordinates = {} },
-        [60] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {}, coordinates = {} },
-      },
-    })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      maps = {
-        [57] = { objects = { ["map:57:object:0"] = "a" }, backgrounds = {}, coordinates = {} },
-        [60] = { objects = { ["map:57:object:0"] = "b" }, backgrounds = {}, coordinates = {} },
-      },
-    })
-  end)
+-- 9. Object binding keys are numeric event identities local to each map.
+T["object binding keys are map-local"] = function()
+  local bindings = Bindings.new({
+    schema = ScriptCache.BINDINGS_SCHEMA,
+    maps = {
+      [57] = { objects = { [0] = "a" }, backgrounds = {}, coordinates = {} },
+      [60] = { objects = { [0] = "b" }, backgrounds = {}, coordinates = {} },
+    },
+  })
+  Assert.equal(bindings:scriptFor(57, "object", 0), "a")
+  Assert.equal(bindings:scriptFor(60, "object", 0), "b")
 end
 
 -- 10. The interaction client starts a bound script in the trigger tick.

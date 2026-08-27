@@ -34,7 +34,7 @@ local function scriptCache(files)
       ["vanilla.hgss.scr_seq.0842.script_001"] = 'local S = require("gen4.script")\nreturn S.script { api = 1, id = "vanilla.hgss.scr_seq.0842.script_001", steps = { S.stop() } }\n',
     }
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:write(ScriptCache.markerPath(), "script-cache-v1:rom-sha:dep-sha")
+  cache:write(ScriptCache.markerPath(), "script-cache-v2:rom-sha:dep-sha")
   local resources = {}
   for id in pairs(files) do
     resources[#resources + 1] = { id = id }

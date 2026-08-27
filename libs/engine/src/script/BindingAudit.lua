@@ -1,104 +1,154 @@
--- Load-time binding audit : every interactable event of every
--- bound map must be covered by the bindings manifest. An object event with a
--- script id is interactable (the resolver starts the bound script); a
--- background event with a script id is interactable unless it is the type-2
--- hidden-item family the resolver declares noninteractive. Events whose
--- script id is 0 are satisfied by the canonical inert runtime script. The
--- hidden-item declaration is shared with the
--- resolver (`FieldInteractionResolver.isHiddenItem`): exempting those events
--- and rejecting manifest bindings for them keeps the two sides of the
--- declaration from drifting -- a bound hidden item could never dispatch. The
--- audit runs at build/load, never at runtime: an unbound interactable event
--- is a composition error, not a fallback to look for later. Pure domain
--- module: no love dependency.
+-- Audits the generated field-event binding manifest against the runtime world
+-- and normalized field records. Coverage is checked from event identity, then
+-- every target is checked against Registry:ids() presence without decoding any
+-- deferred script resource.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
-local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
 
 local BindingAudit = {}
 
----@class BindingAuditFailure
+---@class BindingAudit.MissingBinding
 ---@field kind string
 ---@field mapId integer
----@field key string
+---@field key integer
+---@field objectEventId integer?
+---@field eventIndex integer?
 ---@field scriptId integer
+
+---@class BindingAudit.FieldEvents
+---@field objects table[]
+---@field background table[]
+---@field coordinates table[]
 
 local function missingMapData(mapId)
   Errors.raise(
     "SCRIPT_BINDING_AUDIT_MAP_MISSING",
-    "the bindings manifest names a map with no field data",
+    "required map field data is unavailable or malformed",
     { mapId = mapId }
   )
 end
 
--- Validate the manifest against the compiled field data. `loadFieldData`
--- resolves a map id to its compiled field record (fieldData.events.objects /
--- .background with the zone-event script ids), or nil when the map has no
--- compiled data. A present record must carry the map id and the events table
--- with both event collections: generated schemas are strict, so a malformed
--- or mismatched record is rejected as missing field data, never read as an
--- empty event list. Raises SCRIPT_BINDING_AUDIT_INCOMPLETE naming every
--- interactable event the manifest does not bind.
----@param manifest table
----@param loadFieldData function
----@return true
-function BindingAudit.check(manifest, loadFieldData)
-  assert(type(manifest) == "table", "bindings manifest required")
-  assert(type(loadFieldData) == "function", "field data loader required")
-  local missing = {}
-  for mapId, map in pairs(manifest.maps or {}) do
-    local field = loadFieldData(mapId)
-    if type(field) ~= "table" or type(field.events) ~= "table" or field.mapId ~= mapId then
-      missingMapData(mapId)
+local function requiredIds(value)
+  assert(type(value) == "table", "required map ids required")
+  local ids = {}
+  if #value > 0 then
+    for _, mapId in ipairs(value) do
+      ids[#ids + 1] = mapId
     end
-    local fieldEvents = field.events
-    if
-      type(fieldEvents.objects) ~= "table"
-      or type(fieldEvents.background) ~= "table"
-      or type(fieldEvents.coordinates) ~= "table"
-    then
-      missingMapData(mapId)
-    end
-    for _, event in ipairs(fieldEvents.objects) do
-      if event.scriptId ~= 0 then
-        local key = FieldObjectActor.actorId(mapId, event.objectEventId)
-        if type(map.objects[key]) ~= "string" then
-          missing[#missing + 1] = { kind = "object", mapId = mapId, key = key, scriptId = event.scriptId }
-        end
+  else
+    for mapId, required in pairs(value) do
+      if required then
+        ids[#ids + 1] = mapId
       end
     end
-    for _, event in ipairs(fieldEvents.background) do
-      if FieldInteractionResolver.isHiddenItem(event) then
-        -- The hidden-item family is declared noninteractive: a manifest
-        -- binding for it is a dead binding the resolver can never dispatch,
-        -- so it is rejected loudly instead of accepted silently.
-        local key = event.index
-        if type(map.backgrounds[key]) == "string" then
+  end
+  table.sort(ids)
+  return ids
+end
+
+---@param mapId integer
+---@param map table
+---@param field table|nil
+---@param missing BindingAudit.MissingBinding[]
+local function auditFieldEvents(mapId, map, field, missing)
+  if
+    type(field) ~= "table"
+    or field.mapId ~= mapId
+    or type(field.events) ~= "table"
+    or type(field.events.objects) ~= "table"
+    or type(field.events.background) ~= "table"
+    or type(field.events.coordinates) ~= "table"
+  then
+    missingMapData(mapId)
+  end
+  local fieldRecord = assert(field)
+  local events = assert(fieldRecord.events) ---@type BindingAudit.FieldEvents
+  for _, event in ipairs(events.objects) do
+    if event.scriptId ~= 0 and type(map.objects[event.objectEventId]) ~= "string" then
+      missing[#missing + 1] = {
+        kind = "object",
+        mapId = mapId,
+        key = event.objectEventId,
+        objectEventId = event.objectEventId,
+        scriptId = event.scriptId,
+      }
+    end
+  end
+  for _, event in ipairs(events.background) do
+    if type(event.hiddenItem) ~= "boolean" then
+      missingMapData(mapId)
+    elseif FieldInteractionResolver.isHiddenItem(event) then
+      if type(map.backgrounds[event.index]) == "string" then
+        Errors.raise(
+          "SCRIPT_BINDING_AUDIT_HIDDEN_ITEM_BOUND",
+          "hidden-item events are declared noninteractive and cannot be bound",
+          { mapId = mapId, eventIndex = event.index, scriptId = event.scriptId }
+        )
+      end
+    elseif event.scriptId ~= 0 and type(map.backgrounds[event.index]) ~= "string" then
+      missing[#missing + 1] = {
+        kind = "background",
+        mapId = mapId,
+        key = event.index,
+        eventIndex = event.index,
+        scriptId = event.scriptId,
+      }
+    end
+  end
+  for _, event in ipairs(events.coordinates) do
+    if event.scriptId ~= 0 and type(map.coordinates[event.index]) ~= "string" then
+      missing[#missing + 1] = {
+        kind = "coordinate",
+        mapId = mapId,
+        key = event.index,
+        eventIndex = event.index,
+        scriptId = event.scriptId,
+      }
+    end
+  end
+end
+
+local function auditTargets(manifest, knownScriptIds)
+  for mapId, map in pairs(manifest.maps) do
+    for section, entries in pairs(map) do
+      for eventId, target in pairs(entries) do
+        if not knownScriptIds[target] then
           Errors.raise(
-            "SCRIPT_BINDING_AUDIT_HIDDEN_ITEM_BOUND",
-            "hidden-item events are declared noninteractive and cannot be bound",
-            { mapId = mapId, eventIndex = key, scriptId = event.scriptId }
+            "SCRIPT_BINDING_AUDIT_TARGET_MISSING",
+            "binding target is absent from the sealed script registry",
+            { mapId = mapId, section = section, eventIndex = eventId, target = target }
           )
-        end
-      elseif event.scriptId ~= 0 then
-        local key = string.format("map:%d:background:%d", mapId, event.index)
-        if type(map.backgrounds[event.index]) ~= "string" then
-          missing[#missing + 1] = { kind = "background", mapId = mapId, key = key, scriptId = event.scriptId }
-        end
-      end
-    end
-    for _, event in ipairs(fieldEvents.coordinates) do
-      if event.scriptId ~= 0 then
-        local key = string.format("map:%d:coordinate:%d", mapId, event.index)
-        if type(map.coordinates[event.index]) ~= "string" then
-          missing[#missing + 1] = { kind = "coordinate", mapId = mapId, key = key, scriptId = event.scriptId }
         end
       end
     end
   end
+end
+
+---@class BindingAuditOptions
+---@field loadFieldData fun(mapId: integer): table|nil
+---@field requiredMapIds integer[]|table<integer, boolean>
+---@field knownScriptIds table<string, boolean>
+
+---@param manifest table validated generated bindings
+---@param opts BindingAuditOptions
+---@return true
+function BindingAudit.check(manifest, opts)
+  assert(type(manifest) == "table" and type(manifest.maps) == "table", "bindings manifest required")
+  assert(type(opts) == "table", "binding audit options required")
+  assert(type(opts.loadFieldData) == "function", "field data loader required")
+  assert(type(opts.knownScriptIds) == "table", "known script ids required")
+
+  local missing = {} ---@type BindingAudit.MissingBinding[]
+  for _, mapId in ipairs(requiredIds(opts.requiredMapIds)) do
+    local map = manifest.maps[mapId]
+    if type(map) ~= "table" then
+      missingMapData(mapId)
+    end
+    auditFieldEvents(mapId, map, opts.loadFieldData(mapId), missing)
+  end
   if #missing > 0 then
-    local context = { missing = missing }
+    local context = { missing = missing } ---@type Errors.Context
     ---@cast context Errors.Context
     Errors.raise(
       "SCRIPT_BINDING_AUDIT_INCOMPLETE",
@@ -106,6 +156,7 @@ function BindingAudit.check(manifest, loadFieldData)
       context
     )
   end
+  auditTargets(manifest, opts.knownScriptIds)
   return true
 end
 

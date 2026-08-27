@@ -21,7 +21,7 @@ local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 
 local OverrideGenerator = {}
 
--- The generated transcripts overridden by the New Bark slice: member and
+-- The generated transcripts overridden by the curated map slice: member and
 -- script index to the override's public id. The target table is a data
 -- manifest (romdump/src/reference/hgss/script_override_targets.lua).
 local TARGETS = require("romdump.src.reference.hgss.script_override_targets")

@@ -63,7 +63,6 @@ local FieldScenarioManifest = require("data.manifests.field_scenario")
 local FieldPlayerManifest = require("data.manifests.field_player")
 local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
-local BindingsManifest = require("data.scripts.manifests.vanilla_bindings")
 
 local PRESENTATION_FRAME_DT = 1 / 60
 
@@ -836,7 +835,6 @@ function FieldRuntime:_load()
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
       overrideFs = self.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory()),
-      bindingsManifest = BindingsManifest,
       eventState = self.eventState,
       actors = self.actors,
       player = self.player,

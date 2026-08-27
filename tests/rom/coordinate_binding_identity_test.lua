@@ -3,13 +3,14 @@
 -- zone-event records, not from the manifest target.
 
 local Assert = require("tests.support.Assert")
+local CacheFs = require("libs.storage.src.CacheFs")
+local ScriptCache = require("libs.assets.src.ScriptCache")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local ZoneEvents = require("romdump.src.digest.ZoneEvents")
 local RomSuite = require("tests.rom.support.RomSuite")
-local manifest = require("data.scripts.manifests.vanilla_bindings")
 local Identity = require("romdump.src.digest.script.VanillaBindingIdentity")
 
-local function sortedMapIds()
+local function sortedMapIds(manifest)
   local mapIds = {}
   for mapId in pairs(manifest.maps) do
     mapIds[#mapIds + 1] = mapId
@@ -27,13 +28,15 @@ local function sortedCoordinateIndices(coordinates)
   return indices
 end
 
-local function validateManifest(romFs)
+local function validateManifest(romFs, versionId)
+  local cache = CacheFs.forVersion(versionId)
+  local manifest = assert(cache:loadLua(ScriptCache.bindingsPath()))
   local zoneEventsArchive = assert(romFs:openNarc("zone_events"))
   local declaredCoordinateCount = 0
   local inspectedCoordinateCount = 0
   local canonicalCount = 0
 
-  for _, mapId in ipairs(sortedMapIds()) do
+  for _, mapId in ipairs(sortedMapIds(manifest)) do
     local mapRecord = assert(MapCatalog.get(mapId))
     local mapBindings = assert(manifest.maps[mapId])
     local memberBytes = assert(zoneEventsArchive:readMember(mapRecord.eventMemberId))

@@ -1,6 +1,6 @@
 -- Game-side field-script platform construction (the script override system):
 -- builds the registry from the compiled script cache plus the checked-in
--- `data/scripts/overrides` layer, the composition, the bindings manifest, the
+-- `data/scripts/overrides` layer, the generated bindings, the
 -- full task registry, the service adapters over the game's field objects, and
 -- the scheduler + interaction client the session steps. FieldState wires the
 -- result into FieldSession. Every interactable event of the bound maps is
@@ -26,6 +26,7 @@ local Scheduler = require("libs.engine.src.script.Scheduler")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local ScriptCache = require("libs.assets.src.ScriptCache")
 
 -- Every task implementation the runtime can create, registered into the
 -- live task registry below.
@@ -145,7 +146,6 @@ end
 ---@class FieldScriptsOptions
 ---@field cacheFs CacheFs
 ---@field overrideFs table read-shaped filesystem for data/scripts/overrides
----@field bindingsManifest table
 ---@field eventState FieldEventState
 ---@field actors FieldActorManager
 ---@field player FieldPlayer
@@ -198,14 +198,8 @@ FieldScripts.__index = FieldScripts
 ---@return FieldScripts
 function FieldScripts.new(opts)
   assert(
-    type(opts) == "table"
-      and opts.cacheFs
-      and opts.overrideFs
-      and opts.bindingsManifest
-      and opts.eventState
-      and opts.actors
-      and opts.player,
-    "field scripts require cache, overrides, bindings, world, and actors"
+    type(opts) == "table" and opts.cacheFs and opts.overrideFs and opts.eventState and opts.actors and opts.player,
+    "field scripts require cache, overrides, world, and actors"
   )
   assert(
     opts.dialogue and opts.messageProvider and opts.layout and opts.fontDef,
@@ -244,13 +238,35 @@ function FieldScripts.new(opts)
     })
   end
   local composition = Composition.new(registry --[[@as Registry]])
-  local bindings = Bindings.new(opts.bindingsManifest)
-  -- Load-time audit: every interactable event of every bound map must be
-  -- bound by the manifest (or be noninteractive by the zone-event data).
-  -- There is no runtime fallback for an unbound interaction.
-  BindingAudit.check(opts.bindingsManifest, function(mapId)
-    return opts.cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-  end)
+  local loadedBindingManifest, bindingErr = opts.cacheFs:loadLua(ScriptCache.bindingsPath())
+  if loadedBindingManifest == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_LOAD_FAILED,
+      "script bindings cache is unavailable",
+      { path = ScriptCache.bindingsPath(), cause = bindingErr and bindingErr.context or nil }
+    )
+  end
+  ---@cast loadedBindingManifest table
+  local bindingManifest = loadedBindingManifest
+  local bindings = Bindings.new(bindingManifest)
+  local knownScriptIds = {}
+  for _, scriptId in ipairs(registry:ids()) do
+    knownScriptIds[scriptId] = true
+  end
+  local requiredMapIds = {}
+  for _, map in ipairs(opts.mapLoader.world.maps) do
+    requiredMapIds[#requiredMapIds + 1] = map.id
+  end
+  -- Load-time audit: every required world map and interactable event must be
+  -- covered, and every target must be present in the sealed registry. The
+  -- registry ID set proves deferred generated resources without decoding them.
+  BindingAudit.check(bindingManifest, {
+    loadFieldData = function(mapId)
+      return opts.cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
+    end,
+    requiredMapIds = requiredMapIds,
+    knownScriptIds = knownScriptIds,
+  })
 
   local worldState = WorldState.new({
     eventState = opts.eventState,

@@ -29,6 +29,7 @@ local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntrance
 local FieldEntranceIndicatorCacheWriter = require("romdump.src.digest.FieldEntranceIndicatorCacheWriter")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
+local BindingCompiler = require("romdump.src.digest.script.BindingCompiler")
 local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local AudioCacheWriter = require("romdump.src.digest.AudioCacheWriter")
@@ -224,6 +225,7 @@ function CacheBuilder.buildVersions(versionIds, options)
       if not scriptBundle then
         return versionFailure(scriptErr)
       end
+      scriptBundle.bindings = BindingCompiler.compile(fieldBundles, scriptBundle)
       if forced or not ScriptCacheWriter.isReady(cacheFs, scriptBundle.marker) then
         ScriptCacheWriter.write(cacheFs, scriptBundle)
         log(

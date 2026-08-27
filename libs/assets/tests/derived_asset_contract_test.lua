@@ -52,7 +52,7 @@ function T.contract_pins_the_current_asset_identities()
     },
     fieldMapData = {
       cacheFormat = "g4-field-map-cache-v1",
-      fieldSchema = "g4-field-map-v6",
+      fieldSchema = "g4-field-map-v7",
     },
     messages = {
       cacheFormat = "field-message-cache-v3",
@@ -65,9 +65,10 @@ function T.contract_pins_the_current_asset_identities()
       schema = "g4-field-font-v3",
     },
     scripts = {
-      cacheFormat = "script-cache-v1",
+      cacheFormat = "script-cache-v2",
       indexSchema = "g4-script-index-v1",
       provenanceSchema = "g4-script-provenance-v1",
+      bindingsSchema = "g4-script-bindings-v1",
     },
     fieldWeather = {
       cacheFormat = "field-weather-cache-v1",
@@ -115,6 +116,7 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(ScriptCache.FORMAT, DerivedAssetContract.scripts.cacheFormat)
   Assert.equal(ScriptCache.INDEX_SCHEMA, DerivedAssetContract.scripts.indexSchema)
   Assert.equal(ScriptCache.PROVENANCE_SCHEMA, DerivedAssetContract.scripts.provenanceSchema)
+  Assert.equal(ScriptCache.BINDINGS_SCHEMA, DerivedAssetContract.scripts.bindingsSchema)
   Assert.equal(FieldUiAssetCache.FORMAT, DerivedAssetContract.fieldUi.cacheFormat)
   Assert.equal(FieldUiAssetCache.SCHEMA, DerivedAssetContract.fieldUi.schema)
   Assert.equal(AudioCache.FORMAT, DerivedAssetContract.audio.cacheFormat)

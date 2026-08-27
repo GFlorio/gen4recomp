@@ -87,6 +87,7 @@ local function stageBundle(tx, bundle)
     dependencies = bundle.dependencies,
   })
   stage:writeLua(ScriptCache.indexPath(), bundle.index)
+  stage:writeLua(ScriptCache.bindingsPath(), bundle.bindings)
   stage:write(ScriptCache.coverageJsonPath(), jsonValue(bundle.coverageRecord) .. "\n")
   stage:write(
     ScriptCache.coverageMdPath(),
@@ -105,6 +106,14 @@ local function stageBundle(tx, bundle)
   if type(readIndex) ~= "table" or readIndex.schema ~= ScriptCache.INDEX_SCHEMA then
     error("script cache index readback failed", 0)
   end
+  local readBindings = stage:loadLua(ScriptCache.bindingsPath())
+  if
+    type(readBindings) ~= "table"
+    or readBindings.schema ~= ScriptCache.BINDINGS_SCHEMA
+    or type(readBindings.maps) ~= "table"
+  then
+    error("script cache bindings readback failed", 0)
+  end
   for _, entry in ipairs(bundle.index.resources) do
     local script = stage:loadModule(ScriptCache.scriptPath(entry.id))
     if type(script) ~= "table" or script.kind ~= "field_script" or script.id ~= entry.id then
@@ -115,8 +124,12 @@ local function stageBundle(tx, bundle)
 end
 
 function ScriptCacheWriter.write(cacheFs, bundle)
-  assert(bundle and bundle.marker and bundle.index and bundle.resources, "write requires a script bundle")
+  assert(
+    bundle and bundle.marker and bundle.index and bundle.resources and bundle.bindings,
+    "write requires a script bundle"
+  )
   assert(bundle.index.schema == ScriptCache.INDEX_SCHEMA, "bundle index schema mismatch")
+  assert(bundle.bindings.schema == ScriptCache.BINDINGS_SCHEMA, "bundle bindings schema mismatch")
   local tx = ArtifactPublisher.begin(cacheFs, "scripts", { ScriptCache.dir() })
   local ok, err = pcall(stageBundle, tx, bundle)
   if not ok then

@@ -1,15 +1,16 @@
--- Map event bindings : the manifest maps map ids and event
--- keys (object actor ids, background array indices) to
--- stable public script ids. Runtime bindings never contain the ROM's one-based
+-- Map event bindings: the generated manifest maps map ids and event
+-- identities (object event ids, background/coordinate indexes) to stable
+-- public script ids. Runtime bindings never contain the ROM's one-based
 -- script-index convention; the importer resolves that during
 -- binding generation. Interaction resolution order: the
 -- facing cell prefers an interactable object, then a matching background
 -- event. The module builds the trigger descriptor and validates the binding
--- manifest strictly at load: only the dispatched trigger kinds (object and
--- background) may be bound, the required arrays must be present, and an
--- object binding key may not repeat. Pure domain module: no love dependency.
+-- manifest strictly at load: only dispatched trigger kinds may be bound, and
+-- all required sections and numeric event keys must be present. Pure domain
+-- module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
+local ScriptCache = require("libs.assets.src.ScriptCache")
 
 local BINDINGS_MANIFEST_INVALID = "SCRIPT_BINDING_MANIFEST_INVALID"
 
@@ -20,19 +21,18 @@ Bindings.__index = Bindings
 
 Bindings.CANONICAL_INERT_SCRIPT = "runtime.inert_interaction"
 
-Bindings.SCHEMA_NAME = "g4-script-bindings-v1"
+Bindings.SCHEMA_NAME = ScriptCache.BINDINGS_SCHEMA
 
 -- Validate the manifest structure strictly: the maps table is required, every
--- map carries exactly the objects and backgrounds sections (a missing array
--- is an error, never an implicit empty one), keys and targets have the
--- required types, and an object binding key may not repeat across the
--- manifest. Raises SCRIPT_BINDING_MANIFEST_INVALID on any violation.
+-- map carries exactly the objects, backgrounds, and coordinates sections (a
+-- missing section is an error, never an implicit empty one), keys and targets
+-- have the required types. Raises SCRIPT_BINDING_MANIFEST_INVALID on any
+-- violation.
 ---@param manifest table
 local function validate(manifest)
-  if type(manifest.maps) ~= "table" then
+  if manifest.schema ~= Bindings.SCHEMA_NAME or type(manifest.maps) ~= "table" then
     Errors.raise(BINDINGS_MANIFEST_INVALID, "bindings manifest requires a maps table", {})
   end
-  local seen = {}
   for mapId, map in pairs(manifest.maps) do
     if type(mapId) ~= "number" or math.floor(mapId) ~= mapId then
       Errors.raise(BINDINGS_MANIFEST_INVALID, "bindings map id must be an integer", { mapId = mapId })
@@ -59,8 +59,12 @@ local function validate(manifest)
       end
       if section == "objects" then
         for key, target in pairs(entries) do
-          if type(key) ~= "string" then
-            Errors.raise(BINDINGS_MANIFEST_INVALID, "object binding key must be a string", { mapId = mapId, key = key })
+          if type(key) ~= "number" or math.floor(key) ~= key or key < 0 then
+            Errors.raise(
+              BINDINGS_MANIFEST_INVALID,
+              "object binding key must be a non-negative integer",
+              { mapId = mapId, key = key }
+            )
           end
           if type(target) ~= "string" then
             Errors.raise(
@@ -69,17 +73,6 @@ local function validate(manifest)
               { mapId = mapId, section = section, key = key }
             )
           end
-          local existing = seen[key]
-          if existing ~= nil and existing ~= target then
-            Errors.raise(
-              BINDINGS_MANIFEST_INVALID,
-              "conflicting bindings for " .. key,
-              { key = key, target = target, existing = existing }
-            )
-          elseif existing ~= nil then
-            Errors.raise(BINDINGS_MANIFEST_INVALID, "duplicate binding " .. key, { key = key, target = target })
-          end
-          seen[key] = target
         end
       elseif section == "backgrounds" or section == "coordinates" then
         for key, target in pairs(entries) do
@@ -214,7 +207,8 @@ function Bindings:resolveIntent(intent, playerFacing)
   if intent.scriptId == 0 then
     scriptId = Bindings.CANONICAL_INERT_SCRIPT
   elseif kind == "object" then
-    scriptId = self:scriptFor(intent.mapId, "object", intent.object.actorId)
+    assert(intent.object ~= nil, "object intent identity required")
+    scriptId = self:scriptFor(intent.mapId, "object", intent.object.objectEventId)
   elseif kind == "background" then
     scriptId = self:scriptFor(intent.mapId, "background", intent.background.eventIndex)
   elseif kind == "coordinate" then

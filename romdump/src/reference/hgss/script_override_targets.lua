@@ -1,4 +1,4 @@
--- Override generator targets: the script-override set for the demo slice.
+-- Override generator targets: the curated script-override set.
 -- Each entry maps a scr_seq member/scriptIndex pair to the override's
 -- public id; `replaces` names the generated base when the override id is
 -- curated rather than identical; `backgroundTrigger` marks scripts whose

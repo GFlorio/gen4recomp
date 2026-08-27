@@ -55,6 +55,11 @@ function FieldMapDataCache.hasRequiredEvents(events)
       return false
     end
   end
+  for _, event in ipairs(events.background) do
+    if type(event) ~= "table" or type(event.hiddenItem) ~= "boolean" then
+      return false
+    end
+  end
   return true
 end
 

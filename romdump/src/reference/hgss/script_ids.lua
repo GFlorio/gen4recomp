@@ -1,4 +1,4 @@
--- Curated public script ids for the demo maps: member/scriptIndex pairs
+-- Curated public script ids: member/scriptIndex pairs
 -- that carry human-friendly ids instead of the mechanical
 -- `vanilla.hgss.scr_seq.<member>.script_<index>` form. Project-owned data;
 -- everything else resolves mechanically.

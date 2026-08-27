@@ -380,6 +380,7 @@ local function writeScriptIndex(c, resources)
     schema = ScriptCache.INDEX_SCHEMA,
     resources = resources,
   })
+  c:writeLua(ScriptCache.bindingsPath(), { schema = ScriptCache.BINDINGS_SCHEMA, maps = {} })
   c:write(ScriptCache.markerPath(), "m")
 end
 
@@ -425,6 +426,17 @@ function T.script_valid_artifact_is_ready()
     'local S = require("gen4.script")\nreturn S.script { api = 1, id = "a.b", steps = { S.stop() } }\n'
   )
   Assert.isTrue(ScriptCache.isReady(c, "m"))
+end
+
+function T.script_bindings_are_required_and_shallow_validated()
+  local c = cache()
+  writeScriptIndex(c, {})
+  c:remove(ScriptCache.bindingsPath())
+  Assert.isFalse(ScriptCache.isReady(c, "m"), "bindings are required by the script cache schema")
+  c:writeLua(ScriptCache.bindingsPath(), { schema = "wrong", maps = {} })
+  Assert.isFalse(ScriptCache.isReady(c, "m"), "bindings schema identity is strict")
+  c:writeLua(ScriptCache.bindingsPath(), { schema = ScriptCache.BINDINGS_SCHEMA, maps = {} })
+  Assert.isTrue(ScriptCache.isReady(c, "m"), "a valid empty binding manifest is loadable")
 end
 
 return { tests = T }

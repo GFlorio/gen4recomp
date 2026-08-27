@@ -1,10 +1,6 @@
--- Production-composed bindings-manifest contract. The production load path
--- (FieldRuntime -> FieldScripts -> Bindings.new) must reject a manifest that
--- carries a trigger kind no dispatcher resolves: map_init/map_enter/
--- map_resume bindings can never fire, so carrying one is a schema error, not
--- data the loader silently accepts. The scenario feeds the real production
--- manifest an undispatched binding and pins the boot to fail with the
--- bindings manifest schema error instead of booting with dead bindings.
+-- Production-composed interaction on a non-demo outdoor map. The route and
+-- event data come from the derived cache; the test only supplies the isolated
+-- save root and the render trap through AcceptanceHarness.
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -12,44 +8,93 @@ local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local T = {
   metadata = {
     capabilities = { "rom_dump", "derived_cache" },
-    tags = { "field", "script", "bindings", "boot" },
+    tags = { "field", "interaction", "script", "bindings" },
   },
   tests = {},
 }
 
--- The exact code Bindings.new must raise for a malformed manifest: the
--- scenario pins the code so the rejection is named, not any boot failure.
-local BINDINGS_MANIFEST_INVALID = "SCRIPT_BINDING_MANIFEST_INVALID"
+local ROUTE_29_ID = 33
+local ROUTE_29_TARGET = { fieldX = 626, fieldZ = 389 }
 
--- Booting with a manifest that carries an undispatched trigger kind must fail
--- at load with the bindings manifest schema error. The manifest module is
--- shared process state (FieldRuntime requires it once), so the scenario
--- injects a map-lifecycle binding into map 60, boots, and restores the
--- original entry on every path before asserting.
-function T.tests.manifest_with_an_undispatched_trigger_kind_is_rejected_at_boot()
-  local manifest = require("data.scripts.manifests.vanilla_bindings")
-  local map60 = assert(manifest.maps[60], "production bindings manifest must cover New Bark Town")
-  local savedMapInit = map60.map_init
-  map60.map_init = {}
+local DIRECTIONS = {
+  { direction = "north", fieldX = 0, fieldZ = 1 },
+  { direction = "south", fieldX = 0, fieldZ = -1 },
+  { direction = "west", fieldX = 1, fieldZ = 0 },
+  { direction = "east", fieldX = -1, fieldZ = 0 },
+}
 
-  local game
-  local ok, err = pcall(function()
-    game = AcceptanceHarness.new():boot({
-      versionId = AcceptanceHarness.defaultVersion(),
+local function actorCandidates(game)
+  local runtime = game.runtime
+  local runtimeActors = runtime.actors
+  ---@cast runtimeActors FieldActorManager
+  local actors = {}
+  for _, actor in ipairs(runtimeActors:actorsOf(ROUTE_29_ID)) do
+    actors[actor.objectEventId] = actor
+  end
+  local candidates = {}
+  for _, event in ipairs(runtime.runtimeMap.fieldData.events.objects) do
+    if event.scriptId ~= 0 then
+      local actor = actors[event.objectEventId]
+      if actor ~= nil then
+        for _, offset in ipairs(DIRECTIONS) do
+          candidates[#candidates + 1] = {
+            actor = actor,
+            fieldX = actor.fieldX + offset.fieldX,
+            fieldZ = actor.fieldZ + offset.fieldZ,
+            facing = offset.direction,
+          }
+        end
+      end
+    end
+  end
+  return candidates
+end
+
+-- Locate a real reachable Route 29 actor through semantic movement and press
+-- Action at it. The assertion is deliberately after the production resolver:
+-- a nil target is the old coverage failure, while an attributed unsupported
+-- script error after scheduling is a valid later boundary.
+function T.tests.non_demo_interaction_resolves_to_a_concrete_target()
+  local harness = AcceptanceHarness.new()
+  harness:forEachVersion(function(versionId)
+    local game = harness:boot({
+      versionId = versionId,
       map = "MAP_NEW_BARK",
       save = "fresh",
     })
-  end)
-  map60.map_init = savedMapInit
-  if game then
-    game:close()
-  end
+    local ok, err = xpcall(function()
+      game:moveTo(ROUTE_29_TARGET, ROUTE_29_ID)
+      Assert.equal(game:snapshot().mapId, ROUTE_29_ID)
+      local candidates = actorCandidates(game)
+      Assert.isTrue(#candidates > 0, "Route 29 must expose a bindable object event")
 
-  Assert.isFalse(ok, "a manifest carrying an undispatched trigger kind must fail the boot")
-  Assert.isTrue(
-    tostring(err):find("acceptance runtime boot failed: " .. BINDINGS_MANIFEST_INVALID, 1, true) ~= nil,
-    "boot must fail with the bindings manifest schema error, got: " .. tostring(err)
-  )
+      local interaction
+      for _, candidate in ipairs(candidates) do
+        local moved = pcall(game.moveTo, game, {
+          fieldX = candidate.fieldX,
+          fieldZ = candidate.fieldZ,
+        })
+        if moved then
+          game:face(candidate.facing)
+          game:pressAction()
+          interaction = game:interaction()
+          if interaction.actorId == candidate.actor.actorId then
+            break
+          end
+        end
+      end
+
+      Assert.notNil(interaction, "a Route 29 actor must be reachable through field input")
+      Assert.equal(interaction.kind, "object")
+      Assert.notNil(interaction.scriptId, "a non-demo object interaction must resolve through generated bindings")
+      Assert.isTrue(interaction.scriptId ~= "SCRIPT_BINDING_MAP_UNKNOWN")
+      Assert.equal(game:renderAttempts(), 0, "acceptance must stop before GPU rendering")
+    end, debug.traceback)
+    game:close()
+    if not ok then
+      error(err, 0)
+    end
+  end)
 end
 
 return T

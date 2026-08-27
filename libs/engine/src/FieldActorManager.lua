@@ -114,6 +114,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field getById fun(self: FieldActorManager, actorId: string): FieldActorManager.Actor?
 ---@field getAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
 ---@field probeAt fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, candidate: FieldOccupancyCandidate): FieldActorManager.ProbeResult?
+---@field actorsOf fun(self: FieldActorManager, mapId: integer): FieldActorManager.Actor[]
 ---@field actorIdForMapIndex fun(self: FieldActorManager, index: integer): string?
 ---@class FieldActorManager.Actor: FieldObjectActor
 ---@field scriptMovementType string?

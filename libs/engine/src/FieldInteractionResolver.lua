@@ -19,8 +19,8 @@
 -- raw scriptId -- the original always starts the scene script with the raw
 -- u16 -- except script id 0, the no-interaction marker (the original starts
 -- the map bank's script 0 there; the project treats that as noninteractive
--- until bank-script-0 bindings exist, matching the binding audit). Type-2
--- background events are the hidden-item family, declared noninteractive:
+-- until bank-script-0 bindings exist, matching the binding audit). Hidden-item
+-- background events are declared noninteractive:
 -- their pickup scripts depend on collection flags that are not tracked, so
 -- the resolver never emits an intent for them, the binding audit rejects
 -- bindings for them, and the manifest omits them (see `isHiddenItem`).
@@ -82,18 +82,15 @@ FieldInteractionResolver.RAW_FACING = { north = 0, south = 1, west = 2, east = 3
 -- (`BgEventDirectionIsCompatibleWithPlayerFacing`, asm/unk_0203DB6C.s).
 FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD = 4
 
--- Background event type of the hidden-item family. Hidden items carry
--- pickup scripts (the hidden-item script ids) whose collection-flag state is
--- not tracked yet, so the family is DECLARED noninteractive: the resolver
--- never emits an intent for it, the binding audit exempts and rejects
--- bindings for it, and the manifest omits it. `isHiddenItem` is the single
--- owner of this classification.
-FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE = 2
-
+-- Normalized event marker for the hidden-item family. Hidden items carry
+-- pickup scripts whose collection-flag state is not tracked yet, so the
+-- family is declared noninteractive: the resolver never emits an intent for
+-- it, the binding audit rejects bindings for it, and the manifest omits it.
+-- `isHiddenItem` is the single owner of this classification.
 ---@param event table
 ---@return boolean
 function FieldInteractionResolver.isHiddenItem(event)
-  return event.type == FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE
+  return event.hiddenItem == true
 end
 
 -- Player facing raw code -> background event raw direction codes that

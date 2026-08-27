@@ -38,6 +38,7 @@ local FAKE_PATHS = {
   "romdump.src.digest.FieldEntranceIndicatorCacheWriter",
   "libs.assets.src.FieldEffectAssetCache",
   "romdump.src.digest.script.ScriptCompiler",
+  "romdump.src.digest.script.BindingCompiler",
   "romdump.src.digest.ScriptCacheWriter",
   "libs.assets.src.ScriptCache",
   "romdump.src.digest.audio.AudioCompiler",
@@ -308,6 +309,9 @@ local function makeFakes()
   }
   fakes.ScriptCompiler.compile = function()
     return env.scriptBundle
+  end
+  fakes.BindingCompiler.compile = function()
+    return { schema = "g4-script-bindings-v1", maps = {} }
   end
   fakes.AudioCompiler.compile = function()
     return env.audioBundle

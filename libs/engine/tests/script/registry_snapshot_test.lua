@@ -28,7 +28,7 @@ end
 -- A cache whose script class is complete: marker, index, and script files.
 local function scriptCache(marker)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:write(ScriptCache.markerPath(), marker or "script-cache-v1:rom-sha:dep-sha")
+  cache:write(ScriptCache.markerPath(), marker or "script-cache-v2:rom-sha:dep-sha")
   cache:writeLua(ScriptCache.indexPath(), {
     schema = "g4-script-index-v1",
     resources = { { id = "new_bark.lab_sign" } },

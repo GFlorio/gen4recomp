@@ -5,6 +5,7 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local BindingAudit = require("libs.engine.src.script.BindingAudit")
 local Bindings = require("libs.engine.src.script.Bindings")
+local ScriptCache = require("libs.assets.src.ScriptCache")
 local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local TilePermissions = require("tests.support.TilePermissions")
@@ -149,7 +150,10 @@ function T.coordinate_and_passive_sign_resolvers_emit_raw_zero()
 end
 
 function T.script_zero_intents_share_one_canonical_binding_without_masking_nonzero_missing_bindings()
-  local bindings = Bindings.new({ maps = { [60] = { objects = {}, backgrounds = {}, coordinates = {} } } })
+  local bindings = Bindings.new({
+    schema = ScriptCache.BINDINGS_SCHEMA,
+    maps = { [60] = { objects = {}, backgrounds = {}, coordinates = {} } },
+  })
   local object = assert(bindings:resolveIntent(zeroIntent("object"), "north"))
   local background = assert(bindings:resolveIntent(zeroIntent("background"), "north"))
   local coordinate = assert(bindings:resolveIntent(zeroIntent("coordinate"), "north"))
@@ -162,22 +166,39 @@ function T.script_zero_intents_share_one_canonical_binding_without_masking_nonze
 end
 
 function T.binding_audit_is_zero_aware_but_strict_for_nonzero_and_hidden_items()
-  local manifest = { maps = { [60] = { objects = {}, backgrounds = {}, coordinates = {} } } }
-  Assert.isTrue(BindingAudit.check(manifest, function()
-    return fieldData({ { objectEventId = 0, scriptId = 0 } }, { { index = 0, type = 1, scriptId = 0 } }, {})
-  end))
+  local manifest =
+    { schema = ScriptCache.BINDINGS_SCHEMA, maps = { [60] = { objects = {}, backgrounds = {}, coordinates = {} } } }
+  Assert.isTrue(BindingAudit.check(manifest, {
+    requiredMapIds = { 60 },
+    knownScriptIds = {},
+    loadFieldData = function()
+      return fieldData(
+        { { objectEventId = 0, scriptId = 0 } },
+        { { index = 0, type = 1, hiddenItem = false, scriptId = 0 } },
+        {}
+      )
+    end,
+  }))
   throwsCode("SCRIPT_BINDING_AUDIT_INCOMPLETE", function()
-    BindingAudit.check(manifest, function()
-      return fieldData({ { objectEventId = 0, scriptId = 9 } }, {}, {})
-    end)
+    BindingAudit.check(manifest, {
+      requiredMapIds = { 60 },
+      knownScriptIds = {},
+      loadFieldData = function()
+        return fieldData({ { objectEventId = 0, scriptId = 9 } }, {}, {})
+      end,
+    })
   end)
   throwsCode("SCRIPT_BINDING_AUDIT_HIDDEN_ITEM_BOUND", function()
-    BindingAudit.check(
-      { maps = { [60] = { objects = {}, backgrounds = { [0] = "hidden" }, coordinates = {} } } },
-      function()
-        return fieldData({}, { { index = 0, type = 2, scriptId = 8000 } }, {})
-      end
-    )
+    BindingAudit.check({
+      schema = ScriptCache.BINDINGS_SCHEMA,
+      maps = { [60] = { objects = {}, backgrounds = { [0] = "hidden" }, coordinates = {} } },
+    }, {
+      requiredMapIds = { 60 },
+      knownScriptIds = { hidden = true },
+      loadFieldData = function()
+        return fieldData({}, { { index = 0, type = 2, hiddenItem = true, scriptId = 8000 } }, {})
+      end,
+    })
   end)
 end
 

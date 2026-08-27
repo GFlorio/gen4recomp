@@ -54,6 +54,7 @@ function T.decodes_every_field_and_preserves_zero_based_indexes()
     index = 0,
     scriptId = 10,
     type = 11,
+    hiddenItem = false,
     x = -12,
     z = 13,
     y = -14,

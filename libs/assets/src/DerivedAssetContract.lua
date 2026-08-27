@@ -101,7 +101,7 @@ DerivedAssetContract.fieldMapData = {
   -- comes from the frozen reference rule scoped to the map, and raw
   -- soundplateSoundID never reaches the record. v4 added the flag/traversal
   -- music policy and the semantic soundplates array to the record.
-  fieldSchema = "g4-field-map-v6",
+  fieldSchema = "g4-field-map-v7",
 }
 
 DerivedAssetContract.messages = {
@@ -121,9 +121,10 @@ DerivedAssetContract.font = {
 }
 
 DerivedAssetContract.scripts = {
-  cacheFormat = "script-cache-v1",
+  cacheFormat = "script-cache-v2",
   indexSchema = "g4-script-index-v1",
   provenanceSchema = "g4-script-provenance-v1",
+  bindingsSchema = "g4-script-bindings-v1",
 }
 
 DerivedAssetContract.fieldWeather = {

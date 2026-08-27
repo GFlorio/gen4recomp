@@ -15,8 +15,8 @@
 -- idle player's Action edge, which the session dispatches to
 -- `scriptClient:consume(intent, tick)`. A consumed interaction owns the
 -- tick, so the same edge can never also start a move or a warp. There is no
--- fallback client: the load-time binding audit guarantees bindings for maps
--- included in the supported binding manifest, not for every reachable map.
+-- fallback client: the load-time binding audit guarantees bindings for every
+-- runtime map represented by the generated binding manifest.
 -- The resolve service is invoked with the interactions table as self (colon
 -- style), so implementations must declare a leading self parameter.
 --
@@ -470,8 +470,8 @@ function FieldSession:updateFixed(inputSnapshot)
     if intent then
       -- The script client resolves the binding, starts the composed script,
       -- and runs it during this tick. There is no fallback client: the
-      -- load-time binding audit guarantees bindings for maps included in
-      -- the supported binding manifest, not for every reachable map.
+      -- load-time binding audit guarantees bindings for the generated
+      -- binding manifest.
       local result = self.scriptClient:consume(intent, self.tick + 1)
       local results = ScriptInteractionClient.RESULTS
       assert(

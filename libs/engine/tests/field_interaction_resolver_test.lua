@@ -67,6 +67,7 @@ local function bgEvent(index, scriptId, x, z, directionRaw, eventType)
     index = index,
     scriptId = scriptId,
     type = eventType or 0,
+    hiddenItem = (eventType or 0) == 2,
     x = x,
     z = z,
     y = 0,
@@ -321,16 +322,15 @@ function T.background_requires_exact_facing_cell_match()
   )
 end
 
--- The hidden-item family is an explicit declaration, not an accidental
--- eligibility gap: the named predicate is the single owner of the type-2
--- classification shared with the binding audit.
-function T.is_hidden_item_identifies_the_type_two_family()
+-- The hidden-item family is an explicit normalized declaration, not an
+-- accidental eligibility gap: the named predicate is its single owner.
+function T.is_hidden_item_identifies_the_hidden_item_marker()
   Assert.isTrue(
-    FieldInteractionResolver.isHiddenItem({ type = FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE }),
-    "type 2 is the hidden-item family"
+    FieldInteractionResolver.isHiddenItem({ hiddenItem = true }),
+    "the hidden-item marker identifies the noninteractive family"
   )
-  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ type = 0 }))
-  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ type = 1 }))
+  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ hiddenItem = false }))
+  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ type = 2 }))
 end
 
 -- The resolver owns one surface resolver per terrain: resolving against a
@@ -345,23 +345,23 @@ function T.resolving_across_maps_never_reuses_stale_terrain_state()
   Assert.equal(second.background.eventIndex, 0)
 end
 
--- The type-two family is declared noninteractive (hidden-item pickup depends
+-- The hidden-item family is declared noninteractive (hidden-item pickup depends
 -- on collection flags that are not tracked); it resolves to nothing rather
 -- than emitting an intent the client could never bind.
-function T.type_two_background_events_are_skipped()
+function T.hidden_item_background_events_are_skipped()
   local m = map({ bgEvent(0, 100, 4, 13, 4, 2) })
   local r = resolver()
   Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })))
 end
 
-function T.type_two_does_not_block_a_later_compatible_event()
+function T.hidden_item_does_not_block_a_later_compatible_event()
   local m = map({
     bgEvent(0, 100, 4, 13, 4, 2),
     bgEvent(1, 6, 4, 13, 0),
   })
   local r = resolver()
   local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
-  assert(intent, "the type-2 record is skipped, the later compatible one wins")
+  assert(intent, "the hidden-item record is skipped, the later compatible one wins")
   Assert.equal(intent.kind, "background")
   Assert.equal(intent.background.eventIndex, 1)
 end

@@ -44,7 +44,7 @@ end
 
 function T.music_record_carries_day_night_overrides_and_the_surf_traversal_rule()
   local bundle = compileOk("")
-  Assert.equal(bundle.field.schema, "g4-field-map-v6")
+  Assert.equal(bundle.field.schema, "g4-field-map-v7")
   Assert.deepEqual(bundle.field.music, {
     day = "SEQ_GS_T_WAKABA",
     night = "SEQ_GS_T_WAKABA",
