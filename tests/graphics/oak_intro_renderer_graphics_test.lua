@@ -189,6 +189,9 @@ T.responsive_renderer_uses_declared_sampling_and_identity_tint = function()
   Assert.equal(filters["background.png"].mag, "linear")
   Assert.equal(filters["oak.png"].min, "nearest")
   Assert.equal(filters["oak.png"].mag, "nearest")
+  Assert.deepEqual(filters["gender-selector-neutral.png"], { min = "nearest", mag = "nearest" })
+  Assert.deepEqual(filters["gender_male.png"], { min = "nearest", mag = "nearest" })
+  Assert.isNil(filters["gender_background.png"], "opaque selector background is not loaded")
   renderer:dispose()
   for _, image in ipairs(graphics.images) do
     Assert.isTrue(image.released)
@@ -438,7 +441,7 @@ T.gender_focus_leaves_portrait_draw_color_untinted = function()
   renderer:dispose()
 end
 
--- The renderer must actually consume C01's neutral surface/mask/default-tone
+-- The renderer must consume the generated neutral surface/mask/default-tone
 -- selector semantics to draw the source button-frame pulse; a manifest that
 -- omits them cannot silently produce a working (but invisible) selector.
 T.gender_selector_construction_requires_the_generated_frame_semantics = function()
@@ -461,7 +464,7 @@ T.gender_selector_construction_requires_the_generated_frame_semantics = function
   end)
   Assert.isFalse(
     ok,
-    "the renderer must require C01's genderSelector semantics to render the source frame pulse, not construct silently without them"
+    "the renderer must require generated genderSelector semantics to render the source frame pulse, not construct silently without them"
   )
 end
 

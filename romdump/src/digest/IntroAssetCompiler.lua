@@ -731,6 +731,8 @@ local GENDER_SELECTOR_MASK_TARGETS = {
   { gender = "female", kind = "accentMask", bank = 0, value = 15 },
 }
 
+local GENDER_SELECTOR_BACKGROUND_BANK = 3
+
 local function classifyGenderSelectorMasks(char, screen)
   if char.depth ~= 3 then
     sourceError("gender selector background requires 4bpp source tiles", { depth = char.depth })
@@ -739,14 +741,21 @@ local function classifyGenderSelectorMasks(char, screen)
   local tileCount = #char.tiles / tileBytes
   local width, height = screen.width, screen.height
   local masks = {}
+  local chrome = newRgba(width, height)
+  local targets = {}
   for _, target in ipairs(GENDER_SELECTOR_MASK_TARGETS) do
     masks[target.gender] = masks[target.gender] or {}
     masks[target.gender][target.kind] = newRgba(width, height)
+    targets[target.bank] = targets[target.bank] or {}
+    targets[target.bank][target.value] = target
   end
   local columns = width / 8
   for row = 0, height / 8 - 1 do
     for column = 0, columns - 1 do
       local entry = screen.entries[row * columns + column + 1]
+      if entry.palette ~= 0 and entry.palette ~= GENDER_SELECTOR_BACKGROUND_BANK then
+        sourceError("intro gender selector uses an unknown palette bank", { palette = entry.palette })
+      end
       if entry.tile < 0 or entry.tile >= tileCount then
         sourceError("intro gender selector screen references a missing tile", { tile = entry.tile })
       end
@@ -760,19 +769,20 @@ local function classifyGenderSelectorMasks(char, screen)
             local targetX = entry.flipH and 7 - localX or localX
             local targetY = entry.flipV and 7 - tileRow or tileRow
             local px, py = column * 8 + targetX, row * 8 + targetY
-            for _, target in ipairs(GENDER_SELECTOR_MASK_TARGETS) do
-              if entry.palette == target.bank and value == target.value then
-                local offset = (py * width + px) * 4
-                local mask = masks[target.gender][target.kind]
-                mask[offset + 1], mask[offset + 2], mask[offset + 3], mask[offset + 4] = 255, 255, 255, 255
-              end
+            local target = targets[entry.palette] and targets[entry.palette][value]
+            local offset = (py * width + px) * 4
+            if target then
+              local mask = masks[target.gender][target.kind]
+              mask[offset + 1], mask[offset + 2], mask[offset + 3], mask[offset + 4] = 255, 255, 255, 255
+            elseif entry.palette == 0 and value ~= 0 then
+              chrome[offset + 4] = 255
             end
           end
         end
       end
     end
   end
-  return masks, width, height
+  return masks, chrome, width, height
 end
 
 local function compileGenderSelector(archive, dependencies, manifest, assets, spec)
@@ -780,11 +790,18 @@ local function compileGenderSelector(archive, dependencies, manifest, assets, sp
   local screenBytes = decodeMember(archive, spec.screen, "gender selector screen", spec.archive)
   addDependency(dependencies, spec.archive, spec.screen, screenBytes, "gender-selector:screen")
   local screen = decode("decodeScreen", screenBytes, "gender selector screen", spec.screen, spec.archive)
+  local masks, chrome, width, height = classifyGenderSelectorMasks(char, screen)
   local rendered = renderScreen(char, palette.colors, screen)
+  local neutral = {}
+  for offset = 1, #rendered.rgba, 4 do
+    neutral[offset] = string.byte(rendered.rgba, offset)
+    neutral[offset + 1] = string.byte(rendered.rgba, offset + 1)
+    neutral[offset + 2] = string.byte(rendered.rgba, offset + 2)
+    neutral[offset + 3] = chrome[offset + 3]
+  end
   local neutralPath = IntroAssetCache.assetDir() .. "/gender-selector-neutral.png"
-  assets[neutralPath] = PngWriter.encode(rendered.width, rendered.height, rendered.rgba)
+  assets[neutralPath] = PngWriter.encode(width, height, concatBytes(neutral))
 
-  local masks, width, height = classifyGenderSelectorMasks(char, screen)
   local buttons = {}
   for _, gender in ipairs({ "male", "female" }) do
     local button, unionBounds = {}, nil
@@ -823,7 +840,7 @@ local function compileGenderSelector(archive, dependencies, manifest, assets, sp
     sourceError("gender selector default tone palette entry is missing", {})
   end
   manifest.genderSelector = {
-    neutral = { image = neutralPath, width = rendered.width, height = rendered.height },
+    neutral = { image = neutralPath, width = width, height = height },
     defaultTone = { r = defaultToneColor.r, g = defaultToneColor.g, b = defaultToneColor.b },
     buttons = buttons,
   }

@@ -5,6 +5,7 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
+local PngReader = require("tests.support.PngReader")
 
 local T = {}
 
@@ -160,7 +161,7 @@ local function syntheticCompilerSource(animationFrames)
   rawset(decoder, "decodeScreen", function()
     local entries = {}
     for row = 0, 23 do
-      entries[#entries + 1] = { tile = row, palette = 0, flipH = false, flipV = false }
+      entries[#entries + 1] = { tile = row, palette = row == 0 and 3 or 0, flipH = false, flipV = false }
     end
     return { width = 8, height = 192, entries = entries }
   end)
@@ -203,6 +204,29 @@ local function syntheticCompilerSource(animationFrames)
     end,
   }
   return source, restore, archive.reads
+end
+
+function T.gender_selector_neutral_surface_preserves_source_chrome_only()
+  local Compiler = compiler()
+  local source, restore = syntheticCompilerSource()
+  local ok, result = xpcall(function()
+    return Compiler.compile(source)
+  end, debug.traceback)
+  restore()
+  if not ok then
+    error(result, 0)
+  end
+
+  local neutral = assert(result.manifest.genderSelector.neutral)
+  local width, height, rgba = PngReader.rgba(assert(result.assets[neutral.image]))
+  Assert.equal(width, 8)
+  Assert.equal(height, 192)
+  local _, _, _, backgroundAlpha = PngReader.pixel(rgba, width, 0, 0)
+  local _, _, _, chromeAlpha = PngReader.pixel(rgba, width, 0, 8)
+  local _, _, _, dynamicAlpha = PngReader.pixel(rgba, width, 0, 88)
+  Assert.equal(backgroundAlpha, 0, "selector background is transparent")
+  Assert.equal(chromeAlpha, 255, "static selector chrome remains opaque")
+  Assert.equal(dynamicAlpha, 0, "dynamic selector roles remain outside neutral chrome")
 end
 
 function T.gender_selectors_compile_their_configured_cell_animations()

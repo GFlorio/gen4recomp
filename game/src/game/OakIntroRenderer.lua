@@ -5,7 +5,7 @@
 ---@class OakIntroRenderer
 ---@field graphics table
 ---@field text FieldTextRenderer
----@field genderSelector table generated C01 neutral surface/pulse/accent/tone semantics
+---@field genderSelector table generated selector chrome/pulse/accent/tone semantics
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
 local REQUIRED_ASSETS = {
@@ -17,7 +17,6 @@ local REQUIRED_ASSETS = {
   "shrink_male",
   "shrink_female",
   "ball_open",
-  "gender_background",
   "gender_male",
   "gender_female",
 }
@@ -75,7 +74,9 @@ local function loadResources(manifest, graphics, imageLoader)
   local assets = {}
   local ok, failure = pcall(function()
     for assetId, asset in pairs(manifest.widgets) do
-      assets[assetId] = asset
+      if assetId ~= "gender_background" then
+        assets[assetId] = asset
+      end
     end
     assets.background = {
       image = manifest.background.image,
@@ -314,10 +315,11 @@ function OakIntroRenderer:_draw(view)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
-    drawAsset(self, "gender_background", 1, assert(layout.genderBackground))
+    local canvas = assert(layout.genderCanvas, "Oak layout must expose the gender selector canvas")
+    drawAsset(self, "genderSelector.neutral", 1, canvasRect(canvas, { x = 0, y = 0, width = 256, height = 192 }))
+    self:_drawGenderFocus(view, layout)
     drawAsset(self, "gender_male", 1, assert(layout.genderChoices[0]))
     drawAsset(self, "gender_female", 1, assert(layout.genderChoices[1]))
-    self:_drawGenderFocus(view, layout)
   end
   if view.confirmationChoice then
     local rows = assert(layout.choiceRows)
