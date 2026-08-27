@@ -3,6 +3,8 @@
 local Assert = require("tests.support.Assert")
 local FieldCoverage = require("libs.engine.src.FieldCoverage")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local CollisionFixture = require("tests.support.CollisionFixture")
 
 local T = {}
 
@@ -69,6 +71,71 @@ local function runtimeFactory(releases)
       end,
     }
   end
+end
+
+local function cacheCoverage(loads)
+  local cells = {}
+  local cellFiles = {}
+  local terrainFiles = {}
+  local collision = CollisionFixture.asset(32, 32)
+  for z = 0, 2 do
+    for x = 0, 2 do
+      local index = z * 3 + x
+      local cellPath = FieldCellCache.cellPath(1, index)
+      local collisionPath = FieldCellCache.collisionPath(1, index)
+      local terrainPath = FieldCellCache.terrainPath(1, index)
+      local cell = {
+        schema = FieldCellCache.CELL_SCHEMA,
+        matrixMemberId = 1,
+        index = index,
+        x = x,
+        z = z,
+        mapHeaderId = 60,
+        altitude = 0,
+        origin = { x = x * 32, y = 0, z = z * 32 },
+        landDataMemberId = 1,
+        areaDataMemberId = 1,
+        file = cellPath,
+        collision = { file = collisionPath },
+        terrain = { schema = "g4-terrain-surfaces-v1", file = terrainPath },
+        batches = {},
+        materials = {},
+        buildingInstances = {},
+        terrainAnimations = { textureSrt = false },
+      }
+      cells[#cells + 1] = cell
+      cellFiles[cellPath] = cell
+      terrainFiles[terrainPath] = {
+        schema = "g4-terrain-surfaces-v1",
+        source = { bdhcSha1 = "cache-" .. index },
+        plates = {},
+      }
+    end
+  end
+  local index = {
+    schema = FieldCellCache.INDEX_SCHEMA,
+    matrices = { { matrixMemberId = 1, width = 3, height = 3, cells = cells } },
+  }
+  return FieldCoverage.new({
+    matrixMemberId = 1,
+    cacheFs = {
+      loadLua = function(_, path)
+        if path == FieldCellCache.indexPath() then
+          return index
+        end
+        if cellFiles[path] then
+          loads.count = loads.count + 1
+          return cellFiles[path]
+        end
+        return terrainFiles[path]
+      end,
+      read = function()
+        return collision
+      end,
+    },
+    anchorX = 1,
+    anchorZ = 1,
+  })
 end
 
 local function identityCoverage(sourceHash, changedCellKey, reverse, releaseCounter)
@@ -218,6 +285,54 @@ function T.failed_runtime_normalization_releases_acquired_cell()
     })
   end)
   Assert.equal(releases, 1, "normalization failure releases the acquired cell")
+end
+
+function T.constructor_requires_both_index_and_cell_sources_before_acquisition()
+  local explicitLoads = { count = 0 }
+  local explicitCoverage = FieldCoverage.new({
+    matrixMemberId = 1,
+    index = makeIndex(),
+    anchorX = 1,
+    anchorZ = 1,
+    loadCell = function(descriptor)
+      explicitLoads.count = explicitLoads.count + 1
+      return runtimeFactory({})(descriptor)
+    end,
+  })
+  Assert.equal(explicitCoverage:status().residentCount, 9)
+  Assert.equal(explicitLoads.count, 9)
+  explicitCoverage:release()
+
+  local cacheLoads = { count = 0 }
+  local cacheCoverageInstance = cacheCoverage(cacheLoads)
+  Assert.equal(cacheCoverageInstance:status().residentCount, 9)
+  Assert.equal(cacheLoads.count, 9)
+  cacheCoverageInstance:release()
+
+  local indexOnlyError = Assert.throws(function()
+    FieldCoverage.new({
+      matrixMemberId = 1,
+      index = makeIndex(),
+      anchorX = 1,
+      anchorZ = 1,
+    })
+  end)
+  Assert.isTrue(tostring(indexOnlyError):find("field coverage requires loadCell or cacheFs", 1, true) ~= nil)
+
+  local loadCellOnlyLoads = { count = 0 }
+  local loadCellOnlyError = Assert.throws(function()
+    FieldCoverage.new({
+      matrixMemberId = 1,
+      anchorX = 1,
+      anchorZ = 1,
+      loadCell = function(descriptor)
+        loadCellOnlyLoads.count = loadCellOnlyLoads.count + 1
+        return runtimeFactory({})(descriptor)
+      end,
+    })
+  end)
+  Assert.isTrue(tostring(loadCellOnlyError):find("field coverage requires index or cacheFs", 1, true) ~= nil)
+  Assert.equal(loadCellOnlyLoads.count, 0)
 end
 
 local function projectionCoverage()

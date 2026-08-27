@@ -193,7 +193,8 @@ end
 function FieldCoverage.new(options)
   assert(type(options) == "table", "FieldCoverage options required")
   assert(type(options.matrixMemberId) == "number", "field cell matrix member required")
-  assert(options.index or options.cacheFs, "field cell cache required")
+  assert(options.loadCell or options.cacheFs, "field coverage requires loadCell or cacheFs")
+  assert(options.index or options.cacheFs, "field coverage requires index or cacheFs")
   local self = setmetatable({
     cacheFs = options.cacheFs,
     index = options.index or FieldCellCache.loadIndex(options.cacheFs),
