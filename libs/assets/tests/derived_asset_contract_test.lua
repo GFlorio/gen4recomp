@@ -18,6 +18,7 @@ local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
+local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 
@@ -28,7 +29,7 @@ function T.contract_pins_the_current_asset_identities()
   -- revision identifies the current shared generated-asset contracts. The
   -- sequence initial-volume domain is the current NNS table domain.
   Assert.deepEqual(DerivedAssetContract, {
-    revision = 9,
+    revision = 10,
     map = {
       cacheFormat = "map-cache-v7",
       sceneSchema = "g4-map-scene-v8",
@@ -75,7 +76,8 @@ function T.contract_pins_the_current_asset_identities()
       cacheFormat = "field-effect-cache-v2",
     },
     fieldEmotes = {
-      cacheFormat = "field-emote-cache-v1",
+      cacheFormat = "field-emotes-cache-v2",
+      schema = "g4-field-emote-v1",
     },
     fieldUi = {
       cacheFormat = "field-ui-cache-v1",
@@ -135,6 +137,8 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(FieldWeatherCache.SCHEMA, DerivedAssetContract.fieldWeather.schema)
   Assert.equal(NewGameInitCache.FORMAT, DerivedAssetContract.newGameInit.cacheFormat)
   Assert.equal(NewGameInitCache.SCHEMA, DerivedAssetContract.newGameInit.schema)
+  Assert.equal(FieldEmoteAssetCache.FORMAT, DerivedAssetContract.fieldEmotes.cacheFormat)
+  Assert.equal(FieldEmoteAssetCache.SCHEMA, DerivedAssetContract.fieldEmotes.schema)
 end
 
 return { tests = T }

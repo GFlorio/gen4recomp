@@ -1,4 +1,4 @@
--- Transactional writer for the normalized movement-emote billboard model.
+-- Transactional writer for the normalized movement-emote billboard descriptor.
 
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 local MeshWriter = require("libs.assets.src.MeshWriter")
@@ -22,10 +22,13 @@ function Writer.write(cacheFs, bundle)
         PngWriter.encode(texture.width, texture.height, texture.pixels)
       )
     end
-    tx.stage:writeLua(FieldEmoteAssetCache.exclamationModelPath(), bundle.model)
-    local model = assert(tx.stage:loadLua(FieldEmoteAssetCache.exclamationModelPath()))
-    ModelAsset.validate(model)
-    for _, path in ipairs(ModelAsset.referencedPaths(model)) do
+    tx.stage:writeLua(FieldEmoteAssetCache.exclamationDescriptorPath(), bundle.model)
+    local descriptor = assert(tx.stage:loadLua(FieldEmoteAssetCache.exclamationDescriptorPath()))
+    local valid, validationErr = FieldEmoteAssetCache.validateDescriptor(descriptor)
+    if not valid then
+      error(validationErr, 0)
+    end
+    for _, path in ipairs(ModelAsset.referencedPaths(descriptor.model)) do
       assert(tx.stage:exists(path), "field-emote referenced asset is missing: " .. path)
     end
     tx.stage:write(FieldEmoteAssetCache.markerPath(), bundle.marker)

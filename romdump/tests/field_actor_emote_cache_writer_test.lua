@@ -8,7 +8,7 @@ local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local T = { tests = {} }
 
-local function model()
+local function modelAsset()
   return {
     schema = ModelAsset.SCHEMA,
     key = "field-emote:exclamation",
@@ -40,7 +40,15 @@ local function model()
   }
 end
 
-T.tests["publishes model marker and referenced mesh under owned emote roots"] = function()
+local function model()
+  return {
+    schema = "g4-field-emote-v1",
+    anchorOffset = { x = 0, y = 2, z = 0.0625 },
+    model = modelAsset(),
+  }
+end
+
+T.tests["publishes field-emote descriptor and referenced assets under owned roots"] = function()
   local oldEncode = MeshWriter.encode
   ---@diagnostic disable-next-line: duplicate-set-field
   MeshWriter.encode = function()
@@ -49,7 +57,7 @@ T.tests["publishes model marker and referenced mesh under owned emote roots"] = 
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   local meshPath = FieldEmoteAssetCache.geometryPath("mesh-key")
   local bundle = {
-    marker = "field-emote-cache-v1:rom:dep",
+    marker = "field-emotes-cache-v2:rom:dep",
     model = model(),
     meshes = { ["mesh-key"] = {} },
     textures = { ["texture-key"] = { width = 1, height = 1, pixels = "rgba" } },
@@ -57,22 +65,22 @@ T.tests["publishes model marker and referenced mesh under owned emote roots"] = 
   local ok, err = pcall(Writer.write, cache, bundle)
   MeshWriter.encode = oldEncode
   Assert.isTrue(ok, tostring(err))
-  Assert.isTrue(cache:exists(FieldEmoteAssetCache.exclamationModelPath(), "file"))
+  Assert.isTrue(cache:exists(FieldEmoteAssetCache.exclamationDescriptorPath(), "file"))
   Assert.equal(cache:read(FieldEmoteAssetCache.markerPath()), bundle.marker)
   Assert.equal(cache:read(meshPath), "encoded-mesh")
 end
 
-T.tests["aborts before publication when the canonical model is invalid"] = function()
+T.tests["aborts before publication when the canonical descriptor is invalid"] = function()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   local ok = pcall(Writer.write, cache, {
-    marker = "field-emote-cache-v1:rom:dep",
-    model = {},
+    marker = "field-emotes-cache-v2:rom:dep",
+    model = { schema = "g4-field-emote-v1", anchorOffset = { x = 0, y = 2, z = 0.0625 }, model = {} },
     meshes = {},
     textures = {},
   })
   Assert.isFalse(ok)
   Assert.isFalse(cache:exists(FieldEmoteAssetCache.markerPath(), "file"))
-  Assert.isFalse(cache:exists(FieldEmoteAssetCache.exclamationModelPath(), "file"))
+  Assert.isFalse(cache:exists(FieldEmoteAssetCache.exclamationDescriptorPath(), "file"))
 end
 
 return T

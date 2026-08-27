@@ -177,7 +177,7 @@ function T.stale_and_malformed_manifests_fail_before_composition()
 end
 
 function T.intro_contract_revision_requires_the_new_obj_geometry()
-  Assert.equal(DerivedAssetContract.revision, 9)
+  Assert.equal(DerivedAssetContract.revision, 10)
 end
 
 return { tests = T }

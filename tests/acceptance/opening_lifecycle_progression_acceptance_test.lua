@@ -8,6 +8,8 @@ local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldActorEmoteRenderer = require("libs.engine.src.FieldActorEmoteRenderer")
+local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 
 local T = {
@@ -24,6 +26,20 @@ local TOWN_HOUSE_DOOR_APPROACH = { fieldX = 695, fieldZ = 397 }
 local VAR_SCENE_PLAYERS_HOUSE_1F = OpeningLifecycle.VAR_SCENE_PLAYERS_HOUSE_1F
 local FLAG_HIDE_NEW_BARK_FRIEND = FieldScriptSymbols.flagsByName.FLAG_HIDE_NEW_BARK_FRIEND
 local FLAG_HIDE_NEW_BARK_MARILL = FieldScriptSymbols.flagsByName.FLAG_HIDE_NEW_BARK_MARILL
+
+local function emotePool()
+  return {
+    build = function(_, fn)
+      return fn()
+    end,
+    meshFor = function()
+      return { mesh = {}, center = { 0, 0, 0 } }
+    end,
+    imageFor = function()
+      return {}
+    end,
+  }
+end
 
 local function withGame(map, fn, fieldOptions)
   local game = AcceptanceHarness.new():boot({
@@ -520,6 +536,50 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
         Assert.isNil(record.afterAction, "a completed walk-in-place instance yields before its successor")
       end
     end
+  end, { recordingScriptHosts = true })
+end
+
+function T.tests.new_bark_exclamation_follows_marills_current_draw_world()
+  withGame(TOWN, function(game)
+    OpeningLifecycle.seedPostOpeningHouseState(game)
+    local marillId = "map:60:object:3"
+    local renderer = FieldActorEmoteRenderer.new(game.runtime.fieldEmoteModels, emotePool())
+
+    local function drawRecord()
+      for _, record in ipairs(game.runtime.actors:drawRecords()) do
+        if record.actorId == marillId then
+          return record
+        end
+      end
+      return nil
+    end
+
+    local record = assert(game:advanceUntil("New Bark Marill shows its exclamation", function()
+      local current = drawRecord()
+      return current and current.activeEmoteKind == "exclamation"
+    end, 900))
+    local activeTicks = 0
+    while record.activeEmoteKind == "exclamation" do
+      local items = renderer:drawItems({ record })
+      Assert.equal(#items, 1, "the active Marill emote must produce one draw item")
+      Assert.equal(items[1].actorId, marillId)
+      Assert.near(items[1].transform[13], record.world.x, 1e-9, "the exclamation follows Marill's current world x")
+      Assert.near(items[1].transform[14], record.world.y + 2, 1e-9, "the exclamation is above Marill's current world y")
+      Assert.near(
+        items[1].transform[15],
+        record.world.z + 0.0625,
+        1e-9,
+        "the exclamation follows Marill's current world z"
+      )
+      activeTicks = activeTicks + 1
+      Assert.isTrue(activeTicks <= MovementCalibration.EMOTE_TICKS, "the effect must have a bounded action lifetime")
+      game:step()
+      record = assert(drawRecord(), "Marill remains present throughout its emote action")
+    end
+
+    Assert.equal(activeTicks, MovementCalibration.EMOTE_TICKS, "the effect lifetime remains owned by the emote action")
+    Assert.equal(#renderer:drawItems({ record }), 0, "clearing the emote state removes its draw item")
+    renderer:dispose()
   end, { recordingScriptHosts = true })
 end
 

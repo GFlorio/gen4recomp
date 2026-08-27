@@ -5,9 +5,8 @@
 -- "status" input is one entry per acting field actor instead of one player
 -- state: every draw record whose activeEmoteKind names a compiled kind gets
 -- one draw item, positioned at the actor's own world position (matching the
--- source spawn -- MapObject_CopyPositionVector with no separate vertical
--- offset; the compiled model's own vertices carry the badge's ground-to-
--- head-height extent) plus its transient presentation offset.
+-- source spawn) plus the generated source anchor. The draw record is already
+-- presentation-ready, so no actor offset is applied here.
 --
 -- The source model's SBC data marks its single batch `transformMode =
 -- "billboard"` (Nitro's BB opcode) with a captured `baseTransform`; this
@@ -21,6 +20,7 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
+local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
 local PoseContract = require("libs.assets.src.PoseContract")
 
 local IDENTITY_MODEL_NORMAL = Matrix3.identity()
@@ -28,7 +28,7 @@ local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 local Renderer = {}
 Renderer.__index = Renderer
 
--- kind -> compiled model asset. Only "exclamation" is proven/compiled today;
+-- kind -> field-emote descriptor. Only "exclamation" is proven/compiled today;
 -- other schema-approved kinds stay unmapped until their own source model is
 -- located, at which point they gain an entry here rather than reusing this
 -- one's art.
@@ -74,15 +74,25 @@ local function prepareModel(model, pool)
   end)
 end
 
----@param modelsByKind table<string, table> emote kind -> compiled ModelAsset
+---@param modelsByKind table<string, table> emote kind -> field-emote descriptor
 ---@param pool table GpuAssetPool-shaped mesh/image pool
 function Renderer.new(modelsByKind, pool)
   assert(type(modelsByKind) == "table", "field emote renderer requires its compiled models by kind")
   assert(pool and pool.meshFor and pool.imageFor and pool.build, "field emote renderer requires an asset pool")
   local prepared = {}
-  for kind, model in pairs(modelsByKind) do
-    assert(model and model.batches and model.materials, "field emote model for " .. tostring(kind) .. " is invalid")
-    prepared[kind] = prepareModel(model, pool)
+  for kind, descriptor in pairs(modelsByKind) do
+    assert(
+      descriptor
+        and descriptor.schema == FieldEmoteAssetCache.SCHEMA
+        and descriptor.anchorOffset
+        and descriptor.model
+        and descriptor.model.batches
+        and descriptor.model.materials,
+      "field emote descriptor for " .. tostring(kind) .. " is invalid"
+    )
+    local preparedModel = prepareModel(descriptor.model, pool)
+    preparedModel.anchorOffset = descriptor.anchorOffset
+    prepared[kind] = preparedModel
   end
   return setmetatable({ prepared = prepared }, Renderer)
 end
@@ -99,10 +109,10 @@ function Renderer:drawItems(records)
     local kind = record.activeEmoteKind
     local prepared = kind and self.prepared[kind]
     if prepared and record.world then
-      local offset = record.presentationOffset
-      local x = record.world.x + (offset and offset.x or 0)
-      local y = record.world.y + (offset and offset.y or 0)
-      local z = record.world.z + (offset and offset.z or 0)
+      local anchor = prepared.anchorOffset
+      local x = record.world.x + anchor.x
+      local y = record.world.y + anchor.y
+      local z = record.world.z + anchor.z
       local anchorTransform = Matrix4.translate(x, y, z)
       for _, batch in ipairs(prepared.batches) do
         local transform, modelNormal, billboardCenter, billboardScale

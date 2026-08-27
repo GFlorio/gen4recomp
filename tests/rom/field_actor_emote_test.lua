@@ -11,9 +11,11 @@ local RomSuite = require("tests.rom.support.RomSuite")
 local function testExclamationModelSurface(romFs)
   local bundle = assert(FieldActorEmoteCompiler.compile(romFs))
 
-  Assert.equal(bundle.model.key, "field-emote:exclamation")
-  Assert.isTrue(#bundle.model.batches > 0, "the compiled exclamation model must have at least one drawable batch")
-  Assert.isTrue(#bundle.model.materials > 0, "the compiled exclamation model must have at least one material")
+  Assert.equal(bundle.model.schema, "g4-field-emote-v1")
+  Assert.deepEqual(bundle.model.anchorOffset, { x = 0, y = 2, z = 0.0625 })
+  Assert.equal(bundle.model.model.key, "field-emote:exclamation")
+  Assert.isTrue(#bundle.model.model.batches > 0, "the compiled exclamation model must have at least one drawable batch")
+  Assert.isTrue(#bundle.model.model.materials > 0, "the compiled exclamation model must have at least one material")
 
   local textureCount = 0
   for _, texture in pairs(bundle.textures) do

@@ -16,6 +16,10 @@ local Hashing = require("romdump.src.digest.Hashing")
 
 local Compiler = {}
 local MEMBER_ID = 118
+local SOURCE_Y_OFFSET = 0x20000
+local SOURCE_Z_OFFSET = 0x1000
+local SOURCE_FIXED_POINT_UNITS = 0x1000
+local SOURCE_POSITION_UNITS_PER_FIELD_UNIT = 16
 
 local function member(narc, memberId)
   if memberId < 0 or memberId >= narc:memberCount() then
@@ -63,24 +67,36 @@ function Compiler.compile(romFs, hashLua)
       unresolved = compiled.unresolved,
     })
   end
-  local descriptor = {
+  local modelDescriptor = {
     schema = ModelAsset.SCHEMA,
     key = "field-emote:exclamation",
     kind = "static",
     batches = compiled.batches,
     materials = compiled.materials,
   }
-  for _, batch in ipairs(descriptor.batches) do
+  for _, batch in ipairs(modelDescriptor.batches) do
     local sha1 = assert(batch.geometry:match("/([^/]+)%.g4mesh$"), "compiled field-emote geometry path is malformed")
     batch.geometry = FieldEmoteAssetCache.geometryPath(sha1)
   end
-  for _, material in ipairs(descriptor.materials) do
+  for _, material in ipairs(modelDescriptor.materials) do
     if material.texture then
       local sha1 = assert(material.texture:match("/([^/]+)%.png$"), "compiled field-emote texture path is malformed")
       material.texture = FieldEmoteAssetCache.texturePath(sha1)
     end
   end
-  local valid, err = pcall(ModelAsset.validate, descriptor)
+  local descriptor = {
+    schema = FieldEmoteAssetCache.SCHEMA,
+    anchorOffset = {
+      x = 0,
+      y = SOURCE_Y_OFFSET / (SOURCE_FIXED_POINT_UNITS * SOURCE_POSITION_UNITS_PER_FIELD_UNIT),
+      z = SOURCE_Z_OFFSET / (SOURCE_FIXED_POINT_UNITS * SOURCE_POSITION_UNITS_PER_FIELD_UNIT),
+    },
+    model = modelDescriptor,
+  }
+  local ok, valid, err = pcall(FieldEmoteAssetCache.validateDescriptor, descriptor)
+  if not ok then
+    error(valid, 0)
+  end
   if not valid then
     error(err, 0)
   end

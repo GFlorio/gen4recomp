@@ -125,6 +125,14 @@ local function fakeExclamationModel(baseTransform)
   }
 end
 
+local function fakeExclamationDescriptor(baseTransform)
+  return {
+    schema = "g4-field-emote-v1",
+    anchorOffset = { x = 0, y = 2, z = 0.0625 },
+    model = fakeExclamationModel(baseTransform),
+  }
+end
+
 local function fakePool()
   return {
     build = function(_, fn)
@@ -148,7 +156,7 @@ function T.emote_presentation_follows_the_action_lifetime_independent_of_draw_co
 
   Assert.isNil(drawRecordFor(mgr, ACTOR_ID).activeEmoteKind, "no emote is active before the action begins")
 
-  local renderer = FieldActorEmoteRenderer.new({ exclamation = fakeExclamationModel() }, fakePool())
+  local renderer = FieldActorEmoteRenderer.new({ exclamation = fakeExclamationDescriptor() }, fakePool())
   Assert.equal(#renderer:drawItems(mgr:drawRecords()), 0, "the renderer draws nothing before the action begins")
 
   mgr:beginScriptedAction(ACTOR_ID, { action = "emote", name = "exclamation" })
@@ -168,16 +176,14 @@ function T.emote_presentation_follows_the_action_lifetime_independent_of_draw_co
     Assert.equal(actor.worldY, baseWorldY, "an emote must never change logical worldY")
     Assert.equal(actor.worldZ, baseWorldZ, "an emote must never change logical worldZ")
 
-    -- The renderer's actual draw trace: exactly one quad, anchored at the
-    -- acting actor's own world position (the compiled model's own vertices
-    -- carry its vertical extent, matching the source's spawn-at-base-
-    -- position placement -- see FieldActorEmoteRenderer).
+    -- The renderer's actual draw trace: exactly one quad, anchored above the
+    -- acting actor's current draw-world position by the generated offset.
     local items = renderer:drawItems(mgr:drawRecords())
     Assert.equal(#items, 1, "exactly one emote quad draws while the action is active")
     Assert.equal(items[1].actorId, ACTOR_ID, "the emote quad is attributed to the acting actor")
     Assert.equal(items[1].transform[13], baseWorldX, "the emote quad tracks the actor's world x")
-    Assert.equal(items[1].transform[14], baseWorldY, "the emote quad tracks the actor's world y")
-    Assert.equal(items[1].transform[15], baseWorldZ, "the emote quad tracks the actor's world z")
+    Assert.near(items[1].transform[14], baseWorldY + 2, 1e-9, "the emote quad is above the actor's world y")
+    Assert.near(items[1].transform[15], baseWorldZ + 0.0625, 1e-9, "the emote quad uses the actor's world z anchor")
     Assert.notNil(items[1].billboardCenter, "a billboard batch must carry a camera-independent center")
     Assert.notNil(items[1].billboardScale, "a billboard batch must carry a camera-independent scale")
   end
@@ -217,7 +223,7 @@ function T.a_billboard_batch_folds_its_captured_base_transform_into_the_final_pl
     0,
     1,
   }
-  local renderer = FieldActorEmoteRenderer.new({ exclamation = fakeExclamationModel(baseTransform) }, fakePool())
+  local renderer = FieldActorEmoteRenderer.new({ exclamation = fakeExclamationDescriptor(baseTransform) }, fakePool())
 
   mgr:beginScriptedAction(ACTOR_ID, { action = "emote", name = "exclamation" })
   mgr:advanceScriptedAction(ACTOR_ID, 1, MovementCalibration.EMOTE_TICKS)
@@ -225,12 +231,59 @@ function T.a_billboard_batch_folds_its_captured_base_transform_into_the_final_pl
   local items = renderer:drawItems(mgr:drawRecords())
   Assert.equal(#items, 1)
   Assert.near(items[1].billboardCenter[1], actor.worldX, 1e-9, "billboard center x tracks the actor")
-  Assert.near(items[1].billboardCenter[2], actor.worldY + 2, 1e-9, "billboard center y adds the base transform offset")
-  Assert.near(items[1].billboardCenter[3], actor.worldZ, 1e-9, "billboard center z tracks the actor")
+  Assert.near(
+    items[1].billboardCenter[2],
+    actor.worldY + 4,
+    1e-9,
+    "billboard center y includes anchor and base offsets"
+  )
+  Assert.near(
+    items[1].billboardCenter[3],
+    actor.worldZ + 0.0625,
+    1e-9,
+    "billboard center z includes the generated anchor"
+  )
   Assert.near(items[1].billboardScale[1], 1.5, 1e-9, "billboard scale x comes from the base transform")
   Assert.near(items[1].billboardScale[2], 2, 1e-9, "billboard scale y comes from the base transform")
 
   mgr:commitScriptedAction(ACTOR_ID)
+end
+
+function T.emote_anchor_uses_each_current_draw_world_once()
+  local renderer = FieldActorEmoteRenderer.new({ exclamation = fakeExclamationDescriptor() }, fakePool())
+  local items = renderer:drawItems({
+    {
+      actorId = "actor:a",
+      activeEmoteKind = "exclamation",
+      world = { x = 10, y = 20.25, z = -3 },
+      presentationOffset = { x = 7, y = 11, z = 13 },
+    },
+    {
+      actorId = "actor:b",
+      activeEmoteKind = "exclamation",
+      world = { x = -4, y = 1.5, z = 8 },
+    },
+    {
+      actorId = "actor:none",
+      activeEmoteKind = nil,
+      world = { x = 0, y = 0, z = 0 },
+    },
+    {
+      actorId = "actor:unsupported",
+      activeEmoteKind = "question",
+      world = { x = 0, y = 0, z = 0 },
+    },
+  })
+
+  Assert.equal(#items, 2, "only active compiled emotes produce draw items")
+  Assert.equal(items[1].actorId, "actor:a")
+  Assert.equal(items[1].transform[13], 10)
+  Assert.near(items[1].transform[14], 22.25, 1e-9)
+  Assert.near(items[1].transform[15], -2.9375, 1e-9)
+  Assert.equal(items[2].actorId, "actor:b")
+  Assert.equal(items[2].transform[13], -4)
+  Assert.near(items[2].transform[14], 3.5, 1e-9)
+  Assert.near(items[2].transform[15], 8.0625, 1e-9)
 end
 
 function T.emote_state_is_per_actor_and_clears_on_removal_without_leaking_to_a_recreated_actor()

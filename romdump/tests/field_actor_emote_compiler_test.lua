@@ -9,6 +9,7 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
     "romdump.src.digest.nitro.Nsbmd",
     "romdump.src.digest.ModelAssetCompiler",
     "libs.assets.src.ModelAsset",
+    "libs.assets.src.FieldEmoteAssetCache",
     "romdump.src.digest.Hashing",
   }
   local saved = {}
@@ -34,6 +35,15 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
     end,
   }
   package.loaded["libs.assets.src.ModelAsset"] = { SCHEMA = "g4-model-v1", validate = function() end }
+  package.loaded["libs.assets.src.FieldEmoteAssetCache"] = {
+    SCHEMA = "g4-field-emote-v1",
+    geometryPath = FieldEmoteAssetCache.geometryPath,
+    texturePath = FieldEmoteAssetCache.texturePath,
+    marker = FieldEmoteAssetCache.marker,
+    validateDescriptor = function()
+      return true
+    end,
+  }
   package.loaded["romdump.src.digest.Hashing"] = {
     sha1hex = function()
       return "rom-hash"
@@ -69,9 +79,11 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
   package.loaded["romdump.src.digest.FieldActorEmoteCompiler"] = nil
   Assert.isTrue(ok, tostring(result))
   Assert.equal(seenMemberId, 118, "the exclamation billboard is sourced from field_static_models member 118")
-  Assert.equal(result.model.batches[1].geometry, FieldEmoteAssetCache.geometryPath("mesh"))
-  Assert.equal(result.model.materials[1].texture, FieldEmoteAssetCache.texturePath("texture"))
-  Assert.equal(result.model.key, "field-emote:exclamation")
+  Assert.equal(result.model.schema, "g4-field-emote-v1")
+  Assert.deepEqual(result.model.anchorOffset, { x = 0, y = 2, z = 0.0625 })
+  Assert.equal(result.model.model.batches[1].geometry, FieldEmoteAssetCache.geometryPath("mesh"))
+  Assert.equal(result.model.model.materials[1].texture, FieldEmoteAssetCache.texturePath("texture"))
+  Assert.equal(result.model.model.key, "field-emote:exclamation")
 end
 
 T.tests["raises when the archive has no member 118"] = function()

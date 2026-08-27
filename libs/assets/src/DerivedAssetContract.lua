@@ -56,7 +56,7 @@
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 9
+DerivedAssetContract.revision = 10
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
@@ -133,7 +133,8 @@ DerivedAssetContract.fieldEffects = {
 }
 
 DerivedAssetContract.fieldEmotes = {
-  cacheFormat = "field-emote-cache-v1",
+  cacheFormat = "field-emotes-cache-v2",
+  schema = "g4-field-emote-v1",
 }
 
 DerivedAssetContract.fieldUi = {
