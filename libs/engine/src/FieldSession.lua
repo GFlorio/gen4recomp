@@ -15,14 +15,14 @@
 -- idle player's Action edge, which the session dispatches to
 -- `scriptClient:consume(intent, tick)`. A consumed interaction owns the
 -- tick, so the same edge can never also start a move or a warp. There is no
--- fallback client: the binding audit at load time guarantees every
--- interactable event is bound, so an unmapped intent is a composition fault.
+-- fallback client: the load-time binding audit guarantees bindings for maps
+-- included in the supported binding manifest, not for every reachable map.
 -- The resolve service is invoked with the interactions table as self (colon
 -- style), so implementations must declare a leading self parameter.
 --
 -- The session owns no 60 Hz audio timing: its audio collaborator receives
--- only the field-policy update (`updateField`) once per fixed tick. The 60 Hz
--- sound-frame clock is the runtime's wall-clock accumulator.
+-- field-policy updates at semantic boundaries and semantic effects from field
+-- traversal. The 60 Hz sound-frame clock is the runtime's wall-clock accumulator.
 
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")
@@ -50,7 +50,7 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field terrainEffects FieldTerrainEffectController?
----@field audio { updateField: fun(self: table) }?
+---@field audio { updateField: fun(self: table), play: fun(self: table, idOrSymbol: string) }?
 ---@field navigationBoundary table?
 
 ---@class FieldSession.Interactions
@@ -77,10 +77,11 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field terrainEffects FieldTerrainEffectController?
----@field audio { updateField: fun(self: table) }?
+---@field audio { updateField: fun(self: table), play: fun(self: table, idOrSymbol: string) }?
 ---@field tick integer
 ---@field accumulator number
 ---@field navigationBoundary table?
+---@field _boundaryMovementDirection FieldDirection?
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
@@ -148,7 +149,10 @@ function FieldSession.new(options)
   )
   assert(options.eventState and options.eventState.getVar, "field event state required")
   if options.audio then
-    assert(type(options.audio.updateField) == "function", "field session audio field-policy update required")
+    assert(
+      type(options.audio.updateField) == "function" and type(options.audio.play) == "function",
+      "field session audio field-policy update and effect playback required"
+    )
   end
   return setmetatable({
     versionId = options.versionId,
@@ -175,6 +179,7 @@ function FieldSession.new(options)
     navigationBoundary = options.navigationBoundary,
     tick = 0,
     accumulator = 0,
+    _boundaryMovementDirection = nil,
   }, FieldSession)
 end
 
@@ -267,11 +272,12 @@ local function settleScriptHandoffPresentation(self)
 end
 
 function FieldSession:updateFixed(inputSnapshot)
-  -- Ordinary field-audio runs on its semantic events (step-completion and
-  -- map-entry), not at the top of every fixed tick. updateField is the
-  -- test/legacy entry for those events; see FieldPlayer step commit and
-  -- FieldAudioController:enterMap.
+  -- Ordinary field-audio policy runs for same-zone completed steps. Map-entry
+  -- and changed-zone audio are owned by FieldAudioController:enterMap and
+  -- FieldAudioController:enterZone respectively.
   inputSnapshot = inputSnapshot or self.input:snapshot()
+  local carriedBoundaryDirection = self._boundaryMovementDirection
+  self._boundaryMovementDirection = nil
   if self.terrainEffects then
     self.terrainEffects:updateFixed({
       fieldX = self.player.fieldX,
@@ -464,9 +470,8 @@ function FieldSession:updateFixed(inputSnapshot)
     if intent then
       -- The script client resolves the binding, starts the composed script,
       -- and runs it during this tick. There is no fallback client: the
-      -- binding audit at load time guarantees every interactable event is
-      -- bound, so an unmapped intent here is a composition fault, not a
-      -- silent absorption.
+      -- load-time binding audit guarantees bindings for maps included in
+      -- the supported binding manifest, not for every reachable map.
       local result = self.scriptClient:consume(intent, self.tick + 1)
       local results = ScriptInteractionClient.RESULTS
       assert(
@@ -511,7 +516,27 @@ function FieldSession:updateFixed(inputSnapshot)
   -- restarting on every arrival (the ROM's walk range spans two tiles).
   local walkPoseAtTickStart = self.player.motion == "walking" or self.player.motion == "turning"
 
-  local stepCompleted = self.player:updateFixed(inputSnapshot) == true
+  local movementInput = inputSnapshot
+  if carriedBoundaryDirection then
+    movementInput = {
+      -- A carried completion direction is a fresh one-shot command. Keeping
+      -- raw held input here would let FieldPlayer admit its buffered direction
+      -- as a walking continuation and skip the required turn.
+      heldDirection = nil,
+      pressedDirection = carriedBoundaryDirection,
+    }
+  end
+  local motionAtPlayerUpdateStart = self.player.motion
+  local stepCompleted = self.player:updateFixed(movementInput) == true
+  if motionAtPlayerUpdateStart == "idle" and self.player.motion == "jumping" and self.audio then
+    self.audio:play("SEQ_SE_DP_DANSA")
+  end
+  local completionDirection
+  if motionAtPlayerUpdateStart == "walking" and stepCompleted then
+    completionDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+  elseif motionAtPlayerUpdateStart == "turning" and self.player.motion == "idle" then
+    completionDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+  end
   if stepCompleted then
     local zoneChanged = false
     if self.navigationBoundary then
@@ -561,6 +586,9 @@ function FieldSession:updateFixed(inputSnapshot)
       consumeScriptIntent(self, passiveIntent)
       return
     end
+  end
+  if completionDirection then
+    self._boundaryMovementDirection = completionDirection
   end
   -- Pose clocks advance only on a tick that could change the world, so a fade or
   -- a locked transition freezes animation instead of walking it in place.

@@ -58,7 +58,6 @@ local function player(x, z, facing)
     progressTicks = 0,
     durationTicks = 0,
     animationPaused = false,
-    bufferedDirectionFresh = false,
   } --[[@as FieldPlayer]]
 end
 

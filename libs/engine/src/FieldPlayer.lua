@@ -35,7 +35,6 @@ local FieldTraversal = require("libs.engine.src.FieldTraversal")
 ---@field durationTicks integer
 ---@field animationPaused boolean
 ---@field bufferedDirection FieldDirection?
----@field bufferedDirectionFresh boolean
 ---@field from table?
 ---@field to table?
 ---@field committedSourceCellKey string?
@@ -162,7 +161,6 @@ function FieldPlayer.new(options)
     transitionKind = nil,
     transitionFacing = nil,
     transitionProgress = nil,
-    bufferedDirectionFresh = false,
   }, FieldPlayer)
 end
 
@@ -600,7 +598,6 @@ function FieldPlayer:updateFixed(input)
   if self.motion == "walking" then
     if input.pressedDirection then
       self.bufferedDirection = input.pressedDirection
-      self.bufferedDirectionFresh = false
     end
     return self:_advanceStep()
   end
@@ -608,7 +605,6 @@ function FieldPlayer:updateFixed(input)
   if self.motion == "turning" then
     if input.pressedDirection then
       self.bufferedDirection = input.pressedDirection
-      self.bufferedDirectionFresh = true
     end
     return self:_advanceTurn()
   end
@@ -616,7 +612,6 @@ function FieldPlayer:updateFixed(input)
   if self.motion == "jumping" then
     if input.pressedDirection then
       self.bufferedDirection = input.pressedDirection
-      self.bufferedDirectionFresh = false
     end
     return self:_advanceJump()
   end
@@ -642,13 +637,11 @@ function FieldPlayer:updateFixed(input)
 
   local direction
   local isWalkingContinuation = false
-  if self.bufferedDirection and (self.bufferedDirectionFresh or self.bufferedDirection == input.heldDirection) then
+  if self.bufferedDirection and self.bufferedDirection == input.heldDirection then
     direction = self.bufferedDirection
-    isWalkingContinuation = not self.bufferedDirectionFresh and input.heldDirection == self.bufferedDirection
-    self.bufferedDirectionFresh = false
+    isWalkingContinuation = true
   else
     self.bufferedDirection = nil
-    self.bufferedDirectionFresh = false
     direction = input.pressedDirection or input.heldDirection
   end
   if not direction then

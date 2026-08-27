@@ -121,7 +121,6 @@ function T.coordinate_and_passive_sign_resolvers_emit_raw_zero()
     progressTicks = 0,
     durationTicks = 0,
     animationPaused = false,
-    bufferedDirectionFresh = false,
   } --[[@as FieldPlayer]]
   local runtimeMap = {
     mapId = 60,

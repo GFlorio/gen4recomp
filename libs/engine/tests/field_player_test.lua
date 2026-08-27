@@ -312,6 +312,21 @@ function T.latest_pressed_direction_buffers_during_a_step()
   Assert.equal(p.fieldZ, 5)
 end
 
+function T.released_direction_during_a_step_is_not_remembered_by_the_player()
+  local p = player(runtimeMap(), 0, 4, 0, "east")
+  tick(p, "east", "east")
+  tick(p, nil, "north")
+  for _ = 3, 8 do
+    tick(p)
+  end
+
+  Assert.equal(p.motion, "idle")
+  Assert.equal(p.facing, "east")
+  tick(p)
+  Assert.equal(p.motion, "idle")
+  Assert.equal(p.facing, "east")
+end
+
 function T.render_position_interpolates_previous_and_current_fixed_points()
   local p = player(runtimeMap(), 0, 4, 0)
   tick(p, "east", "east")
@@ -634,7 +649,7 @@ function T.normal_steps_preserve_source_surface_identity_for_effects()
   Assert.equal(p.committedSourceSurfaceId, 1)
 end
 
-function T.direction_tap_during_a_turn_is_consumed_at_the_next_boundary()
+function T.direction_tap_during_a_turn_is_not_remembered_by_the_player()
   local p = player(runtimeMap(), 0, 4, 0, "south")
   tick(p, "north", "north")
   Assert.equal(p.motion, "turning")
@@ -645,14 +660,10 @@ function T.direction_tap_during_a_turn_is_consumed_at_the_next_boundary()
   Assert.equal(p.fieldZ, 4)
 
   tick(p)
-  Assert.equal(p.motion, "turning")
-  Assert.equal(p.facing, "west")
+  Assert.equal(p.motion, "idle")
+  Assert.equal(p.facing, "north")
   Assert.equal(p.fieldX, 0)
   Assert.equal(p.fieldZ, 4)
-  tick(p)
-  Assert.equal(p.motion, "idle")
-  tick(p)
-  Assert.equal(p.motion, "idle")
 end
 
 function T.physical_probe_occupancy_uses_the_current_surface_domain()

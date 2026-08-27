@@ -354,11 +354,18 @@ end
 -- has no audio collaborator at all. The session must never require the 60 Hz
 -- sound-frame method: the wall-clock audio clock is not a session
 -- collaborator.
-function T.audio_collaborator_requires_only_field_policy_advancement()
-  local complete = { updateField = function() end }
+function T.audio_collaborator_requires_field_policy_and_effect_playback()
+  local complete = { updateField = function() end, play = function() end }
   Assert.notNil(FieldSession.new(baseOptions({ audio = complete })))
   local ok, err = pcall(FieldSession.new, baseOptions({ audio = {} }))
   Assert.isFalse(ok, "a session with audio must require audio.updateField: " .. tostring(err))
+  local missingPlay, missingPlayErr = pcall(
+    FieldSession.new,
+    baseOptions({
+      audio = { updateField = function() end },
+    })
+  )
+  Assert.isFalse(missingPlay, "a session with audio must require audio.play: " .. tostring(missingPlayErr))
   Assert.notNil(FieldSession.new(baseOptions({})))
 end
 
@@ -2404,7 +2411,7 @@ end
 -- tick advances the soundplate selection (not every fixed tick, and not the
 -- modal early-return ticks). While movement is stalled or locked the tick
 -- carries no audio event.
-function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
+function T.audio_update_field_runs_once_per_completed_step_before_early_returns()
   local audioCalls = 0
   local committed = false
   local state = { transitionLocked = false, dialogueModal = false, scriptLocked = false }
@@ -2412,6 +2419,7 @@ function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
     updateField = function()
       audioCalls = audioCalls + 1
     end,
+    play = function() end,
   }
   local transition = {
     phase = "idle",
@@ -2490,17 +2498,17 @@ function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
   Assert.equal(audioCalls, 1, "a script-locked tick carries no ordinary audio")
 end
 
--- The field-policy call is the only audio work a session tick owns: an
--- audio collaborator that records updateField calls and exposes no 60 Hz
--- sound-frame method proves the session never touches the wall-clock audio
--- clock. A completing-step tick runs the field event once; idle/modal
--- ticks do not.
-function T.field_policy_runs_once_per_tick_and_never_touches_the_sound_frame_clock()
+-- The session's audio work is limited to field policy and semantic effects: an
+-- audio collaborator that records both calls and exposes no 60 Hz sound-frame
+-- method proves the session never touches the wall-clock audio clock. A
+-- completing-step tick runs the field event once; idle/modal ticks do not.
+function T.field_policy_runs_once_per_completed_step_and_never_touches_the_sound_frame_clock()
   local fieldCalls = 0
   local audio = {
     updateField = function()
       fieldCalls = fieldCalls + 1
     end,
+    play = function() end,
   }
   local transition = {
     phase = "idle",
@@ -2585,6 +2593,7 @@ function T.zone_change_owns_crossing_audio_selection_while_same_zone_keeps_step_
       updateField = function()
         events[#events + 1] = "ordinary audio"
       end,
+      play = function() end,
     }
     local boundary = {
       zoneController = { currentMap = map },
@@ -2616,6 +2625,292 @@ function T.zone_change_owns_crossing_audio_selection_while_same_zone_keeps_step_
     { "ordinary audio" },
     "a same-zone completed step must keep one ordinary field-audio update"
   )
+end
+
+-- These tests use the real player and session together over a small flat field.
+-- Only the collision/event/audio seams are deterministic fixtures; movement
+-- classification and fixed-duration motion remain production behavior.
+local function movementMap(tiles)
+  local permissions = TilePermissions.new(tiles)
+  local getLocal = permissions.getLocal
+  permissions.getLocal = function(self, localX, localZ)
+    local record = getLocal(self, localX, localZ)
+    return { behavior = record.behavior, blocked = record.hardBlocked == true }
+  end
+  return {
+    mapId = 61,
+    coordinateOrigin = { x = 0, z = 0 },
+    fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
+    collision = permissions,
+    terrain = TerrainSurface.new({
+      plates = {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
+    updateAnimated = function() end,
+  }
+end
+
+local function movementSession(options)
+  options = options or {}
+  local map = options.map or movementMap(options.tiles)
+  local player = options.player
+    or FieldPlayer.new({
+      currentMap = map,
+      fieldX = options.fieldX or 0,
+      fieldZ = options.fieldZ or 4,
+      surfaceId = 0,
+      facing = options.facing or "east",
+      occupancy = options.occupancy,
+    })
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    player = player,
+    audio = options.audio,
+    transition = options.transition,
+    scriptScheduler = options.scriptScheduler,
+    scriptClient = options.scriptClient,
+    eventResolver = options.eventResolver,
+  }))
+  return session, player, map
+end
+
+local function ledgeSession(options)
+  options = options or {}
+  local tiles = options.tiles or { ["1:4"] = { behavior = MetatileBehavior.BEHAVIOR.JUMP_EAST } }
+  local map = movementMap(tiles)
+  local played = {}
+  local player = FieldPlayer.new({
+    currentMap = map,
+    fieldX = 0,
+    fieldZ = 4,
+    surfaceId = 0,
+    facing = options.facing or "east",
+    occupancy = options.occupancy,
+  })
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    player = player,
+    audio = {
+      updateField = function() end,
+      play = function(_, idOrSymbol)
+        played[#played + 1] = idOrSymbol
+      end,
+    },
+  }))
+  return session, player, played
+end
+
+function T.accepted_ledge_starts_one_audio_effect_and_lands_silently()
+  local session, player, played = ledgeSession()
+  session:updateFixed({ heldDirection = "east", pressedDirection = "east" })
+  Assert.equal(player.motion, "jumping", "an accepted ledge must enter jumping on its start tick")
+  Assert.deepEqual(played, { "SEQ_SE_DP_DANSA" }, "the ledge start must emit its effect once")
+
+  for _ = 1, 14 do
+    session:updateFixed({ heldDirection = "east" })
+    Assert.equal(player.motion, "jumping", "the ledge must remain in flight before its final tick")
+  end
+  session:updateFixed({ heldDirection = "east" })
+  Assert.equal(player.motion, "idle", "the ledge must land on its sixteenth update")
+  Assert.deepEqual(played, { "SEQ_SE_DP_DANSA" }, "landing must not emit a second ledge effect")
+end
+
+function T.rejected_ledge_attempts_and_ordinary_steps_stay_silent()
+  local cases = {
+    {
+      name = "wrong direction",
+      facing = "north",
+      direction = "north",
+    },
+    {
+      name = "blocked landing",
+      tiles = {
+        ["1:4"] = { behavior = MetatileBehavior.BEHAVIOR.JUMP_EAST },
+        ["2:4"] = { blocked = true },
+      },
+      direction = "east",
+    },
+    {
+      name = "occupied landing",
+      occupancy = function(fieldX, fieldZ)
+        return fieldX == 2 and fieldZ == 4 and "map:61:object:0" or nil
+      end,
+      direction = "east",
+    },
+    {
+      name = "ordinary floor",
+      tiles = {},
+      direction = "east",
+    },
+  }
+  for _, case in ipairs(cases) do
+    local session, player, played = ledgeSession(case)
+    session:updateFixed({ heldDirection = case.direction, pressedDirection = case.direction })
+    Assert.isFalse(player.motion == "jumping", case.name .. " must not start a jump")
+    Assert.deepEqual(played, {}, case.name .. " must not emit a ledge effect")
+  end
+end
+
+local function completeWalkWithBoundaryInput(session, direction)
+  session:updateFixed({ heldDirection = "east", pressedDirection = "east" })
+  for _ = 1, 6 do
+    session:updateFixed({})
+  end
+  session:updateFixed({ heldDirection = direction, pressedDirection = direction })
+end
+
+function T.final_walk_tick_direction_survives_release_for_one_admission()
+  local session, player = movementSession()
+  completeWalkWithBoundaryInput(session, "north")
+  Assert.equal(player.motion, "idle", "the completion tick must settle the walk")
+  Assert.equal(player.fieldX, 1)
+
+  session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(player.motion, "turning", "the carried completion direction must outrank newer raw movement input")
+  Assert.equal(player.facing, "north")
+  session:updateFixed({})
+  Assert.equal(player.motion, "idle")
+  session:updateFixed({})
+  Assert.equal(player.motion, "idle", "the one-boundary direction must not replay")
+end
+
+function T.released_precompletion_walk_tap_is_not_remembered()
+  local session, player = movementSession()
+  session:updateFixed({ heldDirection = "east", pressedDirection = "east" })
+  session:updateFixed({ pressedDirection = "north" })
+  for _ = 1, 6 do
+    session:updateFixed({})
+  end
+  session:updateFixed({})
+  Assert.equal(player.motion, "idle", "an earlier released tap must not start a turn")
+  Assert.equal(player.facing, "east")
+  Assert.equal(player.fieldX, 1)
+end
+
+function T.turn_completion_uses_the_same_one_boundary_direction()
+  local session, player = movementSession({ facing = "south" })
+  session:updateFixed({ heldDirection = "north", pressedDirection = "north" })
+  Assert.equal(player.motion, "turning")
+  session:updateFixed({ pressedDirection = "west" })
+  Assert.equal(player.motion, "idle", "the turn must complete on its second update")
+  Assert.equal(player.facing, "north")
+
+  session:updateFixed({ heldDirection = "west" })
+  Assert.equal(player.motion, "turning", "turn completion input must remain a fresh command")
+  Assert.equal(player.facing, "west")
+  session:updateFixed({})
+  session:updateFixed({})
+  Assert.equal(player.motion, "idle", "turn completion input must not replay")
+
+  local absentSession, absentPlayer = movementSession({ facing = "south" })
+  absentSession:updateFixed({ heldDirection = "north", pressedDirection = "north" })
+  absentSession:updateFixed({})
+  absentSession:updateFixed({})
+  Assert.equal(absentPlayer.motion, "idle", "a direction absent on the turn boundary must not be remembered")
+end
+
+local function eventBoundarySession(kind)
+  local tiles = {}
+  local warps = {}
+  if kind == "standing" then
+    tiles["1:4"] = { behavior = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_NORTH }
+    warps[1] = { index = 0, x = 1, z = 4, destinationMapId = 60, destinationWarpId = 0, y = 0 }
+  end
+  local map = movementMap(tiles)
+  map.fieldData.events.warps = warps
+  local lockTicks = 0
+  local consumed = 0
+  local transitionStarts = 0
+  local scheduler = {
+    step = function()
+      if lockTicks > 0 then
+        lockTicks = lockTicks - 1
+      end
+    end,
+    playerMovementLocked = function()
+      return lockTicks > 0
+    end,
+  }
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function(self)
+      if self.locked then
+        if self.holdTicks > 0 then
+          self.holdTicks = self.holdTicks - 1
+        else
+          self.locked = false
+          self.phase = "idle"
+        end
+      end
+    end,
+    start = function(self)
+      transitionStarts = transitionStarts + 1
+      self.locked = true
+      self.phase = "fade_out"
+      self.holdTicks = 2
+    end,
+  }
+  local eventResolver = {
+    resolveCoordinate = function()
+      return kind == "coordinate" and { kind = "coordinate" } or nil
+    end,
+    resolvePassiveSign = function()
+      return nil
+    end,
+  }
+  local scriptClient = {
+    consume = function()
+      consumed = consumed + 1
+      lockTicks = 2
+      return ScriptInteractionClient.RESULTS.started
+    end,
+  }
+  local session, player = movementSession({
+    map = map,
+    transition = transition,
+    scriptScheduler = scheduler,
+    scriptClient = scriptClient,
+    eventResolver = eventResolver,
+  })
+  return session, player, function()
+    return consumed, transitionStarts
+  end
+end
+
+function T.step_owned_events_discard_completion_direction_after_ownership_ends()
+  for _, kind in ipairs({ "coordinate", "standing" }) do
+    local session, player, observations = eventBoundarySession(kind)
+    completeWalkWithBoundaryInput(session, "north")
+    local consumed, transitionStarts = observations()
+    if kind == "coordinate" then
+      Assert.equal(consumed, 1, "the coordinate event must own the completed-step boundary")
+      Assert.equal(transitionStarts, 0)
+    else
+      Assert.equal(consumed, 0)
+      Assert.equal(transitionStarts, 1, "the standing transition must own the completed-step boundary")
+    end
+    Assert.equal(player.fieldX, 1)
+    Assert.equal(player.fieldZ, 4)
+
+    for _ = 1, 3 do
+      session:updateFixed({})
+    end
+    Assert.equal(player.motion, "idle", kind .. " ownership must release before the neutral check")
+    Assert.equal(player.facing, "east", kind .. " ownership must discard the completion direction")
+    Assert.equal(player.fieldX, 1)
+    Assert.equal(player.fieldZ, 4)
+  end
 end
 
 return { tests = T }

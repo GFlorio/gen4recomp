@@ -255,12 +255,21 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     "south",
   }
   local committedSurfaces = {}
-  for _, direction in ipairs(directions) do
+  for directionIndex, direction in ipairs(directions) do
     local beforeY = player.worldY
     local turnTicks = direction == player.facing and 0 or FieldPlayer.TURN_TICKS
-    for tick = 1, turnTicks + FieldPlayer.WALK_STEP_TICKS do
+    local commandTicks = turnTicks + FieldPlayer.WALK_STEP_TICKS
+    local changesDirection = directions[directionIndex + 1] ~= direction
+    for tick = 1, commandTicks do
+      local heldDirection = direction ---@type FieldDirection?
+      -- A completion-boundary hold is carried into the next admission tick.
+      -- Release only when the next command changes direction, so this fixture
+      -- does not request an extra step before that turn.
+      if changesDirection and tick == commandTicks then
+        heldDirection = nil
+      end
       session:updateFixed({
-        heldDirection = direction,
+        heldDirection = heldDirection,
         pressedDirection = tick == 1 and direction or nil,
       })
       cameraSamples[#cameraSamples + 1] = {
