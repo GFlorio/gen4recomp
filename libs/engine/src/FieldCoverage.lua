@@ -290,11 +290,6 @@ function FieldCoverage:containsGlobal(fieldX, fieldZ)
   return self.cells[key(cellX, cellZ)] ~= nil
 end
 
----@return table
-function FieldCoverage:currentCell()
-  return assert(self.cells[key(self.anchorX, self.anchorZ)], "coverage anchor cell is missing")
-end
-
 ---@param fieldX integer
 ---@param fieldZ integer
 ---@return integer?

@@ -37,8 +37,8 @@ function T.tests.switches_once_and_preserves_the_player()
   })
   ---@type FieldZoneCoverage
   local coverage = {
-    currentCell = function()
-      return { mapHeaderId = 2 }
+    mapHeaderAt = function()
+      return 2
     end,
   }
   local record = controller:afterCoverageCommit(coverage, player)
@@ -60,8 +60,8 @@ function T.tests.same_header_is_a_noop()
   })
   ---@type FieldZoneCoverage
   local fakeCoverage = {
-    currentCell = function()
-      return { mapHeaderId = 4 }
+    mapHeaderAt = function()
+      return 4
     end,
   }
   ---@type FieldZonePlayer
@@ -69,6 +69,31 @@ function T.tests.same_header_is_a_noop()
   local result = controller:afterCoverageCommit(fakeCoverage, fakePlayer)
   Assert.isNil(result)
   Assert.equal(count, 0)
+end
+
+function T.tests.uses_the_players_cell_not_the_coverage_anchor_for_zone_selection()
+  local loads = 0
+  local controller = FieldZoneController.new({
+    currentMap = { mapId = 1, mapSection = "OLD" },
+    loadMap = function(mapId)
+      loads = loads + 1
+      Assert.equal(mapId, 2)
+      return { mapId = mapId, mapSection = "NEW", fieldData = {} }
+    end,
+    protectMap = function() end,
+  })
+  ---@type FieldZoneCoverage
+  local coverage = {
+    mapHeaderAt = function(_, fieldX, fieldZ)
+      Assert.equal(fieldX, 31)
+      Assert.equal(fieldZ, 4)
+      return 2
+    end,
+  }
+
+  local change = assert(controller:afterCoverageCommit(coverage, { fieldX = 31, fieldZ = 4 }))
+  Assert.equal(change.newMapId, 2)
+  Assert.equal(loads, 1)
 end
 
 function T.tests.preflight_map_lookup_loads_without_publishing_zone_state()
@@ -125,8 +150,8 @@ function T.tests.commit_failure_discards_only_unpublished_stage()
 
   local ok, err = pcall(function()
     controller:afterCoverageCommit({
-      currentCell = function()
-        return { mapHeaderId = 2 }
+      mapHeaderAt = function()
+        return 2
       end,
     }, { fieldX = 0, fieldZ = 0 })
   end)
@@ -166,8 +191,8 @@ function T.tests.protects_the_destination_without_releasing_physical_owner()
   })
 
   controller:afterCoverageCommit({
-    currentCell = function()
-      return { mapHeaderId = 2 }
+    mapHeaderAt = function()
+      return 2
     end,
   }, { fieldX = 0, fieldZ = 0 })
 

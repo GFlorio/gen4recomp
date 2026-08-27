@@ -21,7 +21,7 @@ FieldZoneController.__index = FieldZoneController
 ---@field onChange fun(change: table)?
 
 ---@class FieldZoneCoverage
----@field currentCell fun(self: FieldZoneCoverage): table
+---@field mapHeaderAt fun(self: FieldZoneCoverage, fieldX: integer, fieldZ: integer): integer?
 
 ---@class FieldZonePlayer
 ---@field fieldX integer
@@ -80,10 +80,9 @@ end
 ---@param player FieldZonePlayer
 ---@return FieldZoneChange?
 function FieldZoneController:afterCoverageCommit(coverage, player)
-  assert(coverage and coverage.currentCell, "committed coverage required")
-  local cell = coverage:currentCell()
+  assert(coverage and coverage.mapHeaderAt, "committed coverage required")
   local destinationId =
-    assert(cell.mapHeaderId or (cell.descriptor and cell.descriptor.mapHeaderId), "coverage cell map header required")
+    assert(coverage:mapHeaderAt(player.fieldX, player.fieldZ), "player coverage cell map header is missing")
   if destinationId == self.currentMap.mapId then
     return nil
   end
