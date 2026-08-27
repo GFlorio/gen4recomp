@@ -175,6 +175,9 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     playerInputLocked = function()
       return false
     end,
+    playerInputOwned = function()
+      return false
+    end,
     foregroundEnvironmentId = function()
       return nil
     end,

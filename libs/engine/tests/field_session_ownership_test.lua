@@ -1,5 +1,7 @@
 local Assert = require("tests.support.Assert")
 local FieldSession = require("libs.engine.src.FieldSession")
+local TilePermissions = require("tests.support.TilePermissions")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 
 local function idleTransition()
   return {
@@ -54,6 +56,9 @@ local function makeSession(opts)
     or {
       step = function() end,
       playerInputLocked = function()
+        return false
+      end,
+      playerInputOwned = function()
         return false
       end,
       foregroundEnvironmentId = function()
@@ -140,6 +145,9 @@ function T.foreground_without_player_lock_permits_movement_but_blocks_menu_and_i
     playerInputLocked = function(self)
       return self.playerLocked
     end,
+    playerInputOwned = function(self)
+      return self.playerLocked
+    end,
     foregroundEnvironmentId = function(self)
       return self.foreground
     end,
@@ -210,6 +218,9 @@ function T.actor_world_continues_while_foreground_holds_the_field_and_release_ti
     playerInputLocked = function(self)
       return self.playerLocked
     end,
+    playerInputOwned = function(self)
+      return self.playerLocked
+    end,
     foregroundEnvironmentId = function(self)
       return self.foreground
     end,
@@ -241,6 +252,112 @@ function T.actor_world_continues_while_foreground_holds_the_field_and_release_ti
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(poseAdvances, 2, "actor step must occur on every world-advancing tick")
   Assert.equal(playerMoves, 1, "fresh input on the next tick must be allowed once unlocked")
+end
+
+-- A root that is owned only through the field-interaction claim (no
+-- explicit LOCK_PLAYER/LockAll) must still suppress manual player input for
+-- its whole environment lifetime, including the tick it completes on. The
+-- production scheduler collaborator FieldSession requires today only
+-- exposes explicit-lock state through `playerInputLocked`; once the
+-- combined ownership query exists, FieldSession must sample it (before and
+-- after the scheduler step, ORed) instead of the explicit-only fact. This
+-- fixture models an interaction-only-owned root through `playerInputOwned`
+-- and proves FieldSession does not yet consult it.
+function T.interaction_only_ownership_must_suppress_input_including_the_completion_tick()
+  local playerMoves = 0
+  local player = basePlayer({
+    updateFixed = function(self)
+      playerMoves = playerMoves + 1
+      return false
+    end,
+  })
+
+  local claimed = true
+  local scheduler = {
+    foreground = "env-interaction",
+    step = function(self)
+      -- The interaction root completes during this tick's scheduler step.
+      claimed = false
+      self.foreground = nil
+    end,
+    -- No explicit LOCK_PLAYER/LockAll ever ran for this root; the only
+    -- ownership fact is the field-interaction claim.
+    playerInputLocked = function()
+      return false
+    end,
+    foregroundEnvironmentId = function(self)
+      return self.foreground
+    end,
+    playerInputOwned = function()
+      return claimed
+    end,
+  }
+
+  local session = makeSession({ player = player, scheduler = scheduler })
+
+  -- The completion tick: the claim is true at tick start and false after the
+  -- scheduler step, so the pre/post OR must still suppress this tick's held
+  -- input.
+  session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(playerMoves, 0, "an interaction-only-owned root must suppress input through its own completion tick")
+
+  -- The next tick has no owner at all; movement may proceed.
+  session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+  Assert.equal(playerMoves, 1, "movement must be allowed once no ownership fact remains")
+end
+
+-- A valid movement-driven traversal (a facing-tile door warp here) and a
+-- passive north-facing directional sign are simultaneously eligible from the
+-- same idle tick; the traversal must win and the passive sign must not be
+-- consumed on that physical step.
+function T.same_tick_traversal_candidate_outranks_passive_directional_sign()
+  local DOOR = MetatileBehavior.BEHAVIOR.DOOR
+  local warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }
+  local currentMap = {
+    mapId = 61,
+    cameraType = 4,
+    coordinateOrigin = { x = 0, z = 0 },
+    fieldData = { events = { warps = { warp }, coordinates = {} } },
+    updateAnimated = function() end,
+    collision = TilePermissions.new({ ["4:14"] = { behavior = DOOR, blocked = true } }),
+  }
+  local starts = {}
+  local transition = {
+    phase = "idle",
+    locked = false,
+    updateFixed = function() end,
+    start = function(_, _, trigger, facing)
+      starts[#starts + 1] = { warp = trigger.warp, facing = facing }
+    end,
+  }
+  local consumed = {}
+  local scriptClient = {
+    consume = function(_, intent)
+      consumed[#consumed + 1] = intent
+      return require("libs.engine.src.script.ScriptInteractionClient").RESULTS.started
+    end,
+  }
+  local player = basePlayer({ fieldX = 4, fieldZ = 13, facing = "south" })
+  local eventResolver = {
+    resolveCoordinate = function()
+      return nil
+    end,
+    resolvePassiveSign = function()
+      return { kind = "background", background = { eventIndex = 0 } }
+    end,
+  }
+  local session = makeSession({
+    currentMap = currentMap,
+    transition = transition,
+    scriptClient = scriptClient,
+    player = player,
+    eventResolver = eventResolver,
+  })
+
+  session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
+
+  Assert.equal(#starts, 1, "the valid facing-trigger warp must start")
+  Assert.equal(#consumed, 0, "the passive sign must not be consumed on the same physical step as a valid traversal")
 end
 
 return { tests = T, metadata = {} }

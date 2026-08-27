@@ -345,7 +345,10 @@ function Game:snapshot()
     playerVisual = runtime.playerVisual and runtime.playerVisual:status() or nil,
     dialogue = dialogue and dialogue:status() or { modal = false },
     menu = appHostStatus.menu or (runtime.menuHost and runtime.menuHost:snapshot()) or nil,
-    fieldLocked = scheduler and scheduler:playerInputLocked() or false,
+    -- Combined ownership (explicit lock OR field-interaction claim), not
+    -- explicit lock alone: an interaction root such as the New Bark -> Elm
+    -- Lab route owns the field without ever executing LOCK_PLAYER/LockAll.
+    fieldLocked = scheduler and scheduler:playerInputOwned() or false,
     mapEntryStage = runtime.session and runtime.session.mapEntryStage,
     foregroundScript = scheduler and scheduler:foregroundScriptId(),
     transition = { phase = runtime.transition and runtime.transition.phase },

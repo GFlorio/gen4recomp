@@ -132,6 +132,9 @@ local function baseOptions(overrides)
       playerInputLocked = function()
         return false
       end,
+      playerInputOwned = function()
+        return false
+      end,
       foregroundEnvironmentId = function()
         return nil
       end,
@@ -336,6 +339,9 @@ function T.map_init_claims_the_tick_before_scheduler_and_player_input()
     playerInputLocked = function()
       return false
     end,
+    playerInputOwned = function()
+      return false
+    end,
     foregroundEnvironmentId = function()
       return nil
     end,
@@ -383,6 +389,9 @@ function T.map_lifecycle_events_are_queued_and_drained_before_frame_checks()
       self.busy = false
     end,
     playerInputLocked = function(self)
+      return self.busy
+    end,
+    playerInputOwned = function(self)
       return self.busy
     end,
     foregroundEnvironmentId = function(self)
@@ -463,6 +472,9 @@ function T.blocked_lifecycle_stays_at_head_until_foreground_is_free()
     busy = true,
     step = function() end,
     playerInputLocked = function(self)
+      return self.busy
+    end,
+    playerInputOwned = function(self)
       return self.busy
     end,
     foregroundEnvironmentId = function(self)
@@ -647,6 +659,9 @@ function T.script_completion_consumes_its_final_action_edge()
     playerInputLocked = function()
       return locked
     end,
+    playerInputOwned = function()
+      return locked
+    end,
     foregroundEnvironmentId = function()
       return locked and "foreground" or nil
     end,
@@ -698,6 +713,9 @@ function T.scheduler_edges_come_only_from_current_snapshot_properties()
     playerInputLocked = function()
       return false
     end,
+    playerInputOwned = function()
+      return false
+    end,
     foregroundEnvironmentId = function()
       return nil
     end,
@@ -729,6 +747,9 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
       Assert.equal(snapshot.menuEvents[1].direction, "down")
     end,
     playerInputLocked = function()
+      return true
+    end,
+    playerInputOwned = function()
       return true
     end,
     foregroundEnvironmentId = function()
@@ -1878,6 +1899,9 @@ function T.script_locked_ticks_still_advance_the_scene_clock()
     playerInputLocked = function()
       return true
     end,
+    playerInputOwned = function()
+      return true
+    end,
     foregroundEnvironmentId = function()
       return "foreground"
     end,
@@ -2008,6 +2032,9 @@ function T.application_host_owns_the_tick_and_freezes_world_simulation()
       stepped.scheduler = stepped.scheduler + 1
     end,
     playerInputLocked = function()
+      return false
+    end,
+    playerInputOwned = function()
       return false
     end,
     foregroundEnvironmentId = function()
@@ -2156,6 +2183,9 @@ function T.a_movement_lock_blocks_the_menu_edge()
   local scheduler = {
     step = function() end,
     playerInputLocked = function()
+      return true
+    end,
+    playerInputOwned = function()
       return true
     end,
     foregroundEnvironmentId = function()
@@ -2368,6 +2398,9 @@ function T.audio_update_fixed_runs_once_per_tick_before_the_early_returns()
     playerInputLocked = function()
       return state.scriptLocked
     end,
+    playerInputOwned = function()
+      return state.scriptLocked
+    end,
     foregroundEnvironmentId = function()
       return state.scriptLocked and "foreground" or nil
     end,
@@ -2455,6 +2488,9 @@ function T.field_policy_runs_once_per_tick_and_never_touches_the_sound_frame_clo
     playerInputLocked = function()
       return false
     end,
+    playerInputOwned = function()
+      return false
+    end,
     foregroundEnvironmentId = function()
       return nil
     end,
@@ -2508,6 +2544,9 @@ function T.map_entry_waits_for_yielding_transition_before_entering_actors()
       self.busy = false
     end,
     playerInputLocked = function(self)
+      return self.busy
+    end,
+    playerInputOwned = function(self)
       return self.busy
     end,
     foregroundEnvironmentId = function(self)

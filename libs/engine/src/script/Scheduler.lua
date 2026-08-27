@@ -191,17 +191,22 @@ end
 -- composed script. Foreground environments
 -- register as the field owner; background environments join the creation
 -- order. The new context may run in this tick; the caller decides whether
--- the slot loop visits it now.
+-- the slot loop visits it now. `interactionClaim` grants the foreground
+-- root player-input ownership for the environment's whole lifetime,
+-- independent of explicit lock opcodes; it is never inferred from `trigger`
+-- and is ignored (always false) for a background environment.
 ---@param mode string
 ---@param composed table
 ---@param trigger table|nil
 ---@param tick integer
+---@param interactionClaim boolean|nil
 ---@return string instanceId
-function Scheduler:_createEnvironment(mode, composed, trigger, tick)
+function Scheduler:_createEnvironment(mode, composed, trigger, tick, interactionClaim)
   local env = ScriptEnvironment.new({
     environmentId = environmentIdFor(self),
     mode = mode,
     createdAtTick = tick,
+    interactionClaim = mode == "foreground" and interactionClaim == true or false,
   })
   self._environments[env.environmentId] = env
   if mode == "foreground" then
@@ -221,14 +226,18 @@ end
 
 -- Start a foreground interaction: a fresh environment whose root owns the
 -- field. The new context may run in this tick; the
--- caller decides whether the slot loop visits it now.
+-- caller decides whether the slot loop visits it now. `interactionClaim`
+-- (default false/none) is the caller's explicit launch-origin ownership
+-- descriptor; callers that omit it start a non-owning root exactly like
+-- map initialization.
 ---@param composed table
 ---@param trigger table|nil
 ---@param tick integer
+---@param interactionClaim boolean|nil
 ---@return string instanceId
-function Scheduler:createForeground(composed, trigger, tick)
+function Scheduler:createForeground(composed, trigger, tick, interactionClaim)
   assert(self._foregroundEnvironmentId == nil, "a foreground environment already owns the field")
-  return self:_createEnvironment("foreground", composed, trigger, tick)
+  return self:_createEnvironment("foreground", composed, trigger, tick, interactionClaim)
 end
 
 -- Start a project-native background environment.
@@ -669,7 +678,9 @@ function Scheduler:_resolveInteraction(tick, input)
   if composed == nil then
     return
   end
-  self:createForeground(composed, hit.trigger, tick)
+  -- This path resolves the field/world's own new interaction trigger, so the
+  -- root it starts is field-interaction-origin and owns player input.
+  self:createForeground(composed, hit.trigger, tick, true)
   local env = assert(self._environments[self._foregroundEnvironmentId])
   self:_runEnvironmentSlots(env, tick, input)
 end
@@ -1093,33 +1104,68 @@ function Scheduler:setMaxNodes(maxNodes)
   self._maxNodes = maxNodes
 end
 
--- Start a foreground interaction outside the scheduler's own tick
--- resolution (used by the session's interaction client, ):
--- creates the environment and runs its slots so the new context may execute
--- during its trigger tick. Returns nil when a foreground root already owns
--- the field.
+-- Start a foreground root outside the scheduler's own tick resolution (used
+-- by the session's interaction client): creates the environment and runs
+-- its slots so the new context may execute during its trigger tick. Returns
+-- nil when a foreground root already owns the field. `interactionClaim`
+-- (default false/none) is the caller's explicit launch-origin ownership
+-- descriptor -- it is never inferred from `trigger`. `ScriptInteractionClient`
+-- passes true from `consume()` (field/world interaction) and omits it from
+-- `startInitScript()` (map initialization).
 ---@param trigger table
 ---@param composed table
 ---@param tick integer
+---@param interactionClaim boolean|nil
 ---@return string|nil instanceId
-function Scheduler:startInteraction(trigger, composed, tick)
+function Scheduler:startInteraction(trigger, composed, tick, interactionClaim)
   if self._foregroundEnvironmentId ~= nil then
     return nil
   end
-  local instanceId = self:createForeground(composed, trigger, tick)
+  local instanceId = self:createForeground(composed, trigger, tick, interactionClaim)
   local environment = assert(self._environments[self._foregroundEnvironmentId])
   self:_runEnvironmentSlots(environment, tick, self._currentInput)
   return instanceId
 end
 
+-- Explicit source LOCK_PLAYER/LockAll state only, independent of launch
+-- origin. Kept as `playerInputLocked` for existing callers that specifically
+-- mean this fact (for example a cutscene waiting on its own explicit lock);
+-- new code should read `explicitPlayerLocked`, `interactionOwnsPlayerInput`,
+-- or the combined `playerInputOwned` by name.
 ---@return boolean
 function Scheduler:playerInputLocked()
+  return self:explicitPlayerLocked()
+end
+
+---@return boolean
+function Scheduler:explicitPlayerLocked()
   local envId = self._foregroundEnvironmentId
   if envId == nil then
     return false
   end
   local env = self._environments[envId]
   return env ~= nil and env:playerLocked() or false
+end
+
+-- True only when the active foreground environment's root was launched by
+-- field interaction/event arbitration (`ScriptInteractionClient:consume`),
+-- independent of explicit lock state. False for a map-init root and for
+-- every background environment.
+---@return boolean
+function Scheduler:interactionOwnsPlayerInput()
+  local envId = self._foregroundEnvironmentId
+  if envId == nil then
+    return false
+  end
+  local env = self._environments[envId]
+  return env ~= nil and env:interactionOwnsPlayerInput() or false
+end
+
+-- Combined player-input ownership: explicit lock OR interaction claim. The
+-- one fact `FieldSession` consumes to suppress manual player input.
+---@return boolean
+function Scheduler:playerInputOwned()
+  return self:explicitPlayerLocked() or self:interactionOwnsPlayerInput()
 end
 
 ---@return boolean

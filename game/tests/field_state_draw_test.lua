@@ -745,6 +745,9 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
         playerInputLocked = function()
           return false
         end,
+        playerInputOwned = function()
+          return false
+        end,
         foregroundEnvironmentId = function()
           return nil
         end,

@@ -113,6 +113,9 @@ function T.tests.wait_for_transition_returns_the_observed_destination_before_fol
           playerInputLocked = function()
             return lockTicks < 4
           end,
+          playerInputOwned = function()
+            return lockTicks < 4
+          end,
           foregroundEnvironmentId = function()
             return nil
           end,
@@ -319,6 +322,9 @@ local function readinessRuntime(game)
       playerInputLocked = function()
         return locked
       end,
+      playerInputOwned = function()
+        return locked
+      end,
       foregroundEnvironmentId = function()
         return locked and "foreground" or nil
       end,
@@ -384,6 +390,9 @@ function T.tests.field_readiness_reports_the_blocking_state_when_it_never_clears
       runtime.scripts = {
         scheduler = {
           playerInputLocked = function()
+            return true
+          end,
+          playerInputOwned = function()
             return true
           end,
           foregroundEnvironmentId = function()

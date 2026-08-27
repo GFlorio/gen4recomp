@@ -57,7 +57,9 @@ function ScriptInteractionClient:startInitScript(target, tick)
   if composed == nil then
     error("missing generated map-init script " .. scriptId)
   end
-  self._scheduler:startInteraction({ type = "map_init", scriptId = scriptId }, composed, tick)
+  -- Map initialization never implicitly owns player input; only an explicit
+  -- source lock opcode executed by this script can acquire it.
+  self._scheduler:startInteraction({ type = "map_init", scriptId = scriptId }, composed, tick, false)
   return true
 end
 
@@ -101,7 +103,10 @@ function ScriptInteractionClient:consume(intent, tick)
   if hit == nil then
     return ScriptInteractionClient.RESULTS.unmapped
   end
-  self._scheduler:startInteraction(hit.trigger, hit.composed, tick)
+  -- The root was selected by field/player/world event arbitration: it owns
+  -- player input for its whole environment lifetime, with or without an
+  -- explicit LOCK_PLAYER/LockAll opcode.
+  self._scheduler:startInteraction(hit.trigger, hit.composed, tick, true)
   return ScriptInteractionClient.RESULTS.started
 end
 

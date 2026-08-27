@@ -21,6 +21,7 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 ---@field movementTasksByGeneration table<integer, table<string, boolean>>
 ---@field callerSignals table<integer, boolean>
 ---@field locks table
+---@field interactionClaim boolean immutable: true when the root was launched by field interaction/event arbitration rather than map initialization; grants player-input ownership for the whole environment lifetime independent of explicit locks
 ---@field createdAtTick integer
 local ScriptEnvironment = {}
 ScriptEnvironment.__index = ScriptEnvironment
@@ -43,6 +44,7 @@ local LOCK_ACTOR_PREFIX = ScriptEnvironment.LOCK_ACTOR_PREFIX
 ---@field environmentId string
 ---@field mode string
 ---@field createdAtTick integer
+---@field interactionClaim boolean|nil defaults to false (no claim); only meaningful for a foreground environment
 
 ---@param spec ScriptEnvironment.CreateSpec
 ---@return ScriptEnvironment
@@ -50,6 +52,14 @@ function ScriptEnvironment.new(spec)
   assert(spec and spec.environmentId, "environment identity required")
   assert(spec.mode == "foreground" or spec.mode == "background", "environment mode must be foreground or background")
   assert(spec.createdAtTick ~= nil, "environment creation tick required")
+  assert(
+    spec.interactionClaim == nil or type(spec.interactionClaim) == "boolean",
+    "environment interaction claim must be boolean"
+  )
+  assert(
+    spec.mode == "foreground" or spec.interactionClaim ~= true,
+    "a background environment cannot carry the field-interaction input claim"
+  )
   return setmetatable({
     environmentId = spec.environmentId,
     mode = spec.mode,
@@ -59,6 +69,7 @@ function ScriptEnvironment.new(spec)
     movementTasksByGeneration = { [0] = {} },
     callerSignals = {},
     locks = {},
+    interactionClaim = spec.interactionClaim == true,
     createdAtTick = spec.createdAtTick,
   }, ScriptEnvironment)
 end
@@ -271,6 +282,15 @@ end
 ---@return boolean
 function ScriptEnvironment:autonomousLocked()
   return self:lockCount(LOCK_AUTONOMOUS) > 0
+end
+
+-- True for the whole lifetime of a foreground environment whose root was
+-- launched by field interaction/event arbitration, independent of explicit
+-- lock opcodes. Immutable: never mutated after construction; only
+-- environment teardown (removing the environment entirely) ends it.
+---@return boolean
+function ScriptEnvironment:interactionOwnsPlayerInput()
+  return self.interactionClaim
 end
 
 -- Release every lock an owning instance holds (ending, cancelling, or

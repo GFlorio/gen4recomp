@@ -146,7 +146,7 @@ function FieldSession.new(options)
   assert(
     options.scriptScheduler
       and options.scriptScheduler.step
-      and options.scriptScheduler.playerInputLocked
+      and options.scriptScheduler.playerInputOwned
       and options.scriptScheduler.foregroundEnvironmentId,
     "field session script scheduler required"
   )
@@ -322,8 +322,12 @@ local function isForegroundActive(scheduler)
   return scheduler:foregroundEnvironmentId() ~= nil
 end
 
-local function isPlayerInputLocked(scheduler)
-  return scheduler:playerInputLocked()
+-- Combined ownership: explicit lock OR field-interaction claim. This is the
+-- one fact that gates manual player-input initiation and Start Menu opening;
+-- foreground identity alone (`isForegroundActive`) remains a separate,
+-- narrower application/menu-lane concern.
+local function isPlayerInputOwned(scheduler)
+  return scheduler:playerInputOwned()
 end
 
 -- The idle-boundary gate for the Start Menu open edge: the menu may open
@@ -341,7 +345,7 @@ local function canOpenStartMenu(self)
     and not self.menuHost:isModal()
     and not self.contextChoice:isActive()
     and not isForegroundActive(self.scriptScheduler)
-    and not isPlayerInputLocked(self.scriptScheduler)
+    and not isPlayerInputOwned(self.scriptScheduler)
 end
 
 function FieldSession:_advanceTick()
@@ -517,10 +521,13 @@ function FieldSession:updateFixed(inputSnapshot)
   -- handoffs, runs ready contexts to yield, and resolves at most one new
   -- interaction. The session never steps the scheduler twice per tick.
   -- Sampled before the scheduler runs this tick, so it reflects the
-  -- pre-scheduler lock state even though the scheduler step below can
-  -- itself release the lock; the post-scheduler observation right below
-  -- the step call is a second, deliberately distinct read.
-  local playerInputLockedAtTickStart = self.scriptScheduler:playerInputLocked()
+  -- pre-scheduler combined-ownership state even though the scheduler step
+  -- below can itself release ownership (explicit unlock or environment
+  -- teardown on completion); the post-scheduler observation right below the
+  -- step call is a second, deliberately distinct read. ORing the two samples
+  -- means a root that completes during this tick's scheduler step still
+  -- suppresses manual input for this same tick.
+  local playerInputOwnedAtTickStart = self.scriptScheduler:playerInputOwned()
   local schedulerInput = {
     heldDirection = inputSnapshot.heldDirection,
     pressedDirection = inputSnapshot.pressedDirection,
@@ -555,9 +562,9 @@ function FieldSession:updateFixed(inputSnapshot)
     end
   end
 
-  local playerInputLockedAfterScheduler = isPlayerInputLocked(self.scriptScheduler)
+  local playerInputOwnedAfterScheduler = isPlayerInputOwned(self.scriptScheduler)
   local foregroundActive = isForegroundActive(self.scriptScheduler)
-  local inputSuppressedThisTick = playerInputLockedAtTickStart or playerInputLockedAfterScheduler
+  local inputSuppressedThisTick = playerInputOwnedAtTickStart or playerInputOwnedAfterScheduler
 
   -- Start Menu arbitration: a pending script reopen request (opcode 61's
   -- startMenuReopen service) opens the menu unconditionally at this point,
@@ -628,11 +635,33 @@ function FieldSession:updateFixed(inputSnapshot)
   end
 
   if not foregroundActive then
-    local passiveDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
-    if self.player.motion == "idle" and passiveDirection == self.player.facing then
-      local intent = resolvePassiveSign(self)
-      if intent then
-        self.scriptClient:consume(intent, self.tick + 1)
+    -- Facing-trigger path: an idle player pressing a direction
+    -- evaluates the HGSS input path -- a blocked DOOR tile ahead, or a
+    -- direction-gated standing door/stairs/warp on the player's own tile.
+    -- A valid movement-driven traversal/warp candidate outranks a passive
+    -- directional sign eligible on the same tick, so this check runs first;
+    -- the passive sign below is only reached when no valid traversal exists.
+    local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+    if self.player.motion == "idle" and direction then
+      -- A coordinate event on the tile being entered owns the step, even when
+      -- that tile is also a direction-triggered warp. The ROM evaluates the
+      -- arrival event after the step; pre-empting it here would leave the
+      -- generated coordinate script unresolved.
+      local coordinateAhead = resolveCoordinateAhead(self, direction)
+      local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
+      if
+        trigger
+        and coordinateAhead == nil
+        and not hasCoordinateAhead(self, direction)
+        and not WarpSystem.isSuppressed(
+          self.transition.suppression,
+          self.currentMap.mapId,
+          trigger.warp.x,
+          trigger.warp.z
+        )
+      then
+        self.player.facing = direction
+        self.transition:start(self.currentMap, trigger, direction)
         self:_advanceTick()
         return
       end
@@ -642,7 +671,10 @@ function FieldSession:updateFixed(inputSnapshot)
     -- before movement or warps are evaluated. A consumed interaction owns the
     -- tick (the dialogue becomes modal on it), so the same edge cannot also
     -- start a move or warp. The edge itself was already consumed by the input
-    -- snapshot, so a held Action cannot re-open anything.
+    -- snapshot, so a held Action cannot re-open anything. Action-button
+    -- interactions retain their explicit-button semantics regardless of
+    -- traversal precedence -- they are only eligible when the action button
+    -- itself is the initiating input.
     if self.player.motion == "idle" and inputSnapshot.actionPressed then
       local intent = self.interactions:resolve({
         runtimeMap = self.currentMap,
@@ -670,30 +702,21 @@ function FieldSession:updateFixed(inputSnapshot)
       end
     end
 
-    -- Facing-trigger path: an idle player pressing a direction
-    -- evaluates the HGSS input path -- a blocked DOOR tile ahead, or a
-    -- direction-gated standing door/stairs/warp on the player's own tile.
-    local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
-    if self.player.motion == "idle" and direction then
-      -- A coordinate event on the tile being entered owns the step, even when
-      -- that tile is also a direction-triggered warp. The ROM evaluates the
-      -- arrival event after the step; pre-empting it here would leave the
-      -- generated coordinate script unresolved.
-      local coordinateAhead = resolveCoordinateAhead(self, direction)
-      local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
-      if
-        trigger
-        and coordinateAhead == nil
-        and not hasCoordinateAhead(self, direction)
-        and not WarpSystem.isSuppressed(
-          self.transition.suppression,
-          self.currentMap.mapId,
-          trigger.warp.x,
-          trigger.warp.z
-        )
-      then
-        self.player.facing = direction
-        self.transition:start(self.currentMap, trigger, direction)
+    -- A coordinate event on the tile the passive sign also faces is a
+    -- movement-driven traversal candidate that only resolves once the player
+    -- actually steps onto that tile (the completed-step branch below). Firing
+    -- the passive sign here, before the step, would hijack the field ahead of
+    -- that traversal ever being attempted, so the passive sign yields to a
+    -- pending coordinate on the same tile and lets the step proceed normally.
+    local passiveDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+    if
+      self.player.motion == "idle"
+      and passiveDirection == self.player.facing
+      and not hasCoordinateAhead(self, passiveDirection)
+    then
+      local intent = resolvePassiveSign(self)
+      if intent then
+        self.scriptClient:consume(intent, self.tick + 1)
         self:_advanceTick()
         return
       end

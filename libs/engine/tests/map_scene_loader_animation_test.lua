@@ -1127,6 +1127,9 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
       playerInputLocked = function()
         return false
       end,
+      playerInputOwned = function()
+        return false
+      end,
       foregroundEnvironmentId = function()
         return nil
       end,

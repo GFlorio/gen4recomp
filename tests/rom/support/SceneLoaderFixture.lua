@@ -264,6 +264,9 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       playerInputLocked = function()
         return false
       end,
+      playerInputOwned = function()
+        return false
+      end,
       foregroundEnvironmentId = function()
         return nil
       end,

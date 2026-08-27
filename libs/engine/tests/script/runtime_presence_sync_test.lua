@@ -247,4 +247,25 @@ function T.multiple_queued_flags_converge_without_duplicate_actors()
   Assert.equal(count, 1)
 end
 
+function T.repeated_sync_with_unchanged_presence_is_idempotent()
+  local state = FieldEventState.new({ flags = {} })
+  local assets = fakeAssets({ [99] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  local map = runtimeMap({ object({ eventFlag = 500 }) })
+  mgr:enterMap(map, state)
+  local actor = assert(mgr:getById("map:61:object:0"), "flag clear at map entry must materialize the actor")
+  local acquiredAfterEnter = assets.references[99]
+  actor.poseTick = 3
+
+  -- No flag mutation queued anything: calling the zero-time reconciler
+  -- again -- as a script that touches multiple flags in one tick would --
+  -- must not duplicate the actor, touch its pose, or re-acquire its visual.
+  mgr:syncEventStateChanges()
+  mgr:syncEventStateChanges()
+
+  Assert.equal(mgr:getById("map:61:object:0"), actor, "the same actor instance must remain live")
+  Assert.equal(actor.poseTick, 3, "an idempotent reconcile must not advance poseTick")
+  Assert.equal(assets.references[99], acquiredAfterEnter, "an idempotent reconcile must not re-acquire the visual")
+end
+
 return { tests = T }
