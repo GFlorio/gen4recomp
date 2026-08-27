@@ -44,7 +44,7 @@ function T.foreground_without_explicit_lock_must_not_suppress_player_input()
   Assert.notNil(h.scheduler:foregroundEnvironmentId(), "foreground must be active")
   -- Player input must not be considered locked simply because a foreground exists.
   Assert.isFalse(
-    h.scheduler:playerInputLocked(),
+    h.scheduler:explicitPlayerLocked(),
     "foreground without explicit player lock must not report player movement locked"
   )
 end
@@ -81,7 +81,7 @@ function T.foreground_lifecycle_clears_all_locks_on_completion_and_fault()
   h.scheduler:step(200, nil)
   h.scheduler:step(201, nil)
   Assert.isNil(h.scheduler:foregroundEnvironmentId(), "foreground must be gone after normal completion")
-  Assert.isFalse(h.scheduler:playerInputLocked(), "no lock must remain after completion")
+  Assert.isFalse(h.scheduler:explicitPlayerLocked(), "no lock must remain after completion")
 
   local h2 = harness()
   local faultRes = script("test.fault", {
@@ -94,7 +94,7 @@ function T.foreground_lifecycle_clears_all_locks_on_completion_and_fault()
   h2.scheduler:createForeground(composed2, nil, 300)
   h2.scheduler:step(300, nil)
   Assert.isNil(h2.scheduler:foregroundEnvironmentId(), "foreground must be gone after fault")
-  Assert.isFalse(h2.scheduler:playerInputLocked(), "no lock must remain after fault")
+  Assert.isFalse(h2.scheduler:explicitPlayerLocked(), "no lock must remain after fault")
 end
 
 return { tests = T }

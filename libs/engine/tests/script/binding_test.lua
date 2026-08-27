@@ -469,7 +469,7 @@ T["foreground root locks movement without an explicit lock"] = function()
   p.scheduler:createForeground(composed, nil, 100)
   Assert.notNil(p.scheduler:foregroundEnvironmentId(), "foreground ownership is active on creation")
   Assert.isFalse(
-    p.scheduler:playerInputLocked(),
+    p.scheduler:explicitPlayerLocked(),
     "foreground without explicit lock must not report player input locked"
   )
   p.scheduler:step(100, nil)
@@ -477,7 +477,7 @@ T["foreground root locks movement without an explicit lock"] = function()
   p.scheduler:step(102, nil)
   p.scheduler:step(103, nil)
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
-  Assert.isFalse(p.scheduler:playerInputLocked(), "the field unlocks when the foreground root ends")
+  Assert.isFalse(p.scheduler:explicitPlayerLocked(), "the field unlocks when the foreground root ends")
 end
 
 return { tests = T }

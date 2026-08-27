@@ -1128,15 +1128,8 @@ function Scheduler:startInteraction(trigger, composed, tick, interactionClaim)
 end
 
 -- Explicit source LOCK_PLAYER/LockAll state only, independent of launch
--- origin. Kept as `playerInputLocked` for existing callers that specifically
--- mean this fact (for example a cutscene waiting on its own explicit lock);
--- new code should read `explicitPlayerLocked`, `interactionOwnsPlayerInput`,
--- or the combined `playerInputOwned` by name.
----@return boolean
-function Scheduler:playerInputLocked()
-  return self:explicitPlayerLocked()
-end
-
+-- origin. Callers that need combined ownership should read
+-- `interactionOwnsPlayerInput` or `playerInputOwned` instead.
 ---@return boolean
 function Scheduler:explicitPlayerLocked()
   local envId = self._foregroundEnvironmentId

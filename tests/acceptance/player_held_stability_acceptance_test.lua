@@ -51,7 +51,7 @@ function T.tests.held_player_has_no_stale_interpolation_during_mother_cutscene()
     local scheduler = game.runtime.scripts.scheduler
     local entered = false
     for _ = 1, 200 do
-      if scheduler:playerInputLocked() then
+      if scheduler:explicitPlayerLocked() then
         entered = true
         break
       end
@@ -70,7 +70,7 @@ function T.tests.held_player_has_no_stale_interpolation_during_mother_cutscene()
     -- the same stationary world.
     for _ = 1, 10 do
       game:step()
-      if scheduler:playerInputLocked() then
+      if scheduler:explicitPlayerLocked() then
         for _, alpha in ipairs({ 0, 0.25, 0.5, 0.75, 1 }) do
           local pos = player:renderPosition(alpha)
           Assert.near(pos.x, player.worldX, 1e-9, "held player must be stationary at alpha " .. alpha)
