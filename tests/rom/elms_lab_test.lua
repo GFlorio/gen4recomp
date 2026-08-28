@@ -15,6 +15,9 @@ local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local InventoryAssert = require("tests.support.InventoryAssert")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
+local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
+local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 
 local T = {}
 
@@ -235,6 +238,36 @@ function T.traversal(romFs)
   -- The 32x32 cell is a hard boundary: a step off the grid is refused.
   Assert.isFalse(collision:containsLocal(-1, 16))
   Assert.isFalse(collision:containsLocal(16, -1))
+end
+
+-- Professor Elm is source object event 0, not an optional/hidden scenery
+-- piece: HGSS's own zone-event record places him at (6,5) with the lab
+-- sprite, behind the lab's hide flag. Object id 0 must decode and compile
+-- exactly like any other object id, and his sprite must be a real compiled
+-- actor visual the runtime can acquire -- never a map-specific placeholder.
+function T.elm_is_a_real_generated_object_zero_with_a_compiled_sprite(romFs)
+  local bundle = assert(FieldMapDataCompiler.compile(romFs, 61))
+  local elm
+  for _, event in ipairs(bundle.field.events.objects) do
+    if event.objectEventId == 0 then
+      elm = event
+    end
+  end
+  Assert.notNil(elm, "map 61 must declare object event 0")
+  Assert.equal(elm.x, 6)
+  Assert.equal(elm.z, 5)
+  Assert.equal(elm.spriteId, 99)
+  Assert.equal(elm.eventFlag, FieldScriptSymbols.flagsByName.FLAG_HIDE_ELMS_LAB_ELM)
+
+  local actors = assert(FieldActorCompiler.compile(romFs))
+  Assert.notNil(actors.visuals[elm.spriteId], "Elm's sprite must be a compiled actor visual")
+  local known = false
+  for _, spriteId in ipairs(actors.index.spriteIds) do
+    if spriteId == elm.spriteId then
+      known = true
+    end
+  end
+  Assert.isTrue(known, "Elm's sprite must be present in the compiled actor index")
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

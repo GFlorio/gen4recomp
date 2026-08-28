@@ -333,6 +333,17 @@ T["move person facing emits position and facing"] = function()
   Assert.equal(steps[2].op, "set_object_facing")
   Assert.equal(steps[2].direction, "north")
   Assert.isNil(steps[1].sourceFacing, "no diagnostic facing field survives")
+
+  -- ScrCmd_MovePersonFacing (src/scrcmd_c.c) reads its operands in the order
+  -- objectId, x, y, z, direction -- the ground-plane Z field is the fourth
+  -- operand and the height is the third, even though the assembly macro
+  -- names its own third parameter "z" and fourth "y". The lowering must
+  -- follow the engine's read order, not the macro's cosmetic parameter
+  -- names, or a stationary NPC gets placed one axis off from every other
+  -- source of ground coordinates.
+  Assert.equal(steps[1].fieldX, 684, "field X is the second operand")
+  Assert.equal(steps[1].fieldZ, 0, "field Z is the fourth operand, not the third")
+  Assert.equal(steps[1].worldY, 393, "world Y (height) is the third operand, not the fourth")
 end
 
 -- 9. The verifier runs on the final structured program: a scrub that strips

@@ -717,9 +717,13 @@ local HANDLERS = {
     }
   end,
   [339] = function(ins)
-    -- MovePersonFacing person, x, z, y, facing: field X from x, field Z from
-    -- z, world Y from y, then face the given direction (two canonical
-    -- operations; the facing side effect is never diagnostic data).
+    -- ScrCmd_MovePersonFacing (src/scrcmd_c.c) reads objectId, x, y, z,
+    -- direction: the ground-plane Z is the fourth operand and height is the
+    -- third, even though the assembly macro's own parameter names read
+    -- "x, z, y". Field X from the second operand, world Y (height) from the
+    -- third, field Z from the fourth, then face the given direction (two
+    -- canonical operations; the facing side effect is never diagnostic
+    -- data).
     local actor = actorRef(ins.operands[1])
     return {
       steps = {
@@ -727,8 +731,8 @@ local HANDLERS = {
           op = "set_object_position",
           actor = actor,
           fieldX = varRef(ins.operands[2]),
-          fieldZ = varRef(ins.operands[3]),
-          worldY = varRef(ins.operands[4]),
+          worldY = varRef(ins.operands[3]),
+          fieldZ = varRef(ins.operands[4]),
         },
         {
           op = "set_object_facing",
