@@ -1,204 +1,202 @@
 # Code Agent Guidance
 
-This file provides guidance to Coding Agents when working with code in this repository.
+Repository-wide standing orders for coding agents. Keep this file compact. Rules that only
+matter inside one subsystem belong in that subtree's `AGENTS.md`; detailed current-state
+facts belong in `docs/`; reusable procedures belong in `.agents/skills/`.
 
-## General Guidelines
+## Project intent
 
-- Be brief.
-- Strongly bias towards simplicity.
-- Strongly bias towards asking for clarification.
-- Less code is better code. Net line count is a diagnostic, not an acceptance criterion:
-  necessary correctness or safety code may make a change net-positive.
-- Annotate public APIs and non-obvious table/data shapes, and anywhere an annotation
-  materially improves LuaLS inference or states an invariant. Do not annotate trivial
-  private locals merely because their lines were touched. `scripts/lint.sh` stays clean.
-- Be concrete.
-- Look for opportunities for refactoring or trimming code at the end of each task.
-- LuaLS is intentionally strict: `scripts/lint.sh` must be clean through Hint. Fix findings at their source; do not weaken `.luarc.json`, add broad suppressions or globals, or erase types with `any`.
-- Exact `_` is the intentional unused discard; delete unused named bindings. Do not hand-edit vendored types or generated overrides to satisfy lint.
-- Flat is better than nested.
-- Look for root causes.
-- Descriptive names.
-- Make liberal use of assertions to enforce assumptions and invariants.
-- Aggressively remove dead code, no "just in case" compatibility.
-- Prefer pure functions.
-- Thoroughly remove debug/trace code after each task.
-- Assume unexpected changes are from the human.
+- Prefer the correct foundation over compatibility with pre-release development artifacts.
+  Preserve compatibility only when a current user-facing, persisted-data, mod-facing, or
+  explicitly documented contract requires it.
+- Grow game features freely, but be conservative about permanent shared/runtime surface.
+  A helper local to one owner is cheaper than a framework, hook, callback, option, or public
+  API that every future change must understand.
+- Modability comes from explicit asset contracts and deliberately designated public APIs,
+  not speculative extension points for hypothetical future mods. Public/mod-facing does not
+  imply frozen: stability is an explicit project decision.
+- Simplicity follows understanding. Trace the real flow first; then minimize the design.
+  A small diff at the wrong ownership boundary is not a simplification.
+- Assume unexpected unrelated working-tree changes are from the human. Never reset, stash,
+  discard, or absorb them without instruction.
 
-## Architecture
+## Guidance map
 
-- The repo is a small monorepo: top-level `game/` and `romdump/` are runnable apps (each its own LÖVE root); `libs/assets`, `libs/engine`, `libs/codec`, `libs/storage`, `libs/errors`, and `libs/math` are the shared capabilities they build on. See `docs/architecture.md`.
-- Cutting across that, work in three conceptual layers: interface, domain, and infrastructure.
-- Domain contains all the game logic and should be testable independently of LÖVE. `libs/assets`, `libs/codec`, `libs/storage`, and `libs/errors` are overwhelmingly domain and must not `require` love.
-- Interface and infrastructure can depend on LÖVE, but should be kept as thin as possible.
-- Modability comes through explicit mod-facing asset contracts and deliberately designated public APIs — not through interfaces, callbacks, forwarding layers, compatibility shims, or extension hooks added for hypothetical future mods. Public/mod-facing does not mean stable or frozen: stability is an explicit project decision, and until it is declared the surface stays minimal and incompatible cleanup is allowed.
-- Derived data crosses three roles (see docs/architecture.md "Digestion, assets, and the game"): romdump digests raw ROM bytes, libs/assets owns the modder-facing asset contracts (text + metadata shapes), and the game operates only on the asset level — no raw-ROM decoding, no decomp-derived reference imports in libs/engine or game/src.
-- **ROM-source boundary:** `romdump` owns every structure whose meaning comes from the NDS ROM, HGSS, or a decomp/reverse-engineering reference. This includes pure parsers, NARC/member selection, overlay data, raw source bitfields, ROM-specific catalogs, and build-only source manifests. Purity does not make source-format code a shared library.
-- **Asset boundary:** `libs/assets` owns only g4recomp-defined generated/mod-facing formats and their paths, schemas, validation, and source-independent encoders/decoders. If a custom asset tool can use a structure without understanding HGSS/NDS, it may belong here. `libs/assets` must never import `romdump`.
-- **Runtime boundary:** `libs/engine` and normal `game` runtime consume generated assets only. They must not import `romdump`, decomp-derived references, NARC/Nitro/overlay parsers, or interpret source binary packing. The launcher/import UI is the sole allowed `game` → `romdump` provisioning dependency.
-- **Producer test:** if changing a module can change generated output for an unchanged raw dump without changing a shared asset contract, that implementation belongs under `romdump`.
-- **Source metadata:** source physical IDs/paths/offsets belong in producer dependencies/provenance, not runtime asset fields, unless a concrete runtime/mod-facing semantic use exists.
+Read the narrowest authoritative source instead of duplicating it:
+
+- `docs/architecture.md`: current repository composition and dependency structure.
+- `docs/defensive-patterns.md`: hard-won ownership, publication, cache, and failure rules.
+- `docs/testing.md`: test runner, layers, capabilities, and ROM policy.
+- `tests/AGENTS.md`: standing orders for test design.
+- `romdump/AGENTS.md`: ROM/HGSS/decomp-source rules.
+- `libs/assets/AGENTS.md`: generated/mod-facing asset contract rules.
+- `libs/engine/AGENTS.md`: runtime/engine ownership and public-surface rules.
+- `game/AGENTS.md`: application composition and game-policy rules.
+- `docs/adr/`: durable rationale for architectural decisions likely to be revisited.
+- `.agents/skills/`: workflows. Skills should consume repository guidance, not restate it.
+
+When guidance conflicts, prefer the more specific applicable subtree rule unless it violates
+an explicit repository-wide boundary here.
+
+## Before changing code
+
+### Verify the premise and intent
+
+Do not treat the request's explanation as proof of the bug or of the right ownership seam.
+Before editing:
+
+1. Establish the current behavior on the relevant path.
+2. Trace the execution/data flow to the owner of the violated invariant or missing behavior.
+3. Inspect sibling callers/entry paths that share that owner. Fix the bug class once rather
+   than special-casing the reported manifestation.
+4. If an omission, restriction, or odd boundary may be deliberate, inspect nearby tests,
+   documentation, `docs/adr/`, and relevant git history before "restoring" the obvious thing.
+5. Separate verified current-state facts from desired-state requirements and inference.
+
+Ask the human only when a material behavior/contract decision remains after research. Do not
+ask about mechanical choices that repository evidence settles.
+
+### Use the footprint ladder
+
+Before adding production machinery, stop at the first rung that fully satisfies the current
+requirement:
+
+1. Avoid the machinery entirely when the behavior does not require it.
+2. Extend or simplify the existing owner instead of adding a parallel owner.
+3. Use Lua, LÖVE, the operating system, or another native platform facility.
+4. Use an already-installed dependency.
+5. Keep a small implementation local rather than creating shared/public surface.
+6. Add a maintained dependency only when it materially deletes owned implementation,
+   tests, and maintenance compared with the local solution.
+7. Only then add a new shared abstraction, framework, hook, option, or public/mod-facing API.
+
+The ladder optimizes permanent owned complexity, not raw line count. Net line count is a
+useful diagnostic, never an acceptance criterion.
+
+### Require a current owner and need
+
+Every new shared module, reusable abstraction, public method, configuration option,
+callback/hook, extension point, compatibility path, or mod-facing API must name the concrete
+current requirement/consumer that needs it. A test-only consumer, imagined future mod, or
+"might be useful later" is not enough.
+
+One caller is strong evidence to keep code local unless the boundary itself owns a concrete
+responsibility such as resource lifetime, layer separation, a current public contract, or a
+source-grounded domain concept.
+
+## Cross-cutting architecture
+
+- The repository has two runnable LÖVE apps, `game/` and `romdump/`, plus shared libraries.
+  See `docs/architecture.md` for the current map.
+- Domain logic should remain independently testable from LÖVE. `libs/assets`, `libs/codec`,
+  `libs/storage`, `libs/errors`, and `libs/math` must not `require` love.
+- ROM-source knowledge belongs to `romdump`: NDS/HGSS/decomp-derived formats, NARC/member
+  selection, overlays, raw bitfields, source catalogs, and build-only source manifests stay
+  producer-side even when their parsers are pure.
+- `libs/assets` owns only g4recomp-defined generated/mod-facing formats, paths, schemas,
+  validation, and source-independent encoders/decoders. It must never import `romdump`.
+- `libs/engine` and normal `game` runtime consume generated assets only. They do not decode
+  ROM formats or import decomp-derived references. The launcher/import UI is the sole
+  provisioning exception from `game` to `romdump`.
+- Producer test: if changing a module can change generated output for an unchanged raw dump
+  without changing the shared asset contract, that implementation belongs under `romdump`.
+- Source physical IDs, paths, offsets, and packing belong in producer dependencies or
+  provenance unless runtime/mod-facing behavior has a concrete semantic use for them.
 - Winner selection, conflict resolution, status classification, schema validation, and
-  similar business rules have one authoritative implementation. Do not maintain a second
-  "inspection" implementation with slightly different semantics.
-- The `tests/architecture/module_boundaries_test.lua` unit suite scans literal requires across the `libs/*` packages and `game` and enforces these boundaries; keep it green.
+  similar business rules have one authoritative implementation.
+- `tests/architecture/module_boundaries_test.lua` mechanically enforces important dependency
+  boundaries. Keep it green; prefer adding similarly low-false-positive gates when a rule is
+  mechanically checkable.
 
+## Correctness and ownership
 
-## Ownership and failure safety
+- Make assumptions explicit. Use `assert` for programming invariants and structured `Errors`
+  for malformed external/generated data or expected diagnosable runtime failures.
+- Project-owned current schemas are strict. Do not add `or {}`, plausible defaults, aliases,
+  or missing-field branches without a current producer/caller that can validly require them.
+- Generated artifacts get no backward-compatibility path unless explicitly required.
+- Every acquired resource has exactly one owner and every replacement/disposal path is
+  exactly-once. Constructors/factories return a usable object or fail; do not normalize
+  half-valid objects guarded by optional collaborators.
+- Stateful subsystems own their own reentrancy/busy protection. Do not rely on every caller
+  remembering the invariant.
+- Preserve the last known-good state until its replacement is complete. Follow the detailed
+  acquisition, publication, persistence, and cache contracts in `docs/defensive-patterns.md`.
+- Catch only failures the caller can intentionally recover from. Broad fallbacks that turn
+  programmer errors or corruption into plausible runtime state are bugs.
+- Prefer pure functions and local state. Do not attach temporary bookkeeping to caller-owned
+  objects or mutate shared cached values differently per consumer.
 
-- Every acquired resource has exactly one owner. Before acquiring, name how it is released
-  on every later failure path.
-- A multi-step constructor or loader must clean up what it already acquired when a later
-  step fails.
-- A normal constructor/factory must return a usable object or fail. Do not return a
-  partially initialized object whose methods are guarded by `if collaborator then` checks.
-  If partial state is a real domain concept, model it as an explicit state type or state
-  machine rather than a half-constructed instance.
-- Cleanup after a failed multi-step construction is not recovery. Release locally acquired
-  resources, then rethrow the original failure unless the factory itself is a documented
-  public `nil, err` boundary.
-- Replacing owned state disposes the previous state exactly once.
-- Reentrancy/busy protection lives inside the stateful subsystem, not only in its callers.
-- A boolean `protected`/`pinned` flag has one owner. If independent owners must
-  acquire/release the same protection, use an ownership token/count or restructure to one
-  owner. Code must never release protection it did not establish.
-- `push`, mount, subscribe, acquire, open, and creating an Image/Mesh/Canvas are ownership
-  changes and need matching cleanup. No generic RAII helper framework.
+## Testing and verification
 
-## Persistence and publication
+Read `docs/testing.md` and `tests/AGENTS.md` for the full contract.
 
-- Persistent user state (saves) must not share a deletion root with rebuildable/generated
-  cache state.
-- Never destroy the last known-good artifact before its replacement is fully built and
-  validated.
-- Transactional replacement is: **stage, validate, publish.** Writing the completion marker
-  last proves completeness; it is not by itself transactional replacement.
-- Caller-owned cleanup ends when `publish` begins. Before publication, the caller may
-  discard its disposable stage. Once publication starts, the publisher owns
-  rollback/recovery material and the caller must not blindly abort or remove that stage
-  after a publish error.
-- Filesystem failures propagate. A wrapper must never report success after an underlying
-  write/remove/rename/create failed.
-- Do not build a generic transaction framework without several concrete users.
+- Use TDD for behavior changes. Use the `acceptance-testing` skill before work that changes a
+  user-visible flow, production composition, persistence, transitions, scripts, or
+  ROM-derived behavior.
+- Tests protect behavior, relationships, and intentional architecture invariants. Do not add
+  change-detector tests that freeze expected-to-change catalogs/counts, or source-text tests
+  whose contract is that a symbol/string never appears again.
+- Test the real composition path when composition, resource wiring, persistence, ROM-derived
+  data, or host integration is the contract. Do not let mocks prove a path production never
+  executes.
+- Stateful, cached, resource-owning, or asynchronous logic needs a failure or multi-step
+  sequence test when that sequence is material.
+- Required production collaborators remain required in tests. Fix incomplete fakes rather
+  than adding production fallbacks for them.
+- Select the narrowest credible local evidence for the diff using `scripts/test.sh` filters
+  and layers. The final integrated/branch gate runs the full available suite. CI cannot
+  exercise user-owned ROM data, so affected ROM/acceptance evidence must not be assumed to
+  exist merely because CI is green.
+- Tests are code and runtime cost. Prefer strengthening an existing owner test, the cheapest
+  layer that proves the contract, and one expensive production boot with multiple related
+  assertions over repeated journeys.
 
-## Schemas and errors
+## Code quality and conventions
 
-- Project-owned current schemas are strict. A missing required array/table is an error, not
-  `{}`; an unknown enum/mode value is an error, not a plausible default.
-- Before adding `or {}`, `or default`, an alias, or a missing-field branch for
-  project-owned data, identify the current producer path that can validly omit the value.
-  A test fixture or an obsolete development artifact is not evidence that the production
-  schema is optional.
-- Generated artifacts get no backward-compatibility handling unless explicitly requested.
-- Validate finite/integer/range constraints wherever a value becomes an ID, index, offset,
-  tick, size, or binary field.
-- Catch only errors the caller can intentionally recover from. Never recover from a whole
-  error family or code prefix when some members mean corruption or a programming fault.
-- Use `assert` for programming invariants; use structured `Errors` for malformed
-  external/generated data and expected diagnosable runtime failures. Raise internally, and
-  convert to `nil, err` only at an explicitly documented public error boundary.
+- Be concrete, brief, and deletion-biased. Remove dead code, speculative compatibility,
+  forwarding layers, stale comments, debug/trace residue, and unnecessary nesting.
+- LuaLS is intentionally strict: `scripts/lint.sh` must be clean through Hint. Fix findings
+  at their source; do not weaken `.luarc.json`, add broad suppressions/globals, edit vendored
+  types/generated overrides, or erase types with `any`.
+- Exact `_` is the intentional unused discard; delete unused named bindings.
+- Annotate public APIs, non-obvious table/data shapes, and places where an annotation states
+  an invariant or materially improves inference. Do not annotate trivial private locals just
+  because they were touched.
+- Library code lives under `libs/<lib>/src/`; app code under `game/src/` and `romdump/src/`.
+  Require by full repo-relative path, for example `require("libs.codec.src.BinaryReader")`.
+- Each Lua module returns one table. Instance types set `M.__index = M` and construct with
+  `setmetatable({...}, M)`. Use 2-space indent, LF, and a final newline.
+- Open modules with a short role comment. For external binary formats, name the authoritative
+  external/source reference rather than temporary implementation material.
+- Source offsets and source IDs are zero-based. Use semantic names such as `narcId`, `fileId`,
+  and `memberId`, never a generic `id` when the kind matters.
+- Generic binary primitives belong in `libs/codec`; interpreting Nintendo/HGSS source
+  packing belongs in `romdump`; project-owned generated binary formats belong in
+  `libs/assets`.
+- A `_private` method is not an inter-module API. Expose a semantic public operation or move
+  the responsibility instead of reaching across modules to an underscored helper.
 
-## Shared state and caching
+## Temporary context, comments, and durable decisions
 
-- A cache key includes every property that affects the cached object's immutable runtime
-  configuration.
-- Never cache by source path/bytes alone and then mutate the shared result differently per
-  consumer.
-- Builders, sorters, and queue builders must not attach temporary bookkeeping fields to
-  caller-owned objects; keep that state local.
-- Derived-cache implementation freshness is owned by the `romdump/src` producer fingerprint.
-  Do not introduce per-compiler version constants solely to invalidate caches. Format/schema/
-  API versions describe persisted contracts, not source-code revisions. A shared asset-contract
-  change must update `DerivedAssetContract`; a compiler implementation change needs no manual
-  version bump.
+- Implementation specs and orchestration state are disposable. Temporary requirement,
+  deliverable, acceptance, deviation, gate, or phase identifiers must not appear in
+  production code, tests, comments, docs, changelogs, or commit messages.
+- Comments and normal docs state current contracts and facts, not reasoning transcripts or
+  implementation history. Delete comments that merely justify accidental complexity.
+- Put durable architectural rationale in `docs/adr/` only when the decision is likely to be
+  revisited or constrains future work. ADRs are not mandatory for every non-trivial change;
+  follow `docs/adr/README.md`.
 
-## Testing
+## Commands and commits
 
-- TDD: tests first for behavior changes.
-- Stateful, cached, resource-owning, or asynchronous code needs at least one failure or
-  multi-step sequence test, not only a happy path.
-- Test behavioral ownership boundaries, not helper internals.
-- Required production collaborators stay required in tests. Do not add production nil
-  checks, optional methods, or fallback branches solely because a fake omits part of the
-  real interface. Fix the fake or inject failure at a boundary that can fail in
-  production.
-- Do not add source-text tombstone tests whose contract is that a deleted symbol/string
-  never reappears. Protect current behavior or an architectural boundary instead. If
-  deletion has no surviving behavioral invariant, deletion needs no permanent regression
-  test.
-- Temporary spec/deliverable/phase identifiers (for example `D12`, `DEV-06`, `Gate 3`,
-  `pre-D4`) must not appear in committed source, tests, comments, docstrings, or commit
-  messages. A workflow-time grep/review check is fine; a permanent source-content test is
-  not.
-- Test modules are discovered recursively from the roots in `tests/run.lua`; do
-  not add manual module registration. A suite's layer is the layer of the
-  discovery root that contains it — suites cannot declare their own layer.
-- Suites declare required `capabilities`. An explicit skip uses
-  `context:skip(reason)`, never a normal return.
-- Use the `tdd` skill for behavior changes. Use `acceptance-testing` before
-  work that changes a user-visible flow, production composition, persistence,
-  transitions, scripts, or ROM-derived behavior.
-- Running the entire test suite takes a while; Run unit tests frequently, be deliberate about the other layers.
-- Test economy:
-  - Tests are code and runtime cost. Minimize both while preserving meaningful behavioral coverage.
-  - Before adding a test, find the existing owner of the behavior. Prefer extending or
-    strengthening that test over adding another.
-  - A new test must protect a materially distinct failure mode, behavioral contract, or
-    composition boundary. A different assertion over substantially the same setup is not
-    sufficient reason for another test.
-  - Prefer the cheapest layer that can prove the behavior. Edge cases, validation, state
-    transitions, and failure branches belong in unit/component tests unless production
-    composition itself is the contract.
-  - Expensive setup should be amortized. When several assertions require the same
-    production boot, ROM decode, compilation, fixture construction, or long simulated flow,
-    prefer one scenario that performs the flow once and asserts all related postconditions.
-  - Do not repeat an expensive user journey merely to give each postcondition its own test
-    name.
-  - Parameter matrices are suspect by default. Test multiple versions, resolutions, input
-    modalities, or configurations only when those dimensions can materially change the
-    behavior under test.
-  - When adding coverage to an already-expensive layer, look for obsolete, overlapping, or
-    mergeable coverage in that layer first.
-  - Treat suite runtime regressions as design regressions. If a change materially increases
-    an expensive layer's runtime, simplify the tests or explain why the additional cost buys
-    unique coverage.
-  - When a high-level test finds a bug whose cause can be isolated below that layer, put the
-    regression test at the lower layer. Do not automatically add another high-level
-    regression scenario.
-  - For acceptance tests specifically, every production runtime boot is expensive. Minimize
-    the number of boots, not merely the number of test functions.
-- Adversarial prompts, to consider when applicable — not a mandatory list:
-  What if the Nth acquisition fails? What if an operation starts while one is already
-  active? What if a valid previous artifact exists and the rebuild fails? What if multiple
-  physical inputs map to one semantic action? What if a callback mutates the listener list
-  during dispatch? What if two consumers share cached data but need different mutable
-  configuration?
-
-## Commands
-
-- Prefer running scripts from the scripts directory instead of ad-hoc commands.
-- If there isn't a script for a common task, bias towards creating one.
-- When authoring scripts, assume a UNIX-like environment.
-- Write temporary files to `.agents/tmp/`
-- Look for ROM files (.nds, .zip) in `tmp/` inside the workspace and dumps are often available in `.cache/love/g4recomp/{heartgold,soulsilver}`
-
-When calling skills or any commands, prefer a direct syntax (avoiding e.g. variable substitution)
-to avoid shell injection or permission issues.
-
-## Commits
-
-- Use *Scoped Commits*: `<scope>: <description>`
-- Do not add `Co-Authored-By` trailers or any AI attribution. The human is solely responsible for all commits.
-
-## Code Conventions
-
-- **Layout:** library code lives under `libs/<lib>/src/` (`assets`, `engine`, `codec`, `storage`, `errors`, `math`); pure domain modules (`assets`, `codec`, `storage`, `errors`, `math`) must not `require` love. App code lives under `game/src/` and `romdump/src/`. Require by full repo-relative path: `require("libs.codec.src.BinaryReader")`.
-- **Module shape:** each file returns one table. Instance types set `M.__index = M` and construct with `setmetatable({...}, M)`. 2-space indent, LF, final newline.
-- **Header comment:** open each module with a short paragraph stating its role. Where it implements an external binary format, name the authoritative source (a GBATEK section, a `pret/pokeheartgold` file, or a `docs/` page) rather than an internal document.
-- **Zero-based everywhere:** offsets, `fileId`, `memberId`, overlay tables. Iterate zero-based maps with `for id = 0, count - 1`, never `ipairs`. Never expose a generic `id`; use `narcId` / `fileId` / `memberId`.
-- **Binary access:** generic binary primitives live in `libs/codec`; interpreting a Nintendo/HGSS source binary with them belongs under `romdump`, even when the parser is pure. Project-owned generated binary formats belong under `libs/assets`.
-- **Errors vs assert:** malformed input / user faults raise `Errors.raise(CODE, message, context)` with a `SCREAMING_SNAKE_CASE` module-prefixed code (`NDS_*`, `OVERLAY_*`, `READ_*`). Programming invariants use plain `assert`. Public `open`/`parse` entry points wrap a private `_parse` in `pcall` and return `nil, err` when `Errors.is(result)`, else re-raise.
-- **Tests:** unit tests live beside their library in `libs/<lib>/tests/*_test.lua` (app tests under `<app>/tests/`); each returns the explicit suite shape (`metadata`/`beforeAll`/`afterAll`/`tests`). Discovery is recursive over the roots declared in `tests/run.lua` — there is no module registry, so a new `*_test.lua` file runs as soon as it exists. Use `tests/support/Assert`; reuse the local `throwsCode(code, fn)` helper pattern to assert a raised `Errors` object with a given code. Put binary fixture generators in `tests/support/`. Run with `scripts/test.sh`.
-- A `_private` method is not an inter-module API. If another module legitimately needs the
-  operation, expose a semantic public method or move the responsibility; do not normalize
-  cross-module calls to underscored helpers.
+- Prefer scripts in `scripts/` over ad-hoc commands. If a repeated repository task lacks a
+  script, prefer adding one rather than teaching agents a fragile command sequence.
+- Write temporary files under `.agents/tmp/`.
+- ROM files (`.nds`, `.zip`) are commonly under workspace `tmp/`; ready dumps are commonly
+  under `.cache/love/g4recomp/{heartgold,soulsilver}`.
+- Prefer direct command syntax over shell indirection/variable substitution when invoking
+  skills or repository scripts.
+- Use scoped single-line commit subjects: `<scope>: <description>`.
+- Do not add `Co-Authored-By` trailers or AI attribution. The human is solely responsible for
+  repository commits.
