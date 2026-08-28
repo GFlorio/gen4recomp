@@ -350,6 +350,8 @@ function T.tests.map_swap_updates_the_field_music_policy_without_orphaning_the_o
       Assert.equal(audio:currentMusic(), labMusic, "the lab boots its own map-header music")
       Assert.isTrue(audio:isEffectPlaying(LAB_MUSIC))
 
+      game:setActorRemovalFlag("map:61:object:3")
+      game:step()
       game:moveTo({ fieldX = 4, fieldZ = 14 })
       game:face("south")
       local transition = game:waitForTransition()

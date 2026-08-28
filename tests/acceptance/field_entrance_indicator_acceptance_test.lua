@@ -60,6 +60,8 @@ local function entranceCell(game, behavior)
 end
 
 local function enterLab2F(game)
+  game:setActorRemovalFlag("map:60:object:4")
+  game:step()
   game:moveTo({ fieldX = 688, fieldZ = 392 })
   game:face("west")
   local transition = game:waitForTransition()

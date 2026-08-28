@@ -64,6 +64,8 @@ function T.tests.failed_destination_preparation_is_terminal_until_reset()
       local destinationMapId = assert(game.runtime.mapLoader.world.bySymbol[TOWN])
       failOneCacheRead(game, MapAssetCache.mapDir(destinationMapId) .. "/scene.lua")
 
+      game:setActorRemovalFlag("map:61:object:3")
+      game:step()
       game:moveTo({ fieldX = 4, fieldZ = 14 })
       game:move("south")
       game:advanceUntil("destination preparation failure becomes terminal", function()

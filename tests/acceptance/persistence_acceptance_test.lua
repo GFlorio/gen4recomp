@@ -384,6 +384,8 @@ function T.tests.resume_restores_a_save_on_a_map_without_a_declared_spawn()
     -- its destination map (62) has no spawn-manifest entry. The warp is a
     -- direction-gated tile (WARP_WEST): it fires on the input path, pressing
     -- west while standing on it.
+    game:setActorRemovalFlag("map:60:object:4")
+    game:step()
     game:moveTo({ fieldX = 688, fieldZ = 392 })
     game:face("west")
     local transition = game:waitForTransition()
