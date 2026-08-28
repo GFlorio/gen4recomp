@@ -65,6 +65,7 @@ local function coverageFixture()
     physicalFallbacks = 0,
     queued = 0,
     prefetchError = nil,
+    prefetchCalls = 0,
   }
 
   function coverage:committedDescriptors()
@@ -97,6 +98,7 @@ local function coverageFixture()
   end
 
   function coverage:updatePrefetch()
+    self.prefetchCalls = self.prefetchCalls + 1
     if self.prefetchError then
       return 0
     end
@@ -124,13 +126,17 @@ local function logicalOwners(coverage)
   local loader = {
     maps = maps,
     loads = 0,
+    loadCounts = {},
     protections = {},
+    protectionCalls = {},
   }
   function loader:load(mapId)
     self.loads = self.loads + 1
+    self.loadCounts[mapId] = (self.loadCounts[mapId] or 0) + 1
     return assert(self.maps[mapId])
   end
   function loader:protectMap(mapId, protected)
+    self.protectionCalls[mapId] = (self.protectionCalls[mapId] or 0) + 1
     self.protections[mapId] = protected and true or nil
   end
 
@@ -144,7 +150,7 @@ local function logicalOwners(coverage)
   }
   function actors:prepareMap(runtimeMap)
     self.prepares = self.prepares + 1
-    local entry = { runtimeMap = runtimeMap, actors = { runtimeMap.mapId } }
+    local entry = { runtimeMap = runtimeMap, actors = { runtimeMap.mapId }, resident = false }
     local prepared = { entry = entry, state = "prepared" }
     self.prepared[runtimeMap.mapId] = prepared
     return prepared
@@ -166,14 +172,23 @@ local function logicalOwners(coverage)
   end
   function actors:reconcilePhysicalWorld()
     self.reconcileCalls = self.reconcileCalls + 1
+    local committed = {}
+    for _, descriptor in ipairs(coverage:committedDescriptors()) do
+      committed[descriptor.mapHeaderId] = true
+    end
+    for mapId, entry in pairs(self.maps) do
+      entry.resident = committed[mapId] == true
+    end
   end
   function actors:setActiveMap(mapId)
     self.currentMapId = mapId
   end
   function actors:drawRecords()
     local records = {}
-    for mapId in pairs(self.maps) do
-      records[#records + 1] = { mapId = mapId }
+    for mapId, entry in pairs(self.maps) do
+      if entry.resident then
+        records[#records + 1] = { mapId = mapId }
+      end
     end
     table.sort(records, function(left, right)
       return left.mapId < right.mapId
@@ -199,7 +214,71 @@ local function logicalOwners(coverage)
   return loader, actors, zone, calls
 end
 
-local function coordinatorFixture()
+local coordinatorFixture
+
+local function halo_map_survives_same_anchor_movement()
+  local coordinator, _, loader, actors = coordinatorFixture()
+  coordinator:initialize()
+  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
+  coordinator:updatePrefetch(1)
+  local loads = loader.loads
+  local protectionCalls = loader.protectionCalls[30]
+
+  coordinator:afterCommittedMove({ fieldX = 1, fieldZ = 1, currentMap = map(10) })
+
+  Assert.deepEqual(coordinator:status().residentMapIds, { 10, 20, 30 })
+  Assert.notNil(actors.maps[30], "the halo map must remain published")
+  Assert.isTrue(loader.protections[30], "the halo map must remain protected")
+  Assert.equal(loader.loads, loads, "same-anchor movement must not reload the halo map")
+  Assert.equal(loader.protectionCalls[30], protectionCalls, "same-anchor movement must not churn halo protection")
+  Assert.isNil(actors.leaves[30], "same-anchor movement must not leave the halo actor map")
+  Assert.isFalse(actors.maps[30].resident, "halo actors must remain outside physical projection")
+  Assert.deepEqual(actors:drawRecords(), { { mapId = 10 }, { mapId = 20 } })
+  coordinator:dispose()
+end
+
+local function prefetched_logical_map_is_reused_on_boundary_promotion()
+  local coordinator, coverage, loader, actors, zone = coordinatorFixture()
+  coordinator:initialize()
+  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
+  coordinator:updatePrefetch(1)
+  local destinationEntry = assert(actors.maps[30])
+  local loads = loader.loads
+
+  coordinator:afterCommittedMove({ fieldX = 1, fieldZ = 1, currentMap = zone.currentMap })
+
+  coverage.committed = {
+    { cellKey = "1:0", mapHeaderId = 20 },
+    { cellKey = "2:0", mapHeaderId = 30 },
+  }
+  coverage.footprint = coverage.committed
+  coverage.destinationMapId = 30
+  coordinator:afterCommittedMove({ fieldX = 64, fieldZ = 0, currentMap = zone.currentMap })
+
+  Assert.equal(coordinator:status().synchronousLogicalFallbackLoads, 0)
+  Assert.equal(loader.loads, loads, "a ready logical map must not be loaded again")
+  Assert.equal(actors.maps[30], destinationEntry, "boundary promotion must reuse the actor-map identity")
+  Assert.equal(zone.currentMap.mapId, 30, "the destination logical map must activate")
+  Assert.notNil(actors.maps[20], "the overlapping source map must remain resident")
+  coordinator:dispose()
+end
+
+local function physical_prefetch_error_does_not_block_logical_readiness()
+  local coordinator, coverage, _, actors = coordinatorFixture()
+  coordinator:initialize()
+  coverage.prefetchError = "physical prefetch failed"
+  local prefetchCalls = coverage.prefetchCalls
+
+  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
+  coordinator:updatePrefetch(1)
+
+  Assert.equal(coverage.prefetchCalls, prefetchCalls + 1, "the physical side must receive its bounded opportunity")
+  Assert.notNil(actors.maps[30], "logical readiness must progress after a physical error")
+  Assert.isTrue(coordinator:status().physical.prefetchError ~= nil)
+  coordinator:dispose()
+end
+
+coordinatorFixture = function()
   local coverage = coverageFixture()
   local loader, actors, zone, calls = logicalOwners(coverage)
   local coordinator = coordinatorClass().new({
@@ -290,8 +369,9 @@ end
 local function eviction_tracks_committed_map_headers_and_releases_protection_once()
   local coordinator, coverage, loader, actors = coordinatorFixture()
   coordinator:initialize()
+  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   coordinator:updatePrefetch(1)
-  Assert.isTrue(hasId(coordinator:status().preparedMapIds, 30))
+  Assert.isTrue(hasId(coordinator:status().residentMapIds, 30))
   Assert.isTrue(loader.protections[10])
   Assert.isTrue(loader.protections[20])
 
@@ -305,23 +385,108 @@ local function eviction_tracks_committed_map_headers_and_releases_protection_onc
 
   local status = coordinator:status()
   Assert.deepEqual(status.residentMapIds, { 20 })
-  Assert.isFalse(hasId(status.preparedMapIds, 10), "no stale prepared map remains outside the footprint")
-  Assert.isFalse(hasId(status.preparedMapIds, 30), "prepared maps leave with the prefetch footprint")
   Assert.isNil(actors.maps[10])
   Assert.equal(actors.leaves[10], 1)
   Assert.isNil(loader.protections[10])
+  Assert.isNil(actors.maps[30])
+  Assert.equal(actors.leaves[30], 1)
   Assert.isNil(loader.protections[30])
   coordinator:dispose()
 end
 
-local function failed_physical_prefetch_does_not_consume_the_logical_budget()
+local function physical_prefetch_error_still_allows_logical_progress()
   local coordinator, coverage, _, actors = coordinatorFixture()
   coordinator:initialize()
   coverage.prefetchError = "physical prefetch failed"
 
-  Assert.equal(coordinator:updatePrefetch(1), 0)
-  Assert.deepEqual(coordinator:status().preparedMapIds, {})
+  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
+  Assert.equal(coordinator:updatePrefetch(1), 1)
+  Assert.isTrue(hasId(coordinator:status().residentMapIds, 30))
   Assert.deepEqual(actors.prepared, {})
+  coordinator:dispose()
+end
+
+local function shared_headers_have_one_resident_and_one_protection()
+  local coordinator, coverage, loader = coordinatorFixture()
+  coverage.committed = {
+    { cellKey = "0:0", mapHeaderId = 10 },
+    { cellKey = "1:0", mapHeaderId = 10 },
+  }
+  coverage.footprint = coverage.committed
+  coordinator:initialize()
+
+  Assert.deepEqual(coordinator:status().residentMapIds, { 10 })
+  Assert.equal(loader.loadCounts[10], 1)
+  Assert.equal(loader.protectionCalls[10], 1)
+  coordinator:dispose()
+end
+
+local function resident_removal_is_paired_once()
+  local coordinator, coverage, loader, actors = coordinatorFixture()
+  coordinator:initialize()
+  coverage.committed = { { cellKey = "3:0", mapHeaderId = 40 } }
+  coverage.footprint = coverage.committed
+  coverage.destinationMapId = 40
+  coordinator:afterCommittedMove({ fieldX = 64, fieldZ = 0, currentMap = map(10) })
+
+  Assert.equal(actors.leaves[10], 1)
+  Assert.equal(loader.protectionCalls[10], 2)
+  Assert.isNil(loader.protections[10])
+  coordinator:dispose()
+  Assert.equal(actors.leaves[10], 1)
+  Assert.equal(loader.protectionCalls[10], 2)
+end
+
+local function resident_lookup_does_not_borrow_nonresident_maps()
+  local coordinator, _, loader, actors = coordinatorFixture()
+  coordinator:initialize()
+  local beforeLoads = loader.loads
+
+  Assert.isNil(coordinator:mapForId(30))
+  local borrowed = coordinator:mapForPreflight(30)
+  Assert.equal(borrowed.mapId, 30)
+  Assert.equal(loader.loads, beforeLoads + 1)
+  Assert.isNil(actors.maps[30])
+  Assert.isNil(loader.protections[30])
+  coordinator:dispose()
+end
+
+local function overlapping_anchor_moves_do_not_churn_retained_residents()
+  local coordinator, coverage, loader = coordinatorFixture()
+  coordinator:initialize()
+  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
+  coordinator:updatePrefetch(1)
+  local loads = loader.loads
+  local map20ProtectionCalls = loader.protectionCalls[20]
+
+  coverage.committed = {
+    { cellKey = "1:0", mapHeaderId = 20 },
+    { cellKey = "2:0", mapHeaderId = 30 },
+  }
+  coverage.footprint = {
+    { cellKey = "0:0", mapHeaderId = 10 },
+    { cellKey = "1:0", mapHeaderId = 20 },
+    { cellKey = "2:0", mapHeaderId = 30 },
+    { cellKey = "3:0", mapHeaderId = 40 },
+  }
+  coverage.destinationMapId = 20
+  coordinator:afterCommittedMove({ fieldX = 32, fieldZ = 0, currentMap = map(10) })
+
+  coverage.committed = {
+    { cellKey = "0:0", mapHeaderId = 10 },
+    { cellKey = "1:0", mapHeaderId = 20 },
+  }
+  coverage.footprint = {
+    { cellKey = "0:0", mapHeaderId = 10 },
+    { cellKey = "1:0", mapHeaderId = 20 },
+    { cellKey = "2:0", mapHeaderId = 30 },
+  }
+  coverage.destinationMapId = 10
+  coordinator:afterCommittedMove({ fieldX = 0, fieldZ = 0, currentMap = map(20) })
+  coordinator:afterCommittedMove({ fieldX = 0, fieldZ = 0, currentMap = map(20) })
+
+  Assert.equal(loader.loads, loads)
+  Assert.equal(loader.protectionCalls[20], map20ProtectionCalls)
   coordinator:dispose()
 end
 
@@ -384,7 +549,7 @@ local function prepared_map_hook_warms_music_before_activation()
     eventState = {},
     onPreparedMap = function(runtimeMap)
       if runtimeMap.mapId == 30 then
-        ---@diagnostic disable-next-line: undefined-field -- acceptance contract is authored before production implementation
+        ---@diagnostic disable-next-line: undefined-field -- the optional audio hook is checked at the boundary
         local prewarmMapMusic = audio.prewarmMapMusic
         Assert.isTrue(
           type(prewarmMapMusic) == "function",
@@ -396,15 +561,16 @@ local function prepared_map_hook_warms_music_before_activation()
   })
 
   coordinator:initialize()
+  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   Assert.equal(coordinator:updatePrefetch(1), 1)
 
   Assert.deepEqual(calls.sequences, { 20 }, "prepared map hook must warm the map-header sequence")
   Assert.deepEqual(calls.banks, { 7 }, "prepared map hook must warm the sequence bank")
   Assert.equal(calls.sound, 0, "prepared-map warmup must not enter playback")
-  Assert.deepEqual(coordinator:status().residentMapIds, { 10, 20 })
-  Assert.deepEqual(coordinator:status().preparedMapIds, { 30 })
-  Assert.isNil(actors.maps[30], "a prepared map must not become actor-resident before promotion")
-  Assert.equal(actors.currentMapId, 10, "preparing a map must not activate it")
+  Assert.deepEqual(coordinator:status().residentMapIds, { 10, 20, 30 })
+  Assert.notNil(actors.maps[30], "a ready map must become actor-resident after publication")
+  Assert.isFalse(actors.maps[30].resident, "publishing a map must not project it physically")
+  Assert.equal(actors.currentMapId, 10, "publishing a map must not activate it")
   Assert.equal(zone.currentMap.mapId, 10, "preparing a map must not switch the active zone")
   coordinator:dispose()
 end
@@ -412,9 +578,16 @@ end
 return {
   metadata = { capabilities = {} },
   tests = {
+    halo_map_survives_same_anchor_movement = halo_map_survives_same_anchor_movement,
+    prefetched_logical_map_is_reused_on_boundary_promotion = prefetched_logical_map_is_reused_on_boundary_promotion,
+    physical_prefetch_error_does_not_block_logical_readiness = physical_prefetch_error_does_not_block_logical_readiness,
     actors_remain_live_across_active_map_switch_until_their_last_cell_leaves = actors_remain_live_across_active_map_switch_until_their_last_cell_leaves,
     eviction_tracks_committed_map_headers_and_releases_protection_once = eviction_tracks_committed_map_headers_and_releases_protection_once,
-    failed_physical_prefetch_does_not_consume_the_logical_budget = failed_physical_prefetch_does_not_consume_the_logical_budget,
+    physical_prefetch_error_still_allows_logical_progress = physical_prefetch_error_still_allows_logical_progress,
+    shared_headers_have_one_resident_and_one_protection = shared_headers_have_one_resident_and_one_protection,
+    resident_removal_is_paired_once = resident_removal_is_paired_once,
+    resident_lookup_does_not_borrow_nonresident_maps = resident_lookup_does_not_borrow_nonresident_maps,
+    overlapping_anchor_moves_do_not_churn_retained_residents = overlapping_anchor_moves_do_not_churn_retained_residents,
     prepared_hook_failure_releases_actor_and_map_ownership = prepared_hook_failure_releases_actor_and_map_ownership,
     outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks = outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks,
     prepared_map_hook_warms_music_before_activation = prepared_map_hook_warms_music_before_activation,

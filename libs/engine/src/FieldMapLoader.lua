@@ -47,6 +47,7 @@ FieldMapLoader.__index = FieldMapLoader
 ---@field probePhysicalCell fun(self: RuntimeFieldMap, fieldX: integer, fieldZ: integer, context: PhysicalProbeContext?): table?|nil
 ---@field release fun(self: RuntimeFieldMap)
 ---@field updateAnimated fun(self: RuntimeFieldMap)
+---@field syncPhysicalFields fun(self: RuntimeFieldMap)|nil
 
 ---@param world table
 ---@param idOrSymbol string|integer

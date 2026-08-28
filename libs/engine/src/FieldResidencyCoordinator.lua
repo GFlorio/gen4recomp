@@ -11,8 +11,7 @@
 ---@field eventState FieldEventState
 ---@field composeMap fun(runtimeMap: RuntimeFieldMap): RuntimeFieldMap
 ---@field onPreparedMap fun(runtimeMap: RuntimeFieldMap)?
----@field residents table<integer, { runtimeMap: RuntimeFieldMap }>
----@field prepared table<integer, FieldActorManager.PreparedMap>
+---@field residents table<integer, { logicalMap: RuntimeFieldMap, runtimeMap: RuntimeFieldMap }>
 ---@field synchronousLogicalFallbackLoads integer
 ---@field initialized boolean
 ---@field disposed boolean
@@ -56,7 +55,6 @@ function FieldResidencyCoordinator.new(options)
     end,
     onPreparedMap = options.onPreparedMap,
     residents = {},
-    prepared = {},
     synchronousLogicalFallbackLoads = 0,
     initialized = false,
     disposed = false,
@@ -67,60 +65,45 @@ function FieldResidencyCoordinator:_protect(mapId, protected)
   self.mapLoader:protectMap(mapId, protected)
 end
 
-function FieldResidencyCoordinator:_prepare(mapId)
-  assert(not self.residents[mapId] and not self.prepared[mapId], "logical map is already owned")
+function FieldResidencyCoordinator:_acquireResident(mapId)
+  assert(not self.residents[mapId], "logical map is already resident")
   local logicalMap = self.mapLoader:load(mapId)
-  local runtimeMap = self.composeMap(logicalMap)
-  self:_protect(mapId, true)
-  local ok, prepared = pcall(self.actors.prepareMap, self.actors, runtimeMap, self.eventState)
-  if not ok then
-    self:_protect(mapId, false)
-    error(prepared, 0)
-  end
-  local actorPreparation = assert(prepared)
-  self.prepared[mapId] = actorPreparation
-  if self.onPreparedMap then
-    local hookOk, hookErr = pcall(self.onPreparedMap, runtimeMap)
-    if not hookOk then
-      self.actors:discardPrepared(actorPreparation)
-      self.prepared[mapId] = nil
-      self:_protect(mapId, false)
-      error(hookErr, 0)
+  local protected = false
+  local prepared
+  local runtimeMap
+  local ok, result = pcall(function()
+    self:_protect(mapId, true)
+    protected = true
+    runtimeMap = self.composeMap(logicalMap)
+    prepared = self.actors:prepareMap(assert(runtimeMap), self.eventState)
+    if self.onPreparedMap then
+      self.onPreparedMap(runtimeMap)
     end
-  end
-end
-
-function FieldResidencyCoordinator:_promote(mapId)
-  local prepared = self.prepared[mapId]
-  if not prepared then
-    return false
-  end
-  local ok, err = pcall(self.actors.commitPrepared, self.actors, prepared)
+    self.actors:commitPrepared(prepared)
+  end)
   if not ok then
-    if prepared.state == "prepared" then
+    if prepared and prepared.state == "prepared" then
       self.actors:discardPrepared(prepared)
     end
-    self.prepared[mapId] = nil
-    self:_protect(mapId, false)
-    error(err, 0)
+    if protected then
+      self:_protect(mapId, false)
+    end
+    error(result, 0)
   end
-  self.prepared[mapId] = nil
-  self.residents[mapId] = { runtimeMap = prepared.entry.runtimeMap }
-  return true
+  self.residents[mapId] = {
+    logicalMap = logicalMap,
+    runtimeMap = assert(runtimeMap),
+  }
 end
 
 function FieldResidencyCoordinator:_ensureResident(mapId, countFallback)
   if self.residents[mapId] then
     return
   end
-  if self:_promote(mapId) then
-    return
-  end
-  self:_prepare(mapId)
+  self:_acquireResident(mapId)
   if countFallback then
     self.synchronousLogicalFallbackLoads = self.synchronousLogicalFallbackLoads + 1
   end
-  assert(self:_promote(mapId))
 end
 
 function FieldResidencyCoordinator:_committedMapIds(anchorX, anchorZ)
@@ -139,13 +122,13 @@ function FieldResidencyCoordinator:_committedMapIds(anchorX, anchorZ)
   return sortedIds(descriptors)
 end
 
-function FieldResidencyCoordinator:_prefetchMapIds()
+function FieldResidencyCoordinator:_prefetchMapIds(anchorX, anchorZ)
   if not self.coverage then
     return {}
   end
   local descriptors
   if type(self.coverage.prefetchDescriptors) == "function" then
-    descriptors = self.coverage:prefetchDescriptors()
+    descriptors = self.coverage:prefetchDescriptors(anchorX, anchorZ)
   else
     descriptors = self.coverage:committedDescriptors()
   end
@@ -155,6 +138,27 @@ function FieldResidencyCoordinator:_prefetchMapIds()
   return sortedIds(descriptors)
 end
 
+function FieldResidencyCoordinator:_desiredReadyMapIds(anchorX, anchorZ)
+  return self:_prefetchMapIds(anchorX, anchorZ)
+end
+
+function FieldResidencyCoordinator:_adoptResident(mapId, runtimeMap)
+  assert(not self.residents[mapId], "logical map is already resident")
+  self.residents[mapId] = {
+    logicalMap = runtimeMap.logicalMap or runtimeMap,
+    runtimeMap = runtimeMap,
+  }
+  self:_protect(mapId, true)
+end
+
+function FieldResidencyCoordinator:_syncResidentViews()
+  for _, resident in pairs(self.residents) do
+    if type(resident.runtimeMap.syncPhysicalFields) == "function" then
+      resident.runtimeMap:syncPhysicalFields()
+    end
+  end
+end
+
 ---@return FieldResidencyCoordinator
 function FieldResidencyCoordinator:initialize()
   assert(not self.disposed and not self.initialized, "field residency coordinator is not initializable")
@@ -162,16 +166,14 @@ function FieldResidencyCoordinator:initialize()
   if not self.coverage and self.actors.currentMapId ~= nil then
     local mapId = assert(self.actors.currentMapId)
     local residentEntry = assert(self.actors.maps[mapId])
-    local residents = assert(self.residents)
-    residents[mapId] = { runtimeMap = assert(residentEntry.runtimeMap) }
-    self:_protect(mapId, true)
+    self:_adoptResident(mapId, assert(residentEntry.runtimeMap))
   end
   for _, mapId in ipairs(required) do
-    if self.actors.maps[mapId] then
-      self.residents[mapId] = { runtimeMap = self.actors.maps[mapId].runtimeMap }
-      self:_protect(mapId, true)
+    local entry = self.actors.maps[mapId]
+    if entry then
+      self:_adoptResident(mapId, assert(entry.runtimeMap))
     else
-      self:_ensureResident(mapId, false)
+      self:_acquireResident(mapId)
     end
   end
   if self.actors.currentMapId == nil and #required > 0 then
@@ -185,76 +187,46 @@ function FieldResidencyCoordinator:initialize()
   return self
 end
 
----@param maxItems integer
 ---@return integer
-function FieldResidencyCoordinator:updatePrefetch(maxItems)
+function FieldResidencyCoordinator:updatePrefetch()
   assert(not self.disposed and self.initialized, "field residency coordinator is not ready")
-  assert(type(maxItems) == "number" and maxItems >= 0 and maxItems % 1 == 0)
   local completed = 0
   if self.coverage then
-    completed = self.coverage:updatePrefetch(maxItems)
-    if completed == maxItems or maxItems == 0 then
-      return completed
-    end
-    if self.coverage:status().prefetchError then
-      return completed
-    end
+    completed = self.coverage:updatePrefetch(1)
   end
-  local prepared = 0
-  local remaining = maxItems - completed
   for _, mapId in ipairs(self:_prefetchMapIds()) do
-    if not self.residents[mapId] and not self.prepared[mapId] then
-      if prepared >= remaining then
-        break
-      end
-      self:_prepare(mapId)
-      prepared = prepared + 1
-      if prepared >= remaining then
-        break
-      end
+    if not self.residents[mapId] then
+      self:_acquireResident(mapId)
+      return completed + 1
     end
   end
-  return completed + prepared
+  return completed
 end
 
 function FieldResidencyCoordinator:_release(mapId)
-  local prepared = self.prepared[mapId]
-  if prepared then
-    if prepared.state == "prepared" then
-      self.actors:discardPrepared(prepared)
-    end
-    self.prepared[mapId] = nil
-    self:_protect(mapId, false)
+  if not self.residents[mapId] then
     return
   end
-  if self.residents[mapId] then
-    self.actors:leaveMap(mapId)
-    self.residents[mapId] = nil
-    self:_protect(mapId, false)
-  end
+  self.actors:leaveMap(mapId)
+  self.residents[mapId] = nil
+  self:_protect(mapId, false)
 end
 
 ---@param mapId integer
----@return RuntimeFieldMap
+---@return RuntimeFieldMap?
 function FieldResidencyCoordinator:mapForId(mapId)
   assert(not self.disposed, "field residency coordinator is disposed")
   local resident = self.residents[mapId]
   if resident then
     return resident.runtimeMap
   end
-  local prepared = self.prepared[mapId]
-  assert(prepared, "requested map is not resident or prepared")
-  return prepared.entry.runtimeMap
+  return nil
 end
 
 function FieldResidencyCoordinator:mapForPreflight(mapId)
   local resident = self.residents[mapId]
   if resident then
     return resident.runtimeMap
-  end
-  local prepared = self.prepared[mapId]
-  if prepared then
-    return prepared.entry.runtimeMap
   end
   -- Collision preflight is read-only. If movement outruns logical prefetch,
   -- borrow a map-loader entry without attaching actors or changing active
@@ -276,13 +248,15 @@ function FieldResidencyCoordinator:afterCommittedMove(player, context)
   for _, mapId in ipairs(required) do
     self:_ensureResident(mapId, true)
   end
-  if self.coverage and (self.coverage.anchorX ~= targetX or self.coverage.anchorZ ~= targetZ) then
+  local anchorChanged = self.coverage and (self.coverage.anchorX ~= targetX or self.coverage.anchorZ ~= targetZ)
+  if anchorChanged then
     self.coverage:recenter(targetX, targetZ)
     if context.onPhysicalCommit then
       context.onPhysicalCommit(self.coverage)
     end
+    self:_syncResidentViews()
+    self.actors:reconcilePhysicalWorld()
   end
-  self.actors:reconcilePhysicalWorld()
   if self.coverage then
     local destinationId = self.coverage and self.coverage:mapHeaderAt(player.fieldX, player.fieldZ)
       or player.currentMap.mapId
@@ -293,29 +267,20 @@ function FieldResidencyCoordinator:afterCommittedMove(player, context)
   local zoneCoverage = assert(self.coverage) --[[@as FieldZoneCoverage]]
   local zonePlayer = player --[[@as FieldZonePlayer]]
   local result = self.zoneController:afterCoverageCommit(zoneCoverage, zonePlayer)
-  local requiredSet = {}
-  for _, mapId in ipairs(required) do
-    requiredSet[mapId] = true
-  end
-  local residentIds = {}
-  for mapId in pairs(self.residents) do
-    residentIds[#residentIds + 1] = mapId
-  end
-  for _, mapId in ipairs(residentIds) do
-    if not requiredSet[mapId] then
-      self:_release(mapId)
+  if anchorChanged then
+    local requiredSet = {}
+    for _, mapId in ipairs(self:_desiredReadyMapIds(targetX, targetZ)) do
+      requiredSet[mapId] = true
     end
-  end
-  local preparedIds = {}
-  for mapId in pairs(self.prepared) do
-    preparedIds[#preparedIds + 1] = mapId
-  end
-  for _, mapId in ipairs(preparedIds) do
-    if not requiredSet[mapId] then
-      self:_release(mapId)
+    local residentIds = {}
+    for mapId in pairs(self.residents) do
+      residentIds[#residentIds + 1] = mapId
     end
-  end
-  if self.coverage then
+    for _, mapId in ipairs(residentIds) do
+      if not requiredSet[mapId] then
+        self:_release(mapId)
+      end
+    end
     self.coverage:queuePrefetch(targetX, targetZ)
   end
   return result or self:status()
@@ -323,18 +288,13 @@ end
 
 ---@return table
 function FieldResidencyCoordinator:status()
-  local residentMapIds, preparedMapIds = {}, {}
+  local residentMapIds = {}
   for mapId in pairs(self.residents) do
     residentMapIds[#residentMapIds + 1] = mapId
   end
-  for mapId in pairs(self.prepared) do
-    preparedMapIds[#preparedMapIds + 1] = mapId
-  end
   table.sort(residentMapIds)
-  table.sort(preparedMapIds)
   return {
     residentMapIds = residentMapIds,
-    preparedMapIds = preparedMapIds,
     synchronousLogicalFallbackLoads = self.synchronousLogicalFallbackLoads,
     physical = self.coverage and self.coverage:status() or nil,
   }
@@ -343,13 +303,6 @@ end
 function FieldResidencyCoordinator:dispose()
   if self.disposed then
     return
-  end
-  local preparedIds = {}
-  for mapId in pairs(self.prepared) do
-    preparedIds[#preparedIds + 1] = mapId
-  end
-  for _, mapId in ipairs(preparedIds) do
-    self:_release(mapId)
   end
   local residentIds = {}
   for mapId in pairs(self.residents) do

@@ -1012,7 +1012,7 @@ function FieldRuntime:update(dt)
   end
 
   if self.residency then
-    self.residency:updatePrefetch(1)
+    self.residency:updatePrefetch()
   end
 
   -- The background registry warm-up (snapshot-miss boot) runs one time
