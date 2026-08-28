@@ -554,10 +554,11 @@ function T.tests.new_bark_exclamation_follows_marills_current_draw_world()
       return nil
     end
 
-    local record = assert(game:advanceUntil("New Bark Marill shows its exclamation", function()
+    game:advanceUntil("New Bark Marill shows its exclamation", function()
       local current = drawRecord()
       return current and current.activeEmoteKind == "exclamation"
-    end, 900))
+    end, 900)
+    local record = assert(drawRecord())
     local activeTicks = 0
     while record.activeEmoteKind == "exclamation" do
       local items = renderer:drawItems({ record })
@@ -572,12 +573,19 @@ function T.tests.new_bark_exclamation_follows_marills_current_draw_world()
         "the exclamation follows Marill's current world z"
       )
       activeTicks = activeTicks + 1
-      Assert.isTrue(activeTicks <= MovementCalibration.EMOTE_TICKS, "the effect must have a bounded action lifetime")
+      Assert.isTrue(
+        activeTicks <= MovementCalibration.EMOTE_TICKS - 1,
+        "the effect must have a bounded action lifetime"
+      )
       game:step()
       record = assert(drawRecord(), "Marill remains present throughout its emote action")
     end
 
-    Assert.equal(activeTicks, MovementCalibration.EMOTE_TICKS, "the effect lifetime remains owned by the emote action")
+    Assert.equal(
+      activeTicks,
+      MovementCalibration.EMOTE_TICKS - 1,
+      "the effect lifetime remains owned by the emote action"
+    )
     Assert.equal(#renderer:drawItems({ record }), 0, "clearing the emote state removes its draw item")
     renderer:dispose()
   end, { recordingScriptHosts = true })

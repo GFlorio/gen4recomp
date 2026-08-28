@@ -174,7 +174,7 @@ end
 
 local function reachFinalFullArtHold(state, female)
   advanceUntilMessage(state, "profile.gender_question")
-  finishDialogueBoundary(state)
+  enterGenderSelection(state)
   if female then
     state:keypressed("right")
   end
