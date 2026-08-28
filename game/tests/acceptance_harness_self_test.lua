@@ -183,7 +183,10 @@ function T.tests.primary_version_uses_the_first_selected_version()
   Assert.equal(harness:primaryVersion(), "soulsilver")
 end
 
-function T.tests.default_version_comes_from_the_ready_dump_set()
+function T.tests.default_version_comes_from_the_ready_dump_set(context)
+  if not context:hasCapability("rom_dump") then
+    context:skip("no ready user-owned HGSS dump")
+  end
   Assert.equal(AcceptanceHarness.defaultVersion(), "soulsilver")
 end
 

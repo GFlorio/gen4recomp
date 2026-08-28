@@ -473,6 +473,25 @@ function T.called_return_reaches_the_saved_continuation_only()
   Assert.deepEqual(names, { "call", "note", "end", "return" })
 end
 
+function T.called_return_does_not_require_lua52_table_unpack()
+  local bytes = SseqFixture.build({
+    { op = "call", target = { cmd = 4 } },
+    { op = "note", key = 60, velocity = 96, duration = 24 },
+    { op = "fin" },
+    { op = "ret" },
+  })
+  local previous = table.unpack
+  table.unpack = nil
+  local ok, result = pcall(function()
+    local program = lowerOrFail(bytes)
+    Assert.equal(program.instructions[4].op, "return")
+  end)
+  table.unpack = previous
+  if not ok then
+    error(result, 0)
+  end
+end
+
 function T.reopened_track_preserves_its_control_stack()
   local bytes = SseqFixture.build({
     { op = "fe", mask = 3 },
