@@ -71,6 +71,54 @@ function T.fresh_outdoor_boot_exposes_adjacent_physical_parts(_)
   end
 end
 
+function T.outdoor_presentation_keeps_the_committed_world_while_halo_work_is_bounded()
+  for _, versionId in ipairs(readyVersions()) do
+    local state = boot(versionId)
+    local ok, err = xpcall(function()
+      local runtime = assert(state.runtime)
+      local coverage = assert(runtime.runtimeMap.coverage)
+      local before = coverage:status()
+      Assert.isTrue(before.queuedPrefetchCount > 0, "the production outdoor map must have halo work to prefetch")
+
+      local acquisitions = 0
+      local originalImage = love.graphics.newImage
+      local originalMesh = love.graphics.newMesh
+      rawset(love.graphics, "newImage", function(...)
+        acquisitions = acquisitions + 1
+        return originalImage(...)
+      end)
+      rawset(love.graphics, "newMesh", function(...)
+        acquisitions = acquisitions + 1
+        return originalMesh(...)
+      end)
+      local updateOk, updateErr = pcall(runtime.update, runtime, 1 / 60)
+      rawset(love.graphics, "newImage", originalImage)
+      rawset(love.graphics, "newMesh", originalMesh)
+      if not updateOk then
+        error(updateErr, 0)
+      end
+
+      local after = coverage:status()
+      Assert.isTrue(acquisitions <= 1, "one production update must perform at most one atomic presentation acquisition")
+      Assert.equal(after.readyPrefetchCount, 0, "a partially built production halo cell must not become ready")
+      Assert.equal(after.committedCount, before.committedCount, "halo work must not replace the committed world")
+      local parts = coverage:worldParts()
+      local partKeys = {}
+      for _, part in ipairs(parts) do
+        partKeys[assert(part.cellKey)] = true
+      end
+      for _, expectedKey in ipairs(before.residentCellKeys) do
+        Assert.isTrue(partKeys[expectedKey] == true, "committed presentation remains drawable during halo work")
+      end
+      state:draw()
+    end, debug.traceback)
+    state:dispose()
+    if not ok then
+      error(err, 0)
+    end
+  end
+end
+
 local suite = GraphicsSmoke.suite(T)
 suite.metadata.capabilities = { "graphics", "rom_dump", "derived_cache" }
 return suite

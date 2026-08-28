@@ -26,6 +26,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field matrixMemberId integer
 ---@field loadCell fun(descriptor: table): table
 ---@field presentationLoader fun(runtime: table, descriptor: table): table?
+---@field presentationTaskFactory fun(runtime: table, descriptor: table): table?
 ---@field cells table<string, table>
 ---@field prefetched table<string, table>
 ---@field prefetchQueue table[]
@@ -37,6 +38,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field region table
 ---@field terrainDependencyHash string
 ---@field released boolean
+---@field pendingPrefetch table?
 local FieldCoverage = {}
 FieldCoverage.__index = FieldCoverage
 
@@ -181,6 +183,175 @@ local function runtimeFromDescriptor(self, descriptor, acquirePresentation)
   return result
 end
 
+local function normalizeRuntime(runtime, descriptor)
+  runtime = assert(runtime, "field cell loader returned no runtime")
+  runtime.key = runtime.key or key(descriptor.x, descriptor.z)
+  runtime.x, runtime.z = runtime.x or descriptor.x, runtime.z or descriptor.z
+  runtime.altitude = runtime.altitude or descriptor.altitude
+  runtime.origin = cellOrigin(runtime, descriptor)
+  return runtime
+end
+
+local function newPending(self, descriptor)
+  return {
+    descriptor = descriptor,
+    cellKey = key(descriptor.x, descriptor.z),
+    phase = self.loadCell and "load" or "readCell",
+  }
+end
+
+local function releasePending(pending)
+  assert(pending)
+  local presentationTask = pending.presentationTask
+  if presentationTask then
+    pending.presentationTask = nil
+    presentationTask:release()
+  end
+  local runtime = pending.runtime
+  if runtime then
+    pending.runtime = nil
+    if runtime.release then
+      runtime:release()
+    end
+  end
+end
+
+local function publishPending(pending, presentation)
+  local runtime = assert(pending.runtime)
+  if presentation ~= nil then
+    runtime = ownPresentation(runtime, presentation)
+  elseif not runtime.presentation then
+    runtime = ownPresentation(runtime, nil)
+  end
+  pending.runtime = runtime
+  pending.complete = true
+end
+
+local function advancePending(self, pending, maxWorkUnits)
+  local consumed = 0
+  while consumed < maxWorkUnits and not pending.complete do
+    if pending.phase == "load" then
+      local runtime = self.loadCell(assert(pending.descriptor))
+      pending.runtime = runtime
+      pending.runtime = normalizeRuntime(pending.runtime, pending.descriptor)
+      if not self.presentationTaskFactory and not self.presentationLoader then
+        publishPending(pending, pending.runtime.presentation)
+        pending.phase = "complete"
+      else
+        pending.phase = "presentation"
+      end
+      consumed = consumed + 1
+    elseif pending.phase == "readCell" then
+      pending.cell = assert(self.cacheFs:loadLua(assert(pending.descriptor).file), "field cell descriptor is missing")
+      pending.phase = "readCollision"
+      consumed = consumed + 1
+    elseif pending.phase == "readCollision" then
+      pending.collisionBytes =
+        assert(self.cacheFs:read(assert(pending.cell).collision.file), "field cell collision is missing")
+      pending.phase = "decodeCollision"
+      consumed = consumed + 1
+    elseif pending.phase == "decodeCollision" then
+      pending.collision = assert(CollisionGridAsset.decode(assert(pending.collisionBytes)))
+      pending.phase = "readTerrain"
+      consumed = consumed + 1
+    elseif pending.phase == "readTerrain" then
+      pending.terrainArtifact =
+        assert(self.cacheFs:loadLua(assert(pending.cell).terrain.file), "field cell terrain is missing")
+      pending.phase = "buildRuntime"
+      consumed = consumed + 1
+    elseif pending.phase == "buildRuntime" then
+      local cell = assert(pending.cell)
+      pending.runtime = {
+        key = pending.cellKey,
+        x = cell.x,
+        z = cell.z,
+        altitude = cell.altitude,
+        origin = cell.origin,
+        collision = CollisionGrid.new(assert(pending.collision)),
+        terrain = TerrainSurface.new(assert(pending.terrainArtifact)),
+        descriptor = cell,
+        release = function() end,
+      }
+      pending.runtime = normalizeRuntime(pending.runtime, pending.descriptor)
+      if not self.presentationTaskFactory and not self.presentationLoader then
+        publishPending(pending, nil)
+        pending.phase = "complete"
+      else
+        pending.phase = "presentation"
+      end
+      consumed = consumed + 1
+    elseif pending.phase == "presentation" then
+      local runtime = assert(pending.runtime)
+      local descriptor = runtime.descriptor or pending.descriptor
+      if self.presentationTaskFactory then
+        pending.presentationTask = assert(self.presentationTaskFactory(runtime, descriptor))
+        pending.phase = "presentationTask"
+      elseif self.presentationLoader then
+        pending.phase = "legacyPresentation"
+      elseif runtime.presentation then
+        publishPending(pending, runtime.presentation)
+        pending.phase = "complete"
+      else
+        publishPending(pending, nil)
+        pending.phase = "complete"
+      end
+    elseif pending.phase == "legacyPresentation" then
+      local runtime = assert(pending.runtime)
+      publishPending(pending, self.presentationLoader(runtime, runtime.descriptor or pending.descriptor))
+      pending.phase = "complete"
+      consumed = consumed + 1
+    elseif pending.phase == "presentationTask" then
+      local task = assert(pending.presentationTask)
+      local taskConsumed = 0
+      if not task:isReady() then
+        taskConsumed = task:advance(maxWorkUnits - consumed)
+        assert(
+          type(taskConsumed) == "number"
+            and taskConsumed >= 0
+            and taskConsumed % 1 == 0
+            and taskConsumed <= maxWorkUnits - consumed,
+          "presentation task consumed an invalid work-unit count"
+        )
+        consumed = consumed + taskConsumed
+      end
+      if task:isReady() then
+        publishPending(pending, task:takeResult())
+        pending.presentationTask = nil
+        pending.phase = "complete"
+      elseif taskConsumed == 0 then
+        break
+      end
+    else
+      error("unknown pending physical phase " .. tostring(pending.phase), 0)
+    end
+  end
+  return consumed
+end
+
+local function finishPending(self, pending)
+  while not pending.complete do
+    if pending.phase == "presentationTask" then
+      local task = assert(pending.presentationTask)
+      publishPending(pending, task:finish())
+      pending.presentationTask = nil
+      pending.phase = "complete"
+    else
+      local consumed = advancePending(self, pending, 1)
+      assert(consumed > 0 or pending.complete, "pending physical build made no progress")
+    end
+  end
+  return assert(pending.runtime)
+end
+
+local function finishPendingSafely(self, pending)
+  local ok, runtime = pcall(finishPending, self, pending)
+  if not ok then
+    releasePending(pending)
+    error(runtime, 0)
+  end
+  return assert(runtime)
+end
+
 local function buildRegion(cells, anchor)
   local central = assert(cells[key(anchor.x, anchor.z)], "coverage anchor cell is missing")
   local neighbors = {}
@@ -215,9 +386,11 @@ function FieldCoverage.new(options)
     matrixMemberId = options.matrixMemberId,
     loadCell = options.loadCell,
     presentationLoader = options.presentationLoader,
+    presentationTaskFactory = options.presentationTaskFactory,
     cells = {},
     prefetched = {},
     prefetchQueue = {},
+    pendingPrefetch = nil,
     prefetchError = nil,
     synchronousPhysicalFallbackLoads = 0,
     released = false,
@@ -233,6 +406,23 @@ function FieldCoverage:recenter(anchorX, anchorZ)
     self:queuePrefetch(anchorX, anchorZ)
     return self
   end
+  local targetFootprint = self:_descriptorSet(anchorX, anchorZ, 2)
+  local targetCommitted = self:_descriptorSet(anchorX, anchorZ, 1)
+  if self.pendingPrefetch then
+    local pendingKey = self.pendingPrefetch.cellKey
+    if targetCommitted[pendingKey] then
+      -- The pending cell is consumed by the new committed window below.
+    elseif targetFootprint[pendingKey] then
+      local pending = assert(self.pendingPrefetch)
+      self.pendingPrefetch = nil
+      local runtime = finishPendingSafely(self, pending)
+      self.prefetched[pending.cellKey] = assert(runtime)
+    else
+      local pending = self.pendingPrefetch
+      self.pendingPrefetch = nil
+      releasePending(pending)
+    end
+  end
   local staged, acquired = {}, {}
   local hadCommittedCells = next(self.cells) ~= nil
   local candidate
@@ -245,7 +435,14 @@ function FieldCoverage:recenter(anchorX, anchorZ)
         if existing then
           staged[cellKey] = existing
         else
-          local runtime = assert(runtimeFromDescriptor(self, descriptor, true))
+          local pending = self.pendingPrefetch
+          local runtime
+          if pending and pending.cellKey == cellKey then
+            self.pendingPrefetch = nil
+            runtime = finishPendingSafely(self, pending)
+          else
+            runtime = finishPendingSafely(self, newPending(self, descriptor))
+          end
           runtime.key = runtime.key or cellKey
           runtime.x, runtime.z = position.x, position.z
           runtime.altitude = runtime.altitude or descriptor.altitude
@@ -289,7 +486,7 @@ function FieldCoverage:recenter(anchorX, anchorZ)
   self.region = candidate.region
   self.origin = candidate.origin
   self.terrainDependencyHash = candidate.terrainDependencyHash
-  local newFootprint = self:_descriptorSet(candidate.anchorX, candidate.anchorZ, 2)
+  local newFootprint = targetFootprint
   for cellKey, cell in pairs(old) do
     if not self.cells[cellKey] and newFootprint[cellKey] then
       self.prefetched[cellKey] = cell
@@ -370,10 +567,20 @@ function FieldCoverage:queuePrefetch(anchorX, anchorZ)
   anchorX, anchorZ = anchorX or self.anchorX, anchorZ or self.anchorZ
   assert(anchorX and anchorZ, "coverage anchor is required before prefetching")
   local committed = self:_descriptorSet(anchorX, anchorZ, 1)
+  local required = self:_descriptorSet(anchorX, anchorZ, 2)
+  if self.pendingPrefetch and not required[self.pendingPrefetch.cellKey] then
+    local pending = self.pendingPrefetch
+    self.pendingPrefetch = nil
+    releasePending(pending)
+  end
   local queued = {}
   for _, descriptor in ipairs(self:prefetchDescriptors(anchorX, anchorZ)) do
     local cellKey = key(descriptor.x, descriptor.z)
-    if not committed[cellKey] and not self.prefetched[cellKey] then
+    if
+      not committed[cellKey]
+      and not self.prefetched[cellKey]
+      and (not self.pendingPrefetch or self.pendingPrefetch.cellKey ~= cellKey)
+    then
       queued[#queued + 1] = descriptor
     end
   end
@@ -382,25 +589,38 @@ function FieldCoverage:queuePrefetch(anchorX, anchorZ)
   return self
 end
 
----@param maxItems integer
+---@param maxWorkUnits integer
 ---@return integer
-function FieldCoverage:updatePrefetch(maxItems)
+function FieldCoverage:updatePrefetch(maxWorkUnits)
   assert(not self.released, "coverage is released")
-  assert(type(maxItems) == "number" and maxItems >= 0 and maxItems % 1 == 0)
-  local completed = 0
-  while completed < maxItems and #self.prefetchQueue > 0 do
-    local descriptor = self.prefetchQueue[1]
-    local cellKey = key(descriptor.x, descriptor.z)
-    local ok, runtime = pcall(runtimeFromDescriptor, self, descriptor, true)
+  assert(type(maxWorkUnits) == "number" and maxWorkUnits >= 0 and maxWorkUnits % 1 == 0)
+  local consumed = 0
+  while consumed < maxWorkUnits do
+    if not self.pendingPrefetch then
+      local descriptor = table.remove(self.prefetchQueue, 1)
+      if not descriptor then
+        break
+      end
+      self.pendingPrefetch = newPending(self, descriptor)
+    end
+    local pending = assert(self.pendingPrefetch)
+    local ok, work = pcall(advancePending, self, pending, maxWorkUnits - consumed)
     if not ok then
-      self.prefetchError = runtime
+      self.pendingPrefetch = nil
+      releasePending(pending)
+      self.prefetchError = work
       break
     end
-    table.remove(self.prefetchQueue, 1)
-    self.prefetched[cellKey] = assert(runtime)
-    completed = completed + 1
+    consumed = consumed + assert(work)
+    if pending.complete then
+      self.prefetched[pending.cellKey] = assert(pending.runtime)
+      self.pendingPrefetch = nil
+    elseif work == 0 then
+      break
+    end
   end
-  return completed
+  ---@cast consumed integer
+  return consumed
 end
 
 function FieldCoverage:_dependencyIdentity()
@@ -427,6 +647,7 @@ function FieldCoverage:status()
     committedCount = #resident,
     readyPrefetchCount = #prefetched,
     queuedPrefetchCount = #self.prefetchQueue,
+    pendingPrefetchCellKey = self.pendingPrefetch and self.pendingPrefetch.cellKey or nil,
     prefetchedCellKeys = prefetched,
     synchronousPhysicalFallbackLoads = self.synchronousPhysicalFallbackLoads,
     prefetchError = self.prefetchError,
@@ -734,6 +955,11 @@ function FieldCoverage:release()
     return
   end
   self.released = true
+  if self.pendingPrefetch then
+    local pending = self.pendingPrefetch
+    self.pendingPrefetch = nil
+    releasePending(pending)
+  end
   for _, cell in pairs(self.cells) do
     if cell.release then
       cell:release()

@@ -52,8 +52,9 @@ TerrainMaterialAnimator.__index = TerrainMaterialAnimator
 ---@param bindings { record: table, runtime: table }[] scene material record + live runtime material table
 ---@param clip table|false the compiled texsrt clip or false for no area animation
 ---@param resolveImage fun(path: string, wrapX: string, wrapY: string): any the pool-backed image resolver
+---@param checkpoint fun()? optional safe boundary after an image acquisition
 ---@return TerrainMaterialAnimator
-function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
+function TerrainMaterialAnimator.new(bindings, clip, resolveImage, checkpoint)
   assert(type(bindings) == "table", "TerrainMaterialAnimator.new requires the bindings")
   assert(
     clip == false or type(clip) == "table",
@@ -97,6 +98,9 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
       local images = {}
       for scheduleIndex, step in ipairs(swap.steps) do
         images[scheduleIndex] = resolveImage(step.texture, wrap.x, wrap.y)
+        if checkpoint then
+          checkpoint()
+        end
       end
       group.members[#group.members + 1] = {
         runtime = runtime,

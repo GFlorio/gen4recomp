@@ -149,6 +149,18 @@ local function fakeGraphics()
   return graphics
 end
 
+local function fakeImage()
+  return {
+    setFilter = function() end,
+    setWrap = function() end,
+    release = function() end,
+  }
+end
+
+local function fakeMesh()
+  return { release = function() end }
+end
+
 local IDENTITY = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
 
 function T.same_texture_with_different_wraps_gets_independent_images()
@@ -335,6 +347,52 @@ function T.failed_transform_mode_releases_acquired_gpu_objects()
   )
   Assert.equal(#graphics.images, 1)
   Assert.equal(graphics.images[1].released, true, "the acquired image is released with the mesh")
+end
+
+function T.staged_scene_build_advances_one_atomic_operation_per_work_unit()
+  Assert.equal(type(MapSceneLoader.begin), "function", "the production scene loader must expose staged construction")
+  local cache, geomPath, texPath = cacheFs()
+  local s = scene({
+    material(0, texPath, { x = "clamp", y = "clamp" }),
+    material(1, texPath, { x = "repeat", y = "repeat" }),
+  })
+  s.mapBatches = { batch(geomPath, 0), batch(geomPath, 1) }
+  local imageAcquisitions, meshAcquisitions = 0, 0
+  local task = MapSceneLoader.begin(cache, s, {
+    graphics = fakeGraphics(),
+    imageBuilder = function()
+      imageAcquisitions = imageAcquisitions + 1
+      return fakeImage()
+    end,
+    meshBuilder = function()
+      meshAcquisitions = meshAcquisitions + 1
+      return fakeMesh()
+    end,
+  })
+
+  Assert.equal(task:advance(1), 1, "one resume consumes one work unit")
+  Assert.isFalse(task:isReady(), "a multi-resource scene is not ready after one work unit")
+  Assert.isTrue(imageAcquisitions + meshAcquisitions <= 1, "one work unit performs at most one atomic acquisition")
+
+  Assert.equal(task:advance(1), 1, "the next resume consumes one work unit")
+  Assert.isFalse(task:isReady(), "the staged scene remains incomplete across resumes")
+  Assert.isTrue(imageAcquisitions + meshAcquisitions <= 2, "two work units perform at most two atomic acquisitions")
+
+  local staged = task:finish()
+  local synchronous = MapSceneLoader.load(cache, s, {
+    graphics = fakeGraphics(),
+    imageBuilder = fakeImage,
+    meshBuilder = fakeMesh,
+  })
+  Assert.equal(staged.stats.meshCount, synchronous.stats.meshCount, "staged and synchronous mesh ownership agree")
+  Assert.equal(
+    staged.stats.textureCount,
+    synchronous.stats.textureCount,
+    "staged and synchronous image ownership agree"
+  )
+  Assert.equal(#staged.mapDraws, #synchronous.mapDraws, "staged and synchronous draw assembly agree")
+  staged:release()
+  synchronous:release()
 end
 
 return {

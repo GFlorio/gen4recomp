@@ -409,7 +409,12 @@ function FieldMapLoader:createPhysicalCoverage(runtimeMap, position)
   local matrix = assert(record.matrix, "outdoor map matrix metadata is required")
   local matrixMemberId = assert(matrix.memberId, "outdoor matrix member is required")
   local presentationLoader
-  if self.sceneLoader and self.sceneLoader.loadCell then
+  local presentationTaskFactory
+  if self.sceneLoader and self.sceneLoader.beginCell then
+    presentationTaskFactory = function(_, cell)
+      return self.sceneLoader.beginCell(self.cacheFs, cell, self.sceneOptions)
+    end
+  elseif self.sceneLoader and self.sceneLoader.loadCell then
     presentationLoader = function(_, cell)
       return self.sceneLoader.loadCell(self.cacheFs, cell, self.sceneOptions)
     end
@@ -421,6 +426,7 @@ function FieldMapLoader:createPhysicalCoverage(runtimeMap, position)
     anchorX = math.floor(position.fieldX / 32),
     anchorZ = math.floor(position.fieldZ / 32),
     presentationLoader = presentationLoader,
+    presentationTaskFactory = presentationTaskFactory,
   })
 end
 

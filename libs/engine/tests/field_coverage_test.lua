@@ -11,11 +11,12 @@ local T = {}
 ---@class PhysicalProbeCoverage
 ---@field probe fun(self: PhysicalProbeCoverage, fieldX: integer, fieldZ: integer, context: PhysicalProbeContext): table?
 
-local function makeIndex()
+local function makeIndex(width, height)
+  width, height = width or 5, height or 3
   local cells = {}
-  for z = 0, 2 do
-    for x = 0, 4 do
-      local index = z * 5 + x
+  for z = 0, height - 1 do
+    for x = 0, width - 1 do
+      local index = z * width + x
       cells[#cells + 1] = {
         matrixMemberId = 1,
         index = index,
@@ -32,7 +33,7 @@ local function makeIndex()
   end
   return {
     schema = "g4-field-cell-index-v2",
-    matrices = { { matrixMemberId = 1, width = 5, height = 3, cells = cells } },
+    matrices = { { matrixMemberId = 1, width = width, height = height, cells = cells } },
   }
 end
 
@@ -70,6 +71,55 @@ local function runtimeFactory(releases)
         releases[descriptor.x .. ":" .. descriptor.z] = (releases[descriptor.x .. ":" .. descriptor.z] or 0) + 1
       end,
     }
+  end
+end
+
+local function stagedPresentationFactory(taskLogRef)
+  return function(runtime)
+    local task = {
+      progress = 0,
+      required = 3,
+      advances = 0,
+      finishCalls = 0,
+      takeResultCalls = 0,
+      releaseCalls = 0,
+      state = "active",
+    }
+    taskLogRef.current[#taskLogRef.current + 1] = task
+    function task:advance(workUnits)
+      Assert.isTrue(workUnits >= 0 and workUnits % 1 == 0, "presentation work budget must be integral")
+      local consumed = math.min(workUnits, self.required - self.progress)
+      self.progress = self.progress + consumed
+      self.advances = self.advances + consumed
+      return consumed
+    end
+    function task:isReady()
+      return self.progress == self.required
+    end
+    function task:takeResult()
+      Assert.isTrue(self:isReady(), "presentation result requires a completed task")
+      Assert.equal(self.state, "active", "presentation result transfers ownership once")
+      self.takeResultCalls = self.takeResultCalls + 1
+      self.state = "transferred"
+      return {
+        cellKey = runtime.key,
+        release = function()
+          task.presentationReleaseCalls = (task.presentationReleaseCalls or 0) + 1
+        end,
+      }
+    end
+    function task:finish()
+      self.finishCalls = self.finishCalls + 1
+      self.progress = self.required
+      return self:takeResult()
+    end
+    function task:release()
+      if self.state == "active" then
+        self.releaseCalls = self.releaseCalls + 1
+        self.state = "released"
+      end
+    end
+    return task
   end
 end
 
@@ -686,6 +736,156 @@ function T.ready_halo_cells_promote_without_boundary_acquisition()
   Assert.equal(status.committedCount, 9)
   Assert.equal(status.readyPrefetchCount, 3)
   Assert.equal(status.queuedPrefetchCount, 3)
+  coverage:release()
+end
+
+function T.partial_prefetch_is_not_ready_until_presentation_finishes_and_promotes_without_acquisition()
+  local loads = { count = 0 }
+  local taskLogRef = { current = {} }
+  local coverage = FieldCoverage.new({
+    matrixMemberId = 1,
+    index = makeIndex(),
+    anchorX = 1,
+    anchorZ = 1,
+    loadCell = function(descriptor)
+      loads.count = loads.count + 1
+      return runtimeFactory({})(descriptor)
+    end,
+    presentationTaskFactory = stagedPresentationFactory(taskLogRef),
+  })
+  taskLogRef.current = {}
+  local initialLoads = loads.count
+  coverage:queuePrefetch(1, 1)
+  local queued = coverage:status().queuedPrefetchCount
+  Assert.equal(queued, 3)
+
+  coverage:updatePrefetch(1)
+  Assert.equal(coverage:status().readyPrefetchCount, 0, "partial physical work must not be published ready")
+
+  local guard = 0
+  while coverage:status().readyPrefetchCount < queued do
+    local consumed = coverage:updatePrefetch(1)
+    Assert.isTrue(consumed <= 1, "physical prefetch must consume at most one work unit per update")
+    guard = guard + 1
+    Assert.isTrue(guard <= 64, "staged physical prefetch did not complete its queued cells")
+  end
+  Assert.equal(#taskLogRef.current, queued, "each queued cell must own one staged presentation task")
+  for _, task in ipairs(taskLogRef.current) do
+    Assert.equal(task.takeResultCalls, 1, "a ready cell transfers its presentation exactly once")
+  end
+
+  local loadsBeforePromotion = loads.count
+  local taskCountBeforePromotion = #taskLogRef.current
+  coverage:recenter(2, 1)
+  Assert.equal(loads.count, loadsBeforePromotion, "ready promotion must not reacquire cell artifacts")
+  Assert.equal(#taskLogRef.current, taskCountBeforePromotion, "ready promotion must not create presentation work")
+  Assert.equal(coverage:status().committedCount, 9)
+  coverage:release()
+  for _, task in ipairs(taskLogRef.current) do
+    Assert.equal(task.presentationReleaseCalls, 1, "cell release must release transferred presentation once")
+  end
+  Assert.equal(loads.count, initialLoads + queued)
+end
+
+function T.recenter_finishes_the_existing_pending_cell_without_duplicate_acquisition()
+  local loads = { count = 0 }
+  local taskLogRef = { current = {} }
+  local coverage = FieldCoverage.new({
+    matrixMemberId = 1,
+    index = makeIndex(4, 1),
+    anchorX = 1,
+    anchorZ = 0,
+    loadCell = function(descriptor)
+      loads.count = loads.count + 1
+      return runtimeFactory({})(descriptor)
+    end,
+    presentationTaskFactory = stagedPresentationFactory(taskLogRef),
+  })
+  taskLogRef.current = {}
+  coverage:queuePrefetch(1, 0)
+
+  coverage:updatePrefetch(1)
+  Assert.equal(coverage:status().readyPrefetchCount, 0, "the target cell must still be pending")
+  local guard = 0
+  while #taskLogRef.current == 0 do
+    coverage:updatePrefetch(1)
+    guard = guard + 1
+    Assert.isTrue(guard <= 8, "prefetch did not start a staged presentation task")
+  end
+  local task = assert(taskLogRef.current[1])
+  Assert.isFalse(task:isReady(), "the pending presentation must remain unfinished")
+  local loadsBeforeFallback = loads.count
+
+  coverage:recenter(2, 0)
+  local status = coverage:status()
+  Assert.equal(status.synchronousPhysicalFallbackLoads, 1, "outrunning prefetch counts one synchronous fallback")
+  Assert.equal(status.committedCount, 3)
+  Assert.equal(loads.count, loadsBeforeFallback, "fallback must finish the pending cell instead of reacquiring it")
+  Assert.equal(#taskLogRef.current, 1, "fallback must not create a duplicate task")
+  Assert.equal(task.finishCalls, 1, "fallback must finish the existing task synchronously")
+  Assert.equal(task.takeResultCalls, 1, "fallback must transfer the existing task result once")
+  coverage:release()
+  Assert.equal(task.presentationReleaseCalls, 1, "fallback-owned presentation releases through the cell")
+end
+
+function T.failed_pending_fallback_clears_its_owner_after_task_failure()
+  local releases = { count = 0 }
+  local taskReleases = { count = 0 }
+  local taskCount = 0
+  local coverage = FieldCoverage.new({
+    matrixMemberId = 1,
+    index = makeIndex(4, 1),
+    anchorX = 1,
+    anchorZ = 0,
+    loadCell = function(descriptor)
+      return runtimeFactory(releases)(descriptor)
+    end,
+    presentationTaskFactory = function()
+      taskCount = taskCount + 1
+      if taskCount <= 3 then
+        return {
+          advance = function()
+            return 0
+          end,
+          isReady = function()
+            return true
+          end,
+          takeResult = function()
+            return { release = function() end }
+          end,
+          finish = function()
+            return { release = function() end }
+          end,
+          release = function() end,
+        }
+      end
+      return {
+        advance = function()
+          return 1
+        end,
+        isReady = function()
+          return false
+        end,
+        finish = function()
+          error("staged presentation failed", 0)
+        end,
+        release = function()
+          taskReleases.count = taskReleases.count + 1
+        end,
+      }
+    end,
+  })
+  coverage:queuePrefetch(1, 0)
+  coverage:updatePrefetch(1)
+
+  local ok, err = pcall(function()
+    coverage:recenter(2, 0)
+  end)
+  Assert.isFalse(ok)
+  Assert.equal(tostring(err), "staged presentation failed")
+  Assert.isNil(coverage.pendingPrefetch)
+  Assert.equal(releases["3:0"], 1)
+  Assert.equal(taskReleases.count, 1)
   coverage:release()
 end
 
