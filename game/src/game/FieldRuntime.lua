@@ -560,11 +560,11 @@ function FieldRuntime:_load()
 
     -- Logical zone changes reuse the committed owner. A matrix mismatch here
     -- indicates that a logical seam was routed through the wrong boundary.
-    local function composeCurrentMap(logicalMap)
+    local function composeCurrentMap(logicalMap, coverage)
       if logicalMap.scene.type ~= "outdoor" then
         return logicalMap
       end
-      local coverage = assert(self.physicalCoverage, "current outdoor coverage is required")
+      coverage = coverage or assert(self.physicalCoverage, "current outdoor coverage is required")
       assert(
         mapMatrixMemberId(logicalMap) == coverage.matrixMemberId,
         "logical outdoor map does not belong to the current physical matrix"
@@ -1423,11 +1423,9 @@ function FieldRuntime:_stagePhysicalCoverage(logicalMap, position, matrixMemberI
 end
 
 -- Fallible warp preparation, run by FieldTransition while the source map is
--- still the authoritative current map: construct the destination player and
--- camera and player visual, then enter the
--- destination actors last. Every earlier step is pure construction and
--- enterMap is internally transactional, so a failure at any point aborts the
--- transition with the source map's ownership untouched.
+-- still authoritative: construct the destination player, camera, and player
+-- visual, then stage logical residency as the final ownership-bearing step.
+-- The coordinator keeps the source logical world live until the hidden commit.
 ---@param resolution table
 ---@param facing FieldDirection
 ---@return table prepared destination player, camera, and player visual
@@ -1464,12 +1462,14 @@ function FieldRuntime:_prepareSwap(resolution, facing)
     player = player,
     spriteId = self.avatar.spriteId,
   })
-  self.actors:enterMap(runtimeMap, self.eventState)
+  local physical = (resolution.physical and resolution.physical.coverage) or nil
+  local residency = assert(self.residency):prepareTransition(runtimeMap, physical)
   return {
     player = player,
     camera = camera,
     playerVisual = playerVisual,
     physical = resolution.physical,
+    residency = residency,
   }
 end
 
@@ -1478,6 +1478,10 @@ end
 ---@param resolution table?
 ---@param prepared table?
 function FieldRuntime:_disposePreparedSwap(resolution, prepared)
+  local residency = prepared and prepared.residency
+  if residency then
+    assert(self.residency):discardTransition(residency)
+  end
   local physical = (prepared and prepared.physical) or (resolution and resolution.physical)
   if not physical or not physical.replacement then
     return
@@ -1492,15 +1496,15 @@ function FieldRuntime:_disposePreparedSwap(resolution, prepared)
 end
 
 -- The irreversible current-map ownership transfer, run by FieldTransition
--- only after every fallible preparation step succeeded: actor source
--- removal, map protection transfer, and the runtime/session pointer
--- updates. A fault here is a fatal programming error; there is no
--- transition-level rollback of partially committed state.
+-- only after every fallible preparation step succeeded. Logical residency is
+-- published first; runtime/session pointers and physical ownership follow.
 ---@param resolution table
 ---@param prepared table
 function FieldRuntime:_commitSwap(resolution, _, prepared)
   local runtimeMap = resolution.destinationMap
   local physical = (prepared and prepared.physical) or resolution.physical
+  local residency = assert(prepared and prepared.residency, "prepared residency transaction required")
+  assert(self.residency):commitTransition(residency)
   local previousCoverage
   if physical then
     assert(physical.state == "prepared", "physical swap is not committable")
@@ -1515,13 +1519,7 @@ function FieldRuntime:_commitSwap(resolution, _, prepared)
     assert(runtimeMap.coverage == self.physicalCoverage, "destination map coverage is not the committed owner")
     physical.state = "committed"
   end
-  local previousMapId = self.runtimeMap.mapId
   self.fieldTerrainEffectController:clear()
-  if runtimeMap.mapId ~= previousMapId then
-    self.actors:leaveMap(previousMapId)
-    self.mapLoader:protectMap(runtimeMap.mapId, true)
-    self.mapLoader:protectMap(previousMapId, false)
-  end
 
   self.runtimeMap = runtimeMap
   self.player = prepared.player

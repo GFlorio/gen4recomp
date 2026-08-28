@@ -725,6 +725,32 @@ function T.entering_the_same_map_twice_is_idempotent()
   Assert.equal(mgr:visualRevision(), initialRevision)
 end
 
+function T.rebinding_a_published_map_preserves_actor_state_and_revision()
+  local mgr, _, assets, source = manager({ object({}) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  actor:setFacing("west")
+  actor:setVisible(false)
+  local revision = mgr:visualRevision()
+  local replacement = runtimeMap({}, source.mapId)
+
+  mgr:rebindMap(source.mapId, replacement)
+
+  Assert.equal(mgr.maps[source.mapId].runtimeMap, replacement)
+  Assert.equal(mgr:getById(actor.actorId), actor)
+  Assert.equal(actor.facing, "west")
+  Assert.isFalse(actor.visible)
+  Assert.equal(mgr:visualRevision(), revision)
+  Assert.equal(assets:total(), 1)
+  Assert.throws(function()
+    mgr:rebindMap(source.mapId, runtimeMap({}, 60))
+  end)
+  mgr:leaveMap(source.mapId)
+  Assert.throws(function()
+    mgr:rebindMap(source.mapId, replacement)
+  end)
+  mgr:dispose()
+end
+
 function T.publishing_an_empty_map_does_not_change_revision()
   local assets = fakeAssets({ [99] = true })
   local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })

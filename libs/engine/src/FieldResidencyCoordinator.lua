@@ -9,14 +9,38 @@
 ---@field actors FieldActorManager
 ---@field zoneController FieldZoneController
 ---@field eventState FieldEventState
----@field composeMap fun(runtimeMap: RuntimeFieldMap): RuntimeFieldMap
+---@field composeMap fun(runtimeMap: RuntimeFieldMap, coverage: FieldCoverage?): RuntimeFieldMap
 ---@field onPreparedMap fun(runtimeMap: RuntimeFieldMap)?
----@field residents table<integer, { logicalMap: RuntimeFieldMap, runtimeMap: RuntimeFieldMap }>
+---@field residents table<integer, FieldResidencyCoordinator.Resident>
 ---@field synchronousLogicalFallbackLoads integer
 ---@field initialized boolean
 ---@field disposed boolean
 local FieldResidencyCoordinator = {}
 FieldResidencyCoordinator.__index = FieldResidencyCoordinator
+
+---@class FieldResidencyCoordinator.Resident
+---@field logicalMap RuntimeFieldMap
+---@field runtimeMap RuntimeFieldMap
+
+---@class FieldResidencyCoordinator.ComposedRuntimeMap : RuntimeFieldMap
+---@field logicalMap RuntimeFieldMap
+
+---@class FieldResidencyCoordinator.StagedResident
+---@field mapId integer
+---@field resident FieldResidencyCoordinator.Resident
+---@field prepared FieldActorManager.PreparedMap
+---@field protected boolean
+
+---@class FieldResidencyCoordinator.Transition
+---@field coordinator FieldResidencyCoordinator
+---@field sourceCoverage FieldCoverage?
+---@field sourceResidents table<integer, FieldResidencyCoordinator.Resident>
+---@field sourceActiveMapId integer?
+---@field targetCoverage FieldCoverage?
+---@field destinationMapId integer
+---@field targetResidents table<integer, FieldResidencyCoordinator.Resident>
+---@field staged FieldResidencyCoordinator.StagedResident[]
+---@field state "prepared"|"committed"|"discarded"
 
 ---@class FieldResidencyPlayer
 ---@field fieldX integer
@@ -74,7 +98,7 @@ function FieldResidencyCoordinator:_acquireResident(mapId)
   local ok, result = pcall(function()
     self:_protect(mapId, true)
     protected = true
-    runtimeMap = self.composeMap(logicalMap)
+    runtimeMap = self.composeMap(logicalMap, self.coverage)
     prepared = self.actors:prepareMap(assert(runtimeMap), self.eventState)
     if self.onPreparedMap then
       self.onPreparedMap(runtimeMap)
@@ -203,13 +227,17 @@ function FieldResidencyCoordinator:updatePrefetch()
   return completed
 end
 
-function FieldResidencyCoordinator:_release(mapId)
-  if not self.residents[mapId] then
+function FieldResidencyCoordinator:_releaseResident(mapId, residents)
+  if not residents[mapId] then
     return
   end
   self.actors:leaveMap(mapId)
-  self.residents[mapId] = nil
+  residents[mapId] = nil
   self:_protect(mapId, false)
+end
+
+function FieldResidencyCoordinator:_release(mapId)
+  self:_releaseResident(mapId, self.residents)
 end
 
 ---@param mapId integer
@@ -233,7 +261,191 @@ function FieldResidencyCoordinator:mapForPreflight(mapId)
   -- state; the next committed boundary counts its own fallback.
   local logicalMap = self.mapLoader:load(mapId)
   self.synchronousLogicalFallbackLoads = self.synchronousLogicalFallbackLoads + 1
-  return self.composeMap(logicalMap)
+  return self.composeMap(logicalMap, self.coverage)
+end
+
+---@param mapId integer
+---@param targetCoverage FieldCoverage?
+---@param suppliedRuntimeMap RuntimeFieldMap?
+---@return FieldResidencyCoordinator.StagedResident
+function FieldResidencyCoordinator:_stageResident(mapId, targetCoverage, suppliedRuntimeMap)
+  assert(not self.residents[mapId], "logical map is already resident")
+  local logicalMap
+  if suppliedRuntimeMap then
+    local composedRuntimeMap = suppliedRuntimeMap --[[@as FieldResidencyCoordinator.ComposedRuntimeMap]]
+    logicalMap = composedRuntimeMap.logicalMap or suppliedRuntimeMap
+  else
+    logicalMap = self.mapLoader:load(mapId)
+  end
+  assert(logicalMap.mapId == mapId, "staged logical map identity mismatch")
+  local runtimeMap = suppliedRuntimeMap or self.composeMap(logicalMap, targetCoverage)
+  assert(runtimeMap.mapId == mapId, "staged runtime map identity mismatch")
+  local protected = false
+  local prepared
+  local ok, result = pcall(function()
+    self:_protect(mapId, true)
+    protected = true
+    prepared = self.actors:prepareMap(runtimeMap, self.eventState)
+    if self.onPreparedMap then
+      self.onPreparedMap(runtimeMap)
+    end
+  end)
+  if not ok then
+    if prepared and prepared.state == "prepared" then
+      self.actors:discardPrepared(prepared)
+    end
+    if protected then
+      self:_protect(mapId, false)
+    end
+    error(result, 0)
+  end
+  return {
+    mapId = mapId,
+    resident = {
+      logicalMap = logicalMap,
+      runtimeMap = assert(runtimeMap),
+    },
+    prepared = assert(prepared),
+    protected = protected,
+  }
+end
+
+---@param staged FieldResidencyCoordinator.StagedResident
+function FieldResidencyCoordinator:_discardStagedResident(staged)
+  if staged.prepared.state == "prepared" then
+    self.actors:discardPrepared(staged.prepared)
+  end
+  if staged.protected then
+    self:_protect(staged.mapId, false)
+    staged.protected = false
+  end
+end
+
+---@param destinationRuntimeMap RuntimeFieldMap
+---@param destinationCoverage FieldCoverage?
+---@return FieldResidencyCoordinator.Transition
+function FieldResidencyCoordinator:prepareTransition(destinationRuntimeMap, destinationCoverage)
+  assert(not self.disposed and self.initialized, "field residency coordinator is not ready")
+  assert(destinationRuntimeMap and type(destinationRuntimeMap.mapId) == "number", "transition destination map required")
+  local destinationMapId = destinationRuntimeMap.mapId
+  local targetReadyMapIds
+  if destinationCoverage then
+    targetReadyMapIds = self:_prefetchMapIdsFrom(destinationCoverage)
+  else
+    targetReadyMapIds = { destinationMapId }
+  end
+  local readySet = {}
+  for _, mapId in ipairs(targetReadyMapIds) do
+    readySet[mapId] = true
+  end
+  if not readySet[destinationMapId] then
+    targetReadyMapIds[#targetReadyMapIds + 1] = destinationMapId
+    table.sort(targetReadyMapIds)
+  end
+  local sourceResidents = {}
+  for mapId, resident in pairs(self.residents) do
+    sourceResidents[mapId] = resident
+  end
+  local transaction = {
+    coordinator = self,
+    sourceCoverage = self.coverage,
+    sourceResidents = sourceResidents,
+    sourceActiveMapId = self.actors.currentMapId,
+    targetCoverage = destinationCoverage,
+    destinationMapId = destinationMapId,
+    targetResidents = {},
+    staged = {},
+    state = "prepared",
+  } ---@type FieldResidencyCoordinator.Transition
+
+  local ok, result = pcall(function()
+    for _, mapId in ipairs(targetReadyMapIds) do
+      local existing = self.residents[mapId]
+      if existing then
+        local runtimeMap
+        if mapId == destinationMapId then
+          runtimeMap = destinationRuntimeMap
+        else
+          runtimeMap = self.composeMap(existing.logicalMap, destinationCoverage)
+        end
+        assert(runtimeMap.mapId == mapId, "reused runtime map identity mismatch")
+        transaction.targetResidents[mapId] = {
+          logicalMap = existing.logicalMap,
+          runtimeMap = runtimeMap,
+        }
+      else
+        local supplied = mapId == destinationMapId and destinationRuntimeMap or nil
+        local staged = self:_stageResident(mapId, destinationCoverage, supplied)
+        transaction.staged[#transaction.staged + 1] = staged
+        transaction.targetResidents[mapId] = staged.resident
+      end
+    end
+  end)
+  if not ok then
+    self:discardTransition(transaction)
+    error(result, 0)
+  end
+  return transaction
+end
+
+---@param destinationCoverage FieldCoverage
+---@return integer[]
+function FieldResidencyCoordinator:_prefetchMapIdsFrom(destinationCoverage)
+  local descriptors = destinationCoverage:prefetchDescriptors()
+  return sortedIds(descriptors)
+end
+
+---@param transaction FieldResidencyCoordinator.Transition
+function FieldResidencyCoordinator:discardTransition(transaction)
+  assert(transaction and transaction.coordinator == self, "foreign field residency transition")
+  if transaction.state ~= "prepared" then
+    return
+  end
+  for index = #transaction.staged, 1, -1 do
+    self:_discardStagedResident(transaction.staged[index])
+  end
+  transaction.state = "discarded"
+end
+
+---@param transaction FieldResidencyCoordinator.Transition
+---@return RuntimeFieldMap
+function FieldResidencyCoordinator:commitTransition(transaction)
+  assert(transaction and transaction.coordinator == self, "foreign field residency transition")
+  assert(transaction.state == "prepared", "field residency transition is not committable")
+  assert(self.coverage == transaction.sourceCoverage, "field residency transition source coverage changed")
+  assert(self.actors.currentMapId == transaction.sourceActiveMapId, "field residency transition active map changed")
+  for mapId, resident in pairs(transaction.sourceResidents) do
+    assert(self.residents[mapId] == resident, "field residency transition residents changed")
+  end
+  for mapId, resident in pairs(self.residents) do
+    assert(transaction.sourceResidents[mapId] == resident, "field residency transition residents changed")
+  end
+
+  for _, staged in ipairs(transaction.staged) do
+    self.actors:commitPrepared(staged.prepared)
+    staged.protected = false
+  end
+  for mapId, _ in pairs(transaction.sourceResidents) do
+    if transaction.targetResidents[mapId] then
+      self.actors:rebindMap(mapId, transaction.targetResidents[mapId].runtimeMap)
+    end
+  end
+  self.residents = transaction.targetResidents
+  self.coverage = transaction.targetCoverage
+  if self.coverage then
+    self.actors:reconcilePhysicalWorld()
+  end
+  self.actors:setActiveMap(transaction.destinationMapId)
+  for mapId in pairs(transaction.sourceResidents) do
+    if not transaction.targetResidents[mapId] then
+      self:_releaseResident(mapId, transaction.sourceResidents)
+    end
+  end
+  if self.coverage then
+    self.coverage:queuePrefetch()
+  end
+  transaction.state = "committed"
+  return transaction.targetResidents[transaction.destinationMapId].runtimeMap
 end
 
 ---@param player FieldResidencyPlayer

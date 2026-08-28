@@ -62,6 +62,11 @@ local function runtimeForSwap(sourceCoverage)
     fieldTerrainEffectController = { clear = function() end },
     actors = { leaveMap = function() end, dispose = function() end },
     mapLoader = { protectMap = function() end, release = function() end },
+    residency = {
+      commitTransition = function() end,
+      discardTransition = function() end,
+      dispose = function() end,
+    },
     scripts = { onMapSwap = function() end },
   }, FieldRuntime)
   return runtime, sourceRuntimeMap
@@ -221,7 +226,7 @@ function T.same_matrix_replacement_uses_abort_and_commit_ownership_transaction()
   committedRuntime:_commitSwap(
     { destinationMap = committedDestination },
     "south",
-    { player = {}, camera = {}, playerVisual = {}, physical = committed }
+    { player = {}, camera = {}, playerVisual = {}, physical = committed, residency = {} }
   )
 
   Assert.equal(committedRuntime.physicalCoverage, committedReplacement)
@@ -325,6 +330,7 @@ local function preparedSwap(coverage, previous)
     player = {},
     camera = {},
     playerVisual = {},
+    residency = {},
     physical = {
       coverage = coverage,
       replacement = true,

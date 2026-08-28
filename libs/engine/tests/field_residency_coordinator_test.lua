@@ -129,6 +129,7 @@ local function logicalOwners(coverage)
     loadCounts = {},
     protections = {},
     protectionCalls = {},
+    events = {},
   }
   function loader:load(mapId)
     self.loads = self.loads + 1
@@ -138,6 +139,7 @@ local function logicalOwners(coverage)
   function loader:protectMap(mapId, protected)
     self.protectionCalls[mapId] = (self.protectionCalls[mapId] or 0) + 1
     self.protections[mapId] = protected and true or nil
+    self.events[#self.events + 1] = (protected and "protect:" or "unprotect:") .. mapId
   end
 
   local actors = {
@@ -161,6 +163,7 @@ local function logicalOwners(coverage)
     self.maps[mapId] = prepared.entry
     self.prepared[mapId] = nil
     prepared.state = "committed"
+    loader.events[#loader.events + 1] = "publish:" .. mapId
   end
   function actors:discardPrepared(prepared)
     self.prepared[prepared.entry.runtimeMap.mapId] = nil
@@ -169,6 +172,7 @@ local function logicalOwners(coverage)
   function actors:leaveMap(mapId)
     self.maps[mapId] = nil
     self.leaves[mapId] = (self.leaves[mapId] or 0) + 1
+    loader.events[#loader.events + 1] = "leave:" .. mapId
   end
   function actors:reconcilePhysicalWorld()
     self.reconcileCalls = self.reconcileCalls + 1
@@ -182,6 +186,11 @@ local function logicalOwners(coverage)
   end
   function actors:setActiveMap(mapId)
     self.currentMapId = mapId
+  end
+  function actors:rebindMap(mapId, runtimeMap)
+    local entry = assert(self.maps[mapId])
+    assert(runtimeMap.mapId == mapId)
+    entry.runtimeMap = runtimeMap
   end
   function actors:drawRecords()
     local records = {}
@@ -575,6 +584,56 @@ local function prepared_map_hook_warms_music_before_activation()
   coordinator:dispose()
 end
 
+local function transition_lifecycle_releases_only_staged_ownership()
+  local coordinator, _, loader, actors = coordinatorFixture()
+  coordinator:initialize()
+  loader.events = {}
+  local destinationCoverage = coverageFixture()
+  destinationCoverage.committed = { { cellKey = "1:0", mapHeaderId = 20 } }
+  destinationCoverage.footprint = {
+    { cellKey = "1:0", mapHeaderId = 20 },
+    { cellKey = "2:0", mapHeaderId = 30 },
+    { cellKey = "3:0", mapHeaderId = 20 },
+  }
+  local destination = map(20)
+  local map20Loads = loader.loadCounts[20]
+  local map20ProtectionCalls = loader.protectionCalls[20]
+
+  local transaction = coordinator:prepareTransition(destination, destinationCoverage --[[@as FieldCoverage]])
+  Assert.deepEqual(coordinator:status().residentMapIds, { 10, 20 })
+  Assert.notNil(actors.maps[20])
+  Assert.notNil(actors.maps[10])
+  Assert.isTrue(loader.protections[20])
+  Assert.isTrue(loader.protections[30])
+
+  coordinator:discardTransition(transaction)
+  coordinator:discardTransition(transaction)
+  Assert.deepEqual(coordinator:status().residentMapIds, { 10, 20 })
+  Assert.isNil(actors.maps[30])
+  Assert.isNil(loader.protections[30])
+  Assert.isTrue(loader.protections[20])
+  Assert.equal(loader.loadCounts[20], map20Loads, "reused target headers must not reload")
+  Assert.equal(loader.protectionCalls[20], map20ProtectionCalls, "reused protection must not churn")
+
+  local committed = coordinator:prepareTransition(destination, destinationCoverage --[[@as FieldCoverage]])
+  coordinator:commitTransition(committed)
+  coordinator:discardTransition(committed)
+  Assert.deepEqual(coordinator:status().residentMapIds, { 20, 30 })
+  Assert.isNil(actors.maps[10])
+  Assert.equal(actors.leaves[10], 1)
+  local publishedIndex
+  local releasedIndex
+  for index, event in ipairs(loader.events) do
+    if event == "publish:30" then
+      publishedIndex = index
+    elseif event == "leave:10" then
+      releasedIndex = index
+    end
+  end
+  Assert.isTrue(publishedIndex ~= nil and releasedIndex ~= nil and publishedIndex < releasedIndex)
+  coordinator:dispose()
+end
+
 return {
   metadata = { capabilities = {} },
   tests = {
@@ -591,5 +650,6 @@ return {
     prepared_hook_failure_releases_actor_and_map_ownership = prepared_hook_failure_releases_actor_and_map_ownership,
     outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks = outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks,
     prepared_map_hook_warms_music_before_activation = prepared_map_hook_warms_music_before_activation,
+    transition_lifecycle_releases_only_staged_ownership = transition_lifecycle_releases_only_staged_ownership,
   },
 }

@@ -102,6 +102,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field prepareMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState): FieldActorManager.PreparedMap
 ---@field commitPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap)
 ---@field setActiveMap fun(self: FieldActorManager, mapId: integer)
+---@field rebindMap fun(self: FieldActorManager, mapId: integer, runtimeMap: RuntimeFieldMap)
 ---@field discardPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap)
 ---@field enterMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState)
 ---@field dispose fun(self: FieldActorManager)
@@ -626,6 +627,20 @@ end
 function FieldActorManager:setActiveMap(mapId)
   assert(self.maps[mapId], "active actor map is not resident")
   self.currentMapId = mapId
+end
+
+-- Replace a published map's composed physical view without rebuilding its
+-- actors. The coordinator uses this when a discontinuous destination changes
+-- the coverage backing a logical map that is already resident.
+---@param mapId integer
+---@param runtimeMap RuntimeFieldMap
+---@param self FieldActorManager
+function FieldActorManager:rebindMap(mapId, runtimeMap)
+  assert(type(mapId) == "number" and mapId % 1 == 0, "actor map id must be an integer")
+  assert(runtimeMap and runtimeMap.mapId == mapId, "actor map rebind must preserve map identity")
+  local entry = self.maps[mapId]
+  assert(entry and entry.published, "actor map rebind requires a published map")
+  entry.runtimeMap = runtimeMap
 end
 
 -- Idempotent for an already-active runtime map, so a transition's overlapping
