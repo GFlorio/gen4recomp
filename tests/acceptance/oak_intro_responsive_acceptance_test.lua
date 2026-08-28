@@ -761,6 +761,7 @@ T.tests.name_confirmation_draw_does_not_require_editor_preview_geometry = functi
   -- activating it, matching the one confirm-capable-device contract.
   intro:keypressed("left")
   intro:keypressed("return")
+  intro:tick(26)
   local view = intro:view()
   Assert.equal(view.phase, "name_confirm")
   Assert.isNil(view.layout.namePreview)

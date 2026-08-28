@@ -95,6 +95,7 @@ end
 local function submitName(state)
   state:keypressed("left")
   state:keypressed("return")
+  state:tick(26)
 end
 
 local function advanceUntilMessage(state, messageKey)
