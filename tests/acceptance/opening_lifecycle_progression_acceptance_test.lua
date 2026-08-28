@@ -412,6 +412,7 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
               fieldZ = afterActor and afterActor.fieldZ or nil,
               worldY = afterRecord and afterRecord.world.y or nil,
               pose = afterRecord and afterRecord.pose or nil,
+              poseTick = afterRecord and afterRecord.poseTick or nil,
               afterEmoteKind = afterRecord and afterRecord.activeEmoteKind or nil,
             }
           end
@@ -501,6 +502,53 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     appendExpected(secondExpected, { action = "walk_in_place", direction = "west", speed = "fast" }, 4)
     appendExpected(secondExpected, { action = "walk", direction = "west", speed = "fast", tiles = 6 }, 6)
     assertTimeline(second, secondExpected, "the friend movement")
+
+    -- The source `FaceEast 5`/`FaceWest 5`-style repeated facing actions
+    -- must present the Marill as visibly walking in place: continuous
+    -- pose-clock advancement while it stays on its tile, not a still idle
+    -- sprite for the whole repeated action. A single-count face (the
+    -- friend's opening `face west`) is not repeated and must remain idle,
+    -- exactly like the unit-layer single/repeated distinction.
+    local function assertRepeatedFaceAnimatesInPlace(records, label)
+      local index = 1
+      while index <= #records do
+        local record = records[index]
+        if record.action ~= "face" then
+          index = index + 1
+        else
+          local runEnd = index
+          while
+            records[runEnd + 1] ~= nil
+            and records[runEnd + 1].action == "face"
+            and records[runEnd + 1].direction == record.direction
+            and records[runEnd + 1].repeatIndex == records[runEnd].repeatIndex + 1
+          do
+            runEnd = runEnd + 1
+          end
+          if runEnd > index then
+            local previous = nil
+            for i = index, runEnd do
+              local r = records[i]
+              Assert.equal(r.pose, "walk", label .. " repeated face presents walking pose")
+              if previous ~= nil then
+                Assert.equal(r.fieldX, previous.fieldX, label .. " repeated face keeps logical fieldX fixed")
+                Assert.equal(r.fieldZ, previous.fieldZ, label .. " repeated face keeps logical fieldZ fixed")
+                Assert.isTrue(
+                  r.poseTick > previous.poseTick,
+                  label .. " repeated face's pose clock must advance, not reset, across repetitions"
+                )
+              end
+              previous = r
+            end
+          else
+            Assert.equal(record.pose, "idle", label .. " single face stays idle")
+          end
+          index = runEnd + 1
+        end
+      end
+    end
+    assertRepeatedFaceAnimatesInPlace(first.records, "the arrival movement")
+    assertRepeatedFaceAnimatesInPlace(second.records, "the friend movement")
 
     local emoteSeen = false
     for _, record in ipairs(second.records) do

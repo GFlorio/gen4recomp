@@ -256,4 +256,174 @@ function T.contiguous_locomotion_stays_continuous_then_settles_at_the_first_non_
   Assert.equal(actor.pose, "idle", "the sequence's completion must not leave a stale walking pose")
 end
 
+-- `face east, count=5` followed by a trailing delay (so the fifth
+-- repetition's boundary tick is independently observable) must present the
+-- repeated source facing action as visibly active: walking presentation and
+-- an advancing pose clock, while world/field coordinates stay at the exact
+-- anchor for every one of its five one-tick repetitions, and the source
+-- final facing/duration remain the ones `MovementTask` decoded.
+function T.repeated_face_action_presents_walking_pose_at_fixed_coordinates()
+  local h = harness()
+  local resource = S.script({
+    api = 1,
+    id = "test.repeated_face",
+    steps = {
+      S.applyMovement({
+        actor = ACTOR_ID,
+        movement = {
+          S.m.face({ direction = "east", count = 5 }),
+          S.m.delay({ ticks = 1 }),
+        },
+      }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  local fieldX, fieldZ = actor.fieldX, actor.fieldZ
+  local worldX, worldY, worldZ = actor.worldX, actor.worldY, actor.worldZ
+
+  local poseTicks = {}
+  for tick = 101, 105 do
+    h.scheduler:step(tick, nil)
+    Assert.equal(actor.pose, "walk", "a repeated face must present walking pose on tick " .. tick)
+    Assert.equal(actor.fieldX, fieldX, "a repeated face must never move logical fieldX (tick " .. tick .. ")")
+    Assert.equal(actor.fieldZ, fieldZ, "a repeated face must never move logical fieldZ (tick " .. tick .. ")")
+    Assert.equal(actor.worldX, worldX, "a repeated face must never move worldX (tick " .. tick .. ")")
+    Assert.equal(actor.worldY, worldY, "a repeated face must never move worldY (tick " .. tick .. ")")
+    Assert.equal(actor.worldZ, worldZ, "a repeated face must never move worldZ (tick " .. tick .. ")")
+    Assert.equal(actor.presentationOffset.y, 0, "a repeated face gets no bob presentation offset")
+    poseTicks[#poseTicks + 1] = actor.poseTick
+  end
+  Assert.equal(actor.facing, "east", "the fifth repetition still applies the source final facing")
+  for index = 2, #poseTicks do
+    Assert.isTrue(
+      poseTicks[index] > poseTicks[index - 1],
+      "pose phase must advance, not reset, across repetitions (tick " .. (100 + index) .. ")"
+    )
+  end
+
+  h.scheduler:step(106, nil)
+  Assert.equal(actor.pose, "idle", "the trailing delay must settle the repeated face's walking pose")
+end
+
+-- A single face (`count` defaults to `1`) is an idle-facing action, not a
+-- stationary animated one: it must never enter walking presentation or
+-- advance the pose clock, even though it shares `beginScriptedAction` with
+-- the repeated case above.
+function T.single_face_action_stays_idle_and_does_not_advance_pose()
+  local h = harness()
+  local resource = S.script({
+    api = 1,
+    id = "test.single_face",
+    steps = {
+      S.applyMovement({
+        actor = ACTOR_ID,
+        movement = {
+          S.m.face({ direction = "south" }),
+          S.m.delay({ ticks = 1 }),
+        },
+      }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  local startingPoseTick = actor.poseTick
+
+  h.scheduler:step(101, nil)
+  Assert.equal(actor.pose, "idle", "a single face must not enter walking presentation")
+  Assert.equal(actor.poseTick, startingPoseTick, "a single face must not advance the pose clock")
+  Assert.equal(actor.facing, "south", "a single face still applies its facing")
+
+  h.scheduler:step(102, nil)
+  Assert.equal(actor.pose, "idle", "the trailing delay remains idle after a single face")
+end
+
+-- A single face, a repeated face, and an explicit `walk_in_place` run back to
+-- back on one actor: the generic fix must keep all three semantically
+-- distinct rather than collapsing them into one presentation family.
+function T.single_face_repeated_face_and_walk_in_place_stay_distinct()
+  local h = harness()
+  local resource = S.script({
+    api = 1,
+    id = "test.three_way_distinction",
+    steps = {
+      S.applyMovement({
+        actor = ACTOR_ID,
+        movement = {
+          S.m.face({ direction = "east" }),
+          S.m.face({ direction = "south", count = 3 }),
+          S.m.walkInPlace({ direction = "south", speed = "fast", count = 1 }),
+          S.m.delay({ ticks = 1 }),
+        },
+      }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  local fieldX, fieldZ = actor.fieldX, actor.fieldZ
+
+  -- Tick 101: the single face (count defaults to 1) completes in one poll.
+  h.scheduler:step(101, nil)
+  Assert.equal(actor.pose, "idle", "a single face never enters walking presentation")
+  Assert.equal(actor.presentationOffset.y, 0, "a single face has no bob")
+  Assert.equal(actor.facing, "east", "the single face applies its own facing")
+
+  -- Ticks 102-104: the repeated face (three one-tick repetitions) walks in
+  -- place without bob while logical coordinates hold.
+  local repeatedFacePoseTicks = {}
+  for tick = 102, 104 do
+    h.scheduler:step(tick, nil)
+    Assert.equal(actor.pose, "walk", "a repeated face presents walking pose (tick " .. tick .. ")")
+    Assert.equal(actor.presentationOffset.y, 0, "a repeated face never bobs (tick " .. tick .. ")")
+    Assert.equal(actor.fieldX, fieldX, "a repeated face keeps logical fieldX fixed (tick " .. tick .. ")")
+    Assert.equal(actor.fieldZ, fieldZ, "a repeated face keeps logical fieldZ fixed (tick " .. tick .. ")")
+    repeatedFacePoseTicks[#repeatedFacePoseTicks + 1] = actor.poseTick
+  end
+  Assert.equal(actor.facing, "south", "the repeated face's final repetition applies its facing")
+  for index = 2, #repeatedFacePoseTicks do
+    Assert.isTrue(
+      repeatedFacePoseTicks[index] > repeatedFacePoseTicks[index - 1],
+      "the repeated face's pose phase must advance across its own repetitions"
+    )
+  end
+
+  -- Ticks 105-107: explicit walk_in_place (fast = 4 ticks) walks and bobs,
+  -- keeping its own established, distinct presentation.
+  local sawBob = false
+  for tick = 105, 107 do
+    h.scheduler:step(tick, nil)
+    Assert.equal(actor:currentAction(), "walk_in_place", "walk_in_place is active (tick " .. tick .. ")")
+    Assert.equal(actor.pose, "walk", "walk_in_place presents walking pose (tick " .. tick .. ")")
+    Assert.equal(actor.fieldX, fieldX, "walk_in_place keeps logical fieldX fixed (tick " .. tick .. ")")
+    Assert.equal(actor.fieldZ, fieldZ, "walk_in_place keeps logical fieldZ fixed (tick " .. tick .. ")")
+    sawBob = sawBob or actor.presentationOffset.y ~= 0
+  end
+  Assert.isTrue(sawBob, "explicit walk_in_place keeps its own deterministic bob")
+
+  -- Tick 108: walk_in_place's fourth and final tick completes and commits in
+  -- the same poll (mirroring the pre-existing walk/walk_in_place boundary
+  -- pattern elsewhere in this file); the completed action remains the
+  -- observable walking presentation for this boundary tick.
+  h.scheduler:step(108, nil)
+  Assert.isNil(actor:currentAction(), "walk_in_place has committed by its boundary tick")
+  Assert.equal(actor.pose, "walk", "the completed walk_in_place remains visible on its boundary tick")
+  Assert.equal(actor.fieldX, fieldX, "walk_in_place's boundary tick keeps logical fieldX fixed")
+  Assert.equal(actor.fieldZ, fieldZ, "walk_in_place's boundary tick keeps logical fieldZ fixed")
+
+  -- Tick 109: the trailing delay settles every locomotion-style presentation
+  -- back to idle.
+  h.scheduler:step(109, nil)
+  Assert.equal(actor.pose, "idle", "the sequence settles to idle once the delay begins")
+  Assert.equal(actor.presentationOffset.y, 0, "settling clears any residual bob")
+end
+
 return { tests = T }
