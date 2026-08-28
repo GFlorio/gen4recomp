@@ -413,10 +413,7 @@ function FieldCoverage:recenter(anchorX, anchorZ)
     if targetCommitted[pendingKey] then
       -- The pending cell is consumed by the new committed window below.
     elseif targetFootprint[pendingKey] then
-      local pending = assert(self.pendingPrefetch)
-      self.pendingPrefetch = nil
-      local runtime = finishPendingSafely(self, pending)
-      self.prefetched[pending.cellKey] = assert(runtime)
+      -- The pending cell remains owned by the halo prefetch until it completes.
     else
       local pending = self.pendingPrefetch
       self.pendingPrefetch = nil

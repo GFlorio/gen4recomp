@@ -123,6 +123,41 @@ local function stagedPresentationFactory(taskLogRef)
   end
 end
 
+local function pendingHaloCoverage()
+  local taskLogRef = { current = {} }
+  local releases = {}
+  local coverage = FieldCoverage.new({
+    matrixMemberId = 1,
+    index = makeIndex(5, 5),
+    anchorX = 2,
+    anchorZ = 2,
+    loadCell = function(descriptor)
+      return runtimeFactory(releases)(descriptor)
+    end,
+    presentationTaskFactory = stagedPresentationFactory(taskLogRef),
+  })
+  taskLogRef.current = {}
+  coverage:queuePrefetch(2, 2)
+  coverage:updatePrefetch(1)
+  coverage:updatePrefetch(1)
+  local pending = assert(coverage.pendingPrefetch)
+  local task = assert(taskLogRef.current[1])
+  Assert.equal(pending.cellKey, "0:0")
+  Assert.equal(pending.presentationTask, task)
+  Assert.isFalse(task:isReady())
+  return coverage, taskLogRef, pending, task, releases
+end
+
+local function countTaskReferences(taskLog, target)
+  local count = 0
+  for _, task in ipairs(taskLog) do
+    if task == target then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function cacheCoverage(loads)
   local cells = {}
   local cellFiles = {}
@@ -806,6 +841,75 @@ function T.partial_prefetch_is_not_ready_until_presentation_finishes_and_promote
     Assert.equal(task.presentationReleaseCalls, 1, "cell release must release transferred presentation once")
   end
   Assert.equal(loads.count, initialLoads + queued)
+end
+
+function T.halo_pending_work_survives_recentering_without_synchronous_progress()
+  local coverage, taskLogRef, pending, task = pendingHaloCoverage()
+  local beforeAdvances = task.advances
+  local beforeFinishCalls = task.finishCalls
+  local beforeTakeResultCalls = task.takeResultCalls
+  local beforeFallbacks = coverage:status().synchronousPhysicalFallbackLoads
+
+  coverage:recenter(1, 2)
+
+  local status = coverage:status()
+  Assert.equal(coverage.pendingPrefetch, pending, "the halo task remains owned by coverage")
+  Assert.equal(pending.presentationTask, task, "the same presentation task remains pending")
+  Assert.equal(status.pendingPrefetchCellKey, "0:0")
+  Assert.equal(task.advances, beforeAdvances, "recentering does not advance halo-only work")
+  Assert.equal(task.finishCalls, beforeFinishCalls, "recentering does not finish halo-only work")
+  Assert.equal(task.takeResultCalls, beforeTakeResultCalls, "recentering does not transfer a partial result")
+  Assert.equal(
+    status.synchronousPhysicalFallbackLoads,
+    beforeFallbacks + 3,
+    "recenter finishes the three newly committed cells"
+  )
+  Assert.isNil(coverage.prefetched["0:0"], "partial halo work is not ready-prefetched")
+  Assert.equal(#taskLogRef.current, 4, "recenter accounts for three new committed tasks")
+  Assert.equal(countTaskReferences(taskLogRef.current, task), 1, "the retained task is not duplicated")
+  coverage:release()
+end
+
+function T.retained_halo_work_resumes_with_bounded_updates_and_publishes_once()
+  local coverage, taskLogRef, pending, task = pendingHaloCoverage()
+  coverage:recenter(1, 2)
+  local beforeAdvances = task.advances
+  local guard = 0
+  while coverage.pendingPrefetch do
+    local consumed = coverage:updatePrefetch(1)
+    Assert.isTrue(consumed <= 1, "prefetch must consume at most one work unit per update")
+    Assert.equal(coverage.pendingPrefetch and coverage.pendingPrefetch.presentationTask or task, task)
+    guard = guard + 1
+    Assert.isTrue(guard <= 8, "retained halo work did not complete")
+  end
+
+  local status = coverage:status()
+  Assert.equal(task.advances, beforeAdvances + 2, "the retained task resumes its remaining work")
+  Assert.equal(task.finishCalls, 0, "bounded completion does not use synchronous finish")
+  Assert.equal(task.takeResultCalls, 1, "the retained result transfers once")
+  Assert.notNil(coverage.prefetched[pending.cellKey])
+  Assert.equal(status.pendingPrefetchCellKey, nil)
+  Assert.equal(#taskLogRef.current, 4, "completion accounts for three new committed tasks")
+  Assert.equal(countTaskReferences(taskLogRef.current, task), 1, "the retained task is not duplicated")
+  coverage:release()
+  Assert.equal(task.presentationReleaseCalls, 1, "published presentation releases once")
+end
+
+function T.retained_pending_work_releases_once_when_coverage_is_released()
+  local coverage, _, _, task, releases = pendingHaloCoverage()
+  coverage:recenter(1, 2)
+  coverage:release()
+  Assert.equal(task.releaseCalls, 1, "releasing coverage cancels the pending task once")
+  Assert.equal(releases["0:0"], 1, "releasing coverage releases the pending runtime once")
+end
+
+function T.pending_work_outside_the_footprint_is_cancelled_once()
+  local coverage, _, _, task, releases = pendingHaloCoverage()
+  coverage:recenter(4, 2)
+  Assert.isNil(coverage.pendingPrefetch)
+  Assert.equal(task.releaseCalls, 1, "leaving the footprint cancels the pending task once")
+  Assert.equal(releases["0:0"], 1, "leaving the footprint releases the pending runtime once")
+  coverage:release()
 end
 
 function T.recenter_finishes_the_existing_pending_cell_without_duplicate_acquisition()
