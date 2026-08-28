@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FakeGraphics = require("tests.support.FakeGraphics")
@@ -36,7 +37,7 @@ T["authentic_window_renders_inside_arbitrary_host_bounds"] = function(scope)
     scale = 1.640625,
     outerRect = { x = 359, y = 383, width = 420, height = 78.75 },
     box = { x = 16, y = 8, width = 216, height = 32 },
-    text = { x = 26, y = 8, width = 196, height = 32 },
+    text = { x = 16, y = 8, width = 196, height = 32 },
     cursor = { x = 240, y = 24, width = 16, height = 16 },
     lineHeight = 16,
   }
@@ -62,6 +63,65 @@ T["field_dialogue_remains_geometrically_and_behaviorally_identical"] = function(
   Assert.equal(layout.scale, 2)
   Assert.equal(layout.origin.x, 184)
   Assert.equal(layout.origin.y, 156)
+end
+
+-- Reference/wide/tall/resized/zoomed hosts: frame, text, and cursor must all
+-- come from the one DialoguePresentationLayout.compute() call and its single
+-- origin/scale transform, so their source-space spacing never changes with
+-- host geometry and the cursor stays fully inside the drawn viewport at
+-- every one of them.
+T["frame_text_and_cursor_share_one_transform_across_host_geometries"] = function(scope)
+  local dialogue, graphics = renderer(scope)
+  local controller = FieldDialogueFixture.openDialogue("AB", 0)
+
+  local geometries = {
+    { bounds = { x = 0, y = 0, width = 256, height = 48 }, scale = 1 }, -- reference
+    { bounds = { x = 0, y = 0, width = 1600, height = 300 }, scale = 2 }, -- wide
+    { bounds = { x = 0, y = 0, width = 256, height = 768 }, scale = 1 }, -- tall
+    { bounds = { x = 12, y = 30, width = 500, height = 90 }, maxScale = 1.75 }, -- resized/offset
+    { bounds = { x = 0, y = 0, width = 900, height = 200 }, scale = 3.5 }, -- zoomed
+  }
+
+  local textToBoxDelta, cursorToBoxDelta
+  for _, geometry in ipairs(geometries) do
+    local presentation = DialoguePresentationLayout.compute(geometry.bounds, {
+      scale = geometry.scale,
+      maxScale = geometry.maxScale,
+      cursorPlacement = CURSOR_PLACEMENT,
+    })
+
+    dialogue:draw(controller, presentation)
+
+    Assert.deepEqual(
+      graphics.transforms[#graphics.transforms - 1],
+      { "translate", presentation.origin.x, presentation.origin.y }
+    )
+    Assert.deepEqual(graphics.transforms[#graphics.transforms], { "scale", presentation.scale, presentation.scale })
+
+    -- The cursor's source-space rectangle must remain entirely inside the
+    -- 256x48 dialogue surface at every geometry: the shared transform may
+    -- change scale/translation, but it never clips or repositions a child
+    -- independently of the others.
+    Assert.isTrue(presentation.cursor.x >= 0 and presentation.cursor.y >= 0, "cursor stays inside the local strip")
+    Assert.isTrue(
+      presentation.cursor.x + presentation.cursor.width <= 256
+        and presentation.cursor.y + presentation.cursor.height <= 48,
+      "cursor stays inside the local strip"
+    )
+
+    local delta = presentation.text.x - presentation.box.x
+    local cursorDelta = presentation.cursor.x - presentation.box.x
+    if textToBoxDelta == nil then
+      textToBoxDelta, cursorToBoxDelta = delta, cursorDelta
+    else
+      Assert.equal(delta, textToBoxDelta, "text-to-frame spacing must not depend on host geometry")
+      Assert.equal(cursorDelta, cursorToBoxDelta, "cursor-to-frame spacing must not depend on host geometry")
+    end
+  end
+
+  -- HGSS prints the standard message at the window's local (0,0): the text
+  -- pen carries no inset relative to the frame's left edge at any geometry.
+  Assert.equal(textToBoxDelta, 0, "the text pen must sit exactly at the frame's left edge, with no added inset")
 end
 
 T["invalid_presentations_fail_before_partial_drawing"] = function(scope)

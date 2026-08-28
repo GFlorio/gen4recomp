@@ -16,7 +16,7 @@ function T.computes_centered_bottom_aligned_local_geometry()
     { x = 37 + (900 - 256 * presentation.scale) / 2, y = 11 + 420 - 48 * presentation.scale }
   )
   Assert.deepEqual(presentation.box, { x = 16, y = 8, width = 216, height = 32 })
-  Assert.deepEqual(presentation.text, { x = 26, y = 8, width = 196, height = 32 })
+  Assert.deepEqual(presentation.text, { x = 16, y = 8, width = 196, height = 32 })
   Assert.deepEqual(presentation.outerRect, {
     x = presentation.origin.x,
     y = presentation.origin.y,

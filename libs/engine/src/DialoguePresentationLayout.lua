@@ -26,7 +26,6 @@ local BOX = { x = 16, y = 8, width = 216, height = 32 }
 -- The dialogue window strip is the bottom 48 pixels of the 256x192 source
 -- canvas, so source-relative local Y is converted by subtracting 144.
 local SOURCE_WINDOW_Y = SOURCE_HEIGHT - HEIGHT
-local TEXT_INSET_X = 10
 local CURSOR_RESERVED_WIDTH = 20
 local LINE_HEIGHT = 16
 local EPSILON = 1e-9
@@ -99,9 +98,9 @@ function Layout.compute(bounds, options)
     height = cursorPlacement.height,
   }
   -- Text reserves the cursor area so glyphs never draw underneath.
-  -- The text box is fixed at the source-derived inset; the cursor is placed
-  -- outside the text reservation, not clipped inside it.
-  local text = { x = BOX.x + TEXT_INSET_X, y = BOX.y, width = BOX.width - CURSOR_RESERVED_WIDTH, height = BOX.height }
+  -- The pen origin is the window's own content origin (no added inset); the
+  -- cursor is placed outside the text reservation, not clipped inside it.
+  local text = { x = BOX.x, y = BOX.y, width = BOX.width - CURSOR_RESERVED_WIDTH, height = BOX.height }
   return {
     bounds = { x = bounds.x, y = bounds.y, width = bounds.width, height = bounds.height },
     origin = origin,
@@ -157,8 +156,7 @@ function Layout.validate(presentation)
   requireRect(presentation.box, "box", BOX)
   -- Text must be the source-derived reserved rect. Cursor geometry is supplied
   -- by generated field UI and has already been transformed by compute().
-  local expectedText =
-    { x = BOX.x + TEXT_INSET_X, y = BOX.y, width = BOX.width - CURSOR_RESERVED_WIDTH, height = BOX.height }
+  local expectedText = { x = BOX.x, y = BOX.y, width = BOX.width - CURSOR_RESERVED_WIDTH, height = BOX.height }
   requireRect(presentation.text, "text box", expectedText)
   local cursor = requireRect(presentation.cursor, "cursor")
   assert(cursor.x >= 0 and cursor.y >= 0, "dialogue cursor must be inside the local strip")
