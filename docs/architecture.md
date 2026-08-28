@@ -30,7 +30,8 @@ declares the discovery roots and their default layers, and `tests/runner/`
 implements discovery, suite normalization, selection, execution, and reporting.
 An app's `main.lua` adds the repo root (its LÖVE source base directory) to
 `package.path`, so every module is required by its full repo-relative path —
-`romdump.src.source.NdsRom`, `game.src.game.App`, `data.manifests.field_scenario`.
+`romdump.src.source.NdsRom`, `game.src.game.App`, and the runtime-owned data
+manifests.
 
 ## Layers
 
@@ -145,42 +146,72 @@ error still aborts the build outright.
 
 Once a cache is ready, the runtime never needs the ROM again, and it never
 decodes a raw ROM format directly — everything comes from the derived cache
-that `scripts/buildcache.sh` wrote. `FieldState` is the normal runtime
-coordinator: it loads the cache's `world.lua` manifest and the per-map visual,
-field-data, and terrain artifacts through `FieldMapLoader`, which joins them
-into the `RuntimeFieldMap` the player, camera, and renderer consume. A loaded
-map stays resident under the loader's LRU policy while warps, actor
-occupancy, and coverage keep working from the derived data alone.
+that `scripts/buildcache.sh` wrote. `FieldRuntime` owns the non-rendering field
+session and the current committed `FieldCoverage`, including the active player,
+camera, and session pointers. `FieldState` composes that runtime with the LÖVE
+presentation. `FieldMapLoader` loads the cache's `world.lua` manifest and the
+per-map visual, field-data, and terrain artifacts into `RuntimeFieldMap` views.
+
+`FieldResidencyCoordinator` is the logical residency authority after bootstrap
+for both seamless movement and discontinuous warps: it owns the logical ready
+set, published actor-map entries, and `FieldMapLoader` protection. For outdoor
+coverage, the committed/rendered physical set is a matrix-clipped 3x3 around
+the physical anchor, while the background-ready physical footprint is a
+matrix-clipped 5x5. Maps represented by that ready footprint may already have
+published actors without being physically projected; `reconcilePhysicalWorld`
+is the gate for physical occupancy and drawing. Only the active logical map
+drives scripts, weather, and active-map audio policy. Indoor maps can have an
+active logical resident without an outdoor 5x5 footprint.
+
+Physical halo presentation is staged and advanced in bounded main-thread work;
+a cell is promoted to the ready set only after its presentation build completes.
+This is time-sliced preparation, not thread-based GPU loading.
 
 ### Runtime/presentation boundary and acceptance
 
 `FieldRuntime` owns non-rendering field behavior: real derived-cache loading,
 maps, player and actors, scripts, dialogue control, input, transitions, saves,
-and deterministic camera state. `FieldPresentation` owns the LÖVE-only renderer,
-GPU assets, viewport, and dialogue rendering. Interactive `FieldState` composes
-both; the acceptance layer boots `FieldRuntime` through its production harness
-with recording host adapters and an isolated save root, then stops before any
-GPU draw call. This keeps user-flow coverage on the real composition path while
+and deterministic camera state. `FieldState` owns the LÖVE-only renderer, GPU
+assets, viewport, and dialogue rendering, using `FieldPresentation` for
+presentation configuration. Interactive `FieldState` composes both; the
+acceptance layer boots `FieldRuntime` through its production harness with
+recording host adapters and an isolated save root, then stops before any GPU
+draw call. This keeps user-flow coverage on the real composition path while
 graphics smoke tests separately own actual shader, canvas, mesh, and image work.
 
 ### Field actors
 
-`FieldState` owns the actor chain and wires it into the fixed-step session:
+The runtime actor chain and its separate presentation provider are wired into
+the fixed-step session as two resource layers:
 
 ```text
 FieldEventState  (numeric flags/vars; the visibility authority)
-  └─ FieldActorManager  (object actors + the occupancy index, one per live map)
-       ├─ FieldObjectActor   (immutable source event, mutable runtime state)
-       └─ FieldActorAssetProvider  (shared compiled visuals, acquire/release)
+  └─ FieldActorManager  (object actors + occupancy, one entry per published map)
+       ├─ FieldActorDefinitionProvider  (compiled non-GPU actor definitions)
+       └─ FieldObjectActor              (source event + mutable runtime state)
+
+FieldState
+  └─ FieldActorAssetProvider  (GPU presentation references, acquire/release)
+       └─ published sprite dependencies + player sprite
 ```
+
+`FieldActorDefinitionProvider` is the non-GPU definition owner used to build
+actors in `FieldRuntime` and `FieldActorManager`. `FieldState` owns the GPU
+`FieldActorAssetProvider`; it synchronizes that provider from the manager's
+`visualRevision()` and `collectSpriteIds()` results, together with the player's
+sprite. Published actor dependencies, rather than staging internals, determine
+when presentation assets need to change.
 
 An object exists only while its event flag is clear, matching the original
 engine. Flag writes are queued and applied at one point in the fixed tick —
 before movement reads occupancy — so the draw list and collision never disagree
 within a tick. An actor's raw ROM movement code is preserved on the actor and
 never executed; actors move only through script movement tasks.
-`data/manifests/field_scenario.lua` seeds which target objects start hidden; it names objects by map/object
-identity and `FieldScenario` resolves each to the ROM's numeric flag.
+The developer fresh-field entry path starts event flags and variables clean;
+`data/manifests/field_spawns.lua` selects spawn configuration, not story-state
+seeding. Resuming a save restores its persisted event state. Clean fresh-field
+initialization is a runtime entry contract, not a claim about retail new-game
+story initialization.
 
 The player's movement decision order is collision, then terrain surface
 transition, then actor occupancy (`FieldPlayer` consults the manager's
@@ -202,22 +233,29 @@ FieldInteractionResolver  (pure; object-first, background-second priority)
   -> FieldDialogueController      (modal input ownership)
 ```
 
-The resolver mirrors `pret/pokeheartgold`'s field-control order: the facing
-object actor from the occupancy index wins, then a source-order background
-event whose raw direction passes the pinned assembly's compatibility table
-(raw 4 wildcard; 0/1/2/3 accept {0,6}/{3,6}/{2,5}/{1,5}), then nothing.
-Type-2 background events (hidden items) are skipped because their collection
-flags are not tracked yet, and script-id-0 events are noninteractive (the
-bank-script-0 no-interaction marker, matching the binding audit). A resolved
-intent goes to
-`ScriptInteractionClient`, which looks the intent up in the bindings manifest,
-composes the bound script, and starts it as the foreground root on the scheduler
-so it runs during the trigger tick. There is no fallback client: a load-time
-binding audit (`BindingAudit`, run in `FieldScripts` construction) validates
-every interactable object/background event of every bound map against the
-manifest and rejects the composition when any event is unbound or the manifest
-names a map with no compiled data. An unmapped intent at runtime is therefore
-a composition fault, never a silently absorbed Action press.
+The facing physical surface is resolved first. The target logical map then owns
+the actor/background lookup at map seams: the target map's facing actor wins,
+then its source-order background event whose raw direction passes the pinned
+assembly's compatibility table (raw 4 wildcard; 0/1/2/3 accept
+{0,6}/{3,6}/{2,5}/{1,5}), then nothing. Occupancy retains the stable physical
+surface identity `(mapId, fieldX, fieldZ, cellKey, sourceSurfaceId)`, so stacked
+or cross-map surfaces do not alias. Hidden-item background events remain
+skipped until collection state exists. Raw script ID zero is not filtered and
+can produce an intent; `Bindings.resolveIntent` canonicalizes it to
+`runtime.inert_interaction`.
+
+A resolved intent goes to `ScriptInteractionClient`, which looks the intent up
+in the generated bindings manifest, composes the bound script, and starts it as
+the foreground root on the scheduler so it runs during the trigger tick. The
+bindings are a generated derived-cache artifact at
+`ScriptCache.bindingsPath()`, covering the compiled field-event corpus under
+the current producer policy rather than a checked-in vanilla map table.
+`FieldScripts.new` builds `requiredMapIds` from every map in
+`mapLoader.world.maps`; its load-time `BindingAudit.check` validates required
+interactable bindings and checks each target against the registered script IDs.
+The generated registry stays lazy, so this audit does not eagerly decode every
+generated script. An unmapped intent at runtime is therefore a composition
+fault, never a silently absorbed Action press.
 
 ## Raw dump vs. derived data
 

@@ -16,14 +16,10 @@
 -- The resolver never turns an actor, locks the player, selects a message, or
 -- touches presentation: it returns an immutable InteractionIntent (fresh
 -- numbers and strings only) or nil. An object is eligible regardless of its
--- raw scriptId -- the original always starts the scene script with the raw
--- u16 -- except script id 0, the no-interaction marker (the original starts
--- the map bank's script 0 there; the project treats that as noninteractive
--- until bank-script-0 bindings exist, matching the binding audit). Hidden-item
--- background events are declared noninteractive:
--- their pickup scripts depend on collection flags that are not tracked, so
--- the resolver never emits an intent for them, the binding audit rejects
--- bindings for them, and the manifest omits them (see `isHiddenItem`).
+-- raw scriptId. Raw script id 0 remains eligible for an intent and is
+-- canonicalized by the binding authority to the inert runtime script. Hidden-
+-- item background events are skipped because their pickup scripts depend on
+-- collection flags that are not tracked (see `isHiddenItem`).
 -- Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
@@ -206,10 +202,10 @@ function FieldInteractionResolver:_resolveFacingCell(snapshot, targetX, targetZ)
 end
 
 -- Scans background events in source order and returns the first eligible
--- record, or nil. Type-2 records (the hidden-item family) are declared
--- noninteractive and never eligible, and script-id-0 records are
--- noninteractive (the no-interaction marker); every other type must pass the
--- raw direction compatibility check.
+-- record, or nil. Type-2 records (the hidden-item family) are skipped because
+-- their collection state is not tracked; raw script-id-0 records are allowed
+-- through and later canonicalized to the inert runtime script. Every other
+-- type must pass the raw direction compatibility check.
 function FieldInteractionResolver:_firstEligibleBackground(map, snapshot, targetX, targetZ)
   local events = assert(map.fieldData.events.background, "runtime map background events required")
   local playerRaw =
