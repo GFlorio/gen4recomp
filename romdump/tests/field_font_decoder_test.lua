@@ -12,14 +12,14 @@ local function returnsCode(code, fn)
   local result, err = fn()
   Assert.isNil(result, "expected a failure result")
   Assert.isTrue(Errors.is(err), "expected a structured error")
-  Assert.equal(err.code, code)
+  local errorValue = assert(err) --[[@as Errors.Error]]
+  Assert.equal(errorValue.code, code)
 end
 
 local function buildFontMember(numGlyphs, glyphBytes, widths, opts)
   opts = opts or {}
   local gw = opts.glyphWidth or 2
   local gh = opts.glyphHeight or 2
-  local glyphSize = 16 * gw * gh
   local headerSize = opts.headerSize or 16
   local widthDataStart = headerSize + #glyphBytes
   local writer = BinaryWriter.new()

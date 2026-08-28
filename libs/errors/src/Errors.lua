@@ -4,10 +4,18 @@
 
 local Errors = {}
 
+---@alias Errors.Value string|number|boolean|nil|Errors.Context|Errors.Value[]
+---@alias Errors.Context table<string, Errors.Value>
 ---@class Errors.Error
 ---@field code string
 ---@field message string
----@field context table
+---@field context Errors.Context
+
+---@class Errors
+---@field new fun(code: string, message: string, context?: Errors.Context): Errors.Error
+---@field is fun(value: Errors.Error|Errors.Context|string|number|boolean|nil): boolean
+---@field format fun(value: Errors.Error|Errors.Context|string|number|boolean|nil): string
+---@field raise fun(code: string, message: string, context?: Errors.Context)
 
 local MT = {
   __index = {},
@@ -16,23 +24,32 @@ local MT = {
   end,
 }
 
+---@param code string
+---@param message string
+---@param context Errors.Context?
+---@return Errors.Error
 function Errors.new(code, message, context)
   assert(type(code) == "string", "error code must be a string")
   assert(type(message) == "string", "error message must be a string")
   assert(context == nil or type(context) == "table", "context must be a table")
-  return setmetatable({
+  local result = setmetatable({
     code = code,
     message = message,
     context = context or {},
-  }, MT)
+  }, MT) ---@type Errors.Error
+  return result
 end
 
+---@param value Errors.Error|Errors.Context|string|number|boolean|nil
+---@return boolean
 function Errors.is(value)
   return type(value) == "table" and getmetatable(value) == MT
 end
 
+---@param value Errors.Context
+---@return string[]
 local function sortedKeys(value)
-  local keys = {}
+  local keys = {} ---@type string[]
   for key in pairs(value) do
     keys[#keys + 1] = key
   end
@@ -42,6 +59,8 @@ local function sortedKeys(value)
   return keys
 end
 
+---@param value Errors.Context|string|number|boolean|nil
+---@return string
 local function formatValue(value)
   if type(value) ~= "table" then
     return tostring(value)
@@ -53,10 +72,13 @@ local function formatValue(value)
   return "{" .. table.concat(parts, ",") .. "}"
 end
 
+---@param value Errors.Error|Errors.Context|string|number|boolean|nil
+---@return string
 function Errors.format(value)
   if not Errors.is(value) then
     return tostring(value)
   end
+  ---@cast value Errors.Error
   local base = value.code .. ": " .. value.message
   if next(value.context) == nil then
     return base
@@ -64,6 +86,9 @@ function Errors.format(value)
   return base .. " " .. formatValue(value.context)
 end
 
+---@param code string
+---@param message string
+---@param context Errors.Context?
 function Errors.raise(code, message, context)
   error(Errors.new(code, message, context))
 end

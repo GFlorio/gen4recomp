@@ -18,6 +18,7 @@ end
 
 ---@param qualified string
 ---@param filter string|nil nil selects every test
+---@return boolean
 function Selection.matchesFilter(qualified, filter)
   if filter == nil then
     return true

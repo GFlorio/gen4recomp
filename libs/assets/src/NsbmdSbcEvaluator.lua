@@ -64,12 +64,51 @@ local PoseContract = require("libs.assets.src.PoseContract")
 
 local NsbmdSbcEvaluator = {}
 
+---@class NsbmdSbcEvaluator.Term
+---@field nodeIndex integer
+---@field matrixSlot integer
+---@field ratio number
+
+---@class NsbmdSbcEvaluator.Command
+---@field opcode integer
+---@field offset integer
+---@field name string
+---@field command integer
+---@field nodeIndex integer
+---@field parentIndex integer
+---@field matrixSlot integer
+---@field storeSlot integer
+---@field restoreSlot integer
+---@field materialIndex integer
+---@field shapeIndex integer
+---@field visible boolean
+---@field option integer
+---@field optionBits integer
+---@field inverse boolean
+---@field terms NsbmdSbcEvaluator.Term[]
+
+---@class NsbmdSbcEvaluator.Program
+---@field name string
+---@field commands table[]
+---@field nodes table[]
+---@field posScale number
+---@field invPosScale number
+---@field scalingRule integer
+---@field evpMatrices table<integer, { invM: number[] }>?
+
+---@class NsbmdSbcEvaluator.PoseProvider
+---@field nodeSRT fun(nodeIndex: integer): table?
+
+---@param m number[]
+---@return number[]
 local function copyMatrix(m)
   return Matrix4.toArray(m)
 end
 
+---@param stack table<integer, number[]>
+---@return table<integer, number[]>
 local function copyRestoreStack(stack)
-  local copy = {}
+  local copy = {} ---@type table<integer, number[]>
   for slot, matrix in pairs(stack) do
     copy[slot] = copyMatrix(matrix)
   end
@@ -84,6 +123,11 @@ end
 -- fixture programs, 640 compiled dynamic programs, and 1238 raw archive
 -- members), so the raise is corpus-safe and no compiler-side validation is
 -- needed.
+---@param program NsbmdSbcEvaluator.Program
+---@param slots table<integer, number[]>
+---@param slot integer
+---@param cmd table
+---@return number[]
 local function slotAt(program, slots, slot, cmd)
   local m = slots[slot]
   if not m then
@@ -113,6 +157,10 @@ local AFFINE_INDICES = { 1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15 }
 -- assume the property instead of blending wrong normals.
 
 -- The blended matrix a NODEMIX command installs and stores.
+---@param program NsbmdSbcEvaluator.Program
+---@param cmd table
+---@param matrixSlots table<integer, number[]>
+---@return number[]
 local function nodemixMatrix(program, cmd, matrixSlots)
   if not program.evpMatrices then
     Errors.raise(
@@ -122,10 +170,11 @@ local function nodemixMatrix(program, cmd, matrixSlots)
     )
   end
   -- NNS_G3D_ASSERT(numMtx >= 2): fewer terms would be a plain MTX restore.
-  assert(#cmd.terms >= 2, "NODEMIX must blend at least two matrices")
+  local terms = cmd.terms ---@type NsbmdSbcEvaluator.Term[]
+  assert(#terms >= 2, "NODEMIX must blend at least two matrices")
 
-  local sum = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }
-  for _, term in ipairs(cmd.terms) do
+  local sum = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } ---@type number[]
+  for _, term in ipairs(terms) do
     local evp = program.evpMatrices[term.nodeIndex]
     if not evp then
       Errors.raise(
@@ -136,7 +185,8 @@ local function nodemixMatrix(program, cmd, matrixSlots)
     end
     -- The SDK restores the slot then multiplies invM into it, which in row-vector
     -- order applies invM to the vertex first.
-    local m = Matrix4.multiply(slotAt(program, matrixSlots, term.matrixSlot, cmd), evp.invM)
+    local evpMatrix = evp ---@type { invM: number[] }
+    local m = Matrix4.multiply(slotAt(program, matrixSlots, term.matrixSlot, cmd), evpMatrix.invM)
     local weight = term.ratio / 256 -- the operand is `ratio << 4` in fx32
     for _, i in ipairs(AFFINE_INDICES) do
       sum[i] = sum[i] + weight * m[i]
@@ -176,6 +226,8 @@ local SUPPORTED_SCALING_RULES = {
 -- after the BB command (normally identity), so the shape's vertices stay in
 -- billboard-local space; `baseTransform` is the matrix BB captured, from
 -- which the runtime takes the translation and per-axis scale.
+---@param program NsbmdSbcEvaluator.Program
+---@param poseProvider NsbmdSbcEvaluator.PoseProvider
 ---@return SbcEvaluation
 function NsbmdSbcEvaluator.evaluate(program, poseProvider)
   assert(
@@ -197,24 +249,26 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
   end
 
   local currentMatrix = Matrix4.identity()
-  local matrixSlots = {}
-  local nodeMatrices = {}
-  local nodeVisibility = {}
+  local matrixSlots = {} ---@type table<integer, number[]>
+  local nodeMatrices = {} ---@type table<integer, number[]>
+  local nodeVisibility = {} ---@type table<integer, boolean>
   local currentNode = 0
   local currentMaterial = 0
   local materialReapplied = true
   -- Written by joints flagged MAYASSC_PARENT and read by their children; the
   -- SDK keeps the equivalent state in NNS_G3dRSOnGlb.scaleCache for one walk.
-  local mayaScaleCache = {}
+  local mayaScaleCache = {} ---@type table<integer, number[]|false>
   -- The position matrix a BB command captured, or nil while the current matrix is
   -- an ordinary joint matrix. Any command that loads the position matrix outright
   -- ends the billboard.
-  local billboardBase = nil
+  local billboardBase = nil ---@type number[]?
 
-  local draws = {}
+  local draws = {} ---@type SbcDraw[]
 
-  for _, cmd in ipairs(program.commands) do
-    local op = cmd.opcode
+  for _, rawCmd in ipairs(program.commands) do
+    ---@cast rawCmd NsbmdSbcEvaluator.Command
+    local cmd = rawCmd
+    local op = cmd.opcode ---@type integer
 
     if op == 0x01 then -- RET
       break
@@ -251,14 +305,14 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
         )
       end
 
-      local baseMatrix
+      local baseMatrix ---@type number[]
       if cmd.restoreSlot ~= nil then
         baseMatrix = slotAt(program, matrixSlots, cmd.restoreSlot, cmd)
       elseif cmd.parentIndex == cmd.nodeIndex then
         -- Self-parenting root: no source matrix (the explicit no-source op).
         baseMatrix = Matrix4.identity()
       else
-        local parent = nodeMatrices[cmd.parentIndex]
+        local parent = nodeMatrices[cmd.parentIndex] ---@type number[]?
         if not parent then
           Errors.raise(
             ErrorCodes.NSBMD_SBC_NODE_PARENT_MISSING,
@@ -268,6 +322,7 @@ function NsbmdSbcEvaluator.evaluate(program, poseProvider)
             { nodeIndex = cmd.nodeIndex, parentIndex = cmd.parentIndex, model = program.name }
           )
         end
+        assert(parent ~= nil)
         baseMatrix = copyMatrix(parent)
       end
 

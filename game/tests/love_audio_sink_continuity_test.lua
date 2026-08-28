@@ -6,7 +6,6 @@ local Assert = require("tests.support.Assert")
 local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
 
 local SAMPLE_RATE = 32768
-local CHUNK_FRAMES = 512
 local CHANNELS = 2
 local BUFFER_COUNT = 4
 

@@ -13,16 +13,14 @@ function ImportState.new(importer, saveDir)
   return setmetatable({ importer = importer, saveDir = saveDir }, ImportState)
 end
 
-function ImportState:update(dt) end
+function ImportState:update(_) end
 
 function ImportState:filedropped(file)
   self.importer:filedropped(file)
 end
 
 ---@param key string
----@param scancode string
----@param isrepeat boolean
-function ImportState:keypressed(key, scancode, isrepeat)
+function ImportState:keypressed(key, _, _)
   if key == "escape" then
     love.event.quit(0)
   end

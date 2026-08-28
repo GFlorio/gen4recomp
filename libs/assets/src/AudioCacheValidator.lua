@@ -22,27 +22,51 @@ local AudioSample = require("libs.assets.src.AudioSample")
 
 local AudioCacheValidator = {}
 
+---@class AudioCacheValidator.IndexEntry
+---@field id integer
+---@field symbol string?
+---@field bankId integer?
+---@field playerId integer?
+---@field channelMask integer?
+---@field maxSequences integer?
+---@field file string?
+
+---@class AudioCacheValidator.Index
+---@field schema string
+---@field sequences table<integer, AudioCacheValidator.IndexEntry>
+---@field banks table<integer, AudioCacheValidator.IndexEntry>
+---@field players table<integer, AudioCacheValidator.IndexEntry>
+---@field sequenceBySymbol table<string, integer>
+---@field bankBySymbol table<string, integer>
+
 -- The logical SDAT player table contains 32 groups. Physical sequence-player
 -- slots are a separate runtime namespace and do not constrain this index.
 local LOGICAL_PLAYER_COUNT = 32
 
 -- Runs a leaf validator that raises on malformed assets, reporting failure as
 -- a problem instead of propagating.
----@param validate fun(...): boolean
+---@param validate fun(value: table): boolean
+---@param ... table
 ---@return boolean
 local function passes(validate, ...)
   local ok = pcall(validate, ...)
   return ok
 end
 
+---@param id number
+---@return boolean
 local function isIndexId(id)
   return type(id) == "number" and id >= 0 and id % 1 == 0
 end
 
+---@param value number
+---@return boolean
 local function isU16(value)
   return type(value) == "number" and value % 1 == 0 and value >= 0 and value <= 0xFFFF
 end
 
+---@param value number
+---@return boolean
 local function isPositiveInteger(value)
   return type(value) == "number" and value % 1 == 0 and value >= 1
 end
@@ -53,7 +77,8 @@ end
 ---@param name string
 ---@return string? problem
 local function sectionProblem(section, name)
-  for id, entry in pairs(section) do
+  for id, rawEntry in pairs(section) do
+    local entry = rawEntry
     if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
       return name .. " index entry is malformed"
     end
@@ -65,7 +90,7 @@ end
 -- directions: every map entry resolves into `section` and agrees on its
 -- symbol, and every indexed symbol (when present) has a map entry back.
 ---@param section table
----@param symbolMap table
+---@param symbolMap table<string, integer>
 ---@param name string
 ---@return string? problem
 local function symbolMapProblem(section, symbolMap, name)
@@ -75,7 +100,8 @@ local function symbolMapProblem(section, symbolMap, name)
       return name .. " symbol map does not resolve"
     end
   end
-  for _, entry in pairs(section) do
+  for _, rawEntry in pairs(section) do
+    local entry = rawEntry
     if entry.symbol ~= nil and symbolMap[entry.symbol] ~= entry.id then
       return name .. " indexed symbol is not covered by the symbol map"
     end
@@ -99,24 +125,25 @@ function AudioCacheValidator.validate(cacheFs)
   then
     return "index sections are missing"
   end
-  local usedPlayers = {}
+  local usedPlayers = {} ---@type table<integer, boolean>
   for id, entry in pairs(index.sequences) do
     if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
       return "sequence index entry is malformed"
     end
+    local entryValue = entry
     -- Index records store no payload path: every path derives from the
     -- numeric id (AudioCache.sequencePath), so a redundant `file` field is
     -- malformed index data, never tolerated.
-    if entry.file ~= nil then
+    if entryValue.file ~= nil then
       return "sequence index entry carries a stored payload path"
     end
-    if type(entry.bankId) ~= "number" or index.banks[entry.bankId] == nil then
+    if type(entryValue.bankId) ~= "number" or index.banks[entryValue.bankId] == nil then
       return "sequence bank id does not resolve"
     end
-    if index.players[entry.playerId] == nil then
+    if index.players[entryValue.playerId] == nil then
       return "sequence player id does not resolve"
     end
-    usedPlayers[entry.playerId] = true
+    usedPlayers[entryValue.playerId] = true
     local sequence = cacheFs:loadLua(AudioCache.sequencePath(id))
     if type(sequence) ~= "table" then
       return "sequence asset is missing or unreadable"

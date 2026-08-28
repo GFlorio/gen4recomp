@@ -16,7 +16,7 @@ local FieldMessageTokenizer = {}
 -- marker contract and live in FieldMessageText; this digester only walks raw
 -- code units.
 
-local function tokenizeUnits(units, charmap, opts)
+local function tokenizeUnits(units, charmap)
   local tokens = {}
   local index = 0
   while index < #units do
@@ -52,16 +52,16 @@ local function tokenizeUnits(units, charmap, opts)
       for a = 1, argumentCount do
         args[a] = units[index + 3 + a]
       end
-      local raw = {}
+      local controlRaw = {}
       for i = 0, 2 + argumentCount do
-        raw[i + 1] = units[index + 1 + i]
+        controlRaw[i + 1] = units[index + 1 + i]
       end
       tokens[#tokens + 1] = {
         kind = FieldMessageText.controlKind(control),
         control = control,
         name = FieldMessageText.controlName(control),
         args = args,
-        raw = raw,
+        raw = controlRaw,
       }
       index = index + 3 + argumentCount
       if
@@ -115,10 +115,10 @@ end
 -- units: decrypted u16 code units (FieldMessageBank output). charmap: the
 -- frozen reference (romdump/src/reference/hgss/charmap.lua). Returns the lossless
 -- token stream; raises MESSAGE_CONTROL_TRUNCATED / MESSAGE_GLYPH_UNMAPPED.
-function FieldMessageTokenizer.tokenize(units, charmap, opts)
+function FieldMessageTokenizer.tokenize(units, charmap, _)
   assert(type(units) == "table", "tokenize requires a code-unit array")
   assert(type(charmap) == "table" and type(charmap.glyphs) == "table", "tokenize requires the frozen charmap reference")
-  local ok, result = pcall(tokenizeUnits, units, charmap, opts)
+  local ok, result = pcall(tokenizeUnits, units, charmap)
   if ok then
     return result
   end

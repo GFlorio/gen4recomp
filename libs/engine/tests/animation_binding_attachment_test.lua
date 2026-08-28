@@ -128,6 +128,10 @@ local function node(i)
   }
 end
 
+---@class AnimationBindingAttachmentTest.Clip
+---@field frameCount integer
+---@class AnimationBindingAttachmentTest.Definition : ModelDefinition
+---@field animation fun(self: AnimationBindingAttachmentTest.Definition, name: string): AnimationBindingAttachmentTest.Clip
 local function definition()
   return ModelDefinition.new({
     key = "model:1",
@@ -153,7 +157,7 @@ local function definition()
       },
     },
     animations = { jointClip(), materialClip(), crossedMaterialClip(), ghostClip() },
-  })
+  }) --[[@as AnimationBindingAttachmentTest.Definition]]
 end
 
 -- ---- precomputed bindings ----

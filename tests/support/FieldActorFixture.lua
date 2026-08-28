@@ -6,15 +6,21 @@
 
 local FieldActorFixture = {}
 
+---@param v number
+---@return string
 local function u8(v)
-  return string.char(v % 256)
+  return string.char(math.floor(v) % 256)
 end
 
+---@param v number
+---@return string
 local function u16(v)
   v = v % 65536
-  return string.char(v % 256, math.floor(v / 256))
+  return string.char(math.floor(v) % 256, math.floor(v / 256))
 end
 
+---@param v number
+---@return string
 local function u32(v)
   return u16(v % 65536) .. u16(math.floor(v / 65536))
 end

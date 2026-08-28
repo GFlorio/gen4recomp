@@ -12,6 +12,13 @@ local AudioFixture = require("tests.support.AudioFixture")
 
 local T = {}
 
+---@param instrument AudioBank.Instrument
+---@return AudioFixture.Voice
+local function testVoice(instrument)
+  local voice = assert(instrument.voice) ---@cast voice AudioFixture.Voice
+  return voice
+end
+
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
   Assert.isTrue(err.code ~= nil, "expected a structured error, got " .. tostring(err))
@@ -74,7 +81,7 @@ end
 
 function T.validates_key_split_and_drum_set_shapes()
   local bank = AudioFixture.bank(12, "BANK_TEST")
-  bank.instruments[1] = { kind = "key_split", ranges = "wide" }
+  rawset(bank.instruments[1], "ranges", "wide")
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
@@ -160,21 +167,18 @@ function T.every_generator_kind_requires_an_original_key()
     bank.instruments[0].voice = voice
     Assert.isTrue(AudioBank.validate(bank), "a well-formed voice with originalKey is valid")
 
-    local without = {}
-    for key, value in pairs(voice) do
-      without[key] = value
-    end
-    without.originalKey = nil
+    local without = { generator = voice.generator, envelope = voice.envelope, pan = voice.pan }
     bank.instruments[0].voice = without
     throwsCode("AUDIO_BANK_INVALID", function()
       AudioBank.validate(bank)
     end)
 
-    local outOfRange = {}
-    for key, value in pairs(voice) do
-      outOfRange[key] = value
-    end
-    outOfRange.originalKey = 128
+    local outOfRange = {
+      generator = voice.generator,
+      originalKey = 128,
+      envelope = voice.envelope,
+      pan = voice.pan,
+    }
     bank.instruments[0].voice = outOfRange
     throwsCode("AUDIO_BANK_INVALID", function()
       AudioBank.validate(bank)
@@ -184,20 +188,21 @@ end
 
 function T.every_voice_carries_envelope_and_pan()
   local bank = AudioFixture.bank(12, "BANK_TEST")
-  bank.instruments[0].voice.envelope = nil
+  local directVoice = testVoice(bank.instruments[0])
+  rawset(directVoice, "envelope", nil)
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
-  bank.instruments[0].voice.envelope = { attack = 0, decay = 0, sustain = 127 }
+  directVoice.envelope = { attack = 0, decay = 0, sustain = 127 }
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
-  bank.instruments[0].voice.envelope = { attack = 0, decay = 0, sustain = 127, release = "later" }
+  directVoice.envelope = { attack = 0, decay = 0, sustain = 127, release = "later" }
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
-  bank.instruments[0].voice.envelope = { attack = 0, decay = 0, sustain = 127, release = 0 }
-  bank.instruments[0].voice.pan = nil
+  directVoice.envelope = { attack = 0, decay = 0, sustain = 127, release = 0 }
+  rawset(directVoice, "pan", nil)
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)
@@ -226,9 +231,12 @@ end
 
 function T.preserves_the_release_sentinel_in_every_leaf_shape()
   local bank = AudioFixture.bank(12, "BANK_TEST")
-  bank.instruments[0].voice.envelope.release = 0xFF
+  local directEnvelope = testVoice(bank.instruments[0]).envelope ---@type table
+  rawset(directEnvelope, "release", 0xFF)
   Assert.isTrue(AudioBank.validate(bank))
-  bank.instruments[2].voices[1].envelope.release = 0xFF
+  local drumVoice = bank.instruments[2].voices[1]
+  local drumEnvelope = drumVoice.envelope ---@type table
+  rawset(drumEnvelope, "release", 0xFF)
   Assert.isTrue(AudioBank.validate(bank))
 end
 
@@ -258,15 +266,15 @@ function T.square_duty_is_an_integer_index_0_to_7()
   }
   Assert.isTrue(AudioBank.validate(bank), "duty index 7, the all-LOW pattern, is valid")
   for _, duty in ipairs({ 0.5, 0.625, 1.5, -1, 8, "wide" }) do
-    local bank = AudioFixture.bank(12, "BANK_TEST")
-    bank.instruments[0].voice = {
+    local invalidBank = AudioFixture.bank(12, "BANK_TEST")
+    invalidBank.instruments[0].voice = {
       generator = { kind = "square", duty = duty },
       originalKey = 60,
       envelope = { attack = 0, decay = 0, sustain = 127, release = 0 },
       pan = 64,
     }
     throwsCode("AUDIO_BANK_INVALID", function()
-      AudioBank.validate(bank)
+      AudioBank.validate(invalidBank)
     end)
   end
 end
@@ -315,7 +323,8 @@ end
 -- contributes its keys, so the walk and the validator cannot drift apart.
 function T.sample_keys_do_not_revalidate_voice_fields()
   local bank = AudioFixture.bank(12, "BANK_TEST")
-  bank.instruments[0].voice.envelope.attack = 0xFFFF
+  local envelope = testVoice(bank.instruments[0]).envelope ---@type table
+  rawset(envelope, "attack", 0xFFFF)
   throwsCode("AUDIO_BANK_INVALID", function()
     AudioBank.validate(bank)
   end)

@@ -46,6 +46,8 @@ end
 -- Raises when absent so a missing suite fails as a listing defect rather than
 -- as a nil index further down the test.
 ---@return { module: string, layer: string, capabilities: string[], tags: string[], tests: string[] }
+---@param listing table[]
+---@param moduleName string
 local function find(listing, moduleName)
   for _, suite in ipairs(listing) do
     if suite.module == moduleName then

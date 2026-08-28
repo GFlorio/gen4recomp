@@ -240,6 +240,12 @@ local function parseSymbols(r, block, context)
   return symbols
 end
 
+---@param r BinaryReader
+---@param section string
+---@param id integer
+---@param fileId integer
+---@param entry { offset: integer, size: integer }
+---@param context string?
 local function validateResource(r, section, id, fileId, entry, context)
   local offset = entry.offset
   if entry.size < NNS_RESOURCE_HEADER then
@@ -435,6 +441,7 @@ local function parse(bytes, context)
               fileCount = fatCount,
             })
           end
+          entry = assert(entry)
           validateResource(r, section, id, record.fileId, entry, context)
         end
       end
@@ -469,7 +476,7 @@ function Sdat.open(bytes, context)
     return result
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end

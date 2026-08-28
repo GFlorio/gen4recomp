@@ -188,7 +188,7 @@ end
 
 function T.items_into_reuses_skeletons_clears_tail_and_keeps_shared_visuals_separate()
   local asset = entry(99)
-  local storage = { items = {}, actorSlots = {} }
+  local storage = { items = {}, actorSlots = {}, generation = 0 } --[[@as FieldActorDrawStorage]]
   local records = {
     record({ actorId = "map:61:object:0" }),
     record({ actorId = "map:61:object:1", world = { x = 8, y = 1.5, z = -4 } }),

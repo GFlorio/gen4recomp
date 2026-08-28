@@ -123,16 +123,17 @@ end
 -- live: a foreign owner must not be able to silently take or drop another's.
 function FieldObjectActor:pushFacingOverride(request)
   assert(type(request) == "table" and type(request.owner) == "string", "a facing override requires an owner")
+  local actorId = self.actorId --[[@as string]]
   if self.interactionFacingOverride then
     Errors.raise(
       FieldErrors.ACTOR_OVERRIDE_OWNER_MISMATCH,
-      "actor " .. self.actorId .. " already has a facing override owned by " .. self.interactionFacingOverride.owner,
-      { actorId = self.actorId, owner = self.interactionFacingOverride.owner, requestedBy = request.owner }
+      "actor " .. actorId .. " already has a facing override owned by " .. self.interactionFacingOverride.owner,
+      { actorId = actorId, owner = self.interactionFacingOverride.owner, requestedBy = request.owner }
     )
   end
   local token = {
     owner = request.owner,
-    facing = requireFacing(request.facing, { actorId = self.actorId }),
+    facing = requireFacing(request.facing, { actorId = actorId }),
     restoreFacing = self.facing,
   }
   self.interactionFacingOverride = token
@@ -142,10 +143,11 @@ end
 
 function FieldObjectActor:releaseFacingOverride(token)
   if self.interactionFacingOverride == nil or self.interactionFacingOverride ~= token then
+    local actorId = self.actorId --[[@as string]]
     Errors.raise(
       FieldErrors.ACTOR_OVERRIDE_OWNER_MISMATCH,
-      "released a facing override that actor " .. self.actorId .. " does not hold",
-      { actorId = self.actorId }
+      "released a facing override that actor " .. actorId .. " does not hold",
+      { actorId = actorId }
     )
   end
   self.facing = token.restoreFacing

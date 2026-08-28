@@ -12,6 +12,9 @@ local T = {}
 -- Raises when absent so a missing result fails as a reporting defect rather
 -- than as a nil index further down the test.
 ---@return { module: string, test: string, status: string, message: string, layer: string, duration: number }
+---@param run table
+---@param moduleName string
+---@param testName string|nil
 local function resultFor(run, moduleName, testName)
   for _, entry in ipairs(run.results) do
     if entry.module == moduleName and (testName == nil or entry.test == testName) then

@@ -42,8 +42,9 @@ local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected " .. code .. " to be raised")
   Assert.isTrue(Errors.is(err), "expected a structured Errors value, got " .. tostring(err))
-  Assert.equal(err.code, code)
-  return err
+  local errorValue = assert(err) --[[@as Errors.Error]]
+  Assert.equal(errorValue.code, code)
+  return errorValue
 end
 
 -- ---- BB / BBY ----

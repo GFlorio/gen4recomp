@@ -60,6 +60,7 @@ end
 -- returned item carries either a normalized `suite` or the `failure` result of
 -- a module that could not be loaded or normalized.
 ---@return { suite: RunnerSuite|nil, failure: table|nil }[]
+---@param config { fs: table, roots: string[]|nil, load: function, capabilities: table<string, boolean>, layer: string|nil, filter: string|nil, onResult: function|nil }
 local function collect(config)
   local items = {}
   for _, entry in ipairs(Discovery.suites(config.fs, config.roots)) do
@@ -85,6 +86,7 @@ end
 -- module that cannot be loaded is listed with its `error` and no tests, the same
 -- way a run reports it as one failed result — one broken suite must not replace
 -- the whole listing with a traceback.
+---@param options table
 ---@return { module: string, layer: string, capabilities: string[], tags: string[], tests: string[], error: string|nil }[]
 function TestRunner.list(options)
   local config = resolve(options)
@@ -116,6 +118,8 @@ function TestRunner.list(options)
   return listing
 end
 
+---@param run RunnerRun
+---@param entry { module: string, test: string, status: string, layer: string, duration: number }
 local function tally(run, entry)
   run.results[#run.results + 1] = entry
   local layer = run.byLayer[entry.layer]
@@ -123,6 +127,7 @@ local function tally(run, entry)
     layer = { passed = 0, failed = 0, skipped = 0, duration = 0 }
     run.byLayer[entry.layer] = layer
   end
+  layer = assert(layer)
   layer.duration = layer.duration + entry.duration
   if entry.status == "pass" then
     run.passed = run.passed + 1
@@ -147,6 +152,7 @@ end
 ---@field versions string[]|nil ready game versions the run exercised, when known
 
 ---@return RunnerRun
+---@param options table
 function TestRunner.run(options)
   local config = resolve(options)
   local started = love ~= nil and love.timer ~= nil and love.timer.getTime() or os.clock()
@@ -162,6 +168,7 @@ function TestRunner.run(options)
     capabilities = config.capabilities,
   }
   local function record(entry)
+    entry = assert(entry)
     tally(run, entry)
     if config.onResult ~= nil then
       config.onResult(entry)
@@ -173,7 +180,7 @@ function TestRunner.run(options)
     else
       local suite = assert(item.suite, "collected item carries neither a suite nor a failure")
       for _, entry in ipairs(Execution.runSuite(suite, config)) do
-        record(entry)
+        record(assert(entry))
       end
     end
   end

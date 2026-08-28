@@ -5,7 +5,6 @@
 -- romdump/tests/nsbmd_dynamic_mesh_test.lua.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
 local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
@@ -14,6 +13,33 @@ local T = {}
 
 local EPS = 1e-9
 
+---@class NsbmdSbcTest.SrtOptions
+---@field matrixStackIndex integer?
+---@field translation table?
+---@field rotation number[]?
+---@field scale table?
+---@field inverseScale table?
+---@field transZero boolean?
+---@field rotZero boolean?
+---@field scaleOne boolean?
+
+---@class NsbmdSbcTest.ProgramOptions
+---@field name string?
+---@field scalingRule integer?
+---@field posScale number?
+---@field invPosScale number?
+---@field nodes table[]?
+---@field commands table[]?
+---@field evpMatrices table?
+
+---@class NsbmdSbcTest.ProviderOptions
+---@field nodeSRT fun(index: integer): table?
+---@field nodeVisible (fun(index: integer): boolean?)?
+
+---@param actual number[]
+---@param expected number[]
+---@param msg string?
+---@return nil
 local function assertMatrixClose(actual, expected, msg)
   for i = 1, 16 do
     if math.abs(actual[i] - expected[i]) > EPS then
@@ -22,8 +48,19 @@ local function assertMatrixClose(actual, expected, msg)
   end
 end
 
+---@param m number[]
+---@param x number
+---@param y number
+---@param z number
+---@param ex number
+---@param ey number
+---@param ez number
+---@param msg string?
 local function assertMatrixAtPoint(m, x, y, z, ex, ey, ez, msg)
-  local ax, ay, az = Matrix4.transformPoint(m, x, y, z)
+  local transformed = { Matrix4.transformPoint(m, x, y, z) } ---@type number[]
+  local ax = transformed[1]
+  local ay = transformed[2]
+  local az = transformed[3]
   if math.abs(ax - ex) > EPS or math.abs(ay - ey) > EPS or math.abs(az - ez) > EPS then
     error(
       (msg or "transform mismatch")
@@ -46,11 +83,15 @@ end
 
 -- ---- fixtures ----
 
+---@return number[]
 local function identity9()
   return { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 end
 
 -- A bind SRT record: the decoded Nsbmd node shape the providers return.
+---@param index integer
+---@param opts NsbmdSbcTest.SrtOptions?
+---@return table
 local function srt(index, opts)
   opts = opts or {}
   return {
@@ -66,6 +107,8 @@ local function srt(index, opts)
   }
 end
 
+---@param opts NsbmdSbcTest.ProgramOptions?
+---@return NsbmdSbcEvaluator.Program
 local function program(opts)
   opts = opts or {}
   return {
@@ -82,6 +125,8 @@ end
 -- The pose provider contract is nodeSRT only. The nodeVisible slot is kept
 -- inert so tests can pin that a stray visibility hook is never consulted
 -- (the SBC NODE command alone decides visibility).
+---@param opts NsbmdSbcTest.ProviderOptions?
+---@return NsbmdSbcEvaluator.PoseProvider
 local function provider(opts)
   opts = opts or {}
   return {
@@ -92,6 +137,9 @@ local function provider(opts)
   }
 end
 
+---@param p NsbmdSbcEvaluator.Program
+---@param prov NsbmdSbcEvaluator.PoseProvider?
+---@return SbcDraw[]
 local function evaluate(p, prov)
   return NsbmdSbcEvaluator.evaluate(p, prov or provider()).draws
 end
@@ -128,8 +176,10 @@ local function cmdPoscale(inverse)
   return { opcode = 0x0B, inverse = inverse or false }
 end
 
+---@param prefix table[]?
+---@return table[]
 local function oneDraw(prefix)
-  local cmds = {}
+  local cmds = {} ---@type table[]
   for _, c in ipairs(prefix or {}) do
     cmds[#cmds + 1] = c
   end

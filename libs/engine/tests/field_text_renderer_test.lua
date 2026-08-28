@@ -36,7 +36,7 @@ local function textRenderer(lg)
 end
 
 local function glyphToken(code, colorIndex)
-  return { kind = "glyph", code = code, text = "x", raw = { code }, colorIndex = colorIndex }
+  return { kind = "glyph", code = code, text = "x", raw = { code }, colorIndex = colorIndex } --[[@as MessageToken]]
 end
 
 -- The fixture font: baseHeight 16, strideY 16, every glyph rect at y=0 with
@@ -289,8 +289,8 @@ function T.draw_line_with_palette_skips_control_tokens_and_never_mutates_them()
   local text = textRenderer(lg)
   local palette =
     { foreground = { r = 1, g = 2, b = 3 }, shadow = { r = 4, g = 5, b = 6 }, background = { r = 7, g = 8, b = 9 } }
-  local wait = { kind = "wait", control = 514, name = "WAIT", args = {} }
-  local before = { kind = wait.kind, control = wait.control, name = wait.name, args = wait.args }
+  local wait = { kind = "wait", control = 514, name = "WAIT", args = {}, raw = {} } --[[@as MessageToken]]
+  local before = { kind = wait.kind, control = wait.control, name = wait.name, args = wait.args, raw = wait.raw }
   local glyph = glyphToken(1, 0)
   text:drawLineWithPalette({ wait, glyph }, 10, 20, palette)
   Assert.equal(#lg.draws, 1, "the control token draws nothing")

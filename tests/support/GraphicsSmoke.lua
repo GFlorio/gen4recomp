@@ -26,6 +26,7 @@ function Scope:own(resource)
 end
 
 ---@param lg love.Graphics
+---@return table
 local function capture(lg)
   local red, green, blue, alpha = lg.getColor()
   local blendMode, alphaMode = lg.getBlendMode()
@@ -44,6 +45,7 @@ local function capture(lg)
 end
 
 ---@param lg love.Graphics
+---@param state table
 local function restore(lg, state)
   lg.setCanvas(state.canvas)
   lg.setShader(state.shader)
@@ -64,6 +66,7 @@ end
 local function wrap(body)
   return function(context)
     local lg = love.graphics
+    ---@cast lg love.Graphics
     local before = capture(lg)
     local scope = setmetatable({ _owned = {} }, Scope)
 

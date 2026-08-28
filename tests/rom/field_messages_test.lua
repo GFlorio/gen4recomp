@@ -22,12 +22,6 @@ local PngReader = require("tests.support.PngReader")
 
 local T = {}
 
-local function sourceFacts(romFs)
-  local messages = assert(romFs:openNarc("messages"))
-  local font = assert(romFs:openNarc("font"))
-  return messages, font
-end
-
 function T.target_bank_counts_and_decryption_vectors(romFs)
   local messages = assert(romFs:openNarc("messages"))
   for _, spec in ipairs({
@@ -140,7 +134,7 @@ function T.known_yesno_and_color_messages_carry_the_expected_controls(romFs)
   end
 end
 
-function T.known_target_messages_format_with_prepared_tokens(romFs, version)
+function T.known_target_messages_format_with_prepared_tokens(_, version)
   -- The known target messages must pass through the actual provider
   -- formatting path (compiled bank cache -> template -> substitution
   -- resolution -> prepared tokens) without an unsupported-control fault:
@@ -321,8 +315,6 @@ end
 
 function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   local cache = CacheFs.forVersion(version)
-  local messages = assert(romFs:openNarc("messages"))
-  local font = assert(romFs:openNarc("font"))
   local function archiveSha(alias)
     local info = assert(romFs:resolvedNarc(alias))
     return require("romdump.src.digest.Hashing").sha1hex(assert(romFs:read(info.fileId)))
@@ -416,7 +408,7 @@ function T.font_focus_indicator_member_is_a_four_frame_24x32_4bpp_ncgr(romFs)
   end
 end
 
-function T.compiled_font_def_matches_the_real_focus_and_color_contract(romFs, version)
+function T.compiled_font_def_matches_the_real_focus_and_color_contract(romFs, _)
   -- The compiled field-font definition and its cache marker must reflect the
   -- ROM's font member 6: seven color bands (the protocol COLOR_VARIANT_COUNT),
   -- four 24x32 focus frames with in-bounds rects, and the member bytes

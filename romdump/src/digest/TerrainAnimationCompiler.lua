@@ -183,7 +183,7 @@ function TerrainAnimationCompiler:annotateMaterial(modelMaterial, compiledMateri
         }
       )
     end
-    local frameOpts = {}
+    local frameOpts = {} ---@type table<string, boolean|string|number|nil>
     for k, v in pairs(baseDecoderOpts) do
       frameOpts[k] = v
     end

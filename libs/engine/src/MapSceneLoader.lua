@@ -50,9 +50,8 @@ local PoseContract = require("libs.assets.src.PoseContract")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
 local MapProps = require("libs.engine.src.MapProps")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local ModelDoorMetadata = require("libs.engine.src.ModelDoorMetadata")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
-local MeshWriter = require("libs.assets.src.MeshWriter")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local DoorTiles = require("libs.engine.src.DoorTiles")
@@ -61,6 +60,28 @@ local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 local MapSceneLoader = {}
+
+---@class MapSceneLoader.Runtime
+---@field scene table
+---@field assetPool GpuAssetPool
+---@field mapId integer
+---@field cameraType integer
+---@field collision CollisionGrid
+---@field bounds table
+---@field mapDraws table[]
+---@field staticBuildingDraws table[]
+---@field animatedBuildingDraws table[]
+---@field lighting table
+---@field edgeColors table
+---@field fog table
+---@field fieldTimeSeconds number
+---@field timeBand "day"|"night"
+---@field animatedInstances ModelInstance[]
+---@field updateAnimated fun(self: MapSceneLoader.Runtime)
+---@field setTimeBand fun(self: MapSceneLoader.Runtime, band: "day"|"night")
+---@field mapProps MapProps
+---@field stats table
+---@field release fun(self: MapSceneLoader.Runtime)
 
 -- The identity UV-transform matrix every assembled material starts with:
 -- the renderer sends u_texMatrix for every draw, so a material can never
@@ -444,7 +465,8 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- Re-setting the current band is a no-op. Unbanded instances are untouched.
   -- The swap does not mark the draw list dirty: the next scene tick rebuilds
   -- it unconditionally.
-  local function setTimeBand(self, band)
+  ---@param band "day"|"night"
+  local function setTimeBand(_, band)
     assert(VALID_BANDS[band], "unknown time-of-day band " .. tostring(band))
     if runtime.timeBand == band then
       return
@@ -525,11 +547,15 @@ local function buildScene(pool, cacheFs, scene, opts)
   else
     local placements = {}
     for _, inst in ipairs(scene.buildingInstances) do
+      local desc = descriptorFor(inst.modelKey)
+      local doorMeta = ModelDoorMetadata.forDescriptor(desc.descriptor)
       placements[#placements + 1] = {
         placementIndex = inst.placementIndex,
         modelKey = inst.modelKey,
         transform = inst.transform,
-        bounds = descriptorFor(inst.modelKey).bounds,
+        bounds = desc.bounds,
+        doorSoundType = doorMeta and doorMeta.doorSoundType or nil,
+        doorRoles = doorMeta and doorMeta.roles or nil,
       }
     end
     runtime.mapProps = MapProps.new({
@@ -561,7 +587,7 @@ end
 -- (see buildScene).
 ---@param cacheFs table
 ---@param scene table
----@param opts { graphics?: love.Graphics?, timeBand?: string, meshBuilder?: fun(decoded: table): any }?
+---@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder }?
 ---@return table
 function MapSceneLoader.load(cacheFs, scene, opts)
   opts = opts or {}

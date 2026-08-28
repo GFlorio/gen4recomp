@@ -30,7 +30,7 @@ local FORBIDDEN = {
 
 local function read(path)
   local file = assert(io.open(path, "rb"), "cannot read " .. path)
-  local content = file:read("*a")
+  local content = file:read("*a") ---@type string
   file:close()
   return content
 end

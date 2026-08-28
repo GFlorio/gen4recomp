@@ -95,21 +95,26 @@ end
 -- rejection must happen at this public boundary.
 function T.rejects_nan_and_infinite_offsets()
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():u8(0 / 0)
   end)
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():u8(math.huge)
   end)
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():u8(-math.huge)
   end)
 end
 
 function T.rejects_fractional_offsets()
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():u8(1.5)
   end)
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():u32le(0.5)
   end)
   assertRangeError(function()
@@ -119,15 +124,19 @@ end
 
 function T.rejects_nan_and_fractional_lengths()
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():bytes(0, 0 / 0)
   end)
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():bytes(0, 2.5)
   end)
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():ascii(1, math.huge)
   end)
   assertRangeError(function()
+    ---@diagnostic disable-next-line: param-type-mismatch
     reader():slice(0, -0.5)
   end)
 end

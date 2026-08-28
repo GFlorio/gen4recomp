@@ -99,11 +99,13 @@ function FieldMessageProvider:acquireBank(bankId)
   end
   local bank, err = self._cacheFs:loadLua(FieldMessageCache.bankPath(bankId))
   if type(bank) ~= "table" or bank.schema ~= FieldMessageCache.SCHEMA or bank.bankId ~= bankId then
+    local context = { bankId = bankId, loadError = err }
+    ---@cast context Errors.Context
     return nil,
       Errors.new(
         FieldMessageProvider.MESSAGE_BANK_MISSING,
         "message bank " .. tostring(bankId) .. " is unavailable in the generated cache",
-        { bankId = bankId, loadError = err }
+        context
       )
   end
   self._banks[bankId] = { bank = bank, references = 1 }
@@ -205,14 +207,16 @@ end
 ---@param token MessageToken
 ---@param message string
 local function controlFault(code, template, token, message)
-  Errors.raise(code, message, {
+  local context = {
     bankId = template.bankId,
     messageId = template.messageId,
     control = token.control,
     name = token.name,
     args = token.args,
     kind = token.kind,
-  })
+  }
+  ---@cast context Errors.Context
+  Errors.raise(code, message, context)
 end
 
 local function controlLabel(token)

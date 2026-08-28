@@ -25,8 +25,26 @@
 
 local NitroTexMatrix = {}
 
+---@class NitroTexMatrix.Srt
+---@field transS number
+---@field transT number
+---@field sin number
+---@field cos number
+---@field scaleS number
+---@field scaleT number
+---@field width number
+---@field height number
+---@field transOne boolean
+---@field rotOne boolean
+---@field scaleOne boolean
+---@field ratioS number?
+---@field ratioT number?
+
 -- The 64-bit smull product shifted right 12 (the asm's
 -- `smull lo, hi, ...; mov lo, lsr #0xc; orr lo, hi, lsl #0x14`).
+---@param a number
+---@param b number
+---@return number
 local function mulFx(a, b)
   return math.floor(a * b / 4096)
 end
@@ -41,6 +59,8 @@ local function mul32(a, b)
 end
 
 -- The 32-bit wrapped add/subtract (asm `add`/`sub`).
+---@param v number
+---@return number
 local function wrap32(v)
   local p = v % 4294967296
   if p >= 2147483648 then
@@ -59,6 +79,9 @@ local function shl(value, bits)
 end
 
 -- The DS FX_Div(n, d) as the shells use it: (n << 12) / d, truncated.
+---@param n number
+---@param d number
+---@return number
 local function fxDiv(n, d)
   return math.floor(n * 4096 / d)
 end
@@ -66,6 +89,8 @@ end
 -- The variant index: the "one" flags (scaleOne = 1, rotOne = 2,
 -- transOne = 4, the GetTexSRTAnm_ bit order), matching `and r1, r1, #0x7`
 -- in the SendTexSRT shells.
+---@param srt NitroTexMatrix.Srt
+---@return integer
 local function variantIndex(srt)
   return (srt.scaleOne and 1 or 0) + (srt.rotOne and 2 or 0) + (srt.transOne and 4 or 0)
 end
@@ -73,6 +98,9 @@ end
 -- The SendTexSRT ratio pass shared by the Maya-family shells: multiply the
 -- first column plus c20 by ratioS and the second column plus c21 by ratioT
 -- when they differ from 0x1000.
+---@param cells number[]
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 local function applyRatios(cells, srt)
   if srt.ratioS and srt.ratioS ~= 0x1000 then
     cells[1] = mulFx(cells[1], srt.ratioS)
@@ -107,6 +135,8 @@ local function mulShr8(a, b)
 end
 
 -- texmtxCalc_flag_ (all components): NNS_G3D_maya.s 0x020BEBD8.
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 local function mayaAll(srt)
   local w, h = srt.width, srt.height
   local sin, cos = srt.sin, srt.cos
@@ -127,6 +157,8 @@ local function mayaAll(srt)
 end
 
 -- texmtxCalc_flagS_ (scaleOne: rotation + translation): 0x020BEB00.
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 local function mayaRotTrans(srt)
   local w, h = srt.width, srt.height
   local sin, cos = srt.sin, srt.cos
@@ -142,6 +174,8 @@ local function mayaRotTrans(srt)
 end
 
 -- texmtxCalc_flagR_ (rotOne: scale + translation): 0x020BEA84.
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 local function mayaScaleTrans(srt)
   local w, h = srt.width, srt.height
   local ss, st = srt.scaleS, srt.scaleT
@@ -157,6 +191,8 @@ local function mayaScaleTrans(srt)
 end
 
 -- texmtxCalc_flagRS_ (scaleOne + rotOne: translation only): 0x020BEA3C.
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 local function mayaTrans(srt)
   return {
     0x1000,
@@ -169,6 +205,8 @@ local function mayaTrans(srt)
 end
 
 -- texmtxCalc_flagT_ (transOne: scale + rotation): 0x020BE954.
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 local function mayaScaleRot(srt)
   local w, h = srt.width, srt.height
   local sin, cos = srt.sin, srt.cos
@@ -188,6 +226,8 @@ local function mayaScaleRot(srt)
 end
 
 -- texmtxCalc_flagTS_ (transOne + scaleOne: rotation only): 0x020BE894.
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 local function mayaRot(srt)
   local w, h = srt.width, srt.height
   local sin, cos = srt.sin, srt.cos
@@ -202,6 +242,8 @@ local function mayaRot(srt)
 end
 
 -- texmtxCalc_flagTR_ (transOne + rotOne: scale only): 0x020BE850.
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 local function mayaScale(srt)
   return {
     srt.scaleS,
@@ -226,6 +268,8 @@ local MAYA_VARIANTS = {
   end,
 }
 
+---@param srt NitroTexMatrix.Srt
+---@return number[]
 function NitroTexMatrix.maya(srt)
   return applyRatios(MAYA_VARIANTS[variantIndex(srt) + 1](srt), srt)
 end

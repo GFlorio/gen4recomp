@@ -73,7 +73,7 @@ FieldTextRenderer.__index = FieldTextRenderer
 -- allowed presentation-layer dependency (the atlas bytes still enter through
 -- love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics?, readSource?: fun(path: string): string }
+---@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics, readSource?: fun(path: string): string }
 ---@return FieldTextRenderer
 function FieldTextRenderer.new(opts)
   assert(
@@ -107,6 +107,7 @@ function FieldTextRenderer.new(opts)
       path = atlasPath,
     })
   end
+  data = assert(data)
   local maskAtlasPath = FieldFontCache.maskAtlasPath(fontId)
   local maskData = opts.cacheFs:read(maskAtlasPath)
   if not maskData then
@@ -115,6 +116,7 @@ function FieldTextRenderer.new(opts)
       path = maskAtlasPath,
     })
   end
+  maskData = assert(maskData)
   local focusPath = FieldFontCache.focusIndicatorsPath(fontId)
   local focusData = opts.cacheFs:read(focusPath)
   if not focusData then
@@ -123,6 +125,7 @@ function FieldTextRenderer.new(opts)
       path = focusPath,
     })
   end
+  focusData = assert(focusData)
   local ok, err = pcall(function()
     self._atlas = graphics.newImage(love.filesystem.newFileData(data, atlasPath))
     self._atlas:setFilter("nearest", "nearest")
@@ -334,7 +337,9 @@ end
 function FieldTextRenderer:windowBackgroundColor()
   local color = assert(self.fontDef.palette and self.fontDef.palette[16], "field font palette slot 15 is required")
   assert(type(color) == "table", "field font palette slot 15 must be a color")
-  local r, g, b = color.r or color[1], color.g or color[2], color.b or color[3]
+  local r = assert(tonumber(color.r or color[1]))
+  local g = assert(tonumber(color.g or color[2]))
+  local b = assert(tonumber(color.b or color[3]))
   assert(r ~= nil and g ~= nil and b ~= nil, "field font palette slot 15 must contain RGB components")
   if r > 1 or g > 1 or b > 1 then
     r, g, b = r / 255, g / 255, b / 255

@@ -106,17 +106,17 @@ end
 ---@return Errors.Error|nil
 function MovementBarrierTask.validate(state)
   if type(state) ~= "table" or (state.scope ~= "environment" and state.scope ~= "actors") then
-    return Errors.new(
-      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "movement barrier state must hold its scope",
-      { state = state }
-    )
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "movement barrier state must hold its scope", context)
   end
   if state.scope == "actors" and type(state.taskIds) ~= "table" then
+    local context = { state = state }
+    ---@cast context Errors.Context
     return Errors.new(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
       "actor-scoped movement barrier state must hold its task id list",
-      { state = state }
+      context
     )
   end
   return nil

@@ -23,7 +23,7 @@ end
 -- A formatted message carrying the layout lines the canned layout returns
 -- verbatim (the same convention as the controller's own unit tests).
 ---@param lines { tokens: MessageToken[] }[]
----@return table
+---@return FieldMessageProvider.FormattedMessage
 function FieldSignpostFixture.message(lines)
   local tokens = {}
   for _, ln in ipairs(lines) do
@@ -31,7 +31,7 @@ function FieldSignpostFixture.message(lines)
       tokens[#tokens + 1] = token
     end
   end
-  return { bankId = 543, messageId = 5, tokens = tokens, _lines = lines }
+  return { bankId = 543, messageId = 5, text = "", tokens = tokens, hadUnresolvedSubstitutions = false, _lines = lines }
 end
 
 -- The standard two-line text (glyph A, then B, then a second line of A) every

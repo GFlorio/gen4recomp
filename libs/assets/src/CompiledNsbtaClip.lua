@@ -15,6 +15,9 @@ local Validate = require("libs.assets.src.Validate")
 
 local CompiledNsbtaClip = {}
 
+---@class CompiledNsbtaClip
+---@field validate fun(clip: table, invalid: fun(reason: string))
+
 local CURVE_RATES = { [1] = true, [2] = true, [4] = true }
 local STORAGES = { fx16 = true, fx32 = true }
 
@@ -22,6 +25,8 @@ local STORAGES = { fx16 = true, fx32 = true }
 local CHANNELS = { "transS", "transT", "rot", "scaleS", "scaleT" }
 
 -- A finite integer (rejects fractional, NaN, and infinite values).
+---@param value number
+---@return boolean
 local function isInteger(value)
   return type(value) == "number" and value % 1 == 0
 end
@@ -32,6 +37,9 @@ end
 -- reachable key index is floor((frameCount - 1) / rate) + 1 for the
 -- interpolating frames and floor((frameCount - 1) / rate) for exact
 -- multiples.
+---@param rate integer
+---@param frameCount integer
+---@return integer
 local function requiredKeys(rate, frameCount)
   local lastFrame = frameCount - 1
   if rate == 2 then
@@ -46,6 +54,10 @@ end
 -- One compiled channel: a constant integer or a curve with a Nitro rate,
 -- limit == frameCount, an fx16/fx32 storage, and integer keys covering
 -- every reachable frame.
+---@param channel table
+---@param where string
+---@param clip table
+---@param invalid fun(reason: string)
 local function checkChannel(channel, where, clip, invalid)
   if type(channel) ~= "table" then
     invalid(where .. " is missing")
@@ -66,11 +78,12 @@ local function checkChannel(channel, where, clip, invalid)
       invalid(where .. " curve storage must be fx16 or fx32")
     end
     if Validate.isArray(channel.keys) then
-      if #channel.keys < requiredKeys(channel.rate, clip.frameCount) then
+      local keys = channel.keys ---@type number[]
+      if #keys < requiredKeys(channel.rate, clip.frameCount) then
         invalid(where .. " curve carries fewer keys than its frames demand")
       end
-      for i, key in ipairs(channel.keys) do
-        if not isInteger(key) then
+      for i, key in ipairs(keys) do
+        if type(key) ~= "number" or not isInteger(key) then
           invalid(where .. " curve key " .. i .. " must be an integer")
         end
       end
@@ -88,7 +101,7 @@ end
 ---@param clip table the compiled texture-SRT clip record
 ---@param invalid fun(reason: string) the owning validator's failure sink
 function CompiledNsbtaClip.validate(clip, invalid)
-  local where = "clip " .. tostring(clip and clip.id) .. " "
+  local where = "clip " .. tostring(clip and clip.id) .. " " ---@type string
   if
     type(clip) ~= "table"
     or type(clip.id) ~= "string"
@@ -111,16 +124,17 @@ function CompiledNsbtaClip.validate(clip, invalid)
     return
   end
 
-  local targets = clip.compiled.targets
-  if #clip.tracks ~= #targets then
+  local targets = clip.compiled.targets ---@type table[]
+  local tracks = clip.tracks ---@type table[]
+  if #tracks ~= #targets then
     invalid(where .. "must carry one track per compiled target")
     return
   end
 
   -- Track target names are the runtime binding keys, so each track must
   -- resolve onto its selected compiled target and the names must be unique.
-  local seenTargetNames = {}
-  for i, track in ipairs(clip.tracks) do
+  local seenTargetNames = {} ---@type table<string, boolean>
+  for i, track in ipairs(tracks) do
     local whereTrack = where .. "track " .. i .. " "
     if type(track) ~= "table" or type(track.target) ~= "string" or #track.target == 0 then
       invalid(whereTrack .. "requires a non-empty string target")
@@ -130,7 +144,7 @@ function CompiledNsbtaClip.validate(clip, invalid)
       invalid(whereTrack .. "targetIndex must be a zero-based integer inside compiled.targets")
       return
     end
-    local selected = targets[track.targetIndex + 1]
+    local selected = targets[track.targetIndex + 1] ---@type table
     if type(selected) ~= "table" or selected.name ~= track.target then
       invalid(whereTrack .. "target must name the compiled target it selects")
       return
@@ -142,7 +156,7 @@ function CompiledNsbtaClip.validate(clip, invalid)
   end
 
   for i, target in ipairs(targets) do
-    local whereTarget = where .. "target " .. i .. " "
+    local whereTarget = where .. "target " .. i .. " " ---@type string
     if
       type(target) ~= "table"
       or type(target.name) ~= "string"
@@ -151,7 +165,7 @@ function CompiledNsbtaClip.validate(clip, invalid)
       invalid(whereTarget .. "requires a name and a non-negative integer index")
       return
     end
-    local channels = target.channels
+    local channels = target.channels ---@type table
     if type(channels) ~= "table" then
       invalid(whereTarget .. "requires a channels table")
       return

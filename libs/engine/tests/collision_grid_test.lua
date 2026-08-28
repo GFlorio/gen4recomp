@@ -62,7 +62,8 @@ return {
       Assert.isFalse(c:containsLocal(32, 0))
       Assert.isFalse(c:containsLocal(0, 32))
       Assert.isFalse(c:containsLocal(-1, 0))
-      Assert.isFalse(c:containsLocal(0.5, 0))
+      local fractionalCoordinate = 0.5 --[[@as integer]]
+      Assert.isFalse(c:containsLocal(fractionalCoordinate, 0))
       Assert.throws(function()
         c:isBlockedLocal(32, 0)
       end)

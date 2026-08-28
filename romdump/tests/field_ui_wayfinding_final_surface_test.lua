@@ -113,16 +113,6 @@ end
 local function narc(members)
   local btaf = u16(#members) .. u16(0)
   local running = 0
-  for _, size in
-    ipairs((function()
-      local s = {}
-      for _, b in ipairs(members) do
-        s[#s + 1] = #b
-      end
-      return s
-    end)())
-  do
-  end
   local sizes = {}
   for _, bytes in ipairs(members) do
     sizes[#sizes + 1] = #bytes
@@ -319,11 +309,11 @@ function T.compiled_wayfinding_is_48x32_with_6x4_tile_arrangement()
   Assert.equal(a, 255)
   Assert.deepEqual({ r, g, b }, { exp.r, exp.g, exp.b }, "tile 0 at (0,0) in final surface")
   -- tile 1 at (12,4)
-  local r1, g1, b1, a1 = PngReader.pixel(rgba, width, 12, 4)
+  local r1, g1, b1 = PngReader.pixel(rgba, width, 12, 4)
   local exp1 = expectedColor(0, 1)
   Assert.deepEqual({ r1, g1, b1 }, { exp1.r, exp1.g, exp1.b }, "tile 1 at (8,0)")
   -- tile 6 should be at (0,8) second row
-  local r2, g2, b2, a2 = PngReader.pixel(rgba, width, 4, 12)
+  local r2, g2, b2 = PngReader.pixel(rgba, width, 4, 12)
   local exp2 = expectedColor(0, 6)
   Assert.deepEqual({ r2, g2, b2 }, { exp2.r, exp2.g, exp2.b }, "tile 6 at (0,8) second row")
 end

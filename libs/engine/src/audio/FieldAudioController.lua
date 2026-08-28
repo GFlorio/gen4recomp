@@ -73,6 +73,7 @@ end
 -- Does NOT apply persisted overrides (those are part of effectiveMusic).
 -- Resolves string symbols to numeric IDs using the provider.
 -- @param fieldData optional field data; if omitted, uses current map's data
+---@param fieldData table?
 ---@return integer|nil
 function FieldAudioController:mapHeaderMusic(fieldData)
   if fieldData == nil then

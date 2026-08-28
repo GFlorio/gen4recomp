@@ -72,7 +72,7 @@ local function assertBindPoseEquivalence(model)
   local staticBatches = MeshCompiler.compile(model)
   local descriptor = NsbmdDynamicModel.compile(model)
   local program = descriptor.program
-  local draws = NsbmdSbcEvaluator.evaluate(program, bindPose(model)).draws
+  local draws = NsbmdSbcEvaluator.evaluate(program --[[@as NsbmdSbcEvaluator.Program]], bindPose(model)).draws
 
   -- Static batches are one per draw, in order; dynamic meshes are one per
   -- draw segment, also in order.
@@ -168,7 +168,7 @@ end
 function T.billboard_quad_model()
   local m = assert(Nsbmd.decode(NsbmdFixture.buildBillboardQuad())).models[1]
   local descriptor = NsbmdDynamicModel.compile(m)
-  local draws = NsbmdSbcEvaluator.evaluate(descriptor.program, bindPose(m)).draws
+  local draws = NsbmdSbcEvaluator.evaluate(descriptor.program --[[@as NsbmdSbcEvaluator.Program]], bindPose(m)).draws
   Assert.equal(#descriptor.meshes, 1)
   Assert.equal(descriptor.meshes[1].transformMode, "billboard")
   -- The billboard's post-BB matrix is baked at compile, so the segment
@@ -269,7 +269,7 @@ function T.display_list_matrix_restore_segments()
   Assert.equal(#staticBatches[1].vertices, 6)
 
   local descriptor = NsbmdDynamicModel.compile(m)
-  local draws = NsbmdSbcEvaluator.evaluate(descriptor.program, bindPose(m)).draws
+  local draws = NsbmdSbcEvaluator.evaluate(descriptor.program --[[@as NsbmdSbcEvaluator.Program]], bindPose(m)).draws
   -- Two SBC draws, each split into two segments by the restore boundary: the
   -- first segment sources the draw matrix, the second restores slot 3.
   Assert.equal(#descriptor.meshes, 4)
@@ -318,7 +318,7 @@ function T.straddling_quad_carries_per_vertex_sources_and_matches_the_static_bak
 
   local staticBatches = MeshCompiler.compile(m)
   local descriptor = NsbmdDynamicModel.compile(m)
-  local draws = NsbmdSbcEvaluator.evaluate(descriptor.program, bindPose(m)).draws
+  local draws = NsbmdSbcEvaluator.evaluate(descriptor.program --[[@as NsbmdSbcEvaluator.Program]], bindPose(m)).draws
   -- One SBC draw, one straddle mesh (the leading-only segment is dropped: no
   -- indices to draw).
   Assert.equal(#descriptor.meshes, 1)
@@ -335,7 +335,7 @@ function T.straddling_quad_carries_per_vertex_sources_and_matches_the_static_bak
   -- against the static compile, which baked the same per-vertex transforms.
   local staticBatch = staticBatches[mesh.drawIndex + 1]
   Assert.equal(#staticBatch.vertices, 4)
-  local function toTiles(mat)
+  local function toTilesForStraddle(mat)
     local out = {}
     for i = 1, 12 do
       out[i] = mat[i]
@@ -346,9 +346,9 @@ function T.straddling_quad_carries_per_vertex_sources_and_matches_the_static_bak
   end
   local function resolveSource(src, draw)
     if src == "draw" then
-      return toTiles(draw.matrix)
+      return toTilesForStraddle(draw.matrix)
     end
-    return toTiles(draw.restoreStack[src.slot] or Matrix4.identity())
+    return toTilesForStraddle(draw.restoreStack[src.slot] or Matrix4.identity())
   end
   local draw = draws[mesh.drawIndex + 1]
   for i, v in ipairs(mesh.batch.vertices) do
@@ -517,7 +517,6 @@ end
 -- alpha fields. A static and an animated placement of one NSBMD therefore
 -- render with the same polygon state.
 function T.polygon_draw_state_matches_the_static_path()
-  local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
   local fixtures = {
     NsbmdFixture.buildTransformed(),
     NsbmdFixture.buildStaticQuad(),

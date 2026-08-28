@@ -133,11 +133,9 @@ end
 ---@return Errors.Error|nil
 function DialogueTask.validate(state)
   if type(state) ~= "table" or PHASES[state.phase] ~= true then
-    return Errors.new(
-      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "dialogue state must hold a known phase",
-      { state = state }
-    )
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "dialogue state must hold a known phase", context)
   end
   return nil
 end

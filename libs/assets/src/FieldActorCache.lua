@@ -10,6 +10,11 @@
 
 local FieldActorCache = {}
 
+---@class FieldActorCache.Index
+---@field schema string
+---@field spriteIds integer[]
+---@field runtime table
+
 local Validate = require("libs.assets.src.Validate")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
@@ -57,7 +62,7 @@ function FieldActorCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldActorCache.markerPath()) ~= expectedMarker then
     return false
   end
-  local index = cacheFs:loadLua(FieldActorCache.indexPath())
+  local index = cacheFs:loadLua(FieldActorCache.indexPath()) ---@type table?
   if type(index) ~= "table" or index.schema ~= FieldActorCache.INDEX_SCHEMA then
     return false
   end
@@ -75,7 +80,7 @@ function FieldActorCache.isReady(cacheFs, expectedMarker)
     if not Validate.isNonNegativeInteger(spriteId) then
       return false
     end
-    local visual = cacheFs:loadLua(FieldActorCache.visualPath(spriteId))
+    local visual = cacheFs:loadLua(FieldActorCache.visualPath(spriteId)) ---@type table?
     if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA or visual.spriteId ~= spriteId then
       return false
     end

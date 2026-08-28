@@ -30,7 +30,6 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ModelAnimationState = require("libs.engine.src.ModelAnimationState")
-local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 local NitroPoseBackend = require("libs.engine.src.NitroPoseBackend")
 local PoseContract = require("libs.assets.src.PoseContract")
@@ -55,6 +54,10 @@ local BillboardTransform = require("libs.engine.src.BillboardTransform")
 ---@field texMatrix number[]
 ---@field alphaClass string|nil
 
+---@class ModelInstance.Material : MaterialEvaluator.Material
+---@field id integer
+---@field alphaMode string
+
 ---@class ModelInstance
 ---@field definition table
 ---@field transform number[]
@@ -64,8 +67,15 @@ local BillboardTransform = require("libs.engine.src.BillboardTransform")
 ---@field renderMeshesById table|nil -- caller-built render meshes per mesh id
 ---@field resolveImage fun(key: string, materialId: integer): any|nil
 ---@field timeOfDayPlan table|nil -- band plan the scene loader attaches (TimeOfDayProps.plan)
+---@field play fun(self: ModelInstance, nameOrSemantic: string, opts: table?): table
+---@field stop fun(self: ModelInstance, nameOrHandle: string|table): integer
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
+
+---@class ModelInstance.Options
+---@field transform number[]?
+---@field resolveImage? fun(key: string, materialId: integer): any|nil
+---@field timeOfDayPlan table|nil
 
 -- The polygon draw fields the draw path consumes from a nitro backend mesh
 -- record: the shared PolygonState schema minus polygonAlpha, which rides on
@@ -131,6 +141,8 @@ local function baseMaterialState(material)
   return state
 end
 
+---@param definition ModelDefinition
+---@param opts ModelInstance.Options?
 ---@return ModelInstance
 function ModelInstance.new(definition, opts)
   assert(type(definition) == "table" and definition.key ~= nil, "ModelInstance.new requires a ModelDefinition")
@@ -140,6 +152,7 @@ function ModelInstance.new(definition, opts)
 
   local materialState = {}
   for _, material in ipairs(definition.materials) do
+    ---@cast material ModelInstance.Material
     materialState[material.id] = baseMaterialState(material)
   end
 
@@ -234,8 +247,10 @@ end
 -- matrix and the base texture's alpha classification are part of the
 -- effective state.
 function ModelInstance:evaluateMaterials()
+  local definition = self.definition
+  ---@cast definition MaterialEvaluator.Definition
   MaterialEvaluator.evaluate(
-    self.definition,
+    definition,
     self.animationState:attachments(AnimationClip.CATEGORIES.material),
     self.materialState
   )
@@ -321,6 +336,7 @@ end
 -- The remaining center is the mesh's model-space bounding-box center (stamped
 -- by the loader); the
 -- render queue transforms it once by the item transform.
+---@param renderMeshesById table
 ---@return ModelDrawItem[]
 function ModelInstance:drawItems(renderMeshesById)
   assert(type(renderMeshesById) == "table", "drawItems requires a mesh render table")

@@ -103,6 +103,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field savePublished boolean whether the reserved record has been published
 ---@field playerData table the validated profile/options authority (PlayerData shape)
 ---@field session FieldSession
+---@field actors FieldActorManager
 ---@field dialogue FieldDialogueController?
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (script-owned via ScriptSignpostHost)
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?
@@ -114,6 +115,7 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field presentation boolean
 ---@field windowStyles FieldWindowStyles the immutable per-runtime window style catalogue
 ---@field scriptHosts FieldRuntimeScriptHosts?
+---@field transitionPanel "exit"|"enter"|nil
 ---@field applications FieldApplicationRegistry the immutable per-runtime destination application catalogue
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
 ---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share
@@ -393,7 +395,7 @@ function FieldRuntime:_load()
     local weatherCatalog = assert(
       cacheFs:loadLua(FieldWeatherCache.catalogPath()),
       "field weather cache is cold -- run `scripts/buildcache.sh` first"
-    )
+    ) --[[@as FieldWeatherCache.Catalog]]
     assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
     self.weatherCatalog = weatherCatalog
     self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
@@ -623,8 +625,8 @@ function FieldRuntime:_load()
     -- the binding audit guarantees every interactable event is bound.
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
-      actorAt = function(mapId, fieldX, fieldZ, surfaceId)
-        return self.actors and self.actors:getAt(mapId, fieldX, fieldZ, surfaceId) or nil
+      actorAt = function(mapId, actorFieldX, actorFieldZ, actorSurfaceId)
+        return self.actors and self.actors:getAt(mapId, actorFieldX, actorFieldZ, actorSurfaceId) or nil
       end,
     })
 
@@ -1180,9 +1182,8 @@ end
 -- updates. A fault here is a fatal programming error; there is no
 -- transition-level rollback of partially committed state.
 ---@param resolution table
----@param facing FieldDirection
 ---@param prepared table
-function FieldRuntime:_commitSwap(resolution, facing, prepared)
+function FieldRuntime:_commitSwap(resolution, _, prepared)
   local runtimeMap = resolution.destinationMap
   local previousMapId = self.runtimeMap.mapId
   if runtimeMap.mapId ~= previousMapId then

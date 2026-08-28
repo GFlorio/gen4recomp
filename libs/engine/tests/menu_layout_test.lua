@@ -7,6 +7,8 @@ local ScreenTopology = require("libs.engine.src.ScreenTopology")
 
 local T = {}
 
+---@class MenuLayoutTest.Spec : MenuLayout.Spec
+
 local function rect(x, y, width, height)
   return { x = x, y = y, width = width, height = height }
 end
@@ -41,9 +43,12 @@ local function resolve(spec)
   spec.measureText = spec.measureText or function(text)
     return #text * 8
   end
-  return MenuLayout.resolve(spec)
+  return MenuLayout.resolve(spec --[[@as MenuLayoutTest.Spec]])
 end
 
+---@param outer ScreenTopology.Rectangle
+---@param inner ScreenTopology.Rectangle
+---@return boolean
 local function contains(outer, inner)
   return inner.x >= outer.x
     and inner.y >= outer.y

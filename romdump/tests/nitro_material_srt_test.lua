@@ -5,7 +5,6 @@
 
 local Assert = require("tests.support.Assert")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
-local NitroBuilder = require("tests.support.NitroBuilder")
 local NsbmdMaterialSrt = require("romdump.src.digest.nitro.NsbmdMaterialSrt")
 
 local T = {}

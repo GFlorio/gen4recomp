@@ -18,7 +18,8 @@ local function throwsCode(code, fn)
   if ok then
     error("expected a structured " .. code .. " error, got a result")
   end
-  Assert.equal(result.code, code)
+  local errorValue = assert(result) --[[@as { code: string }]]
+  Assert.equal(errorValue.code, code)
 end
 
 -- Decode a fixture file and compile its first animation.
@@ -156,7 +157,7 @@ end
 -- The compiled clip envelope: binding tracks carry the targets' node
 -- indices, and the source block is opaque provenance.
 function T.compiled_clip_envelope()
-  local resource, reader, clip = compileClip(require("tests.support.AnimationFixture").jntDoor(), "jntDoor")
+  local resource, _, clip = compileClip(require("tests.support.AnimationFixture").jntDoor(), "jntDoor")
   Assert.equal(clip.id, "fixture:jntDoor")
   Assert.equal(clip.name, "door_op") -- the fixture's Nitro dictionary name
   Assert.equal(clip.kind, "trs")

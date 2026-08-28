@@ -30,6 +30,20 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 
 local AnimationClip = {}
 
+---@class AnimationClip.Track
+---@field target string|integer
+
+---@class AnimationClip.Data
+---@field id string
+---@field name string
+---@field category string
+---@field kind string
+---@field frameCount integer
+---@field tracks AnimationClip.Track[]
+---@field semanticNames string[]?
+---@field source table?
+---@field compiled table
+
 -- Fixed-point frame unit: one frame is FRAME_UNIT, shared by every player
 -- and sampler in the animation runtime (DS fixed point is 1.M.12, the same
 -- scale FixedPoint.FX32_SCALE owns for the lighting/vector domain).
@@ -69,6 +83,8 @@ AnimationClip.ROLES = {
 
 -- Validate one track: a target is required; anything else (channels, curve
 -- shapes) is opaque to the clip contract and left to the compiled payload.
+---@param tracks AnimationClip.Track[]
+---@param context string
 local function validateTracks(tracks, context)
   for i, track in ipairs(tracks) do
     if track.target == nil then
@@ -84,6 +100,8 @@ end
 -- Build a validated clip from a plain data table. Raises a structured error
 -- on any contract violation. Track tables and the compiled payload are kept
 -- by reference; the clip never writes to caller-owned data.
+---@param data AnimationClip.Data
+---@return AnimationClip.Data
 function AnimationClip.new(data)
   assert(type(data) == "table", "AnimationClip.new requires a table")
   if not AnimationClip.CATEGORIES[data.category] then

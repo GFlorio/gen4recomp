@@ -101,7 +101,6 @@ end
 -- ---- segment boundaries ----
 
 local MTX_RESTORE = { { 0x14 }, { 3 } }
-local MTX_MODE_POSVEC = { { 0x10 }, { 2 } }
 
 function T.matrix_restore_splits_a_segment_with_a_slot_source()
   -- Triangle, MTX_RESTORE slot 3, second triangle: two segments, the second

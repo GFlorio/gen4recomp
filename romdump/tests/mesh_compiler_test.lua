@@ -6,7 +6,6 @@
 
 local Assert = require("tests.support.Assert")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
-local Errors = require("libs.errors.src.Errors")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local NsbmdStaticTransforms = require("romdump.src.digest.NsbmdStaticTransforms")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -127,7 +126,7 @@ local function buildInfo(numNode, numMat, numShp, posScale, invPosScale)
   fields[#fields + 1] = u16(1) -- numPolygon
   fields[#fields + 1] = u16(1) -- numTriangle
   fields[#fields + 1] = u16(0) -- numQuad
-  for i = 1, 6 do
+  for _ = 1, 6 do
     fields[#fields + 1] = u16(0)
   end -- box x,y,z,w,h,d
   fields[#fields + 1] = u32(0x4000) -- boxPosScale

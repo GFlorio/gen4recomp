@@ -106,7 +106,7 @@ T["readback failure rolls back"] = function()
   local bad = bundle()
   bad.resources[1].resource = { api = 1, id = "other", steps = {} }
   local failed = false
-  local ok, err = pcall(real.write, cache, bad)
+  local ok = pcall(real.write, cache, bad)
   if not ok then
     failed = true
   end

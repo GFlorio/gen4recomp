@@ -63,7 +63,6 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field cameraAdjust fun(...: any)?
 ---@field escalatorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table?
 ---@field onPanel fun(...: any)?
----@field callbackOwner table?
 ---@field player table|nil -- FieldPlayer, bound by the owner across the swap
 ---@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"choreo_hold"
 ---@field fadeAlpha number
@@ -90,6 +89,9 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field sourceMap RuntimeFieldMap?
 ---@field sourceWarp table?
 ---@field coveredSwap boolean -- true while a covered scripted swap owns the lifecycle: destination resolution/commit run, but no FieldTransitionFade is created or advanced because an external screen cover already owns visibility
+---@field escalator table?
+---@field destinationWarpX integer?
+---@field destinationWarpZ integer?
 local FieldTransition = {}
 FieldTransition.__index = FieldTransition
 
@@ -119,7 +121,6 @@ function FieldTransition.new(options)
     cameraAdjust = options.cameraAdjust,
     escalatorAt = options.escalatorAt,
     onPanel = options.onPanel,
-    callbackOwner = options.callbackOwner,
     player = options.player,
     profileId = nil,
     transitionMode = nil,
@@ -173,18 +174,19 @@ function FieldTransition:presentationStatus()
   }
 end
 
+---@param self FieldTransition
+---@return { ["exit"]: string, ["enter"]: string, exitSound: string?, enterSound: string?, adjustment: string?, fadeColor: integer?, entryAction: string? }
 local function profileFamily(self)
   return assert(FieldTransitionProfile.ROUTINE_FAMILIES[self.profileId], "transition profile routine missing")
 end
 
+---@param self FieldTransition
+---@param phase "exit"|"enter"
 local function invokeProfile(self, phase)
   local family = profileFamily(self)[phase]
+  local profileId = assert(self.profileId)
   if self.onProfile then
-    if self.callbackOwner then
-      self.onProfile(self.callbackOwner, self.profileId, phase, family)
-    else
-      self.onProfile(self.profileId, phase, family)
-    end
+    self.onProfile(profileId, phase, family)
   end
 end
 
@@ -214,9 +216,10 @@ local function beginProfileMotion(self, phase)
   end
   if self.profileId == FieldTransitionProfile.ESCALATOR then
     assert(self.escalatorAt, "escalator prop resolver required")
-    local map, x, z = self.sourceMap, self.sourceWarp.x, self.sourceWarp.z
+    local map, x, z = assert(self.sourceMap), self.sourceWarp.x, self.sourceWarp.z
     if phase == "enter" then
-      map, x, z = self.resolution.destinationMap, self.resolution.fieldX, self.resolution.fieldZ
+      local resolution = assert(self.resolution)
+      map, x, z = assert(resolution.destinationMap), resolution.fieldX, resolution.fieldZ
     end
     self.escalator = self.escalatorAt(map, x, z)
     assert(self.escalator, "escalator transition prop required")
@@ -727,11 +730,7 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.fadeAlpha = 0
   if self.transitionMode == FieldTransitionProfile.MODE_PANEL then
     if self.onPanel then
-      if self.callbackOwner then
-        self.onPanel(self.callbackOwner, "exit")
-      else
-        self.onPanel("exit")
-      end
+      self.onPanel("exit")
     end
   end
   runChoreo(self, beginSourceChoreography)
@@ -862,21 +861,13 @@ function FieldTransition:updateFixed()
     end
     if self.transitionMode == FieldTransitionProfile.MODE_PANEL then
       if self.onPanel then
-        if self.callbackOwner then
-          self.onPanel(self.callbackOwner, "enter")
-        else
-          self.onPanel("enter")
-        end
+        self.onPanel("enter")
       end
     elseif self.profileId then
       invokeProfile(self, "enter")
       local family = profileFamily(self)
       if family.adjustment and self.cameraAdjust then
-        if self.callbackOwner then
-          self.cameraAdjust(self.callbackOwner, self.profileId, family.adjustment, self.player)
-        else
-          self.cameraAdjust(self.profileId, family.adjustment, self.player)
-        end
+        self.cameraAdjust(self.profileId, family.adjustment, self.player)
       end
       if beginProfileMotion(self, "enter") then
         self.destinationChoreo = "profile_motion"

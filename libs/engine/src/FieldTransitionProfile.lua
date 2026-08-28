@@ -78,6 +78,7 @@ local ENVIRONMENT_PROFILES = {
 
 ---@param sourceEnvironment string
 ---@param destinationEnvironment string
+---@param context Errors.Context?
 ---@return integer
 function FieldTransitionProfile.selectEnvironment(sourceEnvironment, destinationEnvironment, context)
   local sourceProfiles = ENVIRONMENT_PROFILES[sourceEnvironment]

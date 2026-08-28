@@ -1,319 +1,293 @@
 ---
 name: spec-based-development
-description: Implement a finalized implementation-spec bundle containing `SPEC.md` plus `deliverables/Dxx-*.md` files. Use when the human points at a spec bundle produced by an implementation-spec writer and wants the repository changed through dependency-safe subagent pipelines with acceptance-first implementation, isolated worktrees, review, verification, and integration. Treat the spec bundle and all orchestration notes as temporary artifacts that must never leak into permanent repository content.
+description: Implement finalized design-heavy implementation-spec bundles in gen4recomp through dependency-safe isolated subagent pipelines. Use when a human provides SPEC.md plus deliverables/Dxx-*.md and wants the repository changed while preserving pinned-baseline design contracts, exact repository reuse/compatibility prescriptions, acceptance-first development, TDD, fresh-context design and deletion reviews, exact per-deliverable commit messages, controlled deviations, and final branch verification without leaking temporary spec context into permanent artifacts.
 ---
 
 # Spec-Based Development
 
-Act as the **orchestrator**. Do not write implementation code. Read the shared contract, maintain
-temporary orchestration state, dispatch subagents, verify results, and integrate commits.
+Act as the orchestration layer for a finalized implementation specification. Do not write production code yourself. Validate the contract, create isolated worktrees, dispatch fresh subagents, arbitrate deviations, run verification, preserve the prescribed commit history, and advance the protected target only after independent final review.
 
-The specification bundle is authoritative implementation context. It has this shape:
+The coding agents execute the design. They do not redesign the feature merely because another implementation looks plausible.
+
+The entire specification bundle and all orchestration state are temporary. Never propagate `SPEC.md`, deliverable/requirement/acceptance IDs, deviation IDs, planning terminology, implementation notes, or spec rationale into production code, tests, test names, comments, docstrings, documentation, changelogs, or commit messages.
+
+## Contract semantics
+
+Interpret the finalized bundle exactly as follows:
+
+- **Locked**: all normative text is locked by default, including compatibility, reuse, architecture, lifecycle, interfaces, implementation footprint, novelty budget, implementation recipe, acceptance, verification, handoff, and commit contracts. Changing a locked contract requires an approved deviation.
+- **Preferred**: only text explicitly marked `**Preferred:**`. An implementation may choose a mechanically equivalent local alternative only when every locked behavior, architecture boundary, lifecycle rule, public surface, compatibility rule, and acceptance result remains identical. Record the alternative and concrete equivalence evidence in temporary notes so review can judge it. If equivalence is arguable rather than objective, treat the choice as locked and propose a deviation.
+- **Discretionary**: only choices explicitly listed under `## Allowed implementation discretion`. Keep them behaviorally and architecturally immaterial.
+
+A weaker agent must not infer additional discretion from words such as “implementation detail”, “for example”, or “follow conventions”.
+
+## Workflow
+
+1. Prepare and validate the bundle against the current design-heavy contract.
+2. Capture and protect the target branch/head; create a dedicated integration branch/worktree from the exact research commit.
+3. Schedule all currently unblocked deliverables from the declared DAG.
+4. For each deliverable run: acceptance authoring -> implementation -> fresh design-contract review -> deletion/cleanup review -> verification -> exact commit -> integration.
+5. Re-run applicable global verification after each integration batch.
+6. After all deliverables integrate, audit requirement coverage and exact commit history, run global verification, perform a fresh integrated design review, then run the normal branch review.
+7. Fold any valid final-review fixes into their owning deliverable commits, rerun verification/review, and only then fast-forward the protected target.
+8. Report completion, deviations, verification, and any unresolved blockers; remove temporary state when safe.
+
+## 1. Prepare the bundle
+
+Accept either a ZIP or an unpacked directory with this root shape:
 
 ```text
 SPEC.md
 deliverables/
   D01-<slug>.md
   D02-<slug>.md
-  ...
 ```
 
-`SPEC.md` is shared context. Each deliverable pipeline reads `SPEC.md`, exactly its own deliverable
-file, its temporary implementation notes, and the repository. Do not make coding agents read
-unrelated deliverable files.
+Extract ZIPs under `.agents/tmp/`; never commit the bundle.
 
-The entire spec bundle is temporary and will be discarded. Never copy or reference `SPEC.md`, the
-bundle, deliverable IDs/numbers, requirement IDs, acceptance IDs, phase names, or planning
-terminology in production code, tests, test names, comments, docstrings, documentation, changelogs,
-or commit messages. Describe permanent artifacts only in terms of the behavior they implement.
+Read `SPEC.md` in full. Require: Goal, Global constraints, Non-goals, Source basis, Shared terminology, Shared architecture, Global decisions, Requirement coverage, Deliverables, Dependency graph, Cross-deliverable contracts, Global verification, and Integration constraints.
 
-## Setup
+For every deliverable require the current design-heavy sections, including:
 
-1. **Locate the bundle root.** Accept either an unpacked bundle or a ZIP containing `SPEC.md` at its
-   root. If given a ZIP, extract it under `.agents/tmp/`. Keep the bundle temporary and uncommitted.
-2. **Read `SPEC.md` in full.** Require the sections emitted by the writer: Goal, Global constraints,
-   Non-goals, Source basis, Shared terminology, Shared architecture, Global decisions, Requirement
-   coverage, Deliverables, Dependency graph, Cross-deliverable contracts, Global verification, and
-   Integration constraints. If the bundle does not follow that contract, stop rather than guessing.
-3. **Verify the repository baseline.** Compare the current primary-worktree `HEAD` with the full
-   `Research commit` in `SPEC.md` → `Source basis`. They must match before implementation begins.
-   If they differ, stop and tell the human that the spec was researched against a different revision;
-   do not silently reinterpret exact file, symbol, API, or acceptance prescriptions against new code.
-4. **Validate the deliverable index mechanically.** Every `Dxx` row must name an existing file. Use
-   the declared `Depends on`, Dependency graph, Cross-deliverable contracts, and Integration
-   constraints as the scheduling contract. Do not re-decompose the work or ask the human to reconfirm
-   a finalized decomposition.
-5. **Do not preload every deliverable.** `SPEC.md` is the orchestration index. Read a deliverable file
-   when preparing, checking, or integrating that deliverable.
-6. **Create the primary notes file** at `.agents/tmp/<bundle-name>-notes.md` and the sanitized
-   deviation ledger at `.agents/tmp/<bundle-name>-deviations.md`. Both are temporary and uncommitted.
+- Current-state evidence and Compatibility contract;
+- Repository reuse contract with Must reuse / Must preserve / May extend or refactor / Must not reimplement / New abstractions justified;
+- Behavioral contract;
+- Architecture and design, including responsibility boundaries and extension/public surface;
+- Implementation footprint and Novelty budget;
+- Interfaces and data contracts;
+- Required implementation and file-by-file Implementation recipe;
+- Acceptance contract, Lower-level test requirements, Verification, and Review hotspots;
+- Pitfalls and forbidden approaches, Handoff, Commit, Allowed implementation discretion, and Definition of done.
 
-### Primary notes format
+Stop rather than guessing when a required section is missing, an exact file/symbol prescription is unresolved, the dependency graph is invalid, a commit message is templated instead of literal, or the bundle contains unresolved TODO/TBD placeholders.
 
-```markdown
-# Implementation notes — <bundle name>
+### Baseline and protected target
 
-## Deliverables
-- [ ] D01 — <name>
-- [ ] D02 — <name>
+Require a clean primary worktree. Capture:
 
-## Acceptance state
-### D01
-- A-D01-01 — red: <observed intended red>; green: <pending|pass|fail|unverified>
+- current named target branch;
+- current target `HEAD`;
+- full `Research commit` from `SPEC.md`.
 
-## Messages
-Append-only handoff facts that later deliverables would otherwise rediscover or contradict.
+The target `HEAD` must equal the research commit before implementation starts. Do not reinterpret a spec against a nearby revision. Never stash, reset, discard, or absorb unrelated human changes.
 
-### From D01
-- <actual implementation fact needed by a dependent deliverable>
+Create a dedicated local integration branch/worktree, for example `agent/<bundle-slug>`, from the research commit. All implementation, integration, final review, fixups, and history rewriting happen there. Do not advance the protected target until the end. Never push or open a PR unless the human separately asks.
 
-## Integration
-- <commit/order/verification facts>
+## 2. Temporary orchestration state
+
+Keep temporary state under ignored paths such as:
+
+```text
+.agents/tmp/<bundle-slug>/
+  bundle/
+  notes.md
+  deviations.md
+  worktree-notes/
+
+.worktrees/spec-<slug>-Dxx/
 ```
 
-The `Messages` section is the implementation-time channel between deliverable pipelines. Stable spec
-IDs may appear in temporary notes, but never in committed repository artifacts.
+Initialize `notes.md` with deliverable, acceptance, integration, and handoff state. Use it as an append-only implementation-time channel; do not turn it into a reasoning diary.
 
-For concurrently active worktrees, create a private notes copy for each deliverable. After a commit
-is integrated, append only its completed handoff facts, acceptance state, and integration facts to the
-primary notes file. Never concurrently append to the primary notes file from worktrees.
-
-### Deviation ledger format
-
-The deviation ledger is **not** an implementation diary and must contain no speculative reasoning,
-failed approaches, agent summaries, or plausibility arguments. It records only approved amendments
-to the normative specification:
+Use this deviation ledger:
 
 ```markdown
-# Approved specification deviations — <bundle name>
+# Approved specification deviations — <bundle>
 
 ## DEV-01 — <short description>
 - Deliverable: Dxx
-- Spec location: `<file>` → `<section or contract>`
+- Spec location: `<file>` -> `<section / exact contract>`
 - Authoritative replacement: <precise replacement contract>
-- Acceptance impact: <affected acceptance behavior/IDs, or "None">
-- Authority: <human decision OR objective repository fact with concrete evidence>
+- Acceptance impact: None | <exact affected scenarios>
+- Evidence: <repository fact, test/live evidence, or human decision>
+- Authority: orchestrator-objective-evidence | human
 ```
 
-If there are no approved deviations, leave the file with the heading and `None.`
+If there are none, write `None.`.
 
-A subagent may **propose** a deviation in implementation notes, but cannot approve one. Before work
-continues under a changed contract:
+A subagent may propose but never approve a deviation. The orchestrator may approve only a narrow objective correction proven by repository evidence at the research baseline when externally observable behavior, acceptance semantics, architecture, ownership, lifecycle, API/persistence/security/failure contracts, dependency edges, and public surface remain unchanged. All other material changes require human approval.
 
-- require human approval if the change affects observable behavior, architecture, API semantics,
-  persistence, compatibility, security, failure behavior, concurrency/ownership, acceptance criteria,
-  deliverable boundaries, or cross-deliverable contracts;
-- allow an orchestrator-approved correction only for an objectively false implementation fact that is
-  proven by concrete repository evidence at the exact research baseline and does not change behavior
-  or another locked contract;
-- record the approved replacement in the deviation ledger before redispatching work;
-- copy only the relevant approved replacement into that deliverable's temporary notes.
+Never edit the spec to conceal an approved deviation.
 
-Never edit the specification files to hide a deviation.
+## 3. Dependency-safe worktrees
 
-## Dependency-safe worktrees
+For each currently unblocked deliverable:
 
-Dispatch every currently unblocked deliverable as an isolated worktree pipeline.
+- create a dedicated branch/worktree from the current integration branch;
+- independent deliverables may run concurrently from the same integrated prerequisite state;
+- a consumer starts only after every provider it depends on is integrated;
+- serialize when `Integration constraints`, generated artifacts, shared mutable fixtures, migrations, or overlapping unfinished interfaces make parallel work unsafe.
 
-- Independent deliverables may branch from the same verified base commit and run concurrently.
-- A dependent deliverable must start from the primary branch **after** all declared prerequisites it
-  consumes have been integrated.
-- Do not parallelize work that `SPEC.md` marks as ordered or conflicting through Integration
-  constraints, unfinished cross-deliverable contracts, generated artifacts, shared mutable fixtures,
-  or migrations.
-- If an unexpected implementation conflict appears, serialization is safe; changing the declared
-  contract or dependency relationship is a deviation and follows the deviation process above.
+After a deliverable is verified and committed, rebase it onto the current integration branch and fast-forward the integration branch. Do not create merge commits. If a conflict requires semantic edits, dispatch a fresh integration-fix subagent with only the affected contract files and approved deviations.
 
-Within each worktree preserve:
+Remove integrated worktrees and temporary branches.
 
-**acceptance → implementation → review → verification → commit**
+## 4. Subagent context boundary
 
-After a pipeline commits, inspect its diff and verification state, then rebase its branch onto the
-current primary branch and fast-forward the primary branch. Keep history linear; do not create merge
-commits. For conflicts, dispatch a fresh integration-fix subagent rather than editing source yourself.
-Give that subagent `SPEC.md`, only the affected deliverable files, relevant approved deviations, the
-primary notes, and the worktree path.
+`SPEC.md` is shared contract context. A deliverable pipeline receives only:
 
-Re-run applicable global verification after each integration batch. Remove integrated worktrees and
-delete their temporary branches.
+- absolute path to `SPEC.md`;
+- absolute path to exactly its own deliverable file;
+- absolute path to its private worktree notes;
+- absolute path to the deviation ledger and IDs of deviations applicable to it, or `None`;
+- its worktree path;
+- repository-local instructions/skills discovered normally.
 
-## Per-deliverable pipeline
+Do not preload unrelated deliverables. Do not paste or paraphrase the spec into prompts; pass paths.
 
-For `Dxx`, first read its deliverable file in full. Treat every section as contractual according to its
-wording, including Dependencies and contracts, Requirements owned, Behavioral contract, Architecture
-and design, Interfaces and data contracts, Required implementation, Acceptance contract, Lower-level
-test requirements, Verification, Pitfalls and forbidden approaches, Handoff, Allowed implementation
-discretion, and Definition of done.
+Final integrated reviewers receive the spec bundle and approved deviations but **never** implementation/worktree notes, author summaries, failed approaches, or design rationalizations produced during implementation.
 
-### 0. Author the acceptance contract
+## 5. Per-deliverable pipeline
 
-Dispatch a `general-purpose` subagent with these parts, in order:
+Read the active deliverable in full before dispatching. In particular, explicitly inspect its Compatibility contract, Repository reuse contract, Architecture and design, Implementation footprint, Novelty budget, Implementation recipe, Review hotspots, and Commit contract before any production implementation begins.
 
-1. `Read <absolute-SPEC.md>, <absolute-Dxx-file>, and <absolute-worktree-notes> in full. Work only in
-   <absolute-worktree>. Do not read other deliverable files.`
-2. `Read .agents/skills/acceptance-testing/SKILL.md and follow it.`
-3. `Implement exactly the scenarios under this deliverable's Acceptance contract before production
-   implementation. Do not modify production code. Preserve each scenario's behavior, setup, observable
-   boundary, expected result, test layer, capabilities, and expected pre-implementation red.`
-4. `Use A-Dxx-yy IDs only in temporary notes to map scenarios to tests. Never put spec IDs, spec names,
-   deliverable numbers, or planning terminology in test names, test code, fixtures, comments, or other
-   committed artifacts.`
-5. `Verify each scenario red for the intended missing-behavior reason. A syntax/load/capability failure
-   is not the required red. If the behavior is already green, the expected red is impossible, or the
-   contract appears invalid, do not invent a replacement. Record concrete evidence as a proposed
-   deviation in the notes and stop.`
-6. `Append scenario-to-test mapping, files changed, required capabilities, expected red, actual red,
-   explicit exemptions already allowed by the spec, and facts learned to the notes. Do not commit.`
-7. `Return: scenarios implemented, production boundary exercised, red result per scenario,
-   fixtures/adapters/capabilities used, and any proposed deviation or exemption.`
+### 5.1 Author acceptance first
 
-It may edit test support and test-only fixtures when required by the acceptance contract, but no
-production code.
+Dispatch a fresh `general-purpose` subagent:
 
-### 1. Implement
+1. Read `SPEC.md`, the active deliverable, and worktree notes; work only in the worktree and do not read other deliverables.
+2. Read `.agents/skills/acceptance-testing/SKILL.md` and follow it.
+3. Author exactly the deliverable's acceptance scenarios before production implementation. Preserve setup, observable boundary, expected result, layer, fixtures/capabilities, and expected pre-implementation red.
+4. Keep spec IDs only in temporary notes; never place them in committed test names/code/fixtures/comments.
+5. Observe the intended missing-behavior red. Syntax/load/capability/unrelated failures are not valid red. If a scenario is already green or its expected red is objectively impossible, record evidence and propose a deviation; do not manufacture failure.
+6. Modify only tests/test support/fixtures permitted by the contract; do not modify production code or commit.
+7. Record scenario-to-test mapping, red/pass/blocked state, capabilities, and concrete facts in worktree notes.
 
-Dispatch a fresh `general-purpose` subagent with these parts, in order:
+### 5.2 Implement the prescribed design
 
-1. `Read <absolute-SPEC.md>, <absolute-Dxx-file>, and <absolute-worktree-notes> in full before starting.
-   Work only in <absolute-worktree>. Do not read other deliverable files.`
-2. `Implement Dxx and only Dxx. Satisfy its owned requirements, behavioral contract, architecture,
-   interfaces/data contracts, required implementation, lower-level test requirements, verification,
-   pitfalls, handoff, and definition of done. Exercise discretion only where Allowed implementation
-   discretion explicitly leaves a choice open.`
-3. `Read .agents/skills/tdd/SKILL.md and follow it. Read and follow the repository instructions named
-   in SPEC.md plus any applicable repo-local instructions.`
-4. `The acceptance tests from the prior subagent are contract tests. Make them pass without weakening,
-   deleting, bypassing, or changing their semantics. Add lower-layer tests required by the deliverable.`
-5. `The entire specification is temporary. Never copy or reference SPEC.md, deliverable IDs/numbers,
-   requirement IDs, acceptance IDs, phase names, or planning terminology in code, tests, test names,
-   comments, docstrings, documentation, changelogs, or commit messages.`
-6. `If a locked spec statement appears wrong or impossible, do not silently reinterpret it and do not
-   alter acceptance semantics. Record the concrete conflict and evidence as a proposed deviation in the
-   notes, stop that disputed part, and return it for orchestrator resolution.`
-7. `Append actual handoff facts later deliverables need to Messages, plus test/verification status and
-   any proposed deviation. Do not edit the spec. Do not commit.`
-8. `Return: files touched, behavior built, spec-contract status, proposed deviations if any, tests and
-   verification run, and ownership/lifecycle/failure cases changed with the tests covering them.`
+Dispatch a fresh `general-purpose` subagent:
 
-If an approved deviation exists, redispatch with the relevant authoritative replacement already copied
-into the temporary notes. The subagent must treat that replacement as overriding only the exact spec
-location named in the deviation; all other spec clauses remain in force.
+1. Read `SPEC.md`, the active deliverable, worktree notes, applicable deviations, repository instructions, and `.agents/skills/tdd/SKILL.md`.
+2. Implement only this deliverable. Treat all unmarked normative text as Locked, explicitly marked `**Preferred:**` text as Preferred, and only `Allowed implementation discretion` as Discretionary.
+3. Follow the Repository reuse contract literally: reuse exact named mechanisms; preserve named contracts; do not reimplement prohibited concerns; introduce only abstractions justified by `New abstractions justified` and the Novelty budget.
+4. Follow the Architecture and design contracts for responsibility, public/private surface, state ownership, lifecycle, control flow, ordering, and extension points.
+5. Follow the file-by-file Implementation recipe. Do not substitute another architecture merely because it could satisfy acceptance tests.
+6. Treat Implementation footprint as an overbuild guard. If materially more production files, layers, helpers, or shared abstractions appear necessary, stop before adding them, re-search repository reuse, and propose a design deviation when the expansion remains necessary.
+7. Make pre-authored acceptance tests pass without weakening them; add the required lower-level tests.
+8. If deviating from a Preferred prescription, record the exact alternative and objective equivalence evidence in notes. Do not create a deviation when equivalence is clear; otherwise stop and propose one.
+9. Never copy temporary spec/planning vocabulary into permanent artifacts.
+10. If a Locked contract is false or impossible, stop that disputed part and record concrete evidence as a proposed deviation. Do not silently reinterpret it.
+11. Record only actual handoff facts, verification state, Preferred alternatives, and proposed deviations. Do not commit.
 
-### 2. Review the deliverable diff
+### 5.3 Fresh design-contract review
 
-Dispatch `.agents/skills/change-review/SKILL.md` according to its Dispatch section. Give it:
+Before generic cleanup, dispatch a fresh `general-purpose` reviewer with **no implementation summary or author reasoning**. Give only `SPEC.md`, the active deliverable, applicable approved deviations, and the worktree path. Do not give implementation notes.
 
-- the absolute `SPEC.md` path;
-- the absolute path to this deliverable file;
-- this worktree's implementation-notes path;
-- any approved deviation affecting this deliverable;
-- the worktree path.
+The reviewer must read the full diff and independently audit:
 
-It reviews and fixes the uncommitted diff. It may use implementation notes in this per-deliverable
-review because this review is part of the implementation pipeline. It must not silently waive or alter
-a spec contract. Any newly discovered contract conflict returns to the deviation process before commit.
+- Compatibility: every `preserve` behavior remains preserved and every intentional change is deliberate.
+- Reuse: every Must reuse / Must not reimplement clause is obeyed; parallel implementations are deleted or replaced with repository mechanisms.
+- Novelty: inventory every new production module/class/helper/shared abstraction and compare it to `New abstractions justified` plus the Novelty budget. Unbudgeted shared abstraction is presumptively removed; if truly necessary it is a design deviation.
+- Architecture: responsibility boundaries, public/private surface, state ownership, lifecycle, ordering, and extension points match the locked design.
+- Footprint: unexpected production machinery triggers a reuse/design re-check rather than normalization of the larger design.
+- Recipe: changed production files and material symbols follow the prescribed seams, helpers, sequence, cleanup, and forbidden alternatives.
+- Preferred choices: any departure is objectively mechanically equivalent; otherwise treat it as a contract conflict.
+- Review hotspots: explicitly inspect every hotspot and its named repository analogue.
+- Acceptance/test ownership: tests prove contracts rather than preserve accidental implementation complexity.
 
-### 3. Verify
+Apply a deletion/reuse bias. Fix violations directly when the locked contract determines the correction. Return only unresolved decisions that genuinely require a deviation.
 
-Run every command under the deliverable's `## Verification` section in the worktree. Also run any
-`SPEC.md` → `## Global verification` command that is applicable at this point and safe before full
-integration.
+### 5.4 Deletion and repository-quality review
 
-Record pass/fail/skip by command and by acceptance scenario in the worktree notes. A skipped test layer
-or missing capability is **not** a pass. If a required contract cannot execute, make the capability
-available and rerun, or leave the deliverable unverified and uncommitted.
+After design conformance, dispatch `.agents/skills/change-review/SKILL.md` using its fresh-context Dispatch protocol. Supply the worktree and the active contract paths without an implementation summary. This pass is responsible for the repository-wide simplification, naming, branch, residue, lint, and test checklist.
 
-All acceptance scenarios owned by the deliverable, required lower-level tests, and required
-verification commands must be green before commit.
+A cleanup must not override a locked design contract. If the generic review wants to simplify something the spec intentionally locks, that is a proposed deviation rather than permission to rewrite the architecture.
 
-### 4. Commit
+### 5.5 Verify
 
-Create one cohesive commit for the deliverable containing its acceptance tests and implementation
-together. Use a scoped, one-line subject with no body and no AI attribution:
+Run every command under the deliverable's `## Verification`, plus any `SPEC.md` Global verification command applicable and safe at this stage.
 
-```text
-<scope>: <description>
-```
+Record each acceptance scenario and verification command as pass/fail/blocked. Required skipped/unavailable capabilities are not green.
 
-Describe the resulting code change on its own terms. Do not mention the spec, `Dxx`, `Rxx`, `A-Dxx-yy`,
-planning phases, or "per the plan". Never commit the spec bundle, implementation notes, or deviation
-ledger.
+Also check the deliverable's `## Commit` Gate before committing.
 
-### 5. Complete and integrate
+Do not commit while acceptance/lower-level tests fail, required verification is blocked, a design-contract review finding is unresolved, or change-review leaves a correctness/lifecycle/determinism/contract finding unresolved.
 
-Tick `Dxx` in the worktree notes only after its acceptance contract, lower-level tests, verification,
-implementation, review, and commit are complete. Integrate dependency-safely, then copy its actual
-handoff facts, acceptance state, and integration result into the primary notes.
+### 5.6 Commit exactly as prescribed
 
-Do not rewrite the spec's `## Handoff` section. If the actual handoff contradicts a locked contract,
-that is a deviation and must already be approved and recorded.
+Read the deliverable's `## Commit` contract.
 
-## Final branch review
+- `Required: yes`: tracked changes must exist and must fit Scope/Exclusions. Commit once using the exact literal `Message` **verbatim**, with no body, trailers, AI attribution, or rewriting.
+- `Required: no`: require no tracked deliverable changes and create no commit.
+- `Required: conditional`: if tracked changes are necessary, use the exact literal Message verbatim; if all gates pass with no tracked changes, create no empty commit.
 
-After all deliverables are integrated:
+Never synthesize `<scope>: <description>`. The spec writer already researched repository history and chose the subject.
 
-1. Cross-check `SPEC.md` → `Requirement coverage`: every `Rxx` owner must be complete and every listed
-   `A-Dxx-yy` must have a green acceptance result in the primary notes. Resolve any gap before review.
-2. Run every command in `SPEC.md` → `Global verification` on the integrated primary branch. Required
-   commands must pass; skipped required capabilities remain unverified.
-3. Dispatch `.agents/skills/branch-review/SKILL.md` according to its Dispatch section. Give the branch
-   reviewer the absolute `SPEC.md` path and the absolute deviation-ledger path. Instruct it to read
-   `SPEC.md` and **every deliverable file listed in its Deliverables table** as the normative contract.
-4. **Never give branch review the implementation notes, worktree notes, agent summaries, failed
-   approaches, or a paraphrase of their reasoning.** Do not copy notes into its prompt. The final review
-   must independently judge the repository against the specification rather than inherit plausible but
-   potentially wrong implementation reasoning.
-5. The deviation ledger is the only implementation-time context the branch reviewer receives. Tell it
-   to treat each recorded deviation as an authoritative amendment to only the exact spec location it
-   names, while independently verifying the resulting code. An empty ledger means there were no
-   approved deviations.
-6. Verify all Global verification commands again after any fixes the branch review makes, then commit
-   review fixes without spec/planning references. If review exposes a genuine spec-contract ambiguity,
-   use the same deviation process; do not let the reviewer decide product behavior implicitly.
+Record the resulting commit SHA and exact subject in temporary notes, then integrate dependency-safely.
 
-## Finish
+## 6. Cross-deliverable contracts
 
-Report to the human:
+Provider contracts in `SPEC.md` are Locked shared interfaces. Consumers must use the exact provided symbol/schema/lifecycle/stable guarantees and must respect explicit non-guarantees.
 
-- deliverables completed and commits made;
-- approved deviations from the original spec contract;
-- any findings left open because a behavior decision was required;
-- acceptance coverage status;
-- final Global verification status.
+A consumer may not extend or reinterpret a provider contract because its implementation would be easier. If the provided contract is insufficient, stop and propose a deviation before changing either deliverable.
 
-Then discard the temporary spec extraction, implementation notes, worktree notes, and deviation ledger
-when the surrounding workflow permits. None belongs in repository history.
+Implementation-time handoff messages may report concrete realized facts, but they may not silently broaden a cross-deliverable contract.
 
-## Rules
+## 7. Final coverage, history, and integrated design review
 
-- Orchestrate; subagents implement. If you catch yourself editing source, stop and dispatch.
-- Treat finalized `SPEC.md` decomposition, requirement ownership, dependencies, and cross-deliverable
-  contracts as authoritative. Do not re-plan them casually.
-- One deliverable per worktree pipeline and one cohesive deliverable commit. Never batch deliverables.
-- Coding agents read `SPEC.md` plus their own deliverable file, not the whole bundle.
-- Never commit red, skipped-required, or otherwise unverified work.
-- Never commit the spec bundle, notes, or deviation ledger.
-- Never propagate temporary IDs or planning vocabulary into permanent repository artifacts.
-- Never change acceptance semantics without an approved deviation.
-- Never commit while review leaves an unresolved correctness bug, data-loss risk,
-  resource-ownership/lifecycle bug, deterministic-state bug, or violated cross-deliverable contract.
-- Never expose implementation notes to final branch review. Approved deviations are the sole exception
-  and must be conveyed only through the sanitized deviation ledger.
-- A repeated review failure that points to a genuinely wrong spec contract is not solved by trying a
-  third implementation. Resolve the contract through the deviation process.
-- Report incompleteness and verification failures exactly; do not turn skipped or blocked work green.
+After every deliverable is integrated on the dedicated integration branch:
+
+1. Cross-check `Requirement coverage`: every requirement owner completed and every mapped acceptance scenario is green.
+2. Audit every deliverable Commit contract against branch history. Each required/changed deliverable has exactly the prescribed subject; no forbidden body/trailer/planning vocabulary exists; no unexpected implementation commit bypasses a deliverable contract.
+3. Run every `SPEC.md` Global verification command.
+4. Dispatch a fresh integrated design reviewer with `SPEC.md`, **every deliverable listed in the Deliverables table**, the deviation ledger, and the integration worktree. Explicitly forbid implementation notes and author summaries.
+5. The reviewer independently repeats the compatibility/reuse/novelty/architecture/footprint/recipe/hotspot audit across the complete integrated diff, with special attention to cross-deliverable duplication, contract reinterpretation, public-surface growth, and abstractions that became unnecessary after integration.
+6. Fix only findings whose correct resolution is established by the locked contract. Material contract changes use the deviation process.
+7. Run `.agents/skills/branch-review/SKILL.md` as a final deletion-biased repository review. Give it the specification contract and approved deviations, never implementation notes.
+8. Re-run all affected and global verification after review fixes.
+
+### Preserve exact deliverable history after final-review fixes
+
+Final-review fixes must not create an arbitrary extra “review fixes” commit that defeats exact per-deliverable commit contracts.
+
+Classify each fix by owning deliverable. For each affected deliverable, create a temporary `fixup!` commit targeting that deliverable's exact commit, then autosquash on the integration branch. Split fixes when they belong to different deliverables. If a fix changes cross-deliverable ownership or cannot be assigned without changing the finalized decomposition, treat it as a deviation.
+
+After autosquash, re-run the exact commit-history audit, global verification, and final integrated review. The final branch should retain the exact subjects prescribed by the spec.
+
+## 8. Advance the protected target
+
+Immediately before delivery, verify the protected primary worktree is still clean, still on the captured target branch, and still at the captured target head. If it moved, stop for explicit reconciliation; do not reset, overwrite, or force-update it.
+
+Only after final coverage, history audit, verification, and reviews are green may the target branch be fast-forwarded to the reviewed integration branch. Never force-update the target.
+
+## 9. Finish
+
+Report concisely:
+
+- deliverables completed and their exact commit subjects/SHAs, including legitimate zero-commit deliverables;
+- approved deviations and authority;
+- Preferred alternatives actually used;
+- acceptance coverage and blocked capabilities;
+- final Global verification state;
+- unresolved human decisions, if any.
+
+Remove prepared bundle extraction, worktree notes, integrated worktrees, and other temporary state when safe. Preserve nothing from the discarded spec in repository history.
+
+## Hard rules
+
+- Orchestrate; subagents implement and review.
+- Execute the finalized design; do not casually re-plan it.
+- Exact research baseline or stop.
+- Locked is the default. Preferred requires objective mechanical equivalence. Discretionary exists only where explicitly granted.
+- Reuse named repository mechanisms; unbudgeted shared abstractions require re-search and usually a deviation.
+- Acceptance green does not excuse violating architecture/reuse/lifecycle contracts.
+- Never weaken acceptance to make an implementation pass.
+- Never invent or rewrite deliverable commit messages.
+- Never create empty commits for no-change/conditional deliverables.
+- Never commit the spec bundle, notes, deviations, or temporary IDs/planning vocabulary.
+- Never expose implementation notes or author reasoning to final integrated reviewers.
+- Never turn blocked/skipped required verification green.
+- Never push or create a PR unless separately requested.
 
 ## Red flags
 
 | Thought | Reality |
 |---|---|
-| "I'll confirm or improve the deliverable decomposition first" | The finalized bundle already locks ownership, dependencies, and contracts. Execute it. |
-| "I'll read every deliverable so I understand the whole plan" | `SPEC.md` is shared context. Load only the active deliverable unless integration work truly requires more. |
-| "HEAD is close enough to the research commit" | Exact implementation prescriptions were researched at a pinned SHA. Baseline drift invalidates that assumption. |
-| "I'll paste the deliverable into the subagent prompt" | Give paths. Paraphrase and duplication drift; the files are the contract. |
-| "I'll put A-D01-01 in the test name for traceability" | Spec IDs are temporary and must not enter committed artifacts. Keep the mapping in notes. |
-| "The acceptance test is red, close enough" | Red must be the specific missing-behavior signal required by the scenario. |
-| "The acceptance test is inconvenient, so I'll adjust it" | The scenario is contractual. Propose a deviation instead of weakening it. |
-| "The suite is green, so the deliverable is verified" | Required skipped layers or capabilities prove nothing. Skipped is not passed. |
-| "The branch reviewer should see the notes so it understands our choices" | Notes can anchor the reviewer to plausible-but-wrong reasoning. Give it the spec plus sanitized approved deviations only. |
-| "I'll mention D02 or the spec in the commit for context" | The spec is discarded. Permanent history must describe the implementation itself. |
+| “The tests pass, so this alternative architecture is fine.” | Acceptance proves behavior, not conformance to a locked design/reuse contract. |
+| “I can make this cleaner with a new generic helper.” | New shared abstractions must be justified and budgeted in the finalized spec. |
+| “The prescribed helper is awkward, so I will copy its logic.” | `Must reuse` and `Must not reimplement` are design contracts, not suggestions. |
+| “Preferred means optional.” | Only mechanically equivalent alternatives are allowed without a deviation. |
+| “I will pick a better commit subject.” | The exact message is already part of the deliverable contract. |
+| “I will add a final cleanup commit.” | Fold final fixes into their owning deliverable commits and preserve prescribed subjects. |
+| “The final reviewer should see our notes so it understands why.” | Independent review must not inherit implementation rationalizations. |
+| “HEAD is close enough to the research commit.” | Exact file/symbol recipes were researched at one pinned revision; drift invalidates them. |

@@ -66,18 +66,23 @@ end
 
 -- Raises when parsing unexpectedly failed so a contract test fails on the
 -- parser defect rather than on a nil index further down.
----@return table plan
+---@param argv string[]
+---@param context table?
+---@return TestPlan plan
 local function parse(argv, context)
   local plan, message = Cli.parse(argv, context)
   Assert.isTrue(plan ~= nil, "expected a plan for " .. table.concat(argv, " ") .. ", got error: " .. tostring(message))
-  return plan --[[@as table]]
+  return assert(plan)
 end
 
+---@param argv string[]
+---@param context table?
+---@return string
 local function rejects(argv, context)
   local plan, message = Cli.parse(argv, context)
   Assert.isNil(plan, "expected no plan for: " .. table.concat(argv, " "))
   Assert.isTrue(type(message) == "string" and #message > 0, "a rejected argument list needs an actionable message")
-  return message
+  return assert(message)
 end
 
 local function hasCapability(plan, name)
@@ -142,6 +147,8 @@ end
 -- passed/failed/skipped counts; totals and a matching `results` array are
 -- derived so the same fixture drives both the exit policy and the report.
 ---@param layers table<string, { passed: integer|nil, failed: integer|nil, skipped: integer|nil }>
+---@param extra table?
+---@return RunnerRun
 local function runOf(layers, extra)
   local run = {
     results = {},

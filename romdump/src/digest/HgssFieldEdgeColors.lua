@@ -41,7 +41,8 @@ HgssFieldEdgeColors.TABLE_B = TABLE_B
 -- Mirrors AreaDataManager_Load's edge-color-table branch on the byte at
 -- AreaDataManager+0x8B7: zero selects TABLE_A, any other value selects
 -- TABLE_B.
----@param lightPatternIndex integer non-negative per-area light pattern byte
+---@param lightPatternIndex number non-negative per-area light pattern byte
+---@return integer[]
 function HgssFieldEdgeColors.tableForAreaLightPattern(lightPatternIndex)
   assert(
     type(lightPatternIndex) == "number"

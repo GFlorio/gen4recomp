@@ -16,10 +16,64 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local RenderQueue = require("libs.engine.src.RenderQueue")
 
 local T = {}
+
+---@class MapRendererTest.Shader : MapRenderer.Shader
+---@field source string
+---@field releaseCount integer
+---@field sends { name: string, values: table }[]
+---@field uniforms table<string, unknown>
+---@field send fun(self: MapRendererTest.Shader, name: string, ...)
+---@field release fun(self: MapRendererTest.Shader)
+---@class MapRendererTest.Canvas : MapRenderer.Canvas
+---@field releaseCount integer
+---@field w integer
+---@field h integer
+---@field canvasOpts MapRendererTest.CanvasOptions?
+---@field filter { [1]: string, [2]: string }|nil
+---@field setFilter fun(self: MapRendererTest.Canvas, min: string, mag: string)
+---@field release fun(self: MapRendererTest.Canvas)
+---@class MapRendererTest.CanvasOptions
+---@field format string?
+---@class MapRendererTest.TargetDescriptor : MapRenderer.TargetDescriptor
+---@field [1] MapRendererTest.Canvas
+---@field [2] MapRendererTest.Canvas
+---@field depthstencil MapRendererTest.Canvas
+---@class MapRendererTest.GraphicsCalls
+---@field canvas table[]
+---@field blend table[]
+---@field depth table[]
+---@field wireframe table[]
+---@field clear table[]
+---@field draw table[]
+---@class MapRendererTest.Graphics : MapRenderer.Graphics
+---@field shaders MapRendererTest.Shader[]
+---@field canvases MapRendererTest.Canvas[]
+---@field calls MapRendererTest.GraphicsCalls
+---@field setFailOnSend fun(value: table|nil)
+---@field setFailOnNewCanvas fun(value: integer|nil)
+---@field getDrawCalls fun(): integer
+---@field getDimensions fun(): integer, integer
+---@field newShader fun(source: string): MapRendererTest.Shader
+---@field newCanvas fun(width: integer, height: integer, opts: MapRendererTest.CanvasOptions?): MapRendererTest.Canvas
+---@field getCanvas fun(): table?
+---@field setCanvas fun(canvas: table?)
+---@field getShader fun(): table?
+---@field setShader fun(shader: table?)
+---@field getBlendMode fun(): string?, string?
+---@field setBlendMode fun(mode: string, alpha: string)
+---@field getDepthMode fun(): string?, boolean?
+---@field setDepthMode fun(mode: string, write: boolean)
+---@field isWireframe fun(): boolean
+---@field setWireframe fun(enabled: boolean)
+---@field getMeshCullMode fun(): string?
+---@field setMeshCullMode fun(mode: string)
+---@field getColor fun(): number, number, number, number
+---@field setColor fun(r: number, g: number, b: number, a: number)
+---@field draw fun(mesh: table, ...)
+---@field clear fun(...)
 
 -- Eight zero-based RGB555-packed edge colors, the shape
 -- MapAssetCompiler now emits (HgssFieldEdgeColors.TABLE_A/TABLE_B) and
@@ -80,6 +134,7 @@ end
 
 -- An empty scene and camera for the restoration-contract tests: the renderer
 -- draws nothing but still binds/unbinds canvases, shaders, and state.
+---@return { camera: FieldCamera, runtime: table }
 local function emptySceneCamera()
   local identity = Matrix4.identity()
   return {
@@ -95,7 +150,7 @@ local function emptySceneCamera()
       billboardProjection = function()
         return identity
       end,
-    },
+    }, --[[@as FieldCamera]]
     runtime = {
       mapDraws = {},
       buildingDraws = {},
@@ -117,6 +172,7 @@ end
 -- failOnNewShader/failOnNewCanvas/failOnDrawCall injection on the Nth call so
 -- the construction and draw error paths run without a GL context.
 ---@param opts table|nil
+---@return MapRendererTest.Graphics
 local function fakeGraphics(opts)
   opts = opts or {}
   local shaders, canvases = {}, {}
@@ -140,7 +196,7 @@ local function fakeGraphics(opts)
     cullMode = opts.cullMode,
     color = opts.color or { 1, 1, 1, 1 },
   }
-  return {
+  local graphics = {
     shaders = shaders,
     canvases = canvases,
     calls = calls,
@@ -153,12 +209,16 @@ local function fakeGraphics(opts)
     getDrawCalls = function()
       return drawCalls
     end,
+    getDimensions = function()
+      return 256, 192
+    end,
     newShader = function(source)
       shaderCount = shaderCount + 1
       if opts.failOnNewShader == shaderCount then
         error("injected shader failure")
       end
       local shader = { source = source, releaseCount = 0, sends = {}, uniforms = {} }
+      --[[@as MapRendererTest.Shader]]
       shader.send = function(_, name, ...)
         if opts.failSend and opts.failSend.shader == shader and opts.failSend.name == name then
           opts.failSend = nil
@@ -171,7 +231,7 @@ local function fakeGraphics(opts)
         shader.releaseCount = shader.releaseCount + 1
       end
       shaders[#shaders + 1] = shader
-      return shader
+      return shader --[[@as MapRendererTest.Shader]]
     end,
     newCanvas = function(w, h, canvasOpts)
       canvasCount = canvasCount + 1
@@ -181,6 +241,7 @@ local function fakeGraphics(opts)
       -- Records the requested size/format and every setFilter call so raster
       -- target-sizing and nearest-filter contracts can be asserted headlessly.
       local canvas = { releaseCount = 0, w = w, h = h, canvasOpts = canvasOpts }
+      --[[@as MapRendererTest.Canvas]]
       canvas.setFilter = function(_, min, mag)
         canvas.filter = { min, mag }
       end
@@ -188,7 +249,7 @@ local function fakeGraphics(opts)
         canvas.releaseCount = canvas.releaseCount + 1
       end
       canvases[#canvases + 1] = canvas
-      return canvas
+      return canvas --[[@as MapRendererTest.Canvas]]
     end,
     getCanvas = function()
       return state.canvas
@@ -254,12 +315,17 @@ local function fakeGraphics(opts)
     clear = function(...)
       calls.clear[#calls.clear + 1] = { ... }
     end,
-  }
+  } --[[@as MapRendererTest.Graphics]]
+  return graphics
 end
 
+---@param shader table
+---@param name string
+---@return integer
 local function shaderSendCount(shader, name)
+  local typedShader = shader --[[@as MapRendererTest.Shader]]
   local count = 0
-  for _, send in ipairs(shader.sends) do
+  for _, send in ipairs(typedShader.sends) do
     if send.name == name then
       count = count + 1
     end
@@ -267,6 +333,9 @@ local function shaderSendCount(shader, name)
   return count
 end
 
+---@param calls table[]
+---@param expected table
+---@return integer
 local function callCount(calls, expected)
   local count = 0
   for _, call in ipairs(calls) do
@@ -290,6 +359,9 @@ end
 -- white, and enables wireframe only during a wireframe pass), so each
 -- assertion fails unless the restore block runs. Colors round-trip through
 -- float32 on some GL drivers, so they are compared within a small tolerance.
+---@param lg MapRendererTest.Graphics
+---@param canvas table
+---@param shader table
 local function assertRestoredState(lg, canvas, shader)
   Assert.equal(lg.getCanvas(), canvas)
   Assert.equal(lg.getShader(), shader)
@@ -310,6 +382,8 @@ end
 
 -- The renderer owns everything it created through the injected graphics: every
 -- shader and canvas it built must be released when the renderer is released.
+---@param lg MapRendererTest.Graphics
+---@param renderer MapRenderer
 ---@param extraShaderCount integer|nil
 local function assertResourcesReleased(lg, renderer, extraShaderCount)
   for _, shader in ipairs(lg.shaders) do
@@ -323,18 +397,30 @@ local function assertResourcesReleased(lg, renderer, extraShaderCount)
   Assert.equal(#lg.shaders, expectedShaderCount, "shader ownership matches the renderer translucency mode")
 end
 
+---@param renderer MapRenderer
+---@return table<string, MapRendererTest.Canvas?>
 local function rendererCanvasRoles(renderer)
-  return {
-    sceneColor = renderer.sceneColor,
-    colorDepth = renderer.colorDepth,
-    renderState = renderer.renderState,
-    spareColor = renderer._spareColor,
-    spareState = renderer._spareState,
-    sourceColor = renderer._sourceColor,
-    sourceMeta = renderer._sourceMeta,
-  }
+  local roles = {
+    sceneColor = renderer.sceneColor --[[@as MapRendererTest.Canvas?]],
+    colorDepth = renderer.colorDepth --[[@as MapRendererTest.Canvas?]],
+    renderState = renderer.renderState --[[@as MapRendererTest.Canvas?]],
+    spareColor = renderer._spareColor --[[@as MapRendererTest.Canvas?]],
+    spareState = renderer._spareState --[[@as MapRendererTest.Canvas?]],
+    sourceColor = renderer._sourceColor --[[@as MapRendererTest.Canvas?]],
+    sourceMeta = renderer._sourceMeta --[[@as MapRendererTest.Canvas?]],
+  } --[[@as table<string, MapRendererTest.Canvas?>]]
+  return roles
 end
 
+---@param value table
+---@return MapRendererTest.TargetDescriptor
+local function targetDescriptor(value)
+  return value --[[@as MapRendererTest.TargetDescriptor]]
+end
+
+---@param renderer MapRenderer
+---@param lg MapRendererTest.Graphics
+---@return table<string, MapRendererTest.Canvas?>, integer
 local function assertPublishedCanvasRoles(renderer, lg)
   local roles = rendererCanvasRoles(renderer)
   local roleNames = {
@@ -351,25 +437,11 @@ local function assertPublishedCanvasRoles(renderer, lg)
     local canvas = roles[role]
     Assert.notNil(canvas, "renderer publishes the " .. role .. " canvas role")
     Assert.isNil(seen[canvas], "each published canvas has exactly one renderer role")
-    seen[canvas] = role
+    seen[assert(canvas)] = role
   end
   local roleCount = #roleNames
   Assert.equal(#lg.canvases, roleCount, "every created canvas belongs to one live renderer role")
   return roles, roleCount
-end
-
--- Six vertices in the project render layout
--- ({x,y,z, u,v, nx,ny,nz, r,g,b,a, colorSource}): a quad strip of two
--- triangles, all normals +z, literal colors.
-local function stripVertices()
-  return {
-    { -1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { 1, 2, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { -1, 2, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { -1, 4, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-    { 1, 4, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-  }
 end
 
 function T.rejects_stale_scene_schema()
@@ -420,10 +492,8 @@ function T.world_raster_scale_bounds_only_the_world_targets()
     )
     Assert.equal(renderer.colorW, size.expectedW, "world raster width is DS-relative")
     Assert.equal(renderer.colorH, size.expectedH, "world raster height is DS-relative")
-    local sceneCanvas = assert(renderer.sceneColor)
-    ---@diagnostic disable-next-line: undefined-field -- fake canvases expose dimensions for lifecycle assertions
+    local sceneCanvas = assert(renderer.sceneColor) --[[@as MapRendererTest.Canvas]]
     Assert.equal(sceneCanvas.w, size.expectedW)
-    ---@diagnostic disable-next-line: undefined-field -- fake canvases expose dimensions for lifecycle assertions
     Assert.equal(sceneCanvas.h, size.expectedH)
   end
   renderer:release()
@@ -494,8 +564,7 @@ end
 -- compatibility wrapper: no production, test, or doc may still derive a
 -- 192-line state raster from the display size.
 function T.no_fixed_semantic_size_helper_remains()
-  ---@diagnostic disable-next-line: undefined-field -- intentional: asserts the deleted helper is absent
-  Assert.isNil(MapRenderer.semanticTargetSize, "the fixed-192 semantic-size helper is removed")
+  Assert.isNil(rawget(MapRenderer, "semanticTargetSize"), "the fixed-192 semantic-size helper is removed")
 end
 
 -- The renderer sends the edge radius on the real draw
@@ -876,8 +945,8 @@ function T.new_derives_equal_color_and_state_target_sizes_and_nearest_filters_sc
   Assert.equal(renderer.colorH, 720, "the color target matches the display viewport height exactly")
   Assert.equal(renderer.stateW, 1280, "the state target matches the color target width exactly")
   Assert.equal(renderer.stateH, 720, "the state target matches the color target height exactly")
-  local sceneColor = renderer.sceneColor --[[@as any]]
-  local renderState = renderer.renderState --[[@as any]]
+  local sceneColor = renderer.sceneColor --[[@as MapRendererTest.Canvas]]
+  local renderState = renderer.renderState --[[@as MapRendererTest.Canvas]]
   Assert.deepEqual(sceneColor.filter, { "nearest", "nearest" }, "sceneColor is nearest-filtered")
   Assert.deepEqual(renderState.filter, { "nearest", "nearest" }, "renderState is nearest-filtered")
   renderer:release()
@@ -946,8 +1015,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local stats = renderer.stats
   local edgeShader = renderer.edgeShader
-  ---@type any
-  local recordedEdgeShader = edgeShader
+  local recordedEdgeShader = edgeShader --[[@as MapRendererTest.Shader]]
 
   -- Edge colors are scene state, not a value the constructor sends
   -- before any scene exists.
@@ -1019,7 +1087,7 @@ function T.draw_sends_the_scene_edge_table_decoded_to_normalized_rgb6()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
-  local edgeShader = renderer.edgeShader --[[@as any]]
+  local edgeShader = renderer.edgeShader --[[@as MapRendererTest.Shader]]
 
   renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
@@ -1045,7 +1113,7 @@ function T.edge_color_rgb555_4_4_4_expands_to_rgb6_9_63()
   local lg = fakeGraphics()
   local renderer = MapRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
-  local edgeShader = renderer.edgeShader --[[@as any]]
+  local edgeShader = renderer.edgeShader --[[@as MapRendererTest.Shader]]
   local packed444 = 4 + 4 * 32 + 4 * 1024
   scene.runtime.edgeColors = { [0] = packed444, 0, 0, 0, 0, 0, 0, 0 }
 
@@ -1582,7 +1650,7 @@ function T.target_descriptors_retain_identity_through_steady_draws_and_exact_swa
   Assert.equal(renderer._sourceMetaTargets, sourceMetaTargets)
   Assert.equal(renderer._colorTargets[1], renderer.sceneColor)
   Assert.equal(renderer._colorTargets[2], renderer.renderState)
-  Assert.equal(renderer._colorTargets.depthstencil, renderer.colorDepth)
+  Assert.equal(targetDescriptor(renderer._colorTargets).depthstencil, renderer.colorDepth)
   Assert.equal(renderer.sceneColor, startingSceneColor, "an even exact swap preserves the active color canvas")
   Assert.equal(renderer.renderState, startingRenderState, "an even exact swap preserves the active state canvas")
   Assert.equal(stateClearTargets[1], renderer.renderState)
@@ -1690,7 +1758,11 @@ function T.one_opaque_world_item_submits_once_to_the_shared_color_state_target()
   Assert.isNil(rawget(renderer.stats, "stateDrawCalls"), "state replay is not a separate draw counter")
   Assert.equal(renderer._colorTargets[1], renderer.sceneColor, "MRT target 0 is scene color")
   Assert.equal(renderer._colorTargets[2], renderer.renderState, "MRT target 1 is render state")
-  Assert.equal(renderer._colorTargets.depthstencil, renderer.colorDepth, "MRT uses one shared depth attachment")
+  Assert.equal(
+    targetDescriptor(renderer._colorTargets).depthstencil,
+    renderer.colorDepth,
+    "MRT uses one shared depth attachment"
+  )
   renderer:release()
 end
 
@@ -1989,6 +2061,12 @@ local function straddleGraphics()
     newMesh = function()
       error("straddle draw must not allocate a temporary mesh")
     end,
+    newCanvas = function()
+      local canvas = {}
+      canvas.setFilter = function() end
+      canvas.release = function() end
+      return canvas
+    end,
     setCanvas = function() end,
     setShader = function() end,
     setDepthMode = function() end,
@@ -2056,8 +2134,7 @@ function T.exact_source_meta_straddle_draw_uses_resident_mesh_without_readback_o
   local resident = sourceMesh()
   local item = straddleDrawItem(resident)
   item.material.alphaClass = "translucent"
-  renderer._sourceColorTargets = {}
-  renderer._sourceMetaTargets = {}
+  renderer:_ensureTargets(1, 1)
 
   renderer:_drawSourceItem(item, Matrix4.identity(), 1, Matrix4.identity(), 0, 1, 1)
   Assert.equal(fake.drawCalls[1], resident)
@@ -2160,11 +2237,10 @@ function T.draw_builds_the_render_queue_exactly_once_per_frame()
   local scene = emptySceneCamera()
   local original = RenderQueue.buildInto
   local callCountValue = 0
-  ---@diagnostic disable-next-line: duplicate-set-field -- intentional: a temporary spy, restored below
-  RenderQueue.buildInto = function(...)
+  rawset(RenderQueue, "buildInto", function(...)
     callCountValue = callCountValue + 1
     return original(...)
-  end
+  end)
 
   local ok, err = pcall(function()
     renderer:draw(
@@ -2176,7 +2252,7 @@ function T.draw_builds_the_render_queue_exactly_once_per_frame()
       0
     )
   end)
-  RenderQueue.buildInto = original
+  rawset(RenderQueue, "buildInto", original)
   if not ok then
     error(err)
   end
@@ -2342,7 +2418,11 @@ function T.approximate_blended_pass_binds_the_renderer_owned_descriptor()
   local approximateTargets = lg.calls.canvas[#lg.calls.canvas - 2]
   Assert.equal(approximateTargets, renderer._colorClearTargets, "approximate pass uses the persistent descriptor")
   Assert.equal(approximateTargets[1], renderer.sceneColor, "descriptor color follows the active scene color")
-  Assert.equal(approximateTargets.depthstencil, renderer.colorDepth, "descriptor depth follows the color depth")
+  Assert.equal(
+    targetDescriptor(approximateTargets).depthstencil,
+    renderer.colorDepth,
+    "descriptor depth follows the color depth"
+  )
   renderer:release()
 end
 
@@ -2375,7 +2455,7 @@ function T.approximate_blended_frames_reuse_descriptor_until_resize()
   Assert.equal(resizedDescriptor, renderer._colorClearTargets, "resized frame uses the new persistent descriptor")
   Assert.equal(resizedDescriptor[1], renderer.sceneColor, "resized descriptor color follows the new scene color")
   Assert.equal(
-    resizedDescriptor.depthstencil,
+    targetDescriptor(resizedDescriptor).depthstencil,
     renderer.colorDepth,
     "resized descriptor depth follows the new color depth"
   )
@@ -2441,11 +2521,10 @@ function T.exact_mode_uses_compact_metadata_without_source_color_clear()
   local scene = emptySceneCamera()
 
   drawTranslucentFrame(renderer, scene, translucentItems(1))
-  local sourceMeta = assert(renderer._sourceMeta)
-  local sourceColor = assert(renderer._sourceColor)
-  ---@diagnostic disable-next-line: undefined-field -- fake canvases expose options for lifecycle assertions
-  Assert.equal(sourceMeta.canvasOpts.format, "rgba8", "source metadata is normalized 8-bit storage")
-  ---@diagnostic disable-next-line: undefined-field -- fake canvases expose options for lifecycle assertions
+  local sourceMeta = assert(renderer._sourceMeta) --[[@as MapRendererTest.Canvas]]
+  local sourceColor = assert(renderer._sourceColor) --[[@as MapRendererTest.Canvas]]
+  local sourceMetaOptions = assert(sourceMeta.canvasOpts)
+  Assert.equal(sourceMetaOptions.format, "rgba8", "source metadata is normalized 8-bit storage")
   Assert.equal(sourceColor.canvasOpts and sourceColor.canvasOpts.format, nil)
   Assert.equal(callCount(lg.calls.clear, {}), 3, "one state clear, one color clear, and one source metadata clear")
   renderer:release()

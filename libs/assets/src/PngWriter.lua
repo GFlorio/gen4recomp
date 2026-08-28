@@ -11,11 +11,14 @@ local Errors = require("libs.errors.src.Errors")
 
 local PngWriter = {}
 
+---@class PngWriter
+---@field encode fun(width: integer, height: integer, rgba: string): string
+
 local SIGNATURE = string.char(137, 80, 78, 71, 13, 10, 26, 10)
 
-local CRC_TABLE = {}
+local CRC_TABLE = {} ---@type table<integer, integer>
 for n = 0, 255 do
-  local c = n
+  local c = n ---@type integer
   for _ = 1, 8 do
     if bit.band(c, 1) == 1 then
       c = bit.bxor(0xEDB88320, bit.rshift(c, 1))
@@ -27,9 +30,10 @@ for n = 0, 255 do
 end
 
 local function crc32(s)
-  local crc = bit.bnot(0)
+  local crc = bit.bnot(0) ---@type integer
   for i = 1, #s do
-    crc = bit.bxor(bit.rshift(crc, 8), CRC_TABLE[bit.band(bit.bxor(crc, string.byte(s, i)), 0xFF)])
+    local index = bit.band(bit.bxor(crc, string.byte(s, i)), 0xFF) ---@type integer
+    crc = bit.bxor(bit.rshift(crc, 8), CRC_TABLE[index])
   end
   return bit.bnot(crc)
 end
@@ -55,7 +59,8 @@ end
 
 -- Wrap raw bytes in stored (BTYPE=00) DEFLATE blocks of up to 65535 bytes.
 local function storedDeflate(raw)
-  local out, n, pos = {}, #raw, 1
+  local out = {} ---@type string[]
+  local n, pos = #raw, 1
   repeat
     local block = raw:sub(pos, pos + 65534)
     pos = pos + #block
@@ -86,7 +91,7 @@ function PngWriter.encode(width, height, rgba)
 
   local ihdr = be32(width) .. be32(height) .. string.char(8, 6, 0, 0, 0)
 
-  local rows = {}
+  local rows = {} ---@type string[]
   for y = 0, height - 1 do
     rows[#rows + 1] = "\0" -- filter type 0 (none)
     rows[#rows + 1] = rgba:sub(y * width * 4 + 1, (y + 1) * width * 4)

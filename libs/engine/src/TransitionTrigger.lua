@@ -34,11 +34,17 @@ local DIRECTION_DELTAS = {
 ---@field evaluatesOn "input"|"step"
 ---@field ladder boolean
 ---@field flipFace boolean
+---@field transition TransitionTrigger.Transition?
+
+---@class TransitionTrigger.Transition
+---@field mode string
+---@field profile integer?
 
 ---@class TransitionTrigger -- the public trigger record: kind plus the attached warp
 ---@field kind "door"|"stairs"|"directional"|"generic"
 ---@field warp table?
 ---@field destinationFacing string?
+---@field transition TransitionTrigger.Transition?
 local TransitionTrigger = {}
 
 -- The raw behavior byte vocabulary lives in MetatileBehavior, below this

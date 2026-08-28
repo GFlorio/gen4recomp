@@ -13,6 +13,9 @@
 
 local AudioSample = {}
 
+---@class AudioSample
+---@field validate fun(metadata: table, pcm?: string): true
+
 local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.assets.src.AudioErrors")
@@ -24,6 +27,8 @@ local function fail(context)
   Errors.raise(AudioErrors.AUDIO_SAMPLE_INVALID, "malformed audio sample metadata", context)
 end
 
+---@param value unknown
+---@return boolean
 local function isNonNegativeInteger(value)
   return type(value) == "number" and value % 1 == 0 and value >= 0
 end
@@ -60,22 +65,23 @@ function AudioSample.validate(metadata, pcm)
   then
     fail({ field = "baseTimer" })
   end
-  local loop = metadata.loop
+  local loop = metadata.loop ---@type table?
   if type(loop) ~= "table" then
     fail({ field = "loop" })
   end
+  local loopValue = assert(loop)
   if type(metadata.loopEnabled) ~= "boolean" then
     fail({ field = "loopEnabled" })
   end
-  if not isNonNegativeInteger(loop.startFrame) or not isNonNegativeInteger(loop.endFrame) then
+  if not isNonNegativeInteger(loopValue.startFrame) or not isNonNegativeInteger(loopValue.endFrame) then
     fail({ field = "loop" })
   end
-  if loop.startFrame >= loop.endFrame or loop.endFrame > metadata.frames then
+  if loopValue.startFrame >= loopValue.endFrame or loopValue.endFrame > metadata.frames then
     fail({ field = "loop" })
   end
   -- A one-shot wave loops nowhere: its window is the full range (the
   -- compiler's normalization), so the flag and the window cannot disagree.
-  if not metadata.loopEnabled and (loop.startFrame ~= 0 or loop.endFrame ~= metadata.frames) then
+  if not metadata.loopEnabled and (loopValue.startFrame ~= 0 or loopValue.endFrame ~= metadata.frames) then
     fail({ field = "loopEnabled" })
   end
   if pcm ~= nil then

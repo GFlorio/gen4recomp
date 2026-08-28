@@ -807,7 +807,7 @@ end
 ---@param out integer[]
 ---@param frames integer
 function VoiceMixer:renderInto(out, frames)
-  for frame = 1, frames do
+  for _ = 1, frames do
     local left, right = 0, 0
     for channel = 0, CHANNEL_COUNT - 1 do
       local voice = self._channels[channel]

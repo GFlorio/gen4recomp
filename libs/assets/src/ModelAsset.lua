@@ -68,6 +68,59 @@ local TEXTURE_FORMATS = {
   [7] = true,
 }
 
+---@class ModelAsset.Channel
+---@field source string
+---@field value number?
+---@field keys table[]?
+---@field rate number?
+---@field limit number?
+---@field storage string?
+---@field inverse number?
+
+---@class ModelAsset.AnimationTarget
+---@field nodeIndex integer?
+---@field name string?
+---@field index integer?
+---@field rate number?
+---@field keys table[]?
+---@field channels ModelAsset.Channels
+
+---@class ModelAsset.Channels
+---@field trans table<string, ModelAsset.Channel>
+---@field rot ModelAsset.Channel
+---@field scale table<string, ModelAsset.Channel>
+
+---@class ModelAsset.CurveOptions
+---@field sources string[]
+---@field limitIsFrameCount boolean?
+---@field storage boolean?
+---@field frameCount number?
+---@field pairKeys boolean?
+
+---@class ModelAsset.Variant
+---@field name string
+---@field texture string?
+---@field textureFormat number?
+---@field width number?
+---@field height number?
+---@field alphaUsage table?
+
+---@class ModelAsset.Batch
+---@field id string|integer
+---@field geometry string
+---@field materialIndex integer?
+
+---@class ModelAsset.Material
+---@field id integer
+---@field variants ModelAsset.Variant[]?
+
+---@class ModelAsset.RotData
+---@field control integer
+---@field a number
+---@field b number
+
+---@param reason string
+---@param context string?
 local function invalid(reason, context)
   Errors.raise(ModelAsset.ERROR_INVALID, "model descriptor is malformed: " .. reason, {
     reason = reason,
@@ -75,10 +128,15 @@ local function invalid(reason, context)
   })
 end
 
+---@param value number
+---@return boolean
 local function isInteger(value)
   return type(value) == "number" and value % 1 == 0
 end
 
+---@param m table
+---@param where string
+---@param desc table
 local function checkWrap(m, where, desc)
   local wrap = m.wrap
   if type(wrap) ~= "table" or not WRAP_MODES[wrap.x] or not WRAP_MODES[wrap.y] then
@@ -86,6 +144,9 @@ local function checkWrap(m, where, desc)
   end
 end
 
+---@param m table
+---@param where string
+---@param desc table
 local function checkFlip(m, where, desc)
   local flip = m.flip
   if type(flip) ~= "table" or type(flip.x) ~= "boolean" or type(flip.y) ~= "boolean" then
@@ -96,6 +157,9 @@ end
 -- The texture binding metadata: a bound texture carries its format (both
 -- paths) and, for dynamic materials, its alpha usage; untextured dynamic
 -- materials carry none (the compiler emits the trio together).
+---@param alphaUsage table
+---@param where string
+---@param desc unknown
 local function checkAlphaUsage(alphaUsage, where, desc)
   if type(alphaUsage) ~= "table" then
     invalid(where .. " texture requires alphaUsage", desc.key)
@@ -107,12 +171,19 @@ local function checkAlphaUsage(alphaUsage, where, desc)
   end
 end
 
+---@param textureFormat number
+---@param where string
+---@param desc table
 local function checkTextureFormat(textureFormat, where, desc)
   if not (isInteger(textureFormat) and TEXTURE_FORMATS[textureFormat]) then
     invalid(where .. " texture carries an unsupported textureFormat", desc.key)
   end
 end
 
+---@param m table
+---@param where string
+---@param desc table
+---@param requireAlphaUsage boolean
 local function checkTextureBinding(m, where, desc, requireAlphaUsage)
   if m.texture ~= nil then
     if type(m.texture) ~= "string" or #m.texture == 0 then
@@ -132,8 +203,11 @@ local function checkTextureBinding(m, where, desc, requireAlphaUsage)
   end
 end
 
+---@param m table
+---@param where string
+---@param desc table
 local function checkSrt(m, where, desc)
-  local srt = m.srt
+  local srt = m.srt ---@type table
   if type(srt) ~= "table" then
     return
   end
@@ -142,7 +216,7 @@ local function checkSrt(m, where, desc)
       invalid(where .. " material srt." .. field .. " must be a number", desc.key)
     end
   end
-  local rot = srt.rot
+  local rot = srt.rot ---@type table?
   if rot ~= nil and (type(rot) ~= "table" or type(rot.sin) ~= "number" or type(rot.cos) ~= "number") then
     invalid(where .. " material srt.rot must be { sin, cos } numbers", desc.key)
   end
@@ -153,12 +227,16 @@ local function checkSrt(m, where, desc)
   end
 end
 
+---@param m table
+---@param where string
+---@param desc table
 local function checkVariants(m, where, desc)
   if m.variants ~= nil then
     if not Validate.isArray(m.variants) then
       invalid(where .. " material variants is not an array", desc.key)
     end
-    for _, variant in ipairs(m.variants) do
+    local variants = m.variants ---@type ModelAsset.Variant[]
+    for _, variant in ipairs(variants) do
       if type(variant) ~= "table" or type(variant.name) ~= "string" or #variant.name == 0 then
         invalid(where .. " material variant requires a name", desc.key)
       end
@@ -194,8 +272,12 @@ end
 -- The optional four-channel colors block: {diffuse|ambient|specular|
 -- emission} -> { r, g, b } integers in 0..255, the shape the dynamic
 -- compiler emits from the DS base-material registers.
+---@param m table
+---@param where string
+---@param desc table
+---@param required boolean
 local function checkColors(m, where, desc, required)
-  local colors = m.colors
+  local colors = m.colors ---@type table<string, table>
   if colors == nil then
     if required then
       invalid(where .. " material requires the colors block", desc.key)
@@ -226,6 +308,9 @@ end
 -- The scene-form material record the static path emits: id/name, the sampler
 -- state, and the bound-texture metadata. The dynamic path's records add the
 -- DS register block and the render fields (see checkDynamicMaterial).
+---@param m table
+---@param where string
+---@param desc table
 local function checkStaticMaterial(m, where, desc)
   if type(m) ~= "table" then
     invalid(where .. " material is not a record", desc.key)
@@ -238,7 +323,7 @@ local function checkStaticMaterial(m, where, desc)
   end
   checkWrap(m, where, desc)
   checkFlip(m, where, desc)
-  local diffuse = m.diffuse
+  local diffuse = m.diffuse ---@type table
   if
     type(diffuse) ~= "table"
     or not Validate.isNonNegativeInteger(diffuse.r)
@@ -253,9 +338,12 @@ end
 -- The dynamic material record: the DS base-material registers (baseColor +
 -- the per-channel colors block), the render classification fields, and the
 -- sampler state. Every field is required -- the runtime never defaults them.
+---@param m table
+---@param where string
+---@param desc table
 local function checkDynamicMaterial(m, where, desc)
   checkStaticMaterial(m, where, desc)
-  local base = m.baseColor
+  local base = m.baseColor ---@type table
   if
     type(base) ~= "table"
     or not Validate.isNonNegativeInteger(base.r)
@@ -311,7 +399,7 @@ local STORAGES = { fx16 = true, fx32 = true }
 
 -- The clip-kind strings the compilers stamp (AnimationClip.KINDS is keyed
 -- by constant name; the serialized records carry the values).
-local KIND_STRINGS = {}
+local KIND_STRINGS = {} ---@type table<string, boolean>
 for _, kind in pairs(AnimationClip.KINDS) do
   KIND_STRINGS[kind] = true
 end
@@ -330,6 +418,10 @@ local SOURCE_LISTS = {
 -- keys }. `pairKeys` allows scale-pair tables ({ scale, inverse }) in the
 -- key array; `limitIsFrameCount` requires limit == the clip's frameCount
 -- (the NSBCA/NSBTA corpus invariant).
+---@param channel table
+---@param where string
+---@param desc table
+---@param opts table
 local function checkCurve(channel, where, desc, opts)
   opts = opts or {}
   if not CURVE_RATES[channel.rate] then
@@ -347,7 +439,8 @@ local function checkCurve(channel, where, desc, opts)
   if not Validate.isArray(channel.keys) or #channel.keys == 0 then
     invalid(where .. " curve requires a non-empty keys array", desc.key)
   end
-  for i, key in ipairs(channel.keys) do
+  local keys = channel.keys ---@type table[]
+  for i, key in ipairs(keys) do
     local valid = type(key) == "number"
     if opts.pairKeys and not valid then
       valid = Validate.isArray(key) and #key == 2 and type(key[1]) == "number" and type(key[2]) == "number"
@@ -358,6 +451,11 @@ local function checkCurve(channel, where, desc, opts)
   end
 end
 
+---@param channel table
+---@param where string
+---@param desc table
+---@param sources table
+---@param curveOpts table
 local function checkChannel(channel, where, desc, sources, curveOpts)
   if type(channel) ~= "table" or not sources[channel.source] then
     invalid(where .. " channel source must be one of " .. table.concat(curveOpts.sources, "/"), desc.key)
@@ -375,15 +473,19 @@ end
 -- NSBCA (trs): anmFlags, the pivot/compressed rotation tables, and one
 -- target per clip track; each channel is model/constant/curve, and the
 -- rotation keys must fall inside the compiled tables.
+---@param compiled table
+---@param clip table
+---@param desc table
 local function checkTrsPayload(compiled, clip, desc)
-  local where = "animation " .. clip.id
+  local where = "animation " .. clip.id ---@type string
   if not isInteger(compiled.anmFlags) then
     invalid(where .. " compiled payload requires an anmFlags integer", desc.key)
   end
   if not Validate.isArray(compiled.rotData) or not Validate.isArray(compiled.pivotData) then
     invalid(where .. " compiled payload requires the rotation tables", desc.key)
   end
-  for i, entry in ipairs(compiled.rotData) do
+  local rotData = compiled.rotData ---@type ModelAsset.RotData[]
+  for i, entry in ipairs(rotData) do
     if
       type(entry) ~= "table"
       or not (isInteger(entry.control) and entry.control >= 0)
@@ -396,7 +498,8 @@ local function checkTrsPayload(compiled, clip, desc)
       invalid(where .. " rotData entry " .. i .. " pivot index exceeds 8", desc.key)
     end
   end
-  for i, entry in ipairs(compiled.pivotData) do
+  local pivotData = compiled.pivotData ---@type table[]
+  for i, entry in ipairs(pivotData) do
     if not Validate.isArray(entry) or #entry ~= 5 then
       invalid(where .. " pivotData entry " .. i .. " must be a 5-cell array", desc.key)
     end
@@ -409,24 +512,31 @@ local function checkTrsPayload(compiled, clip, desc)
   if not Validate.isArray(compiled.targets) or #compiled.targets ~= #clip.tracks then
     invalid(where .. " compiled payload must carry one target per track", desc.key)
   end
-  for i, target in ipairs(compiled.targets) do
-    local whereT = where .. " target " .. i
+  local targets = compiled.targets ---@type ModelAsset.AnimationTarget[]
+  for i, target in ipairs(targets) do
+    local whereT = where .. " target " .. i ---@type string
     if not Validate.isNonNegativeInteger(target.nodeIndex) then
       invalid(whereT .. " requires a nodeIndex", desc.key)
     end
     local channels = target.channels
+    ---@cast channels ModelAsset.Channels
     if type(channels) ~= "table" then
       invalid(whereT .. " requires channels", desc.key)
     end
-    local curveOpts =
-      { sources = SOURCE_LISTS.withModel, limitIsFrameCount = true, storage = true, frameCount = clip.frameCount }
+    local frameCount = clip.frameCount ---@type number
+    local curveOpts = {
+      sources = SOURCE_LISTS.withModel,
+      limitIsFrameCount = true,
+      storage = true,
+      frameCount = frameCount,
+    } ---@type ModelAsset.CurveOptions
     local pairOpts = {
       sources = SOURCE_LISTS.withModel,
       limitIsFrameCount = true,
       storage = true,
-      frameCount = clip.frameCount,
+      frameCount = frameCount,
       pairKeys = true,
-    }
+    } ---@type ModelAsset.CurveOptions
     for _, axis in ipairs({ "x", "y", "z" }) do
       checkChannel(
         channels.trans and channels.trans[axis],
@@ -447,11 +557,13 @@ local function checkTrsPayload(compiled, clip, desc)
   end
   -- The rotation tables are compiled to the highest key the clip references,
   -- so every rotation key (constant or curve) must land inside its table.
-  for _, target in ipairs(compiled.targets) do
+  for _, target in ipairs(targets) do
     local channels = target.channels
+    ---@cast channels ModelAsset.Channels
     local function checkRotKey(value)
-      if not (isInteger(value) and value >= 0) then
+      if type(value) ~= "number" or not isInteger(value) or value < 0 then
         invalid(where .. " rotation key must be a u16 integer", desc.key)
+        return
       end
       local index = value % 32768
       if value >= 0x8000 then
@@ -464,7 +576,7 @@ local function checkTrsPayload(compiled, clip, desc)
     end
     local rot = channels.rot
     if rot.source == "constant" then
-      checkRotKey(rot.value)
+      checkRotKey(assert(rot.value))
     elseif rot.source == "curve" then
       if #rot.keys < math.ceil(clip.frameCount / rot.rate) then
         invalid(where .. " rotation curve carries fewer keys than its frames demand", desc.key)
@@ -476,13 +588,13 @@ local function checkTrsPayload(compiled, clip, desc)
     -- The trans/scale curves must cover their frames too: the sampler walks
     -- the key array by frame, so a shorter array would read past the end.
     for _, axis in ipairs({ "x", "y", "z" }) do
-      local channel = channels.trans[axis]
+      local channel = channels.trans[axis] ---@type ModelAsset.Channel?
       if channel and channel.source == "curve" and #channel.keys < math.ceil(clip.frameCount / channel.rate) then
         invalid(where .. " trans." .. axis .. " curve carries fewer keys than its frames demand", desc.key)
       end
     end
     for _, axis in ipairs({ "x", "y", "z" }) do
-      local channel = channels.scale[axis]
+      local channel = channels.scale[axis] ---@type ModelAsset.Channel?
       if channel and channel.source == "curve" and #channel.keys < math.ceil(clip.frameCount / channel.rate) then
         invalid(where .. " scale." .. axis .. " curve carries fewer keys than its frames demand", desc.key)
       end
@@ -497,21 +609,26 @@ end
 
 -- NSBMA (color): one target per track, each carrying the five material
 -- registers (diffuse/ambient/specular/emission/alpha).
+---@param compiled table
+---@param clip table
+---@param desc table
 local function checkColorPayload(compiled, clip, desc)
-  local where = "animation " .. clip.id
+  local where = "animation " .. clip.id ---@type string
   if not Validate.isArray(compiled.targets) or #compiled.targets ~= #clip.tracks then
     invalid(where .. " compiled payload must carry one target per track", desc.key)
   end
-  for i, target in ipairs(compiled.targets) do
-    local whereT = where .. " target " .. i
+  local targets = compiled.targets ---@type ModelAsset.AnimationTarget[]
+  for i, target in ipairs(targets) do
+    local whereT = where .. " target " .. i ---@type string
     if type(target.name) ~= "string" or not Validate.isNonNegativeInteger(target.index) then
       invalid(whereT .. " requires a name and index", desc.key)
     end
     local channels = target.channels
+    ---@cast channels ModelAsset.Channels
     if type(channels) ~= "table" then
       invalid(whereT .. " requires channels", desc.key)
     end
-    local plain = { sources = SOURCE_LISTS.plain }
+    local plain = { sources = SOURCE_LISTS.plain } ---@type ModelAsset.CurveOptions
     for _, name in ipairs({ "diffuse", "ambient", "specular", "emission", "alpha" }) do
       checkChannel(channels[name], whereT .. " " .. name, desc, SOURCES_PLAIN, plain)
     end
@@ -521,12 +638,16 @@ end
 -- NSBTP (pattern): the texture/palette name tables and one target per track,
 -- whose keys index them. The payload trusts its arrays: no redundant
 -- keyCount/numTextures/numPalettes counts are carried.
+---@param compiled table
+---@param clip table
+---@param desc table
 local function checkPatternPayload(compiled, clip, desc)
-  local where = "animation " .. clip.id
+  local where = "animation " .. clip.id ---@type string
   if not Validate.isArray(compiled.textureNames) or #compiled.textureNames == 0 then
     invalid(where .. " compiled payload requires non-empty textureNames", desc.key)
   end
-  for i, name in ipairs(compiled.textureNames) do
+  local textureNames = compiled.textureNames ---@type string[]
+  for i, name in ipairs(textureNames) do
     if type(name) ~= "string" then
       invalid(where .. " textureNames[" .. i .. "] must be a string", desc.key)
     end
@@ -534,7 +655,8 @@ local function checkPatternPayload(compiled, clip, desc)
   if not Validate.isArray(compiled.paletteNames) then
     invalid(where .. " compiled payload requires a paletteNames array", desc.key)
   end
-  for i, name in ipairs(compiled.paletteNames) do
+  local paletteNames = compiled.paletteNames ---@type string[]
+  for i, name in ipairs(paletteNames) do
     if type(name) ~= "string" then
       invalid(where .. " paletteNames[" .. i .. "] must be a string", desc.key)
     end
@@ -542,8 +664,9 @@ local function checkPatternPayload(compiled, clip, desc)
   if not Validate.isArray(compiled.targets) or #compiled.targets ~= #clip.tracks then
     invalid(where .. " compiled payload must carry one target per track", desc.key)
   end
-  for i, target in ipairs(compiled.targets) do
-    local whereT = where .. " target " .. i
+  local targets = compiled.targets ---@type ModelAsset.AnimationTarget[]
+  for i, target in ipairs(targets) do
+    local whereT = where .. " target " .. i ---@type string
     if type(target.name) ~= "string" or not Validate.isNonNegativeInteger(target.index) then
       invalid(whereT .. " requires a name and index", desc.key)
     end
@@ -582,8 +705,10 @@ end
 -- kind vocabularies are the animation contract's (libs/assets owns them), and
 -- the payload shape follows the kind, so a clip whose payload does not match
 -- its kind is malformed generated data.
+---@param clip table
+---@param desc table
 local function checkAnimation(clip, desc)
-  local where = "animation " .. tostring(clip.id)
+  local where = "animation " .. tostring(clip.id) ---@type string
   if
     type(clip) ~= "table"
     or type(clip.id) ~= "string"
@@ -602,7 +727,8 @@ local function checkAnimation(clip, desc)
       desc.key
     )
   end
-  for _, semantic in ipairs(clip.semanticNames) do
+  local semanticNames = clip.semanticNames ---@type string[]
+  for _, semantic in ipairs(semanticNames) do
     if type(semantic) ~= "string" or #semantic == 0 then
       invalid(where .. " semantic names must be non-empty strings", desc.key)
     end
@@ -629,6 +755,8 @@ end
 -- shape (both batch kinds carry the full polygon draw-state field set) must
 -- validate -- a malformed variant is diagnosed here, never defaulted at the
 -- load boundary.
+---@param desc table
+---@return table
 function ModelAsset.validate(desc)
   if type(desc) ~= "table" then
     invalid("descriptor is not a table")
@@ -643,6 +771,8 @@ function ModelAsset.validate(desc)
   -- Every batch of either kind requires the full shared draw-state field set
   -- with the range checks (PolygonState is the single schema source); the
   -- asset boundary reports violations under its own error contract.
+  ---@param b table
+  ---@param where string
   local function checkBatch(b, where)
     if type(b) ~= "table" or type(b.geometry) ~= "string" then
       invalid(where .. " batch does not reference a geometry path", desc.key)
@@ -659,6 +789,7 @@ function ModelAsset.validate(desc)
   end
   -- Dynamic batches additionally reference the model's nodes and materials
   -- by index and carry the draw id the runtime keyed meshes by.
+  ---@param b table
   local function checkDynamicBatch(b)
     checkBatch(b, "dynamic")
     if type(b.id) ~= "string" or #b.id == 0 then
@@ -678,8 +809,10 @@ function ModelAsset.validate(desc)
   -- Material ids are the list positions (the compiler assigns each material
   -- its index, and the runtime indexes material state by position), so a
   -- record whose id is not its position is malformed generated data.
+  ---@param where string
   local function checkMaterialIndices(where)
-    for i, m in ipairs(desc.materials) do
+    local materials = desc.materials ---@type ModelAsset.Material[]
+    for i, m in ipairs(materials) do
       if m.id ~= i - 1 then
         invalid(
           where .. " materials must be contiguous zero-based indices; material " .. i .. " has id " .. tostring(m.id),
@@ -696,10 +829,12 @@ function ModelAsset.validate(desc)
     if not Validate.isArray(desc.materials) then
       invalid("static descriptor requires a materials array", desc.key)
     end
-    for _, b in ipairs(desc.batches) do
+    local batches = desc.batches ---@type ModelAsset.Batch[]
+    for _, b in ipairs(batches) do
       checkBatch(b, "static")
     end
-    for _, m in ipairs(desc.materials) do
+    local materials = desc.materials ---@type ModelAsset.Material[]
+    for _, m in ipairs(materials) do
       checkStaticMaterial(m, "static", desc)
     end
     checkMaterialIndices("static")
@@ -725,24 +860,28 @@ function ModelAsset.validate(desc)
   if not Validate.isArray(desc.animations) then
     invalid("nitro-dynamic descriptor requires an animations array", desc.key)
   end
-  local seenBatchIds = {}
-  for _, b in ipairs(desc.dynamic.batches) do
+  local seenBatchIds = {} ---@type table<string|integer, boolean>
+  local dynamicBatches = desc.dynamic.batches ---@type ModelAsset.Batch[]
+  for _, b in ipairs(dynamicBatches) do
     checkDynamicBatch(b)
     if seenBatchIds[b.id] then
       invalid("dynamic descriptor lists batch id " .. tostring(b.id) .. " twice", desc.key)
     end
     seenBatchIds[b.id] = true
   end
-  for _, m in ipairs(desc.materials) do
+  local materials = desc.materials ---@type ModelAsset.Material[]
+  for _, m in ipairs(materials) do
     checkDynamicMaterial(m, "dynamic", desc)
   end
   checkMaterialIndices("dynamic")
-  for _, clip in ipairs(desc.animations) do
+  local animations = desc.animations ---@type table[]
+  for _, clip in ipairs(animations) do
     checkAnimation(clip, desc)
   end
   local hasDoor = false
-  for _, clip in ipairs(desc.animations) do
-    for _, semanticName in ipairs(clip.semanticNames or {}) do
+  for _, clip in ipairs(animations) do
+    local semanticNames = clip.semanticNames ---@type string[]
+    for _, semanticName in ipairs(semanticNames) do
       if semanticName == AnimationClip.ROLES.DOOR_OPEN or semanticName == AnimationClip.ROLES.DOOR_CLOSE then
         hasDoor = true
       end
@@ -767,34 +906,43 @@ end
 -- material textures, and pattern-variant textures (a variant PNG is a
 -- referenced asset just like the base texture; readiness must cover it).
 -- Raises ModelAsset.ERROR_INVALID on a malformed descriptor.
+---@param desc table
+---@return string[]
 function ModelAsset.referencedPaths(desc)
   ModelAsset.validate(desc)
-  local paths = {}
+  local paths = {} ---@type string[]
+  ---@param b table
   local function addBatch(b)
     paths[#paths + 1] = b.geometry
   end
+  ---@param m table
   local function addMaterial(m)
     if m.texture then
       paths[#paths + 1] = m.texture
     end
-    for _, variant in ipairs(m.variants or {}) do
+    local variants = m.variants or {} ---@type ModelAsset.Variant[]
+    for _, variant in ipairs(variants) do
       if variant.texture then
         paths[#paths + 1] = variant.texture
       end
     end
   end
   if desc.kind == "static" then
-    for _, b in ipairs(desc.batches) do
+    local batches = desc.batches ---@type ModelAsset.Batch[]
+    for _, b in ipairs(batches) do
       addBatch(b)
     end
-    for _, m in ipairs(desc.materials) do
+    local materials = desc.materials ---@type ModelAsset.Material[]
+    for _, m in ipairs(materials) do
       addMaterial(m)
     end
   else
-    for _, b in ipairs(desc.dynamic.batches) do
+    local dynamicBatches = desc.dynamic.batches ---@type ModelAsset.Batch[]
+    for _, b in ipairs(dynamicBatches) do
       addBatch(b)
     end
-    for _, m in ipairs(desc.materials) do
+    local materials = desc.materials ---@type ModelAsset.Material[]
+    for _, m in ipairs(materials) do
       addMaterial(m)
     end
   end

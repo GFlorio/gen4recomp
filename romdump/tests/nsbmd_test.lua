@@ -8,7 +8,6 @@ local Assert = require("tests.support.Assert")
 local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
 local NB = require("tests.support.NitroBuilder")
 local Fixture = require("tests.support.NsbmdFixture")
-local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 

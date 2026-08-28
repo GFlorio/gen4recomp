@@ -8,11 +8,20 @@
 
 local FntWriter = {}
 
+---@param v number
+---@return string
 local function u16(v)
-  return string.char(v % 256, math.floor(v / 256) % 256)
+  return string.char(math.floor(v % 256), math.floor(v / 256) % 256)
 end
+---@param v number
+---@return string
 local function u32(v)
-  return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  return string.char(
+    math.floor(v % 256),
+    math.floor(v / 256) % 256,
+    math.floor(v / 65536) % 256,
+    math.floor(v / 16777216) % 256
+  )
 end
 
 local function nameOf(f)

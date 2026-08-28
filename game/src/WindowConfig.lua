@@ -36,7 +36,7 @@ function WindowConfig.parseEnvDimension(raw, envName)
   if n == nil or n ~= math.floor(n) or n <= 0 then
     return nil, envName .. " must be a positive integer, got " .. raw
   end
-  return n
+  return n --[[@as integer]]
 end
 
 return WindowConfig

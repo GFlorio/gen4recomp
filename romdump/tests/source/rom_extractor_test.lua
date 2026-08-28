@@ -91,7 +91,6 @@ function T.romfs_index_preserves_zero_based_ids()
 end
 
 function T.does_not_touch_another_version_prefix()
-  local FakeCache = require("tests.support.FakeCache")
   local backend = FakeCache.new()
   backend.files["soulsilver/rom-dump.complete"] = "SS-MARKER"
   backend.files["soulsilver/romfs/a/0/0/2"] = "SS-DATA"
@@ -190,7 +189,7 @@ function T.successful_extraction_replaces_dump_and_cleans_staging()
 
   local spec = DumpFixture.spec()
   spec.tree.dirs[2].dirs[1].files[1].content = "SDAT-STUB-2"
-  local r = extractOk({ spec = spec, backend = backend })
+  extractOk({ spec = spec, backend = backend })
 
   Assert.equal(backend.files[HG .. "romfs/data/sound/gs_sound_data.sdat"], "SDAT-STUB-2")
   Assert.isNil(backend.files[HG .. "stray.txt"], "previous dump contents must be gone")

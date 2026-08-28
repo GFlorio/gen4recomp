@@ -6,6 +6,9 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
 
+---@param a number
+---@param b number
+---@return boolean
 local function approx(a, b)
   return math.abs(a - b) < 1e-9
 end
@@ -56,6 +59,11 @@ function T.lookAt_puts_target_in_front_along_negative_z()
 end
 
 -- Full 4-component transform including the perspective w row.
+---@param m Matrix4.Values
+---@param x number
+---@param y number
+---@param z number
+---@return number, number
 local function project(m, x, y, z)
   local cz = m[3] * x + m[7] * y + m[11] * z + m[15]
   local cw = m[4] * x + m[8] * y + m[12] * z + m[16]

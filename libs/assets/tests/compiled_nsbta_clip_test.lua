@@ -11,16 +11,62 @@ local CompiledNsbtaClip = require("libs.assets.src.CompiledNsbtaClip")
 
 local T = {}
 
+---@class CompiledNsbtaTest.Channel
+---@field source string
+---@field value number?
+---@field rate number?
+---@field limit number?
+---@field storage string?
+---@field keys number[]?
+
+---@class CompiledNsbtaTest.Channels
+---@field [string] CompiledNsbtaTest.Channel|nil
+
+---@class CompiledNsbtaTest.Target
+---@field index integer
+---@field name string
+---@field channels CompiledNsbtaTest.Channels
+
+---@class CompiledNsbtaTest.Track
+---@field target string
+---@field targetIndex integer
+
+---@class CompiledNsbtaTest.Clip
+---@field id string
+---@field name string
+---@field category string
+---@field kind string
+---@field frameCount integer
+---@field tracks CompiledNsbtaTest.Track[]
+---@field compiled { targets: CompiledNsbtaTest.Target[] }
+
+---@param value number
+---@return table
 local function constant(value)
-  return { source = "constant", value = value }
+  local channel = { source = "constant", value = value } ---@cast channel CompiledNsbtaTest.Channel
+  return channel
 end
 
+---@param rate number
+---@param keys table
+---@param limit number?
+---@param storage string?
+---@return table
 local function curve(rate, keys, limit, storage)
-  return { source = "curve", rate = rate, limit = limit or 8, storage = storage or "fx16", keys = keys }
+  local channel = {
+    source = "curve",
+    rate = rate,
+    limit = limit or 8,
+    storage = storage or "fx16",
+    keys = keys,
+  } ---@cast channel CompiledNsbtaTest.Channel
+  return channel
 end
 
 -- A complete five-channel table; named overrides replace individual
 -- channels so each malformed case shares the same otherwise-valid base.
+---@param overrides table<string, CompiledNsbtaTest.Channel>?
+---@return CompiledNsbtaTest.Channels
 local function channels(overrides)
   local ch = {
     transS = constant(0),
@@ -28,18 +74,25 @@ local function channels(overrides)
     rot = constant(0x10000000),
     scaleS = constant(0x1000),
     scaleT = constant(0x1000),
-  }
+  } ---@cast ch CompiledNsbtaTest.Channels
   for name, channel in pairs(overrides or {}) do
     ch[name] = channel
   end
   return ch
 end
 
+---@param name string
+---@param index integer
+---@param ch CompiledNsbtaTest.Channels?
+---@return CompiledNsbtaTest.Target
 local function target(name, index, ch)
-  return { index = index, name = name, channels = ch or channels() }
+  local value = { index = index, name = name, channels = ch or channels() } ---@cast value CompiledNsbtaTest.Target
+  return value
 end
 
 -- A valid clip: two tracks, two compiled targets, constants only.
+---@param mutate fun(clip: CompiledNsbtaTest.Clip)?
+---@return CompiledNsbtaTest.Clip
 local function clip(mutate)
   local c = {
     id = "area00_ani",
@@ -58,7 +111,7 @@ local function clip(mutate)
         target("sea_un", 1),
       },
     },
-  }
+  } ---@cast c CompiledNsbtaTest.Clip
   if mutate then
     mutate(c)
   end
@@ -67,6 +120,8 @@ end
 
 -- The invalid(reason) callback contract the owning descriptor validators
 -- supply; the callback records the reason instead of raising.
+---@param c table
+---@return string?
 local function validationError(c)
   local reason = nil
   CompiledNsbtaClip.validate(c, function(r)
@@ -75,10 +130,12 @@ local function validationError(c)
   return reason
 end
 
+---@param c CompiledNsbtaTest.Clip
 local function assertValid(c)
   Assert.isNil(validationError(c), "expected the clip to validate")
 end
 
+---@param c CompiledNsbtaTest.Clip
 local function assertInvalid(c)
   Assert.notNil(validationError(c), "expected the clip to fail validation")
 end
@@ -89,28 +146,28 @@ end
 
 function T.rate_1_requires_one_key_per_frame()
   assertValid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(1, { 0, 1, 2, 3, 4, 5, 6, 7 })
+    rawset(c.compiled.targets[1].channels, "transS", curve(1, { 0, 1, 2, 3, 4, 5, 6, 7 }))
   end))
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(1, { 0, 1, 2, 3, 4, 5, 6 })
+    rawset(c.compiled.targets[1].channels, "transS", curve(1, { 0, 1, 2, 3, 4, 5, 6 }))
   end))
 end
 
 function T.rate_2_requires_floor_frame_count_over_2_plus_1_keys()
   assertValid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(2, { 0, 1, 2, 3, 4 })
+    rawset(c.compiled.targets[1].channels, "transS", curve(2, { 0, 1, 2, 3, 4 }))
   end))
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(2, { 0, 1, 2, 3 })
+    rawset(c.compiled.targets[1].channels, "transS", curve(2, { 0, 1, 2, 3 }))
   end))
 end
 
 function T.rate_4_requires_anchor_keys_for_the_last_frame()
   assertValid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(4, { 0, 1, 2 })
+    rawset(c.compiled.targets[1].channels, "transS", curve(4, { 0, 1, 2 }))
   end))
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(4, { 0, 1 })
+    rawset(c.compiled.targets[1].channels, "transS", curve(4, { 0, 1 }))
   end))
 end
 
@@ -118,34 +175,34 @@ end
 
 function T.curve_limit_must_equal_the_frame_count()
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(1, { 0, 1, 2, 3, 4, 5, 6, 7 }, 6)
+    rawset(c.compiled.targets[1].channels, "transS", curve(1, { 0, 1, 2, 3, 4, 5, 6, 7 }, 6))
   end))
 end
 
 function T.unsupported_channel_sources_are_rejected()
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = { source = "linear", value = 0 }
+    rawset(c.compiled.targets[1].channels, "transS", { source = "linear", value = 0 })
   end))
 end
 
 function T.unsupported_curve_rates_and_storages_are_rejected()
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(0, { 0 })
+    rawset(c.compiled.targets[1].channels, "transS", curve(0, { 0 }))
   end))
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(1, { 0 }, 8, "fx8")
+    rawset(c.compiled.targets[1].channels, "transS", curve(1, { 0 }, 8, "fx8"))
   end))
 end
 
 function T.curve_keys_must_be_integers()
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = curve(1, { 0, 0.5 })
+    rawset(c.compiled.targets[1].channels, "transS", curve(1, { 0, 0.5 }))
   end))
 end
 
 function T.constant_values_must_be_integers()
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels.transS = constant(1.5)
+    rawset(c.compiled.targets[1].channels, "transS", constant(1.5))
   end))
 end
 
@@ -154,11 +211,11 @@ end
 function T.missing_channels_are_rejected()
   for _, name in ipairs({ "transS", "transT", "rot", "scaleS", "scaleT" }) do
     assertInvalid(clip(function(c)
-      c.compiled.targets[1].channels[name] = nil
+      rawset(c.compiled.targets[1].channels, name, nil)
     end))
   end
   assertInvalid(clip(function(c)
-    c.compiled.targets[1].channels = nil
+    rawset(c.compiled.targets[1], "channels", nil)
   end))
 end
 
@@ -202,7 +259,7 @@ function T.the_clip_envelope_is_checked()
     c.id = ""
   end))
   assertInvalid(clip(function(c)
-    c.name = 5
+    rawset(c, "name", 5)
   end))
   assertInvalid(clip(function(c)
     c.category = AnimationClip.CATEGORIES.joint
@@ -214,22 +271,22 @@ function T.the_clip_envelope_is_checked()
     c.frameCount = 0
   end))
   assertInvalid(clip(function(c)
-    c.frameCount = 2.5
+    rawset(c, "frameCount", 2.5)
   end))
   assertInvalid(clip(function(c)
-    c.tracks = "tracks"
+    rawset(c, "tracks", "tracks")
   end))
   assertInvalid(clip(function(c)
-    c.semanticNames = "names"
+    rawset(c, "semanticNames", "names")
   end))
   assertInvalid(clip(function(c)
-    c.compiled = {}
+    rawset(c, "compiled", {})
   end))
   assertInvalid(clip(function(c)
     c.compiled.targets = {}
   end))
   assertInvalid(clip(function(c)
-    c.compiled.targets = { target("pond_on", 0), 5 }
+    rawset(c.compiled, "targets", { target("pond_on", 0), 5 })
   end))
 end
 

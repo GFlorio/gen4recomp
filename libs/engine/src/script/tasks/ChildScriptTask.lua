@@ -92,10 +92,12 @@ end
 ---@return Errors.Error|nil
 function ChildScriptTask.validate(state)
   if type(state) ~= "table" or type(state.childInstanceId) ~= "string" then
+    local context = { state = state }
+    ---@cast context Errors.Context
     return Errors.new(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
       "child_script state must name its child instance",
-      { state = state }
+      context
     )
   end
   return nil

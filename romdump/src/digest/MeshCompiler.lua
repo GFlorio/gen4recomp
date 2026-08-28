@@ -200,6 +200,7 @@ end
 
 -- Compile the static batches of a decoded model (shapes, display lists,
 -- materials, sbc.commands, nodes).
+---@param model table
 ---@return CompiledBatch[]
 function MeshCompiler.compile(model)
   local batches = {}
@@ -304,6 +305,7 @@ end
 ---@return DynamicMeshRecord[]
 ---@return { shape: string, straddling: integer }[]? straddlingPrimitives
 ---@return table program
+---@param model table
 function MeshCompiler.compileDynamic(model)
   -- The draw set (order, visibility, material carries) is pose-independent:
   -- the bind-pose evaluation yields the same draws the static path compiles.

@@ -59,6 +59,12 @@ end
 -- neighbor), every material whose texture name an fldtanime record names gets
 -- a textureSwap record and its alternate frames join the shared texture
 -- accumulator; other roles never gain terrain annotation.
+---@param model table
+---@param texturePack table
+---@param meshes table
+---@param textures table<string, table>
+---@param context table
+---@return { batches: table[], materials: table[], unresolved: table[] }
 local function compileModel(model, texturePack, meshes, textures, context)
   local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })
   for sha1, tex in pairs(mat.textures) do
@@ -98,8 +104,8 @@ local function compileModel(model, texturePack, meshes, textures, context)
   local terrainStateById
   if isTerrain then
     terrainStateById = {}
-    for _, mat in ipairs(model.materials) do
-      terrainStateById[mat.index] = TextureMatrixState.fromMaterial(mat, model.info.texMtxMode)
+    for _, material in ipairs(model.materials) do
+      terrainStateById[material.index] = TextureMatrixState.fromMaterial(material, model.info.texMtxMode)
     end
   end
 
@@ -130,7 +136,7 @@ local function compileModel(model, texturePack, meshes, textures, context)
       local fmt = info and info.textureFormat or 0
       local alphaClass =
         AlphaClassifier.classify(poly.polygonAlpha, poly.polygonMode, fmt, info and info.alphaUsage or nil)
-      local sha1 = Hashing.sha1hex(MeshWriter.encode(batch))
+      local sha1 = Hashing.sha1hex(MeshWriter.encode(batch --[[@as MeshWriter.Batch]]))
       meshes[sha1] = batch
       local record = {
         geometry = MapAssetCache.geometryPath(sha1),

@@ -235,11 +235,30 @@ local function buildRenders(def)
   return renderMeshesById
 end
 
+---@return FieldCamera
 local function identityCamera()
   local identity = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
   return {
+    cameraSourceY = 0,
+    cameraAppliedY = 0,
+    zoom = 1,
+    projectionType = "orthographic",
+    profile = {},
     distance = 26,
+    near = 0.1,
     far = 400,
+    sourceTarget = { x = 0, y = 0, z = 0 },
+    target = { x = 0, y = 0, z = 0 },
+    previousTarget = { x = 0, y = 0, z = 0 },
+    eye = { x = 0, y = 0, z = 0 },
+    previousEye = { x = 0, y = 0, z = 0 },
+    up = { x = 0, y = 1, z = 0 },
+    history = {},
+    historyEnabled = false,
+    canonicalAspect = 1,
+    projectionAspect = 1,
+    _billboardDepthOffset = 0,
+    _projectionDirty = false,
     view = function()
       return identity
     end,
@@ -249,7 +268,7 @@ local function identityCamera()
     billboardProjection = function()
       return identity
     end,
-  }
+  } --[[@as FieldCamera]]
 end
 
 -- A runtime with a lit field-light profile: lights 0 and 2 enabled (the
@@ -337,7 +356,7 @@ function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
   for _ = 1, 7 do
     instance:updateFixed()
     instance:evaluatePose()
-    local items = drawInstance(renderer, rt, instance, 1)
+    drawInstance(renderer, rt, instance, 1)
     Assert.equal(#items, 1, "one mesh per frame")
   end
   Assert.equal(instance.renderMeshesById, rendersBefore, "meshes are built once, not per frame")

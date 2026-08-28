@@ -52,6 +52,27 @@ local CompiledNsbmaSampler = require("libs.engine.src.CompiledNsbmaSampler")
 
 local MaterialEvaluator = {}
 
+---@class MaterialEvaluator.Material
+---@field name string?
+---@field baseColor { r: integer, g: integer, b: integer, a: integer }
+---@field colors table<string, { r: integer, g: integer, b: integer }>
+---@field polygonAlpha number
+---@field polygonMode string
+---@field texture string?
+---@field texWidth integer
+---@field texHeight integer
+---@field textureFormat string?
+---@field alphaUsage string?
+---@field variants table[]?
+
+---@class MaterialEvaluator.Definition
+---@field materials MaterialEvaluator.Material[]
+
+---@class MaterialEvaluator.Attachment
+---@field clip table
+---@field binding table
+---@field player { frameFx: number }
+
 -- BGR555 (low 5 bits -> blue) — the NSBMA packed order, the OPPOSITE of
 -- FixedPoint.rgb555 (low 5 bits -> red); keep this unpacking exactly.
 local function rgb555To8(value)
@@ -69,6 +90,9 @@ end
 -- `materialIndex`, or nil: the binding carries the material-index ->
 -- track-index mapping resolved at definition assembly, so evaluation never
 -- loops every track looking names up.
+---@param attachment MaterialEvaluator.Attachment
+---@param materialIndex integer
+---@return table?
 local function trackForMaterial(attachment, materialIndex)
   local trackIndex = attachment.binding.trackByMaterial[materialIndex]
   if trackIndex == nil then
@@ -80,8 +104,11 @@ end
 -- The single playing attachment of `kind`, or nil: attach rejects a second
 -- same-kind attachment, so at most one exists; a second one here is a
 -- programming fault (the state was mutated outside attach).
+---@param attachments MaterialEvaluator.Attachment[]
+---@param kind string
+---@return MaterialEvaluator.Attachment?
 local function attachmentOfKind(attachments, kind)
-  local found
+  local found ---@type MaterialEvaluator.Attachment?
   for _, attachment in ipairs(attachments) do
     if attachment.clip.kind == kind then
       assert(found == nil, "state holds more than one " .. tostring(kind) .. " attachment")
@@ -105,16 +132,20 @@ end
 ---@field ambient MaterialRGB
 ---@field specular MaterialRGB
 ---@field emission MaterialRGB
----@param material table
+---@param material MaterialEvaluator.Material
 ---@return MaterialColorComponents
 function MaterialEvaluator.baseColors(material)
   local baseColor = material.baseColor
+  ---@param name string
+  ---@return MaterialRGB
   local function component(name)
     local c = material.colors and material.colors[name]
     if c then
-      return { r = c.r, g = c.g, b = c.b }
+      local color = { r = c.r, g = c.g, b = c.b } ---@type MaterialRGB
+      return color
     end
-    return { r = baseColor.r, g = baseColor.g, b = baseColor.b }
+    local color = { r = baseColor.r, g = baseColor.g, b = baseColor.b } ---@type MaterialRGB
+    return color
   end
   return {
     diffuse = component("diffuse"),
@@ -128,6 +159,9 @@ end
 -- evaluator mutates per frame. The base colors come from baseColors (the
 -- per-DS-register reconstruction above); the descriptor gate guarantees the
 -- baseColor and polygonAlpha fields on every dynamic material record.
+---@param definition MaterialEvaluator.Definition
+---@param materialIndex integer
+---@return table
 local function baseMaterialState(definition, materialIndex)
   local material =
     assert(definition.materials[materialIndex + 1], "material index " .. tostring(materialIndex) .. " out of range")
@@ -147,6 +181,10 @@ end
 
 -- The texture variant a pattern key selects, or nil when the material has
 -- no variants (no pattern animation compiled).
+---@param compiled table
+---@param key table
+---@param material MaterialEvaluator.Material
+---@return table
 local function variantFor(compiled, key, material)
   local texName = compiled.textureNames[key.texIdx + 1]
   if texName == nil then
@@ -190,13 +228,18 @@ local function variantFor(compiled, key, material)
       .. " (referenced by pattern animation)",
     { material = material.name, variant = name }
   )
+  error("unreachable after missing material variant")
 end
 
 -- The texture metadata a material currently draws with: its base texture or
 -- the variant a pattern attachment selected. Returns { texture, width,
 -- height, format, alphaUsage } with nil texture for untextured materials.
+---@param material MaterialEvaluator.Material
+---@param patternAttachment MaterialEvaluator.Attachment?
+---@param patternTrack table?
+---@return table
 local function currentTexture(material, patternAttachment, patternTrack)
-  local selected
+  local selected ---@type table?
   if patternAttachment and patternTrack then
     local clip = patternAttachment.clip
     local key = CompiledNsbtpSampler.keyAt(clip, patternTrack.targetIndex, patternAttachment.player.frameFx)
@@ -216,6 +259,10 @@ end
 -- into `materialState` (per material index). `materialState` entries are
 -- replaced wholesale; the caller's table is updated in place so the
 -- instance keeps its identity.
+---@param definition MaterialEvaluator.Definition
+---@param attachments MaterialEvaluator.Attachment[]
+---@param materialState table<integer, table>
+---@return table<integer, table>
 function MaterialEvaluator.evaluate(definition, attachments, materialState)
   assert(type(definition) == "table" and definition.materials ~= nil, "MaterialEvaluator requires a model definition")
   assert(
@@ -244,7 +291,9 @@ function MaterialEvaluator.evaluate(definition, attachments, materialState)
     if color then
       local track = trackForMaterial(color, materialIndex)
       if track then
-        local sampled = CompiledNsbmaSampler.sample(color.clip, track.targetIndex, color.player.frameFx)
+        local clip = color.clip
+        ---@cast clip CompiledNsbmaClip
+        local sampled = CompiledNsbmaSampler.sample(clip, track.targetIndex, color.player.frameFx)
         colorAnimated = true
         for _, name in ipairs({ "diffuse", "ambient", "specular", "emission" }) do
           local value = sampled[name]

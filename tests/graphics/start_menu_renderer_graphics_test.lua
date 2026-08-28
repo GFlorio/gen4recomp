@@ -43,6 +43,7 @@ end
 -- fixture caches, the real generated manifest for the shared derived cache).
 ---@param scope GraphicsScope
 ---@param cacheFs CacheFs
+---@param manifest table
 ---@param cursorSlotId integer
 ---@param cursorFrameIndex integer
 ---@param placement StartMenuLayout.Placement
@@ -109,7 +110,7 @@ end
 local function fixtureReference(cursorSlotId, cursorFrameIndex)
   local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
   local function paste(x, y, r, g, b, a)
-    reference:setPixel(x, y, r, g, b, a)
+    reference:setPixel(math.floor(x), math.floor(y), r, g, b, a)
   end
   for y = 0, CANONICAL_HEIGHT - 1 do
     for x = 0, CANONICAL_WIDTH - 1 do
@@ -148,7 +149,7 @@ local function scaledFixtureReference(cursorSlotId, cursorFrameIndex, scale)
   local function block(x, y, r, g, b, a)
     for dy = 0, scale - 1 do
       for dx = 0, scale - 1 do
-        reference:setPixel(x * scale + dx, y * scale + dy, r, g, b, a)
+        reference:setPixel(math.floor(x * scale + dx), math.floor(y * scale + dy), r, g, b, a)
       end
     end
   end
@@ -222,7 +223,7 @@ function T.cursor_frames_are_distinct_artwork_at_the_same_position(scope)
     return math.floor(v * 255 + 0.5)
   end
   local function pixel(data, x, y)
-    local r, g, b, a = data:getPixel(x, y)
+    local r, g, b, a = data:getPixel(math.floor(x), math.floor(y))
     return quantize(r), quantize(g), quantize(b), quantize(a)
   end
   local slot = FieldUiFixture.START_MENU_SLOTS[4]
@@ -278,8 +279,9 @@ function T.canonical_golden_matches_the_real_generated_surface_pixel_for_pixel(s
 
   local reference = love.image.newImageData(CANONICAL_WIDTH, CANONICAL_HEIGHT)
   local backgroundPixels =
-    love.image.newImageData(love.filesystem.newFileData(cache:read(background.image), background.image))
-  local cursorPixels = love.image.newImageData(love.filesystem.newFileData(cache:read(cursor.image), cursor.image))
+    love.image.newImageData(love.filesystem.newFileData(assert(cache:read(background.image)), background.image))
+  local cursorPixels =
+    love.image.newImageData(love.filesystem.newFileData(assert(cache:read(cursor.image)), cursor.image))
   local function blend(target, source, originX, originY)
     for y = 0, source:getHeight() - 1 do
       for x = 0, source:getWidth() - 1 do

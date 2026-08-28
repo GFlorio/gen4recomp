@@ -77,6 +77,8 @@ end
 -- (composition always emits every component), and matrixStackIndex is taken
 -- from the bind record so the evaluator stores the world matrix in the
 -- node's intended slot.
+---@param result JointAnimResult
+---@param bindSrt SrtRecord
 ---@return SrtRecord
 function NitroJointState.srtFromBlend(result, bindSrt)
   assert(type(result) == "table" and result.flags ~= nil, "srtFromBlend requires a blended joint result")

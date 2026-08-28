@@ -15,7 +15,6 @@ local PngReader = require("tests.support.PngReader")
 local T = {}
 
 local function buildFontMember(numGlyphs, glyphBytes, widths)
-  local glyphSize = 64
   local writer = require("libs.codec.src.BinaryWriter").new()
   writer:u32(16)
   writer:u32(16 + #glyphBytes)
@@ -193,6 +192,8 @@ local function fixture(opts)
   })
   local focusA, focusB = focusMembers()
   local romFs = {
+    _version = "heartgold",
+    _metadata = { sha1 = "rom-sha" },
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "font")
       return { symbol = "NARC_graphic_font", alias = "font", narcId = 16, fileId = 66, path = "a/0/1/6" }
@@ -224,7 +225,7 @@ local function fixture(opts)
     version = function()
       return "heartgold"
     end,
-  }
+  } --[[@as RomFs]]
   local function sha1(bytes)
     if bytes == glyphMember then
       return "glyph-member-sha"
@@ -287,18 +288,18 @@ function T.compiles_font_def_and_atlas()
   Assert.equal(r2, 173)
   Assert.equal(g2, 189)
   Assert.equal(b2, 189)
-  local r3, g3, b3, a3 = PngReader.pixel(rgba, atlasWidth, 0, 8)
+  local r3, _, _, a3 = PngReader.pixel(rgba, atlasWidth, 0, 8)
   Assert.equal(a3, 255) -- BL tile repeats the same pattern
   Assert.equal(r3, 90)
-  local r4, g4, b4, a4 = PngReader.pixel(rgba, atlasWidth, 12, 8)
+  local r4, _, _, a4 = PngReader.pixel(rgba, atlasWidth, 12, 8)
   Assert.equal(a4, 255)
   Assert.equal(r4, 173) -- BR right half carries the shadow too
   -- Background-slot pixels (value 3) composite as transparent so glyph cells
   -- never paint opaque rectangles over the narrower glyphs before them.
-  local r5, g5, b5, a5 = PngReader.pixel(rgba, atlasWidth, 5, 0)
+  local r5, _, _, a5 = PngReader.pixel(rgba, atlasWidth, 5, 0)
   Assert.equal(a5, 0)
   Assert.equal(r5, 0)
-  local r6, g6, b6, a6 = PngReader.pixel(rgba, atlasWidth, 7, 0)
+  local _, _, _, a6 = PngReader.pixel(rgba, atlasWidth, 7, 0)
   Assert.equal(a6, 0)
 end
 
@@ -478,7 +479,6 @@ end
 function T.variant_zero_keeps_the_previous_default_palette_slots()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  local variants = bundle.font.colorVariants
   local atlasW, _, rgba = PngReader.rgba(bundle.atlas)
   local r, g, b, _ = PngReader.pixel(rgba, atlasW, 0, 0)
   Assert.deepEqual(

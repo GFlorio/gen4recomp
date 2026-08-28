@@ -13,10 +13,6 @@ local NB = require("tests.support.NitroBuilder")
 local function u32(v)
   return NB.u32(v)
 end
-local function u16(v)
-  return NB.u16(v)
-end
-
 local T = {}
 
 local EPS = 1e-9
@@ -29,6 +25,14 @@ local function assertMatrixClose(actual, expected, msg)
   end
 end
 
+---@param m number[]
+---@param x number
+---@param y number
+---@param z number
+---@param ex number
+---@param ey number
+---@param ez number
+---@param msg string?
 local function assertMatrixAtPoint(m, x, y, z, ex, ey, ez, msg)
   local ax, ay, az = Matrix4.transformPoint(m, x, y, z)
   if math.abs(ax - ex) > EPS or math.abs(ay - ey) > EPS or math.abs(az - ez) > EPS then

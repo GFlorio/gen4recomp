@@ -12,6 +12,21 @@ local Errors = require("libs.errors.src.Errors")
 
 local FieldMessageText = {}
 
+---@class FieldMessageText.FontDef
+---@field charmap table<string, integer>
+
+---@class FieldMessageText.Token
+---@field kind string
+---@field text string?
+---@field code integer?
+---@field control integer?
+---@field name string?
+---@field args number[]?
+---@field raw number[]?
+
+---@class FieldMessageText.Options
+---@field eos boolean?
+
 -- Single-unit code units (include/constants/charcode.h).
 FieldMessageText.CHAR_LF = 0xE000
 FieldMessageText.EXT_CTRL_CODE_BEGIN = 0xFFFE
@@ -73,8 +88,8 @@ FieldMessageText.controlNames = {
   [0xFF02] = "UNK_FF02",
 }
 
-local namesByCode = FieldMessageText.controlNames
-local codesByName = {}
+local namesByCode = FieldMessageText.controlNames ---@type table<number, string>
+local codesByName = {} ---@type table<string, number>
 for code, name in pairs(namesByCode) do
   codesByName[name] = code
 end
@@ -138,9 +153,9 @@ end
 -- Builds one marker string: marker(control, ...args). A STRVAR control
 -- includes its field selector as the first value.
 function FieldMessageText.marker(control, ...)
-  local args = { ... }
+  local args = { ... } ---@type number[]
   local label = FieldMessageText.controlName(control) or string.format("CTRL 0x%04X", control)
-  local values = {}
+  local values = {} ---@type string[]
   if FieldMessageText.isStrvarFamily(control) then
     values[#values + 1] = tostring(control % 256)
   end
@@ -157,9 +172,11 @@ end
 -- stops at the first EOS and later tokens are ignored. Substitution/style/
 -- wait/unsupported tokens before EOS render their markers so no control is
 -- silently dropped from the text form.
+---@param tokens FieldMessageText.Token[]
+---@return string
 function FieldMessageText.tokensToText(tokens)
   assert(type(tokens) == "table", "tokensToText requires a token stream")
-  local out = {}
+  local out = {} ---@type string[]
   for _, token in ipairs(tokens) do
     if token.kind == "eos" then
       break
@@ -180,9 +197,13 @@ function FieldMessageText.tokensToText(tokens)
   return table.concat(out)
 end
 
+---@param text string
+---@param fontDef FieldMessageText.FontDef
+---@param opts FieldMessageText.Options?
+---@return FieldMessageText.Token[]
 local function parseBody(text, fontDef, opts)
   opts = opts or {}
-  local tokens = {}
+  local tokens = {} ---@type FieldMessageText.Token[]
   local position = 1
 
   local function pushGlyphs(char)
@@ -224,10 +245,12 @@ local function parseBody(text, fontDef, opts)
     end
     -- Values are comma- or space-separated: "{STRVAR_1 3, 0, 0}" and
     -- "{CTRL 0x0707 9}" both parse.
-    local values = {}
+    local values = {} ---@type number[]
     if rest ~= "" then
-      for value in rest:gmatch("[^,%s]+") do
-        local trimmed = value:match("^%s*(.-)%s*$")
+      local markerValues = rest:gmatch("[^,%s]+") ---@type fun(): string?
+      for value in markerValues do
+        local markerValue = value ---@type string
+        local trimmed = markerValue:match("^%s*(.-)%s*$") or markerValue
         local number = tonumber(trimmed)
         if not number or number < 0 or number > 65535 or number % 1 ~= 0 then
           Errors.raise(
@@ -240,8 +263,8 @@ local function parseBody(text, fontDef, opts)
       end
     end
 
-    local control
-    local args = values
+    local control ---@type number?
+    local args = values ---@type number[]
     if name == "CTRL" then
       local code = body:match("^CTRL%s+0x(%x%x%x%x)")
       if not code then
@@ -251,7 +274,7 @@ local function parseBody(text, fontDef, opts)
           { index = position, marker = body }
         )
       end
-      control = tonumber(code, 16)
+      control = assert(tonumber(code, 16))
       args = {}
       for i = 2, #values do
         args[#args + 1] = values[i]
@@ -266,7 +289,7 @@ local function parseBody(text, fontDef, opts)
       end
       control = FieldMessageText.TRNAME
     else
-      local base = codesByName[name]
+      local base = codesByName[name] ---@type number?
       if not base then
         Errors.raise(
           "MESSAGE_MARKER_INVALID",
@@ -274,8 +297,9 @@ local function parseBody(text, fontDef, opts)
           { index = position, name = name, marker = body }
         )
       end
-      control = base
-      if FieldMessageText.isStrvarFamily(base) then
+      local baseValue = assert(base)
+      control = baseValue
+      if FieldMessageText.isStrvarFamily(baseValue) then
         if #values == 0 then
           Errors.raise(
             "MESSAGE_MARKER_INVALID",
@@ -283,7 +307,7 @@ local function parseBody(text, fontDef, opts)
             { index = position, marker = body }
           )
         end
-        local field = table.remove(values, 1)
+        local field = assert(table.remove(values, 1)) ---@type number
         if field > 255 then
           Errors.raise(
             "MESSAGE_MARKER_INVALID",
@@ -291,18 +315,20 @@ local function parseBody(text, fontDef, opts)
             { index = position, marker = body }
           )
         end
-        control = base + field
+        control = baseValue + field
       end
     end
 
-    local raw = { FieldMessageText.EXT_CTRL_CODE_BEGIN, control, #args }
+    local raw = { FieldMessageText.EXT_CTRL_CODE_BEGIN, control, #args } ---@type number[]
     for _, arg in ipairs(args) do
       raw[#raw + 1] = arg
     end
+    local resolvedControl = assert(control)
+    ---@cast resolvedControl integer
     tokens[#tokens + 1] = {
-      kind = FieldMessageText.controlKind(control),
-      control = control,
-      name = FieldMessageText.controlName(control),
+      kind = FieldMessageText.controlKind(resolvedControl),
+      control = resolvedControl,
+      name = FieldMessageText.controlName(resolvedControl),
       args = args,
       raw = raw,
     }
@@ -336,13 +362,19 @@ local function parseBody(text, fontDef, opts)
   return tokens
 end
 
+---@param text string
+---@param fontDef FieldMessageText.FontDef
+---@param opts FieldMessageText.Options?
+---@return FieldMessageText.Token[]?, Errors.Error?
 local function parseEntry(text, fontDef, opts)
   local ok, result = pcall(parseBody, text, fontDef, opts)
   if ok then
+    ---@cast result FieldMessageText.Token[]
     return result
   end
   if Errors.is(result) then
-    return nil, result
+    local errorValue = result ---@cast errorValue Errors.Error
+    return nil, errorValue
   end
   error(result)
 end
@@ -352,6 +384,10 @@ end
 -- eos token is appended unless opts.eos is false. Returns (tokens | nil, err)
 -- with MESSAGE_MARKER_INVALID on malformed markers and
 -- MESSAGE_SUBSTITUTION_UNRESOLVED on characters without a glyph.
+---@param text string
+---@param fontDef FieldMessageText.FontDef
+---@param opts FieldMessageText.Options?
+---@return FieldMessageText.Token[]?, Errors.Error?
 function FieldMessageText.parse(text, fontDef, opts)
   assert(type(text) == "string", "parse requires marker text")
   assert(

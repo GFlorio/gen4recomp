@@ -121,6 +121,8 @@ end
 -- identity instead of asking FieldTransition to reconstruct it later.
 function T.trigger_record_preserves_transition_identity()
   ---@return table
+  ---@param behavior integer
+  ---@param facing string
   local function stepTrigger(behavior, facing)
     local warps = { warp(4, 14) }
     local map = runtimeMap(0, 0, warps, {
@@ -130,6 +132,8 @@ function T.trigger_record_preserves_transition_identity()
   end
 
   ---@return table
+  ---@param behavior integer
+  ---@param facing string
   local function inputTrigger(behavior, facing)
     local warps = { warp(4, 14) }
     local map = runtimeMap(0, 0, warps, {

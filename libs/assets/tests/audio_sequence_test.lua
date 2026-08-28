@@ -174,7 +174,7 @@ end
 
 function T.validates_the_program_control_flow()
   local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
-  sequence.program = nil
+  rawset(sequence, "program", nil)
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -212,7 +212,7 @@ end
 
 function T.validates_instruction_records()
   local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
-  sequence.program.instructions = { 5 }
+  rawset(sequence.program, "instructions", { 5 })
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -471,20 +471,20 @@ function T.validates_note_key_and_velocity()
   local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
   sequence.program.instructions[2] = { op = "note", key = 60, velocity = 96, duration = 24 }
   Assert.isTrue(AudioSequence.validate(sequence))
-  sequence.program.instructions[2].key = 0x80
+  rawset(sequence.program.instructions[2], "key", 0x80)
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.program.instructions[2].key = -1
+  rawset(sequence.program.instructions[2], "key", -1)
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.program.instructions[2].key = 60
-  sequence.program.instructions[2].velocity = 128
+  rawset(sequence.program.instructions[2], "key", 60)
+  rawset(sequence.program.instructions[2], "velocity", 128)
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
-  sequence.program.instructions[2].velocity = -1
+  rawset(sequence.program.instructions[2], "velocity", -1)
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -498,7 +498,7 @@ function T.conditional_instruction_requires_a_complete_nested_command()
     instruction = { op = "pan", amount = 64 },
   }
   Assert.isTrue(AudioSequence.validate(sequence))
-  sequence.program.instructions[2].instruction = { op = "pan", amount = 64, extra = true }
+  rawset(sequence.program.instructions[2], "instruction", { op = "pan", amount = 64, extra = true })
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -510,7 +510,7 @@ function T.validates_nested_control_flow_operands()
   nested = { op = "if", condition = "compare_result", instruction = { op = "open_track", track = 1, target = 2 } }
   sequence.program.instructions[2] = nested
   Assert.isTrue(AudioSequence.validate(sequence))
-  nested.instruction.target = 0
+  rawset(nested.instruction, "target", 0)
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
@@ -538,7 +538,7 @@ function T.rejects_extra_instruction_fields()
     "offset",
   }) do
     sequence.program.instructions[2] = { op = "pan", amount = 64 }
-    sequence.program.instructions[2][field] = "leak"
+    rawset(sequence.program.instructions[2], field, "leak")
     throwsCode("AUDIO_SEQUENCE_INVALID", function()
       AudioSequence.validate(sequence)
     end)

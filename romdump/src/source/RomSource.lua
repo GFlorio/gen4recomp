@@ -48,7 +48,7 @@ RomSource.MOUNT_POINT = "g4-romzip"
 
 local function findNdsCandidate(zipBytes, zipName, versions)
   local fd = love.filesystem.newFileData(zipBytes, "romzip.zip")
-  love.filesystem.unmount(fd) -- clear any stale mount from a prior import
+  love.filesystem.unmount(fd:getFilename()) -- clear any stale mount from a prior import
   if not love.filesystem.mount(fd, RomSource.MOUNT_POINT) then
     return nil, Errors.new("ZIP_MOUNT_FAILED", "could not read zip: " .. zipName, { name = zipName })
   end
@@ -87,7 +87,7 @@ local function findNdsCandidate(zipBytes, zipName, versions)
     walk(RomSource.MOUNT_POINT)
     found = found or fallback
   end)
-  love.filesystem.unmount(fd)
+  love.filesystem.unmount(fd:getFilename())
   if not ok then
     if Errors.is(walkErr) then
       return nil, walkErr

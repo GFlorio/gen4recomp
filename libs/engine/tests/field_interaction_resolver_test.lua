@@ -10,6 +10,9 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+---@diagnostic disable-next-line: missing-fields -- focused test double, not a real MapProps
+local EMPTY_MAP_PROPS = {} --[[@as MapProps]]
+
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
   Assert.isTrue(Errors.is(err), "expected a structured error, got " .. tostring(err))
@@ -20,10 +23,12 @@ end
 -- A flat synthetic map centered at field origin (0,0) covering local
 -- (0..31, 0..31). Optional background events with raw direction codes.
 local function map(backgrounds)
-  return {
+  local value = {
     mapId = 61,
+    mapSymbol = "test-map",
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
+    scene = {},
     fieldData = {
       scriptBankId = 843,
       messageBankId = 543,
@@ -51,7 +56,13 @@ local function map(backgrounds)
         },
       },
     }),
-  }
+    terrainDependencyHash = "test-terrain",
+    mapProps = EMPTY_MAP_PROPS,
+    fieldRegion = {},
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
+  return value
 end
 
 local function bgEvent(index, scriptId, x, z, directionRaw, eventType)
@@ -156,7 +167,7 @@ local function baseSnapshot(overrides)
   for key, value in pairs(overrides or {}) do
     snapshot[key] = value
   end
-  return snapshot
+  return snapshot --[[@as InteractionResolverSnapshot]]
 end
 
 function T.background_direction_compatibility_matches_the_source_table()

@@ -21,9 +21,6 @@
 -- one does not) and the non-Ex integer path's odd-frame averages.
 -- Pure domain module.
 
-local Errors = require("libs.errors.src.Errors")
-local BinaryReader = require("libs.codec.src.BinaryReader")
-
 local NitroCurve = {}
 
 local function s16(value)
@@ -41,6 +38,9 @@ local BIT_HALF = 0x40000000
 local BIT_FX16 = 0x20000000
 
 -- The low 32 bits of a signed product, as the asm `mul` leaves it.
+---@param a number
+---@param b number
+---@return number
 local function mul32(a, b)
   local p = (a * b) % 4294967296
   if p >= 2147483648 then

@@ -30,7 +30,7 @@ end
 -- Protected call returning `status, payload` where status is "pass", "skip", or
 -- "fail"; payload is the skip reason or the traceback.
 local function protected(fn, context)
-  local ok, err = xpcall(fn, handler, context)
+  local ok, err = xpcall(assert(fn), handler, context)
   if ok then
     return "pass", nil
   end

@@ -22,6 +22,7 @@ local ENV = setmetatable({}, {
 -- `options` accepts `layer`, `filter`, and `capabilities`; `main` parses them
 -- out of the argv.
 ---@param options table|nil
+---@return table
 local function runnerOptions(options)
   options = options or {}
   return {

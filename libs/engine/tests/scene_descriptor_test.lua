@@ -17,6 +17,7 @@ local T = {}
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected error " .. code)
+  ---@cast err Errors.Error
   Assert.equal(type(err) == "table" and err.code or err, code)
 end
 

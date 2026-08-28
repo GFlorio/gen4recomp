@@ -120,7 +120,7 @@ function DsFog.expand5to6(c5)
   if c5 <= 0 then
     return 0
   end
-  return c5 * 2 + 1
+  return assert(math.floor(c5 * 2 + 1))
 end
 
 return DsFog

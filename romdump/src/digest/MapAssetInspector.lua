@@ -340,6 +340,10 @@ end
 -- 0x18-byte record per member (exterior_build_anim_list); each referenced id
 -- indexes `resNarc` (build_anim), a mixed archive of NitroSystem
 -- animation resources. Returns a list of { resourceId, magic, kind, name }.
+---@param listNarc RomFs.Narc
+---@param resNarc RomFs.Narc
+---@param memberId integer
+---@return table[]
 local function resolveAnimations(listNarc, resNarc, memberId)
   if memberId >= listNarc:memberCount() then
     return {}
@@ -349,7 +353,7 @@ local function resolveAnimations(listNarc, resNarc, memberId)
   for _, resourceId in ipairs(record.ids) do
     local entry = { resourceId = resourceId }
     if resourceId < resNarc:memberCount() then
-      local bytes = resNarc:readMember(resourceId)
+      local bytes = assert(resNarc:readMember(resourceId))
       entry.magic = bytes:sub(1, 4)
       entry.kind = ANIM_KIND[entry.magic] or "unknown"
       -- NitroSystem animation name: 16 bytes at 0x34, NUL-padded.
@@ -428,7 +432,7 @@ local function inspectBuildings(romFs, area, buildings, warnings, inv)
           posScaleOptions = collectPosScaleOptions(model),
           rawBounds = rawDisplayListBounds(model),
           compiledDiagnostics = compileDiagnostics(model),
-          animations = animListNarc and resolveAnimations(animListNarc, animResNarc, memberId) or {},
+          animations = animListNarc and animResNarc and resolveAnimations(animListNarc, animResNarc, memberId) or {},
         }
       end
     end

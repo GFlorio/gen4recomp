@@ -39,9 +39,58 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 local PolygonState = require("libs.assets.src.PolygonState")
 local AnimationClip = require("libs.assets.src.AnimationClip")
 
+---@class ModelDefinition
+---@field key string
+---@field nodes table[]
+---@field meshes table[]
+---@field materials table[]
+---@field animations table[]
+---@field doorSoundType integer?
+---@field backend table?
+---@field sourceBackend unknown?
+---@field animationByName table<string, table>
+---@field animationBySemantic table<string, table>
+---@field bindings table<table, table>
+---@field node fun(self: ModelDefinition, index: integer): table?
+---@field animation fun(self: ModelDefinition, nameOrSemantic: string): table?
+---@field binding fun(self: ModelDefinition, clip: table): table
+---@class ModelDefinition.NodeSource
+---@field name string?
+---@field translation number[]
+---@field rotation number[]
+---@field scale number[]
+
+---@class ModelDefinition.BatchSource
+---@field id integer
+---@field nodeIndex integer
+---@field materialIndex integer
+---@field geometry string
+---@field drawIndex integer
+---@field positionSource string?
+---@field transformMode string?
+---@field straddle table?
+
+---@class ModelDefinition.Descriptor
+---@field key string?
+---@field dynamic { transformProgram: table, nodes: ModelDefinition.NodeSource[], batches: ModelDefinition.BatchSource[] }
+---@field materials table[]
+---@field animations table[]
+---@field doorSoundType integer?
+
+---@class ModelDefinition.Input
+---@field key string
+---@field nodes table[]
+---@field meshes table[]
+---@field materials table[]
+---@field animations table[]
+---@field doorSoundType integer?
+---@field backend table?
+---@field sourceBackend unknown?
 local ModelDefinition = {}
 ModelDefinition.__index = ModelDefinition
 
+---@param definition ModelDefinition.Input
+---@return ModelDefinition
 function ModelDefinition.new(definition)
   assert(type(definition) == "table", "ModelDefinition.new requires a table")
   if type(definition.key) ~= "string" or #definition.key == 0 then
@@ -76,8 +125,10 @@ function ModelDefinition.new(definition)
   -- (e.g. "door.open"). A role mapped twice is an authoring error, and a
   -- clip name colliding with another clip's semantic role is ambiguous --
   -- both raise rather than making lookup precedence significant.
-  local byName, bySemantic = {}, {}
-  for _, clip in ipairs(definition.animations) do
+  local byName = {} ---@type table<string, table>
+  local bySemantic = {} ---@type table<string, table>
+  local animations = definition.animations ---@type table[]
+  for _, clip in ipairs(animations) do
     if byName[clip.name] then
       Errors.raise(
         FieldErrors.MODEL_DEF_DUPLICATE_ANIMATION,
@@ -87,8 +138,9 @@ function ModelDefinition.new(definition)
     end
     byName[clip.name] = clip
   end
-  for _, clip in ipairs(definition.animations) do
-    for _, semantic in ipairs(clip.semanticNames) do
+  for _, clip in ipairs(animations) do
+    local semanticNames = clip.semanticNames ---@type string[]
+    for _, semantic in ipairs(semanticNames) do
       if bySemantic[semantic] then
         Errors.raise(
           FieldErrors.MODEL_DEF_DUPLICATE_SEMANTIC,
@@ -107,7 +159,7 @@ function ModelDefinition.new(definition)
     end
   end
 
-  local self = setmetatable({
+  local self = {
     key = definition.key,
     nodes = definition.nodes,
     meshes = definition.meshes,
@@ -118,7 +170,8 @@ function ModelDefinition.new(definition)
     animationByName = byName,
     animationBySemantic = bySemantic,
     bindings = {},
-  }, ModelDefinition)
+  } ---@type ModelDefinition
+  setmetatable(self, ModelDefinition)
 
   -- The per-clip binding is resolved once, at assembly: the material-index
   -- -> track-index mapping the evaluators consume is precomputed here, never
@@ -128,15 +181,21 @@ function ModelDefinition.new(definition)
     self:binding(clip)
   end
 
-  return self
+  return self --[[@as ModelDefinition]]
 end
 
 -- Resolve a clip by name or semantic role (e.g. "door.open"), or nil.
+---@param self ModelDefinition
+---@param nameOrSemantic string
+---@return table?
 function ModelDefinition:animation(nameOrSemantic)
   return self.animationByName[nameOrSemantic] or self.animationBySemantic[nameOrSemantic]
 end
 
 -- The model node for a node index, or nil.
+---@param self ModelDefinition
+---@param index integer
+---@return table?
 function ModelDefinition:node(index)
   return self.nodes[index + 1]
 end
@@ -165,17 +224,22 @@ end
 -- validation, visibility, and diagnostics. MapSceneLoader assembles this so
 -- the runtime and the tests share one assembly; it also stamps each mesh's
 -- model-space `center` from the decoded geometry.
+---@param desc ModelDefinition.Descriptor
+---@param opts { key: string? }?
+---@return ModelDefinition
 function ModelDefinition.fromNitroDescriptor(desc, opts)
   assert(type(desc) == "table" and desc.dynamic ~= nil, "fromNitroDescriptor requires a dynamic model descriptor")
   opts = opts or {}
   -- The loader supplies the key through opts when it knows the model key.
-  local key = opts.key or desc.key
+  local key = (opts and opts.key) or desc.key
   if not key then
     Errors.raise(FieldErrors.NITRO_DESC_NO_KEY, "model descriptor requires a key (desc.key or opts.key)", {})
   end
-  local program = desc.dynamic.transformProgram
-  local nodes = {}
-  for i, node in ipairs(desc.dynamic.nodes) do
+  local dynamic = desc.dynamic
+  local program = dynamic.transformProgram
+  local nodes = {} ---@type table[]
+  local sourceNodes = dynamic.nodes ---@type ModelDefinition.NodeSource[]
+  for i, node in ipairs(sourceNodes) do
     nodes[#nodes + 1] = {
       index = i - 1,
       name = node.name,
@@ -184,9 +248,10 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
       scale = node.scale,
     }
   end
-  local meshes = {}
-  local backendMeshes = {}
-  for _, mesh in ipairs(desc.dynamic.batches) do
+  local meshes = {} ---@type table[]
+  local backendMeshes = {} ---@type table<number, table>
+  local batches = dynamic.batches ---@type ModelDefinition.BatchSource[]
+  for _, mesh in ipairs(batches) do
     local record = {
       id = mesh.id,
       nodeIndex = mesh.nodeIndex,
@@ -199,6 +264,7 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
     -- positionSource/transformMode are not mandatory (the billboard batch
     -- in the corpus legitimately omits positionSource).
     local backendRecord = PolygonState.copy(mesh)
+    ---@cast backendRecord table
     backendRecord.drawIndex = mesh.drawIndex
     backendRecord.positionSource = mesh.positionSource
     backendRecord.transformMode = mesh.transformMode
@@ -209,8 +275,9 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
     end
     backendMeshes[mesh.id] = backendRecord
   end
+  local resolvedKey = assert(key)
   return ModelDefinition.new({
-    key = key,
+    key = resolvedKey,
     nodes = nodes,
     meshes = meshes,
     materials = desc.materials,
@@ -235,6 +302,9 @@ end
 -- A clip outside the animations list has no binding: the assembly loop
 -- precomputes every in-list clip, so a miss here is a programming fault and
 -- raises instead of lazily binding an unlisted clip.
+---@param clip table
+---@param self ModelDefinition
+---@return table
 function ModelDefinition:binding(clip)
   local record = self.bindings[clip]
   if not record then
@@ -246,22 +316,27 @@ function ModelDefinition:binding(clip)
         .. self.key
         .. "; bindings are resolved at assembly"
     )
-    local map = {}
-    local trackByMaterial
+    local map = {} ---@type table<number|string, integer>
+    local trackByMaterial ---@type table<integer, integer>?
     if clip.category == AnimationClip.CATEGORIES.joint then
-      for _, track in ipairs(clip.tracks) do
-        local target = track.target
-        if type(target) == "number" and self:node(target) then
-          map[target] = target
+      local tracks = clip.tracks ---@type table[]
+      for _, track in ipairs(tracks) do
+        local target = track.target ---@type number|string
+        if type(target) == "number" then
+          local targetIndex = math.floor(target)
+          if self:node(targetIndex) then
+            map[targetIndex] = targetIndex
+          end
         end
       end
     elseif clip.category == AnimationClip.CATEGORIES.material then
       trackByMaterial = {}
-      for i, track in ipairs(clip.tracks) do
-        for j, material in ipairs(self.materials) do
+      local tracks = clip.tracks ---@type table[]
+      for i, track in ipairs(tracks) do
+        for _, material in ipairs(self.materials) do
           if material.name == track.target then
             map[track.target] = material.id
-            trackByMaterial[material.id] = i - 1
+            trackByMaterial[material.id] = math.floor(i - 1)
             break
           end
         end

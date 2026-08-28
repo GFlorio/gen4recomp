@@ -695,9 +695,10 @@ function T.unsupported_cursor_obj_geometry_is_a_typed_source_error()
   Assert.equal(typed.code, FieldUiCompiler.ERROR.SOURCE_INVALID)
   Assert.equal(typed.context.width, 16)
   Assert.equal(typed.context.height, 8)
-  Assert.equal(typed.context.source.member, 62)
-  Assert.equal(typed.context.source.cell, 0)
-  Assert.equal(typed.context.source.obj, 0)
+  local source = typed.context.source --[[@as table]]
+  Assert.equal(source.member, 62)
+  Assert.equal(source.cell, 0)
+  Assert.equal(source.obj, 0)
 end
 
 -- A screen entry referencing a tile beyond the decoded char data is

@@ -1,43 +1,42 @@
 ---
 name: branch-review
-description: Use when reviewing everything a branch adds on top of master — a thorough, methodical critical pass over a large body of unmerged work, often written by a weaker agent.
+description: Use when reviewing everything a branch adds on top of master - a fresh-context, deletion-biased review of all unmerged work that fixes established issues directly, validates the branch premise and design intent, verifies the complete branch, and reports whether the development system or agent guidance could have prevented material findings without bloating guidance.
 ---
 
 # Branch Review
 
-A thorough critical review of **all unmerged changes on the current branch**. Assume the
-code was written by a weaker agent: it is probably over-abstracted, over-branched, and
-over-commented. It needs a lot of feedback, and most of that feedback is "cut this".
+Review **all unmerged changes on the current branch** with a fresh reader and a strong bias
+toward deletion, reuse, and fixing the owning invariant rather than the reported symptom.
+Fix established issues directly. Leave only decisions whose correct behavior genuinely
+requires the human.
+
+The review also performs a prevention retrospective after the code review. That retrospective
+may recommend guidance changes, but it must not edit guidance during the review.
 
 ## Dispatch
 
-The review runs in a **subagent with empty context**. The branch is large and the point is a
-reader who owes none of it any loyalty — inherited context imports the weaker agent's
-assumptions along with its code.
+Run the review in one `general-purpose` subagent with empty context. The point is a reader
+that has not inherited the implementation agent's rationale.
 
-Dispatch one `general-purpose` subagent whose prompt has these four parts, in order:
+The dispatch prompt contains only:
 
 1. `Read .agents/skills/branch-review/SKILL.md and follow it.`
-2. The repo root as an absolute path.
-3. `Derive the scope yourself from git. Fix directly; do not report back for approval.`
-4. The return shape: `Return: the three passes' findings separately, net line delta,
-   structural changes made, findings you deliberately left and why, and the final
-   test/lint status.`
+2. The repository root as an absolute path.
+3. `Derive the complete unmerged scope yourself from git. Fix established issues directly.`
+4. `Return: premise findings; structural/file/function/test findings and fixes; net line
+   delta; findings deliberately left and why; guidance/prevention feedback; final
+   verification and lint status.`
 
-If a spec file exists for this work, add a fifth part: its absolute path, and
-`Read it before reviewing.` Paths only. DO NOT pass implementation notes.
+If a finalized implementation spec exists for the branch, also pass its absolute path and
+applicable approved-deviation record, if any. Do not pass implementation notes, author
+summaries, failed approaches, or design rationalizations.
 
-The prompt contains those parts and nothing else — no branch summary, no architecture tour,
-no defense or critique of the existing design, no list of files you think matter. Everything
-else the subagent needs is in the branch diff and in this skill.
-
-When it returns: read the summary, verify a full run of `scripts/test.sh` and
-`scripts/lint.sh` pass yourself, and relay the findings to the human — including
-the ones left for a behavior decision.
+When the subagent returns, inspect the summary and independently verify the final branch gate
+before reporting completion.
 
 ---
 
-Everything below is for the subagent.
+Everything below is for the review subagent.
 
 ## Scope
 
@@ -45,72 +44,214 @@ Everything below is for the subagent.
 git merge-base HEAD master
 git diff --stat $(git merge-base HEAD master)..HEAD
 git log --oneline $(git merge-base HEAD master)..HEAD
+git status --short
 ```
 
-Only unmerged changes. Uncommitted work counts too — `git diff HEAD` for tracked changes,
-and `git status --short` for untracked files, which the diff never shows. Read those in full.
-If the branch is master or the merge base is HEAD, say so and stop.
+Review every committed and uncommitted change above `master`, including untracked files. Read
+the complete head version of changed files, not only diff hunks. If the branch is `master` or
+the merge base is `HEAD`, report that there is no unmerged branch scope and stop.
 
 ### Commit messages
 
-Inspect every unmerged commit message in full — `git log --format=%B $(git merge-base HEAD master)..HEAD` (not just `--oneline`; bodies and trailers hide there). Every message must satisfy both:
+Inspect every unmerged commit message in full:
 
-- **Single-line:** subject only, no body, no blank line + paragraph, no multi-line trailers. The raw `%B` output for each commit must be one non-empty line.
-- **No AI attribution:** no `Co-authored-by` / `Co-Authored-By`, `Generated-by`, `Generated with`, `Claude`, `Anthropic`, `AI assistance`, or similar trailers/footers.
+```bash
+git log --format=%B $(git merge-base HEAD master)..HEAD
+```
 
-Flag every violation explicitly. Fix directly by rewording the offending commits (e.g. `git rebase -i` / `GIT_SEQUENCE_EDITOR` reword or `git commit --amend` for HEAD) so the branch history itself is clean — do not leave violations for the human to fix.
+Every commit must have one non-empty subject line only and no AI attribution/trailers. Fix
+history violations directly so the branch itself is clean.
 
-## Method — three passes, in order
+## Load the owning guidance
 
-Do not skip to pass 3. Most of the cuts live in pass 1, and finding them first makes
-passes 2 and 3 much shorter.
+Before judging design, read:
 
-**Pass 1 — Overall structure.** From the file list alone, before reading bodies:
-Which modules are new? Does each earn its existence? Are any two doing the same job?
-Does the layering hold (domain vs interface vs infrastructure; no `love` in `libs/rom` or
-`libs/assets`)? Is there a module that is a thin wrapper over another? Cut or merge here first.
+- root `AGENTS.md`;
+- every nested `AGENTS.md` applicable to changed files;
+- `.agents/skills/review-checklist.md`;
+- `docs/architecture.md` when boundaries/composition are touched;
+- `docs/defensive-patterns.md` when ownership, partial failure, publication, persistence,
+  caches, or shared state are touched;
+- `tests/AGENTS.md` and `docs/testing.md` for test changes or behavioral coverage.
 
-**Pass 2 — Per-file organization.** For each surviving file: does the header comment state
-its role and name the authoritative source? Is the public surface minimal, or are internals
-exported "for tests"? Are related functions adjacent? Is there dead or duplicated code
-across files?
+Read relevant `docs/adr/` entries and git history only when the branch changes an architectural
+choice, restores an apparent omission, or otherwise depends on historical intent. Do not read
+history as ritual; use it to resolve a real intent question.
 
-**Pass 3 — Per-function.** Now read bodies against
-`.agents/skills/review-checklist.md`. Read that file. For **every** corner-case branch,
-state explicitly: can it be cut, and what is the cost? Cut unless the cost is real and
-reachable.
+Repository guidance is the source of repository rules. This skill owns the review procedure,
+not a duplicate architecture manual.
 
-## Applying
+## Review method
 
-Fix directly. Work file by file, smallest safe edits, running focused `scripts/test.sh`
-as you go — not one giant rewrite at the end.
+Perform these passes in order. Do not sample a large branch.
 
-Then `scripts/lint.sh` (stylua + lua-language-server), fix every finding, re-run tests.
+### Pass 0 - premise and intent
 
-Finally summarize: cuts made (with line counts), renames, structural changes, and a short
-list of findings you did *not* act on because they need a behavior change or a decision
-from the human.
+Before accepting the branch's framing:
+
+- Establish the current/master behavior that motivated the change when feasible.
+- Identify the exact execution/data path where the problem or missing behavior occurs.
+- Identify the owner/invariant the change should affect and inspect sibling callers/paths.
+- Ask whether an apparent gap/omission/restriction was intentional. Check tests, docs/ADRs,
+  and targeted history when that question is material.
+- Compare the branch's design assumptions with the real repository behavior. A branch built
+  on a false premise is a finding even if its code is internally clean.
+
+If a finalized spec is present, treat it as desired-state authority while still verifying its
+current-state premises against the repository. Approved deviations supersede only the exact
+contracts they replace.
+
+### Pass 1 - overall change shape
+
+Start from the changed-file/module graph before reading function bodies:
+
+- Does each new production file/module earn permanent existence?
+- Is the same concern implemented twice or in parallel with an existing owner?
+- Are dependency directions and applicable subtree boundaries preserved?
+- Did a feature change grow a framework, manager, hook system, compatibility layer, or public
+  surface beyond what its current consumers need?
+- Could deleting or merging a structural unit make the remaining review smaller and clearer?
+
+Make structural cuts first.
+
+### Pass 2 - per-file organization
+
+For each surviving changed file:
+
+- Does it own one coherent responsibility?
+- Is public/mod-facing surface minimal and backed by current consumers?
+- Are internals exported only to make tests easier?
+- Are responsibilities duplicated across neighboring modules?
+- Are related operations colocated with the state/invariant they own?
+- Are comments current contracts/facts rather than implementation-history prose?
+
+### Pass 3 - function and control flow
+
+Read function bodies against `.agents/skills/review-checklist.md` and applicable subsystem
+guidance. Inspect every new fallback, compatibility branch, recovery path, cache/state flag,
+and helper layer. Require a reachable current caller, contract, invariant, or failure mode to
+keep extra complexity.
+
+### Pass 4 - tests
+
+Review missing and excessive coverage:
+
+- Does the suite prove changed behavior at the owning boundary?
+- Does real production composition get exercised where composition itself is the contract?
+- Are failure/lifecycle sequences covered where material?
+- Are tests freezing expected-to-change data or source text instead of behavior/invariants?
+- Are fake-driven production branches or implementation-reproducing mocks present?
+- Is expensive setup duplicated when one scenario could prove related postconditions?
+
+Fix tests and production design together when difficult testing exposes unnecessary coupling.
+
+### Pass 5 - explicit simplification/replacement pass
+
+Apply the replacement ladder from `.agents/skills/review-checklist.md` to every substantial
+new abstraction, dependency, helper layer, option, hook, compatibility path, and public API.
+For each retained piece of permanent surface, be able to name its current consumer and the
+responsibility/invariant that earns it.
+
+Prefer a few high-confidence cuts over speculative churn. Net line delta is a diagnostic, not
+an acceptance criterion.
+
+### Pass 6 - adversarial correctness
+
+Re-read the surviving design looking specifically for subtle bugs: ownership transfer,
+partial acquisition, replacement/disposal, stale or shared state, ordering, reentrancy,
+publication failure, error mapping, boundary/index mistakes, and accidental contract changes.
+Use `docs/defensive-patterns.md` where applicable.
+
+## Applying fixes and verification
+
+Fix established issues directly, working in small edits and running focused tests as useful.
+Do not preserve buggy behavior merely because changing it changes output when intended
+behavior is established by the task/spec, a current contract, authoritative source material,
+or a durable accepted decision.
+
+Leave an issue unresolved only when the correct behavior/design genuinely requires a human
+choice. State the alternatives and evidence concisely.
+
+Before declaring the review complete:
+
+1. Run `scripts/lint.sh` and fix every finding at its source.
+2. Run the full available `scripts/test.sh` suite.
+3. Explicitly run affected ROM/acceptance evidence when the branch requires it and the
+   capability is available. A ROM-gated requirement skipped because the dump is unavailable
+   is blocked evidence, not proof supplied by CI.
+4. Re-run affected verification after review fixes.
+5. Report any remaining infrastructure/capability block honestly.
+
+## Prevention and guidance feedback
+
+After code findings are settled, ask of each **material failure class**, not every nit:
+
+> Could the development system have prevented this issue earlier, and what is the cheapest
+> authoritative prevention layer?
+
+Classify the cause first:
+
+- **missing knowledge** - a repository fact was absent or scoped where the agent would not
+  reasonably discover it;
+- **missing decision rule** - the facts were available, but the guidance did not tell the
+  agent how to choose between plausible designs;
+- **guidance discoverability** - the right rule existed but was duplicated, buried, or in
+  the wrong scope;
+- **mechanization gap** - agents are being asked to remember something a code invariant,
+  API, lint/static/build gate, or test can enforce more reliably;
+- **ordinary implementation defect** - no durable process/guidance change would reasonably
+  prevent the mistake.
+
+Recommend prevention in this order:
+
+1. Make the bad state impossible through code/design invariants.
+2. Change the owning API/responsibility so the correct path is natural.
+3. Add a low-false-positive lint/static/build gate.
+4. Add/strengthen a durable behavioral or intentional architecture test.
+5. Clarify, consolidate, or relocate existing guidance.
+6. Add a new narrow guidance rule only when judgment cannot be mechanized reliably.
+7. Make no prevention change when the defect is ordinary or too specific.
+
+### Anti-bloat gate for new guidance
+
+Recommend a genuinely new permanent rule only when all applicable answers are yes:
+
+- Does it describe a recurring/plausibly recurring **class** of mistakes rather than this
+  implementation detail?
+- Would an agent need this judgment before code exists, rather than being better protected
+  by code, API shape, tooling, or tests?
+- Is the rule not already clearly implied by existing guidance?
+- Is there one obvious home: root, a subtree, defensive patterns, testing guidance, an ADR,
+  or a workflow skill?
+- Can the rule be short and decision-oriented rather than preserving incident history?
+- Does expected recurrence/severity justify the context cost?
+
+Prefer **replace/strengthen**, **consolidate**, or **relocate** over **append**. Root
+`AGENTS.md` is intentionally compact; treat roughly 2,000 words as a budget, not a target. A
+proposal that grows it should normally identify an equal or larger deletion/relocation.
+
+Do not edit agent guidance during this branch review. Report recommendations separately so a
+later guidance-gardening change can deduplicate, generalize, reject, or mechanize them without
+contaminating the code review.
+
+For each recommendation report:
+
+- material finding(s) that triggered it;
+- failure-class classification;
+- best prevention layer;
+- whether this strengthens/relocates existing guidance or proposes a new rule;
+- concise proposed rule or mechanism;
+- why it passes the anti-bloat gate.
+
+If no guidance/process change is justified, say so. End the section by answering: **Could the
+development system have prevented any material findings without bloating agent guidance?**
 
 ## Rules
 
-- Less code is better code. Report net lines removed — but the delta is a diagnostic, not
-  an acceptance criterion, and necessary correctness or safety code may make it positive.
-- Preserve *intended* behavior, not accidental buggy behavior. Correctness, lifecycle,
-  data-loss, invariant, and determinism bugs get fixed when the intended behavior is
-  established by tests, the task requirements, a public contract, or authoritative source
-  material. A finding goes in the summary instead only when picking the correct behavior
-  genuinely needs a human/product decision.
-- Do not defend the existing code because it exists. It was written under weaker judgment.
-- Report honestly: if tests or lint fail at the end, say so with the output.
-
-## Red flags
-
-| Thought | Reality |
-|---|---|
-| "Let me just start reading files top to bottom" | Pass 1 first. Structural cuts delete whole files you'd otherwise review. |
-| "This abstraction might be useful later" | Later is not a caller. One caller = inline it, unless the boundary owns a resource lifetime, a layer split, a real mod-facing API, or a source-grounded domain concept. |
-| "Fixing that bug would change behavior" | Buggy behavior is not intended behavior. Fix it unless the correct behavior needs a human decision. |
-| "This defensive branch is harmless" | It hides bugs and costs a test. Name what breaks if it's cut, or cut it. |
-| "The diff is huge, I'll sample it" | Sampling a branch review is not a branch review. Say so instead of pretending. |
-| "The previous agent probably had a reason" | Assume it didn't. Find the reason in the code or cut it. |
-| "I'll list the findings and let the human fix them" | Fix them. List only what needs a behavior decision. |
+- Evidence is required for keeping complexity, not for deleting speculative complexity.
+- Preserve intended contracts, not accidental implementation structure.
+- The branch diff is the scope, but material pre-existing debt in directly touched code may
+  be fixed when doing so makes the branch simpler or safer; label it in the summary.
+- Never use implementation notes/author rationale to excuse a design. Review the code,
+  repository contracts, accepted decisions, and spec/deviations when present.
+- Report final verification truthfully. Never turn an unavailable capability into green.

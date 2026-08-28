@@ -99,8 +99,8 @@ function ScriptLoader.loadGenerated(cacheFs, id, requireFn, opts)
       )
   end
   if opts.validate ~= false then
-    local ok, validateErr = Validator.validate(resource)
-    if not ok then
+    local valid, validateErr = Validator.validate(resource)
+    if not valid then
       return nil, validateErr
     end
   end
@@ -159,10 +159,12 @@ function ScriptLoader.installGenerated(registry, cacheFs, requireFn, opts)
         validate = opts.validateGenerated ~= false,
       })
       if resource == nil then
+        local context = { scriptId = entry.id, cause = err and err.context or nil }
+        ---@cast context Errors.Context
         Errors.raise(
           err and err.code or ScriptErrors.SCRIPT_LOAD_FAILED,
           err and err.message or "generated script failed to load",
-          { scriptId = entry.id, cause = err and err.context or nil }
+          context
         )
       end
       registry:installBase(entry.id, resource, "generated")
@@ -187,10 +189,12 @@ function ScriptLoader.loadOverride(id, content, requireFn)
   end
   local okValidate, validateErr = Validator.validate(resource)
   if not okValidate then
+    local context = { scriptId = id, cause = validateErr and validateErr.context or nil }
+    ---@cast context Errors.Context
     Errors.raise(
       validateErr and validateErr.code or ScriptErrors.SCRIPT_SCHEMA_INVALID,
       "override fails validation: " .. tostring(validateErr and validateErr.message or "?"),
-      { scriptId = id, cause = validateErr and validateErr.context or nil }
+      context
     )
   end
   return resource
@@ -253,15 +257,17 @@ function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
   local registry
   if opts.lazy then
     registry = Registry.new({
-      loadResource = function(id, layer)
+      loadResource = function(id, _)
         local resource, err = ScriptLoader.loadGenerated(cacheFs, id, requireFn, {
           validate = opts.validateGenerated ~= false,
         })
         if resource == nil then
+          local context = { scriptId = id, cause = err and err.context or nil }
+          ---@cast context Errors.Context
           Errors.raise(
             err and err.code or ScriptErrors.SCRIPT_LOAD_FAILED,
             err and err.message or "generated script failed to load",
-            { scriptId = id, cause = err and err.context or nil }
+            context
           )
         end
         return resource

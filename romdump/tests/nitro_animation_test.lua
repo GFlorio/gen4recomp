@@ -20,7 +20,8 @@ local function throwsCode(code, fn)
   local file, err = fn()
   Assert.isNil(file, "expected decode failure")
   Assert.notNil(err)
-  Assert.equal(err.code, code)
+  local errorValue = assert(err) --[[@as { code: string }]]
+  Assert.equal(errorValue.code, code)
 end
 
 -- Decode a fixture and return { resource, sectionReader } for the first
@@ -315,7 +316,7 @@ end
 -- ---- NSBTP ----
 
 function T.btp_key_selection()
-  local res, r = decodeOne(AnimationFixture.patPcMb())
+  local res, _ = decodeOne(AnimationFixture.patPcMb())
   Assert.equal(res.numTargets, 1)
   Assert.equal(res.targets[1].name, "pc_mb")
   Assert.equal(#res.textureNames, 4)

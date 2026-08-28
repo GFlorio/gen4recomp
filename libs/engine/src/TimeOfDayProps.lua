@@ -21,6 +21,12 @@ local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local TimeOfDayProps = {}
 
+---@class TimeOfDayProps.Clip
+---@field name string
+---@field timeBand string?
+
+---@class TimeOfDayProps.Instance: ModelInstance
+
 TimeOfDayProps.BANDS = AnimationClip.BANDS
 
 -- Band by hour, transcribed from sTimeOfDayByHour (gf_rtc.c): 0-3 LATE,
@@ -76,8 +82,8 @@ end
 -- compiled time-band metadata, or nil when the model has no banded clips.
 -- Bands are compiled from the banded anim-list record's unique slots, so a
 -- duplicate band claim here is a programming error.
----@param definition { key: string, animations: table }
----@return { [string]: table }?
+---@param definition { key: string, animations: TimeOfDayProps.Clip[] }
+---@return { [string]: TimeOfDayProps.Clip }?
 function TimeOfDayProps.plan(definition)
   assert(type(definition) == "table" and definition.animations ~= nil, "plan requires a model definition")
   local byBand = {}
@@ -98,8 +104,8 @@ end
 -- add): stop the previous band's clip, play the current band's clip looping
 -- from frame 0. `fromBand` is nil at load (nothing playing yet). A band
 -- without a clip just stops the previous playback.
----@param instance ModelInstance
----@param plan { [string]: table }
+---@param instance TimeOfDayProps.Instance
+---@param plan { [string]: TimeOfDayProps.Clip }
 ---@param fromBand string?
 ---@param toBand string?
 function TimeOfDayProps.swap(instance, plan, fromBand, toBand)

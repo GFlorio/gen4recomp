@@ -115,7 +115,7 @@ function FakeAudioOutput.new()
 
   -- Reads the queued SoundData at handoff time (the host copies what it
   -- decodes) and records whether it contains any nonzero sample.
-  local function record(chunks, data)
+  local function record(recordedChunks, data)
     local nonZero = false
     for frame = 0, data:getSampleCount() - 1 do
       for channel = 1, data:getChannelCount() do
@@ -128,7 +128,7 @@ function FakeAudioOutput.new()
         break
       end
     end
-    chunks[#chunks + 1] = { nonZero = nonZero }
+    recordedChunks[#recordedChunks + 1] = { nonZero = nonZero }
   end
 
   local sound = {

@@ -39,14 +39,47 @@ local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
 
+---@class MapRenderer.Canvas : love.Canvas
+---@field setFilter fun(self: MapRenderer.Canvas, min: string, mag: string)
+---@field release fun(self: MapRenderer.Canvas)
+---@field getWidth fun(self: MapRenderer.Canvas): integer
+---@field getHeight fun(self: MapRenderer.Canvas): integer
+---@class MapRenderer.Shader
+---@field send fun(self: MapRenderer.Shader, name: string, ...)
+---@field release fun(self: MapRenderer.Shader)
+---@class MapRenderer.TargetDescriptor
+---@field [1] MapRenderer.Canvas
+---@field [2]? MapRenderer.Canvas
+---@field depthstencil MapRenderer.Canvas
+---@alias MapRenderer.RenderTarget MapRenderer.Canvas|MapRenderer.TargetDescriptor
+---@class MapRenderer.Graphics
+---@field newShader fun(source: string): MapRenderer.Shader
+---@field newCanvas fun(width: integer, height: integer, opts?: table): MapRenderer.Canvas
+---@field setCanvas fun(...: MapRenderer.RenderTarget?)
+---@field getCanvas fun(): MapRenderer.RenderTarget?
+---@field setShader fun(shader?: MapRenderer.Shader)
+---@field setDepthMode fun(mode?: string, write?: boolean)
+---@field setBlendMode fun(mode?: string, alpha?: string)
+---@field setColor fun(red: number, green: number, blue: number, alpha: number)
+---@field draw fun(drawable: table, ...)
+---@field clear fun(...)
+---@field getDimensions fun(): integer, integer
+---@field getBlendMode fun(): string?, string?
+---@field getDepthMode fun(): string?, boolean?
+---@field getShader fun(): MapRenderer.Shader?
+---@field getColor fun(): number, number, number, number
+---@field getMeshCullMode fun(): string?
+---@field setMeshCullMode fun(mode?: string)
+---@field isWireframe fun(): boolean
+---@field setWireframe fun(enabled: boolean)
 ---@class MapRenderer
----@field _graphics love.Graphics
+---@field _graphics MapRenderer.Graphics
 ---@field clearColor number[]
----@field shader love.Shader
----@field spriteShader love.Shader
+---@field shader MapRenderer.Shader
+---@field spriteShader MapRenderer.Shader
 ---@field _spriteShaderSource string
----@field worldShader love.Shader
----@field edgeShader love.Shader
+---@field worldShader MapRenderer.Shader
+---@field edgeShader MapRenderer.Shader
 ---@field _edgeColorsCache number[][]
 ---@field _edgeColorsProfile table<integer, integer>?
 ---@field _fogColorCache number[]
@@ -54,26 +87,26 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _fogFinalReference table?
 ---@field _fogSpriteReference table?
 ---@field stats { drawCalls: integer, colorDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
----@field sceneColor love.Canvas?
----@field colorDepth love.Canvas?
----@field renderState love.Canvas?
----@field _spareColor love.Canvas?
----@field _spareState love.Canvas?
----@field _sourceColor love.Canvas?
----@field _sourceMeta love.Canvas?
+---@field sceneColor MapRenderer.Canvas?
+---@field colorDepth MapRenderer.Canvas?
+---@field renderState MapRenderer.Canvas?
+---@field _spareColor MapRenderer.Canvas?
+---@field _spareState MapRenderer.Canvas?
+---@field _sourceColor MapRenderer.Canvas?
+---@field _sourceMeta MapRenderer.Canvas?
 ---@field colorW integer?
 ---@field colorH integer?
 ---@field stateW integer?
 ---@field stateH integer?
----@field _colorTargets { [1]: love.Canvas, [2]: love.Canvas, depthstencil: love.Canvas }?
----@field _stateClearTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
----@field _colorClearTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
----@field _sourceColorTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
----@field _sourceMetaTargets { [1]: love.Canvas, depthstencil: love.Canvas }?
+---@field _colorTargets MapRenderer.TargetDescriptor?
+---@field _stateClearTargets MapRenderer.TargetDescriptor?
+---@field _colorClearTargets MapRenderer.TargetDescriptor?
+---@field _sourceColorTargets MapRenderer.TargetDescriptor?
+---@field _sourceMetaTargets MapRenderer.TargetDescriptor?
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
----@field _lightingDelivery table<love.Shader, { lit: boolean, profile: table?, record: table? }>
+---@field _lightingDelivery table<MapRenderer.Shader, { lit: boolean, profile: table?, record: table? }>
 ---@field _queueScratch RenderQueueScratch
 ---@field _presentationScale number[]
 ---@field _presentationOffset number[]
@@ -195,13 +228,16 @@ function MapRenderer.worldRasterDimensions(displayWidth, displayHeight, scale)
 end
 
 ---@param opts table?
+---@return MapRenderer
 function MapRenderer.new(opts)
   opts = opts or {}
+  ---@type MapRenderer.Graphics|love.Graphics|nil
   local graphics = opts.graphics
   if graphics == nil then
     graphics = love and love.graphics
   end
   assert(graphics, "MapRenderer requires a graphics context")
+  ---@cast graphics MapRenderer.Graphics
   local translucencyMode = opts.translucencyMode or MapRenderer.TRANSLUCENCY_APPROXIMATE
   assert(
     translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE or translucencyMode == MapRenderer.TRANSLUCENCY_EXACT,
@@ -823,7 +859,8 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
   local mat = item.material
 
   -- Pass 1: source color through the ordinary color shader.
-  lg.setCanvas(assert(self._sourceColorTargets))
+  local sourceColorTargets = assert(self._sourceColorTargets)
+  lg.setCanvas(sourceColorTargets)
   lg.setShader(self.shader)
   lg.setDepthMode("less", false)
   lg.setBlendMode("replace", "premultiplied")
@@ -832,7 +869,8 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
 
   -- Pass 2: source metadata through source.glsl (same-ID rejection + fog flag
   -- + id).
-  lg.setCanvas(assert(self._sourceMetaTargets))
+  local sourceMetaTargets = assert(self._sourceMetaTargets)
+  lg.setCanvas(sourceMetaTargets)
   lg.clear(0, 0, 0, 0, false, false)
   lg.setShader(self.sourceShader)
   lg.setDepthMode("less", false)
@@ -872,6 +910,8 @@ end
 ---@param spriteItems table[]?
 ---@param viewport { worldViewport: { x: number, y: number, width: number, height: number } }
 ---@param alpha number
+---@param sceneRuntime table
+---@param camera FieldCamera
 function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewport, alpha)
   assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
   -- The world MRT shader derives its depth from the host fragment's normalized
@@ -921,22 +961,32 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
 
   local presentationCanvas = lg.getCanvas()
   local function doDraw()
-    local presentationColorCanvas = presentationCanvas
-    if type(presentationCanvas) == "table" and presentationCanvas[1] ~= nil then
+    ---@type MapRenderer.Canvas?
+    local presentationColorCanvas
+    if presentationCanvas ~= nil and type(presentationCanvas) == "table" and presentationCanvas[1] ~= nil then
       presentationColorCanvas = presentationCanvas[1]
       if type(presentationColorCanvas) == "table" then
         presentationColorCanvas = presentationColorCanvas[1]
       end
-      assert(presentationColorCanvas, "MapRenderer requires a color presentation target")
+      assert(
+        presentationColorCanvas and presentationColorCanvas.getWidth and presentationColorCanvas.getHeight,
+        "MapRenderer requires a color presentation target"
+      )
+      ---@cast presentationColorCanvas MapRenderer.Canvas
+    else
+      ---@cast presentationCanvas MapRenderer.Canvas?
+      presentationColorCanvas = presentationCanvas
     end
 
     -- The render queue is built exactly once per frame.
     local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
 
     -- ---- world MRT pass: color and polygon state ----
-    lg.setCanvas(assert(self._stateClearTargets))
+    local stateClearTargets = assert(self._stateClearTargets)
+    lg.setCanvas(stateClearTargets)
     lg.clear(DS_STATE_CLEAR, false, true)
-    lg.setCanvas(assert(self._colorClearTargets))
+    local colorClearTargets = assert(self._colorClearTargets)
+    lg.setCanvas(colorClearTargets)
     lg.clear(self.clearColor, false, false)
     lg.setCanvas(colorTargets)
     lg.setShader(self.worldShader)
@@ -973,11 +1023,12 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     -- (sceneColor/renderState); after every blended item the composite output
     -- is the new active pair, so wireframe and the final resolve below see the
     -- fully composited color and state.
-    local activeColor, activeState = self.sceneColor, self.renderState
+    local activeColor, activeState = assert(self.sceneColor), assert(self.renderState)
     if self.translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE then
       if #queue.blended > 0 then
         self:_sendLighting(sceneRuntime, self.shader)
-        lg.setCanvas(assert(self._colorClearTargets))
+        local approximateClearTargets = assert(self._colorClearTargets)
+        lg.setCanvas(approximateClearTargets)
         lg.setShader(self.shader)
         lg.setDepthMode("less", false)
         lg.setBlendMode("alpha", "alphamultiply")
@@ -1038,7 +1089,8 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     -- target the ACTIVE color/state pair so the final resolve sees them
     -- composited with any translucent overlays.
     if #queue.wireframe > 0 then
-      lg.setCanvas(assert(self._colorTargets))
+      local wireframeTargets = assert(self._colorTargets)
+      lg.setCanvas(wireframeTargets)
       lg.setShader(self.worldShader)
       self._activeShader = self.worldShader
       lg.setDepthMode("less", true)
@@ -1082,9 +1134,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       spriteShader:send("u_presentationSprite", true)
       local targetWidth, targetHeight
       if presentationCanvas then
-        ---@type love.Canvas & { getWidth: fun(self: love.Canvas): integer, getHeight: fun(self: love.Canvas): integer }
         local colorCanvas = assert(presentationColorCanvas)
-        ---@diagnostic disable-next-line: undefined-field
         targetWidth, targetHeight = colorCanvas:getWidth(), colorCanvas:getHeight()
       else
         targetWidth, targetHeight = lg.getDimensions()

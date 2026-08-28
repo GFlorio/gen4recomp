@@ -18,6 +18,7 @@ local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local Matrix4 = require("libs.math.src.Matrix4")
 local DsFog = require("tests.support.DsFog")
+local lg = love.graphics
 
 local T = {}
 
@@ -265,7 +266,6 @@ end
 -- per-item cull, depth, and alpha state. Nothing it touches may survive the
 -- frame, or the 2D dialogue UI and the next map's draws inherit it.
 function T.an_actor_billboard_draw_leaks_no_render_state(scope)
-  local lg = love.graphics
   local renderer = scope:own(MapRenderer.new())
   local mesh = scope:own(syntheticMesh({
     { -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1 },
@@ -824,7 +824,6 @@ end
 -- round-trip through float32 on some GL drivers, so they are compared within
 -- a small tolerance.
 function T.draw_restores_exact_caller_state_on_real_graphics(scope)
-  local lg = love.graphics
   local renderer = scope:own(MapRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
   local mesh = scope:own(syntheticMesh({
@@ -1309,7 +1308,6 @@ function T.a_straddling_item_uses_its_current_transform_for_the_whole_mesh(scope
   -- what color a game wants; only that it clears to whatever it is given).
   local clearColor = { 0.08, 0.09, 0.12, 1 }
   local renderer = scope:own(MapRenderer.new({ clearColor = clearColor }))
-  local lg = love.graphics
 
   -- Leading triangle (green) at y in [0.2, 0.5]; trailing triangle (red) at
   -- y in [-0.5, -0.2]. The current renderer presents the resident mesh as a
@@ -2681,8 +2679,7 @@ end
 -- the post-edge/fog output is observable. Every internal target binding still
 -- goes to the real implementation; the renderer's caller-state restore re-binds
 -- the pre-draw canvas at the end.
-local function compositeReadback(scope, renderer, viewport)
-  local lg = love.graphics
+local function compositeReadback(scope, _, viewport)
   local width = math.max(1, math.floor(viewport.worldViewport.width + 0.5))
   local height = math.max(1, math.floor(viewport.worldViewport.height + 0.5))
   local out = scope:own(lg.newCanvas(width, height))
@@ -2938,7 +2935,7 @@ function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
       v(dxWorld, 0.7, 0),
     }))
   end
-  local function mixedItem(m)
+  local function transformedMixedItem(m)
     return {
       mesh = m,
       material = { texMatrix = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, image = image },
@@ -2960,7 +2957,7 @@ function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
   local function scan(offsetPx)
     local harness = compositeReadback(scope, renderer, viewport)
     local dx = offsetPx * 2 / 1280
-    renderer:draw(runtime, fixedCamera(), { { mixedItem(mixedQuad(dx)) } }, nil, viewport, nil)
+    renderer:draw(runtime, fixedCamera(), { { transformedMixedItem(mixedQuad(dx)) } }, nil, viewport, nil)
     harness.restore()
     love.graphics.setCanvas()
     local color = renderer.sceneColor:newImageData()
@@ -3137,7 +3134,6 @@ local function stateDepthReadback(scope, ndcZ)
     ndcZ,
     1,
   }
-  local lg = love.graphics
   lg.setCanvas(renderer._colorTargets)
   -- Clear to the normalized id-63 sentinel (CLEAR_POLYGON_ID -> 1.0), not
   -- black: the readback below tells a drawn pixel (id 20 -> 20/63) from the
@@ -3307,10 +3303,6 @@ end
 -- alpha5 combine as floor(((t+1)*(p+1)-1)/32) (map.glsl's outputAlpha5; the
 -- quantizer). Deriving the fixture's own alpha5 here keeps the
 -- source byte and the resulting alpha5 in one independent place.
-local function modulateAlpha5(textureAlpha5, polygonAlpha5)
-  return math.floor(((textureAlpha5 + 1) * (polygonAlpha5 + 1) - 1) / 32)
-end
-
 -- The DS integer translucent blend on one RGB6 channel.
 local function dsBlend6(src6, dst6, srcA5)
   return math.floor((src6 * (srcA5 + 1) + dst6 * (32 - (srcA5 + 1))) / 32)
@@ -3517,7 +3509,7 @@ end
 -- Draw one parts list and return { color = {r,g,b,a}, state = {r,g,b,a} } at
 -- the 640x480 canvas center through the real MapRenderer. `runtime` may carry
 -- edge/fog overrides.
-centerReadback = function(scope, renderer, camera, runtime, parts)
+centerReadback = function(_, renderer, camera, runtime, parts)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   renderer:draw(runtime, camera, parts, nil, viewport, 0)
   local colorImg = renderer.sceneColor:newImageData()
@@ -3663,20 +3655,12 @@ function T.destination_alpha_is_max(scope)
   -- destination (rule 2), establishing the fixture's known destination
   -- alpha5; the second fragment then composites with max.
   local renderer = scope:own(exactRenderer({ clearColor = { 0, 0, 0, 0 } }))
-  local function readAlpha(renderer, dstA5, srcA5)
-    local mesh = scope:own(syntheticMesh({
-      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { 3, -1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { 3, 3, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-      { -1, 3, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },
-    }))
+  local function readAlpha(targetRenderer, dstA5, srcA5)
     local first = translucentQuad(scope, ALPHA5_BYTE[dstA5], 51, 17, 17)
     first.polygonId = 7
     local second = translucentQuad(scope, ALPHA5_BYTE[srcA5], 17, 51, 17)
     second.polygonId = 9
-    local read = centerReadback(scope, renderer, fixedCamera(), emptyRuntime(), { { first, second } })
+    local read = centerReadback(scope, targetRenderer, fixedCamera(), emptyRuntime(), { { first, second } })
     return read.color[4]
   end
 
@@ -3916,7 +3900,6 @@ end
 function T.translucent_geometry_behind_opaque_geometry_is_rejected_by_shared_depth(scope)
   local renderer = scope:own(exactRenderer())
   local camera = perspectiveCamera()
-  local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local opaque = depthOpaqueQuad(scope, -0.2, 0, 128, 255, 20, true)
   local translucent = depthTranslucentQuad(scope, -0.5, ALPHA5_BYTE[15], 255, 0, 0, 7, true)
 
@@ -4386,7 +4369,7 @@ local function presentationQuadMesh(scope, z)
   }))
 end
 
-local function presentationSprite(scope, mesh, image)
+local function presentationSprite(_, mesh, image)
   return {
     mesh = mesh,
     material = { alphaClass = "cutout", texMatrix = IDENTITY_NORMAL, image = image },

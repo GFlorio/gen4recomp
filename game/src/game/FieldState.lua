@@ -581,7 +581,9 @@ function FieldState:_drawApplicationFade(alpha)
   local world = self.runtime.viewport.worldViewport
   local frame = assert(self.runtime.startMenuPlacement, "the application fade requires the placement record").frame
   lg.setColor(0, 0, 0, alpha)
-  for _, rect in ipairs(fadeRects(world, frame)) do
+  for _, rect in
+    ipairs(fadeRects(world, frame --[[@as ScreenTopology.Rectangle]]))
+  do
     lg.rectangle("fill", rect.x, rect.y, rect.width, rect.height)
   end
 end

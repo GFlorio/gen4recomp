@@ -44,7 +44,6 @@ function T.catalog_is_the_only_alternate_preset_authority_with_complete_presets(
   -- carries them. We check that no engine file contains a runtime preset alias.
   -- This is a source scan; if the alias exists it is a violation even when
   -- the value happens to match.
-  local forbidden = "fieldWeather"
   -- the value check is the catalog itself: this suite proves completeness,
   -- the unit suite proves the engine has no table.
   Assert.notNil(bundle.catalog.rules)
@@ -53,7 +52,6 @@ end
 function T.scene_base_fog_corresponds_to_catalog_preset_for_its_weatherId()
   local Compiler = requireCompiler()
   local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-  local MapResolver = require("romdump.src.digest.MapResolver")
   local Catalog = Compiler.compile().catalog
   -- sample a handful of maps to prove base fog == catalog preset for weatherId
   -- Map 0 is optional: some corpora do not carry it, so it is sampled only
@@ -95,7 +93,6 @@ end
 
 function T.engine_contains_no_duplicate_preset_literal_table()
   local function scan()
-    local roots = { "libs/engine", "libs/assets/src/FieldWeatherCache.lua", "game/src/game/FieldRuntime.lua" }
     -- The forbidden literal is the 14-preset table in engine/game code.
     -- We prove absence by checking that requiring the engine resolver does not
     -- bring a presets table and that the cache is the sole preset holder.

@@ -82,6 +82,7 @@ end
 ---@param id string
 ---@param script table
 ---@param layer string
+---@return table
 function Registry:installBase(id, script, layer)
   self:_assertMutable(id)
   assert(type(id) == "string" and id ~= "", "script id required")
@@ -119,11 +120,9 @@ function Registry:_installLayer(id, layer, value)
     self._bases[id] = layers
   end
   if layers[layer] ~= nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_DUPLICATE_ID,
-      "duplicate base definition for " .. id,
-      { scriptId = id, layer = layer, owner = VANILLA_OWNER }
-    )
+    local context = { scriptId = id, layer = layer, owner = VANILLA_OWNER }
+    ---@cast context Errors.Context
+    Errors.raise(ScriptErrors.SCRIPT_DUPLICATE_ID, "duplicate base definition for " .. id, context)
   end
   layers[layer] = value
   self._version = self._version + 1
@@ -139,10 +138,12 @@ function Registry:_load(id, layer)
   local loader = assert(self._loadResource, "registry has no resource loader for deferred base " .. id)
   local resource, err = loader(id, layer)
   if resource == nil then
+    local context = { scriptId = id, layer = layer, cause = err and err.context or nil }
+    ---@cast context Errors.Context
     Errors.raise(
       ScriptErrors.SCRIPT_LOAD_FAILED,
       "deferred base is unavailable: " .. id .. " (" .. tostring(err and err.message or "?") .. ")",
-      { scriptId = id, layer = layer, cause = err and err.context or nil }
+      context
     )
   end
   ---@cast resource table

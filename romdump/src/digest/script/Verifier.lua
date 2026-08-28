@@ -541,7 +541,7 @@ function Verifier.verifyScript(steps, script, memberIr, omissions)
       end
     end
     local loweredCache = {}
-    local function regionHasUnsupported(label, targetId)
+    local function regionHasUnsupported(label, _)
       local owner = memberLabels[label]
       if owner == nil then
         return nil
@@ -636,8 +636,8 @@ function Verifier.verifyScript(steps, script, memberIr, omissions)
         -- script and is only a warning.
         local blockId = cfg.blockOfIndex[i]
         local message = "return without any call in the script"
-        local reachable = blockId ~= nil and cfg.reachable[blockId] == true
-        if prelude or not reachable then
+        local isReachable = blockId ~= nil and cfg.reachable[blockId] == true
+        if prelude or not isReachable then
           warn(message, { offset = ins.offset, opcode = ins.opcode })
         else
           problem(message, { offset = ins.offset, opcode = ins.opcode })

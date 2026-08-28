@@ -13,6 +13,16 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local FieldUiAssetCache = {}
 
+---@class FieldUiAssetCache.Asset
+---@field image string
+---@field width integer
+---@field height integer
+
+---@class FieldUiAssetCache.Manifest
+---@field schema string
+---@field assets table<string, FieldUiAssetCache.Asset>
+---@field [string] table
+
 FieldUiAssetCache.FORMAT = Contract.fieldUi.cacheFormat
 FieldUiAssetCache.SCHEMA = Contract.fieldUi.schema
 

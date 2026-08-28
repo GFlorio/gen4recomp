@@ -7,6 +7,18 @@
 
 local FixedPoint = {}
 
+---@class FixedPoint
+---@field FX32_SCALE number
+---@field RGB5_MAX number
+---@field BYTE_MAX number
+---@field fx32 fun(value: number): number
+---@field fx16 fun(value: number): number
+---@field s10 fun(value: number): number
+---@field normal10 fun(word: number): number, number, number
+---@field rgb5ToByte fun(value: number): number
+---@field rgb555 fun(value: number): number, number, number
+---@field angle16 fun(value: number): number
+
 -- One unit in 1.M.12 fixed point: fx16 and fx32 words divide by this to
 -- reach real numbers (GBATEK's "DS 3D" fixed-point convention).
 FixedPoint.FX32_SCALE = 4096
@@ -19,6 +31,9 @@ FixedPoint.BYTE_MAX = 255
 local TWO_PI = 2 * math.pi
 
 -- Sign-extend an n-bit unsigned integer to a signed Lua number.
+---@param value number
+---@param bits integer
+---@return number
 local function signExtend(value, bits)
   local half = 2 ^ (bits - 1)
   if value >= half then
@@ -45,7 +60,7 @@ end
 -- Unpack a NORMAL command word: three signed 10-bit 1.0.9 components at bits
 -- 0-9, 10-19, 20-29. Returns nx, ny, nz in -1..~1 (component / 512).
 function FixedPoint.normal10(word)
-  local x = word % 1024
+  local x = word % 1024 ---@type number
   local y = math.floor(word / 1024) % 1024
   local z = math.floor(word / 1048576) % 1024
   return FixedPoint.s10(x) / 512, FixedPoint.s10(y) / 512, FixedPoint.s10(z) / 512
@@ -60,7 +75,7 @@ end
 -- BGR555 -> r, g, b each 0..255. Bits 0-4 red, 5-9 green, 10-14 blue. The high
 -- bit is ignored here; callers decide alpha per format.
 function FixedPoint.rgb555(value)
-  local r5 = value % 32
+  local r5 = value % 32 ---@type number
   local g5 = math.floor(value / 32) % 32
   local b5 = math.floor(value / 1024) % 32
   return FixedPoint.rgb5ToByte(r5), FixedPoint.rgb5ToByte(g5), FixedPoint.rgb5ToByte(b5)

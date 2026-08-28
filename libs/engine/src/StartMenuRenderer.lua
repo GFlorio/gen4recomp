@@ -44,7 +44,7 @@ StartMenuRenderer.__index = StartMenuRenderer
 -- calls; LÖVE itself remains an allowed presentation-layer dependency (the
 -- PNG bytes still enter through love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, manifest: table, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, graphics?: love.Graphics }
 ---@return StartMenuRenderer
 function StartMenuRenderer.new(opts)
   assert(
@@ -99,6 +99,7 @@ function StartMenuRenderer.new(opts)
       }
     )
   end
+  backgroundData = assert(backgroundData)
   self._backgroundImage = graphics.newImage(love.filesystem.newFileData(backgroundData, backgroundPath))
   local cursorData = cacheFs:read(cursorPath)
   if not cursorData then
@@ -107,6 +108,7 @@ function StartMenuRenderer.new(opts)
       path = cursorPath,
     })
   end
+  cursorData = assert(cursorData)
   local ok, err = pcall(function()
     self._backgroundImage:setFilter("nearest", "nearest")
     self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, cursorPath))
@@ -200,6 +202,7 @@ function StartMenuRenderer:draw(presentation, placement)
       self.menu.cursor.frames[presentation.cursorFrameIndex + 1],
       "cursor frame " .. tostring(presentation.cursorFrameIndex) .. " is outside the generated frame set"
     )
+    ---@cast frame FieldDialogueTheme.Rect
     lg.draw(assert(self._backgroundImage), assert(self._backgroundQuad), self.menu.background.x, self.menu.background.y)
     local x, y = self:_cursorPosition(slot, frame)
     lg.draw(assert(self._cursorImage), assert(self._cursorQuads[presentation.cursorFrameIndex + 1]), x, y)

@@ -14,12 +14,12 @@ local T = {}
 -- Wrap a FakeCache backend so writes to a path substring raise.
 local function failOn(backend, substr)
   local orig = backend.write
-  backend.write = function(self, path, data)
+  rawset(backend, "write", function(self, path, data)
     if path:find(substr, 1, true) then
       error("injected write failure")
     end
     return orig(self, path, data)
-  end
+  end)
   return backend
 end
 

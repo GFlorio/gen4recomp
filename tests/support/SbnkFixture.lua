@@ -35,7 +35,6 @@ local INST_DRUM_SET = 0x10
 local INST_KEY_SPLIT = 0x11
 
 local PARAM_SIZE = 10
-local LEAF_SIZE = 12
 
 local function paramBytes(param)
   assert(param, "instrument param required")

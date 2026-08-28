@@ -49,10 +49,12 @@ function WarpTask.poll(state, ctx)
       if Errors.is(transitionError) then
         fault = transitionError
       else
-        fault = Errors.new(ScriptErrors.SCRIPT_WARP_FAILED, tostring(transitionError), {
+        local context = {
           scriptId = ctx.instance.scriptId,
           taskId = ctx.taskId,
-        })
+        }
+        ---@cast context Errors.Context
+        fault = Errors.new(ScriptErrors.SCRIPT_WARP_FAILED, tostring(transitionError), context)
       end
       return {
         complete = true,
@@ -75,7 +77,9 @@ end
 ---@return Errors.Error|nil
 function WarpTask.validate(state)
   if type(state) ~= "table" or type(state.target) ~= "table" then
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "warp state must hold its target", { state = state })
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "warp state must hold its target", context)
   end
   return nil
 end

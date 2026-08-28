@@ -8,6 +8,8 @@ local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 
 local T = {}
 
+---@param bytes string
+---@return { code: string }
 local function decodeErr(bytes)
   local grid, err = CollisionGridAsset.decode(bytes)
   Assert.isNil(grid)
@@ -16,8 +18,12 @@ local function decodeErr(bytes)
 end
 
 -- A grid of the given dimensions; the block flag at (1,1) is set to `blocked`.
+---@param width integer
+---@param height integer
+---@param blocked boolean
+---@return { width: integer, height: integer, cells: table[] }
 local function grid(width, height, blocked)
-  local cells = {}
+  local cells = {} ---@type table[]
   for index = 1, width * height do
     cells[index] = { behavior = 0, terrainResponseId = 0, blocked = false }
   end
@@ -103,13 +109,15 @@ function T.encode_rejects_malformed_grids()
     CollisionGridAsset.encode({ width = 0, height = 2, cells = {} })
   end)
   Assert.throws(function()
-    local g = grid(1, 1, false)
-    g.cells[1].blocked = 1
+    local g = grid(1, 1, false) ---@type { width: integer, height: integer, cells: table[] }
+    local cell = g.cells[1] ---@type table
+    cell.blocked = 1
     CollisionGridAsset.encode(g)
   end)
   Assert.throws(function()
-    local g = grid(1, 1, false)
-    g.cells[1].behavior = 256
+    local g = grid(1, 1, false) ---@type { width: integer, height: integer, cells: table[] }
+    local cell = g.cells[1] ---@type table
+    cell.behavior = 256
     CollisionGridAsset.encode(g)
   end)
 end

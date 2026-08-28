@@ -40,6 +40,8 @@ local CULL_MODES = { back = true, front = true, none = true }
 -- emits only modulation/decal, the static path can carry toon/shadow.
 local POLYGON_MODES = { modulation = true, decal = true, toon = true, shadow = true }
 
+---@param value unknown
+---@return boolean
 local function isInteger(value)
   return type(value) == "number" and value % 1 == 0
 end
@@ -117,7 +119,7 @@ end
 -- Copy the shared field set into a new record: the runtime backend record
 -- shape ModelDefinition and ModelInstance consume.
 function PolygonState.copy(record)
-  local out = {}
+  local out = {} ---@type table<string, string|number|boolean>
   for _, field in ipairs(PolygonState.FIELDS) do
     out[field] = record[field]
   end

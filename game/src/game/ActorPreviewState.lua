@@ -60,6 +60,9 @@ end
 -- Select the displayed frame of a looping pose from the fixed tick, exactly as
 -- the runtime pose clock will: walk the per-frame durations the compiler
 -- recovered rather than assuming a uniform frame length.
+---@param pose table
+---@param tick integer
+---@return integer
 local function frameIndexAt(pose, tick)
   local total = pose.durationTicks
   local position = pose.loop and (tick % total) or math.min(tick, total - 1)
@@ -117,11 +120,10 @@ function ActorPreviewState:draw()
 end
 
 ---@param key string
----@param scancode string
----@param isrepeat boolean
-function ActorPreviewState:keypressed(key, scancode, isrepeat)
+function ActorPreviewState:keypressed(key, _, _)
   if key == "escape" then
-    return love.event.quit(0)
+    love.event.quit(0)
+    return
   end
   if key == "space" then
     self.paused = not self.paused

@@ -12,10 +12,16 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+---@diagnostic disable-next-line: missing-fields -- focused test double, not a real MapProps
+local EMPTY_MAP_PROPS = {} --[[@as MapProps]]
+
 local function runtimeMap()
   return {
     mapId = 60,
+    mapSymbol = "test-map",
     coordinateOrigin = { x = 0, z = 0 },
+    scene = {},
+    fieldData = { events = {} },
     collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
@@ -38,7 +44,13 @@ local function runtimeMap()
         },
       },
     }),
-  }
+    terrainDependencyHash = "test-terrain",
+    mapProps = EMPTY_MAP_PROPS,
+    fieldRegion = {},
+    cameraType = 0,
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
 end
 
 -- A FieldPlayer-shaped stub: the adapter must depend only on this surface.
@@ -179,7 +191,7 @@ end
 function T.a_two_tile_walk_carries_the_phase_across_the_tile_commit()
   local subject = movingPlayer()
   local presentation = visual(subject)
-  for tick = 1, 8 do
+  for _ = 1, 8 do
     walkTick(subject, presentation, "east")
   end
   Assert.equal(subject.motion, "idle", "the first tile committed")
@@ -187,7 +199,7 @@ function T.a_two_tile_walk_carries_the_phase_across_the_tile_commit()
   Assert.equal(presentation.pose, "walk", "the commit tick is still a walking tick")
   Assert.equal(presentation.poseTick, 8, "the phase holds through the tile boundary")
 
-  for tick = 1, 8 do
+  for _ = 1, 8 do
     walkTick(subject, presentation, "east")
   end
   Assert.equal(subject.fieldX, 2, "the second tile committed")
@@ -232,7 +244,7 @@ end
 function T.the_first_genuinely_idle_tick_resets_the_phase()
   local subject = movingPlayer()
   local presentation = visual(subject)
-  for tick = 1, 8 do
+  for _ = 1, 8 do
     walkTick(subject, presentation, "east")
   end
   Assert.equal(presentation.poseTick, 8)
@@ -249,20 +261,20 @@ end
 function T.changing_facing_during_continuous_movement_resets_the_phase()
   local subject = movingPlayer()
   local presentation = visual(subject)
-  for tick = 1, 8 do
+  for _ = 1, 8 do
     walkTick(subject, presentation, "east")
   end
   Assert.equal(presentation.poseTick, 8)
 
   -- Turning mid-walk (buffered to the next step) must start the new facing's
   -- range at its first frame, not import the old range's phase.
-  for tick = 1, 4 do
+  for _ = 1, 4 do
     walkTick(subject, presentation, "south")
   end
   Assert.equal(subject.facing, "south")
   Assert.equal(presentation.poseTick, 4, "the phase restarted on the turn tick")
 
-  for tick = 1, 4 do
+  for _ = 1, 4 do
     walkTick(subject, presentation, "south")
   end
   Assert.equal(subject.fieldZ, 5, "the south tile committed")

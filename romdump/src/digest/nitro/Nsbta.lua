@@ -56,7 +56,7 @@ end
 
 -- One channel: constant value or a key array (offset + storage + rate +
 -- limit). `packedPair` marks the rotation channel (u32 keys of fx16 pairs).
-local function decodeChannel(r, record, at, packedPair, context)
+local function decodeChannel(r, record, at, packedPair)
   r:assertRange(at, 8, "nsbta-channel")
   local flag = r:u32le(at)
   local ofs = r:u32le(at + 4)
@@ -217,11 +217,11 @@ function Nsbta.decodeRecord(r, record, context)
     -- Channel order per GetTexSRTAnm_: scale pair first, then rot, then the
     -- translation pair (the asm reads +0x18/+0x20 as the translations).
     local chans = {
-      scaleS = decodeChannel(r, record, at, false, context),
-      scaleT = decodeChannel(r, record, at + 8, false, context),
-      rot = decodeChannel(r, record, at + 0x10, true, context),
-      transS = decodeChannel(r, record, at + 0x18, false, context),
-      transT = decodeChannel(r, record, at + 0x20, false, context),
+      scaleS = decodeChannel(r, record, at, false),
+      scaleT = decodeChannel(r, record, at + 8, false),
+      rot = decodeChannel(r, record, at + 0x10, true),
+      transS = decodeChannel(r, record, at + 0x18, false),
+      transT = decodeChannel(r, record, at + 0x20, false),
     }
     local nameAt = tableAt + ofsNameTable + i * NAME_SIZE
     local name = r:ascii(nameAt, NAME_SIZE, true)
@@ -248,6 +248,10 @@ end
 --                              = both translations zero, rotOne = identity
 --                              rotation, scaleOne = both scales 0x1000
 ---@return { transS: number|nil, transT: number|nil, scaleS: number|nil, scaleT: number|nil, rot: { sin: number, cos: number }|nil, transOne: boolean, rotOne: boolean, scaleOne: boolean }
+---@param r BinaryReader
+---@param res table
+---@param targetIndex integer
+---@param frameFx number
 function Nsbta.sample(r, res, targetIndex, frameFx)
   local target = assert(res.targets[targetIndex + 1], "target index " .. tostring(targetIndex) .. " out of range")
   local frame = math.floor(frameFx / 4096)

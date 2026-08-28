@@ -8,6 +8,9 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+---@diagnostic disable-next-line: missing-fields -- focused test double, not a real MapProps
+local EMPTY_MAP_PROPS = {} --[[@as MapProps]]
+
 local ROOT_HALF = math.sqrt(0.5)
 
 local function throwsCode(code, fn)
@@ -57,7 +60,10 @@ local function runtimeMap(blocked, plates)
     }
   return {
     mapId = 60,
+    mapSymbol = "test-map",
     coordinateOrigin = { x = 0, z = 0 },
+    scene = {},
+    fieldData = {},
     collision = {
       containsLocal = function(_, x, z)
         return x >= 0 and x < 32 and z >= 0 and z < 32
@@ -70,16 +76,27 @@ local function runtimeMap(blocked, plates)
       end,
     },
     terrain = TerrainSurface.new({ plates = plates }),
-  }
+    terrainDependencyHash = "test-terrain",
+    mapProps = EMPTY_MAP_PROPS,
+    fieldRegion = {},
+    cameraType = 0,
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
 end
 
+---@param map RuntimeFieldMap
+---@param x integer
+---@param z integer
+---@param surfaceId integer
+---@return FieldPlayer
 local function player(map, x, z, surfaceId)
   return FieldPlayer.new({ currentMap = map, fieldX = x, fieldZ = z, surfaceId = surfaceId, facing = "south" })
 end
 
 function T.escalator_motion_is_horizontal_and_does_not_change_height()
   local p = player(runtimeMap(), 0, 4, 0)
-  local startX, startY, startZ = p.worldX, p.worldY, p.worldZ
+  local startX, _, startZ = p.worldX, p.worldY, p.worldZ
   Assert.isTrue(p:beginTransitionStep("east"))
   for _ = 1, 16 do
     p:updateFixed()
@@ -251,6 +268,12 @@ end
 
 -- Occupancy is an injected predicate so FieldPlayer never imports the actor
 -- manager; it only needs truthy/nil answers per destination cell.
+---@param map RuntimeFieldMap
+---@param x integer
+---@param z integer
+---@param surfaceId integer
+---@param occupantCells table<string, string>
+---@return FieldPlayer
 local function occupyingPlayer(map, x, z, surfaceId, occupantCells)
   local p = FieldPlayer.new({
     currentMap = map,

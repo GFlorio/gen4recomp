@@ -9,6 +9,20 @@
 
 local Errors = require("libs.errors.src.Errors")
 
+---@class ScopedFs.Info
+---@field type string
+
+---@class ScopedFs.Backend
+---@field write fun(self: ScopedFs.Backend, path: string, data: string): boolean, string?
+---@field read fun(self: ScopedFs.Backend, path: string): string?, string?
+---@field getInfo fun(self: ScopedFs.Backend, path: string): ScopedFs.Info?
+---@field createDirectory fun(self: ScopedFs.Backend, path: string): boolean, string?
+---@field remove fun(self: ScopedFs.Backend, path: string): boolean, string?
+---@field replace fun(self: ScopedFs.Backend, sourcePath: string, destinationPath: string): boolean, string?
+---@field getDirectoryItems fun(self: ScopedFs.Backend, path: string): string[], string?
+
+---@alias ScopedFs.ErrorCodes table<string, string>
+
 local ScopedFs = {}
 
 -- A version id is a structural path component: it must be able to name
@@ -28,6 +42,7 @@ end
 -- translate that into structured errors. read preserves the backend's
 -- (data, size) / (nil, errorMessage) two-value shape so a read failure
 -- stays distinguishable from a missing file at the load boundary.
+---@return ScopedFs.Backend
 function ScopedFs.loveBackend()
   local fs = love.filesystem
   return {
@@ -60,6 +75,12 @@ end
 -- result, optionally with an error string). The one place the wrapper layer
 -- converts backend-reported failures into structured scoped-filesystem
 -- errors.
+---@param ok boolean
+---@param err string?
+---@param code string
+---@param message string
+---@param context Errors.Context
+---@return true
 function ScopedFs.ensureBackend(ok, err, code, message, context)
   if not ok then
     Errors.raise(code, err or message, context)
@@ -70,6 +91,10 @@ end
 -- Normalize and confine a relative path, returning the full scoped path.
 -- Raises a structured error on any escape attempt. "" means the scoped
 -- root. `codes` is the caller's per-type error-code table.
+---@param root string
+---@param relativePath string
+---@param codes ScopedFs.ErrorCodes
+---@return string
 function ScopedFs.resolve(root, relativePath, codes)
   assert(type(relativePath) == "string", "path must be a string")
   local path = relativePath:gsub("\\", "/")
@@ -98,6 +123,11 @@ end
 -- (the love backend's createDirectory is mkdir -p, so one call creates every
 -- intermediate directory). A backend-reported failure raises MKDIR_FAILED or
 -- WRITE_FAILED.
+---@param backend ScopedFs.Backend
+---@param fullPath string
+---@param data string
+---@param codes ScopedFs.ErrorCodes
+---@return true
 function ScopedFs.write(backend, fullPath, data, codes)
   local parent = fullPath:match("^(.*)/[^/]+$")
   if parent then
@@ -110,6 +140,10 @@ end
 
 -- Removing an absent path is a no-op; removing an existing path that the
 -- backend cannot remove raises REMOVE_FAILED.
+---@param backend ScopedFs.Backend
+---@param fullPath string
+---@param codes ScopedFs.ErrorCodes
+---@return true
 function ScopedFs.remove(backend, fullPath, codes)
   if not backend:getInfo(fullPath) then
     return true
@@ -121,6 +155,11 @@ end
 -- Atomically replaces destination with an already-written sibling file. The
 -- default backend uses the host rename primitive inside LÖVE's save
 -- directory.
+---@param backend ScopedFs.Backend
+---@param sourcePath string
+---@param destinationPath string
+---@param codes ScopedFs.ErrorCodes
+---@return true
 function ScopedFs.replace(backend, sourcePath, destinationPath, codes)
   assert(backend.replace, "backend does not support atomic replacement")
   local ok, err = backend:replace(sourcePath, destinationPath)
@@ -137,6 +176,12 @@ end
 -- stay distinguishable at the load boundary. Chunk failures raise
 -- LUA_PARSE_FAILED / LUA_EVAL_FAILED. Must never be pointed at raw ROM file
 -- contents.
+---@param backend ScopedFs.Backend
+---@param fullPath string
+---@param relativePath string
+---@param codes ScopedFs.ErrorCodes
+---@param env table<string, function>?
+---@return table?, Errors.Error?
 function ScopedFs.loadChunk(backend, fullPath, relativePath, codes, env)
   if not backend:getInfo(fullPath) then
     return nil, Errors.new(codes.FILE_MISSING, "no such file", { path = relativePath })
@@ -147,7 +192,7 @@ function ScopedFs.loadChunk(backend, fullPath, relativePath, codes, env)
   end
   local chunk, loadErr = loadstring(data, "@" .. relativePath)
   if not chunk then
-    return nil, Errors.new(codes.LUA_PARSE_FAILED, loadErr, { path = relativePath })
+    return nil, Errors.new(codes.LUA_PARSE_FAILED, assert(loadErr), { path = relativePath })
   end
   setfenv(chunk, env or {})
   local ok, result = pcall(chunk)

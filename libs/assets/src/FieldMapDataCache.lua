@@ -3,6 +3,12 @@
 
 local FieldMapDataCache = {}
 
+---@class FieldMapDataCache.Field
+---@field schema string
+---@field mapId integer
+---@field events table
+---@field transitionEnvironment string
+
 local Validate = require("libs.assets.src.Validate")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
@@ -13,7 +19,7 @@ FieldMapDataCache.TRANSITION_ENVIRONMENTS = { cave = true, outdoors = true, buil
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
 
----@param value any
+---@param value unknown
 ---@return boolean
 function FieldMapDataCache.isTransitionEnvironment(value)
   return type(value) == "string" and FieldMapDataCache.TRANSITION_ENVIRONMENTS[value] == true
@@ -76,7 +82,7 @@ end
 -- record and the soundplates array. Soundplate records are runtime-semantic
 -- only (rectangle, sequence, donor-bank flag, derived duck/ambient targets,
 -- optional disable flag); raw source selectors live solely in producer data.
----@param field any
+---@param field table
 ---@return boolean
 local function hasAudioPolicy(field)
   return type(field.music) == "table" and Validate.isArray(field.soundplates)
@@ -87,7 +93,7 @@ end
 -- consumers that read field records (the map loader, the scenario) validate
 -- against this single rule; a record that fails it is malformed generated
 -- data, never an empty feature.
----@param events any
+---@param events unknown
 ---@return boolean
 function FieldMapDataCache.hasRequiredEvents(events)
   if type(events) ~= "table" then
@@ -129,8 +135,8 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
   if cacheFs:read(FieldMapDataCache.markerPath(mapId)) ~= expectedMarker then
     return false
   end
-  local field = cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-  local dependencies = cacheFs:loadLua(FieldMapDataCache.dependenciesPath(mapId))
+  local field = cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId)) ---@type table?
+  local dependencies = cacheFs:loadLua(FieldMapDataCache.dependenciesPath(mapId)) ---@type table?
   if
     type(field) ~= "table"
     or field.schema ~= FieldMapDataCache.FIELD_SCHEMA

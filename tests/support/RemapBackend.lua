@@ -10,9 +10,10 @@ RemapBackend.__index = RemapBackend
 
 ---@param base table backend to delegate to
 ---@param remap fun(path: string): string
+---@return ScopedFs.Backend
 function RemapBackend.new(base, remap)
   assert(type(remap) == "function", "remap function required")
-  return setmetatable({
+  local backend = setmetatable({
     write = function(_, path, data)
       return base:write(remap(path), data)
     end,
@@ -35,6 +36,8 @@ function RemapBackend.new(base, remap)
       return base:getDirectoryItems(remap(path))
     end,
   }, RemapBackend)
+  ---@cast backend ScopedFs.Backend
+  return backend
 end
 
 return RemapBackend

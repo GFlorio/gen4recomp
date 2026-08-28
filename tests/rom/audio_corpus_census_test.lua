@@ -270,7 +270,7 @@ function T.corpus_census_classifies_every_reachable_construct()
       channelMaskZero = channelMaskZero,
       channelMaskNonZero = channelMaskNonZero,
     }
-    for id in pairs(playerIds) do
+    for _ in pairs(playerIds) do
       summary.players = summary.players + 1
     end
     -- Assertions with compact summary on failure.

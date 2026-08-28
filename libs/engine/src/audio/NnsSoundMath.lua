@@ -1859,7 +1859,7 @@ function NnsSoundMath.calcTimer(timer, pitch)
     octave = octave + 1
     normalized = normalized - PITCH_TABLE_SIZE
   end
-  local result = (PITCH_TABLE[normalized + 1] + 0x10000) * timer
+  local result = assert(tonumber((PITCH_TABLE[normalized + 1] + 0x10000) * timer))
   local shift = octave - 16
   if shift <= 0 then
     result = math.floor(result / 2 ^ -shift)
@@ -1876,7 +1876,9 @@ function NnsSoundMath.calcTimer(timer, pitch)
   elseif result > 0xFFFF then
     result = 0xFFFF
   end
-  return result
+  local finalResult = result
+  ---@cast finalResult integer
+  return finalResult
 end
 
 -- SND_CalcChannelVolume: the dB-like sum through the BIOS volume table into

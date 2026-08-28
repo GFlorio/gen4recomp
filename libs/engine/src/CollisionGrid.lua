@@ -10,6 +10,19 @@
 local CollisionGrid = {}
 CollisionGrid.__index = CollisionGrid
 
+---@class CollisionGrid
+---@field grid { width: integer, height: integer, cells: table[] }
+---@field worldOriginX integer
+---@field worldOriginZ integer
+---@field width integer
+---@field height integer
+---@field localToGlobal fun(self: CollisionGrid, localX: number, localZ: number): number, number
+---@field globalToLocal fun(self: CollisionGrid, globalX: number, globalZ: number): number, number
+---@field getLocal fun(self: CollisionGrid, localX: integer, localZ: integer): table
+---@field containsLocal fun(self: CollisionGrid, localX: number, localZ: number): boolean
+---@field isBlockedLocal fun(self: CollisionGrid, localX: number, localZ: number): boolean
+---@field isBlockedGlobal fun(self: CollisionGrid, globalX: number, globalZ: number): boolean
+
 local function finiteInteger(value)
   return type(value) == "number"
     and value == value
@@ -20,16 +33,18 @@ end
 
 ---@param collisionGrid { width: integer, height: integer, cells: table[] }
 ---@param opts { worldOriginX?: integer, worldOriginZ?: integer }|nil
+---@return CollisionGrid
 function CollisionGrid.new(collisionGrid, opts)
   assert(collisionGrid and type(collisionGrid.cells) == "table", "CollisionGrid.new requires a decoded collision grid")
   opts = opts or {}
-  return setmetatable({
+  local instance = setmetatable({
     grid = collisionGrid,
     worldOriginX = opts.worldOriginX or 0,
     worldOriginZ = opts.worldOriginZ or 0,
     width = collisionGrid.width,
     height = collisionGrid.height,
   }, CollisionGrid)
+  return instance --[[@as CollisionGrid]]
 end
 
 function CollisionGrid:globalToLocal(globalX, globalZ)

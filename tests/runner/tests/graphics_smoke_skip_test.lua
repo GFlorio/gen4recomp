@@ -13,7 +13,7 @@ local T = {}
 
 function T.a_graphics_body_skip_reports_a_skip()
   local suite = GraphicsSmoke.suite({
-    ["a"] = function(scope, context)
+    ["a"] = function(_, context)
       context:skip("no field-UI class in the shared derived cache")
     end,
   })

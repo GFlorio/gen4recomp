@@ -57,6 +57,11 @@ end
 
 -- Compile the record with one resource member per id. `resourceFor` picks
 -- the fixture bytes per id; the default is the door pair.
+---@param recordBytes string
+---@param memberId integer
+---@param ids integer[]
+---@param resourceFor (fun(id: integer): string)?
+---@return table
 local function compile(recordBytes, memberId, ids, resourceFor)
   local members = {}
   for _, id in ipairs(ids) do

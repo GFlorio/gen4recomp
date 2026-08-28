@@ -335,7 +335,6 @@ end
 -- 0 rest) matches the translated reference. The hidden render is fully
 -- transparent: the whole surface sits below the 192px screen.
 function T.canonical_wipe_goldens_match_the_translated_reference(scope)
-  local lg = love.graphics
   for _, offset in ipairs({ -48, -32, -16, 0 }) do
     local rendered = canonicalRender(scope, 0, offset)
     assertPixelsEqual(goldenReference(0, offset), rendered, "wipe " .. offset)

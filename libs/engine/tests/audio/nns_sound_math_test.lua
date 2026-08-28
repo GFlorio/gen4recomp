@@ -30,8 +30,9 @@ function T.outer_decibel_rejects_levels_outside_the_integer_table_domain()
   Assert.throws(function()
     NnsSoundMath.decibel(128)
   end)
+  local nonIntegerLevel = 1.5
   Assert.throws(function()
-    NnsSoundMath.decibel(1.5)
+    NnsSoundMath.decibel(nonIntegerLevel --[[@as integer]])
   end)
 end
 

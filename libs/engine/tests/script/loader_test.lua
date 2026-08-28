@@ -10,14 +10,14 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
-local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local T = {}
 
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected a raised error")
-  Assert.equal(err.code, code)
+  local errorObject = err --[[@as Errors.Error]]
+  Assert.equal(errorObject.code, code)
 end
 
 -- A fake cache carrying a two-resource script class (the index schema and
@@ -63,7 +63,7 @@ local function overrideFs(files, manifestText)
     manifestText = manifestText .. "}\n"
   end
   return {
-    read = function(self, path)
+    read = function(_, path)
       if path == ScriptOverrides.MANIFEST then
         return manifestText
       end
@@ -170,7 +170,7 @@ T["buildRegistry composes the override"] = function()
       ["new_bark.lab_sign.lua"] = 'local S = require("gen4.script")\nreturn S.script { api = 1, id = "new_bark.lab_sign", steps = { S.noop(), S.stop() } }\n',
     }),
     requireShim
-  )
+  ) --[[@as Registry]]
   local composition = Composition.new(registry)
   local effective = assert(composition:effective("new_bark.lab_sign"))
   Assert.equal(effective.entries[1].operation, "base")
@@ -180,7 +180,6 @@ end
 -- 7. buildRegistry passes the injected require through to the generated
 -- cache files too: a require the allowlist would reject is observable.
 T["buildRegistry injects require for generated files"] = function()
-  local Registry = require("libs.engine.src.script.Registry")
   local calls = {}
   local injected = function(name)
     calls[#calls + 1] = name
@@ -209,7 +208,6 @@ end
 -- 8. A lazy build decodes nothing until first use: no script file is read
 -- at build time, and base() reads exactly its own file.
 T["lazy build reads no script files until first use"] = function()
-  local Registry = require("libs.engine.src.script.Registry")
   local cache = scriptCache()
   local originalRead = cache.backend.read
   local scriptReads = 0
@@ -228,7 +226,6 @@ end
 -- 8b. The lazy per-use validation policy: by default a generated script is
 -- validated on first use, so invalid content fails at the access point.
 T["lazy build validates generated content on first use"] = function()
-  local Registry = require("libs.engine.src.script.Registry")
   local registry = ScriptLoader.buildRegistry(invalidScriptCache(), overrideFs({}), requireShim, { lazy = true })
   throwsCode("SCRIPT_SCHEMA_INVALID", function()
     registry:base("invalid.script")
@@ -239,7 +236,6 @@ end
 -- snapshot already proved the corpus unchanged since the cache build
 -- validated it); the identity check still applies.
 T["lazy build without validation accepts invalid generated content"] = function()
-  local Registry = require("libs.engine.src.script.Registry")
   local registry = ScriptLoader.buildRegistry(invalidScriptCache(), overrideFs({}), requireShim, {
     lazy = true,
     validateGenerated = false,

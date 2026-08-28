@@ -106,7 +106,8 @@ local function descriptorOf(bundle)
 end
 
 local function clipOf(desc, name)
-  for _, clip in ipairs(desc.animations) do
+  local checked = assert(desc)
+  for _, clip in ipairs(checked.animations) do
     if clip.name == name then
       return clip
     end

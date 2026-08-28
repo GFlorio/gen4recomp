@@ -22,11 +22,9 @@ function WaitInputTask.create(spec, ctx)
   local buttons = node.buttons or { "a", "b" }
   for _, button in ipairs(buttons) do
     if button ~= "a" and button ~= "b" then
-      Errors.raise(
-        ScriptErrors.SCRIPT_SCHEMA_INVALID,
-        "wait_input buttons must be a/b",
-        { buttons = buttons, scriptId = ctx.instance.scriptId }
-      )
+      local context = { buttons = buttons, scriptId = ctx.instance.scriptId }
+      ---@cast context Errors.Context
+      Errors.raise(ScriptErrors.SCRIPT_SCHEMA_INVALID, "wait_input buttons must be a/b", context)
     end
   end
   return {
@@ -93,11 +91,9 @@ end
 ---@return Errors.Error|nil
 function WaitInputTask.validate(state)
   if type(state) ~= "table" or type(state.buttons) ~= "table" then
-    return Errors.new(
-      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-      "wait_input state must hold its buttons",
-      { state = state }
-    )
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "wait_input state must hold its buttons", context)
   end
   return nil
 end

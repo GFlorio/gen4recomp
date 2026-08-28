@@ -23,13 +23,23 @@ local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 
+---@class GpuAssetPool.Mesh
+---@field release fun(self: GpuAssetPool.Mesh)
+---@class GpuAssetPool.Image
+---@field setFilter fun(self: GpuAssetPool.Image, min: string, mag: string)
+---@field setWrap fun(self: GpuAssetPool.Image, wrapX: string, wrapY: string)
+---@field release fun(self: GpuAssetPool.Image)
+---@class GpuAssetPool.Graphics
+---@field newImage fun(data: unknown): GpuAssetPool.Image
+---@alias GpuAssetPool.MeshBuilder fun(decoded: table): GpuAssetPool.Mesh
+---@alias GpuAssetPool.ImageBuilder fun(path: string): GpuAssetPool.Image
 ---@class GpuAssetPool
 ---@field cacheFs table
----@field graphics love.Graphics
----@field meshBuilder fun(decoded: table): any
----@field imageBuilder fun(path: string): any|nil
----@field meshes love.Mesh[]
----@field images love.Image[]
+---@field graphics GpuAssetPool.Graphics|love.Graphics
+---@field meshBuilder GpuAssetPool.MeshBuilder
+---@field imageBuilder GpuAssetPool.ImageBuilder?
+---@field meshes GpuAssetPool.Mesh[]
+---@field images GpuAssetPool.Image[]
 ---@field triangles integer
 local GpuAssetPool = {}
 GpuAssetPool.__index = GpuAssetPool
@@ -74,9 +84,9 @@ local function guarded(pool, fn, revert)
 end
 
 ---@class GpuAssetPoolOptions
----@field graphics? love.Graphics -- injectable LÖVE graphics namespace (nil keeps love.graphics)
----@field meshBuilder? fun(decoded: table): any -- replaces SceneMesh.build (headless tests)
----@field imageBuilder? fun(path: string): any -- replaces love-graphics texture construction (headless tests)
+---@field graphics? GpuAssetPool.Graphics|love.Graphics -- injectable graphics namespace (nil keeps love.graphics)
+---@field meshBuilder? GpuAssetPool.MeshBuilder -- replaces SceneMesh.build (headless tests)
+---@field imageBuilder? GpuAssetPool.ImageBuilder -- replaces graphics texture construction (headless tests)
 
 -- cacheFs: a CacheFs-shaped reader (read(path) returns raw bytes or nil); see
 -- GpuAssetPoolOptions for the injectable GPU seams. A builder image is
@@ -87,6 +97,7 @@ end
 function GpuAssetPool.new(cacheFs, opts)
   assert(cacheFs and cacheFs.read, "GpuAssetPool requires a CacheFs-shaped object")
   opts = opts or {}
+  ---@type GpuAssetPool.Graphics|love.Graphics|nil
   local graphics = opts.graphics
   if graphics == nil then
     graphics = love and love.graphics
@@ -94,7 +105,7 @@ function GpuAssetPool.new(cacheFs, opts)
   assert(graphics and graphics.newImage, "GpuAssetPool requires love.graphics")
   return setmetatable({
     cacheFs = cacheFs,
-    graphics = opts.graphics or (love and love.graphics),
+    graphics = graphics,
     meshBuilder = opts.meshBuilder or SceneMesh.build,
     imageBuilder = opts.imageBuilder,
     meshes = {},
@@ -114,7 +125,7 @@ end
 -- exactly once per mesh. All four fields are stable references across
 -- repeated acquires of the same path.
 ---@param path string
----@return { mesh: love.Mesh, triangles: number, center: number[], bounds: { minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number } }
+---@return { mesh: GpuAssetPool.Mesh, triangles: integer, center: number[], bounds: { minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number } }
 function GpuAssetPool:meshFor(path)
   local entry = self._meshCache[path]
   if not entry then
@@ -126,7 +137,9 @@ function GpuAssetPool:meshFor(path)
       -- instead of orphaning it.
       self.meshes[#self.meshes + 1] = mesh
       local geometry = SceneDescriptor.meshGeometry(decoded.vertices)
-      entry = { mesh = mesh, triangles = decoded.indexCount / 3, center = geometry.center, bounds = geometry.bounds }
+      local triangleCount = decoded.indexCount / 3
+      ---@cast triangleCount integer
+      entry = { mesh = mesh, triangles = triangleCount, center = geometry.center, bounds = geometry.bounds }
       self._meshCache[path] = entry
       self.triangles = self.triangles + entry.triangles
     end)
@@ -146,7 +159,7 @@ end
 ---@param path string?
 ---@param wrapX string
 ---@param wrapY string
----@return love.Image?
+---@return GpuAssetPool.Image?
 function GpuAssetPool:imageFor(path, wrapX, wrapY)
   if not path then
     return nil
@@ -176,6 +189,7 @@ function GpuAssetPool:imageFor(path, wrapX, wrapY)
         local data = love.filesystem.newFileData(bytes, "tex.png")
         created = self.graphics.newImage(data)
       end
+      ---@cast created GpuAssetPool.Image
       byWrap[key] = created
       self.images[#self.images + 1] = created
       created:setFilter("nearest", "nearest")

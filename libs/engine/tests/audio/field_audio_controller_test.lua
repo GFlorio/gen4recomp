@@ -16,6 +16,10 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
 local T = {}
 
+---@class FieldAudioControllerTest.SequencePlayer : SequencePlayer
+---@field playWithBankOverride fun(self: FieldAudioControllerTest.SequencePlayer, handle: table, sequence: table, bank: table): boolean
+---@field isPlayerPlaying fun(self: FieldAudioControllerTest.SequencePlayer, playerId: integer): boolean
+
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
   Assert.isTrue(Errors.is(err), "expected structured error, got " .. tostring(err))
@@ -40,15 +44,37 @@ end
 
 local SAMPLE_RATE = 48000
 
-local function seq(id, symbol, bankId, playerId, instructions)
-  return AudioFixture.sequence(id, symbol, bankId, playerId, { entry = 1, instructions = instructions }, {
-    id = playerId,
-    initialVolume = 127,
-    playerPriority = 64,
-    channelPriority = 64,
-  })
+---@param opts table
+---@return FieldAudioControllerTest.SequencePlayer
+local function newSequencePlayer(opts)
+  return SequencePlayer.new(opts) --[[@as FieldAudioControllerTest.SequencePlayer]]
 end
 
+---@param id integer
+---@param symbol string
+---@param bankId integer
+---@param playerId integer
+---@param instructions table[]
+---@return AudioFixture.Sequence
+local function seq(id, symbol, bankId, playerId, instructions)
+  return AudioFixture.sequence(
+    id,
+    symbol,
+    bankId,
+    playerId,
+    { entry = 1, initialTrackMask = 0x0001, instructions = instructions },
+    {
+      id = playerId,
+      initialVolume = 127,
+      playerPriority = 64,
+      channelPriority = 64,
+    }
+  )
+end
+
+---@param sequences table<integer, AudioFixture.Sequence>
+---@param banks table<integer, AudioFixture.Bank>
+---@return AudioAssetProvider
 local function providerFor(sequences, banks)
   local bundle = AudioFixture.bundle()
   local indexSequences, indexPlayers, sequenceBySymbol, indexBanks, bankBySymbol = {}, {}, {}, {}, {}
@@ -80,9 +106,12 @@ local function providerFor(sequences, banks)
     [keyA] = AudioFixture.sampleMetadata(keyA, { frames = 4 }),
     [keyB] = AudioFixture.sampleMetadata(keyB, { frames = 2 }),
   }
-  return AudioAssetProvider.new(AudioFixture.readyCache(bundle))
+  return AudioAssetProvider.new(AudioFixture.readyCache(bundle) --[[@as CacheFs]])
 end
 
+---@param provider AudioAssetProvider
+---@param player SequencePlayer
+---@return GameSound, table
 local function recordingSound(provider, player)
   ---@class RecordingSound : GameSound
   ---@field _spy { moves: table[], stops: table[], fades: table[], plays: table[], playWithBankCalls: table[] }
@@ -163,7 +192,7 @@ local function musicScenario()
     seq(11, "SEQ_GS_UTSUGI_RABO", 12, 1, { { op = "note", key = 62, velocity = 127, duration = 1 }, { op = "end" } })
   local provider = providerFor({ [10] = bgmA, [11] = bgmB }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local player = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local player = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound, spy = recordingSound(provider, player)
   local fdA = fieldDataWithSoundplates(
     {},
@@ -261,7 +290,7 @@ function T.production_position_is_read_through_a_narrow_fieldX_fieldZ_provider()
     seq(10, "SEQ_GS_T_WAKABA", 12, 1, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
   local provider = providerFor({ [10] = seqA }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound = GameSound.new({ provider = provider, player = enginePlayer })
   local gp = gameplayPlayer(34, 7)
   local fd = fieldDataWithSoundplates({
@@ -314,7 +343,7 @@ function T.entering_a_new_map_deactivates_the_source_environment_first()
     { [12] = bankWithSamples(12, "BANK_A", keyA), [13] = bankWithSamples(13, "BANK_B", AudioFixture.key(2)) }
   )
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound, spy = recordingSound(provider, enginePlayer)
   local fdA = fieldDataWithSoundplates(
     {},
@@ -384,7 +413,7 @@ function T.ordinary_bank_validation_remains_strict_while_the_explicit_donor_path
     { [12] = bankWithSamples(12, "BANK_A", keyA), [13] = bankWithSamples(13, "BANK_B", keyB) }
   )
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local player = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local player = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   throwsCode("AUDIO_PLAYER_BANK_MISMATCH", function()
     player:play(player:createHandle(), provider:sequence(20), provider:bank(12))
   end)
@@ -445,7 +474,7 @@ function T.disabled_highest_plate_performs_no_fallback_and_preserves_prior_envir
     seq(21, "SEQ_SE_GS_N_HUUSHA", 12, 2, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
   local provider = providerFor({ [10] = bgm, [20] = envA, [21] = envB }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound, spy = recordingSound(provider, enginePlayer)
   local fd = fieldDataWithSoundplates({
     {
@@ -521,7 +550,7 @@ function T.environment_identity_is_sequence_based_with_correct_volume_and_exit_t
     seq(20, "SEQ_SE_GS_N_SESERAGI", 12, 2, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
   local provider = providerFor({ [10] = bgm, [20] = env }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound, spy = recordingSound(provider, enginePlayer)
   local fdA = fieldDataWithSoundplates({
     {
@@ -615,7 +644,7 @@ function T.temporary_music_does_not_change_the_environment_donor_bank()
     { [12] = bankWithSamples(12, "BANK_A", keyA), [13] = bankWithSamples(13, "BANK_B", keyB) }
   )
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound, spy = recordingSound(provider, enginePlayer)
   local fd = fieldDataWithSoundplates({
     {
@@ -662,7 +691,7 @@ function T.position_lookup_uses_field_coordinates_modulo_32_and_inclusive_edges(
     seq(20, "SEQ_SE_GS_N_SESERAGI", 12, 2, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
   local provider = providerFor({ [10] = bgm, [20] = env }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound, spy = recordingSound(provider, enginePlayer)
   local fd = fieldDataWithSoundplates({
     {
@@ -705,7 +734,7 @@ function T.forced_processing_clears_memory_without_pre_stop_and_restarts_same_pl
     seq(20, "SEQ_SE_GS_N_SESERAGI", 12, 2, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
   local provider = providerFor({ [10] = bgm, [20] = env }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound, spy = recordingSound(provider, enginePlayer)
   local fd = fieldDataWithSoundplates({
     {
@@ -754,7 +783,7 @@ function T.begin_warp_raises_when_generated_field_data_is_missing()
     seq(10, "SEQ_GS_T_WAKABA", 12, 1, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
   local provider = providerFor({ [10] = bgm }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound = GameSound.new({ provider = provider, player = enginePlayer })
   local fd = fieldDataWithSoundplates(
     {},
@@ -788,7 +817,7 @@ function T.audio_owned_traversal_mutation_is_not_a_supported_operation()
     seq(10, "SEQ_GS_T_WAKABA", 12, 1, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
   local provider = providerFor({ [10] = bgm }, { [12] = bankWithSamples(12, "BANK_A", keyA) })
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
-  local enginePlayer = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local enginePlayer = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   local sound = GameSound.new({ provider = provider, player = enginePlayer })
   local fd = fieldDataWithSoundplates(
     {},

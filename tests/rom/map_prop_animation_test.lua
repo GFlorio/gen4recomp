@@ -29,7 +29,12 @@ local function descriptorOf(bundle, memberId)
 end
 
 local function clipOf(desc, name)
-  for _, clip in ipairs(desc.animations) do
+  ---@cast desc { animations: table[] }
+  if desc.animations == nil then
+    error("animation descriptor has no animations")
+  end
+  local animations = desc.animations
+  for _, clip in ipairs(animations) do
     if clip.name == name then
       return clip
     end
@@ -41,7 +46,7 @@ end
 -- roles and resource facts, plus member facts for the wind (member 28)
 -- and machine_l03 (member 29) census pins. The provenance sha1 of the
 -- compiled door_op is the real build_anim member bytes.
-function T.real_members_still_decode_with_their_clip_facts(romFs, version)
+function T.real_members_still_decode_with_their_clip_facts(romFs, _)
   local bundle = compileInto(romFs, "MAP_NEW_BARK")
   local door = descriptorOf(bundle, 26)
   assert(door, "wk_door3 descriptor present")

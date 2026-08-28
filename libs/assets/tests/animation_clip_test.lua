@@ -12,12 +12,21 @@ local AnimationClip = require("libs.assets.src.AnimationClip")
 
 local T = {}
 
+---@param code string
+---@param fn fun(): AnimationClip.Data?
+---@return nil
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected error " .. code)
-  Assert.equal(type(err) == "table" and err.code or err, code)
+  if type(err) == "table" then
+    Assert.equal(tostring(rawget(err, "code")), code)
+  else
+    Assert.equal(err, code)
+  end
 end
 
+---@param overrides table<string, table|string|number|boolean|nil>?
+---@return AnimationClip.Data
 local function clipSpec(overrides)
   local s = {
     id = "c1",
@@ -44,10 +53,11 @@ local function clipSpec(overrides)
       },
     },
   }
+  local data = s ---@cast data AnimationClip.Data
   for k, v in pairs(overrides or {}) do
-    s[k] = v
+    rawset(data, k, v)
   end
-  return s
+  return data
 end
 
 -- ---- validation ----
@@ -94,7 +104,7 @@ end
 -- compiled curve semantics, so a track needs only its target.
 function T.a_track_needs_only_its_target()
   local clip = AnimationClip.new(clipSpec({ tracks = { { target = 1 } } }))
-  Assert.equal(clip.tracks[1].target, 1)
+  Assert.equal(rawget(clip.tracks[1], "target"), 1)
 end
 
 function T.channels_are_opaque_to_the_clip_contract()
@@ -108,7 +118,7 @@ function T.channels_are_opaque_to_the_clip_contract()
       },
     },
   }))
-  Assert.equal(clip.tracks[1].target, 1)
+  Assert.equal(rawget(clip.tracks[1], "target"), 1)
 end
 
 -- The compiled payload is the samplers' whole curve semantics: a clip without
@@ -118,7 +128,7 @@ function T.new_requires_the_compiled_payload()
   -- A nil override cannot be expressed through clipSpec (pairs drops nil
   -- values), so the payload is stripped explicitly like the descriptor tests do.
   local spec = clipSpec()
-  spec.compiled = nil
+  rawset(spec, "compiled", nil)
   throwsCode("ANIM_CLIP_NO_COMPILED", function()
     return AnimationClip.new(spec)
   end)
@@ -147,7 +157,8 @@ function T.new_never_mutates_the_callers_tracks()
   local clip = AnimationClip.new(spec)
   Assert.isTrue(clip.tracks[1] == track, "the track table is retained by reference")
   Assert.isNil(track.index, "the caller's track table is never written")
-  Assert.isNil(spec.tracks[1].index)
+  local callerTrack = spec.tracks[1] ---@type table
+  Assert.isNil(callerTrack.index)
 end
 
 -- The semantic animation roles gameplay and the digest share: the one owner

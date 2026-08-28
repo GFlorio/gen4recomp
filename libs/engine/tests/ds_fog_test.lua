@@ -53,7 +53,7 @@ local T = {}
 -- Case 1: a depth strictly below the offset always yields densityId 0 with
 -- no fraction, so density is exactly the ramp's first entry (0).
 -- fogOffsetRaw=10 -> renderFogOffset = 10*0x200 = 5120; z=1000 < 5120.
-function T.depth_below_offset_yields_the_first_table_entry(scope)
+function T.depth_below_offset_yields_the_first_table_entry(_)
   local density = DsFog.density(1000, 10, 0, rampTable())
   Assert.equal(density, 0, "z below renderFogOffset must read the ramp's first entry (0)")
 end
@@ -63,7 +63,7 @@ end
 -- same boundary result as case 1, proving the boundary is inclusive on the
 -- "at offset" side without a fencepost error.
 -- fogOffsetRaw=10 -> renderFogOffset=5120; z=5120 exactly.
-function T.depth_exactly_at_offset_yields_the_first_table_entry(scope)
+function T.depth_exactly_at_offset_yields_the_first_table_entry(_)
   local density = DsFog.density(5120, 10, 0, rampTable())
   Assert.equal(density, 0, "z exactly at renderFogOffset must still read the ramp's first entry (0)")
 end
@@ -74,7 +74,7 @@ end
 -- i.e. densityId=5, densityFrac=0x10000 (exact midpoint). The ramp's
 -- entries 5 and 6 (0-indexed 4 and 5) are source[4]=16 and source[5]=20;
 -- their exact midpoint is 18.
-function T.halfway_through_an_interpolation_interval_produces_the_midpoint(scope)
+function T.halfway_through_an_interpolation_interval_produces_the_midpoint(_)
   local density = DsFog.density(2883584, 0, 0, rampTable())
   Assert.equal(density, 18, "the exact midpoint between ramp entries 16 and 20 is 18")
 end
@@ -83,7 +83,7 @@ end
 -- close to it), proving the index/fraction split lands on entry 3 (value 8)
 -- rather than off-by-one onto entry 2 (4) or entry 4 (12).
 -- z=1572864 -> shifted=393216=3*0x20000 exactly -> densityId=3, frac=0.
-function T.exactly_at_a_density_table_boundary_selects_the_correct_entry(scope)
+function T.exactly_at_a_density_table_boundary_selects_the_correct_entry(_)
   local density = DsFog.density(1572864, 0, 0, rampTable())
   Assert.equal(density, 8, "densityId=3 with zero fraction must read the ramp's third entry (8) exactly")
 end
@@ -92,7 +92,7 @@ end
 -- large) with densityFrac forced to 0, reading the table's last entry (124)
 -- exactly, not a garbage extrapolation past it.
 -- z=20971520 -> shifted=5242880=40*0x20000 (>= 32*0x20000) -> clamp 32/0.
-function T.beyond_the_final_interval_clamps_to_the_last_table_entry(scope)
+function T.beyond_the_final_interval_clamps_to_the_last_table_entry(_)
   local density = DsFog.density(20971520, 0, 0, rampTable())
   Assert.equal(density, 124, "densityId clamped to 32 must read the ramp's last entry (124), not overflow past it")
 end
@@ -101,7 +101,7 @@ end
 -- documented >=127 rule, not a >127 off-by-one). A custom table with its
 -- first entry set to 127, sampled at densityId=0 with zero fraction, reads
 -- 127 as the raw interpolated value before saturation.
-function T.raw_density_127_saturates_to_128(scope)
+function T.raw_density_127_saturates_to_128(_)
   local table32 = rampTable()
   table32[1] = 127
   -- fogOffsetRaw=100 -> renderFogOffset=51200; z=0 is below it, densityId=0.
@@ -118,7 +118,7 @@ end
 -- easily produce a negative or huge result instead of this small,
 -- unambiguously correct 0.
 -- z=1048572 -> shifted=262143=1*0x20000+0x1FFFF -> densityId=1, frac=0x1FFFF.
-function T.a_source_byte_of_255_cannot_drive_the_interpolation_negative(scope)
+function T.a_source_byte_of_255_cannot_drive_the_interpolation_negative(_)
   local table32 = rampTable()
   table32[1] = 255
   table32[2] = 0
@@ -130,7 +130,7 @@ end
 -- depth, with no intermediate negative/garbage value -- both interpolation
 -- endpoints are 255 regardless of densityId/densityFrac, so the raw
 -- interpolated value is always 255, always saturating to 128.
-function T.flash_preset_table_clamps_to_128_without_going_negative(scope)
+function T.flash_preset_table_clamps_to_128_without_going_negative(_)
   local density = DsFog.density(0, 0, 0, allMaxTable())
   Assert.equal(density, 128, "an all-255 density table must saturate to 128 at any depth")
 end
@@ -139,7 +139,7 @@ end
 -- 0->0, n->2n+1 rule locked for the geometry-pass combiner in deliverable A
 -- (map_renderer_graphics_test.lua's EXPAND5TO6_LOCKED_CASES), reused here
 -- rather than reintroducing a `/31` fog color normalization.
-function T.fog_color_channel_4_expands_to_six_bit_9(scope)
+function T.fog_color_channel_4_expands_to_six_bit_9(_)
   Assert.equal(DsFog.expand5to6(4), 9, "RGB555 channel 4 must expand to six-bit 9 (2*4+1)")
 end
 
@@ -149,7 +149,7 @@ end
 -- it to fully transparent -- both from the identical opaque source alpha
 -- (31), proving the alpha-5 blend equation (not merely the RGB-6 one) reads
 -- the preset's own alpha value.
-function T.alpha_31_and_alpha_0_fog_presets_both_blend_correctly_at_full_fog(scope)
+function T.alpha_31_and_alpha_0_fog_presets_both_blend_correctly_at_full_fog(_)
   local steady = DsFog.blend(31, 31, 128)
   local flash = DsFog.blend(31, 0, 128)
   Assert.equal(steady, 31, "a steady preset's fog alpha 31 must leave opaque alpha (31) unchanged at full fog")

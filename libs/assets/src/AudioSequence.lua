@@ -33,6 +33,7 @@ AudioSequence.SCHEMA = Contract.audio.sequenceSchema
 -- a semantic rest (SSEQ WAIT models the behavior), and print_var is an NNS
 -- diagnostic dropped during lowering. Comparisons and conditional nested
 -- commands remain part of the normalized contract.
+---@type table<string, string[]>
 local OPS = {
   note = { "key", "velocity", "duration" },
   wait = { "duration" },
@@ -100,21 +101,31 @@ end
 ---@param allowed table<string, boolean>
 ---@param field string
 local function assertOnlyKeys(record, allowed, field)
-  for key in pairs(record) do
+  local fields = record ---@type table<string, unknown>
+  for key in pairs(fields) do
     if not allowed[key] then
       fail({ field = field, key = key })
     end
   end
 end
 
+---@param value number
+---@param low number
+---@param high number
+---@return boolean
 local function isIntegerInRange(value, low, high)
   return type(value) == "number" and value % 1 == 0 and value >= low and value <= high
 end
 
+---@param value number
+---@return boolean
 local function isKey(value)
   return isIntegerInRange(value, 0, 0x7F)
 end
 
+---@param value number
+---@param count integer
+---@return boolean
 local function isTarget(value, count)
   return isIntegerInRange(value, 1, count)
 end
@@ -126,8 +137,9 @@ end
 -- closed shape: extra keys (including the retired min/max names) are
 -- malformed. The optional nonNegative constraint applies to the plain
 -- integer form only; random endpoints keep the exact signed source pair.
----@param amount any
+---@param amount unknown
 ---@param nonNegative boolean?
+---@return boolean
 local function isValidOperand(amount, nonNegative)
   if type(amount) == "number" then
     if amount % 1 ~= 0 then
@@ -138,36 +150,41 @@ local function isValidOperand(amount, nonNegative)
   if type(amount) ~= "table" then
     return false
   end
-  if amount.kind == "variable" then
-    for key in pairs(amount) do
+  local operand = amount ---@type table<string, unknown>
+  if operand.kind == "variable" then
+    for key in pairs(operand) do
       if key ~= "kind" and key ~= "var" then
         return false
       end
     end
-    return isIntegerInRange(amount.var, 0, VARIABLE_MAX)
+    return isIntegerInRange(operand.var --[[@as number]], 0, VARIABLE_MAX)
   end
-  if amount.kind == "random" then
-    for key in pairs(amount) do
+  if operand.kind == "random" then
+    for key in pairs(operand) do
       if key ~= "kind" and key ~= "lo" and key ~= "hi" then
         return false
       end
     end
-    return isIntegerInRange(amount.lo, -0x8000, 0x7FFF) and isIntegerInRange(amount.hi, -0x8000, 0x7FFF)
+    return isIntegerInRange(operand.lo --[[@as number]], -0x8000, 0x7FFF)
+      and isIntegerInRange(operand.hi --[[@as number]], -0x8000, 0x7FFF)
   end
   return false
 end
 
+---@param instruction table
+---@param field string
+---@param instructionCount integer
 local function validateNestedInstruction(instruction, field, instructionCount)
   if type(instruction) ~= "table" or type(instruction.op) ~= "string" then
     fail({ field = field .. ".op" })
   end
-  local op = instruction.op
-  local operandSpec = OPS[op]
+  local op = instruction.op ---@type string
+  local operandSpec = OPS[op] ---@type string[]?
   if operandSpec == nil or op == "if" then
     fail({ field = field .. ".op", op = op })
   end
-  operandSpec = operandSpec --[[@as table]]
-  local allowed = { op = true }
+  ---@cast operandSpec string[]
+  local allowed = { op = true } ---@type table<string, boolean>
   for _, operand in ipairs(operandSpec) do
     allowed[operand] = true
   end
@@ -265,23 +282,24 @@ function AudioSequence.validate(sequence)
   if not Validate.isArray(program.instructions) or #program.instructions == 0 then
     fail({ field = "program.instructions" })
   end
-  if not isTarget(program.entry, #program.instructions) then
+  local instructions = program.instructions
+  if not isTarget(program.entry, #instructions) then
     fail({ field = "program.entry" })
   end
-  for index, instruction in ipairs(program.instructions) do
+  for index, instruction in ipairs(instructions) do
     if type(instruction) ~= "table" or type(instruction.op) ~= "string" then
       fail({ field = "program.instructions[" .. index .. "].op" })
     end
-    local op = instruction.op
-    local operandSpec = OPS[op]
+    local op = instruction.op ---@type string
+    local operandSpec = OPS[op] ---@type string[]?
     if operandSpec == nil then
       fail({ field = "program.instructions[" .. index .. "].op", op = op })
     end
-    operandSpec = operandSpec --[[@as table]]
+    ---@cast operandSpec string[]
     -- Exact instruction shapes: the record carries its op and exactly its
     -- Conditional execution owns a complete nested instruction so variable-
     -- length source commands cannot be split by the runtime.
-    local allowed = { op = true }
+    local allowed = { op = true } ---@type table<string, boolean>
     for _, operand in ipairs(operandSpec) do
       allowed[operand] = true
     end
@@ -298,7 +316,7 @@ function AudioSequence.validate(sequence)
       validateNestedInstruction(
         instruction.instruction,
         "program.instructions[" .. index .. "].instruction",
-        #program.instructions
+        #instructions
       )
     elseif op == "compare" then
       if

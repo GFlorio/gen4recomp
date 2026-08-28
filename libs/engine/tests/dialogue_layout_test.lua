@@ -8,14 +8,19 @@ local DialogueLayout = require("libs.engine.src.DialogueLayout")
 
 local T = {}
 
+---@class DialogueLayoutTest.Metrics : FieldDialogueTheme.Metrics
+
 -- Synthetic metrics over a small font def table: code -> advance.
 local function metrics(def)
-  return {
+  local value = {
     glyphWidth = function(code)
       local glyph = def[code]
       return glyph and glyph.advance or nil
     end,
-  }
+    lineHeight = 16,
+    lineSpacing = 0,
+  } --[[@as DialogueLayoutTest.Metrics]]
+  return value
 end
 
 local FONT = {

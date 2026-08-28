@@ -20,6 +20,10 @@ CollisionGridAsset.VERSION = Contract.map.collisionVersion
 
 local HEADER_SIZE = 10 -- magic 4 + version 2 + width 2 + height 2
 
+---@param code string
+---@param message string
+---@param context table?
+---@return nil, Errors.Error
 local function fail(code, message, context)
   return nil, Errors.new(code, message, context)
 end
@@ -61,6 +65,7 @@ end
 -- Returns (grid | nil, err) for malformed data.
 ---@param bytes string
 ---@param context table|nil
+---@return table?, Errors.Error?
 function CollisionGridAsset.decode(bytes, context)
   assert(type(bytes) == "string", "CollisionGridAsset.decode requires a string")
   if #bytes < HEADER_SIZE then
@@ -95,7 +100,7 @@ function CollisionGridAsset.decode(bytes, context)
     )
   end
 
-  local cells = {}
+  local cells = {} ---@type table[]
   local offset = HEADER_SIZE
   for index = 0, cellCount - 1 do
     local blocked = reader:u8(offset + 2)

@@ -115,6 +115,7 @@ function TaskRegistry:resolveCurrent(taskType)
   for version in pairs(versions) do
     currentVersion = math.max(currentVersion, version)
   end
+  ---@cast currentVersion integer
   return self:resolve(taskType, currentVersion)
 end
 

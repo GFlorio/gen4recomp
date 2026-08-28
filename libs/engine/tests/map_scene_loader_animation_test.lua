@@ -198,7 +198,6 @@ end
 -- The dynamic batches reference the content-addressed .g4mesh path of the
 -- encoded quad; the fixture writes those bytes into the cache alongside.
 local function doorDescriptor()
-  local quad = doorQuad()
   -- Content-addressed key: the same literal the fixture writes the encoded
   -- quad under (the geometry path is arbitrary within this test).
   local meshSha = "mesh_door_quad_0000000000000000000000000000000000"
@@ -748,8 +747,26 @@ function T.animated_building_loads_advances_and_renders()
   local renderer = MapRenderer.new()
   local identity = identityMatrix()
   local camera = {
+    cameraSourceY = 0,
+    cameraAppliedY = 0,
+    zoom = 1,
+    projectionType = "orthographic",
+    profile = {},
     distance = 26,
+    near = 0.1,
     far = 400,
+    sourceTarget = { x = 0, y = 0, z = 0 },
+    target = { x = 0, y = 0, z = 0 },
+    previousTarget = { x = 0, y = 0, z = 0 },
+    eye = { x = 0, y = 0, z = 0 },
+    previousEye = { x = 0, y = 0, z = 0 },
+    up = { x = 0, y = 1, z = 0 },
+    history = {},
+    historyEnabled = false,
+    canonicalAspect = 1,
+    projectionAspect = 1,
+    _billboardDepthOffset = 0,
+    _projectionDirty = false,
     view = function()
       return identity
     end,
@@ -759,7 +776,7 @@ function T.animated_building_loads_advances_and_renders()
     billboardProjection = function()
       return identity
     end,
-  }
+  } --[[@as FieldCamera]]
   renderer:draw(
     runtime,
     camera,
@@ -804,7 +821,7 @@ function T.animated_building_loads_advances_and_renders()
   assert(door)
   Assert.equal(door.instance, instance)
   Assert.equal(door.modelKey, "outdoor:26:door")
-  door:open()
+  Assert.equal(door:open(), "SEQ_SE_DP_DOOR_OPEN")
   for _ = 1, 7 do
     instance:updateFixed()
   end
@@ -941,7 +958,6 @@ function T.update_advances_the_pose_driven_draw_items()
     assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
     { meshBuilder = fakeMeshBuilder }
   )
-  local instance = runtime.animatedInstances[1]
   local door = assert(runtime.mapProps:doorAt(doorMapFor(runtime, 4, 14), 4, 14))
   door:open()
   runtime:updateAnimated()
@@ -1079,6 +1095,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     end,
     collapseRenderInterpolation = function() end,
   }
+  ---@cast player FieldPlayer
   local map = {
     mapId = 61,
     cameraType = 4,
@@ -1089,37 +1106,69 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
       end
     end,
   }
+  ---@cast map RuntimeFieldMap
   local camera = {
     updateFixed = function()
       cameraSteps = cameraSteps + 1
     end,
     collapseRenderInterpolation = function() end,
   }
+  ---@cast camera FieldCamera
   local inactiveDialogue = {
     isModal = function()
       return false
     end,
   }
+  ---@cast inactiveDialogue FieldDialogueController
+  local transition = {
+    locked = false,
+    updateFixed = function() end,
+    start = function() end,
+  }
+  ---@cast transition FieldTransition
+  local actors = {
+    step = function() end,
+  }
+  ---@cast actors FieldActorManager
+  local input = {
+    snapshot = function()
+      return {}
+    end,
+  }
+  ---@cast input FieldInput
+  local menuHost = {
+    isModal = function()
+      return false
+    end,
+    advance = function() end,
+  }
+  ---@cast menuHost FieldMenuHost
+  local signpost = {
+    isModal = function()
+      return false
+    end,
+  }
+  ---@cast signpost FieldSignpostController
+  local applicationHost = {
+    isActive = function()
+      return false
+    end,
+    updateFixed = function() end,
+    requestOpen = function() end,
+    takeReopen = function()
+      return false
+    end,
+  }
+  ---@cast applicationHost FieldApplicationHost
   local session = FieldSession.new({
     versionId = "heartgold",
     currentMap = map,
     player = player,
     fieldEntranceIndicator = { updateFixed = function() end },
     camera = camera,
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
-    transition = {
-      locked = false,
-      updateFixed = function() end,
-      start = function() end,
-    },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
-    actors = { step = function() end },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
-    input = {
-      snapshot = function()
-        return {}
-      end,
-    },
+    transition = transition,
+    actors = actors,
+    input = input,
     dialogue = inactiveDialogue,
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
@@ -1138,35 +1187,14 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     scriptClient = { consume = function() end },
     eventResolver = FieldEventResolver,
     eventState = FieldEventState.new(),
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
-    menuHost = {
-      isModal = function()
-        return false
-      end,
-      advance = function() end,
-    },
+    menuHost = menuHost,
     contextChoice = {
       isActive = function()
         return false
       end,
     },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
-    signpost = {
-      isModal = function()
-        return false
-      end,
-    },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
-    applicationHost = {
-      isActive = function()
-        return false
-      end,
-      updateFixed = function() end,
-      requestOpen = function() end,
-      takeReopen = function()
-        return false
-      end,
-    },
+    signpost = signpost,
+    applicationHost = applicationHost,
     interactions = {
       resolve = function()
         return nil
@@ -1199,6 +1227,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
       dialogueSteps = dialogueSteps + 1
     end,
   }
+  ---@cast dialogue FieldDialogueController
   session.dialogue = dialogue
   session:updateFixed({})
   Assert.equal(attachment.player.frameFx, 3 * 4096, "the modal tick advances the scene clock once")
@@ -1226,6 +1255,7 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     end,
     step = function() end,
   }
+  ---@cast scriptOwned FieldDialogueController
   session.dialogue = scriptOwned
   session:updateFixed({})
   Assert.equal(attachment.player.frameFx, 6 * 4096, "a script-owned box keeps the world running")

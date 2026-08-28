@@ -16,7 +16,7 @@ local FntWriter = require("tests.support.FntWriter")
 
 local NdsBuilder = {}
 
-local u16, u32 = FntWriter.u16, FntWriter.u32
+local u32 = FntWriter.u32
 local HEADER_SIZE = 0x200
 
 local function collectContents(node, prefix, out)

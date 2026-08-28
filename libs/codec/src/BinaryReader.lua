@@ -95,7 +95,7 @@ function BinaryReader:f32le(offset)
   local sign = math.floor(word / 2147483648) % 2
   local biased = math.floor(word / 8388608) % 256
   local mantissa = word % 8388608
-  local value
+  local value = 0
   if biased == 0 then
     value = mantissa == 0 and 0 or (mantissa / 8388608) * 2 ^ -126
   elseif biased == 255 then

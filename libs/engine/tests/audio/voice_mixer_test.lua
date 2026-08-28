@@ -228,7 +228,7 @@ end
 function T.pan_registers_combine_instrument_track_and_hardware_domains()
   local function renderAt(overrides)
     local mixer = newMixer()
-    local merged = { pcm = CONST_6400 }
+    local merged = { pcm = CONST_6400 } ---@type table<string, unknown>
     for key, value in pairs(overrides or {}) do
       merged[key] = value
     end
@@ -808,8 +808,9 @@ function T.release_override_rejects_out_of_range_values()
   Assert.throws(function()
     mixer:noteOff(handle, -1)
   end, "a negative release override is rejected")
+  local nonIntegerRelease = 1.5
   Assert.throws(function()
-    mixer:noteOff(handle, 1.5)
+    mixer:noteOff(handle, nonIntegerRelease --[[@as integer]])
   end, "a non-integer release override is rejected")
   mixer:noteOff(handle, 0)
   mixer:render(1)
@@ -876,7 +877,6 @@ function T.exactly_one_envelope_advance_per_external_control_step_at_32768_hz()
   mixer:controlStep()
   mixer:noteOff(handle)
   local out = {}
-  local remaining = 53600
   local prev = 0
   local boundaries = {}
   local phase = 0

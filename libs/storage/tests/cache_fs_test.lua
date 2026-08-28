@@ -169,7 +169,7 @@ function T.load_lua_read_failure_is_not_reclassified_as_missing()
   local c = cache("heartgold", backend)
   c:write("data/generated/x.lua", "DATA")
   ---@diagnostic disable: duplicate-set-field
-  backend.read = function(_, path)
+  backend.read = function(_)
     return nil, "injected read failure"
   end
   local data, err = c:loadLua("data/generated/x.lua")

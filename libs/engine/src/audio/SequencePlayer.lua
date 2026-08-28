@@ -231,30 +231,38 @@ end
 -- dynamic operand is narrowed only after resolution, at the exact width of
 -- the command's C storage type. u8/s16 wrap by modulo; s8/u16 are the
 -- two's-complement interpretations of their wider forms.
+---@param value number
+---@return integer
 local function toU8(value)
-  return value % 256
+  return math.floor(value % 256)
 end
 
+---@param value number
+---@return integer
 local function toS8(value)
-  local value = toU8(value)
-  if value >= 128 then
-    value = value - 256
+  local wrapped = toU8(value)
+  if wrapped >= 128 then
+    wrapped = wrapped - 256
   end
-  return value
+  return wrapped
 end
 
+---@param value number
+---@return integer
 local function toU16(value)
-  return value % 65536
+  return math.floor(value % 65536)
 end
 
 -- The s16 domain of the SDK variables: values wrap to the signed 16-bit
 -- range on every store.
+---@param value number
+---@return integer
 local function toS16(value)
-  local value = toU16(value)
-  if value >= 32768 then
-    value = value - 65536
+  local wrapped = toU16(value)
+  if wrapped >= 32768 then
+    wrapped = wrapped - 65536
   end
-  return value
+  return wrapped
 end
 
 -- A deterministic default RNG matching SND_CalcRandom (SND_seq.c): state =
@@ -558,7 +566,15 @@ end
 -- track sweep plus the portamento contribution, the sweep length from
 -- portamentoTime, autoSweep, and the counter at 0) and a fresh
 -- TrackUpdateChannel lfo snapshot of the track mod state.
-local function startNote(self, instance, track, midiKey, velocity, length)
+---@param provider AudioAssetProvider
+---@param mixer VoiceMixer
+---@param instance table
+---@param track table
+---@param midiKey integer
+---@param velocity integer
+---@param length integer
+---@return { channel: integer, generation: integer }?, boolean?
+local function startNote(provider, mixer, instance, track, midiKey, velocity, length)
   -- A program the bank does not define is a silent note (the NNS
   -- SND_ReadInstData failure path): the real corpus references instruments
   -- whose SBNK records are unused/placeholder and the DS plays silence.
@@ -572,7 +588,7 @@ local function startNote(self, instance, track, midiKey, velocity, length)
   end
   local spec = { generator = voice.generator }
   if voice.generator.kind == "sample" then
-    local sample = self._provider:loadSample(voice.generator.sample)
+    local sample = provider:loadSample(voice.generator.sample)
     spec.baseTimer = sample.metadata.baseTimer
     spec.pcm = sample.pcm
     spec.loop = sample.metadata.loop
@@ -619,7 +635,7 @@ local function startNote(self, instance, track, midiKey, velocity, length)
     speed = track.mod.speed,
     delay = track.mod.delay,
   }
-  return self._mixer:noteOn(spec), indefinite
+  return mixer:noteOn(spec), indefinite
 end
 
 local function observeNote(self, instance, track, key, velocity, length)
@@ -731,6 +747,10 @@ local function execute(self, instance, track, instruction)
     -- no voice but gate exactly like normal notes.
     local length = resolveAmount(self, instruction.duration, instance)
     local midiKey = clamp(instruction.key + track.transpose, 0, 127)
+    local velocity = instruction.velocity
+    ---@cast length integer
+    ---@cast midiKey integer
+    ---@cast velocity integer
     if track.mute == 0 then
       if track.tie then
         -- Tied re-note: reuse the most recent live voice in place (the NNS
@@ -771,13 +791,13 @@ local function execute(self, instance, track, instruction)
           end
           self._mixer:retargetTiedVoice(head.handle, retarget)
         else
-          local handle = startNote(self, instance, track, midiKey, instruction.velocity, length)
+          local handle = startNote(self._provider, self._mixer, instance, track, midiKey, velocity, length)
           if handle ~= nil then
             track.voices[#track.voices + 1] = { handle = handle, length = -1, releasing = false }
           end
         end
       else
-        local handle, indefinite = startNote(self, instance, track, midiKey, instruction.velocity, length)
+        local handle, indefinite = startNote(self._provider, self._mixer, instance, track, midiKey, velocity, length)
         if handle ~= nil then
           track.voices[#track.voices + 1] = {
             handle = handle,
@@ -892,9 +912,9 @@ local function execute(self, instance, track, instruction)
     -- 0xC2 is the PLAYER volume: it changes every voice of the player.
     instance.sequenceVolume = toU8(resolveAmount(self, instruction.amount, instance))
     for trackId = 0, TRACK_COUNT - 1 do
-      local track = instance.tracks[trackId]
-      if track ~= nil then
-        pushTrackValues(self, instance, track)
+      local masterTrack = instance.tracks[trackId]
+      if masterTrack ~= nil then
+        pushTrackValues(self, instance, masterTrack)
       end
     end
   elseif op == "expression" then
@@ -1490,6 +1510,7 @@ end
 -- fade state is the caller; a player with no active instance is a no-op.
 ---@param handle table
 ---@param level integer
+---@return nil
 function SequencePlayer:setHandleFader(handle, level)
   validateHandle(self, handle)
   assert(level >= 0 and level <= 127 and level % 1 == 0, "fader level must be an integer in 0..127")
@@ -1515,6 +1536,7 @@ end
 -- state for resumption. A player with no active instance, or one already
 -- paused, is a no-op.
 ---@param handle table
+---@return nil
 function SequencePlayer:pauseHandle(handle)
   validateHandle(self, handle)
   local instance = self._handleAttachments[handle]
@@ -1531,6 +1553,7 @@ function SequencePlayer:pauseHandle(handle)
 end
 
 ---@param handle table
+---@return nil
 function SequencePlayer:resumeHandle(handle)
   validateHandle(self, handle)
   local instance = self._handleAttachments[handle]
@@ -1539,6 +1562,8 @@ function SequencePlayer:resumeHandle(handle)
   end
 end
 
+---@param handle table
+---@return nil
 function SequencePlayer:stopHandle(handle)
   validateHandle(self, handle)
   local instance = self._handleAttachments[handle]
@@ -1549,6 +1574,8 @@ end
 
 -- Releases only the handle attachment. The active instance remains owned by
 -- its logical player and physical slot.
+---@param handle table
+---@return nil
 function SequencePlayer:releaseHandle(handle)
   validateHandle(self, handle)
   detachHandle(self, handle)

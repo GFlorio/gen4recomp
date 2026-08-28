@@ -7,6 +7,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 
+---@class BinaryWriter
+---@field _chunks string[]
+---@field _len integer
 local BinaryWriter = {}
 BinaryWriter.__index = BinaryWriter
 
@@ -23,9 +26,12 @@ local function requireUnsigned(value, bits, name)
 end
 
 function BinaryWriter.new()
-  return setmetatable({ _chunks = {}, _len = 0 }, BinaryWriter)
+  return setmetatable({ _chunks = {}, _len = 0 }, BinaryWriter) ---@type BinaryWriter
 end
 
+---@param self BinaryWriter
+---@param s string
+---@return BinaryWriter
 local function push(self, s)
   self._chunks[#self._chunks + 1] = s
   self._len = self._len + #s
@@ -69,7 +75,7 @@ function BinaryWriter:f32(v)
   end
   local mant, expo = math.frexp(v) -- v = mant * 2^expo, 0.5 <= mant < 1
   local biased = (expo - 1) + 127
-  local mantissa
+  local mantissa = 0
   if biased <= 0 then -- subnormal / underflow
     mantissa = math.floor(v / 2 ^ -149 + 0.5)
     biased = 0

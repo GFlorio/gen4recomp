@@ -41,7 +41,9 @@ end
 ---@return Errors.Error|nil
 function AuxiliaryUiTask.validate(state)
   if type(state) ~= "table" or type(state.visible) ~= "boolean" then
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "auxiliary_ui task state is invalid", { state = state })
+    local context = { state = state }
+    ---@cast context Errors.Context
+    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "auxiliary_ui task state is invalid", context)
   end
   return nil
 end

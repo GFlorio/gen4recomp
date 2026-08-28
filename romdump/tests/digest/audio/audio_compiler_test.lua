@@ -113,6 +113,7 @@ end
 -- wave members shared across instruments so content deduplication is
 -- exercised. Returns the SDAT bytes and its build layout.
 local function buildArchive(overrides)
+  ---@type table
   local spec = {
     sequences = {
       [0] = { bankId = 1, volume = 120, channelPriority = 127, playerPriority = 64, playerId = 0 },
@@ -128,7 +129,7 @@ local function buildArchive(overrides)
   }
   if overrides ~= nil then
     for key, value in pairs(overrides) do
-      spec[key] = value
+      rawset(spec, key, value)
     end
   end
   local _, layout = SdatFixture.build(spec)
@@ -183,7 +184,7 @@ local function fakeRomFs(bytes)
     version = function()
       return "heartgold"
     end,
-    fileIdForPath = function(self, path)
+    fileIdForPath = function(_, path)
       Assert.equal(path, SDAT_PATH)
       return 123
     end,

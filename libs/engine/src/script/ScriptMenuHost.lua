@@ -44,20 +44,16 @@ local function resolveMessage(self, source, messageId)
   local bankId = messageBank(source)
   local acquired, bankErr = self._provider:acquireBank(bankId)
   if not acquired then
-    Errors.raise(
-      ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
-      "menu message bank is unavailable",
-      { bankId = bankId, messageId = messageId, cause = bankErr and bankErr.context }
-    )
+    local context = { bankId = bankId, messageId = messageId, cause = bankErr and bankErr.context }
+    ---@cast context Errors.Context
+    Errors.raise(ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED, "menu message bank is unavailable", context)
   end
   local template, templateErr = self._provider:get(bankId, messageId)
   if not template then
     self._provider:releaseBank(bankId)
-    Errors.raise(
-      ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
-      "menu message is unavailable",
-      { bankId = bankId, messageId = messageId, cause = templateErr and templateErr.context }
-    )
+    local context = { bankId = bankId, messageId = messageId, cause = templateErr and templateErr.context }
+    ---@cast context Errors.Context
+    Errors.raise(ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED, "menu message is unavailable", context)
   end
   local ok, formatted = pcall(self._provider.format, self._provider, template, {})
   self._provider:releaseBank(bankId)
@@ -71,19 +67,23 @@ local function resolveSemanticText(self, message)
   if type(message) == "table" or (type(message) == "string" and message:match("^msg%.hgss%.%d+%.%d+$")) then
     local resolveText = self._resolveText
     if resolveText == nil then
+      local context = { message = message }
+      ---@cast context Errors.Context
       Errors.raise(
         ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
         "semantic menu message resolution is unavailable",
-        { message = message }
+        context
       )
     end
     ---@cast resolveText fun(message: any): table|nil
     local text = resolveText(message)
     if type(text) ~= "table" or type(text.text) ~= "string" then
+      local context = { message = message }
+      ---@cast context Errors.Context
       Errors.raise(
         ScriptErrors.SCRIPT_MENU_MESSAGE_UNRESOLVED,
         "semantic menu message did not resolve to text",
-        { message = message }
+        context
       )
     end
     return text

@@ -27,6 +27,9 @@ local Matrix4 = require("libs.math.src.Matrix4")
 
 local NsbmdJointTransforms = {}
 
+---@class NsbmdJointTransforms
+---@field localMatrix fun(scalingRule: integer, node: table, cmd: table, cache: table): number[]
+
 NsbmdJointTransforms.STANDARD = 0
 NsbmdJointTransforms.MAYA = 1
 NsbmdJointTransforms.SI3D = 2
@@ -35,10 +38,15 @@ NsbmdJointTransforms.SI3D = 2
 local MAYASSC_APPLY = 0x01
 local MAYASSC_PARENT = 0x02
 
+---@param v integer
+---@param mask integer
+---@return boolean
 local function bitSet(v, mask)
   return math.floor(v / mask) % 2 == 1
 end
 
+---@param rot table
+---@return number[]
 local function rotationMatrix(rot)
   return {
     rot[1],
@@ -63,6 +71,8 @@ end
 -- Compose an emitted command sequence. Each geometry-engine matrix command
 -- post-multiplies the current matrix, so the joint's local matrix is the ops in
 -- emission order, left to right.
+---@param ops number[][]
+---@return number[]
 local function compose(ops)
   local m = Matrix4.identity()
   for _, op in ipairs(ops) do
@@ -71,18 +81,24 @@ local function compose(ops)
   return m
 end
 
+---@param node table
+---@return number[]
 local function translation(node)
   return Matrix4.translate(node.translation.x, node.translation.y, node.translation.z)
 end
 
+---@param vec table
+---@return number[]
 local function scaleOf(vec)
   return Matrix4.scale(vec.x, vec.y, vec.z)
 end
 
 -- NNSi_G3dSendJointSRTBasic: [MULT_4x3(rot|trans) | TRANS | MULT_3x3] then SCALE.
 -- MULT_4x3 sends the rotation and translation as one 4x3, which is T * R.
+---@param node table
+---@return number[][]
 local function standardOps(node)
-  local ops = {}
+  local ops = {} ---@type number[][]
   if not node.transZero then
     ops[#ops + 1] = translation(node)
   end
@@ -98,8 +114,11 @@ end
 -- NNSi_G3dSendJointSRTMaya. When the joint compensates its parent's scale, the
 -- parent's inverse scale is applied after the translation and before the
 -- rotation; otherwise the sequence is the standard one.
+---@param node table
+---@param scaleEx0 number[]?
+---@return number[][]
 local function mayaOps(node, scaleEx0)
-  local ops = {}
+  local ops = {} ---@type number[][]
   if not node.transZero then
     ops[#ops + 1] = translation(node)
   end
@@ -118,6 +137,10 @@ end
 -- NNSi_G3dGetJointScaleMaya: publish this joint's inverse scale for children
 -- that compensate it, and read the parent's when this joint compensates.
 -- `cache` maps node index -> inverse scale, with `false` meaning "scale is one".
+---@param node table
+---@param cmd table
+---@param cache table<integer, number[]|false>
+---@return number[]?
 local function mayaScaleEx0(node, cmd, cache)
   if bitSet(cmd.flags, MAYASSC_PARENT) then
     cache[cmd.nodeIndex] = (not node.scaleOne) and node.inverseScale or false
@@ -139,6 +162,11 @@ end
 --          and inverseScale for the non-standard rules)
 --   cmd    the NODEDESC command driving this joint (nodeIndex, parentIndex, flags)
 --   cache  caller-owned Maya inverse-scale cache, mutated as joints are walked
+---@param scalingRule integer
+---@param node table
+---@param cmd table
+---@param cache table
+---@return number[]
 function NsbmdJointTransforms.localMatrix(scalingRule, node, cmd, cache)
   if scalingRule == NsbmdJointTransforms.STANDARD then
     if cmd.flags ~= 0 then
@@ -167,6 +195,7 @@ function NsbmdJointTransforms.localMatrix(scalingRule, node, cmd, cache)
     "scaling rule " .. tostring(scalingRule) .. " is not implemented",
     { scalingRule = scalingRule, nodeIndex = cmd.nodeIndex }
   )
+  error("unreachable")
 end
 
 return NsbmdJointTransforms

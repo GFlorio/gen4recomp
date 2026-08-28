@@ -109,6 +109,12 @@ function T.message_index_with_non_array_bank_ids_is_not_ready()
   Assert.isFalse(FieldMessageCache.isReady(c, "m"), "a hash table is not a bankIds array")
 end
 
+function T.message_index_with_missing_bank_is_not_ready()
+  local c = cache()
+  writeMessageIndex(c, { 542 })
+  Assert.isFalse(FieldMessageCache.isReady(c, "m"), "an indexed bank file is required")
+end
+
 function T.message_bank_with_wrong_identity_is_not_ready()
   local c = cache()
   writeMessageIndex(c, { 542 })
@@ -301,7 +307,7 @@ local function writeCurrentFieldRecord(c, mapId, transitionEnvironment)
     nil,
     FieldMapDataCache.FIELD_SCHEMA
   )
-  local field = c:loadLua(FieldMapDataCache.fieldPath(mapId))
+  local field = assert(c:loadLua(FieldMapDataCache.fieldPath(mapId)))
   field.transitionEnvironment = transitionEnvironment
   c:writeLua(FieldMapDataCache.fieldPath(mapId), field)
 end
