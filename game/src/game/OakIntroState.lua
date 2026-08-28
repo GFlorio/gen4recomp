@@ -123,7 +123,9 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 ---@field disposed boolean
+---@field presentedShrinkKey string? identity of the last full-art/shrink image actually drawn
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
+---@field _shrinkKey fun(self: OakIntroState, view: OakIntroControllerView): string?
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
 ---@field update fun(self: OakIntroState, dt: number)
 ---@field tick fun(self: OakIntroState, frames: integer)
@@ -227,6 +229,7 @@ function OakIntroState.new(options)
       height = height,
       accumulator = 0,
       textInputEnabled = nil,
+      presentedShrinkKey = nil,
       completed = false,
       disposed = false,
       onComplete = options.onComplete,
@@ -297,10 +300,34 @@ function OakIntroState:_sync()
   return view
 end
 
+-- The profile shrink sequence holds one full-art image for a fixed source
+-- duration and then steps through the generated replacement frames one at a
+-- time. `_shrinkKey` identifies which of those distinct images is currently
+-- selected (nil outside the sequence) so a host `update` that would
+-- otherwise drain several source ticks before its one `draw` can detect
+-- when it has just crossed into a different one.
+function OakIntroState:_shrinkKey(view)
+  if view.phase == "final_full_art_hold" then
+    return "hold"
+  end
+  if view.phase == "shrink_animation" then
+    return view.visual .. "#" .. view.visualFrameIndex
+  end
+  return nil
+end
+
 function OakIntroState:update(dt)
   assert(type(dt) == "number" and dt >= 0, "Oak update dt must be non-negative")
   self.accumulator = self.accumulator + dt
   while self.accumulator >= 1 / 60 do
+    local currentShrinkKey = self:_shrinkKey(self.controller:view())
+    if currentShrinkKey ~= nil and currentShrinkKey ~= self.presentedShrinkKey then
+      -- The image selected right now has never reached a draw. Stop
+      -- draining the backlog here so the host's own draw can present it
+      -- before any further catch-up ticks it away; the unconsumed
+      -- accumulator remainder is left in place for the next update.
+      break
+    end
     self.accumulator = self.accumulator - 1 / 60
     local phaseBeforeDialogue = self.controller:view().phase
     if self.dialogueController then
@@ -360,6 +387,7 @@ end
 function OakIntroState:draw()
   local view = self:view()
   self.renderer:draw(view)
+  self.presentedShrinkKey = self:_shrinkKey(view)
   if self.dialogueController and self.dialogueRenderer then
     self.dialogueRenderer:draw(self.dialogueController, view.dialoguePresentation)
   end
