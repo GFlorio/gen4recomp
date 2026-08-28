@@ -554,6 +554,28 @@ function T.catchup_update_cannot_skip_a_distinct_shrink_image_before_presentatio
   )
 end
 
+-- A host that calls `update` repeatedly without ever calling `draw` (e.g. a
+-- minimized window, or any caller fast-forwarding state without presenting
+-- it) must still make real logical progress: entering a new shrink image
+-- queues it for presentation, but ticking must never permanently stall
+-- waiting for a `draw` that never comes.
+function T.update_without_any_draw_still_advances_past_every_shrink_image()
+  local state, controller = stateAtFreshFullArtHold(9, 4)
+
+  for _ = 1, 200 do
+    state:update(1 / 60)
+    if controller:view().phase == "complete" then
+      break
+    end
+  end
+
+  Assert.equal(
+    controller:view().phase,
+    "complete",
+    "logical progress must not stall merely because draw was never called"
+  )
+end
+
 -- Resizing between one catch-up-presented image and the next host draw is a
 -- routine host event and must not perturb which images were presented or
 -- their order.
