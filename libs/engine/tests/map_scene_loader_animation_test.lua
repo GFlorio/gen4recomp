@@ -446,6 +446,16 @@ local function recordingImageBuilder(images)
   end
 end
 
+-- Run a live callback in a disposable coroutine so an accidental construction
+-- checkpoint is observable as a suspended callback instead of being hidden by
+-- the host's main-thread coroutine behavior.
+local function runToCompletion(callback)
+  local thread = coroutine.create(callback)
+  local ok, result = coroutine.resume(thread)
+  Assert.isTrue(ok, tostring(result))
+  Assert.equal(coroutine.status(thread), "dead", "the live callback must not yield")
+end
+
 -- The door descriptor with a textured material: base texture (64x64) plus
 -- optional pattern variants, sampled under the material's wrap pair. The
 -- loader maps every texture key (base and variants) to the material's wrap
@@ -981,6 +991,42 @@ function T.update_advances_the_pose_driven_draw_items()
   runtime:release()
 end
 
+-- A staged scene owns its build coroutine only until finish transfers the
+-- runtime. Live animation then advances through ordinary scene ticks, with
+-- the draw list refreshed from the new pose each time.
+function T.dynamic_scene_ticks_after_staged_build()
+  local desc = doorDescriptor()
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "outdoor:26:door",
+      transform = doorTransform(),
+    },
+  }, { [desc.key] = desc }, { { x = 4, z = 14 } })
+  local task = MapSceneLoader.begin(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder }
+  )
+  local runtime = task:finish()
+  local instance = runtime.animatedInstances[1]
+  local handle = instance:play("door.open", { loopMode = "loop" })
+  local initialFrame = handle.player.frameFx
+
+  for _ = 1, 3 do
+    runToCompletion(function()
+      runtime:updateAnimated()
+    end)
+    local item = runtime.animatedBuildingDraws[1]
+    Assert.notNil(item, "the staged runtime keeps an animated draw item")
+    Assert.deepEqual(item.modelNormal, Matrix3.modelNormal(item.transform))
+  end
+
+  Assert.isTrue(handle.player.frameFx > initialFrame, "live ticks advance the active animation")
+  Assert.equal(#runtime.animatedBuildingDraws, 1)
+  runtime:release()
+end
+
 -- The scene's draw list refreshes on the scene TICK, not on control ops:
 -- every animation tick (FieldSession -> updateAnimated) rebuilds all
 -- animated items unconditionally, and nothing between ticks consumes a
@@ -1349,6 +1395,50 @@ function T.animated_variant_texture_uses_the_material_wrap()
   local variantImage = runtime.animatedBuildingDraws[1].material.image
   Assert.equal(variantImage.path, variantTexture, "the pattern switches to the variant texture")
   Assert.deepEqual(variantImage.wraps, { { "repeat", "repeat" } }, "the variant texture uses its material's wrap")
+  runtime:release()
+end
+
+-- A pattern variant that was not needed for frame 0 remains a live pool
+-- lookup after a staged build has transferred the runtime.
+function T.lazy_variant_loads_after_staged_build()
+  local variantTexture = MapAssetCache.texturePath("texvariant")
+  local desc = texturedDescriptor({
+    variants = {
+      {
+        name = "v1",
+        texture = variantTexture,
+        width = 32,
+        height = 32,
+        textureFormat = 7,
+      },
+    },
+    animations = { patternClip() },
+  })
+  local cache = sceneWith({
+    {
+      placementIndex = 0,
+      modelKey = "outdoor:26:texdoor",
+      transform = identityMatrix(),
+    },
+  }, { [desc.key] = desc })
+  local images = {}
+  local task = MapSceneLoader.begin(
+    cache,
+    assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua")),
+    { meshBuilder = fakeMeshBuilder, imageBuilder = recordingImageBuilder(images) }
+  )
+  local runtime = task:finish()
+  Assert.equal(#images, 1, "only the frame-0 base image is acquired during construction")
+
+  runtime.animatedInstances[1]:play("pattern")
+  runToCompletion(function()
+    runtime:updateAnimated()
+  end)
+
+  local variantImage = runtime.animatedBuildingDraws[1].material.image
+  Assert.equal(#images, 2, "the live tick acquires the lazy variant")
+  Assert.equal(variantImage.path, variantTexture)
+  Assert.deepEqual(variantImage.wraps, { { "repeat", "repeat" } })
   runtime:release()
 end
 

@@ -398,6 +398,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   local instanceByPlacement = {}
   local animatedModelCount = 0
   local animatedResourceCache = {}
+  local liveImageResolvers = {}
   for _, inst in ipairs(scene.buildingInstances) do
     local desc = descriptorFor(inst.modelKey)
     if desc.descriptor.kind == "nitro-dynamic" then
@@ -416,15 +417,20 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
         animatedResourceCache[inst.modelKey] = modelResource
         animatedModelCount = animatedModelCount + 1
       end
+      local function resolveImage(key, materialId)
+        local wrap = assert(desc.wrapByMaterial[materialId], "missing wrap for animated texture " .. key)
+        return pool:imageFor(key, wrap.x, wrap.y)
+      end
+      local function resolveImageDuringConstruction(key, materialId)
+        local image = resolveImage(key, materialId)
+        checkpoint()
+        return image
+      end
       local instance = ModelInstance.new(modelResource.definition, {
         transform = inst.transform,
-        resolveImage = function(key, materialId)
-          local wrap = assert(desc.wrapByMaterial[materialId], "missing wrap for animated texture " .. key)
-          local image = pool:imageFor(key, wrap.x, wrap.y)
-          checkpoint()
-          return image
-        end,
+        resolveImage = resolveImageDuringConstruction,
       })
+      liveImageResolvers[#liveImageResolvers + 1] = { instance = instance, resolveImage = resolveImage }
       checkpoint()
       instance.renderMeshesById = modelResource.renderMeshesById
       growBoundsAabb(desc.bounds, inst.transform)
@@ -455,7 +461,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   -- static building list is built once and never touched again -- only the
   -- animated list is rebuilt here, so a fixed tick's cost scales with the
   -- animated instance count, not the whole building set.
-  local function refreshAnimatedItems()
+  local function refreshAnimatedItems(constructionCheckpoint)
     local items = {}
     for _, instance in ipairs(animatedInstances) do
       instance:evaluatePose()
@@ -463,7 +469,9 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
       for _, item in ipairs(drawn) do
         items[#items + 1] = item
       end
-      checkpoint()
+      if constructionCheckpoint ~= nil then
+        constructionCheckpoint()
+      end
     end
     runtime.animatedBuildingDraws = items
   end
@@ -543,7 +551,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   -- Build the frame-0 animated items inside the load build: the scene
   -- is renderable immediately after load, and the animation clocks never
   -- advanced (the first tick's updateAnimated starts them).
-  refreshAnimatedItems()
+  refreshAnimatedItems(checkpoint)
   runtime.lighting = scene.lighting
   -- The compiled area's real HGSS edge-color table, forwarded as
   -- opaque scene state -- MapRenderer decodes and sends it, with no ROM
@@ -590,6 +598,10 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
 
   function runtime:release()
     pool:release()
+  end
+
+  for _, resolver in ipairs(liveImageResolvers) do
+    resolver.instance.resolveImage = resolver.resolveImage
   end
 
   return runtime
