@@ -129,31 +129,22 @@ local function screenRgba(char, palette, screen)
   return table.concat(out), width, height
 end
 
-function T.gender_selector_pixels_follow_oam_embedded_palette_not_the_raw_template_selector(romFs)
-  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
-  local IntroAssets = require("romdump.src.config.IntroAssets")
-  local PngReader = require("tests.support.PngReader")
+-- Both gender-selector resources' own shipped NCLR data only ever populates
+-- bank 0; every other bank (including the configured template slot for the
+-- female selector, bank 1) is all-zero in the real dump. The template slot
+-- is a VRAM-palette-bank number assigned when the sprite system loads all
+-- resource sets together and is not recoverable from either resource's own
+-- static palette data, so the effective 4bpp bank at emitted-pixel level is
+-- each OAM object's own decoded palette field, mirroring the same fallback
+-- already applied to the ball/Marill reveal resource for the same reason.
+local function decodeSelectorResource(romFs, IntroAssets, spec)
   local G2dDecoder = require("romdump.src.digest.G2dDecoder")
   local BinaryReader = require("libs.codec.src.BinaryReader")
-
-  Assert.equal(IntroAssets.genderSelectors.male.paletteOverride, 0, "male template selects slot 0")
-  Assert.equal(IntroAssets.genderSelectors.female.paletteOverride, 1, "female template selects slot 1")
-
-  local bundle = assert(IntroAssetCompiler.compile(romFs))
-  local female = assert(bundle.manifest.widgets.gender_female, "female selector widget present")
-  local _, _, bundleRgba = PngReader.rgba(assert(bundle.assets[female.frames[1].image]))
-
-  -- Resolve female's own resource set exactly like the production compiler,
-  -- then decode its first animation cell directly. The pinned source
-  -- template's raw `.pal` selector (1) names a sprite-system VRAM slot, not a
-  -- bank inside this resource's own decoded palette; the real per-object
-  -- color choice is the OAM cell's own decoded palette-bank field.
-  local femaleSpec = IntroAssets.genderSelectors.female
-  local res = assert(femaleSpec.resourceResolution)
+  local res = assert(spec.resourceResolution)
   local resArchive = assert(romFs:openNarc(res.archive))
   local hdr = getBytes(resArchive, res.header)
   local hr = BinaryReader.new(hdr, "hdr")
-  local off = femaleSpec.resourceSet * 32
+  local off = spec.resourceSet * 32
   local charId, paletteId, cellId, animId = hr:u32le(off), hr:u32le(off + 4), hr:u32le(off + 8), hr:u32le(off + 12)
   local function readTable(memberId)
     local b = getBytes(resArchive, memberId)
@@ -174,39 +165,56 @@ function T.gender_selector_pixels_follow_oam_embedded_palette_not_the_raw_templa
   local cellFile = assert(readTable(res.cellTable)[cellId]).fileId
   local animFile = assert(readTable(res.animationTable)[animId]).fileId
 
-  local archive = assert(romFs:openNarc(femaleSpec.archive or IntroAssets.archive))
+  local archive = assert(romFs:openNarc(spec.archive or IntroAssets.archive))
   local char = assert(G2dDecoder.decodeChar(getBytes(archive, charFile)))
   local palette = assert(G2dDecoder.decodePalette(getBytes(archive, paletteFile)))
   local cells = assert(G2dDecoder.decodeCell(getBytes(archive, cellFile)))
   local animation = assert(G2dDecoder.decodeAnimation(getBytes(archive, animFile)))
-  local anim = assert(animation.anims[femaleSpec.animationIndex + 1])
+  local anim = assert(animation.anims[spec.animationIndex + 1])
   local cell = assert(cells.cells[anim.frames[1].cell + 1])
-  Assert.isTrue(#cell.objs > 0, "female selector cell has OAM objects")
+  return char, palette, cell
+end
 
-  -- Collect the opaque colors each hypothesis would produce for this cell:
-  -- one bank per object chosen either from the object's own decoded OAM
-  -- field, or (the wrong hypothesis) from the raw template selector treated
-  -- as a local bank index.
-  local function colorsFor(bankFor)
-    local colors = {}
-    local tileBytes = char.depth == 3 and 32 or 64
-    for _, object in ipairs(cell.objs) do
-      local bank = bankFor(object)
-      local cols, rows = object.width / 8, object.height / 8
-      for row = 0, rows - 1 do
-        for col = 0, cols - 1 do
-          local tileCol = object.flipH and cols - 1 - col or col
-          local tileRow = object.flipV and rows - 1 - row or row
-          local tile = object.tile + tileRow * cols + tileCol
-          local base = tile * tileBytes
-          for rr = 0, 7 do
-            for cc = 0, 3 do
-              local b = string.byte(char.tiles, base + rr * 4 + cc + 1)
-              for _, value in ipairs({ b % 16, math.floor(b / 16) }) do
-                if value ~= 0 then
-                  local color = palette.colors[value + 1 + bank * 16]
-                  if color then
-                    colors[string.char(color.r, color.g, color.b)] = true
+-- Render the exact image one bank hypothesis would produce for this cell,
+-- positioned the same way IntroAssetCompiler.renderCell places objects onto
+-- the widget's generated canvas (destination = object.x/y offset by anchor;
+-- source tile selection and per-pixel placement mirror its flip handling).
+local function renderCellOracle(char, palette, cell, width, height, anchorX, anchorY, bankFor)
+  local tileBytes = char.depth == 3 and 32 or 64
+  local tileCount = #char.tiles / tileBytes
+  local rgba = {}
+  for i = 1, width * height * 4 do
+    rgba[i] = 0
+  end
+  for _, object in ipairs(cell.objs) do
+    local bank = bankFor(object)
+    local cols, rows = object.width / 8, object.height / 8
+    for row = 0, rows - 1 do
+      for col = 0, cols - 1 do
+        local tileCol = object.flipH and cols - 1 - col or col
+        local tileRow = object.flipV and rows - 1 - row or row
+        local tile = object.tile + tileRow * cols + tileCol
+        if tile < 0 or tile >= tileCount then
+          error("intro selector oracle tile reference exceeds source char data: " .. tostring(tile), 0)
+        end
+        local base = tile * tileBytes
+        local destX = object.x + anchorX + col * 8
+        local destY = object.y + anchorY + row * 8
+        for rr = 0, 7 do
+          for cc = 0, 3 do
+            local b = string.byte(char.tiles, base + rr * 4 + cc + 1)
+            local values = { b % 16, math.floor(b / 16) }
+            for pairOffset, value in ipairs(values) do
+              if value ~= 0 then
+                local color = palette.colors[value + 1 + bank * 16]
+                if color then
+                  local localX = cc * 2 + (pairOffset - 1)
+                  local targetX = object.flipH and 7 - localX or localX
+                  local targetY = object.flipV and 7 - rr or rr
+                  local dx, dy = destX + targetX, destY + targetY
+                  if dx >= 0 and dx < width and dy >= 0 and dy < height then
+                    local off = (dy * width + dx) * 4
+                    rgba[off + 1], rgba[off + 2], rgba[off + 3], rgba[off + 4] = color.r, color.g, color.b, 255
                   end
                 end
               end
@@ -215,42 +223,86 @@ function T.gender_selector_pixels_follow_oam_embedded_palette_not_the_raw_templa
         end
       end
     end
-    return colors
   end
-
-  local embeddedColors = colorsFor(function(object)
-    return object.palette
-  end)
-  local rawSelectorColors = colorsFor(function()
-    return femaleSpec.paletteOverride
-  end)
-
-  local embeddedOnly = {}
-  for color in pairs(embeddedColors) do
-    if not rawSelectorColors[color] then
-      embeddedOnly[color] = true
-    end
+  local out = {}
+  for i = 1, #rgba, 4096 do
+    out[#out + 1] = string.char(unpack(rgba, i, math.min(i + 4095, #rgba)))
   end
-  if next(embeddedOnly) == nil then
-    error(
-      "the OAM-embedded bank and the raw template-selector-as-bank hypothesis produce identical colors; "
-        .. "this fixture cannot discriminate between them",
-      0
+  return table.concat(out)
+end
+
+function T.gender_selector_pixels_follow_each_objects_own_oam_bank_not_the_template_override(romFs)
+  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+  local IntroAssets = require("romdump.src.config.IntroAssets")
+  local PngReader = require("tests.support.PngReader")
+
+  Assert.equal(IntroAssets.genderSelectors.male.paletteOverride, 0, "male template selects slot 0")
+  Assert.equal(IntroAssets.genderSelectors.female.paletteOverride, 1, "female template selects slot 1")
+
+  local bundle = assert(IntroAssetCompiler.compile(romFs))
+  local discriminatedAnyGender = false
+
+  for _, gender in ipairs({ "male", "female" }) do
+    local spec = IntroAssets.genderSelectors[gender]
+    local widget = assert(bundle.manifest.widgets["gender_" .. gender], gender .. " selector widget present")
+    local _, _, bundleRgba = PngReader.rgba(assert(bundle.assets[widget.frames[1].image]))
+
+    local char, palette, cell = decodeSelectorResource(romFs, IntroAssets, spec)
+    Assert.isTrue(#cell.objs > 0, gender .. " selector cell has OAM objects")
+
+    local embeddedRgba = renderCellOracle(
+      char,
+      palette,
+      cell,
+      widget.width,
+      widget.height,
+      widget.anchor.x,
+      widget.anchor.y,
+      function(object)
+        return object.palette
+      end
     )
-  end
+    local templateRgba = renderCellOracle(
+      char,
+      palette,
+      cell,
+      widget.width,
+      widget.height,
+      widget.anchor.x,
+      widget.anchor.y,
+      function()
+        return spec.paletteOverride
+      end
+    )
 
-  local sawEmbeddedOnlyColor = false
-  for offset = 1, #bundleRgba, 4 do
-    local r, g, b, a = string.byte(bundleRgba, offset, offset + 3)
-    if a and a > 0 and embeddedOnly[string.char(r, g, b)] then
-      sawEmbeddedOnlyColor = true
-      break
+    if embeddedRgba == templateRgba then
+      -- This resource's own decoded per-object OAM palette field happens to
+      -- already agree with its template override for every object, so no
+      -- pixel can distinguish the two hypotheses; the compiled bundle must
+      -- still match both (they are identical), and the other gender carries
+      -- the discriminating assertion.
+      Assert.equal(
+        bundleRgba,
+        embeddedRgba,
+        gender .. " selector pixels must match the (here, coincident) source OAM palette bank"
+      )
+    else
+      discriminatedAnyGender = true
+      Assert.equal(
+        bundleRgba,
+        embeddedRgba,
+        "compiled "
+          .. gender
+          .. " selector pixels must follow each object's own decoded OAM palette field, not the "
+          .. "(here, unpopulated) source template palette override"
+      )
     end
   end
+
   Assert.isTrue(
-    sawEmbeddedOnlyColor,
-    "compiled female pixels must follow each object's own decoded OAM palette bank, not the raw template "
-      .. "selector treated as a local bank index"
+    discriminatedAnyGender,
+    "neither selector's OAM bank disagreed with its template override; this ROM fixture cannot prove which "
+      .. "hypothesis the compiler follows"
   )
 end
 

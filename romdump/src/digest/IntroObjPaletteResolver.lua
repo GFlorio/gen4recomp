@@ -1,17 +1,14 @@
--- Resolves an Oak-speech OBJ sprite's palette slot into the exact indexed
--- colors used for rasterization. HGSS's OakSpeech/SpriteSystem code
--- (src/oaks_speech_obj.c, sSpriteTemplates) assigns each sprite template a
--- `.pal` value consumed by Sprite_SetPaletteOverride, but that numeral names
--- a slot in the sprite system's shared VRAM palette manager, not a bank
--- inside this resource's own decoded NCLR: real ROM data shows resource sets
--- shared by multiple sprites (e.g. the ball/Marill resource set) hold more
--- than one genuinely populated 16-color bank, correctly split across objects
--- by their own decoded OAM palette field, while the `.pal` numeral is a
--- provenance fact about the pinned source template rather than a usable
--- local index. Callers therefore call `resolve` twice: once to validate the
--- declared template selector against this resource for provenance, and once
--- per OAM object with that object's own decoded palette field to get the
--- exact colors used to rasterize it.
+-- Resolves one already-selected 4bpp palette bank number (16-color slot) into
+-- the exact indexed colors used for rasterization, or the whole table for
+-- 8bpp. HGSS's OakSpeech/SpriteSystem code (src/oaks_speech_obj.c,
+-- sSpriteTemplates) assigns each sprite template a `.pal` value consumed by
+-- Sprite_SetPaletteOverride, whose renderer path replaces every OAM object's
+-- decoded palette-bank field with that template value for the duration of
+-- the override. The caller (IntroAssetCompiler.renderCell) therefore computes
+-- the effective bank per object — the template override when one is
+-- configured, otherwise the object's own decoded OAM palette field — and
+-- passes that single resolved number here purely to slice/validate it against
+-- the resource's decoded palette table.
 
 local Errors = require("libs.errors.src.Errors")
 

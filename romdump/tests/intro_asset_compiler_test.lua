@@ -125,7 +125,7 @@ local function selectorResourceTables()
   }
 end
 
-local function syntheticCompilerSource(animationFrames)
+local function syntheticCompilerSource(animationFrames, objectPalette)
   local decoder = require("romdump.src.digest.G2dDecoder")
   local original = {}
   for _, name in ipairs({ "decodeChar", "decodePalette", "decodeScreen", "decodeCell", "decodeAnimation" }) do
@@ -166,10 +166,11 @@ local function syntheticCompilerSource(animationFrames)
     return { width = 8, height = 192, entries = entries }
   end)
   rawset(decoder, "decodeCell", function()
+    local bank = objectPalette or 1
     return {
       cells = {
-        { objs = { { x = -8, y = -8, width = 8, height = 8, tile = 0, palette = 1 } } },
-        { objs = { { x = 8, y = 8, width = 8, height = 8, tile = 0, palette = 1 } } },
+        { objs = { { x = -8, y = -8, width = 8, height = 8, tile = 0, palette = bank } } },
+        { objs = { { x = 8, y = 8, width = 8, height = 8, tile = 0, palette = bank } } },
       },
     }
   end)
@@ -316,6 +317,65 @@ function T.transformed_animation_frames_share_one_generated_anchor()
   Assert.equal(widget.frames[1].translateY, 0)
   Assert.equal(widget.frames[2].translateY, 4)
   Assert.isTrue(result.assets[widget.frames[1].image] ~= result.assets[widget.frames[2].image])
+end
+
+-- The fixture's decodePalette fills colors[index] = {r=index%256, g=(index+1)%256,
+-- b=(index+2)%256} for 1-based index, and decodeChar/decodeCell put a nibble
+-- value of 1 at every pixel of the tile used by both selector cells. The
+-- effective 4bpp palette lookup is therefore colors[1-based (bank*16 + 2)];
+-- these three expected triples are computed from that fixed formula for the
+-- banks this test cares about.
+local function bankColorTriple(bank)
+  local index = bank * 16 + 2
+  return index % 256, (index + 1) % 256, (index + 2) % 256
+end
+
+local function selectorFrameOnePixel(result, id)
+  local widget = assert(result.manifest.widgets[id])
+  local width, _, rgba = PngReader.rgba(assert(result.assets[widget.frames[1].image]))
+  return PngReader.pixel(rgba, width, 0, 0)
+end
+
+function T.selector_oam_bank_wins_over_a_conflicting_template_palette_override()
+  local Compiler = compiler()
+  -- Both selectors' own shipped palette data only ever populates the bank
+  -- addressed by their own OAM objects; the configured template overrides
+  -- (male=0, female=1) are recorded as provenance but must not drive
+  -- rasterization. Put every OAM object on a distinct, conflicting bank (5)
+  -- so the two hypotheses disagree, and assert the OAM bank wins.
+  local source, restore = syntheticCompilerSource(nil, 5)
+  local ok, result = xpcall(function()
+    return Compiler.compile(source)
+  end, debug.traceback)
+  restore()
+  if not ok then
+    error(result, 0)
+  end
+
+  local oamR, oamG, oamB = bankColorTriple(5)
+  local maleR, maleG, maleB = bankColorTriple(0)
+  local femaleR, femaleG, femaleB = bankColorTriple(1)
+
+  local mr, mg, mb = selectorFrameOnePixel(result, "gender_male")
+  Assert.equal(mr, oamR, "male selector pixel uses its own OAM bank")
+  Assert.equal(mg, oamG, "male selector pixel uses its own OAM bank")
+  Assert.equal(mb, oamB, "male selector pixel uses its own OAM bank")
+  Assert.isTrue(
+    mr ~= maleR or mg ~= maleG or mb ~= maleB,
+    "male selector pixel must not equal the conflicting template override color"
+  )
+
+  local fr, fg, fb = selectorFrameOnePixel(result, "gender_female")
+  Assert.equal(fr, oamR, "female selector pixel uses its own OAM bank")
+  Assert.equal(fg, oamG, "female selector pixel uses its own OAM bank")
+  Assert.equal(fb, oamB, "female selector pixel uses its own OAM bank")
+  Assert.isTrue(
+    fr ~= femaleR or fg ~= femaleG or fb ~= femaleB,
+    "female selector pixel must not equal the conflicting template override color"
+  )
+
+  local provenance = result.manifest.widgets.gender_female.provenance
+  Assert.equal(provenance.paletteSlot, 1, "female selector provenance still records the source template slot")
 end
 
 function T.shrink_source_configuration_starts_after_the_displayed_full_portrait()
