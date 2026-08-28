@@ -368,6 +368,16 @@ function OakIntroController:_stepFrame()
       self._focusBlinkDelta = 0
     end
     return
+  elseif self._phase == "gender_composition_exit" then
+    self._genderCompositionTimer = self._genderCompositionTimer - 1
+    self._genderCompositionProgress = self._genderCompositionTimer / GENDER_COMPOSITION_FRAMES
+    if self._genderCompositionTimer == 0 then
+      self._genderCompositionProgress = 0
+      self._phase = "name_confirm"
+      self:_setVisual("oak")
+      self:_setMessage(self._genderFocus == 0 and "profile.name_confirm.male" or "profile.name_confirm.female")
+    end
+    return
   end
   local startedCry = false
   if self._phase == "shrink_animation" then
@@ -668,9 +678,9 @@ function OakIntroController:press(action)
         self._name = assert(DEFAULT_PROFILE_NAMES[self._genderFocus])
       end
       if #appendGlyphs(self._name) >= 1 then
-        self._phase = "name_confirm"
+        self._phase = "gender_composition_exit"
+        self._genderCompositionTimer = GENDER_COMPOSITION_FRAMES
         self:_setVisual("oak")
-        self:_setMessage(self._genderFocus == 0 and "profile.name_confirm.male" or "profile.name_confirm.female")
       end
     end
   elseif (action == "cancel" or action == "no") and self._phase == "name_confirm" then

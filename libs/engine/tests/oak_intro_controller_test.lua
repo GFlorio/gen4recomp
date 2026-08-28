@@ -260,6 +260,7 @@ local function nameConfirmation(selectFemale, options)
   state:tick(40)
   state:inputText("GOLD")
   state:press("submit")
+  state:tick(26)
   state:messageCompleted(selectFemale == false and "profile.name_confirm.male" or "profile.name_confirm.female")
   Assert.equal(state:view().phase, "name_confirm")
   Assert.deepEqual(state:view().confirmationChoice, { kind = "name", selected = 0 })
@@ -357,6 +358,49 @@ function T.gender_composition_uses_exactly_twenty_six_source_frames_and_does_not
   Assert.equal(state:view().genderCompositionProgress, 1)
 end
 
+function T.name_submission_starts_a_symmetric_exit_and_reaches_zero_before_name_confirm()
+  local state = advanceToNameEdit()
+  Assert.equal(state:view().genderCompositionProgress, 1)
+  state:inputText("GOLD")
+  state:press("submit")
+  Assert.isFalse(state:view().phase == "name_confirm", "name_confirm must not open before the exit completes")
+  Assert.equal(state:view().genderCompositionProgress, 1, "exit must begin at the entered composition progress")
+
+  local previous = 1
+  for _ = 1, 25 do
+    state:tick(1)
+    local view = state:view()
+    Assert.isFalse(view.phase == "name_confirm", "name_confirm must wait for the exit to finish")
+    Assert.isTrue(view.genderCompositionProgress < previous, "exit progress must strictly decrease each source frame")
+    previous = view.genderCompositionProgress
+  end
+  state:tick(1)
+  local finished = state:view()
+  Assert.equal(finished.genderCompositionProgress, 0)
+  Assert.equal(finished.phase, "name_confirm")
+  Assert.equal(finished.name, "GOLD")
+end
+
+function T.name_confirm_rejection_reenters_gender_composition_from_zero()
+  local state = advanceToNameEdit()
+  state:inputText("GOLD")
+  state:press("submit")
+  state:tick(26)
+  Assert.equal(state:view().phase, "name_confirm")
+  Assert.equal(state:view().genderCompositionProgress, 0)
+
+  state:press("cancel")
+  Assert.equal(state:view().phase, "gender_question")
+  Assert.equal(state:view().genderCompositionProgress, 0)
+
+  state:press("confirm")
+  Assert.equal(state:view().phase, "gender_composition_transition")
+  Assert.equal(state:view().genderCompositionProgress, 0)
+  state:tick(26)
+  Assert.equal(state:view().phase, "gender_select")
+  Assert.equal(state:view().genderCompositionProgress, 1)
+end
+
 function T.confirmation_completion_activates_an_explicit_yes_choice()
   local state = controller()
   state:start()
@@ -435,6 +479,7 @@ function T.confirmation_yes_and_no_resolve_only_from_the_active_choice()
   state:tick(40)
   state:inputText("GOLD")
   state:press("submit")
+  state:tick(26)
   state:messageCompleted("profile.name_confirm.male")
   Assert.equal(state:view().phase, "name_confirm")
   state:press("yes")
@@ -471,6 +516,7 @@ function T.name_buffer_has_shared_utf8_limits_and_deletes_glyphs()
   state:inputText("C")
   Assert.equal(state:view().name, "ABBBBBB")
   state:press("submit")
+  state:tick(26)
   Assert.equal(state:view().phase, "name_confirm")
 end
 
@@ -478,6 +524,7 @@ function T.blank_name_submission_uses_the_gender_default()
   local state = nameConfirmation(false)
   state:press("no")
   state:messageCompleted("profile.gender_question")
+  state:tick(26) -- re-entering composition before gender_select
   state:press("confirm")
   state:messageCompleted("profile.gender_confirm.male")
   state:press("confirm")
@@ -487,6 +534,7 @@ function T.blank_name_submission_uses_the_gender_default()
   Assert.equal(state:view().phase, "name_edit")
 
   state:press("submit")
+  state:tick(26)
   Assert.equal(state:view().phase, "name_confirm")
   Assert.equal(state:view().name, "Ethan")
 
@@ -515,11 +563,14 @@ function T.name_rejection_clears_the_buffer_on_reentry()
   state:tick(40)
   state:inputText("GOLD")
   state:press("submit")
+  state:tick(26)
   state:press("cancel")
   Assert.equal(state:view().phase, "gender_question")
-  for _ = 1, 4 do
-    state:press("confirm")
-  end
+  state:press("confirm") -- re-enters gender_composition_transition from zero
+  state:tick(26)
+  state:press("confirm") -- gender_select -> gender_confirm
+  state:press("confirm") -- gender_confirm -> name_prompt
+  state:press("confirm") -- name_prompt -> name_launch_wait
   state:tick(40)
   Assert.equal(state:view().phase, "name_edit")
   Assert.equal(state:view().name, "")
@@ -685,6 +736,7 @@ function T.shrink_frames_remain_drawable_until_their_generated_durations_end()
   state:tick(40)
   state:inputText("GOLD")
   state:press("submit")
+  state:tick(26)
   state:press("confirm")
   state:press("confirm")
   Assert.equal(state:view().phase, "final_fade_out")
@@ -944,6 +996,7 @@ function T.finalization_handoff_keeps_reserved_identity_without_storage_publicat
   state:tick(40)
   state:inputText("GOLD")
   state:press("submit")
+  state:tick(26)
   state:press("confirm")
   state:press("confirm")
   state:tick(1 + 1 + 30)
@@ -971,6 +1024,7 @@ function T.blank_and_whitespace_names_resolve_to_the_gender_default_through_the_
     end
     focusConfirmKey(state)
     state:press("confirm")
+    state:tick(26)
     Assert.equal(
       state:view().phase,
       "name_confirm",
@@ -987,6 +1041,7 @@ function T.blank_name_default_survives_into_the_finalized_profile()
     state:press("confirm")
     local expected = female and "Lyra" or "Ethan"
     Assert.equal(state:view().name, expected)
+    state:tick(26) -- gender_composition_exit -> name_confirm
     state:press("confirm") -- name_confirm -> final_dialogue
     state:press("confirm") -- final_dialogue -> final_fade_out
     state:tick(1) -- final_fade_out -> final_full_art_fade_in
@@ -1005,6 +1060,7 @@ function T.nonblank_names_are_preserved_exactly_through_the_confirm_key()
     Assert.isTrue(state:inputText(name), "generated charmap must accept: " .. name)
     focusConfirmKey(state)
     state:press("confirm")
+    state:tick(26)
     Assert.equal(state:view().phase, "name_confirm", "a valid nonblank name must reach confirmation: " .. name)
     Assert.equal(state:view().name, name, "the entered name must not be trimmed or replaced")
   end

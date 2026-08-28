@@ -1,4 +1,8 @@
 local Assert = require("tests.support.Assert")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local NewGame = require("libs.engine.src.NewGame")
+local OakIntroController = require("libs.engine.src.OakIntroController")
 local OakIntroLayout = require("game.src.game.OakIntroLayout")
 
 local T = { tests = {} }
@@ -255,6 +259,146 @@ function T.tests.slide_displacement_uses_manifest_reference_width_not_hardcoded_
     expected,
     1e-6
   )
+end
+
+local function layoutSequenceCandidate()
+  return NewGame.createCandidate({
+    saveService = {
+      reserve = function()
+        return "save-oak-layout"
+      end,
+    },
+    versionId = "heartgold",
+    eventState = FieldEventState.new(),
+    scriptSymbols = FieldScriptSymbols,
+    mapIdentity = {
+      mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+      fieldX = 6,
+      fieldZ = 6,
+      sourceFacing = 1,
+    },
+  })
+end
+
+local function layoutSequenceAudio()
+  return {
+    playMusic = function() end,
+    stopMusic = function() end,
+    fadeMusicOut = function() end,
+    play = function() end,
+    playCry = function() end,
+    updateSoundFrame = function() end,
+    isMusicFadeActive = function()
+      return false
+    end,
+  }
+end
+
+local function layoutSequenceController()
+  return OakIntroController.new({
+    candidate = layoutSequenceCandidate(),
+    clock = {
+      nowLocal = function()
+        return { hour = 12, minute = 0 }
+      end,
+    },
+    audio = layoutSequenceAudio(),
+    messages = {
+      ["greeting.midnight"] = "greeting.midnight",
+      ["greeting.morning"] = "greeting.morning",
+      ["greeting.day"] = "greeting.day",
+      ["greeting.evening"] = "greeting.evening",
+      ["greeting.night"] = "greeting.night",
+      ["oak.welcome"] = "oak.welcome",
+      ["oak.world_inhabited"] = "oak.world_inhabited",
+      ["oak.live_alongside"] = "oak.live_alongside",
+      ["oak.tell_about_yourself"] = "oak.tell_about_yourself",
+      ["profile.gender_question"] = "profile.gender_question",
+      ["profile.gender_confirm.male"] = "profile.gender_confirm.male",
+      ["profile.gender_confirm.female"] = "profile.gender_confirm.female",
+      ["profile.name_prompt"] = "profile.name_prompt",
+      ["profile.name_confirm.male"] = "profile.name_confirm.male",
+      ["profile.name_confirm.female"] = "profile.name_confirm.female",
+      ["profile.final"] = "profile.final",
+    },
+    assets = {
+      marill = { frames = { { duration = 1 } } },
+      marill_appear = { frames = { { duration = 1 } } },
+      ball_open = { frames = { { duration = 1 } } },
+    },
+    virtualGlyphs = { "A", "B", "G", "O", "L" },
+    playerDataContext = { charmap = { A = 1, B = 2, G = 3, O = 4, L = 5 }, frameIndexes = { [0] = true } },
+    randomU32 = function()
+      return 0x12345678
+    end,
+  })
+end
+
+local function advanceControllerUntilPhase(state, phase)
+  for _ = 1, 2000 do
+    if state:view().phase == phase then
+      return
+    end
+    state:tick(1)
+  end
+  error("Oak layout sequence did not reach phase: " .. phase)
+end
+
+local function driveControllerToNameEdit(state)
+  state:start()
+  advanceControllerUntilPhase(state, "greeting")
+  state:press("confirm")
+  advanceControllerUntilPhase(state, "oak_welcome")
+  state:press("confirm")
+  advanceControllerUntilPhase(state, "oak_world_inhabited")
+  state:press("confirm")
+  advanceControllerUntilPhase(state, "oak_live_alongside")
+  state:press("confirm")
+  advanceControllerUntilPhase(state, "oak_tell_about_yourself")
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  state:press("confirm")
+  state:press("confirm")
+  advanceControllerUntilPhase(state, "name_edit")
+end
+
+-- Drives the real Oak controller through name submission and asserts that
+-- the responsive layout follows the composition exit back to ordinary Oak
+-- geometry: mid-exit geometry reflects the current (non-terminal) progress,
+-- and resizing before the exit finishes still lands on the ordinary mapping
+-- for the final viewport once progress reaches exactly zero.
+function T.tests.ordinary_oak_geometry_resumes_after_the_profile_composition_exit_across_resize()
+  local data = manifest()
+  for _, size in ipairs({ { 1024, 768 }, { 390, 844 } }) do
+    local state = layoutSequenceController()
+    driveControllerToNameEdit(state)
+    state:inputText("GOLD")
+    state:press("submit")
+
+    for _ = 1, 13 do
+      state:tick(1)
+    end
+    local midView = state:view()
+    Assert.isTrue(
+      midView.genderCompositionProgress > 0 and midView.genderCompositionProgress < 1,
+      "test setup requires the exit to still be mid-transition"
+    )
+    local midLayout = OakIntroLayout.compute(size[1], size[2], midView, {}, data)
+    Assert.notNil(midLayout.subject)
+    Assert.isTrue(inside(midLayout.subject, midLayout.viewport))
+
+    state:tick(26 - 13)
+    local finalView = state:view()
+    Assert.equal(finalView.phase, "name_confirm")
+    Assert.equal(finalView.genderCompositionProgress, 0)
+    local finalLayout = OakIntroLayout.compute(size[1], size[2], finalView, {}, data)
+    local ordinaryLayout = OakIntroLayout.compute(size[1], size[2], ordinaryView(finalView.oakBgScrollX), {}, data)
+    Assert.deepEqual(finalLayout.subject, ordinaryLayout.subject)
+    Assert.isNil(finalLayout.oakRegion, "ordinary Oak presentation must not retain a split composition region")
+    Assert.isNil(finalLayout.selectorRegion, "ordinary Oak presentation must not retain a selector region")
+  end
 end
 
 function T.tests.profile_widgets_use_their_manifest_source_geometry()
