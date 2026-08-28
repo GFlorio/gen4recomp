@@ -935,10 +935,10 @@ function FieldCoverage:probe(fieldX, fieldZ, context)
       worldY = sample.worldY + frameOffsetY,
     }
   end)
-  if temporary and runtime.release then
+  if temporary and runtime and runtime.release then
     runtime:release()
   end
-  if sourceTemporary and sourceRuntime.release then
+  if sourceTemporary and sourceRuntime and sourceRuntime.release then
     sourceRuntime:release()
   end
   if not ok then

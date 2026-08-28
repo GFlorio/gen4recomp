@@ -591,7 +591,7 @@ function T.destination_resolution_uses_continuity_not_source_order()
   blocked:release()
 end
 
-local function temporaryProbeCoverage(destinationX, destinationDistance, releases)
+local function temporaryProbeCoverage(destinationX, destinationDistance, releases, loadErrorX)
   local cells = {}
   for x = 0, destinationX do
     cells[#cells + 1] = {
@@ -611,6 +611,9 @@ local function temporaryProbeCoverage(destinationX, destinationDistance, release
     anchorX = 0,
     anchorZ = 0,
     loadCell = function(descriptor)
+      if descriptor.x == loadErrorX then
+        error("destination cell failure", 0)
+      end
       local cellKey = string.format("%d:%d", descriptor.x, descriptor.z)
       return {
         key = cellKey,
@@ -698,6 +701,24 @@ function T.temporary_probe_releases_its_cell_on_success_and_rejection()
   })
   Assert.equal(assert(result).sourceSurfaceId, 0)
   Assert.equal(releases["2:0"], 1)
+  coverage:release()
+end
+
+function T.failed_probe_preserves_the_original_cell_load_error()
+  local coverage = temporaryProbeCoverage(2, 0, {}, 2)
+
+  local ok, err = pcall(function()
+    coverage:probe(64, 0, {
+      currentCellKey = "1:0",
+      currentSourceSurfaceId = 0,
+      currentY = 0,
+      fromFieldX = 63,
+      fromFieldZ = 0,
+    })
+  end)
+
+  Assert.isFalse(ok)
+  Assert.equal(tostring(err), "destination cell failure")
   coverage:release()
 end
 

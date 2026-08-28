@@ -1162,7 +1162,11 @@ end
 
 ---@param self FieldActorManager
 function FieldActorManager:dispose()
+  local mapIds = {}
   for mapId in pairs(self.maps) do
+    mapIds[#mapIds + 1] = mapId
+  end
+  for _, mapId in ipairs(mapIds) do
     self:leaveMap(mapId)
   end
   if self.unsubscribe then

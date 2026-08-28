@@ -162,9 +162,6 @@ function T.off_window_solid_actor_blocks_without_publishing_destination_state()
     Assert.equal(mapId, destination.mapId)
     return destination
   end
-  function runtime.zoneController:mapForPreflight()
-    error("occupancy fallback belongs to logical residency", 0)
-  end
   player = FieldPlayer.new({
     currentMap = source,
     fieldX = 0,

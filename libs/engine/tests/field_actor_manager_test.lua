@@ -1222,4 +1222,15 @@ function T.dispose_unsubscribes_from_the_event_state()
   Assert.equal(#mgr:drawRecords(), 0)
 end
 
+function T.dispose_releases_every_published_map()
+  local mgr, _, assets = manager({ object({ objectEventId = 0 }) })
+  mgr:enterMap(runtimeMap({ object({ objectEventId = 1, spriteId = 34 }) }, 62), FieldEventState.new())
+  mgr:enterMap(runtimeMap({ object({ objectEventId = 2, spriteId = 29 }) }, 63), FieldEventState.new())
+
+  mgr:dispose()
+
+  Assert.equal(assets:total(), 0, "disposing multiple maps releases every actor visual")
+  Assert.isNil(next(mgr.maps), "disposing multiple maps removes every published map")
+end
+
 return { tests = T }

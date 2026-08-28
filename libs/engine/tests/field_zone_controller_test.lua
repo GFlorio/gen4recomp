@@ -75,20 +75,6 @@ local function same_header_is_a_noop_without_lookup_or_side_effects()
   Assert.equal(calls.lookup, 0)
 end
 
-local function preflight_uses_resident_lookup_without_publishing_or_loading()
-  local source = { mapId = 1, mapSection = "OLD", fieldData = {} }
-  local destination = { mapId = 2, mapSection = "NEW", fieldData = {} }
-  local calls = { lookup = 0 }
-  local controller = controllerFor(source, destination, calls)
-  local player = { fieldX = 7, fieldZ = 8 }
-
-  local result = controller:mapForPreflight(destination.mapId, player)
-
-  Assert.equal(result, destination)
-  Assert.equal(calls.lookup, 1)
-  Assert.equal(controller.currentMap, source)
-end
-
 local function missing_resident_destination_is_a_programming_fault()
   local calls = { lookup = 0 }
   local source = { mapId = 1, mapSection = "OLD", fieldData = {} }
@@ -118,7 +104,6 @@ return {
   tests = {
     switches_to_a_resident_map_and_preserves_active_side_effect_order = switches_to_a_resident_map_and_preserves_active_side_effect_order,
     same_header_is_a_noop_without_lookup_or_side_effects = same_header_is_a_noop_without_lookup_or_side_effects,
-    preflight_uses_resident_lookup_without_publishing_or_loading = preflight_uses_resident_lookup_without_publishing_or_loading,
     missing_resident_destination_is_a_programming_fault = missing_resident_destination_is_a_programming_fault,
   },
 }

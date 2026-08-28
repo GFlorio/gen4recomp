@@ -7,9 +7,7 @@ FieldZoneController.__index = FieldZoneController
 ---@class FieldZoneController
 ---@field currentMap RuntimeFieldMap
 ---@field afterCoverageCommit fun(self: FieldZoneController, coverage: FieldZoneCoverage, player: FieldZonePlayer): FieldZoneChange?
----@field mapForPreflight fun(self: FieldZoneController, mapId: integer, player: FieldZonePlayer|FieldPlayer): RuntimeFieldMap
----@field mapForId fun(mapId: integer, player: FieldZonePlayer|FieldPlayer): RuntimeFieldMap?
----@field mapForPreflightId fun(mapId: integer, player: FieldZonePlayer|FieldPlayer): RuntimeFieldMap?
+---@field mapForId fun(mapId: integer, player: FieldZonePlayer): RuntimeFieldMap?
 ---@field rebindScripts fun(runtimeMap: RuntimeFieldMap, player: FieldZonePlayer)
 ---@field applyWeather fun(runtimeMap: RuntimeFieldMap)
 ---@field enterAudio fun(runtimeMap: RuntimeFieldMap)
@@ -41,30 +39,12 @@ function FieldZoneController.new(options)
   return setmetatable({
     currentMap = options.currentMap,
     mapForId = options.mapForId,
-    mapForPreflightId = options.mapForPreflightId or options.mapForId,
     rebindScripts = options.rebindScripts,
     applyWeather = options.applyWeather,
     enterAudio = options.enterAudio,
     onChange = options.onChange,
     lastChange = nil,
   }, FieldZoneController) --[[@as FieldZoneController]]
-end
-
--- Load or compose a logical destination view for collision preflight. The
--- returned map is borrowed by the caller; this method never publishes zone
--- state or invokes any actor/transition side effects.
----@param mapId integer
----@param player FieldZonePlayer|FieldPlayer
----@return RuntimeFieldMap
-function FieldZoneController:mapForPreflight(mapId, player)
-  assert(type(mapId) == "number", "preflight map id required")
-  assert(player, "preflight player required")
-  if mapId == self.currentMap.mapId then
-    return self.currentMap
-  end
-  local destination = self.mapForPreflightId(mapId, player)
-  assert(destination and destination.mapId == mapId, "preflight logical map is not resident or prepared")
-  return destination
 end
 
 ---@param self FieldZoneController

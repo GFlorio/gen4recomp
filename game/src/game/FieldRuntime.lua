@@ -936,9 +936,6 @@ function FieldRuntime:_load()
       mapForId = function(mapId)
         return assert(self.residency):mapForId(mapId)
       end,
-      mapForPreflightId = function(mapId)
-        return assert(self.residency):mapForPreflight(mapId)
-      end,
       rebindScripts = function(runtimeMap, player)
         self.runtimeMap = runtimeMap
         player.currentMap = runtimeMap
