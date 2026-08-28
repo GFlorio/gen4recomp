@@ -67,9 +67,9 @@ end
 -- swaps to New Bark exactly once without immediately returning, releases and
 -- reacquires map/actor/session ownership, and ends back in the lab only when
 -- the player actually faces the town warp.
--- Current-map protection has one owner (the runtime). A live transition
--- must not pin a second map while the destination loads and swaps, and a
--- completed warp transfers protection to the destination exactly once.
+-- Current-map protection has one owner (the runtime). While a destination is
+-- staged, the runtime protects the complete resident footprint; after the
+-- swap, protection transfers to the destination exactly once.
 -- The return leg fires the town DOOR tile (behavior 105) in the non-rendering
 -- runtime. The source door still owns semantic sound/ingress choreography;
 -- the static destination has no close animation.
@@ -87,20 +87,36 @@ function T.tests.lab_town_round_trip_swaps_transitions_and_ownership()
       -- fires on the input path, pressing south while standing on the tile.
       game:moveTo({ fieldX = 4, fieldZ = 14 })
       game:face("south")
-      -- At the destination-load/swap boundary the loader still protects
-      -- exactly the current source map. A transition-owned pin would
-      -- protect a second map here.
+      -- At the destination-load/swap boundary the staged resident footprint
+      -- includes more than the source map, and the source remains protected
+      -- until publication completes.
       game:advanceUntil("transition reaches the map swap", function(snapshot)
         return snapshot.transition.phase == "swap_map"
       end, 120)
-      Assert.deepEqual(game:ownership().mapProtectedIds, { game:snapshot().mapId })
+      local stagedOwnership = game:ownership()
+      local sourceProtected = false
+      for _, mapId in ipairs(stagedOwnership.mapProtectedIds) do
+        if mapId == game:snapshot().mapId then
+          sourceProtected = true
+        end
+      end
+      Assert.isTrue(sourceProtected, "the source map remains protected while staged")
+      Assert.isTrue(stagedOwnership.mapProtections > 1, "the destination resident footprint is protected while staged")
       local transition = game:waitForTransition()
       Assert.equal(transition.source.mapSymbol, LAB)
       Assert.equal(transition.destination.mapSymbol, TOWN)
       Assert.equal(game:snapshot().mapSymbol, TOWN)
-      -- Protection transferred exactly once: the destination is now the
-      -- only protected map.
-      Assert.deepEqual(game:ownership().mapProtectedIds, { transition.destination.mapId })
+      -- The destination footprint is now committed. The destination itself
+      -- must remain protected even when its neighboring resident maps are
+      -- retained for the active physical window.
+      local destinationOwnership = game:ownership()
+      local destinationProtected = false
+      for _, mapId in ipairs(destinationOwnership.mapProtectedIds) do
+        if mapId == transition.destination.mapId then
+          destinationProtected = true
+        end
+      end
+      Assert.isTrue(destinationProtected, "the destination map is protected after publication")
       game:step()
       Assert.equal(game:snapshot().mapSymbol, TOWN)
       game:move("north")

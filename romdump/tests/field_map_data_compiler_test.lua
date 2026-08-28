@@ -95,6 +95,38 @@ function T.normalizes_retail_unbound_script_markers()
   Assert.equal(bundle.field.events.objects[1].scriptId, 0)
 end
 
+function T.marks_warp_marker_objects_non_solid_in_the_generated_event_asset()
+  local member = Builder.build({
+    objectEvents = {
+      {
+        objectEventId = 3,
+        spriteId = 101,
+        movement = 0,
+        type = 0,
+        eventFlag = 0,
+        scriptId = 0,
+        facingDirection = 0,
+        param0 = 0,
+        param1 = 0,
+        param2 = 0,
+        xRange = 0,
+        yRange = 0,
+        x = 684,
+        z = 393,
+        y = 0,
+      },
+    },
+    warps = { { x = 684, z = 393, destinationMapId = 61, destinationWarpId = 0, y = 0 } },
+  })
+  local romFs = FieldMapDataFixture.build({ zoneEventsMember = member })
+  local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, function()
+    return "hash"
+  end, function()
+    return "dependency"
+  end))
+  Assert.equal(bundle.field.events.objects[1].solid, false)
+end
+
 function T.compiles_map_header_types_to_transition_environments_and_rejects_unknown_types()
   local cases = {
     { sourceType = "CAVE", expected = "cave" },

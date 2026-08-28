@@ -54,7 +54,8 @@ local function newRenderer()
       return {
         transform = {},
         evaluatePose = function() end,
-        drawItems = function(self)
+        drawItems = function(self, renderMeshesById)
+          assert(type(renderMeshesById) == "table", "terrain renderer must provide render meshes")
           return { { transform = self.transform } }
         end,
       }
@@ -148,6 +149,17 @@ local function projectionCoverage()
   })
 end
 
+local function meshlessModelInstance()
+  return {
+    transform = {},
+    evaluatePose = function() end,
+    drawItems = function(self, renderMeshesById)
+      assert(type(renderMeshesById) == "table", "terrain renderer must provide render meshes")
+      return { { transform = self.transform } }
+    end,
+  }
+end
+
 T.tests["empty status does not require physical projection"] = function()
   local renderer, cleanup = newRenderer()
   local ok, err = pcall(function()
@@ -196,7 +208,7 @@ T.tests["coverage projection places grass on the centered tile"] = function()
           fieldZ = 5,
           cellKey = "0:0",
           sourceSurfaceId = 7,
-          modelInstance = renderer:newInstance("tall_grass"),
+          modelInstance = meshlessModelInstance(),
         },
       },
     }, runtimeMap)

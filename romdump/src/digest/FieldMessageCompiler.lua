@@ -10,6 +10,7 @@ local FieldMessageBank = require("romdump.src.digest.FieldMessageBank")
 local FieldMessageTokenizer = require("romdump.src.digest.FieldMessageTokenizer")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+local MenuProtocol = require("libs.assets.src.MenuProtocol")
 local charmap = require("romdump.src.reference.hgss.charmap")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local ScriptMembers = require("romdump.src.reference.hgss.script_members")
@@ -109,6 +110,9 @@ function FieldMessageCompiler.requiredBankIds()
     assert(type(bankId) == "number" and bankId >= 0 and bankId % 1 == 0)
     set[bankId] = true
   end
+  -- The source script corpus addresses this global list-menu bank through a
+  -- runtime protocol constant rather than a map-header association.
+  set[MenuProtocol.STANDARD_MESSAGE_BANK] = true
   local out = {}
   for bankId in pairs(set) do
     out[#out + 1] = bankId

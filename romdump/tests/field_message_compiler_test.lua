@@ -14,6 +14,7 @@ local LuaWriter = require("libs.codec.src.LuaWriter")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 local FieldMessages = require("romdump.src.config.FieldMessages")
+local MenuProtocol = require("libs.assets.src.MenuProtocol")
 
 local T = {}
 
@@ -25,6 +26,7 @@ local function sourceReferenceBankIds()
   for _, bankId in pairs(ScriptMembers.banks) do
     ids[assert(bankId)] = true
   end
+  ids[MenuProtocol.STANDARD_MESSAGE_BANK] = true
   local out = {}
   for bankId in pairs(ids) do
     out[#out + 1] = bankId
@@ -149,6 +151,7 @@ function T.source_references_form_one_sorted_bank_set()
   for _, bankId in pairs(ScriptMembers.banks) do
     expected[assert(bankId)] = true
   end
+  expected[MenuProtocol.STANDARD_MESSAGE_BANK] = true
 
   Assert.deepEqual(required, sourceReferenceBankIds())
 

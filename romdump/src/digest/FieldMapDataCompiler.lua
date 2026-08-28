@@ -253,6 +253,19 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
   }))
   normalizeUnboundScripts(decoded)
 
+  -- A warp marker is a source object laid over the transition tile. Solidity
+  -- is an explicit generated event property, so the runtime does not need to
+  -- rediscover this ROM relationship while building its actor occupancy.
+  local warpCoordinates = {}
+  for _, warp in ipairs(decoded.warps) do
+    warpCoordinates[warp.x .. ":" .. warp.z] = true
+  end
+  for _, object in ipairs(decoded.objectEvents) do
+    if warpCoordinates[object.x .. ":" .. object.z] then
+      object.solid = false
+    end
+  end
+
   local memberSha1 = sha1hex(memberBytes)
   local soundplates, audioSource = compileSoundplates(romFs, map, sha1hex)
   local dependencies = {

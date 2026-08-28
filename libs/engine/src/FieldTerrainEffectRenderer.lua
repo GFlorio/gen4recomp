@@ -66,7 +66,7 @@ function Renderer:drawItems(status, runtimeMap)
       point.worldZ + placementOffset.z
     )
     instance:evaluatePose()
-    for _, item in ipairs(instance:drawItems(instance.renderMeshesById)) do
+    for _, item in ipairs(instance:drawItems(resource.renderMeshesById)) do
       item.worldSpace = true
       item.fieldEffect = effect.kind
       items[#items + 1] = item

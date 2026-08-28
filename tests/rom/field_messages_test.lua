@@ -67,15 +67,36 @@ function T.source_bank_control_census_is_stable(romFs)
     ["prompt_break:0000"] = true,
     ["page_break:0000"] = true,
     ["style:ff00"] = true,
+    ["style:ff01"] = true,
     ["substitution:0100"] = true,
     ["substitution:0101"] = true,
     ["substitution:0102"] = true,
     ["substitution:0103"] = true,
+    ["substitution:0104"] = true,
+    ["substitution:0106"] = true,
+    ["substitution:0108"] = true,
+    ["substitution:010a"] = true,
+    ["substitution:010e"] = true,
+    ["substitution:010f"] = true,
+    ["substitution:0112"] = true,
+    ["substitution:0118"] = true,
+    ["substitution:011a"] = true,
+    ["substitution:011b"] = true,
+    ["substitution:011c"] = true,
+    ["substitution:011f"] = true,
+    ["substitution:0124"] = true,
+    ["substitution:0125"] = true,
+    ["substitution:0127"] = true,
+    ["substitution:0133"] = true,
     ["substitution:0132"] = true,
     ["substitution:0134"] = true,
     ["substitution:0135"] = true,
     ["substitution:0136"] = true,
     ["substitution:0137"] = true,
+    ["substitution:0401"] = true,
+    ["substitution:3403"] = true,
+    ["substitution:f100"] = true,
+    ["pause:0201"] = true,
     ["focus_indicator:0200"] = true,
     ["unsupported_control:0203"] = true,
     ["unsupported_control:0205"] = true,
@@ -323,8 +344,8 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   -- Deterministic markers: compilers run with real hashes, so the marker
   -- depends only on ROM contents and the checked-in compiler versions.
   local messageBundle = assert(FieldMessageCompiler.compile(romFs))
-  Assert.equal(messageBundle.index.bankIds[1], 542)
-  Assert.equal(messageBundle.index.bankIds[2], 543)
+  Assert.equal(messageBundle.index.bankIds[1], 3)
+  Assert.equal(messageBundle.index.bankIds[2], 14)
   local menuBankSelected = false
   for _, bankId in ipairs(messageBundle.index.bankIds) do
     if bankId == MenuProtocol.STANDARD_MESSAGE_BANK then

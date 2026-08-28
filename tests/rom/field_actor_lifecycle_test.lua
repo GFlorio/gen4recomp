@@ -112,13 +112,14 @@ function T.visible_lab_actors_resolve_one_surface_and_occupy_their_cell(romFs)
   for _, actor in ipairs(FieldActorManager.actorsOf(manager, LAB)) do
     Assert.equal(actor.surfaceId, 0)
     Assert.equal(actor.worldY, 0)
-    Assert.isTrue(manager:isOccupied(LAB, {
+    local occupied = manager:isOccupied(LAB, {
       fieldX = actor.fieldX,
       fieldZ = actor.fieldZ,
       surfaceId = actor.surfaceId,
       cellKey = actor.cellKey,
       sourceSurfaceId = actor.sourceSurfaceId,
-    }))
+    })
+    Assert.equal(occupied, actor.solid)
   end
   local elm = assert(manager:getById("map:61:object:0"))
   Assert.equal(elm.spriteId, 99)

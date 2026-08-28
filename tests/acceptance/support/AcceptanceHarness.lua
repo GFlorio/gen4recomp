@@ -597,6 +597,18 @@ function Game:moveTo(target, stopMapId)
     for key, value in pairs(source) do
       copy[key] = value
     end
+    -- Route search advances cloned players without publishing runtime state.
+    -- The live callback would preflight arbitrary logical maps using the real
+    -- player's coverage, so scope simulated occupancy to the cloned map's
+    -- resident actor index instead.
+    local actorManager = self.runtime.actors
+    if actorManager then
+      local map = assert(source.currentMap, "acceptance player map required")
+      copy.occupancy = function(candidate)
+        local actor = actorManager:getAt(map.mapId, candidate)
+        return actor and actor.actorId or nil
+      end
+    end
     return setmetatable(copy, getmetatable(source))
   end
   local directions = { "north", "south", "west", "east" }
