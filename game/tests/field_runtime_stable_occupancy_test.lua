@@ -143,18 +143,27 @@ function T.off_window_solid_actor_blocks_without_publishing_destination_state()
   })
   actors:enterMap(source, eventState)
 
+  local residency = {}
+  function residency:mapForId(mapId)
+    Assert.equal(mapId, destination.mapId)
+    return nil
+  end
+
   local player
   local runtime = setmetatable({
     runtimeMap = source,
     actors = actors,
     eventState = eventState,
     player = nil,
+    residency = residency,
     zoneController = {},
   }, FieldRuntime)
-  function runtime.zoneController:mapForPreflight(mapId, requestedPlayer)
+  function residency:mapForPreflight(mapId)
     Assert.equal(mapId, destination.mapId)
-    Assert.equal(requestedPlayer, player)
     return destination
+  end
+  function runtime.zoneController:mapForPreflight()
+    error("occupancy fallback belongs to logical residency", 0)
   end
   player = FieldPlayer.new({
     currentMap = source,
@@ -175,6 +184,75 @@ function T.off_window_solid_actor_blocks_without_publishing_destination_state()
   Assert.equal(assetProvider.acquired, 0, "read-only probing must not acquire actor visuals")
   Assert.isFalse(admitted, "a matching off-window source surface must block movement")
   Assert.equal(player.motion, "idle")
+  actors:dispose()
+end
+
+function T.resident_neighbor_occupancy_follows_a_scripted_actor_move()
+  local destination = {
+    mapId = 62,
+    mapSection = "test-section",
+    mapSymbol = "destination",
+    coordinateOrigin = { x = 0, z = 0 },
+    collision = {
+      containsLocal = function(_, fieldX, fieldZ)
+        return fieldX >= 0 and fieldX < 32 and fieldZ >= 0 and fieldZ < 32
+      end,
+    },
+    terrain = terrain({ plate(0, 0, "1:0", 30) }),
+    fieldData = { events = { objects = { object(0, 1, 0, 0) } } },
+    scene = {},
+    cameraType = 4,
+    coverage = {
+      containsGlobal = function()
+        return true
+      end,
+    },
+    release = function() end,
+    updateAnimated = function() end,
+  } ---@as RuntimeFieldMap
+  local source = {
+    mapId = 61,
+    coordinateOrigin = { x = 0, z = 0 },
+    coverage = {},
+  } ---@as RuntimeFieldMap
+  function source.coverage:mapHeaderAt(fieldX, fieldZ)
+    Assert.equal(fieldX == 1 or fieldX == 2, true)
+    Assert.equal(fieldZ, 0)
+    return destination.mapId
+  end
+
+  local eventState = FieldEventState.new()
+  local assetProvider = assets()
+  local actors = FieldActorManager.new({
+    assets = assetProvider,
+    policy = { variableSprites = { first = 101, last = 117, variableBase = 0x4020 } },
+  })
+  actors:enterMap(destination --[[@as RuntimeFieldMap]], eventState)
+  local actorId = "map:62:object:0"
+  actors:setPosition(actorId, { fieldX = 2, fieldZ = 0 })
+
+  local residency = {}
+  function residency:mapForId(mapId)
+    Assert.equal(mapId, destination.mapId)
+    return destination
+  end
+  local runtime = setmetatable({
+    runtimeMap = source,
+    actors = actors,
+    eventState = eventState,
+    residency = residency,
+    zoneController = {
+      mapForPreflight = function()
+        error("resident actor occupancy must not reconstruct source events", 0)
+      end,
+    },
+  }, FieldRuntime)
+
+  Assert.isNil(runtime:_playerOccupantAt({ fieldX = 1, fieldZ = 0, surfaceId = 0 }))
+  Assert.equal(
+    runtime:_playerOccupantAt({ fieldX = 2, fieldZ = 0, surfaceId = 0, cellKey = "1:0", sourceSurfaceId = 30 }),
+    actorId
+  )
   actors:dispose()
 end
 

@@ -114,6 +114,8 @@ local PARTNER_OBJECT_ID = 253
 ---@field onEventStateChanged fun(self: FieldActorManager, change: FieldActorStateChange)
 ---@field _applyFlag fun(self: FieldActorManager, change: FieldActorFlagChange)
 ---@field getById fun(self: FieldActorManager, actorId: string): FieldActorManager.Actor?
+---@field getPosition fun(self: FieldActorManager, actorId: string): FieldActorManager.ActorPosition?
+---@field setPosition fun(self: FieldActorManager, actorId: string, position: FieldActorManager.Position)
 ---@field getAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
 ---@field probeAt fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, candidate: FieldOccupancyCandidate): FieldActorManager.ProbeResult?
 ---@field actorsOf fun(self: FieldActorManager, mapId: integer): FieldActorManager.Actor[]

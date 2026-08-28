@@ -313,13 +313,15 @@ end
 ---@param zoneController table
 ---@param player table?
 ---@param eventState table?
+---@param residency table?
 ---@return table
-local function occupancyRuntime(runtimeMap, physicalCoverage, actors, zoneController, player, eventState)
+local function occupancyRuntime(runtimeMap, physicalCoverage, actors, zoneController, player, eventState, residency)
   return setmetatable({
     physicalCoverage = physicalCoverage,
     runtimeMap = runtimeMap,
     actors = actors,
     zoneController = zoneController,
+    residency = residency,
     player = player or {},
     eventState = eventState or {},
   }, FieldRuntime)
@@ -430,7 +432,7 @@ function T.indoor_occupancy_uses_the_current_map_actor_index()
 end
 
 function T.outdoor_seam_occupancy_preflights_destination_actors()
-  local calls = { mapHeaderAt = 0, getAt = 0, mapForPreflight = 0, probeAt = 0 }
+  local calls = { mapHeaderAt = 0, getAt = 0, mapForId = 0, mapForPreflight = 0, probeAt = 0 }
   local player = {}
   local eventState = {}
   local destination = { mapId = "destination" }
@@ -457,24 +459,103 @@ function T.outdoor_seam_occupancy_preflights_destination_actors()
     return { actorId = "destination-blocker" }
   end
 
-  local zoneController = {}
-  function zoneController:mapForPreflight(mapId, requestedPlayer)
+  local residency = {}
+  function residency:mapForId(mapId)
+    calls.mapForId = calls.mapForId + 1
+    Assert.equal(mapId, "destination")
+    return nil
+  end
+  function residency:mapForPreflight(mapId)
     calls.mapForPreflight = calls.mapForPreflight + 1
     Assert.equal(mapId, "destination")
-    Assert.equal(requestedPlayer, player)
     return destination
   end
 
-  local runtime =
-    occupancyRuntime({ mapId = "source", coverage = activeCoverage }, nil, actors, zoneController, player, eventState)
+  local zoneController = {}
+  function zoneController:mapForPreflight(_, _)
+    error("occupancy fallback belongs to logical residency", 0)
+  end
+
+  local runtime = occupancyRuntime(
+    { mapId = "source", coverage = activeCoverage },
+    nil,
+    actors,
+    zoneController,
+    player,
+    eventState,
+    residency
+  )
 
   local occupant = runtime:_playerOccupantAt({ fieldX = 19, fieldZ = 7, surfaceId = 2 })
 
   Assert.equal(occupant, "destination-blocker")
   Assert.equal(calls.mapHeaderAt, 1)
+  Assert.equal(calls.mapForId, 1)
   Assert.equal(calls.mapForPreflight, 1)
   Assert.equal(calls.probeAt, 1)
   Assert.equal(calls.getAt, 0)
+end
+
+function T.outdoor_seam_occupancy_prefers_a_resident_live_actor()
+  local calls = { mapHeaderAt = 0, getAt = 0, mapForId = 0, mapForPreflight = 0, probeAt = 0 }
+  local player = {}
+  local eventState = {}
+  local destination = { mapId = "destination" }
+  local activeCoverage = {}
+  function activeCoverage:mapHeaderAt(fieldX, fieldZ)
+    calls.mapHeaderAt = calls.mapHeaderAt + 1
+    Assert.equal(fieldX, 19)
+    Assert.equal(fieldZ, 7)
+    return "destination"
+  end
+
+  local actors = {}
+  function actors:getAt(mapId, candidate)
+    calls.getAt = calls.getAt + 1
+    Assert.equal(mapId, "destination")
+    Assert.equal(candidate.fieldX, 19)
+    Assert.equal(candidate.fieldZ, 7)
+    Assert.equal(candidate.surfaceId, 2)
+    return { actorId = "live-destination-blocker" }
+  end
+  function actors:probeAt()
+    calls.probeAt = calls.probeAt + 1
+    error("a resident destination must not probe source events", 0)
+  end
+
+  local residency = {}
+  function residency:mapForId(mapId)
+    calls.mapForId = calls.mapForId + 1
+    Assert.equal(mapId, "destination")
+    return destination
+  end
+  function residency:mapForPreflight()
+    calls.mapForPreflight = calls.mapForPreflight + 1
+    error("a resident destination must not preflight a map", 0)
+  end
+
+  local zoneController = {}
+  function zoneController:mapForPreflight()
+    error("resident occupancy must not use the zone controller fallback", 0)
+  end
+
+  local runtime = occupancyRuntime(
+    { mapId = "source", coverage = activeCoverage },
+    nil,
+    actors,
+    zoneController,
+    player,
+    eventState,
+    residency
+  )
+  local occupant = runtime:_playerOccupantAt({ fieldX = 19, fieldZ = 7, surfaceId = 2 })
+
+  Assert.equal(occupant, "live-destination-blocker")
+  Assert.equal(calls.mapHeaderAt, 1)
+  Assert.equal(calls.mapForId, 1)
+  Assert.equal(calls.getAt, 1)
+  Assert.equal(calls.mapForPreflight, 0)
+  Assert.equal(calls.probeAt, 0)
 end
 
 return { tests = T }

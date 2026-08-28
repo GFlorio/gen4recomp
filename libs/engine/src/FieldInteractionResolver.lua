@@ -33,6 +33,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 ---@class FieldInteractionResolver
 ---@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table|nil
+---@field targetMapAt fun(fieldX: integer, fieldZ: integer, currentMap: RuntimeFieldMap): RuntimeFieldMap
 ---@field _surfaceResolver SurfaceResolver?
 local FieldInteractionResolver = {}
 FieldInteractionResolver.__index = FieldInteractionResolver
@@ -73,6 +74,7 @@ FieldInteractionResolver.__index = FieldInteractionResolver
 
 ---@class FieldInteractionResolverOptions
 ---@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table|nil
+---@field targetMapAt fun(fieldX: integer, fieldZ: integer, currentMap: RuntimeFieldMap): RuntimeFieldMap
 
 -- Named facing -> raw player-facing code. Raw codes match the zone-event
 -- decoder's DIRECTIONS table (0 north, 1 south, 2 west, 3 east).
@@ -138,11 +140,12 @@ end
 ---@return FieldInteractionResolver
 function FieldInteractionResolver.new(opts)
   assert(
-    type(opts) == "table" and type(opts.actorAt) == "function",
-    "FieldInteractionResolver requires an actor lookup"
+    type(opts) == "table" and type(opts.actorAt) == "function" and type(opts.targetMapAt) == "function",
+    "FieldInteractionResolver requires actor and target-map lookups"
   )
   return setmetatable({
     actorAt = opts.actorAt,
+    targetMapAt = opts.targetMapAt,
     _surfaceResolver = nil,
   }, FieldInteractionResolver)
 end
@@ -207,8 +210,7 @@ end
 -- noninteractive and never eligible, and script-id-0 records are
 -- noninteractive (the no-interaction marker); every other type must pass the
 -- raw direction compatibility check.
-function FieldInteractionResolver:_firstEligibleBackground(snapshot, targetX, targetZ)
-  local map = snapshot.runtimeMap
+function FieldInteractionResolver:_firstEligibleBackground(map, snapshot, targetX, targetZ)
   local events = assert(map.fieldData.events.background, "runtime map background events required")
   local playerRaw =
     assert(FieldInteractionResolver.RAW_FACING[snapshot.facing], "unknown player facing " .. tostring(snapshot.facing))
@@ -227,18 +229,17 @@ end
 
 -- The intent fields every interaction shares. The immutable identity
 -- (object or background) is attached by the caller.
-local function baseIntent(kind, snapshot, targetX, targetZ, scriptId)
-  local map = snapshot.runtimeMap
+local function baseIntent(kind, targetMap, snapshot, targetX, targetZ, scriptId)
   return {
     kind = kind,
-    mapId = map.mapId,
+    mapId = targetMap.mapId,
     sourceFieldX = snapshot.fieldX,
     sourceFieldZ = snapshot.fieldZ,
     sourceSurfaceId = snapshot.surfaceId,
     targetFieldX = targetX,
     targetFieldZ = targetZ,
     playerFacing = snapshot.facing,
-    scriptBankId = map.fieldData and map.fieldData.scriptBankId or nil,
+    scriptBankId = targetMap.fieldData and targetMap.fieldData.scriptBankId or nil,
     scriptId = scriptId,
     object = nil,
     background = nil,
@@ -268,18 +269,23 @@ function FieldInteractionResolver:resolve(snapshot)
     return nil
   end
 
+  local targetMap = assert(self.targetMapAt(targetX, targetZ, map), "reachable interaction target has no logical map")
+  local targetPlate = map.terrain:plate(targetSample.surfaceId)
+
   -- Object actors first: the occupancy index is keyed by the exact surface,
   -- and the key is the facing cell's RESOLVED surface, so a cross-surface
   -- boundary looks up the actor where it actually stands, and a same-x/z
   -- actor on another surface stays ineligible. Raw script zero remains an
   -- intent and is canonicalized by the script binding authority.
-  local actor = self.actorAt(map.mapId, {
+  local actor = self.actorAt(targetMap.mapId, {
     fieldX = targetX,
     fieldZ = targetZ,
     surfaceId = targetSample.surfaceId,
+    cellKey = targetSample.cellKey or (targetPlate and targetPlate.cellKey) or nil,
+    sourceSurfaceId = targetSample.sourceSurfaceId or (targetPlate and targetPlate.sourceSurfaceId) or nil,
   })
   if actor then
-    local intent = baseIntent("object", snapshot, targetX, targetZ, actor.sourceEvent.scriptId)
+    local intent = baseIntent("object", targetMap, snapshot, targetX, targetZ, actor.sourceEvent.scriptId)
     intent.object = {
       actorId = actor.actorId,
       objectEventId = actor.objectEventId,
@@ -289,9 +295,9 @@ function FieldInteractionResolver:resolve(snapshot)
   end
 
   -- Background events second, in source order.
-  local event = self:_firstEligibleBackground(snapshot, targetX, targetZ)
+  local event = self:_firstEligibleBackground(targetMap, snapshot, targetX, targetZ)
   if event then
-    local intent = baseIntent("background", snapshot, targetX, targetZ, event.scriptId)
+    local intent = baseIntent("background", targetMap, snapshot, targetX, targetZ, event.scriptId)
     intent.background = {
       eventIndex = event.index,
       type = event.type,

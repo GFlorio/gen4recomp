@@ -149,7 +149,12 @@ local function resolver(actorsByCell)
     local entry = actorsByCell and actorsByCell[candidate.fieldX .. ":" .. candidate.fieldZ]
     return entry and entry.surfaceId == candidate.surfaceId and entry.actor or nil
   end
-  return FieldInteractionResolver.new({ actorAt = actorAt })
+  return FieldInteractionResolver.new({
+    actorAt = actorAt,
+    targetMapAt = function(_, _, currentMap)
+      return currentMap
+    end,
+  })
 end
 
 local function baseSnapshot(overrides)
@@ -297,6 +302,9 @@ function T.vertical_and_horizontal_direction_rows()
         actorAt = function()
           return nil
         end,
+        targetMapAt = function(_, _, currentMap)
+          return currentMap
+        end,
       }):resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
       assert(intent, "facing " .. case.facing .. " accepts raw " .. raw)
       Assert.equal(intent.kind, "background")
@@ -306,6 +314,9 @@ function T.vertical_and_horizontal_direction_rows()
       local intent = FieldInteractionResolver.new({
         actorAt = function()
           return nil
+        end,
+        targetMapAt = function(_, _, currentMap)
+          return currentMap
         end,
       }):resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
       Assert.isNil(intent, "facing " .. case.facing .. " rejects raw " .. raw)
@@ -426,7 +437,12 @@ function T.actor_on_another_surface_is_ineligible()
     return elm
   end
   local m = map({ bgEvent(0, 6, 4, 13, 0) })
-  local r = FieldInteractionResolver.new({ actorAt = actorAt })
+  local r = FieldInteractionResolver.new({
+    actorAt = actorAt,
+    targetMapAt = function(_, _, currentMap)
+      return currentMap
+    end,
+  })
   local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
   assert(intent, "the background on the reachable surface wins")
   Assert.equal(intent.kind, "background")
@@ -500,6 +516,71 @@ function T.intent_values_survive_source_mutation()
   Assert.equal(intent.object.actorId, "map:61:object:0")
   Assert.equal(intent.scriptId, 1)
   Assert.equal(intent.playerFacing, "north")
+end
+
+function T.cross_map_background_uses_target_events_and_identity()
+  local source = map()
+  source.terrain = TerrainSurface.new({ plates = { flatPlate(0, 0, 32, 0) } })
+  local target = map({ bgEvent(7, 19, 4, 13, 0) })
+  target.mapId = 62
+  target.fieldData.scriptBankId = 912
+  local lookups = {}
+  local crossMapResolver = FieldInteractionResolver.new({
+    actorAt = function(mapId, candidate)
+      lookups.actorMapId = mapId
+      lookups.candidate = candidate
+      return nil
+    end,
+    targetMapAt = function(fieldX, fieldZ, currentMap)
+      Assert.equal(fieldX, 4)
+      Assert.equal(fieldZ, 13)
+      Assert.equal(currentMap, source)
+      return target
+    end,
+  })
+
+  local intent = assert(crossMapResolver:resolve(baseSnapshot({ runtimeMap = source })))
+  Assert.equal(lookups.actorMapId, 62)
+  Assert.equal(lookups.candidate.fieldX, 4)
+  Assert.equal(lookups.candidate.fieldZ, 13)
+  Assert.equal(intent.kind, "background")
+  Assert.equal(intent.mapId, 62)
+  Assert.equal(intent.scriptBankId, 912)
+  Assert.equal(intent.background.eventIndex, 7)
+  Assert.equal(intent.scriptId, 19)
+  Assert.equal(intent.sourceFieldX, 4)
+  Assert.equal(intent.sourceFieldZ, 14)
+end
+
+function T.cross_map_object_keeps_priority_and_forwards_stable_surface_identity()
+  local source = map()
+  source.terrain = TerrainSurface.new({
+    plates = { flatPlate(0, 0, 32, 0) },
+  })
+  source.terrain:plate(0).cellKey = "7:3"
+  source.terrain:plate(0).sourceSurfaceId = 44
+  local target = map({ bgEvent(3, 19, 4, 13, 0) })
+  target.mapId = 62
+  target.fieldData.scriptBankId = 912
+  local targetActor = actor("map:62:object:2", 2, 101, 4, 13, 23)
+  local crossMapResolver = FieldInteractionResolver.new({
+    actorAt = function(mapId, candidate)
+      Assert.equal(mapId, 62)
+      Assert.equal(candidate.cellKey, "7:3")
+      Assert.equal(candidate.sourceSurfaceId, 44)
+      return targetActor
+    end,
+    targetMapAt = function()
+      return target
+    end,
+  })
+
+  local intent = assert(crossMapResolver:resolve(baseSnapshot({ runtimeMap = source })))
+  Assert.equal(intent.kind, "object")
+  Assert.equal(intent.mapId, 62)
+  Assert.equal(intent.scriptBankId, 912)
+  Assert.equal(intent.object.actorId, "map:62:object:2")
+  Assert.equal(intent.scriptId, 23)
 end
 
 return { tests = T }

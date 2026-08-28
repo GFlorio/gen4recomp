@@ -310,8 +310,14 @@ function FieldRuntime:_playerOccupantAt(candidate)
   if destinationMapId == nil or destinationMapId == currentMap.mapId then
     occupant = self.actors:getAt(currentMap.mapId, candidate)
   else
-    local destination = self.zoneController:mapForPreflight(destinationMapId, self.player)
-    occupant = self.actors:probeAt(destination, self.eventState, candidate)
+    local residency = assert(self.residency, "outdoor occupancy requires logical residency")
+    local destination = residency:mapForId(destinationMapId)
+    if destination then
+      occupant = self.actors:getAt(destinationMapId, candidate)
+    else
+      destination = residency:mapForPreflight(destinationMapId)
+      occupant = self.actors:probeAt(destination, self.eventState, candidate)
+    end
   end
   return occupant and occupant.actorId or nil
 end
@@ -858,6 +864,18 @@ function FieldRuntime:_load()
     self.interactionResolver = FieldInteractionResolver.new({
       actorAt = function(mapId, candidate)
         return self.actors and self.actors:getAt(mapId, candidate) or nil
+      end,
+      targetMapAt = function(x, z, currentMap)
+        local coverage = currentMap.coverage
+        if not coverage then
+          return currentMap
+        end
+        local targetMapId = coverage:mapHeaderAt(x, z)
+        if targetMapId == nil or targetMapId == currentMap.mapId then
+          return currentMap
+        end
+        local targetMap = assert(self.residency):mapForId(targetMapId)
+        return assert(targetMap, "reachable interaction target is not resident")
       end,
     })
 
