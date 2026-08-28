@@ -126,6 +126,18 @@ function T.visible_lab_actors_resolve_one_surface_and_occupy_their_cell(romFs)
   Assert.equal(elm.facing, "south")
   Assert.equal(elm.sourceEvent.eventFlag, 401)
   Assert.equal(elm.sourceEvent.scriptId, 1)
+
+  local friend = assert(manager:getById("map:61:object:3"))
+  Assert.equal(friend.fieldX, 4)
+  Assert.equal(friend.fieldZ, 14)
+  Assert.isTrue(friend.solid)
+  Assert.isTrue(manager:isOccupied(LAB, {
+    fieldX = friend.fieldX,
+    fieldZ = friend.fieldZ,
+    surfaceId = friend.surfaceId,
+    cellKey = friend.cellKey,
+    sourceSurfaceId = friend.sourceSurfaceId,
+  }))
 end
 
 function T.flag_toggles_remove_and_restore_elm_on_one_step(romFs)
