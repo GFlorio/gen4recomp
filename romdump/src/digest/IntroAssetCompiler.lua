@@ -753,33 +753,27 @@ local GENDER_SELECTOR_MASK_TARGETS = {
 
 local GENDER_SELECTOR_BACKGROUND_BANK = 3
 
-local function classifyGenderSelectorMasks(char, screen)
-  if char.depth ~= 3 then
-    sourceError("gender selector background requires 4bpp source tiles", { depth = char.depth })
-  end
+-- Decode every bank-0 screen entry's per-pixel source color indices without
+-- yet deciding chrome membership, and note which entries directly carry a
+-- dynamic frame-semantic value (the pulse/accent palette entries HGSS's
+-- blink routine rewrites for the selected gender frame). Bank-3 entries are
+-- background by construction and are neither decoded nor considered.
+local function decodeGenderSelectorBankZeroEntries(char, screen, targetsByValue)
   local tileBytes = 32
   local tileCount = #char.tiles / tileBytes
   local width, height = screen.width, screen.height
-  local masks = {}
-  local chrome = newRgba(width, height)
-  local targets = {}
-  for _, target in ipairs(GENDER_SELECTOR_MASK_TARGETS) do
-    masks[target.gender] = masks[target.gender] or {}
-    masks[target.gender][target.kind] = newRgba(width, height)
-    targets[target.bank] = targets[target.bank] or {}
-    targets[target.bank][target.value] = target
-  end
   local columns = width / 8
-  for row = 0, height / 8 - 1 do
-    for column = 0, columns - 1 do
-      local entry = screen.entries[row * columns + column + 1]
-      if entry.palette ~= 0 and entry.palette ~= GENDER_SELECTOR_BACKGROUND_BANK then
-        sourceError("intro gender selector uses an unknown palette bank", { palette = entry.palette })
-      end
-      if entry.tile < 0 or entry.tile >= tileCount then
-        sourceError("intro gender selector screen references a missing tile", { tile = entry.tile })
-      end
+  local entryPixels, dynamicEntries = {}, {}
+  for index, entry in ipairs(screen.entries) do
+    if entry.palette ~= 0 and entry.palette ~= GENDER_SELECTOR_BACKGROUND_BANK then
+      sourceError("intro gender selector uses an unknown palette bank", { palette = entry.palette })
+    end
+    if entry.tile < 0 or entry.tile >= tileCount then
+      sourceError("intro gender selector screen references a missing tile", { tile = entry.tile })
+    end
+    if entry.palette == 0 then
       local base = entry.tile * tileBytes
+      local pixels = {}
       for tileRow = 0, 7 do
         for pairColumn = 0, 3 do
           local byte = string.byte(char.tiles, base + tileRow * 4 + pairColumn + 1)
@@ -788,17 +782,80 @@ local function classifyGenderSelectorMasks(char, screen)
             local localX = pairColumn * 2 + (pairOffset - 1)
             local targetX = entry.flipH and 7 - localX or localX
             local targetY = entry.flipV and 7 - tileRow or tileRow
-            local px, py = column * 8 + targetX, row * 8 + targetY
-            local target = targets[entry.palette] and targets[entry.palette][value]
-            local offset = (py * width + px) * 4
-            if target then
-              local mask = masks[target.gender][target.kind]
-              mask[offset + 1], mask[offset + 2], mask[offset + 3], mask[offset + 4] = 255, 255, 255, 255
-            elseif entry.palette == 0 and value ~= 0 then
-              chrome[offset + 4] = 255
+            pixels[#pixels + 1] = { x = targetX, y = targetY, value = value }
+            if targetsByValue[value] then
+              dynamicEntries[index] = true
             end
           end
         end
+      end
+      entryPixels[index] = pixels
+    end
+  end
+  return entryPixels, dynamicEntries, columns, height / 8
+end
+
+-- A bank-0 tile instance belongs to a selector frame only when it itself
+-- carries a dynamic frame-semantic pixel value, or when it is directly
+-- tile-grid-adjacent to one that does. Adjacency is checked only against the
+-- dynamic entries themselves (not transitively through other newly admitted
+-- static neighbors), so a long unbroken run of unrelated bank-0 backing that
+-- merely touches the frame's outermost ring at one edge cannot ride that
+-- single contact into full-row/full-column membership; only the frame's own
+-- immediate static border tiles are picked up this way. Background-bank (3)
+-- entries are never candidates.
+local function floodFillGenderSelectorFrameMembers(entryPixels, dynamicEntries, columns, rows)
+  local member = {}
+  for index in pairs(dynamicEntries) do
+    member[index] = true
+  end
+  for index in pairs(entryPixels) do
+    if not member[index] then
+      local zero = index - 1
+      local row, column = math.floor(zero / columns), zero % columns
+      for _, delta in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+        local nRow, nColumn = row + delta[1], column + delta[2]
+        if nRow >= 0 and nRow < rows and nColumn >= 0 and nColumn < columns then
+          local neighborIndex = nRow * columns + nColumn + 1
+          if dynamicEntries[neighborIndex] then
+            member[index] = true
+            break
+          end
+        end
+      end
+    end
+  end
+  return member
+end
+
+local function classifyGenderSelectorMasks(char, screen)
+  if char.depth ~= 3 then
+    sourceError("gender selector background requires 4bpp source tiles", { depth = char.depth })
+  end
+  local width, height = screen.width, screen.height
+  local masks = {}
+  local chrome = newRgba(width, height)
+  local targetsByValue = {}
+  for _, target in ipairs(GENDER_SELECTOR_MASK_TARGETS) do
+    masks[target.gender] = masks[target.gender] or {}
+    masks[target.gender][target.kind] = newRgba(width, height)
+    assert(target.bank == 0, "gender selector dynamic frame entries are defined on bank 0")
+    targetsByValue[target.value] = target
+  end
+  local entryPixels, dynamicEntries, columns, rows = decodeGenderSelectorBankZeroEntries(char, screen, targetsByValue)
+  local frameMembers = floodFillGenderSelectorFrameMembers(entryPixels, dynamicEntries, columns, rows)
+  for index in pairs(frameMembers) do
+    local zero = index - 1
+    local row, column = math.floor(zero / columns), zero % columns
+    for _, pixel in ipairs(entryPixels[index]) do
+      local px, py = column * 8 + pixel.x, row * 8 + pixel.y
+      local offset = (py * width + px) * 4
+      local target = targetsByValue[pixel.value]
+      if target then
+        local mask = masks[target.gender][target.kind]
+        mask[offset + 1], mask[offset + 2], mask[offset + 3], mask[offset + 4] = 255, 255, 255, 255
+      elseif pixel.value ~= 0 then
+        chrome[offset + 4] = 255
       end
     end
   end

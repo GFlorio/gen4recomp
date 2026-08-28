@@ -208,6 +208,73 @@ function T.transparent_selector_reveals_the_host_gradient(scope)
   end
 end
 
+local function selectorViewFor(manifest, width, height, genderFocus, focusBlinkDelta)
+  local view = selectorView(manifest, width, height)
+  view.genderFocus = genderFocus
+  view.focusBlinkDelta = focusBlinkDelta
+  view.layout = OakIntroLayout.compute(width, height, view, {}, manifest)
+  return view
+end
+
+-- Only each card's own pulse/accent role pixels may react to which gender is
+-- focused; static backing must stay exactly as transparent (or opaque, for
+-- real frame chrome) no matter which card is focused or how far the blink
+-- has traveled. A source point clear of both cards is sampled across the two
+-- selections and the mid-pulse phase: it must equal the host gradient (never
+-- opaque backing) and must not itself change with focus/phase, which would
+-- mean it was wrongly wired into a dynamic role instead of being ordinary
+-- static backing.
+function T.selection_and_pulse_phase_never_reveal_static_backing(scope)
+  for _, entry in ipairs(readyManifests()) do
+    local renderer = rendererFor(scope, entry.cache, entry.manifest)
+    local background = render(scope, renderer, backgroundView(entry.manifest, 256, 192))
+    local maleView = selectorViewFor(entry.manifest, 256, 192, 0, 8)
+    local femaleView = selectorViewFor(entry.manifest, 256, 192, 1, -8)
+    local maleFocused = render(scope, renderer, maleView)
+    local femaleFocused = render(scope, renderer, femaleView)
+
+    local canvas = maleView.layout.genderCanvas
+    local sourceX, sourceY = 0, 100
+    local x = math.floor(canvas.origin.x + sourceX * canvas.scale + 0.5)
+    local y = math.floor(canvas.origin.y + sourceY * canvas.scale + 0.5)
+
+    assertSamePixel(background, maleFocused, x, y, entry.versionId .. " static backing while male is focused")
+    assertSamePixel(background, femaleFocused, x, y, entry.versionId .. " static backing while female is focused")
+    assertSamePixel(maleFocused, femaleFocused, x, y, entry.versionId .. " static backing must not react to focus")
+  end
+end
+
+-- Broad DS backing behind/outside/between the two cards must never survive
+-- into the final composited frame: at a source point clear of both button
+-- frames, the selector draw must let the host background gradient show
+-- through exactly as it does at any other transparent selector point.
+function T.broad_selector_backing_does_not_survive_final_composition(scope)
+  for _, entry in ipairs(readyManifests()) do
+    local selector = selectorView(entry.manifest, 256, 192)
+    local renderer = rendererFor(scope, entry.cache, entry.manifest)
+    local background = render(scope, renderer, backgroundView(entry.manifest, 256, 192))
+    local actual = render(scope, renderer, selector)
+
+    local male = entry.manifest.genderSelector.buttons.male.bounds
+    local samples = {
+      { name = "left margin, level with the cards", x = 0, y = 100 },
+      { name = "bottom fill, left of both cards", x = 0, y = 190 },
+      { name = "bottom fill, between the cards", x = male.x + male.width + 10, y = 190 },
+    }
+    for _, sample in ipairs(samples) do
+      local x = math.floor(selector.layout.genderCanvas.origin.x + sample.x * selector.layout.genderCanvas.scale + 0.5)
+      local y = math.floor(selector.layout.genderCanvas.origin.y + sample.y * selector.layout.genderCanvas.scale + 0.5)
+      assertSamePixel(
+        background,
+        actual,
+        x,
+        y,
+        entry.versionId .. " " .. sample.name .. " must reveal the host gradient, not selector backing"
+      )
+    end
+  end
+end
+
 local suite = GraphicsSmoke.suite(T)
 suite.metadata.capabilities = { "graphics", "derived_cache" }
 return suite

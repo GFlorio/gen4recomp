@@ -139,6 +139,83 @@ function T.both_variants_compile_the_correct_gradient(romFs, versionId)
   Assert.equal(payloadBytes(first), payloadBytes(second), "same source produces deterministic image bytes")
 end
 
+local function selectorAlphaAt(assets, image, x, y)
+  local width, height, rgba = PngReader.rgba(assert(assets[image]))
+  if x < 0 or y < 0 or x >= width or y >= height then
+    return 0
+  end
+  local _, _, _, alpha = PngReader.pixel(rgba, width, x, y)
+  return alpha
+end
+
+-- A pixel is button-frame chrome if it is opaque in the shared neutral layer
+-- or in either gender's pulse/accent role mask; those masks are cropped to
+-- their own local bounds, so a source-space sample first offsets into each
+-- mask's local coordinate space.
+local function selectorFrameOpaque(bundle, x, y)
+  local gs = bundle.manifest.genderSelector
+  if selectorAlphaAt(bundle.assets, gs.neutral.image, x, y) > 0 then
+    return true
+  end
+  for _, gender in ipairs({ "male", "female" }) do
+    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+      local mask = gs.buttons[gender][kind]
+      if selectorAlphaAt(bundle.assets, mask.image, x - mask.bounds.x, y - mask.bounds.y) > 0 then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+function T.gender_selector_backing_is_transparent_while_frame_chrome_remains(romFs)
+  local bundle = assert(compiler().compile(romFs))
+  local male = bundle.manifest.genderSelector.buttons.male.bounds
+  local female = bundle.manifest.genderSelector.buttons.female.bounds
+
+  -- Negative: broad DS backing behind, outside, and between the two cards.
+  -- These source-space samples sit well clear of both button frames.
+  local negatives = {
+    { name = "left margin, level with the cards", x = 0, y = 100 },
+    { name = "left margin, above the cards", x = 5, y = 10 },
+    { name = "bottom fill, left of both cards", x = 0, y = 190 },
+    { name = "bottom fill, between the cards", x = math.floor((male.x + male.width + female.x) / 2), y = 190 },
+    { name = "bottom fill, right of both cards", x = 200, y = 190 },
+    { name = "gap between the two cards", x = math.floor((male.x + male.width + female.x) / 2), y = 104 },
+  }
+  for _, sample in ipairs(negatives) do
+    Assert.isFalse(
+      selectorFrameOpaque(bundle, sample.x, sample.y),
+      "expected transparent backing at " .. sample.name .. " (" .. sample.x .. "," .. sample.y .. ")"
+    )
+  end
+
+  -- Positive: every side and corner of both button frames remains chrome.
+  local positives = {}
+  for _, card in ipairs({ { id = "male", bounds = male }, { id = "female", bounds = female } }) do
+    local b = card.bounds
+    local points = {
+      { "top mid", b.x + math.floor(b.width / 2), b.y },
+      { "bottom mid", b.x + math.floor(b.width / 2), b.y + b.height - 1 },
+      { "left mid", b.x, b.y + math.floor(b.height / 2) },
+      { "right mid", b.x + b.width - 1, b.y + math.floor(b.height / 2) },
+      { "top-left corner", b.x, b.y },
+      { "top-right corner", b.x + b.width - 1, b.y },
+      { "bottom-left corner", b.x, b.y + b.height - 1 },
+      { "bottom-right corner", b.x + b.width - 1, b.y + b.height - 1 },
+    }
+    for _, point in ipairs(points) do
+      positives[#positives + 1] = { name = card.id .. " " .. point[1], x = point[2], y = point[3] }
+    end
+  end
+  for _, sample in ipairs(positives) do
+    Assert.isTrue(
+      selectorFrameOpaque(bundle, sample.x, sample.y),
+      "expected frame chrome at " .. sample.name .. " (" .. sample.x .. "," .. sample.y .. ")"
+    )
+  end
+end
+
 function T.compiled_visuals_are_stable_semantic_widgets(romFs)
   local bundle = assert(compiler().compile(romFs))
   Assert.keySet(
