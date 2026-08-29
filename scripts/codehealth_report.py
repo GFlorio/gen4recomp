@@ -119,17 +119,31 @@ def _parse_lizard_report(path: Path) -> dict[str, Any]:
                 raise ValueError(f"Lizard report {path} must have NLOC and CCN headers")
             nloc_values: list[int | float] = []
             ccn_values: list[int | float] = []
+            file_metrics: dict[str, dict[str, int | float]] = {}
+            has_file_column = "file" in reader.fieldnames
             for row in reader:
                 if not row or any(value is None or value.strip() == "" for value in row.values()):
                     raise ValueError(f"Lizard report {path} contains an empty row")
-                nloc_values.append(_number(row["NLOC"], path, "NLOC"))
-                ccn_values.append(_number(row["CCN"], path, "CCN"))
+                nloc = _number(row["NLOC"], path, "NLOC")
+                ccn = _number(row["CCN"], path, "CCN")
+                nloc_values.append(nloc)
+                ccn_values.append(ccn)
+                if has_file_column:
+                    source_file = _normalize_source_file(row["file"], path)
+                    metrics = file_metrics.setdefault(
+                        source_file,
+                        {"functions": 0, "maxCcn": ccn, "maxNloc": nloc},
+                    )
+                    metrics["functions"] += 1
+                    metrics["maxCcn"] = max(metrics["maxCcn"], ccn)
+                    metrics["maxNloc"] = max(metrics["maxNloc"], nloc)
     except OSError as error:
         raise ValueError(f"cannot read Lizard report {path}: {error}") from error
     if not nloc_values:
         raise ValueError(f"Lizard report {path} contains no function rows")
     return {
         "functions": len(nloc_values),
+        "files": file_metrics,
         "ccn": {
             "median": statistics.median(ccn_values),
             "p90": _nearest_rank(ccn_values, 0.90),
@@ -252,6 +266,7 @@ def _parse_graphify_report(path: Path) -> dict[str, Any]:
     node_ids: set[Any] = set()
     communities: set[Any] = set()
     modules: set[str] = set()
+    file_callables: dict[str, int] = {}
     for node in nodes:
         if not isinstance(node, dict) or "id" not in node:
             raise ValueError(f"Graphify report {path} contains an invalid node")
@@ -268,6 +283,9 @@ def _parse_graphify_report(path: Path) -> dict[str, Any]:
             normalized = _normalize_source_file(source_file, path)
             node_sources[node_id] = normalized
             modules.add(normalized)
+            file_callables.setdefault(normalized, 0)
+            if node.get("_callable") is True:
+                file_callables[normalized] += 1
             if node.get("community") is not None:
                 try:
                     communities.add(node["community"])
@@ -276,6 +294,7 @@ def _parse_graphify_report(path: Path) -> dict[str, Any]:
 
     provenance = {"extracted": 0, "inferred": 0, "ambiguous": 0}
     import_pairs: set[tuple[str, str]] = set()
+    extracted_import_pairs: set[tuple[str, str]] = set()
     adjacency = {module: set() for module in modules}
     for link in links:
         if not isinstance(link, dict):
@@ -302,6 +321,8 @@ def _parse_graphify_report(path: Path) -> dict[str, Any]:
             if source is not None and target is not None:
                 import_pairs.add((source, target))
                 adjacency[source].add(target)
+                if confidence.upper() == "EXTRACTED" and source != target:
+                    extracted_import_pairs.add((source, target))
 
     return {
         "modules": len(modules),
@@ -311,6 +332,70 @@ def _parse_graphify_report(path: Path) -> dict[str, Any]:
         "importEdges": len(import_pairs),
         "importCycleGroups": _import_cycle_groups(adjacency),
         "provenance": provenance,
+        "files": file_callables,
+        "extractedImportPairs": extracted_import_pairs,
+    }
+
+
+def _build_structure_metrics(lizard: dict[str, Any], graphify: dict[str, Any]) -> dict[str, Any]:
+    lizard_files: dict[str, dict[str, int | float]] = lizard["files"]
+    graphify_files: dict[str, int] = graphify["files"]
+    paths = sorted(set(lizard_files) | set(graphify_files))
+    fan_in = {path: 0 for path in paths}
+    fan_out = {path: 0 for path in paths}
+    for source, target in graphify["extractedImportPairs"]:
+        if source in fan_out and target in fan_in:
+            fan_out[source] += 1
+            fan_in[target] += 1
+
+    files: list[dict[str, Any]] = []
+    for path in paths:
+        lizard_metrics = lizard_files.get(path)
+        lizard_functions = int(lizard_metrics["functions"]) if lizard_metrics is not None else 0
+        graphify_callables = graphify_files.get(path, 0)
+        files.append(
+            {
+                "path": path,
+                "lizardFunctions": lizard_functions,
+                "graphifyCallables": graphify_callables,
+                "callableVisibility": (
+                    graphify_callables / lizard_functions if lizard_functions else None
+                ),
+                "maxCcn": lizard_metrics["maxCcn"] if lizard_metrics is not None else None,
+                "maxNloc": lizard_metrics["maxNloc"] if lizard_metrics is not None else None,
+                "importFanIn": fan_in[path],
+                "importFanOut": fan_out[path],
+            }
+        )
+
+    low_visibility = sorted(
+        (row for row in files if row["lizardFunctions"] >= 8),
+        key=lambda row: (
+            row["callableVisibility"] is not None,
+            row["callableVisibility"] or 0,
+            -row["lizardFunctions"],
+            row["path"],
+        ),
+    )[:20]
+    complexity = sorted(
+        (row for row in files if row["lizardFunctions"] > 0),
+        key=lambda row: (-row["maxCcn"], -row["maxNloc"], row["path"]),
+    )[:20]
+    fan_outliers = sorted(files, key=lambda row: (-row["importFanOut"], row["path"]))[:20]
+    return {
+        "callableVisibility": {
+            "lizardFunctions": lizard["functions"],
+            "graphifyCallables": sum(graphify_files.values()),
+            "ratio": (
+                sum(graphify_files.values()) / lizard["functions"] if lizard["functions"] else None
+            ),
+        },
+        "files": files,
+        "outliers": {
+            "lowVisibility": low_visibility,
+            "complexity": complexity,
+            "fanOut": fan_outliers,
+        },
     }
 
 
@@ -345,16 +430,44 @@ def _render_summary(model: dict[str, Any]) -> str:
     def value(item: Any) -> str:
         return html.escape(str(item))
 
+    def display(item: Any) -> str:
+        return "—" if item is None else value(item)
+
+    def render_outlier_table(title: str, rows: list[dict[str, Any]]) -> str:
+        row_markup = "\n".join(
+            "            <tr>"
+            f"<td>{value(row['path'])}</td>"
+            f"<td>{display(row['callableVisibility'])}</td>"
+            f"<td>{display(row['maxCcn'])}</td>"
+            f"<td>{display(row['maxNloc'])}</td>"
+            f"<td>{value(row['importFanOut'])}</td>"
+            "</tr>"
+            for row in rows
+        )
+        heading_id = title.lower().replace(" ", "-") + "-title"
+        return f"""        <section class="panel" aria-labelledby="{html.escape(heading_id)}">
+          <h3 id="{html.escape(heading_id)}">{html.escape(title)}</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th scope="col">Path</th><th scope="col">Visibility</th><th scope="col">Max CCN</th><th scope="col">Max NLOC</th><th scope="col">Fan-out</th></tr></thead>
+            <tbody>
+{row_markup}
+            </tbody>
+          </table></div>
+        </section>"""
+
     tools = model["tools"]
     diagnostics = model["diagnostics"]
     complexity = model["complexity"]
     duplication = model["duplication"]
     architecture = model["architecture"]
+    structure = model["structure"]
+    visibility = structure["callableVisibility"]
     cards = (
         ("LuaLS diagnostics", diagnostics["total"]),
         ("Functions", complexity["functions"]),
         ("Duplicated lines", duplication["duplicatedLines"]),
         ("Architecture modules", architecture["modules"]),
+        ("Callable visibility proxy", visibility["ratio"]),
     )
     card_markup = "\n".join(
         f'        <article class="card"><h3>{html.escape(title)}</h3><p>{value(metric)}</p></article>'
@@ -381,6 +494,19 @@ def _render_summary(model: dict[str, Any]) -> str:
     machine_markup = "\n".join(
         f'          <li><a href="{html.escape(link, quote=True)}" download>{html.escape(title)}</a></li>'
         for title, link in machine_reports
+    )
+    file_rows_markup = "\n".join(
+        "            <tr>"
+        f"<td>{value(row['path'])}</td>"
+        f"<td>{value(row['lizardFunctions'])}</td>"
+        f"<td>{value(row['graphifyCallables'])}</td>"
+        f"<td>{display(row['callableVisibility'])}</td>"
+        f"<td>{display(row['maxCcn'])}</td>"
+        f"<td>{display(row['maxNloc'])}</td>"
+        f"<td>{value(row['importFanIn'])}</td>"
+        f"<td>{value(row['importFanOut'])}</td>"
+        "</tr>"
+        for row in structure["files"]
     )
     return f"""<!doctype html>
 <html lang="en">
@@ -427,9 +553,30 @@ def _render_summary(model: dict[str, Any]) -> str:
 {machine_markup}
         </ul>
       </section>
+      <section class="panel" aria-labelledby="visibility-title">
+        <h2 id="visibility-title">Callable visibility</h2>
+        <p>Visibility is a proxy for how many Lizard function rows Graphify exposes as callable nodes; it is not a semantic correctness score.</p>
+        <div class="table-wrap"><table>
+          <tbody>
+            <tr><th scope="row">Lizard functions</th><td>{value(visibility["lizardFunctions"])}</td></tr>
+            <tr><th scope="row">Graphify callables</th><td>{value(visibility["graphifyCallables"])}</td></tr>
+            <tr><th scope="row">Ratio</th><td>{display(visibility["ratio"])}</td></tr>
+          </tbody>
+        </table></div>
+        <h3>Per-file structural observations</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th scope="col">Path</th><th scope="col">Lizard functions</th><th scope="col">Graphify callables</th><th scope="col">Visibility</th><th scope="col">Max CCN</th><th scope="col">Max NLOC</th><th scope="col">Fan-in</th><th scope="col">Fan-out</th></tr></thead>
+          <tbody>
+{file_rows_markup}
+          </tbody>
+        </table></div>
+      </section>
+{render_outlier_table("Low visibility outliers", structure["outliers"]["lowVisibility"])}
+{render_outlier_table("Complexity outliers", structure["outliers"]["complexity"])}
+{render_outlier_table("Fan-out outliers", structure["outliers"]["fanOut"])}
       <section class="panel" aria-labelledby="architecture-note-title">
         <h2 id="architecture-note-title">Architecture interpretation</h2>
-        <p>Graphify <strong>INFERRED</strong> cross-file call relationships are heuristic and must not be treated like <strong>EXTRACTED</strong> import edges.</p>
+        <p>Inferred calls remain heuristic; Graphify <strong>INFERRED</strong> cross-file call relationships must not be treated like <strong>EXTRACTED</strong> import edges.</p>
         <p>Provenance: extracted {value(architecture["provenance"]["extracted"])}, inferred {value(architecture["provenance"]["inferred"])}, ambiguous {value(architecture["provenance"]["ambiguous"])}.</p>
       </section>
     </main>
@@ -446,8 +593,14 @@ def _build_model(site_root: Path, repository_root: Path) -> dict[str, Any]:
         "jscpd": reports_root / "jscpd" / "jscpd-report.json",
         "graphify": reports_root / "graphify" / "graph.json",
     }
+    lizard = _parse_lizard_report(report_paths["lizard"])
+    graphify = _parse_graphify_report(report_paths["graphify"])
+    complexity = {key: value for key, value in lizard.items() if key != "files"}
+    architecture = {
+        key: value for key, value in graphify.items() if key not in {"files", "extractedImportPairs"}
+    }
     model = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "commit": _git_commit(repository_root),
         "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "tools": {
@@ -462,9 +615,10 @@ def _build_model(site_root: Path, repository_root: Path) -> dict[str, Any]:
             "excludedPrefixes": EXCLUDED_PREFIXES,
         },
         "diagnostics": _parse_luals_report(report_paths["luals"]),
-        "complexity": _parse_lizard_report(report_paths["lizard"]),
+        "complexity": complexity,
         "duplication": _parse_jscpd_report(report_paths["jscpd"]),
-        "architecture": _parse_graphify_report(report_paths["graphify"]),
+        "architecture": architecture,
+        "structure": _build_structure_metrics(lizard, graphify),
     }
     return model
 

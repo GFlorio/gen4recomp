@@ -99,6 +99,182 @@ class CodeHealthReportTest(unittest.TestCase):
             self.assertEqual(metrics["nloc"], {"median": 25.0, "p95": 40, "max": 40})
             self.assertEqual(REPORT._nearest_rank([1, 2, 3, 4], 0.5), 2)
 
+    def test_structural_visibility_report(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            site_root = Path(directory)
+            reports_root = site_root / "codehealth" / "reports"
+            for report_directory in ("luals", "lizard", "jscpd", "graphify"):
+                (reports_root / report_directory).mkdir(parents=True)
+
+            (reports_root / "luals" / "check.json").write_text("[]", encoding="utf-8")
+            (reports_root / "jscpd" / "jscpd-report.json").write_text(
+                json.dumps(
+                    {
+                        "statistics": {
+                            "total": {
+                                "sources": 3,
+                                "clones": 0,
+                                "duplicatedLines": 0,
+                                "percentage": 0,
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            lizard_path = reports_root / "lizard" / "functions.csv"
+            with lizard_path.open("w", newline="", encoding="utf-8") as report_file:
+                fieldnames = [
+                    "NLOC",
+                    "CCN",
+                    "token_count",
+                    "parameter_count",
+                    "location",
+                    "file",
+                    "function",
+                    "long_name",
+                    "start_line",
+                    "end_line",
+                ]
+                writer = csv.DictWriter(report_file, fieldnames=fieldnames)
+                writer.writeheader()
+                for file_name, function_count, max_nloc, max_ccn in (
+                    ("game/a.lua", 8, 30, 3),
+                    ("game/b.lua", 10, 15, 9),
+                    ("game/c.lua", 9, 20, 9),
+                ):
+                    for function_index in range(function_count):
+                        writer.writerow(
+                            {
+                                "NLOC": max_nloc if function_index == 0 else 1,
+                                "CCN": max_ccn if function_index == 0 else 1,
+                                "token_count": 1,
+                                "parameter_count": 0,
+                                "location": 1,
+                                "file": file_name,
+                                "function": f"function_{function_index}",
+                                "long_name": f"function_{function_index}",
+                                "start_line": 1,
+                                "end_line": 1,
+                            }
+                        )
+
+            nodes = [
+                {"id": f"a{index}", "source_file": "game/a.lua", "_callable": True}
+                for index in range(8)
+            ]
+            nodes.extend(
+                {
+                    "id": f"b{index}",
+                    "source_file": "game/b.lua",
+                    "_callable": index < 2,
+                }
+                for index in range(10)
+            )
+            nodes.extend(
+                [
+                    {"id": "c0", "source_file": "game/c.lua"},
+                    {"id": "d0", "source_file": "game/d.lua", "_callable": True},
+                    {"id": "external"},
+                ]
+            )
+            links = [
+                {"source": "a0", "target": "b0", "relation": "imports", "confidence": "EXTRACTED"},
+                {"source": "a1", "target": "b1", "relation": "imports", "confidence": "EXTRACTED"},
+                {"source": "a2", "target": "b0", "relation": "imports", "confidence": "EXTRACTED"},
+                {"source": "a0", "target": "b0", "relation": "imports", "confidence": "EXTRACTED"},
+                {"source": "a3", "target": "c0", "relation": "imports", "confidence": "INFERRED"},
+                {"source": "b0", "target": "a0", "relation": "imports", "confidence": "EXTRACTED"},
+                {"source": "b1", "target": "c0", "relation": "imports", "confidence": "AMBIGUOUS"},
+                {"source": "c0", "target": "c0", "relation": "imports", "confidence": "EXTRACTED"},
+                {"source": "external", "target": "a0", "relation": "calls", "confidence": "INFERRED"},
+            ]
+            (reports_root / "graphify" / "graph.json").write_text(
+                json.dumps({"directed": True, "nodes": nodes, "links": links}),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(REPORT, "_git_commit", return_value="a" * 40), mock.patch.object(
+                REPORT, "_version", return_value="test"
+            ):
+                model = REPORT._build_model(site_root, site_root)
+
+            self.assertEqual(model["schemaVersion"], 2)
+            self.assertNotIn("files", model["complexity"])
+            structure = model["structure"]
+            self.assertEqual(
+                structure["callableVisibility"]["lizardFunctions"],
+                27,
+            )
+            self.assertEqual(
+                structure["callableVisibility"]["graphifyCallables"],
+                11,
+            )
+            self.assertAlmostEqual(structure["callableVisibility"]["ratio"], 11 / 27)
+            self.assertEqual(
+                structure["files"],
+                [
+                    {
+                        "path": "game/a.lua",
+                        "lizardFunctions": 8,
+                        "graphifyCallables": 8,
+                        "callableVisibility": 1.0,
+                        "maxCcn": 3,
+                        "maxNloc": 30,
+                        "importFanIn": 1,
+                        "importFanOut": 1,
+                    },
+                    {
+                        "path": "game/b.lua",
+                        "lizardFunctions": 10,
+                        "graphifyCallables": 2,
+                        "callableVisibility": 0.2,
+                        "maxCcn": 9,
+                        "maxNloc": 15,
+                        "importFanIn": 1,
+                        "importFanOut": 1,
+                    },
+                    {
+                        "path": "game/c.lua",
+                        "lizardFunctions": 9,
+                        "graphifyCallables": 0,
+                        "callableVisibility": 0.0,
+                        "maxCcn": 9,
+                        "maxNloc": 20,
+                        "importFanIn": 0,
+                        "importFanOut": 0,
+                    },
+                    {
+                        "path": "game/d.lua",
+                        "lizardFunctions": 0,
+                        "graphifyCallables": 1,
+                        "callableVisibility": None,
+                        "maxCcn": None,
+                        "maxNloc": None,
+                        "importFanIn": 0,
+                        "importFanOut": 0,
+                    },
+                ],
+            )
+            self.assertEqual(
+                [row["path"] for row in structure["outliers"]["lowVisibility"]],
+                ["game/c.lua", "game/b.lua", "game/a.lua"],
+            )
+            self.assertEqual(
+                [row["path"] for row in structure["outliers"]["complexity"]],
+                ["game/c.lua", "game/b.lua", "game/a.lua"],
+            )
+            self.assertEqual(
+                [row["path"] for row in structure["outliers"]["fanOut"]],
+                ["game/a.lua", "game/b.lua", "game/c.lua", "game/d.lua"],
+            )
+
+            json.loads(json.dumps(model))
+            summary = REPORT._render_summary(model).lower()
+            self.assertIn("visibility is a proxy", summary)
+            self.assertIn("inferred calls remain heuristic", summary)
+
     def test_jscpd_reads_only_pinned_statistics_total_shape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "jscpd-report.json"
@@ -353,7 +529,7 @@ class CodeHealthReportTest(unittest.TestCase):
 
     def test_rendered_summary_has_relative_human_and_download_links(self) -> None:
         model = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "commit": "a" * 40,
             "generatedAt": "2026-01-01T00:00:00Z",
             "tools": {"luaLanguageServer": "3.19.0", "lizard": "1.23.0", "jscpd": "5.0.16", "graphify": "0.9.50"},
@@ -362,6 +538,7 @@ class CodeHealthReportTest(unittest.TestCase):
             "complexity": {"functions": 1, "ccn": {"median": 1, "p90": 1, "p95": 1, "p99": 1, "max": 1}, "nloc": {"median": 1, "p95": 1, "max": 1}},
             "duplication": {"sources": 1, "clones": 0, "duplicatedLines": 0, "percentage": 0},
             "architecture": {"modules": 1, "nodes": 1, "edges": 1, "communities": 1, "importEdges": 1, "importCycleGroups": 0, "provenance": {"extracted": 1, "inferred": 0, "ambiguous": 0}},
+            "structure": {"callableVisibility": {"lizardFunctions": 1, "graphifyCallables": 1, "ratio": 1.0}, "files": [], "outliers": {"lowVisibility": [], "complexity": [], "fanOut": []}},
         }
         html = REPORT._render_summary(model)
         self.assertIn('href="reports/lizard/index.html"', html)

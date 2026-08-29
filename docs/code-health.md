@@ -21,6 +21,22 @@ keeps its broader workspace diagnostic scope. Graphify's extracted imports are
 stronger evidence; inferred cross-file calls are exploratory and should not be
 treated as authoritative.
 
+The normalized `quality-report.json` uses schema version 2. In addition to the
+aggregate analyzer metrics, `structure.callableVisibility` reports the Lizard
+function-row count, Graphify callable-node count, and their ratio. The
+`structure.files` array is sorted by normalized production path and records
+those counts, per-file visibility, maximum CCN/NLOC, and distinct extracted
+import fan-in/fan-out. Files without Lizard functions have a null visibility;
+files with Lizard functions but no Graphify callable nodes have zero visibility;
+the report retains both kinds of file.
+
+The report also includes deterministic top-20 `lowVisibility`, `complexity`,
+and `fanOut` lists under `structure.outliers`. Visibility is a proxy for
+cross-tool structural observability, not a semantic correctness score. Exact
+function, callable, and outlier counts are expected to change as production
+code changes. Only extracted import links contribute to coupling; inferred
+calls remain heuristic and are kept separate from those measurements.
+
 ## Run locally
 
 Install Python 3, LuaLS 3.19.0, Node/npm, and the pinned Python and Node tools.
