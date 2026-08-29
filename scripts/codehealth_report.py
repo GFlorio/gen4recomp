@@ -58,38 +58,6 @@ def _load_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def _parse_luals_report(path: Path) -> dict[str, Any]:
-    report = _load_json_value(path)
-    if report == []:
-        return {
-            "total": 0,
-            "files": 0,
-            "bySeverity": {"error": 0, "warning": 0, "information": 0, "hint": 0},
-        }
-    if not isinstance(report, dict):
-        raise ValueError(f"LuaLS report {path} must contain a JSON object or empty array")
-    by_severity = {"error": 0, "warning": 0, "information": 0, "hint": 0}
-    total = 0
-    diagnostic_files: set[str] = set()
-    severity_names = {1: "error", 2: "warning", 3: "information", 4: "hint"}
-    for file_name, diagnostics in report.items():
-        if not isinstance(file_name, str) or not file_name:
-            raise ValueError(f"LuaLS report {path} contains an invalid file name")
-        if not isinstance(diagnostics, list):
-            raise ValueError(f"LuaLS report {path} contains a file with non-array diagnostics")
-        if diagnostics:
-            diagnostic_files.add(file_name)
-        for diagnostic in diagnostics:
-            if not isinstance(diagnostic, dict):
-                raise ValueError(f"LuaLS report {path} contains a non-object diagnostic")
-            severity = diagnostic.get("severity")
-            if isinstance(severity, bool) or severity not in severity_names:
-                raise ValueError(f"LuaLS report {path} contains unsupported severity {severity!r}")
-            by_severity[severity_names[severity]] += 1
-            total += 1
-    return {"total": total, "files": len(diagnostic_files), "bySeverity": by_severity}
-
-
 def _number(value: Any, path: Path, field: str) -> int | float:
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise ValueError(f"{path} has a non-numeric {field}")
@@ -456,14 +424,12 @@ def _render_summary(model: dict[str, Any]) -> str:
         </section>"""
 
     tools = model["tools"]
-    diagnostics = model["diagnostics"]
     complexity = model["complexity"]
     duplication = model["duplication"]
     architecture = model["architecture"]
     structure = model["structure"]
     visibility = structure["callableVisibility"]
     cards = (
-        ("LuaLS diagnostics", diagnostics["total"]),
         ("Functions", complexity["functions"]),
         ("Duplicated lines", duplication["duplicatedLines"]),
         ("Architecture modules", architecture["modules"]),
@@ -482,7 +448,6 @@ def _render_summary(model: dict[str, Any]) -> str:
     )
     machine_reports = (
         ("Normalized quality report", "quality-report.json"),
-        ("LuaLS diagnostics", "reports/luals/check.json"),
         ("Lizard functions", "reports/lizard/functions.csv"),
         ("jscpd report", "reports/jscpd/jscpd-report.json"),
         ("Graphify graph", "reports/graphify/graph.json"),
@@ -522,7 +487,7 @@ def _render_summary(model: dict[str, Any]) -> str:
         <p class="eyebrow">Static analysis report</p>
         <h1 id="report-title">Code health</h1>
         <p class="lede">Generated for commit <code>{value(model["commit"])}</code> at {value(model["generatedAt"])}.</p>
-        <p>LuaLS diagnostics use the whole workspace. Complexity, duplication, and architecture reports use tracked production Lua.</p>
+        <p>LuaLS remains enforced by binding CI through the repository lint gate; this Pages report covers production-Lua complexity, duplication, and architecture observations.</p>
       </section>
       <section aria-labelledby="headline-title">
         <h2 id="headline-title">Headline metrics</h2>
@@ -534,7 +499,6 @@ def _render_summary(model: dict[str, Any]) -> str:
         <h2 id="tools-title">Analyzer versions</h2>
         <div class="table-wrap"><table>
           <tbody>
-            <tr><th scope="row">LuaLS</th><td>{value(tools["luaLanguageServer"])}</td></tr>
             <tr><th scope="row">Lizard</th><td>{value(tools["lizard"])}</td></tr>
             <tr><th scope="row">jscpd</th><td>{value(tools["jscpd"])}</td></tr>
             <tr><th scope="row">Graphify</th><td>{value(tools["graphify"])}</td></tr>
@@ -588,7 +552,6 @@ def _render_summary(model: dict[str, Any]) -> str:
 def _build_model(site_root: Path, repository_root: Path) -> dict[str, Any]:
     reports_root = site_root / "codehealth" / "reports"
     report_paths = {
-        "luals": reports_root / "luals" / "check.json",
         "lizard": reports_root / "lizard" / "functions.csv",
         "jscpd": reports_root / "jscpd" / "jscpd-report.json",
         "graphify": reports_root / "graphify" / "graph.json",
@@ -600,21 +563,18 @@ def _build_model(site_root: Path, repository_root: Path) -> dict[str, Any]:
         key: value for key, value in graphify.items() if key not in {"files", "extractedImportPairs"}
     }
     model = {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "commit": _git_commit(repository_root),
         "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "tools": {
-            "luaLanguageServer": _version("lua-language-server"),
             "lizard": _version("lizard"),
             "jscpd": _version("jscpd"),
             "graphify": _version("graphify"),
         },
         "scope": {
-            "diagnostics": "workspace",
             "structural": "production-lua",
             "excludedPrefixes": EXCLUDED_PREFIXES,
         },
-        "diagnostics": _parse_luals_report(report_paths["luals"]),
         "complexity": complexity,
         "duplication": _parse_jscpd_report(report_paths["jscpd"]),
         "architecture": architecture,

@@ -7,28 +7,28 @@ request or a `master` build.
 
 ## Tools and scope
 
-The report runs four pinned tools:
+The report runs three pinned tools:
 
-- LuaLS 3.19.0 checks the whole workspace using the repository's `.luarc.json`,
-  including tests and the vendored LÖVE definitions.
 - Lizard 1.23.0 measures production Lua from the generated source manifest.
 - jscpd 5.0.16 measures duplication in the same production-Lua corpus.
 - Graphify 0.9.50 builds an AST-derived architecture graph from that corpus.
 
 The structural scope excludes tests, vendored/type definitions, tooling,
-generated data, script overrides, and other scratch paths. LuaLS intentionally
-keeps its broader workspace diagnostic scope. Graphify's extracted imports are
-stronger evidence; inferred cross-file calls are exploratory and should not be
-treated as authoritative.
+generated data, script overrides, and other scratch paths. LuaLS 3.19.0 still
+checks the whole workspace at Hint level through `scripts/lint.sh` and binding
+CI, and is intentionally not rerun for the Pages report. Graphify's extracted
+imports are stronger evidence; inferred cross-file calls are exploratory and
+should not be treated as authoritative.
 
-The normalized `quality-report.json` uses schema version 2. In addition to the
+The normalized `quality-report.json` uses schema version 3. In addition to the
 aggregate analyzer metrics, `structure.callableVisibility` reports the Lizard
 function-row count, Graphify callable-node count, and their ratio. The
 `structure.files` array is sorted by normalized production path and records
 those counts, per-file visibility, maximum CCN/NLOC, and distinct extracted
 import fan-in/fan-out. Files without Lizard functions have a null visibility;
 files with Lizard functions but no Graphify callable nodes have zero visibility;
-the report retains both kinds of file.
+the report retains both kinds of file. LuaLS diagnostics and LuaLS tool metadata
+are not part of the code-health report schema.
 
 The report also includes deterministic top-20 `lowVisibility`, `complexity`,
 and `fanOut` lists under `structure.outliers`. Visibility is a proxy for
@@ -39,11 +39,12 @@ calls remain heuristic and are kept separate from those measurements.
 
 ## Run locally
 
-Install Python 3, LuaLS 3.19.0, Node/npm, and the pinned Python and Node tools.
+Install Python 3, Node/npm, and the pinned Python and Node reporting tools.
 The Python report requirements are listed in
 [`scripts/codehealth-requirements.txt`](../scripts/codehealth-requirements.txt);
 the HTML reporter also requires `jinja2==3.1.6`, and jscpd must be version
-5.0.16. Then run:
+5.0.16. Normal repository lint still requires LuaLS through `scripts/lint.sh`;
+LuaLS is not a code-health report-build prerequisite. Then run:
 
 ```sh
 python3 scripts/codehealth_report_test.py

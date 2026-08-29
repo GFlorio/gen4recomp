@@ -18,7 +18,7 @@ cleanup_site_on_error() {
 }
 trap cleanup_site_on_error EXIT
 
-for tool in python3 lua-language-server lizard jscpd graphify; do
+for tool in python3 lizard jscpd graphify; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "codehealth: required command not found: $tool" >&2
     exit 1
@@ -36,11 +36,9 @@ rm -rf -- "$WORK_ROOT" "$SITE_ROOT"
 mkdir -p \
   "$STRUCT_ROOT" \
   "$SITE_ROOT"/codehealth \
-  "$REPORT_ROOT/luals" \
   "$REPORT_ROOT/lizard" \
   "$REPORT_ROOT/jscpd" \
-  "$REPORT_ROOT/graphify" \
-  "$WORK_ROOT/luals"
+  "$REPORT_ROOT/graphify"
 
 cp -- site/index.html site/styles.css "$SITE_ROOT/"
 
@@ -62,17 +60,6 @@ while IFS= read -r path; do
   mkdir -p "$STRUCT_ROOT/$(dirname "$path")"
   cp -- "$path" "$STRUCT_ROOT/$path"
 done < "$WORK_ROOT/production-lua-files.txt"
-
-luals_status=0
-lua-language-server --check . --num_threads=4 --checklevel=Hint --check_format=json --logpath="$WORK_ROOT/luals" || luals_status=$?
-if [ ! -s "$WORK_ROOT/luals/check.json" ]; then
-  echo "codehealth: LuaLS did not produce a nonempty $WORK_ROOT/luals/check.json (exit $luals_status)" >&2
-  exit 1
-fi
-cp -- "$WORK_ROOT/luals/check.json" "$REPORT_ROOT/luals/check.json"
-if [ "$luals_status" -ne 0 ]; then
-  echo "codehealth: LuaLS reported diagnostics (exit $luals_status); retaining its valid report" >&2
-fi
 
 FILE_LIST="$WORK_ROOT/production-lua-files.txt"
 lizard -l lua -t 4 -i -1 -f "$FILE_LIST" -H > "$REPORT_ROOT/lizard/index.html"
@@ -113,7 +100,6 @@ for required_file in \
   styles.css \
   codehealth/index.html \
   codehealth/quality-report.json \
-  codehealth/reports/luals/check.json \
   codehealth/reports/lizard/index.html \
   codehealth/reports/lizard/functions.csv \
   codehealth/reports/jscpd/jscpd-report.html \

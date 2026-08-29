@@ -25,66 +25,6 @@ MODULE_SPEC.loader.exec_module(REPORT)
 class CodeHealthReportTest(unittest.TestCase):
     """Protect report parsing, scope validation, and summary links."""
 
-    def test_luals_counts_severities_and_distinct_files(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "check.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "game/main.lua": [
-                            {"severity": 1},
-                            {"severity": 2},
-                        ],
-                        "libs/engine/src/World.lua": [
-                            {"severity": 3},
-                            {"severity": 4},
-                            {"severity": 2},
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            self.assertEqual(
-                REPORT._parse_luals_report(path),
-                {
-                    "total": 5,
-                    "files": 2,
-                    "bySeverity": {
-                        "error": 1,
-                        "warning": 2,
-                        "information": 1,
-                        "hint": 1,
-                    },
-                },
-            )
-
-    def test_luals_accepts_empty_valid_report(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "check.json"
-            path.write_text(json.dumps({}), encoding="utf-8")
-            self.assertEqual(
-                REPORT._parse_luals_report(path)["total"],
-                0,
-            )
-
-    def test_luals_accepts_empty_array_report(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "check.json"
-            path.write_text(json.dumps([]), encoding="utf-8")
-            self.assertEqual(
-                REPORT._parse_luals_report(path),
-                {
-                    "total": 0,
-                    "files": 0,
-                    "bySeverity": {
-                        "error": 0,
-                        "warning": 0,
-                        "information": 0,
-                        "hint": 0,
-                    },
-                },
-            )
-
     def test_lizard_metrics_use_header_names_and_nearest_rank(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "functions.csv"
@@ -103,10 +43,9 @@ class CodeHealthReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             site_root = Path(directory)
             reports_root = site_root / "codehealth" / "reports"
-            for report_directory in ("luals", "lizard", "jscpd", "graphify"):
+            for report_directory in ("lizard", "jscpd", "graphify"):
                 (reports_root / report_directory).mkdir(parents=True)
 
-            (reports_root / "luals" / "check.json").write_text("[]", encoding="utf-8")
             (reports_root / "jscpd" / "jscpd-report.json").write_text(
                 json.dumps(
                     {
@@ -200,7 +139,32 @@ class CodeHealthReportTest(unittest.TestCase):
             ):
                 model = REPORT._build_model(site_root, site_root)
 
-            self.assertEqual(model["schemaVersion"], 2)
+            self.assertEqual(model["schemaVersion"], 3)
+            self.assertEqual(
+                set(model),
+                {
+                    "schemaVersion",
+                    "commit",
+                    "generatedAt",
+                    "tools",
+                    "scope",
+                    "complexity",
+                    "duplication",
+                    "architecture",
+                    "structure",
+                },
+            )
+            self.assertNotIn("diagnostics", model)
+            self.assertEqual(model["tools"], {"lizard": "test", "jscpd": "test", "graphify": "test"})
+            self.assertEqual(
+                model["scope"],
+                {
+                    "structural": "production-lua",
+                    "excludedPrefixes": REPORT.EXCLUDED_PREFIXES,
+                },
+            )
+            self.assertNotIn("luaLanguageServer", model["tools"])
+            self.assertNotIn("diagnostics", model["scope"])
             self.assertNotIn("files", model["complexity"])
             structure = model["structure"]
             self.assertEqual(
@@ -272,8 +236,11 @@ class CodeHealthReportTest(unittest.TestCase):
 
             json.loads(json.dumps(model))
             summary = REPORT._render_summary(model).lower()
+            self.assertIn("luals", summary)
+            self.assertIn("binding ci", summary)
             self.assertIn("visibility is a proxy", summary)
             self.assertIn("inferred calls remain heuristic", summary)
+            self.assertNotIn("reports/luals/check.json", summary)
 
     def test_jscpd_reads_only_pinned_statistics_total_shape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -529,12 +496,11 @@ class CodeHealthReportTest(unittest.TestCase):
 
     def test_rendered_summary_has_relative_human_and_download_links(self) -> None:
         model = {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "commit": "a" * 40,
             "generatedAt": "2026-01-01T00:00:00Z",
-            "tools": {"luaLanguageServer": "3.19.0", "lizard": "1.23.0", "jscpd": "5.0.16", "graphify": "0.9.50"},
-            "scope": {"diagnostics": "workspace", "structural": "production-lua", "excludedPrefixes": []},
-            "diagnostics": {"total": 0, "files": 0, "bySeverity": {"error": 0, "warning": 0, "information": 0, "hint": 0}},
+            "tools": {"lizard": "1.23.0", "jscpd": "5.0.16", "graphify": "0.9.50"},
+            "scope": {"structural": "production-lua", "excludedPrefixes": []},
             "complexity": {"functions": 1, "ccn": {"median": 1, "p90": 1, "p95": 1, "p99": 1, "max": 1}, "nloc": {"median": 1, "p95": 1, "max": 1}},
             "duplication": {"sources": 1, "clones": 0, "duplicatedLines": 0, "percentage": 0},
             "architecture": {"modules": 1, "nodes": 1, "edges": 1, "communities": 1, "importEdges": 1, "importCycleGroups": 0, "provenance": {"extracted": 1, "inferred": 0, "ambiguous": 0}},
@@ -544,6 +510,7 @@ class CodeHealthReportTest(unittest.TestCase):
         self.assertIn('href="reports/lizard/index.html"', html)
         self.assertIn('href="quality-report.json" download', html)
         self.assertIn('href="reports/graphify/graph.json" download', html)
+        self.assertNotIn('href="reports/luals/check.json"', html)
         self.assertIn("INFERRED", html)
 
 
