@@ -155,14 +155,14 @@ per-map visual, field-data, and terrain artifacts into `RuntimeFieldMap` views.
 
 `FieldResidencyCoordinator` is the logical residency authority after bootstrap
 for both seamless movement and discontinuous warps: it owns the logical ready
-set, published actor-map entries, and `FieldMapLoader` protection. For outdoor
-coverage, the committed/rendered physical set is a matrix-clipped 3x3 around
-the physical anchor, while the background-ready physical footprint is a
-matrix-clipped 5x5. Maps represented by that ready footprint may already have
-published actors without being physically projected; `reconcilePhysicalWorld`
-is the gate for physical occupancy and drawing. Only the active logical map
-drives scripts, weather, and active-map audio policy. Indoor maps can have an
-active logical resident without an outdoor 5x5 footprint.
+set and `FieldMapLoader` protection. For outdoor coverage, the committed/
+rendered physical set is a matrix-clipped 3x3 around the physical anchor, while
+the background-ready physical footprint is a matrix-clipped 5x5. Logical
+residency never constructs object actors: a resident map is loaded, protected,
+and composed data, and `reconcilePhysicalWorld` reprojects the one active actor
+entry when committed coverage recenters. Only the active logical map drives
+scripts, weather, active-map audio policy, and live actors. Indoor maps can
+have an active logical resident without an outdoor 5x5 footprint.
 
 Physical halo presentation is staged and advanced in bounded main-thread work;
 a cell is promoted to the ready set only after its presentation build completes.
@@ -188,7 +188,7 @@ the fixed-step session as two resource layers:
 
 ```text
 FieldEventState  (numeric flags/vars; the visibility authority)
-  └─ FieldActorManager  (object actors + occupancy, one entry per published map)
+  └─ FieldActorManager  (object actors + occupancy, one entry: the active map)
        ├─ FieldActorDefinitionProvider  (compiled non-GPU actor definitions)
        └─ FieldObjectActor              (source event + mutable runtime state)
 
@@ -203,6 +203,26 @@ actors in `FieldRuntime` and `FieldActorManager`. `FieldState` owns the GPU
 `visualRevision()` and `collectSpriteIds()` results, together with the player's
 sprite. Published actor dependencies, rather than staging internals, determine
 when presentation assets need to change.
+
+`FieldActorManager:enterMap` is the only operation that constructs and
+publishes a map's object actors, and `FieldSession` decides when it runs. It
+builds and binds the destination entry while the previous entry is still live,
+publishes it, and only then retires the previous one, so a failed construction
+leaves the live actor world intact. `FieldSession` owns two map-entry modes: a
+full entry (initial boot or warp) runs transition init, actor activation, load
+init, presentation acknowledgement, and resume init; a seamless connection
+entry (a logical-zone change inside the committed physical world) runs only
+transition init and actor activation, stays presentable without a fade, and
+defers the arrival tile's event — its coordinate event, or the passive sign it
+faces — until activation completes. No map's actors are constructed before that
+map's transition-init lifecycle has run.
+
+A logical map that is not the active actor map owns no actor instances. Player
+collision and facing interaction answer such maps through
+`FieldActorManager:probeAt`, a read-only query over the destination's source
+events and the current event state that returns the same object identity
+(`actorId`, `objectEventId`, `sourceEvent`, `spriteId`) without publishing an
+actor map or acquiring a visual definition.
 
 An object exists only while its event flag is clear, matching the original
 engine. Flag writes are queued and applied at one point in the fixed tick —
@@ -241,7 +261,8 @@ FieldInteractionResolver  (pure; object-first, background-second priority)
 ```
 
 The facing physical surface is resolved first. The target logical map then owns
-the actor/background lookup at map seams: the target map's facing actor wins,
+the actor/background lookup at map seams, through the same live-or-probe actor
+lookup movement collision uses: the target map's facing object wins,
 then its source-order background event whose raw direction passes the pinned
 assembly's compatibility table (raw 4 wildcard; 0/1/2/3 accept
 {0,6}/{3,6}/{2,5}/{1,5}), then nothing. Occupancy retains the stable physical

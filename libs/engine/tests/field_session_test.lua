@@ -2655,6 +2655,185 @@ function T.map_entry_waits_for_yielding_transition_before_entering_actors()
   Assert.equal(order[#order], "actors")
 end
 
+-- A seamless logical-zone change is a connection entry: it runs only the
+-- destination's transition-init lifecycle, activates destination actors
+-- exactly once, and defers the arrival tile's event until activation
+-- completes. The arrival kind selects which event the destination tile
+-- carries; everything else about the crossing is identical.
+---@param arrivalKind "coordinate"|"passive"
+local function connectionSeamScenario(arrivalKind)
+  local scenario = { order = {}, entered = 0, arrivalResolves = 0, consumedIntents = {} }
+  local order = scenario.order
+  local sourceMap = {
+    mapId = 61,
+    fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
+    updateAnimated = function() end,
+  }
+  local destinationMap = {
+    mapId = 62,
+    fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
+    updateAnimated = function() end,
+  }
+  scenario.destinationMap = destinationMap
+  local scheduler = {
+    busy = false,
+    step = function(self)
+      order[#order + 1] = "scheduler"
+      self.busy = false
+    end,
+    playerInputLocked = function(self)
+      return self.busy
+    end,
+    playerInputOwned = function(self)
+      return self.busy
+    end,
+    foregroundEnvironmentId = function(self)
+      return self.busy and "transition" or nil
+    end,
+  }
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition" or lifecycle == "on_load" or lifecycle == "on_resume"
+    end,
+    startLifecycle = function(_, lifecycle)
+      order[#order + 1] = lifecycle
+      if lifecycle == "on_transition" then
+        scheduler.busy = true
+      end
+      return true
+    end,
+  }
+  local stepCompletedOnce = false
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    if stepCompletedOnce then
+      return false
+    end
+    stepCompletedOnce = true
+    return true
+  end
+  player.collapseRenderInterpolation = function() end
+  -- The destination tile carries exactly one arrival event; the other
+  -- resolver answers nothing, as an ordinary tile would.
+  local function resolveArrival(kind)
+    if kind ~= arrivalKind then
+      return nil
+    end
+    scenario.arrivalResolves = scenario.arrivalResolves + 1
+    return { kind = kind }
+  end
+  scenario.session = FieldSession.new(baseOptions({
+    currentMap = sourceMap,
+    player = player,
+    initController = controller,
+    scriptScheduler = scheduler,
+    navigationBoundary = {
+      zoneController = { currentMap = destinationMap },
+      afterCommittedMove = function()
+        return { newMapId = destinationMap.mapId }
+      end,
+    },
+    scriptClient = {
+      consume = function(_, intent)
+        scenario.consumedIntents[#scenario.consumedIntents + 1] = intent
+        order[#order + 1] = "arrival"
+        return ScriptInteractionClient.RESULTS.started
+      end,
+    },
+    eventResolver = {
+      resolveCoordinate = function()
+        return resolveArrival("coordinate")
+      end,
+      resolvePassiveSign = function()
+        return resolveArrival("passive")
+      end,
+    },
+    enterMapActors = function()
+      scenario.entered = scenario.entered + 1
+      order[#order + 1] = "actors"
+    end,
+  }))
+  return scenario
+end
+
+-- Runs destination transition init to completion, then actor entry, then the
+-- deferred arrival event.
+local function advanceUntilArrivalConsumed(scenario)
+  for _ = 1, 8 do
+    if scenario.entered > 0 and #scenario.consumedIntents > 0 then
+      return
+    end
+    scenario.session:updateFixed({})
+  end
+end
+
+-- Asserts the one ordering the connection lifecycle exists to guarantee:
+-- transition init, then actor activation, then the arrival event -- and no
+-- full-entry-only lifecycle in between.
+local function assertDeferredArrivalOrder(scenario)
+  local transitionIndex, actorsIndex, arrivalIndex
+  for index, item in ipairs(scenario.order) do
+    if item == "on_transition" and transitionIndex == nil then
+      transitionIndex = index
+    elseif item == "actors" and actorsIndex == nil then
+      actorsIndex = index
+    elseif item == "arrival" and arrivalIndex == nil then
+      arrivalIndex = index
+    end
+    Assert.isFalse(item == "on_load", "a connection entry must never run on_load")
+    Assert.isFalse(item == "on_resume", "a connection entry must never run on_resume")
+  end
+  Assert.isTrue(transitionIndex ~= nil, "destination on_transition must run")
+  Assert.isTrue(actorsIndex ~= nil and transitionIndex < actorsIndex, "actor entry must follow transition init")
+  Assert.isTrue(
+    arrivalIndex ~= nil and actorsIndex < arrivalIndex,
+    "the arrival event must be consumed only after actor entry"
+  )
+end
+
+function T.seamless_zone_change_defers_the_arrival_coordinate_until_destination_activation_completes()
+  local scenario = connectionSeamScenario("coordinate")
+  local session = scenario.session
+
+  -- The completed movement tick crosses the seam.
+  session:updateFixed({})
+  Assert.equal(session.currentMap, scenario.destinationMap, "the seam crossing must switch the active map")
+  Assert.isTrue(
+    session:destinationWorldPresentable(),
+    "a seamless connection must remain presentable throughout its lifecycle"
+  )
+  Assert.equal(scenario.arrivalResolves, 0, "the destination coordinate must not resolve on the crossing tick itself")
+  Assert.equal(scenario.entered, 0, "destination actors must not enter before destination transition init runs")
+
+  advanceUntilArrivalConsumed(scenario)
+
+  Assert.equal(scenario.entered, 1, "destination actors must enter exactly once")
+  Assert.equal(#scenario.consumedIntents, 1, "the deferred landing coordinate must be consumed exactly once")
+  Assert.equal(scenario.consumedIntents[1].kind, "coordinate")
+  assertDeferredArrivalOrder(scenario)
+end
+
+-- A crossing that lands on a passive-sign tile defers the sign exactly as it
+-- defers a landing coordinate, and the one-shot marker must never replay it.
+function T.seamless_zone_change_defers_the_arrival_passive_sign_until_destination_activation_completes()
+  local scenario = connectionSeamScenario("passive")
+  local session = scenario.session
+
+  session:updateFixed({})
+  Assert.equal(scenario.arrivalResolves, 0, "the arrival passive sign must not resolve on the crossing tick itself")
+  Assert.equal(scenario.entered, 0, "destination actors must not enter before destination transition init runs")
+
+  advanceUntilArrivalConsumed(scenario)
+
+  Assert.equal(scenario.entered, 1, "destination actors must enter exactly once")
+  Assert.equal(#scenario.consumedIntents, 1, "the deferred arrival passive sign must be consumed exactly once")
+  Assert.equal(scenario.consumedIntents[1].kind, "passive")
+  assertDeferredArrivalOrder(scenario)
+
+  session:updateFixed({})
+  Assert.equal(#scenario.consumedIntents, 1, "the arrival passive sign must not replay on a later tick")
+end
+
 function T.zone_change_owns_crossing_audio_selection_while_same_zone_keeps_step_audio()
   local function run(zoneChanged)
     local events = {}
@@ -2688,6 +2867,16 @@ function T.zone_change_owns_crossing_audio_selection_while_same_zone_keeps_step_
       currentMap = map,
       player = player,
       navigationBoundary = boundary,
+      -- A seamless crossing starts a connection map entry, so the lifecycle
+      -- controller production always supplies is required here too.
+      initController = {
+        hasLifecycle = function()
+          return false
+        end,
+        startLifecycle = function()
+          return true
+        end,
+      },
     }))
     session:updateFixed({})
     return events

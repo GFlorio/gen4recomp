@@ -39,8 +39,11 @@ function T.tests.fresh_field_world_starts_with_clean_event_state()
       "fresh boot must not seed event flags or variables"
     )
 
-    -- This object is one of the flag-guarded actors in the supported entry
-    -- map. A clear flag means the production actor manager must keep it live.
+    -- Object actors are materialized by the map-entry lifecycle, not by the
+    -- boot itself, so the entry runs to completion first. This object is one
+    -- of the flag-guarded actors in the supported entry map: a clear flag
+    -- means the production actor manager must keep it live.
+    game:waitForFieldReady()
     local actor = assert(game.runtime.actors:getById("map:60:object:0"), "clear event state must retain the actor")
     local eventFlag = assert(actor.sourceEvent.eventFlag, "the actor must carry its source event flag")
     Assert.isFalse(eventState:isFlagSet(eventFlag), "fresh boot must not hide the actor through a seeded flag")

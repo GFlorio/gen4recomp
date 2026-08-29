@@ -402,7 +402,7 @@ function T.indoor_occupancy_uses_the_current_map_actor_index()
     error("retained coverage must not participate in indoor occupancy", 0)
   end
 
-  local actors = {}
+  local actors = { currentMapId = "indoor" }
   function actors:getAt(mapId, candidate)
     calls.getAt = calls.getAt + 1
     Assert.equal(mapId, "indoor")
@@ -496,7 +496,10 @@ function T.outdoor_seam_occupancy_preflights_destination_actors()
   Assert.equal(calls.getAt, 0)
 end
 
-function T.outdoor_seam_occupancy_prefers_a_resident_live_actor()
+-- A logically resident destination only changes where the source events come
+-- from: it is still read-only probed, because the one live actor entry
+-- belongs to the active map.
+function T.outdoor_seam_occupancy_probes_a_resident_destination_without_preflighting()
   local calls = { mapHeaderAt = 0, getAt = 0, mapForId = 0, mapForPreflight = 0, probeAt = 0 }
   local player = {}
   local eventState = {}
@@ -509,18 +512,19 @@ function T.outdoor_seam_occupancy_prefers_a_resident_live_actor()
     return "destination"
   end
 
-  local actors = {}
-  function actors:getAt(mapId, candidate)
+  local actors = { currentMapId = "source" }
+  function actors:getAt()
     calls.getAt = calls.getAt + 1
-    Assert.equal(mapId, "destination")
+    error("an inactive destination must not be read from the live occupancy index", 0)
+  end
+  function actors:probeAt(map, state, candidate)
+    calls.probeAt = calls.probeAt + 1
+    Assert.equal(map, destination)
+    Assert.equal(state, eventState)
     Assert.equal(candidate.fieldX, 19)
     Assert.equal(candidate.fieldZ, 7)
     Assert.equal(candidate.surfaceId, 2)
-    return { actorId = "live-destination-blocker" }
-  end
-  function actors:probeAt()
-    calls.probeAt = calls.probeAt + 1
-    error("a resident destination must not probe source events", 0)
+    return { actorId = "destination-blocker" }
   end
 
   local residency = {}
@@ -550,12 +554,12 @@ function T.outdoor_seam_occupancy_prefers_a_resident_live_actor()
   )
   local occupant = runtime:_playerOccupantAt({ fieldX = 19, fieldZ = 7, surfaceId = 2 })
 
-  Assert.equal(occupant, "live-destination-blocker")
+  Assert.equal(occupant, "destination-blocker")
   Assert.equal(calls.mapHeaderAt, 1)
   Assert.equal(calls.mapForId, 1)
-  Assert.equal(calls.getAt, 1)
+  Assert.equal(calls.probeAt, 1)
   Assert.equal(calls.mapForPreflight, 0)
-  Assert.equal(calls.probeAt, 0)
+  Assert.equal(calls.getAt, 0)
 end
 
 return { tests = T }

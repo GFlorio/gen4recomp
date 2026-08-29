@@ -647,6 +647,28 @@ function T.preflight_probe_uses_event_rules_without_publishing_actors()
   mgr:dispose()
 end
 
+-- Both collision and interaction callers need semantic identity from a
+-- probe, not just the numeric ids: the source event (for its scriptId) and
+-- the resolved sprite id (using the same variable-sprite policy activation
+-- uses), without ever acquiring a visual definition.
+function T.probe_result_carries_source_event_and_resolved_sprite_identity()
+  local eventState = FieldEventState.new()
+  local mgr, _, assets = manager({}, { eventState = eventState })
+  local destinationEvent = object({ objectEventId = 7, x = 9, z = 3, spriteId = 101 })
+  local destination = runtimeMap({ destinationEvent }, 62)
+  eventState:setVar(0x4020, 34)
+  local revision = mgr:visualRevision()
+
+  local occupant = assert(mgr:probeAt(destination, eventState, candidate(9, 3, 0)))
+  Assert.equal(occupant.objectEventId, 7)
+  Assert.equal(occupant.sourceEvent, destinationEvent, "the probe result must expose the source event")
+  Assert.equal(occupant.spriteId, 34, "the probe result must resolve a variable sprite from the supplied event state")
+  Assert.isNil(mgr.maps[62], "probing must not publish a destination map")
+  Assert.equal(assets:total(), 0, "probing must not acquire a visual definition")
+  Assert.equal(mgr:visualRevision(), revision)
+  mgr:dispose()
+end
+
 function T.preflight_probe_rejects_two_solid_events_on_one_surface()
   local mgr, _, _, source = manager({})
   local destination = runtimeMap({
@@ -706,32 +728,6 @@ function T.entering_the_same_map_twice_is_idempotent()
   Assert.equal(mgr:visualRevision(), initialRevision)
 end
 
-function T.rebinding_a_published_map_preserves_actor_state_and_revision()
-  local mgr, _, assets, source = manager({ object({}) })
-  local actor = assert(mgr:getById("map:61:object:0"))
-  actor:setFacing("west")
-  actor:setVisible(false)
-  local revision = mgr:visualRevision()
-  local replacement = runtimeMap({}, source.mapId)
-
-  mgr:rebindMap(source.mapId, replacement)
-
-  Assert.equal(mgr.maps[source.mapId].runtimeMap, replacement)
-  Assert.equal(mgr:getById(actor.actorId), actor)
-  Assert.equal(actor.facing, "west")
-  Assert.isFalse(actor.visible)
-  Assert.equal(mgr:visualRevision(), revision)
-  Assert.equal(assets:total(), 1)
-  Assert.throws(function()
-    mgr:rebindMap(source.mapId, runtimeMap({}, 60))
-  end)
-  mgr:leaveMap(source.mapId)
-  Assert.throws(function()
-    mgr:rebindMap(source.mapId, replacement)
-  end)
-  mgr:dispose()
-end
-
 function T.publishing_an_empty_map_does_not_change_revision()
   local assets = fakeAssets({ [99] = true })
   local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
@@ -744,70 +740,31 @@ function T.publishing_an_empty_map_does_not_change_revision()
   mgr:dispose()
 end
 
-function T.prepare_map_keeps_live_actors_until_commit()
-  local mgr, eventState, assets, source = manager({ object({}) })
-  local destination = runtimeMap({ object({ objectEventId = 1, spriteId = 34, x = 4 }) }, 60)
-
-  local prepared = mgr:prepareMap(destination, eventState)
-  Assert.notNil(mgr:getById("map:61:object:0"))
-  Assert.isNil(mgr:getById("map:60:object:1"))
-  Assert.equal(assets:total(), 2)
-
-  mgr:commitPrepared(prepared)
-  Assert.notNil(mgr:getById("map:61:object:0"), "committing a prepared map does not evict the source")
-  Assert.notNil(mgr:getById("map:60:object:1"))
-  Assert.equal(mgr.currentMapId, source.mapId)
-  mgr:setActiveMap(destination.mapId)
-  Assert.equal(mgr.currentMapId, destination.mapId)
-  mgr:leaveMap(source.mapId)
-  Assert.isNil(mgr:getById("map:61:object:0"))
-  mgr:dispose()
-end
-
-function T.prepare_map_failure_discards_all_staged_visuals_without_live_mutation()
+-- enterMap is the sole production activation seam: it must stage the
+-- destination entry completely, and bind its event state, while the
+-- previous active entry remains untouched, retiring the previous entry only
+-- after the destination publication succeeds.
+function T.enter_map_replacement_preserves_the_previous_entry_until_destination_construction_succeeds()
   local mgr, eventState, assets = manager({ object({}) })
-  local destination = runtimeMap({ object({ facingDirection = "northwest" }) }, 60)
+  local failingReplacement = runtimeMap({ object({ facingDirection = "northwest" }) }, 61)
 
   throwsCode("ACTOR_FACING_INVALID", function()
-    mgr:prepareMap(destination, eventState)
+    mgr:enterMap(failingReplacement, eventState)
   end)
-  Assert.notNil(mgr:getById("map:61:object:0"))
-  Assert.isNil(mgr.maps[60])
-  Assert.equal(assets:total(), 1)
-  mgr:dispose()
-end
 
-function T.discarding_prepared_map_releases_only_staged_visuals()
-  local mgr, eventState, assets = manager({ object({}) })
-  local initialRevision = mgr:visualRevision()
-  local initialSpriteIds = {}
-  mgr:collectSpriteIds(initialSpriteIds)
-  local prepared = mgr:prepareMap(runtimeMap({ object({ spriteId = 34 }) }, 60), eventState)
-
-  mgr:discardPrepared(prepared)
-  Assert.notNil(mgr:getById("map:61:object:0"))
-  Assert.isNil(mgr.maps[60])
-  Assert.equal(mgr:visualRevision(), initialRevision, "discarding staged actors does not change live revision")
-  local finalSpriteIds = {}
-  mgr:collectSpriteIds(finalSpriteIds)
-  Assert.deepEqual(
-    finalSpriteIds,
-    initialSpriteIds,
-    "discarding staged actors does not change live sprite dependencies"
+  Assert.notNil(
+    mgr:getById("map:61:object:0"),
+    "a failed destination construction must not destroy the previous active entry"
   )
-  Assert.equal(assets.references[34], 0, "the staged visual is released exactly once")
-  Assert.equal(assets:total(), 1)
+  Assert.equal(mgr.currentMapId, 61)
+  Assert.equal(assets:total(), 1, "only the previous entry's visual remains referenced")
   mgr:dispose()
 end
 
-function T.commit_bind_failure_discards_prepared_visuals_before_publication()
+function T.enter_map_replacement_preserves_the_previous_entry_on_a_bind_failure()
   local mgr, _, assets = manager({ object({}) })
-  local initialRevision = mgr:visualRevision()
+  local replacement = runtimeMap({ object({ objectEventId = 5, spriteId = 34 }) }, 61)
   local failingState = {
-    _flags = {},
-    _vars = {},
-    _tick = 0,
-    _listeners = {},
     isFlagSet = function()
       return false
     end,
@@ -816,17 +773,28 @@ function T.commit_bind_failure_discards_prepared_visuals_before_publication()
     end,
   }
   ---@cast failingState FieldEventState
-  local prepared = mgr:prepareMap(runtimeMap({ object({ spriteId = 34 }) }, 60), failingState)
 
   local ok, err = pcall(function()
-    mgr:commitPrepared(prepared)
+    mgr:enterMap(replacement, failingState)
   end)
   Assert.isFalse(ok)
   Assert.equal(err, "event subscription failed")
-  Assert.equal(prepared.state, "discarded")
-  Assert.isNil(mgr.maps[60])
-  Assert.notNil(mgr:getById("map:61:object:0"))
-  Assert.equal(mgr:visualRevision(), initialRevision)
+  Assert.notNil(mgr:getById("map:61:object:0"), "a bind failure must not destroy the previous active entry")
+  Assert.equal(mgr.currentMapId, 61)
+  Assert.equal(assets:total(), 1, "the failed replacement's staged visual must not remain referenced")
+  mgr:dispose()
+end
+
+function T.enter_map_replaces_the_same_map_id_without_losing_the_new_entry()
+  local mgr, eventState, assets, source = manager({ object({}) })
+  local replacement = runtimeMap({ object({ objectEventId = 5, spriteId = 34 }) }, source.mapId)
+
+  mgr:enterMap(replacement, eventState)
+
+  Assert.notNil(mgr:getById("map:61:object:5"), "the replacement entry must be published")
+  Assert.isNil(mgr:getById("map:61:object:0"), "the previous entry is retired only after the replacement publishes")
+  Assert.equal(mgr.maps[source.mapId].runtimeMap, replacement)
+  Assert.equal(mgr.currentMapId, source.mapId)
   Assert.equal(assets:total(), 1)
   mgr:dispose()
 end
@@ -870,17 +838,21 @@ function T.repeated_map_round_trips_do_not_leak_actors_or_visuals()
   Assert.equal(assets:total(), 0)
 end
 
-function T.two_maps_stay_independent_during_a_transition()
+-- One live actor world at a time: entering a destination retires the source
+-- entry and releases its visuals once the destination is published.
+function T.entering_a_destination_retires_the_previous_active_entry()
   local assets = fakeAssets({ [99] = true, [34] = true })
   local eventState = FieldEventState.new()
   local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
   mgr:enterMap(runtimeMap({ object({}) }, 61), eventState)
   mgr:enterMap(runtimeMap({ object({ spriteId = 34 }) }, 60), eventState)
-  Assert.isTrue(isOccupied(mgr, 61, 2, 3, 0))
+
+  Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0), "the source entry is retired by the destination activation")
+  Assert.isNil(mgr.maps[61])
   Assert.isTrue(isOccupied(mgr, 60, 2, 3, 0))
-  mgr:leaveMap(61)
-  Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0))
-  Assert.isTrue(isOccupied(mgr, 60, 2, 3, 0))
+  Assert.equal(mgr.currentMapId, 60)
+  Assert.equal(assets:total(), 1, "only the active entry's visual remains referenced")
+  mgr:dispose()
 end
 
 -- A real FieldPlayer whose occupancy predicate reads this manager's index,

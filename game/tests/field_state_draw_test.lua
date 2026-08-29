@@ -617,22 +617,20 @@ function T.presentation_residency_is_distinct_change_driven_and_balanced()
   Assert.isTrue(assets.disposed)
 end
 
-function T.published_actor_revision_refreshes_presentation_assets()
+function T.activated_actor_revision_refreshes_presentation_assets()
   local assets = presentationAssets({ [99] = presentationEntry(99), [34] = presentationEntry(34) })
   local actors, eventState = realActorManager()
   actors:enterMap(actorMap(61, { actorEvent(0, 99) }), eventState)
   local state = presentationStateWithActors(assets, actors)
-  local prepared = actors:prepareMap(actorMap(60, { actorEvent(1, 34) }), eventState)
-  local revisionBeforePublication = actors:visualRevision()
+  local revisionBeforeActivation = actors:visualRevision()
 
   state:update(0.016)
-  Assert.isNil(assets.acquisitions[34], "staged actors must not acquire presentation assets")
+  Assert.isNil(assets.acquisitions[34], "a map that was never activated has no presentation assets")
 
-  actors:commitPrepared(prepared)
-  Assert.equal(
-    actors:visualRevision(),
-    revisionBeforePublication + 1,
-    "publishing a nonempty actor map must invalidate presentation synchronization"
+  actors:enterMap(actorMap(60, { actorEvent(1, 34) }), eventState)
+  Assert.isTrue(
+    actors:visualRevision() > revisionBeforeActivation,
+    "activating a nonempty actor map must invalidate presentation synchronization"
   )
   state:update(0.016)
   Assert.equal(assets.acquisitions[34], 1, "the published actor sprite is acquired before drawing")

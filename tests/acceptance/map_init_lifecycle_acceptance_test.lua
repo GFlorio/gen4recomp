@@ -32,6 +32,7 @@ local function installExecutionRecorder()
   local events = {}
   local originalStart = assert(ScriptInteractionClient.startInitScript)
   local originalEnter = assert(FieldActorManager.enterMap)
+  local originalInstantiate = assert(FieldActorManager._instantiate)
   local originalPrepare = assert(FieldRuntime._prepareSwap)
   local originalCommit = assert(FieldRuntime._commitSwap)
   ScriptInteractionClient.startInitScript = function(self, scriptId, tick)
@@ -46,6 +47,15 @@ local function installExecutionRecorder()
     actorEntries[#actorEntries + 1] = { mapId = runtimeMap.mapId }
     events[#events + 1] = { kind = "actors", mapId = runtimeMap.mapId }
     return originalEnter(self, runtimeMap, eventState)
+  end
+  -- The activation-order invariant is about actual object construction, not
+  -- merely the later `enterMap` publication call: a residency path that
+  -- still constructs actors ahead of the recorded lifecycle would otherwise
+  -- report correct ordering while construction had already occurred.
+  ---@param self FieldActorManager
+  FieldActorManager._instantiate = function(self, entry, event, eventState)
+    events[#events + 1] = { kind = "instantiate", mapId = entry.runtimeMap.mapId }
+    return originalInstantiate(self, entry, event, eventState)
   end
   FieldRuntime._prepareSwap = function(self, resolution, facing)
     events[#events + 1] = { kind = "prepare" }
@@ -63,6 +73,7 @@ local function installExecutionRecorder()
     function()
       ScriptInteractionClient.startInitScript = originalStart
       FieldActorManager.enterMap = originalEnter
+      FieldActorManager._instantiate = originalInstantiate
       FieldRuntime._prepareSwap = originalPrepare
       FieldRuntime._commitSwap = originalCommit
     end
@@ -108,7 +119,7 @@ end
 function T.tests.initial_entry_executes_transition_before_actor_construction()
   local harness = lifecycleHarness()
   harness:forEachVersion(function(versionId)
-    local starts, entries, _, restore = installExecutionRecorder()
+    local starts, entries, events, restore = installExecutionRecorder()
     local game
     local ok, err = xpcall(function()
       game = harness:boot({ versionId = versionId, map = "MAP_ROUTE_22", save = "fresh" })
@@ -121,6 +132,19 @@ function T.tests.initial_entry_executes_transition_before_actor_construction()
       Assert.equal(types[starts[1].scriptId], "on_transition")
       Assert.equal(entries[1].mapId, game.runtime.runtimeMap.mapId)
       Assert.isTrue(starts[1].tick < game.runtime.session.tick, "actor entry must follow transition execution")
+      local firstScriptIndex, firstConstructionIndex
+      for index, event in ipairs(events) do
+        if event.kind == "script" and firstScriptIndex == nil then
+          firstScriptIndex = index
+        elseif event.kind == "instantiate" and firstConstructionIndex == nil then
+          firstConstructionIndex = index
+        end
+      end
+      Assert.isTrue(firstScriptIndex ~= nil, "the initial entry must start its transition lifecycle")
+      Assert.isTrue(
+        firstConstructionIndex == nil or firstScriptIndex < firstConstructionIndex,
+        "no object may be constructed before the initial map's on_transition lifecycle starts"
+      )
       advanceToEntryReady(game, starts)
       Assert.equal(game:renderAttempts(), 0)
     end, debug.traceback)
@@ -202,6 +226,22 @@ function T.tests.destination_entry_executes_transition_before_destination_actors
       Assert.isTrue(destinationActorEvent ~= nil, "destination actors must enter")
       Assert.isTrue(destinationTransitionEvent < destinationActorEvent)
       Assert.isTrue(destinationCommitEvent < destinationActorEvent)
+
+      -- The activation-order invariant is about actual construction, not
+      -- merely the later `enterMap` publication call: no destination object
+      -- may be constructed before the destination's own on_transition start.
+      local firstDestinationConstructionEvent
+      for index, event in ipairs(events) do
+        if event.kind == "instantiate" and event.mapId == destination then
+          firstDestinationConstructionEvent = index
+          break
+        end
+      end
+      Assert.isTrue(
+        firstDestinationConstructionEvent ~= nil and destinationTransitionEvent < firstDestinationConstructionEvent,
+        "no destination object may be constructed before the destination's on_transition lifecycle starts; "
+          .. table.concat(eventDescriptions, ",")
+      )
       Assert.equal(game:renderAttempts(), 0)
     end, debug.traceback)
     restore()

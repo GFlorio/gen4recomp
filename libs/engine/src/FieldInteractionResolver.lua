@@ -129,8 +129,10 @@ function FieldInteractionResolver.backgroundDirectionCompatible(playerFacingRaw,
 end
 
 -- opts.actorAt: function(mapId, candidate) -> actor | nil.
--- The actor manager's occupancy index is the lookup;
--- hidden actors never appear there.
+-- The lookup answers with the active actor map's live occupancy or with an
+-- equivalent read-only source probe for a map that owns no live actors; both
+-- carry the same object identity (`actorId`, `objectEventId`, `sourceEvent`,
+-- `spriteId`). Hidden objects never appear in either.
 ---@param opts FieldInteractionResolverOptions
 ---@return FieldInteractionResolver
 function FieldInteractionResolver.new(opts)
@@ -267,10 +269,10 @@ function FieldInteractionResolver:resolve(snapshot)
   local targetMap = assert(self.targetMapAt(targetX, targetZ, map), "reachable interaction target has no logical map")
   local targetPlate = map.terrain:plate(targetSample.surfaceId)
 
-  -- Object actors first: the occupancy index is keyed by the exact surface,
-  -- and the key is the facing cell's RESOLVED surface, so a cross-surface
-  -- boundary looks up the actor where it actually stands, and a same-x/z
-  -- actor on another surface stays ineligible. Raw script zero remains an
+  -- Object actors first: the lookup is keyed by the exact surface, and the
+  -- key is the facing cell's RESOLVED surface, so a cross-surface boundary
+  -- finds the object where it actually stands, and a same-x/z object on
+  -- another surface stays ineligible. Raw script zero remains an
   -- intent and is canonicalized by the script binding authority.
   local actor = self.actorAt(targetMap.mapId, {
     fieldX = targetX,

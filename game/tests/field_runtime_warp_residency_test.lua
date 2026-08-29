@@ -110,80 +110,21 @@ local function fixture(options)
     self.protections[mapId] = protected and true or nil
   end
 
-  local actors = {
-    maps = {},
-    prepared = {},
-    prepares = 0,
-    commits = 0,
-    leaves = {},
-    rebinds = 0,
-    currentMapId = nil,
-    coverage = sourceCoverage,
-  }
-  function actors:prepareMap(runtimeMap)
-    self.prepares = self.prepares + 1
-    local actor = {
-      actorId = "actor-" .. runtimeMap.mapId,
-      fieldX = 4,
-      fieldZ = 5,
-      facing = "east",
-      visible = true,
-    }
-    local entry = {
-      runtimeMap = runtimeMap,
-      actors = { actor },
-      order = { actor },
-      actor = actor,
-      resident = false,
-    }
-    local prepared = { entry = entry, state = "prepared" }
-    self.prepared[runtimeMap.mapId] = prepared
-    return prepared
-  end
-  function actors:commitPrepared(prepared)
-    self.commits = self.commits + 1
-    local mapId = prepared.entry.runtimeMap.mapId
-    self.maps[mapId] = prepared.entry
-    self.prepared[mapId] = nil
-    prepared.state = "committed"
-  end
-  function actors:discardPrepared(prepared)
-    self.prepared[prepared.entry.runtimeMap.mapId] = nil
-    prepared.state = "discarded"
-  end
-  function actors:leaveMap(mapId)
-    self.maps[mapId] = nil
-    self.leaves[mapId] = (self.leaves[mapId] or 0) + 1
-    if self.currentMapId == mapId then
-      self.currentMapId = nil
-    end
-  end
-  function actors:rebindMap(mapId, runtimeMap)
-    local entry = assert(self.maps[mapId])
-    Assert.equal(runtimeMap.mapId, mapId)
-    entry.runtimeMap = runtimeMap
-    self.rebinds = self.rebinds + 1
-  end
-  function actors:reconcilePhysicalWorld()
-    local committed = {}
-    for _, descriptor in ipairs(self.coverage:committedDescriptors()) do
-      committed[descriptor.mapHeaderId] = true
-    end
-    for mapId, entry in pairs(self.maps) do
-      entry.resident = committed[mapId] == true
-    end
-  end
-  function actors:setActiveMap(mapId)
-    Assert.notNil(self.maps[mapId], "active actor map must be resident")
-    self.currentMapId = mapId
-  end
+  -- Logical residency owns no actor state: physical reprojection of the
+  -- already-active entry is its only legitimate actor collaboration, so
+  -- reaching any other actor operation from a warp transaction fails here.
+  local actors = setmetatable({}, {
+    __index = function(_, key)
+      error("logical residency must not reach FieldActorManager." .. tostring(key), 0)
+    end,
+  })
+  function actors:reconcilePhysicalWorld() end
 
   local coordinator = FieldResidencyCoordinator.new({
     coverage = sourceCoverage,
     mapLoader = loader,
     actors = actors,
     zoneController = { currentMap = maps[10] },
-    eventState = {},
     composeMap = function(logicalMap, physicalCoverage)
       if physicalCoverage then
         return runtimeView(logicalMap, physicalCoverage)
@@ -299,8 +240,7 @@ function T.failed_warp_preparation_preserves_source_logical_and_physical_state()
       end
     end,
   })
-  local sourceEntry = assert(f.actors.maps[10])
-  local sourceActor = sourceEntry.actor
+  local sourceLogicalMap = assert(f.coordinator:mapForId(10))
   local physical = {
     coverage = destinationCoverage,
     replacement = true,
@@ -318,13 +258,11 @@ function T.failed_warp_preparation_preserves_source_logical_and_physical_state()
   end)
   Assert.isFalse(ok)
   Assert.equal(tostring(err), "destination logical preparation failed")
-  Assert.equal(f.actors.maps[10], sourceEntry)
-  Assert.equal(f.actors.maps[10].actor, sourceActor)
-  Assert.equal(f.actors.currentMapId, 10)
+  Assert.equal(f.coordinator:mapForId(10), sourceLogicalMap, "the source logical resident must be unchanged")
   Assert.equal(f.coordinator.coverage, f.sourceCoverage)
   Assert.isTrue(f.loader.protections[10])
-  Assert.isNil(f.actors.maps[20])
-  Assert.isNil(f.actors.maps[30])
+  Assert.isNil(f.coordinator:mapForId(20))
+  Assert.isNil(f.coordinator:mapForId(30))
   Assert.isNil(f.loader.protections[20])
   Assert.isNil(f.loader.protections[30])
 
@@ -371,7 +309,10 @@ function T.indoor_and_outdoor_round_trip_keeps_each_owner_valid()
   Assert.deepEqual(f.coordinator:status().residentMapIds, { 20 })
 end
 
-function T.resident_destination_rebind_preserves_actor_identity_and_state()
+-- A warp destination that is already a logical resident is a reuse, not a
+-- rebuild: residency composes the fresh physical view over the same logical
+-- map and reuses the existing protection.
+function T.resident_destination_is_reused_without_reloading_or_churning_protection()
   local f = fixture({
     sourceDescriptors = {
       { mapHeaderId = 10 },
@@ -380,13 +321,7 @@ function T.resident_destination_rebind_preserves_actor_identity_and_state()
   })
   f.sourceCoverage.footprint = f.sourceCoverage.committed
   f.coordinator:updatePrefetch()
-  local destinationEntry = assert(f.actors.maps[20])
-  local actor = destinationEntry.actor
-  actor.fieldX = 17
-  actor.fieldZ = 23
-  actor.facing = "west"
-  actor.visible = false
-  local prepareCount = f.actors.prepares
+  local loads = f.loader.loads
   local protectionCalls = f.loader.protectionCalls[20]
   local destinationCoverage = coverage("destination", { { mapHeaderId = 20 } }, 20)
   local destination = runtimeView(f.maps[20], destinationCoverage)
@@ -394,16 +329,9 @@ function T.resident_destination_rebind_preserves_actor_identity_and_state()
   local transaction = prepare(f.coordinator, destination, destinationCoverage)
   f.coordinator:commitTransition(transaction)
 
-  Assert.equal(f.actors.maps[20], destinationEntry)
-  Assert.equal(f.actors.maps[20].actor, actor)
-  Assert.equal(actor.fieldX, 17)
-  Assert.equal(actor.fieldZ, 23)
-  Assert.equal(actor.facing, "west")
-  Assert.isFalse(actor.visible)
-  Assert.equal(f.actors.maps[20].runtimeMap, destination)
-  Assert.equal(f.actors.prepares, prepareCount)
-  Assert.equal(f.loader.protectionCalls[20], protectionCalls)
-  Assert.equal(f.actors.rebinds, 1)
+  Assert.equal(f.coordinator:mapForId(20), destination, "the committed target composes the fresh physical view")
+  Assert.equal(f.loader.protectionCalls[20], protectionCalls, "reused protection must not churn")
+  Assert.equal(f.loader.loads, loads, "a resident logical map must not reload")
 end
 
 return {

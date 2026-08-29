@@ -106,8 +106,14 @@ function T.tests.destination_context_is_authoritative_after_crossing()
     Assert.equal(runtime.runtimeMap.mapId, ROUTE_29_ID)
     Assert.equal(runtime.runtimeMap.mapSymbol, ROUTE_29)
     Assert.equal(runtime.scripts.mapSource.mapId, ROUTE_29_ID)
-    Assert.equal(runtime.actors.maps[ROUTE_29_ID] ~= nil, true)
-    Assert.notNil(runtime.actors.maps[before.mapId], "the source map remains in the logical ready footprint")
+    Assert.notNil(runtime.residency:mapForId(before.mapId), "the source map remains in the logical ready footprint")
+    -- Object actors follow the crossing through the destination's own entry
+    -- lifecycle, so the live actor world settles on the destination once that
+    -- entry completes and the source map keeps no live entry.
+    game:waitForFieldReady()
+    Assert.equal(runtime.actors.currentMapId, ROUTE_29_ID)
+    Assert.notNil(runtime.actors.maps[ROUTE_29_ID], "the destination becomes the one active actor map")
+    Assert.isNil(runtime.actors.maps[before.mapId], "the source map keeps no live actor entry")
     Assert.equal(runtime.weatherRuntime.mapId, ROUTE_29_ID)
     Assert.equal(runtime.audio:currentMapId(), ROUTE_29_ID)
     Assert.equal(game.runtime.lastZoneChange.newMapId, ROUTE_29_ID)

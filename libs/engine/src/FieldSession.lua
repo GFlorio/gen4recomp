@@ -55,7 +55,6 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field initController table|nil
 ---@field enterMapActors fun()?
 ---@field autoAcknowledgePresentation boolean?
----@field constructActorsDuringTransition boolean?
 
 ---@class FieldSession.Interactions
 ---@field resolve fun(self: FieldSession.Interactions, snapshot: InteractionResolverSnapshot): InteractionIntent?
@@ -87,11 +86,12 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field mapEntryStage string?
 ---@field childResumePending boolean
 ---@field autoAcknowledgePresentation boolean
----@field constructActorsDuringTransition boolean
 ---@field tick integer
 ---@field accumulator number
 ---@field navigationBoundary table?
 ---@field _boundaryMovementDirection FieldDirection?
+---@field _mapEntryMode "full"|"connection"|nil
+---@field _connectionArrivalPending boolean
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
@@ -210,26 +210,44 @@ function FieldSession.new(options)
     mapEntryStage = nil,
     childResumePending = false,
     autoAcknowledgePresentation = options.autoAcknowledgePresentation == true,
-    constructActorsDuringTransition = options.constructActorsDuringTransition == true,
     navigationBoundary = options.navigationBoundary,
     tick = 0,
     accumulator = 0,
     _boundaryMovementDirection = nil,
+    _mapEntryMode = nil,
+    _connectionArrivalPending = false,
   }, FieldSession)
   return session
 end
 
-function FieldSession:beginMapEntry()
+-- The two map-entry modes share the transition and actor stages. A full entry
+-- (initial boot or warp) continues into load, presentation acknowledgement,
+-- and resume; a seamless connection entry reaches ready straight after actor
+-- activation.
+---@param self FieldSession
+---@param mode "full"|"connection"
+local function beginMapEntry(self, mode)
   assert(type(self.enterMapActors) == "function", "map actor entry capability required")
   assert(self.initController and self.initController.startLifecycle, "map lifecycle controller required")
+  self._mapEntryMode = mode
   self.mapEntryStage = "transition"
+end
+
+function FieldSession:beginMapEntry()
+  beginMapEntry(self, "full")
 end
 
 function FieldSession:onChildApplicationResume()
   self.childResumePending = true
 end
 
+-- A seamless connection never leaves the world: it stays outside the fade
+-- transition and remains presentable for its whole lifecycle. Only a full
+-- entry hides the destination until it has been presented.
 function FieldSession:destinationWorldPresentable()
+  if self._mapEntryMode == "connection" then
+    return true
+  end
   return not HIDDEN_ENTRY_STAGES[self.mapEntryStage]
 end
 
@@ -256,11 +274,7 @@ function FieldSession:_advanceMapEntryBoundary()
     end
     if hasEntryLifecycle(self, "on_transition") then
       if self.initController:startLifecycle("on_transition", self.tick + 1) then
-        -- Headless production boots acknowledge presentation automatically;
-        -- construct actors at that boundary so the transition script can
-        -- address the destination map. The observable presentation path
-        -- still waits for the foreground lifecycle to finish.
-        self.mapEntryStage = self.constructActorsDuringTransition and "actors" or "transition_running"
+        self.mapEntryStage = "transition_running"
       end
     else
       self.mapEntryStage = "actors"
@@ -274,7 +288,7 @@ function FieldSession:_advanceMapEntryBoundary()
     return true
   elseif stage == "actors" then
     self.enterMapActors()
-    self.mapEntryStage = "load"
+    self.mapEntryStage = self._mapEntryMode == "connection" and "ready" or "load"
     return true
   elseif stage == "load" then
     if self.scriptScheduler:foregroundEnvironmentId() ~= nil then
@@ -320,6 +334,7 @@ function FieldSession:_advanceMapEntryBoundary()
     return true
   elseif stage == "ready" then
     self.mapEntryStage = nil
+    self._mapEntryMode = nil
     return false
   end
   error("unknown map entry stage " .. tostring(stage))
@@ -439,6 +454,40 @@ end
 
 local function resolvePassiveSign(self)
   return self.eventResolver.resolvePassiveSign(self.currentMap, self.player)
+end
+
+-- An event consumed on the arrival tile owns its tick: the tile settles
+-- instead of interpolating onward.
+---@param self FieldSession
+local function settleArrivalTile(self)
+  if self.playerVisual then
+    self.playerVisual:settle()
+  end
+  self.player:collapseRenderInterpolation()
+  self.camera:updateFixed(self:actorTarget())
+  collapseCameraInterpolation(self.camera)
+end
+
+-- The script client resolves the binding; an unbound coordinate event is a
+-- composition fault.
+---@param self FieldSession
+---@param intent InteractionIntent
+local function consumeCoordinateIntent(self, intent)
+  local result = self.scriptClient:consume(intent, self.tick + 1)
+  assert(
+    result == ScriptInteractionClient.RESULTS.started or result == ScriptInteractionClient.RESULTS.blocked,
+    "a coordinate event must be bound: " .. tostring(intent.mapId)
+  )
+  settleArrivalTile(self)
+end
+
+-- A passive sign facing the player settles the field the same way a
+-- coordinate event does once the script client has consumed it.
+---@param self FieldSession
+---@param intent InteractionIntent
+local function consumePassiveIntent(self, intent)
+  self.scriptClient:consume(intent, self.tick + 1)
+  settleArrivalTile(self)
 end
 
 function FieldSession:updateFixed(inputSnapshot)
@@ -599,6 +648,25 @@ function FieldSession:updateFixed(inputSnapshot)
   end
   if self.mapEntryStage then
     if self:_advanceMapEntryBoundary() or self.mapEntryStage ~= nil then
+      self:_advanceTick()
+      return
+    end
+  end
+
+  -- The seam arrival deferred by a connection entry resolves here, once, on
+  -- the first ordinary boundary after destination actor activation and ahead
+  -- of any frame-init evaluation or manual input.
+  if self._connectionArrivalPending and not self.mapEntryStage then
+    self._connectionArrivalPending = false
+    local arrivalIntent = resolveCoordinate(self)
+    if arrivalIntent then
+      consumeCoordinateIntent(self, arrivalIntent)
+      self:_advanceTick()
+      return
+    end
+    local arrivalPassiveIntent = resolvePassiveSign(self)
+    if arrivalPassiveIntent then
+      consumePassiveIntent(self, arrivalPassiveIntent)
       self:_advanceTick()
       return
     end
@@ -812,59 +880,51 @@ function FieldSession:updateFixed(inputSnapshot)
           fieldX = self.player.fieldX,
           fieldZ = self.player.fieldZ,
         }
+        -- A seamless crossing enters the destination map before its events
+        -- run: the destination transition lifecycle and its actor activation
+        -- own the next ticks, and the arrival tile's event -- its coordinate
+        -- event, or the passive sign it faces -- waits for them instead of
+        -- resolving against a map that is not live yet.
+        beginMapEntry(self, "connection")
+        self._connectionArrivalPending = true
       end
     end
     self:_emitTerrainResponse()
     if self.audio and not zoneChanged then
       self.audio:updateField()
     end
-    local coordinateIntent = resolveCoordinate(self)
-    if coordinateIntent then
-      local coordinateResult = self.scriptClient:consume(coordinateIntent, self.tick + 1)
-      assert(
-        coordinateResult == ScriptInteractionClient.RESULTS.started
-          or coordinateResult == ScriptInteractionClient.RESULTS.blocked,
-        "a coordinate event must be bound: " .. tostring(coordinateIntent.mapId)
-      )
-      if self.playerVisual then
-        self.playerVisual:settle()
+    if not zoneChanged then
+      local coordinateIntent = resolveCoordinate(self)
+      if coordinateIntent then
+        consumeCoordinateIntent(self, coordinateIntent)
+        self:_advanceTick()
+        return
       end
-      self.player:collapseRenderInterpolation()
-      self.camera:updateFixed(self:actorTarget())
-      collapseCameraInterpolation(self.camera)
-      self:_advanceTick()
-      return
-    end
-    -- Standing-trigger path: a completed step onto a warp tile
-    -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
-    -- behaviors only; direction-gated warps wait for the facing path above.
-    local trigger = zoneChanged and nil
-      or TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
-    if
-      trigger
-      and not hasCoordinateAt(self, self.player.fieldX, self.player.fieldZ)
-      and not WarpSystem.isSuppressed(
-        self.transition.suppression,
-        self.currentMap.mapId,
-        trigger.warp.x,
-        trigger.warp.z
-      )
-    then
-      self.transition:start(self.currentMap, trigger, self.player.facing)
-      self:_advanceTick()
-      return
-    end
-    local passiveIntent = resolvePassiveSign(self)
-    if passiveIntent then
-      self.scriptClient:consume(passiveIntent, self.tick + 1)
-      if self.playerVisual then
-        self.playerVisual:settle()
+      -- Standing-trigger path: a completed step onto a warp tile
+      -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
+      -- behaviors only; direction-gated warps wait for the facing path above.
+      local trigger =
+        TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
+      if
+        trigger
+        and not hasCoordinateAt(self, self.player.fieldX, self.player.fieldZ)
+        and not WarpSystem.isSuppressed(
+          self.transition.suppression,
+          self.currentMap.mapId,
+          trigger.warp.x,
+          trigger.warp.z
+        )
+      then
+        self.transition:start(self.currentMap, trigger, self.player.facing)
+        self:_advanceTick()
+        return
       end
-      self.player:collapseRenderInterpolation()
-      self.camera:updateFixed(self:actorTarget())
-      collapseCameraInterpolation(self.camera)
-      self:_advanceTick()
-      return
+      local passiveIntent = resolvePassiveSign(self)
+      if passiveIntent then
+        consumePassiveIntent(self, passiveIntent)
+        self:_advanceTick()
+        return
+      end
     end
   end
   if completionDirection then

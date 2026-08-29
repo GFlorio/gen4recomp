@@ -1,14 +1,16 @@
 -- Owns logical field-map preparation and residency around the committed
--- physical coverage. Map loading, actor storage, and physical-cell ownership
+-- physical coverage. Map loading, actor lifetime, and physical-cell ownership
 -- remain with their existing owners; this module only coordinates membership
--- and transaction order.
+-- and transaction order. Object actors belong to FieldActorManager alone: a
+-- logical resident never implies a live actor entry, and the only actor
+-- collaboration here is reprojecting the already-active entry when committed
+-- physical coverage recenters.
 
 ---@class FieldResidencyCoordinator
 ---@field coverage FieldCoverage?
 ---@field mapLoader FieldMapLoader
 ---@field actors FieldActorManager
 ---@field zoneController FieldZoneController
----@field eventState FieldEventState
 ---@field composeMap fun(runtimeMap: RuntimeFieldMap, coverage: FieldCoverage?): RuntimeFieldMap
 ---@field onPreparedMap fun(runtimeMap: RuntimeFieldMap)?
 ---@field residents table<integer, FieldResidencyCoordinator.Resident>
@@ -28,14 +30,12 @@ FieldResidencyCoordinator.__index = FieldResidencyCoordinator
 ---@class FieldResidencyCoordinator.StagedResident
 ---@field mapId integer
 ---@field resident FieldResidencyCoordinator.Resident
----@field prepared FieldActorManager.PreparedMap
 ---@field protected boolean
 
 ---@class FieldResidencyCoordinator.Transition
 ---@field coordinator FieldResidencyCoordinator
 ---@field sourceCoverage FieldCoverage?
 ---@field sourceResidents table<integer, FieldResidencyCoordinator.Resident>
----@field sourceActiveMapId integer?
 ---@field targetCoverage FieldCoverage?
 ---@field destinationMapId integer
 ---@field targetResidents table<integer, FieldResidencyCoordinator.Resident>
@@ -67,13 +67,11 @@ function FieldResidencyCoordinator.new(options)
   assert(type(options) == "table", "field residency coordinator options required")
   assert(options.coverage or options.mapLoader, "field residency coordinator map owner required")
   assert(options.mapLoader and options.actors and options.zoneController, "field residency coordinator owners required")
-  assert(options.eventState, "field residency coordinator event state required")
   return setmetatable({
     coverage = options.coverage,
     mapLoader = options.mapLoader,
     actors = options.actors,
     zoneController = options.zoneController,
-    eventState = options.eventState,
     composeMap = options.composeMap or function(runtimeMap)
       return runtimeMap
     end,
@@ -93,22 +91,16 @@ function FieldResidencyCoordinator:_acquireResident(mapId)
   assert(not self.residents[mapId], "logical map is already resident")
   local logicalMap = self.mapLoader:load(mapId)
   local protected = false
-  local prepared
   local runtimeMap
   local ok, result = pcall(function()
     self:_protect(mapId, true)
     protected = true
     runtimeMap = self.composeMap(logicalMap, self.coverage)
-    prepared = self.actors:prepareMap(assert(runtimeMap), self.eventState)
     if self.onPreparedMap then
-      self.onPreparedMap(runtimeMap)
+      self.onPreparedMap(assert(runtimeMap))
     end
-    self.actors:commitPrepared(prepared)
   end)
   if not ok then
-    if prepared and prepared.state == "prepared" then
-      self.actors:discardPrepared(prepared)
-    end
     if protected then
       self:_protect(mapId, false)
     end
@@ -166,15 +158,6 @@ function FieldResidencyCoordinator:_desiredReadyMapIds(anchorX, anchorZ)
   return self:_prefetchMapIds(anchorX, anchorZ)
 end
 
-function FieldResidencyCoordinator:_adoptResident(mapId, runtimeMap)
-  assert(not self.residents[mapId], "logical map is already resident")
-  self.residents[mapId] = {
-    logicalMap = runtimeMap.logicalMap or runtimeMap,
-    runtimeMap = runtimeMap,
-  }
-  self:_protect(mapId, true)
-end
-
 function FieldResidencyCoordinator:_syncResidentViews()
   for _, resident in pairs(self.residents) do
     if type(resident.runtimeMap.syncPhysicalFields) == "function" then
@@ -186,24 +169,9 @@ end
 ---@return FieldResidencyCoordinator
 function FieldResidencyCoordinator:initialize()
   assert(not self.disposed and not self.initialized, "field residency coordinator is not initializable")
-  local required = self:_committedMapIds()
-  if not self.coverage and self.actors.currentMapId ~= nil then
-    local mapId = assert(self.actors.currentMapId)
-    local residentEntry = assert(self.actors.maps[mapId])
-    self:_adoptResident(mapId, assert(residentEntry.runtimeMap))
+  for _, mapId in ipairs(self:_committedMapIds()) do
+    self:_acquireResident(mapId)
   end
-  for _, mapId in ipairs(required) do
-    local entry = self.actors.maps[mapId]
-    if entry then
-      self:_adoptResident(mapId, assert(entry.runtimeMap))
-    else
-      self:_acquireResident(mapId)
-    end
-  end
-  if self.actors.currentMapId == nil and #required > 0 then
-    self.actors:setActiveMap(required[1])
-  end
-  self.actors:reconcilePhysicalWorld()
   self.initialized = true
   if self.coverage then
     self.coverage:queuePrefetch()
@@ -231,7 +199,6 @@ function FieldResidencyCoordinator:_releaseResident(mapId, residents)
   if not residents[mapId] then
     return
   end
-  self.actors:leaveMap(mapId)
   residents[mapId] = nil
   self:_protect(mapId, false)
 end
@@ -281,19 +248,14 @@ function FieldResidencyCoordinator:_stageResident(mapId, targetCoverage, supplie
   local runtimeMap = suppliedRuntimeMap or self.composeMap(logicalMap, targetCoverage)
   assert(runtimeMap.mapId == mapId, "staged runtime map identity mismatch")
   local protected = false
-  local prepared
   local ok, result = pcall(function()
     self:_protect(mapId, true)
     protected = true
-    prepared = self.actors:prepareMap(runtimeMap, self.eventState)
     if self.onPreparedMap then
       self.onPreparedMap(runtimeMap)
     end
   end)
   if not ok then
-    if prepared and prepared.state == "prepared" then
-      self.actors:discardPrepared(prepared)
-    end
     if protected then
       self:_protect(mapId, false)
     end
@@ -305,16 +267,12 @@ function FieldResidencyCoordinator:_stageResident(mapId, targetCoverage, supplie
       logicalMap = logicalMap,
       runtimeMap = assert(runtimeMap),
     },
-    prepared = assert(prepared),
     protected = protected,
   }
 end
 
 ---@param staged FieldResidencyCoordinator.StagedResident
 function FieldResidencyCoordinator:_discardStagedResident(staged)
-  if staged.prepared.state == "prepared" then
-    self.actors:discardPrepared(staged.prepared)
-  end
   if staged.protected then
     self:_protect(staged.mapId, false)
     staged.protected = false
@@ -350,7 +308,6 @@ function FieldResidencyCoordinator:prepareTransition(destinationRuntimeMap, dest
     coordinator = self,
     sourceCoverage = self.coverage,
     sourceResidents = sourceResidents,
-    sourceActiveMapId = self.actors.currentMapId,
     targetCoverage = destinationCoverage,
     destinationMapId = destinationMapId,
     targetResidents = {},
@@ -413,7 +370,6 @@ function FieldResidencyCoordinator:commitTransition(transaction)
   assert(transaction and transaction.coordinator == self, "foreign field residency transition")
   assert(transaction.state == "prepared", "field residency transition is not committable")
   assert(self.coverage == transaction.sourceCoverage, "field residency transition source coverage changed")
-  assert(self.actors.currentMapId == transaction.sourceActiveMapId, "field residency transition active map changed")
   for mapId, resident in pairs(transaction.sourceResidents) do
     assert(self.residents[mapId] == resident, "field residency transition residents changed")
   end
@@ -422,20 +378,10 @@ function FieldResidencyCoordinator:commitTransition(transaction)
   end
 
   for _, staged in ipairs(transaction.staged) do
-    self.actors:commitPrepared(staged.prepared)
     staged.protected = false
-  end
-  for mapId, _ in pairs(transaction.sourceResidents) do
-    if transaction.targetResidents[mapId] then
-      self.actors:rebindMap(mapId, transaction.targetResidents[mapId].runtimeMap)
-    end
   end
   self.residents = transaction.targetResidents
   self.coverage = transaction.targetCoverage
-  if self.coverage then
-    self.actors:reconcilePhysicalWorld()
-  end
-  self.actors:setActiveMap(transaction.destinationMapId)
   for mapId in pairs(transaction.sourceResidents) do
     if not transaction.targetResidents[mapId] then
       self:_releaseResident(mapId, transaction.sourceResidents)
@@ -468,13 +414,6 @@ function FieldResidencyCoordinator:afterCommittedMove(player, context)
     end
     self:_syncResidentViews()
     self.actors:reconcilePhysicalWorld()
-  end
-  if self.coverage then
-    local destinationId = self.coverage and self.coverage:mapHeaderAt(player.fieldX, player.fieldZ)
-      or player.currentMap.mapId
-    self.actors:setActiveMap(assert(destinationId))
-  else
-    self.actors:setActiveMap(player.currentMap.mapId)
   end
   local zoneCoverage = assert(self.coverage) --[[@as FieldZoneCoverage]]
   local zonePlayer = player --[[@as FieldZonePlayer]]

@@ -284,27 +284,29 @@ local function avatarForGender(avatars, gender)
   return assert(match, "compiled avatars have no entry for player gender " .. gender)
 end
 
--- The player consults live actors for its current logical map and source events
--- for an unloaded logical destination. The latter is a read-only preflight.
+-- The one actor lookup shared by movement collision and interaction
+-- discovery: live occupancy for the active actor map, and a read-only source
+-- event probe for any other logical map, resident or preflight. The probe
+-- never publishes an actor map or acquires an actor visual.
+---@param mapId integer
+---@param candidate FieldOccupancyCandidate
+---@return FieldActorManager.Actor|FieldActorManager.ProbeResult|nil
+function FieldRuntime:_actorAt(mapId, candidate)
+  if self.actors.currentMapId == mapId then
+    return self.actors:getAt(mapId, candidate)
+  end
+  local residency = assert(self.residency, "inactive actor lookup requires logical residency")
+  local runtimeMap = residency:mapForId(mapId) or residency:mapForPreflight(mapId)
+  return self.actors:probeAt(runtimeMap, self.eventState, candidate)
+end
+
 ---@param candidate FieldOccupancyCandidate
 ---@return string?
 function FieldRuntime:_playerOccupantAt(candidate)
   local currentMap = self.runtimeMap
   local coverage = currentMap.coverage
   local destinationMapId = coverage and coverage:mapHeaderAt(candidate.fieldX, candidate.fieldZ) or nil
-  local occupant
-  if destinationMapId == nil or destinationMapId == currentMap.mapId then
-    occupant = self.actors:getAt(currentMap.mapId, candidate)
-  else
-    local residency = assert(self.residency, "outdoor occupancy requires logical residency")
-    local destination = residency:mapForId(destinationMapId)
-    if destination then
-      occupant = self.actors:getAt(destinationMapId, candidate)
-    else
-      destination = residency:mapForPreflight(destinationMapId)
-      occupant = self.actors:probeAt(destination, self.eventState, candidate)
-    end
-  end
+  local occupant = self:_actorAt(destinationMapId or currentMap.mapId, candidate)
   return occupant and occupant.actorId or nil
 end
 
@@ -918,13 +920,15 @@ function FieldRuntime:_load()
       self.applicationHost:setMenuPlacement(self.startMenuPlacement)
     end
 
-    -- Interaction discovery: the resolver is pure and consults the manager's
-    -- occupancy index; bound interactions run through the script client and
-    -- the binding audit guarantees every interactable event is bound.
+    -- Interaction discovery: the resolver is pure and consults the same
+    -- live-or-probe actor lookup movement collision uses, so both agree about
+    -- objects on a logical map that is not the active actor map; bound
+    -- interactions run through the script client and the binding audit
+    -- guarantees every interactable event is bound.
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
       actorAt = function(mapId, candidate)
-        return self.actors and self.actors:getAt(mapId, candidate) or nil
+        return self:_actorAt(mapId, candidate)
       end,
       targetMapAt = function(x, z, currentMap)
         local coverage = currentMap.coverage
@@ -1023,7 +1027,6 @@ function FieldRuntime:_load()
       mapLoader = self.mapLoader,
       actors = self.actors,
       zoneController = self.zoneController,
-      eventState = self.eventState,
       composeMap = composeCurrentMap,
       onPreparedMap = self.audio and function(runtimeMap)
         self.audio:prewarmMapMusic(runtimeMap)
