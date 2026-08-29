@@ -38,25 +38,36 @@ local Nsbmd = {}
 -- with a length or meaning the SDK never defines, so it is rejected rather than
 -- silently mis-executed. RET terminates the stream.
 local function fixedArgs(n)
-  return function()
-    return n
-  end
+  return { kind = "fixed", count = n }
 end
 
 -- Option bit0 (0x20) appends a store-slot operand and bit1 (0x40) a restore-slot
 -- operand, store first: sbc.c reads the restore index at rs->c + 2 for
 -- SBCFLG_010 but at rs->c + 3 for SBCFLG_011 (BB; +4 / +5 for NODEDESC).
 local function storeRestoreArgs(base)
-  return function(cmd)
-    local n = base
-    if math.floor(cmd / 0x20) % 2 == 1 then
-      n = n + 1
-    end
-    if math.floor(cmd / 0x40) % 2 == 1 then
-      n = n + 1
-    end
-    return n
+  return { kind = "store-restore", base = base }
+end
+
+local function readNodeMixArgs(_, r, pos)
+  r:assertRange(pos, 3, "sbc-nodemix-count")
+  return 2 + r:u8(pos + 2) * 3
+end
+
+local function readArgumentCount(spec, cmd, r, pos)
+  if type(spec) == "function" then
+    return spec(cmd, r, pos)
   end
+  if spec.kind == "fixed" then
+    return spec.count
+  end
+  local count = spec.base
+  if math.floor(cmd / 0x20) % 2 == 1 then
+    count = count + 1
+  end
+  if math.floor(cmd / 0x40) % 2 == 1 then
+    count = count + 1
+  end
+  return count
 end
 
 local OPT_NONE = { [0] = true }
@@ -79,10 +90,7 @@ local SBC = {
   [0x09] = {
     name = "NODEMIX",
     options = OPT_NONE,
-    args = function(_, r, pos)
-      r:assertRange(pos, 3, "sbc-nodemix-count")
-      return 2 + r:u8(pos + 2) * 3
-    end,
+    args = readNodeMixArgs,
   },
   -- CALLDL: u32 display-list offset relative to the command, then a u32 size.
   [0x0A] = { name = "CALLDL", args = fixedArgs(8), options = OPT_NONE },
@@ -236,17 +244,93 @@ local function decodeNodeData(r, nodeInfoBase, e, scalingRule, context)
   }
 end
 
+local function applyNodeCommand(entry, args, state)
+  entry.nodeIndex = args[1]
+  entry.visible = args[2] % 2 == 1
+  state.currentNode = args[1]
+end
+
+local function applyMaterialCommand(entry, args, state)
+  entry.materialIndex = args[1]
+  state.currentMaterial = args[1]
+  state.matSincePrevShp = true
+end
+
+local function applyShapeCommand(entry, args, state)
+  entry.shapeIndex = args[1]
+  state.draws[#state.draws + 1] = {
+    nodeIndex = state.currentNode,
+    materialIndex = state.currentMaterial,
+    shapeIndex = args[1],
+    offset = entry.offset,
+    materialReapplied = state.matSincePrevShp,
+  }
+  state.matSincePrevShp = false
+end
+
+local function applyNodeDescription(entry, args, state)
+  local fixed = entry.opcode == 0x06 and 3 or 1
+  entry.nodeIndex = args[1]
+  if entry.opcode == 0x06 then
+    entry.parentIndex = args[2]
+    entry.flags = args[3]
+  end
+  if entry.option == 1 or entry.option == 3 then
+    entry.storeSlot = args[fixed + 1]
+  end
+  if entry.option == 2 then
+    entry.restoreSlot = args[fixed + 1]
+  elseif entry.option == 3 then
+    entry.restoreSlot = args[fixed + 2]
+  end
+  state.currentNode = args[1]
+end
+
+local function applyNodeMix(entry, args)
+  entry.storeSlot = args[1]
+  entry.terms = {}
+  for i = 0, args[2] - 1 do
+    entry.terms[#entry.terms + 1] = {
+      matrixSlot = args[3 + i * 3],
+      nodeIndex = args[4 + i * 3],
+      ratio = args[5 + i * 3],
+    }
+  end
+end
+
+local function applyCallDisplayList(entry, args)
+  entry.displayListOffset = args[1] + args[2] * 0x100 + args[3] * 0x10000 + args[4] * 0x1000000
+  entry.displayListSize = args[5] + args[6] * 0x100 + args[7] * 0x10000 + args[8] * 0x1000000
+end
+
+local function applyPositionScale(entry)
+  entry.inverse = entry.option == 1
+end
+
+local SBC_HANDLERS = {
+  [0x02] = applyNodeCommand,
+  [0x04] = applyMaterialCommand,
+  [0x05] = applyShapeCommand,
+  [0x06] = applyNodeDescription,
+  [0x07] = applyNodeDescription,
+  [0x08] = applyNodeDescription,
+  [0x09] = applyNodeMix,
+  [0x0A] = applyCallDisplayList,
+  [0x0B] = applyPositionScale,
+}
+
 -- Decode the SBC stream in [start, limit). Returns commands, opcode counts, and
 -- the ordered MAT/SHP draw instances bound to the active node.
 local function decodeSbc(r, start, limit, context)
   local commands, counts, draws = {}, {}, {}
   local pos = start
-  local currentNode, currentMaterial = 0, 0
-  -- Track whether a MAT was issued since the previous SHP: the compiler seeds a
-  -- shape's initial GX color state from the material only when it was reapplied,
-  -- otherwise the previous shape's final color/normal state carries over. The
-  -- stream start counts as an implicit apply.
-  local matSincePrevShp = true
+  local state = {
+    currentNode = 0,
+    currentMaterial = 0,
+    draws = draws,
+    -- The stream start counts as an implicit material apply.
+    matSincePrevShp = true,
+  }
   while pos < limit do
     local cmd = r:u8(pos)
     local op = cmd % 0x20 -- low 5 bits; high bits are option flags
@@ -276,7 +360,7 @@ local function decodeSbc(r, start, limit, context)
       )
     end
 
-    local nargs = def.args(cmd, r, pos)
+    local nargs = readArgumentCount(def.args, cmd, r, pos)
     r:assertRange(pos, 1 + nargs, "sbc-cmd")
 
     local args = {}
@@ -294,59 +378,13 @@ local function decodeSbc(r, start, limit, context)
       args = args,
     }
 
-    if op == 0x02 then
-      entry.nodeIndex = args[1]
-      entry.visible = args[2] % 2 == 1
-      currentNode = args[1]
-    elseif op == 0x03 then
+    if op == 0x03 then
       entry.matrixSlot = args[1]
-    elseif op == 0x04 then
-      entry.materialIndex = args[1]
-      currentMaterial = args[1]
-      matSincePrevShp = true
-    elseif op == 0x05 then
-      entry.shapeIndex = args[1]
-      draws[#draws + 1] = {
-        nodeIndex = currentNode,
-        materialIndex = currentMaterial,
-        shapeIndex = args[1],
-        offset = pos,
-        materialReapplied = matSincePrevShp,
-      }
-      matSincePrevShp = false
-    elseif op == 0x06 or op == 0x07 or op == 0x08 then
-      -- NODEDESC carries node/parent/flags; BB and BBY only a node index. All
-      -- three then share the optional store/restore slot operands.
-      local fixed = op == 0x06 and 3 or 1
-      entry.nodeIndex = args[1]
-      if op == 0x06 then
-        entry.parentIndex = args[2]
-        entry.flags = args[3]
-      end
-      if option == 1 or option == 3 then
-        entry.storeSlot = args[fixed + 1]
-      end
-      if option == 2 then
-        entry.restoreSlot = args[fixed + 1]
-      elseif option == 3 then
-        entry.restoreSlot = args[fixed + 2]
-      end
-      currentNode = args[1]
-    elseif op == 0x09 then
-      entry.storeSlot = args[1]
-      entry.terms = {}
-      for i = 0, args[2] - 1 do
-        entry.terms[#entry.terms + 1] = {
-          matrixSlot = args[3 + i * 3],
-          nodeIndex = args[4 + i * 3],
-          ratio = args[5 + i * 3],
-        }
-      end
-    elseif op == 0x0A then
-      entry.displayListOffset = args[1] + args[2] * 0x100 + args[3] * 0x10000 + args[4] * 0x1000000
-      entry.displayListSize = args[5] + args[6] * 0x100 + args[7] * 0x10000 + args[8] * 0x1000000
-    elseif op == 0x0B then
-      entry.inverse = option == 1
+    end
+
+    local handler = SBC_HANDLERS[op]
+    if handler then
+      handler(entry, args, state)
     end
 
     commands[#commands + 1] = entry

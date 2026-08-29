@@ -252,112 +252,118 @@ local function newSegment(positionSource)
   }
 end
 
--- Convert the open vertex run into triangles. Strict mode (END_VTXS) rejects
--- incomplete primitives as malformed. Lenient mode (a mid-run matrix
--- boundary) emits the complete primitives and returns the number of trailing
--- vertices that belong to the primitive straddling the boundary; the caller
--- carries them into the next segment and records their pre-boundary source,
--- so the runtime can reproduce the geometry engine's per-vertex bend.
--- Triangle-strip winding alternates on the running vertex index, so the
--- conversion honors the run's parity offset: a mid-run split carries the
--- offset into the next segment's run.
-local function convertRun(d, offset, lenient)
-  local run, t = d.run, d.primType
-  if run == nil then
-    error("primitive run is missing")
-  end
-  local n = #run
-  local tail = 0
-  local indices = d.dynamic and d.currentSegment.indices or d.indices
+local function appendTriangle(indices, run, a, b, c)
   local function vertex(index)
     return run[index + 1] or error("primitive references a missing vertex")
   end
-  local function tri(a, b, c)
-    indices[#indices + 1] = vertex(a)
-    indices[#indices + 1] = vertex(b)
-    indices[#indices + 1] = vertex(c)
+  indices[#indices + 1] = vertex(a)
+  indices[#indices + 1] = vertex(b)
+  indices[#indices + 1] = vertex(c)
+end
+
+local function convertTriangleList(_, run, indices, offset, lenient)
+  local n = #run
+  local complete = n - n % 3
+  local tail = 0
+  if n % 3 ~= 0 then
+    if not lenient then
+      error(
+        Errors.new(
+          "GX_INCOMPLETE_PRIMITIVE",
+          string.format("triangle list has %d vertices (not a multiple of 3)", n),
+          { offset = offset }
+        )
+      )
+    end
+    tail = n % 3
   end
-  if t == 0 then -- separate triangles
-    local complete = n - n % 3
-    if n % 3 ~= 0 then
-      if not lenient then
-        error(
-          Errors.new(
-            "GX_INCOMPLETE_PRIMITIVE",
-            string.format("triangle list has %d vertices (not a multiple of 3)", n),
-            { offset = offset }
-          )
-        )
-      end
-      tail = n % 3
-    end
-    for i = 0, complete - 1, 3 do
-      tri(i, i + 1, i + 2)
-    end
-  elseif t == 1 then -- separate quads
-    local complete = n - n % 4
-    if n % 4 ~= 0 then
-      if not lenient then
-        error(
-          Errors.new(
-            "GX_INCOMPLETE_PRIMITIVE",
-            string.format("quad list has %d vertices (not a multiple of 4)", n),
-            { offset = offset }
-          )
-        )
-      end
-      tail = n % 4
-    end
-    for i = 0, complete - 1, 4 do
-      tri(i, i + 1, i + 2)
-      tri(i, i + 2, i + 3)
-    end
-  elseif t == 2 then -- triangle strip
-    if n < 3 then
-      if not lenient then
-        error(Errors.new("GX_INCOMPLETE_PRIMITIVE", "triangle strip has fewer than 3 vertices", { offset = offset }))
-      end
-      tail = n
-    else
-      local parity = d.runParity
-      for i = 2, n - 1 do
-        if (i + parity) % 2 == 0 then
-          tri(i - 2, i - 1, i)
-        else
-          tri(i - 1, i - 2, i)
-        end
-      end
-      -- The next triangle would cross the boundary into the new segment.
-      if lenient then
-        tail = 2
-      end
-    end
-  elseif t == 3 then -- quad strip
-    if n < 4 then
-      if not lenient then
-        error(
-          Errors.new("GX_INCOMPLETE_PRIMITIVE", string.format("quad strip has %d vertices", n), { offset = offset })
-        )
-      end
-      tail = n
-    else
-      for i = 0, n - 4, 2 do
-        tri(i, i + 1, i + 3)
-        tri(i, i + 3, i + 2)
-      end
-      if n % 2 ~= 0 and not lenient then
-        error(
-          Errors.new("GX_INCOMPLETE_PRIMITIVE", string.format("quad strip has %d vertices", n), { offset = offset })
-        )
-      end
-      -- The next quad would cross the boundary into the new segment; its
-      -- leading vertices are the last (n % 2 == 0 and 2 or 3) of this run.
-      if lenient then
-        tail = math.min(n, n % 2 == 0 and 2 or 3)
-      end
-    end
+  for i = 0, complete - 1, 3 do
+    appendTriangle(indices, run, i, i + 1, i + 2)
   end
   return tail
+end
+
+local function convertQuadList(_, run, indices, offset, lenient)
+  local n = #run
+  local complete = n - n % 4
+  local tail = 0
+  if n % 4 ~= 0 then
+    if not lenient then
+      error(
+        Errors.new(
+          "GX_INCOMPLETE_PRIMITIVE",
+          string.format("quad list has %d vertices (not a multiple of 4)", n),
+          { offset = offset }
+        )
+      )
+    end
+    tail = n % 4
+  end
+  for i = 0, complete - 1, 4 do
+    appendTriangle(indices, run, i, i + 1, i + 2)
+    appendTriangle(indices, run, i, i + 2, i + 3)
+  end
+  return tail
+end
+
+local function convertTriangleStrip(d, run, indices, offset, lenient)
+  local n = #run
+  if n < 3 then
+    if not lenient then
+      error(Errors.new("GX_INCOMPLETE_PRIMITIVE", "triangle strip has fewer than 3 vertices", { offset = offset }))
+    end
+    return n
+  end
+  local parity = d.runParity
+  for i = 2, n - 1 do
+    if (i + parity) % 2 == 0 then
+      appendTriangle(indices, run, i - 2, i - 1, i)
+    else
+      appendTriangle(indices, run, i - 1, i - 2, i)
+    end
+  end
+  -- The next triangle would cross the boundary into the new segment.
+  return lenient and 2 or 0
+end
+
+local function convertQuadStrip(_, run, indices, offset, lenient)
+  local n = #run
+  if n < 4 then
+    if not lenient then
+      error(Errors.new("GX_INCOMPLETE_PRIMITIVE", string.format("quad strip has %d vertices", n), { offset = offset }))
+    end
+    return n
+  end
+  for i = 0, n - 4, 2 do
+    appendTriangle(indices, run, i, i + 1, i + 3)
+    appendTriangle(indices, run, i, i + 3, i + 2)
+  end
+  if n % 2 ~= 0 and not lenient then
+    error(Errors.new("GX_INCOMPLETE_PRIMITIVE", string.format("quad strip has %d vertices", n), { offset = offset }))
+  end
+  -- The next quad would cross the boundary into the new segment; its
+  -- leading vertices are the last (n % 2 == 0 and 2 or 3) of this run.
+  return lenient and math.min(n, n % 2 == 0 and 2 or 3) or 0
+end
+
+local PRIMITIVE_CONVERTERS = {
+  convertTriangleList,
+  convertQuadList,
+  convertTriangleStrip,
+  convertQuadStrip,
+}
+
+-- Convert the open vertex run into triangles. Strict mode (END_VTXS) rejects
+-- incomplete primitives as malformed. Lenient mode (a mid-run matrix
+-- boundary) emits complete primitives and returns the trailing vertices that
+-- belong to the primitive straddling the boundary.
+local function convertRun(d, offset, lenient)
+  local run, primitiveType = d.run, d.primType
+  if run == nil then
+    error("primitive run is missing")
+  end
+  local indices = d.dynamic and d.currentSegment.indices or d.indices
+  return PRIMITIVE_CONVERTERS[primitiveType + 1](d, run, indices, offset, lenient)
 end
 
 -- End the current dynamic segment and start the next one under `positionSource`.
@@ -521,7 +527,7 @@ end
 
 local EXEC = {}
 
-EXEC[0x10] = function(d, p, offset, context)
+local function executeMtxMode(d, p, offset, context)
   local mode = p[1] % 4
   -- Projection-matrix ops would have to be replayed against a projection this
   -- decoder never sees; no target shape selects it.
@@ -536,7 +542,9 @@ EXEC[0x10] = function(d, p, offset, context)
   end
   d.mtxMode = mode
 end
-EXEC[0x11] = function(d)
+EXEC[0x10] = executeMtxMode
+
+local function executeMtxPush(d)
   if d.dynamic then
     d:dynamicMatrixGuard(d.currentOffset)
     d.pushStack[#d.pushStack + 1] = { d.baked, d.bakedDirection, d.positionSource }
@@ -544,7 +552,9 @@ EXEC[0x11] = function(d)
     d.pushStack[#d.pushStack + 1] = { d.matrix, d.directionMatrix }
   end
 end
-EXEC[0x12] = function(d)
+EXEC[0x11] = executeMtxPush
+
+local function executeMtxPop(d)
   local top = d.pushStack[#d.pushStack]
   if top then
     if d.dynamic then
@@ -565,7 +575,9 @@ EXEC[0x12] = function(d)
     d.pushStack[#d.pushStack] = nil
   end
 end
-EXEC[0x13] = function(d, p, offset)
+EXEC[0x12] = executeMtxPop
+
+local function executeMtxStore(d, p, offset)
   local slot = p[1] % 32
   if d.dynamic then
     -- A slot write captures the *unresolved* draw matrix (baked x draw), so
@@ -587,7 +599,9 @@ EXEC[0x13] = function(d, p, offset)
     d.directionRestoreStack[slot] = d.directionMatrix
   end
 end
-EXEC[0x14] = function(d, p, offset)
+EXEC[0x13] = executeMtxStore
+
+local function executeMtxRestore(d, p, offset)
   local slot = p[1] % 32
   if d.dynamic and d:touchesPosition() then
     -- The slot's contents are pose-dependent: the segment defers the matrix
@@ -606,7 +620,9 @@ EXEC[0x14] = function(d, p, offset)
     d.directionMatrix = direction
   end
 end
-EXEC[0x15] = function(d, _, offset)
+EXEC[0x14] = executeMtxRestore
+
+local function executeMtxIdentity(d, _, offset)
   d:dynamicMatrixGuard(offset)
   if d.dynamic then
     if d:touchesPosition() then
@@ -619,7 +635,9 @@ EXEC[0x15] = function(d, _, offset)
   end
   d:loadMatrix(identity())
 end
-EXEC[0x16] = function(d, p, offset)
+EXEC[0x15] = executeMtxIdentity
+
+local function executeMtxLoad4x4(d, p, offset)
   d:dynamicMatrixGuard(offset)
   if d.dynamic then
     if d:touchesPosition() then
@@ -632,7 +650,9 @@ EXEC[0x16] = function(d, p, offset)
   end
   d:loadMatrix(mat4x4(p))
 end
-EXEC[0x17] = function(d, p, offset)
+EXEC[0x16] = executeMtxLoad4x4
+
+local function executeMtxLoad4x3(d, p, offset)
   d:dynamicMatrixGuard(offset)
   if d.dynamic then
     if d:touchesPosition() then
@@ -645,7 +665,9 @@ EXEC[0x17] = function(d, p, offset)
   end
   d:loadMatrix(mat4x3(p))
 end
-EXEC[0x18] = function(d, p, offset)
+EXEC[0x17] = executeMtxLoad4x3
+
+local function executeMtxMult4x4(d, p, offset)
   d:dynamicMatrixGuard(offset)
   if d.dynamic then
     if d:touchesPosition() then
@@ -658,7 +680,9 @@ EXEC[0x18] = function(d, p, offset)
   end
   d:applyMatrix(mat4x4(p))
 end
-EXEC[0x19] = function(d, p, offset)
+EXEC[0x18] = executeMtxMult4x4
+
+local function executeMtxMult4x3(d, p, offset)
   d:dynamicMatrixGuard(offset)
   if d.dynamic then
     if d:touchesPosition() then
@@ -671,7 +695,9 @@ EXEC[0x19] = function(d, p, offset)
   end
   d:applyMatrix(mat4x3(p))
 end
-EXEC[0x1A] = function(d, p, offset)
+EXEC[0x19] = executeMtxMult4x3
+
+local function executeMtxMult3x3(d, p, offset)
   d:dynamicMatrixGuard(offset)
   local f = FixedPoint.fx32
   local m = {
@@ -703,7 +729,9 @@ EXEC[0x1A] = function(d, p, offset)
   end
   d:applyMatrix(m)
 end
-EXEC[0x1B] = function(d, p, offset)
+EXEC[0x1A] = executeMtxMult3x3
+
+local function executeMtxScale(d, p, offset)
   d:dynamicMatrixGuard(offset)
   local f = FixedPoint.fx32
   local m = { f(p[1]), 0, 0, 0, 0, f(p[2]), 0, 0, 0, 0, f(p[3]), 0, 0, 0, 0, 1 }
@@ -718,7 +746,9 @@ EXEC[0x1B] = function(d, p, offset)
   end
   d:applyMatrix(m)
 end
-EXEC[0x1C] = function(d, p, offset)
+EXEC[0x1B] = executeMtxScale
+
+local function executeMtxTranslate(d, p, offset)
   d:dynamicMatrixGuard(offset)
   local f = FixedPoint.fx32
   local m = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, f(p[1]), f(p[2]), f(p[3]), 1 }
@@ -733,20 +763,27 @@ EXEC[0x1C] = function(d, p, offset)
   end
   d:applyMatrix(m)
 end
+EXEC[0x1C] = executeMtxTranslate
 
-EXEC[0x20] = function(d, p) -- COLOR (BGR555) -> literal vertex color
+local function executeColor(d, p) -- COLOR (BGR555) -> literal vertex color
   d.color = { FixedPoint.rgb555(p[1] % 0x8000) }
   d.colorSource = COLOR_SOURCE.LITERAL
 end
-EXEC[0x21] = function(d, p) -- NORMAL -> vertex color produced by lighting
+EXEC[0x20] = executeColor
+
+local function executeNormal(d, p) -- NORMAL -> vertex color produced by lighting
   local nx, ny, nz = FixedPoint.normal10(p[1])
   d.normal = { nx, ny, nz }
   d.colorSource = COLOR_SOURCE.NORMAL_LIT
 end
-EXEC[0x22] = function(d, p) -- TEXCOORD (1.11.4 -> texel units)
+EXEC[0x21] = executeNormal
+
+local function executeTexcoord(d, p) -- TEXCOORD (1.11.4 -> texel units)
   d.uv = { s16(p[1] % 0x10000) / 16, s16(math.floor(p[1] / 0x10000) % 0x10000) / 16 }
 end
-EXEC[0x23] = function(d, p) -- VTX_16 (fx16 1.3.12)
+EXEC[0x22] = executeTexcoord
+
+local function executeVtx16(d, p) -- VTX_16 (fx16 1.3.12)
   d.pos = {
     s16(p[1] % 0x10000) / 4096,
     s16(math.floor(p[1] / 0x10000) % 0x10000) / 4096,
@@ -754,24 +791,34 @@ EXEC[0x23] = function(d, p) -- VTX_16 (fx16 1.3.12)
   }
   d:emitVertex()
 end
-EXEC[0x24] = function(d, p) -- VTX_10 (10-bit, high bits of 1.3.12 -> /64)
+EXEC[0x23] = executeVtx16
+
+local function executeVtx10(d, p) -- VTX_10 (10-bit, high bits of 1.3.12 -> /64)
   local w = p[1]
   d.pos = { s10(w % 1024) / 64, s10(math.floor(w / 1024) % 1024) / 64, s10(math.floor(w / 1048576) % 1024) / 64 }
   d:emitVertex()
 end
-EXEC[0x25] = function(d, p) -- VTX_XY
+EXEC[0x24] = executeVtx10
+
+local function executeVtxXy(d, p) -- VTX_XY
   d.pos = { s16(p[1] % 0x10000) / 4096, s16(math.floor(p[1] / 0x10000) % 0x10000) / 4096, d.pos[3] }
   d:emitVertex()
 end
-EXEC[0x26] = function(d, p) -- VTX_XZ
+EXEC[0x25] = executeVtxXy
+
+local function executeVtxXz(d, p) -- VTX_XZ
   d.pos = { s16(p[1] % 0x10000) / 4096, d.pos[2], s16(math.floor(p[1] / 0x10000) % 0x10000) / 4096 }
   d:emitVertex()
 end
-EXEC[0x27] = function(d, p) -- VTX_YZ
+EXEC[0x26] = executeVtxXz
+
+local function executeVtxYz(d, p) -- VTX_YZ
   d.pos = { d.pos[1], s16(p[1] % 0x10000) / 4096, s16(math.floor(p[1] / 0x10000) % 0x10000) / 4096 }
   d:emitVertex()
 end
-EXEC[0x28] = function(d, p) -- VTX_DIFF (10-bit signed low bits of 1.3.12)
+EXEC[0x27] = executeVtxYz
+
+local function executeVtxDiff(d, p) -- VTX_DIFF (10-bit signed low bits of 1.3.12)
   local w = p[1]
   d.pos = {
     d.pos[1] + s10(w % 1024) / 4096,
@@ -780,27 +827,69 @@ EXEC[0x28] = function(d, p) -- VTX_DIFF (10-bit signed low bits of 1.3.12)
   }
   d:emitVertex()
 end
-EXEC[0x29] = function(d, p)
+EXEC[0x28] = executeVtxDiff
+
+local function executePolygonAttr(d, p)
   d.polygonAttr = p[1]
   d.polygonAttrs[p[1]] = true
 end
-EXEC[0x2A] = function(d, p)
+EXEC[0x29] = executePolygonAttr
+
+local function executeTeximageParam(d, p)
   d.texParam = p[1]
 end
-EXEC[0x2B] = function(d, p)
+EXEC[0x2A] = executeTeximageParam
+
+local function executePlttBase(d, p)
   d.paletteBase = p[1]
 end
-EXEC[0x30] = function() end
-EXEC[0x31] = function() end
-EXEC[0x32] = function() end
-EXEC[0x33] = function() end
-EXEC[0x34] = function() end
+EXEC[0x2B] = executePlttBase
 
-EXEC[0x40] = function(d, p) -- BEGIN_VTXS
+local function ignoreLightingCommand() end
+
+EXEC[0x30] = ignoreLightingCommand
+EXEC[0x31] = ignoreLightingCommand
+EXEC[0x32] = ignoreLightingCommand
+EXEC[0x33] = ignoreLightingCommand
+EXEC[0x34] = ignoreLightingCommand
+
+local function executeBeginVertices(d, p) -- BEGIN_VTXS
   d.primType = p[1] % 4
   d.run = {}
   d.runParity = 0
   d.runSplit = false
+end
+EXEC[0x40] = executeBeginVertices
+
+local function unpackCommandWord(cmdWord)
+  return {
+    cmdWord % 256,
+    math.floor(cmdWord / 256) % 256,
+    math.floor(cmdWord / 65536) % 256,
+    math.floor(cmdWord / 16777216) % 256,
+  }
+end
+
+local function readCommandParameters(r, pos, count)
+  local params = {}
+  for k = 0, count - 1 do
+    params[k + 1] = r:u32le(pos + k * 4)
+  end
+  return params
+end
+
+local function applyCommand(d, op, params, offset, context, lenientEnd, commandOffset)
+  if op == 0x41 then
+    -- A split run's trailing group is the other half of the straddling
+    -- primitive already dropped and counted at the boundary, so it is
+    -- dropped too rather than reported as malformed; an unsplit run keeps
+    -- rejecting incomplete primitives.
+    convertRun(d, commandOffset, lenientEnd)
+    d.run, d.primType, d.runSplit = nil, nil, false
+    return
+  end
+  d.currentOffset = offset
+  EXEC[op](d, params, offset, context)
 end
 
 function GxDisplayList.opcodeName(op)
@@ -848,12 +937,7 @@ local function _decode(bytes, options)
 
   while pos + 4 <= len do
     local cmdWord = r:u32le(pos)
-    local cmdBytes = {
-      cmdWord % 256,
-      math.floor(cmdWord / 256) % 256,
-      math.floor(cmdWord / 65536) % 256,
-      math.floor(cmdWord / 16777216) % 256,
-    }
+    local cmdBytes = unpackCommandWord(cmdWord)
     local cmdOffset = pos
     pos = pos + 4
     for i = 1, 4 do
@@ -869,24 +953,11 @@ local function _decode(bytes, options)
         )
       end
       if op ~= 0x00 then
-        local params = {}
-        for k = 0, n - 1 do
-          params[k + 1] = r:u32le(pos + k * 4)
-        end
+        local params = readCommandParameters(r, pos, n)
         pos = pos + n * 4
         commands[#commands + 1] = { opcode = op, offset = cmdOffset + i - 1 }
         d.opcodeCounts[op] = (d.opcodeCounts[op] or 0) + 1
-        if op == 0x41 then
-          -- A split run's trailing group is the other half of the straddling
-          -- primitive already dropped and counted at the boundary, so it is
-          -- dropped too rather than reported as malformed; an unsplit run
-          -- keeps rejecting incomplete primitives.
-          convertRun(d, cmdOffset, d.runSplit)
-          d.run, d.primType, d.runSplit = nil, nil, false
-        else
-          d.currentOffset = cmdOffset + i - 1
-          EXEC[op](d, params, cmdOffset + i - 1, options.context)
-        end
+        applyCommand(d, op, params, cmdOffset + i - 1, options.context, d.runSplit, cmdOffset)
       end
     end
   end

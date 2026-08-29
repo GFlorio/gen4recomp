@@ -190,76 +190,86 @@ end
 -- Sample one scalar-or-pair curve channel at `frameFx` (already clamped).
 -- Returns { a, b } where b is nil for scalars and the inverse scale for
 -- scale pairs.
+local function curveValue(keys, keyIndex)
+  -- Compiled keys hold scalars as numbers and scale pairs as tables; the
+  -- arithmetic below expects NitroCurve's { value[, value2] } shape.
+  local key = keys[keyIndex + 1]
+  if type(key) == "table" then
+    return key
+  end
+  return { key }
+end
+
+local function curveBetween(keys, i, j, interpolate, context)
+  local a = curveValue(keys, i)
+  local b = curveValue(keys, j)
+  local out = { interpolate(a[1], b[1], context) }
+  if a[2] ~= nil then
+    out[2] = interpolate(a[2], b[2], context)
+  end
+  return out
+end
+
+local function interpolateWrapped(v1, v2, context)
+  return v1 + asr(mul32(v2 - v1, context.frac), 12)
+end
+
+local function interpolateFractional(a, b, context)
+  return lerpEx(a, b, context.step, context.fracWide)
+end
+
+local function averageFx32(a, b)
+  return asr(a, 1) + asr(b, 1)
+end
+
+local function averageFx16(a, b)
+  return asr(a + b, 1)
+end
+
+local function weightedQuarter(a, b)
+  return asr(3 * a + b, 2)
+end
+
 local function sampleCurveValues(channel, frameFx, numFrame, interpolate, wrapFinal)
   local frame = math.floor(frameFx / FX_UNIT)
   local frac = frameFx % FX_UNIT
   local step = channel.rate
   local index = math.floor(frame / channel.rate)
   local keys = channel.keys
-
-  local function at(keyIndex)
-    -- The compiled keys hold scalars as numbers and scale pairs as tables;
-    -- the arithmetic below expects NitroCurve's { value[, value2] } shape.
-    local k = keys[keyIndex + 1]
-    if type(k) == "table" then
-      return k
-    end
-    return { k }
-  end
-  local function between(i, j, fn)
-    local a = at(i)
-    local b = at(j)
-    local out = { fn(a[1], b[1]) }
-    if a[2] ~= nil then
-      out[2] = fn(a[2], b[2])
-    end
-    return out
-  end
+  local context = { frac = frac, step = step, fracWide = 0 }
 
   -- Final frame with the wrap flag: interpolate key[last] toward key[0].
   if wrapFinal and frame == numFrame - 1 and frac ~= 0 then
-    return between(index, 0, function(v1, v2)
-      return v1 + asr(mul32(v2 - v1, frac), 12)
-    end)
+    return curveBetween(keys, index, 0, interpolateWrapped, context)
   end
 
   if interpolate and frac ~= 0 then
-    local fracWide = frameFx % (FX_UNIT * step)
-    return between(index, index + 1, function(a, b)
-      return lerpEx(a, b, step, fracWide)
-    end)
+    context.fracWide = frameFx % (FX_UNIT * step)
+    return curveBetween(keys, index, index + 1, interpolateFractional, context)
   end
 
   if step == HALF then
     if frame % 2 == 1 then
       if channel.storage == "fx32" then
-        return between(index, index + 1, function(a, b)
-          return asr(a, 1) + asr(b, 1)
-        end)
+        return curveBetween(keys, index, index + 1, averageFx32)
       end
-      return between(index, index + 1, function(a, b)
-        return asr(a + b, 1)
-      end)
+      return curveBetween(keys, index, index + 1, averageFx16)
     end
-    return at(index)
+    return curveValue(keys, index)
   elseif step == QUARTER then
     if frame % 4 ~= 0 then
       if frame % 4 == 2 then
-        return between(index, index + 1, function(a, b)
-          return asr(a + b, 1)
-        end)
+        return curveBetween(keys, index, index + 1, averageFx16)
       end
       local a, b = index, index + 1
       if frame % 4 == 3 then
         a, b = b, a
       end
-      return between(a, b, function(x, y)
-        return asr(3 * x + y, 2)
-      end)
+      return curveBetween(keys, a, b, weightedQuarter)
     end
-    return at(index)
+    return curveValue(keys, index)
   end
-  return at(frame)
+  return curveValue(keys, frame)
 end
 
 local function sampleCurve(channel, frameFx, numFrame, interpolate, wrapFinal)
@@ -268,23 +278,21 @@ end
 
 -- ---- rotation channel sampling (Nsbca.sampleRot over compiled data) ----
 
+local function rotationKey(channel, keyIndex)
+  -- The artifact gate requires every rotation curve to carry all referenced
+  -- keys, so a missing key here is a program invariant, not data.
+  return assert(
+    channel.keys[keyIndex + 1],
+    "rotation curve references key " .. tostring(keyIndex) .. " beyond its compiled array"
+  )
+end
+
 local function sampleRot(clip, channel, frameFx, numFrame, targetIndex)
   local frame = math.floor(frameFx / FX_UNIT)
   local frac = frameFx % FX_UNIT
   local anmFlags = clip.compiled.anmFlags
   local interpolate = anmFlags % 2 == 1
   local wrapFinal = math.floor(anmFlags / 2) % 2 == 1
-
-  local function keyAt(keyIndex)
-    -- The gate requires every rotation curve to carry at least as many keys
-    -- as its frames demand (and the frame is clamped below numFrame), so a
-    -- missing key here is a program invariant, not data.
-    local key = assert(
-      channel.keys[keyIndex + 1],
-      "rotation curve references key " .. tostring(keyIndex) .. " beyond its compiled array"
-    )
-    return key
-  end
 
   -- Ex path: fractional part present and interpolation enabled.
   if interpolate and frac ~= 0 then
@@ -296,15 +304,15 @@ local function sampleRot(clip, channel, frameFx, numFrame, targetIndex)
         index = frame % 4 + math.floor(frame / 4)
       end
       if wrapFinal then
-        return lerpKeys(clip, keyAt(index), keyAt(0), frac, 1, targetIndex)
+        return lerpKeys(clip, rotationKey(channel, index), rotationKey(channel, 0), frac, 1, targetIndex)
       end
-      return reconstructFinal(clip, keyAt(index), targetIndex)
+      return reconstructFinal(clip, rotationKey(channel, index), targetIndex)
     end
 
     local index = math.floor(frame / channel.rate)
     local step = channel.rate
     local fracWide = frameFx % (FX_UNIT * channel.rate)
-    return lerpKeys(clip, keyAt(index), keyAt(index + 1), fracWide, step, targetIndex)
+    return lerpKeys(clip, rotationKey(channel, index), rotationKey(channel, index + 1), fracWide, step, targetIndex)
   end
 
   -- Integer path.
@@ -312,13 +320,13 @@ local function sampleRot(clip, channel, frameFx, numFrame, targetIndex)
   local index = math.floor(frame / rate)
   if rate == HALF then
     if frame % 2 == 1 then
-      return mergeKeys(clip, keyAt(index), keyAt(index + 1), 1, targetIndex)
+      return mergeKeys(clip, rotationKey(channel, index), rotationKey(channel, index + 1), 1, targetIndex)
     end
-    return reconstructFinal(clip, keyAt(index), targetIndex)
+    return reconstructFinal(clip, rotationKey(channel, index), targetIndex)
   elseif rate == QUARTER then
     if frame % 4 ~= 0 then
       if frame % 4 == 2 then
-        return mergeKeys(clip, keyAt(index), keyAt(index + 1), 1, targetIndex)
+        return mergeKeys(clip, rotationKey(channel, index), rotationKey(channel, index + 1), 1, targetIndex)
       end
       local a, b
       if frame % 4 == 1 then
@@ -326,11 +334,11 @@ local function sampleRot(clip, channel, frameFx, numFrame, targetIndex)
       else
         a, b = index + 1, index
       end
-      return mergeKeys(clip, keyAt(a), keyAt(b), 3, targetIndex)
+      return mergeKeys(clip, rotationKey(channel, a), rotationKey(channel, b), 3, targetIndex)
     end
-    return reconstructFinal(clip, keyAt(index), targetIndex)
+    return reconstructFinal(clip, rotationKey(channel, index), targetIndex)
   end
-  return reconstructFinal(clip, keyAt(frame), targetIndex)
+  return reconstructFinal(clip, rotationKey(channel, frame), targetIndex)
 end
 
 -- ---- target sampling ----

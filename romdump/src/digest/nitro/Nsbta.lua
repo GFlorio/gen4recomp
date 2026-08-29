@@ -94,32 +94,34 @@ local function readKey(r, chan, index)
   return { value = r:u32le(chan.ofs + index * 4) }
 end
 
+local function sampleVectorSingle(r, chan, index)
+  return readKey(r, chan, index).value
+end
+
+local function sampleVectorPair(r, chan, index)
+  local a = readKey(r, chan, index).value
+  local b = readKey(r, chan, index + 1).value
+  return asr(a + b, 1)
+end
+
 -- The integer-frame vector sampler shared by trans and scale channels.
 -- Returns the fx value.
 local function sampleVector(r, chan, frame)
-  local function single(index)
-    return readKey(r, chan, index).value
-  end
-  local function pair(index)
-    local a = readKey(r, chan, index).value
-    local b = readKey(r, chan, index + 1).value
-    return asr(a + b, 1)
-  end
   if chan.rate == 2 then
     if frame % 2 == 1 then
       if frame > chan.limit then
-        return single(math.floor(chan.limit / 2) + 1)
+        return sampleVectorSingle(r, chan, math.floor(chan.limit / 2) + 1)
       end
-      return pair(math.floor(frame / 2))
+      return sampleVectorPair(r, chan, math.floor(frame / 2))
     end
-    return single(math.floor(frame / 2))
+    return sampleVectorSingle(r, chan, math.floor(frame / 2))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
       if frame > chan.limit then
-        return single(frame % 4 + math.floor(chan.limit / 4))
+        return sampleVectorSingle(r, chan, frame % 4 + math.floor(chan.limit / 4))
       end
       if frame % 4 == 2 then
-        return pair(math.floor(frame / 4))
+        return sampleVectorPair(r, chan, math.floor(frame / 4))
       end
       local a, b
       if frame % 4 == 1 then
@@ -127,72 +129,85 @@ local function sampleVector(r, chan, frame)
       else
         a, b = math.floor(frame / 4) + 1, math.floor(frame / 4)
       end
-      return asr(3 * readKey(r, chan, a).value + readKey(r, chan, b).value, 2)
+      return asr(3 * sampleVectorSingle(r, chan, a) + sampleVectorSingle(r, chan, b), 2)
     end
-    return single(math.floor(frame / 4))
+    return sampleVectorSingle(r, chan, math.floor(frame / 4))
   end
-  return single(frame)
+  return sampleVectorSingle(r, chan, frame)
+end
+
+local function readRotationWord(r, chan, index)
+  r:assertRange(chan.ofs + index * 4, 4, "nsbta-rot-key")
+  return r:u32le(chan.ofs + index * 4)
+end
+
+local function unpackRotationWord(word)
+  if word == ROT_IDENTITY then
+    return nil
+  end
+  return { sin = s16(word % 65536), cos = s16(math.floor(word / 65536) % 65536) }
+end
+
+local function rotationLowHalf(word)
+  return s16(word % 65536)
+end
+
+local function rotationHighHalf(word)
+  return s16(math.floor(word / 65536) % 65536)
+end
+
+local function averageRotation(r, chan, index)
+  local a = readRotationWord(r, chan, index)
+  local b = readRotationWord(r, chan, index + 1)
+  return {
+    sin = asr(rotationLowHalf(a) + rotationLowHalf(b), 1),
+    cos = asr(rotationHighHalf(a) + rotationHighHalf(b), 1),
+  }
+end
+
+local function weightedRotation(r, chan, a, b)
+  -- 3:1 toward the nearer key (a receives the 3x), per half.
+  local wa = readRotationWord(r, chan, a)
+  local wb = readRotationWord(r, chan, b)
+  return {
+    sin = asr(3 * rotationLowHalf(wa) + rotationLowHalf(wb), 2),
+    cos = asr(3 * rotationHighHalf(wa) + rotationHighHalf(wb), 2),
+  }
 end
 
 -- The rotation sampler: returns { sin, cos } or nil for identity.
 local function sampleRot(r, chan, frame)
-  local function singleWord(index)
-    r:assertRange(chan.ofs + index * 4, 4, "nsbta-rot-key")
-    return r:u32le(chan.ofs + index * 4)
-  end
-  local function unpack(word)
-    if word == ROT_IDENTITY then
-      return nil
-    end
-    return { sin = s16(word % 65536), cos = s16(math.floor(word / 65536) % 65536) }
-  end
-  local function half(word)
-    return s16(word % 65536)
-  end
-  local function highHalf(word)
-    return s16(math.floor(word / 65536) % 65536)
-  end
-  local function avgPair(index)
-    local a = singleWord(index)
-    local b = singleWord(index + 1)
-    return {
-      sin = asr(half(a) + half(b), 1),
-      cos = asr(highHalf(a) + highHalf(b), 1),
-    }
-  end
-  local function weightedPair(a, b)
-    -- 3:1 toward the nearer key (a receives the 3x), per half.
-    local wa = singleWord(a)
-    local wb = singleWord(b)
-    return {
-      sin = asr(3 * half(wa) + half(wb), 2),
-      cos = asr(3 * highHalf(wa) + highHalf(wb), 2),
-    }
-  end
   if chan.rate == 2 then
     if frame % 2 == 1 then
       if frame > chan.limit then
-        return unpack(singleWord(math.floor(chan.limit / 2) + 1))
+        return unpackRotationWord(readRotationWord(r, chan, math.floor(chan.limit / 2) + 1))
       end
-      return avgPair(math.floor(frame / 2))
+      return averageRotation(r, chan, math.floor(frame / 2))
     end
-    return unpack(singleWord(math.floor(frame / 2)))
+    return unpackRotationWord(readRotationWord(r, chan, math.floor(frame / 2)))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
       if frame > chan.limit then
-        return unpack(singleWord(frame % 4 + math.floor(chan.limit / 4)))
+        return unpackRotationWord(readRotationWord(r, chan, frame % 4 + math.floor(chan.limit / 4)))
       end
       if frame % 4 == 2 then
-        return avgPair(math.floor(frame / 4))
+        return averageRotation(r, chan, math.floor(frame / 4))
       end
       if frame % 4 == 1 then
-        return weightedPair(math.floor(frame / 4), math.floor(frame / 4) + 1)
+        return weightedRotation(r, chan, math.floor(frame / 4), math.floor(frame / 4) + 1)
       end
-      return weightedPair(math.floor(frame / 4) + 1, math.floor(frame / 4))
+      return weightedRotation(r, chan, math.floor(frame / 4) + 1, math.floor(frame / 4))
     end
-    return unpack(singleWord(math.floor(frame / 4)))
+    return unpackRotationWord(readRotationWord(r, chan, math.floor(frame / 4)))
   end
-  return unpack(singleWord(frame))
+  return unpackRotationWord(readRotationWord(r, chan, frame))
+end
+
+local function sampleChannelValue(r, chan, frame, sampler)
+  if chan.source == "constant" then
+    return chan.value
+  end
+  return sampler(r, chan, frame)
 end
 
 -- Decode the SRT0 record at `record` (absolute within the section reader).
@@ -274,15 +289,8 @@ function Nsbta.sample(r, res, targetIndex, frameFx)
     scaleOne = false,
   }
 
-  local function value(chan, sampler)
-    if chan.source == "constant" then
-      return chan.value
-    end
-    return sampler(r, chan, frame)
-  end
-
-  result.transS = value(ch.transS, sampleVector)
-  result.transT = value(ch.transT, sampleVector)
+  result.transS = sampleChannelValue(r, ch.transS, frame, sampleVector)
+  result.transT = sampleChannelValue(r, ch.transT, frame, sampleVector)
 
   local rot = ch.rot
   if rot.source == "constant" then
@@ -298,8 +306,8 @@ function Nsbta.sample(r, res, targetIndex, frameFx)
     end
   end
 
-  result.scaleS = value(ch.scaleS, sampleVector)
-  result.scaleT = value(ch.scaleT, sampleVector)
+  result.scaleS = sampleChannelValue(r, ch.scaleS, frame, sampleVector)
+  result.scaleT = sampleChannelValue(r, ch.scaleT, frame, sampleVector)
   -- GetTexSRTAnm_ compares the pair against 0x1000 (the identity scale), not
   -- zero: a zero scale contributes nothing to the matrix cells, so both
   -- encodings render identically, but 0x1000 must select the no-scale

@@ -139,6 +139,90 @@ local OBJ_DIMENSIONS = {
   { { 8, 16 }, { 8, 32 }, { 16, 32 }, { 32, 64 } },
 }
 
+local function decodeCharBlock(data, opts)
+  local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-char")
+  local blk = mustBlock(blks, "CHAR")
+  if blk.size < 0x18 then
+    Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CHAR chunk is shorter than its header", { size = blk.size })
+  end
+  local depth = reader:u32le(blk.payload + 4)
+  if depth ~= 3 and depth ~= 4 then
+    Errors.raise(
+      G2dDecoder.ERROR.CHUNK_INVALID,
+      "CHAR depth " .. depth .. " is not 3 (4bpp) or 4 (8bpp)",
+      { depth = depth }
+    )
+  end
+  local tileBytes = reader:u32le(blk.payload + 0x10)
+  local tileOffset = reader:u32le(blk.payload + 0x14)
+  local tileSize = depth == 3 and 32 or 64
+  if tileBytes == 0 or tileBytes % tileSize ~= 0 then
+    Errors.raise(
+      G2dDecoder.ERROR.CHUNK_INVALID,
+      "CHAR tile region must be an exact positive multiple of the " .. tileSize .. "-byte tile size",
+      { tileBytes = tileBytes, tileSize = tileSize }
+    )
+  end
+  if tileOffset + tileBytes > blk.size then
+    Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CHAR tile region exceeds the chunk", {
+      tileBytes = tileBytes,
+      tileOffset = tileOffset,
+      chunkSize = blk.size,
+    })
+  end
+  return {
+    depth = depth,
+    tiles = reader:bytes(blk.payload + tileOffset, tileBytes),
+  }
+end
+
+local function decodeScreenBlock(data, opts)
+  local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-screen")
+  local blk = mustBlock(blks, "SCRN")
+  if blk.size < 12 then
+    Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN chunk is shorter than its header", { size = blk.size })
+  end
+  local width = reader:u16le(blk.payload)
+  local height = reader:u16le(blk.payload + 2)
+  local dataSize = reader:u32le(blk.payload + 8)
+  if width == 0 or height == 0 or width % 8 ~= 0 or height % 8 ~= 0 then
+    Errors.raise(
+      G2dDecoder.ERROR.CHUNK_INVALID,
+      "SCRN dimensions must be multiples of 8 pixels",
+      { width = width, height = height }
+    )
+  end
+  -- The entry bytes must match the tile geometry exactly: metadata describing
+  -- one geometry while supplying another amount of map data is malformed.
+  local expectedBytes = width / 8 * (height / 8) * 2
+  if dataSize ~= expectedBytes then
+    Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN data size does not match the screen dimensions", {
+      width = width,
+      height = height,
+      dataSize = dataSize,
+      expectedBytes = expectedBytes,
+    })
+  end
+  if 12 + dataSize > blk.size then
+    Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN entry data exceeds the chunk", {
+      dataSize = dataSize,
+      chunkSize = blk.size,
+    })
+  end
+  local entries = {}
+  local count = math.floor(dataSize / 2)
+  for i = 0, count - 1 do
+    local e = reader:u16le(blk.payload + 12 + i * 2)
+    entries[i + 1] = {
+      tile = e % 1024,
+      flipH = math.floor(e / 1024) % 2 == 1,
+      flipV = math.floor(e / 2048) % 2 == 1,
+      palette = math.floor(e / 4096),
+    }
+  end
+  return { width = width, height = height, entries = entries }
+end
+
 ---@param data string
 ---@param opts? { label?: string }
 ---@return { depth: integer, tiles: string }?
@@ -146,42 +230,7 @@ local OBJ_DIMENSIONS = {
 function G2dDecoder.decodeChar(data, opts)
   assert(type(data) == "string", "G2dDecoder.decodeChar requires a string")
   opts = opts or {}
-  local ok, result = pcall(function()
-    local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-char")
-    local blk = mustBlock(blks, "CHAR")
-    if blk.size < 0x18 then
-      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CHAR chunk is shorter than its header", { size = blk.size })
-    end
-    local depth = reader:u32le(blk.payload + 4)
-    if depth ~= 3 and depth ~= 4 then
-      Errors.raise(
-        G2dDecoder.ERROR.CHUNK_INVALID,
-        "CHAR depth " .. depth .. " is not 3 (4bpp) or 4 (8bpp)",
-        { depth = depth }
-      )
-    end
-    local tileBytes = reader:u32le(blk.payload + 0x10)
-    local tileOffset = reader:u32le(blk.payload + 0x14)
-    local tileSize = depth == 3 and 32 or 64
-    if tileBytes == 0 or tileBytes % tileSize ~= 0 then
-      Errors.raise(
-        G2dDecoder.ERROR.CHUNK_INVALID,
-        "CHAR tile region must be an exact positive multiple of the " .. tileSize .. "-byte tile size",
-        { tileBytes = tileBytes, tileSize = tileSize }
-      )
-    end
-    if tileOffset + tileBytes > blk.size then
-      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "CHAR tile region exceeds the chunk", {
-        tileBytes = tileBytes,
-        tileOffset = tileOffset,
-        chunkSize = blk.size,
-      })
-    end
-    return {
-      depth = depth,
-      tiles = reader:bytes(blk.payload + tileOffset, tileBytes),
-    }
-  end)
+  local ok, result = pcall(decodeCharBlock, data, opts)
   if ok then
     return result
   end
@@ -198,53 +247,7 @@ end
 function G2dDecoder.decodeScreen(data, opts)
   assert(type(data) == "string", "G2dDecoder.decodeScreen requires a string")
   opts = opts or {}
-  local ok, result = pcall(function()
-    local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-screen")
-    local blk = mustBlock(blks, "SCRN")
-    if blk.size < 12 then
-      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN chunk is shorter than its header", { size = blk.size })
-    end
-    local width = reader:u16le(blk.payload)
-    local height = reader:u16le(blk.payload + 2)
-    local dataSize = reader:u32le(blk.payload + 8)
-    if width == 0 or height == 0 or width % 8 ~= 0 or height % 8 ~= 0 then
-      Errors.raise(
-        G2dDecoder.ERROR.CHUNK_INVALID,
-        "SCRN dimensions must be multiples of 8 pixels",
-        { width = width, height = height }
-      )
-    end
-    -- The entry bytes must match the tile geometry exactly: metadata
-    -- describing one geometry while supplying another amount of map data is
-    -- malformed source, not a partial map.
-    local expectedBytes = width / 8 * (height / 8) * 2
-    if dataSize ~= expectedBytes then
-      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN data size does not match the screen dimensions", {
-        width = width,
-        height = height,
-        dataSize = dataSize,
-        expectedBytes = expectedBytes,
-      })
-    end
-    if 12 + dataSize > blk.size then
-      Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "SCRN entry data exceeds the chunk", {
-        dataSize = dataSize,
-        chunkSize = blk.size,
-      })
-    end
-    local entries = {}
-    local count = math.floor(dataSize / 2)
-    for i = 0, count - 1 do
-      local e = reader:u16le(blk.payload + 12 + i * 2)
-      entries[i + 1] = {
-        tile = e % 1024,
-        flipH = math.floor(e / 1024) % 2 == 1,
-        flipV = math.floor(e / 2048) % 2 == 1,
-        palette = math.floor(e / 4096),
-      }
-    end
-    return { width = width, height = height, entries = entries }
-  end)
+  local ok, result = pcall(decodeScreenBlock, data, opts)
   if ok then
     return result
   end
@@ -269,7 +272,7 @@ function G2dDecoder.decodePalette(data, opts)
     end
     return { colors = pal.colors }
   end
-  local ok, result = pcall(function()
+  local function decodePaletteBlock()
     local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-palette")
     local blk = mustBlock(blks, "PLTT")
     if blk.size < 12 then
@@ -298,7 +301,8 @@ function G2dDecoder.decodePalette(data, opts)
       colors[i + 1] = Rgb555.decode(word)
     end
     return { colors = colors }
-  end)
+  end
+  local ok, result = pcall(decodePaletteBlock)
   if ok then
     return result
   end
@@ -315,7 +319,7 @@ end
 function G2dDecoder.decodeCell(data, opts)
   assert(type(data) == "string", "G2dDecoder.decodeCell requires a string")
   opts = opts or {}
-  local ok, result = pcall(function()
+  local function decodeCellBlock()
     local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-cell")
     local blk = mustBlock(blks, "CEBK")
     if blk.size < 0x20 then
@@ -396,7 +400,8 @@ function G2dDecoder.decodeCell(data, opts)
       cells[c + 1] = { objs = objs }
     end
     return { cells = cells }
-  end)
+  end
+  local ok, result = pcall(decodeCellBlock)
   if ok then
     return result
   end
@@ -413,7 +418,7 @@ end
 function G2dDecoder.decodeAnimation(data, opts)
   assert(type(data) == "string", "G2dDecoder.decodeAnimation requires a string")
   opts = opts or {}
-  local ok, result = pcall(function()
+  local function decodeAnimationBlock()
     local _, blks, reader = blocks(data, { magics = CONTAINER_MAGICS }, opts.label or "g2d-animation")
     local blk = mustBlock(blks, "ABNK")
     if blk.size < 0x18 then
@@ -479,7 +484,8 @@ function G2dDecoder.decodeAnimation(data, opts)
       anims[a + 1] = { frames = frames }
     end
     return { anims = anims }
-  end)
+  end
+  local ok, result = pcall(decodeAnimationBlock)
   if ok then
     return result
   end

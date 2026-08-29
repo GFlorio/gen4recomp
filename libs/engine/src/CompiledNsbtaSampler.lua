@@ -52,23 +52,25 @@ end
 
 -- ---- vector channels (transS/transT/scaleS/scaleT) ----
 
+local function sampleVectorSingle(keys, index)
+  return keys[index + 1]
+end
+
+local function sampleVectorPair(keys, index)
+  return asr(keys[index + 1] + keys[index + 2], 1)
+end
+
 local function sampleVector(chan, frame)
   local keys = chan.keys
-  local function single(index)
-    return keys[index + 1]
-  end
-  local function pair(index)
-    return asr(keys[index + 1] + keys[index + 2], 1)
-  end
   if chan.rate == 2 then
     if frame % 2 == 1 then
-      return pair(math.floor(frame / 2))
+      return sampleVectorPair(keys, math.floor(frame / 2))
     end
-    return single(math.floor(frame / 2))
+    return sampleVectorSingle(keys, math.floor(frame / 2))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
       if frame % 4 == 2 then
-        return pair(math.floor(frame / 4))
+        return sampleVectorPair(keys, math.floor(frame / 4))
       end
       local a, b
       if frame % 4 == 1 then
@@ -76,11 +78,11 @@ local function sampleVector(chan, frame)
       else
         a, b = math.floor(frame / 4) + 1, math.floor(frame / 4)
       end
-      return asr(3 * keys[a + 1] + keys[b + 1], 2)
+      return asr(3 * sampleVectorSingle(keys, a) + sampleVectorSingle(keys, b), 2)
     end
-    return single(math.floor(frame / 4))
+    return sampleVectorSingle(keys, math.floor(frame / 4))
   end
-  return single(frame)
+  return sampleVectorSingle(keys, frame)
 end
 
 -- ---- rotation channel ----
@@ -92,51 +94,78 @@ local function unpackRot(word)
   return { sin = s16(word % 65536), cos = s16(math.floor(word / 65536) % 65536) }
 end
 
+local function rotationSingleWord(keys, index)
+  return keys[index + 1]
+end
+
+local function rotationHalf(word)
+  return s16(word % 65536)
+end
+
+local function rotationHighHalf(word)
+  return s16(math.floor(word / 65536) % 65536)
+end
+
+local function averageRotation(keys, index)
+  local a = rotationSingleWord(keys, index)
+  local b = rotationSingleWord(keys, index + 1)
+  return {
+    sin = asr(rotationHalf(a) + rotationHalf(b), 1),
+    cos = asr(rotationHighHalf(a) + rotationHighHalf(b), 1),
+  }
+end
+
+local function weightedRotation(keys, a, b)
+  local wa = rotationSingleWord(keys, a)
+  local wb = rotationSingleWord(keys, b)
+  return {
+    sin = asr(3 * rotationHalf(wa) + rotationHalf(wb), 2),
+    cos = asr(3 * rotationHighHalf(wa) + rotationHighHalf(wb), 2),
+  }
+end
+
 local function sampleRot(chan, frame)
   local keys = chan.keys
-  local function singleWord(index)
-    return keys[index + 1]
-  end
-  local function half(word)
-    return s16(word % 65536)
-  end
-  local function highHalf(word)
-    return s16(math.floor(word / 65536) % 65536)
-  end
-  local function avgPair(index)
-    local a = singleWord(index)
-    local b = singleWord(index + 1)
-    return {
-      sin = asr(half(a) + half(b), 1),
-      cos = asr(highHalf(a) + highHalf(b), 1),
-    }
-  end
-  local function weightedPair(a, b)
-    local wa = singleWord(a)
-    local wb = singleWord(b)
-    return {
-      sin = asr(3 * half(wa) + half(wb), 2),
-      cos = asr(3 * highHalf(wa) + highHalf(wb), 2),
-    }
-  end
   if chan.rate == 2 then
     if frame % 2 == 1 then
-      return avgPair(math.floor(frame / 2))
+      return averageRotation(keys, math.floor(frame / 2))
     end
-    return unpackRot(singleWord(math.floor(frame / 2)))
+    return unpackRot(rotationSingleWord(keys, math.floor(frame / 2)))
   elseif chan.rate == 4 then
     if frame % 4 ~= 0 then
       if frame % 4 == 2 then
-        return avgPair(math.floor(frame / 4))
+        return averageRotation(keys, math.floor(frame / 4))
       end
       if frame % 4 == 1 then
-        return weightedPair(math.floor(frame / 4), math.floor(frame / 4) + 1)
+        return weightedRotation(keys, math.floor(frame / 4), math.floor(frame / 4) + 1)
       end
-      return weightedPair(math.floor(frame / 4) + 1, math.floor(frame / 4))
+      return weightedRotation(keys, math.floor(frame / 4) + 1, math.floor(frame / 4))
     end
-    return unpackRot(singleWord(math.floor(frame / 4)))
+    return unpackRot(rotationSingleWord(keys, math.floor(frame / 4)))
   end
-  return unpackRot(singleWord(frame))
+  return unpackRot(rotationSingleWord(keys, frame))
+end
+
+local function channelSource(clip, targetIndex, chan, name)
+  local source = chan and chan.source
+  assert(
+    source == "constant" or source == "curve",
+    "compiled NSBTA clip "
+      .. tostring(clip.id)
+      .. " target "
+      .. tostring(targetIndex)
+      .. " channel "
+      .. name
+      .. " source is neither constant nor curve"
+  )
+  return source
+end
+
+local function sampleVectorValue(clip, targetIndex, chan, name, frame)
+  if channelSource(clip, targetIndex, chan, name) == "constant" then
+    return chan.value
+  end
+  return sampleVector(chan, frame)
 end
 
 -- Sample one target of a compiled NSBTA clip at `frameFx` (fixed-point;
@@ -176,39 +205,11 @@ function CompiledNsbtaSampler.sample(clip, targetIndex, frameFx)
     scaleOne = false,
   }
 
-  -- A compiled channel is "constant" or "curve"; anything else (absent,
-  -- nil, misspelled) is malformed data the artifact gate (ModelAsset
-  -- validate) rejects before the runtime, so this is a program invariant.
-  local function sourceOf(chan, name)
-    local source = chan and chan.source
-    assert(
-      source == "constant" or source == "curve",
-      "compiled NSBTA clip "
-        .. tostring(clip.id)
-        .. " target "
-        .. tostring(targetIndex)
-        .. " channel "
-        .. name
-        .. " source is neither constant nor curve"
-    )
-    return source
-  end
-
-  -- A vector channel samples to its fx value; identity components are
-  -- authored as explicit constants (scale 0x1000, translation 0), which the
-  -- "one" flag comparisons below pick up.
-  local function vectorValue(chan, name)
-    if sourceOf(chan, name) == "constant" then
-      return chan.value
-    end
-    return sampleVector(chan, frame)
-  end
-
-  result.transS = vectorValue(ch.transS, "transS")
-  result.transT = vectorValue(ch.transT, "transT")
+  result.transS = sampleVectorValue(clip, targetIndex, ch.transS, "transS", frame)
+  result.transT = sampleVectorValue(clip, targetIndex, ch.transT, "transT", frame)
 
   local rot = ch.rot
-  if sourceOf(rot, "rot") == "constant" then
+  if channelSource(clip, targetIndex, rot, "rot") == "constant" then
     result.rot = unpackRot(rot.value)
   else
     result.rot = sampleRot(rot, frame)
@@ -217,8 +218,8 @@ function CompiledNsbtaSampler.sample(clip, targetIndex, frameFx)
     result.rotOne = true
   end
 
-  result.scaleS = vectorValue(ch.scaleS, "scaleS")
-  result.scaleT = vectorValue(ch.scaleT, "scaleT")
+  result.scaleS = sampleVectorValue(clip, targetIndex, ch.scaleS, "scaleS", frame)
+  result.scaleT = sampleVectorValue(clip, targetIndex, ch.scaleT, "scaleT", frame)
   if result.scaleS == 0x1000 and result.scaleT == 0x1000 then
     result.scaleOne = true
   end

@@ -22,104 +22,78 @@ local function paletteColor(palette, index)
   return FixedPoint.rgb555(byteAt(palette, off) + byteAt(palette, off + 1) * 256)
 end
 
--- Build an RGBA8 string from a per-texel sampler(x, y) -> r, g, b, a.
-local function assemble(width, height, sampler)
+-- Build an RGBA8 string from a per-texel sampler(options, x, y) -> r, g, b, a.
+local function assemble(width, height, sampler, options)
   local px = {}
   for y = 0, height - 1 do
     for x = 0, width - 1 do
-      local r, g, b, a = sampler(x, y)
+      local r, g, b, a = sampler(options, x, y)
       px[#px + 1] = string.char(r, g, b, a)
     end
   end
   return table.concat(px)
 end
 
--- Paletted sampler shared by formats 2/3/4: index(x, y) -> palette index.
-local function palettedSampler(palette, color0Transparent, index)
-  return function(x, y)
-    local i = index(x, y)
-    local r, g, b = paletteColor(palette, i)
-    local a = 255
-    if color0Transparent and i == 0 then
-      a = 0
-    end
-    return r, g, b, a
+-- Paletted pixel shared by formats 2/3/4: `index` is the decoded palette index.
+local function palettedPixel(palette, color0Transparent, index)
+  local r, g, b = paletteColor(palette, index)
+  local a = 255
+  if color0Transparent and index == 0 then
+    a = 0
   end
+  return r, g, b, a
 end
 
-local DECODERS = {}
-
--- Format 1: A3I5 -- 5-bit palette index, 3-bit alpha, one byte per texel.
-DECODERS[1] = function(o)
-  return assemble(o.width, o.height, function(x, y)
-    local v = byteAt(o.texel, y * o.width + x)
-    local index = v % 32
-    local alpha3 = math.floor(v / 32)
-    local r, g, b = paletteColor(o.palette, index)
-    return r, g, b, math.floor(alpha3 * 255 / 7 + 0.5)
-  end)
+local function sampleA3I5(o, x, y)
+  local v = byteAt(o.texel, y * o.width + x)
+  local index = v % 32
+  local alpha3 = math.floor(v / 32)
+  local r, g, b = paletteColor(o.palette, index)
+  return r, g, b, math.floor(alpha3 * 255 / 7 + 0.5)
 end
 
--- Format 2: 4-color -- 2-bit indices, 4 texels per byte, LSB first.
-DECODERS[2] = function(o)
-  return assemble(
-    o.width,
-    o.height,
-    palettedSampler(o.palette, o.color0Transparent, function(x, y)
-      local linear = y * o.width + x
-      local v = byteAt(o.texel, math.floor(linear / 4))
-      return math.floor(v / 4 ^ (linear % 4)) % 4
-    end)
-  )
+local function sample4Color(o, x, y)
+  local linear = y * o.width + x
+  local v = byteAt(o.texel, math.floor(linear / 4))
+  local index = math.floor(v / 4 ^ (linear % 4)) % 4
+  return palettedPixel(o.palette, o.color0Transparent, index)
 end
 
--- Format 3: 16-color -- 4-bit indices, 2 texels per byte, low nibble first.
-DECODERS[3] = function(o)
-  return assemble(
-    o.width,
-    o.height,
-    palettedSampler(o.palette, o.color0Transparent, function(x, y)
-      local linear = y * o.width + x
-      local v = byteAt(o.texel, math.floor(linear / 2))
-      if linear % 2 == 0 then
-        return v % 16
-      end
-      return math.floor(v / 16) % 16
-    end)
-  )
+local function sample16Color(o, x, y)
+  local linear = y * o.width + x
+  local v = byteAt(o.texel, math.floor(linear / 2))
+  local index
+  if linear % 2 == 0 then
+    index = v % 16
+  else
+    index = math.floor(v / 16) % 16
+  end
+  return palettedPixel(o.palette, o.color0Transparent, index)
 end
 
--- Format 4: 256-color -- one 8-bit index per texel.
-DECODERS[4] = function(o)
-  return assemble(
-    o.width,
-    o.height,
-    palettedSampler(o.palette, o.color0Transparent, function(x, y)
-      return byteAt(o.texel, y * o.width + x)
-    end)
-  )
+local function sample256Color(o, x, y)
+  local index = byteAt(o.texel, y * o.width + x)
+  return palettedPixel(o.palette, o.color0Transparent, index)
 end
 
--- Format 6: A5I3 -- 3-bit palette index, 5-bit alpha, one byte per texel.
-DECODERS[6] = function(o)
-  return assemble(o.width, o.height, function(x, y)
-    local v = byteAt(o.texel, y * o.width + x)
-    local index = v % 8
-    local alpha5 = math.floor(v / 8)
-    local r, g, b = paletteColor(o.palette, index)
-    return r, g, b, math.floor(alpha5 * 255 / 31 + 0.5)
-  end)
+local function sampleA5I3(o, x, y)
+  local v = byteAt(o.texel, y * o.width + x)
+  local index = v % 8
+  local alpha5 = math.floor(v / 8)
+  local r, g, b = paletteColor(o.palette, index)
+  return r, g, b, math.floor(alpha5 * 255 / 31 + 0.5)
 end
 
--- Format 7: direct color -- 16-bit BGR555 per texel, bit15 is the alpha bit.
-DECODERS[7] = function(o)
-  return assemble(o.width, o.height, function(x, y)
-    local off = (y * o.width + x) * 2
-    local v = byteAt(o.texel, off) + byteAt(o.texel, off + 1) * 256
-    local r, g, b = FixedPoint.rgb555(v)
-    local a = (v >= 0x8000) and 255 or 0
-    return r, g, b, a
-  end)
+local function sampleDirectColor(o, x, y)
+  local off = (y * o.width + x) * 2
+  local v = byteAt(o.texel, off) + byteAt(o.texel, off + 1) * 256
+  local r, g, b = FixedPoint.rgb555(v)
+  local a = (v >= 0x8000) and 255 or 0
+  return r, g, b, a
+end
+
+local function mixChannel(ca, cb, numA, numB, den)
+  return math.floor((ca * numA + cb * numB) / den + 0.5)
 end
 
 -- Weighted blend of two palette colors, rounded. num/den is color A's weight.
@@ -127,57 +101,96 @@ local function blend(palette, a, b, numA, den)
   local ra, ga, ba = paletteColor(palette, a)
   local rb, gb, bb = paletteColor(palette, b)
   local numB = den - numA
-  local function mix(ca, cb)
-    return math.floor((ca * numA + cb * numB) / den + 0.5)
+  return mixChannel(ra, rb, numA, numB, den), mixChannel(ga, gb, numA, numB, den), mixChannel(ba, bb, numA, numB, den)
+end
+
+local function sampleCompressed(o, x, y)
+  local blocksPerRow = math.floor(o.width / 4)
+  local bx, by = math.floor(x / 4), math.floor(y / 4)
+  local blockIndex = by * blocksPerRow + bx
+  local rowByte = byteAt(o.texel, blockIndex * 4 + (y % 4))
+  local texel = math.floor(rowByte / 4 ^ (x % 4)) % 4
+
+  local control = byteAt(o.indexData, blockIndex * 2) + byteAt(o.indexData, blockIndex * 2 + 1) * 256
+  local base = (control % 0x4000) * 2
+  local mode = math.floor(control / 0x4000)
+
+  if texel == 0 or texel == 1 then
+    local r, g, b = paletteColor(o.palette, base + texel)
+    return r, g, b, 255
   end
-  return mix(ra, rb), mix(ga, gb), mix(ba, bb)
+  if mode == 0 then -- 0,1,2 from palette; 3 transparent
+    if texel == 3 then
+      return 0, 0, 0, 0
+    end
+    local r, g, b = paletteColor(o.palette, base + texel)
+    return r, g, b, 255
+  elseif mode == 1 then -- 2 = mean(0,1); 3 transparent
+    if texel == 3 then
+      return 0, 0, 0, 0
+    end
+    local r, g, b = blend(o.palette, base, base + 1, 1, 2)
+    return r, g, b, 255
+  elseif mode == 2 then -- all four explicit
+    local r, g, b = paletteColor(o.palette, base + texel)
+    return r, g, b, 255
+  else -- mode 3: 2 = 5:3, 3 = 3:5
+    local r, g, b
+    if texel == 2 then
+      r, g, b = blend(o.palette, base, base + 1, 5, 8)
+    else
+      r, g, b = blend(o.palette, base, base + 1, 3, 8)
+    end
+    return r, g, b, 255
+  end
+end
+
+-- Format 1: A3I5 -- 5-bit palette index, 3-bit alpha, one byte per texel.
+local function decodeA3I5(o)
+  return assemble(o.width, o.height, sampleA3I5, o)
+end
+
+-- Format 2: 4-color -- 2-bit indices, 4 texels per byte, LSB first.
+local function decode4Color(o)
+  return assemble(o.width, o.height, sample4Color, o)
+end
+
+-- Format 3: 16-color -- 4-bit indices, 2 texels per byte, low nibble first.
+local function decode16Color(o)
+  return assemble(o.width, o.height, sample16Color, o)
+end
+
+-- Format 4: 256-color -- one 8-bit index per texel.
+local function decode256Color(o)
+  return assemble(o.width, o.height, sample256Color, o)
+end
+
+-- Format 6: A5I3 -- 3-bit palette index, 5-bit alpha, one byte per texel.
+local function decodeA5I3(o)
+  return assemble(o.width, o.height, sampleA5I3, o)
+end
+
+-- Format 7: direct color -- 16-bit BGR555 per texel, bit15 is the alpha bit.
+local function decodeDirectColor(o)
+  return assemble(o.width, o.height, sampleDirectColor, o)
 end
 
 -- Format 5: 4x4 compressed. Texels are 2-bit, one byte per block row; each
 -- block has a u16 control word in the index data selecting a palette base and
 -- interpolation mode.
-DECODERS[5] = function(o)
-  local blocksPerRow = math.floor(o.width / 4)
-  return assemble(o.width, o.height, function(x, y)
-    local bx, by = math.floor(x / 4), math.floor(y / 4)
-    local blockIndex = by * blocksPerRow + bx
-    local rowByte = byteAt(o.texel, blockIndex * 4 + (y % 4))
-    local texel = math.floor(rowByte / 4 ^ (x % 4)) % 4
-
-    local control = byteAt(o.indexData, blockIndex * 2) + byteAt(o.indexData, blockIndex * 2 + 1) * 256
-    local base = (control % 0x4000) * 2
-    local mode = math.floor(control / 0x4000)
-
-    if texel == 0 or texel == 1 then
-      local r, g, b = paletteColor(o.palette, base + texel)
-      return r, g, b, 255
-    end
-    if mode == 0 then -- 0,1,2 from palette; 3 transparent
-      if texel == 3 then
-        return 0, 0, 0, 0
-      end
-      local r, g, b = paletteColor(o.palette, base + texel)
-      return r, g, b, 255
-    elseif mode == 1 then -- 2 = mean(0,1); 3 transparent
-      if texel == 3 then
-        return 0, 0, 0, 0
-      end
-      local r, g, b = blend(o.palette, base, base + 1, 1, 2)
-      return r, g, b, 255
-    elseif mode == 2 then -- all four explicit
-      local r, g, b = paletteColor(o.palette, base + texel)
-      return r, g, b, 255
-    else -- mode 3: 2 = 5:3, 3 = 3:5
-      local r, g, b
-      if texel == 2 then
-        r, g, b = blend(o.palette, base, base + 1, 5, 8)
-      else
-        r, g, b = blend(o.palette, base, base + 1, 3, 8)
-      end
-      return r, g, b, 255
-    end
-  end)
+local function decodeCompressed(o)
+  return assemble(o.width, o.height, sampleCompressed, o)
 end
+
+local DECODERS = {
+  [1] = decodeA3I5,
+  [2] = decode4Color,
+  [3] = decode16Color,
+  [4] = decode256Color,
+  [5] = decodeCompressed,
+  [6] = decodeA5I3,
+  [7] = decodeDirectColor,
+}
 
 -- Scan the decoded RGBA8 byte string for alpha usage categories.
 local function computeAlphaUsage(pixels)
