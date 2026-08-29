@@ -17,6 +17,7 @@ local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ScriptRng = require("libs.engine.src.script.ScriptRng")
 local WorldState = require("libs.engine.src.script.WorldState")
 local FakeServices = require("tests.support.script.FakeServices")
+---@cast WaitTicksTask TaskImplementation
 
 local T = {}
 
@@ -61,7 +62,7 @@ local CATALOGS = {
 local function harness()
   local world = WorldState.new({ catalogs = CATALOGS, seed = 42 })
   local services = FakeServices.new()
-  services.world = worldServices(world)
+  services.world = worldServices(world) --[[@as FakeWorld]]
   local registry = Registry.new()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()

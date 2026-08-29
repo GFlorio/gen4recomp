@@ -146,6 +146,9 @@ local function genderManifest()
   return data
 end
 
+---@param inner OakIntroStateRectangle
+---@param outer OakIntroStateRectangle
+---@param message string
 local function assertInside(inner, outer, message)
   Assert.isTrue(inner.x >= outer.x, message .. " x start")
   Assert.isTrue(inner.y >= outer.y, message .. " y start")
@@ -153,6 +156,9 @@ local function assertInside(inner, outer, message)
   Assert.isTrue(inner.y + inner.height <= outer.y + outer.height, message .. " y end")
 end
 
+---@param first OakIntroStateRectangle
+---@param second OakIntroStateRectangle
+---@param message string
 local function assertDisjoint(first, second, message)
   Assert.isTrue(
     first.x + first.width <= second.x
@@ -277,10 +283,10 @@ local function controller(options)
     candidate = candidate(),
     clock = {
       nowLocal = function()
-        return { hour = 12, minute = 0 }
+        return { year = 2026, month = 8, day = 27, hour = 12, minute = 0, second = 0 } --[[@as LocalCivilTime]]
       end,
     },
-    audio = options.audio or audio(),
+    audio = (options.audio or audio()) --[[@as GameSound]],
     messages = MESSAGES,
     assets = options.assets or {
       oak = { frames = { { duration = 1 } } },
@@ -450,27 +456,27 @@ function T.tests.oak_slide_endpoint_remains_held_until_reverse_slide()
     state:tick(40)
     state:press("confirm")
     state:tick(6 + 30)
-    local centered = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
+    local centered = assert(OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject)
     state:press("confirm")
     state:tick(26)
-    local endpoint = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
+    local endpoint = assert(OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject)
     Assert.isTrue(
       endpoint.x > centered.x,
       "the completed source scroll must visibly shift Oak to host-space right at " .. size[1] .. "x" .. size[2]
     )
     state:press("confirm")
     advanceUntilPhase(state, "oak_live_alongside")
-    local held = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
+    local held = assert(OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject)
     Assert.near(held.x, endpoint.x)
     Assert.near(held.y, endpoint.y)
     state:press("confirm")
     advanceUntilPhase(state, "oak_slide_left")
     local reverse = state:view()
     Assert.equal(reverse.phase, "oak_slide_left")
-    local reverseStart = OakIntroLayout.compute(size[1], size[2], reverse, {}, manifest()).subject
+    local reverseStart = assert(OakIntroLayout.compute(size[1], size[2], reverse, {}, manifest()).subject)
     Assert.near(reverseStart.x, held.x)
     state:tick(1)
-    local moved = OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject
+    local moved = assert(OakIntroLayout.compute(size[1], size[2], state:view(), {}, manifest()).subject)
     Assert.isTrue(moved.x < reverseStart.x, "reverse source scroll moves monotonically back toward the base position")
   end
 end

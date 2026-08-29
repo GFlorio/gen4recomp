@@ -76,6 +76,7 @@ end
 
 ---@param modelsByKind table<string, table> emote kind -> field-emote descriptor
 ---@param pool table GpuAssetPool-shaped mesh/image pool
+---@return table
 function Renderer.new(modelsByKind, pool)
   assert(type(modelsByKind) == "table", "field emote renderer requires its compiled models by kind")
   assert(pool and pool.meshFor and pool.imageFor and pool.build, "field emote renderer requires an asset pool")

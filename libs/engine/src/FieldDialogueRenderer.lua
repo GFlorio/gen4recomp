@@ -25,7 +25,7 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 
 ---@class FieldDialogueRenderer
 ---@field _theme FieldDialogueTheme
----@field _graphics love.Graphics
+---@field _graphics love.Graphics|love.graphics
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table the generated field-UI manifest
 ---@field _focusIndicatorEnabled boolean whether the source focus indicator is composed
@@ -47,7 +47,7 @@ FieldDialogueRenderer.__index = FieldDialogueRenderer
 -- PNG bytes still enter through love.filesystem.newFileData); opts.theme:
 -- geometry record.
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics?, drawFocusIndicator?: boolean }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics|love.graphics, drawFocusIndicator?: boolean }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
   assert(
@@ -57,7 +57,7 @@ function FieldDialogueRenderer.new(opts)
   local theme = opts.theme or FieldDialogueTheme
   local graphics = opts.graphics
   if graphics == nil then
-    graphics = love and love.graphics
+    graphics = assert(love.graphics)
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldDialogueRenderer requires love.graphics")
   local text = opts.text
@@ -100,6 +100,7 @@ function FieldDialogueRenderer.new(opts)
       { path = frameImagePath }
     )
   end
+  frameData = assert(frameData)
   local ok, err = pcall(function()
     self._frameImage = graphics.newImage(love.filesystem.newFileData(frameData, frameImagePath))
     self._frameImage:setFilter("nearest", "nearest")
@@ -119,8 +120,9 @@ function FieldDialogueRenderer.new(opts)
       { path = cursorAsset.image }
     )
   end
+  cursorData = assert(cursorData)
   local cursorOk, cursorErr = pcall(function()
-    self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, cursorAsset.image))
+    self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, assert(cursorAsset.image)))
     self._cursorImage:setFilter("nearest", "nearest")
     self._cursorQuadCache = {}
     for style, styleEntry in pairs(cursor.styles) do
@@ -177,7 +179,7 @@ function FieldDialogueRenderer:_drawCursor(status, layout)
   if frameIndex == nil then
     return
   end
-  local cursor = assert(self._manifest.dialogueFrames.continueCursor)
+  assert(self._manifest.dialogueFrames.continueCursor)
   local quads = assert(self._cursorQuadCache)[frameIndex]
   local quad = assert(quads)[status.cursorPhase]
   local placement = assert(layout.cursor, "dialogue layout must supply a cursor rectangle")

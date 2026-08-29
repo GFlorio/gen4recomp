@@ -11,6 +11,9 @@ local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 
 local T = {}
 
+---@class FieldSignpostControllerTest.Message : FieldMessageProvider.FormattedMessage
+---@field _lines { tokens: MessageToken[] }[]
+
 local function glyph(text, code)
   return { kind = "glyph", code = code, text = text, raw = { code } }
 end
@@ -20,6 +23,8 @@ local function line(tokens)
 end
 
 -- Formatted message carrying the layout lines the test layout returns.
+---@param lines { tokens: MessageToken[] }[]
+---@return FieldSignpostControllerTest.Message
 local function message(lines)
   local tokens = {}
   for _, ln in ipairs(lines) do
@@ -27,20 +32,30 @@ local function message(lines)
       tokens[#tokens + 1] = token
     end
   end
-  return { bankId = 543, messageId = 5, tokens = tokens, _lines = lines }
+  return {
+    bankId = 543,
+    messageId = 5,
+    text = "",
+    tokens = tokens,
+    hadUnresolvedSubstitutions = false,
+    _lines = lines,
+  }
+end
+
+---@param formatted FieldMessageProvider.FormattedMessage
+---@return { lines: { tokens: MessageToken[] }[] }
+local function layoutMessage(formatted)
+  local testMessage = formatted --[[@as FieldSignpostControllerTest.Message]]
+  return { lines = testMessage._lines }
 end
 
 -- Controller whose layout returns the message's precomputed lines verbatim.
----@param lines { tokens: MessageToken[] }[]
 ---@param opts { ticksPerGlyph: integer?, styleId: string? }?
 ---@return FieldSignpostController
-local function controller(lines, opts)
+local function controller(_, opts)
   opts = opts or {}
   return FieldSignpostController.new({
-    layout = function(msg)
-      ---@cast msg any
-      return { lines = msg._lines }
-    end,
+    layout = layoutMessage,
     policy = {
       interGlyphDelay = (opts.ticksPerGlyph or 2) - 1,
       glyphBudget = 1,
@@ -52,10 +67,7 @@ end
 
 local function acceleratedController()
   return FieldSignpostController.new({
-    layout = function(msg)
-      ---@cast msg any
-      return { lines = msg._lines }
-    end,
+    layout = layoutMessage,
     policy = TextSpeedPolicy.forSpeed("mid"),
   })
 end

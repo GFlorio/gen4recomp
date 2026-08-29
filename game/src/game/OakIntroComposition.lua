@@ -163,6 +163,7 @@ function OakIntroComposition.compose(options)
     }
 
     local graphics = options.graphics or love.graphics
+    ---@cast graphics love.Graphics|love.graphics
     textRenderer = FieldTextRenderer.new({ cacheFs = cacheFs, graphics = graphics })
     dialogueRenderer = FieldDialogueRenderer.new({
       cacheFs = cacheFs,

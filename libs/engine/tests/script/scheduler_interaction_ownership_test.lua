@@ -18,6 +18,8 @@ local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local FakeServices = require("tests.support.script.FakeServices")
+---@cast WaitTicksTask TaskImplementation
+---@cast ChildScriptTask TaskImplementation
 
 local T = {}
 
@@ -41,7 +43,7 @@ local function harness()
   -- prove launch-origin behavior.
   local resolvedScriptId = nil
   local bindings = {
-    resolveIntent = function(_, intent, facing)
+    resolveIntent = function(_, _, _)
       if resolvedScriptId == nil then
         return nil
       end

@@ -87,7 +87,7 @@ function T.target_terrain_artifacts_are_deterministic(romFs)
 end
 
 function T.new_bark_east_staircase_facts_and_path_are_frozen(romFs)
-  local artifact, resolved = load(romFs, "MAP_NEW_BARK")
+  local artifact = load(romFs, "MAP_NEW_BARK")
   local terrain = TerrainSurface.new(artifact)
   local stair = artifact.plates[1]
   Assert.equal(stair.id, 0)
@@ -127,6 +127,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     -- map clock entry is a safe no-op.
     updateAnimated = function() end,
   }
+  ---@cast runtimeMap RuntimeFieldMap
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
     fieldX = resolved.worldOriginX + 16,
@@ -158,18 +159,22 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       error("staircase fixture never starts a warp", 2)
     end,
   }
+  ---@cast transition FieldTransition
   local input = {
     snapshot = function()
       return {}
     end,
     clearEdges = function() end,
   }
+  ---@cast input FieldInput
   local actors = { step = function() end }
+  ---@cast actors FieldActorManager
   local dialogue = {
     isModal = function()
       return false
     end,
   }
+  ---@cast dialogue FieldDialogueController
   local scriptScheduler = {
     step = function() end,
     playerInputOwned = function()
@@ -179,23 +184,27 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       return nil
     end,
   }
+  ---@cast scriptScheduler Scheduler
   local scriptClient = { consume = function() end }
+  ---@cast scriptClient ScriptInteractionClient
   local menuHost = {
     isModal = function()
       return false
     end,
     advance = function() end,
   }
+  ---@cast menuHost FieldMenuHost
   local contextChoice = {
     isActive = function()
       return false
     end,
-  }
+  } --[[@as ContextChoiceProvider]]
   local signpost = {
     isModal = function()
       return false
     end,
   }
+  ---@cast signpost FieldSignpostController
   local interactions = {
     resolve = function()
       return nil
@@ -225,7 +234,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       takeReopen = function()
         return false
       end,
-    },
+    } --[[@as FieldApplicationHost]],
     interactions = interactions,
     bagUnlocked = function()
       return true

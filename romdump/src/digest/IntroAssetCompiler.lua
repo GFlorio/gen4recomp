@@ -15,6 +15,10 @@ local config = require("romdump.src.config.IntroAssets")
 
 local IntroAssetCompiler = {}
 
+local function byteAt(bytes, offset)
+  return string.byte(bytes, offset --[[@as integer]])
+end
+
 IntroAssetCompiler.ERROR = { SOURCE_INVALID = "INTRO_SOURCE_INVALID" }
 -- The source shrink task spends eight calls decrementing its post-change delay,
 -- so each replacement remains visible for nine source ticks.
@@ -405,10 +409,10 @@ local function renderAnimations(char, colors, cells, animation, animationIndex, 
             local srcY = math.floor(syInv - cellB.minY + 0.5)
             if srcX >= 0 and srcX < cellW and srcY >= 0 and srcY < cellH then
               local srcOff = (srcY * cellW + srcX) * 4
-              local r = string.byte(cellImage.rgba, srcOff + 1)
-              local g = string.byte(cellImage.rgba, srcOff + 2)
-              local b = string.byte(cellImage.rgba, srcOff + 3)
-              local a = string.byte(cellImage.rgba, srcOff + 4)
+              local r = byteAt(cellImage.rgba, srcOff + 1)
+              local g = byteAt(cellImage.rgba, srcOff + 2)
+              local b = byteAt(cellImage.rgba, srcOff + 3)
+              local a = byteAt(cellImage.rgba, srcOff + 4)
               if a ~= 0 and a ~= nil then
                 local dstOff = (dy * width + dx) * 4
                 rgba[dstOff + 1], rgba[dstOff + 2], rgba[dstOff + 3], rgba[dstOff + 4] = r, g, b, a
@@ -428,10 +432,10 @@ local function renderAnimations(char, colors, cells, animation, animationIndex, 
             local srcY = math.floor(syInv - cellB.minY + 0.5)
             if srcX >= 0 and srcX < cellW and srcY >= 0 and srcY < cellH then
               local srcOff = (srcY * cellW + srcX) * 4
-              local r = string.byte(cellImage.rgba, srcOff + 1)
-              local g = string.byte(cellImage.rgba, srcOff + 2)
-              local b = string.byte(cellImage.rgba, srcOff + 3)
-              local a = string.byte(cellImage.rgba, srcOff + 4)
+              local r = byteAt(cellImage.rgba, srcOff + 1)
+              local g = byteAt(cellImage.rgba, srcOff + 2)
+              local b = byteAt(cellImage.rgba, srcOff + 3)
+              local a = byteAt(cellImage.rgba, srcOff + 4)
               if a ~= 0 and a ~= nil then
                 local dstOff = (dy * width + dx) * 4
                 rgba[dstOff + 1], rgba[dstOff + 2], rgba[dstOff + 3], rgba[dstOff + 4] = r, g, b, a
@@ -441,18 +445,18 @@ local function renderAnimations(char, colors, cells, animation, animationIndex, 
         end
       else
         -- Translate only: direct copy at translated position
-        destMinX = destMinX - bounds.minX
-        destMinY = destMinY - bounds.minY
+        local copyOriginX = destMinX - bounds.minX
+        local copyOriginY = destMinY - bounds.minY
         for sy2 = 0, cellH - 1 do
           for sx2 = 0, cellW - 1 do
             local srcOff = (sy2 * cellW + sx2) * 4
-            local r = string.byte(cellImage.rgba, srcOff + 1)
-            local g = string.byte(cellImage.rgba, srcOff + 2)
-            local b = string.byte(cellImage.rgba, srcOff + 3)
-            local a = string.byte(cellImage.rgba, srcOff + 4)
+            local r = byteAt(cellImage.rgba, srcOff + 1)
+            local g = byteAt(cellImage.rgba, srcOff + 2)
+            local b = byteAt(cellImage.rgba, srcOff + 3)
+            local a = byteAt(cellImage.rgba, srcOff + 4)
             if a ~= 0 and a ~= nil then
-              local dx = destMinX + sx2
-              local dy = destMinY + sy2
+              local dx = copyOriginX + sx2
+              local dy = copyOriginY + sy2
               if dx >= 0 and dx < width and dy >= 0 and dy < height then
                 local dstOff = (dy * width + dx) * 4
                 rgba[dstOff + 1], rgba[dstOff + 2], rgba[dstOff + 3], rgba[dstOff + 4] = r, g, b, a
@@ -522,6 +526,11 @@ local function readResourceTable(archive, dependencies, spec, memberId, role)
   end
 end
 
+---@param resourceDataArchive table
+---@param dependencies table
+---@param spec table
+---@param id string
+---@return table
 local function resolveResourceSet(resourceDataArchive, dependencies, spec, id)
   local resolution = assert(spec.resourceResolution)
   local headerBytes = decodeMember(resourceDataArchive, resolution.header, id .. " resource header", resolution.archive)
@@ -554,7 +563,7 @@ local function resolveResourceSet(resourceDataArchive, dependencies, spec, id)
   end
   local result = {}
   for key, value in pairs(spec) do
-    result[key] = value
+    result[key] = value --[[@as string|integer|table]]
   end
   result.char, result.palette = resolved.char, resolved.palette
   result.cell, result.animation = resolved.cell, resolved.animation
@@ -636,6 +645,7 @@ local function compileCellAnimation(archive, dependencies, manifest, assets, id,
   addDependency(dependencies, spec.archive, spec.animation, animationBytes, dependencyRole .. ":animation")
   local cells = decode("decodeCell", cellBytes, id .. " cell", spec.cell, spec.archive)
   local animation = decode("decodeAnimation", animationBytes, id .. " animation", spec.animation, spec.archive)
+  ---@type string|integer|table|nil
   local rasterPaletteOverride = spec.paletteOverride
   if disableRasterOverride then
     rasterPaletteOverride = nil
@@ -1006,7 +1016,10 @@ function IntroAssetCompiler.compile(romFs)
   compileShrink(archive, dependencies, manifest, assets, "shrink_female", config.shrink.female)
   local ballArchive = sourceArchive(romFs, config.ball_open.archive)
   for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
-    local resolved = resolveResourceSet(resourceDataArchive, dependencies, config[id], id)
+    local spec = assert(config[id])
+    assert(type(spec) == "table")
+    ---@cast spec table
+    local resolved = resolveResourceSet(resourceDataArchive, dependencies, spec, id)
     -- This resource set's own decoded palette holds no populated colors at
     -- the pinned template slot: the sprite system's palette-number overwrite
     -- applies to a VRAM bank offset assigned when the sprite is created

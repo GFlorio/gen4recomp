@@ -8,6 +8,8 @@ local RegistryWarmup = require("libs.engine.src.script.RegistryWarmup")
 local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 
+---@class FieldScriptCompatibility.MovementPause: TaskImplementation
+---@field actorType string
 ---@class FieldScriptCompatibility
 ---@field registry Registry current production script registry
 ---@field registrySnapshotKey string|nil key the registry was built under
@@ -46,14 +48,16 @@ local function buildTaskRegistry()
   local registry = TaskRegistry.new()
   for _, moduleName in ipairs(TASK_MODULES) do
     local impl = require(moduleName)
+    ---@cast impl TaskImplementation
     registry:register(impl.type, impl.version, impl)
   end
   local pause = require("libs.engine.src.script.tasks.MovementPauseTask")
+  ---@cast pause FieldScriptCompatibility.MovementPause
   registry:register(pause.actorType, pause.version, pause)
   return registry
 end
 
----@param opts table { cacheFs: table, overrideFs: table }
+---@param opts { cacheFs: CacheFs, overrideFs: table }
 ---@return FieldScriptCompatibility
 function FieldScriptCompatibility.new(opts)
   assert(opts and opts.cacheFs and opts.overrideFs, "script compatibility requires filesystems")
@@ -73,7 +77,7 @@ function FieldScriptCompatibility.new(opts)
     warmup = nil,
     composition = Composition.new(registry),
     taskRegistry = buildTaskRegistry(),
-  }, FieldScriptCompatibility)
+  }, FieldScriptCompatibility) --[[@as FieldScriptCompatibility]]
   if not fast then
     self.warmup = RegistryWarmup.new({
       registry = registry,

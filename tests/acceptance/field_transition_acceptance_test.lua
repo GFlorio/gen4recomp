@@ -16,10 +16,8 @@ local T = {
 }
 
 local TOWN = "MAP_NEW_BARK"
-local LAB = "MAP_NEW_BARK_ELMS_LAB_1F"
 local HOUSE_1F = "MAP_NEW_BARK_PLAYER_HOUSE_1F"
 local HOUSE_2F = "MAP_NEW_BARK_PLAYER_HOUSE_2F"
-local TOWN_DOOR = { fieldX = 684, fieldZ = 393 }
 local TOWN_DOOR_APPROACH = { fieldX = 684, fieldZ = 394 }
 local HOUSE_WARP = { fieldX = 3, fieldZ = 3 }
 
@@ -165,7 +163,6 @@ end
 
 function T.tests.transition_sounds_are_emitted_once_by_profile_choreography()
   withGame(TOWN, function(game)
-    local facts = factsFor(game)
     beginTownDoor(game)
     Assert.equal(effectCount(game, "SEQ_SE_DP_DOOR_OPEN"), 1, "ordinary profile audio must be emitted once")
     game:waitForTransition()
@@ -235,7 +232,7 @@ function T.tests.door_fade_waits_for_source_ingress_and_preserves_anchor()
     local first = transition:presentationStatus()
     Assert.equal(first.phase, "door_open", "door ingress owns the first transition phase")
     Assert.isNil(transition.resolution, "destination preparation waits for source door ingress")
-    game:advanceUntil("source door ingress completes", function(snapshot)
+    game:advanceUntil("source door ingress completes", function(_)
       return transition.resolution ~= nil
     end, 120)
     Assert.equal(transition.resolution.fieldX, facts.labFloor.fieldX)

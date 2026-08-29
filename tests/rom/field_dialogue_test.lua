@@ -147,7 +147,7 @@ end
 -- observed leading whitespace in a real glyph is source-decoded bearing, not
 -- an extraction defect. If this test ever disagrees, the font
 -- producer (not the shared dialogue layout/mapping) is the failing owner.
-function T.leading_glyph_local_ink_matches_between_raw_decode_and_the_generated_atlas(romFs, version)
+function T.leading_glyph_local_ink_matches_between_raw_decode_and_the_generated_atlas(romFs, _)
   local bundle = assert(FieldFontCompiler.compile(romFs))
   local code = assert(bundle.font.charmap["A"], "the font charmap must resolve 'A' for this corpus")
   local glyph = assert(bundle.font.glyphs[code])

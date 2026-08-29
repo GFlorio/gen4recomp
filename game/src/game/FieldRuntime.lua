@@ -431,6 +431,7 @@ end
 ---@param game table
 ---@param mapLoader FieldMapLoader
 ---@param composeMap fun(logicalMap: RuntimeFieldMap, position: { fieldX: integer, fieldZ: integer }): RuntimeFieldMap
+---@return RuntimeFieldMap, { fieldX: integer, fieldZ: integer, surfaceId: integer, facing: FieldDirection, worldY: number }
 local function loadGameLocation(game, mapLoader, composeMap)
   if game.schema == GameSave.SCHEMA then
     local runtimeMap = mapLoader:load(game.mapId)
@@ -1399,6 +1400,7 @@ end
 -- only builds and validates a snapshot; publication belongs to storage.
 ---@return table? snapshot
 ---@return string|table? reason validation or stability failure
+---@param allowMenu boolean?
 function FieldRuntime:_captureGameSave(allowMenu)
   if not canCapture(self.session, allowMenu == true) then
     return nil, "Save deferred: movement, transition, or modal state is active"

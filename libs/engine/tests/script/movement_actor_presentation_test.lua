@@ -11,8 +11,11 @@ local Composition = require("libs.engine.src.script.Composition")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+---@cast WaitTicksTask TaskImplementation
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
+---@cast MovementTask TaskImplementation
 local MovementBarrierTask = require("libs.engine.src.script.tasks.MovementBarrierTask")
+---@cast MovementBarrierTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
@@ -42,7 +45,7 @@ local function terrain()
 end
 
 local function runtimeMap()
-  return {
+  local result = {
     mapId = 61,
     coordinateOrigin = { x = 0, z = 0 },
     collision = {
@@ -80,6 +83,8 @@ local function runtimeMap()
       },
     },
   }
+  ---@cast result RuntimeFieldMap
+  return result
 end
 
 local function fakeAssets()

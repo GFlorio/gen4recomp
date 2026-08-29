@@ -19,6 +19,9 @@ local function widget(manifest, id)
   return value
 end
 
+---@param region { x: number, y: number, width: number, height: number }
+---@param reference { width: number, height: number }
+---@return { scale: number, origin: { x: number, y: number }, [string]: unknown }
 local function canvasForRegion(region, reference)
   local scale = math.min(region.width / reference.width, region.height / reference.height)
   local origin = {
@@ -29,6 +32,9 @@ local function canvasForRegion(region, reference)
   return { scale = scale, origin = origin }
 end
 
+---@param scene { x: number, y: number, width: number, height: number }
+---@param reference { width: number, height: number }
+---@return { scale: number, origin: { x: number, y: number }, scene: table, reference: table }
 local function sourceCanvas(scene, reference)
   local canvas = canvasForRegion(scene, reference)
   canvas.scene = scene
@@ -121,6 +127,9 @@ local function containedPanel(region, aspect)
   return rect(region.x + (region.width - width) / 2, region.y + (region.height - height) / 2, width, height)
 end
 
+---@param selectorPanel { x: number, y: number, width: number, height: number }
+---@param reference { width: number, height: number }
+---@return { scale: number, origin: { x: number, y: number }, panel: table, reference: table }
 local function genderCanvas(selectorPanel, reference)
   local canvas = canvasForRegion(selectorPanel, reference)
   canvas.panel = selectorPanel
@@ -144,7 +153,7 @@ end
 ---@param view table
 ---@param glyphs string[]
 ---@param manifest table
----@return table
+---@return OakIntroStateLayout
 function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   assert(type(width) == "number" and width == width and width > 0, "Oak viewport width is invalid")
   assert(type(height) == "number" and height == height and height > 0, "Oak viewport height is invalid")
@@ -182,7 +191,8 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   local scene = rect(0, safeFrame.y, width, safeFrame.height)
   local contentWidth = math.min(scene.width, 1120)
   local sceneContent = rect(scene.x + (scene.width - contentWidth) / 2, scene.y, contentWidth, scene.height)
-  local result = {
+  local result ---@type OakIntroStateLayout
+  result = {
     viewport = rect(0, 0, width, height),
     safeFrame = safeFrame,
     scene = scene,

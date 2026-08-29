@@ -34,7 +34,7 @@ function T.cancelled_movement_must_settle_to_last_committed_anchor()
     })
   end
   local function map(objects)
-    return {
+    local result = {
       mapId = 61,
       coordinateOrigin = { x = 0, z = 0 },
       collision = {
@@ -45,6 +45,8 @@ function T.cancelled_movement_must_settle_to_last_committed_anchor()
       terrain = flatTerrain(),
       fieldData = { events = { objects = objects, background = {}, warps = {}, coordinates = {} } },
     }
+    ---@cast result RuntimeFieldMap
+    return result
   end
   local mgr = FieldActorManager.new({ assets = fakeAssets, policy = policy })
   mgr:enterMap(

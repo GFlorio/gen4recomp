@@ -11,7 +11,7 @@ local T = {}
 
 function T.reveal_source_configuration_uses_resource_set_five_sequences_and_palettes()
   local config = require("romdump.src.config.IntroAssets")
-  for id, sequence, palette in pairs({ ball_open = { 3, 4 }, marill_appear = { 1, 4 }, marill = { 2, 4 } }) do
+  for id, sequence, _ in pairs({ ball_open = { 3, 4 }, marill_appear = { 1, 4 }, marill = { 2, 4 } }) do
     local entry = assert(config[id])
     Assert.equal(entry.archive, "intro")
     Assert.isNil(entry.char)

@@ -52,6 +52,7 @@ end
 
 function T.a_fresh_clear_hide_flag_materializes_and_draws_the_real_elm_actor(romFs, version)
   local runtimeMap = RomRuntimeMap.compile(romFs, MAP_SYMBOL)
+  ---@cast runtimeMap RuntimeFieldMap
   Assert.equal(runtimeMap.mapId, MAP_ID)
 
   local actorBundle = assert(FieldActorCompiler.compile(romFs))

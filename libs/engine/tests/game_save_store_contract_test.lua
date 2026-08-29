@@ -1,7 +1,6 @@
 -- Contract tests for the global GameSave catalog. The store owns catalog
 -- visibility and canonical game paths; tests inject only the filesystem host
 -- boundary and keep all game records in the project-owned schema.
----@diagnostic disable: undefined-field
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -18,8 +17,7 @@ local function newStore(backend, opts)
   Assert.isTrue(loaded, "global GameSave storage service is not implemented")
   Assert.isTrue(type(GameSaveStore.new) == "function", "global GameSave storage needs a constructor")
   Assert.isTrue(type(SaveFs.global) == "function", "SaveFs needs a global product save root")
-  ---@type GameSaveStoreModule
-  local Store = GameSaveStore
+  local Store = GameSaveStore --[[@as GameSaveStoreModule]]
   return Store.new(SaveFs.global(backend), opts)
 end
 
@@ -64,26 +62,28 @@ local function findEntry(entries, saveId)
   return nil
 end
 
+---@param fn fun()
+---@return Errors.Error
 local function callFailure(fn)
   local ok, first, second = pcall(fn)
   if not ok then
-    return first
+    return first --[[@as Errors.Error]]
   end
   Assert.isNil(first, "the failing storage operation must not return a record or success value")
   Assert.notNil(second, "the failing storage operation must return its error")
-  return second
+  return second --[[@as Errors.Error]]
 end
 
 local function failOn(backend, method, occurrence)
   local original = assert(backend[method])
   local calls = 0
-  backend[method] = function(self, ...)
+  rawset(backend, method, function(self, ...)
     calls = calls + 1
     if calls == occurrence then
       return false, "injected " .. method .. " failure"
     end
     return original(self, ...)
-  end
+  end)
 end
 
 local function expectVisible(store, saveId)
@@ -208,7 +208,7 @@ end
 function T.malformed_nil_catalog_and_payload_are_structured_errors()
   local backend = FakeCache.new()
   local store = newStore(backend)
-  local saveId = store:reserve()
+  local _ = store:reserve()
   backend.files["saves/catalog.lua"] = LuaWriter.encode(nil)
   local catalogErr = callFailure(function()
     store:list()
@@ -338,7 +338,7 @@ function T.hostile_save_ids_are_rejected_before_path_resolution()
   local store = newStore(FakeCache.new())
   local _, err = store:load("../escape")
   Assert.notNil(err)
-  Assert.equal(err.code, "GAME_SAVE_SAVE_ID_INVALID")
+  Assert.equal(assert(err).code, "GAME_SAVE_SAVE_ID_INVALID")
 end
 
 return { tests = T }

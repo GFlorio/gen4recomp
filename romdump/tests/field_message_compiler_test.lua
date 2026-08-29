@@ -105,6 +105,7 @@ local function fixture()
       return "heartgold"
     end,
   }
+  ---@cast romFs RomFs
   local function sha1(bytes)
     for bankId, memberBytes in pairs(members) do
       if bytes == memberBytes then

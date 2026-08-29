@@ -90,7 +90,7 @@ local function luaCache(backend)
     assert(ok, result)
     return result
   end
-  return {
+  local result = {
     read = function(_, path)
       return backend:read(path)
     end,
@@ -98,6 +98,8 @@ local function luaCache(backend)
       return loadLua(path)
     end,
   }
+  ---@cast result CacheFs
+  return result
 end
 
 -- The 2x2-tile quad in tile space (MeshWriter vertex shape).

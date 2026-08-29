@@ -145,9 +145,9 @@ end
 -- Movement actions for an ApplyMovement operand.
 ---@param movementLabel string
 ---@param memberIr table
----@param provenance table
+---@param _ table
 ---@return table[] actions, boolean complete, table|nil unsupported
-local function movementFor(movementLabel, memberIr, provenance)
+local function movementFor(movementLabel, memberIr, _)
   local offset = tonumber(movementLabel:sub(2), 16)
   local block = memberIr.movements[offset]
   if block == nil then
@@ -220,7 +220,7 @@ local HANDLERS = {
   [2] = function()
     return { op = "stop" }
   end,
-  [3] = function(ins, memberIr, provenance, ctx)
+  [3] = function(ins, _, _, _)
     -- Wait frames, var: every Wait mirrors the countdown into its
     -- destination variable exactly like the source engine (ScrCmd_Wait
     -- writes the frame count at execution; RunPauseTimer decrements the
@@ -244,7 +244,7 @@ local HANDLERS = {
   [18] = function(ins)
     return { op = "compare", left = varRef(ins.operands[1]), right = varRef(ins.operands[2]) }
   end,
-  [20] = function(ins, memberIr, provenance, ctx)
+  [20] = function(ins, _, _, ctx)
     -- CallStd id: resolve the std catalog to the public `common.<name>` id
     -- (decomp symbols and binary numeric ids both resolve); unknown ids stay
     -- mechanical `common.std_<id>`.
@@ -833,7 +833,7 @@ local HANDLERS = {
   [752] = function()
     return { op = "menu_exec" }
   end,
-  [581] = function(ins)
+  [581] = function(_)
     return { op = "lock_actor", actor = { ref = "actor", special = "last_talked" }, waitUntilPausable = true }
   end,
   [746] = function()
@@ -968,11 +968,11 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
   end
   local memberLabels = {}
   local memberBodyLabels = {}
-  for index, memberScript in pairs(memberIr.scripts) do
-    memberBodyLabels[memberScript.label] = index
+  for memberIndex, memberScript in pairs(memberIr.scripts) do
+    memberBodyLabels[memberScript.label] = memberIndex
     for _, ins in ipairs(memberScript.instructions) do
       if ins.label ~= nil then
-        memberLabels[ins.label] = index
+        memberLabels[ins.label] = memberIndex
       end
     end
   end
@@ -1167,7 +1167,7 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
           pushLabel(ins)
           items[#items + 1] = primitive
         else
-          local unsupportedStep = {
+          local unsupportedRecord = {
             op = "unsupported",
             command = ins.opcode,
             originalName = CommandCatalog.name(ins.opcode),
@@ -1175,10 +1175,10 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
             sourceOffset = ins.offset,
             reason = "unconsumed compare-state op without a DSL carrier",
           }
-          unsupportedStep = withProvenance(unsupportedStep, { ins.offset }, { ins.opcode })
+          unsupportedRecord = withProvenance(unsupportedRecord, { ins.offset }, { ins.opcode })
           pushLabel(ins)
-          items[#items + 1] = unsupportedStep
-          unsupported[#unsupported + 1] = unsupportedStep
+          items[#items + 1] = unsupportedRecord
+          unsupported[#unsupported + 1] = unsupportedRecord
         end
       elseif step ~= nil then
         local handled = false

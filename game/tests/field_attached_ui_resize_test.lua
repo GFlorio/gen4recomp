@@ -123,9 +123,9 @@ function T.missed_resize_is_reconciled_before_renderer_and_restored_once()
   end, true)
   local originalGetDimensions = love.graphics.getDimensions
   local dimensions = { width = 1600, height = 900 }
-  love.graphics.getDimensions = function()
+  rawset(love.graphics, "getDimensions", function()
     return dimensions.width, dimensions.height
-  end
+  end)
   local ok, err = pcall(function()
     state:draw()
   end)
@@ -165,14 +165,14 @@ function T.resize_event_applies_presentation_geometry_once_before_an_unchanged_d
   Assert.deepEqual(runtime.lastResize, { 1280, 720, topology })
 
   local originalGetDimensions = love.graphics.getDimensions
-  love.graphics.getDimensions = function()
+  rawset(love.graphics, "getDimensions", function()
     return 1280, 720
-  end
+  end)
   local ok, err = pcall(function()
     state:draw()
     state:draw()
   end)
-  love.graphics.getDimensions = originalGetDimensions
+  rawset(love.graphics, "getDimensions", originalGetDimensions)
   Assert.isTrue(ok, "unchanged draw must use the event-synchronized geometry: " .. tostring(err))
   Assert.equal(runtime.resizeCalls, 1)
   Assert.deepEqual(runtime.rendererObservations, {
@@ -190,14 +190,14 @@ function T.injected_topology_provider_publishes_one_same_size_structural_change(
   current = oneDisplay(1280, 720, { x = 0, y = 20, width = 1280, height = 700 })
 
   local originalGetDimensions = love.graphics.getDimensions
-  love.graphics.getDimensions = function()
+  rawset(love.graphics, "getDimensions", function()
     return 1280, 720
-  end
+  end)
   local ok, err = pcall(function()
     state:draw()
     state:draw()
   end)
-  love.graphics.getDimensions = originalGetDimensions
+  rawset(love.graphics, "getDimensions", originalGetDimensions)
   Assert.isTrue(ok, "injected topology polling must remain supported: " .. tostring(err))
   Assert.equal(runtime.resizeCalls, 1)
   Assert.deepEqual(runtime.lastResize, { 1280, 720, current })
@@ -289,7 +289,6 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
       resizePresentation = function() end,
     },
     topologyProvider = function()
-      local ScreenTopology = require("libs.engine.src.ScreenTopology")
       return ScreenTopology.oneDisplay({
         id = "main",
         rect = { x = 0, y = 0, width = 1280, height = 600 },
@@ -344,9 +343,9 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
     end,
   }
   local oldGetDimensions = love.graphics.getDimensions
-  love.graphics.getDimensions = function()
+  rawset(love.graphics, "getDimensions", function()
     return 1280, 600
-  end
+  end)
   local FieldDrawState = require("libs.engine.src.FieldDrawState")
   local savedProtected = FieldDrawState.protectedDraw
   ---@diagnostic disable-next-line: duplicate-set-field

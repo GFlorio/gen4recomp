@@ -7,19 +7,43 @@ local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 local T = {}
 
 local function player(x, z, facing)
-  return { fieldX = x, fieldZ = z, facing = facing }
+  local result = {
+    currentMap = nil,
+    resolver = nil,
+    occupancy = nil,
+    localX = x,
+    localZ = z,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    previousWorldX = 0,
+    previousWorldY = 0,
+    previousWorldZ = 0,
+    fieldX = x,
+    fieldZ = z,
+    surfaceId = 0,
+    motion = "idle",
+    facing = facing,
+    progressTicks = 0,
+    durationTicks = 0,
+    animationPaused = false,
+  }
+  ---@cast result FieldPlayer
+  return result
 end
 
 local function eventState(value)
-  return {
+  local result = {
     getVar = function()
       return value
     end,
   }
+  ---@cast result FieldEventState
+  return result
 end
 
 local function map(coordinates, backgrounds)
-  return {
+  local result = {
     mapId = 60,
     mapSymbol = "test-map",
     mapSection = "test-section",
@@ -33,6 +57,8 @@ local function map(coordinates, backgrounds)
       },
     },
   }
+  ---@cast result RuntimeFieldMap
+  return result
 end
 
 function T.coordinate_intents_keep_the_map_script_bank()
@@ -79,6 +105,7 @@ function T.coordinate_matching_reads_the_event_variable_not_an_unrelated_variabl
       return variableId == 8 and 3 or 0
     end,
   }
+  ---@cast state FieldEventState
   Assert.isNil(FieldEventResolver.resolveCoordinate(map({ event }), player(4, 6, "north"), state))
 end
 

@@ -49,7 +49,7 @@ local function luaCache(backend)
     assert(ok, result)
     return result
   end
-  return {
+  local result = {
     read = function(_, path)
       return backend:read(path)
     end,
@@ -57,6 +57,8 @@ local function luaCache(backend)
       return loadLua(path)
     end,
   }
+  ---@cast result CacheFs
+  return result
 end
 
 -- The fake mesh builder for the loader's GPU seam: SceneMesh.decode output
@@ -105,7 +107,7 @@ end
 ---@param romFs table
 ---@param symbol string
 ---@param opts { editDescriptor?: fun(desc: table) }?
----@return { map: table, runtime: table }
+---@return { map: RuntimeFieldMap, runtime: table }
 function SceneLoaderFixture.loadScene(romFs, symbol, opts)
   opts = opts or {}
   local assets = assert(MapAssetCompiler.compile(romFs, symbol))
@@ -150,7 +152,7 @@ end
 -- step-finished). The harness also records the phase timeline, the walking
 -- pose-clock ticks, and played sounds, like the acceptance harness.
 ---@param versionId string
----@param opts { scenes: { [integer]: table }, spawn: { map: table, x: integer, z: integer, facing: string }, doorTiles?: { [integer]: { x: integer, z: integer } } }
+---@param opts { scenes: { [integer]: { map: RuntimeFieldMap } }, spawn: { map: RuntimeFieldMap, x: integer, z: integer, facing: string }, doorTiles?: { [integer]: { x: integer, z: integer } } }
 ---@return table harness
 function SceneLoaderFixture.newHarness(versionId, opts)
   local maps = {}
@@ -237,7 +239,10 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       end
     end,
   }
+  ---@cast camera FieldCamera
+  ---@cast playerVisual FieldPlayerVisual
   local actors = { step = function() end }
+  ---@cast actors FieldActorManager
   session = FieldSession.new({
     versionId = versionId,
     currentMap = spawn.map,

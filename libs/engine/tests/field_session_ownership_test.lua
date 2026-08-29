@@ -36,7 +36,7 @@ local function basePlayer(overrides)
     surfaceId = 0,
     facing = "south",
     motion = "idle",
-    updateFixed = function(self)
+    updateFixed = function(_)
       return false
     end,
     collapseRenderInterpolation = function() end,
@@ -49,9 +49,9 @@ end
 
 local function makeSession(opts)
   opts = opts or {}
-  local player = opts.player or basePlayer()
-  local camera = opts.camera or { updateFixed = function() end }
-  local actors = opts.actors or { step = function() end, syncEventStateChanges = opts.syncFn }
+  local player = (opts.player or basePlayer()) --[[@as FieldPlayer]]
+  local camera = (opts.camera or { updateFixed = function() end }) --[[@as FieldCamera]]
+  local actors = (opts.actors or { step = function() end, syncEventStateChanges = opts.syncFn }) --[[@as FieldActorManager]]
   local scheduler = opts.scheduler
     or {
       step = function() end,
@@ -65,43 +65,32 @@ local function makeSession(opts)
         return nil
       end,
     }
-  return FieldSession.new({
-    versionId = "heartgold",
-    currentMap = opts.currentMap
-      or { mapId = 61, fieldData = { events = { warps = {} } }, updateAnimated = function() end },
-    player = player,
-    camera = camera,
-    transition = opts.transition or idleTransition(),
-    actors = actors,
-    input = opts.input or idleInput(),
-    dialogue = opts.dialogue or {
-      isModal = function()
-        return false
-      end,
-    },
-    scriptScheduler = scheduler,
-    scriptClient = opts.scriptClient or {
-      consume = function()
-        return require("libs.engine.src.script.ScriptInteractionClient").RESULTS.blocked
-      end,
-    },
-    menuHost = opts.menuHost or {
+  local currentMap = (
+    opts.currentMap or { mapId = 61, fieldData = { events = { warps = {} } }, updateAnimated = function() end }
+  ) --[[@as RuntimeFieldMap]]
+  local input = (opts.input or idleInput()) --[[@as FieldInput]]
+  local transition = (opts.transition or idleTransition()) --[[@as FieldTransition]]
+  local dialogue = (opts.dialogue or {
+    isModal = function()
+      return false
+    end,
+  }) --[[@as FieldDialogueController]]
+  local menuHost = (
+    opts.menuHost or {
       isModal = function()
         return false
       end,
       advance = function() end,
-    },
-    contextChoice = opts.contextChoice or {
-      isActive = function()
-        return false
-      end,
-    },
-    signpost = opts.signpost or {
-      isModal = function()
-        return false
-      end,
-    },
-    applicationHost = opts.applicationHost or {
+    }
+  ) --[[@as FieldMenuHost]]
+  local signpost = (opts.signpost or {
+    isModal = function()
+      return false
+    end,
+  }) --[[@as FieldSignpostController]]
+  local applicationHost = (
+    opts.applicationHost
+    or {
       isActive = function()
         return false
       end,
@@ -112,7 +101,31 @@ local function makeSession(opts)
       takeReopen = function()
         return false
       end,
+    }
+  ) --[[@as FieldApplicationHost]]
+  return FieldSession.new({
+    versionId = "heartgold",
+    currentMap = currentMap,
+    player = player,
+    camera = camera,
+    transition = transition,
+    actors = actors,
+    input = input,
+    dialogue = dialogue,
+    scriptScheduler = scheduler --[[@as Scheduler]],
+    scriptClient = (opts.scriptClient or {
+      consume = function()
+        return require("libs.engine.src.script.ScriptInteractionClient").RESULTS.blocked
+      end,
+    }) --[[@as ScriptInteractionClient]],
+    menuHost = menuHost,
+    contextChoice = opts.contextChoice or {
+      isActive = function()
+        return false
+      end,
     },
+    signpost = signpost,
+    applicationHost = applicationHost,
     interactions = opts.interactions or {
       resolve = function()
         return nil
@@ -154,7 +167,7 @@ function T.foreground_without_player_lock_permits_movement_but_blocks_menu_and_i
   }
 
   local player = basePlayer({
-    updateFixed = function(self)
+    updateFixed = function(_)
       playerMoves = playerMoves + 1
       return false
     end,
@@ -202,7 +215,7 @@ end
 function T.actor_world_continues_while_foreground_holds_the_field_and_release_tick_stays_suppressed()
   local poseAdvances = 0
   local actors = {
-    step = function(self, tick)
+    step = function(_, _)
       poseAdvances = poseAdvances + 1
       -- Synchronously apply any queued presence if present; keep as plain step for this scenario.
     end,
@@ -231,7 +244,7 @@ function T.actor_world_continues_while_foreground_holds_the_field_and_release_ti
   -- direction must remain suppressed.
   local playerMoves = 0
   local player = basePlayer({
-    updateFixed = function(self)
+    updateFixed = function(_)
       playerMoves = playerMoves + 1
       return false
     end,
@@ -266,7 +279,7 @@ end
 function T.interaction_only_ownership_must_suppress_input_including_the_completion_tick()
   local playerMoves = 0
   local player = basePlayer({
-    updateFixed = function(self)
+    updateFixed = function(_)
       playerMoves = playerMoves + 1
       return false
     end,

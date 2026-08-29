@@ -32,6 +32,9 @@ local DIRECTIONS = { "east", "north", "south", "west" }
 -- the edge of what it can safely evaluate without actually walking there.
 -- Returns nil (never raises) so the search can route around/up-to the edge
 -- instead of asserting on a destination production movement can reach fine.
+---@param map table
+---@param destination { surfaceId?: integer, fieldX: number, fieldZ: number, sourceCellKey?: integer, sourceSurfaceId?: integer }
+---@return integer|nil
 local function destinationSurfaceId(map, destination)
   if destination.surfaceId ~= nil then
     return destination.surfaceId
@@ -342,20 +345,20 @@ function FieldMovement.productionRoute(game, directions)
   game:waitForFieldEntry()
   local snapshots = {}
   for index, direction in ipairs(directions) do
-    local before = game:snapshot()
+    local beforeStep = game:snapshot()
     -- HGSS input turns in place before it walks whenever the pressed
     -- direction is not the player's current facing; settle that turn first
     -- so each literal direction always resolves to a real production step.
-    if before.player.facing ~= direction then
+    if beforeStep.player.facing ~= direction then
       game:face(direction)
     end
     game:move(direction)
     snapshots[index] = game:advanceUntil("production route move " .. tostring(index), function(snapshot)
-      if snapshot.mapId ~= before.mapId then
+      if snapshot.mapId ~= beforeStep.mapId then
         return true
       end
       return snapshot.player.motion == "idle"
-        and (snapshot.player.fieldX ~= before.player.fieldX or snapshot.player.fieldZ ~= before.player.fieldZ)
+        and (snapshot.player.fieldX ~= beforeStep.player.fieldX or snapshot.player.fieldZ ~= beforeStep.player.fieldZ)
     end, 120)
   end
   return snapshots

@@ -96,6 +96,7 @@ function MapInitScriptController:hasLifecycle(lifecycle)
   return false
 end
 
+---@param lifecycle string
 ---@param tick integer
 ---@return boolean claimed
 function MapInitScriptController:startLifecycle(lifecycle, tick)

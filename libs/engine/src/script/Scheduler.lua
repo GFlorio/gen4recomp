@@ -116,19 +116,25 @@ end
 
 -- --- Instance and environment creation ---------------------------------------
 
-local function environmentIdFor(self)
-  self._nextEnvironmentId = self._nextEnvironmentId + 1
-  return string.format("script-env-%08d", self._nextEnvironmentId)
+---@param state { _nextEnvironmentId: integer }
+---@return string
+local function environmentIdFor(state)
+  state._nextEnvironmentId = state._nextEnvironmentId + 1
+  return string.format("script-env-%08d", state._nextEnvironmentId)
 end
 
-local function instanceIdFor(self)
-  self._nextInstanceId = self._nextInstanceId + 1
-  return string.format("script-%08d", self._nextInstanceId)
+---@param state { _nextInstanceId: integer }
+---@return string
+local function instanceIdFor(state)
+  state._nextInstanceId = state._nextInstanceId + 1
+  return string.format("script-%08d", state._nextInstanceId)
 end
 
-local function taskIdFor(self)
-  self._nextTaskId = self._nextTaskId + 1
-  return string.format("task-%08d", self._nextTaskId)
+---@param state { _nextTaskId: integer }
+---@return string
+local function taskIdFor(state)
+  state._nextTaskId = state._nextTaskId + 1
+  return string.format("task-%08d", state._nextTaskId)
 end
 
 -- Push the entry frame of a composed chain onto a fresh instance.
@@ -359,7 +365,7 @@ function Scheduler:createTask(taskType, spec, instance, tick, input)
       { scriptId = instance.scriptId, instanceId = instance.instanceId, taskType = taskType, cause = err }
     )
   end
-  impl = impl --[[@as table]]
+  ---@cast impl TaskImplementation
   local environment = assert(self._environments[instance.environmentId], "task owner environment missing")
   local ctx = self:_ctxFor(instance, environment, tick, input)
   local state = impl.create(spec, ctx)
@@ -798,7 +804,7 @@ end
 -- Normal instance completion : release ownership,
 -- clear text arguments, free the context slot, and tear down the environment
 -- when the root completes.
-function Scheduler:_completeInstance(instance, tick)
+function Scheduler:_completeInstance(instance, _)
   instance.status = ScriptInstance.STATUSES.completed
   instance.endReason = "completed"
   instance:clearInstanceState()
@@ -818,9 +824,8 @@ end
 -- Fault one context through attributed cleanup : record the error, release ownership, emit events, and tear
 -- down the environment when the faulting context is the root.
 ---@param instance ScriptInstance
----@param tick integer
 ---@param error Errors.Error
-function Scheduler:_faultInstance(instance, tick, error)
+function Scheduler:_faultInstance(instance, _, error)
   if
     instance.status == ScriptInstance.STATUSES.completed
     or instance.status == ScriptInstance.STATUSES.faulted
@@ -1179,7 +1184,7 @@ end
 ---@return ScriptInstance[]
 function Scheduler:liveInstances()
   local out = {}
-  for instanceId, instance in pairs(self._instances) do
+  for _, instance in pairs(self._instances) do
     out[#out + 1] = instance
   end
   table.sort(out, function(a, b)
@@ -1194,7 +1199,7 @@ end
 ---@return ScriptInstance[]
 function Scheduler:instances()
   local out = self:liveInstances()
-  for instanceId, instance in pairs(self._endedInstances) do
+  for _, instance in pairs(self._endedInstances) do
     out[#out + 1] = instance
   end
   table.sort(out, function(a, b)

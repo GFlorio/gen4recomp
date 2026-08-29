@@ -61,6 +61,34 @@ local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 local MapSceneLoader = {}
 
+---@class MapSceneLoader.ModelDescriptor
+---@field kind "static"|"nitro-dynamic"
+---@field batches MapSceneLoader.Batch[]?
+---@field dynamic { nodes: ModelDefinition.NodeSource[], transformProgram: table, batches: MapSceneLoader.Batch[] }?
+---@field materials table[]
+---@field animations table[]?
+
+---@class MapSceneLoader.Batch
+---@field geometry string
+---@field material string|integer
+---@field cullMode string?
+---@field polygonMode string?
+---@field polygonId integer?
+---@field translucentDepthWrite boolean?
+---@field depthEqual boolean?
+---@field lightMask integer?
+---@field polygonAlpha number
+---@field alphaClass string
+---@field fogEnabled boolean
+---@field transformMode string?
+---@field baseTransform table?
+
+---@class MapSceneLoader.DescriptorCacheEntry
+---@field descriptor MapSceneLoader.ModelDescriptor
+---@field materials table
+---@field wrapByMaterial table
+---@field bounds table
+
 ---@class MapSceneLoader.BuildTask
 ---@field state "active"|"ready"|"transferred"|"released"|"failed"
 ---@field pool GpuAssetPool
@@ -146,6 +174,12 @@ end
 -- (default: the band of the default field time, noon = day); `opts.meshBuilder`
 -- / `opts.imageBuilder` pass through to the pool (the GPU seams, injectable
 -- in headless tests).
+---@param pool GpuAssetPool
+---@param cacheFs CacheFs
+---@param scene table
+---@param opts table
+---@param checkpoint fun()
+---@return table
 local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   local timeBand = opts.timeBand or TimeOfDayProps.bandForSeconds(FieldLightProfile.DEFAULT_TIME_SECONDS)
   assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
@@ -314,11 +348,15 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   -- geometry: the scene bounds grow it under each placement transform, and
   -- the placement records carry it for the scene's MapProps facade (the
   -- door index resolves by placement pivot, not by footprint).
-  local descriptorCache = {}
+  local descriptorCache ---@type table<string, MapSceneLoader.DescriptorCacheEntry>
+  descriptorCache = {}
+  ---@param modelKey string
+  ---@return MapSceneLoader.DescriptorCacheEntry
   local function descriptorFor(modelKey)
     local cached = descriptorCache[modelKey]
     if not cached then
       local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
+      ---@cast desc MapSceneLoader.ModelDescriptor
       checkpoint()
       local mats = materialsById(desc.materials, pool, checkpoint)
       -- Pattern-variant textures are resolved lazily at evaluation time; the
@@ -342,7 +380,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
       -- (cached on the pool entry per geometry path), one table per model
       -- shared by every placement record.
       local meshBounds = {}
-      for _, batch in ipairs(batches) do
+      for _, batch in ipairs(assert(batches)) do
         meshBounds[#meshBounds + 1] = pool:meshFor(batch.geometry).bounds
         checkpoint()
       end
@@ -405,7 +443,8 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
     if desc.descriptor.kind == "nitro-dynamic" then
       local modelResource = animatedResourceCache[inst.modelKey]
       if not modelResource then
-        local definition = ModelDefinition.fromNitroDescriptor(desc.descriptor, { key = inst.modelKey })
+        local descriptor = desc.descriptor --[[@as ModelDefinition.Descriptor]]
+        local definition = ModelDefinition.fromNitroDescriptor(descriptor, { key = inst.modelKey })
         checkpoint()
         local renderMeshesById = {}
         for _, mesh in ipairs(definition.meshes) do
@@ -713,7 +752,7 @@ end
 
 -- Begin one resumable scene build. The task owns the fresh pool until the
 -- completed runtime is transferred or the task is cancelled/failed.
----@param cacheFs table
+---@param cacheFs CacheFs
 ---@param scene table
 ---@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder, imageBuilder?: GpuAssetPool.ImageBuilder }?
 ---@return MapSceneLoader.BuildTask
@@ -745,7 +784,7 @@ end
 
 -- Load an assembled scene synchronously by finishing the same task used by
 -- background physical presentation prefetch.
----@param cacheFs table
+---@param cacheFs CacheFs
 ---@param scene table
 ---@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder, imageBuilder?: GpuAssetPool.ImageBuilder }?
 ---@return table
@@ -778,7 +817,7 @@ end
 
 -- Build the synthetic scene used by one physical cell and expose it through
 -- the same staged scene task as a full logical scene.
----@param cacheFs table
+---@param cacheFs CacheFs
 ---@param cell table
 ---@param opts table?
 ---@return MapSceneLoader.BuildTask

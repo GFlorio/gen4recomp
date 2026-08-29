@@ -70,6 +70,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field fade FieldTransitionFade|nil
 ---@field fadeStarted boolean
 ---@field profileId integer|nil
+---@field facing FieldDirection
 ---@field transitionMode "fixed"|"environment"|"panel"|nil
 ---@field destinationFacing FieldDirection
 ---@field locked boolean

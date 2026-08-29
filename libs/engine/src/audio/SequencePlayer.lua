@@ -134,6 +134,8 @@ local bit = require("bit")
 ---@field playSynthetic fun(self: SequencePlayer, handle: table, sequence: table, bank: table): boolean
 ---@field render fun(self: SequencePlayer, frames: integer): integer[]
 ---@field stop fun(self: SequencePlayer)
+---@field stopPlayer fun(self: SequencePlayer, playerId: integer)
+---@field isPlayerPlaying fun(self: SequencePlayer, playerId: integer): boolean
 ---@field isPlaying fun(self: SequencePlayer): boolean
 ---@field setHandleFader fun(self: SequencePlayer, handle: table, level: integer)
 ---@field pauseHandle fun(self: SequencePlayer, handle: table)
@@ -1258,6 +1260,8 @@ retireInstance = function(self, instance, reason)
   end
 end
 
+---@param opts { sampleRate: number, mixer: table, provider: table, observer?: table, rng?: fun(): number }
+---@return SequencePlayer
 function SequencePlayer.new(opts)
   assert(
     opts and opts.sampleRate and opts.mixer and opts.provider,
@@ -1296,7 +1300,7 @@ function SequencePlayer.new(opts)
     -- across idle frames and sequence replacements.
     _soundPhase = 0,
     _intervalOrdinal = 0,
-  }, SequencePlayer)
+  }, SequencePlayer) --[[@as SequencePlayer]]
 end
 
 function SequencePlayer:createHandle()

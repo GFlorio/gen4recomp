@@ -141,6 +141,7 @@ function T.off_window_solid_actor_blocks_without_publishing_destination_state()
     assets = assetProvider,
     policy = { variableSprites = { first = 101, last = 117, variableBase = 0x4020 } },
   })
+  ---@cast source RuntimeFieldMap
   actors:enterMap(source, eventState)
 
   local residency = {}
@@ -235,7 +236,7 @@ function T.resident_but_inactive_neighbor_blocks_and_interacts_through_read_only
   })
   -- The active actor world is the source map only; the resident destination
   -- never receives a live entry.
-  actors:enterMap(source, eventState)
+  actors:enterMap(source --[[@as RuntimeFieldMap]], eventState)
 
   local residency = {}
   function residency:mapForId(mapId)

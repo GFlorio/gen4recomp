@@ -76,8 +76,8 @@ function T.delete_focus_uses_the_replacement_item_at_each_boundary()
 end
 
 function T.layout_keeps_card_body_and_delete_hit_regions_exclusive()
-  local items = { item("new-game", true), item("save-1", true) }
-  local layout = MainMenuLayout.compute(items, 2, 240, 160, 0, nil)
+  local layoutItems = { item("new-game", true), item("save-1", true) }
+  local layout = MainMenuLayout.compute(layoutItems, 2, 240, 160, 0, nil)
   local card = layout.cards["save-1"]
   Assert.isTrue(card.body.width > 0 and card.delete.width > 0)
   Assert.isTrue(MainMenuLayout.contains(card.body, card.body.x + 1, card.body.y + 1))

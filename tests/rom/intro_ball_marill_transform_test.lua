@@ -45,7 +45,7 @@ local function resolveAnimationBytes(romFs, spec)
   return animBytes, spec.animationIndex
 end
 
-function T.ball_marill_displacement_survives_decoding(romFs, versionId)
+function T.ball_marill_displacement_survives_decoding(romFs, _)
   local G2dDecoder = require("romdump.src.digest.G2dDecoder")
   local IntroAssets = require("romdump.src.config.IntroAssets")
 

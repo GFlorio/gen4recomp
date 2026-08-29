@@ -43,15 +43,15 @@ local DEFAULT_SOURCE_TYPE = 0
 
 -- Sets the draw color from a generated 0..255 palette entry, at the given
 -- alpha (defaulting to opaque).
----@param lg love.Graphics
 ---@param color { r: integer, g: integer, b: integer }
 ---@param alpha number?
+---@param lg love.Graphics|love.graphics
 local function setColor255(lg, color, alpha)
   lg.setColor(color.r / 255, color.g / 255, color.b / 255, alpha or 1)
 end
 
 ---@class FieldSignpostRenderer
----@field _graphics love.Graphics
+---@field _graphics love.Graphics|love.graphics
 ---@field _windowStyles FieldWindowStyles
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table the generated field-UI manifest
@@ -71,7 +71,7 @@ FieldSignpostRenderer.__index = FieldSignpostRenderer
 -- enter through love.filesystem.newFileData); opts.windowStyles: the
 -- per-runtime window style catalogue the controller's styleId resolves in.
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, windowStyles: FieldWindowStyles, graphics?: love.Graphics? }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, windowStyles: FieldWindowStyles, graphics?: love.Graphics|love.graphics }
 ---@return FieldSignpostRenderer
 function FieldSignpostRenderer.new(opts)
   assert(
@@ -142,9 +142,9 @@ function FieldSignpostRenderer.new(opts)
     })
   end
   local ok, err = pcall(function()
-    self._tilesImage = graphics.newImage(love.filesystem.newFileData(tilesData, tilesPath))
+    self._tilesImage = graphics.newImage(love.filesystem.newFileData(assert(tilesData), tilesPath))
     self._tilesImage:setFilter("nearest", "nearest")
-    self._wayfindingImage = graphics.newImage(love.filesystem.newFileData(wayfindingData, wayfindingPath))
+    self._wayfindingImage = graphics.newImage(love.filesystem.newFileData(assert(wayfindingData), wayfindingPath))
     self._wayfindingImage:setFilter("nearest", "nearest")
   end)
   if not ok then

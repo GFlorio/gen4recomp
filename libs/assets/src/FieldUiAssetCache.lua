@@ -276,7 +276,7 @@ function FieldUiAssetCache.validateManifest(manifest)
     return false, err
   end
 
-  local ok, err = section("signposts", function(s)
+  local signpostsOk, signpostsErr = section("signposts", function(s)
     -- v5 schema requires textColors: the source palette slot assignments.
     if type(s.textColors) ~= "table" then
       return false, Errors.new(MANIFEST_INVALID, "signposts.textColors must be a table", {})
@@ -291,9 +291,9 @@ function FieldUiAssetCache.validateManifest(manifest)
       end
       return true
     end
-    local ok, err = validateSlot(s.textColors.foreground, "foreground")
-    if not ok then
-      return false, err
+    local foregroundOk, foregroundErr = validateSlot(s.textColors.foreground, "foreground")
+    if not foregroundOk then
+      return false, foregroundErr
     end
     if s.textColors.foreground ~= 2 then
       return false,
@@ -301,9 +301,9 @@ function FieldUiAssetCache.validateManifest(manifest)
           value = s.textColors.foreground,
         })
     end
-    local ok, err = validateSlot(s.textColors.shadow, "shadow")
-    if not ok then
-      return false, err
+    local shadowOk, shadowErr = validateSlot(s.textColors.shadow, "shadow")
+    if not shadowOk then
+      return false, shadowErr
     end
     if s.textColors.shadow ~= 10 then
       return false,
@@ -311,9 +311,9 @@ function FieldUiAssetCache.validateManifest(manifest)
           value = s.textColors.shadow,
         })
     end
-    local ok, err = validateSlot(s.textColors.background, "background")
-    if not ok then
-      return false, err
+    local backgroundOk, backgroundErr = validateSlot(s.textColors.background, "background")
+    if not backgroundOk then
+      return false, backgroundErr
     end
     if s.textColors.background ~= 15 then
       return false,
@@ -393,14 +393,14 @@ function FieldUiAssetCache.validateManifest(manifest)
             type = key,
           })
       end
-      local ok, err = stripInAtlas(
+      local frameTilesOk, frameTilesErr = stripInAtlas(
         typeEntry.frameTiles,
         FieldUiAssetCache.ASSET.SIGNPOST_TILES,
         "signpost type " .. key .. " frameTiles",
         FieldUiAssetCache.GEOMETRY.FRAME_TILES * 8
       )
-      if not ok then
-        return false, err
+      if not frameTilesOk then
+        return false, frameTilesErr
       end
 
       if typeEntry.wayfinding ~= nil then
@@ -418,10 +418,10 @@ function FieldUiAssetCache.validateManifest(manifest)
                 map = map,
               })
           end
-          local ok, err =
+          local wayfindingOk, wayfindingErr =
             rectInAtlas(rect, FieldUiAssetCache.ASSET.SIGNPOST_WAYFINDING, "signpost wayfinding map " .. map)
-          if not ok then
-            return false, err
+          if not wayfindingOk then
+            return false, wayfindingErr
           end
           if
             rect.width ~= FieldUiAssetCache.GEOMETRY.WAYFINDING_WIDTH
@@ -439,22 +439,24 @@ function FieldUiAssetCache.validateManifest(manifest)
     end
     return true
   end)
-  if not ok then
-    return false, err
+  if not signpostsOk then
+    return false, signpostsErr
   end
 
-  local ok, err = section("startMenu", function(s)
-    local ok, err = rectInAtlas(s.background, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu background")
-    if not ok then
-      return false, err
+  local startMenuOk, startMenuErr = section("startMenu", function(s)
+    local backgroundOk, backgroundErr =
+      rectInAtlas(s.background, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu background")
+    if not backgroundOk then
+      return false, backgroundErr
     end
     if type(s.cursor) ~= "table" or type(s.cursor.frames) ~= "table" or #s.cursor.frames < 1 then
       return false, Errors.new(MANIFEST_INVALID, "startMenu.cursor must carry at least one frame", {})
     end
     for _, frameEntry in ipairs(s.cursor.frames) do
-      local ok, err = rectInAtlas(frameEntry, FieldUiAssetCache.ASSET.START_MENU_CURSOR, "start menu cursor frame")
-      if not ok then
-        return false, err
+      local cursorOk, cursorErr =
+        rectInAtlas(frameEntry, FieldUiAssetCache.ASSET.START_MENU_CURSOR, "start menu cursor frame")
+      if not cursorOk then
+        return false, cursorErr
       end
       if type(frameEntry.duration) ~= "number" or frameEntry.duration % 1 ~= 0 or frameEntry.duration < 1 then
         return false, Errors.new(MANIFEST_INVALID, "cursor frame duration must be a positive integer", {})
@@ -478,9 +480,9 @@ function FieldUiAssetCache.validateManifest(manifest)
       if slot == nil then
         return false, Errors.new(MANIFEST_INVALID, "startMenu.slots must be the dense 1..10 grid", {})
       end
-      local ok, err = rectInAtlas(slot, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu slot " .. id)
-      if not ok then
-        return false, err
+      local slotOk, slotErr = rectInAtlas(slot, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu slot " .. id)
+      if not slotOk then
+        return false, slotErr
       end
     end
     if type(s.actionSurfaces) ~= "table" then
@@ -490,27 +492,27 @@ function FieldUiAssetCache.validateManifest(manifest)
       if type(actionId) ~= "string" or type(surface) ~= "table" then
         return false, Errors.new(MANIFEST_INVALID, "start menu action surfaces are malformed", {})
       end
-      local ok, err =
+      local actionOk, actionErr =
         rectInAtlas(surface, FieldUiAssetCache.ASSET.START_MENU_BACKGROUND, "start menu action " .. actionId)
-      if not ok then
-        return false, err
+      if not actionOk then
+        return false, actionErr
       end
     end
     return true
   end)
-  if not ok then
-    return false, err
+  if not startMenuOk then
+    return false, startMenuErr
   end
 
-  local ok, err = section("trainerCard", function(s)
-    local ok, err = rectInAtlas(s.front, FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT, "trainer card front")
-    if not ok then
-      return false, err
+  local trainerCardOk, trainerCardErr = section("trainerCard", function(s)
+    local frontOk, frontErr = rectInAtlas(s.front, FieldUiAssetCache.ASSET.TRAINER_CARD_FRONT, "trainer card front")
+    if not frontOk then
+      return false, frontErr
     end
     return true
   end)
-  if not ok then
-    return false, err
+  if not trainerCardOk then
+    return false, trainerCardErr
   end
 
   return true

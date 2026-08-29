@@ -8,7 +8,6 @@
 -- dependency.
 
 local ScriptCache = require("libs.assets.src.ScriptCache")
-local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
 local Sha256 = require("libs.engine.src.script.Sha256")
 local BuiltinScripts = require("libs.engine.src.script.BuiltinScripts")
@@ -43,7 +42,7 @@ function RegistrySnapshot.key(cacheFs, overrideFs)
   if manifest == nil then
     return nil
   end
-  local chunk, loadErr = loadstring(manifest --[[@as string]], ScriptOverrides.MANIFEST)
+  local chunk, _ = loadstring(manifest --[[@as string]], ScriptOverrides.MANIFEST)
   if not chunk then
     return nil
   end

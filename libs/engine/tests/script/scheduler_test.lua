@@ -16,8 +16,11 @@ local Composition = require("libs.engine.src.script.Composition")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+---@cast WaitTicksTask TaskImplementation
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
+---@cast ChildScriptTask TaskImplementation
 local AuxiliaryUiTask = require("libs.engine.src.script.tasks.AuxiliaryUiTask")
+---@cast AuxiliaryUiTask TaskImplementation
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
@@ -158,25 +161,6 @@ startForeground = function(h, resource, tick, trigger)
   end
   local composed = assert(h.composition:effective(resource.id))
   return h.scheduler:createForeground(composed, trigger, tick)
-end
-
----@param h SchedulerHarness
----@param from integer
----@param to integer
----@param input table|nil
-local function runTicks(h, from, to, input)
-  for tick = from, to do
-    h.scheduler:step(tick, input)
-  end
-end
-
-local function throwsCode(code, fn)
-  local ok, err = pcall(fn)
-  Assert.isFalse(ok, "expected a raised error")
-  Assert.isTrue(Errors.is(err), "expected Errors object, got: " .. tostring(err))
-  ---@cast err Errors.Error
-  Assert.equal(err.code, code)
-  return err
 end
 
 -- 1. Several non-blocking nodes execute in one tick: SetVar; SetFlag; End.
@@ -722,7 +706,7 @@ end
 T["budget boundary"] = function()
   local function budgetScript(count)
     local steps = {}
-    for i = 1, count do
+    for _ = 1, count do
       steps[#steps + 1] = S.noop()
     end
     steps[#steps + 1] = S.setVar({ variable = "VAR_DONE", value = 1 })
@@ -1566,17 +1550,21 @@ end
 -- Task implementations whose callbacks raise, pinning the task-callback fault
 -- boundary. Each carries the required version and validate fields; the
 -- fakes never reach validate.
+---@param callbacks table
+---@return TaskImplementation
 local function faultyTaskImpl(callbacks)
   callbacks.version = 1
   callbacks.validate = callbacks.validate or function()
     return nil
   end
-  callbacks.create = callbacks.create or function(spec, ctx)
+  callbacks.create = callbacks.create or function(_, _)
     return {}
   end
-  return callbacks
+  return callbacks --[[@as TaskImplementation]]
 end
 
+---@param taskImpl TaskImplementation
+---@return SchedulerHarness
 local function faultyHarness(taskImpl)
   local h = harness()
   h.taskRegistry:register("faulty", 1, taskImpl)
@@ -1616,7 +1604,7 @@ end
 -- task leaves the task sets, and the root fault tears the environment down.
 T["poll raise faults the owner with attribution"] = function()
   local h = faultyHarness(faultyTaskImpl({
-    poll = function(state, ctx)
+    poll = function(_, _)
       error("poll exploded", 0)
     end,
   }))
@@ -1640,7 +1628,7 @@ end
 -- exact code instead of being re-wrapped.
 T["poll raise with structured error keeps its code"] = function()
   local h = faultyHarness(faultyTaskImpl({
-    poll = function(state, ctx)
+    poll = function(_, _)
       Errors.raise("SCRIPT_SERVICE_MISSING", "the backend vanished", { service = "audio" })
     end,
   }))
@@ -1655,10 +1643,10 @@ end
 -- completed task record is still removed.
 T["onComplete raise faults the owner"] = function()
   local h = faultyHarness(faultyTaskImpl({
-    poll = function(state, ctx)
+    poll = function(state, _)
       return { complete = true, state = state, result = {} }
     end,
-    onComplete = function(state, ctx)
+    onComplete = function(_, _)
       error("onComplete exploded", 0)
     end,
   }))
@@ -1674,10 +1662,10 @@ end
 -- still cancelled and removed.
 T["cancel raise faults the owner instead of escaping"] = function()
   local h = faultyHarness(faultyTaskImpl({
-    poll = function(state, ctx)
+    poll = function(state, _)
       return { complete = false, state = state }
     end,
-    cancel = function(state, reason)
+    cancel = function(_, _)
       error("cancel exploded", 0)
     end,
   }))
@@ -1701,13 +1689,13 @@ T["createTask uses the registered task version"] = function()
     create = function()
       return {}
     end,
-    poll = function(state, ctx)
+    poll = function(state, _)
       return { complete = false, state = state }
     end,
     validate = function()
       return nil
     end,
-  })
+  } --[[@as TaskImplementation]])
   local instanceId = startForeground(
     h,
     script("test.versioned", {
@@ -1731,7 +1719,7 @@ end
 -- not corrupted by a later tick's poll raise in another instance.
 T["later poll raise leaves earlier completions intact"] = function()
   local h = faultyHarness(faultyTaskImpl({
-    poll = function(state, ctx)
+    poll = function(_, _)
       error("poll exploded", 0)
     end,
   }))

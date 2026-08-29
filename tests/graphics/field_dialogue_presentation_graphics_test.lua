@@ -140,10 +140,10 @@ T["invalid_presentations_fail_before_partial_drawing"] = function(scope)
   )
 
   local bounds = { x = 10, y = 20, width = 640, height = 480 }
-  local ok = pcall(function()
+  local layoutOk = pcall(function()
     FieldDialogueTheme.layout(bounds, 0)
   end)
-  Assert.isFalse(ok, "zero exact scale must be rejected before drawing")
+  Assert.isFalse(layoutOk, "zero exact scale must be rejected before drawing")
 
   local okNaN = pcall(function()
     FieldDialogueTheme.layout(bounds, 0 / 0)

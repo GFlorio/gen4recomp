@@ -1137,6 +1137,7 @@ end
 ---@param direction FieldDirection?
 ---@param distance string?
 ---@param self FieldActorManager
+---@return table destination
 function FieldActorManager:_resolveScriptedDestination(actor, direction, distance)
   local entry = assert(self.maps[actor.mapId], "actor map entry missing")
   local deltaMap = {

@@ -694,7 +694,7 @@ end
 function T.draw_rejects_a_sprite_without_presentation_residency()
   local acquisitions = 0
   local assets = {
-    resident = function(_, _spriteId)
+    resident = function(_, _)
       return nil
     end,
     acquire = function()

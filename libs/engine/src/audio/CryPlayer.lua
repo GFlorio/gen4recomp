@@ -39,7 +39,7 @@ function CryPlayer.new(opts)
     _player = opts.player,
     _provider = opts.provider,
     _handle = opts.player:createHandle(),
-  }, CryPlayer)
+  }, CryPlayer) --[[@as CryPlayer]]
 end
 
 -- Starts the source-compatible generic cry sequence with the species bank.

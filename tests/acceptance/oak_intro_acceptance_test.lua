@@ -5,8 +5,6 @@
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
 local FieldState = require("game.src.game.FieldState")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local FieldEventState = require("libs.engine.src.FieldEventState")
 local OakIntroController = require("libs.engine.src.OakIntroController")
 
 local T = {
@@ -203,24 +201,6 @@ local function fakeStore()
   return store
 end
 
-local function eventKinds(controller)
-  local result = {}
-  for _, event in ipairs(controller:view().events) do
-    result[#result + 1] = event.kind
-  end
-  return result
-end
-
-local function eventValues(controller, kind)
-  local result = {}
-  for _, event in ipairs(controller:view().events) do
-    if event.kind == kind then
-      result[#result + 1] = event.value
-    end
-  end
-  return result
-end
-
 local function startFlow(options, fn)
   options = options or {}
   local original = {
@@ -236,6 +216,7 @@ local function startFlow(options, fn)
   end
 
   local store = fakeStore()
+  ---@cast store SaveStoreLike
   local clock = options.clock or mutableClock(12, 0)
   local audio = options.audio or recordingAudio()
   local inputHost = { calls = {} }
@@ -257,7 +238,7 @@ local function startFlow(options, fn)
       controller = OakIntroController.new({
         candidate = factoryOptions.candidate,
         clock = clock,
-        audio = audio,
+        audio = audio --[[@as GameSound]],
         messages = MESSAGES,
         assets = INTRO_ASSETS,
         virtualGlyphs = VIRTUAL_GLYPHS,

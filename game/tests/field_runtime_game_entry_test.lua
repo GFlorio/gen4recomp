@@ -151,7 +151,7 @@ function T.captureGameSave_returns_a_strict_snapshot_without_storage_io()
   local scriptCaptureCalls = 0
   local originalCapture = require("libs.engine.src.script.ScriptSave").capture
   ---@diagnostic disable-next-line: duplicate-set-field
-  require("libs.engine.src.script.ScriptSave").capture = function(scheduler, tick, options)
+  require("libs.engine.src.script.ScriptSave").capture = function(_, tick, options)
     scriptCaptureCalls = scriptCaptureCalls + 1
     Assert.equal(tick, 42)
     Assert.equal(options.registryFingerprint, "registry-fingerprint")

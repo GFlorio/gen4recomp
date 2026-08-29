@@ -71,6 +71,7 @@ end
 
 ---@param cacheFs CacheFs
 ---@param bundle table
+---@return boolean
 function IntroAssetCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and bundle and bundle.marker and bundle.manifest and bundle.dependencies and bundle.assets)
   assert(bundle.manifest.schemaVersion == 5, "intro manifest schema mismatch")

@@ -105,10 +105,10 @@ local function makeController(manifest, audio)
     candidate = candidate(),
     clock = {
       nowLocal = function()
-        return { hour = 12, minute = 0 }
+        return { year = 2009, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
       end,
     },
-    audio = audio or fakeAudio(),
+    audio = (audio or fakeAudio()) --[[@as GameSound]],
     messages = MESSAGES,
     assets = assets,
     playerDataContext = { charmap = { A = 1, B = 2, G = 3, O = 4, L = 5, D = 6 }, frameIndexes = { [0] = true } },
@@ -183,11 +183,11 @@ function T.tests.transformed_reveal_frames_keep_one_source_anchor()
     view.revealFrameIndex = index
     view.oakBgScrollX = 0
     local layout = OakIntroLayout.compute(800, 600, view, {}, manifest)
-    Assert.notNil(layout.reveal, "layout must produce reveal rect")
+    local reveal = assert(layout.reveal, "layout must produce reveal rect")
     local canvas = assert(layout.revealCanvas)
     anchors[#anchors + 1] = {
-      x = layout.reveal.x + widget.anchor.x * canvas.scale,
-      y = layout.reveal.y + widget.anchor.y * canvas.scale,
+      x = reveal.x + widget.anchor.x * canvas.scale,
+      y = reveal.y + widget.anchor.y * canvas.scale,
     }
     frameBytes[#frameBytes + 1] = assert(cache:read(widget.frames[index].image))
   end
@@ -200,6 +200,7 @@ function T.tests.transformed_reveal_frames_keep_one_source_anchor()
     {},
     manifest
   ).revealCanvas
+  canvas = assert(canvas)
   local sourceAnchor = {
     x = (anchors[1].x - canvas.origin.x) / canvas.scale,
     y = (anchors[1].y - canvas.origin.y) / canvas.scale,
@@ -324,8 +325,6 @@ function T.tests.gender_select_preserves_source_centers_and_female_palette()
     Assert.near(femaleSrcX - maleSrcX, 128, 1.0, "horizontal separation must be 128 source units")
   end
   -- Female palette comes from derived cache palette override, not host tint
-  local maleW = manifest.widgets.gender_male or manifest.widgets.male
-  local femaleW = manifest.widgets.gender_female or manifest.widgets.female
   -- gender selector widgets are gender_male / gender_female
   local selMale = manifest.widgets.gender_male
   local selFemale = manifest.widgets.gender_female
@@ -333,7 +332,6 @@ function T.tests.gender_select_preserves_source_centers_and_female_palette()
   Assert.notNil(selFemale, "manifest gender_female missing")
   -- Female must use palette bank 1 (source override) distinct from male bank 0
   -- Check per-frame metadata if present
-  local maleOverride = selMale.frames[1].paletteOverride or 0
   -- Compiler stores paletteOverride only via asset spec, but manifest frames carry element/translate; palette bank is implicit via image composition
   -- Verify female image differs and provenance indicates correct palette member
   Assert.isTrue(selFemale.image ~= selMale.image, "female selector must use a distinct generated image")
@@ -367,11 +365,9 @@ function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
   local hasBlink = view0.focusBlinkDelta ~= nil or view0.focusTimer ~= nil
   Assert.isTrue(hasBlink, "gender focus view must expose source blink timer or derived delta")
   -- Timer reset semantics: moving focus right must reset phase to zero
-  local deltaBefore = view0.focusBlinkDelta or 0
   ctrl:press("right")
   local viewAfter = ctrl:view()
   Assert.equal(viewAfter.genderFocus, 1, "focus must move right")
-  local deltaAfter = viewAfter.focusBlinkDelta or viewAfter.focusTimer or 0
   -- After reset, delta/timer must be zero
   if viewAfter.focusBlinkDelta ~= nil then
     Assert.equal(viewAfter.focusBlinkDelta, 0, "focus blink delta must reset to 0 on focus change")
@@ -380,7 +376,6 @@ function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
   end
   -- Advance several ticks and check sinusoidal progression (10deg steps)
   ctrl:tick(1)
-  local v1 = ctrl:view()
   -- No explicit color check without palette helper, but delta should have advanced
   -- Renderer must not draw rectangular outline
   local graphics = FakeGraphics.new()
@@ -578,16 +573,15 @@ function T.tests.marill_preserves_source_center_and_stays_above_dialogue_while_v
   Assert.notNil(layout.reveal, "layout must place the Marill reveal")
   Assert.notNil(layout.dialogue, "layout must reserve the dialogue box while its message is active")
 
-  local canvas = layout.revealCanvas
-  Assert.notNil(canvas, "layout must expose the source canvas used to place the reveal")
+  local canvas = assert(layout.revealCanvas, "layout must expose the source canvas used to place the reveal")
   local marillWidget = assert(manifest.widgets.marill)
   local expectedSourceCenter = {
     x = marillWidget.sourceCenter.x,
     y = marillWidget.sourceCenter.y,
   }
   local hostCenter = {
-    x = layout.reveal.x + marillWidget.anchor.x * canvas.scale,
-    y = layout.reveal.y + marillWidget.anchor.y * canvas.scale,
+    x = assert(layout.reveal).x + marillWidget.anchor.x * canvas.scale,
+    y = assert(layout.reveal).y + marillWidget.anchor.y * canvas.scale,
   }
   local actualSourceCenter = {
     x = (hostCenter.x - canvas.origin.x) / canvas.scale,

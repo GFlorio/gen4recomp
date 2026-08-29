@@ -23,8 +23,9 @@ local FLAT_PLATE = {
 
 ---@param blocked table<string, boolean>|nil local "x:z" keys the collision grid rejects
 ---@param warps table[]|nil global field warp records
+---@return RuntimeFieldMap
 local function flatMap(blocked, warps)
-  return {
+  local result = {
     mapId = 60,
     coordinateOrigin = { x = 0, z = 0 },
     collision = {
@@ -38,12 +39,15 @@ local function flatMap(blocked, warps)
     terrain = TerrainSurface.new({ plates = { FLAT_PLATE } }),
     fieldData = { events = { warps = warps or {}, coordinates = {} } },
   }
+  ---@cast result RuntimeFieldMap
+  return result
 end
 
----@param map table
+---@param map RuntimeFieldMap
 ---@param x integer
 ---@param z integer
 ---@param occupancy fun(candidate: FieldOccupancyCandidate): string|nil
+---@return table
 local function gameAt(map, x, z, occupancy)
   return {
     runtime = {

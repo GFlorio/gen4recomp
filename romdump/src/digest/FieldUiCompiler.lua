@@ -18,12 +18,22 @@ local manifestConfig = require("romdump.src.config.FieldUiAssets")
 
 local FieldUiCompiler = {}
 
+---@alias FieldUiCompiler.CharData { depth: integer, tiles: string }
+---@alias FieldUiCompiler.PaletteData { colors: { r: integer, g: integer, b: integer }[] }
+---@alias FieldUiCompiler.ScreenData { width: integer, height: integer, entries: table[] }
+---@alias FieldUiCompiler.CellData { cells: table[] }
+---@alias FieldUiCompiler.AnimationData { anims: table[] }
+
 -- Named ownership of the compiler protocol error codes; tests assert the
 -- constant, never the raw string.
 FieldUiCompiler.ERROR = {
   SOURCE_INVALID = "FIELD_UI_SOURCE_INVALID",
 }
 
+---@generic T
+---@param value T?
+---@param err unknown?
+---@return T
 local function must(value, err)
   if value == nil then
     error(err or "expected a value", 0)
@@ -41,6 +51,10 @@ local function concatChars(chars)
 end
 
 -- Decode a member that may be LZ10-wrapped.
+---@param archive Narc
+---@param memberId integer
+---@param label string
+---@return string
 local function decodeMember(archive, memberId, label)
   local bytes = must(archive:readMember(memberId), "missing member " .. memberId .. " (" .. label .. ")")
   if string.byte(bytes, 1) == 0x10 then
@@ -231,6 +245,9 @@ local function blitObj(rgba, atlasWidth, row, obj, charData, palette, source)
   end
 end
 
+---@param romFs RomFs
+---@param alias string
+---@return Narc, string
 local function loadArchive(romFs, alias)
   local info = must(romFs:resolvedNarc(alias), "unresolved NARC alias " .. alias)
   local archive = must(romFs:openNarc(alias), "failed to open " .. alias)
@@ -247,9 +264,9 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
       G2dDecoder[kind](memberBytes[memberId], { label = manifestConfig.startMenu.alias .. ":" .. memberId })
     return must(decoded, err)
   end
-  local charData = g2d("decodeChar", cfg.backgroundCharMember, "start menu background char")
-  local screen = g2d("decodeScreen", cfg.backgroundScreenMember, "start menu background screen")
-  local pal = g2d("decodePalette", cfg.backgroundPaletteMember, "start menu background palette")
+  local charData = g2d("decodeChar", cfg.backgroundCharMember, "start menu background char") --[[@as FieldUiCompiler.CharData]]
+  local screen = g2d("decodeScreen", cfg.backgroundScreenMember, "start menu background screen") --[[@as FieldUiCompiler.ScreenData]]
+  local pal = g2d("decodePalette", cfg.backgroundPaletteMember, "start menu background palette") --[[@as FieldUiCompiler.PaletteData]]
   local backgroundPath = FieldUiAssetCache.assetDir() .. "/start-menu.png"
   assets[backgroundPath] = renderScreen(charData, pal.colors, screen, {
     asset = "start menu background",
@@ -261,10 +278,10 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
     height = screen.height,
   }
 
-  local cursorChar = g2d("decodeChar", cfg.cursorCharMember, "start menu cursor char")
-  local cursorPal = g2d("decodePalette", cfg.cursorPaletteMember, "start menu cursor palette")
-  local cursorCell = g2d("decodeCell", cfg.cursorCellMember, "start menu cursor cell")
-  local cursorAnim = g2d("decodeAnimation", cfg.cursorAnimMember, "start menu cursor animation")
+  local cursorChar = g2d("decodeChar", cfg.cursorCharMember, "start menu cursor char") --[[@as FieldUiCompiler.CharData]]
+  local cursorPal = g2d("decodePalette", cfg.cursorPaletteMember, "start menu cursor palette") --[[@as FieldUiCompiler.PaletteData]]
+  local cursorCell = g2d("decodeCell", cfg.cursorCellMember, "start menu cursor cell") --[[@as FieldUiCompiler.CellData]]
+  local cursorAnim = g2d("decodeAnimation", cfg.cursorAnimMember, "start menu cursor animation") --[[@as FieldUiCompiler.AnimationData]]
   local anim = cursorAnim.anims[1]
   -- Stack every distinct cell the animation references; each frame points at
   -- its cell's row so a multi-cell cursor animates rather than repeating the
@@ -631,7 +648,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
     { image = wayfindingPath, width = finalWidth, height = atlasHeight }
 
   local types = {}
-  for typeIndex, sourceType in ipairs(cfg.sourceTypes) do
+  for _, sourceType in ipairs(cfg.sourceTypes) do
     local typeEntry = { sourceType = sourceType }
 
     -- v5: include per-type palette bank.

@@ -246,8 +246,8 @@ function FieldScripts.new(opts)
   -- duplicates substitution semantics.
   local signpostHost = ScriptSignpostHost.new({
     controller = opts.signpost,
-    resolveMessage = function(message, bindings, textArgs)
-      return dialogueHost:resolveMessage(message, bindings, textArgs)
+    resolveMessage = function(message, messageBindings, textArgs)
+      return dialogueHost:resolveMessage(message, messageBindings, textArgs)
     end,
   })
 

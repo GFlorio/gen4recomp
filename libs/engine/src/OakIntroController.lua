@@ -100,7 +100,6 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 local OakIntroController = {}
 OakIntroController.__index = OakIntroController
 
-local SOURCE_HZ = 60
 local GREETING_WAIT = 40
 local MUSIC_FADE_FRAMES = 6
 local OAK_REVEAL_WAIT = 30
@@ -704,6 +703,7 @@ function OakIntroController:press(action)
 end
 
 ---@param text string
+---@return boolean
 function OakIntroController:inputText(text)
   assert(type(text) == "string", "Oak text input must be a string")
   if self._disposed or self._phase ~= "name_edit" then
@@ -723,6 +723,7 @@ function OakIntroController:inputText(text)
   return true
 end
 
+---@return boolean
 function OakIntroController:deleteGlyph()
   if self._disposed or self._phase ~= "name_edit" then
     return false
@@ -780,6 +781,7 @@ function OakIntroController:view()
   }
 end
 
+---@param key string
 ---@return boolean
 function OakIntroController:messageCompleted(key)
   assert(key == self._messageKey, "Oak dialogue completion is stale")

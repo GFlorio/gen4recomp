@@ -33,7 +33,7 @@ function T.walk_in_place_must_animate_without_translating()
     })
   end
   local function map(objects)
-    return {
+    local result = {
       mapId = 61,
       coordinateOrigin = { x = 0, z = 0 },
       collision = {
@@ -44,6 +44,8 @@ function T.walk_in_place_must_animate_without_translating()
       terrain = flatTerrain(),
       fieldData = { events = { objects = objects, background = {}, warps = {}, coordinates = {} } },
     }
+    ---@cast result RuntimeFieldMap
+    return result
   end
   local mgr = FieldActorManager.new({ assets = fakeAssets, policy = policy })
   mgr:enterMap(

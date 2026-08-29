@@ -52,7 +52,7 @@ local function actor(overrides, optsOverrides)
     worldZ = 5.5,
   }
   for key, value in pairs(optsOverrides or {}) do
-    opts[key] = value
+    rawset(opts, key, value)
   end
   return FieldObjectActor.new(opts)
 end

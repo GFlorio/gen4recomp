@@ -34,9 +34,9 @@ function PlayTime:stop()
 end
 
 ---@param elapsedSeconds number
----@param context table?
+---@param _ table?
 ---@return nil
-function PlayTime:advance(elapsedSeconds, context)
+function PlayTime:advance(elapsedSeconds, _)
   assert(isFiniteNonnegative(elapsedSeconds), "PlayTime advance must be finite and nonnegative")
   if self._active then
     self._seconds = math.min(PlayTime.MAX_SECONDS, self._seconds + elapsedSeconds)

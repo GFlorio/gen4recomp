@@ -237,7 +237,7 @@ function T.selection_and_pulse_phase_never_reveal_static_backing(scope)
     local maleFocused = render(scope, renderer, maleView)
     local femaleFocused = render(scope, renderer, femaleView)
 
-    local canvas = maleView.layout.genderCanvas
+    local canvas = assert(maleView.layout.genderCanvas)
     local sourceX, sourceY = 0, 100
     local x = math.floor(canvas.origin.x + sourceX * canvas.scale + 0.5)
     local y = math.floor(canvas.origin.y + sourceY * canvas.scale + 0.5)

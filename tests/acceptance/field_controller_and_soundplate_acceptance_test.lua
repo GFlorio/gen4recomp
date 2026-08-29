@@ -46,7 +46,7 @@ function T.tests.production_audio_respects_authoritative_world_coordinates()
       local audio = requireAudio(game)
       local player = game.runtime.player
       Assert.isTrue(type(player.fieldX) == "number" and type(player.fieldZ) == "number")
-      Assert.isTrue(player.play == nil, "FieldPlayer must not expose an audio play method")
+      Assert.isTrue(rawget(player, "play") == nil, "FieldPlayer must not expose an audio play method")
       Assert.isTrue(type(audio.updateField) == "function")
       Assert.equal(game:renderAttempts(), 0)
     end, debug.traceback)
@@ -67,6 +67,7 @@ function T.tests.environment_selection_follows_the_replacement_player_after_warp
       local beforePlayer = game.runtime.player
       local beforeFieldX = beforePlayer.fieldX
       local newPlayer = { fieldX = beforeFieldX + 1, fieldZ = beforePlayer.fieldZ }
+      ---@cast newPlayer FieldPlayer
       game.runtime.player = newPlayer
       game.runtime.session.player = newPlayer
       Assert.notNil(audio.updateField, "controller must expose field-policy update")

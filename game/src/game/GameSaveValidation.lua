@@ -21,6 +21,9 @@ local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility
 local GameSaveValidation = {}
 GameSaveValidation.__index = GameSaveValidation
 
+---@param cacheFs CacheFs
+---@param overrideFs table
+---@return table
 local function contextForCache(cacheFs, overrideFs)
   local fontDef = FieldFontLoader.load(cacheFs)
   local manifest, loadError = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
@@ -108,7 +111,7 @@ function GameSaveValidation:validate(record, context)
     return result, err
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end

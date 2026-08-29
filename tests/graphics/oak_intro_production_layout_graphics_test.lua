@@ -21,14 +21,22 @@ local T = {
 local WIDE = { 1920, 1080 }
 local TALL = { 390, 844 }
 
+---@param inner { x: number, y: number, width: number, height: number }
+---@param outer { x: number, y: number, width: number, height: number }
+---@return boolean
 local function inside(inner, outer)
+  assert(inner and outer)
   return inner.x >= outer.x
     and inner.y >= outer.y
     and inner.x + inner.width <= outer.x + outer.width
     and inner.y + inner.height <= outer.y + outer.height
 end
 
+---@param first { x: number, y: number, width: number, height: number }
+---@param second { x: number, y: number, width: number, height: number }
+---@return boolean
 local function disjoint(first, second)
+  assert(first and second)
   return first.x + first.width <= second.x
     or second.x + second.width <= first.x
     or first.y + first.height <= second.y

@@ -25,6 +25,9 @@ local function fakeGraphics(opts)
     getScissor = function()
       return scissor[1], scissor[2], scissor[3], scissor[4]
     end,
+    setShader = function(_) end,
+    setWireframe = function(_) end,
+    translate = function(_, _) end,
     setScissor = function(x, y, width, height)
       scissor = x and { x, y, width, height } or nil
     end,

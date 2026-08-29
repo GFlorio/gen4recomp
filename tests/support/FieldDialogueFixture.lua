@@ -45,7 +45,7 @@ end
 ---@return string png
 function FieldDialogueFixture.focusIndicatorBytes()
   local rgba = {}
-  for y = 1, 32 do
+  for _ = 1, 32 do
     for x = 1, 96 do
       local frame = math.floor((x - 1) / 24)
       rgba[#rgba + 1] = px(80 + frame * 40, 60 + frame * 20, 220 - frame * 40, 255)
@@ -80,6 +80,10 @@ function FieldDialogueFixture.fontDef()
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
+    glyphCount = 2,
+    fallbackCode = 0,
+    atlasPath = "assets/generated/field/font/font-0.png",
+    source = {},
     atlas = {
       width = 16,
       height = baseHeight * FieldMessageText.COLOR_VARIANT_COUNT,
@@ -177,7 +181,9 @@ function FieldDialogueFixture.openDialogue(text, frameIndex)
       return {
         pages = { { lines = { { tokens = tokens, width = 12 } }, breakKind = "eos" } },
         warnings = {},
-      }
+        lineHeight = 8,
+        lineSpacing = 0,
+      } --[[@as DialogueLayout.Result]]
     end,
     continueCursor = {
       cycle = { 0, 1, 2, 1 },
@@ -201,6 +207,8 @@ end
 -- scissor) equals the pre-draw value, never a hard-coded default. The caller
 -- sets exactly this state before drawing.
 ---@param lg table love.graphics-shaped namespace
+---@param canvas table
+---@param shader table|love.Shader|nil
 function FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
   Assert.equal(lg.getCanvas(), canvas)
   Assert.equal(lg.getShader(), shader)

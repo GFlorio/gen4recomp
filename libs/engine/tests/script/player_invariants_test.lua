@@ -6,7 +6,7 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local T = {}
 
 local function flatMap()
-  return {
+  local result = {
     mapId = 61,
     coordinateOrigin = { x = 0, z = 0 },
     collision = {
@@ -32,6 +32,8 @@ local function flatMap()
       },
     }),
   }
+  ---@cast result RuntimeFieldMap
+  return result
 end
 
 function T.script_position_must_keep_field_local_world_surface_coherent()

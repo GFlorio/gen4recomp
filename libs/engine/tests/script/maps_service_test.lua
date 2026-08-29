@@ -31,10 +31,10 @@ end
 function T.a_covered_scripted_swap_never_starts_the_ordinary_transition_fade()
   local calls = {}
   local fakeTransition = {
-    start = function(...)
+    start = function(_)
       calls[#calls + 1] = "start"
     end,
-    startCoveredSwap = function(...)
+    startCoveredSwap = function(_)
       calls[#calls + 1] = "startCoveredSwap"
     end,
   }

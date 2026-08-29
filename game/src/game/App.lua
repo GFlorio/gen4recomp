@@ -130,6 +130,7 @@ function App._bootOakIntro()
   if factory then
     local options = factory(input)
     assert(type(options) == "table", "Oak intro options factory must return a table")
+    ---@cast options OakIntroStateOptions
     options.onComplete = function(result)
       App._onOakComplete(result)
     end

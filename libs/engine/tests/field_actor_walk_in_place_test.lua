@@ -31,7 +31,7 @@ local function flatTerrain()
 end
 
 local function map(objects)
-  return {
+  local result = {
     mapId = 61,
     coordinateOrigin = { x = 0, z = 0 },
     collision = {
@@ -42,6 +42,8 @@ local function map(objects)
     terrain = flatTerrain(),
     fieldData = { events = { objects = objects, background = {}, warps = {}, coordinates = {} } },
   }
+  ---@cast result RuntimeFieldMap
+  return result
 end
 
 local fakeAssets = {

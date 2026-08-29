@@ -19,7 +19,9 @@ local ScriptTask = require("libs.engine.src.script.ScriptTask")
 local ScriptInstance = require("libs.engine.src.script.ScriptInstance")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+---@cast WaitTicksTask TaskImplementation
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
+---@cast ChildScriptTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
 
@@ -747,8 +749,8 @@ T["mid-audio-wait saves resume against a fresh audio service"] = function()
     }
   end
   local h = harness()
-  h.taskRegistry:register(SoundWaitTask.type, SoundWaitTask.version, SoundWaitTask)
-  h.taskRegistry:register(MusicFadeTask.type, MusicFadeTask.version, MusicFadeTask)
+  h.taskRegistry:register(SoundWaitTask.type, SoundWaitTask.version, SoundWaitTask --[[@as TaskImplementation]])
+  h.taskRegistry:register(MusicFadeTask.type, MusicFadeTask.version, MusicFadeTask --[[@as TaskImplementation]])
   h.services.audio = freshAudio()
   local resource = script("test.audiowait", {
     S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
@@ -1079,7 +1081,7 @@ end
 -- validation.
 ---@param mutate fun(bucket: table)
 ---@param context string
-local function expectCorruptBucketError(mutate, context)
+local function expectCorruptBucketErrorWhole(mutate, context)
   local h = harness()
   startForeground(
     h,
@@ -1100,16 +1102,16 @@ end
 -- with no one to poll or own it, and a missing environment id or unknown
 -- status would raise inside restore instead of failing validation.
 T["validate rejects task records with malformed shape or dangling references"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks[1].ownerInstanceId = "i-missing"
   end, "a task referencing a missing owner instance")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks[1].environmentId = "e-missing"
   end, "a task referencing a missing environment")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks[1].environmentId = nil
   end, "a task record without an environment")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks[1].status = "banana"
   end, "a task record with an unknown status")
 end
@@ -1118,13 +1120,13 @@ end
 -- owners) must all resolve; a dangling one silently corrupts the slot loop
 -- or the lock release path.
 T["validate rejects environment references to missing instances"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[1].rootInstanceId = "i-missing"
   end, "an environment root referencing a missing instance")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[1].contextSlots[0] = "i-missing"
   end, "an environment context slot referencing a missing instance")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[1].locks = { player = { count = 1, owners = { ["i-missing"] = 1 } } }
   end, "an environment lock referencing a missing owner")
 end
@@ -1132,7 +1134,7 @@ end
 -- The movement generation sets name tasks that must exist: a dangling id
 -- would make the barrier wait on a task that never polls.
 T["validate rejects movement generations referencing missing tasks"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[1].movementTasksByGeneration[0]["t-missing"] = true
   end, "an environment movement generation referencing a missing task")
 end
@@ -1140,7 +1142,7 @@ end
 -- A blocked instance's wait reference must resolve to a serialized task; a
 -- dangling one would never resume after the load.
 T["validate rejects an instance referencing a missing task"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.instances[1].waitingTaskId = "t-missing"
   end, "an instance referencing a missing task")
 end
@@ -1148,13 +1150,13 @@ end
 -- Duplicate ids would silently overwrite live scheduler entries; multiple
 -- foreground environments would silently last-wins on the field.
 T["validate rejects duplicate ids and multiple foreground environments"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[#bucket.environments + 1] = {
       environmentId = bucket.environments[1].environmentId,
       mode = "background",
     }
   end, "a duplicate environment id")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[#bucket.environments + 1] = {
       environmentId = "e-extra",
       mode = "foreground",
@@ -1166,7 +1168,7 @@ end
 -- The record arrays are required by the schema: a missing array is an
 -- error, never an implicit empty restore.
 T["validate rejects a bucket missing a required record array"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks = nil
   end, "a bucket without tasks")
 end

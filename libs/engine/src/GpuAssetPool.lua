@@ -35,7 +35,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@alias GpuAssetPool.ImageBuilder fun(path: string): GpuAssetPool.Image
 ---@class GpuAssetPool
 ---@field cacheFs table
----@field graphics GpuAssetPool.Graphics|love.Graphics
+---@field graphics GpuAssetPool.Graphics|love.Graphics|love.graphics
 ---@field meshBuilder GpuAssetPool.MeshBuilder
 ---@field imageBuilder GpuAssetPool.ImageBuilder?
 ---@field meshes GpuAssetPool.Mesh[]
@@ -84,7 +84,7 @@ local function guarded(pool, fn, revert)
 end
 
 ---@class GpuAssetPoolOptions
----@field graphics? GpuAssetPool.Graphics|love.Graphics -- injectable graphics namespace (nil keeps love.graphics)
+---@field graphics? GpuAssetPool.Graphics|love.graphics -- injectable graphics namespace (nil keeps love.graphics)
 ---@field meshBuilder? GpuAssetPool.MeshBuilder -- replaces SceneMesh.build (headless tests)
 ---@field imageBuilder? GpuAssetPool.ImageBuilder -- replaces graphics texture construction (headless tests)
 
@@ -97,7 +97,7 @@ end
 function GpuAssetPool.new(cacheFs, opts)
   assert(cacheFs and cacheFs.read, "GpuAssetPool requires a CacheFs-shaped object")
   opts = opts or {}
-  ---@type GpuAssetPool.Graphics|love.Graphics|nil
+  ---@type GpuAssetPool.Graphics|love.Graphics|love.graphics|nil
   local graphics = opts.graphics
   if graphics == nil then
     graphics = love and love.graphics

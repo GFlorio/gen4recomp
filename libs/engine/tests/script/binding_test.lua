@@ -9,6 +9,7 @@ local Composition = require("libs.engine.src.script.Composition")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+---@cast WaitTicksTask TaskImplementation
 local Bindings = require("libs.engine.src.script.Bindings")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
@@ -18,7 +19,7 @@ local FieldSession = require("libs.engine.src.FieldSession")
 local T = {}
 
 local function objectIntent(mapId, actorId, playerFacing, rawScriptId)
-  return {
+  local result = {
     kind = "object",
     mapId = mapId,
     sourceFieldX = 4,
@@ -30,6 +31,8 @@ local function objectIntent(mapId, actorId, playerFacing, rawScriptId)
     scriptId = rawScriptId == nil and 2 or rawScriptId,
     object = { actorId = actorId, objectEventId = 3, spriteId = 1 },
   }
+  ---@cast result InteractionIntent
+  return result
 end
 
 local function backgroundIntent(mapId, eventIndex, playerFacing, rawScriptId)
@@ -173,35 +176,35 @@ T["actor world adapter"] = function()
   local actors = {}
   actors.elm = { id = "elm", fieldX = 4, fieldZ = 5, facing = "north", visible = true, mapId = 61 }
   local manager = {
-    getActor = function(self, id)
+    getActor = function(_, id)
       return actors[id]
     end,
-    getPosition = function(self, id)
+    getPosition = function(_, id)
       return { fieldX = actors[id].fieldX, fieldZ = actors[id].fieldZ, worldY = 0 }
     end,
-    getFacing = function(self, id)
+    getFacing = function(_, id)
       return actors[id].facing
     end,
-    show = function(self, id)
+    show = function(_, id)
       actors[id].visible = true
     end,
-    hide = function(self, id)
+    hide = function(_, id)
       actors[id].visible = false
     end,
-    setPosition = function(self, id, position)
+    setPosition = function(_, id, position)
       actors[id].fieldX = position.fieldX
       actors[id].fieldZ = position.fieldZ
     end,
-    setFacing = function(self, id, direction)
+    setFacing = function(_, id, direction)
       actors[id].facing = direction
     end,
-    setMovementType = function(self, id, movementType)
+    setMovementType = function(_, id, movementType)
       actors[id].movementType = movementType
     end,
-    setAnimationPaused = function(self, id, paused)
+    setAnimationPaused = function(_, id, paused)
       actors[id].animationPaused = paused
     end,
-    numericId = function(self, id)
+    numericId = function(_, id)
       return actors[id] and 7 or nil
     end,
     actorIdForMapIndex = function()
@@ -228,7 +231,7 @@ T["actor world adapter"] = function()
       return "Gold"
     end,
   }
-  local world = ScriptActorWorld.new(manager, player)
+  local world = ScriptActorWorld.new(manager --[[@as ScriptActorManager]], player)
   Assert.isTrue(world:exists("player"))
   Assert.isTrue(world:exists("elm"))
   Assert.isFalse(world:exists("ghost"))
@@ -276,7 +279,7 @@ T["missing actor fault through binding path"] = function()
       return nil
     end,
   }
-  p.services.actors = ScriptActorWorld.new(manager, p.services.player) --[[@as FakeActors]]
+  p.services.actors = ScriptActorWorld.new(manager --[[@as ScriptActorManager]], p.services.player) --[[@as FakeActors]]
   local resource = script("elms_lab.elm", {
     S.facePlayer({ actor = "self" }),
     S.stop(),
@@ -364,7 +367,10 @@ T["session script phase"] = function()
     -- map clock entry is a safe no-op.
     updateAnimated = function() end,
   }
+  ---@cast runtimeMap RuntimeFieldMap
+  ---@cast player FieldPlayer
   local camera = { updateFixed = function() end }
+  ---@cast camera FieldCamera
   local transition = {
     phase = "idle",
     locked = false,
@@ -373,24 +379,29 @@ T["session script phase"] = function()
       error("binding fixture never starts a warp", 2)
     end,
   }
+  ---@cast transition FieldTransition
   local input = {
     snapshot = function()
       return {}
     end,
     clearEdges = function() end,
   }
+  ---@cast input FieldInput
   local actors = { step = function() end }
+  ---@cast actors FieldActorManager
   local dialogue = {
     isModal = function()
       return false
     end,
   }
+  ---@cast dialogue FieldDialogueController
   local menuHost = {
     isModal = function()
       return false
     end,
     advance = function() end,
   }
+  ---@cast menuHost FieldMenuHost
   local contextChoice = {
     isActive = function()
       return false
@@ -407,7 +418,7 @@ T["session script phase"] = function()
     scriptScheduler = p.scheduler,
     scriptClient = client,
     interactions = {
-      resolve = function(_, snapshot)
+      resolve = function(_, _)
         return objectIntent(57, "obj_T20_gswoman1", "north")
       end,
     },

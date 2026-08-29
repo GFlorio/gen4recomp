@@ -29,7 +29,7 @@ end
 
 local CURSOR_PLACEMENT = FieldUiFixture.manifest().dialogueFrames.continueCursor.placement
 
-function T.dialogue_uses_bottom_centered_translate_and_single_scale(scope)
+function T.dialogue_uses_bottom_centered_translate_and_single_scale(_)
   local lg = fakeGraphicsFromSupport()
   local text = FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames(), graphics = lg })
   local manifest = FieldUiFixture.manifest()
@@ -58,7 +58,7 @@ function T.dialogue_uses_bottom_centered_translate_and_single_scale(scope)
   text:release()
 end
 
-function T.dialogue_shrinks_from_bottom_center_at_reduced_zoom(scope)
+function T.dialogue_shrinks_from_bottom_center_at_reduced_zoom(_)
   local lg = fakeGraphicsFromSupport()
   local text = FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames(), graphics = lg })
   local manifest = FieldUiFixture.manifest()
@@ -84,7 +84,7 @@ function T.dialogue_shrinks_from_bottom_center_at_reduced_zoom(scope)
   text:release()
 end
 
-function T.signpost_uses_same_bottom_centered_transform(scope)
+function T.signpost_uses_same_bottom_centered_transform(_)
   local lg = fakeGraphicsFromSupport()
   local text = FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames(), graphics = lg })
   local manifest = FieldUiFixture.manifest()
@@ -110,7 +110,7 @@ function T.signpost_uses_same_bottom_centered_transform(scope)
   text:release()
 end
 
-function T.signpost_shrinks_from_bottom_center_at_reduced_zoom(scope)
+function T.signpost_shrinks_from_bottom_center_at_reduced_zoom(_)
   local lg = fakeGraphicsFromSupport()
   local text = FieldTextRenderer.new({ cacheFs = FieldUiFixture.cacheWithFontAndFrames(), graphics = lg })
   local manifest = FieldUiFixture.manifest()

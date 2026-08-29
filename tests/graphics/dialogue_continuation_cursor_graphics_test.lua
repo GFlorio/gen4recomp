@@ -95,11 +95,20 @@ T["renderer_is_passive_and_uses_layout_cursor"] = function(scope)
         return {
           pages = {
             {
-              lines = { { tokens = { { kind = "glyph", code = 1, text = "A", raw = { 1 } } }, width = 6 } },
+              lines = {
+                {
+                  tokens = { { kind = "glyph", code = 1, text = "A", raw = { 1 } } },
+                  width = 6,
+                  lineHeight = 8,
+                  lineSpacing = 0,
+                },
+              },
               breakKind = "prompt",
             },
           },
           warnings = {},
+          lineHeight = 8,
+          lineSpacing = 0,
         }
       end,
       policy = { interGlyphDelay = 0, glyphBudget = 1, abAcceleration = false },

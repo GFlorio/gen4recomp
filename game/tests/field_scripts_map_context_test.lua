@@ -61,7 +61,7 @@ function T.tests.zone_change_establishes_complete_destination_map_context()
   local fake = fakeSelf()
   local destination = destinationMap()
 
-  FieldScripts.onZoneChange(fake, destination)
+  FieldScripts.onZoneChange(fake, destination --[[@as RuntimeFieldMap]])
 
   Assert.equal(#fake.mapsService.calls, 1, "setSourceMap must be called exactly once")
   Assert.equal(fake.mapsService.calls[1], destination)
@@ -80,8 +80,9 @@ function T.tests.map_swap_retains_player_rebind_while_sharing_map_context()
   local fake = fakeSelf()
   local destination = destinationMap()
   local newPlayer = { id = "new-player" }
+  ---@cast newPlayer FieldPlayer
 
-  FieldScripts.onMapSwap(fake, newPlayer, destination)
+  FieldScripts.onMapSwap(fake, newPlayer, destination --[[@as RuntimeFieldMap]])
 
   Assert.equal(#fake.player.calls, 1, "setPlayer must be called exactly once")
   Assert.equal(fake.player.calls[1], newPlayer)

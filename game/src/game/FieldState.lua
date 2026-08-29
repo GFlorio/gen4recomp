@@ -57,6 +57,9 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 local FieldState = {}
 FieldState.__index = FieldState
 
+---@class FieldState.Font
+---@field getWidth fun(self: FieldState.Font, text: string): number
+
 local NO_DRAWS = {}
 
 local function defaultScreenTopology(width, height)
@@ -166,7 +169,8 @@ function FieldState.new(game, options)
     -- known.
     self:resize(width, height)
     runtime.menuHost:setPresentationMetrics(function(text)
-      return love.graphics.getFont():getWidth(text)
+      local font = love.graphics.getFont() --[[@as FieldState.Font]]
+      return font:getWidth(text)
     end)
     self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
     self._actorAssetLookup = function(spriteId)
@@ -359,6 +363,10 @@ function FieldState:draw()
   end
   local width, height = lg.getDimensions()
   assert(width and height, "graphics dimensions are required for field presentation")
+  assert(width % 1 == 0 and height % 1 == 0, "graphics dimensions must be integral")
+  width, height =
+    width, --[[@as integer]]
+    height --[[@as integer]]
   local resized = false
   if width ~= self.runtime.viewport.width or height ~= self.runtime.viewport.height then
     self:resize(width, height)
@@ -367,10 +375,12 @@ function FieldState:draw()
   if self._pollPresentationTopology and not resized then
     local provider = self.topologyProvider or defaultScreenTopology
     local topology = provider(width, height)
-    if self:_geometrySignature(width, height, topology) ~= self._lastGeometrySignature then
+    local integerWidth = width --[[@as integer]]
+    local integerHeight = height --[[@as integer]]
+    if self:_geometrySignature(integerWidth, integerHeight, topology) ~= self._lastGeometrySignature then
       -- Injected providers remain polling-enabled so same-size structural
       -- topology changes still reach the runtime geometry owner.
-      self.runtime:resizePresentation(width, height, topology)
+      self.runtime:resizePresentation(integerWidth, integerHeight, topology)
       self:_recordGeometrySignature(width, height, topology)
     end
   end
@@ -639,9 +649,7 @@ function FieldState:_drawHud()
 end
 
 ---@param key string
----@param scancode string?
----@param isrepeat boolean?
-function FieldState:keypressed(key, scancode, isrepeat)
+function FieldState:keypressed(key, _, _)
   if key == "escape" then
     love.event.quit(0)
   end
@@ -676,8 +684,7 @@ function FieldState:keypressed(key, scancode, isrepeat)
 end
 
 ---@param key string
----@param scancode string?
-function FieldState:keyreleased(key, scancode)
+function FieldState:keyreleased(key, _)
   -- Release mirrors press: one physical key may drive several held semantic
   -- states (e.g. Action bound to an arrow key), so every matching binding
   -- releases, never just the first.
@@ -763,9 +770,7 @@ end
 ---@param x number
 ---@param y number
 ---@param button integer
----@param istouch boolean?
----@param presses integer?
-function FieldState:mousepressed(x, y, button, istouch, presses)
+function FieldState:mousepressed(x, y, button, _, _)
   if button == 1 then
     self.runtime.input:pointerDown("mouse:1", x, y)
   end
@@ -773,10 +778,8 @@ end
 
 ---@param x number
 ---@param y number
----@param dx number
----@param dy number
 ---@param istouch boolean
-function FieldState:mousemoved(x, y, dx, dy, istouch)
+function FieldState:mousemoved(x, y, _, _, istouch)
   if not istouch then
     self.runtime.input:pointerMove("mouse:1", x, y)
   end
@@ -785,9 +788,7 @@ end
 ---@param x number
 ---@param y number
 ---@param button integer
----@param istouch boolean?
----@param presses integer?
-function FieldState:mousereleased(x, y, button, istouch, presses)
+function FieldState:mousereleased(x, y, button, _, _)
   if button == 1 then
     self.runtime.input:pointerUp("mouse:1", x, y)
   end

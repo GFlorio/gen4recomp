@@ -258,7 +258,7 @@ function MovementTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
-function MovementTask.cancel(state, reason, ctx)
+function MovementTask.cancel(state, _, ctx)
   if state == nil or ctx == nil or ctx.services == nil or ctx.services.actors == nil then
     return
   end

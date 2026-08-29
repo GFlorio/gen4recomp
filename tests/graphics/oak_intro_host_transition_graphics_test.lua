@@ -94,6 +94,9 @@ local function beginGenderComposition(state)
   return state:view()
 end
 
+---@param inner OakIntroStateRectangle
+---@param outer OakIntroStateRectangle
+---@return boolean
 local function inside(inner, outer)
   return inner.x >= outer.x
     and inner.y >= outer.y
@@ -101,6 +104,9 @@ local function inside(inner, outer)
     and inner.y + inner.height <= outer.y + outer.height
 end
 
+---@param first OakIntroStateRectangle
+---@param second OakIntroStateRectangle
+---@return boolean
 local function disjoint(first, second)
   return first.x + first.width <= second.x
     or second.x + second.width <= first.x
@@ -119,7 +125,7 @@ T.wide_host_moves_oak_into_the_profile_region_before_selection = function(scope)
   Assert.equal(first.genderCompositionProgress, 0)
   Assert.isNil(first.layout.genderHitRegions)
 
-  local start = first.layout.subject
+  local start = assert(first.layout.subject)
   local previous = start
   local samples = {}
   local final
@@ -131,30 +137,33 @@ T.wide_host_moves_oak_into_the_profile_region_before_selection = function(scope)
     local progress = frame / 26
     Assert.near(view.genderCompositionProgress, progress)
     assertOakGeometry(view, state.manifest.widgets.oak)
-    samples[frame] = view.layout.subject
+    local subject = assert(view.layout.subject)
+    samples[frame] = subject
     if frame < 26 then
       Assert.isNil(view.layout.genderHitRegions)
       Assert.isTrue(view.phase ~= "gender_select")
-      Assert.isTrue(view.layout.subject.x <= previous.x)
+      Assert.isTrue(subject.x <= assert(previous).x)
     else
       final = view
     end
-    previous = view.layout.subject
+    previous = subject
   end
 
+  final = assert(final)
   Assert.equal(final.phase, "gender_select")
   Assert.equal(final.genderCompositionProgress, 1)
   Assert.notNil(final.layout.genderHitRegions)
   Assert.isTrue(final.layout.oakRegion.x < final.layout.selectorRegion.x)
   Assert.isTrue(inside(final.layout.subject, final.layout.oakRegion))
   Assert.isTrue(disjoint(final.layout.oakRegion, final.layout.selectorRegion))
-  Assert.isTrue(final.layout.subject.x < start.x)
+  local finalSubject = assert(final.layout.subject)
+  Assert.isTrue(finalSubject.x < start.x)
   for frame = 0, 26 do
     local progress = frame / 26
     local subject = samples[frame]
-    Assert.near(subject.x, start.x + (final.layout.subject.x - start.x) * progress)
-    Assert.near(subject.y, start.y + (final.layout.subject.y - start.y) * progress)
-    Assert.near(subject.scale, start.scale + (final.layout.subject.scale - start.scale) * progress)
+    Assert.near(subject.x, start.x + (finalSubject.x - start.x) * progress)
+    Assert.near(subject.y, start.y + (finalSubject.y - start.y) * progress)
+    Assert.near(subject.scale, start.scale + (finalSubject.scale - start.scale) * progress)
   end
 end
 

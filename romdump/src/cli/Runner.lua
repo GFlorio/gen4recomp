@@ -307,6 +307,7 @@ end
 -- the game runtime while preserving the completion seam used by integration
 -- hosts.
 ---@param status table
+---@return nil
 function Runner._finishImport(status)
   local DumpAudit = require("romdump.src.source.DumpAudit")
   local versionId = status.versionId

@@ -152,7 +152,6 @@ function T.tests.house_mom_scene_advances_the_opening_state()
     -- opening scene under test.
     game:waitForFieldEntry()
     local baselineStarts = #recordsNamed(game, "script.started")
-    local baselineEnds = #recordsNamed(game, "script.ended")
 
     enterHouse(game)
     local expectedSceneScriptId = assert(
@@ -245,7 +244,7 @@ function T.tests.new_bark_friend_and_marill_scene_follows_the_house_scene()
 
     -- Only once that lifecycle ownership settles does the frame rule for
     -- house scene value 1 start the friend/Marill scene, exactly once.
-    game:advanceUntil("the friend/Marill scene starts", function(snapshot)
+    game:advanceUntil("the friend/Marill scene starts", function(_)
       for _, record in ipairs(recordsNamed(game, "script.started")) do
         if record.payload.scriptId == expectedSceneScriptId then
           return true
@@ -442,7 +441,6 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
 
     Assert.isTrue(#planOrder >= 2, "the scene must run both Marill movement plans")
 
-    local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
     local function appendExpected(out, descriptor, repetitions)
       local ticks = MovementCalibration.actionTicks(descriptor)
       for repetition = 1, repetitions do

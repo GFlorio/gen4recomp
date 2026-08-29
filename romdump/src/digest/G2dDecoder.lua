@@ -478,27 +478,27 @@ function G2dDecoder.decodeAnimation(data, opts)
           frameCount = frameCount,
         })
       end
-      firstFrame = firstFrame / 8
+      local firstFrameIndex = firstFrame / 8
       -- firstFrame is now a frame index and numFrames a frame count: the
       -- range must fit the frame table total, then its actual byte span must
       -- fit the chunk. Never mix frame indexes with chunk-byte sizes.
-      if firstFrame + numFrames > frameCount then
+      if firstFrameIndex + numFrames > frameCount then
         Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM animation frame range exceeds the frame table", {
           numFrames = numFrames,
-          firstFrame = firstFrame,
+          firstFrame = firstFrameIndex,
           frameCount = frameCount,
         })
       end
-      if framesOffset + (firstFrame + numFrames) * 8 > blk.size then
+      if framesOffset + (firstFrameIndex + numFrames) * 8 > blk.size then
         Errors.raise(G2dDecoder.ERROR.CHUNK_INVALID, "ANIM animation frame range exceeds the chunk", {
           numFrames = numFrames,
-          firstFrame = firstFrame,
+          firstFrame = firstFrameIndex,
           chunkSize = blk.size,
         })
       end
       local frames = {}
       for f = 0, numFrames - 1 do
-        local fbase = blk.payload + framesOffset + (firstFrame + f) * 8
+        local fbase = blk.payload + framesOffset + (firstFrameIndex + f) * 8
         local frameData = reader:u32le(fbase)
         local duration = reader:u16le(fbase + 4)
         if duration <= 0 then

@@ -15,9 +15,7 @@
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
-local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldTransition = require("libs.engine.src.FieldTransition")
-local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 
 ---@class ScriptMapsService
 ---@field private _transition table FieldTransition-shaped

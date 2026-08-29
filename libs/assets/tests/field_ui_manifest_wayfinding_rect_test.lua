@@ -4,8 +4,6 @@
 local Assert = require("tests.support.Assert")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
-local CacheFs = require("libs.storage.src.CacheFs")
-local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
 

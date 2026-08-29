@@ -191,7 +191,7 @@ function GameSave.validateSaveId(saveId)
     return true
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end
@@ -205,7 +205,7 @@ function GameSave.validate(record, opts)
     return result
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end

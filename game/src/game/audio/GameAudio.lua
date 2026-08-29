@@ -76,6 +76,7 @@ function GameAudio.compose(opts)
     end
     error(composition, 0)
   end
+  ---@cast composition GameAudioComposition
   return composition
 end
 

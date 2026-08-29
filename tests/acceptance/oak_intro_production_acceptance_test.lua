@@ -459,7 +459,7 @@ function T.tests.profile_shrink_replacements_follow_nine_source_tick_boundaries(
         end
 
         local holdStart = state:view().sourceFrames
-        for tick = 1, 29 do
+        for _ = 1, 29 do
           state:tick(1)
           Assert.equal(state:view().phase, "final_full_art_hold", "full art must hold for thirty source ticks")
         end

@@ -10,6 +10,9 @@ local Options = require("game.src.Options")
 
 local T = {}
 
+---@param text string
+---@param needle string
+---@return boolean
 local function contains(text, needle)
   return text:find(needle, 1, true) ~= nil
 end
@@ -19,16 +22,18 @@ local function rejects(argv)
   local opts, message = Options.parse(argv)
   Assert.isNil(opts, "must reject: " .. table.concat(argv, " "))
   Assert.notNil(message, "rejection carries a message")
-  return message
+  return assert(message)
 end
 
 -- Raises when parsing unexpectedly failed so a contract test fails on the
 -- parser defect rather than on a nil index further down.
----@return GameOptions opts
+---@param argv string[]
+---@return GameOptions
 local function parses(argv)
   local opts, message = Options.parse(argv)
   Assert.isTrue(opts ~= nil, "expected opts for " .. table.concat(argv, " ") .. ", got error: " .. tostring(message))
-  return opts --[[@as GameOptions]]
+  ---@cast opts GameOptions
+  return opts
 end
 
 function T.no_options_default_to_the_normal_boot_flow()

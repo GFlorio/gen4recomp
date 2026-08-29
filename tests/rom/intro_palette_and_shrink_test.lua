@@ -16,119 +16,6 @@ local function getBytes(archive, memberId)
   return bytes
 end
 
-local function decodeCharPalette(archive, charMember, paletteMember)
-  local G2dDecoder = require("romdump.src.digest.G2dDecoder")
-  local charBytes = getBytes(archive, charMember)
-  local paletteBytes = getBytes(archive, paletteMember)
-  return assert(G2dDecoder.decodeChar(charBytes)), assert(G2dDecoder.decodePalette(paletteBytes))
-end
-
-local function screenRgba(char, palette, screen)
-  -- Use the same blitting path as the compiler for the oracle composition.
-  -- Reuse G2dDecoder structures: char.tiles, palette.colors, screen.entries.
-  -- Render a portrait through its NSCR using palette-bank-aware indexed pixels.
-  local width, height = screen.width, screen.height
-  local tileBytes = char.depth == 3 and 32 or 64
-  local tileCount = #char.tiles / tileBytes
-  local function blit(rgba, tileIndex, paletteBank, x, y, flipH, flipV)
-    if tileIndex < 0 or tileIndex >= tileCount then
-      error("shrink oracle tile out of range: " .. tostring(tileIndex), 0)
-    end
-    local base = tileIndex * tileBytes
-    local function put(px, py, value)
-      if value == 0 then
-        return
-      end
-      local paletteIndex = value + 1
-      if char.depth == 3 then
-        paletteIndex = paletteIndex + paletteBank * 16
-      end
-      local color = palette[paletteIndex]
-      if not color then
-        error("shrink oracle missing palette entry " .. tostring(value), 0)
-      end
-      local tx = flipH and 7 - px or px
-      local ty = flipV and 7 - py or py
-      local off = ((y + ty) * width + x + tx) * 4
-      rgba[off + 1], rgba[off + 2], rgba[off + 3], rgba[off + 4] = color.r, color.g, color.b, 255
-    end
-    if char.depth == 3 then
-      for row = 0, 7 do
-        for col = 0, 3 do
-          local b = string.byte(char.tiles, base + row * 4 + col + 1)
-          put(col * 2, row, b % 16)
-          put(col * 2 + 1, row, math.floor(b / 16))
-        end
-      end
-    else
-      for row = 0, 7 do
-        for col = 0, 7 do
-          put(col, row, string.byte(char.tiles, base + row * 8 + col + 1))
-        end
-      end
-    end
-  end
-
-  local rgba = {}
-  for i = 1, width * height * 4 do
-    rgba[i] = 0
-  end
-  local columns = width / 8
-  for row = 0, height / 8 - 1 do
-    for col = 0, columns - 1 do
-      local e = screen.entries[row * columns + col + 1]
-      -- tile field names from G2dDecoder.decodeScreen
-      local tile = e.tile
-      local paletteBank = e.palette
-      local flipH, flipV = e.flipH, e.flipV
-      -- manual tile placement: delegate to blit with correct tile/palette
-      -- Reuse the inner blit: place tile at col*8, row*8
-      local base = tile * tileBytes
-      if tile < 0 or tile >= tileCount then
-        error("oracle screen tile " .. tostring(tile) .. " out of range", 0)
-      end
-      -- render this 8x8 tile via same put logic but offset by col*8,row*8
-      local function put(px, py, value)
-        if value == 0 then
-          return
-        end
-        local pi = value + 1
-        if char.depth == 3 then
-          pi = pi + paletteBank * 16
-        end
-        local color = palette[pi]
-        if not color then
-          error("oracle missing palette entry", 0)
-        end
-        local tx = flipH and 7 - px or px
-        local ty = flipV and 7 - py or py
-        local off = ((row * 8 + ty) * width + col * 8 + tx) * 4
-        rgba[off + 1], rgba[off + 2], rgba[off + 3], rgba[off + 4] = color.r, color.g, color.b, 255
-      end
-      if char.depth == 3 then
-        for rr = 0, 7 do
-          for cc = 0, 3 do
-            local b = string.byte(char.tiles, base + rr * 4 + cc + 1)
-            put(cc * 2, rr, b % 16)
-            put(cc * 2 + 1, rr, math.floor(b / 16))
-          end
-        end
-      else
-        for rr = 0, 7 do
-          for cc = 0, 7 do
-            put(cc, rr, string.byte(char.tiles, base + rr * 8 + cc + 1))
-          end
-        end
-      end
-    end
-  end
-  local out = {}
-  for i = 1, #rgba, 4096 do
-    out[#out + 1] = string.char(unpack(rgba, i, math.min(i + 4095, #rgba)))
-  end
-  return table.concat(out), width, height
-end
-
 -- Both gender-selector resources' own shipped NCLR data only ever populates
 -- bank 0; every other bank (including the configured template slot for the
 -- female selector, bank 1) is all-zero in the real dump. The template slot
@@ -202,7 +89,7 @@ local function renderCellOracle(char, palette, cell, width, height, anchorX, anc
         local destY = object.y + anchorY + row * 8
         for rr = 0, 7 do
           for cc = 0, 3 do
-            local b = string.byte(char.tiles, base + rr * 4 + cc + 1)
+            local b = string.byte(char.tiles, base + rr * 4 + cc + 1 --[[@as integer]])
             local values = { b % 16, math.floor(b / 16) }
             for pairOffset, value in ipairs(values) do
               if value ~= 0 then
@@ -309,7 +196,6 @@ end
 function T.shrink_frames_are_portrait_compositions(romFs)
   local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
   local IntroAssets = require("romdump.src.config.IntroAssets")
-  local G2dDecoder = require("romdump.src.digest.G2dDecoder")
   local PngReader = require("tests.support.PngReader")
   local IntroAssetImage = require("romdump.src.digest.IntroAssetImage")
 

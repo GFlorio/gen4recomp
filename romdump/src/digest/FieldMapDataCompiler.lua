@@ -208,10 +208,13 @@ end
 -- cannot render (the default header filler and the unused headers) carry no
 -- land payload and emit an empty soundplates array, exactly like maps whose
 -- land BGS payload is empty.
+---@param map table
+---@param sha1hex fun(data: string): string
+---@param romFs RomFs
 ---@return table plates, table audioSource { matrixMemberSha1, landDataMemberId?, landDataMemberSha1? }
 local function compileSoundplates(romFs, map, sha1hex)
   local matrixNarc = must(romFs:openNarc("map_matrices"))
-  local matrixBytes = must(matrixNarc:readMember(map.matrixMemberId))
+  local matrixBytes = must(matrixNarc:readMember(map.matrixMemberId)) --[[@as string]]
   local matrix = must(MapMatrix.decode(matrixBytes, map.id))
   local analysis = MapAnalysis.analyzeRecord(map, matrix)
   if analysis.status ~= "resolved" then
@@ -219,7 +222,7 @@ local function compileSoundplates(romFs, map, sha1hex)
   end
 
   local landNarc = must(romFs:openNarc("land_data"))
-  local landBytes = must(landNarc:readMember(analysis.landDataMemberId))
+  local landBytes = must(landNarc:readMember(analysis.landDataMemberId)) --[[@as string]]
   local land = must(LandData.decode(landBytes, {
     mapId = map.id,
     alias = "land_data",
@@ -231,6 +234,7 @@ local function compileSoundplates(romFs, map, sha1hex)
       mapId = map.id,
       memberId = analysis.landDataMemberId,
     }))
+    ---@cast records table[]
     for index, record in ipairs(records) do
       local ref = fieldAudio.soundplates[record.soundplateSoundID + 1]
       if not ref then
@@ -240,7 +244,8 @@ local function compileSoundplates(romFs, map, sha1hex)
           { mapId = map.id, recordIndex = index - 1, soundplateSoundID = record.soundplateSoundID }
         )
       end
-      plates[index] = semanticSoundplate(record, ref, map.symbol)
+      local soundReference = assert(ref)
+      plates[index] = semanticSoundplate(record, soundReference, map.symbol)
     end
   end
   return plates,
@@ -262,7 +267,7 @@ local function compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
 
   local memberSha1 = sha1hex(memberBytes)
   local soundplates, audioSource = compileSoundplates(romFs, map, sha1hex)
-  local headerBytes = must(headerSource.archive:readMember(map.scriptHeaderMemberId))
+  local headerBytes = must(headerSource.archive:readMember(map.scriptHeaderMemberId)) --[[@as string]]
   local initScripts = must(ScriptHeader.parse(headerBytes, {
     mapId = map.id,
     memberId = map.scriptHeaderMemberId,

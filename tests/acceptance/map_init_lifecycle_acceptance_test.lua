@@ -35,6 +35,10 @@ local function installExecutionRecorder()
   local originalInstantiate = assert(FieldActorManager._instantiate)
   local originalPrepare = assert(FieldRuntime._prepareSwap)
   local originalCommit = assert(FieldRuntime._commitSwap)
+  ---@param self ScriptInteractionClient
+  ---@param scriptId string
+  ---@param tick integer
+  ---@return boolean
   ScriptInteractionClient.startInitScript = function(self, scriptId, tick)
     starts[#starts + 1] = { scriptId = scriptId, tick = tick }
     events[#events + 1] = { kind = "script", scriptId = scriptId }
@@ -43,6 +47,7 @@ local function installExecutionRecorder()
   ---@param self FieldActorManager
   ---@param runtimeMap RuntimeFieldMap
   ---@param eventState FieldEventState
+  ---@return nil
   FieldActorManager.enterMap = function(self, runtimeMap, eventState)
     actorEntries[#actorEntries + 1] = { mapId = runtimeMap.mapId }
     events[#events + 1] = { kind = "actors", mapId = runtimeMap.mapId }
@@ -53,6 +58,10 @@ local function installExecutionRecorder()
   -- still constructs actors ahead of the recorded lifecycle would otherwise
   -- report correct ordering while construction had already occurred.
   ---@param self FieldActorManager
+  ---@param entry FieldActorManager.Entry
+  ---@param event FieldActorEvent
+  ---@param eventState FieldEventState
+  ---@return table
   FieldActorManager._instantiate = function(self, entry, event, eventState)
     events[#events + 1] = { kind = "instantiate", mapId = entry.runtimeMap.mapId }
     return originalInstantiate(self, entry, event, eventState)

@@ -110,7 +110,7 @@ end
 function FieldUiFixture.continueCursorBytes()
   local pixels = {}
   for style = 0, FieldUiFixture.FRAME_COUNT - 1 do
-    for y = 0, 15 do
+    for _ = 0, 15 do
       for x = 0, 47 do
         local phase = math.floor(x / 16)
         local r = 40 + style * 80 + phase * 30
@@ -156,7 +156,7 @@ end
 ---@return string png
 function FieldUiFixture.signpostTilesBytes()
   local bytes = {}
-  for y = 0, 7 do
+  for _ = 0, 7 do
     for x = 0, 143 do
       local r, g, b = signpostTileColor(math.floor(x / 8))
       bytes[#bytes + 1] = string.char(r, g, b, 255)
@@ -348,6 +348,10 @@ function FieldUiFixture.cardFontDef()
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
+    glyphCount = #FieldUiFixture.CARD_CHARSET,
+    fallbackCode = 0,
+    atlasPath = "assets/generated/field/font/font-0.png",
+    source = {},
     atlas = {
       width = 512,
       height = baseHeight * FieldMessageText.COLOR_VARIANT_COUNT,

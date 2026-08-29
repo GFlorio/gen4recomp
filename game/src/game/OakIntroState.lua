@@ -42,23 +42,29 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field message OakIntroStateRectangle
 ---@field cards table<integer, OakIntroStateRectangle>
 ---@field nameGrid table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
----@field nameKeys table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
+---@field nameKeys table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string?, label: string? }>
 ---@field namePreview OakIntroStateRectangle?
 ---@field stageContent OakIntroStateRectangle
 ---@field dialogue { outerRect: OakIntroStateRectangle, scale: number }?
+---@field sourceCanvas { scale: number, origin: { x: number, y: number } }?
+---@field revealCanvas { scale: number, origin: { x: number, y: number } }?
+---@field reveal OakIntroStateSubjectRectangle?
+---@field stage OakIntroStateRectangle
+---@field profileCards table<integer, OakIntroStateRectangle>
 ---@field choicePanel OakIntroStateRectangle?
 ---@field choiceRows table<integer, OakIntroStateRectangle>?
----@field virtualKeyColumns integer
+---@field virtualKeyColumns integer?
 ---@field genderFocus integer
----@field subject OakIntroStateSubjectRectangle
+---@field subject OakIntroStateSubjectRectangle?
 ---@field safeFrame OakIntroStateRectangle
 ---@field scene OakIntroStateRectangle
 ---@field oakRegion OakIntroStateRectangle?
 ---@field selectorRegion OakIntroStateRectangle?
 ---@field selectorPanel OakIntroStateRectangle?
----@field genderBackground OakIntroStateRectangle?
----@field genderChoices table<integer, OakIntroStateRectangle>
+---@field genderBackground OakIntroStateSubjectRectangle?
+---@field genderChoices table<integer, OakIntroStateSubjectRectangle>
 ---@field genderHitRegions table<integer, OakIntroStateRectangle>?
+---@field genderCanvas { scale: number, origin: { x: number, y: number } }?
 
 ---@class OakIntroStateView: OakIntroControllerView
 ---@field phase string
@@ -134,6 +140,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field draw fun(self: OakIntroState)
 ---@field resize fun(self: OakIntroState, width: number, height: number)
 ---@field keypressed fun(self: OakIntroState, key: string, scancode: string?, isrepeat: boolean?)
+---@field press fun(self: OakIntroState, action: string): boolean
 ---@field textinput fun(self: OakIntroState, text: string)
 ---@field gamepadpressed fun(self: OakIntroState, joystick: any, button: string)
 ---@field _pointer fun(self: OakIntroState, x: number, y: number)
@@ -419,9 +426,8 @@ end
 local CONFIRM_KEYS = { ["return"] = true, kpenter = true, space = true }
 
 ---@param key string
----@param scancode string?
 ---@param isrepeat boolean?
-function OakIntroState:keypressed(key, scancode, isrepeat)
+function OakIntroState:keypressed(key, _, isrepeat)
   if isrepeat and CONFIRM_KEYS[key] then
     return
   end

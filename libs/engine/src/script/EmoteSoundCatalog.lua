@@ -11,6 +11,7 @@ local EmoteSoundCatalog = {}
 EmoteSoundCatalog.__index = EmoteSoundCatalog
 
 ---@param provenMappings table<string, string>? semantic emote kind -> exact effect id; only source-authenticated entries belong here
+---@return EmoteSoundCatalog
 function EmoteSoundCatalog.new(provenMappings)
   assert(provenMappings == nil or type(provenMappings) == "table", "provenMappings must be a table or nil")
   return setmetatable({ provenMappings = provenMappings or {} }, EmoteSoundCatalog)

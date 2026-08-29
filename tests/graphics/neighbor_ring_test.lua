@@ -82,7 +82,7 @@ end
 
 -- Injected graphics namespace tracking created images and their release calls,
 -- so the image side of a failed cell load can be observed without a GL context.
----@class RingFakeGraphics: love.Graphics
+---@class RingFakeGraphics: love.graphics
 ---@field images table[]
 local function fakeGraphics()
   local images = {}

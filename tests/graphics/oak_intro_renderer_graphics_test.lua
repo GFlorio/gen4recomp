@@ -127,7 +127,7 @@ local function backgroundOnlyController()
     }),
     clock = {
       nowLocal = function()
-        return { hour = 12, minute = 0 }
+        return { year = 2009, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
       end,
     },
     audio = audio --[[@as GameSound]],
@@ -296,12 +296,12 @@ T.background_only_view_draws_the_gradient_once_without_a_subject = function()
   renderer:dispose()
 end
 
-function T.nonzero_atlas_frame_is_drawn_with_a_reusable_quad(scope)
+function T.nonzero_atlas_frame_is_drawn_with_a_reusable_quad(_)
   local graphics = FakeGraphics.new({ imageSizes = { { 8, 8 }, { 4, 8 } } })
   local renderer = OakIntroRenderer.new({
     manifest = manifest(),
     graphics = graphics,
-    imageLoader = function(path)
+    imageLoader = function(_)
       return graphics.newImage()
     end,
     text = textRenderer(),
@@ -320,7 +320,7 @@ function T.constructor_releases_images_when_quad_creation_fails()
     OakIntroRenderer.new({
       manifest = manifest(),
       graphics = graphics,
-      imageLoader = function(path)
+      imageLoader = function(_)
         return graphics.newImage()
       end,
       text = textRenderer(),

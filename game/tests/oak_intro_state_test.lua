@@ -12,6 +12,33 @@ local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local T = {}
 local DIALOGUE_CURSOR_PLACEMENT = { x = 240, y = 168, width = 16, height = 16 }
 
+---@class OakIntroStateTest.Controller
+---@field phase string
+---@field pressed string[]
+---@field text string[]
+---@field deleted integer
+---@field started integer
+---@field disposed integer
+---@field choice table?
+---@field compositionProgress number
+---@field start fun(self: OakIntroStateTest.Controller)
+---@field tick fun(self: OakIntroStateTest.Controller, frames: number)
+---@field press fun(self: OakIntroStateTest.Controller, action: string)
+---@field inputText fun(self: OakIntroStateTest.Controller, text: string)
+---@field deleteGlyph fun(self: OakIntroStateTest.Controller)
+---@field result fun(self: OakIntroStateTest.Controller): table?
+---@field dispose fun(self: OakIntroStateTest.Controller)
+---@field view fun(self: OakIntroStateTest.Controller): table
+---@field messageCompleted fun(self: OakIntroStateTest.Controller, key: string)
+---@class OakIntroStateTest.Input: OakIntroStateTextInputHost
+---@field calls boolean[]
+---@field setTextInput fun(self: OakIntroStateTest.Input, enabled: boolean)
+---@class OakIntroStateTest.Renderer: OakIntroStateRenderer
+---@field draws integer
+---@field disposed integer
+---@field draw fun(self: OakIntroStateTest.Renderer, view: table)
+---@field dispose fun(self: OakIntroStateTest.Renderer)
+
 local INTRO_MANIFEST = {
   sourceReference = { width = 256, height = 192 },
   background = { width = 256, height = 192, sampling = "linear" },
@@ -45,6 +72,7 @@ local INTRO_MANIFEST = {
   },
 }
 
+---@return OakIntroStateTest.Controller
 local function fakeController()
   local controller = {
     phase = "name_edit",
@@ -95,16 +123,18 @@ local function fakeController()
       confirmationChoice = self.choice,
     }
   end
-  return controller
+  return controller --[[@as OakIntroStateTest.Controller]]
 end
 
 local function stateHarness()
   local controller = fakeController()
   local input = { calls = {} }
+  ---@cast input OakIntroStateTest.Input
   function input:setTextInput(enabled)
     self.calls[#self.calls + 1] = enabled
   end
   local renderer = { draws = 0, disposed = 0 }
+  ---@cast renderer OakIntroStateTest.Renderer
   function renderer:draw()
     self.draws = self.draws + 1
   end
@@ -112,7 +142,7 @@ local function stateHarness()
     self.disposed = self.disposed + 1
   end
   local state = OakIntroState.new({
-    controller = controller,
+    controller = controller --[[@as OakIntroController]],
     manifest = INTRO_MANIFEST,
     textRenderer = {},
     renderer = renderer,
@@ -222,7 +252,7 @@ function T.a_held_confirm_key_does_not_repeat_activation()
 end
 
 function T.audio_lifetime_is_released_once_with_the_state()
-  local state, controller, input, renderer = stateHarness()
+  local state, controller, _, renderer = stateHarness()
   local lifetime = { releases = 0 }
   function lifetime:dispose()
     self.releases = self.releases + 1
@@ -398,7 +428,7 @@ local function stateAtFreshFullArtHold(frameDuration, frameCount)
   local controller = OakIntroController.new({
     candidate = realCandidate(),
     clock = fixedClock(),
-    audio = silentAudio(),
+    audio = silentAudio() --[[@as GameSound]],
     messages = SHRINK_MESSAGES,
     assets = {
       marill = { frames = { { duration = 1 } } },
@@ -668,7 +698,7 @@ function T.dialogue_completion_edge_does_not_enter_the_new_choice()
       virtualKeys = {},
     }
   end
-  controller.messageCompleted = function(self, key)
+  controller.messageCompleted = function(_, key)
     Assert.equal(key, "profile.gender_confirm.male")
     modal = false
   end

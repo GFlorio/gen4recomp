@@ -71,6 +71,7 @@ function FakeWorld:subVar(id, amount)
 end
 
 -- Deterministic Lehmer-style RNG : never math.random.
+---@param seed integer?
 ---@return table rng
 function FakeWorld:newRng(seed)
   local rng = { _seed = seed or 0x2545F491 }
@@ -242,7 +243,7 @@ function FakeActors:beginScriptedAction(actorId, action)
   actor._scriptedAction = action
 end
 
-function FakeActors:advanceScriptedAction(actorId, progressTicks, durationTicks) end
+function FakeActors:advanceScriptedAction(_, _, _) end
 
 function FakeActors:commitScriptedAction(actorId)
   local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
@@ -341,6 +342,7 @@ end
 local FakePlayer = {}
 FakePlayer.__index = FakePlayer
 
+---@param opts table?
 ---@return FakePlayer
 function FakePlayer.new(opts)
   opts = opts or {}
@@ -424,7 +426,7 @@ function FakePlayer:beginScriptedAction(action)
   self._scriptedAction = action
 end
 
-function FakePlayer:advanceScriptedAction(progressTicks, durationTicks) end
+function FakePlayer:advanceScriptedAction(_, _) end
 
 function FakePlayer:commitScriptedAction()
   if self._scriptedDest then

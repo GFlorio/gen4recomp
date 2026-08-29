@@ -85,7 +85,7 @@ function FieldEmoteAssetCache.validateDescriptor(descriptor)
   local modelOk, modelErr = pcall(ModelAsset.validate, descriptor.model)
   if not modelOk then
     if Errors.is(modelErr) then
-      return false, modelErr
+      return false, modelErr --[[@as Errors.Error]]
     end
     error(modelErr, 0)
   end

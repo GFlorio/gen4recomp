@@ -342,18 +342,31 @@ function FieldDialogueController:open(request)
     )
   end
   local handle = {}
-  handle.onComplete = function(self, fn)
-    self._onComplete = fn
-    return self
+  ---@cast handle FieldDialogueController.Handle
+  ---@param callbackHandle FieldDialogueController.Handle
+  ---@param fn fun(result: FieldDialogueController.Result)
+  ---@return FieldDialogueController.Handle
+  local function onComplete(callbackHandle, fn)
+    callbackHandle._onComplete = fn
+    return callbackHandle
   end
-  handle.onCancel = function(self, fn)
-    self._onCancel = fn
-    return self
+  ---@param callbackHandle FieldDialogueController.Handle
+  ---@param fn fun(result: FieldDialogueController.Result)
+  ---@return FieldDialogueController.Handle
+  local function onCancel(callbackHandle, fn)
+    callbackHandle._onCancel = fn
+    return callbackHandle
   end
-  handle.onError = function(self, fn)
-    self._onError = fn
-    return self
+  ---@param callbackHandle FieldDialogueController.Handle
+  ---@param fn fun(result: FieldDialogueController.Result)
+  ---@return FieldDialogueController.Handle
+  local function onError(callbackHandle, fn)
+    callbackHandle._onError = fn
+    return callbackHandle
   end
+  handle.onComplete = onComplete
+  handle.onCancel = onCancel
+  handle.onError = onError
   -- The player-selected HGSS user-frame index is presentation data captured
   -- at open time: an already-open message keeps the frame it opened with.
   -- The request may omit it; status then exposes nil rather than inventing a
@@ -439,6 +452,7 @@ function FieldDialogueController:_advancePage()
   return true
 end
 
+---@return nil
 function FieldDialogueController:_beginScroll()
   local statusLines = self:status().visibleLines
   assert(#statusLines > 0, "scroll break requires visible dialogue lines")
@@ -454,12 +468,14 @@ function FieldDialogueController:_beginScroll()
   self._state = "SCROLLING"
 end
 
+---@return nil
 function FieldDialogueController:_finishScroll()
   self._scrollLines = nil
   self._scrollRemaining = 0
   self:_advancePage()
 end
 
+---@return nil
 function FieldDialogueController:_enterWait()
   local page = self._pages[self._pageIndex]
   local state = page.breakKind == "eos" and "WAITING_CLOSE" or "WAITING_BOUNDARY"
@@ -471,6 +487,7 @@ end
 -- Called when the current page has fully revealed: prompt/page/eos pages
 -- wait for Action; line/overflow pages auto-scroll into the next page.
 
+---@return nil
 function FieldDialogueController:_atPageEnd()
   local page = self._pages[self._pageIndex]
   if waitsForAction(page) then
@@ -494,6 +511,7 @@ end
 
 ---@param sourceNew boolean
 ---@param sourceHeld boolean
+---@return boolean
 function FieldDialogueController:_printerSubstep(sourceNew, sourceHeld)
   self._scrollOffsetY = 0
   local total = self._pageGlyphs[self._pageIndex]

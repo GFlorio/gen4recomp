@@ -145,7 +145,7 @@ end
 
 ---@param taskId string
 function ScriptEnvironment:unregisterMovementTask(taskId)
-  for generation, set in pairs(self.movementTasksByGeneration) do
+  for _, set in pairs(self.movementTasksByGeneration) do
     if set[taskId] then
       set[taskId] = nil
       return
@@ -239,9 +239,9 @@ end
 -- "resume this actor's own default autonomous movement", so it is a no-op
 -- here rather than a fault when this instance holds no such lock.
 ---@param kind string
----@param ref string|nil
+---@param _ string|nil
 ---@param ownerId string
-function ScriptEnvironment:releaseLock(kind, ref, ownerId)
+function ScriptEnvironment:releaseLock(kind, _, ownerId)
   local entry = self.locks[kind]
   --[[@as { count: integer, owners: table<string, integer> }|nil]]
   if entry == nil or entry.owners[ownerId] == nil then

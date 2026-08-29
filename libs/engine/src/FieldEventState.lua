@@ -86,7 +86,7 @@ function FieldEventState.validate(serialized)
     return result
   end
   if Errors.is(result) then
-    return nil, result
+    return nil, result --[[@as Errors.Error]]
   end
   error(result)
 end

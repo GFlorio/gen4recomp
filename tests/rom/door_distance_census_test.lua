@@ -188,8 +188,8 @@ function T.tests.every_warp_bearing_door_tile_resolves_exactly_one_placement(con
           })
           local reason = ""
           if not ok and Errors.is(err) then
-            ---@cast err table
-            reason = err.code
+            local code = rawget(err, "code")
+            reason = type(code) == "string" and code or tostring(err)
           elseif not ok then
             reason = tostring(err)
           end

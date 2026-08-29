@@ -14,12 +14,17 @@ local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+---@cast WaitTicksTask TaskImplementation
 local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
+---@cast ChildScriptTask TaskImplementation
 local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
+---@cast MovementTask TaskImplementation
 local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
 local Runtime = require("libs.engine.src.script.Runtime")
 local MovementBarrierTask = require("libs.engine.src.script.tasks.MovementBarrierTask")
+---@cast MovementBarrierTask TaskImplementation
 local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
+---@cast MovementPauseTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
 

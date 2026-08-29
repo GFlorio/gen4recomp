@@ -5,14 +5,38 @@ local Assert = require("tests.support.Assert")
 local FieldApplicationHost = require("libs.engine.src.FieldApplicationHost")
 local FieldApplicationRegistry = require("libs.engine.src.FieldApplicationRegistry")
 local FieldInput = require("libs.engine.src.FieldInput")
-local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldPlayerModule = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
-local FieldSession = require("libs.engine.src.FieldSession")
+local FieldSessionModule = require("libs.engine.src.FieldSession")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
 
 local T = {}
+
+---@class FieldSessionTest.Module : FieldSession
+---@field FIXED_DT number
+---@field FIXED_HZ integer
+---@field MAX_CATCH_UP_TICKS integer
+---@field new fun(options: table): FieldSession
+local FieldSession = {
+  FIXED_DT = FieldSessionModule.FIXED_DT,
+  FIXED_HZ = FieldSessionModule.FIXED_HZ,
+  MAX_CATCH_UP_TICKS = FieldSessionModule.MAX_CATCH_UP_TICKS,
+}
+function FieldSession.new(options)
+  return FieldSessionModule.new(options --[[@as FieldSessionOptions]])
+end
+
+---@class FieldSessionTest.PlayerModule : FieldPlayer
+---@field WALK_STEP_TICKS integer
+---@field new fun(options: table): FieldPlayer
+local FieldPlayer = {
+  WALK_STEP_TICKS = FieldPlayerModule.WALK_STEP_TICKS,
+}
+function FieldPlayer.new(options)
+  return FieldPlayerModule.new(options --[[@as FieldPlayerOptions]])
+end
 
 -- Complete fakes for the collaborators FieldSession requires at
 -- construction: an idle transition (never completes, never locks, never
@@ -178,12 +202,12 @@ local function baseOptions(overrides)
     eventState = { getVar = function() end },
   }
   for key, value in pairs(overrides) do
-    options[key] = value
+    rawset(options, key, value)
   end
   return options
 end
 
-local function session()
+local function fixedSession()
   local targets = {}
   local camera = {
     updateFixed = function(_, target)
@@ -211,7 +235,8 @@ function T.actor_only_construction_is_rejected()
     currentMap = { mapId = 61 },
     actor = actor,
     camera = camera,
-  } --[[@as any]]
+  }
+  ---@cast options FieldSessionOptions
   local ok, err = pcall(FieldSession.new, options)
   Assert.isFalse(ok, "a session must require the player, not fall back to an actor option: " .. tostring(err))
 end
@@ -307,9 +332,9 @@ function T.audio_collaborator_requires_field_policy_and_effect_playback()
 end
 
 function T.fixed_ticks_are_render_cadence_independent()
-  local a = session()
+  local a = fixedSession()
   a:update(1 / 30)
-  local b = session()
+  local b = fixedSession()
   b:update(1 / 60)
   b:update(1 / 60)
   Assert.equal(a.tick, 1)
@@ -317,7 +342,7 @@ function T.fixed_ticks_are_render_cadence_independent()
 end
 
 function T.excess_backlog_is_discarded_after_max_catch_up()
-  local s = session()
+  local s = fixedSession()
   s:update(10 / 30)
   Assert.equal(s.tick, 5)
   -- The 5 excess ticks were dropped, not deferred to the next frame.
@@ -326,7 +351,7 @@ function T.excess_backlog_is_discarded_after_max_catch_up()
 end
 
 function T.camera_follows_the_player_xyz_each_fixed_tick()
-  local s, targets = session()
+  local s, targets = fixedSession()
   s:update(1 / 30)
   Assert.deepEqual(targets[1], { x = 1.25, y = 2.5, z = 3.75 })
 end
@@ -1113,7 +1138,7 @@ local function dialogueSession(opts)
     isModal = function(self)
       return self.modal
     end,
-    step = function(self, snapshot)
+    step = function(_, snapshot)
       dialogueSteps = dialogueSteps + 1
       received = snapshot
     end,
@@ -1171,7 +1196,7 @@ local function dialogueSession(opts)
 end
 
 function T.modal_dialogue_freezes_every_world_step_and_steps_the_dialogue()
-  local session, worldSteps, dialogueState = dialogueSession()
+  local session, worldSteps, dialogueState, _ = dialogueSession()
   session:updateFixed({ heldDirection = "south", actionDown = true })
   Assert.equal(worldSteps.player, 0, "player does not move")
   Assert.equal(worldSteps.actors, 0, "visibility changes do not apply")
@@ -1186,13 +1211,13 @@ end
 function T.modal_dialogue_blocks_warp_evaluation()
   local session, _, _ = dialogueSession()
   local map = { mapId = 61, fieldData = { events = { warps = {} } }, updateAnimated = function() end }
-  session.currentMap = map
+  session.currentMap = map --[[@as RuntimeFieldMap]]
   session:updateFixed({ heldDirection = "south", pressedDirection = "south" })
   Assert.equal(session.player.fieldZ, 13, "no movement and no warp from the modal tick")
 end
 
 function T.world_resumes_once_the_dialogue_closes()
-  local session, worldSteps, dialogueState, dialogue = dialogueSession()
+  local session, worldSteps, _, dialogue = dialogueSession()
   session:updateFixed({})
   Assert.equal(worldSteps.player, 0)
   -- The dialogue closes (its own step dispatches the completion); the next
@@ -1250,18 +1275,15 @@ end
 
 local function interactionSession(opts)
   opts = opts or {}
-  local resolved, consumed
   local interactions
   interactions = {
     resolve = function(_, snapshot)
-      resolved = snapshot
       interactions.resolveSnapshot = snapshot
       return opts.intent or nil
     end,
   }
   local client = {
-    consume = function(_, intent, tick)
-      consumed = intent
+    consume = function(_, intent, _)
       interactions.consumedIntent = intent
       return opts.result or ScriptInteractionClient.RESULTS.started
     end,
@@ -1327,7 +1349,7 @@ function T.consumed_interaction_owns_the_tick()
 end
 
 function T.unresolved_interaction_falls_through_to_movement()
-  local session, player, interactions, steps = interactionSession()
+  local session, player, _, steps = interactionSession()
   session:updateFixed({ actionPressed = true, heldDirection = "north" })
   Assert.equal(steps(), 1, "a nil intent leaves the tick to movement")
   Assert.equal(player.facing, "north")
@@ -1337,7 +1359,7 @@ end
 -- unmapped intent reaching the session is a composition fault that must fail
 -- loudly, never a silently absorbed Action press.
 function T.unmapped_interaction_is_a_composition_fault()
-  local session, player, interactions, steps = interactionSession({
+  local session, _, _, steps = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
     result = ScriptInteractionClient.RESULTS.unmapped,
   })
@@ -1350,7 +1372,7 @@ end
 -- A foreground script already owning the field blocks the new interaction;
 -- the tick is still consumed.
 function T.blocked_interaction_still_consumes_the_tick()
-  local session, player, interactions, steps = interactionSession({
+  local session, player, _, steps = interactionSession({
     intent = { kind = "background" },
     result = ScriptInteractionClient.RESULTS.blocked,
   })
@@ -1360,7 +1382,7 @@ function T.blocked_interaction_still_consumes_the_tick()
 end
 
 function T.interaction_resolve_snapshot_carries_the_player_state()
-  local session, player, interactions = interactionSession({
+  local session, _, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session:updateFixed({ actionPressed = true })
@@ -1374,16 +1396,16 @@ function T.interaction_resolve_snapshot_carries_the_player_state()
 end
 
 function T.interaction_never_resolves_while_walking()
-  local session, player, interactions = interactionSession({
+  local session, _, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
-  player.motion = "walking"
+  session.player.motion = "walking"
   session:updateFixed({ actionPressed = true })
   Assert.isNil(interactions.resolveSnapshot, "a moving player is never asked to interact")
 end
 
 function T.interaction_never_resolves_without_the_action_edge()
-  local session, player, interactions = interactionSession({
+  local session, _, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
   session:updateFixed({ actionDown = true, heldDirection = "north" })
@@ -1550,7 +1572,7 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
   }))
 
   session:updateFixed({ heldDirection = "east", pressedDirection = "east" })
-  for tick = 2, 16 do
+  for _ = 2, 16 do
     session:updateFixed({ heldDirection = "east" })
   end
 
@@ -2315,6 +2337,7 @@ local function applicationCompositionFixture(menuFactory)
   input.clearUi = function()
     input.clearUiCalls = input.clearUiCalls + 1
   end
+  ---@cast input FieldInput
   local host = FieldApplicationHost.new({
     registry = FieldApplicationRegistry.new({}),
     menuFactory = menuFactory,
@@ -2343,7 +2366,7 @@ end
 -- the camera on that same tick. The simultaneous Action edge must not reach
 -- the interaction resolver either: the failed open still owns the tick.
 function T.a_fatal_menu_composition_failure_freezes_the_faulting_tick()
-  local session, host, input, world = applicationCompositionFixture(function()
+  local session, host, _, world = applicationCompositionFixture(function()
     error("injected menu composition failure")
   end)
   session:updateFixed({ menuPressed = true, actionPressed = true })
@@ -2359,7 +2382,7 @@ end
 -- The pending script reopen path obeys the same contract: a throwing
 -- menuFactory consumes the faulting tick and freezes every world step.
 function T.a_failing_pending_reopen_freezes_the_faulting_tick()
-  local session, host, input, world = applicationCompositionFixture(function()
+  local session, host, _, world = applicationCompositionFixture(function()
     error("injected reopen composition failure")
   end)
   host:requestReopen()
@@ -2381,7 +2404,8 @@ function T.an_unavailable_menu_leaves_the_tick_to_the_field()
   session:updateFixed({ menuPressed = true })
   Assert.equal(host:status().phase, "closed", "an unavailable menu is a no-op open")
   Assert.equal(host:isActive(), false)
-  Assert.equal(input.beginUiTicks[1], nil, "an unavailable menu begins no UI lifetime")
+  local beginUiTicks = assert(rawget(input, "beginUiTicks"))
+  Assert.equal(beginUiTicks[1], nil, "an unavailable menu begins no UI lifetime")
   Assert.equal(world.player, 1, "an unavailable menu leaves the tick to the field")
   Assert.equal(world.actors, 1)
   Assert.equal(world.camera, 1)
@@ -2414,7 +2438,8 @@ function T.a_successful_open_consumes_the_tick_without_stepping_the_world()
   session:updateFixed({ menuPressed = true })
   Assert.equal(host:status().phase, "menu", "the host enters the menu phase")
   Assert.equal(host:isActive(), true)
-  Assert.equal(input.beginUiTicks[1], 1, "beginUi happens once on the opening tick")
+  local beginUiTicks = assert(rawget(input, "beginUiTicks"))
+  Assert.equal(beginUiTicks[1], 1, "beginUi happens once on the opening tick")
   Assert.equal(menu.updateFixedCalls, 0, "the opener tick never steps the menu controller")
   Assert.equal(world.player, 0, "the successful open consumes the tick")
   Assert.equal(world.actors, 0)
@@ -2661,6 +2686,7 @@ end
 -- completes. The arrival kind selects which event the destination tile
 -- carries; everything else about the crossing is identical.
 ---@param arrivalKind "coordinate"|"passive"
+---@return table
 local function connectionSeamScenario(arrivalKind)
   local scenario = { order = {}, entered = 0, arrivalResolves = 0, consumedIntents = {} }
   local order = scenario.order

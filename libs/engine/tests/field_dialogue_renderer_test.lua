@@ -415,7 +415,9 @@ local function openedWithTokens(tokens, opts)
       return {
         pages = { { lines = { { tokens = tokens, width = 0 } }, breakKind = "eos" } },
         warnings = {},
-      }
+        lineHeight = 8,
+        lineSpacing = 0,
+      } --[[@as DialogueLayout.Result]]
     end,
     policy = TextSpeedPolicy.forSpeed("mid"),
     continueCursor = { cycle = { 0, 1, 2, 1 }, framePrinterTicks = 9 },

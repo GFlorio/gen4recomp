@@ -33,7 +33,7 @@ end
 -- * 2 exactly) and the strict tile-alignment rule (CHAR tile bytes an exact
 -- positive multiple of the tile size) hold for every screen and char member
 -- of the real dump, so the strict validations accept real source geometry.
-function T.source_geometry_matches_the_strict_validation_rules(romFs, version)
+function T.source_geometry_matches_the_strict_validation_rules(romFs, _)
   local function assertScreen(archive, memberId, label)
     local scr, err = G2dDecoder.decodeScreen(memberBytes(romFs, archive, memberId), { label = label })
     assert(scr, err and err.message)
@@ -67,7 +67,7 @@ end
 -- and the real animation drives exactly two frames over that one cell. The
 -- cursor compile must keep accepting this real geometry rather than assuming
 -- every OBJ is 8x8.
-function T.cursor_source_geometry_is_a_single_square_32x32_obj(romFs, version)
+function T.cursor_source_geometry_is_a_single_square_32x32_obj(romFs, _)
   local startMenu = manifestConfig.startMenu
   local cell, err = G2dDecoder.decodeCell(memberBytes(romFs, startMenu.alias, startMenu.cursorCellMember))
   assert(cell, err and err.message)
@@ -156,13 +156,13 @@ end
 -- styles with identical strip geometry: the frame index selects artwork
 -- (the compiled strip row), never the frame composition. Probes the compiled
 -- PNG bytes, not the GPU.
-function T.dialogue_frame_styles_are_distinct_artwork_with_identical_geometry(romFs, version)
+function T.dialogue_frame_styles_are_distinct_artwork_with_identical_geometry(romFs, _)
   local bundle = assert(FieldUiCompiler.compile(romFs))
   local frames = bundle.manifest.dialogueFrames
   Assert.isTrue(frames.count >= 2, "the class carries at least two frame styles")
 
   local strip = bundle.assets[bundle.manifest.assets[FieldUiAssetCache.ASSET.DIALOGUE_FRAME_TILES].image]
-  local width, height, rgba = PngReader.rgba(strip)
+  local width, _, rgba = PngReader.rgba(strip)
 
   local function rectPixels(rect)
     Assert.equal(rect.width, 144, "every frame strip row is the full tile run")
@@ -199,7 +199,7 @@ end
 
 -- The field printer's continuation cursor is a source-derived, precolored
 -- atlas: runtime receives only semantic rectangles and final pixel payloads.
-function T.dialogue_continue_cursor_manifest_has_the_source_contract(romFs, version)
+function T.dialogue_continue_cursor_manifest_has_the_source_contract(romFs, _)
   local bundle = assert(FieldUiCompiler.compile(romFs))
   local frames = assert(bundle.manifest.dialogueFrames)
   local cursor = assert(frames.continueCursor, "the generated field UI must publish the continuation cursor")
@@ -239,7 +239,7 @@ end
 -- is separate from the surface-placement fact above: local ink and placement
 -- are independent claims, and only a defect in this local measurement
 -- implicates the cursor producer rather than the shared dialogue layout.
-function T.dialogue_continue_cursor_local_ink_stays_within_its_generated_surface(romFs, version)
+function T.dialogue_continue_cursor_local_ink_stays_within_its_generated_surface(romFs, _)
   local bundle = assert(FieldUiCompiler.compile(romFs))
   local frames = assert(bundle.manifest.dialogueFrames)
   local cursor = assert(frames.continueCursor)

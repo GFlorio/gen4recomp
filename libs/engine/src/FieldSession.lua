@@ -723,8 +723,8 @@ function FieldSession:updateFixed(inputSnapshot)
     end
     collapseCameraInterpolation(self.camera)
     if self.playerVisual then
-      local walkingAtTickStart = self.player.motion == "walking"
-      self.playerVisual:updateFixed(walkingAtTickStart)
+      local suppressedWalkingAtTickStart = self.player.motion == "walking"
+      self.playerVisual:updateFixed(suppressedWalkingAtTickStart)
     end
     self.camera:updateFixed(self:actorTarget())
     self:_advanceTick()

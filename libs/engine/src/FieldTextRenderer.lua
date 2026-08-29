@@ -55,7 +55,7 @@ end
 
 ---@class FieldTextRenderer
 ---@field fontDef FieldFontDef
----@field _graphics love.Graphics
+---@field _graphics love.Graphics|love.graphics
 ---@field _atlas love.Image?
 ---@field _maskAtlas love.Image?
 ---@field _paletteShader love.Shader?
@@ -73,7 +73,7 @@ FieldTextRenderer.__index = FieldTextRenderer
 -- allowed presentation-layer dependency (the atlas bytes still enter through
 -- love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics, readSource?: fun(path: string): string }
+---@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics|love.graphics, readSource?: fun(path: string): string }
 ---@return FieldTextRenderer
 function FieldTextRenderer.new(opts)
   assert(

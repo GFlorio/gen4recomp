@@ -106,7 +106,7 @@ local function controller(options)
   return OakIntroController.new({
     candidate = options.candidate or candidate(),
     clock = time,
-    audio = options.audio or audio(),
+    audio = (options.audio or audio()) --[[@as GameSound]],
     messages = options.messages or {
       ["greeting.midnight"] = "greeting.midnight",
       ["greeting.morning"] = "greeting.morning",
@@ -975,7 +975,6 @@ end
 
 function T.finalization_handoff_keeps_reserved_identity_without_storage_publication()
   local state = controller()
-  local candidateValue = state:candidate()
   local calls = 0
   state:start()
   state:tick(40)

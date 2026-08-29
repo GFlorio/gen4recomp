@@ -1,11 +1,43 @@
 {
   "runtime": {
-    "version": "LuaJIT"
+    "version": "LuaJIT",
+    "pathStrict": true,
+    "special": {
+      "love.filesystem.load": "loadfile"
+    }
   },
   "diagnostics": {
-    "globals": ["love"]
+    "libraryFiles": "Disable",
+    "neededFileStatus": {
+      "await-in-sync": "Any",
+      "global-element": "Any",
+      "incomplete-signature-doc": "Any",
+      "missing-global-doc": "Any",
+      "missing-local-export-doc": "Any",
+      "not-yieldable": "Any"
+    }
+  },
+  "type": {
+    "castNumberToInteger": false,
+    "weakUnionCheck": false,
+    "weakNilCheck": false,
+    "inferParamType": true,
+    "checkTableShape": true,
+    "inferTableSize": 100
   },
   "workspace": {
-    "ignoreDir": [".cache", ".git", ".claude", ".agents", "log", "tmp"]
+    "checkThirdParty": false,
+    "useGitIgnore": true,
+    "library": ["vendor/lua-cats-love2d/library"],
+    "ignoreDir": [
+      ".cache",
+      ".git",
+      ".claude",
+      ".agents",
+      "log",
+      "tmp",
+      "data/scripts/overrides",
+      "vendor/lua-cats-love2d"
+    ]
   }
 }

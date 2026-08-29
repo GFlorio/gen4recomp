@@ -73,6 +73,9 @@ local function compositionView(progress, phase)
   }
 end
 
+---@param region { x: number, y: number, scale: number }
+---@param anchor { x: number, y: number }
+---@return { x: number, y: number }
 local function point(region, anchor)
   return {
     x = region.x + anchor.x * region.scale,
@@ -80,6 +83,9 @@ local function point(region, anchor)
   }
 end
 
+---@param inner OakIntroStateRectangle
+---@param outer OakIntroStateRectangle
+---@return boolean
 local function inside(inner, outer)
   return inner.x >= outer.x
     and inner.y >= outer.y
@@ -87,6 +93,9 @@ local function inside(inner, outer)
     and inner.y + inner.height <= outer.y + outer.height
 end
 
+---@param first OakIntroStateRectangle
+---@param second OakIntroStateRectangle
+---@return boolean
 local function disjoint(first, second)
   return first.x + first.width <= second.x
     or second.x + second.width <= first.x
@@ -299,10 +308,10 @@ local function layoutSequenceController()
     candidate = layoutSequenceCandidate(),
     clock = {
       nowLocal = function()
-        return { hour = 12, minute = 0 }
+        return { year = 2009, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
       end,
     },
-    audio = layoutSequenceAudio(),
+    audio = layoutSequenceAudio() --[[@as GameSound]],
     messages = {
       ["greeting.midnight"] = "greeting.midnight",
       ["greeting.morning"] = "greeting.morning",

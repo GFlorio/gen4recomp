@@ -178,7 +178,7 @@ function T.load_lua_read_failure_is_not_reclassified_as_missing()
   local s = save("heartgold", backend)
   s:write(SAVE_PATH, "SAVE-DATA")
   ---@diagnostic disable: duplicate-set-field
-  backend.read = function(_, path)
+  backend.read = function(_, _)
     return nil, "injected read failure"
   end
   local data, err = s:loadLua(SAVE_PATH)

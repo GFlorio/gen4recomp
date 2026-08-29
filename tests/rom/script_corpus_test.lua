@@ -11,7 +11,6 @@ local Structurer = require("romdump.src.digest.script.Structurer")
 local Verifier = require("romdump.src.digest.script.Verifier")
 local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
-local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 local FieldScripts = require("tests.rom.support.FieldScripts")
 local S = require("gen4.script")
 
@@ -107,9 +106,8 @@ end
 
 -- 3. The common scripts in member 3 resolve through the std catalog to
 -- `common.<name>` ids.
-T["std member public ids"] = function(romFs)
+T["std member public ids"] = function(_)
   local stdCatalog = SourceCatalog.catalog()
-  local names = {}
   local member3 = require("romdump.src.reference.hgss.script_members").banks
   Assert.equal(member3[3], 40)
   -- The give_item_verbose std script lives in member 3; the catalog names it.
@@ -216,7 +214,7 @@ T["signpost contracts hold on the real corpus"] = function(romFs)
   -- Operand preservation against the raw member bytes. The decoder renames
   -- var-range operands through the pinned vars catalog; every other operand
   -- must survive as the exact number it was encoded with.
-  for member, ir in pairs(membersWithSignposts) do
+  for member, _ in pairs(membersWithSignposts) do
     local bytes = assert(archive:readMember(member))
     for _, script in pairs(memberIrs[member].scripts) do
       for _, ins in ipairs(script.instructions) do

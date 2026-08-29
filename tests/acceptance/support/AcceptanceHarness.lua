@@ -299,7 +299,7 @@ function Game:restart(options)
     runtime and type(runtime.captureGameSave) == "function",
     "acceptance restart runtime boot failed: " .. tostring(runtime and runtime.errorText)
   )
-  self.runtime = runtime
+  self.runtime = runtime --[[@as FieldRuntime]]
   self.map = options.map or self.map
   self.hosts = runtime.scriptHosts or {}
   self.runtimeDisposed = false
@@ -1056,6 +1056,7 @@ function AcceptanceHarness:primaryVersion()
   return self.versions[1]
 end
 
+---@param options table
 ---@return AcceptanceGame
 function AcceptanceHarness:boot(options)
   assert(options and type(options.versionId) == "string", "acceptance boot version required")

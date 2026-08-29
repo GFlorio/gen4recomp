@@ -36,6 +36,9 @@ function T.compiles_the_public_semantic_menu_example()
   Assert.equal(graph.nodes[graph.entry].op, "choose")
 end
 
+---@param script table
+---@param opts table?
+---@return table
 local function compile(script, opts)
   local graph, err = Compiler.compile(script, opts)
   if not graph then
@@ -652,6 +655,7 @@ end
 -- varied one at a time, so each revision change is attributable to exactly
 -- the varied dimension.
 ---@param overrides { source: table|nil, step1: table|nil, coverage: table|nil }|nil
+---@return table
 local function generatedScript(overrides)
   overrides = overrides or {}
   local source = {

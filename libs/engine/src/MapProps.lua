@@ -212,7 +212,7 @@ end
 -- built, never a second census. Merges into the existing instance table so
 -- a partial presentation load (a subset of placements) does not clobber
 -- instances attached earlier.
----@param byPlacement { [integer]: table }
+---@param byPlacement { [integer]: ModelInstance|nil }
 function MapProps:attachInstances(byPlacement)
   for placementIndex, instance in pairs(byPlacement) do
     self.instances[placementIndex] = instance
@@ -409,8 +409,11 @@ SceneProp.__index = SceneProp
 
 -- The playing attachment of a prop's clip, or nil when nothing plays.
 local function attachmentByClip(instance, clip)
+  assert(instance ~= nil)
+  local animationState = instance.animationState
+  assert(animationState ~= nil)
   for _, category in ipairs(ModelAnimationState.GROUPS) do
-    for _, attachment in ipairs(instance.animationState:attachments(category)) do
+    for _, attachment in ipairs(animationState:attachments(category)) do
       if attachment.clip == clip then
         return attachment
       end

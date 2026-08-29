@@ -35,6 +35,15 @@ local function catalogError(message, context)
   Errors.raise(GameSaveErrors.GAME_SAVE_CATALOG_INVALID, message, context or {})
 end
 
+---@class GameSaveCatalog
+---@field schema string
+---@field nextId integer
+---@field allocatedIds string[]
+---@field deletedIds string[]
+---@field saveIds string[]
+
+---@param catalog unknown
+---@return GameSaveCatalog
 local function validateCatalog(catalog)
   if type(catalog) ~= "table" or catalog.schema ~= GameSaveStore.CATALOG_SCHEMA then
     catalogError("save catalog schema is unsupported", { schema = type(catalog) == "table" and catalog.schema or nil })
@@ -53,6 +62,10 @@ local function validateCatalog(catalog)
   if type(catalog.deletedIds) ~= "table" then
     catalogError("save catalog deletion history is required", {})
   end
+  if type(catalog.saveIds) ~= "table" then
+    catalogError("save catalog save ids are required", {})
+  end
+  ---@cast catalog GameSaveCatalog
   local allowed = { schema = true, nextId = true, allocatedIds = true, deletedIds = true, saveIds = true }
   for key in pairs(catalog) do
     if not allowed[key] then
@@ -89,9 +102,6 @@ local function validateCatalog(catalog)
     end
     deleted[saveId] = true
   end
-  if type(catalog.saveIds) ~= "table" then
-    catalogError("save catalog save ids are required", {})
-  end
   local seen = {}
   local previousAllocationPosition = 0
   for index = 1, #catalog.saveIds do
@@ -104,7 +114,10 @@ local function validateCatalog(catalog)
       catalogError("save catalog contains a duplicate id", { saveId = saveId })
     end
     local number = numberForId(saveId)
-    if number == nil or number >= catalog.nextId or not allocated[saveId] then
+    if number == nil then
+      catalogError("save catalog contains an unallocated id", { saveId = saveId })
+    end
+    if number >= catalog.nextId or not allocated[saveId] then
       catalogError("save catalog contains an unallocated id", { saveId = saveId })
     end
     if deleted[saveId] then
@@ -125,6 +138,7 @@ local function validateCatalog(catalog)
   return catalog
 end
 
+---@return GameSaveCatalog
 local function emptyCatalog()
   return { schema = GameSaveStore.CATALOG_SCHEMA, nextId = 1, allocatedIds = {}, deletedIds = {}, saveIds = {} }
 end
@@ -135,6 +149,12 @@ end
 ---@field saveFs SaveFs
 ---@field opts table
 ---@field private _busy boolean
+---@field reserve fun(self: GameSaveStore): string
+---@field list fun(self: GameSaveStore): table[]
+---@field load fun(self: GameSaveStore, saveId: string): table?, Errors.Error?
+---@field publishFirst fun(self: GameSaveStore, record: table): boolean
+---@field save fun(self: GameSaveStore, record: table): boolean
+---@field delete fun(self: GameSaveStore, saveId: string): boolean
 ---@param saveFs SaveFs
 ---@param opts table?
 ---@return GameSaveStore
@@ -143,18 +163,20 @@ function GameSaveStore.new(saveFs, opts)
     getmetatable(saveFs) == SaveFs and saveFs:prefix() == "saves/" and saveFs.versionId == nil,
     "global GameSave store requires a global SaveFs"
   )
-  return setmetatable({ saveFs = saveFs, opts = opts or {}, _busy = false }, GameSaveStore)
+  local store = setmetatable({ saveFs = saveFs, opts = opts or {}, _busy = false }, GameSaveStore)
+  ---@cast store GameSaveStore
+  return store
 end
 
 function GameSaveStore:_mutate(operation)
   assert(not self._busy, "game save mutation is already active")
   self._busy = true
-  local ok, first, second = pcall(operation)
+  local ok, first = pcall(operation)
   self._busy = false
   if not ok then
     error(first)
   end
-  return first, second
+  return first
 end
 
 function GameSaveStore:_readCatalog()
@@ -166,6 +188,7 @@ function GameSaveStore:_readCatalog()
     if err ~= nil then
       error(err)
     end
+    catalogError("save catalog load returned neither a catalog nor an error", {})
   end
   return validateCatalog(catalog)
 end
@@ -188,6 +211,7 @@ function GameSaveStore:_gamePath(saveId)
   if not valid then
     error(err)
   end
+  valid = assert(valid)
   return "games/" .. saveId .. ".lua"
 end
 
@@ -207,6 +231,7 @@ function GameSaveStore:_validateRecord(record, expectedSaveId)
   if not valid then
     error(err)
   end
+  valid = assert(valid)
   if expectedSaveId ~= nil and valid.saveId ~= expectedSaveId then
     Errors.raise(GameSaveErrors.GAME_SAVE_SAVE_ID_MISMATCH, "game save id does not match its catalog identity", {
       expected = expectedSaveId,
@@ -244,7 +269,7 @@ function GameSaveStore:_loadPublished(saveId)
   if record == nil and err ~= nil then
     error(err)
   end
-  return self:_validateRecord(record, saveId)
+  return self:_validateRecord(record --[[@as table]], saveId)
 end
 
 ---@return string
@@ -273,7 +298,7 @@ function GameSaveStore:list()
       return self:_loadPublished(saveId)
     end)
     if ok then
-      local record = recordOrError
+      local record = assert(recordOrError --[[@as table]])
       entries[#entries + 1] = {
         saveId = saveId,
         versionId = record.versionId,
@@ -310,6 +335,7 @@ function GameSaveStore:load(saveId)
 end
 
 ---@param record table
+---@return boolean
 function GameSaveStore:publishFirst(record)
   return self:_mutate(function()
     local catalog = self:_readCatalog()
@@ -349,6 +375,7 @@ function GameSaveStore:publishFirst(record)
         break
       end
     end
+    allocationPosition = assert(allocationPosition, "reserved save id is missing from allocation history")
     local insertion = #catalog.saveIds + 1
     for index, publishedId in ipairs(catalog.saveIds) do
       local publishedPosition
@@ -370,6 +397,7 @@ function GameSaveStore:publishFirst(record)
 end
 
 ---@param record table
+---@return boolean
 function GameSaveStore:save(record)
   return self:_mutate(function()
     local catalog = self:_readCatalog()
@@ -397,6 +425,7 @@ function GameSaveStore:save(record)
 end
 
 ---@param saveId string
+---@return boolean
 function GameSaveStore:delete(saveId)
   local valid, idErr = GameSave.validateSaveId(saveId)
   if not valid then

@@ -2,7 +2,6 @@
 -- source-shaped unpublished opening state, and later finalizes the partial
 -- Oak profile without publishing gameplay to storage.
 
-local FieldEventState = require("libs.engine.src.FieldEventState")
 local GameSave = require("libs.engine.src.GameSave")
 local PlayTime = require("libs.engine.src.PlayTime")
 local PlayerData = require("libs.engine.src.PlayerData")

@@ -22,7 +22,7 @@ local T = {}
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected a raised error")
-  Assert.equal(err.code, code)
+  Assert.equal((err --[[@as Errors.Error]]).code, code)
 end
 
 -- A cache whose script class is complete: marker, index, and script files.
@@ -66,7 +66,7 @@ local function overrideFs(files)
   end
   manifestText = manifestText .. "}\n"
   return {
-    read = function(self, path)
+    read = function(_, path)
       if path == ScriptOverrides.MANIFEST then
         return manifestText
       end
@@ -306,9 +306,7 @@ T["warmup records a failure on unparsable content"] = function()
     overrideFs = fs,
     snapshotKey = key,
   })
-  local failure = warmup:finish()
-  Assert.notNil(failure)
-  ---@cast failure table
+  local failure = assert(warmup:finish())
   Assert.equal(failure.code, "SCRIPT_LOAD_FAILED")
   Assert.isNil(cache:read(RegistrySnapshot.FILE), "a failed warm-up must not publish a snapshot")
 end

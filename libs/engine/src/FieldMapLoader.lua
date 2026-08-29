@@ -145,6 +145,7 @@ local function loadCollision(cacheFs, descriptor, missingCode, context)
   if type(bytes) ~= "string" then
     Errors.raise(missingCode, "collision asset is unavailable", { path = descriptor.file, mapId = context.mapId })
   end
+  ---@cast bytes string
   local grid, decodeErr = CollisionGridAsset.decode(bytes, { mapId = context.mapId, path = descriptor.file })
   if not grid then
     error(decodeErr)

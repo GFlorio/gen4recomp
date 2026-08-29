@@ -951,12 +951,6 @@ function T.malformed_source_members_are_typed()
     local Narc = require("romdump.src.source.Narc")
     if alias == "start_menu" then
       -- A NARC whose background char member is not a G2D resource at all.
-      local members = {}
-      for i = 1, 65 do
-        members[i] = string.rep("\0", 4)
-      end
-      members[13] = "not-a-g2d-resource"
-      members[14] = romFs.read(romFs, 10)
       local data = romFs.read(romFs, 10)
       -- keep the other members from the real fixture narc by splicing: the
       -- simplest deterministic corruption is replacing member 12 only.

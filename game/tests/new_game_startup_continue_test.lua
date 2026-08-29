@@ -20,12 +20,12 @@ local function withSpies(fn)
 
   local applyCalls = {}
   ---@diagnostic disable-next-line: duplicate-set-field -- replace the production composer with a recording fake
-  NewGameInitialization.apply = function(candidate, artifact)
+  NewGameInitialization.apply = function(candidate, _)
     applyCalls[#applyCalls + 1] = candidate
     return candidate
   end
   local fieldStateCalls = {}
-  FieldState.new = function(game, options)
+  FieldState.new = function(game, _)
     fieldStateCalls[#fieldStateCalls + 1] = game
     return { dispose = function() end }
   end

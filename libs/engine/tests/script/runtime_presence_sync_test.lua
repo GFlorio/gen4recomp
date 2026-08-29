@@ -1,17 +1,16 @@
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+---@cast WaitTicksTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
-local Runtime = require("libs.engine.src.script.Runtime")
 
 local T = {}
 
@@ -61,7 +60,7 @@ local function object(overrides)
 end
 
 local function runtimeMap(objects, mapId)
-  return {
+  local result = {
     mapId = mapId or 61,
     coordinateOrigin = { x = 0, z = 0 },
     collision = {
@@ -72,12 +71,14 @@ local function runtimeMap(objects, mapId)
     terrain = terrain(),
     fieldData = { events = { objects = objects, background = {}, warps = {}, coordinates = {} } },
   }
+  ---@cast result RuntimeFieldMap
+  return result
 end
 
 local function fakeAssets(known)
   return {
     references = {},
-    knows = function(self, spriteId)
+    knows = function(_, spriteId)
       return known[spriteId] == true
     end,
     acquire = function(self, spriteId)
@@ -241,7 +242,7 @@ function T.multiple_queued_flags_converge_without_duplicate_actors()
   Assert.notNil(mgr:getById("map:61:object:1"), "flag 501 ends clear, actor 1 must be live")
   -- No duplicate visual acquisition.
   local count = 0
-  for _, rec in ipairs(mgr:drawRecords()) do
+  for _ in ipairs(mgr:drawRecords()) do
     count = count + 1
   end
   Assert.equal(count, 1)

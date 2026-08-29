@@ -1,6 +1,5 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local FieldMovement = require("tests.acceptance.support.FieldMovement")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 

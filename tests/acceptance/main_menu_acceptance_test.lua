@@ -98,17 +98,12 @@ local function newMenu(store, onResult, width, height, readyVersions)
 end
 
 local function view(menu)
-  Assert.isTrue(type(menu.view) == "function", "Main Menu must expose a semantic view model")
-  return assert(menu:view())
-end
-
-local function itemById(menu, itemId)
-  for _, item in ipairs(view(menu).items) do
-    if item.id == itemId then
-      return item
-    end
+  local concreteMenu = assert(menu)
+  local viewFn = concreteMenu.view
+  if type(viewFn) ~= "function" then
+    error("Main Menu must expose a semantic view model", 0)
   end
-  error("menu item is not visible: " .. itemId, 2)
+  return assert(viewFn(concreteMenu))
 end
 
 local function rectCenter(rect)
@@ -143,6 +138,8 @@ local function withAppBoot(fn)
   local originalFieldNew = FieldState.new
   local fieldCalls = {}
 
+  local store = fakeStore({})
+  ---@cast store SaveStoreLike
   ---@type AppOptions
   App.opts = {
     test = false,
@@ -154,7 +151,7 @@ local function withAppBoot(fn)
     oakIntroOptionsFactory = function()
       return {}
     end,
-    saveStore = fakeStore({}),
+    saveStore = store,
   }
   App.state = nil
   App.importer = nil
@@ -234,6 +231,7 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
   function store:publishFirst()
     publishCalls = publishCalls + 1
   end
+  ---@cast store SaveStoreLike
   ---@type AppOptions
   App.opts = {
     test = false,

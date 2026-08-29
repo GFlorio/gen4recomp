@@ -6,6 +6,8 @@
 ---@field graphics table
 ---@field text FieldTextRenderer
 ---@field genderSelector table generated selector chrome/pulse/accent/tone semantics
+---@field assets table
+---@field bindings table
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
 local REQUIRED_ASSETS = {

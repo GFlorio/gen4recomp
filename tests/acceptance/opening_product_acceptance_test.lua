@@ -68,7 +68,7 @@ end
 
 local function withDrawRecorder(trace, fn)
   local originalDraw = love.graphics.draw
-  love.graphics.draw = function(image, ...)
+  rawset(love.graphics, "draw", function(image, _)
     local state = App.state
     local view = state and state.view and state:view() or nil
     if view and view.phase then
@@ -81,7 +81,7 @@ local function withDrawRecorder(trace, fn)
     -- Keep App.draw and OakIntroRenderer production-composed while stopping
     -- at the host draw boundary; image identity and ordering are the contract.
     return nil
-  end
+  end)
   local ok, err = xpcall(fn, debug.traceback)
   love.graphics.draw = originalDraw
   if not ok then

@@ -31,6 +31,7 @@ local function newRecordingCry()
       return bank
     end,
   }
+  ---@cast provider AudioAssetProvider
   local player = {
     createHandle = function()
       return state
@@ -55,6 +56,7 @@ local function newRecordingCry()
       return handle.playing
     end,
   }
+  ---@cast player SequencePlayer
   return CryPlayer.new({ player = player, provider = provider }), state, provider
 end
 
@@ -97,13 +99,15 @@ function T.species_and_form_are_finite_integers_in_the_standard_domain()
   local cry = newRecordingCry()
   for _, species in ipairs({ 0, 183.5, 494 }) do
     local err = Assert.throws(function()
-      cry:play(species, 0)
+      cry:play(species --[[@as integer]], 0)
     end)
     Assert.isTrue(Errors.is(err))
     Assert.equal(err.code, AudioErrors.AUDIO_CRY_UNAVAILABLE)
   end
   local err = Assert.throws(function()
-    cry:play(183, 0.5)
+    local invalidForm = 0.5
+    ---@cast invalidForm integer
+    cry:play(183, invalidForm)
   end)
   Assert.isTrue(Errors.is(err))
   Assert.equal(err.code, AudioErrors.AUDIO_CRY_UNAVAILABLE)
@@ -113,6 +117,7 @@ function T.missing_standard_assets_keep_provider_error_attribution()
   local cry, _, provider = newRecordingCry()
   provider.sequence = function()
     Errors.raise(AudioErrors.AUDIO_PROVIDER_SEQUENCE_UNKNOWN, "missing sequence")
+    error("unreachable")
   end
   local sequenceErr = Assert.throws(function()
     cry:play(183, 0)
@@ -123,6 +128,7 @@ function T.missing_standard_assets_keep_provider_error_attribution()
   local cryWithBank, _, bankProvider = newRecordingCry()
   bankProvider.bank = function()
     Errors.raise(AudioErrors.AUDIO_PROVIDER_BANK_UNKNOWN, "missing bank")
+    error("unreachable")
   end
   local bankErr = Assert.throws(function()
     cryWithBank:play(183, 0)
