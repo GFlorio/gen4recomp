@@ -18,8 +18,6 @@ violation() {
 # These exact paths are temporary migration exemptions, not a source-policy API.
 stored_anonymous_migration_exemptions=(
   "game/src/game/App.lua"
-  "game/src/game/FieldRuntime.lua"
-  "game/src/game/FieldScripts.lua"
   "game/src/game/FieldState.lua"
   "libs/assets/src/Utf8Glyphs.lua"
   "libs/codec/src/LuaWriter.lua"

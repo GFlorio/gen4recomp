@@ -255,6 +255,150 @@ local function fixedSession()
   return FieldSession.new(baseOptions({ player = player, camera = camera })), targets
 end
 
+function T.fixed_tick_runs_the_major_arbitration_phases_in_order()
+  local order = {}
+  local function mark(phase)
+    order[#order + 1] = phase
+  end
+
+  local options = baseOptions({
+    terrainEffects = {
+      updateFixed = function()
+        mark("terrain")
+      end,
+    },
+    transition = {
+      phase = "idle",
+      locked = false,
+      updateFixed = function()
+        mark("transition")
+      end,
+      start = function()
+        mark("transition-start")
+      end,
+    },
+    currentMap = {
+      mapId = 61,
+      fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
+      updateAnimated = function()
+        mark("map-animation")
+      end,
+    },
+    applicationHost = {
+      isActive = function()
+        mark("application-check")
+        return false
+      end,
+      updateFixed = function()
+        mark("application-update")
+      end,
+      requestOpen = function()
+        mark("application-open")
+      end,
+      takeReopen = function()
+        mark("application-reopen")
+        return false
+      end,
+    },
+    dialogue = {
+      isModal = function()
+        mark("dialogue-check")
+        return false
+      end,
+    },
+    scriptScheduler = {
+      playerMovementLocked = function()
+        mark("script-lock-check")
+        return false
+      end,
+      step = function()
+        mark("script-step")
+      end,
+    },
+    menuHost = {
+      isModal = function()
+        mark("menu-check")
+        return false
+      end,
+      advance = function()
+        mark("menu-step")
+      end,
+    },
+    contextChoice = {
+      isActive = function()
+        mark("context-check")
+        return false
+      end,
+    },
+    actors = {
+      step = function()
+        mark("actors")
+      end,
+    },
+    interactions = {
+      resolve = function()
+        mark("interaction")
+      end,
+    },
+    player = {
+      fieldX = 4,
+      fieldZ = 13,
+      worldX = 0,
+      worldY = 0,
+      worldZ = 0,
+      surfaceId = 0,
+      facing = "south",
+      motion = "idle",
+      updateFixed = function()
+        mark("player")
+      end,
+      collapseRenderInterpolation = function() end,
+    },
+    playerVisual = {
+      updateFixed = function()
+        mark("player-visual")
+      end,
+    },
+    camera = {
+      updateFixed = function()
+        mark("camera")
+      end,
+      collapseRenderInterpolation = function() end,
+    },
+    fieldEntranceIndicator = {
+      updateFixed = function()
+        mark("tick-advance")
+      end,
+    },
+  })
+  local session = FieldSession.new(options)
+  session:updateFixed({ actionPressed = true })
+
+  local positions = {}
+  for index, phase in ipairs(order) do
+    positions[phase] = positions[phase] or index
+  end
+  local function before(first, second)
+    Assert.isTrue(
+      positions[first] < positions[second],
+      first .. " must run before " .. second .. "; observed arbitration order was not preserved"
+    )
+  end
+
+  before("terrain", "transition")
+  before("transition", "application-check")
+  before("application-check", "dialogue-check")
+  before("dialogue-check", "map-animation")
+  before("map-animation", "script-step")
+  before("script-step", "actors")
+  before("actors", "interaction")
+  before("interaction", "player")
+  before("player", "player-visual")
+  before("player-visual", "camera")
+  before("camera", "tick-advance")
+  Assert.equal(session.tick, 1)
+end
+
 function T.actor_only_construction_is_rejected()
   local actor = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
   local camera = {

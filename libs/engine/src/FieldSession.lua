@@ -258,7 +258,6 @@ local function consumeScriptIntent(self, intent)
     result == results.started or result == results.blocked,
     "a field event must be bound: " .. tostring(intent.mapId)
   )
-  self:_advanceTick()
 end
 
 local function settleScriptHandoffPresentation(self)
@@ -271,13 +270,7 @@ local function settleScriptHandoffPresentation(self)
   self.camera:collapseRenderInterpolation()
 end
 
-function FieldSession:updateFixed(inputSnapshot)
-  -- Ordinary field-audio policy runs for same-zone completed steps. Map-entry
-  -- and changed-zone audio are owned by FieldAudioController:enterMap and
-  -- FieldAudioController:enterZone respectively.
-  inputSnapshot = inputSnapshot or self.input:snapshot()
-  local carriedBoundaryDirection = self._boundaryMovementDirection
-  self._boundaryMovementDirection = nil
+function FieldSession:_updateTerrainAndTransition()
   if self.terrainEffects then
     self.terrainEffects:updateFixed({
       fieldX = self.player.fieldX,
@@ -285,88 +278,54 @@ function FieldSession:updateFixed(inputSnapshot)
       facing = self.player.facing,
     })
   end
-  -- The door/stair choreography drives the player during the locked
-  -- transition: the pose clock hears the walking state at tick start, the
-  -- camera tracks the continuous XYZ, and the scene's animated props
-  -- advance under the choreographed locked tick. The camera samples on
-  -- every locked tick and on the completion tick -- never coupled to
-  -- player motion -- so interpolation pairs collapse instead of replaying.
   local playerAdvanced = self.transition:updateFixed()
-  if self.transition.locked or self.transition.completed then
-    if not playerAdvanced and self.player.motion == "idle" then
-      self.player:collapseRenderInterpolation()
-    end
-    self.currentMap:updateAnimated()
-    if self.playerVisual and playerAdvanced then
-      self.playerVisual:updateFixed(true)
-    end
-    self.camera:updateFixed(self:actorTarget())
-    if self.transition.completed then
-      self.camera:collapseRenderInterpolation()
-    end
-    -- Keep the just-arrived tile stable until the application consumes the
-    -- completion event and autosaves it, even when movement remains held.
-    if self.transition.completed and self.input.clearEdges then
-      self.input:clearEdges()
-    end
-    self:_advanceTick()
-    return
+  if not self.transition.locked and not self.transition.completed then
+    return false
   end
-
-  -- Application ownership: while the application host is active (Start Menu
-  -- or a child application, in any of its phases) it is the one modal owner
-  -- -- the session steps only it, once per fixed tick, and freezes world
-  -- simulation (no player/actors/scheduler/interaction/movement). Opening a
-  -- second incompatible modal is a programming invariant, asserted here.
-  if self.applicationHost:isActive() then
-    assert(
-      not self.dialogue:isModal() and not self.signpost:isModal() and not self.menuHost:isModal(),
-      "the application host owns the tick; no other modal may be active"
-    )
-    local uiEvents = self.input:uiSnapshot(self.tick + 1)
-    -- While the Start Menu is active, the menu button has the same close
-    -- semantics as HGSS X: a fresh menu edge becomes the controller's menu
-    -- event. A child application's own input policy applies instead.
-    if inputSnapshot.menuPressed then
-      uiEvents[#uiEvents + 1] = { type = "menu" }
-    end
-    self.applicationHost:updateFixed(uiEvents)
-    self:_advanceTick()
-    return
+  if not playerAdvanced and self.player.motion == "idle" then
+    self.player:collapseRenderInterpolation()
   end
-
-  -- Modal ownership: while a dialogue is open the world steps freeze -- no
-  -- queued visibility changes, no facing-warp check, no movement, no warp
-  -- commit, no pose clocks, no camera motion. Only the dialogue reads this
-  -- tick's input, and the scene animation clock keeps advancing: HGSS's
-  -- field update path does not couple map-prop animation progression to
-  -- dialogue ownership, so wind/machines keep running while a message box
-  -- is up.
-  -- Script-owned boxes are exempt: the script scheduler steps them from its
-  -- own async phase and the script phase owns the tick instead.
-  if self.dialogue:isModal() and not (self.dialogue.isScriptOwned and self.dialogue:isScriptOwned()) then
-    self.currentMap:updateAnimated()
-    self.dialogue:step(inputSnapshot)
-    self:_advanceTick()
-    return
-  end
-
-  -- Field animation clock: the world's animated props advance once per tick
-  -- -- ordinary movement, script-locked ticks, interaction ticks, the
-  -- transition-start tick, and modal-dialogue ticks alike (transition ticks
-  -- advance it in the branch above). FieldSession owns this clock; the map
-  -- aggregate fans one call out to the central scene runtime and the
-  -- neighbor coverage runtime. No other module steps it.
   self.currentMap:updateAnimated()
+  if self.playerVisual and playerAdvanced then
+    self.playerVisual:updateFixed(true)
+  end
+  self.camera:updateFixed(self:actorTarget())
+  if self.transition.completed then
+    self.camera:collapseRenderInterpolation()
+  end
+  if self.transition.completed and self.input.clearEdges then
+    self.input:clearEdges()
+  end
+  return true
+end
 
-  -- Script phase : the field-script scheduler
-  -- advances script-owned asynchronous work, polls tasks, promotes completed
-  -- handoffs, runs ready contexts to yield, and resolves at most one new
-  -- interaction. The session never steps the scheduler twice per tick.
-  -- Sampled before the scheduler runs this tick, so it reflects the
-  -- pre-scheduler lock state even though the scheduler step below can
-  -- itself release the lock; the post-scheduler observation right below
-  -- the step call is a second, deliberately distinct read.
+function FieldSession:_updateApplication(inputSnapshot)
+  if not self.applicationHost:isActive() then
+    return false
+  end
+  assert(
+    not self.dialogue:isModal() and not self.signpost:isModal() and not self.menuHost:isModal(),
+    "the application host owns the tick; no other modal may be active"
+  )
+  local uiEvents = self.input:uiSnapshot(self.tick + 1)
+  if inputSnapshot.menuPressed then
+    uiEvents[#uiEvents + 1] = { type = "menu" }
+  end
+  self.applicationHost:updateFixed(uiEvents)
+  return true
+end
+
+function FieldSession:_updateDialogue(inputSnapshot)
+  if not self.dialogue:isModal() or (self.dialogue.isScriptOwned and self.dialogue:isScriptOwned()) then
+    return false
+  end
+  self.currentMap:updateAnimated()
+  self.dialogue:step(inputSnapshot)
+  return true
+end
+
+function FieldSession:_updateScript(inputSnapshot)
+  self.currentMap:updateAnimated()
   local movementLockedAtTickStart = self.scriptScheduler:playerMovementLocked()
   local schedulerInput = {
     heldDirection = inputSnapshot.heldDirection,
@@ -397,36 +356,23 @@ function FieldSession:updateFixed(inputSnapshot)
   elseif contextChoiceModal and not contextChoiceNowModal then
     self.input:clearUi()
   end
-  -- A foreground root owns the field or a player lock suppresses movement
-  -- and new triggers; the tick is consumed.
   if movementLockedAtTickStart or self.scriptScheduler:playerMovementLocked() then
-    self:_advanceTick()
-    return
+    return true
   end
+  return false
+end
 
-  -- Start Menu arbitration: a pending script reopen request (opcode 61's
-  -- startMenuReopen service) opens the menu unconditionally at this point,
-  -- then the menu edge is gated by the idle-boundary check (checked after
-  -- the single script-scheduler step established the field lock state,
-  -- before actor stepping, interaction resolution, warps, or player
-  -- movement). The host's boolean answers "did the open consume this tick?":
-  -- true for a successful open and for a fatal composition failure (the
-  -- host has entered its terminal failed state, which must freeze the rest
-  -- of this tick); false means the menu is unavailable and the field
-  -- continues stepping normally. The input snapshot has already consumed a
-  -- simultaneous Action edge, and the menu owns the tick, so no edge
-  -- clearing is part of this policy.
+function FieldSession:_updateStartMenu(inputSnapshot)
   if self.applicationHost:takeReopen(self.tick + 1) then
-    self:_advanceTick()
-    return
+    return true
   end
-  if inputSnapshot.menuPressed and canOpenStartMenu(self) then
-    if self.applicationHost:requestOpen(self.tick + 1) then
-      self:_advanceTick()
-      return
-    end
+  if inputSnapshot.menuPressed and canOpenStartMenu(self) and self.applicationHost:requestOpen(self.tick + 1) then
+    return true
   end
+  return false
+end
 
+function FieldSession:_updateInteractionAndMovement(inputSnapshot, carriedBoundaryDirection)
   if self.transition.suppression then
     self.transition.suppression = WarpSystem.updateSuppression(
       self.transition.suppression,
@@ -435,28 +381,17 @@ function FieldSession:updateFixed(inputSnapshot)
       self.player.fieldZ
     )
   end
-
-  -- Queued visibility changes land before anything reads occupancy or starts a
-  -- move, so collision and the draw list never disagree within a tick.
   self.actors:step(self.tick + 1)
 
-  -- HGSS checks a passive sign before the idle Action and standing-input
-  -- paths. It is deliberately limited to a north-facing type-one event.
   local passiveDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
   if self.player.motion == "idle" and passiveDirection == self.player.facing then
     local intent = resolvePassiveSign(self)
     if intent then
       settleScriptHandoffPresentation(self)
       consumeScriptIntent(self, intent)
-      return
+      return true
     end
   end
-
-  -- An idle player's Action edge resolves an interaction
-  -- before movement or warps are evaluated. A consumed interaction owns the
-  -- tick (the dialogue becomes modal on it), so the same edge cannot also
-  -- start a move or warp. The edge itself was already consumed by the input
-  -- snapshot, so a held Action cannot re-open anything.
   if self.player.motion == "idle" and inputSnapshot.actionPressed then
     local intent = self.interactions:resolve({
       runtimeMap = self.currentMap,
@@ -468,24 +403,16 @@ function FieldSession:updateFixed(inputSnapshot)
       tick = self.tick + 1,
     })
     if intent then
-      -- The script client resolves the binding, starts the composed script,
-      -- and runs it during this tick. There is no fallback client: the
-      -- load-time binding audit guarantees bindings for the generated
-      -- binding manifest.
       local result = self.scriptClient:consume(intent, self.tick + 1)
       local results = ScriptInteractionClient.RESULTS
       assert(
         result == results.started or result == results.blocked,
         "an interactable event must be bound: " .. tostring(intent.mapId)
       )
-      self:_advanceTick()
-      return
+      return true
     end
   end
 
-  -- Facing-trigger path: an idle player pressing a direction
-  -- evaluates the HGSS input path -- a blocked DOOR tile ahead, or a
-  -- direction-gated standing door/stairs/warp on the player's own tile.
   local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
   if self.player.motion == "idle" and direction then
     local seam = self.navigationBoundary
@@ -506,22 +433,14 @@ function FieldSession:updateFixed(inputSnapshot)
     then
       self.player.facing = direction
       self.transition:start(self.currentMap, trigger, direction)
-      self:_advanceTick()
-      return
+      return true
     end
   end
 
-  -- The pose clock treats a tick as walking if the player was mid-step at either
-  -- end of it, so the gait phase carries across the tile commit instead of
-  -- restarting on every arrival (the ROM's walk range spans two tiles).
   local walkPoseAtTickStart = self.player.motion == "walking" or self.player.motion == "turning"
-
   local movementInput = inputSnapshot
   if carriedBoundaryDirection then
     movementInput = {
-      -- A carried completion direction is a fresh one-shot command. Keeping
-      -- raw held input here would let FieldPlayer admit its buffered direction
-      -- as a walking continuation and skip the required turn.
       heldDirection = nil,
       pressedDirection = carriedBoundaryDirection,
     }
@@ -559,12 +478,8 @@ function FieldSession:updateFixed(inputSnapshot)
     if coordinateIntent then
       settleScriptHandoffPresentation(self)
       consumeScriptIntent(self, coordinateIntent)
-      return
+      return true
     end
-
-    -- Standing-trigger path: a completed step onto a warp tile
-    -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
-    -- behaviors only; direction-gated warps wait for the facing path above.
     local trigger = zoneChanged and nil
       or TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
     if
@@ -577,25 +492,58 @@ function FieldSession:updateFixed(inputSnapshot)
       )
     then
       self.transition:start(self.currentMap, trigger, self.player.facing)
-      self:_advanceTick()
-      return
+      return true
     end
     local passiveIntent = resolvePassiveSign(self)
     if passiveIntent then
       settleScriptHandoffPresentation(self)
       consumeScriptIntent(self, passiveIntent)
-      return
+      return true
     end
   end
   if completionDirection then
     self._boundaryMovementDirection = completionDirection
   end
-  -- Pose clocks advance only on a tick that could change the world, so a fade or
-  -- a locked transition freezes animation instead of walking it in place.
   if self.playerVisual then
     self.playerVisual:updateFixed(walkPoseAtTickStart)
   end
   self.camera:updateFixed(self:actorTarget())
+  return false
+end
+
+function FieldSession:updateFixed(inputSnapshot)
+  inputSnapshot = inputSnapshot or self.input:snapshot()
+  local carriedBoundaryDirection = self._boundaryMovementDirection
+  self._boundaryMovementDirection = nil
+  if self:_updateTerrainAndTransition() then
+    self:_advanceTick()
+    return
+  end
+
+  if self:_updateApplication(inputSnapshot) then
+    self:_advanceTick()
+    return
+  end
+
+  if self:_updateDialogue(inputSnapshot) then
+    self:_advanceTick()
+    return
+  end
+
+  if self:_updateScript(inputSnapshot) then
+    self:_advanceTick()
+    return
+  end
+
+  if self:_updateStartMenu(inputSnapshot) then
+    self:_advanceTick()
+    return
+  end
+
+  if self:_updateInteractionAndMovement(inputSnapshot, carriedBoundaryDirection) then
+    self:_advanceTick()
+    return
+  end
   self:_advanceTick()
 end
 

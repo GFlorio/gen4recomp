@@ -27,30 +27,50 @@ local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local ScriptCache = require("libs.assets.src.ScriptCache")
+local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
+local WaitInputTask = require("libs.engine.src.script.tasks.WaitInputTask")
+local WaitInputOrTicksTask = require("libs.engine.src.script.tasks.WaitInputOrTicksTask")
+local WaitSignpostActionTask = require("libs.engine.src.script.tasks.WaitSignpostActionTask")
+local TrainerTipsTask = require("libs.engine.src.script.tasks.TrainerTipsTask")
+local WaitSignpostTask = require("libs.engine.src.script.tasks.WaitSignpostTask")
+local SignTask = require("libs.engine.src.script.tasks.SignTask")
+local DialogueTask = require("libs.engine.src.script.tasks.DialogueTask")
+local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
+local MovementBarrierTask = require("libs.engine.src.script.tasks.MovementBarrierTask")
+local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
+local FadeTask = require("libs.engine.src.script.tasks.FadeTask")
+local SoundWaitTask = require("libs.engine.src.script.tasks.SoundWaitTask")
+local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+local WarpTask = require("libs.engine.src.script.tasks.WarpTask")
+local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
+local AskYesNoTask = require("libs.engine.src.script.tasks.AskYesNoTask")
+local AuxiliaryUiTask = require("libs.engine.src.script.tasks.AuxiliaryUiTask")
+local ContextChoiceTask = require("libs.engine.src.script.tasks.ContextChoiceTask")
+local MenuTask = require("libs.engine.src.script.tasks.MenuTask")
 
 -- Every task implementation the runtime can create, registered into the
 -- live task registry below.
 local TASK_MODULES = {
-  "libs.engine.src.script.tasks.WaitTicksTask",
-  "libs.engine.src.script.tasks.WaitInputTask",
-  "libs.engine.src.script.tasks.WaitInputOrTicksTask",
-  "libs.engine.src.script.tasks.WaitSignpostActionTask",
-  "libs.engine.src.script.tasks.TrainerTipsTask",
-  "libs.engine.src.script.tasks.WaitSignpostTask",
-  "libs.engine.src.script.tasks.SignTask",
-  "libs.engine.src.script.tasks.DialogueTask",
-  "libs.engine.src.script.tasks.MovementTask",
-  "libs.engine.src.script.tasks.MovementBarrierTask",
-  "libs.engine.src.script.tasks.MovementPauseTask",
-  "libs.engine.src.script.tasks.FadeTask",
-  "libs.engine.src.script.tasks.SoundWaitTask",
-  "libs.engine.src.script.tasks.MusicFadeTask",
-  "libs.engine.src.script.tasks.WarpTask",
-  "libs.engine.src.script.tasks.ChildScriptTask",
-  "libs.engine.src.script.tasks.AskYesNoTask",
-  "libs.engine.src.script.tasks.AuxiliaryUiTask",
-  "libs.engine.src.script.tasks.ContextChoiceTask",
-  "libs.engine.src.script.tasks.MenuTask",
+  WaitTicksTask,
+  WaitInputTask,
+  WaitInputOrTicksTask,
+  WaitSignpostActionTask,
+  TrainerTipsTask,
+  WaitSignpostTask,
+  SignTask,
+  DialogueTask,
+  MovementTask,
+  MovementBarrierTask,
+  MovementPauseTask,
+  FadeTask,
+  SoundWaitTask,
+  MusicFadeTask,
+  WarpTask,
+  ChildScriptTask,
+  AskYesNoTask,
+  AuxiliaryUiTask,
+  ContextChoiceTask,
+  MenuTask,
 }
 
 -- Build the task registry with every registered task type. `actor_pause`
@@ -58,13 +78,15 @@ local TASK_MODULES = {
 ---@return TaskRegistry
 local function taskRegistry()
   local registry = TaskRegistry.new()
-  for _, moduleName in ipairs(TASK_MODULES) do
-    local impl = require(moduleName)
+  for _, impl in ipairs(TASK_MODULES) do
     ---@cast impl TaskImplementation
     registry:register(impl.type, impl.version, impl)
   end
-  local pause = require("libs.engine.src.script.tasks.MovementPauseTask")
-  registry:register(pause.actorType, pause.version, pause --[[@as TaskImplementation]])
+  registry:register(
+    MovementPauseTask.actorType,
+    MovementPauseTask.version,
+    MovementPauseTask --[[@as TaskImplementation]]
+  )
   return registry
 end
 
@@ -257,13 +279,14 @@ function FieldScripts.new(opts)
   for _, map in ipairs(opts.mapLoader.world.maps) do
     requiredMapIds[#requiredMapIds + 1] = map.id
   end
+  local function loadFieldData(mapId)
+    return opts.cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
+  end
   -- Load-time audit: every required world map and interactable event must be
   -- covered, and every target must be present in the sealed registry. The
   -- registry ID set proves deferred generated resources without decoding them.
   BindingAudit.check(bindingManifest, {
-    loadFieldData = function(mapId)
-      return opts.cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-    end,
+    loadFieldData = loadFieldData,
     requiredMapIds = requiredMapIds,
     knownScriptIds = knownScriptIds,
   })
@@ -298,20 +321,19 @@ function FieldScripts.new(opts)
     loader = opts.mapLoader,
     sourceMap = opts.sourceMap,
   })
+  local function resolveMessage(message, messageBindings, textArgs)
+    return dialogueHost:resolveMessage(message, messageBindings or {}, textArgs or {})
+  end
   local menuHost = ScriptMenuHost.new({
     provider = opts.messageProvider,
-    resolveText = function(message)
-      return dialogueHost:resolveMessage(message, {}, {})
-    end,
+    resolveText = resolveMessage,
   })
   -- The signpost host reuses the dialogue host's public message-resolution
   -- operation through injection; it never reaches an underscored helper or
   -- duplicates substitution semantics.
   local signpostHost = ScriptSignpostHost.new({
     controller = opts.signpost,
-    resolveMessage = function(message, signpostBindings, textArgs)
-      return dialogueHost:resolveMessage(message, signpostBindings, textArgs)
-    end,
+    resolveMessage = resolveMessage,
   })
 
   local platform = setmetatable({
@@ -336,12 +358,15 @@ function FieldScripts.new(opts)
   local liveTaskRegistry = taskRegistry()
 
   local scheduler
-  local advanceAsync = function()
+  local function boundAdvanceAsync()
     opts.auxiliaryUi:advance()
     dialogueHost:advance(scheduler:currentInput())
     -- The signpost controller is pure and fixed-tick: exactly one step per
     -- scheduler tick, commands and printer together.
     signpostHost:advance(scheduler:currentInput())
+  end
+  local function boundResolveComposition(id)
+    return composition:effective(id)
   end
   scheduler = Scheduler.new({
     services = {
@@ -365,20 +390,16 @@ function FieldScripts.new(opts)
       signpost = signpostHost,
       windowStyles = opts.windowStyles,
       startMenuReopen = opts.startMenuReopen,
-      advanceAsync = advanceAsync,
+      advanceAsync = boundAdvanceAsync,
     },
     taskRegistry = liveTaskRegistry,
-    resolveComposition = function(id)
-      return composition:effective(id)
-    end,
+    resolveComposition = boundResolveComposition,
   })
   platform.scheduler = scheduler
   platform.taskRegistry = liveTaskRegistry
   platform.client = ScriptInteractionClient.new({
     bindings = bindings,
-    compose = function(id)
-      return composition:effective(id)
-    end,
+    compose = boundResolveComposition,
     scheduler = scheduler,
   })
   return platform
