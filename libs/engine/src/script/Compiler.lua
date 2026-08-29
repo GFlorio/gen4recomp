@@ -95,7 +95,6 @@ end
 -- actor/message forms).
 
 local normalizeByType
-local normalizeStep
 
 -- Shared shape for value/text/condition references: copy, apply defaults,
 -- normalize nested fields by their schema types.
@@ -160,15 +159,7 @@ local function normalizeMessage(v)
   assert(false, "validator must reject unknown message reference forms")
 end
 
-local function normalizeSteps(steps)
-  local out = {}
-  for i = 1, #steps do
-    out[i] = normalizeStep(steps[i])
-  end
-  return out
-end
-
-normalizeStep = function(t)
+local function normalizeStep(t)
   local spec = assert(Schema.OPERATIONS[t.op], "validator must reject unknown ops")
   local out = deepCopy(t)
   applyDefaults(out, spec)
@@ -180,26 +171,95 @@ normalizeStep = function(t)
   return out
 end
 
-normalizeByType = function(v, ty)
+local function normalizeSteps(steps)
+  local out = {}
+  for i = 1, #steps do
+    out[i] = normalizeStep(steps[i])
+  end
+  return out
+end
+
+local function normalizeCases(cases)
+  local out = {}
+  for k, caseSteps in pairs(cases) do
+    out[k] = normalizeSteps(caseSteps)
+  end
+  return out
+end
+
+local function normalizeConditionList(conditions)
+  local out = {}
+  for i = 1, #conditions do
+    out[i] = normalizeCondition(conditions[i])
+  end
+  return out
+end
+
+local function normalizeActorList(actors)
+  local out = {}
+  for i = 1, #actors do
+    out[i] = normalizeActor(actors[i])
+  end
+  return out
+end
+
+local function normalizeMovement(movement)
+  local out = {}
+  for i = 1, #movement do
+    local item = deepCopy(movement[i])
+    applyDefaults(item, Schema.MOVEMENT_ACTIONS[item.action])
+    out[i] = item
+  end
+  return out
+end
+
+local function normalizeArgs(args)
+  local out = {}
+  for k, arg in pairs(args) do
+    if type(arg) == "table" then
+      if arg.value ~= nil then
+        arg = normalizeValue(arg)
+      elseif arg.text ~= nil then
+        arg = normalizeText(arg)
+      else
+        arg = normalizeActor(arg)
+      end
+    end
+    out[k] = arg
+  end
+  return out
+end
+
+local function normalizeBindings(bindings)
+  local out = {}
+  for k, textValue in pairs(bindings) do
+    out[k] = normalizeText(textValue)
+  end
+  return out
+end
+
+local function normalizeMenuItems(items)
+  local out = {}
+  for i = 1, #items do
+    out[i] = deepCopy(items[i])
+    out[i].text = normalizeMessage(out[i].text)
+    out[i].value = normalizeByType(out[i].value, "scalar_or_value")
+  end
+  return out
+end
+
+local function normalizeByTypeImpl(v, ty)
   if v == nil then
     return nil
   end
   if ty == "steps" then
     return normalizeSteps(v)
   elseif ty == "cases" then
-    local out = {}
-    for k, caseSteps in pairs(v) do
-      out[k] = normalizeSteps(caseSteps)
-    end
-    return out
+    return normalizeCases(v)
   elseif ty == "condition" then
     return normalizeCondition(v)
   elseif ty == "condition_list" then
-    local out = {}
-    for i = 1, #v do
-      out[i] = normalizeCondition(v[i])
-    end
-    return out
+    return normalizeConditionList(v)
   elseif ty == "value" then
     return normalizeValue(v)
   elseif ty == "scalar_or_value" then
@@ -219,51 +279,20 @@ normalizeByType = function(v, ty)
   elseif ty == "actor" then
     return normalizeActor(v)
   elseif ty == "actor_list" then
-    local out = {}
-    for i = 1, #v do
-      out[i] = normalizeActor(v[i])
-    end
-    return out
+    return normalizeActorList(v)
   elseif ty == "movement" then
-    local out = {}
-    for i = 1, #v do
-      local item = deepCopy(v[i])
-      applyDefaults(item, Schema.MOVEMENT_ACTIONS[item.action])
-      out[i] = item
-    end
-    return out
+    return normalizeMovement(v)
   elseif ty == "args" then
-    local out = {}
-    for k, arg in pairs(v) do
-      if type(arg) == "table" then
-        if arg.value ~= nil then
-          arg = normalizeValue(arg)
-        elseif arg.text ~= nil then
-          arg = normalizeText(arg)
-        else
-          arg = normalizeActor(arg)
-        end
-      end
-      out[k] = arg
-    end
-    return out
+    return normalizeArgs(v)
   elseif ty == "bindings" then
-    local out = {}
-    for k, textValue in pairs(v) do
-      out[k] = normalizeText(textValue)
-    end
-    return out
+    return normalizeBindings(v)
   elseif ty == "menu_items" then
-    local out = {}
-    for i = 1, #v do
-      out[i] = deepCopy(v[i])
-      out[i].text = normalizeMessage(out[i].text)
-      out[i].value = normalizeByType(out[i].value, "scalar_or_value")
-    end
-    return out
+    return normalizeMenuItems(v)
   end
   return deepCopy(v)
 end
+
+normalizeByType = normalizeByTypeImpl
 
 -- Node ID for a step : author `key`, else generated
 -- `src:<member>:<script-index>:<first-offset>[/<op>]`, else structural path.
@@ -382,6 +411,97 @@ end
 -- continues at (nil at the script end). Returns the node ID.
 local compileSteps
 
+local function checkStaticNesting(context, op, path, depth)
+  if (op == "if" or op == "switch") and depth + 1 > Compiler.MAX_STATIC_NESTING then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
+      "maximum static nesting exceeded",
+      { scriptId = context.script.id, path = path, depth = depth + 1 }
+    )
+  end
+end
+
+local function compileStructuredStep(context, step, path, cont, depth, id, node)
+  if step.op == "if" then
+    node.yes = compileSteps(context, step.yes, path .. "/yes", cont, depth + 1) or cont
+    node.no = compileSteps(context, step.no, path .. "/no", cont, depth + 1) or cont
+    if #step.yes == 0 then
+      addWarning(context, "empty yes branch", id)
+    end
+    if #step.no == 0 then
+      addWarning(context, "empty no branch", id)
+    end
+    return
+  end
+  node.cases = {}
+  local keys = {}
+  for k in pairs(step.cases) do
+    keys[#keys + 1] = k
+  end
+  table.sort(keys)
+  for _, k in ipairs(keys) do
+    node.cases[k] = compileSteps(context, step.cases[k], path .. "/" .. tostring(k), cont, depth + 1) or cont
+    if #step.cases[k] == 0 then
+      addWarning(context, "empty switch case", id)
+    end
+  end
+  node.default = compileSteps(context, step.default, path .. "/default", cont, depth + 1) or cont
+end
+
+local function compileControlStep(context, step, path, cont, node)
+  if step.op == "goto_compared" and step.script ~= nil then
+    -- Cross-script compare-state form: resolved through the composition
+    -- registry at runtime like goto_script; no local label.
+    if step.target ~= nil then
+      Errors.raise(
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
+        "goto_compared must not combine a local target with a script",
+        { scriptId = context.script.id, path = path, target = step.target, script = step.script }
+      )
+    end
+    node.next = cont
+    return
+  end
+  local labelId = context.labelNodeIds[step.target]
+  if labelId == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_LABEL_MISSING,
+      "control target is not a local label",
+      { scriptId = context.script.id, path = path, target = step.target }
+    )
+  end
+  node.targetNode = labelId
+  if step.op ~= "goto" then
+    node.next = cont
+  end
+end
+
+local function compileCallStep(context, step, path, cont, node)
+  node.returnNode = cont
+  local labelId = context.labelNodeIds[step.target]
+  if labelId ~= nil then
+    if step.label ~= nil then
+      Errors.raise(
+        ScriptErrors.SCRIPT_SCHEMA_INVALID,
+        "call label must not be combined with a local label target",
+        { scriptId = context.script.id, path = path, target = step.target, label = step.label }
+      )
+    end
+    node.targetNode = labelId
+  end
+end
+
+local function compileNextStep(context, path)
+  context.usesNext = true
+  if not context.opts.allowNext then
+    Errors.raise(
+      ScriptErrors.SCRIPT_WRAPPER_INVALID,
+      "next requires wrapper registration",
+      { scriptId = context.script.id, path = path }
+    )
+  end
+end
+
 ---@param context table per-call compiler state
 ---@param step table
 ---@param path string
@@ -413,91 +533,20 @@ local function compileStep(context, step, path, cont, depth, id)
     node.source = step.provenance
   end
 
+  checkStaticNesting(context, op, path, depth)
   if op == "if" or op == "switch" then
-    if depth + 1 > Compiler.MAX_STATIC_NESTING then
-      Errors.raise(
-        ScriptErrors.SCRIPT_SCHEMA_INVALID,
-        "maximum static nesting exceeded",
-        { scriptId = context.script.id, path = path, depth = depth + 1 }
-      )
-    end
-  end
-  if op == "if" then
-    node.yes = compileSteps(context, step.yes, path .. "/yes", cont, depth + 1) or cont
-    node.no = compileSteps(context, step.no, path .. "/no", cont, depth + 1) or cont
-    if #step.yes == 0 then
-      addWarning(context, "empty yes branch", id)
-    end
-    if #step.no == 0 then
-      addWarning(context, "empty no branch", id)
-    end
-  elseif op == "switch" then
-    node.cases = {}
-    local keys = {}
-    for k in pairs(step.cases) do
-      keys[#keys + 1] = k
-    end
-    table.sort(keys)
-    for _, k in ipairs(keys) do
-      node.cases[k] = compileSteps(context, step.cases[k], path .. "/" .. tostring(k), cont, depth + 1) or cont
-      if #step.cases[k] == 0 then
-        addWarning(context, "empty switch case", id)
-      end
-    end
-    node.default = compileSteps(context, step.default, path .. "/default", cont, depth + 1) or cont
+    compileStructuredStep(context, step, path, cont, depth, id, node)
   elseif op == "goto" or op == "goto_if" or op == "goto_compared" then
-    if op == "goto_compared" and step.script ~= nil then
-      -- Cross-script compare-state form: resolved through the composition
-      -- registry at runtime like goto_script; no local label.
-      if step.target ~= nil then
-        Errors.raise(
-          ScriptErrors.SCRIPT_SCHEMA_INVALID,
-          "goto_compared must not combine a local target with a script",
-          { scriptId = context.script.id, path = path, target = step.target, script = step.script }
-        )
-      end
-      node.next = cont
-    else
-      local labelId = context.labelNodeIds[step.target]
-      if labelId == nil then
-        Errors.raise(
-          ScriptErrors.SCRIPT_LABEL_MISSING,
-          "control target is not a local label",
-          { scriptId = context.script.id, path = path, target = step.target }
-        )
-      end
-      node.targetNode = labelId
-      if op ~= "goto" then
-        node.next = cont
-      end
-    end
+    compileControlStep(context, step, path, cont, node)
   elseif op == "goto_script" then
     -- A cross-script jump resolved through the composition registry at
     -- runtime; the graph carries the label reference as-is. The label lives
     -- in the target script's namespace, so a same-named local label is not
     -- a collision.
   elseif op == "call" or op == "call_compared" then
-    node.returnNode = cont
-    local labelId = context.labelNodeIds[step.target]
-    if labelId ~= nil then
-      if step.label ~= nil then
-        Errors.raise(
-          ScriptErrors.SCRIPT_SCHEMA_INVALID,
-          "call label must not be combined with a local label target",
-          { scriptId = context.script.id, path = path, target = step.target, label = step.label }
-        )
-      end
-      node.targetNode = labelId
-    end
+    compileCallStep(context, step, path, cont, node)
   elseif op == "next" then
-    context.usesNext = true
-    if not context.opts.allowNext then
-      Errors.raise(
-        ScriptErrors.SCRIPT_WRAPPER_INVALID,
-        "next requires wrapper registration",
-        { scriptId = context.script.id, path = path }
-      )
-    end
+    compileNextStep(context, path)
   end
 
   context.nodes[id] = node
@@ -514,7 +563,7 @@ end
 ---@param cont string|nil
 ---@param depth integer
 ---@return string|nil
-compileSteps = function(context, steps, path, cont, depth)
+local function compileStepsImpl(context, steps, path, cont, depth)
   local ids = {}
   for i = 1, #steps do
     ids[i] = assert(context.nodeIds[path .. "/" .. tostring(i - 1)], "node id was not precomputed")
@@ -529,6 +578,8 @@ compileSteps = function(context, steps, path, cont, depth)
   end
   return ids[1]
 end
+
+compileSteps = compileStepsImpl
 
 -- Reachability, unsupported-node analysis, and load-time warnings on the
 -- completed graph.

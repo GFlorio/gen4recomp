@@ -3,6 +3,26 @@
 -- data or the normal runtime registry.
 
 return {
+  ["acceptance.script_runtime"] = [[
+local S = require("gen4.script")
+
+return S.script({
+  api = 1,
+  id = "acceptance.script_runtime",
+  steps = {
+    S.setVar({ variable = "VAR_UNK_407C", value = 7 }),
+    S.if_({
+      condition = S.eq(S.var("VAR_UNK_407C"), 7),
+      yes = { S.setFlag({ flag = "FLAG_UNK_8A1" }) },
+      no = { S.setFlag({ flag = "FLAG_UNK_8A2" }) },
+    }),
+    S.setVar({ variable = "VAR_UNK_407D", value = S.var("VAR_UNK_407C") }),
+    S.waitTicks({ ticks = 2 }),
+    S.setVar({ variable = "VAR_UNK_407F", value = S.var("VAR_UNK_407D") }),
+    S.stop(),
+  },
+})
+]],
   ["demo.signpost"] = [[
 local S = require("gen4.script")
 

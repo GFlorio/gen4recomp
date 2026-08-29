@@ -14,6 +14,7 @@
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local Runtime = require("libs.engine.src.script.Runtime")
+local RuntimeValues = require("libs.engine.src.script.RuntimeValues")
 local ScriptInstance = require("libs.engine.src.script.ScriptInstance")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 local ScriptTask = require("libs.engine.src.script.ScriptTask")
@@ -587,7 +588,7 @@ function Scheduler:_writeTaskResult(instance)
     node = { nodeId = "<task-result>" },
     services = self._services,
   }
-  Runtime.writeRef(instance.pendingResultRef, instance.taskResult, run)
+  RuntimeValues.writeRef(instance.pendingResultRef, instance.taskResult, run)
 end
 
 -- Promote contexts that were already `resume_pending` before this tick and

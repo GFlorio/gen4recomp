@@ -6,7 +6,7 @@
 -- window/printer requests to the controller, and advances the controller
 -- once per scheduler tick from the engine-owned async phase. The host never
 -- writes world variables: variable writes stay authoritative in
--- Runtime.writeRef via task results. Pure domain module: no love dependency.
+-- RuntimeValues.writeRef via task results. Pure domain module: no love dependency.
 
 ---@class ScriptSignpostHost
 ---@field private _controller FieldSignpostController

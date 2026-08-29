@@ -12,7 +12,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
-local Runtime = require("libs.engine.src.script.Runtime")
+local RuntimeValues = require("libs.engine.src.script.RuntimeValues")
 
 local MovementBarrierTask = {}
 
@@ -37,7 +37,7 @@ function MovementBarrierTask.create(spec, ctx)
     }
     local actors = {}
     for _, actor in ipairs(node.actors or {}) do
-      actors[#actors + 1] = Runtime.resolveActor(actor, run)
+      actors[#actors + 1] = RuntimeValues.resolveActor(actor, run)
     end
     local taskIds = {}
     local environment = ctx.environment

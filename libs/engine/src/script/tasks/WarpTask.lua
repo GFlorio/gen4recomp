@@ -10,7 +10,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
-local Runtime = require("libs.engine.src.script.Runtime")
+local RuntimeValues = require("libs.engine.src.script.RuntimeValues")
 
 local WarpTask = {}
 
@@ -25,11 +25,11 @@ function WarpTask.create(spec, ctx)
   local maps = assert(ctx.services.maps, "warp task requires the maps service")
   local run = { services = ctx.services, instance = ctx.instance }
   local target = {
-    map = Runtime.evaluateValue(node.map, run),
-    warp = Runtime.evaluateValue(node.warp, run),
-    fieldX = Runtime.evaluateValue(node.fieldX, run),
-    fieldZ = Runtime.evaluateValue(node.fieldZ, run),
-    facing = Runtime.evaluateValue(node.facing, run),
+    map = RuntimeValues.evaluateValue(node.map, run),
+    warp = RuntimeValues.evaluateValue(node.warp, run),
+    fieldX = RuntimeValues.evaluateValue(node.fieldX, run),
+    fieldZ = RuntimeValues.evaluateValue(node.fieldZ, run),
+    facing = RuntimeValues.evaluateValue(node.facing, run),
   }
   maps:startWarp(target)
   return { target = target }

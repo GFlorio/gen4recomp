@@ -340,7 +340,7 @@ end
 
 -- The host's only external interactions are the injected resolution
 -- operation and the controller: no world-variable write path exists on a
--- print request (variable writes stay authoritative in Runtime.writeRef via
+-- print request (variable writes stay authoritative in RuntimeValues.writeRef via
 -- task results).
 function T.print_paths_touch_only_the_resolver_and_the_controller()
   local controller = fakeController()

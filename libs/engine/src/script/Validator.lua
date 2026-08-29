@@ -325,6 +325,59 @@ local function checkMovement(context, v, path, field)
   end
 end
 
+local function checkMenuStep(context, step, path)
+  if step.cancellable == true and step.cancelValue == nil then
+    fail(
+      context,
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
+      fieldPath(path, "cancelValue"),
+      "cancellable semantic menus require a cancellation result",
+      { field = "cancelValue", op = "choose" }
+    )
+  end
+  if step.initialCursor ~= nil and (step.initialCursor < 0 or step.initialCursor >= #step.items) then
+    fail(
+      context,
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
+      fieldPath(path, "initialCursor"),
+      "semantic menu initial cursor is out of range",
+      { field = "initialCursor", op = "choose" }
+    )
+  end
+end
+
+-- The low-level compare-state branches need either a local label target or a
+-- cross-script reference.
+local function checkCompareBranchStep(context, step, path, name)
+  if step.target == nil and step.script == nil then
+    fail(
+      context,
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
+      path,
+      "compare-state branch requires a target or a script reference",
+      { op = name }
+    )
+  end
+  if step.script ~= nil and step.target ~= nil then
+    fail(
+      context,
+      ScriptErrors.SCRIPT_SCHEMA_INVALID,
+      path,
+      "compare-state branch must not combine a local target with a script",
+      { op = name }
+    )
+  end
+end
+
+local function recordLocalUsage(context, step, path, name)
+  if name == "set_local" or name == "add_local" or name == "sub_local" then
+    context.usedLocals[step.name] = path
+  elseif name == "copy_local" then
+    context.usedLocals[step.destination] = path
+    context.usedLocals[step.source] = path
+  end
+end
+
 local function checkStep(context, step, path)
   if type(step) ~= "table" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "step must be a table")
@@ -339,53 +392,11 @@ local function checkStep(context, step, path)
   end
   checkFields(context, name, spec.fields, step, path, { op = true })
   if name == "choose" then
-    if step.cancellable == true and step.cancelValue == nil then
-      fail(
-        context,
-        ScriptErrors.SCRIPT_SCHEMA_INVALID,
-        fieldPath(path, "cancelValue"),
-        "cancellable semantic menus require a cancellation result",
-        { field = "cancelValue", op = name }
-      )
-    end
-    if step.initialCursor ~= nil and (step.initialCursor < 0 or step.initialCursor >= #step.items) then
-      fail(
-        context,
-        ScriptErrors.SCRIPT_SCHEMA_INVALID,
-        fieldPath(path, "initialCursor"),
-        "semantic menu initial cursor is out of range",
-        { field = "initialCursor", op = name }
-      )
-    end
+    checkMenuStep(context, step, path)
+  elseif name == "goto_compared" or name == "call_compared" then
+    checkCompareBranchStep(context, step, path, name)
   end
-  -- The low-level compare-state branches need either a local label target
-  -- or a cross-script reference.
-  if name == "goto_compared" or name == "call_compared" then
-    if step.target == nil and step.script == nil then
-      fail(
-        context,
-        ScriptErrors.SCRIPT_SCHEMA_INVALID,
-        path,
-        "compare-state branch requires a target or a script reference",
-        { op = name }
-      )
-    end
-    if step.script ~= nil and step.target ~= nil then
-      fail(
-        context,
-        ScriptErrors.SCRIPT_SCHEMA_INVALID,
-        path,
-        "compare-state branch must not combine a local target with a script",
-        { op = name }
-      )
-    end
-  end
-  if name == "set_local" or name == "add_local" or name == "sub_local" then
-    context.usedLocals[step.name] = path
-  elseif name == "copy_local" then
-    context.usedLocals[step.destination] = path
-    context.usedLocals[step.source] = path
-  end
+  recordLocalUsage(context, step, path, name)
 end
 
 local function checkSteps(context, v, path, field)
@@ -461,32 +472,32 @@ local function checkArgValue(context, v, path, field)
   checkActor(context, v, path, field)
 end
 
-CHECKERS.string = function(context, v, path, field)
+local function checkString(context, v, path, field)
   if type(v) ~= "string" or #v == 0 then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a non-empty string", { field = field })
   end
 end
-CHECKERS.integer = function(context, v, path, field)
+local function checkInteger(context, v, path, field)
   if type(v) ~= "number" or v % 1 ~= 0 then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected an integer", { field = field, value = v })
   end
 end
-CHECKERS.number = function(context, v, path, field)
+local function checkNumber(context, v, path, field)
   if type(v) ~= "number" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a number", { field = field })
   end
 end
-CHECKERS.boolean = function(context, v, path, field)
+local function checkBoolean(context, v, path, field)
   if type(v) ~= "boolean" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a boolean", { field = field })
   end
 end
-CHECKERS.scalar = function(context, v, path, field)
+local function checkScalar(context, v, path, field)
   if not isScalar(v) then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a scalar literal", { field = field })
   end
 end
-CHECKERS.scalar_or_value = function(context, v, path, field)
+local function checkScalarOrValue(context, v, path, field)
   if isScalar(v) then
     return
   end
@@ -497,7 +508,7 @@ CHECKERS.text_value = checkTextValue
 -- A world id or a variable reference. World ids are the U16 keys of the
 -- world store (catalog symbols resolve to them at runtime), so a numeric id
 -- is valid exactly when it satisfies the store's range contract.
-CHECKERS.id_or_var = function(context, v, path, field)
+local function checkIdOrVar(context, v, path, field)
   if type(v) == "string" and #v > 0 then
     return
   end
@@ -516,14 +527,14 @@ CHECKERS.id_or_var = function(context, v, path, field)
   checkVarRef(context, v, path, field)
 end
 CHECKERS.actor = checkActor
-CHECKERS.actor_list = function(context, v, path, field)
+local function checkActorList(context, v, path, field)
   local count = checkArray(context, v, path, field)
   for i = 1, count do
     checkActor(context, v[i], path .. "/" .. tostring(i - 1), field)
   end
 end
 CHECKERS.condition = checkCondition
-CHECKERS.condition_list = function(context, v, path, field)
+local function checkConditionList(context, v, path, field)
   local count = checkArray(context, v, path, field)
   for i = 1, count do
     checkCondition(context, v[i], path .. "/" .. tostring(i - 1), field)
@@ -532,7 +543,7 @@ end
 CHECKERS.message = checkMessage
 CHECKERS.movement = checkMovement
 CHECKERS.steps = checkSteps
-CHECKERS.cases = function(context, v, path, field)
+local function checkCases(context, v, path, field)
   if type(v) ~= "table" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a cases table", { field = field })
   end
@@ -549,7 +560,7 @@ CHECKERS.cases = function(context, v, path, field)
     checkSteps(context, caseSteps, path .. "/" .. tostring(k))
   end
 end
-CHECKERS.args = function(context, v, path, field)
+local function checkArgs(context, v, path, field)
   if type(v) ~= "table" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected an args table", { field = field })
   end
@@ -560,7 +571,7 @@ CHECKERS.args = function(context, v, path, field)
     checkArgValue(context, arg, path .. "/" .. k, field)
   end
 end
-CHECKERS.bindings = function(context, v, path, field)
+local function checkBindings(context, v, path, field)
   if type(v) ~= "table" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a bindings table", { field = field })
   end
@@ -577,7 +588,7 @@ CHECKERS.bindings = function(context, v, path, field)
     checkTextValue(context, textValue, path .. "/" .. tostring(slot), field)
   end
 end
-CHECKERS.buffer_slot = function(context, v, path, field)
+local function checkBufferSlot(context, v, path, field)
   if type(v) ~= "number" or v % 1 ~= 0 or v < 0 or v > 7 then
     fail(
       context,
@@ -588,7 +599,7 @@ CHECKERS.buffer_slot = function(context, v, path, field)
     )
   end
 end
-CHECKERS.buttons = function(context, v, path, field)
+local function checkButtons(context, v, path, field)
   local count = checkArray(context, v, path, field)
   local set = ENUM_SETS.button
   for i = 1, count do
@@ -597,7 +608,7 @@ CHECKERS.buttons = function(context, v, path, field)
     end
   end
 end
-CHECKERS.scalar_list = function(context, v, path, field)
+local function checkScalarList(context, v, path, field)
   local count = checkArray(context, v, path, field)
   for i = 1, count do
     if not isScalar(v[i]) then
@@ -605,7 +616,7 @@ CHECKERS.scalar_list = function(context, v, path, field)
     end
   end
 end
-CHECKERS.menu_placement = function(context, v, path, field)
+local function checkMenuPlacement(context, v, path, field)
   if type(v) ~= "table" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a menu placement table", { field = field })
   end
@@ -616,7 +627,7 @@ CHECKERS.menu_placement = function(context, v, path, field)
   }
   checkFields(context, "placement", fields, v, path)
 end
-CHECKERS.menu_items = function(context, v, path, field)
+local function checkMenuItems(context, v, path, field)
   local count = checkArray(context, v, path, field)
   if count == 0 then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "menu requires at least one item", { field = field })
@@ -635,7 +646,7 @@ CHECKERS.menu_items = function(context, v, path, field)
     checkFields(context, "choice", fields, item, itemPath)
   end
 end
-CHECKERS.source_provenance = function(context, v, path, field)
+local function checkSourceProvenance(context, v, path, field)
   if type(v) ~= "table" then
     fail(context, ScriptErrors.SCRIPT_SCHEMA_INVALID, path, "expected a source provenance table", { field = field })
   end
@@ -683,7 +694,36 @@ CHECKERS.source_provenance = function(context, v, path, field)
 end
 CHECKERS.params = checkDeclarationMap
 CHECKERS.locals = checkDeclarationMap
-CHECKERS.serializable = function() end
+local function checkSerializableField() end
+
+CHECKERS.string = checkString
+CHECKERS.integer = checkInteger
+CHECKERS.number = checkNumber
+CHECKERS.boolean = checkBoolean
+CHECKERS.scalar = checkScalar
+CHECKERS.scalar_or_value = checkScalarOrValue
+CHECKERS.value = checkValueRef
+CHECKERS.text_value = checkTextValue
+CHECKERS.id_or_var = checkIdOrVar
+CHECKERS.actor = checkActor
+CHECKERS.actor_list = checkActorList
+CHECKERS.condition = checkCondition
+CHECKERS.condition_list = checkConditionList
+CHECKERS.message = checkMessage
+CHECKERS.movement = checkMovement
+CHECKERS.steps = checkSteps
+CHECKERS.cases = checkCases
+CHECKERS.args = checkArgs
+CHECKERS.bindings = checkBindings
+CHECKERS.buffer_slot = checkBufferSlot
+CHECKERS.buttons = checkButtons
+CHECKERS.scalar_list = checkScalarList
+CHECKERS.menu_placement = checkMenuPlacement
+CHECKERS.menu_items = checkMenuItems
+CHECKERS.source_provenance = checkSourceProvenance
+CHECKERS.params = checkDeclarationMap
+CHECKERS.locals = checkDeclarationMap
+CHECKERS.serializable = checkSerializableField
 
 function Validator._validate(script)
   local context = {

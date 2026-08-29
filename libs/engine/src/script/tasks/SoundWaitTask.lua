@@ -11,7 +11,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
-local Runtime = require("libs.engine.src.script.Runtime")
+local RuntimeValues = require("libs.engine.src.script.RuntimeValues")
 
 local SoundWaitTask = {}
 
@@ -56,7 +56,7 @@ function SoundWaitTask.create(spec, ctx)
       { scriptId = ctx.instance.scriptId }
     )
   end
-  sequence = Runtime.evaluateValue(sequence, { services = ctx.services, instance = ctx.instance })
+  sequence = RuntimeValues.evaluateValue(sequence, { services = ctx.services, instance = ctx.instance })
   if sequence == nil then
     Errors.raise(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
