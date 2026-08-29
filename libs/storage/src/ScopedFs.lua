@@ -9,17 +9,17 @@
 
 local Errors = require("libs.errors.src.Errors")
 
----@class ScopedFs.Info
----@field type string
+---@alias ScopedFs.Info { type: string, size: number, modtime: number }
 
 ---@class ScopedFs.Backend
 ---@field write fun(self: ScopedFs.Backend, path: string, data: string): boolean, string?
----@field read fun(self: ScopedFs.Backend, path: string): string?, string?
+---@field read fun(self: ScopedFs.Backend, path: string): string?, number|string?
 ---@field getInfo fun(self: ScopedFs.Backend, path: string): ScopedFs.Info?
 ---@field createDirectory fun(self: ScopedFs.Backend, path: string): boolean, string?
 ---@field remove fun(self: ScopedFs.Backend, path: string): boolean, string?
----@field replace fun(self: ScopedFs.Backend, sourcePath: string, destinationPath: string): boolean, string?
+---@field replace fun(self: ScopedFs.Backend, sourcePath: string, destinationPath: string): boolean?, string?
 ---@field getDirectoryItems fun(self: ScopedFs.Backend, path: string): string[], string?
+---@field _filesystem table
 
 ---@alias ScopedFs.ErrorCodes table<string, string>
 
@@ -42,32 +42,70 @@ end
 -- translate that into structured errors. read preserves the backend's
 -- (data, size) / (nil, errorMessage) two-value shape so a read failure
 -- stays distinguishable from a missing file at the load boundary.
+---@param backend ScopedFs.Backend
+---@param path string
+---@param data string
+---@return boolean, string?
+local function loveWrite(backend, path, data)
+  return backend._filesystem.write(path, data)
+end
+
+---@param backend ScopedFs.Backend
+---@param path string
+---@return string?, number|string?
+local function loveRead(backend, path)
+  return backend._filesystem.read(path)
+end
+
+---@param backend ScopedFs.Backend
+---@param path string
+---@return ScopedFs.Info?
+local function loveGetInfo(backend, path)
+  return backend._filesystem.getInfo(path)
+end
+
+---@param backend ScopedFs.Backend
+---@param path string
+---@return boolean, string?
+local function loveCreateDirectory(backend, path)
+  return backend._filesystem.createDirectory(path)
+end
+
+---@param backend ScopedFs.Backend
+---@param path string
+---@return boolean, string?
+local function loveRemove(backend, path)
+  return backend._filesystem.remove(path)
+end
+
+---@param backend ScopedFs.Backend
+---@param sourcePath string
+---@param destinationPath string
+---@return boolean?, string?
+local function loveReplace(backend, sourcePath, destinationPath)
+  local root = backend._filesystem.getSaveDirectory()
+  return os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
+end
+
+---@param backend ScopedFs.Backend
+---@param path string
+---@return string[], string?
+local function loveGetDirectoryItems(backend, path)
+  return backend._filesystem.getDirectoryItems(path)
+end
+
 ---@return ScopedFs.Backend
 function ScopedFs.loveBackend()
   local fs = love.filesystem
   return {
-    write = function(_, path, data)
-      return fs.write(path, data)
-    end,
-    read = function(_, path)
-      return fs.read(path)
-    end,
-    getInfo = function(_, path)
-      return fs.getInfo(path)
-    end,
-    createDirectory = function(_, path)
-      return fs.createDirectory(path)
-    end,
-    remove = function(_, path)
-      return fs.remove(path)
-    end,
-    replace = function(_, sourcePath, destinationPath)
-      local root = fs.getSaveDirectory()
-      return os.rename(root .. "/" .. sourcePath, root .. "/" .. destinationPath)
-    end,
-    getDirectoryItems = function(_, path)
-      return fs.getDirectoryItems(path)
-    end,
+    _filesystem = fs,
+    write = loveWrite,
+    read = loveRead,
+    getInfo = loveGetInfo,
+    createDirectory = loveCreateDirectory,
+    remove = loveRemove,
+    replace = loveReplace,
+    getDirectoryItems = loveGetDirectoryItems,
   }
 end
 
@@ -75,7 +113,7 @@ end
 -- result, optionally with an error string). The one place the wrapper layer
 -- converts backend-reported failures into structured scoped-filesystem
 -- errors.
----@param ok boolean
+---@param ok boolean?
 ---@param err string?
 ---@param code string
 ---@param message string
@@ -188,7 +226,8 @@ function ScopedFs.loadChunk(backend, fullPath, relativePath, codes, env)
   end
   local data, readErr = backend:read(fullPath)
   if data == nil then
-    return nil, Errors.new(codes.READ_FAILED, readErr or "read failed", { path = relativePath })
+    local message = type(readErr) == "string" and readErr or "read failed"
+    return nil, Errors.new(codes.READ_FAILED, message, { path = relativePath })
   end
   local chunk, loadErr = loadstring(data, "@" .. relativePath)
   if not chunk then

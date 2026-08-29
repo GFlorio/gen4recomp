@@ -140,6 +140,196 @@ local function materialsById(list, pool, checkpoint)
   return byId
 end
 
+---@param context table
+---@param transform number[]
+---@return number[]
+local function modelNormalFor(context, transform)
+  if isTranslationOnly(transform) then
+    return IDENTITY_MODEL_NORMAL
+  end
+  local normal = context.modelNormals[transform]
+  if not normal then
+    normal = Matrix3.modelNormal(transform)
+    context.modelNormals[transform] = normal
+  end
+  return normal
+end
+
+-- Grow the scene bounds by a model-space AABB under a placement transform.
+---@param context table
+---@param aabb table
+---@param transform number[]
+local function growBoundsAabb(context, aabb, transform)
+  for i = 0, 1 do
+    for j = 0, 1 do
+      for k = 0, 1 do
+        local x, y, z = Matrix4.transformPoint(
+          transform,
+          i == 1 and aabb.maxX or aabb.minX,
+          j == 1 and aabb.maxY or aabb.minY,
+          k == 1 and aabb.maxZ or aabb.minZ
+        )
+        if x < context.bounds.min[1] then
+          context.bounds.min[1] = x
+        end
+        if y < context.bounds.min[2] then
+          context.bounds.min[2] = y
+        end
+        if z < context.bounds.min[3] then
+          context.bounds.min[3] = z
+        end
+        if x > context.bounds.max[1] then
+          context.bounds.max[1] = x
+        end
+        if y > context.bounds.max[2] then
+          context.bounds.max[2] = y
+        end
+        if z > context.bounds.max[3] then
+          context.bounds.max[3] = z
+        end
+      end
+    end
+  end
+end
+
+---@param batch table
+---@return table
+local function batchDrawState(batch)
+  return {
+    cullMode = batch.cullMode,
+    polygonMode = batch.polygonMode,
+    polygonId = batch.polygonId,
+    translucentDepthWrite = batch.translucentDepthWrite,
+    depthEqual = batch.depthEqual,
+    lightMask = batch.lightMask,
+    polygonAlpha = batch.polygonAlpha / FixedPoint.RGB5_MAX,
+    alphaClass = batch.alphaClass,
+    fogEnabled = batch.fogEnabled,
+  }
+end
+
+-- Assemble one draw item and account for its transformed mesh bounds.
+---@param context table
+---@param batch table
+---@param materials table
+---@param instanceTransform number[]
+---@return table
+local function drawItem(context, batch, materials, instanceTransform)
+  local meshResource = context.pool:meshFor(batch.geometry)
+  context.checkpoint()
+  local billboardBase, billboardCenter, billboardScale
+  if batch.transformMode == PoseContract.BILLBOARD then
+    billboardBase =
+      Matrix4.multiply(instanceTransform, assert(batch.baseTransform, "billboard batch is missing baseTransform"))
+    billboardCenter, billboardScale = BillboardTransform.components(billboardBase)
+  elseif batch.transformMode ~= nil then
+    Errors.raise(
+      FieldErrors.MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE,
+      "unknown batch transform mode " .. tostring(batch.transformMode),
+      { transformMode = batch.transformMode, geometry = batch.geometry }
+    )
+  end
+  local transform = billboardBase or instanceTransform
+  growBoundsAabb(context, meshResource.bounds, transform)
+  local state = batchDrawState(batch)
+  return {
+    mesh = meshResource.mesh,
+    material = materials[batch.material],
+    transform = transform,
+    modelNormal = billboardBase and IDENTITY_MODEL_NORMAL or modelNormalFor(context, transform),
+    billboardBase = billboardBase,
+    billboardCenter = billboardCenter,
+    billboardScale = billboardScale,
+    alphaClass = state.alphaClass,
+    cullMode = state.cullMode,
+    polygonAlpha = state.polygonAlpha,
+    polygonMode = state.polygonMode,
+    lightMask = state.lightMask,
+    polygonId = state.polygonId,
+    translucentDepthWrite = state.translucentDepthWrite,
+    depthEqual = state.depthEqual,
+    fogEnabled = state.fogEnabled,
+    center = meshResource.center,
+  }
+end
+
+---@param context table
+---@param modelKey string
+---@return table
+local function descriptorFor(context, modelKey)
+  local cached = context.descriptorCache[modelKey]
+  if cached then
+    return cached
+  end
+  local desc = assert(context.cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
+  context.checkpoint()
+  local materials = materialsById(desc.materials, context.pool, context.checkpoint)
+  local wrapByMaterial = SceneDescriptor.wrapByMaterial(desc.materials)
+  local batches
+  if desc.kind == "static" then
+    batches = desc.batches
+  elseif desc.kind == "nitro-dynamic" then
+    batches = desc.dynamic.batches
+  else
+    Errors.raise(
+      FieldErrors.MAP_SCENE_UNKNOWN_MODEL_KIND,
+      "model descriptor " .. modelKey .. " has unknown kind " .. tostring(desc.kind),
+      { modelKey = modelKey, kind = desc.kind }
+    )
+  end
+  local meshBounds = {}
+  for _, batch in ipairs(batches) do
+    meshBounds[#meshBounds + 1] = context.pool:meshFor(batch.geometry).bounds
+    context.checkpoint()
+  end
+  cached = {
+    descriptor = desc,
+    materials = materials,
+    wrapByMaterial = wrapByMaterial,
+    bounds = SceneDescriptor.bounds(meshBounds),
+  }
+  context.descriptorCache[modelKey] = cached
+  context.checkpoint()
+  return cached
+end
+
+---@param context table
+---@param descriptor table
+---@param modelKey string
+---@return table
+local function buildAnimatedResource(context, descriptor, modelKey)
+  ---@cast descriptor ModelDefinition.Descriptor
+  local definition = ModelDefinition.fromNitroDescriptor(descriptor, { key = modelKey })
+  context.checkpoint()
+  local renderMeshesById = {}
+  for _, mesh in ipairs(definition.meshes) do
+    local meshResource = context.pool:meshFor(mesh.geometry)
+    renderMeshesById[mesh.id] = meshResource.mesh
+    mesh.center = meshResource.center
+    context.checkpoint()
+  end
+  return { definition = definition, renderMeshesById = renderMeshesById }
+end
+
+-- Re-evaluate each animated pose and rebuild only the animated draw list.
+---@param runtime table
+---@param animatedInstances table[]
+---@param constructionCheckpoint fun()?
+local function refreshAnimatedItems(runtime, animatedInstances, constructionCheckpoint)
+  local items = {}
+  for _, instance in ipairs(animatedInstances) do
+    instance:evaluatePose()
+    local drawn = instance:drawItems(instance.renderMeshesById)
+    for _, item in ipairs(drawn) do
+      items[#items + 1] = item
+    end
+    if constructionCheckpoint ~= nil then
+      constructionCheckpoint()
+    end
+  end
+  runtime.animatedBuildingDraws = items
+end
+
 -- Build the runtime scene against an already-created pool. Raises on any
 -- failure; the owning build task releases the pool in that case. `opts.timeBand` seeds the time-of-day band
 -- (default: the band of the default field time, noon = day); `opts.meshBuilder`
@@ -149,130 +339,21 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   local timeBand = opts.timeBand or TimeOfDayProps.bandForSeconds(FieldLightProfile.DEFAULT_TIME_SECONDS)
   assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
   local bounds = { min = { math.huge, math.huge, math.huge }, max = { -math.huge, -math.huge, -math.huge } }
-  local modelNormals = {}
-
-  -- A transform table is immutable scene data. Cache its model normal once
-  -- for every static draw that shares it; translation-only transforms all
-  -- share the module identity normal.
-  local function modelNormalFor(transform)
-    if isTranslationOnly(transform) then
-      return IDENTITY_MODEL_NORMAL
-    end
-    local normal = modelNormals[transform]
-    if not normal then
-      normal = Matrix3.modelNormal(transform)
-      modelNormals[transform] = normal
-    end
-    return normal
-  end
-
-  -- Grow the scene bounds by a model-space AABB under a placement transform
-  -- (the image of the box is its eight transformed corners). The per-mesh
-  -- AABBs come from the pool mesh entry (cached per geometry path), so the
-  -- scene bounds are folds over cached boxes, never vertex rescans.
-  local function growBoundsAabb(aabb, transform)
-    for i = 0, 1 do
-      for j = 0, 1 do
-        for k = 0, 1 do
-          local x, y, z = Matrix4.transformPoint(
-            transform,
-            i == 1 and aabb.maxX or aabb.minX,
-            j == 1 and aabb.maxY or aabb.minY,
-            k == 1 and aabb.maxZ or aabb.minZ
-          )
-          if x < bounds.min[1] then
-            bounds.min[1] = x
-          end
-          if y < bounds.min[2] then
-            bounds.min[2] = y
-          end
-          if z < bounds.min[3] then
-            bounds.min[3] = z
-          end
-          if x > bounds.max[1] then
-            bounds.max[1] = x
-          end
-          if y > bounds.max[2] then
-            bounds.max[2] = y
-          end
-          if z > bounds.max[3] then
-            bounds.max[3] = z
-          end
-        end
-      end
-    end
-  end
-
-  -- Per-batch draw state that lives on the draw item, not the material
-  -- record: the shared PolygonState schema the compiler emits on every batch
-  -- (lightMask included), with polygonAlpha normalized to the renderer's
-  -- 0..1 unit and the batch's compiled alpha class carried as-is.
-  local function batchDrawState(batch)
-    return {
-      cullMode = batch.cullMode,
-      polygonMode = batch.polygonMode,
-      polygonId = batch.polygonId,
-      translucentDepthWrite = batch.translucentDepthWrite,
-      depthEqual = batch.depthEqual,
-      lightMask = batch.lightMask,
-      polygonAlpha = batch.polygonAlpha / FixedPoint.RGB5_MAX,
-      alphaClass = batch.alphaClass,
-      fogEnabled = batch.fogEnabled,
-    }
-  end
-
-  -- One draw item for one batch under `instanceTransform` (identity for terrain,
-  -- the placement matrix for a building). A billboard batch's geometry is in
-  -- billboard-local space and its orientation depends on the camera, so the
-  -- composed base supplies the shader's world center and scale; its static
-  -- equivalent seeds `transform` and the scene bounds. Draw items carry no
-  -- submission numbers: final queue traversal orders every part and draw in
-  -- source order, positionally.
-  local function drawItem(batch, materials, instanceTransform)
-    local meshResource = pool:meshFor(batch.geometry)
-    checkpoint()
-    local billboardBase, billboardCenter, billboardScale
-    if batch.transformMode == PoseContract.BILLBOARD then
-      billboardBase =
-        Matrix4.multiply(instanceTransform, assert(batch.baseTransform, "billboard batch is missing baseTransform"))
-      billboardCenter, billboardScale = BillboardTransform.components(billboardBase)
-    elseif batch.transformMode ~= nil then
-      Errors.raise(
-        FieldErrors.MAP_SCENE_UNSUPPORTED_TRANSFORM_MODE,
-        "unknown batch transform mode " .. tostring(batch.transformMode),
-        { transformMode = batch.transformMode, geometry = batch.geometry }
-      )
-    end
-    local transform = billboardBase or instanceTransform
-    growBoundsAabb(meshResource.bounds, transform)
-    local state = batchDrawState(batch)
-    return {
-      mesh = meshResource.mesh,
-      material = materials[batch.material],
-      transform = transform,
-      modelNormal = billboardBase and IDENTITY_MODEL_NORMAL or modelNormalFor(transform),
-      billboardBase = billboardBase,
-      billboardCenter = billboardCenter,
-      billboardScale = billboardScale,
-      alphaClass = state.alphaClass,
-      cullMode = state.cullMode,
-      polygonAlpha = state.polygonAlpha,
-      polygonMode = state.polygonMode,
-      lightMask = state.lightMask,
-      polygonId = state.polygonId,
-      translucentDepthWrite = state.translucentDepthWrite,
-      depthEqual = state.depthEqual,
-      fogEnabled = state.fogEnabled,
-      center = meshResource.center,
-    }
-  end
+  local context = {
+    bounds = bounds,
+    cacheFs = cacheFs,
+    checkpoint = checkpoint,
+    descriptorCache = {},
+    modelNormals = {},
+    pool = pool,
+  }
 
   -- Map terrain draws: identity transform, materials from the scene list.
   local mapMaterials = materialsById(scene.materials, pool, checkpoint)
   local identity = Matrix4.identity()
   local mapDraws = {}
   for _, batch in ipairs(scene.mapBatches) do
-    mapDraws[#mapDraws + 1] = drawItem(batch, mapMaterials, identity)
+    mapDraws[#mapDraws + 1] = drawItem(context, batch, mapMaterials, identity)
   end
 
   -- The terrain animation playback state of this scene: one animator over
@@ -298,14 +379,11 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
     }
     checkpoint()
   end
-  local terrainAnimator = TerrainMaterialAnimator.new(
-    bindings,
-    scene.terrainAnimations.textureSrt,
-    function(path, wrapX, wrapY)
-      return pool:imageFor(path, wrapX, wrapY)
-    end,
-    checkpoint
-  )
+  local function resolveTerrainImage(path, wrapX, wrapY)
+    return pool:imageFor(path, wrapX, wrapY)
+  end
+  local terrainAnimator =
+    TerrainMaterialAnimator.new(bindings, scene.terrainAnimations.textureSrt, resolveTerrainImage, checkpoint)
 
   -- Placed building instances: resolve each modelKey's descriptor (batches +
   -- its own materials) and instance it at the placement transform. The
@@ -313,60 +391,16 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   -- geometry: the scene bounds grow it under each placement transform, and
   -- the placement records carry it for the scene's MapProps facade (the
   -- door index resolves by placement pivot, not by footprint).
-  local descriptorCache = {}
-  local function descriptorFor(modelKey)
-    local cached = descriptorCache[modelKey]
-    if not cached then
-      local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
-      checkpoint()
-      local mats = materialsById(desc.materials, pool, checkpoint)
-      -- Pattern-variant textures are resolved lazily at evaluation time; the
-      -- sampler state is keyed by material (never by texture path -- two
-      -- materials can share one texture under different wraps), so the
-      -- variant always samples with its own material's wrap.
-      local wrapByMaterial = SceneDescriptor.wrapByMaterial(desc.materials)
-      local batches
-      if desc.kind == "static" then
-        batches = desc.batches
-      elseif desc.kind == "nitro-dynamic" then
-        batches = desc.dynamic.batches
-      else
-        Errors.raise(
-          FieldErrors.MAP_SCENE_UNKNOWN_MODEL_KIND,
-          "model descriptor " .. modelKey .. " has unknown kind " .. tostring(desc.kind),
-          { modelKey = modelKey, kind = desc.kind }
-        )
-      end
-      -- The model-space AABB is a pure fold over the per-mesh entry bounds
-      -- (cached on the pool entry per geometry path), one table per model
-      -- shared by every placement record.
-      local meshBounds = {}
-      for _, batch in ipairs(batches) do
-        meshBounds[#meshBounds + 1] = pool:meshFor(batch.geometry).bounds
-        checkpoint()
-      end
-      cached = {
-        descriptor = desc,
-        materials = mats,
-        wrapByMaterial = wrapByMaterial,
-        bounds = SceneDescriptor.bounds(meshBounds),
-      }
-      descriptorCache[modelKey] = cached
-      checkpoint()
-    end
-    return cached
-  end
-
   local staticBuildingDraws = {}
   for _, inst in ipairs(scene.buildingInstances) do
-    local desc = descriptorFor(inst.modelKey)
+    local desc = descriptorFor(context, inst.modelKey)
     -- Dynamic (animated) descriptors carry their geometry in the `dynamic`
     -- half; the static batches loop applies to baked descriptors only. The
     -- kind dispatch is explicit: a descriptor of an unknown kind is a
     -- generated-data failure, not a silent empty model.
     if desc.descriptor.kind == "static" then
       for _, batch in ipairs(desc.descriptor.batches) do
-        staticBuildingDraws[#staticBuildingDraws + 1] = drawItem(batch, desc.materials, inst.transform)
+        staticBuildingDraws[#staticBuildingDraws + 1] = drawItem(context, batch, desc.materials, inst.transform)
       end
     elseif desc.descriptor.kind ~= "nitro-dynamic" then
       Errors.raise(
@@ -400,20 +434,11 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   local animatedResourceCache = {}
   local liveImageResolvers = {}
   for _, inst in ipairs(scene.buildingInstances) do
-    local desc = descriptorFor(inst.modelKey)
+    local desc = descriptorFor(context, inst.modelKey)
     if desc.descriptor.kind == "nitro-dynamic" then
       local modelResource = animatedResourceCache[inst.modelKey]
       if not modelResource then
-        local definition = ModelDefinition.fromNitroDescriptor(desc.descriptor, { key = inst.modelKey })
-        checkpoint()
-        local renderMeshesById = {}
-        for _, mesh in ipairs(definition.meshes) do
-          local meshResource = pool:meshFor(mesh.geometry)
-          renderMeshesById[mesh.id] = meshResource.mesh
-          mesh.center = meshResource.center
-          checkpoint()
-        end
-        modelResource = { definition = definition, renderMeshesById = renderMeshesById }
+        modelResource = buildAnimatedResource(context, desc.descriptor, inst.modelKey)
         animatedResourceCache[inst.modelKey] = modelResource
         animatedModelCount = animatedModelCount + 1
       end
@@ -433,7 +458,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
       liveImageResolvers[#liveImageResolvers + 1] = { instance = instance, resolveImage = resolveImage }
       checkpoint()
       instance.renderMeshesById = modelResource.renderMeshesById
-      growBoundsAabb(desc.bounds, inst.transform)
+      growBoundsAabb(context, desc.bounds, inst.transform)
       animatedInstances[#animatedInstances + 1] = instance
       instanceByPlacement[inst.placementIndex] = instance
       local timeBandClips = TimeOfDayProps.plan(modelResource.definition)
@@ -456,26 +481,6 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
 
   local runtime = {}
 
-  -- The per-instance refresh pass shared by the tick update and the initial
-  -- build: it re-evaluates each pose from the current attachment frames. The
-  -- static building list is built once and never touched again -- only the
-  -- animated list is rebuilt here, so a fixed tick's cost scales with the
-  -- animated instance count, not the whole building set.
-  local function refreshAnimatedItems(constructionCheckpoint)
-    local items = {}
-    for _, instance in ipairs(animatedInstances) do
-      instance:evaluatePose()
-      local drawn = instance:drawItems(instance.renderMeshesById)
-      for _, item in ipairs(drawn) do
-        items[#items + 1] = item
-      end
-      if constructionCheckpoint ~= nil then
-        constructionCheckpoint()
-      end
-    end
-    runtime.animatedBuildingDraws = items
-  end
-
   -- Advance every animated instance by one fixed step, then refresh: the one
   -- authoritative animation-clock entry point of the scene. The terrain
   -- animator takes its one tick first (texture-swap step images and the
@@ -489,7 +494,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
     for _, instance in ipairs(animatedInstances) do
       instance:updateFixed()
     end
-    refreshAnimatedItems()
+    refreshAnimatedItems(runtime, animatedInstances)
   end
 
   -- Switch the time-of-day band of every banded prop (HGSS ov01_022047DC):
@@ -551,7 +556,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   -- Build the frame-0 animated items inside the load build: the scene
   -- is renderable immediately after load, and the animation clocks never
   -- advanced (the first tick's updateAnimated starts them).
-  refreshAnimatedItems(checkpoint)
+  refreshAnimatedItems(runtime, animatedInstances, checkpoint)
   runtime.lighting = scene.lighting
   -- The compiled area's real HGSS edge-color table, forwarded as
   -- opaque scene state -- MapRenderer decodes and sends it, with no ROM
@@ -572,7 +577,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   -- door tiles is precomputed here, once, from the nearest placement pivot.
   local placements = {}
   for _, inst in ipairs(scene.buildingInstances) do
-    local descriptor = descriptorFor(inst.modelKey)
+    local descriptor = descriptorFor(context, inst.modelKey)
     placements[#placements + 1] = {
       placementIndex = inst.placementIndex,
       modelKey = inst.modelKey,
@@ -708,7 +713,7 @@ function MapSceneLoader.begin(cacheFs, scene, opts)
   opts = opts or {}
   validateScene(scene)
   local pool = GpuAssetPool.new(cacheFs, opts)
-  local checkpoint = function()
+  local function checkpoint()
     ---@diagnostic disable-next-line: await-in-sync -- this callback only runs inside the build coroutine
     coroutine["yield"](1)
   end
@@ -743,6 +748,8 @@ end
 -- Build the logical render environment without acquiring geometry or model
 -- resources. Outdoor physical cells own all rendered geometry; the renderer
 -- still needs the logical scene's lighting, edge colors, and fog state.
+local function releaseEnvironment() end
+
 ---@param scene table
 ---@return table
 function MapSceneLoader.loadEnvironment(scene)
@@ -752,7 +759,7 @@ function MapSceneLoader.loadEnvironment(scene)
     lighting = scene.lighting,
     edgeColors = scene.edgeColors,
     fog = scene.fog,
-    release = function() end,
+    release = releaseEnvironment,
   }
 end
 

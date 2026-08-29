@@ -26,38 +26,75 @@ local function copyPlate(plate, id, offsetX, offsetY, offsetZ, cellKey)
   return copy
 end
 
-local function collisionRegion(cells)
-  local collision = {}
-
-  local function cellAt(localX, localZ)
-    for _, cell in ipairs(cells) do
-      local x, z = localX - cell.offsetTilesX, localZ - cell.offsetTilesZ
-      if cell.collision:containsLocal(x, z) then
-        return cell, x, z
-      end
+---@param cells table[]
+---@param localX number
+---@param localZ number
+---@return table?, number?, number?
+local function cellAt(cells, localX, localZ)
+  for _, cell in ipairs(cells) do
+    local x, z = localX - cell.offsetTilesX, localZ - cell.offsetTilesZ
+    if cell.collision:containsLocal(x, z) then
+      return cell, x, z
     end
-    return nil
   end
+  return nil
+end
 
-  function collision:containsLocal(localX, localZ)
-    return cellAt(localX, localZ) ~= nil
+---@class FieldRegion.Collision
+---@field cells table[]
+---@field containsLocal fun(self: FieldRegion.Collision, localX: number, localZ: number): boolean
+---@field getLocal fun(self: FieldRegion.Collision, localX: number, localZ: number): table
+---@field isBlockedLocal fun(self: FieldRegion.Collision, localX: number, localZ: number): boolean
+local Collision = {}
+Collision.__index = Collision
+
+---@param self FieldRegion.Collision
+---@param localX number
+---@param localZ number
+---@return boolean
+function Collision:containsLocal(localX, localZ)
+  return cellAt(self.cells, localX, localZ) ~= nil
+end
+
+---@param self FieldRegion.Collision
+---@param localX number
+---@param localZ number
+---@return table
+function Collision:getLocal(localX, localZ)
+  local cell, x, z = cellAt(self.cells, localX, localZ)
+  assert(cell, "field coordinate outside composed region")
+  local result = cell.collision:getLocal(x, z)
+  result.cellKey = cell.key
+  return result
+end
+
+---@param self FieldRegion.Collision
+---@param localX number
+---@param localZ number
+---@return boolean
+function Collision:isBlockedLocal(localX, localZ)
+  local cell, x, z = cellAt(self.cells, localX, localZ)
+  assert(cell, "field coordinate outside composed region")
+  return cell.collision:isBlockedLocal(x, z)
+end
+
+---@param cells table[]
+---@return FieldRegion.Collision
+local function collisionRegion(cells)
+  return setmetatable({ cells = cells }, Collision)
+end
+
+---@param self table
+---@param cellKey string
+---@param sourceSurfaceId integer
+---@return integer?
+local function sourceSurface(self, cellKey, sourceSurfaceId)
+  for _, plate in ipairs(self.terrain.plates) do
+    if plate.cellKey == cellKey and plate.sourceSurfaceId == sourceSurfaceId then
+      return plate.id
+    end
   end
-
-  function collision:getLocal(localX, localZ)
-    local cell, x, z = cellAt(localX, localZ)
-    assert(cell, "field coordinate outside composed region")
-    local result = cell.collision:getLocal(x, z)
-    result.cellKey = cell.key
-    return result
-  end
-
-  function collision:isBlockedLocal(localX, localZ)
-    local cell, x, z = cellAt(localX, localZ)
-    assert(cell, "field coordinate outside composed region")
-    return cell.collision:isBlockedLocal(x, z)
-  end
-
-  return collision
+  return nil
 end
 
 function FieldRegion.new(centralCollision, centralTerrain, neighbors, centralKey, surfaceIdBase)
@@ -100,14 +137,7 @@ function FieldRegion.new(centralCollision, centralTerrain, neighbors, centralKey
     collision = collisionRegion(cells),
     terrain = TerrainSurface.new({ schema = "g4-composite-terrain-v1", plates = plates }),
     cells = cells,
-    sourceSurface = function(self, cellKey, sourceSurfaceId)
-      for _, plate in ipairs(self.terrain.plates) do
-        if plate.cellKey == cellKey and plate.sourceSurfaceId == sourceSurfaceId then
-          return plate.id
-        end
-      end
-      return nil
-    end,
+    sourceSurface = sourceSurface,
   }
 end
 
