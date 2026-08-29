@@ -69,12 +69,16 @@ local function renderPortraits(scope, cache, manifest, layout)
   love.graphics.setCanvas(canvas)
   love.graphics.clear(0, 0, 0, 0)
   love.graphics.setColor(1, 1, 1, 1)
-  for gender, id in ipairs({ "gender_male", "gender_female" }) do
+  for gender, id in ipairs({ "male", "female" }) do
     local widget = manifest.widgets[id]
-    local image = scope:own(newImage(cache, widget.frames[1].image))
+    local frame = widget.frames[1]
+    local image = scope:own(newImage(cache, frame.image))
     image:setFilter(widget.sampling, widget.sampling)
     local choice = layout.genderChoices[gender - 1]
-    love.graphics.draw(image, choice.x, choice.y, 0, choice.scale, choice.scale)
+    local scale = math.min(choice.width / frame.width, choice.height / frame.height)
+    local x = choice.x + (choice.width - frame.width * scale) / 2
+    local y = choice.y + (choice.height - frame.height * scale) / 2
+    love.graphics.draw(image, x, y, 0, scale, scale)
   end
   love.graphics.setCanvas()
   return scope:own(canvas:newImageData())

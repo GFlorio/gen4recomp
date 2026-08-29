@@ -318,8 +318,14 @@ function OakIntroRenderer:_draw(view)
     local canvas = assert(layout.genderCanvas, "Oak layout must expose the gender selector canvas")
     drawAsset(self, "genderSelector.neutral", 1, canvasRect(canvas, { x = 0, y = 0, width = 256, height = 192 }))
     self:_drawGenderFocus(view, layout)
-    drawAsset(self, "gender_male", 1, assert(layout.genderChoices[0]))
-    drawAsset(self, "gender_female", 1, assert(layout.genderChoices[1]))
+    -- The full-color portrait ("male"/"female") is scaled to fit inside the
+    -- selector card's own pinned box (from "gender_male"/"gender_female")
+    -- rather than placed 1:1 by source coordinate, since the two widgets
+    -- use unrelated art with different native proportions/anchors.
+    for gender, id in pairs({ [0] = "male", [1] = "female" }) do
+      local box = assert(layout.genderChoices[gender])
+      drawAsset(self, id, 1, { x = box.x, y = box.y, width = box.width, height = box.height })
+    end
   end
   if view.confirmationChoice then
     local rows = assert(layout.choiceRows)

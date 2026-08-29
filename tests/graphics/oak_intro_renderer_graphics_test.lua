@@ -428,9 +428,9 @@ T.gender_focus_leaves_portrait_draw_color_untinted = function()
 
   local maleColor, femaleColor
   for _, draw in ipairs(graphics.draws) do
-    if draw.x == 10 then
+    if draw.image and draw.image.path == "male.png" then
       maleColor = draw.color
-    elseif draw.x == 100 then
+    elseif draw.image and draw.image.path == "female.png" then
       femaleColor = draw.color
     end
   end
