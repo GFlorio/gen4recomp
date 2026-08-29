@@ -150,9 +150,13 @@ local function runtimeWithClock(catalog, calls, currentMap)
       getAt = function()
         return nil
       end,
-      enterMap = function()
-        calls.enterMap = calls.enterMap + 1
+    },
+    residency = {
+      prepareTransition = function(_, runtimeMap)
+        calls.prepareTransition = calls.prepareTransition + 1
+        return { runtimeMap = runtimeMap }
       end,
+      updatePrefetch = function() end,
     },
     scripts = {},
     session = { accumulator = 0, update = function() end, updateFixed = function() end },
@@ -187,7 +191,7 @@ function T.runtime_samples_weather_on_activation_and_selects_the_matching_fog()
   local valid, err = FieldWeatherCache.validateCatalog(catalog)
   Assert.isTrue(valid, tostring(err))
 
-  local calls = { today = 0, penalty = 0, enterMap = 0 }
+  local calls = { today = 0, penalty = 0, prepareTransition = 0 }
   local currentMap = destinationMap(1, 5, {})
   local runtime = runtimeWithClock(catalog, calls, currentMap)
   local overrideMap = destinationMap(WEATHER_MAP, 5, {})
@@ -205,7 +209,7 @@ function T.runtime_samples_weather_on_activation_and_selects_the_matching_fog()
   Assert.equal(calls.penalty, 1)
   Assert.equal(overrideMap.effectiveWeatherId, 8)
   Assert.equal(overrideMap.sceneRuntime.fog, catalog.presets[8])
-  Assert.equal(calls.enterMap, 0, "precommit preparation must not instantiate destination actors")
+  Assert.equal(calls.prepareTransition, 1)
 
   runtime:update(1 / 30)
   runtime:update(1 / 30)
@@ -224,7 +228,7 @@ function T.runtime_samples_weather_on_activation_and_selects_the_matching_fog()
   Assert.equal(calls.penalty, 2)
   Assert.equal(baseMap.effectiveWeatherId, 5)
   Assert.equal(baseMap.sceneRuntime.fog, baseFog, "unchanged weather must preserve compiled base fog")
-  Assert.equal(calls.enterMap, 0, "precommit preparation must not instantiate destination actors")
+  Assert.equal(calls.prepareTransition, 2)
 end
 
 return { tests = T, metadata = { tags = { "field", "weather" } } }

@@ -71,6 +71,34 @@ function T.output_is_deterministic_and_key_sorted()
   Assert.isTrue(a:find("b", 1, true) < a:find("c", 1, true))
 end
 
+function T.round_trips_tables_larger_than_the_lua_constant_limit()
+  local value = {}
+  for index = 0, 1400 do
+    local raw = {}
+    local tokens = {}
+    for offset = 0, 25 do
+      local code = index * 100 + offset
+      raw[offset] = code
+      tokens[offset] = {
+        kind = "glyph",
+        code = code,
+        text = "glyph-" .. code,
+        raw = { code },
+      }
+    end
+    value[index] = {
+      id = index,
+      text = "value-" .. index,
+      raw = raw,
+      tokens = tokens,
+    }
+  end
+  local out = roundTrip(value)
+  Assert.equal(out[0].raw[0], 0)
+  Assert.equal(out[1024].text, "value-1024")
+  Assert.equal(out[1400].tokens[25].text, "glyph-140025")
+end
+
 function T.rejects_function_values()
   local err = Assert.throws(function()
     LuaWriter.encode({ f = function() end })

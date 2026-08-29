@@ -9,10 +9,12 @@
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 
 local VAR_SCENE_PLAYERS_HOUSE_1F = FieldScriptSymbols.variablesByName.VAR_SCENE_PLAYERS_HOUSE_1F
+local VAR_SCENE_NEW_BARK_WEST_EXIT = FieldScriptSymbols.variablesByName.VAR_SCENE_NEW_BARK_WEST_EXIT
 local FLAGS = FieldScriptSymbols.flagsByName
 
 local OpeningLifecycle = {
   VAR_SCENE_PLAYERS_HOUSE_1F = VAR_SCENE_PLAYERS_HOUSE_1F,
+  VAR_SCENE_NEW_BARK_WEST_EXIT = VAR_SCENE_NEW_BARK_WEST_EXIT,
   MOM_GRANTED_FLAGS = {
     FLAGS.FLAG_GOT_BAG,
     FLAGS.FLAG_GOT_TRAINER_CARD,
@@ -89,6 +91,22 @@ end
 function OpeningLifecycle.settleNewBarkFriendScene(game)
   game:setWorldState({ flag = FLAGS.FLAG_HIDE_NEW_BARK_FRIEND })
   game:setWorldState({ flag = FLAGS.FLAG_HIDE_NEW_BARK_MARILL })
+end
+
+-- New Bark's only walkable connection to Route 29 is a single-tile corridor
+-- covered end-to-end by a coordinate event (scr_seq_0842_T20 script_002)
+-- that runs a sequence of source NPC scenes (a gender-confirmation greeting,
+-- then a doctor scene) the first time it is crossed, gated on
+-- `VAR_SCENE_NEW_BARK_WEST_EXIT == 0`. The script's own last step advances
+-- that variable to 1 once the sequence completes, so seeding 1 directly
+-- reflects a save that has already crossed this corridor once: the
+-- coordinate event no longer matches its gate and stops triggering,
+-- matching production for a returning player. Scenarios about crossing the
+-- corridor itself (rather than the one-time scene) seed this documented
+-- outcome directly, without running the scripted sequence.
+---@param game table an AcceptanceHarness game
+function OpeningLifecycle.seedNewBarkWestExitScene(game)
+  game:setWorldState({ variable = VAR_SCENE_NEW_BARK_WEST_EXIT, value = 1 })
 end
 
 -- Read the canonical script id a generated on-frame-equal rule would start

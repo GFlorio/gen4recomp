@@ -116,6 +116,18 @@ local function compileOne(decoded, sectionReader, sectionLimit, opts)
   return clip
 end
 
+-- Compile one already-decoded Nitro animation resource. Field effects and
+-- placed models share this format dispatch so animation semantics cannot
+-- diverge between producers.
+---@param decoded table
+---@param opts table
+---@return table
+function MapPropAnimCompiler.compileDecoded(decoded, opts)
+  assert(type(decoded) == "table" and type(decoded.animations) == "table", "decoded animation is required")
+  assert(type(decoded.bytes) == "string", "decoded animation bytes are required")
+  return compileOne(decoded, BinaryReader.new(decoded.bytes, "sec"), #decoded.bytes, opts)
+end
+
 -- Stamp the playback policy the runtime consumes: time-band metadata for a
 -- banded record (each clip takes the band of its slot) and the ambient-loop
 -- role for every clip of an ordinary-policy record. Compiled policy, so the

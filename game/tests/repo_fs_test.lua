@@ -31,7 +31,7 @@ function T.tests.traversal_paths_are_rejected()
     "data/../outside",
     "scripts/../../scripts/../../../../outside",
     "scripts/../outside",
-    "./manifests/vanilla_bindings.lua",
+    "./manifests/example.lua",
     "..\\outside",
     "scripts\\..\\outside",
     "scripts/..\\outside",

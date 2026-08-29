@@ -7,6 +7,7 @@ local CollisionFixture = require("tests.support.CollisionFixture")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local FieldGrid = require("libs.engine.src.FieldGrid")
+local FieldCellCache = require("libs.assets.src.FieldCellCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 
 local T = {}
@@ -23,7 +24,7 @@ local function fixture(mapCount)
   for mapId = 0, mapCount - 1 do
     local symbol = "MAP_" .. mapId
     local scene = {
-      schema = "g4-map-scene-v8",
+      schema = "g4-map-scene-v9",
       mapId = mapId,
       mapSymbol = symbol,
       cameraType = mapId,
@@ -41,11 +42,12 @@ local function fixture(mapCount)
     }
     files[scene.collision.file] = CollisionFixture.asset(32, 32)
     files[string.format("data/generated/field/maps/%04d/field.lua", mapId)] = {
-      schema = "g4-field-map-v7",
+      schema = "g4-field-map-v8",
       initScripts = {},
       mapId = mapId,
       mapSymbol = symbol,
       cameraType = mapId,
+      transitionEnvironment = "outdoors",
       events = { background = {}, objects = {}, warps = {}, coordinates = {} },
       music = { day = "SEQ_X", night = "SEQ_X", flagOverrides = {}, traversalOverrides = {} },
       soundplates = {},
@@ -76,18 +78,175 @@ local function fixture(mapCount)
   return cache, world, sceneLoader, releases, files
 end
 
+local function outdoorCacheFixture(indexState)
+  local cache, world, sceneLoader, _, files = fixture(1)
+  local scenePath = "data/generated/maps/0000/scene.lua"
+  local terrainPath = "data/generated/maps/0000/terrain.lua"
+  local collisionPath = "data/generated/maps/0000/collision.g4collision"
+  local calls = { terrain = 0, collision = 0 }
+  local realLoadLua = cache.loadLua
+  local realRead = cache.read
+  cache.loadLua = function(_, path)
+    if path == terrainPath then
+      calls.terrain = calls.terrain + 1
+    end
+    return realLoadLua(cache, path)
+  end
+  cache.read = function(_, path)
+    if path == collisionPath then
+      calls.collision = calls.collision + 1
+    end
+    return realRead(cache, path)
+  end
+  cache.exists = function(_, path)
+    return indexState ~= "missing" and path == FieldCellCache.indexPath()
+  end
+  if indexState == "invalid" then
+    files[FieldCellCache.indexPath()] = { schema = "wrong-field-cell-schema" }
+  end
+  local scene = files[scenePath]
+  scene.type = "outdoor"
+  sceneLoader.loadEnvironment = function(_, environmentScene)
+    return { scene = environmentScene, release = function() end }
+  end
+  return cache, world, sceneLoader, calls
+end
+
+function T.requires_physical_cells_for_outdoor_maps_but_keeps_indoor_aggregate_loading()
+  local failures = {}
+  for _, case in ipairs({
+    { state = "missing", code = "FIELD_CELL_CACHE_MISSING" },
+    { state = "invalid", code = "FIELD_CELL_CACHE_INVALID" },
+  }) do
+    local cache, world, sceneLoader, calls = outdoorCacheFixture(case.state)
+    local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+    local ok, err = pcall(loader.load, loader, 0)
+    if ok then
+      failures[#failures + 1] = case.state .. " cache was accepted"
+    elseif not Errors.is(err) then
+      failures[#failures + 1] = case.state .. " cache raised an unstructured error"
+    elseif err.code ~= case.code then
+      failures[#failures + 1] = case.state .. " cache raised " .. err.code
+    elseif tostring(err):find("rebuild", 1, true) == nil then
+      failures[#failures + 1] = case.state .. " cache error omitted rebuild guidance"
+    end
+    if calls.terrain ~= 0 or calls.collision ~= 0 then
+      failures[#failures + 1] = case.state .. " cache used aggregate terrain or collision"
+    end
+    loader:release()
+  end
+  Assert.equal(
+    table.concat(failures, "; "),
+    "",
+    "outdoor physical-cell cache contract failures: " .. table.concat(failures, "; ")
+  )
+
+  local cache, world, sceneLoader, calls = outdoorCacheFixture("missing")
+  local scene = cache:loadLua("data/generated/maps/0000/scene.lua")
+  scene.type = nil
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  local map = loader:load(0)
+  Assert.notNil(map.terrain)
+  Assert.notNil(map.collision)
+  Assert.equal(calls.terrain, 1)
+  Assert.equal(calls.collision, 1)
+  loader:release()
+end
+
 function T.loads_visual_field_collision_and_terrain_into_one_aggregate()
   local cache, world, sceneLoader = fixture(1)
   local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader, capacity = 4 })
   local map = loader:load("MAP_0")
   Assert.equal(map.mapId, 0)
   Assert.equal(map.sceneRuntime.scene.mapSymbol, "MAP_0")
-  Assert.equal(map.fieldData.schema, "g4-field-map-v7")
+  Assert.equal(map.fieldData.schema, "g4-field-map-v8")
   Assert.equal(map.fieldRegion.collision, map.collision)
   Assert.isTrue(map.fieldRegion.cells[1].collision:containsLocal(4, 4))
   Assert.isTrue(map.collision:containsLocal(4, 4))
   Assert.equal(map.terrain.artifact.schema, "g4-composite-terrain-v1")
   Assert.deepEqual(map.coordinateOrigin, { x = 0, z = 0 })
+  loader:release()
+end
+
+function T.reads_transition_environment_without_loading_a_scene()
+  local cache, world, sceneLoader = fixture(1)
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+  Assert.equal(loader:transitionEnvironment(0), "outdoors")
+  Assert.equal(loader:residentCount(), 0)
+  loader:release()
+end
+
+function T.rejects_missing_or_unknown_transition_environment_at_runtime_load()
+  for _, case in ipairs({ { value = nil }, { value = "unknown" } }) do
+    local cache, world, sceneLoader, _, files = fixture(1)
+    files["data/generated/field/maps/0000/field.lua"].transitionEnvironment = case.value
+    local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+    local err = Assert.throws(function()
+      loader:load(0)
+    end)
+    Assert.isTrue(
+      Errors.is(err) and err.code == "FIELD_MAP_DATA_CACHE_INVALID",
+      "malformed v6 transition environment must fail the runtime boundary"
+    )
+    loader:release()
+  end
+end
+
+function T.outdoor_logical_load_does_not_acquire_physical_or_representative_geometry()
+  local cache, world, sceneLoader, _, files = fixture(1)
+  local scene = cache.loadLua(cache, "data/generated/maps/0000/scene.lua")
+  scene.type = "outdoor"
+  world.maps[1].matrix = { memberId = 0 }
+  sceneLoader.load = function()
+    error("representative scene geometry must not be acquired")
+  end
+  sceneLoader.loadEnvironment = function(environmentScene)
+    return { scene = environmentScene, release = function() end }
+  end
+  cache.exists = function(_, path)
+    return path == FieldCellCache.indexPath()
+  end
+  local cell = {
+    schema = FieldCellCache.CELL_SCHEMA,
+    matrixMemberId = 0,
+    index = 0,
+    x = 0,
+    z = 0,
+    mapHeaderId = 0,
+    altitude = 0,
+    origin = { x = 0, y = 0, z = 0 },
+    landDataMemberId = 0,
+    areaDataMemberId = 0,
+    file = FieldCellCache.cellPath(0, 0),
+    collision = { file = FieldCellCache.collisionPath(0, 0) },
+    terrain = { file = FieldCellCache.terrainPath(0, 0), schema = "g4-terrain-surfaces-v1" },
+    batches = {},
+    materials = {},
+    buildingInstances = {},
+    terrainAnimations = { textureSrt = false },
+  }
+  files[FieldCellCache.indexPath()] = {
+    schema = FieldCellCache.INDEX_SCHEMA,
+    matrices = { { matrixMemberId = 0, width = 1, height = 1, cells = { cell } } },
+  }
+  files[cell.file] = cell
+  files[cell.collision.file] = CollisionFixture.asset(32, 32)
+  files[cell.terrain.file] = {
+    schema = "g4-terrain-surfaces-v1",
+    source = { bdhcSha1 = "cell-0" },
+    plates = {},
+  }
+  local loader = FieldMapLoader.new(cache, world, { sceneLoader = sceneLoader })
+
+  local map = loader:load(0)
+
+  Assert.isNil(map.coverage, "logical map entries must not own physical coverage")
+  Assert.isNil(map.collision, "outdoor logical maps must not load representative collision")
+  Assert.equal(map.sceneRuntime.scene, scene)
+  local coverage = loader:createPhysicalCoverage(map, { fieldX = 0, fieldZ = 0 })
+  Assert.equal(coverage.matrixMemberId, 0, "physical coverage identity comes from the world manifest")
+  Assert.equal(coverage.index, files[FieldCellCache.indexPath()], "coverage reuses the validated index")
+  coverage:release()
   loader:release()
 end
 
@@ -168,6 +327,7 @@ function T.composes_neighbor_collision_and_terrain_into_runtime_map()
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0.5,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
@@ -200,13 +360,15 @@ function T.composes_neighbor_collision_and_terrain_into_runtime_map()
   }
   local loader = FieldMapLoader.new(cache, world, { neighborLoader = neighborLoader })
   local map = loader:load(0)
-  Assert.equal(map.terrainDependencyHash, "g4-composite-terrain-v1|0:0:central-0|32:0:east")
+  Assert.equal(map.terrainDependencyHash, "g4-composite-terrain-v1|0:0:0:central-0|32:0.5:0:east")
   Assert.isTrue(map.collision:containsLocal(32, 4))
   Assert.isTrue(map.collision:isBlockedLocal(32, 4))
   Assert.isFalse(map.collision:isBlockedLocal(33, 4))
   local candidates = map.terrain:candidatesAt(32.5, 4.5)
   Assert.equal(#candidates, 1)
   Assert.equal(candidates[1].cellOffsetX, 32)
+  Assert.equal(candidates[1].cellOffsetY, 0.5)
+  Assert.equal(map.terrain:sampleHeight(candidates[1].id, 32.5, 4.5), 0.5)
   loader:release()
 end
 
@@ -216,7 +378,7 @@ end
 function T.failed_neighbor_load_releases_the_scene_runtime()
   local cache, world, sceneLoader, releases, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
-    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+    { offsetTilesX = 32, offsetTilesY = 0, offsetTilesZ = 0, batches = {}, materials = {} },
   }
   local neighborLoader = {
     load = function()
@@ -243,7 +405,7 @@ end
 function T.failed_central_collision_decode_releases_scene_and_neighbor()
   local cache, world, sceneLoader, releases, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
-    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+    { offsetTilesX = 32, offsetTilesY = 0, offsetTilesZ = 0, batches = {}, materials = {} },
   }
   files["data/generated/maps/0000/collision.g4collision"] = truncatedCollision()
   local neighborReleases = 0
@@ -279,7 +441,7 @@ end
 function T.failed_terrain_construction_releases_scene_and_neighbor()
   local cache, world, sceneLoader, releases, files = fixture(1)
   files["data/generated/maps/0000/scene.lua"].neighbors = {
-    { offsetTilesX = 32, offsetTilesZ = 0, batches = {}, materials = {} },
+    { offsetTilesX = 32, offsetTilesY = 0, offsetTilesZ = 0, batches = {}, materials = {} },
   }
   files["data/generated/maps/0000/terrain.lua"] = {
     schema = "g4-terrain-surfaces-v1",
@@ -400,6 +562,7 @@ function T.map_without_a_neighbor_terrain_source_fails_to_load()
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
@@ -443,6 +606,7 @@ function T.failed_neighbor_collision_decode_releases_scene_and_neighbor()
   files["data/generated/maps/0000/scene.lua"].neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
@@ -486,6 +650,7 @@ function T.runtime_map_update_animated_advances_scene_and_neighbor_exactly_once(
   scene.neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
@@ -567,6 +732,7 @@ function T.neighbor_loader_receives_the_central_scene_texture_srt_clip()
   scene.neighbors = {
     {
       offsetTilesX = 32,
+      offsetTilesY = 0,
       offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },

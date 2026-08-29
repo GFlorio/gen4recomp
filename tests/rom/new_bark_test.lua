@@ -18,6 +18,10 @@ local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
+local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local FieldCellCompiler = require("romdump.src.digest.FieldCellCompiler")
+local FieldCellCacheWriter = require("romdump.src.digest.FieldCellCacheWriter")
+local ModelAsset = require("libs.assets.src.ModelAsset")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
@@ -26,6 +30,20 @@ local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler"
 local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
 
 local T = {}
+
+local fieldCellCaches = {}
+
+local function publishedFieldCells(romFs, versionId)
+  local cache = fieldCellCaches[versionId]
+  if cache ~= nil then
+    return cache
+  end
+  cache = CacheFs.forVersion(versionId, FakeCache.new())
+  local bundle = assert(FieldCellCompiler.compile(romFs))
+  FieldCellCacheWriter.write(cache, bundle)
+  fieldCellCaches[versionId] = cache
+  return cache
+end
 
 local function resolve(romFs)
   return assert(MapResolver.resolve(romFs, "MAP_NEW_BARK"))
@@ -158,6 +176,70 @@ function T.geometry_inventory(romFs)
   Assert.equal(labo.modelName, "wk_labo")
 end
 
+function T.new_bark_physical_cell_is_complete_without_map_scene(romFs, versionId)
+  local cache = publishedFieldCells(romFs, versionId)
+  local index = FieldCellCache.loadIndex(cache)
+  local descriptor = assert(FieldCellCache.find(index, 0, 21, 12))
+  local cell = assert(cache:loadLua(descriptor.file))
+
+  Assert.isTrue(#cell.batches > 0, "New Bark physical cell has terrain batches")
+  local laboratory
+  for _, instance in ipairs(cell.buildingInstances) do
+    if type(instance.modelKey) == "string" and instance.modelKey:find("^outdoor:21:") then
+      laboratory = instance
+      break
+    end
+  end
+  Assert.notNil(laboratory, "New Bark physical cell places the laboratory exterior")
+  Assert.deepEqual(cell.origin, { x = 672, y = 0, z = 384 })
+
+  for _, batch in ipairs(cell.batches) do
+    Assert.isTrue(cache:exists(batch.geometry, "file"), "physical terrain geometry is published")
+  end
+  for _, material in ipairs(cell.materials) do
+    if material.texture ~= nil then
+      Assert.isTrue(cache:exists(material.texture, "file"), "physical terrain texture is published")
+    end
+    if material.textureSwap ~= nil then
+      for _, step in ipairs(material.textureSwap.steps) do
+        Assert.isTrue(cache:exists(step.texture, "file"), "terrain replacement texture is published")
+      end
+    end
+  end
+
+  local modelPath = MapAssetCache.modelPath(laboratory.modelKey)
+  Assert.isTrue(cache:exists(modelPath, "file"), "laboratory model descriptor is published")
+  local model = assert(cache:loadLua(modelPath))
+  ModelAsset.validate(model)
+  for _, path in ipairs(ModelAsset.referencedPaths(model)) do
+    Assert.isTrue(cache:exists(path, "file"), "building presentation asset is published")
+  end
+  Assert.isTrue(cache:exists(cell.collision.file, "file"), "physical collision is published")
+  Assert.isTrue(cache:exists(cell.terrain.file, "file"), "physical terrain is published")
+  Assert.isTrue(FieldCellCache.validateCell(cache, cell), "physical cell readback validates")
+end
+
+function T.new_bark_physical_cell_carries_area_texture_animation(romFs, versionId)
+  local cache = publishedFieldCells(romFs, versionId)
+  local index = FieldCellCache.loadIndex(cache)
+  local descriptor = assert(FieldCellCache.find(index, 0, 21, 12))
+  local cell = assert(cache:loadLua(descriptor.file))
+  local mapBundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local expected = mapBundle.scene.terrainAnimations.textureSrt
+  local actual = cell.terrainAnimations.textureSrt
+
+  Assert.isTrue(type(actual) == "table", "New Bark physical cell carries a texture-SRT clip")
+  Assert.deepEqual(actual, expected, "physical cell selects the area animation")
+  for _, material in ipairs(cell.materials) do
+    local swap = material.textureSwap
+    if swap ~= nil then
+      for _, step in ipairs(swap.steps) do
+        Assert.isTrue(cache:exists(step.texture, "file"), "physical cell publishes texture-swap images")
+      end
+    end
+  end
+end
+
 -- New Bark's outdoor texture pack includes A3I5/A5I3 partial-alpha textures.
 -- Texture storage format alone no longer decides the alpha class:
 -- `AlphaClassifier` v2 is final-alpha-aware (a DECAL material ignores texture
@@ -172,7 +254,7 @@ end
 function T.mixed_alpha_materials_split_by_exact_final_alpha_not_format_alone(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
   local scene = bundle.scene
-  Assert.equal(scene.schema, "g4-map-scene-v8")
+  Assert.equal(scene.schema, MapAssetCache.SCENE_SCHEMA)
 
   local VALID_CLASSES = {
     [AlphaClassifier.OPAQUE] = true,
@@ -409,16 +491,25 @@ function T.neighbor_ring_plans_and_compiles(romFs)
 end
 
 -- The compiled New Bark bundle carries the digested neighbour ring in
--- scene.neighbors: one descriptor per drawn cell with integer tile offsets and
+-- scene.neighbors: one descriptor per drawn cell with normalized XYZ offsets and
 -- real terrain batches, whose geometry is content-addressed into the shared mesh
 -- pool (so it dedups with the centre scene's assets rather than living apart).
 function T.neighbors_are_digested_into_the_scene(romFs)
   local bundle = assert(MapAssetCompiler.compile(romFs, "MAP_NEW_BARK"))
+  local resolved = resolve(romFs)
   local neighbors = bundle.scene.neighbors
   Assert.isTrue(type(neighbors) == "table" and #neighbors > 0, "scene carries neighbor descriptors")
 
   for _, d in ipairs(neighbors) do
     Assert.isTrue(math.floor(d.offsetTilesX) == d.offsetTilesX, "integer offsetTilesX")
+    Assert.isTrue(type(d.offsetTilesY) == "number" and d.offsetTilesY == d.offsetTilesY, "finite offsetTilesY")
+    local dx = d.offsetTilesX / 32
+    local dz = d.offsetTilesZ / 32
+    local expectedY = (
+      resolved.matrix:altitudeAt(resolved.matrixX + dx, resolved.matrixZ + dz)
+      - resolved.matrix:altitudeAt(resolved.matrixX, resolved.matrixZ)
+    ) * 0.5
+    Assert.equal(d.offsetTilesY, expectedY, "neighbor Y is center-relative")
     Assert.isTrue(math.floor(d.offsetTilesZ) == d.offsetTilesZ, "integer offsetTilesZ")
     Assert.isTrue(#d.batches > 0, "descriptor has at least one batch")
     for _, b in ipairs(d.batches) do

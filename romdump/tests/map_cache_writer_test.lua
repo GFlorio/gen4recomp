@@ -43,6 +43,9 @@ function T.writes_neighbor_collision_and_terrain_artifacts()
   }
   bundle.scene.neighbors = {
     {
+      offsetTilesX = 0,
+      offsetTilesY = 0,
+      offsetTilesZ = 0,
       collision = { file = collisionPath },
       terrain = { file = terrainPath },
       batches = {},

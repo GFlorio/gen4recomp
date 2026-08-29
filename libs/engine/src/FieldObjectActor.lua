@@ -15,10 +15,13 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field spriteId integer
 ---@field fieldX integer
 ---@field fieldZ integer
----@field surfaceId integer
----@field worldX number
----@field worldY number
----@field worldZ number
+---@field cellKey string?
+---@field sourceSurfaceId integer?
+---@field surfaceId integer?
+---@field worldX number?
+---@field worldY number?
+---@field worldZ number?
+---@field resident boolean
 ---@field initialFacing FieldDirection
 ---@field facing FieldDirection
 ---@field pose string
@@ -32,6 +35,17 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field pushFacingOverride fun(self: FieldObjectActor, request: { owner: string, facing: FieldDirection }): table
 ---@field releaseFacingOverride fun(self: FieldObjectActor, token: table)
 ---@field clearFacingOverride fun(self: FieldObjectActor)
+---@field beginScriptedAction fun(self: FieldObjectActor, descriptor: table)
+---@field advanceScriptedAction fun(self: FieldObjectActor, progressTicks: integer, durationTicks: integer)
+---@field commitScriptedAction fun(self: FieldObjectActor): table?
+---@field cancelScriptedAction fun(self: FieldObjectActor)
+---@field isScriptedMoving fun(self: FieldObjectActor): boolean
+---@field settlePresentation fun(self: FieldObjectActor)
+---@field currentAction fun(self: FieldObjectActor): string?
+---@field scriptedMotionState fun(self: FieldObjectActor): table?
+---@field setFacing fun(self: FieldObjectActor, direction: FieldDirection)
+---@field setVisible fun(self: FieldObjectActor, visible: boolean)
+---@field setPosition fun(self: FieldObjectActor, position: { fieldX: integer, fieldZ: integer, worldY: number?, worldX: number?, worldZ: number?, surfaceId: integer?, cellKey: string?, sourceSurfaceId: integer?, resident: boolean })
 
 local FieldObjectActor = {}
 FieldObjectActor.__index = FieldObjectActor
@@ -97,10 +111,13 @@ function FieldObjectActor.new(opts)
     spriteId = opts.spriteId or event.spriteId,
     fieldX = opts.fieldX,
     fieldZ = opts.fieldZ,
+    cellKey = opts.cellKey,
+    sourceSurfaceId = opts.sourceSurfaceId,
     surfaceId = opts.surfaceId,
     worldX = opts.worldX,
     worldY = opts.worldY,
     worldZ = opts.worldZ,
+    resident = opts.resident == true,
     initialFacing = facing,
     facing = facing,
     pose = "idle",
@@ -387,14 +404,17 @@ end
 
 -- Scripted position set: the caller (the actor manager) has already resolved
 -- the destination surface and the occupancy index key for the new cell.
----@param position { fieldX: integer, fieldZ: integer, worldY: number, worldX: number, worldZ: number, surfaceId: integer }
+---@param position { fieldX: integer, fieldZ: integer, worldY: number?, worldX: number?, worldZ: number?, surfaceId: integer?, cellKey: string?, sourceSurfaceId: integer?, resident: boolean }
 function FieldObjectActor:setPosition(position)
   self.fieldX = position.fieldX
   self.fieldZ = position.fieldZ
   self.surfaceId = position.surfaceId
+  self.cellKey = position.cellKey
+  self.sourceSurfaceId = position.sourceSurfaceId
   self.worldY = position.worldY
   self.worldX = position.worldX
   self.worldZ = position.worldZ
+  self.resident = position.resident == true
 end
 
 return FieldObjectActor

@@ -1,10 +1,6 @@
--- Owns live field-map aggregates and evicts them by least-recent use. Serialized
--- visual, event, collision, and terrain caches remain independent; this loader
--- joins their validated runtime views. The central and neighbor collision
--- grids decode through the same pure project-owned asset path regardless of
--- presentation: the visual scene loader (MapSceneLoader) and the neighbor
--- ring are optional presentation-only collaborators supplied by the
--- composition, and a simulation-only runtime simply leaves them out.
+-- Owns logical field-map entries and evicts them by least-recent use. Serialized
+-- visual and event caches remain independent; outdoor physical cells are owned
+-- by the field session, while indoor maps retain their aggregate runtime view.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
@@ -17,6 +13,8 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local DoorTiles = require("libs.engine.src.DoorTiles")
 local MapProps = require("libs.engine.src.MapProps")
 local ModelDoorMetadata = require("libs.engine.src.ModelDoorMetadata")
+local FieldCoverage = require("libs.engine.src.FieldCoverage")
+local FieldCellCache = require("libs.assets.src.FieldCellCache")
 
 ---@class FieldMapLoader
 ---@field cacheFs CacheFs
@@ -24,6 +22,8 @@ local ModelDoorMetadata = require("libs.engine.src.ModelDoorMetadata")
 ---@field capacity integer
 ---@field sceneLoader table|nil presentation-only visual scene loader
 ---@field neighborLoader table|nil presentation-only finite neighbor-ring loader
+---@field sceneOptions table|nil options passed to physical-cell presentation loading
+---@field fieldCellIndex table?
 ---@field entries table<integer, table>
 ---@field protectedMaps table<integer, boolean>
 ---@field clock integer
@@ -34,19 +34,24 @@ FieldMapLoader.__index = FieldMapLoader
 ---@class RuntimeFieldMap
 ---@field mapId integer
 ---@field mapSymbol string
+---@field mapSection string
 ---@field sceneRuntime table|nil presentation-only visual scene runtime
----@field mapProps MapProps semantic door/prop resolver, present regardless of presentation
+---@field mapProps MapProps? semantic door/prop resolver; present for logical (non-outdoor) maps, which load an eager central collision regardless of presentation
 ---@field scene table
 ---@field fieldData table
----@field collision table
----@field terrain TerrainSurface
----@field terrainDependencyHash string
----@field fieldRegion table
+---@field collision table?
+---@field terrain TerrainSurface?
+---@field terrainDependencyHash string?
+---@field fieldRegion table?
 ---@field cameraType integer
 ---@field coordinateOrigin { x: integer, z: integer }
+---@field physicalOrigin { x: number, y: number, z: number }?
 ---@field neighborRuntime table?
+---@field coverage FieldCoverage? only on a session-owned composed field view
+---@field probePhysicalCell fun(self: RuntimeFieldMap, fieldX: integer, fieldZ: integer, context: PhysicalProbeContext?): table?|nil
 ---@field release fun(self: RuntimeFieldMap)
 ---@field updateAnimated fun(self: RuntimeFieldMap)
+---@field syncPhysicalFields fun(self: RuntimeFieldMap)|nil
 
 ---@param world table
 ---@param idOrSymbol string|integer
@@ -87,6 +92,26 @@ local function loadRequired(cacheFs, path, code)
     })
   end
   return value --[[@as table]]
+end
+
+---@param cacheFs CacheFs
+---@return table
+local function loadFieldCellIndex(cacheFs)
+  local path = FieldCellCache.indexPath()
+  local index, err = cacheFs:loadLua(path)
+  if index == nil then
+    Errors.raise(FieldErrors.FIELD_CELL_CACHE_MISSING, "field cell index is unavailable; rebuild the derived cache", {
+      path = path,
+      cause = err and Errors.format(err),
+    })
+  end
+  local loadedIndex = index --[[@as table]]
+  if not FieldCellCache.validateIndex(loadedIndex) then
+    Errors.raise(FieldErrors.FIELD_CELL_CACHE_INVALID, "field cell index is malformed; rebuild the derived cache", {
+      path = path,
+    })
+  end
+  return loadedIndex
 end
 
 local function releaseAggregate(runtimeMap)
@@ -144,10 +169,12 @@ local function loadNeighborRegion(cacheFs, scene, centralCollision, centralTerra
     requireTerrainSource(terrainArtifact, {
       mapId = scene.mapId,
       offsetTilesX = descriptor.offsetTilesX,
+      offsetTilesY = descriptor.offsetTilesY,
       offsetTilesZ = descriptor.offsetTilesZ,
     })
     neighbors[#neighbors + 1] = {
       offsetTilesX = descriptor.offsetTilesX,
+      offsetTilesY = descriptor.offsetTilesY,
       offsetTilesZ = descriptor.offsetTilesZ,
       collision = loadCollision(cacheFs, descriptor.collision, FieldErrors.FIELD_MAP_NEIGHBOR_CACHE_MISSING, {
         mapId = scene.mapId,
@@ -227,8 +254,13 @@ end
 local function terrainDependencyHash(region)
   local identities = { "g4-composite-terrain-v1" }
   for _, cell in ipairs(region.cells) do
-    identities[#identities + 1] =
-      string.format("%d:%d:%s", cell.offsetTilesX, cell.offsetTilesZ, cell.terrain.artifact.source.bdhcSha1)
+    identities[#identities + 1] = string.format(
+      "%d:%.17g:%d:%s",
+      cell.offsetTilesX,
+      cell.offsetTilesY,
+      cell.offsetTilesZ,
+      cell.terrain.artifact.source.bdhcSha1
+    )
   end
   return table.concat(identities, "|")
 end
@@ -248,6 +280,8 @@ function FieldMapLoader.new(cacheFs, world, options)
     capacity = capacity,
     sceneLoader = options.sceneLoader,
     neighborLoader = options.neighborLoader,
+    sceneOptions = options.sceneOptions,
+    fieldCellIndex = nil,
     entries = {},
     protectedMaps = {},
     clock = 0,
@@ -276,7 +310,7 @@ function FieldMapLoader:_evict(skipMapId)
   end
 end
 
-function FieldMapLoader:load(idOrSymbol)
+function FieldMapLoader:load(idOrSymbol, _)
   assert(not self.released, "field map loader is released")
   local record = worldRecord(self.world, idOrSymbol)
   local existing = self.entries[record.id]
@@ -289,8 +323,7 @@ function FieldMapLoader:load(idOrSymbol)
   local scene = loadRequired(self.cacheFs, mapDir .. "/scene.lua", FieldErrors.FIELD_MAP_VISUAL_CACHE_MISSING)
   local fieldData =
     loadRequired(self.cacheFs, FieldMapDataCache.fieldPath(record.id), FieldErrors.FIELD_MAP_DATA_CACHE_MISSING)
-  local terrainArtifact =
-    loadRequired(self.cacheFs, MapAssetCache.terrainPath(record.id), FieldErrors.FIELD_MAP_TERRAIN_CACHE_MISSING)
+  local terrainArtifact
   if scene.schema ~= MapAssetCache.SCENE_SCHEMA or scene.mapId ~= record.id then
     Errors.raise(
       FieldErrors.FIELD_MAP_VISUAL_CACHE_INVALID,
@@ -326,14 +359,13 @@ function FieldMapLoader:load(idOrSymbol)
       { mapId = record.id }
     )
   end
-  if terrainArtifact.schema ~= MapAssetCache.TERRAIN_SCHEMA then
+  if not FieldMapDataCache.isTransitionEnvironment(fieldData.transitionEnvironment) then
     Errors.raise(
-      FieldErrors.FIELD_MAP_TERRAIN_CACHE_INVALID,
-      "terrain cache schema mismatch",
-      { mapId = record.id, schema = terrainArtifact.schema }
+      FieldErrors.FIELD_MAP_DATA_CACHE_INVALID,
+      "field cache transition environment is missing or malformed; rebuild the derived cache",
+      { mapId = record.id, transitionEnvironment = fieldData.transitionEnvironment }
     )
   end
-  requireTerrainSource(terrainArtifact, { mapId = record.id })
   if fieldData.cameraType ~= scene.cameraType then
     Errors.raise(
       FieldErrors.FIELD_MAP_CAMERA_MISMATCH,
@@ -342,40 +374,67 @@ function FieldMapLoader:load(idOrSymbol)
     )
   end
 
-  if not scene.collision or type(scene.collision.file) ~= "string" then
-    Errors.raise(
-      FieldErrors.FIELD_MAP_VISUAL_CACHE_INVALID,
-      "scene collision descriptor is missing; rebuild the derived cache",
-      { mapId = record.id }
-    )
+  local physicalCells = scene.type == "outdoor"
+  if physicalCells and not self.fieldCellIndex then
+    self.fieldCellIndex = loadFieldCellIndex(self.cacheFs)
   end
-  if type(scene.buildingInstances) ~= "table" then
-    Errors.raise(
-      FieldErrors.FIELD_MAP_VISUAL_CACHE_INVALID,
-      "scene buildingInstances is missing or malformed; rebuild the derived cache",
-      { mapId = record.id }
-    )
+  if not physicalCells then
+    terrainArtifact =
+      loadRequired(self.cacheFs, MapAssetCache.terrainPath(record.id), FieldErrors.FIELD_MAP_TERRAIN_CACHE_MISSING)
+    if terrainArtifact.schema ~= MapAssetCache.TERRAIN_SCHEMA then
+      Errors.raise(
+        FieldErrors.FIELD_MAP_TERRAIN_CACHE_INVALID,
+        "terrain cache schema mismatch",
+        { mapId = record.id, schema = terrainArtifact.schema }
+      )
+    end
+    requireTerrainSource(terrainArtifact, { mapId = record.id })
   end
-  -- The central collision decodes through the same pure project-owned asset
-  -- path whether or not presentation is enabled, so simulation and rendering
-  -- can never disagree about blocking. mapProps (the semantic door/prop
-  -- resolver) is built from it and the scene's building placements the same
-  -- way regardless of presentation, so a headless composition gets the exact
-  -- generated door census a presentation one would -- one authority, built
-  -- once, never reconstructed per presentation state.
-  local centralCollision = loadCollision(self.cacheFs, scene.collision, FieldErrors.FIELD_MAP_COLLISION_CACHE_MISSING, {
-    mapId = record.id,
-    worldOriginX = scene.matrix.worldOriginX,
-    worldOriginZ = scene.matrix.worldOriginZ,
-  })
-  local mapProps = buildMapProps(self.cacheFs, scene, fieldData, centralCollision)
+
+  -- Outdoor cells own collision, terrain, and geometry through the physical
+  -- coverage window; the logical scene contributes only environment state,
+  -- so no central collision or mapProps exists until coverage is
+  -- established. Every other (indoor) map decodes its central collision
+  -- through the same pure project-owned asset path whether or not
+  -- presentation is enabled, so simulation and rendering can never disagree
+  -- about blocking, and mapProps (the semantic door/prop resolver) is built
+  -- from it and the scene's building placements the same way regardless of
+  -- presentation -- one authority, built once, never reconstructed per
+  -- presentation state.
+  local centralCollision
+  local mapProps
+  if not physicalCells then
+    if not scene.collision or type(scene.collision.file) ~= "string" then
+      Errors.raise(
+        FieldErrors.FIELD_MAP_VISUAL_CACHE_INVALID,
+        "scene collision descriptor is missing; rebuild the derived cache",
+        { mapId = record.id }
+      )
+    end
+    if type(scene.buildingInstances) ~= "table" then
+      Errors.raise(
+        FieldErrors.FIELD_MAP_VISUAL_CACHE_INVALID,
+        "scene buildingInstances is missing or malformed; rebuild the derived cache",
+        { mapId = record.id }
+      )
+    end
+    centralCollision = loadCollision(self.cacheFs, scene.collision, FieldErrors.FIELD_MAP_COLLISION_CACHE_MISSING, {
+      mapId = record.id,
+      worldOriginX = scene.matrix.worldOriginX,
+      worldOriginZ = scene.matrix.worldOriginZ,
+    })
+    mapProps = buildMapProps(self.cacheFs, scene, fieldData, centralCollision)
+  end
 
   -- The visual scene runtime is optional: only a presentation composition
-  -- supplies a scene loader. It attaches its live ModelInstances into the
-  -- SAME mapProps rather than building a second door census.
+  -- supplies a scene loader. For indoor maps it attaches its live
+  -- ModelInstances into the SAME mapProps rather than building a second door
+  -- census; an outdoor map's presentation instead loads the environment
+  -- shell and defers physical geometry to the coverage window.
   local sceneRuntime
   if self.sceneLoader then
-    sceneRuntime = self.sceneLoader.load(self.cacheFs, scene, { mapProps = mapProps })
+    sceneRuntime = physicalCells and self.sceneLoader.loadEnvironment(scene)
+      or self.sceneLoader.load(self.cacheFs, scene, { mapProps = mapProps })
   end
   -- One transaction covers every step after the scene runtime is acquired:
   -- neighbor-ring load, terrain construction, neighbor decoding, region
@@ -386,45 +445,57 @@ function FieldMapLoader:load(idOrSymbol)
   local neighborRuntime
   local runtimeMap
   local ok, loadErr = pcall(function()
-    if self.neighborLoader and #scene.neighbors > 0 then
+    if not physicalCells and self.neighborLoader and #scene.neighbors > 0 then
       neighborRuntime = self.neighborLoader.load(self.cacheFs, scene.neighbors, {
         textureSrt = scene.terrainAnimations.textureSrt,
       })
     end
 
-    local centralTerrain = TerrainSurface.new(terrainArtifact)
-    local region = loadNeighborRegion(self.cacheFs, scene, centralCollision, centralTerrain)
+    local region
+    if not physicalCells then
+      local centralTerrain = TerrainSurface.new(assert(terrainArtifact))
+      region = loadNeighborRegion(self.cacheFs, scene, centralCollision, centralTerrain)
+    end
     runtimeMap = {
       mapId = record.id,
       mapSymbol = record.symbol,
+      mapSection = record.mapSection,
       sceneRuntime = sceneRuntime,
       mapProps = mapProps,
       scene = scene,
       fieldData = fieldData,
-      collision = region.collision,
-      terrain = region.terrain,
-      terrainDependencyHash = terrainDependencyHash(region),
+      collision = region and region.collision or nil,
+      terrain = region and region.terrain or nil,
+      terrainDependencyHash = region and terrainDependencyHash(region) or nil,
       fieldRegion = region,
       cameraType = scene.cameraType,
       coordinateOrigin = { x = scene.matrix.worldOriginX, z = scene.matrix.worldOriginZ },
+      physicalOrigin = nil,
       neighborRuntime = neighborRuntime,
       released = false,
     }
+    function runtimeMap:probePhysicalCell(_, _)
+      return nil
+    end
     function runtimeMap:release()
       releaseAggregate(self)
     end
     -- The one fixed-tick entry FieldSession steps: fans out to the central
-    -- scene runtime, the neighbor ring runtime (each guarded so a
+    -- scene runtime and the neighbor ring runtime (each guarded so a
     -- simulation-only aggregate stays a safe no-op), and the semantic door
-    -- index, which advances regardless of presentation.
+    -- index when this is a logical (non-outdoor) map, which advances
+    -- regardless of presentation. An outdoor map's physical window is
+    -- stepped separately once coverage composes over this logical entry.
     function runtimeMap:updateAnimated()
-      if self.sceneRuntime then
+      if self.sceneRuntime and self.sceneRuntime.updateAnimated then
         self.sceneRuntime:updateAnimated()
       end
       if self.neighborRuntime then
         self.neighborRuntime:updateAnimated()
       end
-      self.mapProps:updateFixed()
+      if self.mapProps then
+        self.mapProps:updateFixed()
+      end
     end
 
     local entry = { runtimeMap = runtimeMap }
@@ -445,18 +516,71 @@ function FieldMapLoader:load(idOrSymbol)
   return runtimeMap
 end
 
+-- Construct the session-owned physical window for an outdoor logical map.
+-- The loader provides validated cache access and presentation construction,
+-- but never stores or releases the returned owner.
+---@param runtimeMap RuntimeFieldMap
+---@param position { fieldX: integer, fieldZ: integer }
+---@return FieldCoverage
+function FieldMapLoader:createPhysicalCoverage(runtimeMap, position)
+  assert(not self.released, "field map loader is released")
+  assert(runtimeMap and runtimeMap.scene and runtimeMap.scene.type == "outdoor", "outdoor logical map required")
+  local fieldCellIndex = assert(self.fieldCellIndex, "field cell cache is unavailable")
+  assert(type(position) == "table", "physical coverage position required")
+  local record = worldRecord(self.world, runtimeMap.mapId)
+  local matrix = assert(record.matrix, "outdoor map matrix metadata is required")
+  local matrixMemberId = assert(matrix.memberId, "outdoor matrix member is required")
+  local presentationLoader
+  local presentationTaskFactory
+  if self.sceneLoader and self.sceneLoader.beginCell then
+    presentationTaskFactory = function(_, cell)
+      return self.sceneLoader.beginCell(self.cacheFs, cell, self.sceneOptions)
+    end
+  elseif self.sceneLoader and self.sceneLoader.loadCell then
+    presentationLoader = function(_, cell)
+      return self.sceneLoader.loadCell(self.cacheFs, cell, self.sceneOptions)
+    end
+  end
+  return FieldCoverage.new({
+    cacheFs = self.cacheFs,
+    index = fieldCellIndex,
+    matrixMemberId = matrixMemberId,
+    anchorX = math.floor(position.fieldX / 32),
+    anchorZ = math.floor(position.fieldZ / 32),
+    presentationLoader = presentationLoader,
+    presentationTaskFactory = presentationTaskFactory,
+  })
+end
+
+-- Read only the generated semantic metadata needed to choose a transition.
+-- This deliberately does not load a scene, collision grid, terrain, or GPU
+-- resource, so profile selection cannot acquire destination ownership.
+function FieldMapLoader:transitionEnvironment(idOrSymbol)
+  assert(not self.released, "field map loader is released")
+  local record = worldRecord(self.world, idOrSymbol)
+  local fieldData =
+    loadRequired(self.cacheFs, FieldMapDataCache.fieldPath(record.id), FieldErrors.FIELD_MAP_DATA_CACHE_MISSING)
+  if
+    fieldData.schema ~= FieldMapDataCache.FIELD_SCHEMA
+    or fieldData.mapId ~= record.id
+    or not FieldMapDataCache.hasRequiredEvents(fieldData.events)
+    or not FieldMapDataCache.isTransitionEnvironment(fieldData.transitionEnvironment)
+  then
+    Errors.raise(
+      FieldErrors.FIELD_MAP_DATA_CACHE_INVALID,
+      "field cache identity, event collections, or transition environment is invalid; rebuild the derived cache",
+      { mapId = record.id }
+    )
+  end
+  return fieldData.transitionEnvironment
+end
+
 function FieldMapLoader:get(mapId)
   local entry = self.entries[mapId]
   return entry and entry.runtimeMap or nil
 end
 
--- Transition profile selection needs only the destination map's generated
--- environment, but the loader remains the owner of loading that field map.
-function FieldMapLoader:transitionEnvironment(mapId)
-  local runtimeMap = self:load(mapId)
-  return assert(runtimeMap.fieldData.transitionEnvironment, "field map transition environment required")
-end
-
+-- Counts currently resident map entries without acquiring or releasing them.
 function FieldMapLoader:residentCount()
   local count = 0
   for _ in pairs(self.entries) do

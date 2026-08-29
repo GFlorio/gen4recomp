@@ -50,6 +50,9 @@ local FAKE_PATHS = {
   "libs.assets.src.ScriptCache",
   "romdump.src.digest.audio.AudioCompiler",
   "romdump.src.digest.AudioCacheWriter",
+  "romdump.src.digest.FieldCellCompiler",
+  "romdump.src.digest.FieldCellCacheWriter",
+  "libs.assets.src.FieldCellCache",
   "romdump.src.DerivedCacheState",
   "romdump.src.ProducerFingerprint",
   "romdump.src.DerivedCacheAudit",
@@ -99,6 +102,7 @@ local function newEnv()
         landDataMemberId = 3,
         source = "direct",
         matchCount = 1,
+        mapSection = "town",
       },
       {
         status = "resolved",
@@ -111,6 +115,7 @@ local function newEnv()
         landDataMemberId = 5,
         source = "matrix",
         matchCount = 2,
+        mapSection = "route",
       },
     },
     mapBundles = {
@@ -154,6 +159,7 @@ local function newEnv()
     messageBundle = { marker = "msg-v1", index = { bankIds = { 4, 8 } } },
     scriptBundle = { marker = "scr-v1", index = { resourceCount = 2, scriptMemberCount = 9 } },
     audioBundle = { marker = "audio-v1", index = {} },
+    fieldCellBundle = { marker = "cells-v1", index = {}, cells = {} },
   }
 end
 
@@ -328,6 +334,9 @@ local function makeFakes()
   fakes.AudioCompiler.compile = function()
     return env.audioBundle
   end
+  fakes.FieldCellCompiler.compile = function()
+    return env.fieldCellBundle
+  end
   fakes.WorldManifest.stage = function(cacheFs, entries, excluded, compileExcluded)
     if env.manifestRaise ~= nil then
       error(env.manifestRaise, 0)
@@ -406,6 +415,7 @@ function T.current_build_logs_every_class_and_stages_and_publishes_the_world_man
     "build-cache: heartgold field messages current",
     "build-cache: heartgold scripts current",
     "build-cache: heartgold audio current",
+    "build-cache: heartgold physical field cells current",
     "build-cache: heartgold map 2 current",
     "build-cache: heartgold map 5 current",
     "build-cache: heartgold map 5 unresolved map texture: material bike_02_2_lm3 of m_name01_00_00c land_data:280 wants bike_02_2 from map_textures member 42",
@@ -418,6 +428,7 @@ function T.current_build_logs_every_class_and_stages_and_publishes_the_world_man
     {
       id = 2,
       symbol = "s_town",
+      mapSection = "town",
       width = 20,
       height = 20,
       matrix = { memberId = 1, x = 0, z = 1, index = 2, landDataMemberId = 3, selection = "direct", matchCount = 1 },
@@ -425,6 +436,7 @@ function T.current_build_logs_every_class_and_stages_and_publishes_the_world_man
     {
       id = 5,
       symbol = "s_route",
+      mapSection = "route",
       width = 10,
       height = 10,
       matrix = { memberId = 6, x = 2, z = 3, index = 4, landDataMemberId = 5, selection = "matrix", matchCount = 2 },
@@ -477,6 +489,7 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     FieldMessageCacheWriter = true,
     ScriptCacheWriter = true,
     AudioCacheWriter = true,
+    FieldCellCacheWriter = true,
     MapAssetCache = true,
   }
   local capture = collectLog()
@@ -498,6 +511,7 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     "build-cache: heartgold field messages compiled (2 banks)",
     "build-cache: heartgold scripts compiled (2 resources, 9 members)",
     "build-cache: heartgold audio compiled",
+    "build-cache: heartgold physical field cells compiled",
     "build-cache: heartgold map 2 compiled",
     "build-cache: heartgold map 5 compiled",
     "build-cache: heartgold map 5 unresolved map texture: material bike_02_2_lm3 of m_name01_00_00c land_data:280 wants bike_02_2 from map_textures member 42",
@@ -521,9 +535,10 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   Assert.equal(err, "cache preparation failed")
   Assert.equal(capture.lines[13], "build-cache: heartgold scripts current")
   Assert.equal(capture.lines[14], "build-cache: heartgold audio current")
-  Assert.equal(capture.lines[15], "build-cache: heartgold map 2 current")
+  Assert.equal(capture.lines[15], "build-cache: heartgold physical field cells current")
+  Assert.equal(capture.lines[16], "build-cache: heartgold map 2 current")
   Assert.equal(
-    capture.lines[16],
+    capture.lines[17],
     "build-cache: heartgold map 5 excluded: MAP_SCHEMA_INVALID: injected compile rejection"
   )
   Assert.deepEqual(env.worldStage.compileExcluded, {
@@ -536,11 +551,11 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
     },
   })
   Assert.equal(
-    capture.lines[17],
+    capture.lines[18],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
   Assert.equal(
-    capture.lines[18],
+    capture.lines[19],
     "build-cache: compile exclusions remain; " .. "rerun with --allow-compile-exclusions to accept them"
   )
   Assert.equal(env.worldPublishes, 0, "an unaccepted-exclusion build must never publish its staged world")
@@ -554,10 +569,10 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   Assert.isNil(err2)
   Assert.deepEqual(report2, { published = true, complete = false, exclusionCount = 1 })
   Assert.equal(
-    accepted.lines[17],
+    accepted.lines[18],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
-  Assert.equal(accepted.lines[18], "build-cache: heartgold world.lua published")
+  Assert.equal(accepted.lines[19], "build-cache: heartgold world.lua published")
   Assert.equal(env.worldPublishes, 1, "an accepted-exclusion build publishes its staged world")
   -- A build that accepted compile exclusions is not a strict success and must
   -- never publish the successful-build attestation.
@@ -732,6 +747,7 @@ function T.producer_mismatch_forces_every_writer_and_publishes_after_strict_succ
     "FieldActorCacheWriter.write",
     "FieldActorEmoteCacheWriter.write",
     "FieldCameraCacheWriter.write",
+    "FieldCellCacheWriter.write",
     "FieldEntranceIndicatorCacheWriter.write",
     "FieldFontCacheWriter.write",
     "FieldMapDataCacheWriter.write",

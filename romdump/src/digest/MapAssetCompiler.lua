@@ -241,6 +241,15 @@ end
 -- compiled clips are plain serializable data. The runtime assembles the
 -- ModelDefinition from this descriptor. The caller stamps `key` after hashing
 -- the descriptor's content into the model key.
+---@param buildingModel table
+---@param buildingNsbmd table
+---@param texPack table
+---@param animResult table
+---@param context table
+---@param memberId integer
+---@param textures table<string, table>
+---@param meshes table<string, table>
+---@return table, table[]
 local function compileAnimatedModel(
   buildingModel,
   buildingNsbmd,
@@ -304,6 +313,150 @@ local function compileAnimatedModel(
     doorSoundType = animResult.doorSoundType,
   },
     wrapped
+end
+
+-- Shared dynamic-model assembly for source-derived effect producers. The
+-- caller supplies the decoded model, its texture pack, compiled clips, and
+-- bundle accumulators; this keeps the descriptor/material/mesh contract in
+-- one place with placed animated models.
+MapAssetCompiler.compileDynamicModel = compileAnimatedModel
+
+-- Compile placed buildings for one decoded land/area pair. Map and field-cell
+-- producers share this path so model selection, animation compilation,
+-- placement transforms, and content-addressed identities cannot diverge.
+local function compileBuildings(romFs, area, land, opts)
+  local archiveAlias = archiveForArea(area)
+  local uniqueMembers, placementIndicesByMember = {}, {}
+  for _, pl in ipairs(land.buildings) do
+    uniqueMembers[pl.modelMemberId] = true
+    local indices = placementIndicesByMember[pl.modelMemberId] or {}
+    indices[#indices + 1] = pl.index
+    placementIndicesByMember[pl.modelMemberId] = indices
+  end
+  local memberIds = sortedNumbers(uniqueMembers)
+
+  local bldNarc, bldTexPack, bldTexSha1
+  if #memberIds > 0 then
+    bldNarc = assert(romFs:openNarc(archiveAlias))
+    local bldTexBytes =
+      readMember(assert(romFs:openNarc("building_textures")), "building_textures", area.buildingTexturePackId)
+    bldTexSha1 = Hashing.sha1hex(bldTexBytes)
+    bldTexPack = assert(Nsbtx.decode(bldTexBytes, {
+      alias = "building_textures",
+      memberId = area.buildingTexturePackId,
+    }))
+  end
+
+  local animListNarc, animResNarc
+  if #memberIds > 0 then
+    animListNarc = assert(romFs:openNarc(animListAliasForArea(area)))
+    animResNarc = assert(romFs:openNarc("build_anim"))
+  end
+
+  local models, modelKeyOf, memberShaOf = {}, {}, {}
+  local unresolvedMaterials, animDeps = {}, {}
+  local function collectUnresolved(compiled)
+    for _, entry in ipairs(compiled.unresolved) do
+      unresolvedMaterials[#unresolvedMaterials + 1] = entry
+    end
+  end
+
+  for _, memberId in ipairs(memberIds) do
+    local modelBytes = readMember(bldNarc, archiveAlias, memberId)
+    local modelSha1 = Hashing.sha1hex(modelBytes)
+    local buildingNsbmd = assert(Nsbmd.decode(modelBytes, { alias = archiveAlias, memberId = memberId }))
+    local buildingModel = buildingNsbmd.models[1]
+    local context = {
+      mapId = opts.mapId,
+      mapSymbol = opts.mapSymbol,
+      role = "building",
+      areaDataMemberId = opts.areaDataMemberId,
+      landDataMemberId = opts.landDataMemberId,
+      textureArchive = "building_textures",
+      textureMemberId = area.buildingTexturePackId,
+      modelArchive = archiveAlias,
+      modelMemberId = memberId,
+      modelName = buildingModel.name,
+      embeddedTex0Present = buildingNsbmd.embeddedTextures ~= nil,
+      placementIndices = placementIndicesByMember[memberId],
+    }
+    local areaKind = area.areaType == "indoor" and "indoor" or "outdoor"
+    local modelDescriptor
+    local animated = false
+    if memberId < animListNarc:memberCount() then
+      local listBytes = animListNarc:readMember(memberId)
+      animDeps[#animDeps + 1] = { memberId = memberId, sha1 = Hashing.sha1hex(listBytes) }
+      local animResult = MapPropAnimCompiler.compile(listBytes, animResNarc, {
+        archiveAlias = animListAliasForArea(area),
+        memberId = memberId,
+        resourceCache = opts.resourceCache,
+      })
+      for _, clip in ipairs(animResult.clips) do
+        animDeps[#animDeps + 1] = { resourceId = clip.source.memberId, sha1 = clip.source.sha1 }
+      end
+      if #animResult.clips > 0 then
+        local descriptor, unresolved = compileAnimatedModel(
+          buildingModel,
+          buildingNsbmd,
+          bldTexPack,
+          animResult,
+          context,
+          memberId,
+          opts.textures,
+          opts.meshes
+        )
+        collectUnresolved({ unresolved = unresolved })
+        modelDescriptor = descriptor
+        animated = true
+      end
+    end
+    if not animated then
+      local compiled = ModelAssetCompiler.compileModel(buildingModel, bldTexPack, opts.meshes, opts.textures, context)
+      collectUnresolved(compiled)
+      modelDescriptor = {
+        schema = ModelAsset.SCHEMA,
+        memberId = memberId,
+        kind = "static",
+        batches = compiled.batches,
+        materials = compiled.materials,
+      }
+    end
+    local descriptorSha = Hashing.hashLua(modelDescriptor)
+    local modelKey = string.format("%s:%d:%s", areaKind, memberId, descriptorSha:sub(1, 12))
+    modelDescriptor.key = modelKey
+    models[modelKey] = modelDescriptor
+    modelKeyOf[memberId] = modelKey
+    memberShaOf[memberId] = modelSha1
+  end
+
+  local buildingInstances = {}
+  for _, pl in ipairs(land.buildings) do
+    buildingInstances[#buildingInstances + 1] = {
+      placementIndex = pl.index,
+      modelKey = modelKeyOf[pl.modelMemberId],
+      transform = Matrix4.toArray(BuildingTransform.build(pl)),
+    }
+  end
+  local buildingModelShas = {}
+  for _, memberId in ipairs(memberIds) do
+    buildingModelShas[#buildingModelShas + 1] = { memberId = memberId, sha1 = memberShaOf[memberId] }
+  end
+  return {
+    buildingInstances = buildingInstances,
+    models = models,
+    unresolvedMaterials = unresolvedMaterials,
+    buildingModelShas = buildingModelShas,
+    animationListMemberSha1s = animDeps,
+    archiveAlias = archiveAlias,
+    buildingTextureMemberId = #memberIds > 0 and area.buildingTexturePackId or nil,
+    buildingTextureMemberSha1 = bldTexSha1,
+  }
+end
+
+-- The physical-cell producer uses the same building compiler as map scenes.
+function MapAssetCompiler.compileBuildings(romFs, area, land, opts)
+  assert(type(opts) == "table" and opts.meshes and opts.textures, "building compilation requires accumulators")
+  return compileBuildings(romFs, area, land, opts)
 end
 
 local function _compile(romFs, idOrSymbol, opts)
@@ -406,134 +559,19 @@ local function _compile(romFs, idOrSymbol, opts)
   end
   collectUnresolved(mapCompiled)
 
-  -- Placed-building models (deduped by member id). HGSS binds each ordinary
-  -- placed model to the area's external building texture pack and never uploads
-  -- the model's own embedded TEX0 (pret/pokeheartgold `AreaDataManager_Load`);
-  -- an embedded block present here is diagnostic only.
-  local archiveAlias = archiveForArea(area)
-  local uniqueMembers, placementIndicesByMember = {}, {}
-  for _, pl in ipairs(land.buildings) do
-    uniqueMembers[pl.modelMemberId] = true
-    local indices = placementIndicesByMember[pl.modelMemberId] or {}
-    indices[#indices + 1] = pl.index
-    placementIndicesByMember[pl.modelMemberId] = indices
-  end
-  local memberIds = sortedNumbers(uniqueMembers)
-
-  -- An area with no placed buildings points buildingTexturePackId at one of the
-  -- four-byte placeholder members of building_textures, so the pack is loaded
-  -- only when there is a model to bind -- as in the game, which has no models to
-  -- pass to GF3dRender_BindModelSet either.
-  local bldNarc, bldTexBytes, bldTexPack
-  if #memberIds > 0 then
-    bldNarc = assert(romFs:openNarc(archiveAlias))
-    bldTexBytes =
-      readMember(assert(romFs:openNarc("building_textures")), "building_textures", area.buildingTexturePackId)
-    bldTexPack =
-      assert(Nsbtx.decode(bldTexBytes, { alias = "building_textures", memberId = area.buildingTexturePackId }))
-  end
-
-  -- Animation-list archives: one 0x18-byte record per model member, whose
-  -- resource ids index the shared animation archive (a/1/0/6). Interior and
-  -- exterior lists live in separate archives; the resources are shared.
-  local animListNarc, animResNarc
-  if #memberIds > 0 then
-    animListNarc = assert(romFs:openNarc(animListAliasForArea(area)))
-    animResNarc = assert(romFs:openNarc("build_anim"))
-  end
-
-  local models, modelKeyOf, memberShaOf = {}, {}, {}
-  local animDeps = {}
-  for _, memberId in ipairs(memberIds) do
-    local modelBytes = readMember(bldNarc, archiveAlias, memberId)
-    local modelSha1 = Hashing.sha1hex(modelBytes)
-    local buildingNsbmd = assert(Nsbmd.decode(modelBytes, { alias = archiveAlias, memberId = memberId }))
-    local buildingModel = buildingNsbmd.models[1]
-    local context = {
-      mapId = mapId,
-      mapSymbol = resolved.map.symbol,
-      role = "building",
-      areaDataMemberId = resolved.areaDataMemberId,
-      landDataMemberId = resolved.landDataMemberId,
-      textureArchive = "building_textures",
-      textureMemberId = area.buildingTexturePackId,
-      modelArchive = archiveAlias,
-      modelMemberId = memberId,
-      modelName = buildingModel.name,
-      embeddedTex0Present = buildingNsbmd.embeddedTextures ~= nil,
-      placementIndices = placementIndicesByMember[memberId],
-    }
-    local areaKind = area.areaType == "indoor" and "indoor" or "outdoor"
-
-    -- Animated models compile through the dynamic path; static ones keep the
-    -- optimized baked geometry.
-    local modelDescriptor
-    local animated = false
-    if memberId < animListNarc:memberCount() then
-      local listBytes = animListNarc:readMember(memberId)
-      animDeps[#animDeps + 1] = { memberId = memberId, sha1 = Hashing.sha1hex(listBytes) }
-      local animResult = MapPropAnimCompiler.compile(listBytes, animResNarc, {
-        archiveAlias = animListAliasForArea(area),
-        memberId = memberId,
-        resourceCache = opts.resourceCache,
-      })
-      for _, clip in ipairs(animResult.clips) do
-        animDeps[#animDeps + 1] = { resourceId = clip.source.memberId, sha1 = clip.source.sha1 }
-      end
-      if #animResult.clips > 0 then
-        local descriptor, unresolved = compileAnimatedModel(
-          buildingModel,
-          buildingNsbmd,
-          bldTexPack,
-          animResult,
-          context,
-          memberId,
-          textures,
-          meshes
-        )
-        collectUnresolved({ unresolved = unresolved })
-        modelDescriptor = descriptor
-        animated = true
-      end
-    end
-
-    if not animated then
-      local compiled = ModelAssetCompiler.compileModel(buildingModel, bldTexPack, meshes, textures, context)
-      collectUnresolved(compiled)
-      modelDescriptor = {
-        schema = ModelAsset.SCHEMA,
-        memberId = memberId,
-        kind = "static",
-        batches = compiled.batches,
-        materials = compiled.materials,
-      }
-    end
-
-    -- The model key is content-addressed over the descriptor itself: the
-    -- descriptor's runtime configuration depends on the model bytes, the
-    -- animation list/resource bytes, the clip compiler semantics, the bound
-    -- texture pack, and the pattern variants -- every immutable input --
-    -- so the key hashes the final serialized descriptor rather than a subset
-    -- of its inputs. Same member + same compiled content => same key across
-    -- maps; any input change => a new path, never a stale descriptor.
-    local descriptorSha = Hashing.hashLua(modelDescriptor)
-    local modelKey = string.format("%s:%d:%s", areaKind, memberId, descriptorSha:sub(1, 12))
-    modelDescriptor.key = modelKey
-    models[modelKey] = modelDescriptor
-    modelKeyOf[memberId] = modelKey
-    memberShaOf[memberId] = modelSha1
-  end
-
-  -- Building instances.
-  local buildingInstances = {}
-  for _, pl in ipairs(land.buildings) do
-    local transform = BuildingTransform.build(pl)
-    buildingInstances[#buildingInstances + 1] = {
-      placementIndex = pl.index,
-      modelKey = modelKeyOf[pl.modelMemberId],
-      transform = Matrix4.toArray(transform),
-    }
-  end
+  local buildingCompiled = compileBuildings(romFs, area, land, {
+    mapId = mapId,
+    mapSymbol = resolved.map.symbol,
+    areaDataMemberId = resolved.areaDataMemberId,
+    landDataMemberId = resolved.landDataMemberId,
+    resourceCache = opts.resourceCache,
+    meshes = meshes,
+    textures = textures,
+  })
+  collectUnresolved({ unresolved = buildingCompiled.unresolvedMaterials })
+  local archiveAlias = buildingCompiled.archiveAlias
+  local buildingInstances = buildingCompiled.buildingInstances
+  local models = buildingCompiled.models
 
   -- Plan the eight surrounding matrix cells and compile each unique land chunk
   -- once. Geometry/textures feed the draw ring; permission and BDHC artifacts
@@ -575,6 +613,7 @@ local function _compile(romFs, idOrSymbol, opts)
       mapHeaderId = cell.mapHeaderId,
       landDataMemberId = cell.landDataMemberId,
       offsetTilesX = cell.offsetTilesX,
+      offsetTilesY = cell.offsetTilesY,
       offsetTilesZ = cell.offsetTilesZ,
       batches = chunk.batches,
       materials = chunk.materials,
@@ -596,10 +635,6 @@ local function _compile(romFs, idOrSymbol, opts)
   local textureSrt = terrainAnimationCompiler:compileTextureSrt()
 
   -- Dependency record -> hash -> marker.
-  local buildingModelShas = {}
-  for _, memberId in ipairs(memberIds) do
-    buildingModelShas[#buildingModelShas + 1] = { memberId = memberId, sha1 = memberShaOf[memberId] }
-  end
   local dependencies = {
     cacheFormat = MapAssetCache.FORMAT,
     sceneSchemaVersion = MapAssetCache.SCENE_SCHEMA,
@@ -616,9 +651,9 @@ local function _compile(romFs, idOrSymbol, opts)
     bdhcSha1 = bdhcSha1,
     mapTextureMemberSha1 = Hashing.sha1hex(mapTexBytes),
     buildingArchive = archiveAlias,
-    buildingTextureMemberId = bldTexBytes and area.buildingTexturePackId or nil,
-    buildingTextureMemberSha1 = bldTexBytes and Hashing.sha1hex(bldTexBytes) or nil,
-    uniqueBuildingModelMemberSha1s = buildingModelShas,
+    buildingTextureMemberId = buildingCompiled.buildingTextureMemberId,
+    buildingTextureMemberSha1 = buildingCompiled.buildingTextureMemberSha1,
+    uniqueBuildingModelMemberSha1s = buildingCompiled.buildingModelShas,
     -- Source-only facts about the compiled cell: matrix and area member
     -- identity, the matrix cell index/altitude, and the raw area record
     -- fields. None of these have a runtime consumer; they live on the
@@ -637,7 +672,7 @@ local function _compile(romFs, idOrSymbol, opts)
       dynamicTextureType = area.dynamicTextureType,
       lightType = area.lightTypeRaw,
     },
-    animationListMemberSha1s = animDeps,
+    animationListMemberSha1s = buildingCompiled.animationListMemberSha1s,
   }
   -- The animation sources are producer provenance like every other
   -- dependency: the fldtanime table hash unconditionally, only the used

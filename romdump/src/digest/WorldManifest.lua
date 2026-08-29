@@ -28,6 +28,12 @@ function WorldManifest.build(entries, excluded, compileExcluded)
     return a.id < b.id
   end)
 
+  for _, e in ipairs(maps) do
+    if type(e.mapSection) ~= "string" or e.mapSection == "" then
+      Errors.raise("WORLD_MANIFEST_MAP_SECTION_INVALID", "map section is missing", { id = e.id })
+    end
+  end
+
   local bySymbol, byId = {}, {}
   for index, e in ipairs(maps) do
     if byId[e.id] then

@@ -60,20 +60,28 @@ DerivedAssetContract.revision = 10
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
+  -- v9: neighboring matrix cells carry required normalized X/Y/Z placement;
+  -- runtime consumers preserve the source-relative vertical placement.
   -- v6: render-state extension over v5 — scenes carry the real HGSS field
   -- edge-color table (scene.edgeColors), every batch/material record carries
   -- the per-polygon fog gate (fogEnabled, PolygonState.FIELDS), and scenes
   -- carry the map's base weather ID plus its resolved global HGSS fog preset
   -- (scene.weatherId, scene.fog).
-  sceneSchema = "g4-map-scene-v8",
+  sceneSchema = "g4-map-scene-v9",
   terrainSchema = "g4-terrain-surfaces-v1",
   collisionVersion = 1,
+}
+
+DerivedAssetContract.fieldCells = {
+  cacheFormat = "field-cell-cache-v2",
+  indexSchema = "g4-field-cell-index-v2",
+  cellSchema = "g4-field-cell-v2",
 }
 
 DerivedAssetContract.fieldActors = {
   cacheFormat = "field-actor-cache-v1",
   schema = "g4-field-actor-v2",
-  indexSchema = "g4-field-actor-index-v1",
+  indexSchema = "g4-field-actor-index-v2",
 }
 
 DerivedAssetContract.fieldCamera = {
@@ -92,8 +100,10 @@ DerivedAssetContract.fieldMapData = {
   -- comes from the frozen reference rule scoped to the map, and raw
   -- soundplateSoundID never reaches the record. v4 added the flag/traversal
   -- music policy and the semantic soundplates array to the record.
-  -- v7 makes initScripts a strict source-independent descriptor union.
-  fieldSchema = "g4-field-map-v7",
+  -- v7 makes initScripts a strict source-independent descriptor union. v8
+  -- normalizes the retail unbound-script marker (0xFFFF) to zero so runtime
+  -- binding and interaction audits never interpret raw ROM data.
+  fieldSchema = "g4-field-map-v8",
 }
 
 DerivedAssetContract.messages = {
@@ -113,7 +123,7 @@ DerivedAssetContract.font = {
 }
 
 DerivedAssetContract.scripts = {
-  cacheFormat = "script-cache-v1",
+  cacheFormat = "script-cache-v2",
   indexSchema = "g4-script-index-v1",
   provenanceSchema = "g4-script-provenance-v1",
 }
@@ -129,7 +139,10 @@ DerivedAssetContract.newGameInit = {
 }
 
 DerivedAssetContract.fieldEffects = {
-  cacheFormat = "field-effect-cache-v2",
+  -- v6 keeps only source-independent model, lifecycle, and placement data in
+  -- generated grass definitions.
+  cacheFormat = "field-effect-cache-v6",
+  indexSchema = "g4-field-effect-index-v1",
 }
 
 DerivedAssetContract.fieldEmotes = {

@@ -15,14 +15,14 @@
 -- idle player's Action edge, which the session dispatches to
 -- `scriptClient:consume(intent, tick)`. A consumed interaction owns the
 -- tick, so the same edge can never also start a move or a warp. There is no
--- fallback client: the binding audit at load time guarantees every
--- interactable event is bound, so an unmapped intent is a composition fault.
+-- fallback client: the load-time binding audit guarantees bindings for every
+-- runtime map represented by the generated binding manifest.
 -- The resolve service is invoked with the interactions table as self (colon
 -- style), so implementations must declare a leading self parameter.
 --
 -- The session owns no 60 Hz audio timing: its audio collaborator receives
--- only the field-policy update (`updateField`) once per fixed tick. The 60 Hz
--- sound-frame clock is the runtime's wall-clock accumulator.
+-- field-policy updates at semantic boundaries and semantic effects from field
+-- traversal. The 60 Hz sound-frame clock is the runtime's wall-clock accumulator.
 
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")
@@ -49,7 +49,9 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
----@field audio { updateField: fun(self: table) }?
+---@field terrainEffects FieldTerrainEffectController?
+---@field audio { updateField: fun(self: table), play: fun(self: table, idOrSymbol: string) }?
+---@field navigationBoundary table?
 ---@field initController table|nil
 ---@field enterMapActors fun()?
 ---@field autoAcknowledgePresentation boolean?
@@ -78,7 +80,8 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
----@field audio { updateField: fun(self: table) }?
+---@field terrainEffects FieldTerrainEffectController?
+---@field audio { updateField: fun(self: table), play: fun(self: table, idOrSymbol: string) }?
 ---@field initController table|nil
 ---@field enterMapActors fun()?
 ---@field mapEntryStage string?
@@ -87,6 +90,8 @@ local FieldTransition = require("libs.engine.src.FieldTransition")
 ---@field constructActorsDuringTransition boolean
 ---@field tick integer
 ---@field accumulator number
+---@field navigationBoundary table?
+---@field _boundaryMovementDirection FieldDirection?
 local FieldSession = {}
 FieldSession.__index = FieldSession
 
@@ -173,7 +178,10 @@ function FieldSession.new(options)
   )
   assert(options.eventState and options.eventState.getVar, "field event state required")
   if options.audio then
-    assert(type(options.audio.updateField) == "function", "field session audio field-policy update required")
+    assert(
+      type(options.audio.updateField) == "function" and type(options.audio.play) == "function",
+      "field session audio field-policy update and effect playback required"
+    )
   end
   local session = setmetatable({
     versionId = options.versionId,
@@ -195,6 +203,7 @@ function FieldSession.new(options)
     signpost = options.signpost,
     applicationHost = options.applicationHost,
     fieldEntranceIndicator = options.fieldEntranceIndicator,
+    terrainEffects = options.terrainEffects,
     audio = options.audio,
     initController = options.initController,
     enterMapActors = options.enterMapActors,
@@ -202,8 +211,10 @@ function FieldSession.new(options)
     childResumePending = false,
     autoAcknowledgePresentation = options.autoAcknowledgePresentation == true,
     constructActorsDuringTransition = options.constructActorsDuringTransition == true,
+    navigationBoundary = options.navigationBoundary,
     tick = 0,
     accumulator = 0,
+    _boundaryMovementDirection = nil,
   }, FieldSession)
   return session
 end
@@ -357,6 +368,29 @@ function FieldSession:_advanceTick()
   self.tick = self.tick + 1
 end
 
+function FieldSession:_emitTerrainResponse()
+  if not self.terrainEffects then
+    return
+  end
+  local origin = assert(self.currentMap.coordinateOrigin, "terrain response map origin is required")
+  local localX, localZ = self.player.fieldX - origin.x, self.player.fieldZ - origin.z
+  local cell = self.currentMap.collision:getLocal(localX, localZ)
+  local responses = require("libs.engine.src.FieldTerrainResponse").resolve({
+    committed = true,
+    destination = {
+      behavior = cell.behavior,
+      fieldX = self.player.fieldX,
+      fieldZ = self.player.fieldZ,
+      worldY = self.player.worldY,
+      originY = self.currentMap.physicalOrigin and self.currentMap.physicalOrigin.y or 0,
+      cellKey = self.player.committedSourceCellKey,
+      sourceSurfaceId = self.player.committedSourceSurfaceId,
+    },
+    direction = self.player.facing,
+  })
+  self.terrainEffects:emitAll(responses)
+end
+
 local function resolveCoordinate(self)
   return self.eventResolver.resolveCoordinate(self.currentMap, self.player, self.eventState)
 end
@@ -408,11 +442,19 @@ local function resolvePassiveSign(self)
 end
 
 function FieldSession:updateFixed(inputSnapshot)
-  -- Ordinary field-audio runs on its semantic events (step-completion and
-  -- map-entry), not at the top of every fixed tick. updateField is the
-  -- test/legacy entry for those events; see FieldPlayer step commit and
-  -- FieldAudioController:enterMap.
+  -- Ordinary field-audio policy runs for same-zone completed steps. Map-entry
+  -- and changed-zone audio are owned by FieldAudioController:enterMap and
+  -- FieldAudioController:enterZone respectively.
   inputSnapshot = inputSnapshot or self.input:snapshot()
+  local carriedBoundaryDirection = self._boundaryMovementDirection
+  self._boundaryMovementDirection = nil
+  if self.terrainEffects then
+    self.terrainEffects:updateFixed({
+      fieldX = self.player.fieldX,
+      fieldZ = self.player.fieldZ,
+      facing = self.player.facing,
+    })
+  end
   -- The door/stair choreography drives the player during the locked
   -- transition: the pose clock hears the walking state at tick start, the
   -- camera tracks the continuous XYZ, and the scene's animated props
@@ -641,6 +683,9 @@ function FieldSession:updateFixed(inputSnapshot)
     -- A valid movement-driven traversal/warp candidate outranks a passive
     -- directional sign eligible on the same tick, so this check runs first;
     -- the passive sign below is only reached when no valid traversal exists.
+    -- A seam the navigation boundary already owns is never also an input-path
+    -- trigger: the boundary evaluates and commits its own zone crossing once
+    -- the step completes.
     local direction = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
     if self.player.motion == "idle" and direction then
       -- A coordinate event on the tile being entered owns the step, even when
@@ -648,16 +693,22 @@ function FieldSession:updateFixed(inputSnapshot)
       -- arrival event after the step; pre-empting it here would leave the
       -- generated coordinate script unresolved.
       local coordinateAhead = resolveCoordinateAhead(self, direction)
-      local trigger = TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
+      local seam = self.navigationBoundary
+        and self.navigationBoundary:crossesLogicalZone(self.currentMap, self.player, direction)
+      local trigger = seam and nil
+        or TransitionTrigger.inputPath(self.currentMap, self.player.fieldX, self.player.fieldZ, direction)
       if
         trigger
         and coordinateAhead == nil
         and not hasCoordinateAhead(self, direction)
-        and not WarpSystem.isSuppressed(
-          self.transition.suppression,
-          self.currentMap.mapId,
-          trigger.warp.x,
-          trigger.warp.z
+        and (
+          trigger.kind == "directional"
+          or not WarpSystem.isSuppressed(
+            self.transition.suppression,
+            self.currentMap.mapId,
+            trigger.warp.x,
+            trigger.warp.z
+          )
         )
       then
         self.player.facing = direction
@@ -726,11 +777,45 @@ function FieldSession:updateFixed(inputSnapshot)
   -- The pose clock treats a tick as walking if the player was mid-step at either
   -- end of it, so the gait phase carries across the tile commit instead of
   -- restarting on every arrival (the ROM's walk range spans two tiles).
-  local walkingAtTickStart = self.player.motion == "walking"
+  local walkPoseAtTickStart = self.player.motion == "walking" or self.player.motion == "turning"
 
-  local stepCompleted = self.player:updateFixed(inputSnapshot) == true
+  local movementInput = inputSnapshot
+  if carriedBoundaryDirection then
+    movementInput = {
+      -- A carried completion direction is a fresh one-shot command. Keeping
+      -- raw held input here would let FieldPlayer admit its buffered direction
+      -- as a walking continuation and skip the required turn.
+      heldDirection = nil,
+      pressedDirection = carriedBoundaryDirection,
+    }
+  end
+  local motionAtPlayerUpdateStart = self.player.motion
+  local stepCompleted = self.player:updateFixed(movementInput) == true
+  if motionAtPlayerUpdateStart == "idle" and self.player.motion == "jumping" and self.audio then
+    self.audio:play("SEQ_SE_DP_DANSA")
+  end
+  local completionDirection
+  if motionAtPlayerUpdateStart == "walking" and stepCompleted then
+    completionDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+  elseif motionAtPlayerUpdateStart == "turning" and self.player.motion == "idle" then
+    completionDirection = inputSnapshot.pressedDirection or inputSnapshot.heldDirection
+  end
   if stepCompleted then
-    if self.audio then
+    local zoneChanged = false
+    if self.navigationBoundary then
+      local boundaryResult = self.navigationBoundary:afterCommittedMove(self.currentMap, self.player, self.camera)
+      if boundaryResult and boundaryResult.newMapId then
+        zoneChanged = true
+        self.currentMap = self.navigationBoundary.zoneController.currentMap
+        self.transition.suppression = {
+          mapId = boundaryResult.newMapId,
+          fieldX = self.player.fieldX,
+          fieldZ = self.player.fieldZ,
+        }
+      end
+    end
+    self:_emitTerrainResponse()
+    if self.audio and not zoneChanged then
       self.audio:updateField()
     end
     local coordinateIntent = resolveCoordinate(self)
@@ -753,8 +838,8 @@ function FieldSession:updateFixed(inputSnapshot)
     -- Standing-trigger path: a completed step onto a warp tile
     -- evaluates the HGSS step path -- north/panel/ladder-down/escalator
     -- behaviors only; direction-gated warps wait for the facing path above.
-    local trigger =
-      TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
+    local trigger = zoneChanged and nil
+      or TransitionTrigger.stepPath(self.currentMap, self.player.fieldX, self.player.fieldZ, self.player.facing)
     if
       trigger
       and not hasCoordinateAt(self, self.player.fieldX, self.player.fieldZ)
@@ -782,10 +867,13 @@ function FieldSession:updateFixed(inputSnapshot)
       return
     end
   end
+  if completionDirection then
+    self._boundaryMovementDirection = completionDirection
+  end
   -- Pose clocks advance only on a tick that could change the world, so a fade or
   -- a locked transition freezes animation instead of walking it in place.
   if self.playerVisual then
-    self.playerVisual:updateFixed(walkingAtTickStart)
+    self.playerVisual:updateFixed(walkPoseAtTickStart)
   end
   self.camera:updateFixed(self:actorTarget())
   self:_advanceTick()

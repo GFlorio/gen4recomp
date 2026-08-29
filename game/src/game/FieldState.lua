@@ -11,6 +11,7 @@ local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceIndicatorRenderer")
 local FieldActorEmoteRenderer = require("libs.engine.src.FieldActorEmoteRenderer")
+local FieldTerrainEffectRenderer = require("libs.engine.src.FieldTerrainEffectRenderer")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local MapRenderer = require("libs.engine.src.MapRenderer")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
@@ -48,7 +49,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _actorRecords table[]
 ---@field _actorDrawStorage FieldActorDrawStorage
 ---@field _actorAssetLookup fun(spriteId: integer): table
----@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, and movement-emote draw arrays
+---@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, movement-emote, and terrain-effect draw arrays
 ---@field worldActorItems table[] persistent actor items kept in the world raster
 ---@field spriteItems table[] persistent presentation-resolution actor sprites
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
@@ -144,6 +145,20 @@ function FieldState.new(game, options)
       FieldEntranceIndicatorRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
     self.fieldEmotePool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEmoteRenderer = FieldActorEmoteRenderer.new(runtime.fieldEmoteModels, self.fieldEmotePool)
+    if runtime.fieldEffectAssets and runtime.fieldEffectAssets.effects then
+      self.fieldTerrainEffectRenderer =
+        FieldTerrainEffectRenderer.new(runtime.fieldEffectAssets, self.fieldEntranceIndicatorPool)
+      runtime.fieldTerrainEffectController:setModelFactory(function(kind)
+        return self.fieldTerrainEffectRenderer:newInstance(kind)
+      end)
+    else
+      self.fieldTerrainEffectRenderer = {
+        drawItems = function()
+          return {}
+        end,
+        dispose = function() end,
+      }
+    end
     local width, height = love.graphics.getDimensions()
     -- The initial presentation-geometry sync: pointer input must work
     -- before the user has resized the window, so the runtime computes and
@@ -247,20 +262,25 @@ function FieldState:_actorDraws(alpha)
   return FieldActorDraw.itemsInto(records, assetLookup, storage)
 end
 
--- Refresh the persistent ordered scene parts: map geometry, static buildings,
--- animated buildings, the neighbour ring, then actors. Queue traversal
--- preserves this source order, so equal-depth translucent ties break map
--- before static building before animated building before neighbour before
--- actor. Scene draw arrays live on the runtime map's scene runtime and are
--- read every frame because animated updates replace animatedBuildingDraws;
--- staticBuildingDraws is built once at load and never replaces its table.
+-- Refresh the persistent ordered scene parts: the session-owned physical
+-- window when outdoor cells are active, otherwise the full logical scene,
+-- then actors and transient effects. Logical scene geometry is retained for
+-- environment and discontinuous maps but is never drawn alongside cells.
 function FieldState:_worldParts(alpha)
-  local sceneRuntime = self.runtime.runtimeMap.sceneRuntime
+  local runtimeMap = self.runtime.runtimeMap
   local worldParts = self.worldParts
-  worldParts[1] = sceneRuntime.mapDraws
-  worldParts[2] = sceneRuntime.staticBuildingDraws
-  worldParts[3] = sceneRuntime.animatedBuildingDraws
-  worldParts[4] = self.runtime.runtimeMap.neighborRuntime and self.runtime.runtimeMap.neighborRuntime.draws or NO_DRAWS
+  if runtimeMap.coverage then
+    worldParts[1] = runtimeMap.coverage:worldParts()
+    worldParts[2] = NO_DRAWS
+    worldParts[3] = NO_DRAWS
+    worldParts[4] = NO_DRAWS
+  else
+    local sceneRuntime = assert(runtimeMap.sceneRuntime, "field scene presentation is unavailable")
+    worldParts[1] = sceneRuntime.mapDraws
+    worldParts[2] = sceneRuntime.staticBuildingDraws
+    worldParts[3] = sceneRuntime.animatedBuildingDraws
+    worldParts[4] = runtimeMap.neighborRuntime and runtimeMap.neighborRuntime.draws or NO_DRAWS
+  end
   local indicator = assert(self.runtime.fieldEntranceIndicator, "field entrance indicator is unavailable")
   worldParts[5] = self.fieldEntranceIndicatorRenderer:drawItems(indicator:status())
   local actorItems = self:_actorDraws(alpha)
@@ -284,6 +304,9 @@ function FieldState:_worldParts(alpha)
   -- presentation-neutral records, which is the only place activeEmoteKind
   -- survives; FieldActorDraw's rendered items do not carry it.
   worldParts[7] = self.fieldEmoteRenderer:drawItems(self._actorRecords)
+  local terrain = self.runtime.fieldTerrainEffectController
+  local terrainRenderer = self.fieldTerrainEffectRenderer
+  worldParts[8] = terrainRenderer and terrainRenderer:drawItems(terrain:status(), self.runtime.runtimeMap) or NO_DRAWS
   return worldParts
 end
 
@@ -827,6 +850,7 @@ function FieldState:dispose()
   if self.worldParts then
     self.worldParts[5] = nil
     self.worldParts[7] = nil
+    self.worldParts[8] = nil
   end
   self.worldActorItems = nil
   self.spriteItems = nil
@@ -841,6 +865,10 @@ function FieldState:dispose()
   if self.fieldEntranceIndicatorRenderer then
     self.fieldEntranceIndicatorRenderer:dispose()
     self.fieldEntranceIndicatorRenderer = nil
+  end
+  if self.fieldTerrainEffectRenderer then
+    self.fieldTerrainEffectRenderer:dispose()
+    self.fieldTerrainEffectRenderer = nil
   end
   if self.fieldEntranceIndicatorPool then
     self.fieldEntranceIndicatorPool:release()

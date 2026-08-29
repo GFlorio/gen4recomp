@@ -128,6 +128,13 @@ local function completeOak(onDraw)
 end
 
 local function fieldStep(runtime, direction)
+  -- HGSS input turns in place before it walks whenever the pressed direction
+  -- is not the player's current facing; settle that turn first (the same
+  -- domain operation a script's `turn` performs) so the press below always
+  -- resolves to a real production step, never a turn standing in for one.
+  if runtime.player.facing ~= direction then
+    runtime.player:turn(direction)
+  end
   runtime:press(direction)
   tick(2)
   runtime:release(direction)

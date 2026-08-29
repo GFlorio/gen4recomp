@@ -80,11 +80,13 @@ local function ensureRecords(reader, offset, count, category)
 end
 
 local function decodeBackground(reader, offset, index)
+  local eventType = reader:u16le(offset + 2)
   local directionRaw = reader:u32le(offset + 16)
   return {
     index = index,
     scriptId = reader:u16le(offset),
-    type = reader:u16le(offset + 2),
+    type = eventType,
+    hiddenItem = eventType == 2,
     x = s32(reader:u32le(offset + 4)),
     z = s32(reader:u32le(offset + 8)),
     y = s32(reader:u32le(offset + 12)),

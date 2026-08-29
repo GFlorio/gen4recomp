@@ -36,18 +36,23 @@ local function flatMap(blocked, warps)
       end,
     },
     terrain = TerrainSurface.new({ plates = { FLAT_PLATE } }),
-    fieldData = { events = { warps = warps or {} } },
+    fieldData = { events = { warps = warps or {}, coordinates = {} } },
   }
 end
 
 ---@param map table
 ---@param x integer
 ---@param z integer
----@param occupancy fun(fieldX: integer, fieldZ: integer, surfaceId: integer): string|nil
+---@param occupancy fun(candidate: FieldOccupancyCandidate): string|nil
 local function gameAt(map, x, z, occupancy)
   return {
     runtime = {
       player = FieldPlayer.new({ currentMap = map, fieldX = x, fieldZ = z, surfaceId = 0, occupancy = occupancy }),
+      eventState = {
+        getVar = function()
+          return 0
+        end,
+      },
     },
   }
 end
@@ -55,8 +60,8 @@ end
 function T.route_prefers_an_open_path_and_never_enters_an_occupied_tile()
   local map = flatMap()
   local occupied = { ["5:0"] = "npc-1" }
-  local occupancy = function(fieldX, fieldZ)
-    return occupied[fieldX .. ":" .. fieldZ]
+  local occupancy = function(candidate)
+    return occupied[candidate.fieldX .. ":" .. candidate.fieldZ]
   end
   local game = gameAt(map, 4, 0, occupancy)
 
@@ -77,8 +82,8 @@ function T.route_reports_no_path_when_occupancy_seals_every_approach()
     ["5:1"] = true,
   })
   local occupied = { ["6:-1"] = "npc-1" }
-  local occupancy = function(fieldX, fieldZ)
-    return occupied[fieldX .. ":" .. fieldZ]
+  local occupancy = function(candidate)
+    return occupied[candidate.fieldX .. ":" .. candidate.fieldZ]
   end
   local game = gameAt(map, 6, 0, occupancy)
 

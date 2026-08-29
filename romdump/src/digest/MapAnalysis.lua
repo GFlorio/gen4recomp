@@ -49,6 +49,7 @@ function MapAnalysis.analyze(romFs)
     result.id = record.id
     result.symbol = record.symbol
     result.mapCode = record.mapCode
+    result.mapSection = record.mapSection
     result.matrixMemberId = record.matrixMemberId
     results[#results + 1] = result
   end

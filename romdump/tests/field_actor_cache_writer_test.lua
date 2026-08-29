@@ -44,7 +44,7 @@ local function bundle(spriteIds)
       variableSprites = {},
       recordCount = 3,
       runtime = {
-        avatars = { { id = "hero", spriteId = 0 } },
+        avatars = { { id = "hero", spriteId = 0, gender = 0 } },
         variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
       },
     },

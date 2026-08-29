@@ -10,6 +10,7 @@
 -- libs/engine).
 
 local NeighborPlan = {}
+local MapUnits = require("romdump.src.digest.MapUnits")
 
 -- The eight surrounding cells in a deterministic row-major order so the planned
 -- list (and every downstream draw list) is stable.
@@ -26,6 +27,18 @@ local OFFSETS = {
 
 local TILES_PER_CELL = 32 -- DS matrix cell is 32x32 tiles (FieldGrid.CELL_TILES); inlined so this pure-domain module stays free of the libs/engine dependency
 
+---@class NeighborPlan.Cell
+---@field x integer
+---@field z integer
+---@field dx integer
+---@field dz integer
+---@field offsetTilesX integer
+---@field offsetTilesY number
+---@field offsetTilesZ integer
+---@field mapHeaderId integer
+---@field landDataMemberId integer
+---@field areaDataMemberId integer
+
 local function inBounds(matrix, x, z)
   return x >= 0 and z >= 0 and x < matrix.width and z < matrix.height
 end
@@ -33,7 +46,8 @@ end
 -- Pure plan of the neighbour ring around cell (cx, cz). `areaForHeader` maps a
 -- decoded map-header id to an area-data member id (or nil to skip the cell).
 function NeighborPlan.plan(matrix, cx, cz, areaForHeader)
-  local cells = {}
+  local cells = {} ---@type NeighborPlan.Cell[]
+  local center = matrix:cell(cx, cz)
   local uniqueSet = {}
   for _, off in ipairs(OFFSETS) do
     local x, z = cx + off.dx, cz + off.dz
@@ -47,6 +61,7 @@ function NeighborPlan.plan(matrix, cx, cz, areaForHeader)
           dx = off.dx,
           dz = off.dz,
           offsetTilesX = off.dx * TILES_PER_CELL,
+          offsetTilesY = MapUnits.altitudeDeltaToTiles(cell.altitude - center.altitude),
           offsetTilesZ = off.dz * TILES_PER_CELL,
           mapHeaderId = cell.mapHeaderId,
           landDataMemberId = cell.landDataMemberId,

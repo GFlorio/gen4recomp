@@ -1,11 +1,12 @@
--- Field-effect readiness is defined by the canonical model descriptor and its
--- referenced assets, without a second source-coupled manifest.
+-- Field-effect readiness is defined by the strict current index and every
+-- generated definition it references.
 
 local Assert = require("tests.support.Assert")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local T = { tests = {} }
+local EXPECTED_MARKER = "field-effect-cache-v6:rom:dep"
 
 local function validModel()
   return {
@@ -49,14 +50,119 @@ local function validModel()
   }
 end
 
-local function cache(model, present)
+local function validDynamicModel()
+  return {
+    schema = ModelAsset.SCHEMA,
+    key = "field-effect:tall-grass",
+    kind = "nitro-dynamic",
+    dynamic = {
+      nodes = { { name = "root" } },
+      transformProgram = {},
+      batches = {
+        {
+          id = "draw0",
+          drawIndex = 0,
+          nodeIndex = 0,
+          materialIndex = 0,
+          geometry = "grass.mesh",
+          cullMode = "back",
+          polygonMode = "modulation",
+          polygonId = 0,
+          translucentDepthWrite = false,
+          depthEqual = false,
+          polygonAlpha = 31,
+          lightMask = 5,
+          fogEnabled = false,
+        },
+      },
+    },
+    materials = {
+      {
+        id = 0,
+        name = "grass",
+        baseColor = { r = 255, g = 255, b = 255, a = 255 },
+        alphaMode = "opaque",
+        polygonMode = "modulation",
+        doubleSided = false,
+        polygonAlpha = 31,
+        texMtxMode = 0,
+        texWidth = 0,
+        texHeight = 0,
+        wrap = { x = "clamp", y = "clamp" },
+        flip = { x = false, y = false },
+        diffuse = { r = 255, g = 255, b = 255, a = 255 },
+        colors = {
+          diffuse = { r = 255, g = 255, b = 255 },
+          ambient = { r = 255, g = 255, b = 255 },
+          specular = { r = 255, g = 255, b = 255 },
+          emission = { r = 0, g = 0, b = 0 },
+        },
+      },
+    },
+    animations = {
+      {
+        id = "grass-animation",
+        name = "grass",
+        category = "joint",
+        kind = "trs",
+        frameCount = 4,
+        tracks = { { target = 0, targetIndex = 0 } },
+        semanticNames = {},
+        compiled = {
+          anmFlags = 0,
+          rotData = { { control = 0, a = 0, b = 0 } },
+          pivotData = { { 0, 0, 0, 0, 0 } },
+          targets = {
+            {
+              nodeIndex = 0,
+              channels = {
+                trans = { x = { source = "model" }, y = { source = "model" }, z = { source = "model" } },
+                rot = { source = "curve", rate = 1, limit = 4, storage = "fx16", keys = { 0, 0, 0, 0 } },
+                scale = { x = { source = "model" }, y = { source = "model" }, z = { source = "model" } },
+              },
+            },
+          },
+        },
+      },
+    },
+  }
+end
+
+local function cache(model, present, marker, omitLifecycle, omitPlacement)
+  local index = {
+    schema = "g4-field-effect-index-v1",
+    effects = {},
+  }
+  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass" }) do
+    index.effects[kind] = {
+      kind = kind == "warp_entrance" and "model" or "animated_model",
+      definition = kind,
+      path = FieldEffectAssetCache.definitionPath(kind),
+    }
+  end
   return {
     read = function(_, path)
-      return path == FieldEffectAssetCache.markerPath() and "expected" or nil
+      return path == FieldEffectAssetCache.markerPath() and (marker or EXPECTED_MARKER) or nil
     end,
     loadLua = function(_, path)
-      Assert.equal(path, FieldEffectAssetCache.modelPath(), "readiness must not load a manifest")
-      return model
+      if path == FieldEffectAssetCache.indexPath() then
+        return index
+      end
+      local kind = path:match("/([^/]+)%.lua$")
+      if kind == "warp_entrance" then
+        return { model = model, lifetime = 1, kind = "model" }
+      end
+      local definition = {
+        model = validDynamicModel(),
+        kind = "animated_model",
+      }
+      if not omitLifecycle then
+        definition.lifecycle = { holdFrame = 3, holdUntilOwnerMoves = true }
+      end
+      if not omitPlacement then
+        definition.placementOffset = { x = 0.25, y = 0, z = -0.5 }
+      end
+      return definition
     end,
     exists = function(_, path)
       return present[path] == true
@@ -64,20 +170,70 @@ local function cache(model, present)
   }
 end
 
-T.tests["accepts a complete canonical model and every referenced asset"] = function()
+T.tests["accepts the current format and rejects the previous format"] = function()
+  local present = {
+    ["mesh-a"] = true,
+    ["texture-a"] = true,
+    ["texture-variant"] = true,
+    ["grass.mesh"] = true,
+  }
+  local currentReady, currentErr = FieldEffectAssetCache.isReady(cache(validModel(), present), EXPECTED_MARKER)
+  Assert.isTrue(currentReady, tostring(currentErr))
+
+  local staleReady = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }, "field-effect-cache-v5:rom:dep"),
+    EXPECTED_MARKER
+  )
+  Assert.isFalse(staleReady)
+end
+
+T.tests["accepts a complete runtime definition without source metadata"] = function()
+  local ready, err = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }),
+    EXPECTED_MARKER
+  )
+  Assert.isTrue(ready, tostring(err))
+end
+
+T.tests["rejects a missing referenced asset"] = function()
+  local ready =
+    FieldEffectAssetCache.isReady(cache(validModel(), { ["mesh-a"] = true, ["grass.mesh"] = true }), EXPECTED_MARKER)
+  Assert.isFalse(ready)
+end
+
+T.tests["rejects grass definitions missing lifecycle metadata"] = function()
   local ready = FieldEffectAssetCache.isReady(
     cache(validModel(), {
       ["mesh-a"] = true,
       ["texture-a"] = true,
       ["texture-variant"] = true,
-    }),
-    "expected"
+      ["grass.mesh"] = true,
+    }, EXPECTED_MARKER, true, false),
+    EXPECTED_MARKER
   )
-  Assert.isTrue(ready)
+  Assert.isFalse(ready)
 end
 
-T.tests["rejects a missing referenced asset"] = function()
-  local ready = FieldEffectAssetCache.isReady(cache(validModel(), { ["mesh-a"] = true }), "expected")
+T.tests["rejects grass definitions missing placement metadata"] = function()
+  local ready = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }, EXPECTED_MARKER, false, true),
+    EXPECTED_MARKER
+  )
   Assert.isFalse(ready)
 end
 

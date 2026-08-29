@@ -168,6 +168,7 @@ local function translucentDescriptors(firstGeomPath, secondGeomPath, texPath)
   local function cell(geometry, offsetTilesZ)
     return {
       offsetTilesX = 0,
+      offsetTilesY = 0,
       offsetTilesZ = offsetTilesZ,
       batches = {
         {

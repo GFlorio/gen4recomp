@@ -171,6 +171,9 @@ function T.tests.house_scene_completes_and_town_friend_scene_follows_through_rea
 
     -- Player input must be usable on the next fresh tick.
     local posBefore = { x = game:snapshot().player.fieldX, z = game:snapshot().player.fieldZ }
+    if game:snapshot().player.facing ~= "east" then
+      game:face("east")
+    end
     game:move("east")
     local moved = game:advanceUntil("player moves after scene", function(s)
       return s.player.fieldX ~= posBefore.x or s.player.fieldZ ~= posBefore.z

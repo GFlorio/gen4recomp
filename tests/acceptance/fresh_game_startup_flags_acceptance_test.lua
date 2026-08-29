@@ -196,7 +196,7 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
           currentY = event.y / 16,
         })
         Assert.isNil(
-          runtime.actors:getAt(runtimeMap.mapId, event.x, event.z, surface.surfaceId),
+          runtime.actors:getAt(runtimeMap.mapId, { fieldX = event.x, fieldZ = event.z, surfaceId = surface.surfaceId }),
           "a startup-hidden trophy's own cell must hold no occupant"
         )
       end

@@ -82,7 +82,7 @@ function Renderer:drawItems(status)
       lightMask = batch.lightMask,
       fogEnabled = batch.fogEnabled,
       worldSpace = true,
-      fieldEffect = "warp_entrance",
+      fieldEffect = status.fieldEffect or "warp_entrance",
     }
   end
   return items

@@ -39,6 +39,9 @@ local function installExecutionRecorder()
     events[#events + 1] = { kind = "script", scriptId = scriptId }
     return originalStart(self, scriptId, tick)
   end
+  ---@param self FieldActorManager
+  ---@param runtimeMap RuntimeFieldMap
+  ---@param eventState FieldEventState
   FieldActorManager.enterMap = function(self, runtimeMap, eventState)
     actorEntries[#actorEntries + 1] = { mapId = runtimeMap.mapId }
     events[#events + 1] = { kind = "actors", mapId = runtimeMap.mapId }

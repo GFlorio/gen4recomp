@@ -54,6 +54,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field loader FieldMapLoader
 ---@field prepare fun(resolution: table, facing: FieldDirection): table
 ---@field commit fun(resolution: table, facing: FieldDirection, prepared: table)
+---@field disposePrepared fun(resolution: table?, prepared: table?)? -- releases resources owned before commit
 ---@field resolveDestination function
 ---@field doorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table|nil -- nil = no door choreography
 ---@field playSound fun(soundId: string)?
@@ -113,6 +114,7 @@ function FieldTransition.new(options)
     resolveDestination = options.resolveDestination or WarpSystem.resolveDestination,
     prepare = options.prepare,
     commit = options.commit,
+    disposePrepared = options.disposePrepared,
     doorAt = options.doorAt,
     playSound = options.playSound,
     stopSound = options.stopSound,
@@ -762,6 +764,9 @@ end
 -- Restore a coherent idle state after failed destination preparation. Map
 -- ownership remains with the runtime throughout this path.
 function FieldTransition:_abort(err)
+  if self.disposePrepared and (self.resolution or self.prepared) then
+    self.disposePrepared(self.resolution, self.prepared)
+  end
   local context
   if self.sourceMap and self.sourceWarp then
     context = {

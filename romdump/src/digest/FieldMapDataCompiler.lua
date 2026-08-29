@@ -18,14 +18,50 @@ local ScriptHeader = require("romdump.src.digest.ScriptHeader")
 
 local FieldMapDataCompiler = {}
 
-local function transitionEnvironment(mapType)
-  if mapType == "CAVE" or mapType == "UNDERGROUND" then
-    return "cave"
+-- The retail zone-event format uses 0xFFFF as a second unbound script
+-- marker. Generated field data uses zero as its single no-script value so
+-- runtime binding and interaction audits do not need to interpret ROM data.
+local NO_SCRIPT_ID = 0xFFFF
+
+---@param decoded table decoded zone-event member
+local function normalizeUnboundScripts(decoded)
+  for _, events in ipairs({ decoded.backgroundEvents, decoded.objectEvents, decoded.coordinateEvents }) do
+    for _, event in ipairs(events) do
+      if event.scriptId == NO_SCRIPT_ID then
+        event.scriptId = 0
+      end
+    end
   end
-  if mapType == "INTERIOR" then
-    return "building"
+end
+
+-- These catalog entries are source-header placeholders without field-data
+-- members. Direct compilation remains strict, while the complete producer
+-- omits records that have no field data to publish.
+local NON_FIELD_MAP_SYMBOLS = {
+  MAP_NOTHING = true,
+  MAP_UNDERGROUND = true,
+}
+
+local TRANSITION_ENVIRONMENT_BY_MAP_TYPE = {
+  CAVE = "cave",
+  CITY_TOWN = "outdoors",
+  ROUTE = "outdoors",
+  INTERIOR = "building",
+  POKEMON_CENTER = "building",
+}
+
+---@param map table
+---@return string
+local function transitionEnvironment(map)
+  local environment = TRANSITION_ENVIRONMENT_BY_MAP_TYPE[map.mapType]
+  if not environment then
+    Errors.raise(
+      "FIELD_MAP_UNKNOWN_MAP_TYPE",
+      "map header has no transition environment mapping",
+      { mapId = map.id, mapSymbol = map.symbol, mapType = map.mapType }
+    )
   end
-  return "outdoors"
+  return environment
 end
 
 -- The canonical audio sequence reference of a map-header music suffix: the
@@ -222,6 +258,7 @@ local function compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
     eventMemberId = map.eventMemberId,
     source = "fielddata_eventdata_zone_event",
   }))
+  normalizeUnboundScripts(decoded)
 
   local memberSha1 = sha1hex(memberBytes)
   local soundplates, audioSource = compileSoundplates(romFs, map, sha1hex)
@@ -267,7 +304,7 @@ local function compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
     mapId = map.id,
     mapSymbol = map.symbol,
     cameraType = map.cameraType,
-    transitionEnvironment = transitionEnvironment(map.mapType),
+    transitionEnvironment = transitionEnvironment(map),
     -- Map-header message/script associations (src/data/map_headers.h via the
     -- frozen catalog). Runtime code must never branch on map IDs to choose a
     -- bank; it reads these fields.
@@ -333,8 +370,7 @@ function FieldMapDataCompiler.compileAll(romFs, sha1hex, hashLua)
     local headerSource = loadHeaderSource(romFs, sha1hex)
     local bundles = {}
     for map in MapCatalog.all() do
-      -- MAP_NOTHING is the catalog's unused header filler, not a runtime map.
-      if map.symbol ~= "MAP_NOTHING" or map.mapType ~= "INVALID" then
+      if not NON_FIELD_MAP_SYMBOLS[map.symbol] then
         bundles[#bundles + 1] = compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
       end
     end

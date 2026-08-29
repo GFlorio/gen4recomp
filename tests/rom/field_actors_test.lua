@@ -101,6 +101,15 @@ function T.compiled_visuals_cover_the_target_maps(romFs)
   Assert.equal(bundle.index.variableSprites[1], manifest.variableSpriteRange.first)
   for _, avatar in ipairs(manifest.avatars) do
     Assert.isTrue(compiled[avatar.spriteId], avatar.id .. " variable target must be compiled")
+    local generated
+    for _, candidate in ipairs(bundle.index.runtime.avatars) do
+      if candidate.id == avatar.id then
+        generated = candidate
+        break
+      end
+    end
+    Assert.notNil(generated, avatar.id .. " must be present in the runtime avatar catalog")
+    Assert.equal(assert(generated).gender, avatar.gender, avatar.id .. " gender metadata")
   end
 
   local aide = bundle.visuals[29]

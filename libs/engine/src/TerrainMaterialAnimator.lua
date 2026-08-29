@@ -52,8 +52,9 @@ TerrainMaterialAnimator.__index = TerrainMaterialAnimator
 ---@param bindings { record: table, runtime: table }[] scene material record + live runtime material table
 ---@param clip table|false the compiled texsrt clip or false for no area animation
 ---@param resolveImage fun(path: string, wrapX: string, wrapY: string): any the pool-backed image resolver
+---@param checkpoint fun()? optional safe boundary after an image acquisition
 ---@return TerrainMaterialAnimator
-function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
+function TerrainMaterialAnimator.new(bindings, clip, resolveImage, checkpoint)
   assert(type(bindings) == "table", "TerrainMaterialAnimator.new requires the bindings")
   assert(
     clip == false or type(clip) == "table",
@@ -97,6 +98,9 @@ function TerrainMaterialAnimator.new(bindings, clip, resolveImage)
       local images = {}
       for scheduleIndex, step in ipairs(swap.steps) do
         images[scheduleIndex] = resolveImage(step.texture, wrap.x, wrap.y)
+        if checkpoint then
+          checkpoint()
+        end
       end
       group.members[#group.members + 1] = {
         runtime = runtime,
@@ -151,6 +155,47 @@ function TerrainMaterialAnimator:updateFixed()
     local clip = assert(self.clip)
     for _, binding in ipairs(self.srtBindings) do
       local sampled = CompiledNsbtaSampler.sample(clip, binding.targetIndex, frameFx)
+      ---@cast sampled SampledTexSrtState
+      binding.runtime.texMatrix = TextureSrtEvaluator.matrix(binding.record, sampled)
+    end
+  end
+end
+
+-- Seek playback to the shared field clock without replaying historical ticks.
+-- Texture schedules are periodic, so at most one schedule cycle is inspected;
+-- the SRT player is directly positioned in its fixed-point loop.
+function TerrainMaterialAnimator:seekFixedTick(fieldTick)
+  assert(
+    type(fieldTick) == "number" and fieldTick >= 0 and fieldTick % 1 == 0,
+    "field tick must be a non-negative integer"
+  )
+  for _, group in ipairs(self.groups) do
+    local cycle = 0
+    for _, step in ipairs(group.steps) do
+      cycle = cycle + math.max(1, step.durationTicks + 1)
+    end
+    local remaining = fieldTick % cycle
+    group.scheduleIndex, group.ticksInScheduleEntry = 1, 0
+    while true do
+      local duration = group.steps[group.scheduleIndex].durationTicks
+      local span = math.max(1, duration + 1)
+      if remaining < span then
+        break
+      end
+      remaining = remaining - span
+      group.scheduleIndex = group.scheduleIndex % #group.steps + 1
+    end
+    group.ticksInScheduleEntry = remaining
+    for _, member in ipairs(group.members) do
+      member.runtime.image = member.images[group.scheduleIndex]
+    end
+  end
+  if self.player then
+    local clip = self.clip
+    assert(type(clip) == "table", "terrain animation clip required")
+    self.player.frameFx = (fieldTick * AnimationPlayer.FRAME_UNIT) % (clip.frameCount * AnimationPlayer.FRAME_UNIT)
+    for _, binding in ipairs(self.srtBindings) do
+      local sampled = CompiledNsbtaSampler.sample(clip, binding.targetIndex, self.player.frameFx)
       ---@cast sampled SampledTexSrtState
       binding.runtime.texMatrix = TextureSrtEvaluator.matrix(binding.record, sampled)
     end

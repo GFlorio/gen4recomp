@@ -13,6 +13,7 @@ local FieldApplicationIds = require("libs.engine.src.FieldApplicationIds")
 local FieldApplicationRegistry = require("libs.engine.src.FieldApplicationRegistry")
 local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
+local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
@@ -47,6 +48,8 @@ local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local NeighborRing = require("libs.engine.src.NeighborRing")
+local MapProps = require("libs.engine.src.MapProps")
+local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 local FieldWeatherResolver = require("libs.engine.src.FieldWeatherResolver")
@@ -63,6 +66,69 @@ local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
 local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
+
+local function runtimeProfileEffect(runtime, profile, phase)
+  assert(type(profile) == "number", "field transition profile required")
+  runtime.player.facing = phase == "enter" and runtime.transition.destinationFacing or runtime.transition.facing
+end
+
+local function runtimeCameraAdjust(runtime, profile, adjustment, player)
+  assert(runtime.camera and type(runtime.camera.adjustTransition) == "function", "field transition camera required")
+  if player and type(runtime.camera.setTransitionPlayer) == "function" then
+    runtime.camera:setTransitionPlayer(player)
+  end
+  runtime.camera:adjustTransition(profile, adjustment)
+end
+
+local function runtimePanelEffect(runtime, phase)
+  runtime.transitionPanel = phase
+  local screen = runtime.scriptHosts and runtime.scriptHosts.screen
+  if screen and type(screen.setPanelTransition) == "function" then
+    screen:setPanelTransition(phase)
+  end
+end
+
+local function createFieldTransition(runtime, doorAt, escalatorAt, resolveDestination)
+  return FieldTransition.new({
+    loader = runtime.mapLoader,
+    prepare = function(resolution, facing)
+      return runtime:_prepareSwap(resolution, facing)
+    end,
+    disposePrepared = function(resolution, prepared)
+      runtime:_disposePreparedSwap(resolution, prepared)
+    end,
+    commit = function(resolution, facing, prepared)
+      runtime:_commitSwap(resolution, facing, prepared)
+    end,
+    doorAt = doorAt,
+    escalatorAt = escalatorAt,
+    resolveDestination = resolveDestination,
+    onStart = function(_, trigger)
+      if runtime.audio then
+        runtime.audio:beginWarp(trigger.warp.destinationMapId)
+      end
+    end,
+    playSound = function(soundRef)
+      local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
+      assert(audio and type(audio.play) == "function", "field transition audio host required")
+      audio:play(soundRef)
+    end,
+    stopSound = function(soundRef)
+      local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
+      assert(audio and type(audio.stop) == "function", "field transition audio host required")
+      audio:stop(soundRef)
+    end,
+    onProfile = function(profile, phase, _)
+      runtimeProfileEffect(runtime, profile, phase)
+    end,
+    cameraAdjust = function(profile, adjustment, player)
+      runtimeCameraAdjust(runtime, profile, adjustment, player)
+    end,
+    onPanel = function(phase)
+      runtimePanelEffect(runtime, phase)
+    end,
+  })
+end
 
 ---@class FieldRuntimeOptions
 ---@field zoomConfig table?
@@ -129,8 +195,19 @@ local WindowConfig = require("game.src.WindowConfig")
 ---@field audioFrameAccumulator number elapsed wall-clock time awaiting semantic sound frames
 ---@field localClock LocalClock the shared host-local civil-time boundary
 ---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
+---@field fieldEntranceIndicator FieldEntranceIndicator
+---@field fieldEntranceIndicatorAsset table
+---@field fieldEffectAssets table
+---@field physicalCoverage FieldCoverage?
+---@field residency FieldResidencyCoordinator?
 local FieldRuntime = {}
 FieldRuntime.__index = FieldRuntime
+
+---@class FieldRuntimePhysicalSwap
+---@field coverage FieldCoverage
+---@field replacement boolean
+---@field previous FieldCoverage?
+---@field state "prepared"|"committed"|"released"
 
 -- The audio-output sample rate of the production composition (the mixer and
 -- the LÖVE sink render at this rate, the DS SPU rate; source waves are
@@ -172,12 +249,68 @@ local function menuBindings()
   return keys
 end
 
--- The player consults the manager's occupancy index through this predicate,
--- keyed by the map the player is on, so FieldPlayer never imports the manager.
+---@param avatars table[]
+local function validateAvatarConfig(avatars)
+  assert(type(avatars) == "table" and #avatars > 0, "field actor index must contain avatars")
+  local genders = {}
+  for _, avatar in ipairs(avatars) do
+    assert(type(avatar) == "table", "field actor avatar metadata must be a table")
+    assert(type(avatar.id) == "string" and avatar.id ~= "", "field actor avatar id must be a non-empty string")
+    assert(
+      type(avatar.spriteId) == "number" and avatar.spriteId >= 0 and avatar.spriteId % 1 == 0,
+      "field actor avatar spriteId must be a non-negative integer"
+    )
+    assert(PlayerData.GENDERS[avatar.gender] == true, "field actor avatar gender is unsupported")
+    assert(genders[avatar.gender] == nil, "field actor index contains duplicate playable avatar genders")
+    genders[avatar.gender] = true
+  end
+  for gender in pairs(PlayerData.GENDERS) do
+    assert(genders[gender] == true, "field actor index has no avatar for player gender " .. gender)
+  end
+end
+
+---@param avatars table[]
+---@param gender integer
+---@return table
+local function avatarForGender(avatars, gender)
+  assert(PlayerData.GENDERS[gender] == true, "field player gender is unsupported")
+  local match
+  for _, avatar in ipairs(avatars) do
+    if avatar.gender == gender then
+      assert(match == nil, "compiled avatars contain duplicate playable gender")
+      match = avatar
+    end
+  end
+  return assert(match, "compiled avatars have no entry for player gender " .. gender)
+end
+
+-- The player consults live actors for its current logical map and source events
+-- for an unloaded logical destination. The latter is a read-only preflight.
+---@param candidate FieldOccupancyCandidate
+---@return string?
+function FieldRuntime:_playerOccupantAt(candidate)
+  local currentMap = self.runtimeMap
+  local coverage = currentMap.coverage
+  local destinationMapId = coverage and coverage:mapHeaderAt(candidate.fieldX, candidate.fieldZ) or nil
+  local occupant
+  if destinationMapId == nil or destinationMapId == currentMap.mapId then
+    occupant = self.actors:getAt(currentMap.mapId, candidate)
+  else
+    local residency = assert(self.residency, "outdoor occupancy requires logical residency")
+    local destination = residency:mapForId(destinationMapId)
+    if destination then
+      occupant = self.actors:getAt(destinationMapId, candidate)
+    else
+      destination = residency:mapForPreflight(destinationMapId)
+      occupant = self.actors:probeAt(destination, self.eventState, candidate)
+    end
+  end
+  return occupant and occupant.actorId or nil
+end
+
 local function playerOccupancy(self)
-  return function(fieldX, fieldZ, surfaceId)
-    local occupant = self.actors:getAt(self.runtimeMap.mapId, fieldX, fieldZ, surfaceId)
-    return occupant and occupant.actorId or nil
+  return function(candidate)
+    return self:_playerOccupantAt(candidate)
   end
 end
 
@@ -198,6 +331,41 @@ local function spawnSurface(runtimeMap, localX, localZ)
   end
   assert(best, string.format("spawn tile (%d,%d) has no walkable terrain surface", localX, localZ))
   return best
+end
+
+-- Compose the current logical context with the session-owned physical world.
+-- Cached loader entries remain logical-only; this view is disposable and never
+-- releases either collaborator.
+local function composePhysicalMap(logicalMap, coverage)
+  if not coverage then
+    return logicalMap
+  end
+  local runtimeMap = {}
+  for key, value in pairs(logicalMap) do
+    runtimeMap[key] = value
+  end
+  runtimeMap.logicalMap = logicalMap
+  runtimeMap.coverage = coverage
+  runtimeMap.release = function() end
+  runtimeMap.probePhysicalCell = function(_, fieldX, fieldZ, context)
+    return coverage:probe(fieldX, fieldZ, context)
+  end
+  runtimeMap.projectPhysicalPoint = function(_, fieldX, fieldZ, cellKey, sourceSurfaceId)
+    return coverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
+  end
+  runtimeMap.updateAnimated = function()
+    coverage:updateAnimated()
+  end
+  runtimeMap.syncPhysicalFields = function()
+    runtimeMap.fieldRegion = coverage.region
+    runtimeMap.collision = coverage.region.collision
+    runtimeMap.terrain = coverage.region.terrain
+    runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
+    runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
+    runtimeMap.physicalOrigin = coverage.origin
+  end
+  runtimeMap:syncPhysicalFields()
+  return runtimeMap
 end
 
 ---@param localClock LocalClock
@@ -228,12 +396,6 @@ local function canCapture(session, allowMenu)
     )
 end
 
-local function avatarForPlayer(avatars, playerData)
-  local index = playerData.profile.gender + 1
-  local avatar = assert(avatars[index], "compiled actor index has no avatar for player gender")
-  return { index = index, id = avatar.id, spriteId = avatar.spriteId }
-end
-
 local function closestSurface(runtimeMap, localX, localZ, savedY)
   local best
   local bestDistance
@@ -258,9 +420,19 @@ local function closestSurface(runtimeMap, localX, localZ, savedY)
   return assert(best, "saved coordinate has no walkable terrain surface")
 end
 
-local function loadGameLocation(game, mapLoader)
+-- An outdoor destination map loads with no collision/terrain at all until
+-- physical coverage composes over it (FieldMapLoader splits outdoor scenes
+-- this way so a bare load never pays for a physical window the caller might
+-- discard). `composeMap` is a no-op for non-outdoor scenes, so this runs
+-- unconditionally; every FieldCoordinates/terrain lookup below runs only
+-- after the composed map is in hand.
+---@param game table
+---@param mapLoader FieldMapLoader
+---@param composeMap fun(logicalMap: RuntimeFieldMap, position: { fieldX: integer, fieldZ: integer }): RuntimeFieldMap
+local function loadGameLocation(game, mapLoader, composeMap)
   if game.schema == GameSave.SCHEMA then
     local runtimeMap = mapLoader:load(game.mapId)
+    runtimeMap = composeMap(runtimeMap, { fieldX = game.fieldX, fieldZ = game.fieldZ })
     local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, game.fieldX, game.fieldZ)
     local surface
     if
@@ -291,8 +463,16 @@ local function loadGameLocation(game, mapLoader)
 
   assert(type(game.location) == "table", "finalized game location is required")
   local runtimeMap = mapLoader:load(game.location.mapSymbol)
-  local fieldX, fieldZ = FieldCoordinates.localToField(runtimeMap, game.location.fieldX, game.location.fieldZ)
-  local surface = spawnSurface(runtimeMap, game.location.fieldX, game.location.fieldZ)
+  -- The global position is plain origin arithmetic (no collision lookup),
+  -- so it is always safe to compute before composing physical coverage.
+  local fieldX = runtimeMap.coordinateOrigin.x + game.location.fieldX
+  local fieldZ = runtimeMap.coordinateOrigin.z + game.location.fieldZ
+  runtimeMap = composeMap(runtimeMap, { fieldX = fieldX, fieldZ = fieldZ })
+  -- Composing may have replaced coordinateOrigin with the physical window's
+  -- own origin; re-derive local coordinates against it rather than reusing
+  -- game.location's pre-compose local coordinates.
+  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
+  local surface = spawnSurface(runtimeMap, localX, localZ)
   return runtimeMap,
     {
       fieldX = fieldX,
@@ -301,6 +481,39 @@ local function loadGameLocation(game, mapLoader)
       facing = game.location.facing,
       worldY = surface.worldY,
     }
+end
+
+-- Build the non-GPU door facade used by simulation and acceptance runtimes.
+-- It reads the generated scene/model contracts only to recover the source
+-- door's semantic sound selector; no presentation instance is acquired.
+local function headlessMapProps(runtimeMap, cacheFs)
+  local scene = runtimeMap.scene
+  local placements = {}
+  for _, placement in ipairs(scene.buildingInstances) do
+    local descriptor = assert(cacheFs:loadLua(MapAssetCache.modelPath(placement.modelKey)))
+    placements[#placements + 1] = {
+      placementIndex = placement.placementIndex,
+      modelKey = placement.modelKey,
+      transform = placement.transform,
+      doorSoundType = descriptor.doorSoundType,
+    }
+  end
+  local doorTiles = {}
+  local origin = runtimeMap.coordinateOrigin
+  for _, warp in ipairs(runtimeMap.fieldData.events.warps) do
+    local localX, localZ = warp.x - origin.x, warp.z - origin.z
+    if
+      runtimeMap.collision:containsLocal(localX, localZ)
+      and MetatileBehavior.isDoor(runtimeMap.collision:getLocal(localX, localZ).behavior)
+    then
+      doorTiles[#doorTiles + 1] = { x = localX, z = localZ }
+    end
+  end
+  return MapProps.new({
+    placements = placements,
+    instances = {},
+    doorTiles = doorTiles,
+  })
 end
 
 function FieldRuntime.new(game, options)
@@ -360,6 +573,7 @@ function FieldRuntime:_load()
       "field actor index has no runtime configuration"
     )
     self.actorConfig = actorIndex.runtime
+    validateAvatarConfig(self.actorConfig.avatars)
     -- The player-data validation context: the generated field font charmap
     -- and the imported dialogue frame-index set, loaded once and injected
     -- into fresh-session construction and the save store (the same pattern
@@ -400,15 +614,69 @@ function FieldRuntime:_load()
     self.weatherCatalog = weatherCatalog
     self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
     self.fieldEmoteModels = FieldActorEmoteRuntime.load(cacheFs)
+    self.fieldEffectAssets = self.fieldEntranceIndicatorAsset
+    self.fieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController").new({
+      effects = {
+        tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
+        very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
+      },
+      modelFactory = require("libs.engine.src.FieldTerrainEffectModelFactory").new(),
+    })
 
-    -- FieldMapLoader owns the simulation assets (field data, collision,
-    -- terrain) through the pure asset paths for every composition. The visual
-    -- scene loader and finite neighbor ring are presentation-only
-    -- collaborators: a non-presentation runtime simply leaves them out.
     self.mapLoader = FieldMapLoader.new(cacheFs, world, {
       sceneLoader = self.presentation and MapSceneLoader or nil,
       neighborLoader = self.presentation and NeighborRing or nil,
     })
+    local function mapMatrixMemberId(logicalMap)
+      local mapIndex = assert(self.mapLoader.world.byId[logicalMap.mapId], "outdoor map catalog record is required")
+      local mapRecord = assert(self.mapLoader.world.maps[mapIndex], "outdoor map catalog record is missing")
+      return assert(mapRecord.matrix.memberId, "outdoor map matrix member is required")
+    end
+
+    -- Initial boot has no live source owner to protect. It is the only path
+    -- allowed to publish a newly created initial coverage.
+    local function composeInitialMap(logicalMap, position)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap
+      end
+      assert(not self.physicalCoverage, "initial physical coverage already exists")
+      self.physicalCoverage = self.mapLoader:createPhysicalCoverage(logicalMap, position)
+      return composePhysicalMap(logicalMap, self.physicalCoverage)
+    end
+
+    -- Logical zone changes reuse the committed owner. A matrix mismatch here
+    -- indicates that a logical seam was routed through the wrong boundary.
+    local function composeCurrentMap(logicalMap, coverage)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap
+      end
+      coverage = coverage or assert(self.physicalCoverage, "current outdoor coverage is required")
+      assert(
+        mapMatrixMemberId(logicalMap) == coverage.matrixMemberId,
+        "logical outdoor map does not belong to the current physical matrix"
+      )
+      return composePhysicalMap(logicalMap, coverage)
+    end
+
+    -- A live warp receives an explicit ownership record. The replacement is
+    -- transition-owned until commit and never mutates physicalCoverage here.
+    local function composePreparedMap(logicalMap, position)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap, nil
+      end
+      local matrixMemberId = mapMatrixMemberId(logicalMap)
+      local physical = self:_stagePhysicalCoverage(logicalMap, position, matrixMemberId)
+      local ok, runtimeMap = pcall(composePhysicalMap, logicalMap, physical.coverage)
+      if not ok then
+        if physical.replacement then
+          physical.coverage:release()
+          physical.state = "released"
+        end
+        error(runtimeMap, 0)
+      end
+      return runtimeMap, physical
+    end
+
     local loadedGame
     if self.game.schema == GameSave.SCHEMA then
       loadedGame = assert(saveValidation:validate(self.game))
@@ -421,7 +689,7 @@ function FieldRuntime:_load()
     end
     local activeGame = loadedGame or self.game
     self.savePublished = loadedGame ~= nil
-    self.runtimeMap, self.entryLocation = loadGameLocation(activeGame, self.mapLoader)
+    self.runtimeMap, self.entryLocation = loadGameLocation(activeGame, self.mapLoader, composeInitialMap)
     self.mapLoader:protectMap(self.runtimeMap.mapId, true)
 
     self.playerData = activeGame.playerData
@@ -459,7 +727,11 @@ function FieldRuntime:_load()
       policy = { variableSprites = self.actorConfig.variableSprites },
     })
 
-    self.avatar = avatarForPlayer(self.actorConfig.avatars, self.playerData)
+    -- The player's graphic is one more compiled actor visual: it is acquired from
+    -- the same reference-counted provider, and FieldPlayer keeps every bit of
+    -- movement authority. The avatar is derived from the validated player
+    -- profile and the generated avatar capabilities.
+    self.avatar = avatarForGender(self.actorConfig.avatars, self.playerData.profile.gender)
     self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
     self.playerVisual = FieldPlayerVisual.new({
       player = self.player,
@@ -471,43 +743,69 @@ function FieldRuntime:_load()
     -- `direct` records carry global destination coordinates and resolve
     -- through their own branch. Fallible destination preparation runs before
     -- the commit, so a failed warp never touches current-map ownership.
-    -- The door choreography resolves doors through each scene's MapProps
-    -- facade: field coordinate -> building placement -> semantic door
-    -- animation, generated data FieldMapLoader attaches to every runtime map
-    -- regardless of presentation. Nothing Nitro leaks into the transition,
-    -- and no GPU resource is required to resolve or advance a door
-    -- headlessly. Every production composition supplies this resolver: a
-    -- door-kind warp with no resolvable door is a data-contract failure, not
-    -- a headless capability gap.
-    local doorAt = function(runtimeMap, fieldX, fieldZ)
-      return runtimeMap.mapProps:doorAt(runtimeMap, fieldX, fieldZ)
+    -- Door choreography is a presentation capability. A simulation-only
+    -- runtime has no resolver and therefore runs door-kind warps through the
+    -- ordinary fade lifecycle.
+    local headlessProps = {}
+    local doorAt
+    local escalatorAt
+    if self.presentation or self.runtimeMap.sceneRuntime or self.runtimeMap.scene then
+      doorAt = function(runtimeMap, doorFieldX, doorFieldZ)
+        local sceneRuntime = runtimeMap.sceneRuntime
+        if sceneRuntime and sceneRuntime.mapProps then
+          return sceneRuntime.mapProps:doorAt(runtimeMap, doorFieldX, doorFieldZ)
+        end
+        local props = headlessProps[runtimeMap.mapId]
+        if not props then
+          props = headlessMapProps(runtimeMap, cacheFs)
+          headlessProps[runtimeMap.mapId] = props
+        end
+        return props:doorAt(runtimeMap, doorFieldX, doorFieldZ)
+      end
+      escalatorAt = function(runtimeMap, escalatorFieldX, escalatorFieldZ)
+        local sceneRuntime = runtimeMap.sceneRuntime
+        if sceneRuntime and sceneRuntime.mapProps then
+          return sceneRuntime.mapProps:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
+        end
+        local props = headlessProps[runtimeMap.mapId]
+        if not props then
+          props = headlessMapProps(runtimeMap, cacheFs)
+          headlessProps[runtimeMap.mapId] = props
+        end
+        return props:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
+      end
     end
-    self.transition = FieldTransition.new({
-      loader = self.mapLoader,
-      prepare = function(resolution, facing)
-        return self:_prepareSwap(resolution, facing)
-      end,
-      commit = function(resolution, facing, prepared)
-        self:_commitSwap(resolution, facing, prepared)
-      end,
-      doorAt = doorAt,
-      -- FieldTransition.onStart callback invoked once per transition start:
-      -- invoke field-audio pre-fade for destination music mismatch decision.
-      onStart = function(sourceMap, trigger, facing)
-        if self.audio then
-          self.audio:beginWarp(trigger.warp.destinationMapId)
+    self.transition = createFieldTransition(self, doorAt, escalatorAt, function(_, sourceMap, warp)
+      local physical
+      local ok, result = pcall(function()
+        return require("libs.engine.src.WarpSystem").resolveDestination({
+          load = function(_, mapId)
+            assert(mapId == warp.destinationMapId, "transition destination map mismatch")
+            local logicalMap = self.mapLoader:load(mapId)
+            local destinationPosition
+            if warp.direct then
+              destinationPosition = { fieldX = warp.x, fieldZ = warp.z }
+            else
+              local destinationWarp = logicalMap.fieldData.events.warps[warp.destinationWarpId + 1]
+              assert(destinationWarp, "transition destination warp is missing")
+              destinationPosition = { fieldX = destinationWarp.x, fieldZ = destinationWarp.z }
+            end
+            local composed, ownership = composePreparedMap(logicalMap, destinationPosition)
+            physical = ownership
+            return composed
+          end,
+        }, sourceMap, warp)
+      end)
+      if not ok then
+        if physical and physical.replacement and physical.state == "prepared" then
+          physical.coverage:release()
+          physical.state = "released"
         end
-      end,
-      -- Stair SFX callback: FieldRuntime binds the field-audio playSound
-      -- hook so stair completion (SEQ_SE_DP_KAIDAN2) emits through the
-      -- production audio service.
-      playSound = function(soundRef)
-        local audio = self.audio or (self.scriptHosts and self.scriptHosts.audio)
-        if audio then
-          audio:play(soundRef)
-        end
-      end,
-    })
+        error(result, 0)
+      end
+      result.physical = physical
+      return result
+    end)
     self.transition.player = self.player
     self.transition.suppression = nil
 
@@ -625,8 +923,20 @@ function FieldRuntime:_load()
     -- the binding audit guarantees every interactable event is bound.
     self.messageProvider = FieldMessageProvider.new(cacheFs)
     self.interactionResolver = FieldInteractionResolver.new({
-      actorAt = function(mapId, actorFieldX, actorFieldZ, actorSurfaceId)
-        return self.actors and self.actors:getAt(mapId, actorFieldX, actorFieldZ, actorSurfaceId) or nil
+      actorAt = function(mapId, candidate)
+        return self.actors and self.actors:getAt(mapId, candidate) or nil
+      end,
+      targetMapAt = function(x, z, currentMap)
+        local coverage = currentMap.coverage
+        if not coverage then
+          return currentMap
+        end
+        local targetMapId = coverage:mapHeaderAt(x, z)
+        if targetMapId == nil or targetMapId == currentMap.mapId then
+          return currentMap
+        end
+        local targetMap = assert(self.residency):mapForId(targetMapId)
+        return assert(targetMap, "reachable interaction target is not resident")
       end,
     })
 
@@ -682,6 +992,45 @@ function FieldRuntime:_load()
       self.scripts.worldState:restoreRng(loadedGame.world)
     end
 
+    local FieldZoneController = require("libs.engine.src.FieldZoneController")
+    self.zoneController = FieldZoneController.new({
+      currentMap = self.runtimeMap,
+      mapForId = function(mapId)
+        return assert(self.residency):mapForId(mapId)
+      end,
+      rebindScripts = function(runtimeMap, player)
+        self.runtimeMap = runtimeMap
+        player.currentMap = runtimeMap
+        self.scripts:onZoneChange(runtimeMap)
+      end,
+      applyWeather = function(runtimeMap)
+        self:_applyEffectiveWeather(runtimeMap)
+        self.weatherRuntime = { mapId = runtimeMap.mapId }
+      end,
+      enterAudio = function(runtimeMap)
+        if self.audio and self.audio.enterZone then
+          self.audio:enterZone(runtimeMap)
+        end
+      end,
+      onChange = function(change)
+        self.lastZoneChange = change
+      end,
+    })
+
+    local FieldResidencyCoordinator = require("libs.engine.src.FieldResidencyCoordinator")
+    self.residency = FieldResidencyCoordinator.new({
+      coverage = self.physicalCoverage,
+      mapLoader = self.mapLoader,
+      actors = self.actors,
+      zoneController = self.zoneController,
+      eventState = self.eventState,
+      composeMap = composeCurrentMap,
+      onPreparedMap = self.audio and function(runtimeMap)
+        self.audio:prewarmMapMusic(runtimeMap)
+      end or nil,
+    })
+    self.residency:initialize()
+
     self.session = FieldSession.new({
       versionId = self.versionId,
       currentMap = self.runtimeMap,
@@ -703,6 +1052,13 @@ function FieldRuntime:_load()
       -- GameSound only; a recording script adapter is a script service, not
       -- a session collaborator.
       audio = self.audio,
+      navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new({
+        zoneController = self.zoneController,
+        residencyCoordinator = self.residency,
+        coverageProvider = function()
+          return self.physicalCoverage
+        end,
+      }),
       interactions = {
         resolve = function(_, snapshot)
           return self.interactionResolver:resolve(snapshot)
@@ -715,6 +1071,7 @@ function FieldRuntime:_load()
         self.actors:enterMap(self.runtimeMap, self.eventState)
       end,
       autoAcknowledgePresentation = not self.presentation,
+      terrainEffects = self.fieldTerrainEffectController,
     })
 
     self.session:beginMapEntry()
@@ -723,6 +1080,8 @@ function FieldRuntime:_load()
     self.playTime = loadedGame and PlayTime.new(loadedGame.playTimeSeconds) or self.game.playTime
     assert(self.playTime and self.playTime.start and self.playTime.advance, "game play time is required")
     self.playTime:start()
+
+    self.weatherRuntime = { mapId = self.runtimeMap.mapId }
   end)
   -- Construction is binary: a failed boot releases everything acquired so
   -- far exactly once, then the original failure propagates to the caller.
@@ -740,6 +1099,10 @@ function FieldRuntime:update(dt)
   end
   if self.playTime then
     self.playTime:advance(dt)
+  end
+
+  if self.residency then
+    self.residency:updatePrefetch()
   end
 
   -- The background registry warm-up (snapshot-miss boot) runs one time
@@ -1120,10 +1483,45 @@ function FieldRuntime:_applyEffectiveWeather(runtimeMap)
   end
 end
 
+-- Select the physical owner for a discontinuous outdoor destination. A
+-- matching matrix is reusable only when its resident window is centered on
+-- the destination cell; otherwise the new owner remains transition-owned
+-- until the prepared swap commits.
+---@param logicalMap RuntimeFieldMap
+---@param position { fieldX: integer, fieldZ: integer }
+---@param matrixMemberId integer
+---@return FieldRuntimePhysicalSwap
+function FieldRuntime:_stagePhysicalCoverage(logicalMap, position, matrixMemberId)
+  local destinationAnchorX = math.floor(position.fieldX / FieldGrid.CELL_TILES)
+  local destinationAnchorZ = math.floor(position.fieldZ / FieldGrid.CELL_TILES)
+  local current = self.physicalCoverage
+  if
+    current
+    and current.matrixMemberId == matrixMemberId
+    and current.anchorX == destinationAnchorX
+    and current.anchorZ == destinationAnchorZ
+  then
+    return {
+      coverage = current,
+      replacement = false,
+      previous = nil,
+      state = "prepared",
+    }
+  end
+
+  local replacement = self.mapLoader:createPhysicalCoverage(logicalMap, position)
+  return {
+    coverage = replacement,
+    replacement = true,
+    previous = current,
+    state = "prepared",
+  }
+end
+
 -- Fallible warp preparation, run by FieldTransition while the source map is
--- still the authoritative current map: construct only the destination
--- player, camera, and player visual. Actor entry belongs to the committed map
--- lifecycle because on_transition can change the destination event state.
+-- still authoritative: construct the destination player, camera, and player
+-- visual, then stage logical residency as the final ownership-bearing step.
+-- The coordinator keeps the source logical world live until the hidden commit.
 ---@param resolution table
 ---@param facing FieldDirection
 ---@return table prepared destination player, camera, and player visual
@@ -1148,6 +1546,16 @@ function FieldRuntime:_prepareSwap(resolution, facing)
       currentY = worldY,
     })
     surfaceId, worldY = sample.surfaceId, sample.worldY
+  elseif runtimeMap.terrain then
+    -- Re-resolve against the destination's actual (possibly newly composed
+    -- physical-coverage) terrain: the resolution's own surfaceId/worldY may
+    -- have been computed before physical coverage composed over the map.
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
+    local surface = SurfaceResolver.new(runtimeMap.terrain):resolve({
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+    })
+    surfaceId, worldY = surface.surfaceId, surface.worldY
   end
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
@@ -1169,28 +1577,64 @@ function FieldRuntime:_prepareSwap(resolution, facing)
     player = player,
     spriteId = self.avatar.spriteId,
   })
+  local physical = (resolution.physical and resolution.physical.coverage) or nil
+  local residency = assert(self.residency):prepareTransition(runtimeMap, physical)
   return {
     player = player,
     camera = camera,
     playerVisual = playerVisual,
+    physical = resolution.physical,
+    residency = residency,
   }
 end
 
+-- Dispose only transition-owned physical state. A reused coverage remains
+-- owned by the runtime, while a staged replacement is released once on abort.
+---@param resolution table?
+---@param prepared table?
+function FieldRuntime:_disposePreparedSwap(resolution, prepared)
+  local residency = prepared and prepared.residency
+  if residency then
+    assert(self.residency):discardTransition(residency)
+  end
+  local physical = (prepared and prepared.physical) or (resolution and resolution.physical)
+  if not physical or not physical.replacement then
+    return
+  end
+  if physical.state == "released" or physical.state == "committed" then
+    return
+  end
+  assert(physical.state == "prepared", "physical swap is not disposable")
+  assert(physical.coverage ~= self.physicalCoverage, "staged physical coverage is already committed")
+  physical.coverage:release()
+  physical.state = "released"
+end
+
 -- The irreversible current-map ownership transfer, run by FieldTransition
--- only after every fallible preparation step succeeded: actor source
--- removal, map protection transfer, and the runtime/session pointer
--- updates. A fault here is a fatal programming error; there is no
--- transition-level rollback of partially committed state.
+-- only after every fallible preparation step succeeded. Logical residency is
+-- published first; runtime/session pointers and physical ownership follow.
 ---@param resolution table
 ---@param prepared table
 function FieldRuntime:_commitSwap(resolution, _, prepared)
   local runtimeMap = resolution.destinationMap
-  local previousMapId = self.runtimeMap.mapId
-  if runtimeMap.mapId ~= previousMapId then
-    self.actors:leaveMap(previousMapId)
-    self.mapLoader:protectMap(runtimeMap.mapId, true)
-    self.mapLoader:protectMap(previousMapId, false)
+  local physical = (prepared and prepared.physical) or resolution.physical
+  local residency = assert(prepared and prepared.residency, "prepared residency transaction required")
+  assert(self.residency):commitTransition(residency)
+  local previousCoverage
+  if physical then
+    assert(physical.state == "prepared", "physical swap is not committable")
+    assert(physical.coverage, "physical swap coverage is required")
+    if physical.replacement then
+      assert(physical.previous == self.physicalCoverage, "physical swap source owner changed")
+      previousCoverage = self.physicalCoverage
+      self.physicalCoverage = physical.coverage
+    else
+      assert(physical.coverage == self.physicalCoverage, "reused physical coverage is not current")
+    end
+    assert(runtimeMap.coverage == self.physicalCoverage, "destination map coverage is not the committed owner")
+    physical.state = "committed"
   end
+  self.fieldTerrainEffectController:clear()
 
   self.runtimeMap = runtimeMap
   self.player = prepared.player
@@ -1199,6 +1643,7 @@ function FieldRuntime:_commitSwap(resolution, _, prepared)
   self.session.playerVisual = prepared.playerVisual
   self.camera = prepared.camera
   self.session.currentMap = runtimeMap
+  self.zoneController.currentMap = runtimeMap
   self.session.player = prepared.player
   self.session.camera = prepared.camera
   -- The map-music policy follows the destination map through FieldAudioController.
@@ -1209,6 +1654,9 @@ function FieldRuntime:_commitSwap(resolution, _, prepared)
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
   self.session:beginMapEntry()
+  if previousCoverage then
+    previousCoverage:release()
+  end
 end
 
 function FieldRuntime:destinationWorldPresentable()
@@ -1256,6 +1704,9 @@ end
 -- dialogue -- and the field clearing means reset never leaves a hand-picked
 -- subset behind for its re-boot.
 function FieldRuntime:_releaseAll()
+  if self.transition then
+    self:_disposePreparedSwap(self.transition.resolution, self.transition.prepared)
+  end
   if self.dialogue then
     self.dialogue:dispose()
   end
@@ -1275,6 +1726,10 @@ function FieldRuntime:_releaseAll()
     self.messageProvider:dispose()
   end
   self.messageProvider = nil
+  if self.residency then
+    self.residency:dispose()
+  end
+  self.residency = nil
   if self.actors then
     self.actors:dispose()
   end
@@ -1285,6 +1740,9 @@ function FieldRuntime:_releaseAll()
   if self.actorAssets then
     self.actorAssets:dispose()
   end
+  if self.physicalCoverage then
+    self.physicalCoverage:release()
+  end
   if self.mapLoader then
     self.mapLoader:release()
   end
@@ -1294,7 +1752,11 @@ function FieldRuntime:_releaseAll()
   self.actors, self.actorAssets, self.mapLoader = nil, nil, nil
   self.audio, self.audioSink, self.mapMusicDayNight = nil, nil, nil
   self.session, self.saveStore, self.scripts = nil, nil, nil
-  self.transition, self.camera, self.player, self.runtimeMap = nil, nil, nil, nil
+  self.transition, self.camera, self.player, self.runtimeMap, self.physicalCoverage = nil, nil, nil, nil, nil
+  self.fieldTerrainEffectController = nil
+  self.fieldEffectAssets = nil
+  self.fieldEntranceIndicator, self.fieldEntranceIndicatorAsset = nil, nil
+  self.fieldEmoteModels = nil
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil

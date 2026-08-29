@@ -46,6 +46,27 @@ T.tests["phase toggles on the sixteenth eligible update"] = function()
   Assert.equal(phaseZero.counter, 0)
 end
 
+T.tests["presentation offset changes on update sixteen and returns on update thirty two"] = function()
+  local indicator = Indicator.new()
+  local behavior = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST
+  local first = update(indicator, behavior, "east")
+  Assert.deepEqual(first.position, { x = 65, y = 3, z = 80 })
+
+  for _ = 2, 15 do
+    update(indicator, behavior, "east")
+  end
+  local update16 = update(indicator, behavior, "east")
+  Assert.equal(update16.phase, 1)
+  Assert.deepEqual(update16.position, { x = 65.125, y = 3, z = 80 })
+
+  for _ = 17, 31 do
+    update(indicator, behavior, "east")
+  end
+  local update32 = update(indicator, behavior, "east")
+  Assert.equal(update32.phase, 0)
+  Assert.deepEqual(update32.position, { x = 65, y = 3, z = 80 })
+end
+
 T.tests["ineligible updates reset the animation before requalification"] = function()
   local indicator = Indicator.new()
   local behavior = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST

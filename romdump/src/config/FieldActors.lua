@@ -68,12 +68,11 @@ return {
   -- the var-base formula above reproduces that original behavior.
   variableVarBase = 0x4020,
 
-  -- The player graphics the runtime avatar selection chooses between, in a
-  -- stable order so a developer toggle cycles deterministically. Every value the
-  -- variable sprite range can take is one of these, so they are always compiled.
+  -- The player graphics available to a field session. Gender uses the same
+  -- validated player-profile values as PlayerData (0 = male, 1 = female).
   avatars = {
-    { id = "hero", spriteId = 0 },
-    { id = "heroine", spriteId = 97 },
+    { id = "hero", spriteId = 0, gender = 0 },
+    { id = "heroine", spriteId = 97, gender = 1 },
   },
 
   -- Common placement recovered from the field-actor loader and billboard models:

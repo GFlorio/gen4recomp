@@ -16,6 +16,18 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
 local T = {}
 
+---@class FieldAudioControllerTest.FaderRamp
+---@field start integer
+---@field target integer
+---@field durationFrames integer
+---@field elapsedFrames integer
+
+---@class FieldAudioControllerTest.Fader
+---@field ramp FieldAudioControllerTest.FaderRamp|nil
+
+---@class FieldAudioControllerTest.InspectableSound : GameSound
+---@field _faders table<integer, FieldAudioControllerTest.Fader>
+
 ---@class FieldAudioControllerTest.SequencePlayer : SequencePlayer
 ---@field playWithBankOverride fun(self: FieldAudioControllerTest.SequencePlayer, handle: table, sequence: table, bank: table): boolean
 ---@field isPlayerPlaying fun(self: FieldAudioControllerTest.SequencePlayer, playerId: integer): boolean
@@ -184,6 +196,94 @@ local function gameplayPlayer(fieldX, fieldZ)
   }
 end
 
+---@param fieldData table
+---@return RuntimeFieldMap
+local function runtimeMap(fieldData)
+  ---@diagnostic disable-next-line: missing-fields -- focused audio runtime-map fixture
+  return { fieldData = fieldData } --[[@as RuntimeFieldMap]]
+end
+
+local function prewarmProvider()
+  local sequences = {
+    [20] = { id = 20, bankId = 7 },
+    [21] = { id = 21, bankId = 8 },
+    [22] = { id = 22, bankId = 9 },
+  }
+  local calls = { sequences = {}, banks = {}, samples = 0 }
+  local provider = {}
+  function provider:sequence(id)
+    calls.sequences[#calls.sequences + 1] = id
+    return assert(sequences[id])
+  end
+  function provider:bank(id)
+    calls.banks[#calls.banks + 1] = id
+    return { id = id }
+  end
+  function provider:loadSample()
+    calls.samples = calls.samples + 1
+    error("prewarm must not load PCM samples", 0)
+  end
+  return provider, calls
+end
+
+local function prewarmSound()
+  local state = {
+    currentMusic = 10,
+    playCalls = {},
+    queueCalls = {},
+    stopCalls = 0,
+    fadeCalls = {},
+    moveCalls = {},
+  }
+  local sound = {}
+  function sound:currentMusic()
+    return state.currentMusic
+  end
+  function sound:playMusic(id)
+    state.playCalls[#state.playCalls + 1] = id
+    state.currentMusic = id
+  end
+  function sound:queueMusicReplacement(id, duration)
+    state.queueCalls[#state.queueCalls + 1] = { id = id, duration = duration }
+    state.currentMusic = id
+  end
+  function sound:stopMusic()
+    state.stopCalls = state.stopCalls + 1
+    state.currentMusic = nil
+  end
+  function sound:isMusicFadeActive()
+    return true
+  end
+  function sound:fadeMusicOut(spec)
+    state.fadeCalls[#state.fadeCalls + 1] = spec
+  end
+  function sound:moveSequenceVolume(id, target, duration)
+    state.moveCalls[#state.moveCalls + 1] = { id = id, target = target, duration = duration }
+  end
+  function sound:stopSequenceWithFade(id, duration)
+    state.fadeCalls[#state.fadeCalls + 1] = { id = id, duration = duration }
+  end
+  return sound, state
+end
+
+local function prewarmController(provider, sound, dayNight, flags)
+  local eventFlags = flags or {}
+  local event = eventState(eventFlags)
+  return FieldAudioController.new({
+    sound = sound --[[@as GameSound]],
+    provider = provider --[[@as AudioAssetProvider]],
+    eventState = event,
+    fieldPosition = function()
+      return 0, 0
+    end,
+    dayNight = dayNight,
+    fieldDataForMap = function()
+      return nil
+    end,
+  }),
+    eventFlags
+end
+
 local function musicScenario()
   local keyA = AudioFixture.key(1)
   local bgmA =
@@ -224,6 +324,83 @@ local function musicScenario()
   end
 end
 
+local function seamlessSoundplateScenario()
+  local keyA = AudioFixture.key(1)
+  local bgmA =
+    seq(10, "SEQ_GS_T_WAKABA", 12, 1, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
+  local bgmB =
+    seq(11, "SEQ_GS_UTSUGI_RABO", 12, 7, { { op = "note", key = 62, velocity = 127, duration = 1 }, { op = "end" } })
+  local bgmC =
+    seq(12, "SEQ_GS_T_TOBARI", 12, 7, { { op = "note", key = 64, velocity = 127, duration = 1 }, { op = "end" } })
+  local environmentB =
+    seq(20, "SEQ_SE_GS_N_SESERAGI", 12, 2, { { op = "note", key = 60, velocity = 127, duration = 1 }, { op = "end" } })
+  local environmentC =
+    seq(21, "SEQ_SE_GS_N_HUUSHA", 12, 2, { { op = "note", key = 62, velocity = 127, duration = 1 }, { op = "end" } })
+  local provider = providerFor(
+    { [10] = bgmA, [11] = bgmB, [12] = bgmC, [20] = environmentB, [21] = environmentC },
+    { [12] = bankWithSamples(12, "BANK_A", keyA) }
+  )
+  local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
+  local player = newSequencePlayer({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
+  local sound, spy = recordingSound(provider, player)
+  local starts = {}
+  local originalPlay = player.play
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
+  player.play = function(self, handle, sequence, bankRecord)
+    starts[sequence.id] = (starts[sequence.id] or 0) + 1
+    return originalPlay(self, handle, sequence, bankRecord)
+  end
+  local fdA = fieldDataWithSoundplates(
+    {},
+    { day = "SEQ_GS_T_WAKABA", night = "SEQ_GS_T_WAKABA", flagOverrides = {}, traversalOverrides = {} }
+  )
+  fdA.mapId = 111
+  local fdB = fieldDataWithSoundplates({
+    {
+      x = 0,
+      xBounds = 31,
+      z = 0,
+      zBounds = 31,
+      sequence = "SEQ_SE_GS_N_SESERAGI",
+      useFieldMusicBank = false,
+      bgmTarget = 64,
+    },
+  }, { day = "SEQ_GS_UTSUGI_RABO", night = "SEQ_GS_UTSUGI_RABO", flagOverrides = {}, traversalOverrides = {} })
+  fdB.mapId = 112
+  local fdC = fieldDataWithSoundplates({
+    {
+      x = 0,
+      xBounds = 31,
+      z = 0,
+      zBounds = 31,
+      sequence = "SEQ_SE_GS_N_HUUSHA",
+      useFieldMusicBank = false,
+      bgmTarget = 32,
+    },
+  }, { day = "SEQ_GS_T_TOBARI", night = "SEQ_GS_T_TOBARI", flagOverrides = {}, traversalOverrides = {} })
+  fdC.mapId = 113
+  local controller = FieldAudioController.new({
+    sound = sound,
+    provider = provider,
+    eventState = eventState(),
+    fieldPosition = function()
+      return 0, 0
+    end,
+    dayNight = function()
+      return "day"
+    end,
+    fieldDataForMap = function()
+      return fdB
+    end,
+  })
+  controller:enterMap({ fieldData = fdA }, { play = true })
+  for id in pairs(starts) do
+    starts[id] = nil
+  end
+  spy.plays = {}
+  return controller, sound, player, starts, spy, fdA, fdB, fdC
+end
+
 function T.same_map_music_entry_preserves_the_running_sequence()
   local controller, sound, spy, fdA, fdB, setDestination = musicScenario()
   fdB.music.day = "SEQ_GS_T_WAKABA"
@@ -237,6 +414,120 @@ function T.same_map_music_entry_preserves_the_running_sequence()
   Assert.equal(#spy.plays, 0, "map entry must not restart the current effective BGM")
   Assert.equal(#spy.fades, 0, "same-BGM map entry must not start a warp fade")
   Assert.equal(sound:currentMusic(), 10)
+end
+
+function T.seamless_zone_entry_clears_override_before_selecting_destination_music()
+  local controller, sound, _, fdA, fdB = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { restoredMusicOverride = 10, play = true })
+  Assert.equal(controller:musicOverride(), 10)
+
+  controller:enterZone(runtimeMap(fdB))
+  Assert.isNil(controller:musicOverride(), "zone entry clears the source music override immediately")
+
+  for _ = 1, 60 do
+    sound:updateSoundFrame()
+  end
+  Assert.equal(sound:currentMusic(), 11, "the destination map-header BGM replaces the overridden source")
+end
+
+function T.seamless_zone_entry_clears_matching_override_without_restarting_music()
+  local controller, sound, spy, fdA, fdB = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { restoredMusicOverride = 11, play = true })
+  Assert.equal(sound:currentMusic(), 11)
+  spy.plays = {}
+
+  controller:enterZone(runtimeMap(fdB))
+
+  Assert.isNil(controller:musicOverride(), "zone entry clears even a matching override")
+  Assert.equal(#spy.plays, 0, "same destination music does not restart at a seamless boundary")
+  Assert.equal(sound:currentMusic(), 11, "the current BGM identity remains unchanged")
+end
+
+function T.seamless_zone_entry_selects_destination_soundplate_before_music_admission()
+  local controller, sound, player, starts, _, _, fdB = seamlessSoundplateScenario()
+  controller:enterZone(runtimeMap(fdB))
+
+  Assert.equal(controller:currentMusic(), 10, "the source remains current during the seamless fade")
+  Assert.equal(starts[20], 1, "the destination environment starts at zone entry")
+  for _ = 1, 59 do
+    controller:updateSoundFrame()
+  end
+  Assert.equal(controller:currentMusic(), 10, "the destination BGM remains queued before frame 60")
+  Assert.isTrue(player:isPlayerPlaying(1), "the source player remains active before admission")
+
+  controller:updateSoundFrame()
+  controller:updateSoundFrame()
+  Assert.equal(controller:currentMusic(), 11, "the destination BGM is admitted after the source fade")
+  Assert.equal(starts[11], 1, "the destination BGM starts exactly once")
+  Assert.isFalse(player:isPlayerPlaying(1), "the source BGM player is stopped after admission")
+  local inspectableSound = sound --[[@as FieldAudioControllerTest.InspectableSound]]
+  Assert.equal(
+    assert(inspectableSound._faders[7].ramp).target,
+    64,
+    "the destination soundplate target applies after admission"
+  )
+end
+
+function T.seamless_zone_without_soundplate_does_not_add_destination_fade()
+  local controller, sound, _, fdA, fdB = musicScenario()
+  controller:enterMap({ fieldData = fdA }, { play = true })
+  controller:enterZone(runtimeMap(fdB))
+
+  for _ = 1, 60 do
+    controller:updateSoundFrame()
+  end
+
+  local inspectableSound = sound --[[@as FieldAudioControllerTest.InspectableSound]]
+  local fader = assert(inspectableSound._faders[1])
+  Assert.isNil(fader.ramp, "a destination without a soundplate must not add a BGM fade-in")
+end
+
+function T.seamless_zone_retarget_preserves_fade_and_latest_soundplate_policy()
+  local controller, sound, _, starts, _, _, fdB, fdC = seamlessSoundplateScenario()
+  controller:enterZone(runtimeMap(fdB))
+  for _ = 1, 10 do
+    controller:updateSoundFrame()
+  end
+  local inspectableSound = sound --[[@as FieldAudioControllerTest.InspectableSound]]
+  local sourceFader = inspectableSound._faders[1]
+  local sourceRamp = assert(sourceFader.ramp)
+  local elapsedFrames = sourceRamp.elapsedFrames
+
+  controller:enterZone(runtimeMap(fdC))
+  Assert.equal(sourceFader.ramp, sourceRamp, "retargeting keeps the original source ramp")
+  Assert.equal(sourceRamp.elapsedFrames, elapsedFrames, "retargeting does not reset elapsed fade time")
+  Assert.isNil(starts[11], "the first destination BGM never starts")
+  Assert.equal(starts[21], 1, "the latest destination environment starts once")
+
+  for _ = 1, 50 do
+    controller:updateSoundFrame()
+  end
+  Assert.equal(controller:currentMusic(), 12, "the latest destination BGM is admitted on the original schedule")
+  Assert.isNil(starts[11], "the superseded destination BGM remains unstarted")
+  Assert.equal(starts[12], 1, "the latest destination BGM starts exactly once")
+  controller:updateSoundFrame()
+  Assert.equal(assert(inspectableSound._faders[7].ramp).target, 32, "the latest destination soundplate target wins")
+end
+
+function T.canceled_zone_music_drops_deferred_soundplate_policy()
+  local controller, sound, _, _, _, _, fdB = seamlessSoundplateScenario()
+  controller:enterZone(runtimeMap(fdB))
+  Assert.isTrue(controller._pendingFieldMusicPolicy ~= nil, "a changed-BGM entry owns deferred plate policy")
+
+  sound:stopMusic()
+  controller:updateSoundFrame()
+
+  Assert.isNil(controller._pendingFieldMusicPolicy, "canceled music must discard deferred plate policy")
+end
+
+function T.fade_in_cancels_deferred_zone_music_policy()
+  local controller, _, _, _, _, _, fdB = seamlessSoundplateScenario()
+  controller:enterZone(runtimeMap(fdB))
+  Assert.isTrue(controller._pendingFieldMusicPolicy ~= nil, "a changed-BGM entry owns deferred plate policy")
+
+  controller:fadeMusicIn({ durationTicks = 3 })
+
+  Assert.isNil(controller._pendingFieldMusicPolicy, "a canceled queue must discard deferred plate policy")
 end
 
 function T.different_map_music_entry_starts_the_destination_once()
@@ -282,6 +573,80 @@ function T.map_entry_with_play_disabled_does_not_change_music()
   Assert.equal(#spy.plays, 0, "play=false map entry must not start music")
   Assert.equal(#spy.stops, 0, "play=false map entry must not stop music")
   Assert.equal(sound:currentMusic(), 10)
+end
+
+function T.prepared_map_music_loads_only_sequence_and_bank_metadata()
+  local provider, calls = prewarmProvider()
+  local sound, soundState = prewarmSound()
+  local controller = prewarmController(provider, sound, function()
+    return "day"
+  end)
+  local fieldData = fieldDataWithSoundplates({}, {
+    day = 20,
+    night = 21,
+    flagOverrides = {},
+    traversalOverrides = {},
+  })
+  local pending = { sourceMusicId = 10, destinationMusicId = 11, target = 64, durationFrames = 15 }
+  controller._fieldMusic = 10
+  controller._musicOverride = 99
+  controller._environment = { sequence = 30 }
+  controller._pendingFieldMusicPolicy = pending
+
+  ---@diagnostic disable-next-line: undefined-field -- acceptance contract is authored before production implementation
+  local prewarmMapMusic = controller.prewarmMapMusic
+  Assert.isTrue(
+    type(prewarmMapMusic) == "function",
+    "prepared map music must have a non-playing metadata warmup operation"
+  )
+  prewarmMapMusic(controller, runtimeMap(fieldData))
+
+  Assert.deepEqual(calls.sequences, { 20 }, "the selected map-header sequence must be requested")
+  Assert.deepEqual(calls.banks, { 7 }, "the selected sequence bank must be requested")
+  Assert.equal(calls.samples, 0)
+  Assert.equal(#soundState.playCalls, 0)
+  Assert.equal(#soundState.queueCalls, 0)
+  Assert.equal(soundState.stopCalls, 0)
+  Assert.equal(#soundState.fadeCalls, 0)
+  Assert.equal(#soundState.moveCalls, 0)
+  Assert.equal(soundState.currentMusic, 10)
+  Assert.equal(controller._fieldMusic, 10)
+  Assert.equal(controller:musicOverride(), 99)
+  Assert.equal(controller._environment.sequence, 30)
+  Assert.equal(controller._pendingFieldMusicPolicy, pending)
+  Assert.isNil(controller._currentMap, "prewarming must not activate the prepared map")
+end
+
+function T.prewarming_does_not_decode_samples_or_pin_stale_music_policy()
+  local provider, calls = prewarmProvider()
+  local sound = prewarmSound()
+  local useNight = false
+  local flags = {}
+  local controller = prewarmController(provider, sound, function()
+    return useNight and "night" or "day"
+  end, flags)
+  local fieldData = fieldDataWithSoundplates({}, {
+    day = 20,
+    night = 21,
+    flagOverrides = { { flagId = 5, sequence = 22 } },
+    traversalOverrides = {},
+  })
+
+  ---@diagnostic disable-next-line: undefined-field -- acceptance contract is authored before production implementation
+  local prewarmMapMusic = controller.prewarmMapMusic
+  Assert.isTrue(
+    type(prewarmMapMusic) == "function",
+    "prepared map music must have a non-playing metadata warmup operation"
+  )
+  prewarmMapMusic(controller, runtimeMap(fieldData))
+  useNight = true
+  flags[5] = true
+  controller:enterZone(runtimeMap(fieldData))
+
+  Assert.equal(calls.samples, 0, "metadata prewarm must not decode PCM")
+  Assert.deepEqual(calls.sequences, { 20 }, "active entry must re-resolve current day/night and flags")
+  Assert.deepEqual(calls.banks, { 7 }, "activation must not turn metadata prewarm into sample work")
+  Assert.equal(sound:currentMusic(), 22, "active entry must choose the current destination policy")
 end
 
 function T.production_position_is_read_through_a_narrow_fieldX_fieldZ_provider()

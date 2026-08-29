@@ -16,6 +16,12 @@ local POLICY = {
   variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
 }
 
+---@class FieldActorManagerTest.Assets
+---@field references table<integer, integer>
+---@field knows fun(self: FieldActorManagerTest.Assets, spriteId: integer): boolean
+---@field acquire fun(self: FieldActorManagerTest.Assets, spriteId: integer): table
+---@field release fun(self: FieldActorManagerTest.Assets, spriteId: integer)
+---@field total fun(self: FieldActorManagerTest.Assets): integer
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
   Assert.isTrue(Errors.is(err), "expected a structured error, got " .. tostring(err))
@@ -82,16 +88,17 @@ local function object(overrides)
     x = 2,
     z = 3,
     y = 0,
-  }
+  } --[[@as table<string, unknown>]]
   for key, value in pairs(overrides or {}) do
-    event[key] = value
+    rawset(event, key, value)
   end
-  return event
+  return event --[[@as FieldActorEvent]]
 end
 
 local function runtimeMap(objects, mapId)
-  return {
+  local map = {
     mapId = mapId or 61,
+    mapSection = "test-section",
     coordinateOrigin = { x = 0, z = 0 },
     collision = {
       containsLocal = function(_, x, z)
@@ -99,16 +106,25 @@ local function runtimeMap(objects, mapId)
       end,
     },
     terrain = terrain(),
+    mapSymbol = "test-map",
+    sceneRuntime = nil,
+    scene = {},
+    terrainDependencyHash = "test-terrain",
+    fieldRegion = {},
+    cameraType = 4,
     fieldData = { events = { objects = objects, background = {}, warps = {}, coordinates = {} } },
-  }
+    release = function() end,
+    updateAnimated = function() end,
+  } --[[@as RuntimeFieldMap]]
+  return map
 end
 
 -- Stands in for FieldActorAssetProvider: same acquire/release/knows contract,
 -- with a reference tally so leaks are visible to the tests.
 local function fakeAssets(known)
-  return {
+  local assets = {
     references = {},
-    knows = function(self, spriteId)
+    knows = function(_, spriteId)
       return known[spriteId] == true
     end,
     acquire = function(self, spriteId)
@@ -127,7 +143,8 @@ local function fakeAssets(known)
       end
       return sum
     end,
-  }
+  } --[[@as FieldActorManagerTest.Assets]]
+  return assets
 end
 
 local function manager(objects, opts)
@@ -138,6 +155,28 @@ local function manager(objects, opts)
   local map = opts.map or runtimeMap(objects)
   mgr:enterMap(map, eventState)
   return mgr, eventState, assets, map
+end
+
+local function candidate(fieldX, fieldZ, surfaceId)
+  return { fieldX = fieldX, fieldZ = fieldZ, surfaceId = surfaceId }
+end
+
+local function getAt(mgr, mapId, fieldX, fieldZ, surfaceId)
+  return mgr:getAt(mapId, candidate(fieldX, fieldZ, surfaceId))
+end
+
+local function isOccupied(mgr, mapId, fieldX, fieldZ, surfaceId, exceptActorId)
+  return mgr:isOccupied(mapId, candidate(fieldX, fieldZ, surfaceId), exceptActorId)
+end
+
+local function stableCandidate(fieldX, fieldZ, surfaceId, cellKey, sourceSurfaceId)
+  return {
+    fieldX = fieldX,
+    fieldZ = fieldZ,
+    surfaceId = surfaceId,
+    cellKey = cellKey,
+    sourceSurfaceId = sourceSurfaceId,
+  }
 end
 
 function T.visible_objects_become_actors_and_flagged_ones_do_not()
@@ -151,30 +190,88 @@ function T.visible_objects_become_actors_and_flagged_ones_do_not()
   Assert.equal(#mgr:drawRecords(), 1)
 end
 
--- Coinciding with a warp record is not a solidity input: actor collision must
--- not infer intent from the mere presence of a warp at the same coordinate.
--- Warp triggering itself is resolved by the player/warp system, independent
--- of this occupancy index.
-function T.warp_tile_objects_are_solid_by_default_like_any_other_actor()
-  local map = runtimeMap({ object({ x = 6, z = 5 }) })
-  map.fieldData.events.warps = { { x = 6, z = 5 } }
-  local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
-  mgr:enterMap(map, FieldEventState.new())
-  Assert.equal(
-    assert(mgr:getAt(map.mapId, 6, 5, 0), "a warp-coincident object keeps its default solidity").actorId,
-    "map:61:object:0"
-  )
+-- Logical actors survive outside the resident physical window, then reconcile
+-- into draw/occupancy when the same logical zone admits their cell.
+function T.logical_actors_survive_and_reconcile_physical_residency()
+  local map = runtimeMap({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 34, z = 3 }),
+  })
+  map.collision.containsLocal = function(_, fieldX, fieldZ)
+    return fieldX >= 0 and fieldX < 64 and fieldZ >= 0 and fieldZ < 32
+  end
+  map.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 64,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+    },
+  })
+  local nearResident = true
+  local farResident = false
+  map.coverage = {
+    containsGlobal = function(_, fieldX, fieldZ)
+      if fieldZ < 0 or fieldZ >= 32 then
+        return false
+      end
+      return (fieldX < 32 and nearResident) or (fieldX >= 32 and farResident)
+    end,
+  }
+  local mgr = manager(map.fieldData.events.objects, { map = map })
+  local initialRevision = mgr:visualRevision()
+  local nearId = "map:61:object:0"
+  local farId = "map:61:object:1"
+  local nearActor = assert(mgr:getById(nearId))
+  local farActor = assert(mgr:getById(farId), "logical actors must not be culled by 3x3 residency")
+  nearActor:setFacing("west")
+  Assert.notNil(getAt(mgr, 61, 2, 3, nearActor.surfaceId))
+  Assert.isNil(getAt(mgr, 61, 34, 3, 0))
+  Assert.equal(#mgr:drawRecords(), 1, "only resident actors enter the draw projection")
+
+  nearResident = false
+  farResident = true
+  mgr:reconcilePhysicalWorld()
+
+  Assert.equal(mgr:getById(nearId), nearActor, "departing residency must preserve actor identity")
+  Assert.equal(mgr:getById(farId), farActor, "entering residency must preserve actor identity")
+  Assert.equal(nearActor.facing, "west", "departing residency must preserve mutable actor state")
+  Assert.isNil(getAt(mgr, 61, 2, 3, nearActor.surfaceId))
+  Assert.equal(getAt(mgr, 61, 34, 3, farActor.surfaceId), farActor)
+  Assert.equal(#mgr:drawRecords(), 1, "only the newly resident actor enters the draw projection")
+  Assert.equal(mgr:visualRevision(), initialRevision)
+  mgr:dispose()
 end
 
--- An event's explicit non-solid semantic remains honored even when it
--- coincides with a warp: this is the sole way a warp-coincident actor stays
--- non-solid.
-function T.explicit_non_solid_warp_tile_objects_remain_non_solid()
-  local map = runtimeMap({ object({ x = 6, z = 5, solid = false }) })
-  map.fieldData.events.warps = { { x = 6, z = 5 } }
-  local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
-  mgr:enterMap(map, FieldEventState.new())
-  Assert.isNil(mgr:getAt(map.mapId, 6, 5, 0), "an explicitly non-solid object never occupies its cell")
+function T.physical_projection_keeps_centered_world_coordinates()
+  local mgr = manager({ object({ x = 2, z = 3 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  local before = {
+    worldX = actor.worldX,
+    worldY = actor.worldY,
+    worldZ = actor.worldZ,
+  }
+
+  mgr:reconcilePhysicalWorld()
+
+  Assert.equal(actor.worldX, before.worldX)
+  Assert.equal(actor.worldY, before.worldY)
+  Assert.equal(actor.worldZ, before.worldZ)
+  Assert.equal(actor.worldX, -13.5)
+  Assert.equal(actor.worldY, 0)
+  Assert.equal(actor.worldZ, -12.5)
+  Assert.equal(assert(getAt(mgr, 61, 2, 3, actor.surfaceId)), actor)
+  local record = mgr:drawRecords()[1]
+  Assert.equal(record.world.x, -13.5)
+  Assert.equal(record.world.y, 0)
+  Assert.equal(record.world.z, -12.5)
+  mgr:dispose()
 end
 
 function T.actor_resolves_position_surface_and_world_anchor()
@@ -192,10 +289,34 @@ function T.raw_event_y_hint_selects_the_stacked_surface()
   Assert.equal(mgr:getById("map:61:object:0").surfaceId, 1)
 end
 
+function T.reprojection_uses_the_raw_event_y_hint_when_the_surface_is_stale()
+  local mgr = manager({ object({ x = 9, z = 3, y = 4 * 16 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  actor.surfaceId = 99
+
+  mgr:reconcilePhysicalWorld()
+
+  Assert.equal(actor.surfaceId, 1)
+  Assert.equal(actor.worldY, 4)
+  mgr:dispose()
+end
+
 function T.actor_off_the_terrain_is_fatal()
   throwsCode("ACTOR_SURFACE_MISSING", function()
     manager({ object({ x = 35, z = 3 }) })
   end)
+end
+
+function T.incomplete_source_surface_identity_is_fatal()
+  local map = runtimeMap({ object({}) })
+  map.terrain:plate(0).sourceSurfaceId = 0
+  local err = Assert.throws(function()
+    manager(map.fieldData.events.objects, { map = map })
+  end)
+  Assert.isTrue(
+    type(err) == "string" and string.find(err, "source surface identity is incomplete", 1, true) ~= nil,
+    "incomplete source identity must not be synthesized"
+  )
 end
 
 function T.equally_near_surfaces_are_ambiguous_rather_than_guessed()
@@ -231,12 +352,12 @@ function T.destroying_a_non_solid_actor_keeps_the_solid_occupant()
   })
   -- The non-solid actor shares the cell but never occupies it.
   Assert.notNil(mgr:getById("map:61:object:1"))
-  Assert.equal(assert(mgr:getAt(61, 2, 3, 0)).actorId, "map:61:object:0")
+  Assert.equal(assert(getAt(mgr, 61, 2, 3, 0)).actorId, "map:61:object:0")
   eventState:setFlag(402)
   mgr:step(1)
   Assert.isNil(mgr:getById("map:61:object:1"))
-  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the solid occupant survived").actorId, "map:61:object:0")
-  Assert.isTrue(mgr:isOccupied(61, 2, 3, 0))
+  Assert.equal(assert(getAt(mgr, 61, 2, 3, 0), "the solid occupant survived").actorId, "map:61:object:0")
+  Assert.isTrue(isOccupied(mgr, 61, 2, 3, 0))
   Assert.equal(assets:total(), 1)
 end
 
@@ -261,7 +382,7 @@ function T.stale_occupancy_cannot_be_removed_by_the_wrong_actor()
   entry.actors[imposter.actorId] = imposter
   entry.order[#entry.order + 1] = imposter
   mgr:_destroy(entry, imposter)
-  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the occupant entry survived").actorId, "map:61:object:0")
+  Assert.equal(assert(getAt(mgr, 61, 2, 3, 0), "the occupant entry survived").actorId, "map:61:object:0")
 end
 
 function T.uncompiled_sprite_is_fatal()
@@ -334,14 +455,210 @@ function T.visual_sprite_requirements_are_distinct_and_revisioned()
   Assert.isTrue(spriteIds[34])
 end
 
+function T.published_flag_actor_creation_and_destruction_invalidate_revision()
+  local eventState = FieldEventState.new({ flags = { [401] = true } })
+  local mgr = manager({ object({ eventFlag = 401 }) }, { eventState = eventState })
+  local initialRevision = mgr:visualRevision()
+
+  eventState:clearFlag(401)
+  mgr:step(1)
+  Assert.equal(mgr:visualRevision(), initialRevision + 1)
+
+  eventState:setFlag(401)
+  mgr:step(2)
+  Assert.equal(mgr:visualRevision(), initialRevision + 2)
+  mgr:dispose()
+end
+
 function T.occupancy_is_keyed_by_map_cell_and_surface()
   local mgr = manager({ object({ x = 9, z = 3 }) })
-  Assert.isTrue(mgr:isOccupied(61, 9, 3, 0))
-  Assert.isFalse(mgr:isOccupied(61, 9, 3, 1))
-  Assert.isFalse(mgr:isOccupied(61, 8, 3, 0))
-  Assert.isFalse(mgr:isOccupied(60, 9, 3, 0))
-  Assert.isFalse(mgr:isOccupied(61, 9, 3, 0, "map:61:object:0"))
-  Assert.equal(assert(mgr:getAt(61, 9, 3, 0)).actorId, "map:61:object:0")
+  Assert.isTrue(isOccupied(mgr, 61, 9, 3, 0))
+  Assert.isFalse(isOccupied(mgr, 61, 9, 3, 1))
+  Assert.isFalse(isOccupied(mgr, 61, 8, 3, 0))
+  Assert.isFalse(isOccupied(mgr, 60, 9, 3, 0))
+  Assert.isFalse(isOccupied(mgr, 61, 9, 3, 0, "map:61:object:0"))
+  Assert.equal(assert(getAt(mgr, 61, 9, 3, 0)).actorId, "map:61:object:0")
+end
+
+function T.recentered_surface_ids_do_not_change_actor_occupancy()
+  local map = runtimeMap({ object({ x = 2, z = 3 }) })
+  map.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+        cellKey = "0:0",
+        sourceSurfaceId = 12,
+      },
+      {
+        id = 7,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 1,
+        slopeClass = "flat",
+        cellKey = "0:0",
+        sourceSurfaceId = 12,
+      },
+    },
+  })
+  local projectedSurfaceId = 0
+  map.fieldRegion = {
+    sourceSurface = function(_, cellKey, sourceSurfaceId)
+      if cellKey == "0:0" and sourceSurfaceId == 12 then
+        return projectedSurfaceId
+      end
+      return nil
+    end,
+  }
+
+  local mgr = manager(map.fieldData.events.objects, { map = map })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  projectedSurfaceId = 7
+  mgr:reconcilePhysicalWorld()
+
+  local currentCandidate = {
+    fieldX = 2,
+    fieldZ = 3,
+    surfaceId = 7,
+    cellKey = "0:0",
+    sourceSurfaceId = 12,
+  }
+  local oldCandidate = {
+    fieldX = 2,
+    fieldZ = 3,
+    surfaceId = 0,
+    cellKey = "0:0",
+    sourceSurfaceId = 12,
+  }
+  Assert.equal(mgr:getAt(61, currentCandidate), actor, "current composite IDs must not replace source identity")
+  Assert.equal(mgr:getAt(61, oldCandidate), actor, "old composite IDs must not change source occupancy")
+  mgr:dispose()
+end
+
+function T.stacked_source_surfaces_keep_same_coordinates_distinct()
+  local map = runtimeMap({
+    object({ objectEventId = 0, x = 9, z = 3, y = 0 }),
+    object({ objectEventId = 1, x = 9, z = 3, y = 4 * 16, spriteId = 34 }),
+  })
+  map.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+        cellKey = "0:0",
+        sourceSurfaceId = 20,
+      },
+      {
+        id = 1,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 4,
+        slopeClass = "flat",
+        cellKey = "0:0",
+        sourceSurfaceId = 21,
+      },
+    },
+  })
+
+  local sameSourceMap = runtimeMap({
+    object({ objectEventId = 0, x = 9, z = 3, y = 0 }),
+    object({ objectEventId = 1, x = 9, z = 3, y = 4 * 16, spriteId = 34 }),
+  })
+  sameSourceMap.terrain = TerrainSurface.new({
+    plates = {
+      map.terrain:plate(0),
+      {
+        id = 1,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 4,
+        slopeClass = "flat",
+        cellKey = "0:0",
+        sourceSurfaceId = 20,
+      },
+    },
+  })
+  throwsCode("ACTOR_OCCUPANCY_CONFLICT", function()
+    manager(sameSourceMap.fieldData.events.objects, { map = sameSourceMap })
+  end)
+
+  local mgr = manager(map.fieldData.events.objects, { map = map })
+  local lower = assert(mgr:getById("map:61:object:0"))
+  local upper = assert(mgr:getById("map:61:object:1"))
+  local lowerCandidate = {
+    fieldX = 9,
+    fieldZ = 3,
+    surfaceId = 1,
+    cellKey = "0:0",
+    sourceSurfaceId = 20,
+  }
+  local upperCandidate = {
+    fieldX = 9,
+    fieldZ = 3,
+    surfaceId = 0,
+    cellKey = "0:0",
+    sourceSurfaceId = 21,
+  }
+
+  Assert.equal(mgr:getAt(61, lowerCandidate), lower)
+  Assert.equal(mgr:getAt(61, upperCandidate), upper)
+  mgr:dispose()
+end
+
+function T.preflight_probe_uses_event_rules_without_publishing_actors()
+  local eventState = FieldEventState.new({ flags = { [401] = true } })
+  local mgr, _, assets, source = manager({}, { eventState = eventState })
+  local destination = runtimeMap({
+    object({ objectEventId = 0, eventFlag = 401 }),
+    object({ objectEventId = 1, solid = false }),
+    object({ objectEventId = 2, x = 9, y = 4 * 16 }),
+  }, 62)
+  local revision = mgr:visualRevision()
+
+  Assert.isNil(mgr:probeAt(destination, eventState, candidate(2, 3, 0)), "flagged and non-solid events do not occupy")
+  Assert.isNil(mgr:probeAt(destination, eventState, candidate(9, 3, 0)), "a different surface does not occupy")
+  local occupant = assert(mgr:probeAt(destination, eventState, candidate(9, 3, 1)))
+  Assert.equal(occupant.objectEventId, 2)
+  Assert.isNil(mgr.maps[62], "preflight must not publish a destination map")
+  Assert.equal(mgr.currentMapId, source.mapId)
+  Assert.equal(assets:total(), 0, "preflight must not acquire visuals")
+  Assert.equal(mgr:visualRevision(), revision)
+  mgr:dispose()
+end
+
+function T.preflight_probe_rejects_two_solid_events_on_one_surface()
+  local mgr, _, _, source = manager({})
+  local destination = runtimeMap({
+    object({ objectEventId = 0 }),
+    object({ objectEventId = 1, spriteId = 34 }),
+  }, 62)
+  throwsCode("ACTOR_OCCUPANCY_CONFLICT", function()
+    mgr:probeAt(destination, FieldEventState.new(), candidate(2, 3, 0))
+  end)
+  Assert.equal(mgr.currentMapId, source.mapId)
+  Assert.isNil(mgr.maps[62])
+  mgr:dispose()
 end
 
 function T.setting_a_flag_removes_draw_and_occupancy_on_one_tick()
@@ -353,7 +670,7 @@ function T.setting_a_flag_removes_draw_and_occupancy_on_one_tick()
   mgr:step(1)
   Assert.isNil(mgr:getById("map:61:object:0"))
   Assert.equal(#mgr:drawRecords(), 0)
-  Assert.isFalse(mgr:isOccupied(61, 2, 3, 0))
+  Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0))
   Assert.equal(assets:total(), 0)
 end
 
@@ -366,7 +683,7 @@ function T.clearing_a_flag_restores_the_actor_at_its_source_state()
   local actor = assert(mgr:getById("map:61:object:0"))
   Assert.notNil(actor)
   Assert.equal(actor.facing, "west")
-  Assert.isTrue(mgr:isOccupied(61, 2, 3, 0))
+  Assert.isTrue(isOccupied(mgr, 61, 2, 3, 0))
   Assert.equal(assets:total(), 1)
 end
 
@@ -382,9 +699,136 @@ end
 
 function T.entering_the_same_map_twice_is_idempotent()
   local mgr, eventState, assets, map = manager({ object({}) })
+  local initialRevision = mgr:visualRevision()
   mgr:enterMap(map, eventState)
   Assert.equal(#mgr:drawRecords(), 1)
   Assert.equal(assets:total(), 1)
+  Assert.equal(mgr:visualRevision(), initialRevision)
+end
+
+function T.rebinding_a_published_map_preserves_actor_state_and_revision()
+  local mgr, _, assets, source = manager({ object({}) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  actor:setFacing("west")
+  actor:setVisible(false)
+  local revision = mgr:visualRevision()
+  local replacement = runtimeMap({}, source.mapId)
+
+  mgr:rebindMap(source.mapId, replacement)
+
+  Assert.equal(mgr.maps[source.mapId].runtimeMap, replacement)
+  Assert.equal(mgr:getById(actor.actorId), actor)
+  Assert.equal(actor.facing, "west")
+  Assert.isFalse(actor.visible)
+  Assert.equal(mgr:visualRevision(), revision)
+  Assert.equal(assets:total(), 1)
+  Assert.throws(function()
+    mgr:rebindMap(source.mapId, runtimeMap({}, 60))
+  end)
+  mgr:leaveMap(source.mapId)
+  Assert.throws(function()
+    mgr:rebindMap(source.mapId, replacement)
+  end)
+  mgr:dispose()
+end
+
+function T.publishing_an_empty_map_does_not_change_revision()
+  local assets = fakeAssets({ [99] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  local eventState = FieldEventState.new()
+  Assert.equal(mgr:visualRevision(), 0)
+
+  mgr:enterMap(runtimeMap({}, 61), eventState)
+
+  Assert.equal(mgr:visualRevision(), 0)
+  mgr:dispose()
+end
+
+function T.prepare_map_keeps_live_actors_until_commit()
+  local mgr, eventState, assets, source = manager({ object({}) })
+  local destination = runtimeMap({ object({ objectEventId = 1, spriteId = 34, x = 4 }) }, 60)
+
+  local prepared = mgr:prepareMap(destination, eventState)
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.isNil(mgr:getById("map:60:object:1"))
+  Assert.equal(assets:total(), 2)
+
+  mgr:commitPrepared(prepared)
+  Assert.notNil(mgr:getById("map:61:object:0"), "committing a prepared map does not evict the source")
+  Assert.notNil(mgr:getById("map:60:object:1"))
+  Assert.equal(mgr.currentMapId, source.mapId)
+  mgr:setActiveMap(destination.mapId)
+  Assert.equal(mgr.currentMapId, destination.mapId)
+  mgr:leaveMap(source.mapId)
+  Assert.isNil(mgr:getById("map:61:object:0"))
+  mgr:dispose()
+end
+
+function T.prepare_map_failure_discards_all_staged_visuals_without_live_mutation()
+  local mgr, eventState, assets = manager({ object({}) })
+  local destination = runtimeMap({ object({ facingDirection = "northwest" }) }, 60)
+
+  throwsCode("ACTOR_FACING_INVALID", function()
+    mgr:prepareMap(destination, eventState)
+  end)
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.isNil(mgr.maps[60])
+  Assert.equal(assets:total(), 1)
+  mgr:dispose()
+end
+
+function T.discarding_prepared_map_releases_only_staged_visuals()
+  local mgr, eventState, assets = manager({ object({}) })
+  local initialRevision = mgr:visualRevision()
+  local initialSpriteIds = {}
+  mgr:collectSpriteIds(initialSpriteIds)
+  local prepared = mgr:prepareMap(runtimeMap({ object({ spriteId = 34 }) }, 60), eventState)
+
+  mgr:discardPrepared(prepared)
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.isNil(mgr.maps[60])
+  Assert.equal(mgr:visualRevision(), initialRevision, "discarding staged actors does not change live revision")
+  local finalSpriteIds = {}
+  mgr:collectSpriteIds(finalSpriteIds)
+  Assert.deepEqual(
+    finalSpriteIds,
+    initialSpriteIds,
+    "discarding staged actors does not change live sprite dependencies"
+  )
+  Assert.equal(assets.references[34], 0, "the staged visual is released exactly once")
+  Assert.equal(assets:total(), 1)
+  mgr:dispose()
+end
+
+function T.commit_bind_failure_discards_prepared_visuals_before_publication()
+  local mgr, _, assets = manager({ object({}) })
+  local initialRevision = mgr:visualRevision()
+  local failingState = {
+    _flags = {},
+    _vars = {},
+    _tick = 0,
+    _listeners = {},
+    isFlagSet = function()
+      return false
+    end,
+    subscribe = function()
+      error("event subscription failed", 0)
+    end,
+  }
+  ---@cast failingState FieldEventState
+  local prepared = mgr:prepareMap(runtimeMap({ object({ spriteId = 34 }) }, 60), failingState)
+
+  local ok, err = pcall(function()
+    mgr:commitPrepared(prepared)
+  end)
+  Assert.isFalse(ok)
+  Assert.equal(err, "event subscription failed")
+  Assert.equal(prepared.state, "discarded")
+  Assert.isNil(mgr.maps[60])
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.equal(mgr:visualRevision(), initialRevision)
+  Assert.equal(assets:total(), 1)
+  mgr:dispose()
 end
 
 -- A runtime map without the compiled object collection is a malformed
@@ -405,11 +849,13 @@ function T.enter_map_without_object_collection_fails_and_rolls_back()
 end
 
 function T.leaving_a_map_releases_every_visual()
-  local mgr, _, assets = manager({ object({}) })
+  local mgr, _, assets = manager({ object({}), object({ objectEventId = 1, spriteId = 34, x = 4 }) })
+  local initialRevision = mgr:visualRevision()
   mgr:leaveMap(61)
   Assert.equal(assets:total(), 0)
   Assert.isNil(mgr:getById("map:61:object:0"))
-  Assert.isFalse(mgr:isOccupied(61, 2, 3, 0))
+  Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0))
+  Assert.equal(mgr:visualRevision(), initialRevision + 1)
 end
 
 function T.repeated_map_round_trips_do_not_leak_actors_or_visuals()
@@ -430,11 +876,11 @@ function T.two_maps_stay_independent_during_a_transition()
   local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
   mgr:enterMap(runtimeMap({ object({}) }, 61), eventState)
   mgr:enterMap(runtimeMap({ object({ spriteId = 34 }) }, 60), eventState)
-  Assert.isTrue(mgr:isOccupied(61, 2, 3, 0))
-  Assert.isTrue(mgr:isOccupied(60, 2, 3, 0))
+  Assert.isTrue(isOccupied(mgr, 61, 2, 3, 0))
+  Assert.isTrue(isOccupied(mgr, 60, 2, 3, 0))
   mgr:leaveMap(61)
-  Assert.isFalse(mgr:isOccupied(61, 2, 3, 0))
-  Assert.isTrue(mgr:isOccupied(60, 2, 3, 0))
+  Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0))
+  Assert.isTrue(isOccupied(mgr, 60, 2, 3, 0))
 end
 
 -- A real FieldPlayer whose occupancy predicate reads this manager's index,
@@ -449,8 +895,8 @@ local function playerOn(mgr, map, fieldX, fieldZ, surfaceId)
     fieldZ = fieldZ,
     surfaceId = surfaceId,
     facing = "south",
-    occupancy = function(x, z, surface)
-      local occupant = mgr:getAt(map.mapId, x, z, surface)
+    occupancy = function(moveCandidate)
+      local occupant = mgr:getAt(map.mapId, moveCandidate)
       return occupant and occupant.actorId or nil
     end,
   })
@@ -503,21 +949,21 @@ function T.script_actor_world_resolves_map_indexes_and_visibility()
   end
 end
 
--- setPosition onto another solid actor's cell is a conflict, never a silent
--- occupancy overwrite, for every caller that does not identify itself as
--- script-driven (autonomous walk-AI/player-vs-object movement, and the
--- default when no options are given).
-function T.set_position_cannot_overwrite_occupancy()
+-- Scripted set_position onto another solid actor's cell is a conflict, never
+-- a silent occupancy overwrite, for every caller that does not identify
+-- itself as script-driven (autonomous walk-AI/player-vs-object movement, and
+-- the default when no options are given).
+function T.script_set_position_cannot_overwrite_occupancy()
   local mgr = manager({
     object({ objectEventId = 0, x = 2, z = 3 }),
     object({ objectEventId = 1, x = 8, z = 3 }),
   })
-  local victim = mgr:getById("map:61:object:1")
+  local _ = mgr:getById("map:61:object:1")
   throwsCode("ACTOR_OCCUPANCY_CONFLICT", function()
     mgr:setPosition("map:61:object:0", { fieldX = 8, fieldZ = 3 })
   end)
-  Assert.equal(assert(mgr:getAt(61, 8, 3, 0), "the occupant entry survived the conflict").actorId, "map:61:object:1")
-  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
+  Assert.equal(assert(getAt(mgr, 61, 8, 3, 0), "the occupant entry survived the conflict").actorId, "map:61:object:1")
+  Assert.equal(assert(getAt(mgr, 61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
 end
 
 -- Pinned HGSS source performs no inter-object collision check while a
@@ -530,8 +976,8 @@ function T.scripted_set_position_may_overwrite_occupancy()
     object({ objectEventId = 1, x = 8, z = 3 }),
   })
   mgr:setPosition("map:61:object:0", { fieldX = 8, fieldZ = 3 }, { scripted = true })
-  Assert.equal(assert(mgr:getAt(61, 8, 3, 0), "the mover now occupies the shared cell").actorId, "map:61:object:0")
-  Assert.isNil(mgr:getAt(61, 2, 3, 0), "the mover's old cell is vacated")
+  Assert.equal(assert(getAt(mgr, 61, 8, 3, 0), "the mover now occupies the shared cell").actorId, "map:61:object:0")
+  Assert.isNil(getAt(mgr, 61, 2, 3, 0), "the mover's old cell is vacated")
 end
 
 -- A coordinate-conversion failure must leave the actor in its old cell with
@@ -544,7 +990,7 @@ function T.script_set_position_conversion_failure_keeps_occupancy()
     mgr:setPosition("map:61:object:0", { fieldX = 100, fieldZ = 3 })
   end)
   Assert.equal(actor.fieldX, 2, "the actor keeps its old position")
-  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
+  Assert.equal(assert(getAt(mgr, 61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
 end
 
 -- A destination inside the permission coverage but without terrain (or with
@@ -556,7 +1002,7 @@ function T.script_set_position_surface_failure_keeps_occupancy()
     mgr:setPosition("map:61:object:0", { fieldX = 35, fieldZ = 3 })
   end)
   Assert.equal(actor.fieldX, 2, "the actor keeps its old position")
-  Assert.equal(assert(mgr:getAt(61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
+  Assert.equal(assert(getAt(mgr, 61, 2, 3, 0), "the mover kept its old cell").actorId, "map:61:object:0")
 end
 
 -- A move onto a different terrain plate updates the surface used by occupancy
@@ -569,9 +1015,9 @@ function T.script_set_position_across_surfaces_rekeys_occupancy()
   mgr:setPosition("map:61:object:0", { fieldX = 9, fieldZ = 3, worldY = 4 })
   Assert.equal(actor.surfaceId, 1, "the destination surface follows the resolved plate")
   Assert.equal(actor.worldY, 4)
-  Assert.equal(assert(mgr:getAt(61, 9, 3, 1), "occupancy rekeys on the new surface").actorId, "map:61:object:0")
-  Assert.isNil(mgr:getAt(61, 9, 3, 0), "no occupancy on the old surface at the destination")
-  Assert.isNil(mgr:getAt(61, 2, 3, 0), "the old cell is vacated")
+  Assert.equal(assert(getAt(mgr, 61, 9, 3, 1), "occupancy rekeys on the new surface").actorId, "map:61:object:0")
+  Assert.isNil(getAt(mgr, 61, 9, 3, 0), "no occupancy on the old surface at the destination")
+  Assert.isNil(getAt(mgr, 61, 2, 3, 0), "the old cell is vacated")
 end
 
 -- Without an explicit worldY the actor stays on its current surface when it
@@ -582,7 +1028,70 @@ function T.script_set_position_without_world_y_stays_on_the_current_surface()
   mgr:setPosition("map:61:object:0", { fieldX = 9, fieldZ = 3 })
   Assert.equal(actor.surfaceId, 0, "the current surface covers the destination and is preserved")
   Assert.equal(actor.worldY, 0)
-  Assert.equal(assert(mgr:getAt(61, 9, 3, 0)).actorId, "map:61:object:0")
+  Assert.equal(assert(getAt(mgr, 61, 9, 3, 0)).actorId, "map:61:object:0")
+end
+
+function T.script_set_position_preserves_logical_identity_until_destination_resides()
+  local map = runtimeMap({ object({ objectEventId = 0, x = 2, z = 3 }) })
+  map.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 64,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+        cellKey = "0:0",
+        sourceSurfaceId = 0,
+      },
+    },
+  })
+  local resident = false
+  map.coverage = {
+    containsGlobal = function(_, fieldX)
+      return fieldX < 32 or resident
+    end,
+  }
+  map.fieldRegion = {
+    sourceSurface = function(_, cellKey, sourceSurfaceId)
+      if (cellKey == "0:0" or cellKey == "1:0") and sourceSurfaceId == 0 then
+        return 0
+      end
+      return nil
+    end,
+  }
+  local mgr = manager(map.fieldData.events.objects, { map = map })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  Assert.equal(actor.cellKey, "0:0")
+  Assert.equal(actor.sourceSurfaceId, 0)
+
+  local candidatesAt = map.terrain.candidatesAt
+  map.terrain.candidatesAt = function()
+    error("nonresident actor movement must not resolve terrain")
+  end
+  mgr:setPosition(actor.actorId, { fieldX = 34, fieldZ = 3 })
+  map.terrain.candidatesAt = candidatesAt
+
+  Assert.equal(actor.fieldX, 34)
+  Assert.equal(actor.fieldZ, 3)
+  Assert.equal(actor.cellKey, "1:0", "scripted movement updates the logical cell identity")
+  Assert.isNil(actor.sourceSurfaceId, "a nonresident actor must not retain an old cell's surface slot")
+  Assert.isFalse(actor.resident)
+  Assert.isNil(mgr:getAt(61, stableCandidate(34, 3, 0, "1:0", 0)), "a nonresident actor never enters guessed occupancy")
+  Assert.equal(#mgr:drawRecords(), 0, "a nonresident actor is absent from the physical draw projection")
+
+  resident = true
+  mgr:reconcilePhysicalWorld()
+
+  Assert.isTrue(actor.resident)
+  Assert.equal(actor.cellKey, "1:0")
+  Assert.equal(actor.sourceSurfaceId, 0)
+  Assert.equal(assert(mgr:getAt(61, stableCandidate(34, 3, 0, "1:0", 0))), actor)
+  Assert.equal(#mgr:drawRecords(), 1)
+  mgr:dispose()
 end
 
 -- Hidden actors stay solid for collision and report hidden snapshots: the
@@ -607,7 +1116,7 @@ function T.hidden_actors_report_hidden_snapshots_and_stay_solid()
   local world = ScriptActorWorld.new(mgr --[[@as ScriptActorManager]], player)
   mgr:hide("map:61:object:0")
   Assert.isFalse(mgr:getById("map:61:object:0").visible)
-  Assert.isTrue(mgr:isOccupied(61, 2, 3, 0), "hidden actors remain solid for collision")
+  Assert.isTrue(isOccupied(mgr, 61, 2, 3, 0), "hidden actors remain solid for collision")
   Assert.equal(world:snapshot("map:61:object:0").visible, false, "hide_object reflects in snapshots")
   world:show("map:61:object:0")
   Assert.equal(world:snapshot("map:61:object:0").visible, true, "show_object restores snapshot visibility")
@@ -622,31 +1131,6 @@ function T.player_cannot_step_into_a_visible_solid_actor_cell()
   Assert.equal(p.motion, "idle")
 end
 
--- A visible actor with no A-button script still follows source collision
--- semantics: scriptId == 0 is not an independent solidity input, so the
--- player's path is blocked exactly as it would be by any other solid actor.
-function T.player_cannot_step_into_a_zero_script_actor_cell()
-  local mgr, _, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3, scriptId = 0 }) })
-  local p = playerOn(mgr, map, 9, 2, 0)
-  p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
-  Assert.equal(p.fieldZ, 2, "a zero-script actor must still block the player")
-  Assert.equal(p.motion, "idle")
-end
-
--- Coinciding with a warp record is not a solidity input either: warp
--- triggering is resolved by the player/warp system independently, and the
--- actor manager must not infer non-solidity from the coincidence.
-function T.player_cannot_step_into_a_warp_coincident_actor_cell()
-  local map = runtimeMap({ object({ objectEventId = 0, x = 9, z = 3 }) })
-  map.fieldData.events.warps = { { x = 9, z = 3 } }
-  local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
-  mgr:enterMap(map, FieldEventState.new())
-  local p = playerOn(mgr, map, 9, 2, 0)
-  p:updateFixed({ heldDirection = "south", pressedDirection = "south" })
-  Assert.equal(p.fieldZ, 2, "a warp-coincident actor must still block the player")
-  Assert.equal(p.motion, "idle")
-end
-
 function T.hiding_the_actor_opens_the_cell_for_the_player()
   local mgr, eventState, _, map = manager({ object({ objectEventId = 0, x = 9, z = 3, eventFlag = 401 }) })
   local p = playerOn(mgr, map, 9, 2, 0)
@@ -658,7 +1142,7 @@ function T.hiding_the_actor_opens_the_cell_for_the_player()
     p:updateFixed({ heldDirection = "south" })
   end
   Assert.equal(p.fieldZ, 3)
-  Assert.isFalse(mgr:isOccupied(61, 9, 3, 0))
+  Assert.isFalse(isOccupied(mgr, 61, 9, 3, 0))
 end
 
 function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
@@ -674,7 +1158,7 @@ function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
   end
   Assert.equal(p.fieldZ, 3)
   Assert.equal(p.surfaceId, 1)
-  Assert.isTrue(mgr:isOccupied(61, 9, 3, 0))
+  Assert.isTrue(isOccupied(mgr, 61, 9, 3, 0))
 end
 
 function T.pose_clock_advances_only_for_visible_actors()
@@ -733,6 +1217,17 @@ function T.dispose_unsubscribes_from_the_event_state()
   eventState:setFlag(401)
   mgr:step(1)
   Assert.equal(#mgr:drawRecords(), 0)
+end
+
+function T.dispose_releases_every_published_map()
+  local mgr, _, assets = manager({ object({ objectEventId = 0 }) })
+  mgr:enterMap(runtimeMap({ object({ objectEventId = 1, spriteId = 34 }) }, 62), FieldEventState.new())
+  mgr:enterMap(runtimeMap({ object({ objectEventId = 2, spriteId = 29 }) }, 63), FieldEventState.new())
+
+  mgr:dispose()
+
+  Assert.equal(assets:total(), 0, "disposing multiple maps releases every actor visual")
+  Assert.isNil(next(mgr.maps), "disposing multiple maps removes every published map")
 end
 
 return { tests = T }

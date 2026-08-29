@@ -13,6 +13,7 @@ local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
@@ -32,14 +33,19 @@ function T.contract_pins_the_current_asset_identities()
     revision = 10,
     map = {
       cacheFormat = "map-cache-v7",
-      sceneSchema = "g4-map-scene-v8",
+      sceneSchema = "g4-map-scene-v9",
       terrainSchema = "g4-terrain-surfaces-v1",
       collisionVersion = 1,
+    },
+    fieldCells = {
+      cacheFormat = "field-cell-cache-v2",
+      indexSchema = "g4-field-cell-index-v2",
+      cellSchema = "g4-field-cell-v2",
     },
     fieldActors = {
       cacheFormat = "field-actor-cache-v1",
       schema = "g4-field-actor-v2",
-      indexSchema = "g4-field-actor-index-v1",
+      indexSchema = "g4-field-actor-index-v2",
     },
     fieldCamera = {
       cacheFormat = "g4-field-camera-cache-v1",
@@ -47,7 +53,7 @@ function T.contract_pins_the_current_asset_identities()
     },
     fieldMapData = {
       cacheFormat = "g4-field-map-cache-v1",
-      fieldSchema = "g4-field-map-v7",
+      fieldSchema = "g4-field-map-v8",
     },
     messages = {
       cacheFormat = "field-message-cache-v3",
@@ -60,7 +66,7 @@ function T.contract_pins_the_current_asset_identities()
       schema = "g4-field-font-v3",
     },
     scripts = {
-      cacheFormat = "script-cache-v1",
+      cacheFormat = "script-cache-v2",
       indexSchema = "g4-script-index-v1",
       provenanceSchema = "g4-script-provenance-v1",
     },
@@ -73,7 +79,8 @@ function T.contract_pins_the_current_asset_identities()
       schema = "g4-new-game-init-v2",
     },
     fieldEffects = {
-      cacheFormat = "field-effect-cache-v2",
+      cacheFormat = "field-effect-cache-v6",
+      indexSchema = "g4-field-effect-index-v1",
     },
     fieldEmotes = {
       cacheFormat = "field-emotes-cache-v2",
@@ -139,6 +146,7 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(NewGameInitCache.SCHEMA, DerivedAssetContract.newGameInit.schema)
   Assert.equal(FieldEmoteAssetCache.FORMAT, DerivedAssetContract.fieldEmotes.cacheFormat)
   Assert.equal(FieldEmoteAssetCache.SCHEMA, DerivedAssetContract.fieldEmotes.schema)
+  Assert.equal(FieldEffectAssetCache.FORMAT, DerivedAssetContract.fieldEffects.cacheFormat)
 end
 
 return { tests = T }

@@ -160,6 +160,23 @@ function FieldCamera:updateFixed(playerTarget)
   self.cameraAppliedY = self.target.y - self.profile.targetOffsetTiles.y
 end
 
+-- Translate the local coordinate frame after physical coverage changes. This
+-- is a coordinate-system event, not terrain motion, so it never writes the Y
+-- history ring.
+function FieldCamera:rebase(deltaX, deltaY, deltaZ)
+  assert(
+    type(deltaX) == "number" and type(deltaY) == "number" and type(deltaZ) == "number",
+    "camera rebase delta required"
+  )
+  for _, vector in ipairs({ self.sourceTarget, self.target, self.previousTarget, self.eye, self.previousEye }) do
+    vector.x = vector.x + deltaX
+    vector.y = vector.y + deltaY
+    vector.z = vector.z + deltaZ
+  end
+  self.cameraSourceY = self.cameraSourceY + deltaY
+  self.cameraAppliedY = self.cameraAppliedY + deltaY
+end
+
 function FieldCamera:setProjectionAspect(aspect)
   assert(type(aspect) == "number" and aspect > 0, "projection aspect must be positive")
   if self.projectionAspect == aspect then

@@ -26,6 +26,7 @@ local function map(backgrounds)
   local value = {
     mapId = 61,
     mapSymbol = "test-map",
+    mapSection = "test-section",
     cameraType = 4,
     coordinateOrigin = { x = 0, z = 0 },
     scene = {},
@@ -70,6 +71,7 @@ local function bgEvent(index, scriptId, x, z, directionRaw, eventType)
     index = index,
     scriptId = scriptId,
     type = eventType or 0,
+    hiddenItem = (eventType or 0) == 2,
     x = x,
     z = z,
     y = 0,
@@ -147,11 +149,16 @@ end
 
 -- resolver with an actor lookup table keyed by "x:z"
 local function resolver(actorsByCell)
-  local actorAt = function(_, fieldX, fieldZ, surfaceId)
-    local entry = actorsByCell and actorsByCell[fieldX .. ":" .. fieldZ]
-    return entry and entry.surfaceId == surfaceId and entry.actor or nil
+  local actorAt = function(_, candidate)
+    local entry = actorsByCell and actorsByCell[candidate.fieldX .. ":" .. candidate.fieldZ]
+    return entry and entry.surfaceId == candidate.surfaceId and entry.actor or nil
   end
-  return FieldInteractionResolver.new({ actorAt = actorAt })
+  return FieldInteractionResolver.new({
+    actorAt = actorAt,
+    targetMapAt = function(_, _, currentMap)
+      return currentMap
+    end,
+  })
 end
 
 local function baseSnapshot(overrides)
@@ -299,6 +306,9 @@ function T.vertical_and_horizontal_direction_rows()
         actorAt = function()
           return nil
         end,
+        targetMapAt = function(_, _, currentMap)
+          return currentMap
+        end,
       }):resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
       assert(intent, "facing " .. case.facing .. " accepts raw " .. raw)
       Assert.equal(intent.kind, "background")
@@ -308,6 +318,9 @@ function T.vertical_and_horizontal_direction_rows()
       local intent = FieldInteractionResolver.new({
         actorAt = function()
           return nil
+        end,
+        targetMapAt = function(_, _, currentMap)
+          return currentMap
         end,
       }):resolve(baseSnapshot({ runtimeMap = m, facing = case.facing }))
       Assert.isNil(intent, "facing " .. case.facing .. " rejects raw " .. raw)
@@ -324,16 +337,15 @@ function T.background_requires_exact_facing_cell_match()
   )
 end
 
--- The hidden-item family is an explicit declaration, not an accidental
--- eligibility gap: the named predicate is the single owner of the type-2
--- classification shared with the binding audit.
-function T.is_hidden_item_identifies_the_type_two_family()
+-- The hidden-item family is an explicit normalized declaration, not an
+-- accidental eligibility gap: the named predicate is its single owner.
+function T.is_hidden_item_identifies_the_hidden_item_marker()
   Assert.isTrue(
-    FieldInteractionResolver.isHiddenItem({ type = FieldInteractionResolver.HIDDEN_ITEM_EVENT_TYPE }),
-    "type 2 is the hidden-item family"
+    FieldInteractionResolver.isHiddenItem({ hiddenItem = true }),
+    "the hidden-item marker identifies the noninteractive family"
   )
-  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ type = 0 }))
-  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ type = 1 }))
+  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ hiddenItem = false }))
+  Assert.isFalse(FieldInteractionResolver.isHiddenItem({ type = 2 }))
 end
 
 -- The resolver owns one surface resolver per terrain: resolving against a
@@ -348,23 +360,23 @@ function T.resolving_across_maps_never_reuses_stale_terrain_state()
   Assert.equal(second.background.eventIndex, 0)
 end
 
--- The type-two family is declared noninteractive (hidden-item pickup depends
+-- The hidden-item family is declared noninteractive (hidden-item pickup depends
 -- on collection flags that are not tracked); it resolves to nothing rather
 -- than emitting an intent the client could never bind.
-function T.type_two_background_events_are_skipped()
+function T.hidden_item_background_events_are_skipped()
   local m = map({ bgEvent(0, 100, 4, 13, 4, 2) })
   local r = resolver()
   Assert.isNil(r:resolve(baseSnapshot({ runtimeMap = m })))
 end
 
-function T.type_two_does_not_block_a_later_compatible_event()
+function T.hidden_item_does_not_block_a_later_compatible_event()
   local m = map({
     bgEvent(0, 100, 4, 13, 4, 2),
     bgEvent(1, 6, 4, 13, 0),
   })
   local r = resolver()
   local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
-  assert(intent, "the type-2 record is skipped, the later compatible one wins")
+  assert(intent, "the hidden-item record is skipped, the later compatible one wins")
   Assert.equal(intent.kind, "background")
   Assert.equal(intent.background.eventIndex, 1)
 end
@@ -422,14 +434,19 @@ function T.actor_on_another_surface_is_ineligible()
   -- occupancy lookup misses and the compatible background on the facing cell
   -- wins: different surfaces do not interact.
   local elm = actor("map:61:object:0", 0, 99, 4, 13, 1)
-  local actorAt = function(_, _, _, surfaceId)
-    if surfaceId == 0 then
+  local actorAt = function(_, candidate)
+    if candidate.surfaceId == 0 then
       return nil
     end
     return elm
   end
   local m = map({ bgEvent(0, 6, 4, 13, 0) })
-  local r = FieldInteractionResolver.new({ actorAt = actorAt })
+  local r = FieldInteractionResolver.new({
+    actorAt = actorAt,
+    targetMapAt = function(_, _, currentMap)
+      return currentMap
+    end,
+  })
   local intent = r:resolve(baseSnapshot({ runtimeMap = m }))
   assert(intent, "the background on the reachable surface wins")
   Assert.equal(intent.kind, "background")
@@ -503,6 +520,71 @@ function T.intent_values_survive_source_mutation()
   Assert.equal(intent.object.actorId, "map:61:object:0")
   Assert.equal(intent.scriptId, 1)
   Assert.equal(intent.playerFacing, "north")
+end
+
+function T.cross_map_background_uses_target_events_and_identity()
+  local source = map()
+  source.terrain = TerrainSurface.new({ plates = { flatPlate(0, 0, 32, 0) } })
+  local target = map({ bgEvent(7, 19, 4, 13, 0) })
+  target.mapId = 62
+  target.fieldData.scriptBankId = 912
+  local lookups = {}
+  local crossMapResolver = FieldInteractionResolver.new({
+    actorAt = function(mapId, candidate)
+      lookups.actorMapId = mapId
+      lookups.candidate = candidate
+      return nil
+    end,
+    targetMapAt = function(fieldX, fieldZ, currentMap)
+      Assert.equal(fieldX, 4)
+      Assert.equal(fieldZ, 13)
+      Assert.equal(currentMap, source)
+      return target
+    end,
+  })
+
+  local intent = assert(crossMapResolver:resolve(baseSnapshot({ runtimeMap = source })))
+  Assert.equal(lookups.actorMapId, 62)
+  Assert.equal(lookups.candidate.fieldX, 4)
+  Assert.equal(lookups.candidate.fieldZ, 13)
+  Assert.equal(intent.kind, "background")
+  Assert.equal(intent.mapId, 62)
+  Assert.equal(intent.scriptBankId, 912)
+  Assert.equal(intent.background.eventIndex, 7)
+  Assert.equal(intent.scriptId, 19)
+  Assert.equal(intent.sourceFieldX, 4)
+  Assert.equal(intent.sourceFieldZ, 14)
+end
+
+function T.cross_map_object_keeps_priority_and_forwards_stable_surface_identity()
+  local source = map()
+  source.terrain = TerrainSurface.new({
+    plates = { flatPlate(0, 0, 32, 0) },
+  })
+  source.terrain:plate(0).cellKey = "7:3"
+  source.terrain:plate(0).sourceSurfaceId = 44
+  local target = map({ bgEvent(3, 19, 4, 13, 0) })
+  target.mapId = 62
+  target.fieldData.scriptBankId = 912
+  local targetActor = actor("map:62:object:2", 2, 101, 4, 13, 23)
+  local crossMapResolver = FieldInteractionResolver.new({
+    actorAt = function(mapId, candidate)
+      Assert.equal(mapId, 62)
+      Assert.equal(candidate.cellKey, "7:3")
+      Assert.equal(candidate.sourceSurfaceId, 44)
+      return targetActor
+    end,
+    targetMapAt = function()
+      return target
+    end,
+  })
+
+  local intent = assert(crossMapResolver:resolve(baseSnapshot({ runtimeMap = source })))
+  Assert.equal(intent.kind, "object")
+  Assert.equal(intent.mapId, 62)
+  Assert.equal(intent.scriptBankId, 912)
+  Assert.equal(intent.object.actorId, "map:62:object:2")
+  Assert.equal(intent.scriptId, 23)
 end
 
 return { tests = T }

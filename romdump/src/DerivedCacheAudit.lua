@@ -17,6 +17,7 @@ local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
 local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
+local FieldCellCache = require("libs.assets.src.FieldCellCache")
 
 local DerivedCacheAudit = {}
 
@@ -33,6 +34,7 @@ local REQUIRED_MARKERS = {
   FieldEffectAssetCache.markerPath(),
   FieldEmoteAssetCache.markerPath(),
   NewGameInitCache.markerPath(),
+  FieldCellCache.markerPath(),
 }
 
 ---@param cacheFs CacheFs

@@ -34,6 +34,19 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 
 local T = {}
 
+---@class GameSoundTest.FaderRamp
+---@field start integer
+---@field target integer
+---@field durationFrames integer
+---@field elapsedFrames integer
+
+---@class GameSoundTest.Fader
+---@field level integer
+---@field ramp GameSoundTest.FaderRamp|nil
+
+---@class GameSoundTest.InspectableSound : GameSound
+---@field _faders table<integer, GameSoundTest.Fader>
+
 local SAMPLE_RATE = 48000
 -- Three distinct content-addressed waves: BGM, effect, fanfare.
 local WAVE_A = { 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000 }
@@ -114,6 +127,21 @@ local function defaultSequences()
       { op = "end" },
     }),
   }
+end
+
+local function seamlessReplacementSequences()
+  local sequences = defaultSequences()
+  sequences[6] = seq(6, "SEQ_TEST_BGM_QUEUED", 7, {
+    { op = "program", program = 1 },
+    { op = "note", key = 62, velocity = 127, duration = 1 },
+    { op = "jump", target = 2 },
+  })
+  sequences[7] = seq(7, "SEQ_TEST_BGM_RETARGETED", 7, {
+    { op = "program", program = 2 },
+    { op = "note", key = 64, velocity = 127, duration = 1 },
+    { op = "jump", target = 2 },
+  })
+  return sequences
 end
 
 local function engineBundle(sequences, opts)
@@ -313,6 +341,121 @@ function T.play_music_replaces_the_running_bgm_on_its_player()
   Assert.equal(sound:currentMusic(), 4)
   Assert.isTrue(sound:isEffectPlaying("SEQ_TEST_BGM_B"), "the replacement plays")
   Assert.isTrue(maxAbs(left(player:render(500), 500)) > 0, "the replacement is audible")
+end
+
+function T.queued_music_replacement_admits_destination_only_on_the_final_frame()
+  local sound, player = newGameSound(seamlessReplacementSequences())
+  sound:playMusic("SEQ_TEST_BGM")
+  Assert.isTrue(player:isPlayerPlaying(1), "the source BGM is playing")
+
+  sound:queueMusicReplacement("SEQ_TEST_BGM_QUEUED", 60)
+
+  for _ = 1, 59 do
+    sound:updateSoundFrame()
+    Assert.equal(sound:currentMusic(), 0, "the source remains current before frame 60")
+    Assert.isTrue(player:isPlayerPlaying(1), "the source keeps playing before frame 60")
+    Assert.isFalse(player:isPlayerPlaying(7), "the destination is not admitted before frame 60")
+  end
+
+  sound:updateSoundFrame()
+  Assert.equal(sound:currentMusic(), 6, "the destination becomes current on frame 60")
+  Assert.isFalse(player:isPlayerPlaying(1), "the source is retired before destination admission")
+  Assert.isTrue(player:isPlayerPlaying(7), "the destination starts on frame 60")
+  Assert.isFalse(sound:isMusicFadeActive(), "the destination has no fade-in ramp")
+end
+
+function T.queued_music_replacement_retargets_without_restarting_source_fade()
+  local sound, player, spy = newGameSound(seamlessReplacementSequences())
+  sound:playMusic("SEQ_TEST_BGM")
+  sound:queueMusicReplacement("SEQ_TEST_BGM_QUEUED", 60)
+  for _ = 1, 10 do
+    sound:updateSoundFrame()
+  end
+
+  local expectedLevel = 127 + NnsSoundMath.cDiv(10 * (0 - 127), 60)
+  Assert.equal(spy.faderWrites[#spy.faderWrites].level, expectedLevel, "the source fade has progressed 10 frames")
+  local writesBeforeRetarget = #spy.faderWrites
+  sound:queueMusicReplacement("SEQ_TEST_BGM_RETARGETED", 60)
+  Assert.equal(#spy.faderWrites, writesBeforeRetarget, "retargeting does not restart or rewrite the source fade")
+
+  for _ = 1, 49 do
+    sound:updateSoundFrame()
+    Assert.isTrue(player:isPlayerPlaying(1), "the source remains active through frame 59")
+    Assert.isFalse(player:isPlayerPlaying(7), "neither queued destination starts before frame 60")
+  end
+  Assert.equal(sound:currentMusic(), 0, "the source remains current through frame 59")
+
+  sound:updateSoundFrame()
+  Assert.equal(sound:currentMusic(), 7, "the latest destination starts at the original frame 60")
+  Assert.isFalse(player:isPlayerPlaying(1), "the source is retired at completion")
+  Assert.isTrue(player:isPlayerPlaying(7), "the retargeted destination is playing")
+end
+
+function T.queueing_music_replacement_reuses_an_active_music_fade()
+  local sound, player, spy = newGameSound(seamlessReplacementSequences())
+  sound:playMusic("SEQ_TEST_BGM_LONG")
+  sound:fadeMusicOut({ target = 32, durationTicks = 20 })
+  for _ = 1, 7 do
+    sound:updateSoundFrame()
+  end
+
+  local inspectableSound = sound --[[@as GameSoundTest.InspectableSound]]
+  local fader = inspectableSound._faders[1]
+  local ramp = assert(fader.ramp)
+  local start = ramp.start
+  local target = ramp.target
+  local durationFrames = ramp.durationFrames
+  local elapsedFrames = ramp.elapsedFrames
+  local level = fader.level
+  local destinationStarts = 0
+  local originalPlay = player.play
+  ---@diagnostic disable-next-line: duplicate-set-field -- test spy
+  player.play = function(self, handle, sequence, bankRecord)
+    if sequence.id == 6 then
+      destinationStarts = destinationStarts + 1
+    end
+    return originalPlay(self, handle, sequence, bankRecord)
+  end
+
+  local writesBeforeQueue = #spy.faderWrites
+  sound:queueMusicReplacement("SEQ_TEST_BGM_QUEUED", 60)
+
+  Assert.equal(fader.ramp, ramp, "queueing must retain the active music ramp")
+  Assert.equal(ramp.start, start, "queueing must retain the active ramp start")
+  Assert.equal(ramp.target, target, "queueing must retain the active ramp target")
+  Assert.equal(ramp.durationFrames, durationFrames, "queueing must retain the active ramp duration")
+  Assert.equal(ramp.elapsedFrames, elapsedFrames, "queueing must retain the active ramp elapsed time")
+  Assert.equal(fader.level, level, "queueing must not rewrite the current fader level")
+  Assert.equal(#spy.faderWrites, writesBeforeQueue, "queueing must not issue a second fader write")
+  Assert.equal(sound:currentMusic(), 5, "the source remains current while its fade is active")
+  Assert.isFalse(player:isPlayerPlaying(7), "the destination remains queued before the original fade ends")
+
+  for _ = 1, 12 do
+    sound:updateSoundFrame()
+  end
+  Assert.equal(sound:currentMusic(), 5, "the source remains current before the original final frame")
+  sound:updateSoundFrame()
+  Assert.equal(sound:currentMusic(), 6, "the destination is admitted on the original final frame")
+  Assert.equal(destinationStarts, 1, "the queued destination starts exactly once")
+  Assert.isFalse(player:isPlayerPlaying(1), "the source player is stopped at admission")
+  Assert.isTrue(player:isPlayerPlaying(7), "the queued destination is playing")
+end
+
+function T.explicit_music_replacement_cancels_a_pending_queued_destination()
+  local sound, player = newGameSound(seamlessReplacementSequences())
+  sound:playMusic("SEQ_TEST_BGM")
+  sound:queueMusicReplacement("SEQ_TEST_BGM_QUEUED", 60)
+  for _ = 1, 10 do
+    sound:updateSoundFrame()
+  end
+
+  sound:playMusic("SEQ_TEST_BGM_RETARGETED")
+  for _ = 1, 60 do
+    sound:updateSoundFrame()
+  end
+
+  Assert.equal(sound:currentMusic(), 7, "explicit music remains current after the old fade schedule")
+  Assert.isTrue(player:isPlayerPlaying(7), "explicit music remains playing")
 end
 
 function T.effects_overlap_bgm_and_report_player_completion()

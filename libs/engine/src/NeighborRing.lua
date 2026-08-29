@@ -75,8 +75,8 @@ local function buildRing(pool, descriptors, clip)
   local draws = {}
   local bindings = {}
   for _, cell in ipairs(descriptors) do
-    local ox, oz = cell.offsetTilesX, cell.offsetTilesZ
-    local transform = Matrix4.translate(ox, 0, oz)
+    local ox, oy, oz = cell.offsetTilesX, cell.offsetTilesY, cell.offsetTilesZ
+    local transform = Matrix4.translate(ox, oy, oz)
     local materials = materialsById(cell.materials, pool)
     for _, record in ipairs(cell.materials) do
       bindings[#bindings + 1] = {

@@ -58,18 +58,21 @@ function FieldPlayerVisual:setAvatar(spriteId)
   self.poseTick = 0
 end
 
--- Called once per fixed simulation tick with `walkingAtTickStart`, whether the
+-- Called once per fixed simulation tick with `walkPoseAtTickStart`, whether the
 -- player was mid-step when the tick began. The animation clock advances on any
 -- tick that touches walking -- including the commit tick that arrives at a
 -- tile, which is why the caller captures the state before advancing the player
--- -- so the gait phase carries across tile boundaries. It resets only when the
+-- so the gait phase carries across tile boundaries. It resets only when the
 -- player stops (the first genuinely idle tick) or changes facing, matching the
 -- original timeline: a standing actor holds the first frame of its facing
 -- range, and a turn starts the new range at its first frame.
-function FieldPlayerVisual:updateFixed(walkingAtTickStart)
+function FieldPlayerVisual:updateFixed(walkPoseAtTickStart)
   local isScriptedWalking = self.player.isScriptedMoving and self.player:isScriptedMoving()
-  local walking = not self.player.animationPaused
-    and (walkingAtTickStart == true or self.player.motion == "walking" or isScriptedWalking == true)
+  local walkPoseActive = self.player.motion == "walking"
+    or self.player.motion == "turning"
+    or self.player.motion == "jumping"
+    or isScriptedWalking == true
+  local walking = not self.player.animationPaused and (walkPoseAtTickStart == true or walkPoseActive)
 
   local facingChanged = self.lastFacing ~= self.player.facing
   if facingChanged then

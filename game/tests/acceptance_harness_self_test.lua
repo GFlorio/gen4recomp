@@ -422,9 +422,11 @@ end
 
 -- A step blocked by production movement resolution (an actor occupying the
 -- destination, in real composition) settles idle without reaching the
--- expected coordinate. `_moveOne` must reject that outcome rather than
--- accept it because facing already matches the requested direction.
-function T.tests.moveOne_rejects_a_blocked_step_even_when_facing_already_matches()
+-- expected coordinate. `_moveOne` reports that outcome as unmatched rather
+-- than asserting on it, so a caller planning around live actors can replan
+-- instead of treating it as fatal -- even though facing already matches the
+-- requested direction.
+function T.tests.moveOne_reports_a_blocked_step_even_when_facing_already_matches()
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
     runtimeFactory = function(game)
@@ -439,11 +441,9 @@ function T.tests.moveOne_rejects_a_blocked_step_even_when_facing_already_matches
   })
   local game = harness:boot({ versionId = "heartgold", save = "fresh" })
 
-  local err = Assert.throws(function()
-    game:_moveOne("east", { fieldX = 5, fieldZ = 7 })
-  end)
-  Assert.isTrue(tostring(err):find("expected production movement to reach", 1, true) ~= nil)
-  Assert.equal(game.runtime.player.fieldX, 4, "a blocked step must not silently commit the planned coordinate")
+  local after, matched = game:_moveOne("east", { fieldX = 5, fieldZ = 7 })
+  Assert.isTrue(not matched, "a blocked step must not report as matched")
+  Assert.equal(after.player.fieldX, 4, "a blocked step must not silently commit the planned coordinate")
   game:close()
 end
 

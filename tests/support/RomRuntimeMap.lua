@@ -1,6 +1,6 @@
 -- Compiles one runtime field map (terrain, collision, field data, and
 -- coordinate origin) straight from a ROM dump through the project compilers.
--- Shared by the ROM conformance suite's warp, interaction, and demo-path tests so
+-- Shared by the ROM conformance suite's warp, interaction, and field tests so
 -- the runtime-map shape lives in one place. `assets` may be a bundle already
 -- produced by MapAssetCompiler.compile (the scene-loader fixture reuses one
 -- compile for both the loader cache and the runtime map).

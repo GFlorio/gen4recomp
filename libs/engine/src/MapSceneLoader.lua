@@ -14,12 +14,12 @@
 -- geometry path's center and AABB once, so no vertex rescan happens per draw
 -- or placement.
 -- All GPU construction happens here, once, never in draw; the pool releases
--- every owned mesh/image. Load is transactional: the whole build runs inside
--- pool:build(), so any failure -- a missing descriptor, an unsupported
--- transform mode -- releases every GPU object the construction acquired
--- before the error propagates. After load, a single lazy acquire failure
--- (resolveImage during live draw evaluation) releases only the object that
--- acquisition itself created, never the resources the live scene is drawing.
+-- every owned mesh/image. A build task owns a fresh pool transactionally, so
+-- any failure -- a missing descriptor, an unsupported transform mode --
+-- releases every GPU object the construction acquired before the error
+-- propagates. After load, a single lazy acquire failure (resolveImage during
+-- live draw evaluation) releases only the object that acquisition itself
+-- created, never the resources the live scene is drawing.
 -- The runtime also exposes the scene's MapProps facade so field coordinates
 -- resolve to placed doors and their semantic animations. The only ROM
 -- knowledge that reaches this layer is the normalized scene descriptor; raw
@@ -60,6 +60,18 @@ local TerrainMaterialAnimator = require("libs.engine.src.TerrainMaterialAnimator
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
 local MapSceneLoader = {}
+
+---@class MapSceneLoader.BuildTask
+---@field state "active"|"ready"|"transferred"|"released"|"failed"
+---@field pool GpuAssetPool
+---@field poolReleased boolean
+---@field thread thread?
+---@field result MapSceneLoader.Runtime?
+---@field advance fun(self: MapSceneLoader.BuildTask, maxWorkUnits: integer): integer
+---@field isReady fun(self: MapSceneLoader.BuildTask): boolean
+---@field takeResult fun(self: MapSceneLoader.BuildTask): MapSceneLoader.Runtime
+---@field finish fun(self: MapSceneLoader.BuildTask): MapSceneLoader.Runtime
+---@field release fun(self: MapSceneLoader.BuildTask)
 
 ---@class MapSceneLoader.Runtime
 ---@field scene table
@@ -113,7 +125,7 @@ end
 -- under its resolved sampler wrap. The wrap pair is part of the image
 -- identity, so materials with the same pixels but different wraps resolve to
 -- independent images.
-local function materialsById(list, pool)
+local function materialsById(list, pool, checkpoint)
   local byId = {}
   for id, record in pairs(SceneDescriptor.materials(list)) do
     local wrap = SceneDescriptor.wrap(record)
@@ -124,17 +136,17 @@ local function materialsById(list, pool)
       texMatrix = IDENTITY_TEX_MATRIX,
       wrap = wrap,
     }
+    checkpoint()
   end
   return byId
 end
 
--- Build the runtime scene against an already-created pool, inside the
--- build wrapper load() opens. Raises on any failure; the wrapper releases
--- the pool in that case. `opts.timeBand` seeds the time-of-day band
+-- Build the runtime scene against an already-created pool. Raises on any
+-- failure; the owning build task releases the pool in that case. `opts.timeBand` seeds the time-of-day band
 -- (default: the band of the default field time, noon = day); `opts.meshBuilder`
 -- / `opts.imageBuilder` pass through to the pool (the GPU seams, injectable
 -- in headless tests).
-local function buildScene(pool, cacheFs, scene, opts)
+local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   local timeBand = opts.timeBand or TimeOfDayProps.bandForSeconds(FieldLightProfile.DEFAULT_TIME_SECONDS)
   assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
   local bounds = { min = { math.huge, math.huge, math.huge }, max = { -math.huge, -math.huge, -math.huge } }
@@ -219,6 +231,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- source order, positionally.
   local function drawItem(batch, materials, instanceTransform)
     local meshResource = pool:meshFor(batch.geometry)
+    checkpoint()
     local billboardBase, billboardCenter, billboardScale
     if batch.transformMode == PoseContract.BILLBOARD then
       billboardBase =
@@ -256,7 +269,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   end
 
   -- Map terrain draws: identity transform, materials from the scene list.
-  local mapMaterials = materialsById(scene.materials, pool)
+  local mapMaterials = materialsById(scene.materials, pool, checkpoint)
   local identity = Matrix4.identity()
   local mapDraws = {}
   for _, batch in ipairs(scene.mapBatches) do
@@ -267,11 +280,11 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- the scene-form material records and the runtime tables the draw items
   -- reference, constructed UNCONDITIONALLY -- a fully static scene gets an
   -- animator with no groups and no area player whose construction still
-  -- initializes every material's static texMatrix -- and INSIDE the pool
-  -- build, so every replacement step image is acquired (through the pool,
+  -- initializes every material's static texMatrix -- under the build task,
+  -- so every replacement step image is acquired (through the pool,
   -- deduplicated per path/wrap) before the transaction commits and a
   -- construction failure releases everything acquired so far through the
-  -- pool's build rollback. The draw items keep pointing at the same runtime
+  -- task's rollback. The draw items keep pointing at the same runtime
   -- tables, so the animator's in-place image and texMatrix swaps update
   -- future draws without rebuilding mapDraws. Construction samples frame 0
   -- and never advances a clock.
@@ -284,13 +297,15 @@ local function buildScene(pool, cacheFs, scene, opts)
         "no runtime material table for scene material id " .. tostring(record.id)
       ),
     }
+    checkpoint()
   end
   local terrainAnimator = TerrainMaterialAnimator.new(
     bindings,
     scene.terrainAnimations.textureSrt,
     function(path, wrapX, wrapY)
       return pool:imageFor(path, wrapX, wrapY)
-    end
+    end,
+    checkpoint
   )
 
   -- Placed building instances: resolve each modelKey's descriptor (batches +
@@ -304,7 +319,8 @@ local function buildScene(pool, cacheFs, scene, opts)
     local cached = descriptorCache[modelKey]
     if not cached then
       local desc = assert(cacheFs:loadLua(MapAssetCache.modelPath(modelKey)), "missing model " .. modelKey)
-      local mats = materialsById(desc.materials, pool)
+      checkpoint()
+      local mats = materialsById(desc.materials, pool, checkpoint)
       -- Pattern-variant textures are resolved lazily at evaluation time; the
       -- sampler state is keyed by material (never by texture path -- two
       -- materials can share one texture under different wraps), so the
@@ -328,6 +344,7 @@ local function buildScene(pool, cacheFs, scene, opts)
       local meshBounds = {}
       for _, batch in ipairs(batches) do
         meshBounds[#meshBounds + 1] = pool:meshFor(batch.geometry).bounds
+        checkpoint()
       end
       cached = {
         descriptor = desc,
@@ -336,6 +353,7 @@ local function buildScene(pool, cacheFs, scene, opts)
         bounds = SceneDescriptor.bounds(meshBounds),
       }
       descriptorCache[modelKey] = cached
+      checkpoint()
     end
     return cached
   end
@@ -381,29 +399,40 @@ local function buildScene(pool, cacheFs, scene, opts)
   local instanceByPlacement = {}
   local animatedModelCount = 0
   local animatedResourceCache = {}
+  local liveImageResolvers = {}
   for _, inst in ipairs(scene.buildingInstances) do
     local desc = descriptorFor(inst.modelKey)
     if desc.descriptor.kind == "nitro-dynamic" then
       local modelResource = animatedResourceCache[inst.modelKey]
       if not modelResource then
         local definition = ModelDefinition.fromNitroDescriptor(desc.descriptor, { key = inst.modelKey })
+        checkpoint()
         local renderMeshesById = {}
         for _, mesh in ipairs(definition.meshes) do
           local meshResource = pool:meshFor(mesh.geometry)
           renderMeshesById[mesh.id] = meshResource.mesh
           mesh.center = meshResource.center
+          checkpoint()
         end
         modelResource = { definition = definition, renderMeshesById = renderMeshesById }
         animatedResourceCache[inst.modelKey] = modelResource
         animatedModelCount = animatedModelCount + 1
       end
+      local function resolveImage(key, materialId)
+        local wrap = assert(desc.wrapByMaterial[materialId], "missing wrap for animated texture " .. key)
+        return pool:imageFor(key, wrap.x, wrap.y)
+      end
+      local function resolveImageDuringConstruction(key, materialId)
+        local image = resolveImage(key, materialId)
+        checkpoint()
+        return image
+      end
       local instance = ModelInstance.new(modelResource.definition, {
         transform = inst.transform,
-        resolveImage = function(key, materialId)
-          local wrap = assert(desc.wrapByMaterial[materialId], "missing wrap for animated texture " .. key)
-          return pool:imageFor(key, wrap.x, wrap.y)
-        end,
+        resolveImage = resolveImageDuringConstruction,
       })
+      liveImageResolvers[#liveImageResolvers + 1] = { instance = instance, resolveImage = resolveImage }
+      checkpoint()
       instance.renderMeshesById = modelResource.renderMeshesById
       growBoundsAabb(desc.bounds, inst.transform)
       animatedInstances[#animatedInstances + 1] = instance
@@ -422,6 +451,7 @@ local function buildScene(pool, cacheFs, scene, opts)
           end
         end
       end
+      checkpoint()
     end
   end
 
@@ -432,13 +462,16 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- static building list is built once and never touched again -- only the
   -- animated list is rebuilt here, so a fixed tick's cost scales with the
   -- animated instance count, not the whole building set.
-  local function refreshAnimatedItems()
+  local function refreshAnimatedItems(constructionCheckpoint)
     local items = {}
     for _, instance in ipairs(animatedInstances) do
       instance:evaluatePose()
       local drawn = instance:drawItems(instance.renderMeshesById)
       for _, item in ipairs(drawn) do
         items[#items + 1] = item
+      end
+      if constructionCheckpoint ~= nil then
+        constructionCheckpoint()
       end
     end
     runtime.animatedBuildingDraws = items
@@ -488,6 +521,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   local grid, decodeErr =
     CollisionGridAsset.decode(collisionBytes, { mapId = scene.mapId, path = scene.collision.file })
   assert(grid, decodeErr and decodeErr.message or "malformed collision asset")
+  checkpoint()
   local collision = CollisionGrid.new(grid, {
     worldOriginX = scene.matrix.worldOriginX,
     worldOriginZ = scene.matrix.worldOriginZ,
@@ -499,6 +533,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- ambiguity and missing coverage are diagnosed once at load, never per
   -- lookup.
   local doorTiles = DoorTiles.fromGrid(collision)
+  checkpoint()
 
   bounds.center = {
     (bounds.min[1] + bounds.max[1]) / 2,
@@ -517,7 +552,7 @@ local function buildScene(pool, cacheFs, scene, opts)
   -- Build the frame-0 animated items inside the load build: the scene
   -- is renderable immediately after load, and the animation clocks never
   -- advanced (the first tick's updateAnimated starts them).
-  refreshAnimatedItems()
+  refreshAnimatedItems(checkpoint)
   runtime.lighting = scene.lighting
   -- The compiled area's real HGSS edge-color table, forwarded as
   -- opaque scene state -- MapRenderer decodes and sends it, with no ROM
@@ -557,6 +592,7 @@ local function buildScene(pool, cacheFs, scene, opts)
         doorSoundType = doorMeta and doorMeta.doorSoundType or nil,
         doorRoles = doorMeta and doorMeta.roles or nil,
       }
+      checkpoint()
     end
     runtime.mapProps = MapProps.new({
       placements = placements,
@@ -577,20 +613,95 @@ local function buildScene(pool, cacheFs, scene, opts)
     pool:release()
   end
 
+  for _, resolver in ipairs(liveImageResolvers) do
+    resolver.instance.resolveImage = resolver.resolveImage
+  end
+
   return runtime
 end
 
--- Load an assembled scene from the version's derived cache. `cacheFs` is a
--- CacheFs.forVersion; `scene` is the already-loaded scene.lua table. `opts`
--- passes through to the asset pool (opts.graphics: injectable graphics for
--- headless tests), and `opts.timeBand` / `opts.meshBuilder` seed the build
--- (see buildScene).
----@param cacheFs table
----@param scene table
----@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder }?
----@return table
-function MapSceneLoader.load(cacheFs, scene, opts)
-  opts = opts or {}
+local BuildTask = {}
+BuildTask.__index = BuildTask
+
+---@param task MapSceneLoader.BuildTask
+---@param err unknown
+local function failTask(task, err)
+  if task.state == "active" then
+    task.state = "failed"
+    if not task.poolReleased then
+      task.poolReleased = true
+      task.pool:release()
+    end
+  end
+  error(err, 0)
+end
+
+---@param maxWorkUnits integer
+---@return integer
+---@param self MapSceneLoader.BuildTask
+function BuildTask:advance(maxWorkUnits)
+  assert(self.state == "active" or self.state == "ready", "build task is no longer active")
+  assert(type(maxWorkUnits) == "number" and maxWorkUnits >= 0 and maxWorkUnits % 1 == 0)
+  if self.state == "ready" or maxWorkUnits == 0 then
+    return 0
+  end
+
+  local consumed = 0
+  while consumed < maxWorkUnits and self.state == "active" do
+    local ok, yielded = coroutine.resume(self.thread)
+    if not ok then
+      failTask(self, yielded)
+    end
+    if coroutine.status(self.thread) == "dead" then
+      self.result = assert(yielded, "scene build returned no runtime")
+      self.state = "ready"
+    else
+      assert(yielded == 1, "scene build yielded an invalid work unit")
+      consumed = consumed + 1
+    end
+  end
+  return consumed
+end
+
+---@param self MapSceneLoader.BuildTask
+---@return boolean
+function BuildTask:isReady()
+  return self.state == "ready"
+end
+
+---@return MapSceneLoader.Runtime
+---@param self MapSceneLoader.BuildTask
+function BuildTask:takeResult()
+  assert(self.state == "ready", "build task result is not ready")
+  local result = assert(self.result)
+  self.result = nil
+  self.state = "transferred"
+  return result
+end
+
+---@return MapSceneLoader.Runtime
+---@param self MapSceneLoader.BuildTask
+function BuildTask:finish()
+  while self.state == "active" do
+    self:advance(1)
+  end
+  return self:takeResult()
+end
+
+---@param self MapSceneLoader.BuildTask
+function BuildTask:release()
+  if self.state == "transferred" or self.state == "released" or self.state == "failed" then
+    return
+  end
+  self.state = "released"
+  self.result = nil
+  if not self.poolReleased then
+    self.poolReleased = true
+    self.pool:release()
+  end
+end
+
+local function validateScene(scene)
   if not scene or scene.schema ~= MapAssetCache.SCENE_SCHEMA then
     Errors.raise(
       FieldErrors.MAP_SCENE_UNSUPPORTED_SCHEMA,
@@ -598,11 +709,98 @@ function MapSceneLoader.load(cacheFs, scene, opts)
       { schema = scene and scene.schema or nil }
     )
   end
+end
 
+-- Begin one resumable scene build. The task owns the fresh pool until the
+-- completed runtime is transferred or the task is cancelled/failed.
+---@param cacheFs table
+---@param scene table
+---@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder, imageBuilder?: GpuAssetPool.ImageBuilder }?
+---@return MapSceneLoader.BuildTask
+function MapSceneLoader.begin(cacheFs, scene, opts)
+  opts = opts or {}
+  validateScene(scene)
   local pool = GpuAssetPool.new(cacheFs, opts)
-  return pool:build(function()
-    return buildScene(pool, cacheFs, scene, opts)
+  local checkpoint = function()
+    ---@diagnostic disable-next-line: await-in-sync -- this callback only runs inside the build coroutine
+    coroutine["yield"](1)
+  end
+  ---@type MapSceneLoader.BuildTask
+  local task = {
+    state = "active",
+    pool = pool,
+    poolReleased = false,
+    advance = BuildTask.advance,
+    isReady = BuildTask.isReady,
+    takeResult = BuildTask.takeResult,
+    finish = BuildTask.finish,
+    release = BuildTask.release,
+  }
+  setmetatable(task, BuildTask)
+  task.thread = coroutine.create(function()
+    return buildScene(pool, cacheFs, scene, opts, checkpoint)
   end)
+  return task
+end
+
+-- Load an assembled scene synchronously by finishing the same task used by
+-- background physical presentation prefetch.
+---@param cacheFs table
+---@param scene table
+---@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder, imageBuilder?: GpuAssetPool.ImageBuilder }?
+---@return table
+function MapSceneLoader.load(cacheFs, scene, opts)
+  return MapSceneLoader.begin(cacheFs, scene, opts):finish()
+end
+
+-- Build the logical render environment without acquiring geometry or model
+-- resources. Outdoor physical cells own all rendered geometry; the renderer
+-- still needs the logical scene's lighting, edge colors, and fog state.
+---@param scene table
+---@return table
+function MapSceneLoader.loadEnvironment(scene)
+  assert(type(scene) == "table" and scene.schema == MapAssetCache.SCENE_SCHEMA, "field scene required")
+  return {
+    scene = scene,
+    lighting = scene.lighting,
+    edgeColors = scene.edgeColors,
+    fog = scene.fog,
+    release = function() end,
+  }
+end
+
+-- Build a presentation runtime for one generated physical cell. The cell uses
+-- the same normalized scene and model descriptors as a full map scene, while
+-- the physical-world owner supplies its translated render origin.
+function MapSceneLoader.loadCell(cacheFs, cell, opts)
+  return MapSceneLoader.beginCell(cacheFs, cell, opts):finish()
+end
+
+-- Build the synthetic scene used by one physical cell and expose it through
+-- the same staged scene task as a full logical scene.
+---@param cacheFs table
+---@param cell table
+---@param opts table?
+---@return MapSceneLoader.BuildTask
+function MapSceneLoader.beginCell(cacheFs, cell, opts)
+  assert(type(cell) == "table", "field cell descriptor required")
+  local scene = {
+    schema = MapAssetCache.SCENE_SCHEMA,
+    kind = "field-cell",
+    mapId = cell.mapHeaderId,
+    cameraType = 0,
+    matrix = { worldOriginX = 0, worldOriginZ = 0 },
+    mapBatches = cell.batches,
+    materials = cell.materials,
+    buildingInstances = cell.buildingInstances,
+    terrainAnimations = cell.terrainAnimations,
+    neighbors = {},
+    collision = cell.collision,
+    lighting = {},
+    edgeColors = {},
+    fog = {},
+  }
+  return MapSceneLoader.begin(cacheFs, scene, opts)
 end
 
 return MapSceneLoader

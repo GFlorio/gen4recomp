@@ -5,7 +5,8 @@
 -- control framing (EXT_CTRL_CODE_BEGIN 0xFFFE, count, arguments) follow
 -- charmap.txt and src/string_control_code.c. Glyph display text and control
 -- names come from the frozen charmap reference; widths are resolved later from
--- the font, never here. Pure module: no love dependency.
+-- the font, never here. Truncated packed trainer names raise a structured
+-- MESSAGE_TRNAME_TRUNCATED error. Pure module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
@@ -15,6 +16,75 @@ local FieldMessageTokenizer = {}
 -- Code-unit constants, control classification, and control names are the
 -- marker contract and live in FieldMessageText; this digester only walks raw
 -- code units.
+
+local TRNAME_EOS = 0x1FF
+
+---@param units integer[]
+---@param packedStart integer one-based index of the first packed unit
+---@param bitPosition integer
+---@return integer
+local function packedTrainerNameChar(units, packedStart, bitPosition)
+  local unitOffset = math.floor(bitPosition / 15)
+  local bitOffset = bitPosition % 15
+  local unit = units[packedStart + unitOffset]
+  if unit == nil then
+    Errors.raise(
+      "MESSAGE_TRNAME_TRUNCATED",
+      "trainer-name substitution ends before its packed terminator",
+      { codeUnitIndex = packedStart - 1 + unitOffset }
+    )
+  end
+
+  local firstBits = math.min(9, 15 - bitOffset)
+  local value = math.floor(unit / 2 ^ bitOffset) % 2 ^ firstBits
+  if firstBits < 9 then
+    local nextUnit = units[packedStart + unitOffset + 1]
+    if nextUnit == nil then
+      Errors.raise(
+        "MESSAGE_TRNAME_TRUNCATED",
+        "trainer-name substitution ends in the middle of a packed character",
+        { codeUnitIndex = packedStart - 1 + unitOffset }
+      )
+    end
+    value = value + (nextUnit % 2 ^ (9 - firstBits)) * 2 ^ firstBits
+  end
+  return value --[[@as integer]]
+end
+
+---@param units integer[]
+---@param index integer zero-based index of TRNAME
+---@return FieldMessageText.Token, integer zero-based index after the token
+local function tokenizeTrainerName(units, index)
+  local packedStart = index + 2
+  local bitPosition = 0
+  local packedEnd = packedStart
+  while true do
+    local character = packedTrainerNameChar(units, packedStart, bitPosition)
+    local unitOffset = math.floor(bitPosition / 15)
+    packedEnd = packedStart + unitOffset
+    bitPosition = bitPosition + 9
+    if character == TRNAME_EOS then
+      break
+    end
+  end
+
+  local tokenEnd = packedEnd
+  if units[packedEnd] == FieldMessageText.EOS then
+    tokenEnd = packedEnd - 1
+  end
+  local raw = {}
+  for rawIndex = index + 1, tokenEnd do
+    raw[#raw + 1] = units[rawIndex]
+  end
+  return {
+    kind = "substitution",
+    control = FieldMessageText.TRNAME,
+    name = "TRNAME",
+    args = {},
+    raw = raw,
+  },
+    tokenEnd
+end
 
 local function tokenizeUnits(units, charmap)
   local tokens = {}
@@ -80,14 +150,9 @@ local function tokenizeUnits(units, charmap)
       tokens[#tokens + 1] = { kind = "page_break", raw = raw }
       index = index + 1
     elseif code == FieldMessageText.TRNAME then
-      tokens[#tokens + 1] = {
-        kind = "substitution",
-        control = code,
-        name = "TRNAME",
-        args = {},
-        raw = raw,
-      }
-      index = index + 1
+      local token, tokenEnd = tokenizeTrainerName(units, index)
+      tokens[#tokens + 1] = token
+      index = tokenEnd
     elseif code < FieldMessageText.CHAR_LF then
       local text = charmap.glyphs[code]
       if text == nil then
@@ -114,7 +179,8 @@ end
 
 -- units: decrypted u16 code units (FieldMessageBank output). charmap: the
 -- frozen reference (romdump/src/reference/hgss/charmap.lua). Returns the lossless
--- token stream; raises MESSAGE_CONTROL_TRUNCATED / MESSAGE_GLYPH_UNMAPPED.
+-- token stream; raises MESSAGE_CONTROL_TRUNCATED, MESSAGE_TRNAME_TRUNCATED, or
+-- MESSAGE_GLYPH_UNMAPPED.
 function FieldMessageTokenizer.tokenize(units, charmap, _)
   assert(type(units) == "table", "tokenize requires a code-unit array")
   assert(type(charmap) == "table" and type(charmap.glyphs) == "table", "tokenize requires the frozen charmap reference")

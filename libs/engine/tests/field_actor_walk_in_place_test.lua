@@ -89,7 +89,7 @@ function T.walk_in_place_keeps_logical_coordinates_and_visibly_bobs_in_presentat
     FieldEventState.new()
   )
   local actor = assert(mgr:getById(ACTOR_ID))
-  local baseFieldX, baseFieldZ, baseWorldY = actor.fieldX, actor.fieldZ, actor.worldY
+  local baseFieldX, baseFieldZ, baseWorldY = actor.fieldX, actor.fieldZ, assert(actor.worldY)
 
   mgr:beginScriptedAction(ACTOR_ID, { action = "walk_in_place", direction = "south", speed = "normal" })
   local duration = 8 -- MovementCalibration.WALK_IN_PLACE_TICKS.normal

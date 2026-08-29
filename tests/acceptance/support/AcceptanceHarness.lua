@@ -312,6 +312,7 @@ end
 function Game:snapshot()
   local runtime = self.runtime
   local player = runtime.player or {}
+  local camera = runtime.camera
   local dialogue = runtime.dialogue
   local scheduler = runtime.scripts and runtime.scripts.scheduler
   local actors, occupancy = {}, {}
@@ -337,11 +338,29 @@ function Game:snapshot()
     player = {
       fieldX = player.fieldX,
       fieldZ = player.fieldZ,
+      localX = player.localX,
+      localZ = player.localZ,
+      worldX = player.worldX,
       worldY = player.worldY,
+      worldZ = player.worldZ,
+      previousWorldX = player.previousWorldX,
+      previousWorldY = player.previousWorldY,
+      previousWorldZ = player.previousWorldZ,
       surfaceId = player.surfaceId,
       facing = player.facing,
       motion = player.motion,
     },
+    camera = camera and {
+      sourceTarget = {
+        x = camera.sourceTarget.x,
+        y = camera.sourceTarget.y,
+        z = camera.sourceTarget.z,
+      },
+      target = { x = camera.target.x, y = camera.target.y, z = camera.target.z },
+      previousTarget = { x = camera.previousTarget.x, y = camera.previousTarget.y, z = camera.previousTarget.z },
+      eye = { x = camera.eye.x, y = camera.eye.y, z = camera.eye.z },
+      previousEye = { x = camera.previousEye.x, y = camera.previousEye.y, z = camera.previousEye.z },
+    } or nil,
     playerVisual = runtime.playerVisual and runtime.playerVisual:status() or nil,
     dialogue = dialogue and dialogue:status() or { modal = false },
     menu = appHostStatus.menu or (runtime.menuHost and runtime.menuHost:snapshot()) or nil,
@@ -358,9 +377,33 @@ function Game:snapshot()
     -- do not model it; a real FieldRuntime always does.
     screenFade = runtime.screenFade and runtime.screenFade:status() or nil,
     avatarId = runtime.avatar and runtime.avatar.id,
+    coverage = runtime.runtimeMap and runtime.runtimeMap.coverage and runtime.runtimeMap.coverage:status() or nil,
+    zoneChange = runtime.lastZoneChange and {
+      oldMapId = runtime.lastZoneChange.oldMapId,
+      newMapId = runtime.lastZoneChange.newMapId,
+      mapSectionChanged = runtime.lastZoneChange.mapSectionChanged,
+    } or nil,
+    terrainEffects = runtime.fieldTerrainEffectController and runtime.fieldTerrainEffectController:status() or nil,
     world = self.worldProbe,
     actors = actors,
     occupancy = occupancy,
+  }
+end
+
+function Game:save()
+  assert(self.runtime:captureGameSave(), "acceptance save requires a stable captured game")
+  return self:snapshot()
+end
+
+function Game:warpDestination(warpIndex)
+  assert(type(warpIndex) == "number", "acceptance warp index required")
+  local warps = assert(self.runtime.runtimeMap.fieldData.events.warps, "production warp data is required")
+  local warp = assert(warps[warpIndex + 1], "acceptance warp index is unavailable")
+  return {
+    fieldX = warp.x or warp.fieldX,
+    fieldZ = warp.z or warp.fieldZ,
+    mapId = warp.destinationMapId,
+    warpId = warp.destinationWarpId,
   }
 end
 
@@ -565,45 +608,63 @@ end
 
 -- Drive one production movement step and wait for the step to resolve.
 -- `expected`, when given, is the production-resolved destination the caller
--- already asked `FieldMovement.route` for; a turn-in-place (facing changed,
--- coordinates unchanged) is never accepted as a satisfied expectation.
+-- already asked `FieldMovement.route` for. Returns `snapshot, matched`
+-- rather than asserting: a route is planned once against a point-in-time
+-- read of live actor occupancy (`FieldMovement.route`'s own contract says as
+-- much), so a wandering actor stepping onto a planned tile between planning
+-- and arrival is an expected, real possibility, not a corrupt plan -- the
+-- caller decides whether to replan rather than this treating it as fatal. A
+-- turn-in-place (facing changed, coordinates unchanged) is never `matched`.
 function Game:_moveOne(direction, expected)
   self:move(direction)
   local after = self:advanceUntil("movement resolves", function(snapshot)
     return snapshot.player.motion == "idle"
   end, 120)
-  if expected then
-    assert(
-      after.player.fieldX == expected.fieldX and after.player.fieldZ == expected.fieldZ,
-      "expected production movement to reach "
-        .. expected.fieldX
-        .. ","
-        .. expected.fieldZ
-        .. " but the player is at "
-        .. after.player.fieldX
-        .. ","
-        .. after.player.fieldZ
-    )
-    if expected.surfaceId ~= nil then
-      assert(
-        after.player.surfaceId == expected.surfaceId,
-        "expected production movement to reach surface "
-          .. tostring(expected.surfaceId)
-          .. " but the player is on surface "
-          .. tostring(after.player.surfaceId)
-      )
-    end
+  if not expected then
+    return after, true
   end
-  return after
+  local matched = after.player.fieldX == expected.fieldX and after.player.fieldZ == expected.fieldZ
+  if matched and expected.surfaceId ~= nil then
+    matched = after.player.surfaceId == expected.surfaceId
+  end
+  return after, matched
+end
+
+-- Drives one planned edge: a direction the route planner named is only ever
+-- a walkable step, but HGSS input still turns in place before it walks
+-- whenever the pressed direction is not the player's current facing.
+-- `face()` settles that turn instantly (the same domain operation a
+-- script's `turn` performs), so `_moveOne` always observes real production
+-- arrival, never a turn-in-place standing in for it.
+function Game:_driveStep(direction, expected)
+  if self:snapshot().player.facing ~= direction then
+    self:face(direction)
+  end
+  return self:_moveOne(direction, expected)
 end
 
 -- Plans and drives a route to `target` through production movement
 -- resolution only (`FieldMovement.route`, backed by
 -- `FieldPlayer:resolveStep`): map collision, terrain/surface, and live actor
--- occupancy. Every planned edge asserts its own production-resolved
--- destination coordinate after the step settles; a turn cannot substitute
--- for arrival.
-function Game:moveTo(target)
+-- occupancy. `stopMapId`, when given, returns as soon as a seamless
+-- logical-zone change lands the player on that map, without requiring the
+-- literal target coordinate to be reached inside it.
+--
+-- Two situations invalidate a planned route mid-drive, and both are
+-- resolved the same way -- replan from wherever the player actually is now,
+-- up to a bounded number of attempts (a target that stays unreachable after
+-- that many replans is a real routing failure, not a slow one):
+-- - A target beyond the resident physical-coverage region cannot be planned
+--   in one pass (`FieldMovement.route` returns a `boundary` instead): only a
+--   real committed step, followed by the engine's own
+--   `FieldNavigationBoundary:afterCommittedMove` recenter, resolves the next
+--   region, so this drives up to the edge and takes that one crossing step
+--   for real before replanning the remainder.
+-- - A planned edge can land somewhere other than the plan expected if a
+--   live actor the plan assumed stationary has since moved onto it; the
+--   route was correct when it was drawn, so this just re-asks for a fresh
+--   one from the player's real, current position.
+function Game:moveTo(target, stopMapId)
   assert(type(target) == "table", "movement target required")
   assert(type(target.fieldX) == "number" and type(target.fieldZ) == "number", "integer field target required")
   if target.surfaceId ~= nil then
@@ -614,11 +675,48 @@ function Game:moveTo(target)
   if target.surfaceId ~= nil then
     targetLabel = targetLabel .. ":" .. target.surfaceId
   end
-  local route = assert(FieldMovement.route(self, target), "no production movement route to " .. targetLabel)
-  for _, step in ipairs(route) do
-    self:_moveOne(step.direction, step)
+  for _ = 1, 20 do
+    local route, boundary = FieldMovement.route(self, target)
+    if route then
+      local blocked = false
+      for _, step in ipairs(route) do
+        local snapshot, matched = self:_driveStep(step.direction, step)
+        if not matched then
+          blocked = true
+          break
+        end
+        if stopMapId ~= nil and snapshot.mapId == stopMapId then
+          return snapshot
+        end
+      end
+      if not blocked then
+        return self:snapshot()
+      end
+    else
+      assert(boundary, "no production movement route to " .. targetLabel)
+      local blocked = false
+      for _, step in ipairs(boundary.route) do
+        local snapshot, matched = self:_driveStep(step.direction, step)
+        if not matched then
+          blocked = true
+          break
+        end
+        if stopMapId ~= nil and snapshot.mapId == stopMapId then
+          return snapshot
+        end
+      end
+      if not blocked then
+        -- The crossing step's destination is only resolved by the real
+        -- recenter it triggers, so it cannot be asserted against an
+        -- expected coordinate the way a within-region step can.
+        local snapshot = self:_driveStep(boundary.direction)
+        if stopMapId ~= nil and snapshot.mapId == stopMapId then
+          return snapshot
+        end
+      end
+    end
   end
-  return self:snapshot()
+  error("moveTo could not resolve a route to " .. targetLabel .. " after repeated replans")
 end
 
 function Game:moveUntilBlocked(direction)

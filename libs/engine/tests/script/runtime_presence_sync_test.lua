@@ -114,7 +114,7 @@ function T.clearFlag_then_showObject_materializes_in_same_tick_without_advancing
       return "Gold"
     end,
   }
-  local world = ScriptActorWorld.new(mgr, player)
+  local world = ScriptActorWorld.new(mgr --[[@as ScriptActorManager]], player)
 
   -- After this line the runtime must have synchronized presence so the next
   -- node sees the actor live. If the sync boundary is missing, the show will
@@ -184,7 +184,7 @@ function T.genuinely_missing_actor_still_faults()
       return "Gold"
     end,
   }
-  local world = ScriptActorWorld.new(mgr, player)
+  local world = ScriptActorWorld.new(mgr --[[@as ScriptActorManager]], player)
   local services = FakeServices.new()
   services.world = eventState
   services.actors = world

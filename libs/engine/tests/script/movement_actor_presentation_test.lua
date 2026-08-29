@@ -116,7 +116,7 @@ local function harness()
       return "Gold"
     end,
   }
-  local world = ScriptActorWorld.new(mgr, player)
+  local world = ScriptActorWorld.new(mgr --[[@as ScriptActorManager]], player)
   local services = FakeServices.new()
   services.world = eventState
   services.actors = world

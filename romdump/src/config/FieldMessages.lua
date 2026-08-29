@@ -1,8 +1,6 @@
--- Selected-set manifest for the field message and font derived classes
--- . The bank list is project-owned policy: required
--- startup compiles only what the target demo needs, never the full
--- NARC_msgdata_msg archive. Association of a map to a bank comes from the
--- frozen map catalog (romdump/src/reference/hgss/maps.lua), never from this table.
+-- Static source configuration for the field message and font derived classes.
+-- Message bank reachability is derived from frozen map and script references by
+-- FieldMessageCompiler, not selected by this manifest.
 
 return {
   schema = 1,
@@ -20,12 +18,6 @@ return {
       { path = "files/msgdata/msg/msg_0543_T20R0101.gmm" },
     },
   },
-  -- Message banks selected for the demo scenario : the
-  -- Oak's opening bank (219), two town banks plus every New Bark interior bank (544-549), because the
-  -- bound scripts of the New Bark slice reference their maps' own banks, and
-  -- bank 191 because the vanilla 749-752 menus (common.pokemart and the
-  -- New Bark slice's menus) resolve their items there.
-  banks = { 542, 543, 544, 545, 546, 547, 548, 549, 191, 219 },
   -- Font 0 is the field dialogue font (src/font.c sFontArcParam[0]).
   fontId = 0,
   fontGlyphMember = 0,

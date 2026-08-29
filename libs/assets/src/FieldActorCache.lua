@@ -71,10 +71,22 @@ function FieldActorCache.isReady(cacheFs, expectedMarker)
   end
   if
     type(index.runtime) ~= "table"
-    or type(index.runtime.avatars) ~= "table"
+    or not Validate.isArray(index.runtime.avatars)
     or type(index.runtime.variableSprites) ~= "table"
   then
     return false
+  end
+  for _, avatar in ipairs(index.runtime.avatars) do
+    if
+      type(avatar) ~= "table"
+      or type(avatar.id) ~= "string"
+      or avatar.id == ""
+      or not Validate.isNonNegativeInteger(avatar.spriteId)
+      or type(avatar.gender) ~= "number"
+      or avatar.gender % 1 ~= 0
+    then
+      return false
+    end
   end
   for _, spriteId in ipairs(index.spriteIds) do
     if not Validate.isNonNegativeInteger(spriteId) then
