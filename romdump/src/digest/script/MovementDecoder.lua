@@ -9,14 +9,16 @@ local MovementDecoder = {}
 
 local DIRECTIONS = { [0] = "north", [1] = "south", [2] = "west", [3] = "east" }
 
+local function decodeFace(code, count)
+  return { action = "face", direction = DIRECTIONS[code % 4], count = count }
+end
+
 -- The supported family table: range -> function(code, count) -> step.
 local FAMILIES = {
   {
     first = 0,
     last = 3,
-    fn = function(code, count)
-      return { action = "face", direction = DIRECTIONS[code % 4], count = count }
-    end,
+    fn = decodeFace,
   },
   { first = 8, last = 11, speed = "slow" },
   { first = 12, last = 15, speed = "normal" },

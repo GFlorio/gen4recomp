@@ -44,29 +44,31 @@ end
 function ProducerFingerprint.appBackend()
   assert(love and love.filesystem, "the app backend requires love.filesystem")
   local fs = love.filesystem
-  return {
-    list = function()
-      local files = {}
-      local function walk(dir)
-        for _, name in ipairs(fs.getDirectoryItems(dir)) do
-          local path = dir .. "/" .. name
-          local info = fs.getInfo(path)
-          if info and info.type == "file" then
-            files[#files + 1] = path
-          elseif info and info.type == "directory" then
-            walk(path)
-          end
+  local function list()
+    local files = {}
+    local function walk(dir)
+      for _, name in ipairs(fs.getDirectoryItems(dir)) do
+        local path = dir .. "/" .. name
+        local info = fs.getInfo(path)
+        if info and info.type == "file" then
+          files[#files + 1] = path
+        elseif info and info.type == "directory" then
+          walk(path)
         end
       end
-      walk("src")
-      for index, path in ipairs(files) do
-        files[index] = path:sub(#"src/" + 1)
-      end
-      return files
-    end,
-    read = function(path)
-      return fs.read("src/" .. path)
-    end,
+    end
+    walk("src")
+    for index, path in ipairs(files) do
+      files[index] = path:sub(#"src/" + 1)
+    end
+    return files
+  end
+  local function read(path)
+    return fs.read("src/" .. path)
+  end
+  return {
+    list = list,
+    read = read,
   }
 end
 

@@ -17,11 +17,13 @@ local Errors = {}
 ---@field format fun(value: Errors.Error|Errors.Context|string|number|boolean|nil): string
 ---@field raise fun(code: string, message: string, context?: Errors.Context)
 
+local function formatError(errorObject)
+  return Errors.format(errorObject)
+end
+
 local MT = {
   __index = {},
-  __tostring = function(e)
-    return Errors.format(e)
-  end,
+  __tostring = formatError,
 }
 
 ---@param code string

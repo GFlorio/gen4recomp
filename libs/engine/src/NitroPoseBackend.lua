@@ -137,10 +137,11 @@ function NitroPoseBackend.evaluate(instance)
   local program = backend.program
 
   local srt = nodeSrt(program, instance.animationState:attachments(AnimationClip.CATEGORIES.joint))
+  local function nodeSRT(nodeIndex)
+    return srt[nodeIndex]
+  end
   local provider = {
-    nodeSRT = function(nodeIndex)
-      return srt[nodeIndex]
-    end,
+    nodeSRT = nodeSRT,
   }
   local result = NsbmdSbcEvaluator.evaluate(program, provider)
 

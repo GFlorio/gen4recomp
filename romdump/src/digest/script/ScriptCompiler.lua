@@ -79,9 +79,10 @@ end
 local function translateScript(memberIr, scriptIndex, opts)
   local script = memberIr.scripts[scriptIndex]
   if opts.publicIdFor == nil then
-    opts.publicIdFor = function(member, index)
+    local function publicIdFor(member, index)
       return ScriptCompiler.publicId(member, index, opts.stdCatalog)
     end
+    opts.publicIdFor = publicIdFor
   end
   local lowered = SemanticLowering.lowerScript(script, memberIr, opts)
   local steps = Structurer.structure(lowered, scriptIndex)

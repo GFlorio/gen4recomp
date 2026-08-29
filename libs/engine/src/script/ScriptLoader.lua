@@ -256,22 +256,23 @@ function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
   local Registry = require("libs.engine.src.script.Registry")
   local registry
   if opts.lazy then
+    local function loadResource(id, _)
+      local resource, err = ScriptLoader.loadGenerated(cacheFs, id, requireFn, {
+        validate = opts.validateGenerated ~= false,
+      })
+      if resource == nil then
+        local context = { scriptId = id, cause = err and err.context or nil }
+        ---@cast context Errors.Context
+        Errors.raise(
+          err and err.code or ScriptErrors.SCRIPT_LOAD_FAILED,
+          err and err.message or "generated script failed to load",
+          context
+        )
+      end
+      return resource
+    end
     registry = Registry.new({
-      loadResource = function(id, _)
-        local resource, err = ScriptLoader.loadGenerated(cacheFs, id, requireFn, {
-          validate = opts.validateGenerated ~= false,
-        })
-        if resource == nil then
-          local context = { scriptId = id, cause = err and err.context or nil }
-          ---@cast context Errors.Context
-          Errors.raise(
-            err and err.code or ScriptErrors.SCRIPT_LOAD_FAILED,
-            err and err.message or "generated script failed to load",
-            context
-          )
-        end
-        return resource
-      end,
+      loadResource = loadResource,
     })
   else
     registry = Registry.new()

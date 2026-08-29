@@ -157,7 +157,7 @@ function FieldEventState:subscribe(listener)
   assert(type(listener) == "function", "subscribe requires a listener function")
   local listeners = self._listeners
   listeners[#listeners + 1] = listener
-  return function()
+  local function unsubscribe()
     for index, entry in ipairs(listeners) do
       if entry == listener then
         table.remove(listeners, index)
@@ -165,6 +165,7 @@ function FieldEventState:subscribe(listener)
       end
     end
   end
+  return unsubscribe
 end
 
 function FieldEventState:serialize()

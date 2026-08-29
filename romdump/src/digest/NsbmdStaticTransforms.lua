@@ -36,11 +36,12 @@ function NsbmdStaticTransforms.evaluate(model)
   -- nodeSRT falls back to nil for nodes the model does not carry (the
   -- evaluator then raises, exactly like the static path).
   local nodes = model.nodes
+  local function nodeSRT(nodeIndex)
+    assert(type(nodeIndex) == "number", "nodeSRT requires a numeric node index")
+    return nodes[nodeIndex + 1]
+  end
   local draws = NsbmdSbcEvaluator.evaluate(program, {
-    nodeSRT = function(nodeIndex)
-      assert(type(nodeIndex) == "number", "nodeSRT requires a numeric node index")
-      return nodes[nodeIndex + 1]
-    end,
+    nodeSRT = nodeSRT,
   }).draws
   return draws, program
 end

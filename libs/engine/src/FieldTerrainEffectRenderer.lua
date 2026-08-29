@@ -38,11 +38,12 @@ end
 
 function Renderer:newInstance(kind)
   local resource = assert(self.resources[kind], "terrain renderer is missing " .. kind)
+  local function resolveImage(path, materialId)
+    local wrap = assert(resource.wraps[materialId], "missing grass material wrap")
+    return self.pool:imageFor(path, wrap.x, wrap.y)
+  end
   local instance = ModelInstance.new(resource.definition, {
-    resolveImage = function(path, materialId)
-      local wrap = assert(resource.wraps[materialId], "missing grass material wrap")
-      return self.pool:imageFor(path, wrap.x, wrap.y)
-    end,
+    resolveImage = resolveImage,
   })
   instance.renderMeshesById = resource.renderMeshesById
   return instance

@@ -167,7 +167,7 @@ local function peelConditional(items, entry, join, terminal, positions, refCount
   }
 end
 
-structure = function(items, entry, exit, positions, refCounts)
+function structure(items, entry, exit, positions, refCounts)
   local steps = {}
   local cursor = entry
   while cursor <= (exit or #items) do

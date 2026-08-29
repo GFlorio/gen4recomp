@@ -52,22 +52,25 @@ end
 ---@param cacheFs CacheFs
 ---@return FieldCellCache.FileSystem
 local function validationCache(stage, cacheFs)
+  local function exists(_, path, expectedType)
+    return stage:exists(path, expectedType) or cacheFs:exists(path, expectedType)
+  end
+  local function read(_, path)
+    if stage:exists(path, "file") then
+      return stage:read(path)
+    end
+    return cacheFs:read(path)
+  end
+  local function loadLua(_, path)
+    if stage:exists(path, "file") then
+      return stage:loadLua(path)
+    end
+    return cacheFs:loadLua(path)
+  end
   return {
-    exists = function(_, path, expectedType)
-      return stage:exists(path, expectedType) or cacheFs:exists(path, expectedType)
-    end,
-    read = function(_, path)
-      if stage:exists(path, "file") then
-        return stage:read(path)
-      end
-      return cacheFs:read(path)
-    end,
-    loadLua = function(_, path)
-      if stage:exists(path, "file") then
-        return stage:loadLua(path)
-      end
-      return cacheFs:loadLua(path)
-    end,
+    exists = exists,
+    read = read,
+    loadLua = loadLua,
   }
 end
 

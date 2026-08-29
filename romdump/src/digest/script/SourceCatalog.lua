@@ -13,21 +13,22 @@ SourceCatalog.SOURCE = StdCatalog.source
 
 ---@return table catalog
 function SourceCatalog.catalog()
+  ---@param stdId integer
+  ---@return table|nil { member: integer, scriptIndex: integer }
+  local function locate(stdId)
+    local groups = StdCatalog.groups
+    for i = #groups, 1, -1 do
+      local group = groups[i]
+      if stdId >= group.threshold then
+        return { member = group.member, scriptIndex = stdId - group.threshold }
+      end
+    end
+    return nil
+  end
   return {
     namesById = StdCatalog.namesById,
     groups = StdCatalog.groups,
-    ---@param stdId integer
-    ---@return table|nil { member: integer, scriptIndex: integer }
-    locate = function(stdId)
-      local groups = StdCatalog.groups
-      for i = #groups, 1, -1 do
-        local group = groups[i]
-        if stdId >= group.threshold then
-          return { member = group.member, scriptIndex = stdId - group.threshold }
-        end
-      end
-      return nil
-    end,
+    locate = locate,
   }
 end
 

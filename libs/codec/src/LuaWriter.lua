@@ -83,8 +83,24 @@ local function sortedKeys(t)
   return keys
 end
 
+local encodeTable
 ---@type fun(value: LuaWriter.Value, indent: string, seen: table<LuaWriter.Value, boolean>): string
-local encodeValue
+local function encodeValue(value, indent, seen)
+  local ty = type(value)
+  if ty == "nil" then
+    return "nil"
+  elseif ty == "boolean" then
+    return tostring(value)
+  elseif ty == "number" then
+    return encodeNumber(value)
+  elseif ty == "string" then
+    return encodeString(value)
+  elseif ty == "table" then
+    return encodeTable(value, indent, seen)
+  else
+    error("cannot serialize value of type: " .. ty)
+  end
+end
 
 local TABLE_CHUNK_SIZE = 128
 
@@ -142,7 +158,7 @@ end
 ---@param indent string
 ---@param seen table<LuaWriter.Value, boolean>
 ---@return string
-local function encodeTable(t, indent, seen)
+function encodeTable(t, indent, seen)
   if seen[t] then
     error("cannot serialize cyclic table")
   end
@@ -166,27 +182,6 @@ local function encodeTable(t, indent, seen)
   parts[#parts + 1] = indent .. "}"
   seen[t] = nil
   return table.concat(parts)
-end
-
----@param value LuaWriter.Value
----@param indent string
----@param seen table<LuaWriter.Value, boolean>
----@return string
-encodeValue = function(value, indent, seen)
-  local ty = type(value)
-  if ty == "nil" then
-    return "nil"
-  elseif ty == "boolean" then
-    return tostring(value)
-  elseif ty == "number" then
-    return encodeNumber(value)
-  elseif ty == "string" then
-    return encodeString(value)
-  elseif ty == "table" then
-    return encodeTable(value, indent, seen)
-  else
-    error("cannot serialize value of type: " .. ty)
-  end
 end
 
 ---@param value LuaWriter.Value

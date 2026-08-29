@@ -123,7 +123,7 @@ local function ownPresentation(runtime, presentation)
   local releaseRuntime = runtime.release
   local released = false
   runtime.presentation = presentation
-  runtime.release = function(self)
+  local function release(self)
     if released then
       return
     end
@@ -135,6 +135,7 @@ local function ownPresentation(runtime, presentation)
       releaseRuntime(self)
     end
   end
+  runtime.release = release
   return runtime
 end
 
@@ -147,6 +148,7 @@ local function runtimeFromDescriptor(self, descriptor, acquirePresentation)
     local collisionBytes = assert(self.cacheFs:read(cell.collision.file), "field cell collision is missing")
     local collision = assert(CollisionGridAsset.decode(collisionBytes))
     local terrainArtifact = assert(self.cacheFs:loadLua(cell.terrain.file), "field cell terrain is missing")
+    local function release() end
     runtime = {
       key = key(cell.x, cell.z),
       x = cell.x,
@@ -156,7 +158,7 @@ local function runtimeFromDescriptor(self, descriptor, acquirePresentation)
       collision = CollisionGrid.new(collision),
       terrain = TerrainSurface.new(terrainArtifact),
       descriptor = cell,
-      release = function() end,
+      release = release,
     }
   end
   runtime = assert(runtime, "field cell loader returned no runtime")
@@ -261,6 +263,7 @@ local function advancePending(self, pending, maxWorkUnits)
       consumed = consumed + 1
     elseif pending.phase == "buildRuntime" then
       local cell = assert(pending.cell)
+      local function release() end
       pending.runtime = {
         key = pending.cellKey,
         x = cell.x,
@@ -270,7 +273,7 @@ local function advancePending(self, pending, maxWorkUnits)
         collision = CollisionGrid.new(assert(pending.collision)),
         terrain = TerrainSurface.new(assert(pending.terrainArtifact)),
         descriptor = cell,
-        release = function() end,
+        release = release,
       }
       pending.runtime = normalizeRuntime(pending.runtime, pending.descriptor)
       if not self.presentationTaskFactory and not self.presentationLoader then

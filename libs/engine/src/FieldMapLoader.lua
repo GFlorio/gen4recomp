@@ -411,13 +411,15 @@ function FieldMapLoader:createPhysicalCoverage(runtimeMap, position)
   local presentationLoader
   local presentationTaskFactory
   if self.sceneLoader and self.sceneLoader.beginCell then
-    presentationTaskFactory = function(_, cell)
+    local function beginCell(_, cell)
       return self.sceneLoader.beginCell(self.cacheFs, cell, self.sceneOptions)
     end
+    presentationTaskFactory = beginCell
   elseif self.sceneLoader and self.sceneLoader.loadCell then
-    presentationLoader = function(_, cell)
+    local function loadCell(_, cell)
       return self.sceneLoader.loadCell(self.cacheFs, cell, self.sceneOptions)
     end
+    presentationLoader = loadCell
   end
   return FieldCoverage.new({
     cacheFs = self.cacheFs,

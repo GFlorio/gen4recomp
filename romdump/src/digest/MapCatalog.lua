@@ -66,13 +66,14 @@ end
 -- deterministic ordering.
 function MapCatalog.all()
   local id = -1
-  return function()
+  local function nextRecord()
     id = id + 1
     if id == COUNT then
       return nil
     end
     return byId[id]
   end
+  return nextRecord
 end
 
 return MapCatalog

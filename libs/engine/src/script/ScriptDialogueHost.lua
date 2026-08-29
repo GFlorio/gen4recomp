@@ -139,11 +139,12 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
   local templateTokens = template --[[@as table]].tokens
   for _, token in ipairs(templateTokens) do
     if token.kind == "substitution" and token.args ~= nil and resolvers[token.control] == nil then
-      resolvers[token.control] = function(_, args, _)
+      local function resolveSubstitution(_, args, _)
         local slot = args and args[1]
         local descriptor = bindings[slot] or textArgs[slot]
         return resolveTextValue(descriptor, self._player, self._fontDef, self._world)
       end
+      resolvers[token.control] = resolveSubstitution
     end
   end
   local okFormat, formatted = pcall(self._provider.format, self._provider, template, {}, resolvers)

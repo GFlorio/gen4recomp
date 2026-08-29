@@ -150,10 +150,11 @@ local function landModels(narc, memberId)
 end
 
 local function buildModels(alias)
-  return function(narc, memberId)
+  local function modelsOf(narc, memberId)
     local file = assert(Nsbmd.decode(assert(narc:readMember(memberId)), { alias = alias, memberId = memberId }))
     return file.models
   end
+  return modelsOf
 end
 
 -- Scan every terrain and building model in the ROM. Returns

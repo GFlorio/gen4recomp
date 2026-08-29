@@ -325,18 +325,30 @@ function FieldDialogueController:open(request)
   end
   local handle = {}
   ---@cast handle FieldDialogueController.Handle
-  handle.onComplete = function(callbackHandle, fn)
+  ---@param callbackHandle FieldDialogueController.Handle
+  ---@param fn fun(result: FieldDialogueController.Result)
+  ---@return FieldDialogueController.Handle
+  local function onComplete(callbackHandle, fn)
     callbackHandle._onComplete = fn
     return callbackHandle
   end
-  handle.onCancel = function(callbackHandle, fn)
+  ---@param callbackHandle FieldDialogueController.Handle
+  ---@param fn fun(result: FieldDialogueController.Result)
+  ---@return FieldDialogueController.Handle
+  local function onCancel(callbackHandle, fn)
     callbackHandle._onCancel = fn
     return callbackHandle
   end
-  handle.onError = function(callbackHandle, fn)
+  ---@param callbackHandle FieldDialogueController.Handle
+  ---@param fn fun(result: FieldDialogueController.Result)
+  ---@return FieldDialogueController.Handle
+  local function onError(callbackHandle, fn)
     callbackHandle._onError = fn
     return callbackHandle
   end
+  handle.onComplete = onComplete
+  handle.onCancel = onCancel
+  handle.onError = onError
   -- The player-selected HGSS user-frame index is presentation data captured
   -- at open time: an already-open message keeps the frame it opened with.
   -- The request may omit it; status then exposes nil rather than inventing a

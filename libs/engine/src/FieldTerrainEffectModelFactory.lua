@@ -10,7 +10,7 @@ local Factory = {}
 
 function Factory.new()
   local definitions = {}
-  return function(kind, effect)
+  local function create(kind, effect)
     local resource = definitions[kind]
     if not resource then
       resource = {
@@ -20,6 +20,7 @@ function Factory.new()
     end
     return ModelInstance.new(resource.definition)
   end
+  return create
 end
 
 return Factory

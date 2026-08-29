@@ -13,7 +13,7 @@ local Utf8Glyphs = {}
 function Utf8Glyphs.iter(text)
   assert(type(text) == "string", "Utf8Glyphs.iter requires a string")
   local position = 1
-  return function()
+  local function nextGlyph()
     if position > #text then
       return nil
     end
@@ -23,6 +23,7 @@ function Utf8Glyphs.iter(text)
     position = position + width
     return glyph
   end
+  return nextGlyph
 end
 
 return Utf8Glyphs

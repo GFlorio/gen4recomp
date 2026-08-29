@@ -142,11 +142,13 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
         return self.fieldTerrainEffectRenderer:newInstance(kind)
       end)
     else
+      local function drawItems()
+        return {}
+      end
+      local function dispose() end
       self.fieldTerrainEffectRenderer = {
-        drawItems = function()
-          return {}
-        end,
-        dispose = function() end,
+        drawItems = drawItems,
+        dispose = dispose,
       }
     end
     local width, height = love.graphics.getDimensions()
@@ -159,10 +161,11 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
       return love.graphics.getFont():getWidth(text)
     end)
     self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs) --[[@as FieldActorAssetProvider]]
-    self._actorAssetLookup = function(spriteId)
+    local function actorAssetLookup(spriteId)
       local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
       return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
     end
+    self._actorAssetLookup = actorAssetLookup
     self:_syncPresentationAssets()
   end)
   if not ok then

@@ -272,10 +272,11 @@ end
 -- construction; plays share it and never reseed.
 local function newRng()
   local state = 0x12345678
-  return function()
+  local function nextRandom()
     state = (state * 1664525 + 1013904223) % 4294967296
     return math.floor(state / 65536)
   end
+  return nextRandom
 end
 
 -- Reads an SDK variable: 0..15 player-local, 16..31 global. Every valid
@@ -1222,7 +1223,7 @@ end
 
 -- Retires one instance from both ownership structures. Callers must pass an
 -- active instance; the assertions make an ownership split fail immediately.
-retireInstance = function(self, instance, reason)
+function retireInstance(self, instance, reason)
   assert(instance ~= nil and not instance.retired, "instance must be active")
   local slot = self._seqPlayers[instance.seqPlayerSlot]
   assert(slot == instance, "physical slot does not own instance")

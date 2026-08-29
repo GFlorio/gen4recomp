@@ -167,11 +167,12 @@ function FieldDialogueTheme.fontMetrics(fontDef)
     type(fontDef) == "table" and type(fontDef.glyphs) == "table",
     "font metrics require a compiled field-font definition"
   )
+  local function glyphWidth(code)
+    local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
+    return glyph and glyph.advance
+  end
   return {
-    glyphWidth = function(code)
-      local glyph = fontDef.glyphs[code] or fontDef.glyphs[0]
-      return glyph and glyph.advance
-    end,
+    glyphWidth = glyphWidth,
     lineHeight = fontDef.lineHeight or FieldDialogueTheme.lineHeight,
     lineSpacing = 0,
   }
@@ -186,7 +187,7 @@ function FieldDialogueTheme.measureText(fontDef)
     type(fontDef) == "table" and type(fontDef.glyphs) == "table" and type(fontDef.charmap) == "table",
     "font text measurement requires a compiled field-font definition"
   )
-  return function(text)
+  local function measureText(text)
     assert(type(text) == "string", "text measurement requires a string")
     local measured = 0
     for char in Utf8Glyphs.iter(text) do
@@ -196,6 +197,7 @@ function FieldDialogueTheme.measureText(fontDef)
     end
     return measured
   end
+  return measureText
 end
 
 -- Reference-canvas rectangle.

@@ -110,10 +110,11 @@ function App._bootField(mapIdOrSymbol)
 end
 
 function App._startImport()
+  local function onComplete(versionId)
+    App._onImported(versionId)
+  end
   App.importer = RomImporter.new({
-    onComplete = function(versionId)
-      App._onImported(versionId)
-    end,
+    onComplete = onComplete,
   })
   App.setState(ImportState.new(App.importer, App.saveDir))
 end

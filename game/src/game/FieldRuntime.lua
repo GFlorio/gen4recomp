@@ -1020,11 +1020,7 @@ function FieldRuntime:_loadUnchecked()
   self.weatherRuntime = { mapId = self.runtimeMap.mapId }
 end
 
-function FieldRuntime:update(dt)
-  if self.errorText then
-    return
-  end
-
+function FieldRuntime:_updateBackgroundTasks()
   if self.residency then
     self.residency:updatePrefetch()
   end
@@ -1034,13 +1030,65 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
-  local presentationAccumulatorBefore = self.presentationFrameAccumulator
-  local fieldAccumulatorBefore = self.session.accumulator
+end
+
+function FieldRuntime:_accumulateUpdateTime(dt)
   self.presentationFrameAccumulator = self.presentationFrameAccumulator + dt
   self.session.accumulator = self.session.accumulator + dt
   if self.audio then
     self.audioFrameAccumulator = self.audioFrameAccumulator + dt
   end
+end
+
+function FieldRuntime:_discardExcessFieldTicks(fixedDt, epsilon)
+  if self.session.accumulator + epsilon >= fixedDt then
+    local discarded = math.floor((self.session.accumulator + epsilon) / fixedDt)
+    self.session.accumulator = self.session.accumulator - discarded * fixedDt
+  end
+end
+
+function FieldRuntime:_updateAudioSink()
+  -- The audio output clock: pump PCM from the engine into the host sink once
+  -- per runtime update, separate from the field fixed tick (the sink never
+  -- advances game-semantic audio state).
+  if self.audioSink then
+    self.audioSink:update()
+  end
+end
+
+function FieldRuntime:_publishTransitionError()
+  if self.transition.error and not self.errorText then
+    local context = self.transition.warpContext
+    if context then
+      self.errorText = string.format(
+        "%s\nsource map %s warp %s -> map %s warp %s",
+        tostring(self.transition.error),
+        tostring(context.sourceMapId),
+        tostring(context.sourceWarpId),
+        tostring(context.destinationMapId),
+        tostring(context.destinationWarpId)
+      )
+    else
+      self.errorText = tostring(self.transition.error)
+    end
+  end
+end
+
+function FieldRuntime:_autosaveCompletedTransition()
+  if self.transition:consumeCompleted() then
+    self:saveSession("Autosaved after warp")
+  end
+end
+
+function FieldRuntime:update(dt)
+  if self.errorText then
+    return
+  end
+
+  local presentationAccumulatorBefore = self.presentationFrameAccumulator
+  local fieldAccumulatorBefore = self.session.accumulator
+  self:_updateBackgroundTasks()
+  self:_accumulateUpdateTime(dt)
   local FIXED_DT = FieldSession.FIXED_DT
   local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
   local EPSILON = 1e-12
@@ -1103,35 +1151,10 @@ function FieldRuntime:update(dt)
       self.audio:updateSoundFrame()
     end
   end
-  if self.session.accumulator + EPSILON >= FIXED_DT then
-    local discarded = math.floor((self.session.accumulator + EPSILON) / FIXED_DT)
-    self.session.accumulator = self.session.accumulator - discarded * FIXED_DT
-  end
-
-  -- The audio output clock: pump PCM from the engine into the host sink once
-  -- per runtime update, separate from the field fixed tick (the sink never
-  -- advances game-semantic audio state).
-  if self.audioSink then
-    self.audioSink:update()
-  end
-  if self.transition.error and not self.errorText then
-    local context = self.transition.warpContext
-    if context then
-      self.errorText = string.format(
-        "%s\nsource map %s warp %s -> map %s warp %s",
-        tostring(self.transition.error),
-        tostring(context.sourceMapId),
-        tostring(context.sourceWarpId),
-        tostring(context.destinationMapId),
-        tostring(context.destinationWarpId)
-      )
-    else
-      self.errorText = tostring(self.transition.error)
-    end
-  end
-  if self.transition:consumeCompleted() then
-    self:saveSession("Autosaved after warp")
-  end
+  self:_discardExcessFieldTicks(FIXED_DT, EPSILON)
+  self:_updateAudioSink()
+  self:_publishTransitionError()
+  self:_autosaveCompletedTransition()
 end
 
 -- Every semantic-input entry point below needs the same live-input guard;
