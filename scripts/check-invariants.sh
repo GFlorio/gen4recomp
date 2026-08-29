@@ -14,7 +14,9 @@ violation() {
   fail=1
 }
 
-check_stored_anonymous_behavior_file() {
+# Targeted text check, not a Lua parser: recognizes only assigned
+# `= function(` and directly returned `return function(` forms.
+check_assigned_or_returned_anonymous_function_file() {
   local path="$1"
   local line
   while IFS= read -r line || [ -n "$line" ]; do
@@ -87,8 +89,8 @@ check_tracked_scope() {
       if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]]; then
         check_terminal_output_file "$line"
       fi
-      if check_stored_anonymous_behavior_file "$line"; then
-        violation "$line contains stored anonymous behavior; name the function"
+      if check_assigned_or_returned_anonymous_function_file "$line"; then
+        violation "$line uses an assigned or directly returned anonymous function form; name the function"
       fi
     fi
   done <<< "$tracked"
@@ -101,8 +103,8 @@ if [ "$#" -gt 0 ]; then
     [ -r "$path" ] || { violation "cannot read: $path"; continue; }
     check_forbidden_phrases "$path"
     check_terminal_output_file "$path"
-    if check_stored_anonymous_behavior_file "$path"; then
-      violation "$path contains stored anonymous behavior; name the function"
+    if check_assigned_or_returned_anonymous_function_file "$path"; then
+      violation "$path uses an assigned or directly returned anonymous function form; name the function"
     fi
   done
 else
