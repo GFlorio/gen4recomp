@@ -11,7 +11,6 @@
 ---@class ScriptInteractionClient
 ---@field private _bindings table
 ---@field private _compose fun(scriptId: string): table|nil
----@field private _composeOwner table|nil
 ---@field private _scheduler Scheduler
 local ScriptInteractionClient = {}
 ScriptInteractionClient.__index = ScriptInteractionClient
@@ -36,13 +35,12 @@ function ScriptInteractionClient.new(opts)
   return setmetatable({
     _bindings = opts.bindings,
     _compose = opts.compose,
-    _composeOwner = opts.composeOwner,
     _scheduler = opts.scheduler,
   }, ScriptInteractionClient)
 end
 
 -- Resolve one intent into a trigger + composed descriptor, or nil when the
--- map event is not bound.
+-- map event is not bound or the bound script cannot be composed.
 ---@param intent table InteractionIntent
 ---@return table|nil { trigger, composed }
 function ScriptInteractionClient:resolve(intent)
@@ -50,15 +48,7 @@ function ScriptInteractionClient:resolve(intent)
   if hit == nil then
     return nil
   end
-  local composed
-  local owner = self._composeOwner
-  if owner ~= nil then
-    local composeWithOwner = self._compose
-    ---@cast composeWithOwner fun(owner: table, scriptId: string): table|nil
-    composed = composeWithOwner(owner, hit.scriptId)
-  else
-    composed = self._compose(hit.scriptId)
-  end
+  local composed = self._compose(hit.scriptId)
   if composed == nil then
     return nil
   end
