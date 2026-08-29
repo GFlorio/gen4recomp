@@ -168,6 +168,7 @@ end
 ---@field taskRegistry TaskRegistry the live registered-task registry
 ---@field initController MapInitScriptController
 ---@field compatibility FieldScriptCompatibility
+---@field mapSource RuntimeFieldMap the active runtime map map-scoped script state is bound to
 local FieldScripts = {}
 FieldScripts.__index = FieldScripts
 
@@ -342,21 +343,31 @@ function FieldScripts:registryFingerprint()
   return self.compatibility:registryFingerprint()
 end
 
+-- Rebind every map-scoped script collaborator (maps service, script-client
+-- bank id, init-controller rules/map id, and mapSource) to sourceMap. Shared
+-- by the discontinuous and seamless active-map entry points below so both
+-- always establish the same complete destination map context.
+---@param self FieldScripts
+---@param sourceMap RuntimeFieldMap
+local function rebindMapContext(self, sourceMap)
+  self.mapsService:setSourceMap(sourceMap)
+  self.client:setScriptBankId(sourceMap.fieldData.scriptBankId)
+  self.initController:setRules(sourceMap.fieldData.initScripts, sourceMap.fieldData.mapId)
+  self.mapSource = sourceMap
+end
+
 -- Rebind the facade and warp source after a map swap (the player and the
 -- current map are replaced by the transition).
 ---@param player FieldPlayer
 ---@param sourceMap RuntimeFieldMap
 function FieldScripts:onMapSwap(player, sourceMap)
   self.player:setPlayer(player)
-  self.mapsService:setSourceMap(sourceMap)
-  self.client:setScriptBankId(sourceMap.fieldData.scriptBankId)
-  self.initController:setRules(sourceMap.fieldData.initScripts, sourceMap.fieldData.mapId)
+  rebindMapContext(self, sourceMap)
 end
 
 ---@param sourceMap RuntimeFieldMap
 function FieldScripts:onZoneChange(sourceMap)
-  self.mapsService:setSourceMap(sourceMap)
-  self.mapSource = sourceMap
+  rebindMapContext(self, sourceMap)
 end
 
 return FieldScripts
