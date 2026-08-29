@@ -2,14 +2,15 @@ local Assert = require("tests.support.Assert")
 local FieldEffectPatternAnimation = require("romdump.src.digest.FieldEffectPatternAnimation")
 
 local T = { tests = {} }
+local unpack = table.unpack or unpack
 
 local function resource(frames, textures, palettes)
   local bytes = { string.char(#frames, 0, 0, 0) }
   for _, frame in ipairs(frames) do
     bytes[#bytes + 1] = string.char(frame % 256, math.floor(frame / 256))
   end
-  bytes[#bytes + 1] = string.char(table.unpack(textures))
-  bytes[#bytes + 1] = string.char(table.unpack(palettes))
+  bytes[#bytes + 1] = string.char(unpack(textures))
+  bytes[#bytes + 1] = string.char(unpack(palettes))
   return table.concat(bytes)
 end
 
