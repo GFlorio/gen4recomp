@@ -14,6 +14,46 @@ local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local WorldManifest = {}
 
+local function sortById(a, b)
+  return a.id < b.id
+end
+
+local function sortedById(records)
+  local out = {}
+  for _, record in ipairs(records or {}) do
+    out[#out + 1] = record
+  end
+  table.sort(out, sortById)
+  return out
+end
+
+local function validateStagedManifest(tx, manifest)
+  tx.stage:writeLua(MapAssetCache.worldPath(), manifest)
+  local readBack = tx.stage:loadLua(MapAssetCache.worldPath())
+  if type(readBack) ~= "table" or type(readBack.maps) ~= "table" then
+    Errors.raise(
+      "WORLD_MANIFEST_READBACK_FAILED",
+      "world.lua did not read back as a manifest",
+      { path = MapAssetCache.worldPath() }
+    )
+  end
+end
+
+---@param version string
+---@param transaction ArtifactPublisher
+---@return table
+local function newStagedWorld(version, transaction)
+  local function publish()
+    transaction:publish()
+  end
+
+  local function abort()
+    transaction:abort()
+  end
+
+  return { version = version, publish = publish, abort = abort }
+end
+
 -- `excluded` holds maps whose matrix cell could not be selected; `compileExcluded`
 -- holds resolved maps whose asset compilation raised a structured error. The two
 -- are separate collections because they mean different things: the first is a
@@ -24,9 +64,7 @@ function WorldManifest.build(entries, excluded, compileExcluded)
   for _, e in ipairs(entries) do
     maps[#maps + 1] = e
   end
-  table.sort(maps, function(a, b)
-    return a.id < b.id
-  end)
+  table.sort(maps, sortById)
 
   for _, e in ipairs(maps) do
     if type(e.mapSection) ~= "string" or e.mapSection == "" then
@@ -44,16 +82,6 @@ function WorldManifest.build(entries, excluded, compileExcluded)
     end
     bySymbol[e.symbol] = e.id
     byId[e.id] = index
-  end
-  local function sortedById(records)
-    local out = {}
-    for _, record in ipairs(records or {}) do
-      out[#out + 1] = record
-    end
-    table.sort(out, function(a, b)
-      return a.id < b.id
-    end)
-    return out
   end
   local excludedMaps = sortedById(excluded)
   local compileExcludedMaps = sortedById(compileExcluded)
@@ -93,30 +121,12 @@ end
 function WorldManifest.stage(cacheFs, entries, excluded, compileExcluded)
   local manifest = WorldManifest.build(entries, excluded, compileExcluded)
   local tx = ArtifactPublisher.begin(cacheFs, "world", { MapAssetCache.worldPath() })
-  local ok, result = pcall(function()
-    tx.stage:writeLua(MapAssetCache.worldPath(), manifest)
-    local readBack = tx.stage:loadLua(MapAssetCache.worldPath())
-    if type(readBack) ~= "table" or type(readBack.maps) ~= "table" then
-      Errors.raise(
-        "WORLD_MANIFEST_READBACK_FAILED",
-        "world.lua did not read back as a manifest",
-        { path = MapAssetCache.worldPath() }
-      )
-    end
-  end)
+  local ok, result = pcall(validateStagedManifest, tx, manifest)
   if not ok then
     tx:abort()
     error(result, 0)
   end
-  return {
-    version = cacheFs.versionId,
-    publish = function()
-      tx:publish()
-    end,
-    abort = function()
-      tx:abort()
-    end,
-  }
+  return newStagedWorld(cacheFs.versionId, tx)
 end
 
 return WorldManifest

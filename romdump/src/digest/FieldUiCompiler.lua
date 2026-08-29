@@ -67,6 +67,55 @@ local function decodeMember(archive, memberId, label)
   return bytes
 end
 
+---@param rgba integer[]
+---@param atlasWidth integer
+---@param destX integer
+---@param destY integer
+---@param colors { r: integer, g: integer, b: integer }[]
+---@param palBase integer
+---@param paletteIndex integer
+---@param flipH boolean
+---@param flipV boolean
+---@param x integer
+---@param y integer
+---@param value integer
+---@param source Errors.Context
+local function putTilePixel(
+  rgba,
+  atlasWidth,
+  destX,
+  destY,
+  colors,
+  palBase,
+  paletteIndex,
+  flipH,
+  flipV,
+  x,
+  y,
+  value,
+  source
+)
+  if value == 0 then
+    return
+  end
+  local color = colors[palBase + value + 1]
+  if not color then
+    Errors.raise(
+      FieldUiCompiler.ERROR.SOURCE_INVALID,
+      "pixel references a palette entry the decoded palette cannot cover",
+      { value = value, palette = paletteIndex, available = #colors, source = source }
+    )
+  end
+  if flipH then
+    x = 7 - x
+  end
+  if flipV then
+    y = 7 - y
+  end
+  local px = ((destY + y) * atlasWidth + destX + x) * 4
+  rgba[px + 1], rgba[px + 2], rgba[px + 3], rgba[px + 4] = color.r, color.g, color.b, 255
+end
+
 -- Blit one tile's pixels into an RGBA buffer. 4bpp tiles hold two pixel
 -- values per byte (low nibble first); 8bpp tiles hold one. Pixel value 0 is
 -- the reserved transparency slot: the HGSS UI palettes fill it with a pink
@@ -100,40 +149,61 @@ local function blitTile(rgba, atlasWidth, destX, destY, charData, tileIndex, pal
     )
   end
   local palBase = depth == 3 and palIndex * 16 or palIndex * 256
-  local function put(x, y, v)
-    if v == 0 then
-      return
-    end
-    local c = colors[palBase + v + 1]
-    if not c then
-      Errors.raise(
-        FieldUiCompiler.ERROR.SOURCE_INVALID,
-        "pixel references a palette entry the decoded palette cannot cover",
-        { value = v, palette = palIndex, available = #colors, source = source }
-      )
-    end
-    if flipH then
-      x = 7 - x
-    end
-    if flipV then
-      y = 7 - y
-    end
-    local px = ((destY + y) * atlasWidth + destX + x) * 4
-    rgba[px + 1], rgba[px + 2], rgba[px + 3], rgba[px + 4] = c.r, c.g, c.b, 255
-  end
   local base = tileIndex * tileBytes
   if depth == 3 then
     for y = 0, 7 do
       for x = 0, 3 do
         local byte = string.byte(charData.tiles, base + y * 4 + x + 1)
-        put(x * 2, y, byte % 16)
-        put(x * 2 + 1, y, math.floor(byte / 16))
+        putTilePixel(
+          rgba,
+          atlasWidth,
+          destX,
+          destY,
+          colors,
+          palBase,
+          palIndex,
+          flipH,
+          flipV,
+          x * 2,
+          y,
+          byte % 16,
+          source
+        )
+        putTilePixel(
+          rgba,
+          atlasWidth,
+          destX,
+          destY,
+          colors,
+          palBase,
+          palIndex,
+          flipH,
+          flipV,
+          x * 2 + 1,
+          y,
+          math.floor(byte / 16),
+          source
+        )
       end
     end
   else
     for y = 0, 7 do
       for x = 0, 7 do
-        put(x, y, string.byte(charData.tiles, base + y * 8 + x + 1))
+        putTilePixel(
+          rgba,
+          atlasWidth,
+          destX,
+          destY,
+          colors,
+          palBase,
+          palIndex,
+          flipH,
+          flipV,
+          x,
+          y,
+          string.byte(charData.tiles, base + y * 8 + x + 1),
+          source
+        )
       end
     end
   end
@@ -253,23 +323,84 @@ local function loadArchive(romFs, alias)
   return archive, must(romFs:read(info.fileId), "missing archive bytes " .. alias)
 end
 
+---@param archive Narc
+---@param memberBytes table<integer, string>
+---@param kind string
+---@param memberId integer
+---@param label string
+---@return string|FieldUiCompiler.CharData|FieldUiCompiler.PaletteData|FieldUiCompiler.ScreenData|FieldUiCompiler.CellData|FieldUiCompiler.AnimationData
+local function decodeStartMenuMember(archive, memberBytes, kind, memberId, label)
+  memberBytes[memberId] = decodeMember(archive, memberId, label)
+  local decoded, err = G2dDecoder[kind](memberBytes[memberId], {
+    label = manifestConfig.startMenu.alias .. ":" .. memberId,
+  })
+  return must(decoded, err)
+end
+
+---@param frameCount integer
+---@return table
+local function buildCursorStyles(frameCount)
+  local styles = {}
+  for style = 0, frameCount - 1 do
+    styles[style] = { phases = {} }
+    for phase = 0, 2 do
+      styles[style].phases[phase] = { x = phase * 16, y = style * 16, width = 16, height = 16 }
+    end
+  end
+  return styles
+end
+
+---@param colors { r: integer, g: integer, b: integer }[]
+---@param sourceType integer
+---@return table<integer, { r: integer, g: integer, b: integer }>
+local function signPaletteBank(colors, sourceType)
+  local base = sourceType * 16
+  local bank = {}
+  for slot = 0, 15 do
+    local color = colors[base + slot + 1]
+    if not color then
+      Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "signpost palette does not contain the source type bank", {
+        sourceType = sourceType,
+        slot = slot,
+        requiredColorIndex = base + slot,
+        availableColors = #colors,
+      })
+    end
+    bank[slot] = { r = color.r, g = color.g, b = color.b }
+  end
+  return bank
+end
+
+---@param bank table<integer, { r: integer, g: integer, b: integer }>
+---@return { r: integer, g: integer, b: integer }[]
+local function paletteAsOneBasedArray(bank)
+  local array = {}
+  for slot = 0, 15 do
+    array[slot + 1] = bank[slot]
+  end
+  return array
+end
+
 local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
   local archive, archiveBytes = loadArchive(romFs, manifestConfig.startMenu.alias)
   local cfg = manifestConfig.startMenu
   local memberBytes = {}
-  ---@param kind string
-  ---@param memberId integer
-  ---@param label string
-  ---@return string|FieldUiCompiler.CharData|FieldUiCompiler.PaletteData|FieldUiCompiler.ScreenData|FieldUiCompiler.CellData|FieldUiCompiler.AnimationData
-  local function g2d(kind, memberId, label)
-    memberBytes[memberId] = decodeMember(archive, memberId, label)
-    local decoded, err =
-      G2dDecoder[kind](memberBytes[memberId], { label = manifestConfig.startMenu.alias .. ":" .. memberId })
-    return must(decoded, err)
-  end
-  local charData = g2d("decodeChar", cfg.backgroundCharMember, "start menu background char") --[[@as FieldUiCompiler.CharData]]
-  local screen = g2d("decodeScreen", cfg.backgroundScreenMember, "start menu background screen") --[[@as FieldUiCompiler.ScreenData]]
-  local pal = g2d("decodePalette", cfg.backgroundPaletteMember, "start menu background palette") --[[@as FieldUiCompiler.PaletteData]]
+  local charData =
+    decodeStartMenuMember(archive, memberBytes, "decodeChar", cfg.backgroundCharMember, "start menu background char") --[[@as FieldUiCompiler.CharData]]
+  local screen = decodeStartMenuMember(
+    archive,
+    memberBytes,
+    "decodeScreen",
+    cfg.backgroundScreenMember,
+    "start menu background screen"
+  ) --[[@as FieldUiCompiler.ScreenData]]
+  local pal = decodeStartMenuMember(
+    archive,
+    memberBytes,
+    "decodePalette",
+    cfg.backgroundPaletteMember,
+    "start menu background palette"
+  ) --[[@as FieldUiCompiler.PaletteData]]
   local backgroundPath = FieldUiAssetCache.assetDir() .. "/start-menu.png"
   assets[backgroundPath] = renderScreen(charData, pal.colors, screen, {
     asset = "start menu background",
@@ -281,10 +412,14 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
     height = screen.height,
   }
 
-  local cursorChar = g2d("decodeChar", cfg.cursorCharMember, "start menu cursor char") --[[@as FieldUiCompiler.CharData]]
-  local cursorPal = g2d("decodePalette", cfg.cursorPaletteMember, "start menu cursor palette") --[[@as FieldUiCompiler.PaletteData]]
-  local cursorCell = g2d("decodeCell", cfg.cursorCellMember, "start menu cursor cell") --[[@as FieldUiCompiler.CellData]]
-  local cursorAnim = g2d("decodeAnimation", cfg.cursorAnimMember, "start menu cursor animation") --[[@as FieldUiCompiler.AnimationData]]
+  local cursorChar =
+    decodeStartMenuMember(archive, memberBytes, "decodeChar", cfg.cursorCharMember, "start menu cursor char") --[[@as FieldUiCompiler.CharData]]
+  local cursorPal =
+    decodeStartMenuMember(archive, memberBytes, "decodePalette", cfg.cursorPaletteMember, "start menu cursor palette") --[[@as FieldUiCompiler.PaletteData]]
+  local cursorCell =
+    decodeStartMenuMember(archive, memberBytes, "decodeCell", cfg.cursorCellMember, "start menu cursor cell") --[[@as FieldUiCompiler.CellData]]
+  local cursorAnim =
+    decodeStartMenuMember(archive, memberBytes, "decodeAnimation", cfg.cursorAnimMember, "start menu cursor animation") --[[@as FieldUiCompiler.AnimationData]]
   local anim = cursorAnim.anims[1]
   -- Stack every distinct cell the animation references; each frame points at
   -- its cell's row so a multi-cell cursor animates rather than repeating the
@@ -455,16 +590,7 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
       cycle = { 0, 1, 2, 1 },
       framePrinterTicks = 9,
       placement = { x = 240, y = 168, width = 16, height = 16 },
-      styles = (function()
-        local styles = {}
-        for style = 0, cfg.frameCount - 1 do
-          styles[style] = { phases = {} }
-          for phase = 0, 2 do
-            styles[style].phases[phase] = { x = phase * 16, y = style * 16, width = 16, height = 16 }
-          end
-        end
-        return styles
-      end)(),
+      styles = buildCursorStyles(cfg.frameCount),
     },
   }
 end
@@ -488,43 +614,6 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
         tiles = frameTiles,
       }
     )
-  end
-
-  -- v5: extract per-source-type 16-color palette banks from the palette member.
-  local function signPaletteBank(colors, sourceType)
-    local base = sourceType * 16
-    local bank = {}
-
-    for slot = 0, 15 do
-      local color = colors[base + slot + 1]
-      if not color then
-        Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "signpost palette does not contain the source type bank", {
-          sourceType = sourceType,
-          slot = slot,
-          requiredColorIndex = base + slot,
-          availableColors = #colors,
-        })
-      end
-
-      bank[slot] = {
-        r = color.r,
-        g = color.g,
-        b = color.b,
-      }
-    end
-
-    return bank
-  end
-
-  -- blitTile's palette argument is a 1-based array; the generated manifest
-  -- keeps the clear zero-based slot map, so callers convert at the point of
-  -- use.
-  local function paletteAsOneBasedArray(bank)
-    local array = {}
-    for slot = 0, 15 do
-      array[slot + 1] = bank[slot]
-    end
-    return array
   end
 
   -- v5: render one frame strip row per source type using its own palette.

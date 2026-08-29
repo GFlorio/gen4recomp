@@ -49,9 +49,407 @@ local CacheBuilder = {}
 -- Convert one source-data stage's `nil, err` (RomFs.open or a compiler) into
 -- the version body's expected-failure return. The stages contract a structured
 -- error; anything else is a programming fault and raises here.
+---@param err Errors.Error|nil
+---@return nil
+---@return Errors.Error
 local function versionFailure(err)
   assert(Errors.is(err), "source-data stage failure must be a structured error")
+  ---@cast err Errors.Error
   return nil, err
+end
+
+---@param version string
+---@param log fun(line: string)
+---@param producerFingerprint string
+---@param stagedWorlds table[]
+---@param strictVersions table[]
+---@return table
+local function newVersionContext(version, log, producerFingerprint, stagedWorlds, strictVersions)
+  return {
+    version = version,
+    log = log,
+    producerFingerprint = producerFingerprint,
+    stagedWorlds = stagedWorlds,
+    strictVersions = strictVersions,
+    cacheFs = nil,
+    identity = nil,
+    forced = false,
+    romFs = nil,
+    hasCompileExclusions = false,
+    exclusionCount = 0,
+  }
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function prepareVersion(context)
+  local cacheFs = CacheFs.forVersion(context.version)
+  context.cacheFs = cacheFs
+  local dumpMarker = cacheFs:read(RawDumpContract.MARKER_PATH)
+  assert(type(dumpMarker) == "string", "a ready version must have a published dump marker")
+  local identity = DerivedCacheState.current({
+    dump = dumpMarker,
+    producer = context.producerFingerprint,
+    assetContract = DerivedAssetContract,
+    scriptApi = ScriptDsl.apiVersion,
+  })
+  context.identity = identity
+  if DerivedCacheState.matches(cacheFs:loadLua(DerivedCacheState.path), identity) then
+    if DerivedCacheAudit.isAvailable(cacheFs) then
+      context.log(string.format("build-cache: %s current", context.version))
+      return false
+    end
+  else
+    context.forced = true
+  end
+  DerivedCacheState.invalidate(cacheFs)
+  local opened, openErr = RomFs.open(context.version)
+  if not opened then
+    return versionFailure(openErr --[[@as Errors.Error]])
+  end
+  context.romFs = opened
+  return true
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildFieldCameras(context)
+  local bundle, err = FieldCameraCompiler.compile(context.romFs)
+  if not bundle then
+    return versionFailure(err)
+  end
+  if context.forced or not FieldCameraCacheWriter.isReady(context.cacheFs, bundle.marker) then
+    FieldCameraCacheWriter.write(context.cacheFs, bundle)
+    context.log(string.format("build-cache: %s field cameras compiled", context.version))
+  else
+    context.log(string.format("build-cache: %s field cameras current", context.version))
+  end
+  return true
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildFieldActors(context)
+  local bundle, err = FieldActorCompiler.compile(context.romFs)
+  if not bundle then
+    return versionFailure(err)
+  end
+  if context.forced or not FieldActorCacheWriter.isReady(context.cacheFs, bundle.marker) then
+    FieldActorCacheWriter.write(context.cacheFs, bundle)
+    context.log(
+      string.format("build-cache: %s field actors compiled (%d sprites)", context.version, #bundle.index.spriteIds)
+    )
+  else
+    context.log(string.format("build-cache: %s field actors current", context.version))
+  end
+  return true
+end
+
+---@param context table
+---@return table[]|nil
+---@return Errors.Error|nil
+local function buildFieldData(context)
+  local bundles, err = FieldMapDataCompiler.compileAll(context.romFs)
+  if not bundles then
+    return versionFailure(err)
+  end
+  for _, bundle in ipairs(bundles) do
+    if context.forced or not FieldMapDataCache.isReady(context.cacheFs, bundle.mapId, bundle.marker) then
+      FieldMapDataCacheWriter.write(context.cacheFs, bundle)
+      context.log(string.format("build-cache: %s map %d field data compiled", context.version, bundle.mapId))
+    else
+      context.log(string.format("build-cache: %s map %d field data current", context.version, bundle.mapId))
+    end
+  end
+  return bundles
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildFieldFont(context)
+  local bundle, err = FieldFontCompiler.compile(context.romFs)
+  if not bundle then
+    return versionFailure(err)
+  end
+  if context.forced or not FieldFontCacheWriter.isReady(context.cacheFs, bundle.fontId, bundle.marker) then
+    FieldFontCacheWriter.write(context.cacheFs, bundle)
+    context.log(string.format("build-cache: %s field font compiled", context.version))
+  else
+    context.log(string.format("build-cache: %s field font current", context.version))
+  end
+  return true
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildFieldUi(context)
+  local bundle, err = FieldUiCompiler.compile(context.romFs)
+  if not bundle then
+    return versionFailure(err)
+  end
+  if context.forced or not FieldUiCacheWriter.isReady(context.cacheFs, bundle.marker) then
+    FieldUiCacheWriter.write(context.cacheFs, bundle)
+    context.log(string.format("build-cache: %s field ui compiled", context.version))
+  else
+    context.log(string.format("build-cache: %s field ui current", context.version))
+  end
+  return true
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildWeatherAndEffect(context)
+  local weatherBundle, weatherErr = FieldWeatherCompiler.compile(context.romFs)
+  if not weatherBundle then
+    return versionFailure(weatherErr)
+  end
+  local effectBundle, effectErr = FieldEntranceIndicatorCompiler.compile(context.romFs)
+  if not effectBundle then
+    return versionFailure(effectErr)
+  end
+  if context.forced or not FieldEffectAssetCache.isReady(context.cacheFs, effectBundle.marker) then
+    FieldEntranceIndicatorCacheWriter.write(context.cacheFs, effectBundle)
+    context.log(string.format("build-cache: %s warp entrance field effect compiled", context.version))
+  else
+    context.log(string.format("build-cache: %s warp entrance field effect current", context.version))
+  end
+  if context.forced or not FieldWeatherCacheWriter.isReady(context.cacheFs, weatherBundle.marker) then
+    FieldWeatherCacheWriter.write(context.cacheFs, weatherBundle)
+    context.log(string.format("build-cache: %s field weather compiled", context.version))
+  else
+    context.log(string.format("build-cache: %s field weather current", context.version))
+  end
+  return true
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildFieldMessages(context)
+  local bundle, err = FieldMessageCompiler.compile(context.romFs)
+  if not bundle then
+    return versionFailure(err)
+  end
+  if context.forced or not FieldMessageCacheWriter.isReady(context.cacheFs, bundle.marker) then
+    FieldMessageCacheWriter.write(context.cacheFs, bundle)
+    context.log(
+      string.format("build-cache: %s field messages compiled (%d banks)", context.version, #bundle.index.bankIds)
+    )
+  else
+    context.log(string.format("build-cache: %s field messages current", context.version))
+  end
+  return true
+end
+
+---@param context table
+---@param fieldBundles table[]
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildScriptAudioAndCells(context, fieldBundles)
+  local scriptBundle, scriptErr = ScriptCompiler.compile(context.romFs)
+  if not scriptBundle then
+    return versionFailure(scriptErr)
+  end
+  scriptBundle.bindings = BindingCompiler.compile(fieldBundles, scriptBundle)
+  if context.forced or not ScriptCacheWriter.isReady(context.cacheFs, scriptBundle.marker) then
+    ScriptCacheWriter.write(context.cacheFs, scriptBundle)
+    context.log(
+      string.format(
+        "build-cache: %s scripts compiled (%d resources, %d members)",
+        context.version,
+        scriptBundle.index.resourceCount,
+        scriptBundle.index.scriptMemberCount
+      )
+    )
+  else
+    context.log(string.format("build-cache: %s scripts current", context.version))
+  end
+
+  local audioBundle, audioErr = AudioCompiler.compile(context.romFs)
+  if not audioBundle then
+    return versionFailure(audioErr)
+  end
+  if context.forced or not AudioCacheWriter.isReady(context.cacheFs, audioBundle.marker) then
+    AudioCacheWriter.write(context.cacheFs, audioBundle)
+    context.log(string.format("build-cache: %s audio compiled", context.version))
+  else
+    context.log(string.format("build-cache: %s audio current", context.version))
+  end
+
+  local fieldCellBundle, fieldCellErr = FieldCellCompiler.compile(context.romFs)
+  if not fieldCellBundle then
+    return versionFailure(fieldCellErr)
+  end
+  if context.forced or not FieldCellCacheWriter.isReady(context.cacheFs, fieldCellBundle.marker) then
+    FieldCellCacheWriter.write(context.cacheFs, fieldCellBundle)
+    context.log(string.format("build-cache: %s physical field cells compiled", context.version))
+  else
+    context.log(string.format("build-cache: %s physical field cells current", context.version))
+  end
+  return true
+end
+
+---@param context table
+---@param result table
+---@param entries table[]
+---@param excluded table[]
+---@param compileExcluded table[]
+local function compileMapResult(context, result, entries, excluded, compileExcluded)
+  if result.status == "excluded" then
+    excluded[#excluded + 1] = {
+      id = result.id,
+      symbol = result.symbol,
+      reason = result.reason,
+      matchCount = result.matchCount,
+    }
+    return
+  end
+
+  local bundle, compileErr = MapAssetCompiler.compile(context.romFs, result.id)
+  if not bundle then
+    assert(Errors.is(compileErr), "compiler failure must be a structured error")
+    compileErr = compileErr --[[@as Errors.Error]]
+    compileExcluded[#compileExcluded + 1] = {
+      id = result.id,
+      symbol = result.symbol,
+      errorCode = compileErr.code,
+      message = compileErr.message,
+      context = compileErr.context,
+    }
+    context.log(
+      string.format("build-cache: %s map %d excluded: %s", context.version, result.id, Errors.format(compileErr))
+    )
+    return
+  end
+
+  if context.forced or not MapAssetCache.isReady(context.cacheFs, bundle.mapId, bundle.marker) then
+    MapCacheWriter.write(context.cacheFs, bundle)
+    context.log(string.format("build-cache: %s map %d compiled", context.version, bundle.mapId))
+  else
+    context.log(string.format("build-cache: %s map %d current", context.version, bundle.mapId))
+  end
+  for _, entry in ipairs(bundle.unresolvedMaterials) do
+    context.log(
+      string.format(
+        "build-cache: %s map %d unresolved %s %s: material %s of %s %s:%d wants %s from %s",
+        context.version,
+        bundle.mapId,
+        entry.role,
+        entry.kind,
+        entry.material,
+        entry.modelName,
+        entry.modelArchive,
+        entry.modelMemberId,
+        entry.name,
+        entry.source
+      )
+    )
+  end
+  entries[#entries + 1] = {
+    id = bundle.mapId,
+    symbol = bundle.scene.mapSymbol,
+    mapSection = result.mapSection,
+    width = bundle.scene.matrix.width,
+    height = bundle.scene.matrix.height,
+    matrix = {
+      memberId = result.matrixMemberId,
+      x = result.matrixX,
+      z = result.matrixZ,
+      index = result.matrixIndex,
+      landDataMemberId = result.landDataMemberId,
+      selection = result.source,
+      matchCount = result.matchCount,
+    },
+  }
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildMapsAndWorld(context)
+  local entries, excluded, compileExcluded = {}, {}, {}
+  for _, result in ipairs(MapAnalysis.analyze(context.romFs)) do
+    compileMapResult(context, result, entries, excluded, compileExcluded)
+  end
+  local world = WorldManifest.stage(context.cacheFs, entries, excluded, compileExcluded)
+  context.stagedWorlds[#context.stagedWorlds + 1] = world
+  context.log(
+    string.format(
+      "build-cache: %s world.lua staged (%d maps, %d unresolved cells, %d compile-excluded)",
+      context.version,
+      #entries,
+      #excluded,
+      #compileExcluded
+    )
+  )
+  if #compileExcluded > 0 then
+    context.hasCompileExclusions = true
+    context.exclusionCount = context.exclusionCount + #compileExcluded
+  else
+    context.strictVersions[#context.strictVersions + 1] = { cacheFs = context.cacheFs, identity = context.identity }
+  end
+  return true
+end
+
+---@param context table
+---@return boolean|nil
+---@return Errors.Error|nil
+local function buildVersion(context)
+  local shouldBuild, err = prepareVersion(context)
+  if shouldBuild == nil then
+    return versionFailure(err)
+  end
+  if not shouldBuild then
+    return true
+  end
+
+  local ok, phaseErr = buildFieldCameras(context)
+  if not ok then
+    return nil, phaseErr
+  end
+  ok, phaseErr = buildFieldActors(context)
+  if not ok then
+    return nil, phaseErr
+  end
+  local fieldBundles
+  fieldBundles, phaseErr = buildFieldData(context)
+  if not fieldBundles then
+    return nil, phaseErr
+  end
+  ok, phaseErr = buildFieldFont(context)
+  if not ok then
+    return nil, phaseErr
+  end
+  ok, phaseErr = buildFieldUi(context)
+  if not ok then
+    return nil, phaseErr
+  end
+  ok, phaseErr = buildWeatherAndEffect(context)
+  if not ok then
+    return nil, phaseErr
+  end
+  ok, phaseErr = buildFieldMessages(context)
+  if not ok then
+    return nil, phaseErr
+  end
+  ok, phaseErr = buildScriptAudioAndCells(context, fieldBundles)
+  if not ok then
+    return nil, phaseErr
+  end
+  return buildMapsAndWorld(context)
+end
+
+---@param stagedWorlds table[]
+local function discardStagedWorlds(stagedWorlds)
+  for _, world in ipairs(stagedWorlds) do
+    world:abort()
+  end
 end
 
 -- Compile every supported map into the derived cache for every listed version
@@ -107,254 +505,25 @@ function CacheBuilder.buildVersions(versionIds, options)
   local allOk, hasCompileExclusions, exclusionCount = true, false, 0
   local stagedWorlds = {}
   local strictVersions = {}
-  local function discardStagedWorlds()
-    for _, world in ipairs(stagedWorlds) do
-      world:abort()
-    end
-  end
   for _, version in ipairs(versionIds) do
-    local romFs
-    local ok, result, failureErr = pcall(function()
-      local cacheFs = CacheFs.forVersion(version)
-      local dumpMarker = cacheFs:read(RawDumpContract.MARKER_PATH)
-      assert(type(dumpMarker) == "string", "a ready version must have a published dump marker")
-      local identity = DerivedCacheState.current({
-        dump = dumpMarker,
-        producer = producerFingerprint,
-        assetContract = DerivedAssetContract,
-        scriptApi = ScriptDsl.apiVersion,
-      })
-      local forced = false
-      if DerivedCacheState.matches(cacheFs:loadLua(DerivedCacheState.path), identity) then
-        if DerivedCacheAudit.isAvailable(cacheFs) then
-          log(string.format("build-cache: %s current", version))
-          return true
-        end
-      else
-        forced = true
-      end
-      DerivedCacheState.invalidate(cacheFs)
-      local opened, openErr = RomFs.open(version)
-      if not opened then
-        return versionFailure(openErr)
-      end
-      romFs = opened
-      local cameraBundle, cameraErr = FieldCameraCompiler.compile(romFs)
-      if not cameraBundle then
-        return versionFailure(cameraErr)
-      end
-      if forced or not FieldCameraCacheWriter.isReady(cacheFs, cameraBundle.marker) then
-        FieldCameraCacheWriter.write(cacheFs, cameraBundle)
-        log(string.format("build-cache: %s field cameras compiled", version))
-      else
-        log(string.format("build-cache: %s field cameras current", version))
-      end
-      local actorBundle, actorErr = FieldActorCompiler.compile(romFs)
-      if not actorBundle then
-        return versionFailure(actorErr)
-      end
-      if forced or not FieldActorCacheWriter.isReady(cacheFs, actorBundle.marker) then
-        FieldActorCacheWriter.write(cacheFs, actorBundle)
-        log(string.format("build-cache: %s field actors compiled (%d sprites)", version, #actorBundle.index.spriteIds))
-      else
-        log(string.format("build-cache: %s field actors current", version))
-      end
-      local fieldBundles, fieldErr = FieldMapDataCompiler.compileAll(romFs)
-      if not fieldBundles then
-        return versionFailure(fieldErr)
-      end
-      for _, fieldBundle in ipairs(fieldBundles) do
-        if forced or not FieldMapDataCache.isReady(cacheFs, fieldBundle.mapId, fieldBundle.marker) then
-          FieldMapDataCacheWriter.write(cacheFs, fieldBundle)
-          log(string.format("build-cache: %s map %d field data compiled", version, fieldBundle.mapId))
-        else
-          log(string.format("build-cache: %s map %d field data current", version, fieldBundle.mapId))
-        end
-      end
-      local fontBundle, fontErr = FieldFontCompiler.compile(romFs)
-      if not fontBundle then
-        return versionFailure(fontErr)
-      end
-      if forced or not FieldFontCacheWriter.isReady(cacheFs, fontBundle.fontId, fontBundle.marker) then
-        FieldFontCacheWriter.write(cacheFs, fontBundle)
-        log(string.format("build-cache: %s field font compiled", version))
-      else
-        log(string.format("build-cache: %s field font current", version))
-      end
-      local uiBundle, uiErr = FieldUiCompiler.compile(romFs)
-      if not uiBundle then
-        return versionFailure(uiErr)
-      end
-      if forced or not FieldUiCacheWriter.isReady(cacheFs, uiBundle.marker) then
-        FieldUiCacheWriter.write(cacheFs, uiBundle)
-        log(string.format("build-cache: %s field ui compiled", version))
-      else
-        log(string.format("build-cache: %s field ui current", version))
-      end
-      local weatherBundle, weatherErr = FieldWeatherCompiler.compile(romFs)
-      if not weatherBundle then
-        return versionFailure(weatherErr)
-      end
-      local effectBundle, effectErr = FieldEntranceIndicatorCompiler.compile(romFs)
-      if not effectBundle then
-        return versionFailure(effectErr)
-      end
-      if forced or not FieldEffectAssetCache.isReady(cacheFs, effectBundle.marker) then
-        FieldEntranceIndicatorCacheWriter.write(cacheFs, effectBundle)
-        log(string.format("build-cache: %s warp entrance field effect compiled", version))
-      else
-        log(string.format("build-cache: %s warp entrance field effect current", version))
-      end
-      if forced or not FieldWeatherCacheWriter.isReady(cacheFs, weatherBundle.marker) then
-        FieldWeatherCacheWriter.write(cacheFs, weatherBundle)
-        log(string.format("build-cache: %s field weather compiled", version))
-      else
-        log(string.format("build-cache: %s field weather current", version))
-      end
-      local messageBundle, messageErr = FieldMessageCompiler.compile(romFs)
-      if not messageBundle then
-        return versionFailure(messageErr)
-      end
-      if forced or not FieldMessageCacheWriter.isReady(cacheFs, messageBundle.marker) then
-        FieldMessageCacheWriter.write(cacheFs, messageBundle)
-        log(string.format("build-cache: %s field messages compiled (%d banks)", version, #messageBundle.index.bankIds))
-      else
-        log(string.format("build-cache: %s field messages current", version))
-      end
-      local scriptBundle, scriptErr = ScriptCompiler.compile(romFs)
-      if not scriptBundle then
-        return versionFailure(scriptErr)
-      end
-      scriptBundle.bindings = BindingCompiler.compile(fieldBundles, scriptBundle)
-      if forced or not ScriptCacheWriter.isReady(cacheFs, scriptBundle.marker) then
-        ScriptCacheWriter.write(cacheFs, scriptBundle)
-        log(
-          string.format(
-            "build-cache: %s scripts compiled (%d resources, %d members)",
-            version,
-            scriptBundle.index.resourceCount,
-            scriptBundle.index.scriptMemberCount
-          )
-        )
-      else
-        log(string.format("build-cache: %s scripts current", version))
-      end
-      local audioBundle, audioErr = AudioCompiler.compile(romFs)
-      if not audioBundle then
-        return versionFailure(audioErr)
-      end
-      if forced or not AudioCacheWriter.isReady(cacheFs, audioBundle.marker) then
-        AudioCacheWriter.write(cacheFs, audioBundle)
-        log(string.format("build-cache: %s audio compiled", version))
-      else
-        log(string.format("build-cache: %s audio current", version))
-      end
-      local fieldCellBundle, fieldCellErr = FieldCellCompiler.compile(romFs)
-      if not fieldCellBundle then
-        return versionFailure(fieldCellErr)
-      end
-      if forced or not FieldCellCacheWriter.isReady(cacheFs, fieldCellBundle.marker) then
-        FieldCellCacheWriter.write(cacheFs, fieldCellBundle)
-        log(string.format("build-cache: %s physical field cells compiled", version))
-      else
-        log(string.format("build-cache: %s physical field cells current", version))
-      end
-      local entries, excluded, compileExcluded = {}, {}, {}
-      for _, result in ipairs(MapAnalysis.analyze(romFs)) do
-        if result.status == "excluded" then
-          excluded[#excluded + 1] = {
-            id = result.id,
-            symbol = result.symbol,
-            reason = result.reason,
-            matchCount = result.matchCount,
-          }
-        else
-          local bundle, compileErr = MapAssetCompiler.compile(romFs, result.id)
-          if not bundle then
-            assert(Errors.is(compileErr), "compiler failure must be a structured error")
-            compileErr = compileErr --[[@as Errors.Error]]
-            compileExcluded[#compileExcluded + 1] = {
-              id = result.id,
-              symbol = result.symbol,
-              errorCode = compileErr.code,
-              message = compileErr.message,
-              context = compileErr.context,
-            }
-            log(string.format("build-cache: %s map %d excluded: %s", version, result.id, Errors.format(compileErr)))
-          else
-            if forced or not MapAssetCache.isReady(cacheFs, bundle.mapId, bundle.marker) then
-              MapCacheWriter.write(cacheFs, bundle)
-              log(string.format("build-cache: %s map %d compiled", version, bundle.mapId))
-            else
-              log(string.format("build-cache: %s map %d current", version, bundle.mapId))
-            end
-            -- Untextured on the DS too, so the map is usable; still reported,
-            -- because a mis-routed pack would show up here as a flood.
-            for _, entry in ipairs(bundle.unresolvedMaterials) do
-              log(
-                string.format(
-                  "build-cache: %s map %d unresolved %s %s: material %s of %s %s:%d wants %s from %s",
-                  version,
-                  bundle.mapId,
-                  entry.role,
-                  entry.kind,
-                  entry.material,
-                  entry.modelName,
-                  entry.modelArchive,
-                  entry.modelMemberId,
-                  entry.name,
-                  entry.source
-                )
-              )
-            end
-            entries[#entries + 1] = {
-              id = bundle.mapId,
-              symbol = bundle.scene.mapSymbol,
-              mapSection = result.mapSection,
-              width = bundle.scene.matrix.width,
-              height = bundle.scene.matrix.height,
-              matrix = {
-                memberId = result.matrixMemberId,
-                x = result.matrixX,
-                z = result.matrixZ,
-                index = result.matrixIndex,
-                landDataMemberId = result.landDataMemberId,
-                selection = result.source,
-                matchCount = result.matchCount,
-              },
-            }
-          end
-        end
-      end
-      local world = WorldManifest.stage(cacheFs, entries, excluded, compileExcluded)
-      stagedWorlds[#stagedWorlds + 1] = world
-      log(
-        string.format(
-          "build-cache: %s world.lua staged (%d maps, %d unresolved cells, %d compile-excluded)",
-          version,
-          #entries,
-          #excluded,
-          #compileExcluded
-        )
-      )
-      if #compileExcluded > 0 then
-        hasCompileExclusions = true
-        exclusionCount = exclusionCount + #compileExcluded
-      else
-        strictVersions[#strictVersions + 1] = { cacheFs = cacheFs, identity = identity }
-      end
-      return true
-    end)
-    if romFs then
-      romFs:close()
+    local context = newVersionContext(version, log, producerFingerprint, stagedWorlds, strictVersions)
+    local ok, result, failureErr = pcall(buildVersion, context)
+    if context.romFs then
+      context.romFs:close()
     end
     if not ok then
-      discardStagedWorlds()
+      discardStagedWorlds(stagedWorlds)
       error(result, 0)
     end
     if result == nil then
       allOk = false
+      hasCompileExclusions = hasCompileExclusions or context.hasCompileExclusions
+      exclusionCount = exclusionCount + context.exclusionCount
       log("build-cache: " .. version .. " failed: " .. Errors.format(failureErr))
+    end
+    if result == true then
+      hasCompileExclusions = hasCompileExclusions or context.hasCompileExclusions
+      exclusionCount = exclusionCount + context.exclusionCount
     end
   end
   -- The cache written above is usable, so the scan always finishes; an
@@ -368,7 +537,7 @@ function CacheBuilder.buildVersions(versionIds, options)
     allOk = false
   end
   if not allOk then
-    discardStagedWorlds()
+    discardStagedWorlds(stagedWorlds)
     return nil, "cache preparation failed"
   end
   for _, world in ipairs(stagedWorlds) do

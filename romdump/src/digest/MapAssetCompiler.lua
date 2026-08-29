@@ -232,6 +232,14 @@ local function dynamicBatches(dynamicModel, meshes)
   return out
 end
 
+---@param target table[]
+---@param source table
+local function appendUnresolved(target, source)
+  for _, entry in ipairs(source.unresolved) do
+    target[#target + 1] = entry
+  end
+end
+
 -- Compile one animated model into its dynamic descriptor:
 --   { schema, memberId, kind = "nitro-dynamic",
 --     dynamic = { nodes, transformProgram, batches },
@@ -355,11 +363,6 @@ local function compileBuildings(romFs, area, land, opts)
 
   local models, modelKeyOf, memberShaOf = {}, {}, {}
   local unresolvedMaterials, animDeps = {}, {}
-  local function collectUnresolved(compiled)
-    for _, entry in ipairs(compiled.unresolved) do
-      unresolvedMaterials[#unresolvedMaterials + 1] = entry
-    end
-  end
 
   for _, memberId in ipairs(memberIds) do
     local modelBytes = readMember(bldNarc, archiveAlias, memberId)
@@ -405,14 +408,14 @@ local function compileBuildings(romFs, area, land, opts)
           opts.textures,
           opts.meshes
         )
-        collectUnresolved({ unresolved = unresolved })
+        appendUnresolved(unresolvedMaterials, { unresolved = unresolved })
         modelDescriptor = descriptor
         animated = true
       end
     end
     if not animated then
       local compiled = ModelAssetCompiler.compileModel(buildingModel, bldTexPack, opts.meshes, opts.textures, context)
-      collectUnresolved(compiled)
+      appendUnresolved(unresolvedMaterials, compiled)
       modelDescriptor = {
         schema = ModelAsset.SCHEMA,
         memberId = memberId,
@@ -457,6 +460,84 @@ end
 function MapAssetCompiler.compileBuildings(romFs, area, land, opts)
   assert(type(opts) == "table" and opts.meshes and opts.textures, "building compilation requires accumulators")
   return compileBuildings(romFs, area, land, opts)
+end
+
+---@param romFs RomFs
+---@param resolved table
+---@param mapId integer
+---@param terrainAnimationCompiler table
+---@param meshes table<string, table>
+---@param textures table<string, table>
+---@param unresolvedMaterials table[]
+---@return table neighbors
+---@return table textureSrt
+---@return table neighborChunkByMember
+local function compileNeighborAssets(
+  romFs,
+  resolved,
+  mapId,
+  terrainAnimationCompiler,
+  meshes,
+  textures,
+  unresolvedMaterials
+)
+  -- Plan the eight surrounding matrix cells and compile each unique land chunk
+  -- once. Geometry/textures feed the draw ring; permission and BDHC artifacts
+  -- make the same cells traversable in the field runtime.
+  local plan = NeighborPlan.plan(resolved.matrix, resolved.matrixX, resolved.matrixZ, function(h)
+    local rec = MapCatalog.areaForMapHeader(h)
+    return rec and rec.areaDataMemberId or nil
+  end)
+
+  local neighborChunkByMember = {}
+  for _, member in ipairs(plan.uniqueLandMembers) do
+    local neighborCells, memberAreaId = {}, nil
+    for _, cell in ipairs(plan.cells) do
+      if cell.landDataMemberId == member then
+        neighborCells[#neighborCells + 1] = { x = cell.x, z = cell.z }
+        memberAreaId = memberAreaId or cell.areaDataMemberId
+      end
+    end
+    local chunk = NeighborChunkCompiler.compile(romFs, member, memberAreaId, {
+      mapId = mapId,
+      mapSymbol = resolved.map.symbol,
+      neighborCells = neighborCells,
+      terrainAnimationCompiler = terrainAnimationCompiler,
+    })
+    for sha1, b in pairs(chunk.meshes) do
+      meshes[sha1] = b
+    end
+    for sha1, t in pairs(chunk.textures) do
+      textures[sha1] = t
+    end
+    appendUnresolved(unresolvedMaterials, chunk)
+    neighborChunkByMember[member] = chunk
+  end
+
+  local neighbors = {}
+  for _, cell in ipairs(plan.cells) do
+    local chunk = neighborChunkByMember[cell.landDataMemberId]
+    neighbors[#neighbors + 1] = {
+      mapHeaderId = cell.mapHeaderId,
+      landDataMemberId = cell.landDataMemberId,
+      offsetTilesX = cell.offsetTilesX,
+      offsetTilesY = cell.offsetTilesY,
+      offsetTilesZ = cell.offsetTilesZ,
+      batches = chunk.batches,
+      materials = chunk.materials,
+      collision = {
+        width = 32,
+        height = 32,
+        file = MapAssetCache.neighborCollisionPath(mapId, cell.landDataMemberId),
+      },
+      terrain = {
+        schema = chunk.terrain.schema,
+        file = MapAssetCache.neighborTerrainPath(mapId, cell.landDataMemberId),
+      },
+    }
+  end
+
+  return neighbors, terrainAnimationCompiler:compileTextureSrt(), neighborChunkByMember
 end
 
 local function _compile(romFs, idOrSymbol, opts)
@@ -552,12 +633,7 @@ local function _compile(romFs, idOrSymbol, opts)
   -- Materials whose names the pack they bind to does not define. They draw
   -- untextured, exactly as on the DS, so they are reported rather than fatal.
   local unresolvedMaterials = {}
-  local function collectUnresolved(compiled)
-    for _, entry in ipairs(compiled.unresolved) do
-      unresolvedMaterials[#unresolvedMaterials + 1] = entry
-    end
-  end
-  collectUnresolved(mapCompiled)
+  appendUnresolved(unresolvedMaterials, mapCompiled)
 
   local buildingCompiled = compileBuildings(romFs, area, land, {
     mapId = mapId,
@@ -568,71 +644,13 @@ local function _compile(romFs, idOrSymbol, opts)
     meshes = meshes,
     textures = textures,
   })
-  collectUnresolved({ unresolved = buildingCompiled.unresolvedMaterials })
+  appendUnresolved(unresolvedMaterials, { unresolved = buildingCompiled.unresolvedMaterials })
   local archiveAlias = buildingCompiled.archiveAlias
   local buildingInstances = buildingCompiled.buildingInstances
   local models = buildingCompiled.models
 
-  -- Plan the eight surrounding matrix cells and compile each unique land chunk
-  -- once. Geometry/textures feed the draw ring; permission and BDHC artifacts
-  -- make the same cells traversable in the field runtime.
-  local plan = NeighborPlan.plan(resolved.matrix, resolved.matrixX, resolved.matrixZ, function(h)
-    local rec = MapCatalog.areaForMapHeader(h)
-    return rec and rec.areaDataMemberId or nil
-  end)
-
-  local neighborChunkByMember = {}
-  for _, member in ipairs(plan.uniqueLandMembers) do
-    local neighborCells, memberAreaId = {}, nil
-    for _, cell in ipairs(plan.cells) do
-      if cell.landDataMemberId == member then
-        neighborCells[#neighborCells + 1] = { x = cell.x, z = cell.z }
-        memberAreaId = memberAreaId or cell.areaDataMemberId
-      end
-    end
-    local chunk = NeighborChunkCompiler.compile(romFs, member, memberAreaId, {
-      mapId = mapId,
-      mapSymbol = resolved.map.symbol,
-      neighborCells = neighborCells,
-      terrainAnimationCompiler = terrainAnimationCompiler,
-    })
-    for sha1, b in pairs(chunk.meshes) do
-      meshes[sha1] = b
-    end
-    for sha1, t in pairs(chunk.textures) do
-      textures[sha1] = t
-    end
-    collectUnresolved(chunk)
-    neighborChunkByMember[member] = chunk
-  end
-
-  local neighbors = {}
-  for _, cell in ipairs(plan.cells) do
-    local chunk = neighborChunkByMember[cell.landDataMemberId]
-    neighbors[#neighbors + 1] = {
-      mapHeaderId = cell.mapHeaderId,
-      landDataMemberId = cell.landDataMemberId,
-      offsetTilesX = cell.offsetTilesX,
-      offsetTilesY = cell.offsetTilesY,
-      offsetTilesZ = cell.offsetTilesZ,
-      batches = chunk.batches,
-      materials = chunk.materials,
-      collision = {
-        width = 32,
-        height = 32,
-        file = MapAssetCache.neighborCollisionPath(mapId, cell.landDataMemberId),
-      },
-      terrain = {
-        schema = chunk.terrain.schema,
-        file = MapAssetCache.neighborTerrainPath(mapId, cell.landDataMemberId),
-      },
-    }
-  end
-
-  -- The one area texture-coordinate clip (or false) is compiled once after
-  -- every central and neighbor terrain compile so the dependency record
-  -- covers the whole ring; the neighbor areas' own selections are ignored.
-  local textureSrt = terrainAnimationCompiler:compileTextureSrt()
+  local neighbors, textureSrt, neighborChunkByMember =
+    compileNeighborAssets(romFs, resolved, mapId, terrainAnimationCompiler, meshes, textures, unresolvedMaterials)
 
   -- Dependency record -> hash -> marker.
   local dependencies = {
