@@ -8,110 +8,15 @@
 -- provenance. Pure domain module: no love dependency.
 
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
-local MovementDecoder = require("romdump.src.digest.script.MovementDecoder")
-local SourceCatalog = require("romdump.src.digest.script.SourceCatalog")
-local SignpostCommands = require("romdump.src.reference.hgss.signpost_commands")
-local MenuProtocol = require("libs.assets.src.MenuProtocol")
+local Operands = require("romdump.src.digest.script.lowering.Operands")
+local ControlHandlers = require("romdump.src.digest.script.lowering.ControlHandlers")
+local FieldHandlers = require("romdump.src.digest.script.lowering.FieldHandlers")
+local AudioHandlers = require("romdump.src.digest.script.lowering.AudioHandlers")
 
 local SemanticLowering = {}
 
 -- HGSS GoToIf condition codes.
 local CONDITION_OPERATORS = { [0] = "lt", [1] = "eq", [2] = "gt", [3] = "le", [4] = "ge", [5] = "ne" }
-
--- Numeric direction codes (field movement direction table).
-local DIRECTION_BY_CODE = { [0] = "north", [1] = "south", [2] = "west", [3] = "east" }
-
--- Normalize a numeric direction code to the DSL enum; non-numeric values
--- (symbolic operands) pass through. An unknown numeric code is a lowering
--- fault, never a silent default.
----@param value any
----@return any
-local function normalizeFacing(value)
-  if type(value) ~= "number" then
-    return value
-  end
-  local direction = DIRECTION_BY_CODE[value]
-  assert(direction ~= nil, "unknown direction code " .. tostring(value))
-  return direction
-end
-
--- Message symbol -> public message ref: msg_0542_T20_00009 ->
--- "msg.hgss.0542.00009" (bank from the symbol, index from the tail).
----@param symbol string
----@return string
-local function messageRef(symbol)
-  if type(symbol) ~= "string" then
-    return symbol
-  end
-  local bank, index = symbol:match("^msg_(%d+)_%w+_(%d+)$")
-  if bank == nil then
-    return symbol
-  end
-  return string.format("msg.hgss.%04d.%05d", tonumber(bank), tonumber(index))
-end
-
--- A variable-typed operand: symbols stay symbolic, numbers stay numbers.
----@param value any
----@return any
-local function operandValue(value)
-  if type(value) == "table" then
-    return value.raw
-  end
-  return value
-end
-
--- Value-or-variable operand (ScriptGetVar semantics): an operand is a
--- variable slot when its number lies in the pinned var ranges (vars.h:
--- VARS [0x4000, 0x4400), SPECIAL_VARS [0x8000, 0x8100)) or its symbol
--- carries the VAR_ prefix; anything else is a literal.
----@param value any
----@return any
-local function varRef(value)
-  local raw = operandValue(value)
-  if type(raw) == "number" then
-    if (raw >= 0x4000 and raw < 0x4400) or (raw >= 0x8000 and raw < 0x8100) then
-      return { value = "var", id = raw }
-    end
-    return raw
-  end
-  if raw:match("^VAR_") or raw:match("^SPECIAL_VAR_") then
-    return { value = "var", id = raw }
-  end
-  return raw
-end
-
--- Actor operand: obj_* symbols become actor ids; obj_player and the pinned
--- numeric specials (scrcmd.h: obj_player=255, obj_partner_poke=253; object
--- id 0 is the player; id 0xF1 is the field camera target) become specials.
--- Any other numeric id is a local map-object index resolved against the
--- current map at runtime (the pinned MapObjectManager_GetFirstActiveObjectByID
--- path in sub_02041C70).
-local STRING_SPECIALS = { obj_player = "player", obj_partner_poke = "partner" }
-local NUMERIC_SPECIALS = {
-  [0] = "player",
-  [255] = "player",
-  [253] = "partner",
-  [241] = "camera_target",
-}
-
----@param value any
----@return any
-local function actorRef(value)
-  local raw = operandValue(value)
-  local special
-  if type(raw) == "number" then
-    special = NUMERIC_SPECIALS[raw]
-  elseif type(raw) == "string" then
-    special = STRING_SPECIALS[raw]
-  end
-  if special ~= nil then
-    return { ref = "actor", special = special }
-  end
-  if type(raw) == "string" then
-    return { ref = "actor", id = raw }
-  end
-  return { ref = "actor", mapIndex = raw }
-end
 
 -- An explicit unsupported node for one instruction.
 ---@param ins table
@@ -120,7 +25,7 @@ end
 local function unsupportedStep(ins, reason)
   local arguments = {}
   for index, operand in ipairs(ins.operands) do
-    arguments[index] = operandValue(operand)
+    arguments[index] = Operands.operandValue(operand)
   end
   return {
     op = "unsupported",
@@ -142,656 +47,23 @@ local function withProvenance(step, offsets, opcodes)
   return step
 end
 
--- Movement actions for an ApplyMovement operand.
----@param movementLabel string
----@param memberIr table
----@param _ table
----@return table[] actions, boolean complete, table|nil unsupported
-local function movementFor(movementLabel, memberIr, _)
-  local offset = tonumber(movementLabel:sub(2), 16)
-  local block = memberIr.movements[offset]
-  if block == nil then
-    return { { action = "unsupported", code = 0, count = 0, originalName = movementLabel } },
-      false,
-      { code = 0, originalName = movementLabel, reason = "movement block not found" }
+-- Compose the source-semantic handler families once, rejecting duplicate opcodes.
+local function mergeHandlerRegistry(target, sourceRegistry)
+  for opcode, handler in pairs(sourceRegistry) do
+    assert(target[opcode] == nil, "duplicate script lowering handler for opcode " .. tostring(opcode))
+    target[opcode] = handler
   end
-  local actions = {}
-  local unsupported = nil
-  for _, action in ipairs(block.actions) do
-    local decoded, err = MovementDecoder.decode(action)
-    if err ~= nil then
-      if unsupported == nil then
-        unsupported = err
-      end
-      actions[#actions + 1] = {
-        action = "unsupported",
-        code = action.movementCode or 0,
-        count = action.count,
-        originalName = action.name,
-      }
-    else
-      actions[#actions + 1] = decoded
-    end
-  end
-  return actions, unsupported == nil, unsupported
 end
 
--- The per-opcode lowering handlers: (instruction, memberIr, provenance) ->
--- step table or nil (op skipped, e.g. Nop), or the string "unfolded" when
--- the instruction participates in a multi-instruction fold handled by the
--- walker (wait_button / close_msg are consumed by the say fold).
-local HANDLERS = {
-  [0] = function()
-    return nil
-  end, -- Nop
-  [1] = function()
-    return nil
-  end, -- Dummy
-  [2] = function()
-    return { op = "stop" }
-  end,
-  [3] = function(ins, _, _, _)
-    -- Wait frames, var: every Wait mirrors the countdown into its
-    -- destination variable exactly like the source engine (ScrCmd_Wait
-    -- writes the frame count at execution; RunPauseTimer decrements the
-    -- variable itself per poll and completes at zero). Nothing is ever
-    -- discarded, so observable reads and cross-context reads see the live
-    -- countdown. A Wait without a variable operand stays internal to the
-    -- task state.
-    local step = {
-      op = "wait_ticks",
-      ticks = operandValue(ins.operands[1]),
-    }
-    local countdown = varRef(ins.operands[2])
-    if type(countdown) == "table" then
-      step.countdownVariable = countdown
-    end
-    return step
-  end,
-  [17] = function(ins)
-    return { op = "compare", left = varRef(ins.operands[1]), right = varRef(ins.operands[2]) }
-  end,
-  [18] = function(ins)
-    return { op = "compare", left = varRef(ins.operands[1]), right = varRef(ins.operands[2]) }
-  end,
-  [20] = function(ins, _, _, ctx)
-    -- CallStd id: resolve the std catalog to the public `common.<name>` id
-    -- (decomp symbols and binary numeric ids both resolve); unknown ids stay
-    -- mechanical `common.std_<id>`.
-    local id = operandValue(ins.operands[1])
-    local target
-    if ctx.stdCatalog ~= nil then
-      target = SourceCatalog.commonPublicId(ctx.stdCatalog, id)
-    elseif type(id) == "number" then
-      target = "common.std_" .. tostring(id)
-    else
-      target = "common.std_" .. tostring(id)
-    end
-    return { op = "call_common", target = target }
-  end,
-  [21] = function()
-    return { op = "signal_caller" }
-  end,
-  [22] = function(ins)
-    return { op = "goto", target = operandValue(ins.operands[1]) }
-  end,
-  [26] = function(ins)
-    return { op = "call", target = operandValue(ins.operands[1]) }
-  end,
-  [23] = function(ins)
-    return {
-      op = "goto_if",
-      condition = {
-        condition = "compare",
-        operator = "eq",
-        left = { value = "object_id", ref = { ref = "actor", special = "self" } },
-        right = operandValue(ins.operands[1]),
-      },
-      target = operandValue(ins.operands[2]),
-    }
-  end,
-  [24] = function(ins)
-    return {
-      op = "goto_if",
-      condition = {
-        condition = "compare",
-        operator = "eq",
-        left = { value = "trigger_background_id" },
-        right = operandValue(ins.operands[1]),
-      },
-      target = operandValue(ins.operands[2]),
-    }
-  end,
-  [25] = function(ins)
-    return {
-      op = "goto_if",
-      condition = {
-        condition = "compare",
-        operator = "eq",
-        left = { value = "trigger_direction" },
-        right = operandValue(ins.operands[1]),
-      },
-      target = operandValue(ins.operands[2]),
-    }
-  end,
-  [27] = function()
-    return { op = "return" }
-  end,
-  [28] = function()
-    return "unfolded"
-  end, -- folded with the compare/flag
-  [29] = function()
-    return "unfolded"
-  end, -- folded with the compare/flag
-  [30] = function(ins)
-    return { op = "set_flag", flag = operandValue(ins.operands[1]) }
-  end,
-  [31] = function(ins)
-    return { op = "clear_flag", flag = operandValue(ins.operands[1]) }
-  end,
-  [32] = function()
-    return "unfolded"
-  end, -- folded with GoToIfSet/Unset
-  [33] = function(ins)
-    return { op = "set_flag", flag = varRef(ins.operands[1]) }
-  end,
-  [34] = function(ins)
-    return { op = "clear_flag", flag = varRef(ins.operands[1]) }
-  end,
-  [35] = function(ins)
-    return {
-      op = "set_var",
-      variable = varRef(ins.operands[2]),
-      value = { value = "flag_value", flag = varRef(ins.operands[1]) },
-    }
-  end,
-  [39] = function(ins)
-    return { op = "add_var", variable = varRef(ins.operands[1]), amount = varRef(ins.operands[2]) }
-  end,
-  [40] = function(ins)
-    return { op = "sub_var", variable = varRef(ins.operands[1]), amount = varRef(ins.operands[2]) }
-  end,
-  [41] = function(ins)
-    return { op = "set_var", variable = varRef(ins.operands[1]), value = operandValue(ins.operands[2]) }
-  end,
-  [42] = function(ins)
-    return {
-      op = "copy_var",
-      destination = varRef(ins.operands[1]),
-      source = varRef(ins.operands[2]),
-    }
-  end,
-  [43] = function(ins)
-    return { op = "set_var", variable = varRef(ins.operands[1]), value = varRef(ins.operands[2]) }
-  end,
-  [44] = function(ins)
-    return {
-      op = "message",
-      message = messageRef(operandValue(ins.operands[1])),
-      waitForPrint = false,
-    }
-  end,
-  [45] = function(ins)
-    return { op = "npc_msg", message = messageRef(operandValue(ins.operands[1])) }
-  end,
-  [46] = function(ins)
-    return {
-      op = "message",
-      message = varRef(ins.operands[1]),
-      waitForPrint = false,
-    }
-  end,
-  [47] = function(ins)
-    return { op = "npc_msg_var", message = varRef(ins.operands[1]) }
-  end,
-  [49] = function()
-    return { op = "wait_input", buttons = { "a", "b" } }
-  end,
-  [50] = function()
-    return { op = "wait_input", buttons = { "a", "b" }, allowDpad = true, turnPlayerOnDpad = true }
-  end,
-  [51] = function()
-    return { op = "wait_input", buttons = { "a", "b" }, allowDpad = true, turnPlayerOnDpad = false }
-  end,
-  [52] = function()
-    return { op = "open_message" }
-  end,
-  [53] = function()
-    return "unfolded"
-  end, -- consumed by the say fold
-  [54] = function()
-    return { op = "hold_message" }
-  end,
-  [55] = function(ins, memberIr)
-    -- DirectionSignpost message, type, map: the source handler never reads
-    -- or writes the final operand (audited unused), so it is erased here —
-    -- the raw decoded instruction operands keep it for source auditing, the
-    -- semantic node does not. The message id is a direct index into the
-    -- member's message bank (the decoder does not bank-resolve 55); the
-    -- runtime resolves it.
-    assert(memberIr.messageBank ~= nil, "direction signpost requires a script message bank")
-    return {
-      op = "signpost_direction",
-      message = { message = "external", bank = memberIr.messageBank, id = operandValue(ins.operands[1]) },
-      sourceAppearance = {
-        game = "hgss",
-        type = operandValue(ins.operands[2]),
-        map = operandValue(ins.operands[3]),
-      },
-    }
-  end,
-  [56] = function(ins)
-    -- SetSignpostMap type, map: writes the source appearance and queues
-    -- SHOW without executing it (the field signpost update runs it later).
-    return {
-      op = "signpost_set",
-      sourceAppearance = {
-        game = "hgss",
-        type = operandValue(ins.operands[1]),
-        map = operandValue(ins.operands[2]),
-      },
-    }
-  end,
-  [57] = function(ins)
-    -- SetSignpostAction command: the raw MAPSIGNCOMMAND_* code 0..4 lowers
-    -- to the semantic command enum (nop/show/wipe_out/wipe_in/hide). An
-    -- unknown code is malformed source and never defaults to nop.
-    local raw = operandValue(ins.operands[1])
-    local command = SignpostCommands.semanticName(raw)
-    assert(command ~= nil, "unknown signpost command code " .. tostring(raw))
-    return { op = "signpost_command", command = command }
-  end,
-  [58] = function()
-    -- WaitSignpostAction: blocks until the command returns to nop; the
-    -- runtime wait task polls the signpost host's command.
-    return { op = "wait_signpost_action" }
-  end,
-  [59] = function(ins, memberIr)
-    -- TrainerTips message, resultVar: prints into the existing signpost
-    -- window at the player's text speed. The message id is a direct index
-    -- into the member's message bank (the decoder does not bank-resolve
-    -- 59); the runtime resolves it. The result var rides the task result.
-    assert(memberIr.messageBank ~= nil, "trainer tips requires a script message bank")
-    return {
-      op = "trainer_tips_print",
-      message = { message = "external", bank = memberIr.messageBank, id = operandValue(ins.operands[1]) },
-      result = varRef(ins.operands[2]),
-    }
-  end,
-  [60] = function(ins)
-    -- WaitSignpost resultVar: waits for A/B/directional dismissal of the
-    -- presented signpost window; the result var rides the task result.
-    return {
-      op = "wait_signpost",
-      result = varRef(ins.operands[1]),
-    }
-  end,
-  [61] = function()
-    -- ScrCmd_061 (std_signpost's hide-branch tail): no operands; installs
-    -- the Start Menu reopen end callback and returns FALSE, ending the
-    -- script context. The runtime request_start_menu handler routes the
-    -- reopen request through the startMenuReopen service and stops.
-    return { op = "request_start_menu" }
-  end,
-  [63] = function(ins)
-    return { op = "ask_yes_no", result = varRef(ins.operands[1] or 0) }
-  end,
-  [73] = function(ins)
-    -- PlaySE reads its operand through ScriptGetVar (scrcmd_sound.c).
-    return { op = "play_sound", sound = varRef(ins.operands[1]) }
-  end,
-  [74] = function(ins)
-    return { op = "stop_sound", sound = varRef(ins.operands[1]) }
-  end,
-  [75] = function(ins)
-    return { op = "wait_sound", sound = varRef(ins.operands[1]) }
-  end,
-  [76] = function(ins)
-    -- PlayCryEx reads both operands through ScriptGetVar (scrcmd_sound.c).
-    return { op = "play_cry", species = varRef(ins.operands[1]), form = varRef(ins.operands[2]) }
-  end,
-  [77] = function()
-    return { op = "wait_cry" }
-  end,
-  [78] = function(ins)
-    return { op = "play_fanfare", fanfare = varRef(ins.operands[1]) }
-  end,
-  [79] = function()
-    return { op = "wait_fanfare" }
-  end,
-  [80] = function(ins)
-    return { op = "play_music", music = operandValue(ins.operands[1]) }
-  end,
-  [81] = function()
-    -- The pinned ScrCmd_StopBGM ignores its operand entirely (it stops the
-    -- currently playing BGM), so the operand is a documented erasure.
-    return { op = "stop_music" }
-  end,
-  [82] = function()
-    return { op = "reset_music" }
-  end,
-  [84] = function(ins)
-    return {
-      op = "fade_music_out",
-      target = operandValue(ins.operands[1]),
-      durationTicks = operandValue(ins.operands[2]),
-    }
-  end,
-  [85] = function(ins)
-    return { op = "fade_music_in", durationTicks = operandValue(ins.operands[1]) }
-  end,
-  [87] = function(ins)
-    return { op = "temporary_music", music = operandValue(ins.operands[1]) }
-  end,
-  [94] = function(ins, memberIr, provenance)
-    local movementLabel = operandValue(ins.operands[2])
-    local actions, complete, unsupported = movementFor(movementLabel, memberIr, provenance)
-    return {
-      op = "apply_movement",
-      actor = actorRef(ins.operands[1]),
-      movement = actions,
-      movementComplete = complete,
-      movementUnsupported = unsupported,
-    }
-  end,
-  [95] = function()
-    return { op = "wait_movement" }
-  end,
-  [96] = function()
-    return { op = "lock_all" }
-  end,
-  [97] = function()
-    return { op = "release_all" }
-  end,
-  [98] = function(ins)
-    return { op = "lock_actor", actor = actorRef(ins.operands[1]) }
-  end,
-  [99] = function(ins)
-    return { op = "release_actor", actor = actorRef(ins.operands[1]) }
-  end,
-  [100] = function(ins)
-    return { op = "show_object", actor = actorRef(ins.operands[1]) }
-  end,
-  [101] = function(ins)
-    return { op = "hide_object", actor = actorRef(ins.operands[1]) }
-  end,
-  [104] = function()
-    return { op = "face_player" }
-  end,
-  [105] = function(ins)
-    return {
-      op = "get_player_coords",
-      x = varRef(ins.operands[1]),
-      z = varRef(ins.operands[2]),
-    }
-  end,
-  [106] = function(ins)
-    return {
-      op = "get_object_coords",
-      actor = actorRef(ins.operands[1]),
-      x = varRef(ins.operands[2]),
-      z = varRef(ins.operands[3]),
-    }
-  end,
-  [132] = function(ins)
-    return {
-      op = "npc_msg",
-      message = {
-        text = "gendered_message",
-        male = messageRef(operandValue(ins.operands[1])),
-        female = messageRef(operandValue(ins.operands[2])),
-      },
-    }
-  end,
-  [174] = function(ins)
-    return {
-      op = "fade_screen",
-      kind = operandValue(ins.operands[1]),
-      speed = operandValue(ins.operands[2]),
-      direction = operandValue(ins.operands[3]) == 0 and "out" or "in",
-      color = "black",
-    }
-  end,
-  [175] = function()
-    return { op = "wait_fade" }
-  end,
-  [176] = function(ins)
-    -- Warp map, warp, x, z, dir: coordinates and direction may be variable
-    -- operands; numeric directions normalize to the string enum.
-    return {
-      op = "warp",
-      map = varRef(ins.operands[1]),
-      warp = varRef(ins.operands[2]),
-      fieldX = varRef(ins.operands[3]),
-      fieldZ = varRef(ins.operands[4]),
-      facing = normalizeFacing(operandValue(ins.operands[5])),
-    }
-  end,
-  [190] = function(ins)
-    return { op = "buffer_text", slot = operandValue(ins.operands[1]), value = { text = "player_name" } }
-  end,
-  [191] = function(ins)
-    return { op = "buffer_text", slot = operandValue(ins.operands[1]), value = { text = "rival_name" } }
-  end,
-  [192] = function(ins)
-    return { op = "buffer_text", slot = operandValue(ins.operands[1]), value = { text = "friend_name" } }
-  end,
-  [193] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "party_species_name", position = operandValue(ins.operands[2]) },
-    }
-  end,
-  [194] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "item_name", value = varRef(ins.operands[2]) },
-    }
-  end,
-  [195] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "pocket_name", value = varRef(ins.operands[2]) },
-    }
-  end,
-  [196] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "tmhm_move_name", value = varRef(ins.operands[2]) },
-    }
-  end,
-  [197] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "move_name", value = varRef(ins.operands[2]) },
-    }
-  end,
-  [198] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "integer", value = varRef(ins.operands[2]) },
-    }
-  end,
-  [199] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "party_nickname", position = operandValue(ins.operands[2]) },
-    }
-  end,
-  [200] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "trainer_class_name", value = varRef(ins.operands[2]) },
-    }
-  end,
-  [202] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "species_name", value = operandValue(ins.operands[2]) },
-    }
-  end,
-  [203] = function(ins)
-    return { op = "buffer_text", slot = operandValue(ins.operands[1]), value = { text = "starter_species_name" } }
-  end,
-  [210] = function(ins)
-    return {
-      op = "buffer_text",
-      slot = operandValue(ins.operands[1]),
-      value = { text = "map_name", value = operandValue(ins.operands[2]) },
-    }
-  end,
-  [280] = function(ins)
-    return { op = "set_spawn", spawn = operandValue(ins.operands[1]) }
-  end,
-  [281] = function(ins)
-    return { op = "set_var", variable = varRef(ins.operands[1]), value = { value = "player_gender_value" } }
-  end,
-  [338] = function(ins)
-    return {
-      op = "set_object_position",
-      actor = actorRef(ins.operands[1]),
-      fieldX = varRef(ins.operands[2]),
-      fieldZ = varRef(ins.operands[3]),
-    }
-  end,
-  [339] = function(ins)
-    -- MovePersonFacing person, x, z, y, facing: field X from x, field Z from
-    -- z, world Y from y, then face the given direction (two canonical
-    -- operations; the facing side effect is never diagnostic data).
-    local actor = actorRef(ins.operands[1])
-    return {
-      steps = {
-        {
-          op = "set_object_position",
-          actor = actor,
-          fieldX = varRef(ins.operands[2]),
-          fieldZ = varRef(ins.operands[3]),
-          worldY = varRef(ins.operands[4]),
-        },
-        {
-          op = "set_object_facing",
-          actor = actor,
-          direction = normalizeFacing(operandValue(ins.operands[5])),
-        },
-      },
-    }
-  end,
-  [340] = function(ins)
-    return {
-      op = "set_object_movement_type",
-      actor = actorRef(ins.operands[1]),
-      movementType = tostring(operandValue(ins.operands[2])),
-    }
-  end,
-  [341] = function(ins)
-    return {
-      op = "set_object_facing",
-      actor = actorRef(ins.operands[1]),
-      direction = normalizeFacing(operandValue(ins.operands[2])),
-    }
-  end,
-  [345] = function()
-    return { op = "show_waiting_icon" }
-  end,
-  [346] = function()
-    return { op = "hide_waiting_icon" }
-  end,
-  [348] = function(ins)
-    return { op = "wait_input_or_ticks", ticks = operandValue(ins.operands[1]) }
-  end,
-  [375] = function(ins)
-    return { op = "show_object", actor = actorRef(ins.operands[1]) }
-  end,
-  [380] = function(ins)
-    -- Random arg0, arg1: arg0 is the destination variable pointer and arg1
-    -- is the modulo source (ScrCmd_Random reads the dest first).
-    return { op = "random", result = varRef(ins.operands[1]), maxExclusive = operandValue(ins.operands[2]) }
-  end,
-  [386] = function(ins)
-    return { op = "get_player_facing", result = varRef(ins.operands[1]) }
-  end,
-  [438] = function()
-    return "unfolded"
-  end,
-  [439] = function(ins)
-    return {
-      op = "message",
-      message = { message = "external", bank = varRef(ins.operands[1]), id = varRef(ins.operands[2]) },
-      waitForPrint = false,
-    }
-  end,
-  [440] = function(ins)
-    return {
-      op = "message",
-      message = { message = "external", bank = varRef(ins.operands[1]), id = varRef(ins.operands[2]) },
-      waitForPrint = true,
-    }
-  end,
-  [749] = function(ins)
-    return {
-      op = "menu_begin",
-      messageSource = "standard",
-      sourcePlacement = {
-        system = MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT,
-        x = operandValue(ins.operands[1]),
-        y = operandValue(ins.operands[2]),
-      },
-      initialCursor = operandValue(ins.operands[3]),
-      cancellable = operandValue(ins.operands[4]) ~= 0,
-      result = varRef(ins.operands[5]),
-    }
-  end,
-  [750] = function(ins, memberIr)
-    assert(memberIr.messageBank ~= nil, "script menu requires a current script message bank")
-    return {
-      op = "menu_begin",
-      messageSource = { kind = "script", bank = memberIr.messageBank },
-      sourcePlacement = {
-        system = MenuProtocol.BOTTOM_SCREEN_TILE_PLACEMENT,
-        x = operandValue(ins.operands[1]),
-        y = operandValue(ins.operands[2]),
-      },
-      initialCursor = operandValue(ins.operands[3]),
-      cancellable = operandValue(ins.operands[4]) ~= 0,
-      result = varRef(ins.operands[5]),
-    }
-  end,
-  [751] = function(ins)
-    return {
-      op = "menu_add",
-      messageId = varRef(ins.operands[1]),
-      vanillaMetadata = varRef(ins.operands[2]),
-      value = varRef(ins.operands[3]),
-    }
-  end,
-  [752] = function()
-    return { op = "menu_exec" }
-  end,
-  [581] = function()
-    return { op = "lock_actor", actor = { ref = "actor", special = "last_talked" }, waitUntilPausable = true }
-  end,
-  [746] = function()
-    return { op = "set_auxiliary_ui_visible", visible = false }
-  end,
-  [747] = function()
-    return { op = "set_auxiliary_ui_visible", visible = true }
-  end,
-  [748] = function(ins)
-    return { op = "context_choice", result = varRef(ins.operands[1]) }
-  end,
-  [726] = function()
-    return { op = "process_soundplate" }
-  end,
-}
+local function buildHandlers()
+  local handlers = {}
+  mergeHandlerRegistry(handlers, ControlHandlers)
+  mergeHandlerRegistry(handlers, FieldHandlers)
+  mergeHandlerRegistry(handlers, AudioHandlers)
+  return handlers
+end
+
+local HANDLERS = buildHandlers()
 
 -- Fold a compare/flag instruction with a following GoToIf/CallIf into one
 -- conditional item, or nil when the pattern does not apply (the compare
@@ -800,19 +72,19 @@ local HANDLERS = {
 ---@param branch table
 ---@return table|nil item
 local function foldConditional(ins, branch)
-  local conditionCode = operandValue(branch.operands[1])
+  local conditionCode = Operands.operandValue(branch.operands[1])
   local operator = CONDITION_OPERATORS[conditionCode]
   if operator == nil then
     return nil
   end
-  local target = operandValue(branch.operands[2])
+  local target = Operands.operandValue(branch.operands[2])
   local condition
   if ins.opcode == 17 or ins.opcode == 18 then
     condition = {
       condition = "compare",
       operator = operator,
-      left = varRef(ins.operands[1]),
-      right = varRef(ins.operands[2]),
+      left = Operands.varRef(ins.operands[1]),
+      right = Operands.varRef(ins.operands[2]),
     }
   elseif ins.opcode == 32 then
     local expected
@@ -823,7 +95,7 @@ local function foldConditional(ins, branch)
     else
       return nil
     end
-    condition = { condition = "flag", id = operandValue(ins.operands[1]), expected = expected }
+    condition = { condition = "flag", id = Operands.operandValue(ins.operands[1]), expected = expected }
   else
     return nil
   end
@@ -1085,7 +357,7 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
       pushLabel(ins)
       items[#items + 1] = step
       unsupported[#unsupported + 1] = step
-    elseif not foldedAhead then
+    else
       local step = handler(ins, memberIr, { offsets = { ins.offset }, opcodes = { ins.opcode } }, ctx)
       if step == nil then
         -- An explicitly erased implementation-detail instruction (Nop and
@@ -1098,11 +370,11 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
         if ins.opcode == 53 then
           primitive = { op = "close_message", erase = true }
         elseif ins.opcode == 28 or ins.opcode == 29 then
-          local operator = CONDITION_OPERATORS[operandValue(ins.operands[1])] or "eq"
+          local operator = CONDITION_OPERATORS[Operands.operandValue(ins.operands[1])] or "eq"
           primitive = {
             op = ins.opcode == 29 and "call_compared" or "goto_compared",
             operator = operator,
-            target = operandValue(ins.operands[2]),
+            target = Operands.operandValue(ins.operands[2]),
           }
         end
         if primitive ~= nil then

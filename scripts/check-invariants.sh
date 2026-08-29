@@ -41,6 +41,19 @@ stored_anonymous_migration_exemptions=(
   "libs/engine/src/script/Validator.lua"
   "libs/errors/src/Errors.lua"
   "libs/storage/src/ScopedFs.lua"
+  "romdump/src/ProducerFingerprint.lua"
+  "romdump/src/digest/FieldCellCacheWriter.lua"
+  "romdump/src/digest/MapCatalog.lua"
+  "romdump/src/digest/NsbmdStaticTransforms.lua"
+  "romdump/src/digest/SbcInventory.lua"
+  "romdump/src/digest/WorldManifest.lua"
+  "romdump/src/digest/nitro/GxDisplayList.lua"
+  "romdump/src/digest/nitro/Nsbmd.lua"
+  "romdump/src/digest/nitro/TextureDecoder.lua"
+  "romdump/src/digest/script/MovementDecoder.lua"
+  "romdump/src/digest/script/ScriptCompiler.lua"
+  "romdump/src/digest/script/SourceCatalog.lua"
+  "romdump/src/digest/script/Structurer.lua"
 )
 
 is_stored_anonymous_migration_exempt() {
@@ -118,11 +131,13 @@ check_tracked_scope() {
   [ -n "$tracked" ] || return 0
   local line
   while IFS= read -r line; do
-    if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]]; then
+    if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]] || [[ "$line" =~ ^romdump/src/.*\.lua$ ]]; then
       # A tracked file deleted from the working tree (a pending deletion)
       # has no source content to scan.
       [ -r "$line" ] || continue
-      check_terminal_output_file "$line"
+      if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]]; then
+        check_terminal_output_file "$line"
+      fi
       if check_stored_anonymous_behavior_file "$line" && ! is_stored_anonymous_migration_exempt "$line"; then
         violation "$line contains stored anonymous behavior; name the function"
       fi

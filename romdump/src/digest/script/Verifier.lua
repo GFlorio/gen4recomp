@@ -135,173 +135,209 @@ end
 -- The per-opcode operand-equivalence checkers (item 6): `(ins, step)` ->
 -- problem message or nil. Covering the high-value operand-carrying
 -- instructions; the rest are checked by the generic coverage rule.
+local function checkWaitFrames(ins, step)
+  if step.op == "unsupported" then
+    return nil
+  end
+  if not operandMatches(ins.operands[1].raw, step.ticks) then
+    return "Wait frame count changed by translation"
+  end
+end
+
+local function checkGotoTarget(ins, step)
+  if step.op == "goto_script" then
+    return nil
+  end
+  if not operandMatches(ins.operands[1].raw, step.target) then
+    return "GoTo target changed by translation"
+  end
+end
+
+local function checkCallTarget(ins, step)
+  if step.label ~= nil then
+    return nil
+  end
+  if not operandMatches(ins.operands[1].raw, step.target) then
+    return "Call target changed by translation"
+  end
+end
+
+local function checkSetFlag(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.flag) then
+    return "SetFlag id changed by translation"
+  end
+end
+
+local function checkClearFlag(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.flag) then
+    return "ClearFlag id changed by translation"
+  end
+end
+
+local function checkSetFlagVar(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.flag) then
+    return "SetFlagVar id changed by translation"
+  end
+end
+
+local function checkClearFlagVar(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.flag) then
+    return "ClearFlagVar id changed by translation"
+  end
+end
+
+local function checkAddVar(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.variable) or not operandMatches(ins.operands[2].raw, step.amount) then
+    return "AddVar operands changed by translation"
+  end
+end
+
+local function checkSubVar(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.variable) or not operandMatches(ins.operands[2].raw, step.amount) then
+    return "SubVar operands changed by translation"
+  end
+end
+
+local function checkSetVar(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.variable) or not operandMatches(ins.operands[2].raw, step.value) then
+    return "SetVar operands changed by translation"
+  end
+end
+
+local function checkCopyVar(ins, step)
+  if
+    not operandMatches(ins.operands[1].raw, step.destination)
+    or not operandMatches(ins.operands[2].raw, step.source)
+  then
+    return "CopyVar operands changed by translation"
+  end
+end
+
+local function checkSetOrCopyVar(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.variable) or not operandMatches(ins.operands[2].raw, step.value) then
+    return "SetOrCopyVar operands changed by translation"
+  end
+end
+
+local function checkPlaySound(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.sound) then
+    return "PlaySE sound changed by translation"
+  end
+end
+
+local function checkStopSound(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.sound) then
+    return "StopSE sound changed by translation"
+  end
+end
+
+local function checkWaitSound(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.sound) then
+    return "WaitSE sound changed by translation"
+  end
+end
+
+local function checkPlayMusic(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.music) then
+    return "PlayBGM music changed by translation"
+  end
+end
+
+local function checkTemporaryMusic(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.music) then
+    return "TempBGM music changed by translation"
+  end
+end
+
+local function checkSetSpawn(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.spawn) then
+    return "SetSpawn id changed by translation"
+  end
+end
+
+local function checkWaitInputOrTicks(ins, step)
+  if not operandMatches(ins.operands[1].raw, step.ticks) then
+    return "WaitButtonOrDelay ticks changed by translation"
+  end
+end
+
+local function checkDirectionSignpost(ins, step)
+  -- DirectionSignpost: the raw type/map must survive exactly and the
+  -- message id stays the direct bank index. The final operand is an
+  -- intentional, audited erasure: the source handler never reads or
+  -- writes it, so the semantic node drops it (the raw decoded operands
+  -- keep it for source auditing).
+  local appearance = step.sourceAppearance or {}
+  if appearance.type ~= ins.operands[2].raw or appearance.map ~= ins.operands[3].raw then
+    return "DirectionSignpost type/map changed by translation"
+  end
+  local message = step.message
+  local id = type(message) == "table" and message.message == "external" and message.id
+  if id ~= ins.operands[1].raw then
+    return "DirectionSignpost message id changed by translation"
+  end
+end
+
+local function checkSetSignpostMap(ins, step)
+  local appearance = step.sourceAppearance or {}
+  if appearance.type ~= ins.operands[1].raw or appearance.map ~= ins.operands[2].raw then
+    return "SetSignpostMap type/map changed by translation"
+  end
+end
+
+local function checkSetSignpostAction(ins, step)
+  -- SetSignpostAction: the raw MAPSIGNCOMMAND_* code must lower to the
+  -- exact semantic command, never a default.
+  if step.command ~= SignpostCommands.semanticName(ins.operands[1].raw) then
+    return "SetSignpostAction command changed by translation"
+  end
+end
+
+local function checkTrainerTips(ins, step)
+  -- TrainerTips: the message id stays the direct bank index and the
+  -- result var survives exactly.
+  local message = step.message
+  local id = type(message) == "table" and message.message == "external" and message.id
+  if id ~= ins.operands[1].raw then
+    return "TrainerTips message id changed by translation"
+  end
+  if not operandMatches(ins.operands[2].raw, step.result) then
+    return "TrainerTips result operand changed by translation"
+  end
+end
+
+local function checkWaitSignpost(ins, step)
+  -- WaitSignpost: the result var survives exactly.
+  if not operandMatches(ins.operands[1].raw, step.result) then
+    return "WaitSignpost result operand changed by translation"
+  end
+end
+
 local CHECKERS = {
-  [3] = function(ins, step)
-    if step.op == "unsupported" then
-      return nil
-    end
-    if not operandMatches(ins.operands[1].raw, step.ticks) then
-      return "Wait frame count changed by translation"
-    end
-  end,
-  [22] = function(ins, step)
-    if step.op == "goto_script" then
-      return nil
-    end
-    if not operandMatches(ins.operands[1].raw, step.target) then
-      return "GoTo target changed by translation"
-    end
-  end,
-  [26] = function(ins, step)
-    if step.label ~= nil then
-      return nil
-    end
-    if not operandMatches(ins.operands[1].raw, step.target) then
-      return "Call target changed by translation"
-    end
-  end,
-  [30] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.flag) then
-      return "SetFlag id changed by translation"
-    end
-  end,
-  [31] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.flag) then
-      return "ClearFlag id changed by translation"
-    end
-  end,
-  [33] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.flag) then
-      return "SetFlagVar id changed by translation"
-    end
-  end,
-  [34] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.flag) then
-      return "ClearFlagVar id changed by translation"
-    end
-  end,
-  [39] = function(ins, step)
-    if
-      not operandMatches(ins.operands[1].raw, step.variable)
-      or not operandMatches(ins.operands[2].raw, step.amount)
-    then
-      return "AddVar operands changed by translation"
-    end
-  end,
-  [40] = function(ins, step)
-    if
-      not operandMatches(ins.operands[1].raw, step.variable)
-      or not operandMatches(ins.operands[2].raw, step.amount)
-    then
-      return "SubVar operands changed by translation"
-    end
-  end,
-  [41] = function(ins, step)
-    if
-      not operandMatches(ins.operands[1].raw, step.variable)
-      or not operandMatches(ins.operands[2].raw, step.value)
-    then
-      return "SetVar operands changed by translation"
-    end
-  end,
-  [42] = function(ins, step)
-    if
-      not operandMatches(ins.operands[1].raw, step.destination)
-      or not operandMatches(ins.operands[2].raw, step.source)
-    then
-      return "CopyVar operands changed by translation"
-    end
-  end,
-  [43] = function(ins, step)
-    if
-      not operandMatches(ins.operands[1].raw, step.variable)
-      or not operandMatches(ins.operands[2].raw, step.value)
-    then
-      return "SetOrCopyVar operands changed by translation"
-    end
-  end,
-  [73] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.sound) then
-      return "PlaySE sound changed by translation"
-    end
-  end,
-  [74] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.sound) then
-      return "StopSE sound changed by translation"
-    end
-  end,
-  [75] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.sound) then
-      return "WaitSE sound changed by translation"
-    end
-  end,
-  [80] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.music) then
-      return "PlayBGM music changed by translation"
-    end
-  end,
-  [87] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.music) then
-      return "TempBGM music changed by translation"
-    end
-  end,
-  [280] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.spawn) then
-      return "SetSpawn id changed by translation"
-    end
-  end,
-  [348] = function(ins, step)
-    if not operandMatches(ins.operands[1].raw, step.ticks) then
-      return "WaitButtonOrDelay ticks changed by translation"
-    end
-  end,
-  [55] = function(ins, step)
-    -- DirectionSignpost: the raw type/map must survive exactly and the
-    -- message id stays the direct bank index. The final operand is an
-    -- intentional, audited erasure: the source handler never reads or
-    -- writes it, so the semantic node drops it (the raw decoded operands
-    -- keep it for source auditing).
-    local appearance = step.sourceAppearance or {}
-    if appearance.type ~= ins.operands[2].raw or appearance.map ~= ins.operands[3].raw then
-      return "DirectionSignpost type/map changed by translation"
-    end
-    local message = step.message
-    local id = type(message) == "table" and message.message == "external" and message.id
-    if id ~= ins.operands[1].raw then
-      return "DirectionSignpost message id changed by translation"
-    end
-  end,
-  [56] = function(ins, step)
-    local appearance = step.sourceAppearance or {}
-    if appearance.type ~= ins.operands[1].raw or appearance.map ~= ins.operands[2].raw then
-      return "SetSignpostMap type/map changed by translation"
-    end
-  end,
-  [57] = function(ins, step)
-    -- SetSignpostAction: the raw MAPSIGNCOMMAND_* code must lower to the
-    -- exact semantic command, never a default.
-    if step.command ~= SignpostCommands.semanticName(ins.operands[1].raw) then
-      return "SetSignpostAction command changed by translation"
-    end
-  end,
-  [59] = function(ins, step)
-    -- TrainerTips: the message id stays the direct bank index and the
-    -- result var survives exactly.
-    local message = step.message
-    local id = type(message) == "table" and message.message == "external" and message.id
-    if id ~= ins.operands[1].raw then
-      return "TrainerTips message id changed by translation"
-    end
-    if not operandMatches(ins.operands[2].raw, step.result) then
-      return "TrainerTips result operand changed by translation"
-    end
-  end,
-  [60] = function(ins, step)
-    -- WaitSignpost: the result var survives exactly.
-    if not operandMatches(ins.operands[1].raw, step.result) then
-      return "WaitSignpost result operand changed by translation"
-    end
-  end,
+  [3] = checkWaitFrames,
+  [22] = checkGotoTarget,
+  [26] = checkCallTarget,
+  [30] = checkSetFlag,
+  [31] = checkClearFlag,
+  [33] = checkSetFlagVar,
+  [34] = checkClearFlagVar,
+  [39] = checkAddVar,
+  [40] = checkSubVar,
+  [41] = checkSetVar,
+  [42] = checkCopyVar,
+  [43] = checkSetOrCopyVar,
+  [73] = checkPlaySound,
+  [74] = checkStopSound,
+  [75] = checkWaitSound,
+  [80] = checkPlayMusic,
+  [87] = checkTemporaryMusic,
+  [280] = checkSetSpawn,
+  [348] = checkWaitInputOrTicks,
+  [55] = checkDirectionSignpost,
+  [56] = checkSetSignpostMap,
+  [57] = checkSetSignpostAction,
+  [59] = checkTrainerTips,
+  [60] = checkWaitSignpost,
 }
 
 -- Walk the lowered items collecting the covering node per source offset.
@@ -322,96 +358,99 @@ local function coveredByOffset(items)
       end
     end
   end
+
   walk(items)
   return byOffset
 end
 
--- Verify one script's final structured steps against its raw instructions
--- and CFG. The steps are the post-structuring, post-scrub program that is
--- actually emitted and executed; `omissions` are the lowering's documented
--- erasures (the only instructions allowed to disappear).
----@param steps table[]
----@param script table raw script (instructions)
----@param memberIr table|nil
----@param omissions table|nil
----@return table report
-function Verifier.verifyScript(steps, script, memberIr, omissions)
-  local cfg = Cfg.build(script, memberIr)
-  local byOffset = coveredByOffset(steps)
-  -- A synthesized prelude script is a shared-subroutine library that the
-  -- source engine never enters from its entry: its returns without calls
-  -- are the defining shape, so the balance and stray-return checks warn
-  -- rather than fault for preludes.
-  local prelude = script.prelude == true
-  local report = { ok = true, complete = false, problems = {}, warnings = {} }
-  local function problem(message, context)
-    report.ok = false
-    report.problems[#report.problems + 1] = { message = message, context = context }
-  end
-  local function warn(message, context)
-    report.warnings[#report.warnings + 1] = { message = message, context = context }
-  end
+---@param context table
+---@param message string
+---@param details table
+local function addProblem(context, message, details)
+  context.report.ok = false
+  context.report.problems[#context.report.problems + 1] = { message = message, context = details }
+end
 
-  -- Item 9: every command disappears only through a documented omission.
-  local omissionsByOffset = {}
-  for _, omission in ipairs(omissions or {}) do
-    omissionsByOffset[omission.offset] = true
+---@param context table
+---@param message string
+---@param details table
+local function addWarning(context, message, details)
+  context.report.warnings[#context.report.warnings + 1] = { message = message, context = details }
+end
+
+local function newVerificationContext(steps, script, memberIr, omissions)
+  return {
+    cfg = Cfg.build(script, memberIr),
+    byOffset = coveredByOffset(steps),
+    script = script,
+    memberIr = memberIr,
+    steps = steps,
+    omissions = omissions,
+    prelude = script.prelude == true,
+    report = { ok = true, complete = false, problems = {}, warnings = {} },
+  }
+end
+
+local function verifyCoverage(context)
+  context.omissionsByOffset = {}
+  for _, omission in ipairs(context.omissions or {}) do
+    context.omissionsByOffset[omission.offset] = true
     if omission.opcode ~= 0 and omission.opcode ~= 1 then
-      problem("omission recorded for a non-erasure opcode", { offset = omission.offset, opcode = omission.opcode })
+      addProblem(
+        context,
+        "omission recorded for a non-erasure opcode",
+        { offset = omission.offset, opcode = omission.opcode }
+      )
     end
   end
 
-  local total = #script.instructions
-  local covered = 0
-  local reachable = 0
-  local reachableUnsupported = 0
-  local unsupportedNodes = {}
-  local reachableOmitted = 0
-  for i, ins in ipairs(script.instructions) do
-    local isReachable = cfg.reachable[cfg.blockOfIndex[i]] == true
+  context.total = #context.script.instructions
+  context.covered = 0
+  context.reachable = 0
+  context.reachableUnsupported = 0
+  context.unsupportedNodes = {}
+  context.reachableOmitted = 0
+  for i, ins in ipairs(context.script.instructions) do
+    local isReachable = context.cfg.reachable[context.cfg.blockOfIndex[i]] == true
     if isReachable then
-      reachable = reachable + 1
+      context.reachable = context.reachable + 1
     end
-    local node = byOffset[ins.offset]
+    local node = context.byOffset[ins.offset]
     if node ~= nil then
-      covered = covered + 1
+      context.covered = context.covered + 1
       if node.op == "unsupported" then
-        reachableUnsupported = reachableUnsupported + 1
-        unsupportedNodes[#unsupportedNodes + 1] = node
+        context.reachableUnsupported = context.reachableUnsupported + 1
+        context.unsupportedNodes[#context.unsupportedNodes + 1] = node
       end
-    elseif omissionsByOffset[ins.offset] then
+    elseif context.omissionsByOffset[ins.offset] then
       if isReachable then
-        reachableOmitted = reachableOmitted + 1
+        context.reachableOmitted = context.reachableOmitted + 1
       end
     else
-      problem(
+      addProblem(
+        context,
         "instruction not covered by any semantic node",
         { offset = ins.offset, opcode = ins.opcode, name = CommandCatalog.name(ins.opcode) }
       )
     end
   end
+end
 
-  -- Item 2: every original control edge is represented by a control node.
-  local controlOffsets = {
-    [22] = true,
-    [23] = true,
-    [24] = true,
-    [25] = true,
-    [28] = true,
-    [29] = true,
-  }
-  for _, ins in ipairs(script.instructions) do
+local function verifyControlEdges(context)
+  local controlOffsets = { [22] = true, [23] = true, [24] = true, [25] = true, [28] = true, [29] = true }
+  for _, ins in ipairs(context.script.instructions) do
     if controlOffsets[ins.opcode] then
-      local node = byOffset[ins.offset]
+      local node = context.byOffset[ins.offset]
       if node ~= nil and node.op ~= "unsupported" and not CONTROL_OPS[node.op] then
-        problem(
+        addProblem(
+          context,
           "control edge not represented by a control node",
           { offset = ins.offset, opcode = ins.opcode, node = node.op }
         )
       end
     end
     if ins.opcode == 26 then
-      local node = byOffset[ins.offset]
+      local node = context.byOffset[ins.offset]
       if
         node ~= nil
         and node.op ~= "unsupported"
@@ -419,74 +458,63 @@ function Verifier.verifyScript(steps, script, memberIr, omissions)
         and node.op ~= "call_if"
         and node.op ~= "call_compared"
       then
-        problem(
+        addProblem(
+          context,
           "call edge not represented by a call node",
           { offset = ins.offset, opcode = ins.opcode, node = node and node.op }
         )
       end
     end
   end
+end
 
-  -- Branch targets must resolve to script labels (relative offsets resolve
-  -- through the CFG; unresolvable targets show as dangling edges). A
-  -- dangling edge whose branch was lowered to an explicit unsupported node
-  -- or to a runtime-resolved cross-script reference (goto_script, or a
-  -- call with a label) is accounted for and not double-reported.
-  for _, block in pairs(cfg.blocks) do
-    local lastIns = script.instructions[block.indices[#block.indices]]
-    local lastNode = lastIns ~= nil and byOffset[lastIns.offset] or nil
-    local function crossScript(node)
-      if node == nil then
-        return false
-      end
-      if node.op == "goto_script" then
-        return true
-      end
-      if node.op == "call" and node.label ~= nil then
-        return true
-      end
-      if (node.op == "goto_compared" or node.op == "call_compared") and node.script ~= nil then
-        return true
-      end
-      -- A structured conditional wrapping a cross-script reference.
-      if node.op == "if" and node.yes and node.yes[1] then
-        local inner = node.yes[1]
-        if inner.op == "goto_script" then
-          return true
-        end
-        if inner.op == "call" and inner.label ~= nil then
-          return true
-        end
-      end
-      return false
-    end
+local function isCrossScriptNode(node)
+  if node == nil then
+    return false
+  end
+  if node.op == "goto_script" or (node.op == "call" and node.label ~= nil) then
+    return true
+  end
+  if (node.op == "goto_compared" or node.op == "call_compared") and node.script ~= nil then
+    return true
+  end
+  if node.op == "if" and node.yes and node.yes[1] then
+    local inner = node.yes[1]
+    return inner.op == "goto_script" or (inner.op == "call" and inner.label ~= nil)
+  end
+  return false
+end
+
+local function verifyBranchTargets(context)
+  for _, block in pairs(context.cfg.blocks) do
+    local lastIns = context.script.instructions[block.indices[#block.indices]]
+    local lastNode = lastIns ~= nil and context.byOffset[lastIns.offset] or nil
     for _, succ in ipairs(block.successors) do
-      if succ.kind == "branch" or succ.kind == "call" then
-        if
-          succ.targetIndex == nil
-          and not crossScript(lastNode)
-          and (lastNode == nil or lastNode.op ~= "unsupported")
-        then
-          problem(
-            "branch target does not resolve to an instruction",
-            { block = block.id, entryOffset = block.entryOffset, kind = succ.kind }
-          )
-        end
+      if
+        (succ.kind == "branch" or succ.kind == "call")
+        and succ.targetIndex == nil
+        and not isCrossScriptNode(lastNode)
+        and (lastNode == nil or lastNode.op ~= "unsupported")
+      then
+        addProblem(
+          context,
+          "branch target does not resolve to an instruction",
+          { block = block.id, entryOffset = block.entryOffset, kind = succ.kind }
+        )
       end
     end
   end
+end
 
-  -- Item 4: every source execution classification is represented by an
-  -- equivalent boundary or timing profile.
-  for _, ins in ipairs(script.instructions) do
-    local node = byOffset[ins.offset]
+local function verifyExecutionBoundaries(context)
+  for _, ins in ipairs(context.script.instructions) do
+    local node = context.byOffset[ins.offset]
     if node ~= nil and node.op ~= "unsupported" then
       local foldOffsets = node.provenance and node.provenance.offsets or {}
       if #foldOffsets > 1 then
-        -- A documented fold owns its timing profile; any other multi-offset
-        -- node is an unmodeled merge.
         if not FOLD_OPS[node.op] then
-          problem(
+          addProblem(
+            context,
             "multi-instruction node is not a documented fold",
             { offset = ins.offset, opcode = ins.opcode, node = node.op }
           )
@@ -495,24 +523,26 @@ function Verifier.verifyScript(steps, script, memberIr, omissions)
         local classification = CommandCatalog.classification(ins.opcode)
         local boundary = nodeBlocks(node) or YIELD_OPS[node.op] == true
         if classification == CommandCatalog.NATIVE_WAIT and not boundary then
-          problem(
+          addProblem(
+            context,
             "native-wait instruction lacks a blocking translation",
             { offset = ins.offset, opcode = ins.opcode, node = node.op }
           )
         elseif classification == CommandCatalog.YIELD and not boundary then
-          problem(
+          addProblem(
+            context,
             "yield instruction lacks a run-phase boundary",
             { offset = ins.offset, opcode = ins.opcode, node = node.op }
           )
         elseif classification == CommandCatalog.STOP and not TERMINAL_OPS[node.op] then
-          problem(
+          addProblem(
+            context,
             "stop instruction translated to a non-terminal node",
             { offset = ins.offset, opcode = ins.opcode, node = node.op }
           )
         elseif classification == CommandCatalog.CONTINUE and boundary and node.op ~= "stop" then
-          -- A same-tick instruction must not introduce a wait; an explicit
-          -- stop is the only boundary a same-tick fold may introduce.
-          problem(
+          addProblem(
+            context,
             "same-tick instruction folded into a blocking node",
             { offset = ins.offset, opcode = ins.opcode, node = node.op }
           )
@@ -520,161 +550,179 @@ function Verifier.verifyScript(steps, script, memberIr, omissions)
       end
     end
   end
+end
 
-  -- Item 5: no implementation variable is ever discarded. Every Wait
-  -- mirrors its countdown into the destination variable exactly like the
-  -- source engine (ScrCmd_Wait writes the frame count; RunPauseTimer
-  -- decrements the variable per poll), so observable and cross-context
-  -- reads always see the live countdown.
-
-  -- Cross-script target warning: a jump or call into a same-member label
-  -- whose region lowers with explicit unsupported nodes faults at runtime
-  -- when that path executes. Import-time and same-member only; the warning
-  -- never rejects the translation.
-  if memberIr ~= nil then
-    local memberLabels = {}
-    for _, memberScript in pairs(memberIr.scripts) do
-      for _, ins in ipairs(memberScript.instructions) do
-        if ins.label ~= nil then
-          memberLabels[ins.label] = memberScript.index
-        end
-      end
-    end
-    local loweredCache = {}
-    local function regionHasUnsupported(label, _)
-      local owner = memberLabels[label]
-      if owner == nil then
-        return nil
-      end
-      local targetScript = memberIr.scripts[owner]
-      if targetScript == nil then
-        return nil
-      end
-      local lowered = loweredCache[owner]
-      if lowered == nil then
-        lowered = SemanticLowering.lowerScript(targetScript, memberIr, {})
-        loweredCache[owner] = lowered
-      end
-      local inRegion = false
-      for _, item in ipairs(lowered.items) do
-        if item.op == "label" then
-          if item.name == label then
-            inRegion = true
-          elseif inRegion then
-            break
-          end
-        elseif inRegion and (item.op == "stop" or item.op == "unsupported") then
-          if item.op == "unsupported" then
-            return true
-          end
-          break
-        end
-      end
-      return false
-    end
-    local function walkCrossScript(list)
-      for _, item in ipairs(list) do
-        if item.op == "goto_script" or (item.op == "call" and item.label ~= nil) then
-          local targetId = item.op == "goto_script" and item.script or item.target
-          if item.label ~= nil and regionHasUnsupported(item.label, targetId) then
-            warn("cross-script target region contains unsupported nodes", { scriptId = targetId, label = item.label })
-          end
-        end
-        if item.op == "if" then
-          walkCrossScript(item.yes)
-          walkCrossScript(item.no)
-        end
-      end
-    end
-    walkCrossScript(steps)
+local function regionHasUnsupported(context, label)
+  local memberLabels = context.memberLabels
+  local owner = memberLabels[label]
+  if owner == nil then
+    return nil
   end
+  local targetScript = context.memberIr.scripts[owner]
+  if targetScript == nil then
+    return nil
+  end
+  local lowered = context.loweredCache[owner]
+  if lowered == nil then
+    lowered = SemanticLowering.lowerScript(targetScript, context.memberIr, {})
+    context.loweredCache[owner] = lowered
+  end
+  local inRegion = false
+  for _, item in ipairs(lowered.items) do
+    if item.op == "label" then
+      if item.name == label then
+        inRegion = true
+      elseif inRegion then
+        break
+      end
+    elseif inRegion and (item.op == "stop" or item.op == "unsupported") then
+      return item.op == "unsupported"
+    end
+  end
+  return false
+end
 
-  -- Item 6: canonicalized operands resolve to the same constants.
-  for _, ins in ipairs(script.instructions) do
+local function verifyCrossScriptTargets(context)
+  if context.memberIr == nil then
+    return
+  end
+  context.memberLabels = {}
+  for _, memberScript in pairs(context.memberIr.scripts) do
+    for _, ins in ipairs(memberScript.instructions) do
+      if ins.label ~= nil then
+        context.memberLabels[ins.label] = memberScript.index
+      end
+    end
+  end
+  context.loweredCache = {}
+  local function walkCrossScript(list)
+    for _, item in ipairs(list) do
+      if item.op == "goto_script" or (item.op == "call" and item.label ~= nil) then
+        local targetId = item.op == "goto_script" and item.script or item.target
+        if item.label ~= nil and regionHasUnsupported(context, item.label) then
+          addWarning(
+            context,
+            "cross-script target region contains unsupported nodes",
+            { scriptId = targetId, label = item.label }
+          )
+        end
+      end
+      if item.op == "if" then
+        walkCrossScript(item.yes)
+        walkCrossScript(item.no)
+      end
+    end
+  end
+  walkCrossScript(context.steps)
+end
+
+local function verifyOperands(context)
+  for _, ins in ipairs(context.script.instructions) do
     local checker = CHECKERS[ins.opcode]
     if checker ~= nil then
-      local node = byOffset[ins.offset]
+      local node = context.byOffset[ins.offset]
       if node ~= nil and node.op ~= "unsupported" then
         local message = checker(ins, node)
         if message ~= nil then
-          problem(message, { offset = ins.offset, opcode = ins.opcode })
+          addProblem(context, message, { offset = ins.offset, opcode = ins.opcode })
         end
       end
     end
   end
+end
 
-  -- Item 7: call/return balance from the CFG. A prelude's entry-path
-  -- returns (the subroutine-library shape) warn instead of fault.
-  for _, balanceProblem in ipairs(cfg.balance.problems) do
-    local preludeTolerant = prelude
+local function verifyCallReturnBalance(context)
+  for _, balanceProblem in ipairs(context.cfg.balance.problems) do
+    local preludeTolerant = context.prelude
       and (
         balanceProblem.message == "return below an empty script stack"
         or balanceProblem.message == "return with no matching call"
       )
     if preludeTolerant then
-      warn(balanceProblem.message, balanceProblem.context)
+      addWarning(context, balanceProblem.message, balanceProblem.context)
     else
-      problem(balanceProblem.message, balanceProblem.context)
+      addProblem(context, balanceProblem.message, balanceProblem.context)
     end
   end
-  for _, balanceWarning in ipairs(cfg.balance.warnings) do
-    warn(balanceWarning.message, balanceWarning.context)
+  for _, balanceWarning in ipairs(context.cfg.balance.warnings) do
+    addWarning(context, balanceWarning.message, balanceWarning.context)
   end
   local hasCall = false
-  for _, ins in ipairs(script.instructions) do
+  for _, ins in ipairs(context.script.instructions) do
     if CALL_OPS[ins.opcode] then
       hasCall = true
       break
     end
   end
   if not hasCall then
-    for i, ins in ipairs(script.instructions) do
+    for i, ins in ipairs(context.script.instructions) do
       if RETURN_OPS[ins.opcode] then
-        -- A return in a reachable block with no call anywhere is a stray
-        -- pop (the runtime faults on an empty frame stack); an unreachable
-        -- return is a shared script tail whose caller lives in another
-        -- script and is only a warning.
-        local blockId = cfg.blockOfIndex[i]
+        local blockId = context.cfg.blockOfIndex[i]
         local message = "return without any call in the script"
-        local isReachable = blockId ~= nil and cfg.reachable[blockId] == true
-        if prelude or not isReachable then
-          warn(message, { offset = ins.offset, opcode = ins.opcode })
+        local isReachable = blockId ~= nil and context.cfg.reachable[blockId] == true
+        if context.prelude or not isReachable then
+          addWarning(context, message, { offset = ins.offset, opcode = ins.opcode })
         else
-          problem(message, { offset = ins.offset, opcode = ins.opcode })
+          addProblem(context, message, { offset = ins.offset, opcode = ins.opcode })
         end
       end
     end
   end
+end
 
-  -- Item 8: movement sequence termination.
-  local movementSeen = 0
-  for _, reference in ipairs(cfg.movementReferences) do
-    movementSeen = movementSeen + 1
+local function verifyMovementTermination(context)
+  for _, reference in ipairs(context.cfg.movementReferences) do
     if reference.block == nil then
-      problem("ApplyMovement references a missing movement block", { offset = reference.offset })
+      addProblem(context, "ApplyMovement references a missing movement block", { offset = reference.offset })
     elseif not reference.block.terminated then
-      problem("movement sequence lacks an EndMovement terminator", { offset = reference.offset })
+      addProblem(context, "movement sequence lacks an EndMovement terminator", { offset = reference.offset })
     elseif #reference.block.actions == 0 then
-      problem("movement sequence is empty", { offset = reference.offset })
+      addProblem(context, "movement sequence is empty", { offset = reference.offset })
     end
   end
+end
 
-  -- Items 1 and 10: reachability accounting and unsupported prevention.
-  local unreachable = total - reachable
+local function finalizeReport(context)
+  local unreachable = context.total - context.reachable
   if unreachable > 0 then
-    warn("script contains unreachable instructions", { count = unreachable })
+    addWarning(context, "script contains unreachable instructions", { count = unreachable })
   end
-  report.total = total
-  report.reachable = reachable
+  local report = context.report
+  report.total = context.total
+  report.reachable = context.reachable
   report.unreachable = unreachable
-  report.covered = covered
-  report.reachableOmitted = reachableOmitted
-  report.unsupportedCount = reachableUnsupported
-  report.unsupported = unsupportedNodes
-  report.irreducible = cfg.irreducibleRegions
-  report.balance = cfg.balance
-  report.complete = report.ok and covered + #(omissions or {}) >= total and reachableUnsupported == 0
+  report.covered = context.covered
+  report.reachableOmitted = context.reachableOmitted
+  report.unsupportedCount = context.reachableUnsupported
+  report.unsupported = context.unsupportedNodes
+  report.irreducible = context.cfg.irreducibleRegions
+  report.balance = context.cfg.balance
+  report.complete = report.ok
+    and context.covered + #(context.omissions or {}) >= context.total
+    and context.reachableUnsupported == 0
   return report
+end
+
+-- Verify one script's final structured steps against its raw instructions
+-- and CFG. The steps are the post-structuring, post-scrub program that is
+-- actually emitted and executed; omissions are the lowering's documented
+-- erasures (the only instructions allowed to disappear).
+---@param steps table[]
+---@param script table raw script (instructions)
+---@param memberIr table|nil
+---@param omissions table|nil
+---@return table report
+function Verifier.verifyScript(steps, script, memberIr, omissions)
+  local context = newVerificationContext(steps, script, memberIr, omissions)
+  verifyCoverage(context)
+  verifyControlEdges(context)
+  verifyBranchTargets(context)
+  verifyExecutionBoundaries(context)
+  verifyCrossScriptTargets(context)
+  verifyOperands(context)
+  verifyCallReturnBalance(context)
+  verifyMovementTermination(context)
+  return finalizeReport(context)
 end
 
 return Verifier
