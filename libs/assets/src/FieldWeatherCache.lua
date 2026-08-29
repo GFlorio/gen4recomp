@@ -98,6 +98,112 @@ local function validatePreset(id, preset)
   return true
 end
 
+local function validateRuleTarget(rule, index, presets)
+  if
+    type(rule.weatherId) ~= "number"
+    or rule.weatherId ~= math.floor(rule.weatherId)
+    or rule.weatherId < 0
+    or rule.weatherId > 13
+  then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " weatherId must be an integer 0..13", { index = index })
+  end
+  if not presets[rule.weatherId] then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " target weatherId " .. rule.weatherId .. " has no preset", {
+        index = index,
+        weatherId = rule.weatherId,
+      })
+  end
+  return true
+end
+
+local function validateCalendarMapRule(rule, index)
+  if type(rule.mapId) ~= "number" or rule.mapId ~= math.floor(rule.mapId) or rule.mapId < 0 then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " mapId must be a non-negative integer", { index = index })
+  end
+  if rule.requireNoPenalty ~= true then
+    return false, Errors.new(CATALOG_INVALID, "rule " .. index .. " requireNoPenalty must be true", { index = index })
+  end
+  if type(rule.dates) ~= "table" or #rule.dates == 0 then
+    return false, Errors.new(CATALOG_INVALID, "rule " .. index .. " dates must be a non-empty table", { index = index })
+  end
+  local dates = rule.dates ---@type table[]
+  for j, entry in ipairs(dates) do
+    local date = entry ---@type table
+    if type(date) ~= "table" or type(date.month) ~= "number" or type(date.day) ~= "number" then
+      return false,
+        Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " must have month and day", {
+          index = index,
+          entry = j,
+        })
+    end
+    if date.month ~= math.floor(date.month) or date.month < 1 or date.month > 12 then
+      return false,
+        Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " month must be 1..12", {
+          index = index,
+          entry = j,
+        })
+    end
+    if date.day ~= math.floor(date.day) or date.day < 1 or date.day > 31 then
+      return false,
+        Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " day must be 1..31", {
+          index = index,
+          entry = j,
+        })
+    end
+  end
+  return true
+end
+
+local function validateMapVarRule(rule, index)
+  if type(rule.mapId) ~= "number" or rule.mapId ~= math.floor(rule.mapId) or rule.mapId < 0 then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " mapId must be a non-negative integer", { index = index })
+  end
+  if type(rule.varId) ~= "number" or rule.varId ~= math.floor(rule.varId) or rule.varId < 0 or rule.varId > 0xFFFF then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " varId must be an integer 0..0xFFFF", { index = index })
+  end
+  if type(rule.value) ~= "number" or rule.value ~= math.floor(rule.value) or rule.value < 0 or rule.value > 0xFFFF then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " value must be an integer 0..0xFFFF", { index = index })
+  end
+  return true
+end
+
+local function validateWeatherFlagRule(rule, index, presets)
+  if
+    type(rule.fromWeatherId) ~= "number"
+    or rule.fromWeatherId ~= math.floor(rule.fromWeatherId)
+    or rule.fromWeatherId < 0
+    or rule.fromWeatherId > 13
+  then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " fromWeatherId must be an integer 0..13", {
+        index = index,
+      })
+  end
+  if not presets[rule.fromWeatherId] then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " fromWeatherId " .. rule.fromWeatherId .. " has no preset", {
+        index = index,
+        fromWeatherId = rule.fromWeatherId,
+      })
+  end
+  if
+    type(rule.flagId) ~= "number"
+    or rule.flagId ~= math.floor(rule.flagId)
+    or rule.flagId < 0
+    or rule.flagId > 0xFFFF
+  then
+    return false,
+      Errors.new(CATALOG_INVALID, "rule " .. index .. " flagId must be an integer 0..0xFFFF", { index = index })
+  end
+  return true
+end
+
 ---@param rule table
 ---@param index integer
 ---@param presets table<integer, FieldWeatherCache.Preset>
@@ -115,111 +221,16 @@ local function validateRule(rule, index, presets)
         { index = index, kind = kind }
       )
   end
-  -- weatherId target must be present and existing
-  if
-    type(rule.weatherId) ~= "number"
-    or rule.weatherId ~= math.floor(rule.weatherId)
-    or rule.weatherId < 0
-    or rule.weatherId > 13
-  then
-    return false,
-      Errors.new(CATALOG_INVALID, "rule " .. index .. " weatherId must be an integer 0..13", { index = index })
-  end
-  if not presets[rule.weatherId] then
-    return false,
-      Errors.new(CATALOG_INVALID, "rule " .. index .. " target weatherId " .. rule.weatherId .. " has no preset", {
-        index = index,
-        weatherId = rule.weatherId,
-      })
+  local targetOk, targetError = validateRuleTarget(rule, index, presets)
+  if not targetOk then
+    return false, targetError
   end
   if kind == "calendar_map_override" then
-    if type(rule.mapId) ~= "number" or rule.mapId ~= math.floor(rule.mapId) or rule.mapId < 0 then
-      return false,
-        Errors.new(CATALOG_INVALID, "rule " .. index .. " mapId must be a non-negative integer", { index = index })
-    end
-    if rule.requireNoPenalty ~= true then
-      return false, Errors.new(CATALOG_INVALID, "rule " .. index .. " requireNoPenalty must be true", { index = index })
-    end
-    if type(rule.dates) ~= "table" or #rule.dates == 0 then
-      return false,
-        Errors.new(CATALOG_INVALID, "rule " .. index .. " dates must be a non-empty table", { index = index })
-    end
-    local dates = rule.dates ---@type table[]
-    for j, entry in ipairs(dates) do
-      local date = entry ---@type table
-      if type(date) ~= "table" or type(date.month) ~= "number" or type(date.day) ~= "number" then
-        return false,
-          Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " must have month and day", {
-            index = index,
-            entry = j,
-          })
-      end
-      if date.month ~= math.floor(date.month) or date.month < 1 or date.month > 12 then
-        return false,
-          Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " month must be 1..12", {
-            index = index,
-            entry = j,
-          })
-      end
-      if date.day ~= math.floor(date.day) or date.day < 1 or date.day > 31 then
-        return false,
-          Errors.new(CATALOG_INVALID, "rule " .. index .. " date " .. j .. " day must be 1..31", {
-            index = index,
-            entry = j,
-          })
-      end
-    end
+    return validateCalendarMapRule(rule, index)
   elseif kind == "map_var_equals" then
-    if type(rule.mapId) ~= "number" or rule.mapId ~= math.floor(rule.mapId) or rule.mapId < 0 then
-      return false,
-        Errors.new(CATALOG_INVALID, "rule " .. index .. " mapId must be a non-negative integer", { index = index })
-    end
-    if
-      type(rule.varId) ~= "number"
-      or rule.varId ~= math.floor(rule.varId)
-      or rule.varId < 0
-      or rule.varId > 0xFFFF
-    then
-      return false,
-        Errors.new(CATALOG_INVALID, "rule " .. index .. " varId must be an integer 0..0xFFFF", { index = index })
-    end
-    if
-      type(rule.value) ~= "number"
-      or rule.value ~= math.floor(rule.value)
-      or rule.value < 0
-      or rule.value > 0xFFFF
-    then
-      return false,
-        Errors.new(CATALOG_INVALID, "rule " .. index .. " value must be an integer 0..0xFFFF", { index = index })
-    end
+    return validateMapVarRule(rule, index)
   elseif kind == "weather_flag_override" then
-    if
-      type(rule.fromWeatherId) ~= "number"
-      or rule.fromWeatherId ~= math.floor(rule.fromWeatherId)
-      or rule.fromWeatherId < 0
-      or rule.fromWeatherId > 13
-    then
-      return false,
-        Errors.new(CATALOG_INVALID, "rule " .. index .. " fromWeatherId must be an integer 0..13", {
-          index = index,
-        })
-    end
-    if not presets[rule.fromWeatherId] then
-      return false,
-        Errors.new(CATALOG_INVALID, "rule " .. index .. " fromWeatherId " .. rule.fromWeatherId .. " has no preset", {
-          index = index,
-          fromWeatherId = rule.fromWeatherId,
-        })
-    end
-    if
-      type(rule.flagId) ~= "number"
-      or rule.flagId ~= math.floor(rule.flagId)
-      or rule.flagId < 0
-      or rule.flagId > 0xFFFF
-    then
-      return false,
-        Errors.new(CATALOG_INVALID, "rule " .. index .. " flagId must be an integer 0..0xFFFF", { index = index })
-    end
+    return validateWeatherFlagRule(rule, index, presets)
   end
   return true
 end

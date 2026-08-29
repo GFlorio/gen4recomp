@@ -171,16 +171,96 @@ local function isValidOperand(amount, nonNegative)
   return false
 end
 
----@param instruction table
+local function validateCompare(instruction, field)
+  if not COMPARE_CONDITIONS[instruction.condition] then
+    fail({ field = field .. ".condition" })
+  end
+  if not isIntegerInRange(instruction.var, 0, VARIABLE_MAX) or not isValidOperand(instruction.amount, false) then
+    fail({ field = field .. ".compare" })
+  end
+end
+
+local function validateNote(instruction, field, nested)
+  if nested then
+    if
+      not isKey(instruction.key)
+      or not isIntegerInRange(instruction.velocity, 0, 0x7F)
+      or not isValidOperand(instruction.duration, true)
+    then
+      fail({ field = field .. ".note" })
+    end
+    return
+  end
+  if not isKey(instruction.key) then
+    fail({ field = field .. ".key" })
+  end
+  if not isIntegerInRange(instruction.velocity, 0, 0x7F) then
+    fail({ field = field .. ".velocity" })
+  end
+  if not isValidOperand(instruction.duration, true) then
+    fail({ field = field .. ".duration" })
+  end
+end
+
+local function validateWait(instruction, field)
+  if not isValidOperand(instruction.duration, true) then
+    fail({ field = field .. ".duration" })
+  end
+end
+
+local function validateProgram(instruction, field)
+  if not isValidOperand(instruction.program, true) then
+    fail({ field = field .. ".program" })
+  end
+end
+
+local function validateOpenTrack(instruction, field, instructionCount, nested)
+  if not isIntegerInRange(instruction.track, 0, TRACK_MAX) then
+    fail({ field = field .. (nested and ".target" or ".track") })
+  end
+  if not isTarget(instruction.target, instructionCount) then
+    fail({ field = field .. ".target" })
+  end
+end
+
+local function validateBranch(instruction, field, instructionCount)
+  if not isTarget(instruction.target, instructionCount) then
+    fail({ field = field .. ".target" })
+  end
+end
+
+local function validateLoop(instruction, field)
+  if not isValidOperand(instruction.count, true) then
+    fail({ field = field .. ".count" })
+  end
+end
+
+local function validateVariableOperation(instruction, field, nested)
+  if not isIntegerInRange(instruction.var, 0, VARIABLE_MAX) then
+    fail({ field = field .. (nested and ".operand" or ".var") })
+  end
+  if not isValidOperand(instruction.amount, false) then
+    fail({ field = field .. (nested and ".operand" or ".amount") })
+  end
+end
+
+local function validateAmountOperation(instruction, field)
+  if not isValidOperand(instruction.amount, false) then
+    fail({ field = field .. ".amount" })
+  end
+end
+
+---@param instruction unknown
 ---@param field string
 ---@param instructionCount integer
-local function validateNestedInstruction(instruction, field, instructionCount)
+---@param allowIf boolean
+local function validateInstruction(instruction, field, instructionCount, allowIf)
   if type(instruction) ~= "table" or type(instruction.op) ~= "string" then
     fail({ field = field .. ".op" })
   end
   local op = instruction.op ---@type string
   local operandSpec = OPS[op] ---@type string[]?
-  if operandSpec == nil or op == "if" then
+  if operandSpec == nil or (op == "if" and not allowIf) then
     fail({ field = field .. ".op", op = op })
   end
   ---@cast operandSpec string[]
@@ -194,47 +274,29 @@ local function validateNestedInstruction(instruction, field, instructionCount)
       fail({ field = field .. "." .. operand, op = op })
     end
   end
-  if op == "compare" then
-    if not COMPARE_CONDITIONS[instruction.condition] then
+  if op == "if" then
+    if instruction.condition ~= "compare_result" then
       fail({ field = field .. ".condition" })
     end
-    if not isIntegerInRange(instruction.var, 0, VARIABLE_MAX) or not isValidOperand(instruction.amount, false) then
-      fail({ field = field .. ".compare" })
-    end
+    validateInstruction(instruction.instruction, field .. ".instruction", instructionCount, false)
+  elseif op == "compare" then
+    validateCompare(instruction, field)
   elseif op == "note" then
-    if
-      not isKey(instruction.key)
-      or not isIntegerInRange(instruction.velocity, 0, 0x7F)
-      or not isValidOperand(instruction.duration, true)
-    then
-      fail({ field = field .. ".note" })
-    end
+    validateNote(instruction, field, not allowIf)
   elseif op == "wait" then
-    if not isValidOperand(instruction.duration, true) then
-      fail({ field = field .. ".duration" })
-    end
+    validateWait(instruction, field)
   elseif op == "program" then
-    if not isValidOperand(instruction.program, true) then
-      fail({ field = field .. ".program" })
-    end
+    validateProgram(instruction, field)
   elseif op == "open_track" then
-    if not isIntegerInRange(instruction.track, 0, TRACK_MAX) or not isTarget(instruction.target, instructionCount) then
-      fail({ field = field .. ".target" })
-    end
+    validateOpenTrack(instruction, field, instructionCount, not allowIf)
   elseif op == "jump" or op == "call" then
-    if not isTarget(instruction.target, instructionCount) then
-      fail({ field = field .. ".target" })
-    end
+    validateBranch(instruction, field, instructionCount)
   elseif op == "loop_begin" then
-    if not isValidOperand(instruction.count, true) then
-      fail({ field = field .. ".count" })
-    end
+    validateLoop(instruction, field)
   elseif operandSpec[1] == "var" then
-    if not isIntegerInRange(instruction.var, 0, VARIABLE_MAX) or not isValidOperand(instruction.amount, false) then
-      fail({ field = field .. ".operand" })
-    end
-  elseif operandSpec[1] == "amount" and not isValidOperand(instruction.amount, false) then
-    fail({ field = field .. ".amount" })
+    validateVariableOperation(instruction, field, not allowIf)
+  elseif operandSpec[1] == "amount" then
+    validateAmountOperation(instruction, field)
   end
 end
 
@@ -287,90 +349,7 @@ function AudioSequence.validate(sequence)
     fail({ field = "program.entry" })
   end
   for index, instruction in ipairs(instructions) do
-    if type(instruction) ~= "table" or type(instruction.op) ~= "string" then
-      fail({ field = "program.instructions[" .. index .. "].op" })
-    end
-    local op = instruction.op ---@type string
-    local operandSpec = OPS[op] ---@type string[]?
-    if operandSpec == nil then
-      fail({ field = "program.instructions[" .. index .. "].op", op = op })
-    end
-    ---@cast operandSpec string[]
-    -- Exact instruction shapes: the record carries its op and exactly its
-    -- Conditional execution owns a complete nested instruction so variable-
-    -- length source commands cannot be split by the runtime.
-    local allowed = { op = true } ---@type table<string, boolean>
-    for _, operand in ipairs(operandSpec) do
-      allowed[operand] = true
-    end
-    assertOnlyKeys(instruction, allowed, "program.instructions[" .. index .. "]")
-    for _, operand in ipairs(operandSpec) do
-      if instruction[operand] == nil then
-        fail({ field = "program.instructions[" .. index .. "]." .. operand, op = op })
-      end
-    end
-    if op == "if" then
-      if instruction.condition ~= "compare_result" then
-        fail({ field = "program.instructions[" .. index .. "].condition" })
-      end
-      validateNestedInstruction(
-        instruction.instruction,
-        "program.instructions[" .. index .. "].instruction",
-        #instructions
-      )
-    elseif op == "compare" then
-      if
-        not COMPARE_CONDITIONS[instruction.condition]
-        or not isIntegerInRange(instruction.var, 0, VARIABLE_MAX)
-        or not isValidOperand(instruction.amount, false)
-      then
-        fail({ field = "program.instructions[" .. index .. "].compare" })
-      end
-    elseif op == "note" then
-      if not isKey(instruction.key) then
-        fail({ field = "program.instructions[" .. index .. "].key" })
-      end
-      if not isIntegerInRange(instruction.velocity, 0, 0x7F) then
-        fail({ field = "program.instructions[" .. index .. "].velocity" })
-      end
-      if not isValidOperand(instruction.duration, true) then
-        fail({ field = "program.instructions[" .. index .. "].duration" })
-      end
-    elseif op == "wait" then
-      if not isValidOperand(instruction.duration, true) then
-        fail({ field = "program.instructions[" .. index .. "].duration" })
-      end
-    elseif op == "program" then
-      if not isValidOperand(instruction.program, true) then
-        fail({ field = "program.instructions[" .. index .. "].program" })
-      end
-    elseif op == "open_track" then
-      if not isIntegerInRange(instruction.track, 0, TRACK_MAX) then
-        fail({ field = "program.instructions[" .. index .. "].track" })
-      end
-      if not isTarget(instruction.target, #program.instructions) then
-        fail({ field = "program.instructions[" .. index .. "].target" })
-      end
-    elseif op == "jump" or op == "call" then
-      if not isTarget(instruction.target, #program.instructions) then
-        fail({ field = "program.instructions[" .. index .. "].target" })
-      end
-    elseif op == "loop_begin" then
-      if not isValidOperand(instruction.count, true) then
-        fail({ field = "program.instructions[" .. index .. "].count" })
-      end
-    elseif operandSpec[1] == "var" then
-      if not isIntegerInRange(instruction.var, 0, VARIABLE_MAX) then
-        fail({ field = "program.instructions[" .. index .. "].var" })
-      end
-      if not isValidOperand(instruction.amount, false) then
-        fail({ field = "program.instructions[" .. index .. "].amount" })
-      end
-    elseif operandSpec[1] == "amount" then
-      if not isValidOperand(instruction.amount, false) then
-        fail({ field = "program.instructions[" .. index .. "].amount" })
-      end
-    end
+    validateInstruction(instruction, "program.instructions[" .. index .. "]", #instructions, true)
   end
   if sequence.provenance ~= nil and type(sequence.provenance) ~= "table" then
     fail({ field = "provenance" })

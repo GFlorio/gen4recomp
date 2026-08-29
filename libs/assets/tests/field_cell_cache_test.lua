@@ -338,6 +338,12 @@ function T.rejects_a_cell_that_does_not_match_its_index_descriptor()
   Assert.isFalse(FieldCellCache.isReady(cache, "marker"))
 end
 
+function T.rejects_a_non_table_expected_descriptor()
+  local cache = presentationCache({ geometry = true, texture = true, model = true })
+  local cell = assert(cache:loadLua(FieldCellCache.cellPath(4, 1)))
+  Assert.isFalse(FieldCellCache.validateCell(cache, cell, "marker"))
+end
+
 function T.validates_static_and_dynamic_building_references()
   local cache = presentationCache({ geometry = true, texture = true, model = true })
   local originalLoadLua = cache.loadLua

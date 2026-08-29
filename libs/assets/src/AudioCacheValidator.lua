@@ -109,10 +109,7 @@ local function symbolMapProblem(section, symbolMap, name)
   return nil
 end
 
----@param cacheFs CacheFs
----@return string|nil
-function AudioCacheValidator.validate(cacheFs)
-  local index = cacheFs:loadLua(AudioCache.indexPath())
+local function validateIndexRoot(index)
   if type(index) ~= "table" or index.schema ~= AudioCache.INDEX_SCHEMA then
     return "index is missing or carries an unexpected schema"
   end
@@ -125,43 +122,71 @@ function AudioCacheValidator.validate(cacheFs)
   then
     return "index sections are missing"
   end
+  return nil
+end
+
+---@param cacheFs CacheFs
+---@param index AudioCacheValidator.Index
+---@param id number
+---@param entry AudioCacheValidator.IndexEntry
+---@param usedPlayers table<integer, boolean>
+---@return string?
+local function validateSequenceEntry(cacheFs, index, id, entry, usedPlayers)
+  if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
+    return "sequence index entry is malformed"
+  end
+  local entryValue = entry
+  -- Index records store no payload path: every path derives from the
+  -- numeric id (AudioCache.sequencePath), so a redundant `file` field is
+  -- malformed index data, never tolerated.
+  if entryValue.file ~= nil then
+    return "sequence index entry carries a stored payload path"
+  end
+  if type(entryValue.bankId) ~= "number" or index.banks[entryValue.bankId] == nil then
+    return "sequence bank id does not resolve"
+  end
+  if index.players[entryValue.playerId] == nil then
+    return "sequence player id does not resolve"
+  end
+  usedPlayers[entryValue.playerId] = true
+  local sequence = cacheFs:loadLua(AudioCache.sequencePath(id))
+  if type(sequence) ~= "table" then
+    return "sequence asset is missing or unreadable"
+  end
+  if not passes(AudioSequence.validate, sequence) then
+    return "sequence fails its validator"
+  end
+  -- The asset duplicates index identity fields (id, bank reference,
+  -- symbol, and the player block it starts from; the leaf validator
+  -- already proved the player block's shape); a disagreement means the
+  -- index no longer describes the cache.
+  if sequence.id ~= entry.id or sequence.bankId ~= entry.bankId or sequence.symbol ~= entry.symbol then
+    return "sequence identity does not match its index entry"
+  end
+  if sequence.player.id ~= entry.playerId then
+    return "sequence player block does not match its index entry"
+  end
+  return nil
+end
+
+---@param cacheFs CacheFs
+---@param index AudioCacheValidator.Index
+---@return string?, table<integer, boolean>?
+local function validateSequences(cacheFs, index)
   local usedPlayers = {} ---@type table<integer, boolean>
   for id, entry in pairs(index.sequences) do
-    if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
-      return "sequence index entry is malformed"
-    end
-    local entryValue = entry
-    -- Index records store no payload path: every path derives from the
-    -- numeric id (AudioCache.sequencePath), so a redundant `file` field is
-    -- malformed index data, never tolerated.
-    if entryValue.file ~= nil then
-      return "sequence index entry carries a stored payload path"
-    end
-    if type(entryValue.bankId) ~= "number" or index.banks[entryValue.bankId] == nil then
-      return "sequence bank id does not resolve"
-    end
-    if index.players[entryValue.playerId] == nil then
-      return "sequence player id does not resolve"
-    end
-    usedPlayers[entryValue.playerId] = true
-    local sequence = cacheFs:loadLua(AudioCache.sequencePath(id))
-    if type(sequence) ~= "table" then
-      return "sequence asset is missing or unreadable"
-    end
-    if not passes(AudioSequence.validate, sequence) then
-      return "sequence fails its validator"
-    end
-    -- The asset duplicates index identity fields (id, bank reference,
-    -- symbol, and the player block it starts from; the leaf validator
-    -- already proved the player block's shape); a disagreement means the
-    -- index no longer describes the cache.
-    if sequence.id ~= entry.id or sequence.bankId ~= entry.bankId or sequence.symbol ~= entry.symbol then
-      return "sequence identity does not match its index entry"
-    end
-    if sequence.player.id ~= entry.playerId then
-      return "sequence player block does not match its index entry"
+    local problem = validateSequenceEntry(cacheFs, index, id, entry, usedPlayers)
+    if problem ~= nil then
+      return problem
     end
   end
+  return nil, usedPlayers
+end
+
+---@param index AudioCacheValidator.Index
+---@param usedPlayers table<integer, boolean>
+---@return string?
+local function validatePlayers(index, usedPlayers)
   local problem = sectionProblem(index.players, "player")
   if problem ~= nil then
     return problem
@@ -178,54 +203,107 @@ function AudioCacheValidator.validate(cacheFs)
       return "a used player must declare a positive sequence slot count"
     end
   end
-  problem = symbolMapProblem(index.sequences, index.sequenceBySymbol, "sequence")
+  return nil
+end
+
+---@param index AudioCacheValidator.Index
+---@return string?
+local function validateSymbolMaps(index)
+  local problem = symbolMapProblem(index.sequences, index.sequenceBySymbol, "sequence")
   if problem ~= nil then
     return problem
   end
-  problem = symbolMapProblem(index.banks, index.bankBySymbol, "bank")
-  if problem ~= nil then
-    return problem
-  end
-  for id, entry in pairs(index.banks) do
-    if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
-      return "bank index entry is malformed"
+  return symbolMapProblem(index.banks, index.bankBySymbol, "bank")
+end
+
+---@param cacheFs CacheFs
+---@param keys string[]
+---@return string?
+local function validateBankSamples(cacheFs, keys)
+  for _, key in ipairs(keys) do
+    local metadata = cacheFs:loadLua(AudioCache.sampleMetadataPath(key))
+    if type(metadata) ~= "table" then
+      return "referenced sample metadata is missing or unreadable"
     end
-    -- Bank index records carry no payload path either (AudioCache.bankPath).
-    if entry.file ~= nil then
-      return "bank index entry carries a stored payload path"
+    local payload = cacheFs:read(AudioCache.samplePath(key))
+    if payload == nil then
+      return "referenced sample payload is missing"
     end
-    local bank = cacheFs:loadLua(AudioCache.bankPath(id))
-    if type(bank) ~= "table" then
-      return "bank asset is missing or unreadable"
+    if not passes(AudioSample.validate, metadata, payload) then
+      return "sample metadata or payload fails its validator"
     end
-    if not passes(AudioBank.validate, bank) then
-      return "bank fails its validator"
-    end
-    if bank.id ~= entry.id or bank.symbol ~= entry.symbol then
-      return "bank identity does not match its index entry"
-    end
-    local keys = AudioBank.sampleKeys(bank)
-    if keys == nil then
-      return "bank sample references are malformed"
-    end
-    for _, key in ipairs(keys) do
-      local metadata = cacheFs:loadLua(AudioCache.sampleMetadataPath(key))
-      if type(metadata) ~= "table" then
-        return "referenced sample metadata is missing or unreadable"
-      end
-      local payload = cacheFs:read(AudioCache.samplePath(key))
-      if payload == nil then
-        return "referenced sample payload is missing"
-      end
-      if not passes(AudioSample.validate, metadata, payload) then
-        return "sample metadata or payload fails its validator"
-      end
-      if metadata.key ~= key then
-        return "sample metadata key does not match its address"
-      end
+    if metadata.key ~= key then
+      return "sample metadata key does not match its address"
     end
   end
   return nil
+end
+
+---@param cacheFs CacheFs
+---@param id number
+---@param entry AudioCacheValidator.IndexEntry
+---@return string?
+local function validateBankEntry(cacheFs, id, entry)
+  if not isIndexId(id) or type(entry) ~= "table" or entry.id ~= id then
+    return "bank index entry is malformed"
+  end
+  -- Bank index records carry no payload path either (AudioCache.bankPath).
+  if entry.file ~= nil then
+    return "bank index entry carries a stored payload path"
+  end
+  local bank = cacheFs:loadLua(AudioCache.bankPath(id))
+  if type(bank) ~= "table" then
+    return "bank asset is missing or unreadable"
+  end
+  if not passes(AudioBank.validate, bank) then
+    return "bank fails its validator"
+  end
+  if bank.id ~= entry.id or bank.symbol ~= entry.symbol then
+    return "bank identity does not match its index entry"
+  end
+  local keys = AudioBank.sampleKeys(bank)
+  if keys == nil then
+    return "bank sample references are malformed"
+  end
+  return validateBankSamples(cacheFs, keys)
+end
+
+---@param cacheFs CacheFs
+---@param index AudioCacheValidator.Index
+---@return string?
+local function validateBanks(cacheFs, index)
+  for id, entry in pairs(index.banks) do
+    local problem = validateBankEntry(cacheFs, id, entry)
+    if problem ~= nil then
+      return problem
+    end
+  end
+  return nil
+end
+
+---@param cacheFs CacheFs
+---@return string|nil
+function AudioCacheValidator.validate(cacheFs)
+  local index = cacheFs:loadLua(AudioCache.indexPath()) ---@type table?
+  local problem = validateIndexRoot(index)
+  if problem ~= nil then
+    return problem
+  end
+  ---@cast index AudioCacheValidator.Index
+  local sequenceProblem, usedPlayers = validateSequences(cacheFs, index)
+  if sequenceProblem ~= nil then
+    return sequenceProblem
+  end
+  ---@cast usedPlayers table<integer, boolean>
+  problem = validatePlayers(index, usedPlayers)
+  if problem ~= nil then
+    return problem
+  end
+  problem = validateSymbolMaps(index)
+  if problem ~= nil then
+    return problem
+  end
+  return validateBanks(cacheFs, index)
 end
 
 return AudioCacheValidator

@@ -476,7 +476,7 @@ end
 ---@param compiled table
 ---@param clip table
 ---@param desc table
-local function checkTrsPayload(compiled, clip, desc)
+local function checkTrsComponents(compiled, clip, desc)
   local where = "animation " .. clip.id ---@type string
   if not isInteger(compiled.anmFlags) then
     invalid(where .. " compiled payload requires an anmFlags integer", desc.key)
@@ -509,96 +509,136 @@ local function checkTrsPayload(compiled, clip, desc)
       end
     end
   end
+end
+
+---@param target table
+---@param whereT string
+---@param clip table
+---@param desc table
+local function checkTrsTarget(target, whereT, clip, desc)
+  if not Validate.isNonNegativeInteger(target.nodeIndex) then
+    invalid(whereT .. " requires a nodeIndex", desc.key)
+  end
+  local channels = target.channels
+  ---@cast channels ModelAsset.Channels
+  if type(channels) ~= "table" then
+    invalid(whereT .. " requires channels", desc.key)
+  end
+  local frameCount = clip.frameCount ---@type number
+  local curveOpts = {
+    sources = SOURCE_LISTS.withModel,
+    limitIsFrameCount = true,
+    storage = true,
+    frameCount = frameCount,
+  } ---@type ModelAsset.CurveOptions
+  local pairOpts = {
+    sources = SOURCE_LISTS.withModel,
+    limitIsFrameCount = true,
+    storage = true,
+    frameCount = frameCount,
+    pairKeys = true,
+  } ---@type ModelAsset.CurveOptions
+  for _, axis in ipairs({ "x", "y", "z" }) do
+    checkChannel(
+      channels.trans and channels.trans[axis],
+      whereT .. " trans." .. axis,
+      desc,
+      SOURCES_WITH_MODEL,
+      curveOpts
+    )
+  end
+  checkChannel(channels.rot, whereT .. " rot", desc, SOURCES_WITH_MODEL, curveOpts)
+  for _, axis in ipairs({ "x", "y", "z" }) do
+    local scale = channels.scale and channels.scale[axis]
+    checkChannel(scale, whereT .. " scale." .. axis, desc, SOURCES_WITH_MODEL, pairOpts)
+    if scale and scale.source == "constant" and scale.inverse ~= nil and type(scale.inverse) ~= "number" then
+      invalid(whereT .. " scale." .. axis .. " inverse must be a number", desc.key)
+    end
+  end
+end
+
+---@param compiled table
+---@param clip table
+---@param desc table
+---@return ModelAsset.AnimationTarget[]
+local function checkTrsTargets(compiled, clip, desc)
+  local where = "animation " .. clip.id ---@type string
   if not Validate.isArray(compiled.targets) or #compiled.targets ~= #clip.tracks then
     invalid(where .. " compiled payload must carry one target per track", desc.key)
   end
   local targets = compiled.targets ---@type ModelAsset.AnimationTarget[]
   for i, target in ipairs(targets) do
     local whereT = where .. " target " .. i ---@type string
-    if not Validate.isNonNegativeInteger(target.nodeIndex) then
-      invalid(whereT .. " requires a nodeIndex", desc.key)
+    checkTrsTarget(target, whereT, clip, desc)
+  end
+  return targets
+end
+
+local function checkTrsRotationKey(value, compiled, where, desc)
+  if type(value) ~= "number" or not isInteger(value) or value < 0 then
+    invalid(where .. " rotation key must be a u16 integer", desc.key)
+    return
+  end
+  local index = value % 32768
+  if value >= 0x8000 then
+    if not compiled.rotData[index + 1] then
+      invalid(where .. " rotation key " .. tostring(value) .. " is beyond the compiled pivot table", desc.key)
     end
-    local channels = target.channels
-    ---@cast channels ModelAsset.Channels
-    if type(channels) ~= "table" then
-      invalid(whereT .. " requires channels", desc.key)
+  elseif not compiled.pivotData[index + 1] then
+    invalid(where .. " rotation key " .. tostring(value) .. " is beyond the compiled compressed table", desc.key)
+  end
+end
+
+local function checkTrsRotationChannels(compiled, clip, target, where, desc)
+  local channels = target.channels
+  ---@cast channels ModelAsset.Channels
+  local rot = channels.rot
+  if rot.source == "constant" then
+    checkTrsRotationKey(assert(rot.value), compiled, where, desc)
+  elseif rot.source == "curve" then
+    if #rot.keys < math.ceil(clip.frameCount / rot.rate) then
+      invalid(where .. " rotation curve carries fewer keys than its frames demand", desc.key)
     end
-    local frameCount = clip.frameCount ---@type number
-    local curveOpts = {
-      sources = SOURCE_LISTS.withModel,
-      limitIsFrameCount = true,
-      storage = true,
-      frameCount = frameCount,
-    } ---@type ModelAsset.CurveOptions
-    local pairOpts = {
-      sources = SOURCE_LISTS.withModel,
-      limitIsFrameCount = true,
-      storage = true,
-      frameCount = frameCount,
-      pairKeys = true,
-    } ---@type ModelAsset.CurveOptions
-    for _, axis in ipairs({ "x", "y", "z" }) do
-      checkChannel(
-        channels.trans and channels.trans[axis],
-        whereT .. " trans." .. axis,
-        desc,
-        SOURCES_WITH_MODEL,
-        curveOpts
-      )
-    end
-    checkChannel(channels.rot, whereT .. " rot", desc, SOURCES_WITH_MODEL, curveOpts)
-    for _, axis in ipairs({ "x", "y", "z" }) do
-      local scale = channels.scale and channels.scale[axis]
-      checkChannel(scale, whereT .. " scale." .. axis, desc, SOURCES_WITH_MODEL, pairOpts)
-      if scale and scale.source == "constant" and scale.inverse ~= nil and type(scale.inverse) ~= "number" then
-        invalid(whereT .. " scale." .. axis .. " inverse must be a number", desc.key)
-      end
+    for _, key in ipairs(rot.keys) do
+      checkTrsRotationKey(key, compiled, where, desc)
     end
   end
+end
+
+local function checkTrsFrameCoverage(target, clip, where, desc)
+  local channels = target.channels
+  ---@cast channels ModelAsset.Channels
+  -- The trans/scale curves must cover their frames too: the sampler walks
+  -- the key array by frame, so a shorter array would read past the end.
+  for _, axis in ipairs({ "x", "y", "z" }) do
+    local channel = channels.trans[axis] ---@type ModelAsset.Channel?
+    if channel and channel.source == "curve" and #channel.keys < math.ceil(clip.frameCount / channel.rate) then
+      invalid(where .. " trans." .. axis .. " curve carries fewer keys than its frames demand", desc.key)
+    end
+  end
+  for _, axis in ipairs({ "x", "y", "z" }) do
+    local channel = channels.scale[axis] ---@type ModelAsset.Channel?
+    if channel and channel.source == "curve" and #channel.keys < math.ceil(clip.frameCount / channel.rate) then
+      invalid(where .. " scale." .. axis .. " curve carries fewer keys than its frames demand", desc.key)
+    end
+  end
+end
+
+---@param compiled table
+---@param clip table
+---@param desc table
+local function checkTrsPayload(compiled, clip, desc)
+  checkTrsComponents(compiled, clip, desc)
+  local targets = checkTrsTargets(compiled, clip, desc)
   -- The rotation tables are compiled to the highest key the clip references,
   -- so every rotation key (constant or curve) must land inside its table.
   for _, target in ipairs(targets) do
-    local channels = target.channels
-    ---@cast channels ModelAsset.Channels
-    local function checkRotKey(value)
-      if type(value) ~= "number" or not isInteger(value) or value < 0 then
-        invalid(where .. " rotation key must be a u16 integer", desc.key)
-        return
-      end
-      local index = value % 32768
-      if value >= 0x8000 then
-        if not compiled.rotData[index + 1] then
-          invalid(where .. " rotation key " .. tostring(value) .. " is beyond the compiled pivot table", desc.key)
-        end
-      elseif not compiled.pivotData[index + 1] then
-        invalid(where .. " rotation key " .. tostring(value) .. " is beyond the compiled compressed table", desc.key)
-      end
-    end
-    local rot = channels.rot
-    if rot.source == "constant" then
-      checkRotKey(assert(rot.value))
-    elseif rot.source == "curve" then
-      if #rot.keys < math.ceil(clip.frameCount / rot.rate) then
-        invalid(where .. " rotation curve carries fewer keys than its frames demand", desc.key)
-      end
-      for _, key in ipairs(rot.keys) do
-        checkRotKey(key)
-      end
-    end
-    -- The trans/scale curves must cover their frames too: the sampler walks
-    -- the key array by frame, so a shorter array would read past the end.
-    for _, axis in ipairs({ "x", "y", "z" }) do
-      local channel = channels.trans[axis] ---@type ModelAsset.Channel?
-      if channel and channel.source == "curve" and #channel.keys < math.ceil(clip.frameCount / channel.rate) then
-        invalid(where .. " trans." .. axis .. " curve carries fewer keys than its frames demand", desc.key)
-      end
-    end
-    for _, axis in ipairs({ "x", "y", "z" }) do
-      local channel = channels.scale[axis] ---@type ModelAsset.Channel?
-      if channel and channel.source == "curve" and #channel.keys < math.ceil(clip.frameCount / channel.rate) then
-        invalid(where .. " scale." .. axis .. " curve carries fewer keys than its frames demand", desc.key)
-      end
-    end
+    local where = "animation " .. clip.id
+    checkTrsRotationChannels(compiled, clip, target, where, desc)
+  end
+  for _, target in ipairs(targets) do
+    local where = "animation " .. clip.id
+    checkTrsFrameCoverage(target, clip, where, desc)
   end
 end
 
@@ -749,135 +789,75 @@ local function checkAnimation(clip, desc)
   end
 end
 
--- Validate one descriptor record strictly. Raises ModelAsset.ERROR_INVALID on any
--- contract violation. The authoritative artifact gate: MapCacheWriter runs
--- every compiled descriptor through this before publishing, and the emitted
--- shape (both batch kinds carry the full polygon draw-state field set) must
--- validate -- a malformed variant is diagnosed here, never defaulted at the
--- load boundary.
+---@param b table
+---@param where string
 ---@param desc table
----@return table
-function ModelAsset.validate(desc)
-  if type(desc) ~= "table" then
-    invalid("descriptor is not a table")
+local function checkBatch(b, where, desc)
+  if type(b) ~= "table" or type(b.geometry) ~= "string" then
+    invalid(where .. " batch does not reference a geometry path", desc.key)
   end
-  if desc.schema ~= ModelAsset.SCHEMA then
-    invalid("schema must be " .. ModelAsset.SCHEMA .. ", got " .. tostring(desc.schema), desc.key)
+  local ok, err = pcall(PolygonState.validate, b, where .. " batch")
+  if not ok then
+    -- The asset boundary reports polygon-state violations under its own
+    -- error contract; anything else is a fault and re-raises.
+    if Errors.is(err) then
+      invalid(Errors.format(err), desc.key)
+    end
+    error(err)
   end
-  if not ModelAsset.KINDS[desc.kind] then
-    invalid("kind must be static or nitro-dynamic, got " .. tostring(desc.kind), desc.key)
-  end
+end
 
-  -- Every batch of either kind requires the full shared draw-state field set
-  -- with the range checks (PolygonState is the single schema source); the
-  -- asset boundary reports violations under its own error contract.
-  ---@param b table
-  ---@param where string
-  local function checkBatch(b, where)
-    if type(b) ~= "table" or type(b.geometry) ~= "string" then
-      invalid(where .. " batch does not reference a geometry path", desc.key)
-    end
-    local ok, err = pcall(PolygonState.validate, b, where .. " batch")
-    if not ok then
-      -- The asset boundary reports polygon-state violations under its own
-      -- error contract; anything else is a fault and re-raises.
-      if Errors.is(err) then
-        invalid(Errors.format(err), desc.key)
-      end
-      error(err)
-    end
+---@param b table
+---@param desc table
+local function checkDynamicBatch(b, desc)
+  checkBatch(b, "dynamic", desc)
+  if type(b.id) ~= "string" or #b.id == 0 then
+    invalid("dynamic batch requires a non-empty id", desc.key)
   end
-  -- Dynamic batches additionally reference the model's nodes and materials
-  -- by index and carry the draw id the runtime keyed meshes by.
-  ---@param b table
-  local function checkDynamicBatch(b)
-    checkBatch(b, "dynamic")
-    if type(b.id) ~= "string" or #b.id == 0 then
-      invalid("dynamic batch requires a non-empty id", desc.key)
-    end
-    if not Validate.isNonNegativeInteger(b.drawIndex) then
-      invalid("dynamic batch " .. tostring(b.id) .. " drawIndex must be a non-negative integer", desc.key)
-    end
-    if not (Validate.isNonNegativeInteger(b.nodeIndex) and b.nodeIndex < #desc.dynamic.nodes) then
-      invalid("dynamic batch " .. tostring(b.id) .. " nodeIndex is out of range", desc.key)
-    end
-    if not (Validate.isNonNegativeInteger(b.materialIndex) and b.materialIndex < #desc.materials) then
-      invalid("dynamic batch " .. tostring(b.id) .. " materialIndex is out of range", desc.key)
-    end
+  if not Validate.isNonNegativeInteger(b.drawIndex) then
+    invalid("dynamic batch " .. tostring(b.id) .. " drawIndex must be a non-negative integer", desc.key)
   end
+  if not (Validate.isNonNegativeInteger(b.nodeIndex) and b.nodeIndex < #desc.dynamic.nodes) then
+    invalid("dynamic batch " .. tostring(b.id) .. " nodeIndex is out of range", desc.key)
+  end
+  if not (Validate.isNonNegativeInteger(b.materialIndex) and b.materialIndex < #desc.materials) then
+    invalid("dynamic batch " .. tostring(b.id) .. " materialIndex is out of range", desc.key)
+  end
+end
 
-  -- Material ids are the list positions (the compiler assigns each material
-  -- its index, and the runtime indexes material state by position), so a
-  -- record whose id is not its position is malformed generated data.
-  ---@param where string
-  local function checkMaterialIndices(where)
-    local materials = desc.materials ---@type ModelAsset.Material[]
-    for i, m in ipairs(materials) do
-      if m.id ~= i - 1 then
-        invalid(
-          where .. " materials must be contiguous zero-based indices; material " .. i .. " has id " .. tostring(m.id),
-          desc.key
-        )
-      end
+---@param materials ModelAsset.Material[]
+---@param where string
+---@param desc table
+local function checkMaterialIndices(materials, where, desc)
+  for i, m in ipairs(materials) do
+    if m.id ~= i - 1 then
+      invalid(
+        where .. " materials must be contiguous zero-based indices; material " .. i .. " has id " .. tostring(m.id),
+        desc.key
+      )
     end
   end
+end
 
-  if desc.kind == "static" then
-    if not Validate.isArray(desc.batches) then
-      invalid("static descriptor requires a batches array", desc.key)
-    end
-    if not Validate.isArray(desc.materials) then
-      invalid("static descriptor requires a materials array", desc.key)
-    end
-    local batches = desc.batches ---@type ModelAsset.Batch[]
-    for _, b in ipairs(batches) do
-      checkBatch(b, "static")
-    end
-    local materials = desc.materials ---@type ModelAsset.Material[]
-    for _, m in ipairs(materials) do
-      checkStaticMaterial(m, "static", desc)
-    end
-    checkMaterialIndices("static")
-    return desc
-  end
-
-  -- nitro-dynamic
-  if type(desc.dynamic) ~= "table" then
-    invalid("nitro-dynamic descriptor requires a dynamic block", desc.key)
-  end
-  if not Validate.isArray(desc.dynamic.nodes) then
-    invalid("dynamic block requires a nodes array", desc.key)
-  end
-  if type(desc.dynamic.transformProgram) ~= "table" then
-    invalid("dynamic block requires a transformProgram", desc.key)
-  end
-  if not Validate.isArray(desc.dynamic.batches) then
-    invalid("dynamic block requires a batches array", desc.key)
+local function validateStaticDescriptor(desc)
+  if not Validate.isArray(desc.batches) then
+    invalid("static descriptor requires a batches array", desc.key)
   end
   if not Validate.isArray(desc.materials) then
-    invalid("nitro-dynamic descriptor requires a materials array", desc.key)
+    invalid("static descriptor requires a materials array", desc.key)
   end
-  if not Validate.isArray(desc.animations) then
-    invalid("nitro-dynamic descriptor requires an animations array", desc.key)
-  end
-  local seenBatchIds = {} ---@type table<string|integer, boolean>
-  local dynamicBatches = desc.dynamic.batches ---@type ModelAsset.Batch[]
-  for _, b in ipairs(dynamicBatches) do
-    checkDynamicBatch(b)
-    if seenBatchIds[b.id] then
-      invalid("dynamic descriptor lists batch id " .. tostring(b.id) .. " twice", desc.key)
-    end
-    seenBatchIds[b.id] = true
+  local batches = desc.batches ---@type ModelAsset.Batch[]
+  for _, b in ipairs(batches) do
+    checkBatch(b, "static", desc)
   end
   local materials = desc.materials ---@type ModelAsset.Material[]
   for _, m in ipairs(materials) do
-    checkDynamicMaterial(m, "dynamic", desc)
+    checkStaticMaterial(m, "static", desc)
   end
-  checkMaterialIndices("dynamic")
-  local animations = desc.animations ---@type table[]
-  for _, clip in ipairs(animations) do
-    checkAnimation(clip, desc)
-  end
+  checkMaterialIndices(materials, "static", desc)
+end
+
+local function validateDoorSoundType(desc, animations)
   local hasDoor = false
   for _, clip in ipairs(animations) do
     local semanticNames = clip.semanticNames ---@type string[]
@@ -899,6 +879,73 @@ function ModelAsset.validate(desc)
   elseif desc.doorSoundType ~= nil then
     invalid("non-door animation descriptors must not carry doorSoundType", desc.key)
   end
+end
+
+local function validateDynamicDescriptor(desc)
+  if type(desc.dynamic) ~= "table" then
+    invalid("nitro-dynamic descriptor requires a dynamic block", desc.key)
+  end
+  if not Validate.isArray(desc.dynamic.nodes) then
+    invalid("dynamic block requires a nodes array", desc.key)
+  end
+  if type(desc.dynamic.transformProgram) ~= "table" then
+    invalid("dynamic block requires a transformProgram", desc.key)
+  end
+  if not Validate.isArray(desc.dynamic.batches) then
+    invalid("dynamic block requires a batches array", desc.key)
+  end
+  if not Validate.isArray(desc.materials) then
+    invalid("nitro-dynamic descriptor requires a materials array", desc.key)
+  end
+  if not Validate.isArray(desc.animations) then
+    invalid("nitro-dynamic descriptor requires an animations array", desc.key)
+  end
+  local seenBatchIds = {} ---@type table<string|integer, boolean>
+  local dynamicBatches = desc.dynamic.batches ---@type ModelAsset.Batch[]
+  for _, b in ipairs(dynamicBatches) do
+    checkDynamicBatch(b, desc)
+    if seenBatchIds[b.id] then
+      invalid("dynamic descriptor lists batch id " .. tostring(b.id) .. " twice", desc.key)
+    end
+    seenBatchIds[b.id] = true
+  end
+  local materials = desc.materials ---@type ModelAsset.Material[]
+  for _, m in ipairs(materials) do
+    checkDynamicMaterial(m, "dynamic", desc)
+  end
+  checkMaterialIndices(materials, "dynamic", desc)
+  local animations = desc.animations ---@type table[]
+  for _, clip in ipairs(animations) do
+    checkAnimation(clip, desc)
+  end
+  validateDoorSoundType(desc, animations)
+end
+
+-- Validate one descriptor record strictly. Raises ModelAsset.ERROR_INVALID on any
+-- contract violation. The authoritative artifact gate: MapCacheWriter runs
+-- every compiled descriptor through this before publishing, and the emitted
+-- shape (both batch kinds carry the full polygon draw-state field set) must
+-- validate -- a malformed variant is diagnosed here, never defaulted at the
+-- load boundary.
+---@param desc table
+---@return table
+function ModelAsset.validate(desc)
+  if type(desc) ~= "table" then
+    invalid("descriptor is not a table")
+  end
+  if desc.schema ~= ModelAsset.SCHEMA then
+    invalid("schema must be " .. ModelAsset.SCHEMA .. ", got " .. tostring(desc.schema), desc.key)
+  end
+  if not ModelAsset.KINDS[desc.kind] then
+    invalid("kind must be static or nitro-dynamic, got " .. tostring(desc.kind), desc.key)
+  end
+
+  if desc.kind == "static" then
+    validateStaticDescriptor(desc)
+    return desc
+  end
+
+  validateDynamicDescriptor(desc)
   return desc
 end
 

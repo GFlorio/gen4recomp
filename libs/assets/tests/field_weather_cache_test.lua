@@ -175,6 +175,24 @@ function T.validation_rejects_rule_missing_required_field()
   Assert.isFalse(ok)
 end
 
+function T.validation_preserves_calendar_date_domain_errors()
+  local FieldWeatherCache = requireCache()
+  local cases = {
+    { field = "month", value = 13 },
+    { field = "day", value = 32 },
+  }
+  for _, case in ipairs(cases) do
+    local catalog = validCatalog()
+    catalog.rules[1].dates[1][case.field] = case.value
+    local ok, err = FieldWeatherCache.validateCatalog(catalog)
+    Assert.isFalse(ok)
+    local errorValue = assert(err)
+    Assert.equal(errorValue.code, "FIELD_WEATHER_CATALOG_INVALID")
+    Assert.equal(errorValue.context.index, 1)
+    Assert.equal(errorValue.context.entry, 1)
+  end
+end
+
 function T.validation_rejects_catalog_whose_target_preset_is_absent()
   local FieldWeatherCache = requireCache()
   local catalog = validCatalog()

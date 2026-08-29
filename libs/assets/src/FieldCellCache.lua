@@ -106,20 +106,7 @@ local function validateIndex(index)
   return true
 end
 
----@param index table
----@return boolean
-function FieldCellCache.validateIndex(index)
-  return validateIndex(index)
-end
-
----@param cacheFs CacheFs|FieldCellCache.FileSystem
----@param cell table
----@param expected table?
----@return boolean
-function FieldCellCache.validateCell(cacheFs, cell, expected)
-  if type(cell) ~= "table" or cell.schema ~= FieldCellCache.CELL_SCHEMA then
-    return false
-  end
+local function validateExpectedCell(cell, expected)
   if expected ~= nil and type(expected) ~= "table" then
     return false
   end
@@ -138,6 +125,10 @@ function FieldCellCache.validateCell(cacheFs, cell, expected)
   then
     return false
   end
+  return true
+end
+
+local function validateCellIdentity(cell)
   for _, key in ipairs({
     "matrixMemberId",
     "index",
@@ -152,31 +143,33 @@ function FieldCellCache.validateCell(cacheFs, cell, expected)
       return false
     end
   end
-  if
-    type(cell.origin) ~= "table"
-    or not validId(cell.origin.x)
-    or not finiteNumber(cell.origin.y)
-    or not validId(cell.origin.z)
-    or cell.origin.x ~= cell.x * 32
-    or cell.origin.z ~= cell.z * 32
-  then
-    return false
-  end
-  if
-    type(cell.collision) ~= "table"
-    or type(cell.collision.file) ~= "string"
-    or type(cell.terrain) ~= "table"
-    or type(cell.terrain.file) ~= "string"
-    or cell.collision.file ~= FieldCellCache.collisionPath(cell.matrixMemberId, cell.index)
-    or cell.terrain.file ~= FieldCellCache.terrainPath(cell.matrixMemberId, cell.index)
-    or cell.terrain.schema ~= MapAssetCache.TERRAIN_SCHEMA
-    or not Validate.isArray(cell.batches)
-    or not Validate.isArray(cell.materials)
-    or not Validate.isArray(cell.buildingInstances)
-    or type(cell.terrainAnimations) ~= "table"
-  then
-    return false
-  end
+  return true
+end
+
+local function validateCellOrigin(cell)
+  return type(cell.origin) == "table"
+    and validId(cell.origin.x)
+    and finiteNumber(cell.origin.y)
+    and validId(cell.origin.z)
+    and cell.origin.x == cell.x * 32
+    and cell.origin.z == cell.z * 32
+end
+
+local function validateCellArtifacts(cell)
+  return type(cell.collision) == "table"
+    and type(cell.collision.file) == "string"
+    and type(cell.terrain) == "table"
+    and type(cell.terrain.file) == "string"
+    and cell.collision.file == FieldCellCache.collisionPath(cell.matrixMemberId, cell.index)
+    and cell.terrain.file == FieldCellCache.terrainPath(cell.matrixMemberId, cell.index)
+    and cell.terrain.schema == MapAssetCache.TERRAIN_SCHEMA
+    and Validate.isArray(cell.batches)
+    and Validate.isArray(cell.materials)
+    and Validate.isArray(cell.buildingInstances)
+    and type(cell.terrainAnimations) == "table"
+end
+
+local function validateBuildingInstances(cell)
   for _, instance in ipairs(cell.buildingInstances) do
     if
       type(instance) ~= "table"
@@ -193,6 +186,10 @@ function FieldCellCache.validateCell(cacheFs, cell, expected)
       end
     end
   end
+  return true
+end
+
+local function validateCellContent(cacheFs, cell)
   if
     cell.collision.width ~= 32
     or cell.collision.height ~= 32
@@ -207,10 +204,10 @@ function FieldCellCache.validateCell(cacheFs, cell, expected)
   end
   local bytes = cacheFs:read(cell.collision.file)
   local collision = bytes and CollisionGridAsset.decode(bytes)
-  if collision == nil or collision.width ~= 32 or collision.height ~= 32 then
-    return false
-  end
+  return collision ~= nil and collision.width == 32 and collision.height == 32
+end
 
+local function validateReferencedPaths(cacheFs, cell)
   local ok, paths = pcall(MapAssetCache.referencedPaths, {
     schema = MapAssetCache.SCENE_SCHEMA,
     kind = "field-cell",
@@ -233,6 +230,41 @@ function FieldCellCache.validateCell(cacheFs, cell, expected)
     end
   end
   return true
+end
+
+---@param index table
+---@return boolean
+function FieldCellCache.validateIndex(index)
+  return validateIndex(index)
+end
+
+---@param cacheFs CacheFs|FieldCellCache.FileSystem
+---@param cell table
+---@param expected? unknown
+---@return boolean
+function FieldCellCache.validateCell(cacheFs, cell, expected)
+  if type(cell) ~= "table" or cell.schema ~= FieldCellCache.CELL_SCHEMA then
+    return false
+  end
+  if not validateExpectedCell(cell, expected) then
+    return false
+  end
+  if not validateCellIdentity(cell) then
+    return false
+  end
+  if not validateCellOrigin(cell) then
+    return false
+  end
+  if not validateCellArtifacts(cell) then
+    return false
+  end
+  if not validateBuildingInstances(cell) then
+    return false
+  end
+  if not validateCellContent(cacheFs, cell) then
+    return false
+  end
+  return validateReferencedPaths(cacheFs, cell)
 end
 
 function FieldCellCache.isReady(cacheFs, expectedMarker)

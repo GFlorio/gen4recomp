@@ -423,6 +423,21 @@ function T.rejects_extra_keys_on_operand_records()
   end)
 end
 
+function T.preserves_top_level_variable_operand_error_paths()
+  local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
+  sequence.program.instructions[2] = { op = "setvar", var = -1, amount = 1 }
+  local err = Assert.throws(function()
+    AudioSequence.validate(sequence)
+  end)
+  Assert.equal(err.context.field, "program.instructions[2].var")
+
+  sequence.program.instructions[2] = { op = "setvar", var = 1, amount = "invalid" }
+  err = Assert.throws(function()
+    AudioSequence.validate(sequence)
+  end)
+  Assert.equal(err.context.field, "program.instructions[2].amount")
+end
+
 -- Duration-class operands are not truncated to u16: any non-negative integer
 -- survives (the source varlen encoding is wider than 16 bits), so the schema
 -- never clamps valid source values. A duration-class random still keeps its
@@ -518,6 +533,25 @@ function T.validates_nested_control_flow_operands()
   throwsCode("AUDIO_SEQUENCE_INVALID", function()
     AudioSequence.validate(sequence)
   end)
+end
+
+function T.rejects_a_nested_conditional_with_its_instruction_context()
+  local sequence = AudioFixture.sequence(37, "SEQ_TEST_B", 12, 1)
+  sequence.program.instructions[2] = {
+    op = "if",
+    condition = "compare_result",
+    instruction = {
+      op = "if",
+      condition = "compare_result",
+      instruction = { op = "pan", amount = 64 },
+    },
+  }
+  local err = Assert.throws(function()
+    AudioSequence.validate(sequence)
+  end)
+  Assert.equal(err.code, "AUDIO_SEQUENCE_INVALID")
+  Assert.equal(err.context.field, "program.instructions[2].instruction.op")
+  Assert.equal(err.context.op, "if")
 end
 
 -- Instruction shapes are exact: an instruction carries only its op and the
