@@ -28,7 +28,7 @@
   "workspace": {
     "checkThirdParty": false,
     "useGitIgnore": true,
-    "library": ["vendor/lua-cats-love2d/library"],
+    "library": ["vendor/love2d-types"],
     "ignoreDir": [
       ".cache",
       ".git",
@@ -37,7 +37,8 @@
       "log",
       "tmp",
       "data/scripts/overrides",
-      "vendor/lua-cats-love2d"
+      "vendor",
+      ".worktrees"
     ]
   }
 }

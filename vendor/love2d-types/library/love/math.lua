@@ -262,22 +262,22 @@ function Transform:scale(sx, sy) end
 ---@param e4_4 number
 ---@return love.Transform transform
 function Transform:setMatrix(
-	e1_1,
-	e1_2,
-	e1_3,
-	e1_4,
-	e2_1,
-	e2_2,
-	e2_3,
-	e2_4,
-	e3_1,
-	e3_2,
-	e3_3,
-	e3_4,
-	e4_1,
-	e4_2,
-	e4_3,
-	e4_4
+  e1_1,
+  e1_2,
+  e1_3,
+  e1_4,
+  e2_1,
+  e2_2,
+  e2_3,
+  e2_4,
+  e3_1,
+  e3_2,
+  e3_3,
+  e3_4,
+  e4_1,
+  e4_2,
+  e4_3,
+  e4_4
 )
 end
 

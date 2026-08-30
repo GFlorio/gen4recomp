@@ -26,7 +26,7 @@ function love.setDeprecationOutput(enable) end
 ---@field appendidentity boolean
 ---@field version string
 ---@field console boolean
----@field accelerometerjoystick boolean 
+---@field accelerometerjoystick boolean
 ---@field externalstorage boolean
 ---@field gammacorrect boolean
 ---@field audio {mic:boolean, mixwithsystem:boolean}
@@ -42,7 +42,7 @@ function love.directorydropped(path) end
 ---@param index number The index of the display that changed orientation.
 ---@param orientation love.DisplayOrientation The new orientation.
 function love.displayrotated(index, orientation) end
-    
+
 function love.draw() end
 
 ---@param msg string The error message.
@@ -51,7 +51,7 @@ function love.errorhandler(msg) end
 
 ---@param file love.DroppedFile The unopened File object representing the file that was dropped.
 function love.filedropped(file) end
-    
+
 ---@param focus boolean True if the window gains focus, false if it loses focus.
 function love.focus(focus) end
 
