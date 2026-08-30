@@ -14,7 +14,7 @@ local Bindings = require("libs.hgss.src.script.Bindings")
 local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
 local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
 local FakeServices = require("tests.support.script.FakeServices")
-local FieldSession = require("libs.engine.src.FieldSession")
+local FieldSession = require("libs.hgss.src.field.FieldSession")
 
 local T = {}
 

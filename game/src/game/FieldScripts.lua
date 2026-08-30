@@ -17,7 +17,7 @@ local Scheduler = require("libs.script.src.Scheduler")
 local HgssScript = require("libs.hgss.src.script.Composition")
 local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local MapInitScriptController = require("libs.engine.src.MapInitScriptController")
+local MapInitScriptController = require("libs.hgss.src.field.MapInitScriptController")
 
 -- The player facade the script services consume: position/facing/gender/name
 -- plus the mutation hooks the movement tasks use (the player can be a

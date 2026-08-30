@@ -35,7 +35,7 @@
 -- Pure domain module: no love.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local PolygonState = require("libs.assets.src.PolygonState")
 local AnimationClip = require("libs.assets.src.AnimationClip")
 

@@ -5,7 +5,7 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
-local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
+local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local RomSuite = require("tests.rom.support.RomSuite")
 

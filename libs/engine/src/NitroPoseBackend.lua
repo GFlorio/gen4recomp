@@ -28,7 +28,7 @@
 --  the end of the replay, tile space (engine units)
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local AnimationClip = require("libs.assets.src.AnimationClip")

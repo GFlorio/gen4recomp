@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local FieldActorManager = require("libs.engine.src.FieldActorManager")
+local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
 
 local T = {}
 
@@ -14,8 +14,8 @@ function T.walk_in_place_must_animate_without_translating()
     release = function() end,
   }
   local policy = { variableSprites = { first = 101, last = 117, variableBase = 0x4020 } }
-  local TerrainSurface = require("libs.engine.src.TerrainSurface")
-  local FieldEventState = require("libs.engine.src.FieldEventState")
+  local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+  local FieldEventState = require("libs.hgss.src.field.FieldEventState")
   local function flatTerrain()
     return TerrainSurface.new({
       plates = {

@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local GameVersion = require("romdump.src.source.GameVersion")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")

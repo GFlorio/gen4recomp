@@ -10,7 +10,7 @@
 -- Pure domain module: matrix arithmetic only, no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldActorPose = require("libs.engine.src.FieldActorPose")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")

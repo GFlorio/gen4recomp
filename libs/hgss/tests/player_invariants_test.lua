@@ -1,7 +1,7 @@
 local Assert = require("tests.support.Assert")
-local FieldPlayer = require("libs.engine.src.FieldPlayer")
-local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
+local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
+local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = {}
 

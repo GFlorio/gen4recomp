@@ -53,6 +53,10 @@ local TARGET_PACKAGE_ROOTS = {
   ["libs/hgss"] = true,
 }
 
+local OPTIONAL_PACKAGE_ROOTS = {
+  ["libs/hgss/src/field"] = true,
+}
+
 -- The producer side of the same boundary: romdump digests raw ROM bytes and
 -- may depend on lower shared packages. This transitional check covers the
 -- current engine package; later hard cuts extend the forbidden set as runtime
@@ -79,6 +83,12 @@ local NDS_SOUND_FORBIDDEN_LIBS = {
   "libs.assets.",
   "libs.hgss.",
   "libs.script.",
+  "game.",
+  "romdump.",
+}
+
+local HGSS_FIELD_FORBIDDEN_LIBS = {
+  "libs.engine.",
   "game.",
   "romdump.",
 }
@@ -115,7 +125,7 @@ local function luaFilesUnder(root)
     out[#out + 1] = line:sub(#prefix + 1)
   end
   pipe:close()
-  if not TARGET_PACKAGE_ROOTS[root] then
+  if not TARGET_PACKAGE_ROOTS[root] and not OPTIONAL_PACKAGE_ROOTS[root] then
     assert(#out > 0, "package root indexed no Lua files: " .. root)
   end
   return out
@@ -304,6 +314,22 @@ function T.game_does_not_import_libs_nds_directly()
     return file:sub(1, #"game/") == "game/" and module:sub(1, #"libs.nds.") == "libs.nds."
   end)
   Assert.isTrue(#violations == 0, violationMessage("game imports libs.nds directly:\n", violations))
+end
+
+function T.hgss_field_owns_world_mechanisms_without_upward_imports()
+  local files = luaFilesUnder("libs/hgss/src/field")
+  local violations = {}
+  for _, file in ipairs(files) do
+    for _, module in ipairs(requiredModules(readFile(file))) do
+      for _, prefix in ipairs(HGSS_FIELD_FORBIDDEN_LIBS) do
+        if module:sub(1, #prefix) == prefix then
+          violations[#violations + 1] = file .. " requires " .. module
+        end
+      end
+    end
+  end
+  Assert.isTrue(#files > 0, "HGSS field runtime must own production world mechanisms")
+  Assert.isTrue(#violations == 0, violationMessage("HGSS field runtime imports an invalid package:\n", violations))
 end
 
 function T.engine_does_not_contain_game_opening_policy_modules()

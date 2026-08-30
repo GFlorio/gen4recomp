@@ -1,7 +1,7 @@
 -- Start Menu / Trainer Card placement must not follow field camera zoom.
 
 local Assert = require("tests.support.Assert")
-local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
+local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 

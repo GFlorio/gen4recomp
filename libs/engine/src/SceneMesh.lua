@@ -10,7 +10,7 @@
 -- rebases them to love's 1-based vertex map.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
 local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
 local VertexFormat = require("libs.assets.src.VertexFormat")

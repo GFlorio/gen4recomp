@@ -5,11 +5,11 @@
 -- produced by MapAssetCompiler.compile (the scene-loader fixture reuses one
 -- compile for both the loader cache and the runtime map).
 
-local CollisionGrid = require("libs.engine.src.CollisionGrid")
+local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local RomRuntimeMap = {}
 

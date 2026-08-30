@@ -27,7 +27,7 @@
 -- different frames on different instances. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local AnimationClip = require("libs.assets.src.AnimationClip")
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
 

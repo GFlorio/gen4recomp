@@ -11,7 +11,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.script.src.errors")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 
 ---@class WorldState

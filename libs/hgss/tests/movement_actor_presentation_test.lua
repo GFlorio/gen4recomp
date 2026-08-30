@@ -18,9 +18,9 @@ local MovementBarrierTask = require("libs.hgss.src.script.tasks.MovementBarrierT
 ---@cast MovementBarrierTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
-local FieldActorManager = require("libs.engine.src.FieldActorManager")
-local FieldEventState = require("libs.engine.src.FieldEventState")
-local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
+local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = {}
 

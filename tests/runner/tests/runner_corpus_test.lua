@@ -29,7 +29,7 @@ function T.project_tree_discovery_finds_the_main_test_trees()
   local expected = {
     "libs.codec.tests.binary_reader_test",
     "game.tests.field_state_draw_test",
-    "romdump.tests.source.narc_test",
+    "libs.nds.tests.narc_test",
     "tests.runner.tests.runner_discovery_test",
   }
   for _, moduleName in ipairs(expected) do
@@ -40,7 +40,7 @@ end
 -- Discovery reaches nested script suites through the `_test.lua` suffix.
 function T.nested_script_suites_are_discovered()
   Assert.notNil(find("libs.script.tests.core.scheduler_test"), "nested script suite is missing")
-  Assert.notNil(find("libs.engine.tests.field_session_test"), "immediate suite is missing")
+  Assert.notNil(find("libs.hgss.tests.field.field_session_test"), "nested field suite is missing")
 end
 
 function T.every_listed_suite_has_a_layer_and_tests()

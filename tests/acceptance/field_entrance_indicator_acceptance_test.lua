@@ -5,7 +5,7 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FieldMovement = require("tests.acceptance.support.FieldMovement")
-local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
+local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 
 local T = {

@@ -11,14 +11,14 @@
 -- placements. Runs against every ready dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
-local DoorTiles = require("libs.engine.src.DoorTiles")
-local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local FieldGrid = require("libs.engine.src.FieldGrid")
+local DoorTiles = require("libs.hgss.src.field.DoorTiles")
+local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
+local FieldGrid = require("libs.hgss.src.field.FieldGrid")
 local Matrix4 = require("libs.math.src.Matrix4")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
-local MapProps = require("libs.engine.src.MapProps")
+local MapProps = require("libs.hgss.src.field.MapProps")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 
 local T = {}

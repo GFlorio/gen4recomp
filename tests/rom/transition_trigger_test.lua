@@ -5,7 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
-local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
+local TransitionTrigger = require("libs.hgss.src.field.TransitionTrigger")
 
 local T = {}
 

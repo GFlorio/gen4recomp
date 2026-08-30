@@ -1,7 +1,7 @@
 -- FieldMenuHost forwards script menu presentation preferences to layout.
 
 local Assert = require("tests.support.Assert")
-local FieldInput = require("libs.engine.src.FieldInput")
+local FieldInput = require("libs.hgss.src.field.FieldInput")
 local FieldMenuHost = require("libs.engine.src.FieldMenuHost")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 

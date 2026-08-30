@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local PlayTime = require("libs.engine.src.PlayTime")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")

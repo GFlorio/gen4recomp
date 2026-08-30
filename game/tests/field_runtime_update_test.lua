@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldRuntime = require("game.src.game.FieldRuntime")
-local FieldSession = require("libs.engine.src.FieldSession")
+local FieldSession = require("libs.hgss.src.field.FieldSession")
 local PlayTime = require("libs.engine.src.PlayTime")
 
 local T = {

@@ -23,7 +23,7 @@
 -- is injected explicitly; this renderer never reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldDrawState = require("libs.engine.src.FieldDrawState")
 

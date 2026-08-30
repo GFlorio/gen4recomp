@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FakeGraphics = require("tests.support.FakeGraphics")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")

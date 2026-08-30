@@ -9,10 +9,10 @@
 -- never silently fall back to a placeholder visual.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
-local BillboardTransform = require("libs.engine.src.BillboardTransform")
+local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
 
 ---@class FieldActorAssetProvider: FieldActorAssets
 ---@field private _cacheFs CacheFs

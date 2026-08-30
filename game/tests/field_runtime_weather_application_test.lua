@@ -2,7 +2,7 @@
 -- through FieldRuntime methods without constructing a cache-backed session.
 
 local Assert = require("tests.support.Assert")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 

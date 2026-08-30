@@ -21,7 +21,7 @@
 local SceneMesh = require("libs.engine.src.SceneMesh")
 local SceneDescriptor = require("libs.engine.src.SceneDescriptor")
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 
 ---@class GpuAssetPool.Mesh
 ---@field release fun(self: GpuAssetPool.Mesh)

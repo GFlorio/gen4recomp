@@ -2,11 +2,11 @@
 -- identity while destination probing remains read-only and presentation-free.
 
 local Assert = require("tests.support.Assert")
-local FieldActorManager = require("libs.engine.src.FieldActorManager")
-local FieldEventState = require("libs.engine.src.FieldEventState")
-local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
+local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local FieldRuntime = require("game.src.game.FieldRuntime")
-local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = {}
 

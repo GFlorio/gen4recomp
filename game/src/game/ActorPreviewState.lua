@@ -9,7 +9,7 @@
 local CacheFs = require("libs.storage.src.CacheFs")
 local Errors = require("libs.errors.src.Errors")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
-local FieldSession = require("libs.engine.src.FieldSession")
+local FieldSession = require("libs.hgss.src.field.FieldSession")
 
 local ActorPreviewState = {}
 ActorPreviewState.__index = ActorPreviewState

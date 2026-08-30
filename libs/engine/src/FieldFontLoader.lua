@@ -8,7 +8,7 @@
 -- rejected here, not at individual draw calls.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
 

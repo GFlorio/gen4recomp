@@ -14,8 +14,8 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.script.src.errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
-local FieldTransition = require("libs.engine.src.FieldTransition")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
+local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 
 ---@class ScriptMapsService
 ---@field private _transition table FieldTransition-shaped

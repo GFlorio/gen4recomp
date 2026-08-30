@@ -7,7 +7,7 @@
 -- it wholesale.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 
 ---@class FieldDialogueController

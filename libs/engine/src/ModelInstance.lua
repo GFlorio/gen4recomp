@@ -25,7 +25,7 @@
 -- different frames and with different material overrides. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -37,7 +37,7 @@ local MaterialEvaluator = require("libs.engine.src.MaterialEvaluator")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local PolygonState = require("libs.assets.src.PolygonState")
 local AnimationClip = require("libs.assets.src.AnimationClip")
-local BillboardTransform = require("libs.engine.src.BillboardTransform")
+local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
 
 ---@class MaterialRGB
 ---@field r integer

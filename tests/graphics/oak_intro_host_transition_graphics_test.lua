@@ -2,7 +2,7 @@
 -- and the offscreen graphics host, without invoking the draw path.
 
 local Assert = require("tests.support.Assert")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local NewGame = require("game.src.game.NewGame")

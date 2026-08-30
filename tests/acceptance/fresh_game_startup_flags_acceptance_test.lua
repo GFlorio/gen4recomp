@@ -8,8 +8,8 @@ local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local GameSaveStore = require("libs.engine.src.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
+local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {

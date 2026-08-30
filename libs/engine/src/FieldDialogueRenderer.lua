@@ -15,7 +15,7 @@
 -- injected explicitly; this renderer never reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")

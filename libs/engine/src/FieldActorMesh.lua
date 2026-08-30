@@ -11,7 +11,7 @@
 -- stays testable headless. Build once per resident sprite, never during a draw.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local VertexFormat = require("libs.assets.src.VertexFormat")
 
 local FieldActorMesh = {}

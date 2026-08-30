@@ -7,13 +7,13 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
-local FieldSession = require("libs.engine.src.FieldSession")
+local FieldSession = require("libs.hgss.src.field.FieldSession")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
-local FieldActorManager = require("libs.engine.src.FieldActorManager")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
-local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = {}
 

@@ -6,7 +6,7 @@ local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local FieldMovement = require("tests.acceptance.support.FieldMovement")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
+local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 local ScriptIdentity = require("libs.assets.src.ScriptIdentity")
 

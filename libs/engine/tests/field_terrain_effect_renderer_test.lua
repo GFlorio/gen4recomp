@@ -2,8 +2,8 @@
 -- runtime's authoritative projection instead of a stale origin/Y copy.
 
 local Assert = require("tests.support.Assert")
-local FieldCoverage = require("libs.engine.src.FieldCoverage")
-local TerrainSurface = require("libs.engine.src.TerrainSurface")
+local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
+local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = { metadata = { capabilities = {} }, tests = {} }
 

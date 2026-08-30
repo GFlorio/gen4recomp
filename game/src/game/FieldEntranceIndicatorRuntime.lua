@@ -3,7 +3,7 @@
 -- boot closure while leaving the effect state itself pure and engine-owned.
 
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
-local FieldEntranceIndicator = require("libs.engine.src.FieldEntranceIndicator")
+local FieldEntranceIndicator = require("libs.hgss.src.field.FieldEntranceIndicator")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local M = {}

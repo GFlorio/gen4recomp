@@ -22,7 +22,7 @@ local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
-local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
+local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
 local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
 
 local T = {}

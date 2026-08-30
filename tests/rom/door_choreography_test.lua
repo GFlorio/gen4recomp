@@ -13,8 +13,8 @@
 
 local Assert = require("tests.support.Assert")
 local SceneLoaderFixture = require("tests.rom.support.SceneLoaderFixture")
-local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local WarpSystem = require("libs.engine.src.WarpSystem")
+local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
+local WarpSystem = require("libs.hgss.src.field.WarpSystem")
 
 local T = {}
 

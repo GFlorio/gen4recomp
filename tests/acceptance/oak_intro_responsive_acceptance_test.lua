@@ -3,7 +3,7 @@
 -- image, audio, clock, and renderer collaborators are deterministic fixtures.
 
 local Assert = require("tests.support.Assert")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
 local NewGame = require("game.src.game.NewGame")

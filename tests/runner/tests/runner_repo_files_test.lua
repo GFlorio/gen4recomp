@@ -23,20 +23,20 @@ local function has(entries, name)
 end
 
 function T.indexes_nested_directories_of_a_root()
-  local files = RepoFiles.new(base(), { "libs/engine/tests", "libs/script/tests/core" })
+  local files = RepoFiles.new(base(), { "libs/hgss/tests/field", "libs/script/tests/core" })
 
-  local top = files.getDirectoryItems("libs/engine/tests")
+  local top = files.getDirectoryItems("libs/hgss/tests/field")
   Assert.isTrue(has(top, "field_session_test.lua"), "lists an immediate suite")
   Assert.isTrue(has(files.getDirectoryItems("libs/script/tests"), "core"), "lists the promoted script test package")
   Assert.isTrue(has(files.getDirectoryItems("libs/script/tests/core"), "scheduler_test.lua"), "lists a nested suite")
 end
 
 function T.reports_file_and_directory_types()
-  local files = RepoFiles.new(base(), { "libs/engine/tests", "libs/script/tests/core" })
+  local files = RepoFiles.new(base(), { "libs/hgss/tests/field", "libs/script/tests/core" })
 
   Assert.equal(files.getInfo("libs/script/tests/core").type, "directory")
   Assert.equal(files.getInfo("libs/script/tests/core/scheduler_test.lua").type, "file")
-  Assert.isNil(files.getInfo("libs/engine/tests/nope"))
+  Assert.isNil(files.getInfo("libs/hgss/tests/field/nope"))
   Assert.isNil(files.getInfo("libs/codec/tests"), "a directory outside the indexed roots is unknown")
 end
 

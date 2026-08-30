@@ -7,7 +7,7 @@
 -- enforced without touching the filesystem.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 local PlayerData = {}

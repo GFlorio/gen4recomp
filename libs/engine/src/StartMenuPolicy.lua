@@ -16,7 +16,7 @@
 -- pret/pokeheartgold@008257708: src/start_menu.c (StartMenu_BuildActionLists,
 -- FieldSystem_StartMenuActionIsAvailable) and src/sys_flags.c.
 
-local FieldApplicationIds = require("libs.engine.src.FieldApplicationIds")
+local FieldApplicationIds = require("libs.hgss.src.field.FieldApplicationIds")
 
 local StartMenuPolicy = {}
 

@@ -11,8 +11,8 @@ local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
 local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
-local FieldActorManager = require("libs.engine.src.FieldActorManager")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 
 local T = {}

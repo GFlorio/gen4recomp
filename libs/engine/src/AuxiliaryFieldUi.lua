@@ -7,7 +7,7 @@
 local AuxiliaryFieldUi = {}
 AuxiliaryFieldUi.__index = AuxiliaryFieldUi
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 
 local function validateRecord(record)
   if type(record) ~= "table" then

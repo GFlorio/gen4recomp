@@ -7,7 +7,7 @@
 -- sharing the live player's occupancy predicate, so a planned route can
 -- never enter a tile production movement would itself reject.
 
-local FieldPlayer = require("libs.engine.src.FieldPlayer")
+local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 
 local FieldMovement = {}
 

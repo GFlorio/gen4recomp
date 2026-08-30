@@ -22,7 +22,7 @@
 -- failure releases every resource already created before rethrowing.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")

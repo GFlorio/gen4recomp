@@ -4,63 +4,63 @@
 
 local CacheFs = require("libs.storage.src.CacheFs")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
-local FieldActorDefinitionProvider = require("libs.engine.src.FieldActorDefinitionProvider")
+local FieldActorDefinitionProvider = require("libs.hgss.src.field.FieldActorDefinitionProvider")
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
-local ContextChoiceProvider = require("libs.engine.src.ContextChoiceProvider")
-local FieldActorManager = require("libs.engine.src.FieldActorManager")
-local FieldApplicationHost = require("libs.engine.src.FieldApplicationHost")
-local FieldApplicationIds = require("libs.engine.src.FieldApplicationIds")
-local FieldApplicationRegistry = require("libs.engine.src.FieldApplicationRegistry")
-local FieldCamera = require("libs.engine.src.FieldCamera")
-local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
-local FieldGrid = require("libs.engine.src.FieldGrid")
+local ContextChoiceProvider = require("libs.hgss.src.field.ContextChoiceProvider")
+local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldApplicationHost = require("libs.hgss.src.field.FieldApplicationHost")
+local FieldApplicationIds = require("libs.hgss.src.field.FieldApplicationIds")
+local FieldApplicationRegistry = require("libs.hgss.src.field.FieldApplicationRegistry")
+local FieldCamera = require("libs.hgss.src.field.FieldCamera")
+local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
+local FieldGrid = require("libs.hgss.src.field.FieldGrid")
 local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local LocalClock = require("libs.engine.src.LocalClock")
 local PlayerData = require("libs.engine.src.PlayerData")
 local GameSaveValidation = require("game.src.game.GameSaveValidation")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
-local FieldInput = require("libs.engine.src.FieldInput")
+local FieldInput = require("libs.hgss.src.field.FieldInput")
 local FieldMenuHost = require("libs.engine.src.FieldMenuHost")
-local FieldInteractionResolver = require("libs.engine.src.FieldInteractionResolver")
-local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
+local FieldInteractionResolver = require("libs.hgss.src.field.FieldInteractionResolver")
+local FieldEventResolver = require("libs.hgss.src.field.FieldEventResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
-local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
-local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
-local FieldPlayer = require("libs.engine.src.FieldPlayer")
-local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
+local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
+local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
+local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
+local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
 local GameSave = require("libs.engine.src.GameSave")
 local PlayTime = require("libs.engine.src.PlayTime")
 local FieldScripts = require("game.src.game.FieldScripts")
-local FieldScriptScreenFade = require("libs.engine.src.FieldScriptScreenFade")
+local FieldScriptScreenFade = require("libs.hgss.src.field.FieldScriptScreenFade")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local FieldSession = require("libs.engine.src.FieldSession")
-local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
-local FieldTransition = require("libs.engine.src.FieldTransition")
+local FieldSession = require("libs.hgss.src.field.FieldSession")
+local FieldSignpostController = require("libs.hgss.src.field.FieldSignpostController")
+local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
-local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
+local FieldWindowStyles = require("libs.hgss.src.field.FieldWindowStyles")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local NeighborRing = require("libs.engine.src.NeighborRing")
-local MapProps = require("libs.engine.src.MapProps")
-local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
+local MapProps = require("libs.hgss.src.field.MapProps")
+local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
 local ScriptSave = require("libs.script.src.ScriptSave")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
-local FieldWeatherResolver = require("libs.engine.src.FieldWeatherResolver")
+local FieldWeatherResolver = require("libs.hgss.src.field.FieldWeatherResolver")
 local StartMenuController = require("libs.engine.src.StartMenuController")
-local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
+local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
 local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
 local FieldActorEmoteRuntime = require("game.src.game.FieldActorEmoteRuntime")
-local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 local FieldAudioSave = require("libs.hgss.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
@@ -612,7 +612,7 @@ function FieldRuntime:_load()
     self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
     self.fieldEmoteModels = FieldActorEmoteRuntime.load(cacheFs)
     self.fieldEffectAssets = self.fieldEntranceIndicatorAsset
-    self.fieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController").new({
+    self.fieldTerrainEffectController = require("libs.hgss.src.field.FieldTerrainEffectController").new({
       effects = {
         tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
         very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
@@ -792,7 +792,7 @@ function FieldRuntime:_load()
           physical = ownership
           return composed
         end
-        return require("libs.engine.src.WarpSystem").resolveDestination({
+        return require("libs.hgss.src.field.WarpSystem").resolveDestination({
           load = loadDestination,
         }, sourceMap, warp)
       end)
@@ -994,7 +994,7 @@ function FieldRuntime:_load()
       self.scripts.worldState:restoreRng(loadedGame.world)
     end
 
-    local FieldZoneController = require("libs.engine.src.FieldZoneController")
+    local FieldZoneController = require("libs.hgss.src.field.FieldZoneController")
     local function mapForId(mapId)
       return assert(self.residency):mapForId(mapId)
     end
@@ -1024,7 +1024,7 @@ function FieldRuntime:_load()
       onChange = onZoneChange,
     })
 
-    local FieldResidencyCoordinator = require("libs.engine.src.FieldResidencyCoordinator")
+    local FieldResidencyCoordinator = require("libs.hgss.src.field.FieldResidencyCoordinator")
     local function coverageProvider()
       return self.physicalCoverage
     end
@@ -1072,7 +1072,7 @@ function FieldRuntime:_load()
       -- GameSound only; a recording script adapter is a script service, not
       -- a session collaborator.
       audio = self.audio,
-      navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new({
+      navigationBoundary = require("libs.hgss.src.field.FieldNavigationBoundary").new({
         zoneController = self.zoneController,
         residencyCoordinator = self.residency,
         coverageProvider = coverageProvider,

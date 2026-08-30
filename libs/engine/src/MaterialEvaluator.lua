@@ -41,7 +41,7 @@
 -- (Nitro carries at most one animation per kind per object, so real assets
 -- never stack these). Pure domain module.
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local AnimationClip = require("libs.assets.src.AnimationClip")

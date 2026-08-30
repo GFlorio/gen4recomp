@@ -27,7 +27,7 @@
 -- renderer never reloads it from the cache.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldSignpostTheme = require("libs.engine.src.FieldSignpostTheme")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")

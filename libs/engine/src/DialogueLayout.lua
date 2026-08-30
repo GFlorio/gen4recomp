@@ -6,7 +6,7 @@
 -- and every later token is ignored.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
+local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 
 ---@class DialogueLayout
 local DialogueLayout = {}

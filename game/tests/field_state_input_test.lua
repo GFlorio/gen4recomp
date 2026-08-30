@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
-local FieldInput = require("libs.engine.src.FieldInput")
+local FieldInput = require("libs.hgss.src.field.FieldInput")
 
 local T = {}
 

@@ -3,7 +3,7 @@
 -- finalization boundary are explicit collaborators.
 
 local Assert = require("tests.support.Assert")
-local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local NewGame = require("game.src.game.NewGame")
 local OakGreetingPolicy = require("game.src.game.OakGreetingPolicy")
