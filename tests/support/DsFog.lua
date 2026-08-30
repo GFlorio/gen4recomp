@@ -1,7 +1,7 @@
 -- Pure Lua reference for the DS GPU's per-pixel fog density and blend
 -- equations. Test-support only: no love, arithmetic only. This module has no
 -- runtime consumer -- the final full-screen shader (currently
--- libs/engine/src/shaders/edge.glsl) implements the same sequencing directly
+-- libs/nds/src/love/shaders/edge.glsl) implements the same sequencing directly
 -- in GLSL, since fog runs per fragment on the GPU -- so it exists purely as
 -- an independent shader oracle for libs/engine/tests/ds_fog_test.lua.
 --

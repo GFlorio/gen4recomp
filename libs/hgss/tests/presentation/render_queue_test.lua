@@ -3,11 +3,10 @@
 -- MIXED item splitting into opaque and blended passes, and deterministic
 -- tie-breaking by traversal position across ordered parts. Queue construction
 -- validates its input contract and never mutates the caller's draw records.
--- Spec requirement: section 19 (render queue MIXED support).
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local RenderQueue = require("libs.engine.src.RenderQueue")
+local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}
@@ -381,7 +380,8 @@ function T.sorts_billboards_from_their_view_space_center_and_scaled_model_center
 end
 
 -- Blended entries are renderer-owned scratch records with {item, fragmentPass, viewZ, position}.
--- They must be reused across frames (spec requirement 11: "scratch entry tables are reused across calls").
+-- They must be reused across frames so repeated queue construction does not
+-- allocate new entry tables.
 function T.blended_entries_are_reused_scratch_records()
   local storage = scratch()
   local q1 = RenderQueue.buildInto({

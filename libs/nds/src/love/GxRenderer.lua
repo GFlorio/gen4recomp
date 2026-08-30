@@ -4,8 +4,8 @@
 -- opaque/cutout actor billboards resolve the world first and draw directly to
 -- the host window without writing world renderState or receiving world edges.
 --
--- The world render queue is built exactly once per frame (RenderQueue.buildInto)
--- and the world MRT pass consumes it. Opaque, cutout, and mixed-opaque
+-- The HGSS presentation owner builds the world render queue exactly once per
+-- frame and supplies it here. The world MRT pass consumes it. Opaque, cutout, and mixed-opaque
 -- fragments stamp the active color and renderState MRT atomically:
 -- ID, DS-quantized depth, and per-polygon fog gate. Ordinary translucent and
 -- mixed-translucent fragments never touch the state target directly in the
@@ -33,31 +33,29 @@
 -- persistent meshes or textures and reads no ROM/NARC data -- those belong to
 -- the loader and compiler; here everything is already resident.
 
-local RenderQueue = require("libs.engine.src.RenderQueue")
 local Matrix3 = require("libs.math.src.Matrix3")
-local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
 
----@class MapRenderer.Canvas : love.Canvas
----@field setFilter fun(self: MapRenderer.Canvas, min: string, mag: string)
----@field release fun(self: MapRenderer.Canvas)
----@field getWidth fun(self: MapRenderer.Canvas): integer
----@field getHeight fun(self: MapRenderer.Canvas): integer
----@class MapRenderer.Shader
----@field send fun(self: MapRenderer.Shader, name: string, ...)
----@field release fun(self: MapRenderer.Shader)
----@class MapRenderer.TargetDescriptor
----@field [1] MapRenderer.Canvas
----@field [2]? MapRenderer.Canvas
----@field depthstencil MapRenderer.Canvas
----@alias MapRenderer.RenderTarget MapRenderer.Canvas|MapRenderer.TargetDescriptor
----@class MapRenderer.Graphics
----@field newShader fun(source: string): MapRenderer.Shader
----@field newCanvas fun(width: integer, height: integer, opts?: table): MapRenderer.Canvas
----@field setCanvas fun(...: MapRenderer.RenderTarget?)
----@field getCanvas fun(): MapRenderer.RenderTarget?
----@field setShader fun(shader?: MapRenderer.Shader|love.Shader)
+---@class GxRenderer.Canvas : love.Canvas
+---@field setFilter fun(self: GxRenderer.Canvas, min: string, mag: string)
+---@field release fun(self: GxRenderer.Canvas)
+---@field getWidth fun(self: GxRenderer.Canvas): integer
+---@field getHeight fun(self: GxRenderer.Canvas): integer
+---@class GxRenderer.Shader
+---@field send fun(self: GxRenderer.Shader, name: string, ...)
+---@field release fun(self: GxRenderer.Shader)
+---@class GxRenderer.TargetDescriptor
+---@field [1] GxRenderer.Canvas
+---@field [2]? GxRenderer.Canvas
+---@field depthstencil GxRenderer.Canvas
+---@alias GxRenderer.RenderTarget GxRenderer.Canvas|GxRenderer.TargetDescriptor
+---@class GxRenderer.Graphics
+---@field newShader fun(source: string): GxRenderer.Shader
+---@field newCanvas fun(width: integer, height: integer, opts?: table): GxRenderer.Canvas
+---@field setCanvas fun(...: GxRenderer.RenderTarget?)
+---@field getCanvas fun(): GxRenderer.RenderTarget?
+---@field setShader fun(shader?: GxRenderer.Shader|love.Shader)
 ---@field setDepthMode fun(mode?: string, write?: boolean)
 ---@field setBlendMode fun(mode?: string, alpha?: string)
 ---@field setColor fun(red: number, green: number, blue: number, alpha: number)
@@ -66,20 +64,20 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field getDimensions fun(): integer, integer
 ---@field getBlendMode fun(): string?, string?
 ---@field getDepthMode fun(): string?, boolean?
----@field getShader fun(): (MapRenderer.Shader|love.Shader)?
+---@field getShader fun(): (GxRenderer.Shader|love.Shader)?
 ---@field getColor fun(): number, number, number, number
 ---@field getMeshCullMode fun(): string?
 ---@field setMeshCullMode fun(mode?: string)
 ---@field isWireframe fun(): boolean
 ---@field setWireframe fun(enabled: boolean)
----@class MapRenderer
----@field _graphics MapRenderer.Graphics
+---@class GxRenderer
+---@field _graphics GxRenderer.Graphics
 ---@field clearColor number[]
----@field shader MapRenderer.Shader|love.Shader
----@field spriteShader MapRenderer.Shader|love.Shader
+---@field shader GxRenderer.Shader|love.Shader
+---@field spriteShader GxRenderer.Shader|love.Shader
 ---@field _spriteShaderSource string
----@field worldShader MapRenderer.Shader|love.Shader
----@field edgeShader MapRenderer.Shader|love.Shader
+---@field worldShader GxRenderer.Shader|love.Shader
+---@field edgeShader GxRenderer.Shader|love.Shader
 ---@field _edgeColorsCache number[][]
 ---@field _edgeColorsProfile table<integer, integer>?
 ---@field _fogColorCache number[]
@@ -87,50 +85,49 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _fogFinalReference table?
 ---@field _fogSpriteReference table?
 ---@field stats { drawCalls: integer, colorDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
----@field sceneColor MapRenderer.Canvas?
----@field colorDepth MapRenderer.Canvas?
----@field renderState MapRenderer.Canvas?
----@field _spareColor MapRenderer.Canvas?
----@field _spareState MapRenderer.Canvas?
----@field _sourceColor MapRenderer.Canvas?
----@field _sourceMeta MapRenderer.Canvas?
+---@field sceneColor GxRenderer.Canvas?
+---@field colorDepth GxRenderer.Canvas?
+---@field renderState GxRenderer.Canvas?
+---@field _spareColor GxRenderer.Canvas?
+---@field _spareState GxRenderer.Canvas?
+---@field _sourceColor GxRenderer.Canvas?
+---@field _sourceMeta GxRenderer.Canvas?
 ---@field colorW integer?
 ---@field colorH integer?
 ---@field stateW integer?
 ---@field stateH integer?
----@field _colorTargets MapRenderer.TargetDescriptor?
----@field _stateClearTargets MapRenderer.TargetDescriptor?
----@field _colorClearTargets MapRenderer.TargetDescriptor?
----@field _sourceColorTargets MapRenderer.TargetDescriptor?
----@field _sourceMetaTargets MapRenderer.TargetDescriptor?
+---@field _colorTargets GxRenderer.TargetDescriptor?
+---@field _stateClearTargets GxRenderer.TargetDescriptor?
+---@field _colorClearTargets GxRenderer.TargetDescriptor?
+---@field _sourceColorTargets GxRenderer.TargetDescriptor?
+---@field _sourceMetaTargets GxRenderer.TargetDescriptor?
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
----@field _lightingDelivery table<MapRenderer.Shader, { lit: boolean, profile: table?, record: table? }>
----@field _queueScratch RenderQueueScratch
+---@field _lightingDelivery table<GxRenderer.Shader, { lit: boolean, profile: table?, record: table? }>
 ---@field _presentationScale number[]
 ---@field _presentationOffset number[]
 ---@field worldRasterScale number?
 ---@field translucencyMode "approximate"|"exact"
-local MapRenderer = {}
-MapRenderer.__index = MapRenderer
+local GxRenderer = {}
+GxRenderer.__index = GxRenderer
 
-MapRenderer.TRANSLUCENCY_APPROXIMATE = "approximate"
-MapRenderer.TRANSLUCENCY_EXACT = "exact"
+GxRenderer.TRANSLUCENCY_APPROXIMATE = "approximate"
+GxRenderer.TRANSLUCENCY_EXACT = "exact"
 
--- Shader sources are engine assets colocated with this module, addressed by
+-- Shader sources are NDS LÖVE assets colocated with this module, addressed by
 -- repo-relative path -- the same namespace as every `require`. They are read
 -- through the LÖVE resource boundary: love.filesystem resolves the paths from
 -- the archive root when the game ships as a .love or fused executable, and
--- in the repo checkout, where the app runs as `love game/` and the engine
+-- in the repo checkout, where the app runs as `love game/` and the library
 -- tree sits outside that source mount, from the host file under the source
 -- base directory. `opts.readSource` injects the reader so construction is
 -- testable headless without any filesystem.
 local SHADER_SOURCE_PATHS = {
-  color = "libs/engine/src/shaders/map.glsl",
-  resolve = "libs/engine/src/shaders/edge.glsl",
-  source = "libs/engine/src/shaders/source.glsl",
-  composite = "libs/engine/src/shaders/composite.glsl",
+  color = "libs/nds/src/love/shaders/map.glsl",
+  resolve = "libs/nds/src/love/shaders/edge.glsl",
+  source = "libs/nds/src/love/shaders/source.glsl",
+  composite = "libs/nds/src/love/shaders/composite.glsl",
 }
 
 ---@param path string
@@ -154,9 +151,9 @@ end
 
 -- Fallback scene clear color for callers that do not inject one (e.g. unit
 -- tests exercising draw behavior unrelated to background color). Production
--- always injects the game's own color (see MapRenderer.new opts.clearColor);
--- libs/engine must not import game-level config, so this default is the
--- renderer's own and intentionally distinct from any game-chosen value.
+-- always injects the game's own color (see GxRenderer.new opts.clearColor);
+-- the NDS renderer must not import game-level config, so this default is its
+-- own and intentionally distinct from any game-chosen value.
 local DEFAULT_CLEAR_COLOR = { 0, 0, 0, 1 }
 local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 
@@ -170,7 +167,7 @@ local DS_DEPTH_MAX = 0xFFFFFF
 local FOG_OFFSET_TO_DEPTH_SCALE = 0x200
 
 -- Rear-plane entry for the renderState target: HGSS's real clear polygon ID
--- (MapRenderer.CLEAR_POLYGON_ID, 63) at the farthest quantized depth
+-- (GxRenderer.CLEAR_POLYGON_ID, 63) at the farthest quantized depth
 -- (DS_DEPTH_MAX), with its fog gate false -- HGSS's rear plane is not itself
 -- fog-gated. Clearing depth to the maximum makes background neighbours read
 -- as farther than any real geometry -- that is what outlines silhouettes
@@ -192,7 +189,7 @@ local DS_STATE_CLEAR = { 1, DS_DEPTH_MAX, 0, 0 }
 -- document the encoding/decoding). PolygonState already validates that
 -- source polygon ids are integers in 0..63, so this module does not
 -- duplicate that validation with its own MAX_POLYGON_ID constant.
-MapRenderer.CLEAR_POLYGON_ID = 63
+GxRenderer.CLEAR_POLYGON_ID = 63
 
 -- Color-pass fragment-pass ids (map.glsl's u_fragmentPass): exact alpha5
 -- discard predicates, never a float-epsilon comparison.
@@ -216,7 +213,7 @@ end
 ---@param displayHeight number
 ---@param scale number?
 ---@return integer, integer
-function MapRenderer.worldRasterDimensions(displayWidth, displayHeight, scale)
+function GxRenderer.worldRasterDimensions(displayWidth, displayHeight, scale)
   assert(displayWidth > 0 and displayHeight > 0)
   validateWorldRasterScale(scale)
   if scale == nil then
@@ -228,18 +225,18 @@ function MapRenderer.worldRasterDimensions(displayWidth, displayHeight, scale)
 end
 
 ---@param opts table?
----@return MapRenderer
-function MapRenderer.new(opts)
+---@return GxRenderer
+function GxRenderer.new(opts)
   opts = opts or {}
-  ---@type MapRenderer.Graphics|love.Graphics|love.graphics|nil
+  ---@type GxRenderer.Graphics|love.Graphics|love.graphics|nil
   local graphics = opts.graphics
   if graphics == nil then
     graphics = love and love.graphics
   end
-  assert(graphics, "MapRenderer requires a graphics context")
-  local translucencyMode = opts.translucencyMode or MapRenderer.TRANSLUCENCY_APPROXIMATE
+  assert(graphics, "GxRenderer requires a graphics context")
+  local translucencyMode = opts.translucencyMode or GxRenderer.TRANSLUCENCY_APPROXIMATE
   assert(
-    translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE or translucencyMode == MapRenderer.TRANSLUCENCY_EXACT,
+    translucencyMode == GxRenderer.TRANSLUCENCY_APPROXIMATE or translucencyMode == GxRenderer.TRANSLUCENCY_EXACT,
     "invalid translucency mode: " .. tostring(translucencyMode)
   )
   local worldRasterScale = validateWorldRasterScale(opts.worldRasterScale)
@@ -293,16 +290,9 @@ function MapRenderer.new(opts)
       { 0, 0, 0 },
     },
     _lightingDelivery = {},
-    _queueScratch = {
-      opaque = {},
-      cutout = {},
-      mixedOpaque = {},
-      wireframe = {},
-      blended = {},
-    },
     _presentationScale = { 1, 1 },
     _presentationOffset = { 0, 0 },
-  }, MapRenderer)
+  }, GxRenderer)
   -- Shader construction is transactional: a failure while creating a later
   -- shader (or reading its source) releases every one already created before
   -- the error propagates, so a failed renderer never leaks GPU resources.
@@ -312,7 +302,7 @@ function MapRenderer.new(opts)
     renderer._spriteShaderSource = "#define PRESENTATION_SPRITE\n" .. colorSource
     renderer.edgeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.resolve))
     renderer.worldShader = graphics.newShader("#define WORLD_MRT\n" .. colorSource)
-    if translucencyMode == MapRenderer.TRANSLUCENCY_EXACT then
+    if translucencyMode == GxRenderer.TRANSLUCENCY_EXACT then
       renderer.sourceShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.source))
       renderer.compositeShader = graphics.newShader(readSource(SHADER_SOURCE_PATHS.composite))
     end
@@ -324,7 +314,7 @@ function MapRenderer.new(opts)
   return renderer
 end
 
-function MapRenderer:_ensureSpriteShader()
+function GxRenderer:_ensureSpriteShader()
   if self.spriteShader then
     return self.spriteShader
   end
@@ -333,7 +323,7 @@ function MapRenderer:_ensureSpriteShader()
   return shader
 end
 
-function MapRenderer:_releaseTargets()
+function GxRenderer:_releaseTargets()
   if self.sceneColor then
     self.sceneColor:release()
   end
@@ -375,7 +365,7 @@ end
 -- and configured into local staged variables before anything published is
 -- touched. A failure releases only that incomplete generation and leaves the
 -- previous target set and its recorded dimensions untouched.
-function MapRenderer:_ensureTargets(colorW, colorH)
+function GxRenderer:_ensureTargets(colorW, colorH)
   if
     self.sceneColor
     and self.colorW == colorW
@@ -412,7 +402,7 @@ function MapRenderer:_ensureTargets(colorW, colorH)
     stateClearTargets = { renderState, depthstencil = colorDepth }
     colorClearTargets = { sceneColor, depthstencil = colorDepth }
 
-    if self.translucencyMode == MapRenderer.TRANSLUCENCY_EXACT then
+    if self.translucencyMode == GxRenderer.TRANSLUCENCY_EXACT then
       -- Exact mode alternates one spare destination pair with the active pair.
       spareColor = lg.newCanvas(colorW, colorH)
       spareColor:setFilter("nearest", "nearest")
@@ -475,7 +465,7 @@ end
 -- receive their own copy and cannot mutate that render-path cache.
 ---@param m integer
 ---@return number[]
-function MapRenderer.lightMaskUniforms(m)
+function GxRenderer.lightMaskUniforms(m)
   local uniform = type(m) == "number" and LIGHT_MASK_UNIFORMS[m]
   assert(uniform, "light mask must be a 4-bit integer, got " .. tostring(m))
   return { uniform[1], uniform[2], uniform[3], uniform[4] }
@@ -522,15 +512,15 @@ local ZERO_COLOR = { 0, 0, 0 }
 -- inherit lights or material colors from a lit scene drawn earlier with the
 -- same renderer. (u_lightMask needs no reset: every draw path sends it
 -- before drawing.)
-function MapRenderer:_sendLighting(sceneRuntime, targetShader)
+function GxRenderer:_sendLighting(sceneRuntime, targetShader)
   assert(targetShader, "lighting delivery requires an explicit shader")
   assert(
     targetShader == self.shader or targetShader == self.worldShader or targetShader == self.spriteShader,
     "lighting target is not owned by this renderer"
   )
   local shader = targetShader
-  local profile = sceneRuntime.lighting
-  if not profile or not profile.records then
+  local record = sceneRuntime.lighting
+  if not record then
     local delivery = self._lightingDelivery[shader]
     if delivery and not delivery.lit and delivery.profile == nil and delivery.record == nil then
       self._lightMaterialColors = nil
@@ -546,10 +536,8 @@ function MapRenderer:_sendLighting(sceneRuntime, targetShader)
     return
   end
 
-  local record =
-    FieldLightProfile.select(profile, sceneRuntime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
   local delivery = self._lightingDelivery[shader]
-  if delivery and delivery.lit and delivery.profile == profile and delivery.record == record then
+  if delivery and delivery.lit and delivery.record == record then
     self._lightMaterialColors = self._lightMaterialColorCache
     return
   end
@@ -575,7 +563,7 @@ function MapRenderer:_sendLighting(sceneRuntime, targetShader)
     shader:send("u_lightVector" .. (i - 1), vector)
     shader:send("u_lightColor" .. (i - 1), color)
   end
-  self._lightingDelivery[shader] = { lit = true, profile = profile, record = record }
+  self._lightingDelivery[shader] = { lit = true, profile = record, record = record }
   self._lightMaterialColors = materialColors
 end
 
@@ -586,7 +574,7 @@ end
 -- _sendLighting's profile/record tracking. Every compiled HGSS field scene
 -- carries this table unconditionally (edge marking is always enabled), so a
 -- missing table is a collaborator gone missing, not a case to default around.
-function MapRenderer:_sendEdgeColors(sceneRuntime)
+function GxRenderer:_sendEdgeColors(sceneRuntime)
   local edgeColors = assert(sceneRuntime.edgeColors, "scene runtime requires an edgeColors table")
   if self._edgeColorsProfile == edgeColors then
     return
@@ -629,7 +617,7 @@ local function sendFogPayload(renderer, shader, fog)
   shader:send("u_fogAlpha", fog.alpha)
 end
 
-function MapRenderer:_sendFog(sceneRuntime)
+function GxRenderer:_sendFog(sceneRuntime)
   local fog = assert(sceneRuntime.fog, "scene runtime requires a fog preset")
   if self._fogFinalReference == fog then
     return
@@ -640,7 +628,7 @@ end
 
 -- Presentation sprites use the same fog payload and DS depth conversion as
 -- the resolved world, but evaluate fog from their own host fragment depth.
-function MapRenderer:_sendSpriteFog(sceneRuntime)
+function GxRenderer:_sendSpriteFog(sceneRuntime)
   local fog = assert(sceneRuntime.fog, "scene runtime requires a fog preset")
   local shader = self._activeShader or self.shader
   if self._fogSpriteReference == fog then
@@ -701,7 +689,7 @@ end
 -- field-billboard projection, everything else through the world projection.
 -- `modelMatrix`/`modelNormal` are the item's current placement. `fragmentPass`
 -- was selected by the caller and is sent as-is.
-function MapRenderer:_drawItem(item, projection, fragmentPass)
+function GxRenderer:_drawItem(item, projection, fragmentPass)
   self:_drawMesh(
     item,
     projection,
@@ -717,7 +705,7 @@ end
 -- The common draw body: bind the model/normal matrices or billboard placement,
 -- the material's
 -- uniforms/texture/cull state, draw the mesh, and count the call.
-function MapRenderer:_drawMesh(
+function GxRenderer:_drawMesh(
   item,
   projection,
   modelMatrix,
@@ -777,7 +765,7 @@ function MapRenderer:_drawMesh(
   shader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
   if shader == self.worldShader then
-    shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
+    shader:send("u_polygonId", item.polygonId / GxRenderer.CLEAR_POLYGON_ID)
     shader:send("u_polygonFogEnabled", item.fogEnabled == true)
   end
   lg.setMeshCullMode(item.cullMode)
@@ -789,7 +777,7 @@ end
 -- Draw the edges of a wireframe batch through the same projection path as
 -- filled geometry. The DS draws polygon alpha zero as wireframe edges rather
 -- than an invisible filled polygon.
-function MapRenderer:_drawWireframe(item, projection)
+function GxRenderer:_drawWireframe(item, projection)
   self:_drawWireframeMesh(
     item,
     projection,
@@ -806,7 +794,7 @@ end
 -- depth, blend, and wireframe state outside the item loop. It writes color and
 -- polygon state together to the active MRT pair, using shared depth and
 -- replace semantics; wireframe items are opaque for edge marking.
-function MapRenderer:_drawWireframeMesh(
+function GxRenderer:_drawWireframeMesh(
   item,
   projection,
   modelMatrix,
@@ -833,7 +821,7 @@ function MapRenderer:_drawWireframeMesh(
   shader:send("u_polygonMode", 0)
   shader:send("u_lightMask", LIGHT_MASK_UNIFORMS[item.lightMask])
   if shader == self.worldShader then
-    shader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
+    shader:send("u_polygonId", item.polygonId / GxRenderer.CLEAR_POLYGON_ID)
     shader:send("u_polygonFogEnabled", item.fogEnabled == true)
   end
   mesh:setTexture()
@@ -853,7 +841,7 @@ end
 --      ACTIVE destination state. Both passes depth-test against the current
 --      opaque host depth attachment and use replace semantics without writing
 --      it.
-function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix, activeState, stateW, stateH)
+function GxRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix, activeState, stateW, stateH)
   local lg = assert(self._graphics)
   local mat = item.material
 
@@ -888,7 +876,7 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
   self.sourceShader:send("u_fragmentPass", fragmentPass)
   self.sourceShader:send("u_polygonAlpha", item.polygonAlpha)
   self.sourceShader:send("u_polygonMode", item.polygonMode == "decal" and 1 or 0)
-  self.sourceShader:send("u_polygonId", item.polygonId / MapRenderer.CLEAR_POLYGON_ID)
+  self.sourceShader:send("u_polygonId", item.polygonId / GxRenderer.CLEAR_POLYGON_ID)
   self.sourceShader:send("u_polygonFogEnabled", item.fogEnabled == true)
   self.sourceShader:send("u_activeState", activeState)
   self.sourceShader:send("u_stateSize", { stateW, stateH })
@@ -898,51 +886,38 @@ function MapRenderer:_drawSourceItem(item, projection, fragmentPass, viewMatrix,
   self.stats.colorDrawCalls = self.stats.colorDrawCalls + 2
 end
 
--- `worldParts` contains ordered arrays of map geometry, building batches, the
--- neighbour ring, and actors. Their traversal position is the queue's
--- deterministic tie-breaker; the renderer draws exactly these parts and no
--- other scene state. `alpha` is the render interpolation
--- factor forwarded to the camera so the scene is viewed from the same smoothed
--- state the actors render at. FieldViewport limits the render-target size and
--- places the result inside the host drawable.
----@param worldParts table[][]?
----@param spriteItems table[]?
----@param viewport { worldViewport: { x: number, y: number, width: number, height: number } }
----@param alpha number
----@param sceneRuntime table
----@param camera FieldCamera
-function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewport, alpha)
-  assert(viewport and viewport.worldViewport, "MapRenderer requires a FieldViewport")
+-- The normalized queue contains ordered map geometry, building batches, the
+-- neighbour ring, and actors. Its traversal position is the deterministic
+-- tie-breaker already resolved by HGSS presentation. FieldViewport limits the
+-- render-target size and places the result inside the host drawable.
+---@param frame table normalized DS frame
+function GxRenderer:draw(frame)
+  assert(type(frame) == "table", "GxRenderer requires a normalized frame")
+  local sceneRuntime = {
+    lighting = frame.lighting,
+    edgeColors = frame.edgeColors,
+    fog = frame.fog,
+  }
+  local spriteItems = frame.spriteItems
+  local viewport = frame.viewport
+  assert(viewport and viewport.worldViewport, "GxRenderer requires a render viewport")
+  local viewMatrix = assert(frame.viewMatrix, "GxRenderer requires a view matrix")
+  assert(frame.worldProjection, "GxRenderer requires a world projection")
+  assert(frame.billboardProjection, "GxRenderer requires a billboard projection")
   -- The world MRT shader derives its depth from the host fragment's normalized
-  -- window depth (map.glsl's dsZbufferDepth, the HGSS field Z-buffer
-  -- domain) -- no camera far plane is sent for depth normalization. The
-  -- camera's far plane still participates in the frame through its own
-  -- projection matrices (camera:projection()/camera:billboardProjection()),
-  -- so a camera without one is a malformed collaborator, not a case to
-  -- default around.
-  assert(type(camera.far) == "number" and camera.far > 0, "MapRenderer requires camera.far to be a positive number")
+  -- window depth (map.glsl's dsZbufferDepth, the DS field Z-buffer domain).
   local lg = assert(self._graphics)
-  local parts = worldParts or {}
-
   self.stats.drawCalls = 0
   self.stats.colorDrawCalls = 0
 
   local rectangle = viewport.worldViewport
-  local colorW, colorH = MapRenderer.worldRasterDimensions(rectangle.width, rectangle.height, self.worldRasterScale)
+  local colorW, colorH = GxRenderer.worldRasterDimensions(rectangle.width, rectangle.height, self.worldRasterScale)
   self:_ensureTargets(colorW, colorH)
 
-  local viewMatrix = camera:view(alpha)
-
-  -- Two projections, computed once per frame: the world projection and the
-  -- depth-biased field copy (see FieldCamera:billboardProjection). Actor
-  -- billboards and field effects opt into the biased matrix; map/building
-  -- geometry and static-model actors keep the world projection, as on the DS.
+  -- The HGSS presentation owner computes these projections once per frame.
   -- Both the state and color passes select projection identically per item.
-  local worldProjection = camera:projection()
-  local billboardProjection = camera:billboardProjection()
   local function projectionFor(item)
-    local usesFieldDepthBias = item.billboardProjection or item.fieldEffect ~= nil
-    return usesFieldDepthBias and billboardProjection or worldProjection
+    return assert(item.projection, "normalized render item requires a projection")
   end
 
   local colorTargets = assert(self._colorTargets)
@@ -950,7 +925,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
   -- The final pass samples neighbors in world-raster pixels, so edge width
   -- remains tied to the DS-relative world rather than host resolution.
   local edgeRadiusPx = 1
-  local cameraZoom = camera.zoom
+  local cameraZoom = frame.cameraZoom
   if cameraZoom == nil then
     cameraZoom = 1
   end
@@ -960,7 +935,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
 
   local presentationCanvas = lg.getCanvas()
   local function doDraw()
-    ---@type MapRenderer.Canvas?
+    ---@type GxRenderer.Canvas?
     local presentationColorCanvas
     if presentationCanvas ~= nil and type(presentationCanvas) == "table" and presentationCanvas[1] ~= nil then
       presentationColorCanvas = presentationCanvas[1]
@@ -969,16 +944,16 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       end
       assert(
         presentationColorCanvas and presentationColorCanvas.getWidth and presentationColorCanvas.getHeight,
-        "MapRenderer requires a color presentation target"
+        "GxRenderer requires a color presentation target"
       )
-      ---@cast presentationColorCanvas MapRenderer.Canvas
+      ---@cast presentationColorCanvas GxRenderer.Canvas
     else
-      ---@cast presentationCanvas MapRenderer.Canvas?
+      ---@cast presentationCanvas GxRenderer.Canvas?
       presentationColorCanvas = presentationCanvas
     end
 
-    -- The render queue is built exactly once per frame.
-    local queue = RenderQueue.buildInto(parts, viewMatrix, self._queueScratch)
+    -- The HGSS presentation owner builds the render queue exactly once per frame.
+    local queue = assert(frame.queue, "GxRenderer requires a normalized render queue")
 
     -- ---- world MRT pass: color and polygon state ----
     local stateClearTargets = assert(self._stateClearTargets)
@@ -1023,7 +998,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
     -- is the new active pair, so wireframe and the final resolve below see the
     -- fully composited color and state.
     local activeColor, activeState = assert(self.sceneColor), assert(self.renderState)
-    if self.translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE then
+    if self.translucencyMode == GxRenderer.TRANSLUCENCY_APPROXIMATE then
       if #queue.blended > 0 then
         self:_sendLighting(sceneRuntime, self.shader)
         local approximateClearTargets = assert(self._colorClearTargets)
@@ -1138,7 +1113,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       else
         targetWidth, targetHeight = lg.getDimensions()
       end
-      assert(targetWidth > 0 and targetHeight > 0, "MapRenderer requires positive presentation target dimensions")
+      assert(targetWidth > 0 and targetHeight > 0, "GxRenderer requires positive presentation target dimensions")
       local scale = self._presentationScale
       local offset = self._presentationOffset
       scale[1] = rectangle.width / targetWidth
@@ -1162,7 +1137,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
       local function drawSprite(item, fragmentPass)
         spriteShader:send("u_spriteFogEnabled", item.fogEnabled == true)
         lg.setDepthMode("less", true)
-        self:_drawItem(item, billboardProjection, fragmentPass)
+        self:_drawItem(item, item.projection, fragmentPass)
       end
       for _, item in ipairs(spriteItems) do
         local fragmentPass
@@ -1207,7 +1182,7 @@ function MapRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewpor
   end
 end
 
-function MapRenderer:release()
+function GxRenderer:release()
   if self.shader then
     self.shader:release()
   end
@@ -1231,4 +1206,4 @@ function MapRenderer:release()
   self:_releaseTargets()
 end
 
-return MapRenderer
+return GxRenderer

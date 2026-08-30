@@ -1,6 +1,6 @@
 -- Graphics regression for the canonical warp-entrance effect. The test loads
 -- the normalized cached model through the production GPU pool and indicator
--- adapter, then sends its draw items through MapRenderer over a bright target.
+-- adapter, then sends its draw items through FieldRenderer over a bright target.
 
 local Assert = require("tests.support.Assert")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
@@ -10,7 +10,7 @@ local FieldCamera = require("libs.engine.src.FieldCamera")
 local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceIndicatorRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 
 local T = {}
 
@@ -54,7 +54,7 @@ function T.canonical_indicator_preserves_bright_background(scope, context)
     scale = 1,
   })
   Assert.isTrue(#items > 0, "canonical indicator must produce a draw item")
-  local renderer = scope:own(MapRenderer.new({ clearColor = { 0.2, 0.7, 0.9, 1 } }))
+  local renderer = scope:own(FieldRenderer.new({ clearColor = { 0.2, 0.7, 0.9, 1 } }))
   local target = scope:own(love.graphics.newCanvas(256, 192))
   love.graphics.setCanvas(target)
   love.graphics.clear(0.2, 0.7, 0.9, 1)

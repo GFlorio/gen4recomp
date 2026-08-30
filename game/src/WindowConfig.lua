@@ -3,7 +3,7 @@
 -- runtime both resolve the reference window size from this one module so the
 -- two defaults cannot drift apart; the same is true of the background color,
 -- which App applies to the LÖVE window and FieldState injects into
--- MapRenderer so the scene canvas clears to the identical color.
+-- FieldRenderer so the scene canvas clears to the identical color.
 
 local WindowConfig = {}
 

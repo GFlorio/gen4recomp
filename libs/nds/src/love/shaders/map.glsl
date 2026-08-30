@@ -1,5 +1,5 @@
 // DS-shaped map/building shader. The vertex stage resolves
-// each vertex's color source (literal COLOR, field-profile diffuse, or NORMAL
+// each vertex's color source (literal COLOR, normalized field diffuse, or NORMAL
 // lighting), computes DS lighting in camera/vector space, and forwards the
 // resulting RGB. The pixel stage samples the texture, applies the exact DS
 // MODULATE/DECAL combiner, and discards fragments per the exact-alpha5

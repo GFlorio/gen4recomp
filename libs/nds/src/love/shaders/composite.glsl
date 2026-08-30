@@ -2,7 +2,7 @@
 // integer DS blend/state equations to one accepted source-fragment buffer
 // (source.glsl's sourceColor/sourceMeta) against the active destination
 // color/state pair, writing the result into the inactive destination pair
-// (the ping-pong halves of the compositor loop in MapRenderer:draw). The
+// (the ping-pong halves of the compositor loop in GxRenderer:draw). The
 // destination is never sampled and written in the same pass: the composite
 // reads the active pair and writes the inactive one, then the renderer swaps
 // which pair is active.

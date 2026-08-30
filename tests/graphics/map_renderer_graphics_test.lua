@@ -7,7 +7,7 @@
 
 local Assert = require("tests.support.Assert")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local GxRenderer = require("libs.nds.src.love.GxRenderer")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
@@ -18,14 +18,16 @@ local VertexFormat = require("libs.assets.src.VertexFormat")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local Matrix4 = require("libs.math.src.Matrix4")
 local DsFog = require("tests.support.DsFog")
+local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
 local lg = love.graphics
 
 local T = {}
 
 local function exactRenderer(options)
   options = options or {}
-  options.translucencyMode = MapRenderer.TRANSLUCENCY_EXACT
-  return MapRenderer.new(options)
+  options.translucencyMode = GxRenderer.TRANSLUCENCY_EXACT
+  return GxRenderer.new(options)
 end
 
 -- Spelled explicitly to keep these smokes independent of Matrix4.
@@ -33,7 +35,7 @@ local IDENTITY = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
 local IDENTITY_NORMAL = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
 
 local function fixedCamera()
-  local function identity()
+  local function identity(_)
     return IDENTITY
   end
   return { distance = 26, far = 400, view = identity, projection = identity, billboardProjection = identity }
@@ -47,11 +49,104 @@ local function zeroFogFixture()
   return { enabled = false, color = 0, offset = 0, slope = 0, alpha = 0, table = table32 }
 end
 
+local DRAW_ITEM_FIELDS = {
+  "mesh",
+  "material",
+  "transform",
+  "modelNormal",
+  "billboardCenter",
+  "billboardScale",
+  "alphaClass",
+  "cullMode",
+  "fogEnabled",
+  "lightMask",
+  "polygonAlpha",
+  "polygonId",
+  "polygonMode",
+}
+
+local function normalizedItem(item, projection)
+  local normalized = { projection = projection } ---@type table<string, unknown>
+  for _, field in ipairs(DRAW_ITEM_FIELDS) do
+    normalized[field] = item[field]
+  end
+  return normalized
+end
+
+local function normalizedQueue(queue, worldProjection, billboardProjection)
+  local normalized = {
+    opaque = {},
+    cutout = {},
+    mixedOpaque = {},
+    wireframe = {},
+    blended = {},
+  }
+  local function projectionFor(item)
+    if item.billboardProjection == true or item.fieldEffect ~= nil then
+      return billboardProjection
+    end
+    return worldProjection
+  end
+  for _, pass in ipairs({ "opaque", "cutout", "mixedOpaque", "wireframe" }) do
+    for _, item in ipairs(queue[pass]) do
+      normalized[pass][#normalized[pass] + 1] = normalizedItem(item, projectionFor(item))
+    end
+  end
+  for _, entry in ipairs(queue.blended) do
+    normalized.blended[#normalized.blended + 1] = {
+      item = normalizedItem(entry.item, projectionFor(entry.item)),
+      fragmentPass = entry.fragmentPass,
+    }
+  end
+  return normalized
+end
+
+local function normalizedSprites(spriteItems, billboardProjection)
+  if spriteItems == nil then
+    return nil
+  end
+  local normalized = {}
+  for _, item in ipairs(spriteItems) do
+    normalized[#normalized + 1] = normalizedItem(item, billboardProjection)
+  end
+  return normalized
+end
+
+local function render(renderer, sceneRuntime, camera, worldParts, spriteItems, viewport)
+  local viewMatrix = camera:view()
+  local lighting = sceneRuntime.lighting
+  if lighting and lighting.records then
+    lighting =
+      FieldLightProfile.select(lighting, sceneRuntime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
+  end
+  local queue = RenderQueue.buildInto(worldParts or {}, viewMatrix, {
+    opaque = {},
+    cutout = {},
+    mixedOpaque = {},
+    wireframe = {},
+    blended = {},
+  })
+  local worldProjection = camera:projection()
+  local billboardProjection = camera:billboardProjection()
+  return renderer:draw({
+    lighting = lighting,
+    edgeColors = sceneRuntime.edgeColors,
+    fog = sceneRuntime.fog,
+    viewMatrix = viewMatrix,
+    cameraZoom = camera.zoom,
+    worldProjection = worldProjection,
+    billboardProjection = billboardProjection,
+    queue = normalizedQueue(queue, worldProjection, billboardProjection),
+    spriteItems = normalizedSprites(spriteItems, billboardProjection),
+    viewport = viewport,
+  })
+end
+
 -- The 32-entry fog density table is delivered as 8 groups of 4 raw entries,
 -- one named uniform each (u_fogTable0..u_fogTable7): LÖVE 11.5 fills only
 -- the first vec4 of a `vec4[N]` array uniform from a flat table, so a
 -- single-array send could never reach entries past index 0 (see edge.glsl's
--- fogTableEntry and MapRenderer:_sendFog, which group the same way).
+-- fogTableEntry and GxRenderer:_sendFog, which group the same way).
 -- table32 is the 1-indexed 32-entry table; group i covers entries
 -- 4*i+1 .. 4*i+4.
 local function sendFogTableGroups(shader, table32)
@@ -103,7 +198,7 @@ function T.shader_compiles(scope)
 end
 
 function T.shader_has_required_lighting_uniforms(scope)
-  local shader = scope:own(MapRenderer.new()).shader
+  local shader = scope:own(GxRenderer.new()).shader
 
   -- Presence is checked by sending a value; LÖVE errors for unknown names.
   -- The u_mat* uniforms carry the effective DS material registers (the
@@ -125,7 +220,7 @@ function T.shader_has_model_normal_uniform(scope)
 end
 
 function T.shader_has_billboard_uniforms(scope)
-  local shader = scope:own(MapRenderer.new()).shader
+  local shader = scope:own(GxRenderer.new()).shader
 
   shader:send("u_billboard", true)
   shader:send("u_billboardCenter", { 3, 4, 5 })
@@ -133,7 +228,7 @@ function T.shader_has_billboard_uniforms(scope)
 end
 
 function T.shader_has_polygon_light_mask_uniform(scope)
-  local shader = scope:own(MapRenderer.new()).shader
+  local shader = scope:own(GxRenderer.new()).shader
 
   -- Presence is checked by sending a value; LÖVE errors for unknown names.
   shader:send("u_lightMask", { 1, 0, 0, 0 })
@@ -150,7 +245,7 @@ end
 -- Absence is checked the same way edge_shader_has_no_alpha_mix_uniform checks
 -- it: LÖVE errors when a name is not a real uniform of the compiled shader.
 function T.map_shader_has_no_global_fog_uniforms(scope)
-  local shader = scope:own(MapRenderer.new()).shader
+  local shader = scope:own(GxRenderer.new()).shader
 
   Assert.throws(function()
     shader:send("u_fogEnabled", true)
@@ -169,13 +264,13 @@ end
 -- The final full-screen pass (edgeShader/edge.glsl) is where fog now lives:
 -- it owns the global gate, color, 32-entry density table, the shift/slope
 -- field, and the offset already converted into the depth domain
--- (u_fogOffsetDepth = fogOffsetRaw * 0x200 -- MapRenderer's per-frame state
+-- (u_fogOffsetDepth = fogOffsetRaw * 0x200 -- GxRenderer's per-frame state
 -- capture does this multiply once, not the shader per pixel; see
 -- runFinalPass below for the exact contract every fog behavior test drives).
 -- Presence is checked by sending a value; LÖVE errors for unknown names, so
 -- this only passes once the final pass actually declares them.
 function T.final_shader_has_fog_uniforms(scope)
-  local shader = scope:own(MapRenderer.new()).edgeShader
+  local shader = scope:own(GxRenderer.new()).edgeShader
 
   local zeroFogTable = {}
   for i = 1, 32 do
@@ -196,7 +291,7 @@ end
 -- this suite: LÖVE errors when a name is not a real uniform of the compiled
 -- shader.
 function T.edge_shader_has_no_alpha_mix_uniform(scope)
-  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+  local edgeShader = scope:own(GxRenderer.new()).edgeShader
 
   Assert.throws(function()
     edgeShader:send("u_edgeAlpha", 0.5)
@@ -204,11 +299,11 @@ function T.edge_shader_has_no_alpha_mix_uniform(scope)
 end
 
 function T.field_viewport_sizes_and_rebuilds_render_targets(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
 
   local viewport = FieldViewport.new(1280, 720, { mode = "strict" })
-  renderer:draw(runtime, camera, nil, nil, viewport, nil)
+  render(renderer, runtime, camera, nil, nil, viewport)
   Assert.equal(renderer.colorW, 960)
   Assert.equal(renderer.colorH, 720)
 
@@ -216,11 +311,11 @@ function T.field_viewport_sizes_and_rebuilds_render_targets(scope)
   for _ = 1, 10 do
     for _, size in ipairs({ { 960, 720 }, { 1280, 720 }, { 1680, 720 }, { 2560, 720 } }) do
       viewport:resize(size[1], size[2])
-      renderer:draw(runtime, camera, nil, nil, viewport, nil)
+      render(renderer, runtime, camera, nil, nil, viewport)
     end
   end
   viewport:resize(1280, 720)
-  renderer:draw(runtime, camera, nil, nil, viewport, nil)
+  render(renderer, runtime, camera, nil, nil, viewport)
   Assert.equal(renderer.colorW, 1280)
   Assert.equal(renderer.colorH, 720)
 end
@@ -231,11 +326,11 @@ end
 -- never downsampled), and both sceneColor and renderState are nearest-filtered
 -- on the real driver.
 function T.color_and_state_targets_share_the_color_resolution_and_nearest_filter(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
 
   local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
-  renderer:draw(runtime, camera, nil, nil, viewport, nil)
+  render(renderer, runtime, camera, nil, nil, viewport)
   Assert.equal(renderer.colorW, 1280, "the color target matches the display viewport exactly")
   Assert.equal(renderer.colorH, 720)
   Assert.equal(renderer.stateW, 1280, "the state target shares the color width")
@@ -250,7 +345,7 @@ function T.color_and_state_targets_share_the_color_resolution_and_nearest_filter
   local mrtTargets = renderer._colorTargets
   for _, size in ipairs({ { 1920, 1080 }, { 2560, 1440 } }) do
     viewport:resize(size[1], size[2])
-    renderer:draw(runtime, camera, nil, nil, viewport, nil)
+    render(renderer, runtime, camera, nil, nil, viewport)
     Assert.equal(renderer.colorW, size[1], "the color target follows the new display size exactly")
     Assert.equal(renderer.colorH, size[2])
     Assert.equal(renderer.stateW, size[1], "the state target follows the new display size exactly")
@@ -267,7 +362,7 @@ end
 -- per-item cull, depth, and alpha state. Nothing it touches may survive the
 -- frame, or the 2D dialogue UI and the next map's draws inherit it.
 function T.an_actor_billboard_draw_leaks_no_render_state(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local mesh = scope:own(syntheticMesh({
     { -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1 },
     { 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1 },
@@ -294,14 +389,7 @@ function T.an_actor_billboard_draw_leaks_no_render_state(scope)
   lg.setMeshCullMode("none")
   lg.setBlendMode("alpha")
   lg.setColor(1, 1, 1, 1)
-  renderer:draw(
-    emptyRuntime(),
-    fixedCamera(),
-    { { actor } },
-    nil,
-    FieldViewport.new(640, 480, { mode = "strict" }),
-    nil
-  )
+  render(renderer, emptyRuntime(), fixedCamera(), { { actor } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   Assert.isNil(lg.getCanvas(), "the scene canvas is unbound")
   Assert.isNil(lg.getShader(), "the map and edge shaders are unbound")
@@ -314,7 +402,7 @@ function T.an_actor_billboard_draw_leaks_no_render_state(scope)
 end
 
 function T.literal_color_triangle_ignores_light_direction(scope)
-  local shader = scope:own(MapRenderer.new()).shader
+  local shader = scope:own(GxRenderer.new()).shader
 
   shader:send("u_proj", "column", IDENTITY)
   shader:send("u_view", "column", IDENTITY)
@@ -365,7 +453,7 @@ local function presentationTarget(scope, width, height)
     readable = false,
   }))
   local target = { color, depthstencil = depth }
-  -- MapRenderer treats its presentation target as a Canvas when calculating
+  -- GxRenderer treats its presentation target as a Canvas when calculating
   -- viewport mapping, while LÖVE accepts the explicit color/depth descriptor
   -- for setCanvas. Keep both contracts on the same test-owned target.
   function target:getWidth()
@@ -419,7 +507,7 @@ local function decalInteriorSample(renderer)
 end
 
 function T.wireframe_rasterizes_edges_without_filling_the_interior(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local mesh = scope:own(syntheticMesh({
     { 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
     { 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
@@ -440,7 +528,7 @@ function T.wireframe_rasterizes_edges_without_filling_the_interior(scope)
     center = { 0.5, 0.5, 0 },
   }
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
   local image = renderer.sceneColor:newImageData()
   local function brightness(x, y)
     local a = { image:getPixel(x, y) }
@@ -456,11 +544,11 @@ end
 -- (texture alpha 31/31); a fully transparent decal texel (alpha 0) must
 -- render the vertex color untouched instead (GBATEK DECAL texel format).
 function T.decal_zero_texture_alpha_renders_vertex_color(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local image = solidAlphaImage(scope, 255, 0, 0, 0)
   local item = decalItem(decalTriangle(scope), image)
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   local p = decalInteriorSample(renderer)
   local scale = p[2] > 1 and 255 or 1
@@ -477,7 +565,7 @@ end
 -- texel format). This numeric fixture replaces a prior broad "some green is
 -- present" assertion that could not have caught the wrong divisor.
 function T.decal_partial_texture_alpha_uses_the_exact_divide_by_32(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local blackVertexTriangle = scope:own(syntheticMesh({
     { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0 },
     { 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0 },
@@ -486,7 +574,7 @@ function T.decal_partial_texture_alpha_uses_the_exact_divide_by_32(scope)
   local image = solidAlphaImage(scope, 255, 255, 255, 131)
   local item = decalItem(blackVertexTriangle, image)
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   local p = decalInteriorSample(renderer)
   local scale = p[1] > 1 and 255 or 1
@@ -525,12 +613,12 @@ end
 -- (31,15,49). Per channel: R floor((50*32-1)/64)=24, G
 -- floor((26*16-1)/64)=6, B floor((14*50-1)/64)=10.
 function T.modulate_combines_texture_and_vertex_color_at_a_nontrivial_midrange_value(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local image = solidAlphaImage(scope, 200, 100, 50, 255)
   local item = decalItem(modulateTriangle(scope, 128 / 255, 64 / 255, 200 / 255), image)
   item.polygonMode = "modulation"
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   local p = decalInteriorSample(renderer)
   local scale = p[1] > 1 and 255 or 1
@@ -564,19 +652,12 @@ local EXPAND5TO6_LOCKED_CASES = {
 
 function T.expand5to6_matches_the_locked_melonds_table(scope)
   for _, case in ipairs(EXPAND5TO6_LOCKED_CASES) do
-    local renderer = scope:own(MapRenderer.new())
+    local renderer = scope:own(GxRenderer.new())
     local image = solidAlphaImage(scope, case.byte, case.byte, case.byte, 255)
     local item = decalItem(modulateTriangle(scope, 1, 1, 1), image)
     item.polygonMode = "modulation"
 
-    renderer:draw(
-      emptyRuntime(),
-      fixedCamera(),
-      { { item } },
-      nil,
-      FieldViewport.new(640, 480, { mode = "strict" }),
-      nil
-    )
+    render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
     local p = decalInteriorSample(renderer)
     local scale = p[1] > 1 and 255 or 1
@@ -607,13 +688,13 @@ end
 -- rather than blending toward it.
 function T.cutout_zero_alpha_fragment_discards_instead_of_rendering(scope)
   local clearColor = { 0.1, 0.2, 0.3, 1 }
-  local renderer = scope:own(MapRenderer.new({ clearColor = clearColor }))
+  local renderer = scope:own(GxRenderer.new({ clearColor = clearColor }))
   local image = solidAlphaImage(scope, 255, 0, 0, 0)
   local item = decalItem(decalTriangle(scope), image)
   item.polygonMode = "modulation"
   item.alphaClass = "cutout"
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   local p = decalInteriorSample(renderer)
   local scale = p[1] > 1 and 255 or 1
@@ -707,12 +788,12 @@ end
 -- never by texture format alone). Five texture columns carry alpha5 = 0, 1,
 -- 15, 30, 31.
 function T.mixed_modulate_splits_opaque_and_translucent_by_exact_final_alpha5(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local texture = mixedAlphaTexture(scope)
   local item = mixedItem(unitSquareQuad(scope, 1, 1, 1), texture)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, viewport, nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, viewport)
 
   local colorImg = renderer.sceneColor:newImageData()
   local stateImg = renderer.renderState:newImageData()
@@ -769,13 +850,13 @@ end
 -- renderer must draw it through the ordinary opaque world pass, never
 -- split it into an opaque/translucent pair.
 function T.decal_polygon_alpha_31_is_opaque_regardless_of_texture_alpha(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local image = solidAlphaImage(scope, 255, 0, 0, 0)
   local item = decalItem(decalTriangle(scope), image)
   item.polygonId = 9
   item.fogEnabled = false
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   local p = decalInteriorSample(renderer)
   local scale = p[2] > 1 and 255 or 1
@@ -798,14 +879,14 @@ end
 -- texture alpha distribution (the classifier already returns TRANSLUCENT for
 -- it): it must never contribute semantic state.
 function T.decal_polygon_alpha_below_31_is_translucent_and_never_stamps_semantic_state(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local image = solidAlphaImage(scope, 255, 0, 0, 255)
   local item = decalItem(decalTriangle(scope), image)
   item.alphaClass = "translucent"
   item.polygonAlpha = 20 / 31
   item.translucentDepthWrite = false
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   local stateImg = renderer.renderState:newImageData()
   local ax, ay = statePixel(renderer, 416, 384)
@@ -825,7 +906,7 @@ end
 -- round-trip through float32 on some GL drivers, so they are compared within
 -- a small tolerance.
 function T.draw_restores_exact_caller_state_on_real_graphics(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
   local mesh = scope:own(syntheticMesh({
     { -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1 },
@@ -874,14 +955,7 @@ function T.draw_restores_exact_caller_state_on_real_graphics(scope)
   lg.setColor(0.2, 0.4, 0.6, 0.8)
   lg.setScissor(4, 8, 32, 16)
 
-  renderer:draw(
-    runtime,
-    camera,
-    { { actor, wireframeItem } },
-    nil,
-    FieldViewport.new(640, 480, { mode = "strict" }),
-    nil
-  )
+  render(renderer, runtime, camera, { { actor, wireframeItem } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   Assert.equal(lg.getCanvas(), canvas, "the pre-draw canvas is re-bound")
   Assert.equal(lg.getShader(), shader, "the pre-draw shader is re-bound")
@@ -914,7 +988,7 @@ end
 -- environment. The readback scale is likewise driver-dependent (0..255 or
 -- 0..1), so the brightness threshold is derived from an actual sample.
 function T.polygon_light_mask_changes_the_rendered_result(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
   local white = 31 + 31 * 32 + 31 * 1024
   runtime.lighting = {
@@ -944,7 +1018,7 @@ function T.polygon_light_mask_changes_the_rendered_result(scope)
   }))
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local function sample(mask)
-    renderer:draw(runtime, camera, {
+    render(renderer, runtime, camera, {
       {
         {
           mesh = mesh,
@@ -961,7 +1035,7 @@ function T.polygon_light_mask_changes_the_rendered_result(scope)
           center = { 0.5, 0.5, 0 },
         },
       },
-    }, nil, viewport, nil)
+    }, nil, viewport)
     local img = renderer.sceneColor:newImageData()
     -- NDC (0.3, -0.6) is well inside the triangle; 95 is the Y-mirror of 384.
     local lit = { img:getPixel(416, 384) }
@@ -997,7 +1071,7 @@ end
 -- dark vs the DS, whose field profile emission is a large part of their
 -- brightness.
 function T.emission_passes_through_for_static_materials(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
   runtime.lighting = {
     records = {
@@ -1024,7 +1098,7 @@ function T.emission_passes_through_for_static_materials(scope)
     { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
   }))
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
-  renderer:draw(runtime, camera, {
+  render(renderer, runtime, camera, {
     {
       {
         mesh = mesh,
@@ -1041,7 +1115,7 @@ function T.emission_passes_through_for_static_materials(scope)
         center = { 0.5, 0.5, 0 },
       },
     },
-  }, nil, viewport, nil)
+  }, nil, viewport)
   local img = renderer.sceneColor:newImageData()
   -- Emission 25/31 renders at ~0.8 of full scale; the canvas Y-mirror is
   -- driver-dependent, so both the canonical and mirrored interior samples
@@ -1064,7 +1138,7 @@ end
 -- stored colors multiplied the profile, so a stored diffuse of ~100/255
 -- dimmed a lit surface to under half brightness.
 function T.stored_material_colors_never_dim_the_profile(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
   local white = 31 + 31 * 32 + 31 * 1024
   runtime.lighting = {
@@ -1090,7 +1164,7 @@ function T.stored_material_colors_never_dim_the_profile(scope)
     { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
   }))
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
-  renderer:draw(runtime, camera, {
+  render(renderer, runtime, camera, {
     {
       {
         mesh = mesh,
@@ -1116,7 +1190,7 @@ function T.stored_material_colors_never_dim_the_profile(scope)
         center = { 0.5, 0.5, 0 },
       },
     },
-  }, nil, viewport, nil)
+  }, nil, viewport)
   local img = renderer.sceneColor:newImageData()
   -- The profile's white ambient + head-on white diffuse saturate the vertex:
   -- full brightness, not the stored colors' ~0.4.
@@ -1136,7 +1210,7 @@ end
 -- multiplied the profile, so a full-white animated diffuse over a dim
 -- profile diffuse rendered at the profile's brightness.
 function T.color_animated_materials_replace_the_profile(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
   local white = 31 + 31 * 32 + 31 * 1024
   local dim = 10 + 10 * 32 + 10 * 1024
@@ -1163,7 +1237,7 @@ function T.color_animated_materials_replace_the_profile(scope)
     { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
   }))
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
-  renderer:draw(runtime, camera, {
+  render(renderer, runtime, camera, {
     {
       {
         mesh = mesh,
@@ -1188,7 +1262,7 @@ function T.color_animated_materials_replace_the_profile(scope)
         center = { 0.5, 0.5, 0 },
       },
     },
-  }, nil, viewport, nil)
+  }, nil, viewport)
   local img = renderer.sceneColor:newImageData()
   local function maxChannel(x, y)
     local r, g, b = img:getPixel(x, y)
@@ -1211,7 +1285,7 @@ end
 -- driver-dependent (0..255 or 0..1), so the brightness threshold is derived
 -- from an actual sample.
 function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera = fixedCamera()
   local white = 31 + 31 * 32 + 31 * 1024
   local litRuntime = emptyRuntime()
@@ -1283,7 +1357,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   -- head-on light, the field-diffuse triangle from its effective material
   -- register (COLOR_DIFFUSE reads u_matDiffuse, which the profile supplies
   -- for a static item -- the field engine owns every channel).
-  renderer:draw(litRuntime, camera, { { item } }, nil, viewport, nil)
+  render(renderer, litRuntime, camera, { { item } }, nil, viewport)
   local litImg = renderer.sceneColor:newImageData()
   local sr, sg, sb = litImg:getPixel(0, 0)
   local threshold = (sr > 1 or sg > 1 or sb > 1) and 127 or 0.5
@@ -1296,7 +1370,7 @@ function T.lit_then_unlit_scene_does_not_inherit_lighting(scope)
   -- which the unlit frame resets to zero -- nothing supplies the registers
   -- without a profile, so the triangle renders dark instead of inheriting
   -- the previous frame's material colors.
-  renderer:draw(unlitRuntime, camera, { { item } }, nil, viewport, nil)
+  render(renderer, unlitRuntime, camera, { { item } }, nil, viewport)
   local unlitImg = renderer.sceneColor:newImageData()
   Assert.isFalse(anyBright(unlitImg, normalSamples, threshold), "unlit frame inherits the previous light state")
   Assert.isFalse(anyBright(unlitImg, diffuseSamples, threshold), "unlit frame inherits the previous material state")
@@ -1305,10 +1379,10 @@ end
 function T.a_straddling_item_uses_its_current_transform_for_the_whole_mesh(scope)
   -- An arbitrary injected clear color distinguishable from the drawn
   -- triangles: this test asserts against it directly, not against
-  -- MapRenderer's fallback default (libs/engine carries no opinion about
+  -- GxRenderer's fallback default (libs/engine carries no opinion about
   -- what color a game wants; only that it clears to whatever it is given).
   local clearColor = { 0.08, 0.09, 0.12, 1 }
-  local renderer = scope:own(MapRenderer.new({ clearColor = clearColor }))
+  local renderer = scope:own(GxRenderer.new({ clearColor = clearColor }))
 
   -- Leading triangle (green) at y in [0.2, 0.5]; trailing triangle (red) at
   -- y in [-0.5, -0.2]. The current renderer presents the resident mesh as a
@@ -1342,7 +1416,7 @@ function T.a_straddling_item_uses_its_current_transform_for_the_whole_mesh(scope
     },
   }
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
   local data = scope:own(renderer.sceneColor:newImageData())
   local w, h = renderer.colorW, renderer.colorH
   -- Identity view/projection and the shader's clip-y negation map a world
@@ -1424,7 +1498,7 @@ end
 
 -- Draw one specular-only frame and return its brightest interior sample.
 local function specularFrame(renderer, scope, normal, vectorFx12)
-  renderer:draw(specularOnlyRuntime(vectorFx12), fixedCamera(), {
+  render(renderer, specularOnlyRuntime(vectorFx12), fixedCamera(), {
     {
       {
         mesh = litMesh(scope, normal),
@@ -1441,7 +1515,7 @@ local function specularFrame(renderer, scope, normal, vectorFx12)
         center = { 0.5, 0.5, 0 },
       },
     },
-  }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
   return brightestSample(renderer)
 end
 
@@ -1455,7 +1529,7 @@ end
 -- head-on reference frame here stays just off that exact boundary.) The
 -- off-axis frame must come out well below half the head-on one.
 function T.specular_cos2a_narrows_the_highlight_off_axis(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local headOn = specularFrame(renderer, scope, { 1, 0, 20 }, { 0, 0, -4096 })
   local offAxis = specularFrame(renderer, scope, { 0.661438, 0, 0.75 }, { 0, 0, -4096 })
 
@@ -1468,7 +1542,7 @@ end
 -- term at all, regardless of where the reused dot/normal.z sum would
 -- otherwise land; the gated shader must render (near-)black.
 function T.behind_light_specular_stays_dark(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local headOn = specularFrame(renderer, scope, { 1, 0, 20 }, { 0, 0, -4096 })
   local behind = specularFrame(renderer, scope, { 0.5, 0, 0.8660254037844386 }, { -3313, 0, 2407 })
 
@@ -1493,7 +1567,7 @@ end
 -- arithmetic, never to the fragment combiner.
 -- Expected normalized scene color: 33/63.
 function T.ambient_lit_triangle_matches_the_hand_derived_melonds_rgb6(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
   runtime.lighting = {
     records = {
@@ -1517,7 +1591,7 @@ function T.ambient_lit_triangle_matches_the_hand_derived_melonds_rgb6(scope)
     { 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
     { 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 3 },
   }))
-  renderer:draw(runtime, camera, {
+  render(renderer, runtime, camera, {
     {
       {
         mesh = mesh,
@@ -1534,7 +1608,7 @@ function T.ambient_lit_triangle_matches_the_hand_derived_melonds_rgb6(scope)
         center = { 0.5, 0.5, 0 },
       },
     },
-  }, nil, FieldViewport.new(640, 480, { mode = "strict" }), nil)
+  }, nil, FieldViewport.new(640, 480, { mode = "strict" }))
 
   local img = renderer.sceneColor:newImageData()
   local a, b = { img:getPixel(416, 384) }, { img:getPixel(416, 95) }
@@ -1803,7 +1877,7 @@ function T.terrain_animation_offscreen_swap_and_srt(scope)
   local cache = terrainAnimationScene(flowerFrames, twoTonePng(16, 16), terrainSrtClip())
   local scene = assert(cache:loadLua(MapAssetCache.mapDir(61) .. "/scene.lua"))
   local runtime = scope:own(MapSceneLoader.load(cache, scene))
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera = fixedCamera()
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
 
@@ -1820,7 +1894,7 @@ function T.terrain_animation_offscreen_swap_and_srt(scope)
   local waterMirrorY = 480 - 1 - waterY
 
   local function draw()
-    renderer:draw(runtime, camera, { runtime.mapDraws }, nil, viewport, nil)
+    render(renderer, runtime, camera, { runtime.mapDraws }, nil, viewport)
     return renderer.sceneColor:newImageData()
   end
 
@@ -1884,12 +1958,12 @@ end
 -- regardless of fogEnabled -- this is the exact numeric divergence that proves
 -- the channel's meaning changed, not merely its uniform source.
 function T.opaque_draw_writes_its_fog_gate_into_the_final_state_blue_channel(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local image = solidAlphaImage(scope, 255, 255, 255, 255)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
 
   local function stateInterior(item)
-    renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, viewport, nil)
+    render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, viewport)
     local img = renderer.renderState:newImageData()
     local ax, ay = statePixel(renderer, 416, 384)
     local bx, by = statePixel(renderer, 416, 95)
@@ -1911,14 +1985,14 @@ end
 -- A single opaque triangle writes its visible combiner result and its
 -- polygon state atomically through the shared MRT submission.
 function T.opaque_world_geometry_writes_color_and_state_in_one_submission(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local image = solidAlphaImage(scope, 255, 0, 0, 255)
   local item = decalItem(decalTriangle(scope), image)
   item.polygonId = 17
   item.fogEnabled = true
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, viewport, nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, viewport)
 
   Assert.equal(renderer.stats.drawCalls, 1, "one opaque triangle produces one mesh draw")
   local color = decalInteriorSample(renderer)
@@ -1938,11 +2012,11 @@ end
 -- Shared 3x1 fixture for the edge-predicate anchors below: pixel 1 is
 -- always the center under test, pixels 0/2 its left/right neighbors (the
 -- edge shader always samples exactly one state texel in each direction).
--- Drives edge.glsl directly (not through MapRenderer's full draw path) so the
+-- Drives edge.glsl directly (not through GxRenderer's full draw path) so the
 -- neighbor/center ID and depth values are exact and independent of any
 -- particular mesh/camera geometry. Ids are encoded by the real domain
--- maximum (63, MapRenderer.CLEAR_POLYGON_ID), the same normalization every
--- real MapRenderer draw applies -- not the retired 255-wide sentinel domain.
+-- maximum (63, GxRenderer.CLEAR_POLYGON_ID), the same normalization every
+-- real GxRenderer draw applies -- not the retired 255-wide sentinel domain.
 -- Returns the center pixel's rendered RGB. Both the scene and state
 -- textures share the same dimensions here, so the state size IS the
 -- per-pixel scene size -- this fixture does not exercise the dual-resolution
@@ -1953,7 +2027,7 @@ end
 -- only ever exercise left/right neighbors) but otherwise drives the same
 -- shader/canvas boilerplate.
 local function runEdgeShaderPass(scope, width, height, fillId, fillScene, edgeColors)
-  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+  local edgeShader = scope:own(GxRenderer.new()).edgeShader
 
   local idData = love.image.newImageData(width, height, "rgba32f")
   fillId(idData)
@@ -2031,7 +2105,7 @@ local function eightEdgeColors()
 end
 
 -- D.6: the domain maximum, 63 (HGSS's real clear/rear-plane id --
--- MapRenderer.CLEAR_POLYGON_ID) is a genuine, reachable DS polygon id
+-- GxRenderer.CLEAR_POLYGON_ID) is a genuine, reachable DS polygon id
 -- (GBATEK POLYGON_ATTR polygon id is 6 bits wide), not an out-of-domain
 -- sentinel to special-case. A center legitimately carrying id 63 must
 -- participate in ordinary edge marking exactly like any other id --
@@ -2040,7 +2114,7 @@ end
 -- replaces the retired REAR_PLANE_ID (255) sentinel-guard fixture: that
 -- out-of-domain value no longer occurs anywhere in this domain, so a guard
 -- that special-cased it would now incorrectly reject a real polygon 63
--- (see map_renderer_test's clear_polygon_id_is_the_hgss_rear_plane_value and
+-- (see this suite's clear_polygon_id_is_the_hgss_rear_plane_value and
 -- a_real_polygon_63_encodes_the_same_id_value_as_the_clear_background for the
 -- companion unit-layer proof that a real polygon 63 and the clear background
 -- encode to the identical id/depth-target value).
@@ -2137,7 +2211,7 @@ end
 -- 0.5) pre-fog; AA disabled must read exactly (0,0,0) -- the flat replacement.
 function T.edge_aa_coverage_mixes_scene_and_edge_at_exactly_half(scope)
   local function run(antialiasEnabled)
-    local edgeShader = scope:own(MapRenderer.new()).edgeShader
+    local edgeShader = scope:own(GxRenderer.new()).edgeShader
     -- Center id 0 indexes u_edgeColors[0] == (0,0,0) (eightEdgeColors' entry
     -- i is (i/10,i/10,i/10)), so the marked pixel's own edge color is exactly
     -- black -- giving an unambiguous expected mix with the white scene.
@@ -2329,7 +2403,7 @@ end
 -- buffers for a non-depth-writing translucent fragment, so nothing
 -- downstream of it (edge marking, fog gating) may observe it at all.
 --
--- Proven by comparing two independent draws through the real MapRenderer
+-- Proven by comparing two independent draws through the real GxRenderer
 -- pipeline: one with only the opaque triangle, one with the identical opaque
 -- triangle plus a translucent triangle in front of it covering the same
 -- pixel. The two readbacks must be identical.
@@ -2343,7 +2417,7 @@ function T.translucent_draw_does_not_overwrite_final_state_established_by_opaque
   -- NDC point by construction), not the identity-camera pixels other tests
   -- in this file use.
   local function stateInterior(renderer, parts)
-    renderer:draw(emptyRuntime(), camera, parts, nil, viewport, 0)
+    render(renderer, emptyRuntime(), camera, parts, nil, viewport)
     local img = renderer.renderState:newImageData()
     local ax, ay = statePixel(renderer, 382, 178)
     local bx, by = statePixel(renderer, 382, 302)
@@ -2414,7 +2488,7 @@ end
 
 -- Drives the final full-screen pass (edgeShader/edge.glsl) directly with a
 -- synthetic renderState/sceneColor pair and a fog preset -- the same
--- real-GLSL, real-canvas, no-MapRenderer:draw technique runEdgePass above
+-- real-GLSL, real-canvas, no-GxRenderer:draw technique runEdgePass above
 -- uses for the pure edge-predicate anchors, extended with the fog inputs
 -- These fog cases exercise the final pass. `pixels` is the same 3-wide
 -- (left/center/right) fixture shape runEdgePass uses, each entry optionally
@@ -2423,12 +2497,12 @@ end
 -- center reads exactly (1,1,1)). `fog` supplies `enabled`, `color` (packed
 -- RGB555), `offsetRaw` (the raw G3X FOG_OFFSET field, not yet *0x200 --
 -- u_fogOffsetDepth's own conversion is exercised here, matching how
--- MapRenderer's real per-frame state capture will compute it), `shift`
+-- GxRenderer's real per-frame state capture will compute it), `shift`
 -- (used directly as u_fogShift, matching HgssFieldFog's `slope` field),
 -- `alpha` (0..31, defaults to 31 -- opaque -- matching a steady preset that
 -- does not attenuate alpha, used as u_fogAlpha), and `table32` (32 raw
 -- density bytes, 0..255). Draws through "replace"/"premultiplied" blend,
--- matching MapRenderer's own final composite, so the readback reflects the
+-- matching GxRenderer's own final composite, so the readback reflects the
 -- shader's computed RGB/alpha directly rather than the host's default alpha
 -- compositing against the (irrelevant) black-cleared target. Returns the
 -- center pixel's rendered RGBA.
@@ -2437,7 +2511,7 @@ end
 -- every vertical neighbor probe instead of the real (identical) row data
 -- these fixtures intend.
 local function runFinalPass(scope, pixels, fog, edgeColors, antialiasEnabled)
-  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+  local edgeShader = scope:own(GxRenderer.new()).edgeShader
 
   local idData = love.image.newImageData(3, 3, "rgba32f")
   for i, p in ipairs(pixels) do
@@ -2473,7 +2547,7 @@ local function runFinalPass(scope, pixels, fog, edgeColors, antialiasEnabled)
   edgeShader:send("u_antialiasEnabled", antialiasEnabled == true)
   edgeShader:send("u_edgeColors", unpack(edgeColors or eightEdgeColors()))
   edgeShader:send("u_fogEnabled", fog.enabled)
-  -- Decoded the same way MapRenderer:_sendFog already decodes fog.color for
+  -- Decoded the same way GxRenderer:_sendFog already decodes fog.color for
   -- the (retired) per-object path: component/31, normalized 5-bit.
   local fogColorNormalized = {
     (fog.color % 32) / 31,
@@ -2651,7 +2725,7 @@ function T.scene_change_between_two_fog_presets_updates_the_final_output(scope)
 end
 
 -- Fog alpha blends the same way as RGB, in the 5-bit domain, and this
--- draw's own "replace"/"premultiplied" blend mode (see MapRenderer.lua's
+-- draw's own "replace"/"premultiplied" blend mode (see GxRenderer.lua's
 -- doDraw) must write that computed alpha as data rather than let the host's
 -- default alpha compositing consume it. A fully opaque white scene fragment
 -- (srcAlpha5 = 31) fogged at density 64 against a preset whose fog alpha is
@@ -2731,10 +2805,10 @@ end
 -- real canvas objects on the real driver, so it is the honest boundary the
 -- acceptance scenario names -- not a fake-graphics approximation.
 function T.state_canvas_dimensions_equal_color_dimensions_at_every_host_size(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local camera, runtime = fixedCamera(), emptyRuntime()
   local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
-  renderer:draw(runtime, camera, nil, nil, viewport, nil)
+  render(renderer, runtime, camera, nil, nil, viewport)
   Assert.equal(renderer.colorW, 1280, "color target width matches the expanded viewport")
   Assert.equal(renderer.colorH, 720)
   Assert.equal(renderer.stateW, renderer.colorW, "state width equals color width at 1280x720")
@@ -2750,7 +2824,7 @@ function T.state_canvas_dimensions_equal_color_dimensions_at_every_host_size(sco
   Assert.equal(worldDepth:getHeight(), renderer.colorH)
 
   viewport:resize(2560, 1440)
-  renderer:draw(runtime, camera, nil, nil, viewport, nil)
+  render(renderer, runtime, camera, nil, nil, viewport)
   Assert.equal(renderer.colorW, 2560)
   Assert.equal(renderer.colorH, 1440)
   Assert.equal(renderer.stateW, renderer.colorW, "state width equals color width at 2560x1440")
@@ -2764,7 +2838,7 @@ end
 -- (u_edgeRadiusPx). Presence is asserted by sending values; LÖVE errors for
 -- unknown names, exactly like the file's other uniform-presence tests.
 function T.final_shader_has_full_resolution_state_and_edge_radius_uniforms(scope)
-  local edgeShader = scope:own(MapRenderer.new()).edgeShader
+  local edgeShader = scope:own(GxRenderer.new()).edgeShader
   local size = love.image.newImageData(8, 8, "rgba32f")
   local stateImage = scope:own(love.graphics.newImage(size))
   stateImage:setFilter("nearest", "nearest")
@@ -2808,7 +2882,7 @@ local function thinBarParts(scope)
 end
 
 function T.thin_bar_and_blade_keep_their_attached_edge_state(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local runtime = emptyRuntime()
   -- id 20 -> u_edgeColors[20/8] = entry 2: a distinguishable pure blue
   -- (RGB555 packed: blue channel 31).
@@ -2816,7 +2890,7 @@ function T.thin_bar_and_blade_keep_their_attached_edge_state(scope)
   local viewport = FieldViewport.new(1280, 720, { mode = "expanded" })
   local harness = compositeReadback(scope, renderer, viewport)
 
-  renderer:draw(runtime, fixedCamera(), thinBarParts(scope), nil, viewport, 0)
+  render(renderer, runtime, fixedCamera(), thinBarParts(scope), nil, viewport)
   harness.restore()
   love.graphics.setCanvas()
 
@@ -2909,7 +2983,7 @@ end
 -- texel coverage, and no final edge-colored pixel may appear whose support
 -- exists only because one coarse state cell changed.
 function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local runtime = emptyRuntime()
   -- id 3 -> u_edgeColors[3/8] = entry 0: pure red.
   runtime.edgeColors = { [0] = 31, 0, 0, 0, 0, 0, 0, 0 }
@@ -2960,7 +3034,7 @@ function T.moving_mixed_alpha_coverage_does_not_create_coarse_state_edges(scope)
   local function scan(offsetPx)
     local harness = compositeReadback(scope, renderer, viewport)
     local dx = offsetPx * 2 / 1280
-    renderer:draw(runtime, fixedCamera(), { { transformedMixedItem(mixedQuad(dx)) } }, nil, viewport, nil)
+    render(renderer, runtime, fixedCamera(), { { transformedMixedItem(mixedQuad(dx)) } }, nil, viewport)
     harness.restore()
     love.graphics.setCanvas()
     local color = renderer.sceneColor:newImageData()
@@ -3088,19 +3162,19 @@ end
 
 -- Renders one fullscreen quad through the real world-MRT shader with a fixed
 -- normalized device depth, then reads the renderState G channel back.
--- Driving the world-MRT shader directly (rather than through MapRenderer:draw) fixes
+-- Driving the world-MRT shader directly (rather than through GxRenderer:draw) fixes
 -- the fragment's NDC depth exactly, so the window-depth anchors are exact
 -- rather than dependent on rasterization. The MRT state output is the
 -- renderer-owned rgba32f canvas, so the readback is the real acceptance
 -- boundary (the state raster's green channel), not a fake: the same
--- worldShader/renderState pair MapRenderer's world pass binds is driven
+-- worldShader/renderState pair GxRenderer's world pass binds is driven
 -- here directly, with the projection pinned so every fragment lands at the
--- requested NDC depth (MapRenderer:draw would overwrite a custom u_proj with
+-- requested NDC depth (GxRenderer:draw would overwrite a custom u_proj with
 -- the camera's own projection on every draw item). Depth testing is disabled
 -- so the far anchor (windowZ == 1) is not rejected by the strict "less"
 -- test against the depth-cleared rear plane.
 local function stateDepthReadback(scope, ndcZ)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local mesh = scope:own(syntheticMesh({
     { -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
     { 3, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0 },
@@ -3111,8 +3185,8 @@ local function stateDepthReadback(scope, ndcZ)
   }))
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   -- Establish the real renderState canvas (and its dimensions) through one
-  -- ordinary MapRenderer:draw, then drive the same canvas directly below.
-  renderer:draw(emptyRuntime(), fixedCamera(), { { opaqueFinalStateItem(mesh, 20, false) } }, nil, viewport, nil)
+  -- ordinary GxRenderer:draw, then drive the same canvas directly below.
+  render(renderer, emptyRuntime(), fixedCamera(), { { opaqueFinalStateItem(mesh, 20, false) } }, nil, viewport)
 
   -- Rewrite the world shader's projection so every fragment lands at the
   -- requested normalized depth: a clip matrix mapping [x,y] to the unit
@@ -3200,7 +3274,7 @@ end
 -- fail (the same presence/absence convention as this file's other shader
 -- uniform tests).
 function T.world_mrt_shader_has_no_depth_w_max_uniform(scope)
-  local worldShader = scope:own(MapRenderer.new()).worldShader
+  local worldShader = scope:own(GxRenderer.new()).worldShader
   Assert.throws(function()
     worldShader:send("u_depthWMax", 400)
   end)
@@ -3231,7 +3305,7 @@ end
 -- state G readback is asserted at the same boundary depth. DsFog.density is
 -- the independent pure-Lua oracle for both expectations.
 function T.fog_boundary_consumes_the_ds_z_depth_without_camera_far_rescaling(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   -- The quad's vertices sit at z = 0; the eye-space depth comes solely from
   -- the item's world transform below (z = -0.2), so the fragment lands at
   -- exactly eye-space -0.2 -- the depth the hand-derived expectations use.
@@ -3251,7 +3325,7 @@ function T.fog_boundary_consumes_the_ds_z_depth_without_camera_far_rescaling(sco
   runtime.fog = { enabled = true, color = 0, offset = 0x1000, slope = 0, alpha = 31, table = stepDensityTable() }
 
   local harness = compositeReadback(scope, renderer, viewport)
-  renderer:draw(runtime, camera, { { item } }, nil, viewport, nil)
+  render(renderer, runtime, camera, { { item } }, nil, viewport)
   harness.restore()
   love.graphics.setCanvas()
 
@@ -3285,7 +3359,7 @@ end
 -- Exact translucent compositor scenarios cover the DS integer RGB6/alpha5
 -- blend, max destination alpha, same-ID rejection, fog-gate AND,
 -- last-translucent-ID state, and depth preservation. Every fixture drives the
--- real MapRenderer:draw at a 640x480 identity-camera viewport and reads back
+-- real GxRenderer:draw at a 640x480 identity-camera viewport and reads back
 -- the real sceneColor/renderState canvases.
 --
 -- Expected integers below are hand-derived from the compositor's equations,
@@ -3415,7 +3489,7 @@ local function litRuntimeForRenderer()
 end
 
 function T.approximate_translucent_normal_lighting_reaches_the_color_shader(scope)
-  local renderer = scope:own(MapRenderer.new({ translucencyMode = MapRenderer.TRANSLUCENCY_APPROXIMATE }))
+  local renderer = scope:own(GxRenderer.new({ translucencyMode = GxRenderer.TRANSLUCENCY_APPROXIMATE }))
   local item = normalLitTranslucentQuad(scope)
   local result = centerReadback(scope, renderer, fixedCamera(), litRuntimeForRenderer(), { { item } })
   Assert.isTrue(result.color[1] > 0.1, "approximate translucent NORMAL lighting is visible")
@@ -3423,9 +3497,9 @@ end
 
 function T.approximate_translucent_draw_preserves_non_black_world_color(scope)
   local clearColor = { 0.2, 0.7, 0.9, 1 }
-  local renderer = scope:own(MapRenderer.new({
+  local renderer = scope:own(GxRenderer.new({
     clearColor = clearColor,
-    translucencyMode = MapRenderer.TRANSLUCENCY_APPROXIMATE,
+    translucencyMode = GxRenderer.TRANSLUCENCY_APPROXIMATE,
   }))
   local item = normalLitTranslucentQuad(scope)
   local result = centerReadback(scope, renderer, fixedCamera(), litRuntimeForRenderer(), { { item } })
@@ -3436,7 +3510,7 @@ function T.approximate_translucent_draw_preserves_non_black_world_color(scope)
 end
 
 function T.exact_translucent_normal_lighting_reaches_source_color_rasterization(scope)
-  local renderer = scope:own(MapRenderer.new({ translucencyMode = MapRenderer.TRANSLUCENCY_EXACT }))
+  local renderer = scope:own(GxRenderer.new({ translucencyMode = GxRenderer.TRANSLUCENCY_EXACT }))
   local item = normalLitTranslucentQuad(scope)
   local result = centerReadback(scope, renderer, fixedCamera(), litRuntimeForRenderer(), { { item } })
   Assert.isTrue(result.color[1] > 0.1, "exact translucent NORMAL lighting is visible")
@@ -3510,11 +3584,11 @@ local function sceneScale(color)
 end
 
 -- Draw one parts list and return { color = {r,g,b,a}, state = {r,g,b,a} } at
--- the 640x480 canvas center through the real MapRenderer. `runtime` may carry
+-- the 640x480 canvas center through the real GxRenderer. `runtime` may carry
 -- edge/fog overrides.
 centerReadback = function(_, renderer, camera, runtime, parts)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
-  renderer:draw(runtime, camera, parts, nil, viewport, 0)
+  render(renderer, runtime, camera, parts, nil, viewport)
   local colorImg = renderer.sceneColor:newImageData()
   local stateImg = renderer.renderState:newImageData()
   local color = scenePixel(renderer, colorImg, 320, 240)
@@ -3877,7 +3951,7 @@ function T.final_resolve_uses_the_state_paired_with_an_odd_composite_result(scop
   translucent.center = { 0.5, 0.5, 0 }
 
   local harness = compositeReadback(scope, renderer, viewport)
-  renderer:draw(runtime, fixedCamera(), { { opaque, translucent } }, nil, viewport, nil)
+  render(renderer, runtime, fixedCamera(), { { opaque, translucent } }, nil, viewport)
   local scene = scenePixel(renderer, renderer.sceneColor:newImageData(), 320, 240)
   local sx, sy = statePixel(renderer, 320, 240)
   local state = statePixelAt(renderer, renderer.renderState:newImageData(), sx, sy)
@@ -3941,7 +4015,7 @@ function T.mixed_partial_texels_use_the_compositor_and_opaque_texels_do_not(scop
   local item = mixedItem(unitSquareQuad(scope, 1, 1, 1), texture)
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
 
-  renderer:draw(emptyRuntime(), fixedCamera(), { { item } }, nil, viewport, nil)
+  render(renderer, emptyRuntime(), fixedCamera(), { { item } }, nil, viewport)
 
   local colorImg = renderer.sceneColor:newImageData()
   local stateImg = renderer.renderState:newImageData()
@@ -4263,7 +4337,7 @@ function T.final_pass_disabled_paths_preserve_identities(scope)
 end
 
 function T.presentation_world_depth_rejects_behind_sprite(scope)
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local world = depthOpaqueQuad(scope, -0.5, 220, 20, 20, 3, false)
   local behind = depthOpaqueQuad(scope, -1.0, 20, 220, 20, 4, false)
   behind.billboardProjection = true
@@ -4271,13 +4345,13 @@ function T.presentation_world_depth_rejects_behind_sprite(scope)
   local target, color = presentationTarget(scope, 640, 480)
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
-  renderer:draw(
+  render(
+    renderer,
     emptyRuntime(),
     perspectiveCamera(),
     { { world } },
     { behind },
-    FieldViewport.new(640, 480, { mode = "strict" }),
-    0
+    FieldViewport.new(640, 480, { mode = "strict" })
   )
   love.graphics.setCanvas()
 
@@ -4287,7 +4361,7 @@ function T.presentation_world_depth_rejects_behind_sprite(scope)
 end
 
 function T.presentation_host_depth_keeps_near_sprite_when_far_submitted_later(scope)
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local near = depthOpaqueQuad(scope, -0.25, 20, 20, 220, 5, false)
   local far = depthOpaqueQuad(scope, -0.75, 220, 20, 20, 6, false)
   near.billboardProjection = true
@@ -4296,13 +4370,13 @@ function T.presentation_host_depth_keeps_near_sprite_when_far_submitted_later(sc
   local target, color = presentationTarget(scope, 640, 480)
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
-  renderer:draw(
+  render(
+    renderer,
     emptyRuntime(),
     perspectiveCamera(),
     {},
     { near, far },
-    FieldViewport.new(640, 480, { mode = "strict" }),
-    0
+    FieldViewport.new(640, 480, { mode = "strict" })
   )
   love.graphics.setCanvas()
 
@@ -4312,7 +4386,7 @@ function T.presentation_host_depth_keeps_near_sprite_when_far_submitted_later(sc
 end
 
 function T.presentation_host_depth_is_cleared_between_frames(scope)
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local near = depthOpaqueQuad(scope, -0.25, 20, 20, 220, 5, false)
   local far = depthOpaqueQuad(scope, -0.75, 220, 20, 20, 6, false)
   near.billboardProjection = true
@@ -4321,8 +4395,8 @@ function T.presentation_host_depth_is_cleared_between_frames(scope)
   local target, color = presentationTarget(scope, 640, 480)
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
-  renderer:draw(emptyRuntime(), perspectiveCamera(), {}, { near }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
-  renderer:draw(emptyRuntime(), perspectiveCamera(), {}, { far }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, emptyRuntime(), perspectiveCamera(), {}, { near }, FieldViewport.new(640, 480, { mode = "strict" }))
+  render(renderer, emptyRuntime(), perspectiveCamera(), {}, { far }, FieldViewport.new(640, 480, { mode = "strict" }))
   love.graphics.setCanvas()
 
   local r, g, b = color:newImageData():getPixel(320, 240)
@@ -4330,7 +4404,7 @@ function T.presentation_host_depth_is_cleared_between_frames(scope)
 end
 
 function T.presentation_sprites_use_native_resolution_fog_and_no_edge_pass(scope)
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local sprite = depthOpaqueQuad(scope, -0.5, 180, 180, 180, 6, true)
   sprite.billboardProjection = true
   local runtime = emptyRuntime()
@@ -4352,7 +4426,7 @@ function T.presentation_sprites_use_native_resolution_fog_and_no_edge_pass(scope
   local target, color = presentationTarget(scope, 640, 480)
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
-  renderer:draw(runtime, perspectiveCamera(), {}, { sprite }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, runtime, perspectiveCamera(), {}, { sprite }, FieldViewport.new(640, 480, { mode = "strict" }))
   love.graphics.setCanvas()
 
   Assert.equal(renderer.colorW, 512, "world target remains independent of presentation sprite resolution")
@@ -4455,7 +4529,7 @@ local function renderRegistration(scope, renderer, width, height, center, viewpo
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
   local camera = registrationCamera(width, height)
-  renderer:draw(emptyRuntime(), camera, {}, { sprite }, viewport, 0)
+  render(renderer, emptyRuntime(), camera, {}, { sprite }, viewport)
   love.graphics.setCanvas()
   local image = color:newImageData()
   local actualX, actualY = presentationCenter(image, width, height)
@@ -4496,7 +4570,7 @@ local function colorCenter(image, color)
 end
 
 function T.world_landmark_and_presentation_sprite_keep_relative_registration_on_round_trip(scope)
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local observations = {}
   for _, size in ipairs({ { 320, 240 }, { 1280, 720 }, { 320, 240 } }) do
     local width, height = size[1], size[2]
@@ -4508,7 +4582,7 @@ function T.world_landmark_and_presentation_sprite_keep_relative_registration_on_
     local viewport = FieldViewport.new(width, height, { mode = "expanded" })
     love.graphics.setCanvas(target)
     love.graphics.clear(0, 0, 0, 1)
-    renderer:draw(emptyRuntime(), registrationCamera(width, height), { { landmark } }, { sprite }, viewport, 0)
+    render(renderer, emptyRuntime(), registrationCamera(width, height), { { landmark } }, { sprite }, viewport)
     love.graphics.setCanvas()
     local image = color:newImageData()
     local greenX, greenY = colorCenter(image, "green")
@@ -4522,7 +4596,7 @@ end
 
 function T.presentation_billboard_registration_uses_homogeneous_offset_and_state_position(scope)
   local width, height = 1280, 720
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local viewport = FieldViewport.new(width, height, { mode = "strict", x = 50, y = 30 })
   local center = { 0.3683, 0.17, -3.0 }
   local camera, actualX, actualY = renderRegistration(scope, renderer, width, height, center, viewport)
@@ -4564,20 +4638,20 @@ local function renderPresentationCase(scope, renderer, runtime, worldParts, spri
   local target, color = presentationTarget(scope, 640, 480)
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 220 / 255, 0, 1)
-  renderer:draw(
+  render(
+    renderer,
     runtime,
     perspectiveCamera(),
     worldParts,
     spriteItems,
-    FieldViewport.new(640, 480, { mode = "strict" }),
-    0
+    FieldViewport.new(640, 480, { mode = "strict" })
   )
   love.graphics.setCanvas()
   return color:newImageData()
 end
 
 function T.presentation_sprites_stay_inside_a_wide_strict_world_viewport(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local target, color = presentationTarget(scope, 1280, 720)
   local image = solidAlphaImage(scope, 255, 0, 0, 255)
   local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), image)
@@ -4585,7 +4659,7 @@ function T.presentation_sprites_stay_inside_a_wide_strict_world_viewport(scope)
 
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
-  renderer:draw(emptyRuntime(), fixedCamera(), {}, { sprite }, viewport, 0)
+  render(renderer, emptyRuntime(), fixedCamera(), {}, { sprite }, viewport)
   love.graphics.setCanvas()
 
   local pixels = color:newImageData()
@@ -4596,7 +4670,7 @@ function T.presentation_sprites_stay_inside_a_wide_strict_world_viewport(scope)
 end
 
 function T.presentation_sprites_stay_inside_a_narrow_expanded_viewport_fallback(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local target, color = presentationTarget(scope, 600, 720)
   local image = solidAlphaImage(scope, 0, 255, 0, 255)
   local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), image)
@@ -4604,7 +4678,7 @@ function T.presentation_sprites_stay_inside_a_narrow_expanded_viewport_fallback(
 
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
-  renderer:draw(emptyRuntime(), fixedCamera(), {}, { sprite }, viewport, 0)
+  render(renderer, emptyRuntime(), fixedCamera(), {}, { sprite }, viewport)
   love.graphics.setCanvas()
 
   local pixels = color:newImageData()
@@ -4615,7 +4689,7 @@ function T.presentation_sprites_stay_inside_a_narrow_expanded_viewport_fallback(
 end
 
 function T.presentation_sprite_fog_uses_the_world_endpoint_density_rules(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local target, color = presentationTarget(scope, 640, 480)
   local image = solidAlphaImage(scope, 255, 0, 0, 255)
   local sprite = presentationSprite(scope, presentationQuadMesh(scope, -300), image)
@@ -4642,29 +4716,29 @@ function T.presentation_sprite_fog_uses_the_world_endpoint_density_rules(scope)
     }
     return value
   end
-  local function render(table32)
+  local function renderSprite(table32)
     love.graphics.setCanvas(target)
     love.graphics.clear(0, 0, 0, 1)
-    renderer:draw(
+    render(
+      renderer,
       runtime(table32),
       perspectiveCamera(),
       {},
       { sprite },
-      FieldViewport.new(640, 480, { mode = "strict" }),
-      0
+      FieldViewport.new(640, 480, { mode = "strict" })
     )
     love.graphics.setCanvas()
     return { color:newImageData():getPixel(320, 240) }
   end
 
-  local normal = render(normalRamp)
-  local saturating = render(saturatingRamp)
+  local normal = renderSprite(normalRamp)
+  local saturating = renderSprite(saturatingRamp)
   Assert.isTrue(normal[2] < 0.99, "the ordinary fog ramp preserves its final density of 124")
   Assert.isTrue(saturating[2] > 0.99, "a final raw density at or above 127 saturates to 128")
 end
 
 function T.presentation_orientation_is_exact_at_an_off_center_coordinate(scope)
-  local renderer = scope:own(MapRenderer.new())
+  local renderer = scope:own(GxRenderer.new())
   local target, color = presentationTarget(scope, 640, 480)
   local sprite = presentationSprite(scope, presentationQuadMesh(scope, 0), solidAlphaImage(scope, 255, 0, 0, 255))
   sprite.billboardCenter = { 0, 0.5, 0 }
@@ -4672,7 +4746,7 @@ function T.presentation_orientation_is_exact_at_an_off_center_coordinate(scope)
 
   love.graphics.setCanvas(target)
   love.graphics.clear(0, 0, 0, 1)
-  renderer:draw(emptyRuntime(), fixedCamera(), {}, { sprite }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, emptyRuntime(), fixedCamera(), {}, { sprite }, FieldViewport.new(640, 480, { mode = "strict" }))
   love.graphics.setCanvas()
 
   local pixels = color:newImageData()
@@ -4689,7 +4763,7 @@ function T.presentation_orientation_is_exact_at_an_off_center_coordinate(scope)
 end
 
 function T.fogged_presentation_rgb_survives_zero_result_alpha(scope)
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local world = depthOpaqueQuad(scope, -0.5, 0, 220, 0, 3, false)
   local sprite = presentationSprite(scope, depthQuadMesh(scope, -0.25), solidAlphaImage(scope, 255, 0, 0, 255))
   sprite.fogEnabled = true
@@ -4703,7 +4777,7 @@ function T.fogged_presentation_rgb_survives_zero_result_alpha(scope)
 end
 
 function T.presentation_depth_writes_keep_the_near_fogged_sprite_visible(scope)
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local near = presentationSprite(scope, depthQuadMesh(scope, -0.25), solidAlphaImage(scope, 255, 0, 0, 255))
   near.fogEnabled = true
   local far = presentationSprite(scope, depthQuadMesh(scope, -0.75), solidAlphaImage(scope, 255, 255, 0, 255))
@@ -4717,7 +4791,7 @@ function T.presentation_depth_writes_keep_the_near_fogged_sprite_visible(scope)
 end
 
 function T.presentation_cutout_holes_remain_world_pixels_under_direct_replace(scope)
-  local renderer = scope:own(MapRenderer.new({ worldRasterScale = 2 }))
+  local renderer = scope:own(GxRenderer.new({ worldRasterScale = 2 }))
   local backdrop = presentationSprite(scope, presentationQuadMesh(scope, -0.75), solidAlphaImage(scope, 0, 220, 0, 255))
   local mesh = scope:own(syntheticMesh({
     { -1, -1, -0.25, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0 },

@@ -21,11 +21,11 @@
 -- opaque/cutout/mixedOpaque/wireframe; blended holds decorated records.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldErrors = require("libs.engine.src.FieldErrors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 
 local RenderQueue = {}
+local RENDER_QUEUE_UNKNOWN_ALPHA_CLASS = "RENDER_QUEUE_UNKNOWN_ALPHA_CLASS"
 
 local ALPHA_CLASSES = {
   [AlphaClassifier.OPAQUE] = true,
@@ -44,7 +44,7 @@ function RenderQueue.classifyAlphaClass(item)
   local mode = item.alphaClass
   if not ALPHA_CLASSES[mode] then
     Errors.raise(
-      FieldErrors.RENDER_QUEUE_UNKNOWN_ALPHA_CLASS,
+      RENDER_QUEUE_UNKNOWN_ALPHA_CLASS,
       "render item has unknown alpha class " .. tostring(mode),
       { alphaClass = mode }
     )

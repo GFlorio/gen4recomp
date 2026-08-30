@@ -9,7 +9,7 @@
 -- Usage per frame: instance:updateFixed() advances every attachment player,
 -- instance:evaluatePose() recomputes the pose state through the nitro
 -- backend, then drawItems(renderMeshesById) produces draw items in the
--- production renderer's shape (the same item contract MapRenderer consumes
+-- production renderer's shape (the same item contract the field renderer consumes
 -- for map/building draws). drawItems also re-evaluates the effective material
 -- state from the material attachments -- UV transforms, pattern variants,
 -- animated colors, and the recomputed render classification -- so the item
@@ -300,7 +300,7 @@ function ModelInstance:effectiveMaterial(materialIndex)
   }
 end
 
--- A draw item in the MapRenderer item shape (the contract MapRenderer
+-- A draw item in the field renderer item shape (the contract the field renderer
 -- consumes for map/building draws).
 ---@class ModelDrawItem
 ---@field mesh table -- built render mesh for the item's mesh id
@@ -320,7 +320,7 @@ end
 ---@field billboardCenter number[]|nil
 ---@field billboardScale number[]|nil
 
--- Draw items in the MapRenderer item shape, one per definition mesh, with
+-- Draw items in the field renderer item shape, one per definition mesh, with
 -- the current pose. `renderMeshesById` maps mesh id -> built render mesh
 -- (love Mesh in production; any object in pure tests). A mesh whose node is
 -- hidden by the current pose is omitted. Before the first pose evaluation

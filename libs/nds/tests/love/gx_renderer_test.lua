@@ -1,4 +1,4 @@
--- Pure MapRenderer contracts that need no graphics context: the per-draw
+-- Pure GxRenderer contracts that need no graphics context: the per-draw
 -- light-mask encoding and the scene-schema gate.
 -- Everything that compiles a shader, allocates a render target, or reads
 -- back driver state lives in map_renderer_graphics_test.lua. (The state
@@ -8,7 +8,7 @@
 -- below, both driven through the fake graphics context.)
 
 local Assert = require("tests.support.Assert")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local GxRenderer = require("libs.nds.src.love.GxRenderer")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local Matrix3 = require("libs.math.src.Matrix3")
@@ -16,48 +16,49 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
-local RenderQueue = require("libs.engine.src.RenderQueue")
+local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
 
 local T = {}
 
----@class MapRendererTest.Shader : MapRenderer.Shader
+---@class GxRendererTest.Shader : GxRenderer.Shader
 ---@field source string
 ---@field releaseCount integer
 ---@field sends { name: string, values: table }[]
 ---@field uniforms table<string, unknown>
----@field send fun(self: MapRendererTest.Shader, name: string, ...)
----@field release fun(self: MapRendererTest.Shader)
----@class MapRendererTest.Canvas : MapRenderer.Canvas
+---@field send fun(self: GxRendererTest.Shader, name: string, ...)
+---@field release fun(self: GxRendererTest.Shader)
+---@class GxRendererTest.Canvas : GxRenderer.Canvas
 ---@field releaseCount integer
 ---@field w integer
 ---@field h integer
----@field canvasOpts MapRendererTest.CanvasOptions?
+---@field canvasOpts GxRendererTest.CanvasOptions?
 ---@field filter { [1]: string, [2]: string }|nil
----@field setFilter fun(self: MapRendererTest.Canvas, min: string, mag: string)
----@field release fun(self: MapRendererTest.Canvas)
----@class MapRendererTest.CanvasOptions
+---@field setFilter fun(self: GxRendererTest.Canvas, min: string, mag: string)
+---@field release fun(self: GxRendererTest.Canvas)
+---@class GxRendererTest.CanvasOptions
 ---@field format string?
----@class MapRendererTest.TargetDescriptor : MapRenderer.TargetDescriptor
----@field [1] MapRendererTest.Canvas
----@field [2] MapRendererTest.Canvas
----@field depthstencil MapRendererTest.Canvas
----@class MapRendererTest.GraphicsCalls
+---@class GxRendererTest.TargetDescriptor : GxRenderer.TargetDescriptor
+---@field [1] GxRendererTest.Canvas
+---@field [2] GxRendererTest.Canvas
+---@field depthstencil GxRendererTest.Canvas
+---@class GxRendererTest.GraphicsCalls
 ---@field canvas table[]
 ---@field blend table[]
 ---@field depth table[]
 ---@field wireframe table[]
 ---@field clear table[]
 ---@field draw table[]
----@class MapRendererTest.Graphics : MapRenderer.Graphics
----@field shaders MapRendererTest.Shader[]
----@field canvases MapRendererTest.Canvas[]
----@field calls MapRendererTest.GraphicsCalls
+---@class GxRendererTest.Graphics : GxRenderer.Graphics
+---@field shaders GxRendererTest.Shader[]
+---@field canvases GxRendererTest.Canvas[]
+---@field calls GxRendererTest.GraphicsCalls
 ---@field setFailOnSend fun(value: table|nil)
 ---@field setFailOnNewCanvas fun(value: integer|nil)
 ---@field getDrawCalls fun(): integer
 ---@field getDimensions fun(): integer, integer
----@field newShader fun(source: string): MapRendererTest.Shader
----@field newCanvas fun(width: integer, height: integer, opts: MapRendererTest.CanvasOptions?): MapRendererTest.Canvas
+---@field newShader fun(source: string): GxRendererTest.Shader
+---@field newCanvas fun(width: integer, height: integer, opts: GxRendererTest.CanvasOptions?): GxRendererTest.Canvas
 ---@field getCanvas fun(): table?
 ---@field setCanvas fun(canvas: table?)
 ---@field getShader fun(): table?
@@ -77,7 +78,7 @@ local T = {}
 
 -- Eight zero-based RGB555-packed edge colors, the shape
 -- MapAssetCompiler now emits (HgssFieldEdgeColors.TABLE_A/TABLE_B) and
--- MapRenderer decodes at draw time -- distinct, arbitrary packed values so a
+-- GxRenderer decodes at draw time -- distinct, arbitrary packed values so a
 -- decode bug (wrong channel, wrong index) cannot hide behind a uniform grey
 -- fixture.
 local function edgeColorsFixture()
@@ -94,6 +95,69 @@ local function disabledFogFixture()
   return { enabled = false, color = 0, offset = 0, slope = 0, alpha = 0, table = table32 }
 end
 
+local DRAW_ITEM_FIELDS = {
+  "mesh",
+  "material",
+  "transform",
+  "modelNormal",
+  "billboardCenter",
+  "billboardScale",
+  "alphaClass",
+  "cullMode",
+  "fogEnabled",
+  "lightMask",
+  "polygonAlpha",
+  "polygonId",
+  "polygonMode",
+}
+
+local function normalizedItem(item, projection)
+  local normalized = { projection = projection } ---@type table<string, unknown>
+  for _, field in ipairs(DRAW_ITEM_FIELDS) do
+    normalized[field] = item[field]
+  end
+  return normalized
+end
+
+local function normalizedQueue(queue, worldProjection, billboardProjection)
+  local normalized = {
+    opaque = {},
+    cutout = {},
+    mixedOpaque = {},
+    wireframe = {},
+    blended = {},
+  }
+  local function projectionFor(item)
+    if item.billboardProjection == true or item.fieldEffect ~= nil then
+      return billboardProjection
+    end
+    return worldProjection
+  end
+  for _, pass in ipairs({ "opaque", "cutout", "mixedOpaque", "wireframe" }) do
+    for _, item in ipairs(queue[pass]) do
+      normalized[pass][#normalized[pass] + 1] = normalizedItem(item, projectionFor(item))
+    end
+  end
+  for _, entry in ipairs(queue.blended) do
+    normalized.blended[#normalized.blended + 1] = {
+      item = normalizedItem(entry.item, projectionFor(entry.item)),
+      fragmentPass = entry.fragmentPass,
+    }
+  end
+  return normalized
+end
+
+local function normalizedSprites(spriteItems, billboardProjection)
+  if spriteItems == nil then
+    return nil
+  end
+  local normalized = {}
+  for _, item in ipairs(spriteItems) do
+    normalized[#normalized + 1] = normalizedItem(item, billboardProjection)
+  end
+  return normalized
+end
+
 -- The raw 5-bit RGB555 decode (each channel normalized /31, no six-bit
 -- expansion): still the correct expected domain for material/light color
 -- registers and the fog color this file's fog-preset tests assert against.
@@ -105,7 +169,7 @@ local function decodeRgb555Float(packed)
   }
 end
 
--- The exact decode MapRenderer must apply to a packed RGB555 edge-color
+-- The exact decode GxRenderer must apply to a packed RGB555 edge-color
 -- entry before it reaches the final shader: each 5-bit channel expanded to
 -- the DS six-bit framebuffer domain (melonDS's rule -- 0 stays 0, any
 -- non-zero n becomes 2n+1 -- the same expansion map.glsl's expand5to6
@@ -113,7 +177,7 @@ end
 -- color composites directly into the six-bit scene RGB (edge.glsl replaces
 -- scene.rgb outright), so a raw /31 RGB555 value is the wrong domain, not
 -- merely an unrounded one. This is an independently hand-derived expected
--- function, not a copy of MapRenderer's private decoder.
+-- function, not a copy of GxRenderer's private decoder.
 local function expand5to6(c5)
   if c5 <= 0 then
     return 0
@@ -156,7 +220,7 @@ local function emptySceneCamera()
       buildingDraws = {},
       stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
       -- Edge colors are scene state fed from the compiled area's
-      -- real HGSS table, never a MapRenderer constructor invariant.
+      -- real HGSS table, never a GxRenderer constructor invariant.
       edgeColors = edgeColorsFixture(),
       -- Likewise fog: the resolved global weather preset, disabled by
       -- default here so tests unrelated to fog wiring do not need their own
@@ -172,7 +236,7 @@ end
 -- failOnNewShader/failOnNewCanvas/failOnDrawCall injection on the Nth call so
 -- the construction and draw error paths run without a GL context.
 ---@param opts table|nil
----@return MapRendererTest.Graphics
+---@return GxRendererTest.Graphics
 local function fakeGraphics(opts)
   opts = opts or {}
   local shaders, canvases = {}, {}
@@ -218,7 +282,7 @@ local function fakeGraphics(opts)
         error("injected shader failure")
       end
       local shader = { source = source, releaseCount = 0, sends = {}, uniforms = {} }
-      --[[@as MapRendererTest.Shader]]
+      --[[@as GxRendererTest.Shader]]
       shader.send = function(_, name, ...)
         if opts.failSend and opts.failSend.shader == shader and opts.failSend.name == name then
           opts.failSend = nil
@@ -231,7 +295,7 @@ local function fakeGraphics(opts)
         shader.releaseCount = shader.releaseCount + 1
       end
       shaders[#shaders + 1] = shader
-      return shader --[[@as MapRendererTest.Shader]]
+      return shader --[[@as GxRendererTest.Shader]]
     end,
     newCanvas = function(w, h, canvasOpts)
       canvasCount = canvasCount + 1
@@ -241,7 +305,7 @@ local function fakeGraphics(opts)
       -- Records the requested size/format and every setFilter call so raster
       -- target-sizing and nearest-filter contracts can be asserted headlessly.
       local canvas = { releaseCount = 0, w = w, h = h, canvasOpts = canvasOpts }
-      --[[@as MapRendererTest.Canvas]]
+      --[[@as GxRendererTest.Canvas]]
       canvas.setFilter = function(_, min, mag)
         canvas.filter = { min, mag }
       end
@@ -249,7 +313,7 @@ local function fakeGraphics(opts)
         canvas.releaseCount = canvas.releaseCount + 1
       end
       canvases[#canvases + 1] = canvas
-      return canvas --[[@as MapRendererTest.Canvas]]
+      return canvas --[[@as GxRendererTest.Canvas]]
     end,
     getCanvas = function()
       return state.canvas
@@ -315,15 +379,45 @@ local function fakeGraphics(opts)
     clear = function(...)
       calls.clear[#calls.clear + 1] = { ... }
     end,
-  } --[[@as MapRendererTest.Graphics]]
+  } --[[@as GxRendererTest.Graphics]]
   return graphics
+end
+
+local function render(renderer, sceneRuntime, camera, worldParts, spriteItems, viewport, alpha)
+  local viewMatrix = camera:view(alpha)
+  local lighting = sceneRuntime.lighting
+  if lighting and lighting.records then
+    lighting =
+      FieldLightProfile.select(lighting, sceneRuntime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
+  end
+  local queue = RenderQueue.buildInto(worldParts or {}, viewMatrix, {
+    opaque = {},
+    cutout = {},
+    mixedOpaque = {},
+    wireframe = {},
+    blended = {},
+  })
+  local worldProjection = camera:projection()
+  local billboardProjection = camera:billboardProjection()
+  return renderer:draw({
+    lighting = lighting,
+    edgeColors = sceneRuntime.edgeColors,
+    fog = sceneRuntime.fog,
+    viewMatrix = viewMatrix,
+    cameraZoom = camera.zoom,
+    worldProjection = worldProjection,
+    billboardProjection = billboardProjection,
+    queue = normalizedQueue(queue, worldProjection, billboardProjection),
+    spriteItems = normalizedSprites(spriteItems, billboardProjection),
+    viewport = viewport,
+  })
 end
 
 ---@param shader table
 ---@param name string
 ---@return integer
 local function shaderSendCount(shader, name)
-  local typedShader = shader --[[@as MapRendererTest.Shader]]
+  local typedShader = shader --[[@as GxRendererTest.Shader]]
   local count = 0
   for _, send in ipairs(typedShader.sends) do
     if send.name == name then
@@ -359,7 +453,7 @@ end
 -- white, and enables wireframe only during a wireframe pass), so each
 -- assertion fails unless the restore block runs. Colors round-trip through
 -- float32 on some GL drivers, so they are compared within a small tolerance.
----@param lg MapRendererTest.Graphics
+---@param lg GxRendererTest.Graphics
 ---@param canvas table
 ---@param shader table
 local function assertRestoredState(lg, canvas, shader)
@@ -382,8 +476,8 @@ end
 
 -- The renderer owns everything it created through the injected graphics: every
 -- shader and canvas it built must be released when the renderer is released.
----@param lg MapRendererTest.Graphics
----@param renderer MapRenderer
+---@param lg GxRendererTest.Graphics
+---@param renderer GxRenderer
 ---@param extraShaderCount integer|nil
 local function assertResourcesReleased(lg, renderer, extraShaderCount)
   for _, shader in ipairs(lg.shaders) do
@@ -392,35 +486,35 @@ local function assertResourcesReleased(lg, renderer, extraShaderCount)
   for _, canvas in ipairs(lg.canvases) do
     Assert.equal(canvas.releaseCount, 1, "renderer released every created canvas exactly once")
   end
-  local expectedShaderCount = renderer.translucencyMode == MapRenderer.TRANSLUCENCY_EXACT and 5 or 3
+  local expectedShaderCount = renderer.translucencyMode == GxRenderer.TRANSLUCENCY_EXACT and 5 or 3
   expectedShaderCount = expectedShaderCount + (extraShaderCount or 0)
   Assert.equal(#lg.shaders, expectedShaderCount, "shader ownership matches the renderer translucency mode")
 end
 
----@param renderer MapRenderer
----@return table<string, MapRendererTest.Canvas?>
+---@param renderer GxRenderer
+---@return table<string, GxRendererTest.Canvas?>
 local function rendererCanvasRoles(renderer)
   local roles = {
-    sceneColor = renderer.sceneColor --[[@as MapRendererTest.Canvas?]],
-    colorDepth = renderer.colorDepth --[[@as MapRendererTest.Canvas?]],
-    renderState = renderer.renderState --[[@as MapRendererTest.Canvas?]],
-    spareColor = renderer._spareColor --[[@as MapRendererTest.Canvas?]],
-    spareState = renderer._spareState --[[@as MapRendererTest.Canvas?]],
-    sourceColor = renderer._sourceColor --[[@as MapRendererTest.Canvas?]],
-    sourceMeta = renderer._sourceMeta --[[@as MapRendererTest.Canvas?]],
-  } --[[@as table<string, MapRendererTest.Canvas?>]]
+    sceneColor = renderer.sceneColor --[[@as GxRendererTest.Canvas?]],
+    colorDepth = renderer.colorDepth --[[@as GxRendererTest.Canvas?]],
+    renderState = renderer.renderState --[[@as GxRendererTest.Canvas?]],
+    spareColor = renderer._spareColor --[[@as GxRendererTest.Canvas?]],
+    spareState = renderer._spareState --[[@as GxRendererTest.Canvas?]],
+    sourceColor = renderer._sourceColor --[[@as GxRendererTest.Canvas?]],
+    sourceMeta = renderer._sourceMeta --[[@as GxRendererTest.Canvas?]],
+  } --[[@as table<string, GxRendererTest.Canvas?>]]
   return roles
 end
 
 ---@param value table
----@return MapRendererTest.TargetDescriptor
+---@return GxRendererTest.TargetDescriptor
 local function targetDescriptor(value)
-  return value --[[@as MapRendererTest.TargetDescriptor]]
+  return value --[[@as GxRendererTest.TargetDescriptor]]
 end
 
----@param renderer MapRenderer
----@param lg MapRendererTest.Graphics
----@return table<string, MapRendererTest.Canvas?>, integer
+---@param renderer GxRenderer
+---@param lg GxRendererTest.Graphics
+---@return table<string, GxRendererTest.Canvas?>, integer
 local function assertPublishedCanvasRoles(renderer, lg)
   local roles = rendererCanvasRoles(renderer)
   local roleNames = {
@@ -456,10 +550,10 @@ end
 -- dimensions equal the color dimensions after any draw.
 function T.state_target_dimensions_equal_color_dimensions()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
   local viewport = { worldViewport = { x = 0, y = 0, width = 1280, height = 720 } }
-  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(renderer.colorW, 1280)
   Assert.equal(renderer.colorH, 720)
   Assert.equal(renderer.stateW, renderer.colorW, "state width equals the color width, not a fixed semantic raster")
@@ -471,7 +565,7 @@ end
 
 function T.world_raster_scale_bounds_only_the_world_targets()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+  local renderer = GxRenderer.new({ graphics = lg, worldRasterScale = 2 })
   local scene = emptySceneCamera()
   local sizes = {
     { width = 640, height = 480, expectedW = 512, expectedH = 384 },
@@ -482,7 +576,8 @@ function T.world_raster_scale_bounds_only_the_world_targets()
     { width = 800, height = 300, expectedW = 800, expectedH = 300 },
   }
   for _, size in ipairs(sizes) do
-    renderer:draw(
+    render(
+      renderer,
       scene.runtime,
       scene.camera,
       nil,
@@ -492,7 +587,7 @@ function T.world_raster_scale_bounds_only_the_world_targets()
     )
     Assert.equal(renderer.colorW, size.expectedW, "world raster width is DS-relative")
     Assert.equal(renderer.colorH, size.expectedH, "world raster height is DS-relative")
-    local sceneCanvas = assert(renderer.sceneColor) --[[@as MapRendererTest.Canvas]]
+    local sceneCanvas = assert(renderer.sceneColor) --[[@as GxRendererTest.Canvas]]
     Assert.equal(sceneCanvas.w, size.expectedW)
     Assert.equal(sceneCanvas.h, size.expectedH)
   end
@@ -502,7 +597,7 @@ end
 function T.world_raster_scale_rejects_non_positive_and_non_finite_values()
   local lg = fakeGraphics()
   for _, scale in ipairs({ 0, -1, math.huge, -math.huge, 0 / 0 }) do
-    local ok, renderer = pcall(MapRenderer.new, { graphics = lg, worldRasterScale = scale })
+    local ok, renderer = pcall(GxRenderer.new, { graphics = lg, worldRasterScale = scale })
     if ok then
       renderer:release()
     end
@@ -515,16 +610,16 @@ end
 -- canvas is released.
 function T.state_target_recreation_failure_releases_partials_and_keeps_previous_set()
   local probeGraphics = fakeGraphics()
-  local probeRenderer = MapRenderer.new({ graphics = probeGraphics, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local probeRenderer = GxRenderer.new({ graphics = probeGraphics, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
-  probeRenderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(probeRenderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   local _, generationSize = assertPublishedCanvasRoles(probeRenderer, probeGraphics)
   probeRenderer:release()
 
   for failureOffset = 1, generationSize do
     local lg = fakeGraphics()
-    local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
-    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+    local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
+    render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
     local oldColorW, oldColorH, oldStateW, oldStateH =
       renderer.colorW, renderer.colorH, renderer.stateW, renderer.stateH
     local oldColorTargets = renderer._colorTargets
@@ -534,7 +629,7 @@ function T.state_target_recreation_failure_releases_partials_and_keeps_previous_
     lg.setFailOnNewCanvas(generationSize + failureOffset)
 
     local err = Assert.throws(function()
-      renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(1280, 720, { mode = "expanded" }), 0)
+      render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(1280, 720, { mode = "expanded" }), 0)
     end)
     Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
 
@@ -564,7 +659,7 @@ end
 -- compatibility wrapper: no production, test, or doc may still derive a
 -- 192-line state raster from the display size.
 function T.no_fixed_semantic_size_helper_remains()
-  Assert.isNil(rawget(MapRenderer, "semanticTargetSize"), "the fixed-192 semantic-size helper is removed")
+  Assert.isNil(rawget(GxRenderer, "semanticTargetSize"), "the fixed-192 semantic-size helper is removed")
 end
 
 -- The renderer sends the edge radius on the real draw
@@ -576,13 +671,13 @@ end
 -- floor(7.5 + 0.5) = 8; a 480p viewport at zoom 1 gives floor(2.5 + 0.5) = 3.
 function T.draw_sends_the_rounded_field_pixel_scale_as_the_edge_radius()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
   local edgeShader = lg.shaders[2]
 
   local function radiusSentFor(viewport, zoom)
     scene.camera.zoom = zoom
-    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+    render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
     local last
     for _, send in ipairs(edgeShader.sends) do
       if send.name == "u_edgeRadiusPx" then
@@ -618,9 +713,9 @@ function T.draw_restores_exact_caller_state()
     cullMode = "back",
     color = { 0.2, 0.4, 0.6, 0.8 },
   })
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
-  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   assertRestoredState(lg, canvas, shader)
   renderer:release()
   assertResourcesReleased(lg, renderer)
@@ -639,10 +734,10 @@ function T.invalid_presentation_descriptor_restores_exact_caller_state()
     cullMode = "back",
     color = { 0.2, 0.4, 0.6, 0.8 },
   })
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local err = Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+    render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   end)
   Assert.isTrue(tostring(err):find("color presentation target", 1, true) ~= nil)
   assertRestoredState(lg, canvas, shader)
@@ -669,7 +764,7 @@ function T.presentation_sprites_use_direct_replace_with_depth_writes()
     cullMode = "back",
     color = { 0.2, 0.4, 0.6, 0.8 },
   })
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local item = {
     mesh = { setTexture = function() end },
     material = { texMatrix = Matrix4.identity() },
@@ -686,7 +781,7 @@ function T.presentation_sprites_use_direct_replace_with_depth_writes()
     center = { 0, 0, 0 },
   }
   local scene = emptySceneCamera()
-  renderer:draw(scene.runtime, scene.camera, nil, { item }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, { item }, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   local spriteDraw
   for _, draw in ipairs(lg.calls.draw) do
     if draw.mesh == item.mesh then
@@ -714,17 +809,17 @@ end
 function T.draw_clears_the_scene_canvas_to_the_injected_color()
   local lg = fakeGraphics()
   local injected = { 0.5, 0.6, 0.7, 1 }
-  local renderer = MapRenderer.new({ graphics = lg, clearColor = injected })
+  local renderer = GxRenderer.new({ graphics = lg, clearColor = injected })
   local scene = emptySceneCamera()
-  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   Assert.equal(lg.calls.clear[2][1], injected, "scene canvas clears to the injected color")
 end
 
 function T.draw_without_an_injected_color_uses_a_renderer_default()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
-  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   Assert.isTrue(lg.calls.clear[2][1] ~= nil, "scene canvas still clears when no color is injected")
 end
 
@@ -749,11 +844,11 @@ function T.draw_failure_restores_exact_state_and_rethrows()
     color = { 0.2, 0.4, 0.6, 0.8 },
     failOnDrawCall = 1,
   })
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local identity = Matrix4.identity()
   local err = Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, {
+    render(renderer, scene.runtime, scene.camera, {
       {
         {
           mesh = { setTexture = function() end },
@@ -780,7 +875,7 @@ end
 function T.new_releases_first_shader_when_second_shader_fails()
   local lg = fakeGraphics({ failOnNewShader = 2 })
   local err = Assert.throws(function()
-    MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+    GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   end)
   Assert.isTrue(tostring(err):find("injected shader failure", 1, true) ~= nil, "rethrows the shader failure")
   Assert.equal(#lg.shaders, 1, "only the first shader was created")
@@ -792,7 +887,7 @@ end
 function T.new_first_shader_failure_leaks_nothing()
   local lg = fakeGraphics({ failOnNewShader = 1 })
   local err = Assert.throws(function()
-    MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+    GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   end)
   Assert.isTrue(tostring(err):find("injected shader failure", 1, true) ~= nil, "rethrows the shader failure")
   Assert.equal(#lg.shaders, 0, "no shader was created")
@@ -802,7 +897,7 @@ function T.new_releases_prior_shaders_when_compositor_shader_fails()
   for _, failAt in ipairs({ 4, 5 }) do
     local lg = fakeGraphics({ failOnNewShader = failAt })
     local err = Assert.throws(function()
-      MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+      GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
     end)
     Assert.isTrue(
       tostring(err):find("injected shader failure", 1, true) ~= nil,
@@ -823,36 +918,36 @@ end
 function T.new_reads_shader_sources_through_the_injected_reader()
   local lg = fakeGraphics()
   local calls = {}
-  local renderer = MapRenderer.new({
+  local renderer = GxRenderer.new({
     graphics = lg,
-    translucencyMode = MapRenderer.TRANSLUCENCY_EXACT,
+    translucencyMode = GxRenderer.TRANSLUCENCY_EXACT,
     readSource = function(path)
       calls[#calls + 1] = path
       return "source:" .. path
     end,
   })
   Assert.deepEqual(calls, {
-    "libs/engine/src/shaders/map.glsl",
-    "libs/engine/src/shaders/edge.glsl",
-    "libs/engine/src/shaders/source.glsl",
-    "libs/engine/src/shaders/composite.glsl",
+    "libs/nds/src/love/shaders/map.glsl",
+    "libs/nds/src/love/shaders/edge.glsl",
+    "libs/nds/src/love/shaders/source.glsl",
+    "libs/nds/src/love/shaders/composite.glsl",
   })
-  Assert.equal(lg.shaders[1].source, "source:libs/engine/src/shaders/map.glsl")
-  Assert.equal(lg.shaders[2].source, "source:libs/engine/src/shaders/edge.glsl")
-  Assert.equal(lg.shaders[3].source, "#define WORLD_MRT\nsource:libs/engine/src/shaders/map.glsl")
-  Assert.equal(lg.shaders[4].source, "source:libs/engine/src/shaders/source.glsl")
-  Assert.equal(lg.shaders[5].source, "source:libs/engine/src/shaders/composite.glsl")
+  Assert.equal(lg.shaders[1].source, "source:libs/nds/src/love/shaders/map.glsl")
+  Assert.equal(lg.shaders[2].source, "source:libs/nds/src/love/shaders/edge.glsl")
+  Assert.equal(lg.shaders[3].source, "#define WORLD_MRT\nsource:libs/nds/src/love/shaders/map.glsl")
+  Assert.equal(lg.shaders[4].source, "source:libs/nds/src/love/shaders/source.glsl")
+  Assert.equal(lg.shaders[5].source, "source:libs/nds/src/love/shaders/composite.glsl")
   renderer:release()
 end
 
 -- Without an injected reader, the default resolves the engine shader paths in
 -- the actual runtime environments: through love.filesystem from the packaged
 -- archive, or -- in the repo checkout where the app runs as `love game/` and
--- the engine tree sits outside the source mount -- from the host file under
+-- the library tree sits outside the source mount -- from the host file under
 -- the LÖVE source base directory. Both real sources must reach newShader.
 function T.new_reads_real_shader_sources_by_default()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   Assert.isTrue(lg.shaders[1].source:find("uniform", 1, true) ~= nil, "map shader source is real GLSL")
   Assert.isTrue(lg.shaders[2].source:find("uniform", 1, true) ~= nil, "edge shader source is real GLSL")
   Assert.isTrue(lg.shaders[3].source:find("uniform", 1, true) ~= nil, "MRT world shader source is real GLSL")
@@ -866,7 +961,7 @@ function T.new_second_shader_source_failure_releases_first_shader()
   local lg = fakeGraphics()
   local reads = 0
   local err = Assert.throws(function()
-    MapRenderer.new({
+    GxRenderer.new({
       graphics = lg,
       readSource = function()
         reads = reads + 1
@@ -887,9 +982,9 @@ function T.new_compositor_source_read_failure_releases_prior_shaders()
     local lg = fakeGraphics()
     local reads = 0
     local err = Assert.throws(function()
-      MapRenderer.new({
+      GxRenderer.new({
         graphics = lg,
-        translucencyMode = MapRenderer.TRANSLUCENCY_EXACT,
+        translucencyMode = GxRenderer.TRANSLUCENCY_EXACT,
         readSource = function()
           reads = reads + 1
           if reads == failAt then
@@ -920,7 +1015,7 @@ end
 function T.new_first_shader_source_failure_leaks_nothing()
   local lg = fakeGraphics()
   local err = Assert.throws(function()
-    MapRenderer.new({
+    GxRenderer.new({
       graphics = lg,
       readSource = function()
         error("injected read failure")
@@ -937,16 +1032,16 @@ end
 -- sceneColor and renderState are both nearest-filtered.
 function T.new_derives_equal_color_and_state_target_sizes_and_nearest_filters_scene_color_and_render_state()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local viewport = { worldViewport = { x = 0, y = 0, width = 1280, height = 720 } }
-  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(renderer.colorW, 1280, "the color target matches the display viewport width exactly")
   Assert.equal(renderer.colorH, 720, "the color target matches the display viewport height exactly")
   Assert.equal(renderer.stateW, 1280, "the state target matches the color target width exactly")
   Assert.equal(renderer.stateH, 720, "the state target matches the color target height exactly")
-  local sceneColor = renderer.sceneColor --[[@as MapRendererTest.Canvas]]
-  local renderState = renderer.renderState --[[@as MapRendererTest.Canvas]]
+  local sceneColor = renderer.sceneColor --[[@as GxRendererTest.Canvas]]
+  local renderState = renderer.renderState --[[@as GxRendererTest.Canvas]]
   Assert.deepEqual(sceneColor.filter, { "nearest", "nearest" }, "sceneColor is nearest-filtered")
   Assert.deepEqual(renderState.filter, { "nearest", "nearest" }, "renderState is nearest-filtered")
   renderer:release()
@@ -960,16 +1055,16 @@ end
 -- count as an implementation detail.
 function T.canvas_recreation_failure_releases_partial_new_canvases()
   local probeGraphics = fakeGraphics()
-  local probeRenderer = MapRenderer.new({ graphics = probeGraphics, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local probeRenderer = GxRenderer.new({ graphics = probeGraphics, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
-  probeRenderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(probeRenderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   local _, generationSize = assertPublishedCanvasRoles(probeRenderer, probeGraphics)
   probeRenderer:release()
 
   for failureOffset = 1, generationSize do
     local lg = fakeGraphics()
-    local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
-    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+    local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
+    render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
     local oldRoles = rendererCanvasRoles(renderer)
     Assert.equal(#lg.canvases, generationSize, "the first target set was created")
     lg.setFailOnNewCanvas(generationSize + failureOffset)
@@ -978,7 +1073,7 @@ function T.canvas_recreation_failure_releases_partial_new_canvases()
     local oldColorTargets = renderer._colorTargets
 
     local err = Assert.throws(function()
-      renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(1280, 720, { mode = "expanded" }), 0)
+      render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(1280, 720, { mode = "expanded" }), 0)
     end)
     Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "rethrows the canvas failure")
 
@@ -1010,18 +1105,18 @@ end
 -- resolve rebinds its state texture every frame, including after compositing.
 function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local stats = renderer.stats
   local edgeShader = renderer.edgeShader
-  local recordedEdgeShader = edgeShader --[[@as MapRendererTest.Shader]]
+  local recordedEdgeShader = edgeShader --[[@as GxRendererTest.Shader]]
 
   -- Edge colors are scene state, not a value the constructor sends
   -- before any scene exists.
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 0, "construction sends no scene-derived edge colors")
 
-  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   local colorTargets = assert(renderer._colorTargets, "successful canvas creation publishes the MRT descriptor")
   Assert.equal(colorTargets[1], renderer.sceneColor)
   Assert.equal(colorTargets.depthstencil, renderer.colorDepth)
@@ -1037,7 +1132,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.deepEqual(recordedEdgeShader.uniforms.u_stateSize, { renderer.stateW, renderer.stateH })
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the first draw establishes the scene edge table")
 
-  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(renderer._colorTargets, colorTargets, "unchanged dimensions reuse the color descriptor")
   Assert.equal(renderer._colorTargets, colorTargets, "unchanged dimensions reuse the MRT descriptor")
   Assert.equal(renderer.stats, stats, "later draws retain stats identity")
@@ -1051,7 +1146,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 1, "the same edge table reference is not resent")
 
   viewport:resize(1280, 800)
-  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new color descriptor")
   Assert.isTrue(renderer._colorTargets ~= colorTargets, "replacement publishes a new MRT descriptor")
   Assert.equal(shaderSendCount(edgeShader, "u_renderState"), 3)
@@ -1066,7 +1161,7 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   -- A different edge table (a new area's scene profile) resends, even though
   -- the raster size and target descriptors are unchanged.
   scene.runtime.edgeColors = edgeColorsFixture()
-  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   Assert.equal(shaderSendCount(edgeShader, "u_edgeColors"), 2, "a changed edge table resends")
 
   -- The DS composites edge color by RGB replacement, not an
@@ -1079,17 +1174,17 @@ function T.draw_reuses_frame_storage_and_configures_edges_at_change_boundaries()
   Assert.isNil(renderer._colorTargets, "release clears the MRT descriptor")
 end
 
--- The decoded values MapRenderer sends for u_edgeColors are the scene's edge
+-- The decoded values GxRenderer sends for u_edgeColors are the scene's edge
 -- table RGB555 entries expanded into the six-bit combiner domain (0 -> 0,
 -- n -> 2n+1, normalized /63) -- not a raw /31 RGB555 float, a placeholder
 -- grey, or the wrong index/channel.
 function T.draw_sends_the_scene_edge_table_decoded_to_normalized_rgb6()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
-  local edgeShader = renderer.edgeShader --[[@as MapRendererTest.Shader]]
+  local edgeShader = renderer.edgeShader --[[@as GxRendererTest.Shader]]
 
-  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local sent
   for _, send in ipairs(edgeShader.sends) do
@@ -1111,13 +1206,13 @@ end
 -- 8/63 (the old floor(c5/16) expansion's result for 4).
 function T.edge_color_rgb555_4_4_4_expands_to_rgb6_9_63()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
-  local edgeShader = renderer.edgeShader --[[@as MapRendererTest.Shader]]
+  local edgeShader = renderer.edgeShader --[[@as GxRendererTest.Shader]]
   local packed444 = 4 + 4 * 32 + 4 * 1024
   scene.runtime.edgeColors = { [0] = packed444, 0, 0, 0, 0, 0, 0, 0 }
 
-  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local sent
   for _, send in ipairs(edgeShader.sends) do
@@ -1132,16 +1227,16 @@ end
 
 -- A scene with no edge-color table is a required production collaborator
 -- gone missing (every compiled HGSS field scene carries one -- field edge
--- marking is unconditionally enabled), not a case MapRenderer papers over
+-- marking is unconditionally enabled), not a case GxRenderer papers over
 -- with an invented default.
 function T.draw_requires_the_scenes_edge_color_table()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   scene.runtime.edgeColors = nil
 
   Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+    render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   end)
   renderer:release()
 end
@@ -1149,27 +1244,20 @@ end
 -- A camera missing a usable far plane is a malformed collaborator, not a case
 -- to silently default around: the camera's far plane still feeds its own
 -- projection matrices (camera:projection()/camera:billboardProjection()),
--- which both passes draw through, so MapRenderer must fail loudly rather
+-- which both passes draw through, so GxRenderer must fail loudly rather
 -- than render against an invented projection bound.
-function T.draw_requires_a_positive_camera_far_plane()
+function T.draw_requires_normalized_projection_matrices()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
-  local scene = emptySceneCamera()
+  local renderer = GxRenderer.new({ graphics = lg })
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
 
-  scene.camera.far = nil
   Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
-  end)
-
-  scene.camera.far = 0
-  Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
-  end)
-
-  scene.camera.far = -10
-  Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+    renderer:draw({
+      viewport = viewport,
+      viewMatrix = Matrix4.identity(),
+      billboardProjection = Matrix4.identity(),
+      queue = { opaque = {}, cutout = {}, mixedOpaque = {}, wireframe = {}, blended = {} },
+    })
   end)
   renderer:release()
 end
@@ -1194,7 +1282,7 @@ local function fogFixture(enabled)
   }
 end
 
--- MapRenderer must send the scene's own resolved fog preset to the final
+-- GxRenderer must send the scene's own resolved fog preset to the final
 -- pass shader (edgeShader), not the permanently-disabled idle default and
 -- not map.glsl (which owns no fog uniform -- see
 -- map_shader_has_no_global_fog_uniforms in the graphics-smoke suite): enable,
@@ -1204,16 +1292,16 @@ end
 -- fogAlpha5/srcAlpha5 blend operates in -- not normalized, unlike the fog
 -- color), and the 32-entry table all reach edgeShader unconditionally
 -- (per-frame, like u_view), whether the resolved preset is enabled or
--- disabled -- disabled is data on the preset, never a MapRenderer special
+-- disabled -- disabled is data on the preset, never a GxRenderer special
 -- case.
 function T.draw_sends_the_scenes_resolved_fog_preset_when_enabled()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   scene.runtime.fog = fogFixture(true)
   local shader = lg.shaders[2]
 
-  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   Assert.equal(shader.uniforms.u_fogEnabled, true, "the resolved preset's enable reaches the final pass shader")
   Assert.deepEqual(
@@ -1237,12 +1325,12 @@ end
 
 function T.draw_sends_the_scenes_resolved_fog_preset_when_disabled()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   scene.runtime.fog = fogFixture(false)
   local shader = lg.shaders[2]
 
-  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   Assert.equal(shader.uniforms.u_fogEnabled, false)
   Assert.deepEqual(shader.uniforms.u_fogColor, decodeRgb555Float(scene.runtime.fog.color))
@@ -1263,15 +1351,15 @@ end
 
 -- Every compiled HGSS field scene carries a resolved fog preset (global fog
 -- is unconditionally resolved per map); a scene missing it is a required
--- collaborator gone missing, not a case MapRenderer defaults around.
+-- collaborator gone missing, not a case GxRenderer defaults around.
 function T.draw_requires_the_scenes_fog_preset()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   scene.runtime.fog = nil
 
   Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+    render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
   end)
   renderer:release()
 end
@@ -1281,7 +1369,7 @@ end
 -- consumer's payload delivery.
 function T.stable_fog_reference_sends_once_to_each_consumer()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   renderer:_ensureSpriteShader()
   local scene = emptySceneCamera()
   scene.runtime.fog = fogFixture(true)
@@ -1323,7 +1411,7 @@ end
 -- the next unchanged frame is again a no-op.
 function T.changed_fog_reference_retries_after_partial_sync_failure()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   renderer:_ensureSpriteShader()
   local scene = emptySceneCamera()
   local presetA = fogFixture(false)
@@ -1382,7 +1470,7 @@ end
 -- not draw stale items retained from an earlier build.
 function T.draw_renders_only_given_parts_into_persistent_scratch()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local identity = Matrix4.identity()
   local function drawItem(id)
@@ -1408,29 +1496,17 @@ function T.draw_renders_only_given_parts_into_persistent_scratch()
   -- Every draw() issues its own composite blit. Empty parts draw nothing
   -- beyond it, and each item in the given parts draws exactly twice -- once
   -- into the world MRT pass, once into the translucent color path.
-  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   local emptyFrame = lg.getDrawCalls()
-  renderer:draw(scene.runtime, scene.camera, {
+  render(renderer, scene.runtime, scene.camera, {
     { drawItem("a") },
     { drawItem("b") },
   }, nil, viewport, 0)
   local itemFrame = lg.getDrawCalls() - emptyFrame
   Assert.equal(itemFrame - emptyFrame, 2, "each given world item draws once through the MRT pass")
 
-  local scratch = renderer._queueScratch
-  Assert.isTrue(type(scratch) == "table", "the renderer owns queue scratch")
-  local opaque = scratch.opaque
-  local cutout = scratch.cutout
-  local blended = scratch.blended
-  local wireframe = scratch.wireframe
-
-  renderer:draw(scene.runtime, scene.camera, { { drawItem("next") } }, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, { { drawItem("next") } }, nil, viewport, 0)
   Assert.equal(renderer.stats.drawCalls, 1, "a smaller frame retains no stale draw items")
-  Assert.isTrue(renderer._queueScratch == scratch)
-  Assert.isTrue(scratch.opaque == opaque)
-  Assert.isTrue(scratch.cutout == cutout)
-  Assert.isTrue(scratch.blended == blended)
-  Assert.isTrue(scratch.wireframe == wireframe)
 
   renderer:release()
 end
@@ -1439,25 +1515,25 @@ end
 -- of the polygon's 4-bit mask. Different masks decode to different uniforms
 -- and mask 0 to all-off.
 function T.light_mask_uniforms_decode_polygon_bits()
-  Assert.deepEqual(MapRenderer.lightMaskUniforms(0), { 0, 0, 0, 0 })
-  Assert.deepEqual(MapRenderer.lightMaskUniforms(1), { 1, 0, 0, 0 })
-  Assert.deepEqual(MapRenderer.lightMaskUniforms(2), { 0, 1, 0, 0 })
-  Assert.deepEqual(MapRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 })
-  Assert.deepEqual(MapRenderer.lightMaskUniforms(15), { 1, 1, 1, 1 })
+  Assert.deepEqual(GxRenderer.lightMaskUniforms(0), { 0, 0, 0, 0 })
+  Assert.deepEqual(GxRenderer.lightMaskUniforms(1), { 1, 0, 0, 0 })
+  Assert.deepEqual(GxRenderer.lightMaskUniforms(2), { 0, 1, 0, 0 })
+  Assert.deepEqual(GxRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 })
+  Assert.deepEqual(GxRenderer.lightMaskUniforms(15), { 1, 1, 1, 1 })
   -- Masks outside the 4-bit polygon field are malformed data.
   Assert.throws(function()
-    MapRenderer.lightMaskUniforms(16)
+    GxRenderer.lightMaskUniforms(16)
   end)
   Assert.throws(function()
-    MapRenderer.lightMaskUniforms(-1)
+    GxRenderer.lightMaskUniforms(-1)
   end)
 end
 
 function T.light_mask_uniforms_returns_caller_owned_values()
-  local exposed = MapRenderer.lightMaskUniforms(5)
+  local exposed = GxRenderer.lightMaskUniforms(5)
   exposed[1], exposed[3] = 0, 0
 
-  Assert.deepEqual(MapRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 }, "callers cannot mutate the cached lookup")
+  Assert.deepEqual(GxRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 }, "callers cannot mutate the cached lookup")
 end
 
 local function lightingRecord(startHalfSeconds, diffuseRgb555, vectorX)
@@ -1479,18 +1555,17 @@ local function lightingRecord(startHalfSeconds, diffuseRgb555, vectorX)
   }
 end
 
--- Lighting uniforms are change-driven by both profile and selected-record
--- identity. Decoded material arrays retain identity while their values track
--- record changes, and a lit/unlit transition clears the profile exactly once.
-function T.lighting_cache_tracks_profile_record_and_unlit_transitions()
+-- Lighting uniforms are change-driven by selected-record identity. Decoded
+-- material arrays retain identity while their values track record changes, and
+-- a lit/unlit transition clears the record exactly once.
+function T.lighting_cache_tracks_record_and_unlit_transitions()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local shader = lg.shaders[1]
   local red, green = 31, 31 * 32
   local morning = lightingRecord(0, red, 0)
   local evening = lightingRecord(10, green, 4096)
-  local profile = { records = { morning, evening } }
-  local runtime = { lighting = profile, fieldTimeSeconds = 0 }
+  local runtime = { lighting = morning }
 
   renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 12, "first lit record sends four light uniform groups")
@@ -1503,14 +1578,14 @@ function T.lighting_cache_tracks_profile_record_and_unlit_transitions()
   Assert.equal(renderer._lightMaterialColors, colors)
   Assert.equal(renderer._lightMaterialColors.diffuse, diffuse)
 
-  runtime.fieldTimeSeconds = 20
+  runtime.lighting = evening
   renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 24, "time selection moving records resends lighting")
   Assert.equal(renderer._lightMaterialColors, colors, "decoded material storage is persistent")
   Assert.equal(renderer._lightMaterialColors.diffuse, diffuse)
   Assert.deepEqual(diffuse, { 0, 1, 0 })
 
-  runtime.lighting = { records = { evening } }
+  runtime.lighting = lightingRecord(10, green, 4096)
   renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 36, "profile identity participates in the cache key")
 
@@ -1521,8 +1596,7 @@ function T.lighting_cache_tracks_profile_record_and_unlit_transitions()
   renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 48, "stable unlit state sends nothing")
 
-  runtime.lighting = profile
-  runtime.fieldTimeSeconds = 0
+  runtime.lighting = morning
   renderer:_sendLighting(runtime, shader)
   Assert.equal(#shader.sends, 60, "unlit to lit restores the selected record")
   Assert.equal(renderer._lightMaterialColors, colors)
@@ -1538,14 +1612,14 @@ local function litRuntime()
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     edgeColors = edgeColorsFixture(),
     fog = disabledFogFixture(),
-    lighting = { records = { lightingRecord(0, white, 0) } },
+    lighting = lightingRecord(0, white, 0),
     fieldTimeSeconds = 0,
   }
 end
 
 function T.lighting_delivery_retries_only_the_shader_that_failed()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local runtime = litRuntime()
   local colorShader, worldShader = lg.shaders[1], lg.shaders[3]
 
@@ -1563,7 +1637,7 @@ end
 
 function T.lighting_cache_hit_restores_material_colors_after_another_shader_unlights()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local runtime = litRuntime()
   local colorShader, worldShader = lg.shaders[1], lg.shaders[3]
 
@@ -1598,14 +1672,14 @@ end
 
 function T.exact_compositor_sends_invariant_bindings_once_per_blended_frame()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
   local parts = {
     { passItem("translucent", 0) },
     { passItem("translucent", 1) },
   }
 
-  renderer:draw(litRuntime(), scene.camera, parts, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, litRuntime(), scene.camera, parts, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local compositeShader = renderer.compositeShader
   Assert.equal(shaderSendCount(compositeShader, "u_sourceColor"), 1)
@@ -1618,7 +1692,7 @@ end
 
 function T.target_descriptors_retain_identity_through_steady_draws_and_exact_swaps()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
   local oneBlended = { { passItem("translucent", 0) } }
@@ -1627,13 +1701,13 @@ function T.target_descriptors_retain_identity_through_steady_draws_and_exact_swa
     { passItem("translucent", 1) },
   }
 
-  renderer:draw(scene.runtime, scene.camera, oneBlended, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, oneBlended, nil, viewport, 0)
   local colorTargets = assert(renderer._colorTargets)
   local stateClearTargets = assert(renderer._stateClearTargets)
   local colorClearTargets = assert(renderer._colorClearTargets)
   local sourceColorTargets = assert(renderer._sourceColorTargets)
   local sourceMetaTargets = assert(renderer._sourceMetaTargets)
-  renderer:draw(scene.runtime, scene.camera, oneBlended, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, oneBlended, nil, viewport, 0)
   Assert.equal(renderer._colorTargets, colorTargets)
   Assert.equal(renderer._stateClearTargets, stateClearTargets)
   Assert.equal(renderer._colorClearTargets, colorClearTargets)
@@ -1642,7 +1716,7 @@ function T.target_descriptors_retain_identity_through_steady_draws_and_exact_swa
   local startingSceneColor = renderer.sceneColor
   local startingRenderState = renderer.renderState
 
-  renderer:draw(scene.runtime, scene.camera, twoBlended, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, twoBlended, nil, viewport, 0)
   Assert.equal(renderer._colorTargets, colorTargets)
   Assert.equal(renderer._stateClearTargets, stateClearTargets)
   Assert.equal(renderer._colorClearTargets, colorClearTargets)
@@ -1662,10 +1736,11 @@ end
 
 function T.wireframe_is_submitted_once_with_edge_only_state()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local item = passItem("wireframe", 0)
 
-  renderer:draw(
+  render(
+    renderer,
     litRuntime(),
     emptySceneCamera().camera,
     { { item } },
@@ -1688,8 +1763,9 @@ end
 
 function T.lighting_delivery_is_independent_for_approximate_world_and_color_shaders()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
-  renderer:draw(
+  local renderer = GxRenderer.new({ graphics = lg })
+  render(
+    renderer,
     litRuntime(),
     emptySceneCamera().camera,
     { { passItem("translucent", 0) } },
@@ -1705,8 +1781,9 @@ end
 
 function T.lighting_delivery_is_independent_for_exact_source_color_shader()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
-  renderer:draw(
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
+  render(
+    renderer,
     litRuntime(),
     emptySceneCamera().camera,
     { { passItem("translucent", 0) } },
@@ -1726,15 +1803,15 @@ end
 
 function T.lighting_delivery_clears_each_shader_on_lit_to_unlit_transition()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local runtime = litRuntime()
   local camera = emptySceneCamera().camera
   local parts = { { passItem("translucent", 0) } }
   local viewport = FieldViewport.new(640, 480, { mode = "strict" })
 
-  renderer:draw(runtime, camera, parts, nil, viewport, 0)
+  render(renderer, runtime, camera, parts, nil, viewport, 0)
   runtime.lighting = nil
-  renderer:draw(runtime, camera, parts, nil, viewport, 0)
+  render(renderer, runtime, camera, parts, nil, viewport, 0)
 
   Assert.equal(shaderSendCount(lg.shaders[3], "u_lightEnabled0"), 2, "world shader receives its unlit clear")
   Assert.equal(shaderSendCount(lg.shaders[1], "u_lightEnabled0"), 2, "color shader receives its unlit clear")
@@ -1746,11 +1823,11 @@ end
 -- attachment governs both outputs.
 function T.one_opaque_world_item_submits_once_to_the_shared_color_state_target()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local item = passItem("opaque", 0)
   local scene = emptySceneCamera()
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, {
+  render(renderer, scene.runtime, scene.camera, { { item } }, nil, {
     worldViewport = { x = 0, y = 0, width = 640, height = 480 },
   }, 0)
 
@@ -1768,12 +1845,12 @@ end
 
 function T.mrt_target_ownership_has_no_state_shader_or_state_depth_and_rolls_back_resize_failure()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   Assert.isNil(rawget(renderer, "stateShader"), "the dedicated state shader is not owned")
 
   local scene = emptySceneCamera()
   local viewport = { worldViewport = { x = 0, y = 0, width = 640, height = 480 } }
-  renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   local previousTargets = renderer._colorTargets
   local previousColor = renderer.sceneColor
   local previousCanvasCount = #lg.canvases
@@ -1782,7 +1859,7 @@ function T.mrt_target_ownership_has_no_state_shader_or_state_depth_and_rolls_bac
   viewport.worldViewport.width = 1280
   viewport.worldViewport.height = 720
   local err = Assert.throws(function()
-    renderer:draw(scene.runtime, scene.camera, nil, nil, viewport, 0)
+    render(renderer, scene.runtime, scene.camera, nil, nil, viewport, 0)
   end)
   Assert.isTrue(tostring(err):find("injected canvas failure", 1, true) ~= nil, "resize failure reaches the caller")
   Assert.equal(renderer._colorTargets, previousTargets, "the previous MRT target set remains published")
@@ -1797,10 +1874,10 @@ end
 -- polygon-id value 0x3F (63) -- it is not a value carved out of the 0..63
 -- domain (pokeheartgold: the field renderer's clear-buffer setup; GBATEK
 -- POLYGON_ATTR polygon ID is 6 bits wide, so 63 is the largest real id, not a
--- sentinel outside it). MapRenderer must expose this as a named constant, not
+-- sentinel outside it). GxRenderer must expose this as a named constant, not
 -- an invented out-of-domain value like the retired REAR_PLANE_ID (255).
 function T.clear_polygon_id_is_the_hgss_rear_plane_value()
-  Assert.equal(MapRenderer.CLEAR_POLYGON_ID, 63, "HGSS's real clear polygon id is 0x3F (63), a reachable DS id")
+  Assert.equal(GxRenderer.CLEAR_POLYGON_ID, 63, "HGSS's real clear polygon id is 0x3F (63), a reachable DS id")
 end
 
 -- The root of the "invented 255 sentinel" bug: because opaque/cutout/
@@ -1816,12 +1893,12 @@ end
 -- same polygon.
 function T.a_real_polygon_63_encodes_the_same_id_value_as_the_clear_background()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local item = passItem("opaque", 0)
   item.polygonId = 63
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   -- Only the world MRT shader (shaders[3]) carries a polygon-ID uniform.
   local sentPolygonId
@@ -1850,17 +1927,17 @@ end
 -- carved out of the polygon-ID domain to signal translucency.
 -- An ordinary translucent item never reaches the world MRT pass at all (only
 -- opaque/cutout/mixed-opaque/wireframe touch renderState -- see
--- MapRenderer:draw), so it sends no u_polygonId anywhere; this locks that it
+-- GxRenderer:draw), so it sends no u_polygonId anywhere; this locks that it
 -- is not, for example, routed through the state pass with an invented
 -- sentinel ID merely because it is translucent.
 function T.translucent_draws_send_their_own_polygon_id_not_an_invented_sentinel()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local item = passItem("translucent", -1)
   item.polygonId = 7
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   Assert.equal(
     shaderSendCount(lg.shaders[3], "u_polygonId"),
@@ -1872,14 +1949,14 @@ end
 
 -- An ordinary field actor is not a separate sprite renderer -- FieldActorDraw.item builds the
 -- exact same render-item shape terrain/building queueing does, so it must
--- reach MapRenderer's one shared _drawMesh path and send the same uniform
+-- reach GxRenderer's one shared _drawMesh path and send the same uniform
 -- contract, carrying the ROM's own actor polygon state (modulation,
 -- lightMask 1, polygonId 0, cutout alpha) rather than a hard-coded/actor-only
 -- substitute. Built through the real production FieldActorDraw/
 -- FieldActorFixture path, not a hand-authored item table.
 function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygon_state()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
 
   local function stubMesh()
@@ -1904,7 +1981,7 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
   local item = FieldActorDraw.item(record, entry)
   Assert.equal(item.alphaClass, "cutout", "the fixture's actor material is the ROM's cutout class")
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local worldShader = lg.shaders[3]
   local sent = {}
@@ -1915,7 +1992,7 @@ function T.actor_draw_item_reaches_the_shared_world_pipeline_with_its_rom_polygo
   Assert.equal(sent.u_polygonId, 0 / 63, "the actor's polygon id 0 rides the real id channel in the world MRT")
   Assert.equal(sent.u_fragmentPass, 1, "the actor's cutout class sends the color-pass cutout fragment-pass id")
   Assert.equal(sent.u_fragmentPass, 1, "the actor's cutout class sends the world MRT cutout fragment-pass id")
-  Assert.deepEqual(sent.u_lightMask, MapRenderer.lightMaskUniforms(1), "light mask 1 decodes to bit 0 only")
+  Assert.deepEqual(sent.u_lightMask, GxRenderer.lightMaskUniforms(1), "light mask 1 decodes to bit 0 only")
   Assert.notNil(
     sent.u_billboardCenter,
     "the actor's billboard projection selection reaches the shared billboard branch"
@@ -1930,7 +2007,7 @@ end
 
 function T.billboard_draw_sends_change_driven_data_for_nonuniform_scale()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
   local viewMatrix = Matrix4.multiply(Matrix4.rotateX(0.37), Matrix4.rotateY(-0.61))
   scene.camera.view = function()
@@ -1942,7 +2019,7 @@ function T.billboard_draw_sends_change_driven_data_for_nonuniform_scale()
   item.billboardCenter, item.billboardScale = BillboardTransform.components(item.billboardBase)
   local originalTransform = item.transform
 
-  renderer:draw(scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, { { item } }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   local sentCenter, sentScale, sentModel
   for _, send in ipairs(lg.shaders[3].sends) do
@@ -1963,7 +2040,7 @@ end
 
 function T.ordinary_draw_sends_the_items_precomputed_model_normal()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local item = passItem("opaque", 0)
   item.modelNormal = { 0.5, 0, 0, 0, 1 / 3, 0, 0, 0, 0.25 }
 
@@ -1981,7 +2058,7 @@ end
 
 function T.ordinary_draw_requires_an_explicit_model_normal()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local item = passItem("opaque", 0)
   item.modelNormal = nil
 
@@ -2004,7 +2081,7 @@ end
 -- Host `lequal` is retired, not merely unused.
 function T.draw_sets_wireframe_and_translucent_state_once_per_run()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
   local items = {
     passItem("translucent", -4),
@@ -2015,7 +2092,7 @@ function T.draw_sets_wireframe_and_translucent_state_once_per_run()
     passItem("wireframe", 1),
   }
 
-  renderer:draw(scene.runtime, scene.camera, { items }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, { items }, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   -- The programmable ping-pong compositor uses replace semantics for both
   -- source rasterization and composite use replace semantics. Every depth
@@ -2112,7 +2189,7 @@ end
 
 function T.straddle_filled_draw_uses_resident_mesh_without_readback_or_allocation()
   local fake = straddleGraphics()
-  local renderer = MapRenderer.new({ graphics = fake })
+  local renderer = GxRenderer.new({ graphics = fake })
   local resident = sourceMesh()
   renderer:_drawItem(straddleDrawItem(resident), Matrix4.identity(), 0)
   Assert.equal(fake.drawCalls[1], resident)
@@ -2120,7 +2197,7 @@ end
 
 function T.straddle_wireframe_draw_uses_resident_mesh_without_readback_or_allocation()
   local fake = straddleGraphics()
-  local renderer = MapRenderer.new({ graphics = fake })
+  local renderer = GxRenderer.new({ graphics = fake })
   local resident = sourceMesh()
   renderer._activeShader = renderer.worldShader
   renderer:_drawWireframe(straddleDrawItem(resident), Matrix4.identity())
@@ -2130,7 +2207,7 @@ end
 
 function T.exact_source_meta_straddle_draw_uses_resident_mesh_without_readback_or_allocation()
   local fake = straddleGraphics()
-  local renderer = MapRenderer.new({ graphics = fake, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = fake, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local resident = sourceMesh()
   local item = straddleDrawItem(resident)
   item.material.alphaClass = "translucent"
@@ -2147,13 +2224,13 @@ end
 -- with its own real POLYGON_ATTR polygon id -- there is no separate
 -- "wireframe id" register on real hardware. The renderer must send that same
 -- real id, never a value invented to mean "this is a wireframe/rear-plane
--- draw" (see MapRenderer.CLEAR_POLYGON_ID for the one real DS sentinel value,
+-- draw" (see GxRenderer.CLEAR_POLYGON_ID for the one real DS sentinel value,
 -- which is a legitimate polygon id, not a wireframe-specific one). Only the
 -- world MRT wireframe draw carries a polygon-ID uniform -- the color shader
 -- does not own any ID/fog-gate output.
 function T.wireframe_draw_sends_its_own_real_polygon_id_not_an_invented_sentinel()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local item = passItem("wireframe", 0)
   item.polygonId = 37
 
@@ -2180,7 +2257,7 @@ end
 -- opaque fragment-pass id.
 function T.wireframe_draw_is_opaque_classified_for_edge_marking()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local item = passItem("wireframe", 0)
 
   renderer:_drawWireframe(item, Matrix4.identity())
@@ -2201,14 +2278,15 @@ end
 -- so only an explicit "never sent" assertion catches its reintroduction.
 function T.draws_never_send_the_retired_translucent_attribute_uniform()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local opaqueItem = passItem("opaque", 0)
   local cutoutItem = passItem("cutout", 0)
   local translucentItem = passItem("translucent", -1)
   local wireframeItem = passItem("wireframe", 0)
 
-  renderer:draw(
+  render(
+    renderer,
     scene.runtime,
     scene.camera,
     { { opaqueItem, cutoutItem, translucentItem, wireframeItem } },
@@ -2225,48 +2303,12 @@ function T.draws_never_send_the_retired_translucent_attribute_uniform()
   renderer:release()
 end
 
--- The render queue is built exactly once per frame and both passes consume
--- it -- never a separate actor queue or a second full buildInto call.
--- RenderQueue.buildInto is a pure module function (no instance to inject),
--- so this spies on it directly rather than adding a production test-only
--- global counter, and restores it immediately afterward regardless of
--- outcome so no other test observes the wrapped function.
-function T.draw_builds_the_render_queue_exactly_once_per_frame()
-  local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
-  local scene = emptySceneCamera()
-  local original = RenderQueue.buildInto
-  local callCountValue = 0
-  rawset(RenderQueue, "buildInto", function(...)
-    callCountValue = callCountValue + 1
-    return original(...)
-  end)
-
-  local ok, err = pcall(function()
-    renderer:draw(
-      scene.runtime,
-      scene.camera,
-      { { passItem("opaque", 0) } },
-      nil,
-      FieldViewport.new(640, 480, { mode = "strict" }),
-      0
-    )
-  end)
-  rawset(RenderQueue, "buildInto", original)
-  if not ok then
-    error(err)
-  end
-
-  Assert.equal(callCountValue, 1, "MapRenderer:draw builds the render queue exactly once per frame")
-  renderer:release()
-end
-
 -- World items, actor billboards, and field effects share one projection
 -- selection boundary. The single MRT pass records each output with that
 -- projection.
 function T.field_effects_share_the_depth_biased_projection_with_billboards()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   local worldProjection = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }
   local billboardProjection = { 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2 }
@@ -2286,7 +2328,8 @@ function T.field_effects_share_the_depth_biased_projection_with_billboards()
   entrance.worldSpace = true
   entrance.fieldEffect = "warp_entrance"
 
-  renderer:draw(
+  render(
+    renderer,
     scene.runtime,
     scene.camera,
     { { ordinary, billboard, entrance } },
@@ -2321,11 +2364,11 @@ end
 -- color/resolve shaders are shaders[1]/shaders[2]).
 function T.draw_never_sends_the_retired_depth_normalization_uniform()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg })
+  local renderer = GxRenderer.new({ graphics = lg })
   local scene = emptySceneCamera()
   scene.camera.far = 123.5
 
-  renderer:draw(scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
+  render(renderer, scene.runtime, scene.camera, nil, nil, FieldViewport.new(640, 480, { mode = "strict" }), 0)
 
   Assert.equal(shaderSendCount(lg.shaders[1], "u_depthWMax"), 0, "the color shader never receives the retired uniform")
   Assert.equal(
@@ -2373,7 +2416,7 @@ function T.field_depth_conversion_table_matches_the_ds_z_formula()
   Assert.equal(dsZ(0) < dsZ(0.5) and dsZ(0.5) < dsZ(1), true, "the mapping is monotonic across the anchors")
 end
 
--- Translucency mode contracts are exercised through MapRenderer:draw with the
+-- Translucency mode contracts are exercised through GxRenderer:draw with the
 -- same fake graphics boundary used by the production renderer tests. These
 -- scenarios intentionally observe resource roles and draw sequencing, not
 -- private helper calls.
@@ -2386,15 +2429,15 @@ local function translucentItems(count)
 end
 
 local function drawTranslucentFrame(renderer, scene, items)
-  renderer:draw(scene.runtime, scene.camera, { items }, nil, FieldViewport.new(1920, 1080, { mode = "expanded" }), 0)
+  render(renderer, scene.runtime, scene.camera, { items }, nil, FieldViewport.new(1920, 1080, { mode = "expanded" }), 0)
 end
 
 function T.default_translucency_uses_direct_alpha_and_no_exact_resources()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+  local renderer = GxRenderer.new({ graphics = lg, worldRasterScale = 2 })
   local scene = emptySceneCamera()
 
-  Assert.equal(renderer.translucencyMode, MapRenderer.TRANSLUCENCY_APPROXIMATE)
+  Assert.equal(renderer.translucencyMode, GxRenderer.TRANSLUCENCY_APPROXIMATE)
   Assert.isNil(renderer.sourceShader, "default mode does not construct the exact source shader")
   Assert.isNil(renderer.compositeShader, "default mode does not construct the exact composite shader")
   drawTranslucentFrame(renderer, scene, translucentItems(1))
@@ -2410,7 +2453,7 @@ end
 -- presentation target and the caller's canvas.
 function T.approximate_blended_pass_binds_the_renderer_owned_descriptor()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+  local renderer = GxRenderer.new({ graphics = lg, worldRasterScale = 2 })
   local scene = emptySceneCamera()
 
   drawTranslucentFrame(renderer, scene, translucentItems(1))
@@ -2430,11 +2473,11 @@ end
 -- blended frames reuse it, while a raster-size change publishes one replacement.
 function T.approximate_blended_frames_reuse_descriptor_until_resize()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+  local renderer = GxRenderer.new({ graphics = lg, worldRasterScale = 2 })
   local scene = emptySceneCamera()
   local viewport = FieldViewport.new(1920, 1080, { mode = "expanded" })
   local function drawAndRecord()
-    renderer:draw(scene.runtime, scene.camera, { translucentItems(1) }, nil, viewport, 0)
+    render(renderer, scene.runtime, scene.camera, { translucentItems(1) }, nil, viewport, 0)
     return lg.calls.canvas[#lg.calls.canvas - 2]
   end
 
@@ -2447,7 +2490,7 @@ function T.approximate_blended_frames_reuse_descriptor_until_resize()
 
   local resizedViewport = FieldViewport.new(1280, 800, { mode = "expanded" })
   local function drawResizedAndRecord()
-    renderer:draw(scene.runtime, scene.camera, { translucentItems(1) }, nil, resizedViewport, 0)
+    render(renderer, scene.runtime, scene.camera, { translucentItems(1) }, nil, resizedViewport, 0)
     return lg.calls.canvas[#lg.calls.canvas - 2]
   end
   local resizedDescriptor = drawResizedAndRecord()
@@ -2466,7 +2509,7 @@ end
 function T.unknown_translucency_mode_is_rejected()
   local lg = fakeGraphics()
   Assert.throws(function()
-    MapRenderer.new({ graphics = lg, translucencyMode = "unsupported" })
+    GxRenderer.new({ graphics = lg, translucencyMode = "unsupported" })
   end)
   Assert.equal(#lg.shaders, 0, "invalid mode fails before acquiring shaders")
 end
@@ -2474,7 +2517,7 @@ end
 function T.approximate_full_screen_work_is_constant_as_blended_count_grows()
   local function drawCount(itemCount)
     local lg = fakeGraphics()
-    local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+    local renderer = GxRenderer.new({ graphics = lg, worldRasterScale = 2 })
     local scene = emptySceneCamera()
     drawTranslucentFrame(renderer, scene, translucentItems(itemCount))
     local count = lg.getDrawCalls()
@@ -2489,10 +2532,10 @@ end
 
 function T.explicit_exact_mode_preserves_the_programmable_translucency_path()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
 
-  Assert.equal(renderer.translucencyMode, MapRenderer.TRANSLUCENCY_EXACT)
+  Assert.equal(renderer.translucencyMode, GxRenderer.TRANSLUCENCY_EXACT)
   Assert.notNil(renderer.sourceShader)
   Assert.notNil(renderer.compositeShader)
   drawTranslucentFrame(renderer, scene, translucentItems(1))
@@ -2503,9 +2546,9 @@ end
 
 function T.exact_mode_is_selected_through_normal_construction_and_retains_resources()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
 
-  Assert.equal(renderer.translucencyMode, MapRenderer.TRANSLUCENCY_EXACT)
+  Assert.equal(renderer.translucencyMode, GxRenderer.TRANSLUCENCY_EXACT)
   Assert.notNil(renderer.sourceShader, "exact source shader is live runtime code")
   Assert.notNil(renderer.compositeShader, "exact composite shader is live runtime code")
   local scene = emptySceneCamera()
@@ -2517,12 +2560,12 @@ end
 
 function T.exact_mode_uses_compact_metadata_without_source_color_clear()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, translucencyMode = MapRenderer.TRANSLUCENCY_EXACT })
+  local renderer = GxRenderer.new({ graphics = lg, translucencyMode = GxRenderer.TRANSLUCENCY_EXACT })
   local scene = emptySceneCamera()
 
   drawTranslucentFrame(renderer, scene, translucentItems(1))
-  local sourceMeta = assert(renderer._sourceMeta) --[[@as MapRendererTest.Canvas]]
-  local sourceColor = assert(renderer._sourceColor) --[[@as MapRendererTest.Canvas]]
+  local sourceMeta = assert(renderer._sourceMeta) --[[@as GxRendererTest.Canvas]]
+  local sourceColor = assert(renderer._sourceColor) --[[@as GxRendererTest.Canvas]]
   local sourceMetaOptions = assert(sourceMeta.canvasOpts)
   Assert.equal(sourceMetaOptions.format, "rgba8", "source metadata is normalized 8-bit storage")
   Assert.equal(sourceColor.canvasOpts and sourceColor.canvasOpts.format, nil)
@@ -2532,7 +2575,7 @@ end
 
 function T.integrated_default_cost_shape_stays_bounded_at_1080p()
   local lg = fakeGraphics()
-  local renderer = MapRenderer.new({ graphics = lg, worldRasterScale = 2 })
+  local renderer = GxRenderer.new({ graphics = lg, worldRasterScale = 2 })
   local scene = emptySceneCamera()
   local items = { passItem("opaque", 0) }
   for _, item in ipairs(translucentItems(32)) do

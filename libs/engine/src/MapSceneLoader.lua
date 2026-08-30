@@ -594,7 +594,7 @@ local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   refreshAnimatedItems(checkpoint)
   runtime.lighting = scene.lighting
   -- The compiled area's real HGSS edge-color table, forwarded as
-  -- opaque scene state -- MapRenderer decodes and sends it, with no ROM
+  -- opaque scene state -- the concrete GX renderer decodes and sends it, with no ROM
   -- knowledge of its own.
   runtime.edgeColors = scene.edgeColors
   -- The compiled area's resolved global HGSS weather fog preset, forwarded

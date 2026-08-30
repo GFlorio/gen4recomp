@@ -1,6 +1,6 @@
 // DS final composite pass, run over the world raster before its nearest
 // upscale to presentation resolution.
-// sceneColor target (map.glsl's color-only output) and the same-resolution
+// sceneColor target (the map shader's color-only output) and the same-resolution
 // renderState target (map.glsl's WORLD_MRT state output: red edge polygon ID, green
 // DS-quantized depth, blue per-polygon fog gate, alpha last-translucent-ID
 // encoding). It resolves each pixel through explicit fogged candidates:
@@ -17,14 +17,14 @@
 // hidden. State A (last translucent ID) is not consumed by edge or fog.
 //
 // The color and state targets have identical bounded world-raster dimensions
-// and identical screen-space coverage (see MapRenderer:_ensureTargets). The
+// and identical screen-space coverage (see GxRenderer:_ensureTargets). The
 // state texture is
 // nearest-filtered; every sample snaps/clamps to a render-state pixel center
 // explicitly rather than relying on the sampler's own filtering/clamp
 // behavior. The neighbor probes sample at a distance of u_edgeRadiusPx
 // integer render-state pixels -- the rounded field logical pixel scale
 // (referenceFrame.height / 192 * camera zoom, minimum 1; see
-// FieldViewport:logicalPixelScale and MapRenderer:draw) -- so DS-relative
+// FieldViewport:logicalPixelScale and GxRenderer:draw) -- so DS-relative
 // edge width is a sampling distance over the world-raster state, not a
 // block of host pixels owned by one coarse state texel.
 //
@@ -57,7 +57,7 @@
 // Only opaque geometry participates in edge marking -- "Edge Marking is
 // applied ONLY to opaque polygons (including wire-frames)". Ordinary
 // translucent and mixed-translucent draws never touch renderState
-// (MapRenderer's state pass only draws opaque/cutout/mixed-opaque/wireframe),
+// (GxRenderer's state pass only draws opaque/cutout/mixed-opaque/wireframe),
 // so this pass never observes a translucent fragment's own id/depth/fog gate.
 //
 // Edge compositing replaces scene RGB outright (hardware behavior) rather than
@@ -75,15 +75,15 @@
 // per-polygon gate (center state's blue channel, POLYGON_ATTR FOG_ENABLE) must
 // be set. The density index derives from the depth (offset by
 // u_fogOffsetDepth, already converted from the raw G3X FOG_OFFSET register by
-// MapRenderer -- *0x200 -- once per frame, not per pixel), shifted by the
+// GxRenderer -- *0x200 -- once per frame, not per pixel), shifted by the
 // preset's slope (u_fogShift), and interpolated across the 32-entry density
 // table with both endpoints duplicated. RGB blends in the 6-bit combiner
 // domain (fogColor6/fragmentRgb6) with a truncating divide by 128 (density
 // is 0..128, not 0..127). Alpha blends the same way, in the 5-bit domain
 // (u_fogAlpha against the source alpha quantized to 5 bits) -- this draw's
-// output alpha is real data consumed verbatim by MapRenderer's "replace"/
+// output alpha is real data consumed verbatim by GxRenderer's "replace"/
 // "premultiplied" composite blend, not by the host's default alpha
-// compositing (see MapRenderer.lua's doDraw for why that blend mode is
+// compositing (see GxRenderer.lua's doDraw for why that blend mode is
 // required once this alpha is meaningful).
 
 #ifdef PIXEL
@@ -94,8 +94,8 @@ uniform vec3 u_edgeColors[8];
 uniform bool u_antialiasEnabled;
 
 // HGSS's real clear/rear-plane polygon ID and the domain maximum every real
-// draw's u_polygonId is normalized by (MapRenderer.CLEAR_POLYGON_ID; see
-// MapRenderer.lua). Named so the encode (Lua) and decode (here) sides cannot
+// draw's u_polygonId is normalized by (GxRenderer.CLEAR_POLYGON_ID; see
+// GxRenderer.lua). Named so the encode (Lua) and decode (here) sides cannot
 // silently drift apart.
 const float CLEAR_POLYGON_ID = 63.0;
 
@@ -103,7 +103,7 @@ const float CLEAR_POLYGON_ID = 63.0;
 // clamped to the state texture's edge, so the sample is exact -- the state
 // raster shares the color raster's dimensions, so this is a one-to-one
 // mapping that only ever adjusts for rasterization rounding, never for a
-// resolution gap (spec: sampling may derive from the color UV but must
+// resolution gap (sampling may derive from the color UV but must
 // snap/clamp to the render-state pixel center before the neighbor probes).
 vec2 statePixelCenter(vec2 uv)
 {
@@ -112,7 +112,7 @@ vec2 statePixelCenter(vec2 uv)
   return (pixel + vec2(0.5)) / u_stateSize;
 }
 
-// The rear-plane state (MapRenderer.DS_STATE_CLEAR): polygon id 63 (the real
+// The rear-plane state (GxRenderer's state clear): polygon id 63 (the real
 // HGSS clear/rear-plane id, not an out-of-domain sentinel), the farthest
 // quantized depth (DS_DEPTH_MAX, the 24-bit maximum -- the clear/rear plane
 // stays at 0xFFFFFF even though a geometry fragment at windowZ == 1 maps to
@@ -159,7 +159,7 @@ uniform vec3 u_fogColor;
 // (u_fogTable0..u_fogTable7), one per 4-entry group. LÖVE 11.5 fills only
 // the first vec4 of a `vec4[N]` array uniform when sent a flat table, so a
 // single-array delivery could never reach entries past index 0; each group
-// is therefore its own named uniform, sent separately (MapRenderer:_sendFog)
+// is therefore its own named uniform, sent separately (GxRenderer:_sendFog)
 // and read back out via fogTableEntry below.
 uniform vec4 u_fogTable0;
 uniform vec4 u_fogTable1;

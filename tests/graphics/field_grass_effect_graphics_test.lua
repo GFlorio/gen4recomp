@@ -10,7 +10,7 @@ local FieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffect
 local FieldTerrainEffectRenderer = require("libs.engine.src.FieldTerrainEffectRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
@@ -63,10 +63,10 @@ local function runVersion(scope, versionId)
   }
   local cameraProfiles = assert(cache:loadLua("data/generated/field/camera/profiles.lua"))
   local camera = FieldCamera.new(cameraProfiles.profiles[0], { canonicalAspect = 4 / 3 })
-  local mapRenderer = MapRenderer.new({ clearColor = { 0.1, 0.2, 0.3, 1 } })
+  local fieldRenderer = FieldRenderer.new({ clearColor = { 0.1, 0.2, 0.3, 1 } })
   scope:own({
     release = function()
-      mapRenderer:release()
+      fieldRenderer:release()
     end,
   })
   local viewport = FieldViewport.new(256, 192, { mode = "strict" })
@@ -107,9 +107,9 @@ local function runVersion(scope, versionId)
     Assert.equal(heldItems[1].material.image, heldImage, kind .. " must hold its final material")
 
     love.graphics.setCanvas(target)
-    mapRenderer:draw(sceneRuntime(), camera, { heldItems }, nil, viewport, 0)
+    fieldRenderer:draw(sceneRuntime(), camera, { heldItems }, nil, viewport, 0)
     love.graphics.setCanvas()
-    Assert.isTrue(mapRenderer.stats.drawCalls > 0, kind .. " must reach a real graphics draw")
+    Assert.isTrue(fieldRenderer.stats.drawCalls > 0, kind .. " must reach a real graphics draw")
   end
 end
 

@@ -1,6 +1,6 @@
 -- Pure Lua reference for the DS geometry-engine vertex-lighting calculation.
 -- Test-support only: no love, arithmetic only. This module has no runtime
--- consumer -- MapRenderer/map.glsl implement the same sequencing directly in
+-- consumer -- GxRenderer/map.glsl implement the same sequencing directly in
 -- GLSL, since lighting runs per vertex on the GPU -- so it exists purely as
 -- an independent shader oracle for libs/engine/tests/ds_lighting_test.lua.
 --
@@ -41,7 +41,7 @@
 -- 512 domain as the NORMAL command, multiplies it through the current vector
 -- matrix (discarding the matrix's own fixed-point scale), then negates and
 -- sign-extends the result to 11 bits -- in that exact order ("discard bottom
--- 12 bits -> negate -> sign-extend"). This module's callers (MapRenderer /
+-- 12 bits -> negate -> sign-extend"). This module's callers (GxRenderer /
 -- map.glsl) supply the vector-matrix rotation upstream (the camera-only
 -- rotation applied identically to the vertex normal, per GPU3D's vector
 -- matrix being shared between NORMAL and LIGHT_VECTOR); this module receives

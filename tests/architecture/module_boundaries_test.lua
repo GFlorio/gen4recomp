@@ -267,6 +267,23 @@ function T.script_platform_never_imports_game_specific_packages()
   Assert.isTrue(#violations == 0, violationMessage("libs/script/src imports an upward package:\n", violations))
 end
 
+function T.nds_love_renderer_has_a_concrete_owner_without_upward_imports()
+  local hasRenderer = pathExists("libs/nds/src/love/GxRenderer.lua")
+  local files = hasRenderer and luaFilesUnder("libs/nds/src/love") or {}
+  local violations = {}
+  for _, file in ipairs(files) do
+    for _, module in ipairs(requiredModules(readFile(file))) do
+      for _, prefix in ipairs(NDS_FORBIDDEN_LIBS) do
+        if module:sub(1, #prefix) == prefix then
+          violations[#violations + 1] = file .. " requires " .. module
+        end
+      end
+    end
+  end
+  Assert.isTrue(hasRenderer, "the concrete DS LÖVE renderer must be owned under libs/nds/src/love")
+  Assert.isTrue(#violations == 0, violationMessage("the DS LÖVE renderer imports an upward package:\n", violations))
+end
+
 function T.nds_sound_does_not_import_project_or_application_packages()
   local violations = violationsFor(scannedFiles(), function(file, module)
     if file:sub(1, #"libs/nds/src/nitro/sound/") ~= "libs/nds/src/nitro/sound/" then

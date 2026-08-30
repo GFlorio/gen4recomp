@@ -173,7 +173,7 @@ function FieldActorModel.compile(modelBytes, opts)
   end
   -- Every alpha class the shared classifier can produce (opaque, cutout,
   -- translucent, mixed, wireframe) is ordinary shared render-queue geometry
-  -- (see MapRenderer/RenderQueue): actors carry no format-specific rendering
+  -- (see FieldRenderer/RenderQueue): actors carry no format-specific rendering
   -- restriction, matching the ROM's own polygon state exactly.
   local alphaClass =
     AlphaClassifier.classify(polygon.polygonAlpha, polygon.polygonMode, opts.textureFormat or 0, opts.alphaUsage)

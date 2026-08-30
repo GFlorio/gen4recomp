@@ -13,7 +13,7 @@ local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceInd
 local FieldActorEmoteRenderer = require("libs.engine.src.FieldActorEmoteRenderer")
 local FieldTerrainEffectRenderer = require("libs.engine.src.FieldTerrainEffectRenderer")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
 local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
@@ -108,10 +108,9 @@ function FieldState.new(game, options)
     spriteItems = {},
   }, FieldState)
   local ok, err = pcall(function()
-    self.renderer = MapRenderer.new({
+    self.renderer = FieldRenderer.new({
       clearColor = WindowConfig.BACKGROUND_COLOR,
       worldRasterScale = WindowConfig.WORLD_3D_RASTER_SCALE,
-      translucencyMode = MapRenderer.TRANSLUCENCY_APPROXIMATE,
     })
     -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
     -- text all draw through it; the state owns and releases it exactly once.

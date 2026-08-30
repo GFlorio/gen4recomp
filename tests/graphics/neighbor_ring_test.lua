@@ -21,7 +21,7 @@ local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local NeighborRing = require("libs.engine.src.NeighborRing")
-local RenderQueue = require("libs.engine.src.RenderQueue")
+local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
 local Matrix4 = require("libs.math.src.Matrix4")
 
 local T = {}

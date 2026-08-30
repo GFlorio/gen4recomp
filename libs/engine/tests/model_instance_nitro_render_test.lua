@@ -1,12 +1,12 @@
 -- Renderer smoke tests for the Nitro dynamic path: a nitro-backed
 -- ModelInstance (compiled transform program + compiled clip) renders through
--- the production MapRenderer, scrubs frames without recompiling geometry, and
+-- the production FieldRenderer, scrubs frames without recompiling geometry, and
 -- follows the same item contract as the generic fixture. The suite builds
 -- real GPU resources, so it declares the graphics layer and the runner skips
 -- it explicitly on hosts without one.
 
 local Assert = require("tests.support.Assert")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local SceneMesh = require("libs.engine.src.SceneMesh")
 local FieldViewport = require("libs.engine.src.FieldViewport")
@@ -311,7 +311,7 @@ local function drawInstance(renderer, rt, instance, alpha)
 end
 
 function T.nitro_animated_model_renders_and_scrubs_without_recompiling()
-  local renderer = MapRenderer.new()
+  local renderer = FieldRenderer.new()
   local def = doorDefinition()
   local instance = ModelInstance.new(def)
   instance.renderMeshesById = buildRenders(def)

@@ -13,7 +13,7 @@ local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local ModelInstance = require("libs.engine.src.ModelInstance")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local GxRenderer = require("libs.nds.src.love.GxRenderer")
 local ModelFixture = require("tests.support.NsbmdModelFixture")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -506,7 +506,7 @@ function T.compiled_descriptor_preserves_light_mask_and_four_material_colors()
 
   -- The renderer decodes mask 0b0101 into the per-light 0/1 uniform the
   -- shader gates each light with; the assertion pins the exact decode.
-  Assert.deepEqual(MapRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 })
+  Assert.deepEqual(GxRenderer.lightMaskUniforms(5), { 1, 0, 1, 0 })
 end
 
 -- ---- static/dynamic render-state parity ----

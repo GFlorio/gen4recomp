@@ -1,10 +1,10 @@
 -- Renderer smoke tests for the nitro-backed ModelInstance: the door fixture
--- renders through the production MapRenderer and scrubbing frames reuses the
+-- renders through the production FieldRenderer and scrubbing frames reuses the
 -- built meshes. The suite builds real GPU resources, so it declares the
 -- graphics layer and the runner skips it explicitly on hosts without one.
 
 local Assert = require("tests.support.Assert")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local SceneMesh = require("libs.engine.src.SceneMesh")
 local FieldViewport = require("libs.engine.src.FieldViewport")
@@ -75,7 +75,7 @@ end
 
 function T.nitro_animated_fixture_renders_through_map_renderer()
   local lg = love.graphics
-  local renderer = MapRenderer.new()
+  local renderer = FieldRenderer.new()
   local def = NitroModelFixture.doorDefinition()
   local instance = ModelInstance.new(def)
   instance.renderMeshesById = buildRenders(def)

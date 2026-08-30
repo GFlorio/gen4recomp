@@ -46,8 +46,8 @@ check_target_specific() {
     "libs/nds/src/nitro/g3d/Nsbmd.lua"
     "romdump/src/digest/MaterialCompiler.lua"
     "romdump/src/digest/MeshCompiler.lua"
-    "libs/engine/src/MapRenderer.lua"
-    "libs/engine/src/shaders/map.glsl"
+    "libs/nds/src/love/GxRenderer.lua"
+    "libs/nds/src/love/shaders/map.glsl"
   )
   local m
   for m in "${modules[@]}"; do

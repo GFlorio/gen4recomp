@@ -1,4 +1,4 @@
-// DS translucent source-metadata shader. Rasterizes exactly one blended
+// DS-shaped translucent source-metadata shader. Rasterizes exactly one blended
 // draw's partial-alpha fragments into the sourceMeta buffer for the
 // compositor (composite.glsl), carrying the per-fragment state the composite
 // needs to apply the exact DS equations: a valid/accepted flag, the source

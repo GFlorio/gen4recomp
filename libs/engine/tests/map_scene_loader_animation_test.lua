@@ -1,7 +1,7 @@
 -- Scene-loader animation path tests: a scene whose building instance
 -- references an animated (dynamic) model descriptor loads through
 -- MapSceneLoader into a ModelInstance, advances with the scene runtime, and
--- renders through MapRenderer. The descriptor shape is the compiler's:
+-- renders through FieldRenderer. The descriptor shape is the compiler's:
 -- explicit schema/kind, dynamic batches referencing content-addressed .g4mesh
 -- geometry, compiled clips with playback policy (timeBand / ambientLoop).
 -- The rendering tests build real GPU resources, so the whole suite declares
@@ -10,7 +10,7 @@
 local Assert = require("tests.support.Assert")
 local Matrix3 = require("libs.math.src.Matrix3")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
-local MapRenderer = require("libs.engine.src.MapRenderer")
+local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local FieldGrid = require("libs.engine.src.FieldGrid")
 local FieldViewport = require("libs.engine.src.FieldViewport")
@@ -756,7 +756,7 @@ function T.animated_building_loads_advances_and_renders()
 
   -- The production renderer draws the animated door. The renderer takes
   -- ordered parts; the loader's sync refreshed runtime.animatedBuildingDraws.
-  local renderer = MapRenderer.new()
+  local renderer = FieldRenderer.new()
   local identity = identityMatrix()
   local camera = {
     cameraSourceY = 0,
