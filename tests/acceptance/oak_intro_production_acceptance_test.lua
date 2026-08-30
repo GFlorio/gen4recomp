@@ -258,40 +258,11 @@ hostSeams = function()
 end
 
 function T.tests.new_game_enters_production_oak_without_a_factory()
-  local original = {
-    opts = App.opts,
-    state = App.state,
-    saveStore = App.saveStore,
-    versionId = App.versionId,
-  }
-  local store = GameSaveStore.new(SaveFs.global(FakeCache.new()))
-  ---@type AppOptions
-  App.opts = {
-    saveStore = store,
-    oakIntroHost = hostSeams(),
-    test = false,
-    actors = false,
-    dev = false,
-  }
-  App.saveStore = store
-  App.state = nil
-  App.versionId = nil
-
-  local ok, err = xpcall(function()
-    App._bootMainMenu({ "heartgold" })
-    App.keypressed("return")
-    Assert.equal(getmetatable(App.state).__index, OakIntroState)
-    Assert.equal(App.state.controller:candidate().saveId, "save-00000001")
-  end, debug.traceback)
-
-  App.setState(nil)
-  App.opts = original.opts
-  App.state = original.state
-  App.saveStore = original.saveStore
-  App.versionId = original.versionId
-  if not ok then
-    error(err, 0)
-  end
+  forEachReadyVersion(function(versionId)
+    withProductionOak(versionId, function(state)
+      Assert.equal(state.controller:candidate().saveId, "save-00000001")
+    end)
+  end)
 end
 
 function T.tests.confirmation_text_requires_a_later_explicit_choice_edge()
@@ -460,10 +431,10 @@ function T.tests.profile_shrink_replacements_follow_nine_source_tick_boundaries(
 
         local holdStart = state:view().sourceFrames
         for _ = 1, 29 do
-          state:tick(1)
+          state:update(1 / 30)
           Assert.equal(state:view().phase, "final_full_art_hold", "full art must hold for thirty source ticks")
         end
-        state:tick(1)
+        state:update(1 / 30)
         local shrinkStart = state:view()
         Assert.equal(shrinkStart.sourceFrames - holdStart, 30)
         Assert.equal(shrinkStart.phase, "shrink_animation")
@@ -472,20 +443,20 @@ function T.tests.profile_shrink_replacements_follow_nine_source_tick_boundaries(
 
         for frameIndex = 1, 3 do
           for _ = 1, 8 do
-            state:tick(1)
+            state:update(1 / 30)
             Assert.equal(state:view().phase, "shrink_animation")
             Assert.equal(state:view().visualFrameIndex, frameIndex)
           end
-          state:tick(1)
+          state:update(1 / 30)
           Assert.equal(state:view().phase, "shrink_animation")
           Assert.equal(state:view().visualFrameIndex, frameIndex + 1)
         end
         for _ = 1, 8 do
-          state:tick(1)
+          state:update(1 / 30)
           Assert.equal(state:view().phase, "shrink_animation")
           Assert.equal(state:view().visualFrameIndex, 4)
         end
-        state:tick(1)
+        state:update(1 / 30)
         local complete = state:view()
         Assert.equal(complete.phase, "complete")
         Assert.equal(complete.sourceFrames - shrinkStart.sourceFrames, 36)

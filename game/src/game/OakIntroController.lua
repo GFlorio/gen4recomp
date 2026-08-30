@@ -1,6 +1,7 @@
--- Deterministic 60 Hz Oak/profile state machine. It owns semantic sequence
--- progression and the unpublished candidate; presentation and host input map
--- into its public semantic operations without deciding transitions.
+-- Deterministic Oak/profile state machine for ordinary source frames. It owns
+-- semantic sequence progression and the unpublished candidate; presentation
+-- and host input map into its public semantic operations without deciding
+-- transitions.
 
 local NewGame = require("game.src.game.NewGame")
 local OakGreetingPolicy = require("game.src.game.OakGreetingPolicy")

@@ -147,8 +147,9 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 local OakIntroState = {}
 OakIntroState.__index = OakIntroState
 
--- Float slack keeps an exact 60 Hz boundary from losing a source tick.
-local SOURCE_FRAME_DURATION = 1 / 60
+-- Float slack keeps an exact source-frame boundary from losing a source tick.
+local SOURCE_FRAME_HZ = 30
+local SOURCE_FRAME_DURATION = 1 / SOURCE_FRAME_HZ
 local SOURCE_FRAME_EPSILON = 1e-14
 
 local DEFAULT_GLYPHS = {

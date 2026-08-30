@@ -491,10 +491,10 @@ local function stateAtFreshFullArtHold(frameDuration, frameCount)
   return state, controller, recorded
 end
 
--- A normal 1/60 update/draw cadence preserves the exact 30-source-tick hold
+-- A normal 1/30 update/draw cadence preserves the exact 30-source-tick hold
 -- and nine-source-tick-per-frame shrink cadence at the draw-visible
 -- boundary.
-function T.normal_update_draw_cadence_preserves_full_art_hold_and_shrink_frame_durations()
+function T.source_timed_update_draw_cadence_preserves_full_art_hold_and_shrink_frame_durations()
   local state, controller, recorded = stateAtFreshFullArtHold(9, 4)
 
   -- The setup above reaches the hold's freshly entered state through the
@@ -503,7 +503,7 @@ function T.normal_update_draw_cadence_preserves_full_art_hold_and_shrink_frame_d
   state:draw()
 
   for _ = 1, 30 + 9 * 4 do
-    state:update(1 / 60)
+    state:update(1 / 30)
     state:draw()
   end
 
@@ -528,6 +528,23 @@ function T.normal_update_draw_cadence_preserves_full_art_hold_and_shrink_frame_d
   Assert.equal(controller:view().phase, "complete")
 end
 
+function T.thirty_source_frame_hold_uses_one_second_host_time()
+  local state, controller = stateAtFreshFullArtHold(9, 4)
+  local holdStart = controller:view().sourceFrames
+
+  for _ = 1, 29 do
+    state:update(1 / 30)
+    Assert.equal(controller:view().phase, "final_full_art_hold")
+  end
+  Assert.equal(controller:view().sourceFrames - holdStart, 29)
+
+  state:update(1 / 30)
+
+  Assert.equal(controller:view().sourceFrames - holdStart, 30)
+  Assert.equal(controller:view().phase, "shrink_animation")
+  Assert.equal(controller:view().visualFrameIndex, 1)
+end
+
 local function semanticSnapshot(controller)
   local view = controller:view()
   return {
@@ -546,7 +563,7 @@ function T.large_host_update_matches_equivalent_source_ticks()
   local state, controller = stateAtFreshFullArtHold(9, 4)
   local referenceState, referenceController = stateAtFreshFullArtHold(9, 4)
 
-  state:update(52 / 60)
+  state:update(52 / 30)
   referenceState:tick(52)
 
   Assert.deepEqual(
@@ -560,9 +577,21 @@ function T.sub_source_frame_update_does_not_advance_the_controller()
   local state, controller = stateAtFreshFullArtHold(9, 4)
   local sourceFrames = controller:view().sourceFrames
 
-  state:update(1 / 60 - 1e-13)
+  state:update(1 / 30 - 1e-13)
 
   Assert.equal(controller:view().sourceFrames, sourceFrames)
+end
+
+function T.two_half_source_frame_updates_drain_one_controller_tick()
+  local state, controller = stateAtFreshFullArtHold(9, 4)
+  local sourceFrames = controller:view().sourceFrames
+  local halfSourceFrame = (1 / 30) / 2
+
+  state:update(halfSourceFrame)
+  Assert.equal(controller:view().sourceFrames, sourceFrames)
+
+  state:update(halfSourceFrame)
+  Assert.equal(controller:view().sourceFrames, sourceFrames + 1)
 end
 
 function T.completion_preserves_unconsumed_host_time_and_hands_off_once()
@@ -599,7 +628,7 @@ function T.draw_cadence_does_not_change_semantic_progress()
   drawnState:draw()
   Assert.deepEqual(semanticSnapshot(drawnController), initial, "drawing must not advance the controller source clock")
 
-  for _, dt in ipairs({ 1, 6 / 60 }) do
+  for _, dt in ipairs({ 1, 37 / 30 }) do
     drawnState:update(dt)
     undrawnState:update(dt)
     Assert.deepEqual(
