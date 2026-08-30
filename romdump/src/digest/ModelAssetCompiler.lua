@@ -9,8 +9,8 @@
 
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
-local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
+local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
+local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")

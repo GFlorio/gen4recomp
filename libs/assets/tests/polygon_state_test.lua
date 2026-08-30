@@ -105,7 +105,7 @@ end
 -- renderer must not present host `lequal` as an implemented DS depth-equal
 -- behavior, so a batch that claims depthEqual fails compilation here, at the
 -- one shared draw-state validator, rather than silently reaching
--- MapRenderer.
+-- the NDS renderer.
 function T.validate_rejects_depth_equal_true()
   local record = validRecord()
   record.depthEqual = true

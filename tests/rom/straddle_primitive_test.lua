@@ -6,7 +6,7 @@
 -- metadata.
 
 local Assert = require("tests.support.Assert")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local BuildModelAnimList = require("romdump.src.digest.BuildModelAnimList")
 

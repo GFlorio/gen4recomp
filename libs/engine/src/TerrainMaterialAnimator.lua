@@ -32,7 +32,7 @@
 -- the image pool owns every Image and remains the sole release owner.
 -- Records and the clip are read-only. Pure domain module.
 local AnimationPlayer = require("libs.engine.src.AnimationPlayer")
-local CompiledNsbtaSampler = require("libs.engine.src.CompiledNsbtaSampler")
+local CompiledNsbtaSampler = require("libs.nds.src.nitro.g3d.CompiledNsbtaSampler")
 local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
 
 ---@class TerrainMaterialAnimator

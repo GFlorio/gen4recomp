@@ -3,10 +3,10 @@
 -- boundary without inferring transparency from RGB values.
 
 local Assert = require("tests.support.Assert")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local ModelDefinition = require("libs.engine.src.ModelDefinition")
 local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local RomSuite = require("tests.rom.support.RomSuite")
 
 local function hasZeroAlpha(pixels)

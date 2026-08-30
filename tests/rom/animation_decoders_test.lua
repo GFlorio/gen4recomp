@@ -6,11 +6,11 @@
 
 local Assert = require("tests.support.Assert")
 local BinaryReader = require("libs.codec.src.BinaryReader")
-local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
-local Nsbca = require("romdump.src.digest.nitro.Nsbca")
-local Nsbta = require("romdump.src.digest.nitro.Nsbta")
-local Nsbtp = require("romdump.src.digest.nitro.Nsbtp")
-local Nsbma = require("romdump.src.digest.nitro.Nsbma")
+local NitroAnimation = require("libs.nds.src.nitro.g3d.NitroAnimation")
+local Nsbca = require("libs.nds.src.nitro.g3d.Nsbca")
+local Nsbta = require("libs.nds.src.nitro.g3d.Nsbta")
+local Nsbtp = require("libs.nds.src.nitro.g3d.Nsbtp")
+local Nsbma = require("libs.nds.src.nitro.g3d.Nsbma")
 
 local T = {}
 

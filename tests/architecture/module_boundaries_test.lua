@@ -63,6 +63,18 @@ local ROMDUMP_FORBIDDEN_LIBS = {
   "libs.engine.",
 }
 
+-- NDS format and semantic code is reusable platform logic. It may consume
+-- foundations only; project assets, runtime packages, application policy, and
+-- ROM producers stay above it.
+local NDS_FORBIDDEN_LIBS = {
+  "libs.assets.",
+  "libs.script.",
+  "libs.hgss.",
+  "libs.engine.",
+  "game.",
+  "romdump.",
+}
+
 -- Namespaces deleted by the boundary moves; none may reappear.
 local FORBIDDEN_PREFIXES = {
   "libs.rom",
@@ -214,6 +226,21 @@ function T.romdump_never_imports_libs_engine()
     return false
   end)
   Assert.isTrue(#violations == 0, violationMessage("romdump/src imports a libs runtime package:\n", violations))
+end
+
+function T.nds_graphics_never_imports_upward()
+  local violations = violationsFor(scannedFiles(), function(file, module)
+    if file:sub(1, #"libs/nds/src/") ~= "libs/nds/src/" then
+      return false
+    end
+    for _, prefix in ipairs(NDS_FORBIDDEN_LIBS) do
+      if module:sub(1, #prefix) == prefix then
+        return true
+      end
+    end
+    return false
+  end)
+  Assert.isTrue(#violations == 0, violationMessage("libs/nds/src imports an upward package:\n", violations))
 end
 
 function T.engine_does_not_contain_game_opening_policy_modules()

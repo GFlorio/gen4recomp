@@ -7,16 +7,16 @@
 
 local Assert = require("tests.support.Assert")
 local BinaryReader = require("libs.codec.src.BinaryReader")
-local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
-local Nsbta = require("romdump.src.digest.nitro.Nsbta")
-local Nsbtp = require("romdump.src.digest.nitro.Nsbtp")
-local Nsbma = require("romdump.src.digest.nitro.Nsbma")
+local NitroAnimation = require("libs.nds.src.nitro.g3d.NitroAnimation")
+local Nsbta = require("libs.nds.src.nitro.g3d.Nsbta")
+local Nsbtp = require("libs.nds.src.nitro.g3d.Nsbtp")
+local Nsbma = require("libs.nds.src.nitro.g3d.Nsbma")
 local NsbtaClipCompiler = require("romdump.src.digest.NsbtaClipCompiler")
 local NsbtpClipCompiler = require("romdump.src.digest.NsbtpClipCompiler")
 local NsbmaClipCompiler = require("romdump.src.digest.NsbmaClipCompiler")
-local CompiledNsbtaSampler = require("libs.engine.src.CompiledNsbtaSampler")
-local CompiledNsbtpSampler = require("libs.engine.src.CompiledNsbtpSampler")
-local CompiledNsbmaSampler = require("libs.engine.src.CompiledNsbmaSampler")
+local CompiledNsbtaSampler = require("libs.nds.src.nitro.g3d.CompiledNsbtaSampler")
+local CompiledNsbtpSampler = require("libs.nds.src.nitro.g3d.CompiledNsbtpSampler")
+local CompiledNsbmaSampler = require("libs.nds.src.nitro.g3d.CompiledNsbmaSampler")
 
 local T = {}
 

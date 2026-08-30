@@ -6,7 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
-local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
+local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
 local TexFixture = require("tests.support.Tex0Fixture")
 
 local T = {}

@@ -12,8 +12,8 @@
 -- derived rebuild. Pure domain module.
 
 local Hashing = require("romdump.src.digest.Hashing")
-local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
-local TextureDecoder = require("romdump.src.digest.nitro.TextureDecoder")
+local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
+local TextureDecoder = require("libs.nds.src.gx.TextureDecoder")
 
 local MaterialCompiler = {}
 

@@ -4,7 +4,7 @@
 -- billboard matrix restores its own matrix mid-display-list.
 
 local Assert = require("tests.support.Assert")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local SbcInventory = require("romdump.src.digest.SbcInventory")
 local Fixture = require("tests.support.NsbmdFixture")
 

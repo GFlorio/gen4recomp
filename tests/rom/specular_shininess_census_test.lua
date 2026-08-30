@@ -13,7 +13,7 @@ local MapCatalog = require("romdump.src.digest.MapCatalog")
 local MapResolver = require("romdump.src.digest.MapResolver")
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 
 local T = {}
 

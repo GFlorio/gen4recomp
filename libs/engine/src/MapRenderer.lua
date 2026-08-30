@@ -36,7 +36,7 @@
 local RenderQueue = require("libs.engine.src.RenderQueue")
 local Matrix3 = require("libs.math.src.Matrix3")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local FixedPoint = require("libs.math.src.FixedPoint")
 
 ---@class MapRenderer.Canvas : love.Canvas

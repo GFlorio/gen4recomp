@@ -17,7 +17,7 @@ local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local RomFs = require("romdump.src.source.RomFs")
 local FieldTextureAnimation = require("romdump.src.digest.FieldTextureAnimation")
-local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
+local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 
 local T = {

@@ -21,9 +21,9 @@ local FieldTextureAnimation = require("romdump.src.digest.FieldTextureAnimation"
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
-local NitroAnimation = require("romdump.src.digest.nitro.NitroAnimation")
+local NitroAnimation = require("libs.nds.src.nitro.g3d.NitroAnimation")
 local NsbtaClipCompiler = require("romdump.src.digest.NsbtaClipCompiler")
-local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
+local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
 
 local TerrainAnimationCompiler = {}
 TerrainAnimationCompiler.__index = TerrainAnimationCompiler

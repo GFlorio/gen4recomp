@@ -25,8 +25,8 @@
 
 local FixedPoint = require("libs.math.src.FixedPoint")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
-local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
-local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
+local HgssFieldMaterial = require("romdump.src.digest.HgssFieldMaterial")
+local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 local TextureMatrixState = require("romdump.src.digest.TextureMatrixState")
 
 local NsbmdDynamicModel = {}
@@ -45,7 +45,7 @@ end
 -- the source material. `baseColor` stays as the alpha carrier and the
 -- baseColor-fallback target for consumers of records without the block.
 local function baseMaterial(mat, texMtxMode)
-  local resolved = DsMaterial.resolve(mat, DsMaterial.HGSS_FIELD_DEFAULTS, DsMaterial.applyFieldPolicy(mat))
+  local resolved = HgssFieldMaterial.resolve(mat)
   local poly = DsPolygonAttr.decode(resolved.polyAttr)
   local diffuse = resolved.colors.diffuse
   local r, g, b = FixedPoint.rgb555(diffuse.rgb555)

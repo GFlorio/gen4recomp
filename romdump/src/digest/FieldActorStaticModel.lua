@@ -4,11 +4,11 @@
 -- The original loader is `ov01_021FD2EC` / NARC 103 in pokeheartgold.
 
 local Errors = require("libs.errors.src.Errors")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
-local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 
 local FieldActorStaticModel = {}
 

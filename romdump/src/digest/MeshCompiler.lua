@@ -16,9 +16,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 local MapUnits = require("romdump.src.digest.MapUnits")
-local GxDisplayList = require("romdump.src.digest.nitro.GxDisplayList")
-local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
-local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
+local GxDisplayList = require("libs.nds.src.gx.GxDisplayList")
+local HgssFieldMaterial = require("romdump.src.digest.HgssFieldMaterial")
+local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix4 = require("libs.math.src.Matrix4")
 local PoseContract = require("libs.assets.src.PoseContract")
@@ -42,8 +42,7 @@ local UNSUPPORTED_DL_OPCODES = {
 -- color seed a shape inherits when this material is (re)applied. Every field
 -- material sets vertex color, so the seed always resolves a color source.
 local function materialState(rawMaterial)
-  local resolved =
-    DsMaterial.resolve(rawMaterial, DsMaterial.HGSS_FIELD_DEFAULTS, DsMaterial.applyFieldPolicy(rawMaterial))
+  local resolved = HgssFieldMaterial.resolve(rawMaterial)
   local seed
   if rawMaterial.setVertexColor then
     local diffuse = resolved.colors.diffuse

@@ -6,7 +6,7 @@ local T = { tests = {} }
 T.tests["rewrites compiled geometry and texture references into the emote root"] = function()
   local names = {
     "romdump.src.digest.FieldActorEmoteCompiler",
-    "romdump.src.digest.nitro.Nsbmd",
+    "libs.nds.src.nitro.g3d.Nsbmd",
     "romdump.src.digest.ModelAssetCompiler",
     "libs.assets.src.ModelAsset",
     "libs.assets.src.FieldEmoteAssetCache",
@@ -17,7 +17,7 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
     saved[name] = package.loaded[name]
   end
   local seenMemberId
-  package.loaded["romdump.src.digest.nitro.Nsbmd"] = {
+  package.loaded["libs.nds.src.nitro.g3d.Nsbmd"] = {
     decode = function(_, opts)
       seenMemberId = opts.memberId
       return { models = { {} }, embeddedTextures = {} }

@@ -7,7 +7,7 @@ local T = { tests = {} }
 T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   local names = {
     "romdump.src.digest.FieldEntranceIndicatorCompiler",
-    "romdump.src.digest.nitro.Nsbmd",
+    "libs.nds.src.nitro.g3d.Nsbmd",
     "romdump.src.digest.FieldEffectPatternAnimation",
     "romdump.src.digest.ModelAssetCompiler",
     "romdump.src.digest.MapAssetCompiler",
@@ -45,7 +45,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       },
     },
   }
-  package.loaded["romdump.src.digest.nitro.Nsbmd"] = {
+  package.loaded["libs.nds.src.nitro.g3d.Nsbmd"] = {
     decode = function(_, context)
       modelMembers[#modelMembers + 1] = context.memberId
       return {
@@ -201,7 +201,7 @@ end
 T.tests["rewrites compiled geometry and texture references into the effect root"] = function()
   local names = {
     "romdump.src.digest.FieldEntranceIndicatorCompiler",
-    "romdump.src.digest.nitro.Nsbmd",
+    "libs.nds.src.nitro.g3d.Nsbmd",
     "romdump.src.digest.FieldEffectPatternAnimation",
     "romdump.src.digest.ModelAssetCompiler",
     "romdump.src.digest.MapAssetCompiler",
@@ -213,7 +213,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
   for _, name in ipairs(names) do
     saved[name] = package.loaded[name]
   end
-  package.loaded["romdump.src.digest.nitro.Nsbmd"] = {
+  package.loaded["libs.nds.src.nitro.g3d.Nsbmd"] = {
     decode = function()
       return {
         models = { { materials = { { name = "effect" } } } },

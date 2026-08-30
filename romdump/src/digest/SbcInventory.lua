@@ -14,7 +14,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local LandData = require("romdump.src.digest.LandData")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 
 local SbcInventory = {}
 

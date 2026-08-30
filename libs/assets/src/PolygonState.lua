@@ -11,6 +11,7 @@
 -- hierarchy. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
+local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 
 local PolygonState = {}
 
@@ -34,11 +35,14 @@ PolygonState.FIELDS = {
 
 -- The emitted cull-mode vocabulary: a polygon rendering neither surface is
 -- skipped by the compiler, so "all" never reaches a serialized record.
-local CULL_MODES = { back = true, front = true, none = true }
+local CULL_MODES = DsPolygonAttr.CULL_MODES
 
 -- The four DS polygon modes (DsPolygonAttr.POLYGON_MODES); the dynamic path
 -- emits only modulation/decal, the static path can carry toon/shadow.
-local POLYGON_MODES = { modulation = true, decal = true, toon = true, shadow = true }
+local POLYGON_MODES = {}
+for _, mode in pairs(DsPolygonAttr.POLYGON_MODES) do
+  POLYGON_MODES[mode] = true
+end
 
 ---@param value unknown
 ---@return boolean
@@ -75,13 +79,23 @@ function PolygonState.validate(record, context)
   if not POLYGON_MODES[record.polygonMode] then
     invalid("polygonMode must be modulation, decal, toon, or shadow")
   end
-  if not (isInteger(record.polygonId) and record.polygonId >= 0 and record.polygonId <= 63) then
+  if
+    not (isInteger(record.polygonId) and record.polygonId >= 0 and record.polygonId <= DsPolygonAttr.POLYGON_ID_MAX)
+  then
     invalid("polygonId must be an integer in 0..63")
   end
-  if not (isInteger(record.polygonAlpha) and record.polygonAlpha >= 0 and record.polygonAlpha <= 31) then
+  if
+    not (
+      isInteger(record.polygonAlpha)
+      and record.polygonAlpha >= 0
+      and record.polygonAlpha <= DsPolygonAttr.POLYGON_ALPHA_MAX
+    )
+  then
     invalid("polygonAlpha must be an integer in 0..31")
   end
-  if not (isInteger(record.lightMask) and record.lightMask >= 0 and record.lightMask <= 15) then
+  if
+    not (isInteger(record.lightMask) and record.lightMask >= 0 and record.lightMask <= DsPolygonAttr.LIGHT_MASK_MAX)
+  then
     invalid("lightMask must be an integer in 0..15")
   end
   if type(record.translucentDepthWrite) ~= "boolean" then

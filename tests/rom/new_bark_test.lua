@@ -8,9 +8,9 @@ local MapResolver = require("romdump.src.digest.MapResolver")
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
 local HgssPermissionGrid = require("romdump.src.digest.HgssPermissionGrid")
-local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
-local TextureDecoder = require("romdump.src.digest.nitro.TextureDecoder")
+local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
+local TextureDecoder = require("libs.nds.src.gx.TextureDecoder")
 local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
 local InventoryAssert = require("tests.support.InventoryAssert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -26,7 +26,7 @@ local CollisionGrid = require("libs.engine.src.CollisionGrid")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 
 local T = {}
 
@@ -244,8 +244,8 @@ end
 -- `AlphaClassifier` v2 is final-alpha-aware (a DECAL material ignores texture
 -- alpha entirely; a MODULATE material at polygon alpha 31 whose decoded
 -- texture mixes fully opaque and partially transparent texels is `mixed`,
--- not blanket `translucent`). This locks the real corpus regression this
--- deliverable fixes: New Bark's `sea_line02` material (format 6/A5I3,
+-- not blanket `translucent`). This locks the real corpus regression: New
+-- Bark's `sea_line02` material (format 6/A5I3,
 -- MODULATE, polygon alpha 31) has both fully-opaque and partial texels and
 -- must classify `mixed`, so its opaque texels still contribute semantic
 -- state instead of silently losing edge/depth participation the way the old
@@ -400,7 +400,7 @@ function T.exterior_models_share_lighting_and_material_path(romFs)
 end
 
 -- New Bark's central cell compiles into a scene that carries all the
--- Phase B diagnostic display data (matrix 0 cell (21,12) index 585, land 0, area
+-- diagnostic display data (matrix 0 cell (21,12) index 585, land 0, area
 -- 2, origin (672,384)), an outdoor map model with its map texture pack, the lab
 -- exterior model 21 resolved through the outdoor archive, and a consistent lab-
 -- entry anchor. The debug player spawns inside the local 32x32 cell.

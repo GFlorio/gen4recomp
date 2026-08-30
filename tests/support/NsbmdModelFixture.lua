@@ -146,7 +146,7 @@ function NsbmdModelFixture.buildModel(nodeDict, nodeData, sbc, opts)
   return u32(#body) .. NB.u32(ofsSbc) .. NB.u32(ofsMat) .. NB.u32(ofsShp) .. NB.u32(ofsEvp) .. body:sub(0x15)
 end
 
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 
 -- Decode a fixture model with the given node dict/data and SBC stream.
 function NsbmdModelFixture.decodeModel(nodeDict, nodeData, sbc, opts)

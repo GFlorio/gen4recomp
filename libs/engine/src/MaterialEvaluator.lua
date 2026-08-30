@@ -43,12 +43,12 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FixedPoint = require("libs.math.src.FixedPoint")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local AnimationClip = require("libs.assets.src.AnimationClip")
 local TextureSrtEvaluator = require("libs.engine.src.TextureSrtEvaluator")
-local CompiledNsbtaSampler = require("libs.engine.src.CompiledNsbtaSampler")
-local CompiledNsbtpSampler = require("libs.engine.src.CompiledNsbtpSampler")
-local CompiledNsbmaSampler = require("libs.engine.src.CompiledNsbmaSampler")
+local CompiledNsbtaSampler = require("libs.nds.src.nitro.g3d.CompiledNsbtaSampler")
+local CompiledNsbtpSampler = require("libs.nds.src.nitro.g3d.CompiledNsbtpSampler")
+local CompiledNsbmaSampler = require("libs.nds.src.nitro.g3d.CompiledNsbmaSampler")
 
 local MaterialEvaluator = {}
 

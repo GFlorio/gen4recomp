@@ -15,11 +15,11 @@
 -- Pure domain module; no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
-local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
+local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
+local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 local MapUnits = require("romdump.src.digest.MapUnits")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local PoseContract = require("libs.assets.src.PoseContract")
 
 local FieldActorModel = {}

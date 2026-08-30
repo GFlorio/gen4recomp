@@ -43,7 +43,7 @@ check_forbidden_phrases() {
 
 check_target_specific() {
   local modules=(
-    "romdump/src/digest/nitro/Nsbmd.lua"
+    "libs/nds/src/nitro/g3d/Nsbmd.lua"
     "romdump/src/digest/MaterialCompiler.lua"
     "romdump/src/digest/MeshCompiler.lua"
     "libs/engine/src/MapRenderer.lua"

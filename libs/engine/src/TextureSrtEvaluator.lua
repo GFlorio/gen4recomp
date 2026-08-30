@@ -27,7 +27,7 @@
 -- read-only. Pure domain module.
 local Errors = require("libs.errors.src.Errors")
 local FixedPoint = require("libs.math.src.FixedPoint")
-local NitroTexMatrix = require("libs.engine.src.NitroTexMatrix")
+local NitroTexMatrix = require("libs.nds.src.nitro.g3d.NitroTexMatrix")
 
 local TextureSrtEvaluator = {}
 

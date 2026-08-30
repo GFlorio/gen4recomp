@@ -3,7 +3,7 @@
 -- and content-addressed mesh/texture references.
 
 local Errors = require("libs.errors.src.Errors")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local FieldEffectPatternAnimation = require("romdump.src.digest.FieldEffectPatternAnimation")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")

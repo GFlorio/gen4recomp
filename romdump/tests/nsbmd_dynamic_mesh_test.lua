@@ -7,7 +7,7 @@
 -- transform the segment vertices.
 
 local Assert = require("tests.support.Assert")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
 local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
@@ -18,7 +18,7 @@ local ModelFixture = require("tests.support.NsbmdModelFixture")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Matrix4 = require("libs.math.src.Matrix4")
 local NB = require("tests.support.NitroBuilder")
-local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
+local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 
 local T = {}
 

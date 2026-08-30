@@ -18,7 +18,7 @@
 
 local NB = require("tests.support.NitroBuilder")
 local TF = require("tests.support.TextureFixtures")
-local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
+local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
 
 local Tex0Fixture = {}
 

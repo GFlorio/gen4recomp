@@ -1,6 +1,6 @@
 -- HGSS field visual-state census. Walks every renderable map/building model
 -- and every field-actor model over the whole map catalog, resolves each
--- material's effective DS polygon state (DsMaterial + DsPolygonAttr, the
+-- material's effective DS polygon state (HGSS field policy + DsPolygonAttr, the
 -- same normalization FieldActorModel and the map/building compilers use),
 -- and pins observed source/render-state facts as a regression: polygon mode,
 -- polygon alpha, polygon id, light mask, cull mode, depthEqual,
@@ -33,12 +33,13 @@ local MapCatalog = require("romdump.src.digest.MapCatalog")
 local MapResolver = require("romdump.src.digest.MapResolver")
 local AreaData = require("romdump.src.digest.AreaData")
 local LandData = require("romdump.src.digest.LandData")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
-local Nsbtx = require("romdump.src.digest.nitro.Nsbtx")
-local DsMaterial = require("romdump.src.digest.nitro.DsMaterial")
-local DsPolygonAttr = require("romdump.src.digest.nitro.DsPolygonAttr")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
+local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
+local Material = require("libs.nds.src.gx.Material")
+local HgssFieldMaterial = require("romdump.src.digest.HgssFieldMaterial")
+local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
-local AlphaClassifier = require("libs.assets.src.AlphaClassifier")
+local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local SbcInventory = require("romdump.src.digest.SbcInventory")
 
 local T = {}
@@ -87,7 +88,12 @@ end
 -- using `policy` to decide diffuse/ambient/specular/emission ownership
 -- (only relevant for the caller's colorSource tally, when requested).
 local function foldPolygon(tally, rawMaterial, policy, trackColorSource)
-  local resolved = DsMaterial.resolve(rawMaterial, DsMaterial.HGSS_FIELD_DEFAULTS, policy)
+  local resolved
+  if trackColorSource then
+    resolved = HgssFieldMaterial.resolve(rawMaterial)
+  else
+    resolved = Material.resolve(rawMaterial, HgssFieldMaterial.HGSS_FIELD_DEFAULTS, policy)
+  end
   local poly = DsPolygonAttr.decode(resolved.polyAttr)
   bump(tally.polygonMode, poly.polygonMode)
   bump(tally.lightMask, poly.lightMask)
@@ -115,13 +121,13 @@ local function foldPolygon(tally, rawMaterial, policy, trackColorSource)
 end
 
 -- Map/building materials: full state including texture format/wrap/flip/
--- alpha class, resolved against DsMaterial.applyFieldPolicy's confirmed
--- HGSS field-model color policy.
+-- alpha class, resolved against the confirmed HGSS field-model color policy
+-- (docs/rendering.md "Normalized material state"; HgssFieldMaterial.applyFieldPolicy).
 local function foldFieldMaterials(tally, materials, texPack)
   local compiled = MaterialCompiler.compile(materials, texPack, {})
   for i, rawMaterial in ipairs(materials) do
     tally.materials = tally.materials + 1
-    local poly = foldPolygon(tally, rawMaterial, DsMaterial.applyFieldPolicy(rawMaterial), true)
+    local poly = foldPolygon(tally, rawMaterial, HgssFieldMaterial.applyFieldPolicy(rawMaterial), true)
     local compiledMat = compiled.materials[i]
     bump(tally.textureFormat, compiledMat.textureFormat or "untextured")
     bump(tally.wrap, compiledMat.wrap.x .. "/" .. compiledMat.wrap.y)
@@ -148,7 +154,7 @@ end
 local function foldActorMaterials(tally, materials)
   for _, rawMaterial in ipairs(materials) do
     tally.materials = tally.materials + 1
-    foldPolygon(tally, rawMaterial, DsMaterial.ownership(rawMaterial.flagsRaw), false)
+    foldPolygon(tally, rawMaterial, Material.ownership(rawMaterial.flagsRaw), false)
   end
 end
 

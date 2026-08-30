@@ -110,7 +110,7 @@ function DsFog.blend(component, fogComponent, density)
 end
 
 -- 5-bit (0..31) RGB555 component -> the DS six-bit framebuffer domain
--- (melonDS GPU3D_Soft.cpp color conversion, locked in deliverable A/expand5to6):
+-- (melonDS GPU3D_Soft.cpp color conversion):
 -- 0 stays 0, any non-zero n becomes 2n+1. Fog color enters the same 6-bit
 -- combiner domain every other color in the pipeline does -- never a raw /31
 -- normalization.

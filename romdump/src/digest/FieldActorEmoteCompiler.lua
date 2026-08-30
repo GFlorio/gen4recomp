@@ -8,7 +8,7 @@
 -- addressed mesh/texture references.
 
 local Errors = require("libs.errors.src.Errors")
-local Nsbmd = require("romdump.src.digest.nitro.Nsbmd")
+local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
