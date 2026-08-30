@@ -5,13 +5,13 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
-local OakIntroController = require("libs.engine.src.OakIntroController")
+local OakIntroController = require("game.src.game.OakIntroController")
 local OakIntroLayout = require("game.src.game.OakIntroLayout")
 local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 local FakeGraphics = require("tests.support.FakeGraphics")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local NewGame = require("libs.engine.src.NewGame")
+local NewGame = require("game.src.game.NewGame")
 
 local T = {
   metadata = {

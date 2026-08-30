@@ -12,7 +12,7 @@ local GameSaveStore = require("libs.engine.src.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local NewGame = require("libs.engine.src.NewGame")
+local NewGame = require("game.src.game.NewGame")
 local NewGameInitialization = require("game.src.game.NewGameInitialization")
 local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
@@ -143,8 +143,8 @@ function App._bootOakIntro()
   App.setState(OakIntroComposition.compose(input))
 end
 
--- C05 handoff: the candidate is already finalized in memory, but remains
--- reserved and unpublished until the receiving field flow explicitly writes it.
+-- The candidate is finalized in memory, but remains reserved and unpublished
+-- until the receiving field flow explicitly writes it.
 function App._onOakComplete(result)
   assert(type(result) == "table" and result.playerData ~= nil, "Oak intro completed without a finalized game")
   result = NewGameInitialization.apply(result)

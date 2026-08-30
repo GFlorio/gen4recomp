@@ -5,10 +5,11 @@
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
 local FieldState = require("game.src.game.FieldState")
-local OakIntroController = require("libs.engine.src.OakIntroController")
+local OakIntroController = require("game.src.game.OakIntroController")
 
 local T = {
   metadata = {
+    capabilities = { "rom_dump", "derived_cache" },
     tags = { "oak", "profile", "routing", "input", "audio" },
   },
   tests = {},

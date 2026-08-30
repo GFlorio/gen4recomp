@@ -1,4 +1,4 @@
--- Pure New Game coordinator. It reserves a stable identity, creates the
+-- HGSS New Game coordinator. It reserves a stable identity, creates the
 -- source-shaped unpublished opening state, and later finalizes the partial
 -- Oak profile without publishing gameplay to storage.
 
@@ -29,7 +29,7 @@ function NewGame.createCandidate(options)
   assert(type(options) == "table", "NewGame.createCandidate requires options")
   assert(
     type(options.saveService) == "table" and type(options.saveService.reserve) == "function",
-    "NewGame requires C01 reservation"
+    "NewGame requires a save reservation"
   )
   assert(type(options.versionId) == "string", "NewGame requires a versionId")
   assert(

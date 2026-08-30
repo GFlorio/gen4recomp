@@ -230,15 +230,18 @@ before movement reads occupancy — so the draw list and collision never disagre
 within a tick. An actor's raw ROM movement code is preserved on the actor and
 never executed; actors move only through script movement tasks.
 
-A fresh game starts event flags and variables clean: `libs/engine/src/NewGame.lua`'s
-`createCandidate` builds the candidate from a fresh `FieldEventState`, a fixed
-starting `mapIdentity` supplied by `game/src/game/App.lua`, and
+A fresh game starts event flags and variables clean: the game-owned
+`NewGame`, `OakIntroController`, and `OakGreetingPolicy` modules own the HGSS
+opening policy. `game/src/game/NewGame.lua`'s `createCandidate` coordinator
+builds the candidate from a fresh `FieldEventState`, a fixed starting
+`mapIdentity` supplied by `game/src/game/App.lua`, and
 `PlayerData.defaultOptions()`; there is no spawn-configuration data manifest.
-`App` composes the candidate through the Oak intro flow and finalizes it with
-`NewGameInitialization.apply` before handing it to `FieldState`. Resuming a
-save restores its persisted event state instead. Clean fresh-field
-initialization is a runtime entry contract, not a claim about retail new-game
-story initialization.
+The Oak intro flow composes and finalizes that candidate with
+`NewGameInitialization.apply` before handing it to `FieldState`. Reusable
+primitives such as `PlayerData`, `PlayTime`, and `LocalClock` remain in
+`libs/engine`. Resuming a save restores its persisted event state instead.
+Clean fresh-field initialization is a runtime entry contract, not a claim about
+retail new-game story initialization.
 
 The player's movement decision order is collision, then terrain surface
 transition, then actor occupancy (`FieldPlayer` consults the manager's

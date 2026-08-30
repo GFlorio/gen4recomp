@@ -69,6 +69,12 @@ local FORBIDDEN_PREFIXES = {
   "data.manifests.field_actors",
 }
 
+local ENGINE_PRODUCT_MODULE_PATHS = {
+  "libs/engine/src/NewGame.lua",
+  "libs/engine/src/OakIntroController.lua",
+  "libs/engine/src/OakGreetingPolicy.lua",
+}
+
 local scanned = nil
 
 local function luaFilesUnder(root)
@@ -91,6 +97,15 @@ local function readFile(path)
   local content = handle:read("*a")
   handle:close()
   return content
+end
+
+local function pathExists(path)
+  local handle = io.open(BASE .. "/" .. path, "r")
+  if handle == nil then
+    return false
+  end
+  handle:close()
+  return true
 end
 
 -- The two spellings the repository uses; anything else is a load error before
@@ -190,6 +205,12 @@ function T.romdump_never_imports_libs_engine()
     return false
   end)
   Assert.isTrue(#violations == 0, violationMessage("romdump/src imports a libs runtime package:\n", violations))
+end
+
+function T.engine_does_not_contain_game_opening_policy_modules()
+  for _, path in ipairs(ENGINE_PRODUCT_MODULE_PATHS) do
+    Assert.isFalse(pathExists(path), path .. " must not contain game opening policy")
+  end
 end
 
 return { tests = T }

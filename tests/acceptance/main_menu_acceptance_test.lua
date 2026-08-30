@@ -1,5 +1,5 @@
 -- Production-composed Main Menu acceptance contract. The menu state owns the
--- C01 boundary and semantic input/layout state; this suite stops before draw
+-- save-catalog boundary and semantic input/layout state; this suite stops before draw
 -- and uses only an injected save catalog and ready-version resolver.
 
 local Assert = require("tests.support.Assert")
@@ -349,7 +349,7 @@ function T.tests.published_cards_are_sparse_and_creation_ordered()
   Assert.deepEqual(
     { refreshed.items[2].id, refreshed.items[3].id, refreshed.items[4].id },
     { "save-00000001", "save-00000003", "save-00000004" },
-    "refresh must preserve C01 creation order"
+    "refresh must preserve save creation order"
   )
 
   activateKey(menu, "down")
@@ -433,7 +433,7 @@ function T.tests.delete_requires_confirmation_and_focuses_the_replacement_item()
     Assert.equal(requested.dialog.kind, "delete")
     Assert.equal(requested.dialog.saveId, case.target)
     Assert.equal(requested.dialog.focusedAction, "cancel", "delete confirmation must default to Cancel")
-    Assert.deepEqual(store.calls.delete, {}, "requesting deletion must not mutate C01")
+    Assert.deepEqual(store.calls.delete, {}, "requesting deletion must not mutate the save")
 
     activateKey(menu, "escape")
     Assert.deepEqual(store.calls.delete, {}, "Escape must cancel deletion")

@@ -5,9 +5,9 @@
 local Assert = require("tests.support.Assert")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local NewGame = require("libs.engine.src.NewGame")
-local OakGreetingPolicy = require("libs.engine.src.OakGreetingPolicy")
-local OakIntroController = require("libs.engine.src.OakIntroController")
+local NewGame = require("game.src.game.NewGame")
+local OakGreetingPolicy = require("game.src.game.OakGreetingPolicy")
+local OakIntroController = require("game.src.game.OakIntroController")
 
 local T = {}
 

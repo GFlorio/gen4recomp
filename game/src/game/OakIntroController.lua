@@ -2,8 +2,8 @@
 -- progression and the unpublished candidate; presentation and host input map
 -- into its public semantic operations without deciding transitions.
 
-local NewGame = require("libs.engine.src.NewGame")
-local OakGreetingPolicy = require("libs.engine.src.OakGreetingPolicy")
+local NewGame = require("game.src.game.NewGame")
+local OakGreetingPolicy = require("game.src.game.OakGreetingPolicy")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class OakIntroControllerOptions

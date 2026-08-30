@@ -3,8 +3,8 @@ local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FakeGraphics = require("tests.support.FakeGraphics")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local NewGame = require("libs.engine.src.NewGame")
-local OakIntroController = require("libs.engine.src.OakIntroController")
+local NewGame = require("game.src.game.NewGame")
+local OakIntroController = require("game.src.game.OakIntroController")
 local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 
 local T = {}

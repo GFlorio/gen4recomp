@@ -5,7 +5,7 @@ local Assert = require("tests.support.Assert")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local NewGame = require("libs.engine.src.NewGame")
+local NewGame = require("game.src.game.NewGame")
 local OakIntroComposition = require("game.src.game.OakIntroComposition")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 

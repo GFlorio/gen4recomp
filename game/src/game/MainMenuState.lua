@@ -1,4 +1,4 @@
--- Product Main Menu state. It owns the C01 catalog refresh, the pure input
+-- Product Main Menu state. It owns the save catalog refresh, the pure input
 -- controller, the responsive layout, and the renderer, then emits only
 -- semantic New Game, Continue, or quit results to App.
 
