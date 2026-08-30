@@ -26,7 +26,7 @@
 
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")
-local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
+local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
 local FieldTransition = require("libs.engine.src.FieldTransition")
 
 ---@class FieldSessionOptions

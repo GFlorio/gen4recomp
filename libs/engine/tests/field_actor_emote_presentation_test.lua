@@ -11,7 +11,7 @@ local Assert = require("tests.support.Assert")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
-local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 local FieldActorEmoteRenderer = require("libs.engine.src.FieldActorEmoteRenderer")
 
 local T = {}

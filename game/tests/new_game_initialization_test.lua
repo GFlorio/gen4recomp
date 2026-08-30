@@ -3,7 +3,7 @@ local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local PlayerData = require("libs.engine.src.PlayerData")
 local PlayTime = require("libs.engine.src.PlayTime")
-local WorldState = require("libs.engine.src.script.WorldState")
+local WorldState = require("libs.hgss.src.script.WorldState")
 local GameSave = require("libs.engine.src.GameSave")
 
 local T = {}

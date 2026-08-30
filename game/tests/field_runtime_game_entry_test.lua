@@ -149,9 +149,9 @@ function T.captureGameSave_returns_a_strict_snapshot_without_storage_io()
     end,
   }
   local scriptCaptureCalls = 0
-  local originalCapture = require("libs.engine.src.script.ScriptSave").capture
+  local originalCapture = require("libs.script.src.ScriptSave").capture
   ---@diagnostic disable-next-line: duplicate-set-field
-  require("libs.engine.src.script.ScriptSave").capture = function(_, tick, options)
+  require("libs.script.src.ScriptSave").capture = function(_, tick, options)
     scriptCaptureCalls = scriptCaptureCalls + 1
     Assert.equal(tick, 42)
     Assert.equal(options.registryFingerprint, "registry-fingerprint")
@@ -161,7 +161,7 @@ function T.captureGameSave_returns_a_strict_snapshot_without_storage_io()
   local ok, result = pcall(function()
     return runtime:captureGameSave()
   end)
-  require("libs.engine.src.script.ScriptSave").capture = originalCapture
+  require("libs.script.src.ScriptSave").capture = originalCapture
 
   Assert.isTrue(ok, tostring(result))
   local valid = assert(GameSave.validate(result))

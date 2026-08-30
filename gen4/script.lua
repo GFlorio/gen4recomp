@@ -8,12 +8,12 @@
 -- directory layout. API 1 is not declared stable: until stability is
 -- explicitly declared the surface stays minimal and incompatible cleanup is
 -- allowed, so constructor shapes, operation names, field names, and defaults
--- may change between versions; libs/engine/tests/script pins the current
+-- may change between versions; libs/script/tests/core pins the current
 -- shapes verbatim.
 
-local Dsl = require("libs.engine.src.script.Dsl")
-local Schema = require("libs.engine.src.script.Schema")
-local Validator = require("libs.engine.src.script.Validator")
+local Dsl = require("libs.script.src.Dsl")
+local Schema = require("libs.script.src.Schema")
+local Validator = require("libs.script.src.Validator")
 
 local S = {}
 

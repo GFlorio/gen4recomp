@@ -3,17 +3,18 @@
 -- registry, service adapters, and the scheduler + interaction client the
 -- session steps. FieldState wires the result into FieldSession.
 
-local Bindings = require("libs.engine.src.script.Bindings")
+local Bindings = require("libs.hgss.src.script.Bindings")
 local Errors = require("libs.errors.src.Errors")
-local ScriptErrors = require("libs.engine.src.script.errors")
-local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
-local ScriptDialogueHost = require("libs.engine.src.script.ScriptDialogueHost")
-local ScriptMenuHost = require("libs.engine.src.script.ScriptMenuHost")
-local ScriptSignpostHost = require("libs.engine.src.script.ScriptSignpostHost")
-local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
-local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
-local WorldState = require("libs.engine.src.script.WorldState")
-local Scheduler = require("libs.engine.src.script.Scheduler")
+local ScriptErrors = require("libs.script.src.errors")
+local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
+local ScriptDialogueHost = require("libs.hgss.src.script.ScriptDialogueHost")
+local ScriptMenuHost = require("libs.hgss.src.script.ScriptMenuHost")
+local ScriptSignpostHost = require("libs.hgss.src.script.ScriptSignpostHost")
+local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
+local ScriptMapsService = require("libs.hgss.src.script.ScriptMapsService")
+local WorldState = require("libs.hgss.src.script.WorldState")
+local Scheduler = require("libs.script.src.Scheduler")
+local HgssScript = require("libs.hgss.src.script.Composition")
 local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local MapInitScriptController = require("libs.engine.src.MapInitScriptController")
@@ -313,6 +314,7 @@ function FieldScripts.new(opts)
       advanceAsync = advanceAsync,
     },
     taskRegistry = liveTaskRegistry,
+    semantics = HgssScript.semantics(),
     resolveComposition = resolveComposition,
   })
   platform.scheduler = scheduler

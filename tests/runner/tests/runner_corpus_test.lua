@@ -39,7 +39,7 @@ end
 
 -- Discovery reaches nested script suites through the `_test.lua` suffix.
 function T.nested_script_suites_are_discovered()
-  Assert.notNil(find("libs.engine.tests.script.scheduler_test"), "nested script suite is missing")
+  Assert.notNil(find("libs.script.tests.core.scheduler_test"), "nested script suite is missing")
   Assert.notNil(find("libs.engine.tests.field_session_test"), "immediate suite is missing")
 end
 

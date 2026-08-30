@@ -8,7 +8,7 @@ local FieldInput = require("libs.engine.src.FieldInput")
 local FieldPlayerModule = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
 local FieldSessionModule = require("libs.engine.src.FieldSession")
-local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
+local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
 

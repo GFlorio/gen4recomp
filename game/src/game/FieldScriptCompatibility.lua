@@ -1,15 +1,14 @@
 -- Owns the production field-script registry, task registry, and composition
 -- construction shared by field execution and persisted-save validation.
 
-local Composition = require("libs.engine.src.script.Composition")
+local Composition = require("libs.script.src.Composition")
 local Errors = require("libs.errors.src.Errors")
-local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
-local RegistryWarmup = require("libs.engine.src.script.RegistryWarmup")
-local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
-local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
+local RegistrySnapshot = require("libs.script.src.RegistrySnapshot")
+local RegistryWarmup = require("libs.script.src.RegistryWarmup")
+local ScriptLoader = require("libs.script.src.ScriptLoader")
+local TaskRegistry = require("libs.script.src.TaskRegistry")
+local HgssScript = require("libs.hgss.src.script.Composition")
 
----@class FieldScriptCompatibility.MovementPause: TaskImplementation
----@field actorType string
 ---@class FieldScriptCompatibility
 ---@field registry Registry current production script registry
 ---@field registrySnapshotKey string|nil key the registry was built under
@@ -18,54 +17,20 @@ local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 ---@field composition Composition current production script composition
 ---@field taskRegistry TaskRegistry current production task registry
 ---@field registryFingerprint fun(self: FieldScriptCompatibility): string
-local TASK_MODULES = {
-  "libs.engine.src.script.tasks.WaitTicksTask",
-  "libs.engine.src.script.tasks.WaitInputTask",
-  "libs.engine.src.script.tasks.WaitInputOrTicksTask",
-  "libs.engine.src.script.tasks.WaitSignpostActionTask",
-  "libs.engine.src.script.tasks.TrainerTipsTask",
-  "libs.engine.src.script.tasks.WaitSignpostTask",
-  "libs.engine.src.script.tasks.SignTask",
-  "libs.engine.src.script.tasks.DialogueTask",
-  "libs.engine.src.script.tasks.MovementTask",
-  "libs.engine.src.script.tasks.MovementBarrierTask",
-  "libs.engine.src.script.tasks.MovementPauseTask",
-  "libs.engine.src.script.tasks.FadeTask",
-  "libs.engine.src.script.tasks.SoundWaitTask",
-  "libs.engine.src.script.tasks.MusicFadeTask",
-  "libs.engine.src.script.tasks.WarpTask",
-  "libs.engine.src.script.tasks.ChildScriptTask",
-  "libs.engine.src.script.tasks.AskYesNoTask",
-  "libs.engine.src.script.tasks.AuxiliaryUiTask",
-  "libs.engine.src.script.tasks.ContextChoiceTask",
-  "libs.engine.src.script.tasks.MenuTask",
-}
-
 local FieldScriptCompatibility = {}
 FieldScriptCompatibility.__index = FieldScriptCompatibility
-
-local function buildTaskRegistry()
-  local registry = TaskRegistry.new()
-  for _, moduleName in ipairs(TASK_MODULES) do
-    local impl = require(moduleName)
-    ---@cast impl TaskImplementation
-    registry:register(impl.type, impl.version, impl)
-  end
-  local pause = require("libs.engine.src.script.tasks.MovementPauseTask")
-  ---@cast pause FieldScriptCompatibility.MovementPause
-  registry:register(pause.actorType, pause.version, pause)
-  return registry
-end
 
 ---@param opts { cacheFs: CacheFs, overrideFs: table }
 ---@return FieldScriptCompatibility
 function FieldScriptCompatibility.new(opts)
   assert(opts and opts.cacheFs and opts.overrideFs, "script compatibility requires filesystems")
-  local snapshot = RegistrySnapshot.load(opts.cacheFs, opts.overrideFs)
+  local builtins = HgssScript.builtins()
+  local snapshot = RegistrySnapshot.load(opts.cacheFs, opts.overrideFs, builtins.contentHash)
   local fast = snapshot ~= nil and snapshot.fingerprint ~= nil
   local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs, nil, {
     lazy = true,
     validateGenerated = not fast,
+    builtins = builtins,
   })
   if snapshot ~= nil and snapshot.fingerprint ~= nil then
     registry:restoreFingerprint(snapshot.fingerprint)
@@ -76,7 +41,7 @@ function FieldScriptCompatibility.new(opts)
     registrySnapshotUsed = fast,
     warmup = nil,
     composition = Composition.new(registry),
-    taskRegistry = buildTaskRegistry(),
+    taskRegistry = HgssScript.registerTasks(TaskRegistry.new()),
   }, FieldScriptCompatibility) --[[@as FieldScriptCompatibility]]
   if not fast then
     self.warmup = RegistryWarmup.new({
@@ -84,6 +49,7 @@ function FieldScriptCompatibility.new(opts)
       cacheFs = opts.cacheFs,
       overrideFs = opts.overrideFs,
       snapshotKey = snapshot and snapshot.key or nil,
+      builtinContentHash = builtins.contentHash,
     })
   end
   return self

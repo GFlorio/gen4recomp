@@ -6,10 +6,11 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
-local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
+local RegistrySnapshot = require("libs.script.src.RegistrySnapshot")
 local ScriptCache = require("libs.assets.src.ScriptCache")
-local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
+local ScriptLoader = require("libs.script.src.ScriptLoader")
 local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
+local HgssScript = require("libs.hgss.src.script.Composition")
 
 local T = {}
 
@@ -59,8 +60,9 @@ local function recordingWrites(cache, failFirst)
 end
 
 local function snapshotHit(cache, fs)
-  local registry = ScriptLoader.buildRegistry(cache, fs)
-  local key = assert(RegistrySnapshot.key(cache, fs))
+  local builtins = HgssScript.builtins()
+  local registry = ScriptLoader.buildRegistry(cache, fs, nil, { builtins = builtins })
+  local key = assert(RegistrySnapshot.key(cache, fs, builtins.contentHash))
   Assert.isTrue(cache:writeLua(RegistrySnapshot.FILE, {
     schema = RegistrySnapshot.SCHEMA,
     key = key,

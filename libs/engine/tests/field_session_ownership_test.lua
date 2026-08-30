@@ -115,7 +115,7 @@ local function makeSession(opts)
     scriptScheduler = scheduler --[[@as Scheduler]],
     scriptClient = (opts.scriptClient or {
       consume = function()
-        return require("libs.engine.src.script.ScriptInteractionClient").RESULTS.blocked
+        return require("libs.hgss.src.script.ScriptInteractionClient").RESULTS.blocked
       end,
     }) --[[@as ScriptInteractionClient]],
     menuHost = menuHost,
@@ -347,7 +347,7 @@ function T.same_tick_traversal_candidate_outranks_passive_directional_sign()
   local scriptClient = {
     consume = function(_, intent)
       consumed[#consumed + 1] = intent
-      return require("libs.engine.src.script.ScriptInteractionClient").RESULTS.started
+      return require("libs.hgss.src.script.ScriptInteractionClient").RESULTS.started
     end,
   }
   local player = basePlayer({ fieldX = 4, fieldZ = 13, facing = "south" })

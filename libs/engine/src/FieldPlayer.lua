@@ -800,7 +800,7 @@ function FieldPlayer:beginScriptedAction(action)
   end
   assert(self.motion == "idle", "cannot begin scripted action while moving")
   assert(type(action) == "table" and type(action.action) == "string", "scripted action required")
-  local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+  local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
   local durationTicks
   if
     kind == "walk"
@@ -900,7 +900,7 @@ function FieldPlayer:advanceScriptedAction(progressTicks, durationTicks)
     self.worldX = self.from.worldX + (self.to.worldX - self.from.worldX) * t
     self.worldZ = self.from.worldZ + (self.to.worldZ - self.from.worldZ) * t
     local baseY = self.from.worldY + (self.to.worldY - self.from.worldY) * t
-    local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+    local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
     local h = MovementCalibration.JUMP_HEIGHTS[m.distance] or 0
     local arc = 4 * h * t * (1 - t)
     self.worldY = baseY + arc

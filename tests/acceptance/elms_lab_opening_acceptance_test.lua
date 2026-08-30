@@ -111,7 +111,7 @@ function T.tests.fresh_entry_triggers_the_welcome_scene_through_elms_post_chime_
     )
     -- Coordinate events preserve the raw 1-based source script index; the
     -- same identity formatter every vanilla script consumer shares
-    -- (`libs/engine/src/script/Bindings.lua`) converts bank id + zero-based
+    -- (`libs/hgss/src/script/Bindings.lua`) converts bank id + zero-based
     -- index into the canonical resource id actually started at runtime.
     local expectedScriptId =
       ScriptIdentity.formatVanilla(game.runtime.runtimeMap.fieldData.scriptBankId, welcomeEvent.scriptId - 1)

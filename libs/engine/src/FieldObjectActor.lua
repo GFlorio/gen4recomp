@@ -265,7 +265,7 @@ function FieldObjectActor:advanceScriptedAction(progressTicks, durationTicks)
     self.worldX = m.startWorldX + (m.destWorldX - m.startWorldX) * t
     self.worldZ = m.startWorldZ + (m.destWorldZ - m.startWorldZ) * t
     if m.action == "jump" then
-      local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+      local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
       local h = MovementCalibration.JUMP_HEIGHTS[m.distance] or 0
       -- Parabolic arc: 4*h*t*(1-t)
       local arc = 4 * h * t * (1 - t)

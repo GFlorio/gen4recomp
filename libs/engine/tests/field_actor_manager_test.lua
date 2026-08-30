@@ -879,7 +879,7 @@ end
 -- through the manager's current map, and scripted show/hide reach the draw
 -- records.
 function T.script_actor_world_resolves_map_indexes_and_visibility()
-  local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
+  local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
   local mgr = manager({
     object({ objectEventId = 2, x = 4, z = 5 }),
     object({ objectEventId = 241, x = 7, z = 8 }),
@@ -1069,7 +1069,7 @@ end
 -- Hidden actors stay solid for collision and report hidden snapshots: the
 -- two views never contradict.
 function T.hidden_actors_report_hidden_snapshots_and_stay_solid()
-  local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
+  local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
   local mgr = manager({ object({ objectEventId = 0, x = 2, z = 3 }) })
   local player = {
     position = function()

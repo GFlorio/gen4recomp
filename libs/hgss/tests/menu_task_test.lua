@@ -1,0 +1,356 @@
+-- MenuTask scheduler tests: a registered task owns menu input and lifetime,
+-- while the scheduler remains responsible for writing its result and resuming
+-- the blocked script on a later tick.
+
+local Assert = require("tests.support.Assert")
+local S = require("gen4.script")
+local Registry = require("libs.script.src.Registry")
+local Composition = require("libs.script.src.Composition")
+local TaskRegistry = require("libs.script.src.TaskRegistry")
+local Scheduler = require("libs.script.src.Scheduler")
+local ScriptSave = require("libs.script.src.ScriptSave")
+local MenuTask = require("libs.hgss.src.script.tasks.MenuTask")
+---@cast MenuTask TaskImplementation
+local FakeServices = require("tests.support.script.FakeServices")
+
+local T = {}
+
+local RecordingMenuHost = {}
+RecordingMenuHost.__index = RecordingMenuHost
+
+function RecordingMenuHost.new()
+  return setmetatable({ syncs = {}, closes = 0 }, RecordingMenuHost)
+end
+
+function RecordingMenuHost:sync(state)
+  self.syncs[#self.syncs + 1] = {
+    selectedIndex = state.selectedIndex,
+    pressedPointerItem = state.pressedPointerItem,
+  }
+end
+
+function RecordingMenuHost:close()
+  self.closes = self.closes + 1
+end
+
+local MENU_SPEC = {
+  items = {
+    { text = "First", value = 41 },
+    { text = "Second", value = 99 },
+  },
+  initialCursor = 0,
+  cancellable = true,
+  cancelValue = -1,
+}
+
+local RecordingScriptMenuHost = {}
+RecordingScriptMenuHost.__index = RecordingScriptMenuHost
+
+function RecordingScriptMenuHost.new()
+  return setmetatable({ requests = {} }, RecordingScriptMenuHost)
+end
+
+function RecordingScriptMenuHost:beginMenu(spec)
+  return {
+    messageSource = spec.messageSource,
+    sourcePlacement = spec.sourcePlacement,
+    initialCursor = spec.initialCursor,
+    cancellable = spec.cancellable,
+    result = spec.result,
+    items = {},
+  }
+end
+
+function RecordingScriptMenuHost:addItem(builder, item)
+  builder.items[#builder.items + 1] = item
+end
+
+function RecordingScriptMenuHost:choose(spec)
+  self.requests[#self.requests + 1] = spec
+  return spec
+end
+
+function RecordingScriptMenuHost:execute(request)
+  self.requests[#self.requests + 1] = request
+  return request
+end
+
+local function harness()
+  local services = FakeServices.new()
+  local host = RecordingMenuHost.new()
+  local scriptMenu = RecordingScriptMenuHost.new()
+  services.menu = host
+  services.scriptMenu = scriptMenu
+  local registry = Registry.new()
+  local composition = Composition.new(registry)
+  local taskRegistry = TaskRegistry.new()
+  taskRegistry:register(MenuTask.type, MenuTask.version, MenuTask)
+  local scheduler = Scheduler.new({
+    semantics = require("libs.hgss.src.script.RuntimeValues"),
+    services = services,
+    taskRegistry = taskRegistry,
+    resolveComposition = function(id)
+      return composition:effective(id)
+    end,
+  })
+  return {
+    services = services,
+    host = host,
+    scriptMenu = scriptMenu,
+    registry = registry,
+    composition = composition,
+    taskRegistry = taskRegistry,
+    scheduler = scheduler,
+  }
+end
+
+function T.menu_builder_operations_yield_add_same_tick_and_block_for_the_script_result()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.menu_builder",
+    steps = {
+      S.setVar({ variable = "VAR_MESSAGE", value = 0 }),
+      S.setVar({ variable = "VAR_METADATA", value = 73 }),
+      S.setVar({ variable = "VAR_VALUE", value = 99 }),
+      S.menuBegin({
+        messageSource = "standard",
+        sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 17, y = 5 },
+        initialCursor = 0,
+        cancellable = false,
+        result = S.var("VAR_RESULT"),
+      }),
+      S.menuAdd({
+        messageId = S.var("VAR_MESSAGE"),
+        vanillaMetadata = S.var("VAR_METADATA"),
+        value = S.var("VAR_VALUE"),
+      }),
+      S.menuExec(),
+      S.setVar({ variable = "VAR_AFTER_MENU", value = 1 }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.equal(#h.scriptMenu.requests, 0, "menu initialization yields before the add and exec operations")
+  h.scheduler:step(101, {})
+  Assert.equal(#h.scriptMenu.requests, 1)
+  local request = h.scriptMenu.requests[1]
+  Assert.equal(request.messageSource, "standard")
+  Assert.equal(request.sourcePlacement.x, 17)
+  Assert.equal(request.items[1].messageId, 0)
+  Assert.equal(request.items[1].vanillaMetadata, 73)
+  Assert.equal(request.items[1].value, 99)
+  Assert.equal(h.services.world:getVar("VAR_AFTER_MENU"), 0)
+
+  h.scheduler:step(102, { menuEvents = { { type = "confirm" } } })
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 0)
+  h.scheduler:step(103, {})
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 99)
+  Assert.equal(h.services.world:getVar("VAR_AFTER_MENU"), 1)
+end
+
+function T.menu_builder_survives_save_after_begin_with_a_fresh_stateless_host()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.resumable_menu_builder",
+    steps = {
+      S.menuBegin({
+        messageSource = "standard",
+        sourcePlacement = { system = "hgss_bottom_screen_tiles", x = 17, y = 5 },
+        initialCursor = 0,
+        cancellable = false,
+        result = S.var("VAR_RESULT"),
+      }),
+      S.menuAdd({ messageId = 0, vanillaMetadata = 73, value = 99 }),
+      S.menuExec(),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+  h.scheduler:step(100, {})
+
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  Assert.equal(bucket.instances[1].menuBuilder.messageSource, "standard")
+  Assert.equal(#bucket.instances[1].menuBuilder.items, 0)
+
+  local h2 = harness()
+  h2.registry:installBase(script.id, script, "generated")
+  ScriptSave.restore(bucket, h2.scheduler, 100, {})
+  h2.scheduler:step(101, {})
+  Assert.equal(#h2.services.scriptMenu.requests, 1)
+  Assert.equal(h2.services.scriptMenu.requests[1].items[1].value, 99)
+end
+
+function T.semantic_choose_blocks_and_writes_its_stable_item_result()
+  local h = harness()
+  local script = S.script({
+    api = 1,
+    id = "test.semantic_choose",
+    steps = {
+      S.choose({
+        items = { S.choice("Take", 10), S.choice("Leave", 20) },
+        result = S.var("VAR_RESULT"),
+        placement = { mode = "docked", anchor = "bottom", surface = "main" },
+      }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.equal(h.scriptMenu.requests[1].placement.mode, "docked")
+  h.scheduler:step(101, { menuEvents = { { type = "focus", itemIndex = 1 } } })
+  h.scheduler:step(102, { menuEvents = { { type = "confirm" } } })
+  h.scheduler:step(103, {})
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 20)
+end
+
+function T.semantic_choose_resolves_gendered_text_and_preserves_false_cancel_result()
+  local h = harness()
+  h.services.player._gender = 1
+  local script = S.script({
+    api = 1,
+    id = "test.semantic_choose_gendered_cancel",
+    steps = {
+      S.choose({
+        items = { S.choice("First", 5), S.choice(S.gendered("Male", "Female"), 10) },
+        result = S.var("VAR_RESULT"),
+        cancellable = true,
+        cancelValue = false,
+        initialCursor = 1,
+      }),
+      S.stop(),
+    },
+  })
+  h.registry:installBase(script.id, script, "generated")
+  h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, 100)
+
+  h.scheduler:step(100, {})
+  Assert.equal(h.scriptMenu.requests[1].items[2].text, "Female")
+  Assert.equal(h.scriptMenu.requests[1].initialCursor, 1)
+  Assert.equal(h.scriptMenu.requests[1].cancelValue, false)
+  h.scheduler:step(101, { menuEvents = { { type = "cancel" } } })
+  h.scheduler:step(102, {})
+  Assert.equal(h.services.world.variables.VAR_RESULT, false)
+end
+
+local function resource()
+  return S.script({
+    api = 1,
+    id = "test.menu_task",
+    locals = { selection = "integer" },
+    steps = {
+      S.choose({
+        items = MENU_SPEC.items,
+        result = S.local_("selection"),
+        cancellable = MENU_SPEC.cancellable,
+        cancelValue = MENU_SPEC.cancelValue,
+        initialCursor = MENU_SPEC.initialCursor,
+      }),
+      S.setVar({ variable = "VAR_RESULT", value = S.local_("selection") }),
+      S.stop(),
+    },
+  })
+end
+
+local function start(h, tick)
+  local script = resource()
+  h.registry:installBase(script.id, script, "generated")
+  return h.scheduler:createForeground(assert(h.composition:effective(script.id)), nil, tick)
+end
+
+function T.menu_task_blocks_until_normalized_confirmation_then_resumes_the_script()
+  local h = harness()
+  start(h, 100)
+  h.scheduler:step(100, {})
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 0)
+  h.scheduler:step(101, { menuEvents = { { type = "focus", itemIndex = 1 } } })
+  Assert.equal(h.host.syncs[#h.host.syncs].selectedIndex, 1)
+  h.scheduler:step(102, { menuEvents = { { type = "confirm" } } })
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 0, "completion cannot continue the script in its poll tick")
+  Assert.equal(h.host.closes, 1)
+  h.scheduler:step(103, {})
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 99)
+end
+
+function T.menu_task_applies_the_layout_resolved_focus_target()
+  local h = harness()
+  start(h, 100)
+  h.scheduler:step(100, {})
+  h.scheduler:step(101, { menuEvents = { { type = "focus", itemIndex = 1 } } })
+
+  Assert.equal(h.host.syncs[#h.host.syncs].selectedIndex, 1)
+end
+
+function T.menu_task_restores_its_logical_selection_without_serializing_presentation_state()
+  local h = harness()
+  start(h, 100)
+  h.scheduler:step(100, {})
+  h.scheduler:step(101, { menuEvents = { { type = "focus", itemIndex = 1 } } })
+  local bucket = ScriptSave.capture(h.scheduler, 101, { registryFingerprint = h.registry:fingerprint() })
+  local state = bucket.tasks[1].state
+  Assert.equal(state.selectedIndex, 1)
+  Assert.equal(state.pressedPointerItem, nil)
+
+  local h2 = harness()
+  h2.registry:installBase("test.menu_task", resource(), "generated")
+  ScriptSave.restore(bucket, h2.scheduler, 101, {})
+  h2.scheduler:step(102, { menuEvents = { { type = "confirm" } } })
+  h2.scheduler:step(103, {})
+  Assert.equal(h2.services.world:getVar("VAR_RESULT"), 99)
+  Assert.equal(h2.host.syncs[#h2.host.syncs].selectedIndex, 1)
+  Assert.equal(h2.host.closes, 1)
+end
+
+function T.menu_task_drops_an_in_progress_pointer_gesture_on_restore()
+  local h = harness()
+  start(h, 100)
+  h.scheduler:step(100, {})
+  h.scheduler:step(101, { menuEvents = { { type = "pointer_down", itemIndex = 0 } } })
+  local bucket = ScriptSave.capture(h.scheduler, 101, { registryFingerprint = h.registry:fingerprint() })
+
+  Assert.isNil(bucket.tasks[1].state.pressedPointerItem)
+
+  local h2 = harness()
+  h2.registry:installBase("test.menu_task", resource(), "generated")
+  ScriptSave.restore(bucket, h2.scheduler, 101, {})
+  h2.scheduler:step(102, { menuEvents = { { type = "pointer_up", itemIndex = 0 } } })
+  Assert.equal(h2.host.closes, 0)
+end
+
+function T.menu_task_keeps_pointer_capture_between_live_scheduler_ticks()
+  local h = harness()
+  start(h, 100)
+  h.scheduler:step(100, {})
+  h.scheduler:step(101, { menuEvents = { { type = "pointer_down", itemIndex = 0 } } })
+  h.scheduler:step(102, { menuEvents = { { type = "pointer_up", itemIndex = 0 } } })
+  h.scheduler:step(103, {})
+
+  Assert.equal(h.services.world:getVar("VAR_RESULT"), 41)
+end
+
+function T.cancelling_the_blocked_script_releases_the_menu_once()
+  local h = harness()
+  local instanceId = start(h, 100)
+  h.scheduler:step(100, {})
+  h.scheduler:cancelInstance(instanceId, "test cancellation")
+  Assert.equal(h.host.closes, 1)
+  Assert.equal(#h.scheduler:tasks(), 0)
+end
+
+function T.menu_task_rejects_out_of_range_saved_logical_state()
+  local state = MenuTask.create({ menu = MENU_SPEC }, { services = { menu = RecordingMenuHost.new() } })
+  local err
+  state.selectedIndex = 2
+  err = MenuTask.validate(state)
+  ---@cast err Errors.Error
+  Assert.equal(err.code, "SCRIPT_TASK_UNSERIALIZABLE")
+end
+
+return { tests = T }

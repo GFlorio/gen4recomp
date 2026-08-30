@@ -23,26 +23,26 @@ local function has(entries, name)
 end
 
 function T.indexes_nested_directories_of_a_root()
-  local files = RepoFiles.new(base(), { "libs/engine/tests" })
+  local files = RepoFiles.new(base(), { "libs/engine/tests", "libs/script/tests/core" })
 
   local top = files.getDirectoryItems("libs/engine/tests")
   Assert.isTrue(has(top, "field_session_test.lua"), "lists an immediate suite")
-  Assert.isTrue(has(top, "script"), "lists a nested directory once")
-  Assert.isTrue(has(files.getDirectoryItems("libs/engine/tests/script"), "scheduler_test.lua"), "lists a nested suite")
+  Assert.isTrue(has(files.getDirectoryItems("libs/script/tests"), "core"), "lists the promoted script test package")
+  Assert.isTrue(has(files.getDirectoryItems("libs/script/tests/core"), "scheduler_test.lua"), "lists a nested suite")
 end
 
 function T.reports_file_and_directory_types()
-  local files = RepoFiles.new(base(), { "libs/engine/tests" })
+  local files = RepoFiles.new(base(), { "libs/engine/tests", "libs/script/tests/core" })
 
-  Assert.equal(files.getInfo("libs/engine/tests/script").type, "directory")
-  Assert.equal(files.getInfo("libs/engine/tests/script/scheduler_test.lua").type, "file")
+  Assert.equal(files.getInfo("libs/script/tests/core").type, "directory")
+  Assert.equal(files.getInfo("libs/script/tests/core/scheduler_test.lua").type, "file")
   Assert.isNil(files.getInfo("libs/engine/tests/nope"))
   Assert.isNil(files.getInfo("libs/codec/tests"), "a directory outside the indexed roots is unknown")
 end
 
 function T.an_empty_root_is_a_hard_error()
   local err = Assert.throws(function()
-    RepoFiles.new(base(), { "libs/engine/tests/script/does-not-exist" })
+    RepoFiles.new(base(), { "libs/script/tests/core/does-not-exist" })
   end)
   Assert.isTrue(
     tostring(err):find("indexed no Lua files", 1, true) ~= nil,

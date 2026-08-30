@@ -74,7 +74,8 @@ local FIELD_ENGINE_ROOTS = {
 }
 
 local FIELD_ENGINE_EXCLUDED_PREFIXES = {
-  "libs/engine/src/script/",
+  "libs/hgss/src/script/",
+  "libs/script/src/",
 }
 
 local function isExcludedFromFieldAudit(path)
@@ -245,17 +246,17 @@ function T.tests.misleading_names_are_renamed()
     end
   end
 
-  local scheduler = readFile("libs/engine/src/script/Scheduler.lua")
+  local scheduler = readFile("libs/script/src/Scheduler.lua")
   if scheduler:find("function Scheduler:taskById", 1, true) == nil then
-    violations[#violations + 1] = "libs/engine/src/script/Scheduler.lua lacks Scheduler:taskById"
+    violations[#violations + 1] = "libs/script/src/Scheduler.lua lacks Scheduler:taskById"
   end
 
-  local mapsService = readFile("libs/engine/src/script/ScriptMapsService.lua")
+  local mapsService = readFile("libs/hgss/src/script/ScriptMapsService.lua")
   if mapsService:find("_pending", 1, true) ~= nil then
-    violations[#violations + 1] = "libs/engine/src/script/ScriptMapsService.lua still carries _pending"
+    violations[#violations + 1] = "libs/hgss/src/script/ScriptMapsService.lua still carries _pending"
   end
   if mapsService:find("pendingWarp", 1, true) == nil then
-    violations[#violations + 1] = "libs/engine/src/script/ScriptMapsService.lua lacks pendingWarp"
+    violations[#violations + 1] = "libs/hgss/src/script/ScriptMapsService.lua lacks pendingWarp"
   end
 
   local importer = readFile("romdump/src/source/RomImporter.lua")

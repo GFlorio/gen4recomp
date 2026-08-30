@@ -843,7 +843,7 @@ end
 -- fault on an operand-less node without ever consulting a current-effect
 -- fallback.
 function T.an_operandless_wait_sound_faults_without_a_current_effect_fallback()
-  local SoundWaitTask = require("libs.engine.src.script.tasks.SoundWaitTask")
+  local SoundWaitTask = require("libs.hgss.src.script.tasks.SoundWaitTask")
   local currentEffectCalls = 0
   local audio = {
     currentEffect = function()

@@ -4,7 +4,7 @@
 local Assert = require("tests.support.Assert")
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
 local Errors = require("libs.errors.src.Errors")
-local AuxiliaryUiTask = require("libs.engine.src.script.tasks.AuxiliaryUiTask")
+local AuxiliaryUiTask = require("libs.hgss.src.script.tasks.AuxiliaryUiTask")
 
 local T = {}
 

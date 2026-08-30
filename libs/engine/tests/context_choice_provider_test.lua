@@ -2,7 +2,7 @@
 
 local Assert = require("tests.support.Assert")
 local ContextChoiceProvider = require("libs.engine.src.ContextChoiceProvider")
-local ContextChoiceTask = require("libs.engine.src.script.tasks.ContextChoiceTask")
+local ContextChoiceTask = require("libs.hgss.src.script.tasks.ContextChoiceTask")
 
 local T = {}
 

@@ -9,7 +9,7 @@
 -- returns presentation-neutral values for the renderer to consume.
 
 local Errors = require("libs.errors.src.Errors")
-local ScriptErrors = require("libs.engine.src.script.errors")
+local ScriptErrors = require("libs.script.src.errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local FieldObjectActor = require("libs.engine.src.FieldObjectActor")
@@ -1219,7 +1219,7 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     or kind == "emote"
     or kind == "gesture"
   then
-    local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+    local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
     durationTicks = MovementCalibration.actionTicks(action)
   else
     Errors.raise(

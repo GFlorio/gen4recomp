@@ -9,7 +9,7 @@
 -- reset to the first choice. Pure domain module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
-local ScriptErrors = require("libs.engine.src.script.errors")
+local ScriptErrors = require("libs.script.src.errors")
 
 local StarterChoiceTask = {}
 

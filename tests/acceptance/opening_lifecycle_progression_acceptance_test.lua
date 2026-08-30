@@ -9,7 +9,7 @@ local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldActorEmoteRenderer = require("libs.engine.src.FieldActorEmoteRenderer")
-local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 
 local T = {

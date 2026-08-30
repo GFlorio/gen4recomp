@@ -251,6 +251,22 @@ function T.nds_graphics_never_imports_upward()
   Assert.isTrue(#violations == 0, violationMessage("libs/nds/src imports an upward package:\n", violations))
 end
 
+function T.script_platform_never_imports_game_specific_packages()
+  local forbidden = { "libs.nds.", "libs.hgss.", "game.", "romdump." }
+  local violations = violationsFor(scannedFiles(), function(file, module)
+    if file:sub(1, #"libs/script/src/") ~= "libs/script/src/" then
+      return false
+    end
+    for _, prefix in ipairs(forbidden) do
+      if module:sub(1, #prefix) == prefix then
+        return true
+      end
+    end
+    return false
+  end)
+  Assert.isTrue(#violations == 0, violationMessage("libs/script/src imports an upward package:\n", violations))
+end
+
 function T.nds_sound_does_not_import_project_or_application_packages()
   local violations = violationsFor(scannedFiles(), function(file, module)
     if file:sub(1, #"libs/nds/src/nitro/sound/") ~= "libs/nds/src/nitro/sound/" then
