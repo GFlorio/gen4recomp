@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local Narc = require("romdump.src.source.Narc")
+local Narc = require("libs.nds.src.nitro.Narc")
 local NarcBuilder = require("tests.support.NarcBuilder")
 
 local T = {}

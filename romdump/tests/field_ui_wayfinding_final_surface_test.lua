@@ -253,7 +253,7 @@ local function fixture(opts)
       Assert.fail("unexpected read " .. tostring(fileId))
     end,
     openNarc = function(_, alias)
-      local Narc = require("romdump.src.source.Narc")
+      local Narc = require("libs.nds.src.nitro.Narc")
       return assert(Narc.open(narcFile(alias), alias))
     end,
     metadata = function()

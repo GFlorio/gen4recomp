@@ -1,7 +1,7 @@
 -- Nintendo DS backwards-LZ overlay decompression.
 
 local Assert = require("tests.support.Assert")
-local OverlayCompression = require("romdump.src.source.OverlayCompression")
+local OverlayCompression = require("libs.nds.src.rom.OverlayCompression")
 
 local T = {}
 

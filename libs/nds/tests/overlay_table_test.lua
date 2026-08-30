@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local OverlayTable = require("romdump.src.source.OverlayTable")
+local OverlayTable = require("libs.nds.src.rom.OverlayTable")
 
 local T = {}
 

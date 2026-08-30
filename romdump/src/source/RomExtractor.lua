@@ -16,7 +16,7 @@
 -- importer coroutine that drives the progress callback, not here.
 
 local Errors = require("libs.errors.src.Errors")
-local Narc = require("romdump.src.source.Narc")
+local Narc = require("libs.nds.src.nitro.Narc")
 local CacheFs = require("libs.storage.src.CacheFs")
 local MapMatrix = require("romdump.src.digest.MapMatrix")
 local RawDumpContract = require("romdump.src.source.RawDumpContract")

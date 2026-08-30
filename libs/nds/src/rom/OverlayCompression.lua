@@ -1,5 +1,5 @@
--- Decodes the backwards LZ stream used by compressed Nintendo DS overlays.
--- The footer and overlay-table flag semantics follow GBATEK's DS overlay file
+-- Decodes the backwards LZ stream used by compressed Nintendo DS overlays;
+-- footer and overlay-table flag semantics follow GBATEK's DS overlay file
 -- format. Uncompressed overlays are returned unchanged by the caller.
 
 local BinaryReader = require("libs.codec.src.BinaryReader")

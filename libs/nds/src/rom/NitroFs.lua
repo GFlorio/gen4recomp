@@ -1,4 +1,5 @@
--- Recursive NitroFS FNT parser. Pure domain module: turns the raw FNT byte
+-- Recursive NitroFS FNT parser following GBATEK's NitroROM File System
+-- reference. Pure domain module: turns the raw FNT byte
 -- region into exact source paths keyed by zero-based fileId, plus the reverse
 -- map. Malformed tables raise structured Errors rather than reading past the
 -- supplied bytes. Directory ids are 0xF000-based; the low 12 bits

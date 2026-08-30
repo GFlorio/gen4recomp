@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local NitroFs = require("romdump.src.source.NitroFs")
+local NitroFs = require("libs.nds.src.rom.NitroFs")
 local W = require("tests.support.FntWriter")
 
 local u16 = W.u16

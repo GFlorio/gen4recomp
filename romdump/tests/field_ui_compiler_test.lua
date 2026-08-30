@@ -338,7 +338,7 @@ local function fixture(opts)
       Assert.fail("unexpected read " .. tostring(fileId))
     end,
     openNarc = function(_, alias)
-      local Narc = require("romdump.src.source.Narc")
+      local Narc = require("libs.nds.src.nitro.Narc")
       return assert(Narc.open(narcFile(alias), alias))
     end,
     metadata = function()
@@ -948,7 +948,7 @@ end
 function T.malformed_source_members_are_typed()
   local romFs, sha1, hashLua = fixture()
   romFs.openNarc = function(_, alias)
-    local Narc = require("romdump.src.source.Narc")
+    local Narc = require("libs.nds.src.nitro.Narc")
     if alias == "start_menu" then
       -- A NARC whose background char member is not a G2D resource at all.
       local data = romFs.read(romFs, 10)

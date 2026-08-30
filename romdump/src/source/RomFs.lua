@@ -10,9 +10,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 local CacheFs = require("libs.storage.src.CacheFs")
-local Narc = require("romdump.src.source.Narc")
+local Narc = require("libs.nds.src.nitro.Narc")
 local RomImporter = require("romdump.src.source.RomImporter")
-local OverlayCompression = require("romdump.src.source.OverlayCompression")
+local OverlayCompression = require("libs.nds.src.rom.OverlayCompression")
 local HgssArchives = require("romdump.src.config.HgssArchives")
 local RawDumpContract = require("romdump.src.source.RawDumpContract")
 

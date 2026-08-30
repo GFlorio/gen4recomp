@@ -1,4 +1,5 @@
--- ARM9/ARM7 overlay-table parser. Pure domain module: each 32-byte entry maps
+-- ARM9/ARM7 overlay-table parser following GBATEK's DS overlay-table format.
+-- Pure domain module: each 32-byte entry maps
 -- an overlayId to the FAT fileId that holds its code, plus load metadata kept
 -- for later reverse-engineering. Output is naming-agnostic: callers
 -- name files by overlayId, never by table position.
