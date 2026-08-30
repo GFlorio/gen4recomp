@@ -1,5 +1,5 @@
 -- PlayTime owns elapsed in-game seconds after playable field entry. It never
--- consults civil time, includes modal time while active, and saturates at the
+-- consults civil time, accumulates only while active, and saturates at the
 -- retail display limit.
 
 local Assert = require("tests.support.Assert")
@@ -12,7 +12,7 @@ function T.inactive_time_is_excluded_and_active_time_is_whole_seconds()
   playTime:advance(12.9)
   Assert.equal(playTime:seconds(), 0)
   playTime:start()
-  playTime:advance(12.9, { modal = "trainer-card" })
+  playTime:advance(12.9)
   Assert.equal(playTime:seconds(), 12)
   playTime:stop()
   playTime:advance(10)

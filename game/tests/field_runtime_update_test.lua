@@ -4,6 +4,7 @@
 local Assert = require("tests.support.Assert")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldSession = require("libs.engine.src.FieldSession")
+local PlayTime = require("libs.engine.src.PlayTime")
 
 local T = {
   metadata = {
@@ -93,6 +94,85 @@ local function runtimeWithoutAudio(calls)
     },
   }, FieldRuntime)
   return runtime
+end
+
+local function runtimeForSemanticCatchUp(counters)
+  local playTime = PlayTime.new(0.9)
+  playTime:start()
+  return setmetatable({
+    presentationFrameAccumulator = 0,
+    audioFrameAccumulator = 0,
+    audio = {
+      updateSoundFrame = function()
+        counters.audio = counters.audio + 1
+      end,
+    },
+    playTime = playTime,
+    session = {
+      accumulator = 0,
+      updateFixed = function()
+        counters.field = counters.field + 1
+      end,
+    },
+    transition = {
+      phase = "idle",
+      error = nil,
+      updateSourceFrame = function()
+        counters.presentation = counters.presentation + 1
+      end,
+      consumeCompleted = function() end,
+    },
+    screenFade = {
+      fadeDone = function()
+        return true
+      end,
+      updateSourceFrame = function()
+        counters.screenFade = counters.screenFade + 1
+      end,
+    },
+    scripts = {},
+    applicationHost = {
+      error = function()
+        return nil
+      end,
+    },
+  }, FieldRuntime)
+end
+
+function T.tests.large_host_delta_is_bounded_across_semantic_clocks()
+  local counters = { field = 0, presentation = 0, screenFade = 0, audio = 0 }
+  local runtime = runtimeForSemanticCatchUp(counters)
+
+  runtime:update(10)
+
+  Assert.equal(counters.field, FieldSession.MAX_CATCH_UP_TICKS)
+  Assert.equal(counters.presentation, 10)
+  Assert.equal(counters.screenFade, 10)
+  Assert.equal(counters.audio, 10)
+  Assert.equal(runtime.playTime:seconds(), 1)
+  Assert.isTrue(runtime.session.accumulator < FieldSession.FIXED_DT)
+  Assert.isTrue(runtime.presentationFrameAccumulator < 1 / 60)
+  Assert.isTrue(runtime.audioFrameAccumulator < 1 / 60)
+end
+
+function T.tests.discarded_host_lag_is_not_replayed_on_the_next_update()
+  local counters = { field = 0, presentation = 0, screenFade = 0, audio = 0 }
+  local runtime = runtimeForSemanticCatchUp(counters)
+
+  runtime:update(10)
+  counters.field = 0
+  counters.presentation = 0
+  counters.screenFade = 0
+  counters.audio = 0
+
+  runtime:update(1 / 60)
+
+  Assert.equal(counters.field, 0)
+  Assert.equal(counters.presentation, 1)
+  Assert.equal(counters.screenFade, 1)
+  Assert.equal(counters.audio, 1)
+  Assert.isTrue(runtime.presentationFrameAccumulator < 1 / 60)
+  Assert.isTrue(runtime.audioFrameAccumulator < 1 / 60)
 end
 
 function T.tests.transition_start_discards_stale_presentation_residual()

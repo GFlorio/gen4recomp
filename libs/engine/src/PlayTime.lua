@@ -1,6 +1,5 @@
--- Elapsed gameplay-time accumulator. It is inactive until playable field
--- entry, includes modal application time while active, and saturates at the
--- retail display limit without depending on civil time.
+-- Elapsed gameplay-time accumulator. It accumulates only while active and
+-- saturates at the retail display limit without depending on civil time.
 
 ---@class PlayTime
 ---@field _seconds number
@@ -34,9 +33,8 @@ function PlayTime:stop()
 end
 
 ---@param elapsedSeconds number
----@param _ table?
 ---@return nil
-function PlayTime:advance(elapsedSeconds, _)
+function PlayTime:advance(elapsedSeconds)
   assert(isFiniteNonnegative(elapsedSeconds), "PlayTime advance must be finite and nonnegative")
   if self._active then
     self._seconds = math.min(PlayTime.MAX_SECONDS, self._seconds + elapsedSeconds)

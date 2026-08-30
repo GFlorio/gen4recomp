@@ -239,7 +239,7 @@ function T.play_time_excludes_pre_field_time_includes_active_modals_and_caps()
   playTime:advance(17)
   playTime:advance(3599982)
   Assert.equal(playTime:seconds(), 3599999)
-  playTime:advance(600, { modal = "trainer-card" })
+  playTime:advance(600)
   Assert.equal(playTime:seconds(), 3599999, "active modal time remains capped, never wrapped")
 end
 

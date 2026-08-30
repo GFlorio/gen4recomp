@@ -1101,8 +1101,10 @@ function FieldRuntime:update(dt)
   if self.errorText then
     return
   end
+  local maxSemanticDt = FieldSession.FIXED_DT * FieldSession.MAX_CATCH_UP_TICKS
+  local acceptedDt = math.min(dt, maxSemanticDt)
   if self.playTime then
-    self.playTime:advance(dt)
+    self.playTime:advance(acceptedDt)
   end
 
   if self.residency then
@@ -1114,10 +1116,10 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
-  self.presentationFrameAccumulator = self.presentationFrameAccumulator + dt
-  self.session.accumulator = self.session.accumulator + dt
+  self.presentationFrameAccumulator = self.presentationFrameAccumulator + acceptedDt
+  self.session.accumulator = self.session.accumulator + acceptedDt
   if self.audio then
-    self.audioFrameAccumulator = self.audioFrameAccumulator + dt
+    self.audioFrameAccumulator = self.audioFrameAccumulator + acceptedDt
   end
   local FIXED_DT = FieldSession.FIXED_DT
   local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS

@@ -222,45 +222,6 @@ function T.warp_completion_does_not_request_an_implicit_save()
   Assert.equal(saveRequests, 0, "completing a warp must not publish or request a checkpoint")
 end
 
-function T.update_advances_play_time_once_even_when_fixed_ticks_are_dropped()
-  local advances = {}
-  local runtime = setmetatable({
-    presentationFrameAccumulator = 0,
-    audioFrameAccumulator = 0,
-    scripts = {},
-    session = {
-      accumulator = 0,
-      updateFixed = function() end,
-    },
-    transition = {
-      error = nil,
-      phase = "idle",
-      updateSourceFrame = function() end,
-      consumeCompleted = function()
-        return false
-      end,
-    },
-    screenFade = {
-      fadeDone = function()
-        return true
-      end,
-      updateSourceFrame = function() end,
-    },
-    applicationHost = {
-      error = function()
-        return nil
-      end,
-    },
-    playTime = {
-      advance = function(_, dt)
-        advances[#advances + 1] = dt
-      end,
-    },
-  }, FieldRuntime)
-  runtime:update(123.5)
-  Assert.deepEqual(advances, { 123.5 })
-end
-
 function T.manual_save_keeps_publication_state_across_menu_openings()
   local calls = {}
   local runtime = setmetatable({
