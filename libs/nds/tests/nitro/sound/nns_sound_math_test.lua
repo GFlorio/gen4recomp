@@ -3,7 +3,7 @@
 -- volume contract.
 
 local Assert = require("tests.support.Assert")
-local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
+local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 
 local T = {}
 

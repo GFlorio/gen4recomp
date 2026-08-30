@@ -29,7 +29,7 @@ local LandData = require("romdump.src.digest.LandData")
 local MapResolver = require("romdump.src.digest.MapResolver")
 local RomImporter = require("romdump.src.source.RomImporter")
 local RomFs = require("romdump.src.source.RomFs")
-local Sdat = require("romdump.src.digest.audio.Sdat")
+local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 local fieldAudio = require("romdump.src.reference.hgss.field_audio")
 local flags = require("romdump.src.reference.hgss.flags")
 

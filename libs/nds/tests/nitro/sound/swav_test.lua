@@ -12,8 +12,8 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local Swar = require("romdump.src.digest.audio.Swar")
-local Swav = require("romdump.src.digest.audio.Swav")
+local Swar = require("libs.nds.src.nitro.sound.Swar")
+local Swav = require("libs.nds.src.nitro.sound.Swav")
 local SwarFixture = require("tests.support.SwarFixture")
 
 local T = {}

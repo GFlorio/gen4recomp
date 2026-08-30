@@ -2,13 +2,13 @@
 -- fail with a structured Errors object carrying a documented code, never with
 -- Lua string-slicing behavior. Synthetic archives come from
 -- tests.support.SdatFixture; the production parser
--- (romdump.src.digest.audio.Sdat) implements this contract for the audio
+-- (libs.nds.src.nitro.sound.Sdat) implements this contract for the audio
 -- inventory work. References: GBATEK "DS Sound Files - SDAT", NNS sndarc
 -- headers, and the HGSS dump layout (INFO slot offset 0 = unused).
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local Sdat = require("romdump.src.digest.audio.Sdat")
+local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 local SdatFixture = require("tests.support.SdatFixture")
 
 local T = {}

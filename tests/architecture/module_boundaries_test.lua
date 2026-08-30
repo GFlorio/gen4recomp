@@ -75,6 +75,14 @@ local NDS_FORBIDDEN_LIBS = {
   "romdump.",
 }
 
+local NDS_SOUND_FORBIDDEN_LIBS = {
+  "libs.assets.",
+  "libs.hgss.",
+  "libs.script.",
+  "game.",
+  "romdump.",
+}
+
 -- Namespaces deleted by the boundary moves; none may reappear.
 local FORBIDDEN_PREFIXES = {
   "libs.rom",
@@ -241,6 +249,28 @@ function T.nds_graphics_never_imports_upward()
     return false
   end)
   Assert.isTrue(#violations == 0, violationMessage("libs/nds/src imports an upward package:\n", violations))
+end
+
+function T.nds_sound_does_not_import_project_or_application_packages()
+  local violations = violationsFor(scannedFiles(), function(file, module)
+    if file:sub(1, #"libs/nds/src/nitro/sound/") ~= "libs/nds/src/nitro/sound/" then
+      return false
+    end
+    for _, prefix in ipairs(NDS_SOUND_FORBIDDEN_LIBS) do
+      if module:sub(1, #prefix) == prefix then
+        return true
+      end
+    end
+    return false
+  end)
+  Assert.isTrue(#violations == 0, violationMessage("NDS sound imports an upward package:\n", violations))
+end
+
+function T.game_does_not_import_libs_nds_directly()
+  local violations = violationsFor(scannedFiles(), function(file, module)
+    return file:sub(1, #"game/") == "game/" and module:sub(1, #"libs.nds.") == "libs.nds."
+  end)
+  Assert.isTrue(#violations == 0, violationMessage("game imports libs.nds directly:\n", violations))
 end
 
 function T.engine_does_not_contain_game_opening_policy_modules()

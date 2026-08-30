@@ -3,7 +3,7 @@
 -- identity set used by this save boundary.
 
 local Errors = require("libs.errors.src.Errors")
-local AudioErrors = require("libs.engine.src.audio.AudioErrors")
+local AudioErrors = require("libs.hgss.src.audio.AudioErrors")
 
 local FieldAudioSave = {}
 

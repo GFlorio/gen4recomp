@@ -5,7 +5,7 @@
 local unpack = table.unpack or unpack
 
 local Errors = require("libs.errors.src.Errors")
-local Sseq = require("romdump.src.digest.audio.Sseq")
+local Sseq = require("libs.nds.src.nitro.sound.Sseq")
 
 local SequenceReachability = {}
 

@@ -8,9 +8,9 @@
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
 local AudioTrace = require("tests.support.AudioTrace")
-local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
-local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
-local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
+local TestProvider = require("libs.nds.tests.nitro.sound.TestProvider")
+local VoiceMixer = require("libs.nds.src.nitro.sound.VoiceMixer")
+local SequencePlayer = require("libs.nds.src.nitro.sound.SequencePlayer")
 
 local T = {}
 
@@ -33,6 +33,7 @@ end
 local function buildBundle(sequences)
   local keyA = AudioFixture.key(1)
   local bundle = AudioFixture.bundle()
+  ---@cast bundle +{ samples: table<string, integer[]> }
   local indexSequences, indexPlayers, sequenceBySymbol = {}, {}, {}
   for id, sequence in pairs(sequences) do
     indexSequences[id] = { id = id, symbol = sequence.symbol, bankId = sequence.bankId, playerId = sequence.player.id }
@@ -47,7 +48,7 @@ local function buildBundle(sequences)
   bundle.sequences = sequences
   bundle.banks = { [12] = AudioFixture.bank(12, "BANK_TEST") }
   bundle.samples = {
-    [keyA] = AudioFixture.pcm16le({ 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000 }),
+    [keyA] = { 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000 },
   }
   bundle.sampleMetadata = {
     [keyA] = AudioFixture.sampleMetadata(keyA, { frames = 8, loop = { startFrame = 0, endFrame = 8 } }),
@@ -60,7 +61,7 @@ local function engineWithTrace(program, opts)
   local trace = AudioTrace.new()
   local sequences = { [0] = seq(program) }
   local bundle = buildBundle(sequences)
-  local provider = AudioAssetProvider.new(AudioFixture.readyCache(bundle))
+  local provider = TestProvider.new(bundle)
   -- Observer is injected at construction and receives immutable snapshots.
   -- Use one shared observer for player and mixer via the trace recorder.
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE, observer = trace })
@@ -243,7 +244,7 @@ end
 function T.observer_absence_does_not_change_playback_behavior()
   -- With no observer, rendering must remain unchanged and not error.
   local bundle = buildBundle({ [0] = seq({ { op = "note", key = 60, velocity = 100, duration = 1 }, { op = "end" } }) })
-  local provider = AudioAssetProvider.new(AudioFixture.readyCache(bundle))
+  local provider = TestProvider.new(bundle)
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
   local player = SequencePlayer.new({ sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider })
   player:play(player:createHandle(), provider:sequence(0), provider:bank(12))

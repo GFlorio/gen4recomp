@@ -5,7 +5,7 @@
 -- independently of other uses of the logical player. Pure domain module: no
 -- love dependency.
 
-local AudioErrors = require("libs.engine.src.audio.AudioErrors")
+local AudioErrors = require("libs.hgss.src.audio.AudioErrors")
 local Errors = require("libs.errors.src.Errors")
 
 local CryPlayer = {}

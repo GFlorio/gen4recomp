@@ -1,18 +1,12 @@
--- FieldAudio: the production field-audio composition. One plain function
--- wires the engine audio stack (AudioAssetProvider -> VoiceMixer ->
--- SequencePlayer -> GameSound -> FieldAudioController), the cry boundary
--- (CryPlayer over the composed player), and the LÖVE output sink from the
--- runtime's inputs; FieldRuntime consumes only the composed service and sink
--- and never constructs an audio collaborator itself. This module is wiring,
--- not a stateful audio runtime: compose carries no instance state.
+-- FieldAudio: the production field-audio composition. It adds HGSS field
+-- policy around the shared audio runtime and application output sink.
 
-local FieldAudioController = require("libs.engine.src.audio.FieldAudioController")
 local GameAudio = require("game.src.game.audio.GameAudio")
 
 local FieldAudio = {}
 
 ---@class FieldAudioComposeOptions
----@field cacheFs table
+---@field cacheFs CacheFs
 ---@field outputRate integer
 ---@field eventState any
 ---@field fieldPosition fun(): integer, integer
@@ -34,24 +28,18 @@ function FieldAudio.compose(opts)
     "FieldAudio.compose requires cacheFs, outputRate, eventState, fieldPosition, dayNight, and fieldDataForMap"
   )
   ---@cast opts +{ outputHost: table|nil }
-  local core = GameAudio.compose(opts --[[@as GameAudioComposeOptions]])
-  local ok, fieldService = pcall(function()
-    return FieldAudioController.new({
-      sound = core.sound,
-      provider = core.provider,
+  local core = GameAudio.compose({
+    cacheFs = opts.cacheFs,
+    outputRate = opts.outputRate,
+    outputHost = opts.outputHost,
+    field = {
       eventState = opts.eventState,
       fieldPosition = opts.fieldPosition,
       dayNight = opts.dayNight,
       fieldDataForMap = opts.fieldDataForMap,
-    })
-  end)
-  if not ok then
-    if core.sink ~= nil then
-      pcall(core.sink.release, core.sink)
-    end
-    error(fieldService, 0)
-  end
-  return { service = fieldService, sink = core.sink }
+    },
+  })
+  return { service = assert(core.fieldService), sink = core.sink }
 end
 
 return FieldAudio

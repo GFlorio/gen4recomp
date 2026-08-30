@@ -1,6 +1,6 @@
 -- GameSound: the semantic audio facade field scripts receive as their
--- `audio` service. It wraps the real engine audio (AudioAssetProvider +
--- SequencePlayer + VoiceMixer) and owns the script-observable semantics:
+-- `audio` service. It wraps the composed audio runtime (HGSS asset provider
+-- over the NDS player and mixer) and owns the script-observable semantics:
 -- BGM (play/stop/replace/current; stopping the BGM cancels its fade),
 -- effects (play/stop;
 -- waits follow the HGSS IsSEPlaying model -- resolve the sequence's player
@@ -26,7 +26,7 @@
 -- separate subsystem the production composition supplies). All polls
 -- return booleans, never nil. The only injectable boundaries are the cry
 -- subsystem and the map-music resolver (the field-music policy owner);
--- everything else runs the real engine audio. PCM rendering is the output
+-- everything else runs the composed audio runtime. PCM rendering is the output
 -- sink's business: GameSound never renders.
 --
 -- Fader ownership: each NNS player carries exactly one applied fader record
@@ -37,8 +37,8 @@
 -- semantic ramp generator in the field-audio stack.
 
 local Errors = require("libs.errors.src.Errors")
-local AudioErrors = require("libs.engine.src.audio.AudioErrors")
-local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
+local AudioErrors = require("libs.hgss.src.audio.AudioErrors")
+local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 
 ---@class GameSound
 ---@field private _provider AudioAssetProvider

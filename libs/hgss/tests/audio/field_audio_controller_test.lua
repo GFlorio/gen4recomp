@@ -7,11 +7,11 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local AudioFixture = require("tests.support.AudioFixture")
-local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
-local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
-local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
-local GameSound = require("libs.engine.src.audio.GameSound")
-local FieldAudioController = require("libs.engine.src.audio.FieldAudioController")
+local AudioAssetProvider = require("libs.hgss.src.audio.AudioAssetProvider")
+local VoiceMixer = require("libs.nds.src.nitro.sound.VoiceMixer")
+local SequencePlayer = require("libs.nds.src.nitro.sound.SequencePlayer")
+local GameSound = require("libs.hgss.src.audio.GameSound")
+local FieldAudioController = require("libs.hgss.src.audio.FieldAudioController")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 
 local T = {}

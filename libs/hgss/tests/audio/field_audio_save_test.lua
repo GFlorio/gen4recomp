@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
+local FieldAudioSave = require("libs.hgss.src.audio.FieldAudioSave")
 
 local T = {}
 local context = { audioSequenceIds = { [7] = true } }

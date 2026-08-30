@@ -9,7 +9,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local Sbnk = require("romdump.src.digest.audio.Sbnk")
+local Sbnk = require("libs.nds.src.nitro.sound.Sbnk")
 local SbnkFixture = require("tests.support.SbnkFixture")
 local FntWriter = require("tests.support.FntWriter")
 

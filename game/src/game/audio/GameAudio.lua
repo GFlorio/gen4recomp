@@ -1,15 +1,8 @@
--- GameAudio: the reusable production composition for semantic game audio. It
--- owns the generated asset provider, shared mixer/player, standard cry
--- service, GameSound facade, and optional LÖVE output sink. Field audio adds
--- map policy around this record; non-field states can consume the same sound
--- engine without constructing field collaborators.
+-- GameAudio: the application-owned composition of the HGSS audio runtime and
+-- the optional LÖVE output sink.
 
-local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
-local CryPlayer = require("libs.engine.src.audio.CryPlayer")
-local GameSound = require("libs.engine.src.audio.GameSound")
+local AudioRuntime = require("libs.hgss.src.audio.AudioRuntime")
 local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
-local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
-local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
 
 local GameAudio = {}
 
@@ -17,13 +10,12 @@ local GameAudio = {}
 ---@field cacheFs CacheFs
 ---@field outputRate integer
 ---@field outputHost table?
+---@field field table?
 
 ---@class GameAudioComposition
----@field provider AudioAssetProvider
----@field mixer VoiceMixer
----@field player SequencePlayer
----@field cry CryPlayer
 ---@field sound GameSound
+---@field renderer { render: fun(self: table, frames: integer): integer[] }
+---@field fieldService FieldAudioController?
 ---@field sink LoveAudioSink|nil
 
 ---@param opts GameAudioComposeOptions
@@ -31,13 +23,7 @@ local GameAudio = {}
 function GameAudio.compose(opts)
   assert(opts and opts.cacheFs and opts.outputRate, "GameAudio.compose requires cacheFs and outputRate")
 
-  local provider = AudioAssetProvider.new(opts.cacheFs)
-  local mixer = VoiceMixer.new({ sampleRate = opts.outputRate })
-  local player = SequencePlayer.new({
-    sampleRate = opts.outputRate,
-    mixer = mixer,
-    provider = provider,
-  })
+  local core = AudioRuntime.compose(opts --[[@as HgssAudioRuntimeOptions]])
 
   local sink
   local ok, composition = pcall(function()
@@ -49,23 +35,17 @@ function GameAudio.compose(opts)
       sink = LoveAudioSink.new({
         audio = outputHost.audio,
         sound = outputHost.sound,
-        renderer = player,
+        renderer = core.renderer,
         sampleRate = opts.outputRate,
       })
     end
 
-    local cry = CryPlayer.new({ player = player, provider = provider })
-    local sound = GameSound.new({
-      provider = provider,
-      player = player,
-      cry = cry,
-    })
+    assert(core.sound and core.renderer, "AudioRuntime.compose must return a usable audio composition")
+
     return {
-      provider = provider,
-      mixer = mixer,
-      player = player,
-      cry = cry,
-      sound = sound,
+      sound = core.sound,
+      renderer = core.renderer,
+      fieldService = core.fieldService,
       sink = sink,
     }
   end)

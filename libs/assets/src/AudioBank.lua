@@ -12,8 +12,7 @@
 -- every voice references through a walk that trusts voice fields. It returns
 -- nil when the instrument shape is malformed, so a malformed shape can never
 -- be mistaken for "no sample references" (AudioCacheValidator relies on it).
--- `selectVoice` is the semantic leaf selection by MIDI key (key-split range
--- match / drum-set index), the helper the runtime player calls after it
+-- Nintendo voice selection is delegated to the platform sound package after it
 -- resolves the clamped transposed key.
 
 local AudioBank = {}
@@ -47,6 +46,7 @@ local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.assets.src.AudioErrors")
 local Contract = require("libs.assets.src.DerivedAssetContract")
+local InstrumentSelector = require("libs.nds.src.nitro.sound.InstrumentSelector")
 
 AudioBank.SCHEMA = Contract.audio.bankSchema
 
@@ -180,34 +180,7 @@ end
 ---@param midiKey integer
 ---@return table?
 function AudioBank.selectVoice(instrument, midiKey)
-  if instrument.kind == "direct" then
-    if instrument.voice.kind == "dummy" then
-      return nil
-    end
-    return instrument.voice
-  end
-  if instrument.kind == "key_split" then
-    for _, range in ipairs(instrument.ranges) do
-      if midiKey >= range.lowKey and midiKey <= range.highKey then
-        if range.voice.kind == "dummy" then
-          return nil
-        end
-        return range.voice
-      end
-    end
-    return nil
-  end
-  if instrument.kind == "drum_set" then
-    if midiKey < instrument.lowKey or midiKey > instrument.highKey then
-      return nil
-    end
-    local voice = instrument.voices[midiKey - instrument.lowKey + 1]
-    if voice.kind == "dummy" then
-      return nil
-    end
-    return voice
-  end
-  assert(false, "unknown instrument kind")
+  return InstrumentSelector.selectVoice(instrument, midiKey)
 end
 
 ---@param voice table

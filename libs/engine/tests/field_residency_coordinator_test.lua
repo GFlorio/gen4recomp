@@ -4,7 +4,7 @@
 -- alone, so the actor double here answers nothing but physical reprojection.
 
 local Assert = require("tests.support.Assert")
-local FieldAudioController = require("libs.engine.src.audio.FieldAudioController")
+local FieldAudioController = require("libs.hgss.src.audio.FieldAudioController")
 
 local function coordinatorClass()
   local ok, loaded = pcall(require, "libs.engine.src.FieldResidencyCoordinator")

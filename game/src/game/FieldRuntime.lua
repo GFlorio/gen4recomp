@@ -61,7 +61,7 @@ local FieldAudio = require("game.src.game.audio.FieldAudio")
 local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
 local FieldActorEmoteRuntime = require("game.src.game.FieldActorEmoteRuntime")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
-local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
+local FieldAudioSave = require("libs.hgss.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
 local RepoFs = require("game.src.game.RepoFs")
@@ -1303,10 +1303,8 @@ end
 -- script audio adapter is injected OR an audio-output host is explicitly
 -- provided (a recording adapter then stays the script service while the
 -- production renderer/output composition still exists). FieldAudio.compose
--- wires the whole engine stack (AudioAssetProvider -> VoiceMixer ->
--- SequencePlayer -> GameSound -> FieldAudioController), supplies the cry
--- boundary (CryPlayer plays the referenced cry through the same engine
--- audio), and builds the LÖVE sink over the injected audio-output host
+-- wires HGSS field policy over the NDS sound runtime, supplies the cry
+-- boundary, and builds the LÖVE sink over the injected audio-output host
 -- boundary (acceptance fakes it; production defaults to the love.audio +
 -- love.sound namespaces, and a host with no audio module has no sink to
 -- pump). The caller consumes only the composed service and sink; the

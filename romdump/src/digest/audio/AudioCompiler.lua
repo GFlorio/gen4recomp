@@ -15,11 +15,11 @@
 local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
 local AudioCache = require("libs.assets.src.AudioCache")
-local Sdat = require("romdump.src.digest.audio.Sdat")
+local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 local SequenceLowering = require("romdump.src.digest.audio.SequenceLowering")
-local Sbnk = require("romdump.src.digest.audio.Sbnk")
-local Swar = require("romdump.src.digest.audio.Swar")
-local Swav = require("romdump.src.digest.audio.Swav")
+local Sbnk = require("libs.nds.src.nitro.sound.Sbnk")
+local Swar = require("libs.nds.src.nitro.sound.Swar")
+local Swav = require("libs.nds.src.nitro.sound.Swav")
 
 local AudioCompiler = {}
 

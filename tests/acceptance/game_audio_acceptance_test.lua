@@ -56,7 +56,7 @@ function T.tests.core_and_field_audio_share_the_production_stack()
         outputHost = { audio = coreOutput.audio, sound = coreOutput.sound },
       })
       Assert.notNil(core.sound, "core composition must provide GameSound")
-      Assert.notNil(core.player, "core composition must provide the shared sequence player")
+      Assert.notNil(core.renderer, "core composition must provide the shared audio renderer")
       Assert.notNil(core.sink, "core composition must provide the optional output sink when requested")
 
       core.sound:playMusic("SEQ_GS_T_WAKABA")

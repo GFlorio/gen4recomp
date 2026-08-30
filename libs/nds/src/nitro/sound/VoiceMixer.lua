@@ -62,7 +62,7 @@
 -- floor(x+0.5).
 
 local bit = require("bit")
-local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
+local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 
 ---@class VoiceMixer
 ---@field private _outputRate integer

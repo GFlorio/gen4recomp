@@ -4,9 +4,9 @@
 -- production composition injects.
 
 local Assert = require("tests.support.Assert")
-local AudioErrors = require("libs.engine.src.audio.AudioErrors")
+local AudioErrors = require("libs.hgss.src.audio.AudioErrors")
 local Errors = require("libs.errors.src.Errors")
-local CryPlayer = require("libs.engine.src.audio.CryPlayer")
+local CryPlayer = require("libs.hgss.src.audio.CryPlayer")
 
 local T = {}
 

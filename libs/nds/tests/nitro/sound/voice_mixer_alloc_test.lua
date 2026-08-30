@@ -33,7 +33,7 @@
 
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
-local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
+local VoiceMixer = require("libs.nds.src.nitro.sound.VoiceMixer")
 
 local T = {}
 

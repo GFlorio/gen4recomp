@@ -5,12 +5,12 @@
 -- every used slot. The inventory asserts self-consistency and determinism,
 -- never guessed expected counts, and runs for every ready game version
 -- (soulsilver included when its dump lands). Container parsing is production
--- code (romdump/src/digest/audio/Sdat.lua); compiling the whole archive --
+-- code (libs/nds/src/nitro/sound/Sdat.lua); compiling the whole archive --
 -- every reachable instruction, instrument, and sample -- is the
 -- audio_compile suite's contract.
 
 local Assert = require("tests.support.Assert")
-local Sdat = require("romdump.src.digest.audio.Sdat")
+local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 
 local T = {}
 

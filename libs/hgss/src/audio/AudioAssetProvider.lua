@@ -18,7 +18,7 @@
 -- business).
 
 local Errors = require("libs.errors.src.Errors")
-local AudioErrors = require("libs.engine.src.audio.AudioErrors")
+local AudioErrors = require("libs.hgss.src.audio.AudioErrors")
 local AssetErrors = require("libs.assets.src.AudioErrors")
 local AudioCache = require("libs.assets.src.AudioCache")
 

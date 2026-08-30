@@ -773,11 +773,11 @@ end
 -- reaches its target -- the isMusicFadeActive poll flips at the target tick,
 -- never before -- for the fade-out and the fade-in path alike.
 T["music fade task completes exactly when the real fade reaches its target"] = function()
-  local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
+  local AudioAssetProvider = require("libs.hgss.src.audio.AudioAssetProvider")
   local AudioFixture = require("tests.support.AudioFixture")
-  local GameSound = require("libs.engine.src.audio.GameSound")
-  local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
-  local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
+  local GameSound = require("libs.hgss.src.audio.GameSound")
+  local SequencePlayer = require("libs.nds.src.nitro.sound.SequencePlayer")
+  local VoiceMixer = require("libs.nds.src.nitro.sound.VoiceMixer")
   local provider = AudioAssetProvider.new(AudioFixture.readyCache(AudioFixture.bundle()))
   local mixer = VoiceMixer.new({ sampleRate = 48000 })
   local player = SequencePlayer.new({

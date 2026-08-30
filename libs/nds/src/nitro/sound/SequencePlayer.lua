@@ -55,7 +55,7 @@
 -- collections and waits on real handle liveness for note-finish, never on a
 -- predicted release end.
 -- The transposed key is clamped to 0..127 before the bank leaf is selected
--- (AudioBank.selectVoice), so key-split and drum-set selection run on the
+-- (InstrumentSelector.selectVoice), so key-split and drum-set selection run on the
 -- midi key, and pitch comes from the selected voice's root key. Loops
 -- follow the ARM7 player (SND_seq.c): loop_begin pushes
 -- a frame holding the count and the return index (the instruction after the
@@ -112,15 +112,19 @@
 -- share the global track pool and physical mixer.
 
 local Errors = require("libs.errors.src.Errors")
-local AudioErrors = require("libs.engine.src.audio.AudioErrors")
-local AudioBank = require("libs.assets.src.AudioBank")
-local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
+local AudioErrors = require("libs.nds.src.nitro.sound.AudioErrors")
+local InstrumentSelector = require("libs.nds.src.nitro.sound.InstrumentSelector")
+local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 local bit = require("bit")
+
+---@class NdsSoundProvider
+---@field player fun(self: NdsSoundProvider, id: integer): table
+---@field loadSample fun(self: NdsSoundProvider, key: string): { metadata: table, pcm: integer[] }
 
 ---@class SequencePlayer
 ---@field private _sampleRate integer
 ---@field private _mixer VoiceMixer
----@field private _provider AudioAssetProvider
+---@field private _provider NdsSoundProvider
 ---@field private _logicalPlayers table<integer, table>
 ---@field private _seqPlayers table<integer, table?>
 ---@field private _freeSeqPlayerSlots integer[] FIFO of inactive physical slots
@@ -128,7 +132,7 @@ local bit = require("bit")
 ---@field private _handles table<table, boolean> handles created by this player
 ---@field private _handleAttachments table<table, table?> current instance per handle
 ---@field private _soundPhase integer the one global 192 Hz sound-interval phase accumulator
----@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: AudioAssetProvider, observer: table? }): SequencePlayer
+---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: NdsSoundProvider, observer: table? }): SequencePlayer
 ---@field createHandle fun(self: SequencePlayer): table
 ---@field play fun(self: SequencePlayer, handle: table, sequence: table, bank: table): boolean
 ---@field playSynthetic fun(self: SequencePlayer, handle: table, sequence: table, bank: table): boolean
@@ -569,7 +573,7 @@ end
 -- track sweep plus the portamento contribution, the sweep length from
 -- portamentoTime, autoSweep, and the counter at 0) and a fresh
 -- TrackUpdateChannel lfo snapshot of the track mod state.
----@param provider AudioAssetProvider
+---@param provider NdsSoundProvider
 ---@param mixer VoiceMixer
 ---@param instance table
 ---@param track table
@@ -585,7 +589,7 @@ local function startNote(provider, mixer, instance, track, midiKey, velocity, le
   if instrument == nil then
     return nil
   end
-  local voice = AudioBank.selectVoice(instrument, midiKey)
+  local voice = InstrumentSelector.selectVoice(instrument, midiKey)
   if voice == nil then
     return nil
   end

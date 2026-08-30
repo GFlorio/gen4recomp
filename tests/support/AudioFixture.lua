@@ -1,12 +1,12 @@
 -- Synthetic audio bundle and cache fixtures for the asset/cache contract
--- tests and the engine audio runtime tests. The bundle follows the
+-- tests and the NDS/HGSS audio runtime tests. The bundle follows the
 -- compiler-bundle shape (marker/index/sequences/banks/samples/
 -- sampleMetadata/dependencies) with assets matching the frozen audio shapes:
 -- zero-based sequence/bank ids, content-addressed samples, semantic
 -- instruction IR with index branch targets, direct/key_split/drum_set
 -- instruments, and sample/square/noise voices. readyCache writes a bundle
 -- straight into a CacheFs (paths via AudioCache) without the production
--- writer, so libs/assets unit tests and libs/engine audio tests can build
+-- writer, so libs/assets and audio runtime tests can build
 -- ready caches without importing romdump. Test-only fixture.
 
 local AudioCache = require("libs.assets.src.AudioCache")

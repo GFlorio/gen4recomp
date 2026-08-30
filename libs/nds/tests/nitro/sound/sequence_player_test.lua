@@ -67,10 +67,10 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local AudioFixture = require("tests.support.AudioFixture")
-local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
-local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
-local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
-local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
+local TestProvider = require("libs.nds.tests.nitro.sound.TestProvider")
+local VoiceMixer = require("libs.nds.src.nitro.sound.VoiceMixer")
+local SequencePlayer = require("libs.nds.src.nitro.sound.SequencePlayer")
+local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 local AudioSequence = require("libs.assets.src.AudioSequence")
 local AssetAudioErrors = require("libs.assets.src.AudioErrors")
 
@@ -149,6 +149,7 @@ local function buildBundle(sequences, opts)
   local keyA, keyB, keyC = AudioFixture.key(1), AudioFixture.key(2), AudioFixture.key(3)
   local WAVE_C = { 500, 1000, 1500, 2000, 2500, 3000 }
   local bundle = AudioFixture.bundle()
+  ---@cast bundle +{ samples: table<string, integer[]> }
   local indexSequences, indexPlayers, sequenceBySymbol = {}, {}, {}
   for id, sequence in pairs(sequences) do
     indexSequences[id] = {
@@ -172,9 +173,9 @@ local function buildBundle(sequences, opts)
   bundle.sequences = sequences
   bundle.banks = { [12] = opts.bank or testBank() }
   bundle.samples = {
-    [keyA] = AudioFixture.pcm16le(opts.sampleA or WAVE_A),
-    [keyB] = AudioFixture.pcm16le(WAVE_B),
-    [keyC] = AudioFixture.pcm16le(WAVE_C),
+    [keyA] = opts.sampleA or WAVE_A,
+    [keyB] = WAVE_B,
+    [keyC] = WAVE_C,
   }
   bundle.sampleMetadata = {
     [keyA] = opts.sampleAMetadata
@@ -188,7 +189,7 @@ end
 local function engine(sequences, opts)
   opts = opts or {}
   local bundle = buildBundle(sequences, opts)
-  local provider = AudioAssetProvider.new(AudioFixture.readyCache(bundle))
+  local provider = TestProvider.new(bundle)
   local mixer = opts.mixer or VoiceMixer.new({ sampleRate = SAMPLE_RATE })
   local playerOpts = { sampleRate = SAMPLE_RATE, mixer = mixer, provider = provider }
   if opts.rng ~= nil then
@@ -1937,10 +1938,10 @@ function T.contested_allocation_follows_physical_slot_order()
       [3] = programFor(3, 15),
     }
     local mixer = stubMixer()
-    local provider = AudioAssetProvider.new(AudioFixture.readyCache(buildBundle(sequences, {
+    local provider = TestProvider.new(buildBundle(sequences, {
       bank = bank,
       channelMask = 0x0010,
-    })))
+    }))
     local player = SequencePlayer.new({
       sampleRate = SAMPLE_RATE,
       mixer = mixer,
@@ -3769,7 +3770,7 @@ function T.interval_boundaries_and_chunk_partition_are_invariant_at_32768_hz()
   }
   local function playChunked(chunks)
     local mixer = BoundaryMixer.new(RATE)
-    local provider = AudioAssetProvider.new(AudioFixture.readyCache(buildBundle({ [0] = seq(program) })))
+    local provider = TestProvider.new(buildBundle({ [0] = seq(program) }))
     local player = SequencePlayer.new({ sampleRate = RATE, mixer = mixer, provider = provider })
     player:play(player:createHandle(), provider:sequence(0), provider:bank(12))
     local out = {}
@@ -3894,9 +3895,9 @@ end
 function T.idle_rendering_advances_the_global_interval_and_rng()
   local RATE = 32768
   local rng = recordingRng({})
-  local provider = AudioAssetProvider.new(AudioFixture.readyCache(buildBundle({
+  local provider = TestProvider.new(buildBundle({
     [0] = seq({ { op = "note", key = 60, velocity = 127, duration = 1 } }),
-  })))
+  }))
   local mixer = stubMixer()
   local player = SequencePlayer.new({ sampleRate = RATE, mixer = mixer, provider = provider, rng = rng.fn })
   -- Render silence across two full intervals at the production rate

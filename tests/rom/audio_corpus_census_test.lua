@@ -3,9 +3,9 @@
 -- existing dump/cache capability like other ROM-backed tests.
 
 local Assert = require("tests.support.Assert")
-local Sdat = require("romdump.src.digest.audio.Sdat")
+local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 local SequenceReachability = require("romdump.src.digest.audio.SequenceReachability")
-local Sbnk = require("romdump.src.digest.audio.Sbnk")
+local Sbnk = require("libs.nds.src.nitro.sound.Sbnk")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local Errors = require("libs.errors.src.Errors")
 

@@ -13,7 +13,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local Sseq = require("romdump.src.digest.audio.Sseq")
+local Sseq = require("libs.nds.src.nitro.sound.Sseq")
 local SseqFixture = require("tests.support.SseqFixture")
 
 local T = {}

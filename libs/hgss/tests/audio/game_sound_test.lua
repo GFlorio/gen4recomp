@@ -1,5 +1,5 @@
 -- GameSound contract: the semantic audio facade field scripts receive as
--- their `audio` service. It wraps the real engine audio (AudioAssetProvider
+-- their `audio` service. It wraps the composed audio runtime (AudioAssetProvider
 -- + SequencePlayer + VoiceMixer) and owns the script-observable semantics:
 -- BGM (play/stop/replace/current; a music fade belongs to the current BGM,
 -- so stopping or replacing the BGM cancels its fade), effects (play/stop;
@@ -21,16 +21,16 @@
 -- rendering is the output sink's business: GameSound never renders. All
 -- polls return booleans, never nil. The only injectable boundaries are the
 -- cry subsystem and the map-music resolver; everything else runs the real
--- engine audio.
+-- composed audio runtime.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local AudioFixture = require("tests.support.AudioFixture")
-local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
-local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
-local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
-local GameSound = require("libs.engine.src.audio.GameSound")
-local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
+local AudioAssetProvider = require("libs.hgss.src.audio.AudioAssetProvider")
+local SequencePlayer = require("libs.nds.src.nitro.sound.SequencePlayer")
+local VoiceMixer = require("libs.nds.src.nitro.sound.VoiceMixer")
+local GameSound = require("libs.hgss.src.audio.GameSound")
+local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 
 local T = {}
 
@@ -195,7 +195,7 @@ local function engineBundle(sequences, opts)
   return bundle
 end
 
--- A facade over the real engine audio; only the out-of-scope boundaries
+-- A facade over the real NDS audio; only the out-of-scope boundaries
 -- (cry subsystem, map-music resolver) are injectable. The mixer's
 -- updateVoice is wrapped to record the per-voice fader values the player
 -- pushes at its control cadence: `readings` holds {channel, fader} pairs,
