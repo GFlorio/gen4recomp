@@ -323,10 +323,8 @@ function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
   Assert.equal(dialogue.released, 1)
 end
 
--- Real-controller shrink-cadence fixtures below drive `OakIntroState` through
--- its actual `update`/`draw` boundary (not the frame-counted `tick` shortcut)
--- so a host-timed catch-up can be reproduced or disproved at the same seam
--- the running game uses.
+-- Real-controller fixtures below drive `OakIntroState` through its actual
+-- `update`/`draw` boundary, the same seam the running game uses.
 
 local SHRINK_MANIFEST = {
   sourceReference = INTRO_MANIFEST.sourceReference,
@@ -418,12 +416,10 @@ local function shrinkFrames(duration, count)
   return { frames = frames }
 end
 
--- Builds a real controller/state pair and drives it, through the same plain
--- semantic confirm presses production input mapping issues, to the instant
+-- Builds a real controller/state pair and drives it through the semantic
+-- confirm presses used by production input mapping to the instant
 -- `final_full_art_hold` is freshly entered with its 30-source-tick timer
--- untouched. Setup uses `state:tick`, which loops the exact frame count with
--- no dt catch-up, so it cannot itself mask or manufacture skipped presentation;
--- only the scenario body below drives `update(dt)`.
+-- untouched. The scenario body then drives the host-timed update boundary.
 local function stateAtFreshFullArtHold(frameDuration, frameCount)
   local controller = OakIntroController.new({
     candidate = realCandidate(),
@@ -497,16 +493,13 @@ end
 
 -- A normal 1/60 update/draw cadence preserves the exact 30-source-tick hold
 -- and nine-source-tick-per-frame shrink cadence at the draw-visible
--- boundary. This is the locked source contract every later scenario protects;
--- it is expected to already be green.
+-- boundary.
 function T.normal_update_draw_cadence_preserves_full_art_hold_and_shrink_frame_durations()
   local state, controller, recorded = stateAtFreshFullArtHold(9, 4)
 
   -- The setup above reaches the hold's freshly entered state through the
-  -- frame-counted `tick` helper, which draws nothing; draw that first
-  -- instant once so it is counted on equal footing with every later
-  -- distinct-shrink-image entry, which the loop below always captures as a
-  -- side effect of the previous shrink image's last tick.
+  -- frame-counted `tick` helper, which draws nothing; include that initial
+  -- hold view before the first source-timed update.
   state:draw()
 
   for _ = 1, 30 + 9 * 4 do
@@ -535,148 +528,89 @@ function T.normal_update_draw_cadence_preserves_full_art_hold_and_shrink_frame_d
   Assert.equal(controller:view().phase, "complete")
 end
 
--- Every distinct full-art/shrink image visible in `recorded`, deduplicating
--- consecutive repeats of the same image (as a normal 1-tick-per-`update`
--- cadence produces), in presentation order.
-local function distinctShrinkSequence(recorded)
-  local sequence = {}
-  for _, entry in ipairs(recorded) do
-    if entry.phase == "final_full_art_hold" or entry.phase == "shrink_animation" then
-      local key = entry.phase == "final_full_art_hold" and "hold" or ("shrink#" .. entry.frameIndex)
-      if sequence[#sequence] ~= key then
-        sequence[#sequence + 1] = key
-      end
-    end
-  end
-  return sequence
+local function semanticSnapshot(controller)
+  local view = controller:view()
+  return {
+    sourceFrames = view.sourceFrames,
+    phase = view.phase,
+    visual = view.visual,
+    visualFrameIndex = view.visualFrameIndex,
+    result = controller:result(),
+  }
 end
 
--- Drives `state` with real per-host-frame `update`/`draw` pairs -- exactly
--- the sequence the running game performs every frame -- using a `dt` per
--- call that is deliberately far larger than a single source tick, so a
--- badly-lagging host is exercised without ever giving the state more than
--- one draw per host frame. Stops as soon as the controller reaches
--- `complete`, or after `maxHostFrames` calls if it never does.
-local function driveLaggyHostFrames(state, controller, dt, maxHostFrames)
-  for _ = 1, maxHostFrames do
-    state:update(dt)
-    state:draw()
-    if controller:view().phase == "complete" then
-      return
-    end
-  end
-  error("catch-up did not reach completion within the expected number of host frames")
-end
-
--- A late host frame capable of draining many source ticks in one `update`
--- must not let a distinct full-art/shrink image go completely unpresented
--- between the images on either side of it, even across several such laggy
--- frames in a row.
-function T.catchup_update_cannot_skip_a_distinct_shrink_image_before_presentation()
-  local state, controller, recorded = stateAtFreshFullArtHold(9, 4)
-
-  driveLaggyHostFrames(state, controller, 1, 40)
-
-  Assert.deepEqual(
-    distinctShrinkSequence(recorded),
-    { "hold", "shrink#1", "shrink#2", "shrink#3", "shrink#4" },
-    "every distinct full-art/shrink image must be draw-visible in order, even under repeated laggy host frames"
-  )
-end
-
--- A host that calls `update` repeatedly without ever calling `draw` (e.g. a
--- minimized window, or any caller fast-forwarding state without presenting
--- it) must still make real logical progress: entering a new shrink image
--- queues it for presentation, but ticking must never permanently stall
--- waiting for a `draw` that never comes.
-function T.update_without_any_draw_still_advances_past_every_shrink_image()
+-- A host update that contains many source frames must have the same semantic
+-- result as advancing those source frames directly, including transitions
+-- across the full-art hold and several generated shrink frames.
+function T.large_host_update_matches_equivalent_source_ticks()
   local state, controller = stateAtFreshFullArtHold(9, 4)
+  local referenceState, referenceController = stateAtFreshFullArtHold(9, 4)
 
-  for _ = 1, 200 do
-    state:update(1 / 60)
-    if controller:view().phase == "complete" then
-      break
-    end
-  end
+  state:update(52 / 60)
+  referenceState:tick(52)
 
-  Assert.equal(
-    controller:view().phase,
-    "complete",
-    "logical progress must not stall merely because draw was never called"
-  )
-end
-
--- Resizing between one catch-up-presented image and the next host draw is a
--- routine host event and must not perturb which images were presented or
--- their order.
-function T.resize_during_laggy_catchup_does_not_reorder_shrink_frames()
-  local state, controller, recorded = stateAtFreshFullArtHold(9, 4)
-  local resized = false
-
-  for _ = 1, 40 do
-    state:update(1)
-    if not resized and controller:view().phase == "shrink_animation" then
-      state:resize(320, 240)
-      resized = true
-    end
-    state:draw()
-    if controller:view().phase == "complete" then
-      break
-    end
-  end
-
-  Assert.isTrue(resized, "test setup must reach the shrink phase before resizing")
   Assert.deepEqual(
-    distinctShrinkSequence(recorded),
-    { "hold", "shrink#1", "shrink#2", "shrink#3", "shrink#4" },
-    "resizing mid-catch-up must not change which shrink images were presented or their order"
+    semanticSnapshot(controller),
+    semanticSnapshot(referenceController),
+    "a large host update must drain the same source frames as the deterministic tick helper"
   )
 end
 
--- Edge case: the final shrink image must get its own presentation opportunity
--- before the catch-up that completes the sequence is allowed to reach
--- `complete`, even when a single laggy `update` both consumes the final
--- image's remaining ticks and finishes the sequence.
-function T.final_shrink_frame_is_presented_before_the_catchup_that_completes_the_sequence()
-  local state, controller, recorded = stateAtFreshFullArtHold(9, 4)
+function T.sub_source_frame_update_does_not_advance_the_controller()
+  local state, controller = stateAtFreshFullArtHold(9, 4)
+  local sourceFrames = controller:view().sourceFrames
+
+  state:update(1 / 60 - 1e-13)
+
+  Assert.equal(controller:view().sourceFrames, sourceFrames)
+end
+
+function T.completion_preserves_unconsumed_host_time_and_hands_off_once()
+  local state, controller = stateAtFreshFullArtHold(9, 4)
   local completions = 0
   state.onComplete = function()
     completions = completions + 1
   end
 
-  -- Reach the start of the final shrink frame with the frame-counted `tick`
-  -- helper, which records no draws, then give it (and only it) a real draw,
-  -- exactly like the normal-cadence scenario does for the hold's own entry.
-  state:tick(30 + 9 * 3)
-  Assert.equal(controller:view().phase, "shrink_animation")
-  Assert.equal(controller:view().visualFrameIndex, 4)
-  state:draw()
-
-  -- A single extreme catch-up `update` (several seconds, far beyond the
-  -- final frame's own nine-tick duration) must still land on `complete`
-  -- without error and must retain the unconsumed remainder of the host time
-  -- budget rather than discarding it.
   state:update(5)
-  state:draw()
 
   Assert.equal(controller:view().phase, "complete")
-  Assert.isTrue(state.accumulator > 0, "unconsumed catch-up time past completion is retained, not discarded")
-  Assert.equal(completions, 1, "Oak hands off its finalized candidate exactly once")
+  Assert.isTrue(state.accumulator > 0)
+  Assert.equal(completions, 1)
+end
 
-  local sawComplete = false
-  local finalFramePresentedBeforeCompletion = false
-  for _, entry in ipairs(recorded) do
-    if entry.phase == "shrink_animation" and entry.frameIndex == 4 and not sawComplete then
-      finalFramePresentedBeforeCompletion = true
-    end
-    if entry.phase == "complete" then
-      sawComplete = true
-    end
+-- Drawing must not alter the semantic state that a later host update drains.
+-- The second update crosses completion so the handoff remains a single
+-- semantic event in both draw/no-draw paths.
+function T.draw_cadence_does_not_change_semantic_progress()
+  local drawnState, drawnController = stateAtFreshFullArtHold(9, 4)
+  local undrawnState, undrawnController = stateAtFreshFullArtHold(9, 4)
+  local drawnCompletions = 0
+  local undrawnCompletions = 0
+  drawnState.onComplete = function()
+    drawnCompletions = drawnCompletions + 1
   end
-  Assert.isTrue(
-    finalFramePresentedBeforeCompletion,
-    "the final shrink image must be presented before the completion draw"
-  )
+  undrawnState.onComplete = function()
+    undrawnCompletions = undrawnCompletions + 1
+  end
+
+  local initial = semanticSnapshot(drawnController)
+  Assert.deepEqual(initial, semanticSnapshot(undrawnController))
+  drawnState:draw()
+  Assert.deepEqual(semanticSnapshot(drawnController), initial, "drawing must not advance the controller source clock")
+
+  for _, dt in ipairs({ 1, 6 / 60 }) do
+    drawnState:update(dt)
+    undrawnState:update(dt)
+    Assert.deepEqual(
+      semanticSnapshot(drawnController),
+      semanticSnapshot(undrawnController),
+      "matching host updates must produce matching semantics regardless of draw cadence"
+    )
+  end
+
+  Assert.equal(drawnCompletions, 1)
+  Assert.equal(undrawnCompletions, 1)
 end
 
 function T.dialogue_completion_edge_does_not_enter_the_new_choice()

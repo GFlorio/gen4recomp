@@ -129,10 +129,7 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 ---@field disposed boolean
----@field shrinkCursor string? identity of the newest full-art/shrink image `update` has queued or a real `draw` has presented live
----@field shrinkBacklog OakIntroStateLayoutView[] full-art/shrink views queued by `update`, oldest first, awaiting a real `draw`
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
----@field _shrinkKey fun(self: OakIntroState, view: OakIntroControllerView): string?
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
 ---@field update fun(self: OakIntroState, dt: number)
 ---@field tick fun(self: OakIntroState, frames: integer)
@@ -149,6 +146,10 @@ local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentation
 ---@field dispose fun(self: OakIntroState)
 local OakIntroState = {}
 OakIntroState.__index = OakIntroState
+
+-- Float slack keeps an exact 60 Hz boundary from losing a source tick.
+local SOURCE_FRAME_DURATION = 1 / 60
+local SOURCE_FRAME_EPSILON = 1e-14
 
 local DEFAULT_GLYPHS = {
   "A",
@@ -237,8 +238,6 @@ function OakIntroState.new(options)
       height = height,
       accumulator = 0,
       textInputEnabled = nil,
-      shrinkCursor = nil,
-      shrinkBacklog = {},
       completed = false,
       disposed = false,
       onComplete = options.onComplete,
@@ -309,27 +308,11 @@ function OakIntroState:_sync()
   return view
 end
 
--- The profile shrink sequence holds one full-art image for a fixed source
--- duration and then steps through the generated replacement frames one at a
--- time. `_shrinkKey` identifies which of those distinct images is currently
--- selected (nil outside the sequence), so `update` can tell when it has just
--- crossed into a different one and queue it in `shrinkBacklog` for a real
--- `draw` to present later, without ever waiting for that `draw` itself.
-function OakIntroState:_shrinkKey(view)
-  if view.phase == "final_full_art_hold" then
-    return "hold"
-  end
-  if view.phase == "shrink_animation" then
-    return view.visual .. "#" .. view.visualFrameIndex
-  end
-  return nil
-end
-
 function OakIntroState:update(dt)
   assert(type(dt) == "number" and dt >= 0, "Oak update dt must be non-negative")
   self.accumulator = self.accumulator + dt
-  while self.accumulator >= 1 / 60 do
-    self.accumulator = self.accumulator - 1 / 60
+  while self.accumulator + SOURCE_FRAME_EPSILON >= SOURCE_FRAME_DURATION do
+    self.accumulator = math.max(0, self.accumulator - SOURCE_FRAME_DURATION)
     local phaseBeforeDialogue = self.controller:view().phase
     if self.dialogueController then
       self.dialogueController:step()
@@ -339,21 +322,6 @@ function OakIntroState:update(dt)
       and phaseAfterDialogue == "gender_composition_transition"
     if not genderCompositionStarted then
       self.controller:tick(1)
-    end
-    local currentShrinkKey = self:_shrinkKey(self.controller:view())
-    if currentShrinkKey ~= nil and currentShrinkKey ~= self.shrinkCursor then
-      -- A distinct full-art/shrink image just became current. Snapshot the
-      -- decorated view now (before any later resize can change its
-      -- geometry) and queue it for a real `draw` to present, then stop
-      -- draining this host's catch-up budget for this call: a badly-lagging
-      -- host that keeps calling `update`/`draw` every host frame gets
-      -- exactly one freshly queued image per call, so a real `draw` always
-      -- gets a turn to drain the backlog before the next image is queued.
-      -- This never blocks a host that skips `draw` entirely -- its next
-      -- `update` call simply keeps advancing from here.
-      self.shrinkCursor = currentShrinkKey
-      table.insert(self.shrinkBacklog, self:view())
-      break
     end
     if self.controller:view().phase == "complete" then
       break
@@ -401,17 +369,7 @@ function OakIntroState:view()
 end
 
 function OakIntroState:draw()
-  local view = table.remove(self.shrinkBacklog, 1)
-  if view == nil then
-    view = self:view()
-    -- Nothing was queued (a fresh view, or one reached via the frame-counted
-    -- `tick` test helper, which never queues): this live view is this
-    -- image's real presentation, so it must not be queued again later.
-    local liveShrinkKey = self:_shrinkKey(view)
-    if liveShrinkKey ~= nil then
-      self.shrinkCursor = liveShrinkKey
-    end
-  end
+  local view = self:view()
   self.renderer:draw(view)
   if self.dialogueController and self.dialogueRenderer then
     self.dialogueRenderer:draw(self.dialogueController, view.dialoguePresentation)
