@@ -2,11 +2,11 @@
 -- host height proportion.
 
 local Assert = require("tests.support.Assert")
-local FieldViewport = require("libs.engine.src.FieldViewport")
-local FieldZoom = require("libs.engine.src.FieldZoom")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
+local FieldZoom = require("libs.hgss.src.presentation.FieldZoom")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldState = require("game.src.game.FieldState")
-local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 
 local T = {}
@@ -346,7 +346,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
   rawset(love.graphics, "getDimensions", function()
     return 1280, 600
   end)
-  local FieldDrawState = require("libs.engine.src.FieldDrawState")
+  local FieldDrawState = require("libs.hgss.src.presentation.FieldDrawState")
   local savedProtected = FieldDrawState.protectedDraw
   ---@diagnostic disable-next-line: duplicate-set-field
   FieldDrawState.protectedDraw = function(_, fn)

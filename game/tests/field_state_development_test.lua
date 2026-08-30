@@ -5,8 +5,8 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
-local FieldViewport = require("libs.engine.src.FieldViewport")
-local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
+local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 
 local T = {}
 

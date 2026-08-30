@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
+local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentationLayout")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 
@@ -65,8 +65,8 @@ end
 T["renderer_is_passive_and_uses_layout_cursor"] = function(scope)
   local FakeGraphics = require("tests.support.FakeGraphics")
   local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
-  local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
-  local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
+  local FieldDialogueRenderer = require("libs.hgss.src.ui.FieldDialogueRenderer")
+  local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
 
   local cache = FieldUiFixture.cacheWithFontAndFrames()
   local graphics = FakeGraphics.new()
@@ -89,7 +89,7 @@ T["renderer_is_passive_and_uses_layout_cursor"] = function(scope)
   local status = controller:status()
   -- If fixture text still revealing, force waiting via prompt layout controller
   if not status.waiting then
-    local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
+    local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
     local ctrl2 = FieldDialogueController.new({
       layout = function()
         return {

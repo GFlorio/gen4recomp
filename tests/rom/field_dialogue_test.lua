@@ -6,9 +6,9 @@
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
-local DialogueLayout = require("libs.engine.src.DialogueLayout")
-local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local DialogueLayout = require("libs.hgss.src.ui.DialogueLayout")
+local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
+local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")

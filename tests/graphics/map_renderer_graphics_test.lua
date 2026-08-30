@@ -8,14 +8,14 @@
 local Assert = require("tests.support.Assert")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local GxRenderer = require("libs.nds.src.love.GxRenderer")
-local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
+local MapSceneLoader = require("libs.hgss.src.presentation.MapSceneLoader")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local FakeCache = require("tests.support.FakeCache")
 local VertexFormat = require("libs.assets.src.VertexFormat")
-local FieldViewport = require("libs.engine.src.FieldViewport")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 local Matrix4 = require("libs.math.src.Matrix4")
 local DsFog = require("tests.support.DsFog")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
@@ -1379,7 +1379,7 @@ end
 function T.a_straddling_item_uses_its_current_transform_for_the_whole_mesh(scope)
   -- An arbitrary injected clear color distinguishable from the drawn
   -- triangles: this test asserts against it directly, not against
-  -- GxRenderer's fallback default (libs/engine carries no opinion about
+  -- GxRenderer's fallback default (the renderer carries no opinion about
   -- what color a game wants; only that it clears to whatever it is given).
   local clearColor = { 0.08, 0.09, 0.12, 1 }
   local renderer = scope:own(GxRenderer.new({ clearColor = clearColor }))

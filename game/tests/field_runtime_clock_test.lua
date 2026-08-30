@@ -4,7 +4,7 @@
 local Assert = require("tests.support.Assert")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
 local FieldRuntime = require("game.src.game.FieldRuntime")
-local LocalClock = require("libs.engine.src.LocalClock")
+local LocalClock = require("game.src.game.LocalClock")
 
 local T = { tests = {} }
 

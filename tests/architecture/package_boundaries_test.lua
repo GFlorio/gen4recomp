@@ -38,7 +38,7 @@ function T.tests.package_ownership_is_explicit()
   end
 
   local adr = readFile("docs/adr/runtime-package-boundaries.md")
-  for _, term in ipairs({ "libs/engine", "libs/nds", "libs/script", "libs/hgss", "gen4.script" }) do
+  for _, term in ipairs({ "libs/nds", "libs/script", "libs/hgss", "gen4.script" }) do
     assertContains(adr, term, "docs/adr/runtime-package-boundaries.md")
   end
 

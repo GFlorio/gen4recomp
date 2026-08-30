@@ -2,8 +2,8 @@
 
 local Assert = require("tests.support.Assert")
 local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
-local ScreenTopology = require("libs.engine.src.ScreenTopology")
-local FieldViewport = require("libs.engine.src.FieldViewport")
+local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 
 local T = {}
 
@@ -44,8 +44,8 @@ function T.trainer_card_draw_placement_identical_across_zooms()
   -- For now, assert the failure: if production incorrectly plumbs zoom to
   -- StartMenu/TrainerCard, this would diverge; we expect no divergence.
   local FieldUiFixture = require("tests.support.FieldUiFixture")
-  local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
-  local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
+  local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
+  local TrainerCardRenderer = require("libs.hgss.src.ui.TrainerCardRenderer")
   local FakeGraphics = require("tests.support.FakeGraphics")
   local lgA = FakeGraphics.new({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 256, 256 } } })
   local lgB = FakeGraphics.new({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 256, 256 } } })

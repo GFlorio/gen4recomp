@@ -105,7 +105,7 @@ end
 
 function T.real_store_reservation_creates_an_unpublished_candidate()
   local backend = FakeCache.new()
-  local GameSaveStore = require("libs.engine.src.GameSaveStore")
+  local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
   local store = GameSaveStore.new(SaveFs.global(backend))
   local candidate = newCandidate(store)
 

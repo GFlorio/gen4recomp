@@ -7,7 +7,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldSignpostController = require("libs.hgss.src.field.FieldSignpostController")
-local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
+local TextSpeedPolicy = require("libs.hgss.src.ui.TextSpeedPolicy")
 
 local T = {}
 

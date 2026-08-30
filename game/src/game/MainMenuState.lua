@@ -3,7 +3,7 @@
 -- semantic New Game, Continue, or quit results to App.
 
 local Errors = require("libs.errors.src.Errors")
-local GameSave = require("libs.engine.src.GameSave")
+local GameSave = require("libs.hgss.src.save.GameSave")
 local MainMenuController = require("game.src.game.MainMenuController")
 local MainMenuLayout = require("game.src.game.MainMenuLayout")
 local MainMenuRenderer = require("game.src.game.MainMenuRenderer")

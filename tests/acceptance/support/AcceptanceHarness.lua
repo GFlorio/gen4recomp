@@ -3,15 +3,17 @@
 -- while FieldRuntime remains the sole owner of maps, scripts, actors, and saves.
 
 local SaveFs = require("libs.storage.src.SaveFs")
-local GameSaveStore = require("libs.engine.src.GameSaveStore")
+local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local App = require("game.src.game.App")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local LocalClock = require("libs.engine.src.LocalClock")
-local PlayTime = require("libs.engine.src.PlayTime")
+local LocalClock = require("game.src.game.LocalClock")
+local PlayTime = require("libs.hgss.src.save.PlayTime")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
+local AcceptanceScriptFs = require("tests.acceptance.support.AcceptanceScriptFs")
+local RepoFs = require("game.src.game.RepoFs")
 local FieldMovement = require("tests.acceptance.support.FieldMovement")
 local AcceptanceScriptFs = require("tests.acceptance.support.AcceptanceScriptFs")
 local RepoFs = require("game.src.game.RepoFs")
@@ -226,6 +228,10 @@ function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, field
   end
   if fieldOptions and fieldOptions.recordingScriptHosts == true then
     runtimeOptions.scriptHosts = RecordingScriptHosts.new({ audio = fieldOptions.audioHost ~= "production" })
+  end
+  if fieldOptions and fieldOptions.acceptanceScripts then
+    runtimeOptions.overrideFs =
+      AcceptanceScriptFs.new(RepoFs.new(love.filesystem.getSourceBaseDirectory()), fieldOptions.acceptanceScripts)
   end
   return self.runtimeFactory(game, runtimeOptions)
 end

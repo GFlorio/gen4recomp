@@ -9,7 +9,7 @@
 -- at the origin in tile space), a compiled rotation clip for door.open and
 -- one for door.close. Test-only.
 
-local ModelDefinition = require("libs.engine.src.ModelDefinition")
+local ModelDefinition = require("libs.hgss.src.presentation.ModelDefinition")
 
 local NitroModelFixture = {}
 

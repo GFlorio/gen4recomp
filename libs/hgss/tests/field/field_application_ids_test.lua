@@ -6,7 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldApplicationIds = require("libs.hgss.src.field.FieldApplicationIds")
-local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
+local StartMenuPolicy = require("libs.hgss.src.ui.StartMenuPolicy")
 
 local T = {
   tests = {},

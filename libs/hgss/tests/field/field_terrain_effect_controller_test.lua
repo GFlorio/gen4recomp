@@ -5,7 +5,7 @@ local Assert = require("tests.support.Assert")
 local FieldTerrainEffectController = require("libs.hgss.src.field.FieldTerrainEffectController")
 local FieldTerrainResponse = require("libs.hgss.src.field.FieldTerrainResponse")
 local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
-local ModelInstance = require("libs.engine.src.ModelInstance")
+local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = { metadata = { capabilities = {} }, tests = {} }

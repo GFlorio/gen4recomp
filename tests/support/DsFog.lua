@@ -3,7 +3,7 @@
 -- runtime consumer -- the final full-screen shader (currently
 -- libs/nds/src/love/shaders/edge.glsl) implements the same sequencing directly
 -- in GLSL, since fog runs per fragment on the GPU -- so it exists purely as
--- an independent shader oracle for libs/engine/tests/ds_fog_test.lua.
+-- an independent shader oracle for libs/nds/tests/love/ds_fog_test.lua.
 --
 -- Authoritative source: melonDS-emu/melonDS, commit
 -- d3cd6164deb1f217d4b262d18af3ef9b97e536c8, src/GPU3D_Soft.cpp,

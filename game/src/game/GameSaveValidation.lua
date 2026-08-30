@@ -2,15 +2,15 @@
 -- records and the PlayerData boundary used by an in-memory new game.
 
 local CacheFs = require("libs.storage.src.CacheFs")
-local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
+local FieldFontLoader = require("libs.hgss.src.ui.FieldFontLoader")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
-local PlayerData = require("libs.engine.src.PlayerData")
+local PlayerData = require("libs.hgss.src.save.PlayerData")
 local ScriptSave = require("libs.script.src.ScriptSave")
 local WorldState = require("libs.hgss.src.script.WorldState")
-local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
+local AuxiliaryFieldUi = require("libs.hgss.src.ui.AuxiliaryFieldUi")
 local FieldAudioSave = require("libs.hgss.src.audio.FieldAudioSave")
 local AudioCache = require("libs.assets.src.AudioCache")
-local GameSave = require("libs.engine.src.GameSave")
+local GameSave = require("libs.hgss.src.save.GameSave")
 local Errors = require("libs.errors.src.Errors")
 local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
 

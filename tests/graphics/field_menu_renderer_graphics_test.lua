@@ -3,12 +3,12 @@
 -- without coupling them to host font rasterization.
 
 local Assert = require("tests.support.Assert")
-local FieldMenuController = require("libs.engine.src.FieldMenuController")
-local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
-local FieldMenuTheme = require("libs.engine.src.FieldMenuTheme")
+local FieldMenuController = require("libs.hgss.src.ui.FieldMenuController")
+local FieldMenuRenderer = require("libs.hgss.src.ui.FieldMenuRenderer")
+local FieldMenuTheme = require("libs.hgss.src.ui.FieldMenuTheme")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local MenuLayout = require("libs.engine.src.MenuLayout")
-local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local MenuLayout = require("libs.hgss.src.ui.MenuLayout")
+local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 
 local T = {}
 

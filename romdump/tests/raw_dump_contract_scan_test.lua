@@ -19,7 +19,7 @@ local T = {
 local PRODUCTION_ROOTS = {
   "libs/codec/src",
   "libs/assets/src",
-  "libs/engine/src",
+  "libs/hgss/src",
   "libs/errors/src",
   "libs/math/src",
   "libs/storage/src",

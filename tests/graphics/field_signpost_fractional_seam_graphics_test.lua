@@ -6,9 +6,9 @@ local Assert = require("tests.support.Assert")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldSignpostFixture = require("tests.support.FieldSignpostFixture")
-local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
-local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
-local FieldViewport = require("libs.engine.src.FieldViewport")
+local FieldSignpostRenderer = require("libs.hgss.src.ui.FieldSignpostRenderer")
+local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 local PngWriter = require("libs.assets.src.PngWriter")
 
 local T = {}
@@ -54,7 +54,7 @@ local function renderAndCheckSeam(scope, viewportW, viewportH, zoom)
   lg.setCanvas()
   local data = scope:own(canvas:newImageData())
 
-  local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+  local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
   local layout = FieldDialogueTheme.layout(viewport.referenceFrame, fieldScale)
   local graphicRegion = { x = 16, y = 152, width = 56, height = 32 }
   local hostX0 = layout.origin.x + graphicRegion.x * layout.scale

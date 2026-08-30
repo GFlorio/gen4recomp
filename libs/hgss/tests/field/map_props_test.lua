@@ -31,7 +31,7 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local FieldGrid = require("libs.hgss.src.field.FieldGrid")
 local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
-local ModelInstance = require("libs.engine.src.ModelInstance")
+local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")
 local MapPropsModule = require("libs.hgss.src.field.MapProps")
 
 local T = {}

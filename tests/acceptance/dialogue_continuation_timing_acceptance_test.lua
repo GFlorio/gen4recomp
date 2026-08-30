@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
+local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
 
 local T = {
   metadata = {

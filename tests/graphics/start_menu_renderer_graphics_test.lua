@@ -14,9 +14,9 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
-local StartMenuRenderer = require("libs.engine.src.StartMenuRenderer")
+local StartMenuRenderer = require("libs.hgss.src.ui.StartMenuRenderer")
 
 local T = {}
 

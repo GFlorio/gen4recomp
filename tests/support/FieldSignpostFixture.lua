@@ -6,7 +6,7 @@
 -- paste the glyph colors independently.
 
 local FieldSignpostController = require("libs.hgss.src.field.FieldSignpostController")
-local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
+local TextSpeedPolicy = require("libs.hgss.src.ui.TextSpeedPolicy")
 local FieldWindowStyles = require("libs.hgss.src.field.FieldWindowStyles")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 

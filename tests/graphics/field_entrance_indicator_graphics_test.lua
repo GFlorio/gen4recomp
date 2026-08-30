@@ -7,9 +7,9 @@ local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldCamera = require("libs.hgss.src.field.FieldCamera")
-local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceIndicatorRenderer")
-local FieldViewport = require("libs.engine.src.FieldViewport")
-local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
+local FieldEntranceIndicatorRenderer = require("libs.hgss.src.presentation.FieldEntranceIndicatorRenderer")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
+local GpuAssetPool = require("libs.hgss.src.presentation.GpuAssetPool")
 local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 
 local T = {}

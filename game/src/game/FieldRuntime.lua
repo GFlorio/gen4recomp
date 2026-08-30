@@ -3,9 +3,9 @@
 -- exposes the field warp transition lifecycle.
 
 local CacheFs = require("libs.storage.src.CacheFs")
-local DialogueLayout = require("libs.engine.src.DialogueLayout")
+local DialogueLayout = require("libs.hgss.src.ui.DialogueLayout")
 local FieldActorDefinitionProvider = require("libs.hgss.src.field.FieldActorDefinitionProvider")
-local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
+local AuxiliaryFieldUi = require("libs.hgss.src.ui.AuxiliaryFieldUi")
 local ContextChoiceProvider = require("libs.hgss.src.field.ContextChoiceProvider")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
 local FieldApplicationHost = require("libs.hgss.src.field.FieldApplicationHost")
@@ -14,17 +14,17 @@ local FieldApplicationRegistry = require("libs.hgss.src.field.FieldApplicationRe
 local FieldCamera = require("libs.hgss.src.field.FieldCamera")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local FieldGrid = require("libs.hgss.src.field.FieldGrid")
-local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
-local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
+local FieldFontLoader = require("libs.hgss.src.ui.FieldFontLoader")
+local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local LocalClock = require("libs.engine.src.LocalClock")
-local PlayerData = require("libs.engine.src.PlayerData")
+local LocalClock = require("game.src.game.LocalClock")
+local PlayerData = require("libs.hgss.src.save.PlayerData")
 local GameSaveValidation = require("game.src.game.GameSaveValidation")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldInput = require("libs.hgss.src.field.FieldInput")
-local FieldMenuHost = require("libs.engine.src.FieldMenuHost")
+local FieldMenuHost = require("libs.hgss.src.ui.FieldMenuHost")
 local FieldInteractionResolver = require("libs.hgss.src.field.FieldInteractionResolver")
 local FieldEventResolver = require("libs.hgss.src.field.FieldEventResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
@@ -32,37 +32,37 @@ local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
-local GameSave = require("libs.engine.src.GameSave")
-local PlayTime = require("libs.engine.src.PlayTime")
+local GameSave = require("libs.hgss.src.save.GameSave")
+local PlayTime = require("libs.hgss.src.save.PlayTime")
 local FieldScripts = require("game.src.game.FieldScripts")
 local FieldScriptScreenFade = require("libs.hgss.src.field.FieldScriptScreenFade")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
 local FieldSignpostController = require("libs.hgss.src.field.FieldSignpostController")
 local FieldTransition = require("libs.hgss.src.field.FieldTransition")
-local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
+local TextSpeedPolicy = require("libs.hgss.src.ui.TextSpeedPolicy")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWindowStyles = require("libs.hgss.src.field.FieldWindowStyles")
-local FieldViewport = require("libs.engine.src.FieldViewport")
-local FieldZoom = require("libs.engine.src.FieldZoom")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
+local FieldZoom = require("libs.hgss.src.presentation.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
-local NeighborRing = require("libs.engine.src.NeighborRing")
+local MapSceneLoader = require("libs.hgss.src.presentation.MapSceneLoader")
+local NeighborRing = require("libs.hgss.src.presentation.NeighborRing")
 local MapProps = require("libs.hgss.src.field.MapProps")
 local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
 local ScriptSave = require("libs.script.src.ScriptSave")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 local FieldWeatherResolver = require("libs.hgss.src.field.FieldWeatherResolver")
-local StartMenuController = require("libs.engine.src.StartMenuController")
+local StartMenuController = require("libs.hgss.src.ui.StartMenuController")
 local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
-local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
-local TrainerCardController = require("libs.engine.src.TrainerCardController")
+local StartMenuPolicy = require("libs.hgss.src.ui.StartMenuPolicy")
+local TrainerCardController = require("libs.hgss.src.ui.TrainerCardController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
 local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
 local FieldActorEmoteRuntime = require("game.src.game.FieldActorEmoteRuntime")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 local FieldAudioSave = require("libs.hgss.src.audio.FieldAudioSave")
-local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
+local TimeOfDayProps = require("libs.hgss.src.presentation.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
 local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
@@ -144,6 +144,7 @@ end
 ---@field viewportWidth integer?
 ---@field viewportHeight integer?
 ---@field screenTopology ScreenTopology?
+---@field overrideFs table? read-shaped repository filesystem override
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
@@ -166,6 +167,7 @@ end
 
 ---@class FieldRuntime
 ---@field versionId string
+---@field overrideFs table? read-shaped repository filesystem override
 ---@field saveId string
 ---@field game table finalized unpublished game or validated loaded GameSave
 ---@field viewportWidth integer
@@ -534,6 +536,7 @@ function FieldRuntime.new(game, options)
     viewportWidth = options.viewportWidth or WindowConfig.REFERENCE_WIDTH,
     viewportHeight = options.viewportHeight or WindowConfig.REFERENCE_HEIGHT,
     screenTopology = options.screenTopology,
+    overrideFs = options.overrideFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
     dayNight = options.dayNight,
@@ -617,7 +620,7 @@ function FieldRuntime:_load()
         tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
         very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
       },
-      modelFactory = require("libs.engine.src.FieldTerrainEffectModelFactory").new(),
+      modelFactory = require("libs.hgss.src.presentation.FieldTerrainEffectModelFactory").new(),
     })
 
     self.mapLoader = FieldMapLoader.new(cacheFs, world, {

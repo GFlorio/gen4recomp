@@ -8,9 +8,9 @@ local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local FieldActorEmoteRenderer = require("libs.engine.src.FieldActorEmoteRenderer")
+local FieldActorEmoteRenderer = require("libs.hgss.src.presentation.FieldActorEmoteRenderer")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
-local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
+local StartMenuPolicy = require("libs.hgss.src.ui.StartMenuPolicy")
 
 local T = {
   metadata = {

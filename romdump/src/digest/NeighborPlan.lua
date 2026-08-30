@@ -7,7 +7,7 @@
 -- skipped without wrapping; cells whose header has no checked-in area mapping are
 -- skipped too. Neighbours are additive: with the feature disabled nothing is
 -- planned and the central scene is untouched. Pure domain module (no love, no
--- libs/engine).
+-- the HGSS field runtime).
 
 local NeighborPlan = {}
 local MapUnits = require("romdump.src.digest.MapUnits")
@@ -25,7 +25,7 @@ local OFFSETS = {
   { dx = 1, dz = 1 },
 }
 
-local TILES_PER_CELL = 32 -- DS matrix cell is 32x32 tiles (FieldGrid.CELL_TILES); inlined so this pure-domain module stays free of the libs/engine dependency
+local TILES_PER_CELL = 32 -- DS matrix cell is 32x32 tiles (FieldGrid.CELL_TILES); inlined so this pure-domain module stays free of the HGSS field-runtime dependency
 
 ---@class NeighborPlan.Cell
 ---@field x integer

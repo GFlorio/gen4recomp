@@ -12,11 +12,11 @@ local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
-local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
-local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
-local FieldViewport = require("libs.engine.src.FieldViewport")
+local FieldDialogueRenderer = require("libs.hgss.src.ui.FieldDialogueRenderer")
+local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
+local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
+local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 
 local T = {}
 

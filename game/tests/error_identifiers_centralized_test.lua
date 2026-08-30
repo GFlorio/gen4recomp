@@ -22,7 +22,7 @@ local T = {
 local PRODUCTION_ROOTS = {
   "libs/codec/src",
   "libs/assets/src",
-  "libs/engine/src",
+  "libs/hgss/src",
   "libs/errors/src",
   "libs/math/src",
   "libs/storage/src",
@@ -69,7 +69,7 @@ local CENTRALIZED_CODES = {
 -- FieldErrors -- a raw literal inside it is that catalogue's own concern, not
 -- this audit's.
 local FIELD_ENGINE_ROOTS = {
-  "libs/engine/src",
+  "libs/hgss/src",
   "game/src/game",
 }
 
@@ -187,7 +187,7 @@ end
 local BARE_RAISE_SITE_PATTERN = 'Errors%.raise%(%s*"[A-Z][A-Z0-9_]*"'
 local BARE_NEW_SITE_PATTERN = 'Errors%.new%(%s*"[A-Z][A-Z0-9_]*"'
 
--- The field engine (libs/engine/src, minus the script subsystem's own
+-- The HGSS field runtime (libs/hgss/src, minus the script subsystem's own
 -- catalogue) and the game's field composition (game/src/game) must raise
 -- through named `FieldErrors`/`ScriptErrors` constants, never bare literals.
 -- Unlike `centralized_error_codes_have_no_raw_raise_sites`, this does not
@@ -264,7 +264,7 @@ function T.tests.misleading_names_are_renamed()
     violations[#violations + 1] = "romdump/src/source/RomImporter.lua still names its start guard _requireIdle"
   end
 
-  local warpSystem = readFile("libs/engine/src/WarpSystem.lua")
+  local warpSystem = readFile("libs/hgss/src/field/WarpSystem.lua")
   if warpSystem:find("resolutionRecord(sourceMap, warp, destinationMap, warp", 1, true) ~= nil then
     violations[#violations + 1] = "WarpSystem.lua direct branch aliases the trigger record as destinationWarp"
   end

@@ -274,7 +274,7 @@ end
 -- AreaDataManager_Load reads at +0x8B7 to branch between the two real overlay
 -- tables ov01_02208BA0 / ov01_02208BB0 (HgssFieldEdgeColors) -- the same byte
 -- HgssFieldLighting.resolve already reads to select the field-light profile.
--- MapRenderer must stop inventing a placeholder eight-grey table.
+-- FieldRenderer must stop inventing a placeholder eight-grey table.
 function T.scene_edge_colors_follow_the_area_light_pattern_byte()
   local zero = assert(compile({ lightTypeRaw = 0 }))
   Assert.deepEqual(zero.scene.edgeColors, HgssFieldEdgeColors.TABLE_A)
@@ -657,7 +657,7 @@ function T.animated_bundle_round_trips_through_writer_readiness_and_loader()
   local CacheFs = require("libs.storage.src.CacheFs")
   local FakeCache = require("tests.support.FakeCache")
   local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
-  local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
+  local MapSceneLoader = require("libs.hgss.src.presentation.MapSceneLoader")
 
   local bw = require("libs.codec.src.BinaryWriter").new()
   bw:u16(0)

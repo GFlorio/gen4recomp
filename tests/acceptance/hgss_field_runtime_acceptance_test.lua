@@ -82,6 +82,7 @@ function T.tests.opening_script_and_field_audio_keep_production_tick_boundaries(
       return output:anyNonSilent()
     end, 240)
 
+    local startCountBeforeEntry = #game:recordsNamed("script.started")
     enterPlayerHouse(game)
     local world = assert(game.runtime.scripts.worldState, "field composition must provide world state")
     Assert.equal(
@@ -93,10 +94,15 @@ function T.tests.opening_script_and_field_audio_keep_production_tick_boundaries(
       OpeningLifecycle.frameRuleScriptId(game.runtime, OpeningLifecycle.VAR_SCENE_PLAYERS_HOUSE_1F, 0),
       "the generated house map must provide its opening-scene rule"
     )
-    local startsBefore = #game:recordsForScript(expectedScript, "script.started")
-    game:advanceUntil("the production opening script starts", function()
-      return #game:recordsForScript(expectedScript, "script.started") > startsBefore
-    end, 60)
+    local starts = game:recordsNamed("script.started")
+    local startedDuringEntry = false
+    for index = startCountBeforeEntry + 1, #starts do
+      if starts[index].payload and starts[index].payload.scriptId == expectedScript then
+        startedDuringEntry = true
+        break
+      end
+    end
+    Assert.isTrue(startedDuringEntry, "the production opening script must start during house entry")
 
     OpeningLifecycle.completeOpeningHouseScene(game)
 

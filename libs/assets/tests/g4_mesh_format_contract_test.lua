@@ -17,7 +17,7 @@ local OWNER = "libs/assets/src/G4MeshFormat.lua"
 local FILES = {
   "libs/assets/src/VertexFormat.lua",
   "libs/assets/src/MeshWriter.lua",
-  "libs/engine/src/SceneMesh.lua",
+  "libs/hgss/src/presentation/SceneMesh.lua",
 }
 
 -- Literal duplications each file must be free of: the quoted magic string,
@@ -25,7 +25,12 @@ local FILES = {
 local FORBIDDEN = {
   ["libs/assets/src/VertexFormat.lua"] = { '"G4M2"', "VertexFormat.VERSION = 2" },
   ["libs/assets/src/MeshWriter.lua"] = { '"G4M2"', "local VERSION = 2", "local STRIDE = 40" },
-  ["libs/engine/src/SceneMesh.lua"] = { '"G4M2"', "local HEADER = 24", "local VERSION = 2", "local STRIDE = 40" },
+  ["libs/hgss/src/presentation/SceneMesh.lua"] = {
+    '"G4M2"',
+    "local HEADER = 24",
+    "local VERSION = 2",
+    "local STRIDE = 40",
+  },
 }
 
 local function read(path)

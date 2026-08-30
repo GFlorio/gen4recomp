@@ -18,7 +18,7 @@ local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
-local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
+local GpuAssetPool = require("libs.hgss.src.presentation.GpuAssetPool")
 
 local T = {}
 

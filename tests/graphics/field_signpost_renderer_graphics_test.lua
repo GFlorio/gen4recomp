@@ -15,13 +15,13 @@
 local Assert = require("tests.support.Assert")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldSignpostFixture = require("tests.support.FieldSignpostFixture")
-local FieldSignpostTheme = require("libs.engine.src.FieldSignpostTheme")
+local FieldSignpostTheme = require("libs.hgss.src.ui.FieldSignpostTheme")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
-local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
-local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
-local FieldViewport = require("libs.engine.src.FieldViewport")
+local FieldSignpostRenderer = require("libs.hgss.src.ui.FieldSignpostRenderer")
+local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 
 local T = {}
 

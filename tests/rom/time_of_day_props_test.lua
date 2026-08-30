@@ -12,9 +12,9 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
-local ModelDefinition = require("libs.engine.src.ModelDefinition")
-local ModelInstance = require("libs.engine.src.ModelInstance")
-local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
+local ModelDefinition = require("libs.hgss.src.presentation.ModelDefinition")
+local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")
+local TimeOfDayProps = require("libs.hgss.src.presentation.TimeOfDayProps")
 
 local T = {}
 

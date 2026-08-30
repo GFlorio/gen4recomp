@@ -4,7 +4,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.script.src.errors")
-local FieldMenuController = require("libs.engine.src.FieldMenuController")
+local FieldMenuController = require("libs.hgss.src.ui.FieldMenuController")
 
 local MenuTask = {}
 local pointerCaptures = setmetatable({}, { __mode = "k" })

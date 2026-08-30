@@ -12,9 +12,9 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local TrainerCardRenderer = require("libs.engine.src.TrainerCardRenderer")
-local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
-local FieldViewport = require("libs.engine.src.FieldViewport")
+local TrainerCardRenderer = require("libs.hgss.src.ui.TrainerCardRenderer")
+local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 
 local T = {}

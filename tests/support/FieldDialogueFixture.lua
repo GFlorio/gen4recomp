@@ -11,7 +11,7 @@ local LuaWriter = require("libs.codec.src.LuaWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
-local FieldDialogueController = require("libs.engine.src.FieldDialogueController")
+local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
 
 local FieldDialogueFixture = {}
 

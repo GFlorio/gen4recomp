@@ -2,7 +2,7 @@
 -- Test-support only: no love, arithmetic only. This module has no runtime
 -- consumer -- GxRenderer/map.glsl implement the same sequencing directly in
 -- GLSL, since lighting runs per vertex on the GPU -- so it exists purely as
--- an independent shader oracle for libs/engine/tests/ds_lighting_test.lua.
+-- an independent shader oracle for libs/nds/tests/love/ds_lighting_test.lua.
 --
 -- Authoritative source: melonDS-emu/melonDS, commit
 -- d3cd6164deb1f217d4b262d18af3ef9b97e536c8, src/GPU3D.cpp,

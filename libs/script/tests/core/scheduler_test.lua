@@ -21,7 +21,7 @@ local ChildScriptTask = require("libs.script.src.tasks.ChildScriptTask")
 ---@cast ChildScriptTask TaskImplementation
 local AuxiliaryUiTask = require("libs.hgss.src.script.tasks.AuxiliaryUiTask")
 ---@cast AuxiliaryUiTask TaskImplementation
-local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
+local AuxiliaryFieldUi = require("libs.hgss.src.ui.AuxiliaryFieldUi")
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.script.src.Diagnostics")
 

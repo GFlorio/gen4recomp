@@ -20,7 +20,7 @@ local Errors = require("libs.errors.src.Errors")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local NeighborRing = require("libs.engine.src.NeighborRing")
+local NeighborRing = require("libs.hgss.src.presentation.NeighborRing")
 local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
 local Matrix4 = require("libs.math.src.Matrix4")
 

@@ -11,8 +11,8 @@
 
 local Assert = require("tests.support.Assert")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
-local FieldViewport = require("libs.engine.src.FieldViewport")
-local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
+local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
 
 local T = {}

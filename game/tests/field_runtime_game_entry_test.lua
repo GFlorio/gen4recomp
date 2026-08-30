@@ -2,9 +2,9 @@
 -- fresh-session policy, demo manifests, or save-store loading.
 
 local Assert = require("tests.support.Assert")
-local GameSave = require("libs.engine.src.GameSave")
+local GameSave = require("libs.hgss.src.save.GameSave")
 local FieldRuntime = require("game.src.game.FieldRuntime")
-local PlayTime = require("libs.engine.src.PlayTime")
+local PlayTime = require("libs.hgss.src.save.PlayTime")
 
 local T = {}
 

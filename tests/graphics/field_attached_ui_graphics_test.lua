@@ -5,12 +5,12 @@ local Assert = require("tests.support.Assert")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
-local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
-local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
+local FieldDialogueRenderer = require("libs.hgss.src.ui.FieldDialogueRenderer")
+local FieldSignpostRenderer = require("libs.hgss.src.ui.FieldSignpostRenderer")
 local FieldSignpostFixture = require("tests.support.FieldSignpostFixture")
-local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
-local FieldViewport = require("libs.engine.src.FieldViewport")
+local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
+local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 
 local T = {}
 

@@ -14,7 +14,7 @@
 
 local Assert = require("tests.support.Assert")
 local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
-local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local FieldApplicationHost = require("libs.hgss.src.field.FieldApplicationHost")
 
 local T = {

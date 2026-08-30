@@ -5,7 +5,7 @@
 local OakIntroLayout = require("game.src.game.OakIntroLayout")
 local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
-local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
+local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentationLayout")
 
 ---@class OakIntroStateController: OakIntroController
 ---@field start fun(self: OakIntroStateController): boolean

@@ -39,7 +39,6 @@ local PACKAGE_ROOTS = {
   "libs/errors",
   "libs/storage",
   "libs/math",
-  "libs/engine",
   "libs/nds",
   "libs/script",
   "libs/hgss",
@@ -58,14 +57,10 @@ local OPTIONAL_PACKAGE_ROOTS = {
 }
 
 -- The producer side of the same boundary: romdump digests raw ROM bytes and
--- may depend on lower shared packages. This transitional check covers the
--- current engine package; later hard cuts extend the forbidden set as runtime
--- consumers leave that migration source. The scan covers romdump/src only:
+-- may depend on lower shared packages. The scan covers romdump/src only:
 -- romdump tests legitimately compose compiler output against runtime consumers,
 -- which is not production composition.
-local ROMDUMP_FORBIDDEN_LIBS = {
-  "libs.engine.",
-}
+local ROMDUMP_FORBIDDEN_LIBS = {}
 
 -- NDS format and semantic code is reusable platform logic. It may consume
 -- foundations only; project assets, runtime packages, application policy, and
@@ -74,7 +69,6 @@ local NDS_FORBIDDEN_LIBS = {
   "libs.assets.",
   "libs.script.",
   "libs.hgss.",
-  "libs.engine.",
   "game.",
   "romdump.",
 }
@@ -87,11 +81,7 @@ local NDS_SOUND_FORBIDDEN_LIBS = {
   "romdump.",
 }
 
-local HGSS_FIELD_FORBIDDEN_LIBS = {
-  "libs.engine.",
-  "game.",
-  "romdump.",
-}
+local HGSS_FIELD_FORBIDDEN_LIBS = { "game.", "romdump." }
 
 -- Namespaces deleted by the boundary moves; none may reappear.
 local FORBIDDEN_PREFIXES = {
@@ -102,12 +92,6 @@ local FORBIDDEN_PREFIXES = {
   "data.manifests.field_cameras",
   "data.manifests.field_messages",
   "data.manifests.field_actors",
-}
-
-local ENGINE_PRODUCT_MODULE_PATHS = {
-  "libs/engine/src/NewGame.lua",
-  "libs/engine/src/OakIntroController.lua",
-  "libs/engine/src/OakGreetingPolicy.lua",
 }
 
 local scanned = nil
@@ -231,7 +215,7 @@ function T.removed_namespaces_do_not_reappear()
   Assert.isTrue(#violations == 0, violationMessage("removed namespaces reappeared:\n", violations))
 end
 
-function T.romdump_never_imports_libs_engine()
+function T.romdump_never_imports_runtime_packages()
   local violations = violationsFor(scannedFiles(), function(file, module)
     if file:sub(1, #"romdump/src/") ~= "romdump/src/" then
       return false
@@ -330,12 +314,6 @@ function T.hgss_field_owns_world_mechanisms_without_upward_imports()
   end
   Assert.isTrue(#files > 0, "HGSS field runtime must own production world mechanisms")
   Assert.isTrue(#violations == 0, violationMessage("HGSS field runtime imports an invalid package:\n", violations))
-end
-
-function T.engine_does_not_contain_game_opening_policy_modules()
-  for _, path in ipairs(ENGINE_PRODUCT_MODULE_PATHS) do
-    Assert.isFalse(pathExists(path), path .. " must not contain game opening policy")
-  end
 end
 
 function T.scanner_configuration_covers_future_library_roots()

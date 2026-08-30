@@ -2,9 +2,9 @@
 -- source-shaped unpublished opening state, and later finalizes the partial
 -- Oak profile without publishing gameplay to storage.
 
-local GameSave = require("libs.engine.src.GameSave")
-local PlayTime = require("libs.engine.src.PlayTime")
-local PlayerData = require("libs.engine.src.PlayerData")
+local GameSave = require("libs.hgss.src.save.GameSave")
+local PlayTime = require("libs.hgss.src.save.PlayTime")
+local PlayerData = require("libs.hgss.src.save.PlayerData")
 
 local NewGame = {}
 

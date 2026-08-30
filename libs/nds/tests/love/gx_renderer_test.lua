@@ -9,12 +9,12 @@
 
 local Assert = require("tests.support.Assert")
 local GxRenderer = require("libs.nds.src.love.GxRenderer")
-local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
-local FieldViewport = require("libs.engine.src.FieldViewport")
+local MapSceneLoader = require("libs.hgss.src.presentation.MapSceneLoader")
+local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
-local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
+local FieldActorDraw = require("libs.hgss.src.presentation.FieldActorDraw")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
 local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
@@ -799,7 +799,7 @@ function T.presentation_sprites_use_direct_replace_with_depth_writes()
   assertResourcesReleased(lg, renderer, 1)
 end
 
--- libs/engine must not import a game-level config, so the game's background
+-- libs/nds must not import a game-level config, so the game's background
 -- color is injected as opts.clearColor rather than hardcoded: the renderer
 -- clears the scene canvas to exactly the table it was given, and falls back
 -- to its own default when the caller (e.g. a test uninterested in

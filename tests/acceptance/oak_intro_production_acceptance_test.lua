@@ -9,7 +9,7 @@ local FakeCache = require("tests.support.FakeCache")
 local App = require("game.src.game.App")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
-local GameSaveStore = require("libs.engine.src.GameSaveStore")
+local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local OakIntroState = require("game.src.game.OakIntroState")
 local SaveFs = require("libs.storage.src.SaveFs")
 
