@@ -28,8 +28,10 @@ Read the narrowest authoritative source instead of duplicating it:
 - `.agents/docs/defensive-patterns.md`: hard-won ownership, publication, cache, and failure rules.
 - `tests/AGENTS.md`: test design, runner, layers, capabilities, and ROM policy.
 - `romdump/AGENTS.md`: ROM/HGSS/decomp-source rules.
+- `libs/nds/AGENTS.md`: Nintendo DS/Nitro platform ownership and dependency direction.
+- `libs/script/AGENTS.md`: mod scripting platform ownership and injected game meaning.
+- `libs/hgss/AGENTS.md`: recreated HGSS runtime mechanism ownership.
 - `libs/assets/AGENTS.md`: generated/mod-facing asset contract rules.
-- `libs/engine/AGENTS.md`: runtime/engine ownership and public-surface rules.
 - `game/AGENTS.md`: application composition and game-policy rules.
 - `.agents/docs/adr/`: durable rationale for architectural decisions likely to be revisited.
 - `.agents/skills/`: workflows. Skills should consume repository guidance, not restate it.
@@ -94,9 +96,12 @@ source-grounded domain concept.
   producer-side even when their parsers are pure.
 - `libs/assets` owns only g4recomp-defined generated/mod-facing formats, paths, schemas,
   validation, and source-independent encoders/decoders. It must never import `romdump`.
-- `libs/engine` and normal `game` runtime consume generated assets only. They do not decode
-  ROM formats or import decomp-derived references. The launcher/import UI is the sole
-  provisioning exception from `game` to `romdump`.
+- `libs/nds`, `libs/script`, and `libs/hgss` are the target runtime package owners described
+  by their package guidance. The existing `libs/engine` tree is migration-only until its
+  consumers have moved; it is not a new ownership destination.
+- Normal `game` runtime consumes generated assets and HGSS-facing mechanisms only. It does
+  not decode ROM formats or import decomp-derived references. The launcher/import UI is the
+  sole provisioning exception from `game` to `romdump`.
 - Producer test: if changing a module can change generated output for an unchanged raw dump
   without changing the shared asset contract, that implementation belongs under `romdump`.
 - Source physical IDs, paths, offsets, and packing belong in producer dependencies or

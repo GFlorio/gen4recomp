@@ -1,9 +1,8 @@
 -- Static architecture guard: enforces the romdump boundary by scanning literal
--- require("...") strings across the libs packages (assets, codec, storage,
--- errors, math, engine), the game package (src and tests), and romdump/src
--- (production producers). Literal scanning is sufficient because the
--- repository requires modules by full repo-relative path; this is deliberately
--- not a general-purpose dependency analyzer.
+-- require("...") strings across the library packages, the game package (src and
+-- tests), and romdump/src (production producers). Literal scanning is
+-- sufficient because the repository requires modules by full repo-relative
+-- path; this is deliberately not a general-purpose dependency analyzer.
 
 local Assert = require("tests.support.Assert")
 
@@ -41,19 +40,25 @@ local PACKAGE_ROOTS = {
   "libs/storage",
   "libs/math",
   "libs/engine",
+  "libs/nds",
+  "libs/script",
+  "libs/hgss",
   "game",
   "romdump/src",
 }
 
+local TARGET_PACKAGE_ROOTS = {
+  ["libs/nds"] = true,
+  ["libs/script"] = true,
+  ["libs/hgss"] = true,
+}
+
 -- The producer side of the same boundary: romdump digests raw ROM bytes and
--- may depend on the domain libs (assets, codec, storage, errors, math) but
--- never on a libs runtime package. Digest compilers and the runtime engine
--- must both consume the same lower shared contracts, so a romdump -> engine
--- require points the dependency upward. libs.engine is the only libs runtime
--- package today; a future runtime libs package joins this list. The scan
--- covers romdump/src only: romdump tests legitimately compose compiler output
--- against engine consumers (round-trip pipeline tests), which is not
--- production composition.
+-- may depend on lower shared packages. This transitional check covers the
+-- current engine package; later hard cuts extend the forbidden set as runtime
+-- consumers leave that migration source. The scan covers romdump/src only:
+-- romdump tests legitimately compose compiler output against runtime consumers,
+-- which is not production composition.
 local ROMDUMP_FORBIDDEN_LIBS = {
   "libs.engine.",
 }
@@ -78,7 +83,9 @@ local ENGINE_PRODUCT_MODULE_PATHS = {
 local scanned = nil
 
 local function luaFilesUnder(root)
-  -- stderr is discarded: a missing root surfaces as the empty-index assertion.
+  -- Guidance-only and not-yet-created target package roots are valid during
+  -- migration. Existing roots still fail loudly when they index no Lua files.
+  -- stderr is discarded because an absent target root contributes no files.
   local command = "find '" .. BASE .. "/" .. root .. "' -type f -name '*.lua' -print 2>/dev/null"
   local pipe = assert(io.popen(command, "r"), "cannot list " .. root .. ": io.popen unavailable")
   local prefix = BASE .. "/"
@@ -88,7 +95,9 @@ local function luaFilesUnder(root)
     out[#out + 1] = line:sub(#prefix + 1)
   end
   pipe:close()
-  assert(#out > 0, "package root indexed no Lua files: " .. root)
+  if not TARGET_PACKAGE_ROOTS[root] then
+    assert(#out > 0, "package root indexed no Lua files: " .. root)
+  end
   return out
 end
 
@@ -162,7 +171,7 @@ local function violationMessage(heading, violations)
   return heading .. table.concat(violations, "\n")
 end
 
-function T.assets_and_engine_never_import_romdump()
+function T.library_packages_never_import_romdump()
   local violations = violationsFor(scannedFiles(), function(file, module)
     return file:sub(1, #"libs/") == "libs/" and importsRomdump(module)
   end)
@@ -210,6 +219,16 @@ end
 function T.engine_does_not_contain_game_opening_policy_modules()
   for _, path in ipairs(ENGINE_PRODUCT_MODULE_PATHS) do
     Assert.isFalse(pathExists(path), path .. " must not contain game opening policy")
+  end
+end
+
+function T.scanner_configuration_covers_future_library_roots()
+  local indexed = {}
+  for _, root in ipairs(PACKAGE_ROOTS) do
+    indexed[root] = true
+  end
+  for root in pairs(TARGET_PACKAGE_ROOTS) do
+    Assert.isTrue(indexed[root], "architecture scanner omits " .. root)
   end
 end
 
