@@ -28,7 +28,6 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
-local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldSignpostTheme = require("libs.engine.src.FieldSignpostTheme")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
@@ -44,9 +43,9 @@ local DEFAULT_SOURCE_TYPE = 0
 
 -- Sets the draw color from a generated 0..255 palette entry, at the given
 -- alpha (defaulting to opaque).
----@param lg love.Graphics|love.graphics
 ---@param color { r: integer, g: integer, b: integer }
 ---@param alpha number?
+---@param lg love.Graphics|love.graphics
 local function setColor255(lg, color, alpha)
   lg.setColor(color.r / 255, color.g / 255, color.b / 255, alpha or 1)
 end
@@ -142,12 +141,10 @@ function FieldSignpostRenderer.new(opts)
       path = wayfindingPath,
     })
   end
-  tilesData = assert(tilesData)
-  wayfindingData = assert(wayfindingData)
   local ok, err = pcall(function()
-    self._tilesImage = graphics.newImage(love.filesystem.newFileData(tilesData, tilesPath))
+    self._tilesImage = graphics.newImage(love.filesystem.newFileData(assert(tilesData), tilesPath))
     self._tilesImage:setFilter("nearest", "nearest")
-    self._wayfindingImage = graphics.newImage(love.filesystem.newFileData(wayfindingData, wayfindingPath))
+    self._wayfindingImage = graphics.newImage(love.filesystem.newFileData(assert(wayfindingData), wayfindingPath))
     self._wayfindingImage:setFilter("nearest", "nearest")
   end)
   if not ok then
@@ -318,7 +315,14 @@ function FieldSignpostRenderer:draw(controller, viewport, alpha, fieldScale)
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the per-type geometry from the
     -- style catalogue is already reference-space, so nothing is scaled twice.
-    local layout = FieldDialogueTheme.layout(viewport.referenceFrame, fieldScale)
+    local ref = viewport.referenceFrame
+    local layout = {
+      scale = fieldScale,
+      origin = {
+        x = ref.x + (ref.width - 256 * fieldScale) / 2,
+        y = ref.y + ref.height - 192 * fieldScale,
+      },
+    }
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local wipe = self:_wipeY(status, alpha)

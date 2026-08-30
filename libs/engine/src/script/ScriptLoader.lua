@@ -117,7 +117,7 @@ end
 -- path; the eager path validates every loaded resource under the same flag.
 ---@param registry table Registry
 ---@param cacheFs table CacheFs-shaped
----@param requireFn fun(name: string): any
+---@param requireFn? fun(name: string): any
 ---@param opts table|nil { lazy: boolean?, validateGenerated: boolean? }
 function ScriptLoader.installGenerated(registry, cacheFs, requireFn, opts)
   requireFn = requireFn or defaultRequire
@@ -207,7 +207,7 @@ end
 -- resource chunks. Returns the ids installed, sorted.
 ---@param registry table Registry
 ---@param fs table { read(path): string? }
----@param requireFn fun(name: string): any
+---@param requireFn? fun(name: string): any
 ---@return string[]
 function ScriptLoader.installOverrides(registry, fs, requireFn)
   requireFn = requireFn or defaultRequire
@@ -249,7 +249,7 @@ end
 ---@param fs table directory-shaped filesystem for data/scripts/overrides
 ---@param requireFn function|nil defaults to the restricted gen4.script-only require
 ---@param opts table|nil { lazy: boolean?, validateGenerated: boolean? }
----@return table registry
+---@return Registry registry
 function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
   opts = opts or {}
   requireFn = requireFn or defaultRequire

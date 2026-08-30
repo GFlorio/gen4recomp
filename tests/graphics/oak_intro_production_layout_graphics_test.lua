@@ -1,0 +1,164 @@
+-- Production Oak composition proofs against the real generated intro
+-- manifest: one responsive host scene at representative wide/tall drawable
+-- sizes, gender selectors anchored from real cell-animation provenance, and
+-- every generated ball/Marill animation frame free of corrupt/empty pixels.
+
+local Assert = require("tests.support.Assert")
+local CacheFs = require("libs.storage.src.CacheFs")
+local GameVersion = require("romdump.src.source.GameVersion")
+local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
+local OakIntroLayout = require("game.src.game.OakIntroLayout")
+local RomImporter = require("romdump.src.source.RomImporter")
+
+local T = {
+  metadata = {
+    capabilities = { "graphics", "derived_cache" },
+    tags = { "oak", "responsive", "generated-assets" },
+  },
+  tests = {},
+}
+
+local WIDE = { 1920, 1080 }
+local TALL = { 390, 844 }
+
+---@param inner { x: number, y: number, width: number, height: number }
+---@param outer { x: number, y: number, width: number, height: number }
+---@return boolean
+local function inside(inner, outer)
+  assert(inner and outer)
+  return inner.x >= outer.x
+    and inner.y >= outer.y
+    and inner.x + inner.width <= outer.x + outer.width
+    and inner.y + inner.height <= outer.y + outer.height
+end
+
+---@param first { x: number, y: number, width: number, height: number }
+---@param second { x: number, y: number, width: number, height: number }
+---@return boolean
+local function disjoint(first, second)
+  assert(first and second)
+  return first.x + first.width <= second.x
+    or second.x + second.width <= first.x
+    or first.y + first.height <= second.y
+    or second.y + second.height <= first.y
+end
+
+local function readyManifests()
+  local manifests = {}
+  for _, versionId in ipairs(GameVersion.ORDER) do
+    if RomImporter.isReady(versionId) then
+      local cache = CacheFs.forVersion(versionId)
+      local manifest = assert(cache:loadLua(IntroAssetCache.manifestPath()))
+      Assert.isTrue(IntroAssetCache.validateManifest(manifest), "the generated intro manifest must be schema-valid")
+      manifests[#manifests + 1] = { versionId = versionId, manifest = manifest }
+    end
+  end
+  Assert.isTrue(#manifests > 0, "derived-cache capability promised a ready game version")
+  return manifests
+end
+
+-- the world-inhabited/Marill scene is one responsive host surface
+-- at wide and tall drawable sizes: the scene spans the full drawable width
+-- with no synthetic dual-screen split, and the reveal subject stays framed.
+T.tests.reveal_scene_is_one_surface_at_wide_and_tall_sizes = function()
+  for _, entry in ipairs(readyManifests()) do
+    for _, size in ipairs({ WIDE, TALL }) do
+      local view = {
+        phase = "oak_world_inhabited",
+        visual = "oak",
+        primaryWidget = "oak",
+        revealWidget = "ball_open",
+        oakBgScrollX = -52,
+      }
+      local layout = OakIntroLayout.compute(size[1], size[2], view, {}, entry.manifest)
+      Assert.deepEqual(layout.viewport, { x = 0, y = 0, width = size[1], height = size[2] })
+      -- The scene spans the full drawable width: no top/bottom DS split.
+      Assert.equal(layout.scene.x, 0)
+      Assert.equal(layout.scene.width, size[1])
+      Assert.isTrue(inside(layout.subject, layout.viewport), entry.versionId .. " Oak subject leaves the drawable")
+      Assert.isTrue(inside(layout.reveal, layout.viewport), entry.versionId .. " reveal widget leaves the drawable")
+    end
+  end
+end
+
+-- gender selection uses the real generated manifest at wide and
+-- tall sizes: regions are contained/disjoint and choices resolve through
+-- generated cell-animation source centers, never a synthetic center anchor.
+T.tests.gender_selection_uses_the_production_manifest_at_representative_sizes = function()
+  for _, entry in ipairs(readyManifests()) do
+    for _, size in ipairs({ WIDE, TALL }) do
+      local view = {
+        phase = "gender_select",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = 0,
+        genderCompositionProgress = 1,
+        oakBgScrollX = 0,
+      }
+      local layout = OakIntroLayout.compute(size[1], size[2], view, {}, entry.manifest)
+      Assert.isTrue(inside(layout.oakRegion, layout.viewport), entry.versionId .. " Oak region leaves the drawable")
+      Assert.isTrue(
+        inside(layout.selectorRegion, layout.viewport),
+        entry.versionId .. " selector region leaves the drawable"
+      )
+      Assert.isTrue(
+        disjoint(layout.oakRegion, layout.selectorRegion),
+        entry.versionId .. " Oak and selector regions overlap"
+      )
+      Assert.isTrue(
+        inside(layout.genderBackground, layout.selectorPanel),
+        entry.versionId .. " gender background leaves the selector panel"
+      )
+      for gender = 0, 1 do
+        Assert.isTrue(
+          inside(layout.genderChoices[gender], layout.selectorPanel),
+          entry.versionId .. " gender choice " .. gender .. " leaves the selector panel"
+        )
+      end
+      Assert.isTrue(
+        disjoint(layout.genderChoices[0], layout.genderChoices[1]),
+        entry.versionId .. " gender choices overlap"
+      )
+      -- Provenance ties each selector widget to a real cell/animation, never
+      -- a raw character sheet.
+      local male = entry.manifest.widgets.gender_male
+      local female = entry.manifest.widgets.gender_female
+      Assert.equal(male.provenance.rule, "stable-oam-origin")
+      Assert.equal(female.provenance.rule, "stable-oam-origin")
+    end
+  end
+end
+
+-- every ball/Marill animation frame for both ready versions has
+-- visible, chromatic pixels; the pinned source center resolves through
+-- generated metadata rather than a generic host center.
+T.tests.every_ball_and_marill_frame_is_visible_chromatic_and_source_centered = function()
+  for _, entry in ipairs(readyManifests()) do
+    local cache = CacheFs.forVersion(entry.versionId)
+    for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
+      local widget = assert(entry.manifest.widgets[id])
+      Assert.deepEqual(widget.sourceCenter, { x = 160, y = 80 }, entry.versionId .. " " .. id .. " source center")
+      for index, frameEntry in ipairs(widget.frames) do
+        local bytes = assert(cache:read(frameEntry.image), "missing " .. id .. " frame " .. index)
+        local data = love.image.newImageData(love.filesystem.newFileData(bytes, frameEntry.image))
+        local visible, chromatic = false, false
+        for y = 0, data:getHeight() - 1 do
+          for x = 0, data:getWidth() - 1 do
+            local r, g, b, a = data:getPixel(x, y)
+            if a > 0 then
+              visible = true
+              if math.max(r, g, b) - math.min(r, g, b) > 0 then
+                chromatic = true
+              end
+            end
+          end
+        end
+        data:release()
+        Assert.isTrue(visible, entry.versionId .. " " .. id .. " frame " .. index .. " is empty")
+        Assert.isTrue(chromatic, entry.versionId .. " " .. id .. " frame " .. index .. " is monochrome")
+      end
+    end
+  end
+end
+
+return T

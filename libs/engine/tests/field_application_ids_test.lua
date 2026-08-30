@@ -28,13 +28,13 @@ function T.tests.the_id_table_carries_exactly_the_implemented_destination_set()
     ids[#ids + 1] = id
   end
   table.sort(ids)
-  Assert.deepEqual(ids, { "bag", "options", "pokedex", "pokegear", "pokemon", "save", "trainer_card" })
+  Assert.deepEqual(ids, { "bag", "options", "pokedex", "pokegear", "pokemon", "trainer_card" })
 end
 
 -- Every destination the policy routes is drawn from the centralized table:
 -- with full source facts, every "application" action's targetApplication is
--- a member of the FieldApplicationIds set (the seven application actions
--- plus the two pokegear specials; non-application actions have no target).
+-- a member of the FieldApplicationIds set; non-application actions have no
+-- target.
 function T.tests.policy_routes_only_centralized_application_ids()
   local actions = StartMenuPolicy.actions(FULL_FACTS)
   local applicationActions = 0
@@ -55,7 +55,7 @@ function T.tests.policy_routes_only_centralized_application_ids()
       Assert.isNil(action.targetApplication, "a non-application action has no target application")
     end
   end
-  Assert.equal(applicationActions, 9, "the seven application actions plus the two pokegear specials route somewhere")
+  Assert.equal(applicationActions, 8, "the implemented applications plus the two pokegear specials route somewhere")
 end
 
 return T

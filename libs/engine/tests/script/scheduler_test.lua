@@ -16,10 +16,10 @@ local Composition = require("libs.engine.src.script.Composition")
 local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
-local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
-local AuxiliaryUiTask = require("libs.engine.src.script.tasks.AuxiliaryUiTask")
 ---@cast WaitTicksTask TaskImplementation
+local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 ---@cast ChildScriptTask TaskImplementation
+local AuxiliaryUiTask = require("libs.engine.src.script.tasks.AuxiliaryUiTask")
 ---@cast AuxiliaryUiTask TaskImplementation
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
 local FakeServices = require("tests.support.script.FakeServices")
@@ -930,6 +930,29 @@ T["background restrictions"] = function()
   Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_BACKGROUND_FORBIDDEN")
 end
 
+-- An empty common child still crosses the asynchronous child-task handoff
+-- before the parent's post-call continuation runs.
+T["empty common child completes the handoff"] = function()
+  local h = harness()
+  h.registry:installBase("common.empty", script("common.empty", {}), "generated")
+  startForeground(
+    h,
+    script("test.empty_child", {
+      S.callCommon({ target = "common.empty" }),
+      S.setVar({ variable = "VAR_AFTER", value = 1 }),
+      S.stop(),
+    }),
+    100
+  )
+
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(101, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
+  h.scheduler:step(102, nil)
+  Assert.equal(h.services.world:getVar("VAR_AFTER"), 1)
+end
+
 -- 29. A common child's actor lock runs and releases before the parent's
 -- post-call continuation: the parent is still in flight at the handoff
 -- boundary and completes only after the child's task was consumed.
@@ -1527,6 +1550,8 @@ end
 -- Task implementations whose callbacks raise, pinning the task-callback fault
 -- boundary. Each carries the required version and validate fields; the
 -- fakes never reach validate.
+---@param callbacks table
+---@return TaskImplementation
 local function faultyTaskImpl(callbacks)
   callbacks.version = 1
   callbacks.validate = callbacks.validate or function()
@@ -1535,12 +1560,14 @@ local function faultyTaskImpl(callbacks)
   callbacks.create = callbacks.create or function(_, _)
     return {}
   end
-  return callbacks
+  return callbacks --[[@as TaskImplementation]]
 end
 
+---@param taskImpl TaskImplementation
+---@return SchedulerHarness
 local function faultyHarness(taskImpl)
   local h = harness()
-  h.taskRegistry:register("faulty", 1, taskImpl --[[@as TaskImplementation]])
+  h.taskRegistry:register("faulty", 1, taskImpl)
   return h
 end
 
@@ -1668,7 +1695,7 @@ T["createTask uses the registered task version"] = function()
     validate = function()
       return nil
     end,
-  })
+  } --[[@as TaskImplementation]])
   local instanceId = startForeground(
     h,
     script("test.versioned", {
@@ -1709,6 +1736,36 @@ T["later poll raise leaves earlier completions intact"] = function()
   Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_TASK_CALLBACK_FAULT")
   h.scheduler:step(102, nil)
   Assert.equal(h.services.world:getVar("VAR_EARLY"), 1, "the earlier task completed on time")
+end
+
+-- 43. `friend_sprite_value` resolves the opposite-gender sprite constant
+-- (pret/pokeheartgold src/scrcmd_c.c ScrCmd_GetFriendSprite): a male player
+-- gets the heroine friend sprite and a female player gets the hero friend
+-- sprite.
+T["friend sprite value resolves the opposite-gender sprite"] = function()
+  local h = harness({ player = { gender = 0 } })
+  startForeground(
+    h,
+    script("test.friendspritemale", {
+      S.setVar({ variable = "VAR_OBJ_0", value = S.friendSpriteValue() }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  Assert.equal(h.services.world:getVar("VAR_OBJ_0"), 97, "a male player's friend uses the heroine sprite")
+
+  local hFemale = harness({ player = { gender = 1 } })
+  startForeground(
+    hFemale,
+    script("test.friendspritefemale", {
+      S.setVar({ variable = "VAR_OBJ_0", value = S.friendSpriteValue() }),
+      S.stop(),
+    }),
+    100
+  )
+  hFemale.scheduler:step(100, nil)
+  Assert.equal(hFemale.services.world:getVar("VAR_OBJ_0"), 0, "a female player's friend uses the hero sprite")
 end
 
 return { tests = T }

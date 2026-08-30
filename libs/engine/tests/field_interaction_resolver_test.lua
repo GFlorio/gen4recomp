@@ -10,6 +10,10 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+---@diagnostic disable-next-line: missing-fields -- focused test double, not a real MapProps
+local EMPTY_MAP_PROPS = {}
+---@cast EMPTY_MAP_PROPS MapProps
+
 local function throwsCode(code, fn)
   local err = Assert.throws(fn)
   Assert.isTrue(Errors.is(err), "expected a structured error, got " .. tostring(err))
@@ -55,6 +59,7 @@ local function map(backgrounds)
       },
     }),
     terrainDependencyHash = "test-terrain",
+    mapProps = EMPTY_MAP_PROPS,
     fieldRegion = {},
     release = function() end,
     updateAnimated = function() end,

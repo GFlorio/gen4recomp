@@ -10,7 +10,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
-local FieldPlayerData = require("libs.engine.src.FieldPlayerData")
+local PlayerData = require("libs.engine.src.PlayerData")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 
@@ -46,16 +46,16 @@ function T.multibyte_player_name_validates_against_the_fixture_charmap()
   local def = FieldUiFixture.cardFontDefWithMultibyte()
   local context = { charmap = def.charmap, frameIndexes = { [0] = true } }
   local record = {
-    profile = { name = MULTIBYTE, gender = 0, trainerId = 0 },
+    profile = { name = MULTIBYTE, gender = 0, trainerId = 0, money = 3000 },
     options = { textFrame = 0, textSpeed = "mid" },
   }
-  local validated = assert(FieldPlayerData.validate(record, context))
+  local validated = assert(PlayerData.validate(record, context))
   Assert.equal(validated.profile.name, MULTIBYTE)
   local seven = {
-    profile = { name = string.rep(MULTIBYTE, 7), gender = 1, trainerId = 65535 },
+    profile = { name = string.rep(MULTIBYTE, 7), gender = 1, trainerId = 65535, money = 3000 },
     options = { textFrame = 0, textSpeed = "fast" },
   }
-  Assert.notNil(FieldPlayerData.validate(seven, context), "seven two-byte glyphs are seven glyphs, not fourteen bytes")
+  Assert.notNil(PlayerData.validate(seven, context), "seven two-byte glyphs are seven glyphs, not fourteen bytes")
 end
 
 -- The glyph run for the two-byte sequence in a drawn line is exactly one
@@ -79,9 +79,11 @@ end
 function T.control_tokens_draw_nothing_and_do_not_offset_the_following_glyph()
   local lg = fakeGraphics()
   local text = FieldTextRenderer.new({ cacheFs = fixtureCache(), graphics = lg })
-  local wait = { kind = "wait", control = 514, name = "WAIT", args = {}, raw = {} } --[[@as MessageToken]]
-  local glyph = { kind = "glyph", code = 1, text = "A", raw = { 1 } } --[[@as MessageToken]]
-  text:drawLine({ wait, glyph }, 10, 20)
+  local wait = { kind = "wait", control = 514, name = "WAIT", args = {} }
+  local glyph = { kind = "glyph", code = 1, text = "A", raw = { 1 } }
+  local tokens = { wait, glyph }
+  ---@cast tokens MessageToken[]
+  text:drawLine(tokens, 10, 20)
   local draws = lg.draws
   Assert.equal(#draws, 1, "the control token draws no marker text")
   Assert.equal(draws[1].x, 10, "WAIT occupies zero pixels; the glyph starts at the original x")

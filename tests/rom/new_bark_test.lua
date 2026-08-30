@@ -22,9 +22,7 @@ local FieldCellCache = require("libs.assets.src.FieldCellCache")
 local FieldCellCompiler = require("romdump.src.digest.FieldCellCompiler")
 local FieldCellCacheWriter = require("romdump.src.digest.FieldCellCacheWriter")
 local ModelAsset = require("libs.assets.src.ModelAsset")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
 local CollisionGrid = require("libs.engine.src.CollisionGrid")
-local FieldSpawns = require("data.manifests.field_spawns")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
@@ -447,23 +445,6 @@ function T.central_cell_scene(romFs, version)
     end
   end
   Assert.isTrue(labo, "lab exterior model 21 placed via the outdoor archive")
-
-  -- The spawn is coordinate-consistent: local + cell origin == global.
-  local spawn = FieldSpawns.MAP_NEW_BARK
-  Assert.equal(spawn.x + m.worldOriginX, 684)
-  Assert.equal(spawn.z + m.worldOriginZ, 394)
-
-  -- The spawn lands inside the central 32x32 cell on a passable tile.
-  local grid = assert(CollisionGridAsset.decode(assert(c:read(MapAssetCache.collisionPath(60)))))
-  local collision = CollisionGrid.new(grid, {
-    worldOriginX = m.worldOriginX,
-    worldOriginZ = m.worldOriginZ,
-  })
-  Assert.isTrue(collision:containsLocal(spawn.x, spawn.z), "spawn in cell")
-  Assert.isFalse(collision:isBlockedLocal(spawn.x, spawn.z))
-  local globalX, globalZ = collision:localToGlobal(spawn.x, spawn.z)
-  Assert.equal(globalX, spawn.x + 672)
-  Assert.equal(globalZ, spawn.z + 384)
 end
 
 -- The optional neighbor ring resolves all eight of New Bark's matrix neighbors

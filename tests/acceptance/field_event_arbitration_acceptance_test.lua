@@ -4,8 +4,11 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
+local FieldMovement = require("tests.acceptance.support.FieldMovement")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
+local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
+local ScriptIdentity = require("libs.assets.src.ScriptIdentity")
 
 local T = {
   metadata = {
@@ -21,7 +24,7 @@ local VAR_UNK_407C = FieldScriptSymbols.variablesByName.VAR_UNK_407C
 
 local function withGame(map, fn, fieldOptions)
   local game = AcceptanceHarness.new():boot({
-    versionId = AcceptanceHarness.defaultVersion(),
+    versionId = "heartgold",
     map = map,
     save = "fresh",
     fieldOptions = fieldOptions,
@@ -34,16 +37,6 @@ local function withGame(map, fn, fieldOptions)
   if not ok then
     error(err, 0)
   end
-end
-
-local function recordsNamed(game, name)
-  local records = {}
-  for _, record in ipairs(game:hostEvents().records) do
-    if record.name == name then
-      records[#records + 1] = record
-    end
-  end
-  return records
 end
 
 local function coordinateAt(game, fieldX, fieldZ)
@@ -67,9 +60,29 @@ local function setCoordinatePredicate(game, event, matching)
   })
 end
 
-local function clearTownLabEntranceActor(game)
-  game:setActorRemovalFlag("map:60:object:4")
-  game:step()
+-- The generated coordinate event's `scriptId` is the raw one-based source
+-- script index, not the composed identity the scheduler records under
+-- `script.started`. Reuse the exact production formatter
+-- (`Bindings.resolveIntent` -> `scriptIdFor`) instead of duplicating its
+-- bank/offset convention here.
+local function coordinateCanonicalScriptId(game, event)
+  local scriptBankId =
+    assert(game.runtime.runtimeMap.fieldData.scriptBankId, "generated map must declare its script bank id")
+  return ScriptIdentity.formatVanilla(scriptBankId, event.scriptId - 1)
+end
+
+function T.tests.default_town_spawn_is_passable_in_the_generated_collision()
+  withGame(TOWN, function(game)
+    local player = game:snapshot().player
+    local map = game.runtime.runtimeMap
+    local origin = assert(map.coordinateOrigin)
+    local localX, localZ = player.fieldX - origin.x, player.fieldZ - origin.z
+
+    Assert.deepEqual({ player.fieldX, player.fieldZ }, { 682, 394 })
+    Assert.isFalse(map.collision:isBlockedLocal(localX, localZ), "default town spawn must be passable")
+    Assert.isFalse(map.collision:isBlockedLocal(localX, localZ + 1), "default town spawn must have a south exit")
+    Assert.isFalse(map.collision:isBlockedLocal(localX + 1, localZ), "default town spawn must have an east exit")
+  end)
 end
 
 local function warpCellWithBehavior(game, behavior)
@@ -82,6 +95,36 @@ local function warpCellWithBehavior(game, behavior)
     end
   end
   return nil
+end
+
+function T.tests.literal_east_then_north_route_advances_each_production_move()
+  withGame(TOWN, function(game)
+    OpeningLifecycle.settleNewBarkFriendScene(game)
+    local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
+    setCoordinatePredicate(game, event, true)
+    local snapshots = FieldMovement.productionRoute(game, {
+      "east",
+      "east",
+      "east",
+      "east",
+      "east",
+      "east",
+      "north",
+      "north",
+    })
+
+    Assert.equal(#snapshots, 8)
+    for index = 1, 6 do
+      Assert.deepEqual(
+        { snapshots[index].player.fieldX, snapshots[index].player.fieldZ },
+        { 682 + index, 394 },
+        "east production move " .. tostring(index) .. " must advance"
+      )
+    end
+    Assert.deepEqual({ snapshots[7].player.fieldX, snapshots[7].player.fieldZ }, { 688, 393 })
+    Assert.deepEqual({ snapshots[8].player.fieldX, snapshots[8].player.fieldZ }, { 688, 392 })
+    Assert.equal(snapshots[8].mapSymbol, TOWN)
+  end)
 end
 
 local function backgroundCell(game, eventType)
@@ -103,12 +146,33 @@ local function backgroundCell(game, eventType)
   return selected
 end
 
+-- HGSS's arrival-warp suppression (WarpSystem.isSuppressed) still covers the
+-- tile the incoming coordinate warp placed the player on; a standing
+-- directional trigger on that exact tile needs the player to leave it once
+-- before it can retrigger -- the production boundary these east-exit
+-- scenarios actually require settled, not merely a wait.
+local function reachElmLabEastExit(game)
+  local cell = assert(
+    warpCellWithBehavior(game, MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST),
+    "Elm Lab 2F must expose its east exit"
+  )
+  game:moveTo(cell)
+  for _, direction in ipairs({ "south", "north", "west" }) do
+    local destination = game.runtime.player:resolveStep(direction)
+    if destination then
+      game:moveTo({ fieldX = destination.fieldX, fieldZ = destination.fieldZ })
+      game:moveTo(cell)
+      break
+    end
+  end
+  return cell
+end
+
 local function enterLab2F(game)
+  OpeningLifecycle.settleNewBarkFriendScene(game)
   local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
   setCoordinatePredicate(game, event, true)
-  clearTownLabEntranceActor(game)
-  game:moveTo({ fieldX = 688, fieldZ = 393 })
-  game:move("north")
+  FieldMovement.activate(game, { fieldX = event.x, fieldZ = event.z }, "north")
   local transition = game:waitForTransition()
   Assert.equal(transition.destination.mapSymbol, LAB_2F)
 end
@@ -116,17 +180,19 @@ end
 function T.tests.walking_onto_elm_lab_enters_the_second_floor_without_a_turn()
   withGame(TOWN, function(game)
     Assert.isNil(game.runtime.scriptHosts, "the automatic Elm route must use the production-like composition")
+    OpeningLifecycle.settleNewBarkFriendScene(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
     setCoordinatePredicate(game, event, true)
-    clearTownLabEntranceActor(game)
     game:moveTo({ fieldX = 688, fieldZ = 393 })
     local before = game:snapshot()
     Assert.deepEqual({ before.player.fieldX, before.player.fieldZ }, { 688, 393 })
 
     game:move("north")
-    local phases = {}
+    local screenFadeDirections = {}
     game:advanceUntil("Elm Lab automatic route completes", function(snapshot)
-      phases[snapshot.transition.phase] = true
+      if snapshot.screenFade and snapshot.screenFade.active then
+        screenFadeDirections[snapshot.screenFade.direction] = true
+      end
       return snapshot.mapSymbol == LAB_2F and snapshot.transition.phase == "idle" and not snapshot.fieldLocked
     end, 120)
     local destination = game:snapshot()
@@ -136,29 +202,48 @@ function T.tests.walking_onto_elm_lab_enters_the_second_floor_without_a_turn()
     Assert.isFalse(destination.fieldLocked, "the completed route must release script ownership")
     Assert.equal(game.runtime.scripts.worldState:getVar(VAR_UNK_407C), 1)
 
-    Assert.isTrue(phases.fade_out, "the route must use the field transition fade-out")
-    Assert.isTrue(phases.fade_in, "the route must use the field transition fade-in")
+    -- The Elm route is covered by the source-authored script screen fade, not
+    -- an ordinary FieldTransition fade pair (source `FadeScreen -> WaitFade ->
+    -- Warp -> FadeScreen -> WaitFade`).
+    Assert.isTrue(screenFadeDirections["out"], "the route must use the production script screen fade-out")
+    Assert.isTrue(screenFadeDirections["in"], "the route must use the production script screen fade-in")
+    Assert.isTrue(
+      destination.screenFade == nil or destination.screenFade.completed,
+      "the final script screen fade must be clear at the settled destination"
+    )
   end, { audioOutput = FakeAudioOutput.new() })
 end
 
 function T.tests.coordinate_priority_and_variable_gate_control_the_landing()
   withGame(TOWN, function(game)
+    OpeningLifecycle.settleNewBarkFriendScene(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
+    local coordinateScriptId = coordinateCanonicalScriptId(game, event)
     setCoordinatePredicate(game, event, true)
-    clearTownLabEntranceActor(game)
-    game:moveTo({ fieldX = 688, fieldZ = 392 })
-    local matching = recordsNamed(game, "script.started")
-    Assert.isTrue(#matching > 0)
-    Assert.equal(matching[#matching].payload.trigger.kind, "coordinate")
+    FieldMovement.activate(game, { fieldX = event.x, fieldZ = event.z }, "north")
+    local starts = game:recordsForScript(coordinateScriptId)
+    Assert.equal(#starts, 1, "the matching coordinate event must start its own canonical script exactly once")
+    Assert.equal(starts[1].payload.trigger.kind, "coordinate")
   end, { recordingScriptHosts = true })
 
+  -- The coordinate-mismatch scenario: settle New Bark's own startup lifecycle
+  -- first (the friend/Marill hide flags above, and any incidental init
+  -- script that fires while stepping across the landing), then assert only
+  -- that the coordinate event's own canonical script never starts. An
+  -- unrelated ambient/background script sharing the same tile approach must
+  -- not be mistaken for the coordinate trigger under test.
   withGame(TOWN, function(game)
+    OpeningLifecycle.settleNewBarkFriendScene(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
+    local coordinateScriptId = coordinateCanonicalScriptId(game, event)
     setCoordinatePredicate(game, event, false)
-    clearTownLabEntranceActor(game)
-    game:moveTo({ fieldX = 688, fieldZ = 393 })
-    game:move("north")
-    Assert.equal(#recordsNamed(game, "script.started"), 0, "a mismatched coordinate variable must skip the script")
+    local baseline = #game:recordsForScript(coordinateScriptId)
+    FieldMovement.activate(game, { fieldX = event.x, fieldZ = event.z }, "north")
+    Assert.equal(
+      #game:recordsForScript(coordinateScriptId),
+      baseline,
+      "a mismatched coordinate variable must skip the coordinate event's own script"
+    )
     Assert.equal(game:snapshot().mapSymbol, TOWN)
   end, { recordingScriptHosts = true })
 end
@@ -166,11 +251,7 @@ end
 function T.tests.elm_lab_second_floor_exits_east_through_production_input()
   withGame(TOWN, function(game)
     enterLab2F(game)
-    local cell = assert(
-      warpCellWithBehavior(game, MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST),
-      "Elm Lab 2F must expose its east exit"
-    )
-    game:moveTo(cell)
+    reachElmLabEastExit(game)
     game:step({ direction = "east" })
     Assert.isFalse(game:snapshot().transition.phase == "idle", "the east exit must start from production input")
   end, { recordingScriptHosts = true })
@@ -179,11 +260,7 @@ end
 function T.tests.elm_lab_second_floor_exit_uses_the_standing_directional_trigger()
   withGame(TOWN, function(game)
     enterLab2F(game)
-    local cell = assert(
-      warpCellWithBehavior(game, MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_EAST),
-      "Elm Lab 2F must expose its east exit"
-    )
-    game:moveTo(cell)
+    reachElmLabEastExit(game)
     game:step({ direction = "east" })
     Assert.isFalse(game:snapshot().transition.phase == "idle")
   end, { audioOutput = FakeAudioOutput.new() })
@@ -258,12 +335,12 @@ function T.tests.mid_step_direction_edge_cannot_start_passive_sign()
     game:step({ direction = "south" })
     local walking = game:snapshot()
     Assert.equal(walking.player.motion, "walking", "the arbitration setup must enter a real movement step")
-    local before = #recordsNamed(game, "script.started")
+    local before = #game:recordsNamed("script.started")
     local establishedFacing = walking.player.facing
 
     game:step({ direction = "north" })
 
-    Assert.equal(#recordsNamed(game, "script.started"), before, "a fresh direction edge must not probe while walking")
+    Assert.equal(#game:recordsNamed("script.started"), before, "a fresh direction edge must not probe while walking")
     Assert.equal(game:snapshot().player.facing, establishedFacing, "the mid-step probe must not change facing")
   end, { recordingScriptHosts = true })
 end

@@ -32,7 +32,7 @@ FieldUiCompiler.ERROR = {
 
 ---@generic T
 ---@param value T?
----@param err any?
+---@param err unknown?
 ---@return T
 local function must(value, err)
   if value == nil then
@@ -67,55 +67,6 @@ local function decodeMember(archive, memberId, label)
   return bytes
 end
 
----@param rgba integer[]
----@param atlasWidth integer
----@param destX integer
----@param destY integer
----@param colors { r: integer, g: integer, b: integer }[]
----@param palBase integer
----@param paletteIndex integer
----@param flipH boolean
----@param flipV boolean
----@param x integer
----@param y integer
----@param value integer
----@param source Errors.Context
-local function putTilePixel(
-  rgba,
-  atlasWidth,
-  destX,
-  destY,
-  colors,
-  palBase,
-  paletteIndex,
-  flipH,
-  flipV,
-  x,
-  y,
-  value,
-  source
-)
-  if value == 0 then
-    return
-  end
-  local color = colors[palBase + value + 1]
-  if not color then
-    Errors.raise(
-      FieldUiCompiler.ERROR.SOURCE_INVALID,
-      "pixel references a palette entry the decoded palette cannot cover",
-      { value = value, palette = paletteIndex, available = #colors, source = source }
-    )
-  end
-  if flipH then
-    x = 7 - x
-  end
-  if flipV then
-    y = 7 - y
-  end
-  local px = ((destY + y) * atlasWidth + destX + x) * 4
-  rgba[px + 1], rgba[px + 2], rgba[px + 3], rgba[px + 4] = color.r, color.g, color.b, 255
-end
-
 -- Blit one tile's pixels into an RGBA buffer. 4bpp tiles hold two pixel
 -- values per byte (low nibble first); 8bpp tiles hold one. Pixel value 0 is
 -- the reserved transparency slot: the HGSS UI palettes fill it with a pink
@@ -126,17 +77,6 @@ end
 -- cannot cover, is malformed source, never silent transparency.
 -- `source` names the asset/member/cell/obj that produced the reference for
 -- the typed error context.
----@param rgba integer[]
----@param atlasWidth integer
----@param destX integer
----@param destY integer
----@param charData FieldUiCompiler.CharData
----@param tileIndex integer
----@param palIndex integer
----@param colors { r: integer, g: integer, b: integer }[]
----@param flipH boolean
----@param flipV boolean
----@param source Errors.Context
 local function blitTile(rgba, atlasWidth, destX, destY, charData, tileIndex, palIndex, colors, flipH, flipV, source)
   local depth = charData.depth
   local tileBytes = depth == 3 and 32 or 64
@@ -149,61 +89,40 @@ local function blitTile(rgba, atlasWidth, destX, destY, charData, tileIndex, pal
     )
   end
   local palBase = depth == 3 and palIndex * 16 or palIndex * 256
+  local function put(x, y, v)
+    if v == 0 then
+      return
+    end
+    local c = colors[palBase + v + 1]
+    if not c then
+      Errors.raise(
+        FieldUiCompiler.ERROR.SOURCE_INVALID,
+        "pixel references a palette entry the decoded palette cannot cover",
+        { value = v, palette = palIndex, available = #colors, source = source }
+      )
+    end
+    if flipH then
+      x = 7 - x
+    end
+    if flipV then
+      y = 7 - y
+    end
+    local px = ((destY + y) * atlasWidth + destX + x) * 4
+    rgba[px + 1], rgba[px + 2], rgba[px + 3], rgba[px + 4] = c.r, c.g, c.b, 255
+  end
   local base = tileIndex * tileBytes
   if depth == 3 then
     for y = 0, 7 do
       for x = 0, 3 do
         local byte = string.byte(charData.tiles, base + y * 4 + x + 1)
-        putTilePixel(
-          rgba,
-          atlasWidth,
-          destX,
-          destY,
-          colors,
-          palBase,
-          palIndex,
-          flipH,
-          flipV,
-          x * 2,
-          y,
-          byte % 16,
-          source
-        )
-        putTilePixel(
-          rgba,
-          atlasWidth,
-          destX,
-          destY,
-          colors,
-          palBase,
-          palIndex,
-          flipH,
-          flipV,
-          x * 2 + 1,
-          y,
-          math.floor(byte / 16),
-          source
-        )
+        put(x * 2, y, byte % 16)
+        put(x * 2 + 1, y, math.floor(byte / 16))
       end
     end
   else
     for y = 0, 7 do
       for x = 0, 7 do
-        putTilePixel(
-          rgba,
-          atlasWidth,
-          destX,
-          destY,
-          colors,
-          palBase,
-          palIndex,
-          flipH,
-          flipV,
-          x,
-          y,
-          string.byte(charData.tiles, base + y * 8 + x + 1),
-          source
-        )
+        put(x, y, string.byte(charData.tiles, base + y * 8 + x + 1))
       end
     end
   end
@@ -217,12 +136,32 @@ local function newRgba(width, height)
   return rgba
 end
 
+-- Compose the 16x16 continuation surface exactly as the source window code
+-- does: the cursor member supplies the phase payload, while frame tiles 10
+-- and 11 provide the backing that surrounds that payload.
+local function composeCursorPhase(rgba, atlasWidth, destX, destY, frameChar, framePalette, cursorChar, phase, source)
+  for row = 0, 1 do
+    blitTile(rgba, atlasWidth, destX, destY + row * 8, frameChar, 10, 0, framePalette, false, false, source)
+    blitTile(rgba, atlasWidth, destX + 8, destY + row * 8, frameChar, 11, 0, framePalette, false, false, source)
+  end
+  for tile = 0, 3 do
+    blitTile(
+      rgba,
+      atlasWidth,
+      destX + (tile % 2) * 8,
+      destY + math.floor(tile / 2) * 8,
+      cursorChar,
+      phase * 4 + tile,
+      0,
+      framePalette,
+      false,
+      false,
+      source
+    )
+  end
+end
+
 -- Render a screen (BG tilemap with flips) into a PNG.
----@param charData FieldUiCompiler.CharData
----@param palette { r: integer, g: integer, b: integer }[]
----@param screen FieldUiCompiler.ScreenData
----@param source Errors.Context
----@return string
 local function renderScreen(charData, palette, screen, source)
   local width = screen.width
   local height = screen.height
@@ -275,14 +214,6 @@ end
 -- tiles out row-major from the base tile. A flipped OBJ mirrors the whole
 -- object per the OAM layout: the tile grid order is mirrored as well, and
 -- each tile is flipped in place by blitTile.
----@param rgba integer[]
----@param atlasWidth integer
----@param row table
----@param obj table
----@param charData FieldUiCompiler.CharData
----@param palette { r: integer, g: integer, b: integer }[]
----@param source Errors.Context
----@return nil
 local function blitObj(rgba, atlasWidth, row, obj, charData, palette, source)
   if obj.shape ~= 0 or (obj.size ~= 0 and obj.size ~= 2) then
     Errors.raise(
@@ -323,84 +254,19 @@ local function loadArchive(romFs, alias)
   return archive, must(romFs:read(info.fileId), "missing archive bytes " .. alias)
 end
 
----@param archive Narc
----@param memberBytes table<integer, string>
----@param kind string
----@param memberId integer
----@param label string
----@return string|FieldUiCompiler.CharData|FieldUiCompiler.PaletteData|FieldUiCompiler.ScreenData|FieldUiCompiler.CellData|FieldUiCompiler.AnimationData
-local function decodeStartMenuMember(archive, memberBytes, kind, memberId, label)
-  memberBytes[memberId] = decodeMember(archive, memberId, label)
-  local decoded, err = G2dDecoder[kind](memberBytes[memberId], {
-    label = manifestConfig.startMenu.alias .. ":" .. memberId,
-  })
-  return must(decoded, err)
-end
-
----@param frameCount integer
----@return table
-local function buildCursorStyles(frameCount)
-  local styles = {}
-  for style = 0, frameCount - 1 do
-    styles[style] = { phases = {} }
-    for phase = 0, 2 do
-      styles[style].phases[phase] = { x = phase * 16, y = style * 16, width = 16, height = 16 }
-    end
-  end
-  return styles
-end
-
----@param colors { r: integer, g: integer, b: integer }[]
----@param sourceType integer
----@return table<integer, { r: integer, g: integer, b: integer }>
-local function signPaletteBank(colors, sourceType)
-  local base = sourceType * 16
-  local bank = {}
-  for slot = 0, 15 do
-    local color = colors[base + slot + 1]
-    if not color then
-      Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "signpost palette does not contain the source type bank", {
-        sourceType = sourceType,
-        slot = slot,
-        requiredColorIndex = base + slot,
-        availableColors = #colors,
-      })
-    end
-    bank[slot] = { r = color.r, g = color.g, b = color.b }
-  end
-  return bank
-end
-
----@param bank table<integer, { r: integer, g: integer, b: integer }>
----@return { r: integer, g: integer, b: integer }[]
-local function paletteAsOneBasedArray(bank)
-  local array = {}
-  for slot = 0, 15 do
-    array[slot + 1] = bank[slot]
-  end
-  return array
-end
-
 local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
   local archive, archiveBytes = loadArchive(romFs, manifestConfig.startMenu.alias)
   local cfg = manifestConfig.startMenu
   local memberBytes = {}
-  local charData =
-    decodeStartMenuMember(archive, memberBytes, "decodeChar", cfg.backgroundCharMember, "start menu background char") --[[@as FieldUiCompiler.CharData]]
-  local screen = decodeStartMenuMember(
-    archive,
-    memberBytes,
-    "decodeScreen",
-    cfg.backgroundScreenMember,
-    "start menu background screen"
-  ) --[[@as FieldUiCompiler.ScreenData]]
-  local pal = decodeStartMenuMember(
-    archive,
-    memberBytes,
-    "decodePalette",
-    cfg.backgroundPaletteMember,
-    "start menu background palette"
-  ) --[[@as FieldUiCompiler.PaletteData]]
+  local function g2d(kind, memberId, label)
+    memberBytes[memberId] = decodeMember(archive, memberId, label)
+    local decoded, err =
+      G2dDecoder[kind](memberBytes[memberId], { label = manifestConfig.startMenu.alias .. ":" .. memberId })
+    return must(decoded, err)
+  end
+  local charData = g2d("decodeChar", cfg.backgroundCharMember, "start menu background char") --[[@as FieldUiCompiler.CharData]]
+  local screen = g2d("decodeScreen", cfg.backgroundScreenMember, "start menu background screen") --[[@as FieldUiCompiler.ScreenData]]
+  local pal = g2d("decodePalette", cfg.backgroundPaletteMember, "start menu background palette") --[[@as FieldUiCompiler.PaletteData]]
   local backgroundPath = FieldUiAssetCache.assetDir() .. "/start-menu.png"
   assets[backgroundPath] = renderScreen(charData, pal.colors, screen, {
     asset = "start menu background",
@@ -412,14 +278,10 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
     height = screen.height,
   }
 
-  local cursorChar =
-    decodeStartMenuMember(archive, memberBytes, "decodeChar", cfg.cursorCharMember, "start menu cursor char") --[[@as FieldUiCompiler.CharData]]
-  local cursorPal =
-    decodeStartMenuMember(archive, memberBytes, "decodePalette", cfg.cursorPaletteMember, "start menu cursor palette") --[[@as FieldUiCompiler.PaletteData]]
-  local cursorCell =
-    decodeStartMenuMember(archive, memberBytes, "decodeCell", cfg.cursorCellMember, "start menu cursor cell") --[[@as FieldUiCompiler.CellData]]
-  local cursorAnim =
-    decodeStartMenuMember(archive, memberBytes, "decodeAnimation", cfg.cursorAnimMember, "start menu cursor animation") --[[@as FieldUiCompiler.AnimationData]]
+  local cursorChar = g2d("decodeChar", cfg.cursorCharMember, "start menu cursor char") --[[@as FieldUiCompiler.CharData]]
+  local cursorPal = g2d("decodePalette", cfg.cursorPaletteMember, "start menu cursor palette") --[[@as FieldUiCompiler.PaletteData]]
+  local cursorCell = g2d("decodeCell", cfg.cursorCellMember, "start menu cursor cell") --[[@as FieldUiCompiler.CellData]]
+  local cursorAnim = g2d("decodeAnimation", cfg.cursorAnimMember, "start menu cursor animation") --[[@as FieldUiCompiler.AnimationData]]
   local anim = cursorAnim.anims[1]
   -- Stack every distinct cell the animation references; each frame points at
   -- its cell's row so a multi-cell cursor animates rather than repeating the
@@ -497,6 +359,15 @@ local function compileStartMenu(romFs, sha1hex, deps, assets, manifestAssets)
       [9] = { x = 0, y = 152, width = 128, height = 38 },
       [10] = { x = 128, y = 152, width = 128, height = 38 },
     },
+    actionSurfaces = {
+      ["vanilla.pokedex"] = { x = 0, y = 0, width = 128, height = 38 },
+      ["vanilla.pokemon"] = { x = 128, y = 0, width = 128, height = 38 },
+      ["vanilla.bag"] = { x = 0, y = 38, width = 128, height = 38 },
+      ["vanilla.pokegear"] = { x = 128, y = 38, width = 128, height = 38 },
+      ["vanilla.trainer_card"] = { x = 0, y = 76, width = 128, height = 38 },
+      ["vanilla.save"] = { x = 128, y = 76, width = 128, height = 38 },
+      ["vanilla.options"] = { x = 0, y = 114, width = 128, height = 38 },
+    },
   }
 end
 
@@ -523,8 +394,8 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
     local framePalBytes = decodeMember(archive, cfg.firstPaletteMember + frame, "frame " .. frame .. " palette")
     local frameChar, charErr = G2dDecoder.decodeChar(frameCharBytes, { label = "frame " .. frame .. " char" })
     local framePal, palErr = G2dDecoder.decodePalette(framePalBytes, { label = "frame " .. frame .. " palette" })
-    frameChar = must(frameChar, charErr) --[[@as FieldUiCompiler.CharData]]
-    framePal = must(framePal, palErr) --[[@as FieldUiCompiler.PaletteData]]
+    frameChar = must(frameChar, charErr)
+    framePal = must(framePal, palErr)
     local tiles = math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64))
     if tiles ~= FieldUiAssetCache.GEOMETRY.FRAME_TILES then
       Errors.raise(
@@ -544,21 +415,17 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
       })
     end
     for phase = 0, 2 do
-      for tile = 0, 3 do
-        blitTile(
-          cursorRgba,
-          cursorWidth,
-          phase * 16 + (tile % 2) * 8,
-          frame * 16 + math.floor(tile / 2) * 8,
-          cursorChar,
-          phase * 4 + tile,
-          0,
-          framePal.colors,
-          false,
-          false,
-          { asset = "dialogue continuation cursor", member = cfg.continueCursorMember, frame = frame, phase = phase }
-        )
-      end
+      composeCursorPhase(
+        cursorRgba,
+        cursorWidth,
+        phase * 16,
+        frame * 16,
+        frameChar,
+        framePal.colors,
+        cursorChar,
+        phase,
+        { asset = "dialogue continuation cursor", member = cfg.continueCursorMember, frame = frame, phase = phase }
+      )
     end
     frameTiles[frame] = { x = 0, y = frame * 8, width = atlasWidth, height = 8 }
     deps[#deps + 1] = {
@@ -590,7 +457,16 @@ local function compileDialogueFrames(romFs, sha1hex, deps, assets, manifestAsset
       cycle = { 0, 1, 2, 1 },
       framePrinterTicks = 9,
       placement = { x = 240, y = 168, width = 16, height = 16 },
-      styles = buildCursorStyles(cfg.frameCount),
+      styles = (function()
+        local styles = {}
+        for style = 0, cfg.frameCount - 1 do
+          styles[style] = { phases = {} }
+          for phase = 0, 2 do
+            styles[style].phases[phase] = { x = phase * 16, y = style * 16, width = 16, height = 16 }
+          end
+        end
+        return styles
+      end)(),
     },
   }
 end
@@ -602,8 +478,8 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   local framePalBytes = decodeMember(archive, cfg.paletteMember, "signpost frame palette")
   local frameChar, charErr = G2dDecoder.decodeChar(frameCharBytes, { label = "signpost frame char" })
   local framePal, palErr = G2dDecoder.decodePalette(framePalBytes, { label = "signpost frame palette" })
-  frameChar = must(frameChar, charErr) --[[@as FieldUiCompiler.CharData]]
-  framePal = must(framePal, palErr) --[[@as FieldUiCompiler.PaletteData]]
+  frameChar = must(frameChar, charErr)
+  framePal = must(framePal, palErr)
   local frameTiles = math.floor(#frameChar.tiles / (frameChar.depth == 3 and 32 or 64))
   if frameTiles ~= FieldUiAssetCache.GEOMETRY.FRAME_TILES then
     Errors.raise(
@@ -614,6 +490,43 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
         tiles = frameTiles,
       }
     )
+  end
+
+  -- v5: extract per-source-type 16-color palette banks from the palette member.
+  local function signPaletteBank(colors, sourceType)
+    local base = sourceType * 16
+    local bank = {}
+
+    for slot = 0, 15 do
+      local color = colors[base + slot + 1]
+      if not color then
+        Errors.raise(FieldUiCompiler.ERROR.SOURCE_INVALID, "signpost palette does not contain the source type bank", {
+          sourceType = sourceType,
+          slot = slot,
+          requiredColorIndex = base + slot,
+          availableColors = #colors,
+        })
+      end
+
+      bank[slot] = {
+        r = color.r,
+        g = color.g,
+        b = color.b,
+      }
+    end
+
+    return bank
+  end
+
+  -- blitTile's palette argument is a 1-based array; the generated manifest
+  -- keeps the clear zero-based slot map, so callers convert at the point of
+  -- use.
+  local function paletteAsOneBasedArray(bank)
+    local array = {}
+    for slot = 0, 15 do
+      array[slot + 1] = bank[slot]
+    end
+    return array
   end
 
   -- v5: render one frame strip row per source type using its own palette.
@@ -677,7 +590,7 @@ local function compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
       local key = sourceType .. "." .. map
       local wfBytes = decodeMember(archive, member, "wayfinding " .. key)
       local wfChar, wfErr = G2dDecoder.decodeChar(wfBytes, { label = "wayfinding " .. key })
-      wfChar = must(wfChar, wfErr) --[[@as FieldUiCompiler.CharData]]
+      wfChar = must(wfChar, wfErr)
       local tiles = math.floor(#wfChar.tiles / (wfChar.depth == 3 and 32 or 64))
       if tiles ~= FieldUiAssetCache.GEOMETRY.WAYFINDING_TILES then
         Errors.raise(
@@ -770,13 +683,13 @@ local function compileTrainerCard(romFs, sha1hex, deps, assets, manifestAssets)
   local cfg = manifestConfig.trainerCard
   local charBytes = decodeMember(archive, cfg.frontCharMember, "card char")
   local charData, charErr = G2dDecoder.decodeChar(charBytes, { label = "card char" })
-  charData = must(charData, charErr) --[[@as FieldUiCompiler.CharData]]
+  charData = must(charData, charErr)
   local screenBytes = decodeMember(archive, cfg.frontScreenMember, "card screen")
   local screen, screenErr = G2dDecoder.decodeScreen(screenBytes, { label = "card screen" })
-  screen = must(screen, screenErr) --[[@as FieldUiCompiler.ScreenData]]
+  screen = must(screen, screenErr)
   local palBytes = decodeMember(archive, cfg.frontPaletteMember, "card palette")
   local pal, palErr = G2dDecoder.decodePalette(palBytes, { label = "card palette" })
-  pal = must(pal, palErr) --[[@as FieldUiCompiler.PaletteData]]
+  pal = must(pal, palErr)
   local path = FieldUiAssetCache.assetDir() .. "/trainer-card.png"
   assets[path] = renderScreen(charData, pal.colors, screen, {
     asset = "trainer card front",
@@ -792,7 +705,7 @@ end
 
 local function compileAll(romFs, sha1hex, hashLua)
   local assets = {}
-  local manifestAssets = {} ---@type table<string, FieldUiAssetCache.Asset>
+  local manifestAssets = {}
   local deps = {
     { name = "assetContract", sha1 = FieldUiAssetCache.FORMAT .. ":" .. FieldUiAssetCache.SCHEMA },
   }
@@ -801,10 +714,9 @@ local function compileAll(romFs, sha1hex, hashLua)
   local signposts = compileSignposts(romFs, sha1hex, deps, assets, manifestAssets)
   local trainerCard = compileTrainerCard(romFs, sha1hex, deps, assets, manifestAssets)
 
-  ---@type FieldUiAssetCache.Manifest
   local manifest = {
     schema = FieldUiAssetCache.SCHEMA,
-    reference = { x = 0, y = 0, width = 256, height = 192 },
+    reference = { width = 256, height = 192 },
     assets = manifestAssets,
     dialogueFrames = dialogueFrames,
     signposts = signposts,

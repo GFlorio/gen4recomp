@@ -7,6 +7,7 @@ local FieldZoom = require("libs.engine.src.FieldZoom")
 local FieldPresentation = require("data.manifests.field_presentation")
 local FieldState = require("game.src.game.FieldState")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
+local FieldUiFixture = require("tests.support.FieldUiFixture")
 
 local T = {}
 
@@ -32,6 +33,10 @@ local function drawState(topologyProvider, pollTopology)
         return 0
       end,
     },
+    destinationWorldPresentable = function()
+      return true
+    end,
+    acknowledgeDestinationPresentation = function() end,
     runtimeMap = { sceneRuntime = {} },
     camera = { zoom = 1 },
     viewport = {
@@ -137,7 +142,7 @@ function T.missed_resize_is_reconciled_before_renderer_and_restored_once()
   ok, err = pcall(function()
     state:draw()
   end)
-  rawset(love.graphics, "getDimensions", originalGetDimensions)
+  love.graphics.getDimensions = originalGetDimensions
   Assert.isTrue(ok, "missed restore resize should be repaired: " .. tostring(err))
   Assert.equal(runtime.resizeCalls, 2)
   Assert.equal(runtime.lastResize[1], 800)
@@ -236,6 +241,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
   local state = setmetatable({
     runtime = {
       viewport = viewport,
+      uiManifest = FieldUiFixture.manifest(),
       camera = camera,
       runtimeMap = fakeRuntimeMap,
       player = { fieldX = 0, fieldZ = 0, worldY = 0, surfaceId = 0, facing = "south", motion = "idle" },
@@ -264,6 +270,10 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
           return 0
         end,
       },
+      destinationWorldPresentable = function()
+        return true
+      end,
+      acknowledgeDestinationPresentation = function() end,
       applicationHost = {
         status = function()
           return { fadeAlpha = 0 }
@@ -279,7 +289,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
       resizePresentation = function() end,
     },
     topologyProvider = function()
-      return require("libs.engine.src.ScreenTopology").oneDisplay({
+      return ScreenTopology.oneDisplay({
         id = "main",
         rect = { x = 0, y = 0, width = 1280, height = 600 },
         touch = false,
@@ -346,7 +356,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
     state:draw()
   end)
   FieldDrawState.protectedDraw = savedProtected
-  rawset(love.graphics, "getDimensions", oldGetDimensions)
+  love.graphics.getDimensions = oldGetDimensions
   Assert.isTrue(ok, "FieldState draw should not throw: " .. tostring(err))
   Assert.notNil(
     gotDialogue,

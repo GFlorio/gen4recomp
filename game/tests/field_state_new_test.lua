@@ -15,6 +15,7 @@ local FieldUiFixture = require("tests.support.FieldUiFixture")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
+local GameSaveValidation = require("game.src.game.GameSaveValidation")
 
 local T = {}
 
@@ -40,16 +41,24 @@ end
 ---@param options FieldStateOptions
 ---@param cache CacheFs? the presentation cache the stubbed runtime serves
 ---@return FieldState state
----@return table runtimeOptions
+---@return table captured
+---@return table game
 local function bootWithCapturedRuntimeOptions(options, cache)
   local captured
   local originalNew = FieldRuntime.new
-  FieldRuntime.new = function(_, _, runtimeOptions)
-    captured = runtimeOptions
+  FieldRuntime.new = function(game, runtimeOptions)
+    captured = { game = game, options = runtimeOptions }
     return setmetatable({
       cacheFs = cache or presentationCache(),
       uiManifest = FieldUiFixture.manifest(),
       fieldEntranceIndicatorAsset = { model = { batches = {}, materials = {} } },
+      fieldEmoteModels = {
+        exclamation = {
+          schema = "g4-field-emote-v1",
+          anchorOffset = { x = 0, y = 2, z = 0.0625 },
+          model = { batches = {}, materials = {} },
+        },
+      },
       windowStyles = {
         resolve = function() end,
       },
@@ -69,12 +78,13 @@ local function bootWithCapturedRuntimeOptions(options, cache)
       dispose = function() end,
     }, FieldRuntime)
   end
-  local ok, state = pcall(FieldState.new, "heartgold", nil, options)
+  local game = { saveId = "save-00000001", versionId = "heartgold" }
+  local ok, state = pcall(FieldState.new, game, options)
   FieldRuntime.new = originalNew
   if not ok then
     error(state, 0)
   end
-  return state, captured
+  return state, captured, game
 end
 
 -- The composition: FieldState constructs the signpost, Start Menu, and
@@ -100,17 +110,21 @@ end
 -- developer binds), so it stays behind the boundary.
 function T.only_documented_runtime_options_reach_the_runtime()
   local options = fieldStateOptions()
-  options.resumeSave = true
-  options.resetSave = false
+  local saveValidation = GameSaveValidation.new({
+    contextLoader = function()
+      return {}
+    end,
+  })
+  options.saveValidation = saveValidation
   options.zoomConfig = { mode = "test" }
   options.development = true
-  local state, captured = bootWithCapturedRuntimeOptions(options)
-  Assert.deepEqual(captured, {
-    resumeSave = true,
-    resetSave = false,
+  local state, captured, game = bootWithCapturedRuntimeOptions(options)
+  Assert.deepEqual(captured.options, {
     zoomConfig = { mode = "test" },
     presentation = true,
+    saveValidation = saveValidation,
   })
+  Assert.equal(captured.game, game)
   Assert.equal(state.development, true, "the state keeps the development flag for its own presentation")
   state:dispose()
 end

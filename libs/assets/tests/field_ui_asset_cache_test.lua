@@ -11,122 +11,29 @@ local FakeCache = require("tests.support.FakeCache")
 
 local T = {}
 
----@param manifest FieldUiTest.Manifest
----@return FieldUiTest.DialogueFrames
-local function getDialogueFrames(manifest)
-  return manifest.dialogueFrames
-end
-
----@param manifest FieldUiTest.Manifest
----@return FieldUiTest.Signposts
-local function getSignposts(manifest)
-  return manifest.signposts
-end
-
----@param manifest FieldUiTest.Manifest
----@return FieldUiTest.StartMenu
-local function getStartMenu(manifest)
-  return manifest.startMenu
-end
-
----@param signposts FieldUiTest.Signposts
----@param sourceType integer
----@return FieldUiTest.SignpostType
-local function getSignpostType(signposts, sourceType)
-  return signposts.types[sourceType]
-end
-
----@param typeEntry FieldUiTest.SignpostType
----@return table<integer, FieldUiTest.Rect>
-local function getWayfinding(typeEntry)
-  return assert(typeEntry.wayfinding)
-end
-
----@class FieldUiTest.Manifest : FieldUiAssetCache.Manifest
----@field schema string
----@field reference table
----@field assets table<string, FieldUiAssetCache.Asset>
----@field dialogueFrames FieldUiTest.DialogueFrames
----@field signposts FieldUiTest.Signposts
----@field startMenu FieldUiTest.StartMenu
----@field trainerCard table
----@field [string] table
-
----@class FieldUiTest.Rect
----@field x number
----@field y number
----@field width number
----@field height number
----@field [string] number
-
----@class FieldUiTest.Palette
----@field r number
----@field g number
----@field b number
-
----@class FieldUiTest.TextColors
----@field foreground number
----@field shadow number
----@field background number
-
----@class FieldUiTest.Cursor
----@field frames table[]
----@field [string] table|number|string|nil
-
----@class FieldUiTest.StartMenu
----@field background FieldUiTest.Rect
----@field cursor FieldUiTest.Cursor
----@field slots table<integer, FieldUiTest.Rect>
-
----@class FieldUiTest.SignpostType
----@field sourceType number|string
----@field palette table<integer, FieldUiTest.Palette>
----@field frameTiles FieldUiTest.Rect
----@field wayfinding table<integer, FieldUiTest.Rect>?
-
----@class FieldUiTest.Signposts
----@field textColors FieldUiTest.TextColors
----@field types table<integer, FieldUiTest.SignpostType>
-
----@class FieldUiTest.Style
----@field phases table<integer, FieldUiTest.Rect>
-
----@class FieldUiTest.ContinueCursor
----@field asset string
----@field cycle number[]
----@field framePrinterTicks number
----@field placement FieldUiTest.Rect
----@field styles table<integer, FieldUiTest.Style>
-
----@class FieldUiTest.DialogueFrames
----@field count number
----@field frameTiles table<integer, FieldUiTest.Rect>
----@field continueCursor FieldUiTest.ContinueCursor
-
 -- A valid manifest models the audited HGSS geometry: every dialogue frame
 -- strip and the signpost frame are 18 tiles (144x8), every wayfinding
 -- surface is 24 tiles precomposed as a 48x32 final rect. v6 schema
 -- includes per-type signpost palettes and per-type frame geometry.
----@return FieldUiTest.Manifest
 local function validManifest()
-  local frameTiles = {} ---@type table<integer, table>
+  local frameTiles = {}
   for frame = 0, 19 do
     frameTiles[frame] = { x = 0, y = 0, width = 144, height = 8 }
   end
-  local slots = {} ---@type table<integer, table>
+  local slots = {}
   for id = 1, 10 do
     slots[id] = { x = (id % 2 == 1 and 0 or 128), y = math.floor((id - 1) / 2) * 38, width = 128, height = 38 }
   end
 
   local function validPalette()
-    local palette = {} ---@type table<integer, FieldUiTest.Palette>
+    local palette = {}
     for slot = 0, 15 do
       palette[slot] = { r = slot * 16, g = slot * 16, b = slot * 16 }
     end
     return palette
   end
 
-  local manifest = {
+  return {
     schema = FieldUiAssetCache.SCHEMA,
     reference = { width = 256, height = 192 },
     assets = {
@@ -163,7 +70,7 @@ local function validManifest()
         framePrinterTicks = 9,
         placement = { x = 240, y = 168, width = 16, height = 16 },
         styles = (function()
-          local styles = {} ---@type table<integer, FieldUiTest.Style>
+          local styles = {}
           for style = 0, 19 do
             styles[style] = {
               phases = {
@@ -200,20 +107,21 @@ local function validManifest()
       background = { x = 0, y = 0, width = 256, height = 192 },
       cursor = { frames = { { x = 0, y = 0, width = 32, height = 32, duration = 3 } } },
       slots = slots,
+      actionSurfaces = {
+        ["vanilla.trainer_card"] = slots[6],
+        ["vanilla.save"] = slots[7],
+        ["vanilla.options"] = slots[8],
+      },
     },
     trainerCard = { front = { x = 0, y = 0, width = 256, height = 192 } },
-  } ---@cast manifest FieldUiTest.Manifest
-  return manifest
+  }
 end
 
----@param manifest FieldUiTest.Manifest?
----@return table
 local function publishedCache(manifest)
-  local currentManifest = manifest or validManifest()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:writeLua(FieldUiAssetCache.manifestPath(), currentManifest)
+  cache:writeLua(FieldUiAssetCache.manifestPath(), manifest or validManifest())
   cache:write(FieldUiAssetCache.markerPath(), FieldUiAssetCache.marker("rom-sha", "dep-hash"))
-  for _, entry in pairs(currentManifest.assets) do
+  for _, entry in pairs((manifest or validManifest()).assets) do
     cache:write(entry.image, "png")
   end
   return cache
@@ -242,16 +150,12 @@ function T.ready_requires_marker_manifest_and_every_indexed_file()
   )
 end
 
----@param mutate fun(manifest: FieldUiTest.Manifest)
----@param code string
----@return nil
 local function reject(mutate, code)
   local manifest = validManifest()
   mutate(manifest)
   local ok, err = FieldUiAssetCache.validateManifest(manifest)
   Assert.isFalse(ok)
-  local errorValue = assert(err)
-  Assert.equal(errorValue.code, code)
+  Assert.equal(assert(err).code, code)
 end
 
 function T.missing_or_unknown_schema_and_reference_are_rejected()
@@ -274,17 +178,13 @@ end
 
 function T.rectangles_outside_their_atlas_are_rejected()
   reject(function(m)
-    local startMenu = getStartMenu(m)
-    startMenu.background = { x = 0, y = 0, width = 257, height = 192 }
+    m.startMenu.background = { x = 0, y = 0, width = 257, height = 192 }
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local startMenu = getStartMenu(m)
-    startMenu.background.x = 1.5
+    m.startMenu.background.x = 1.5
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local signposts = getSignposts(m)
-    local invalidType = {} ---@cast invalidType FieldUiTest.SignpostType
-    signposts.types[2] = invalidType
+    m.signposts.types[2] = { sourceType = "two" }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
@@ -302,28 +202,22 @@ end
 -- slot rect inside the background atlas.
 function T.start_menu_surface_validation_is_strict()
   reject(function(m)
-    local startMenu = getStartMenu(m)
-    startMenu.cursor.frames = {}
+    m.startMenu.cursor.frames = {}
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local startMenu = getStartMenu(m)
-    startMenu.slots[1] = nil
+    m.startMenu.slots[1] = nil
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local startMenu = getStartMenu(m)
-    startMenu.slots[3] = nil
+    m.startMenu.slots[3] = nil
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local startMenu = getStartMenu(m)
-    startMenu.slots[11] = { x = 0, y = 0, width = 128, height = 38 }
+    m.startMenu.slots[11] = { x = 0, y = 0, width = 128, height = 38 }
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local startMenu = getStartMenu(m)
-    startMenu.slots[5] = { x = 200, y = 0, width = 128, height = 38 }
+    m.startMenu.slots[5] = { x = 200, y = 0, width = 128, height = 38 }
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local startMenu = getStartMenu(m)
-    startMenu.slots = { [0] = { x = 0, y = 0, width = 128, height = 38 } }
+    m.startMenu.slots = { [0] = { x = 0, y = 0, width = 128, height = 38 } }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
@@ -331,27 +225,19 @@ end
 -- map-specific wayfinding record is a validated atlas rectangle.
 function T.signpost_type_and_wayfinding_validation_is_strict()
   reject(function(m)
-    local signposts = getSignposts(m)
-    signposts.types[2].sourceType = 3
+    m.signposts.types[2].sourceType = 3
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local signposts = getSignposts(m)
-    local invalidType = {} ---@cast invalidType FieldUiTest.SignpostType
-    signposts.types[7] = invalidType
+    m.signposts.types[7] = {}
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local signposts = getSignposts(m)
-    signposts.types[2].wayfinding = {}
+    m.signposts.types[2].wayfinding = {}
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local signposts = getSignposts(m)
-    local wayfinding = getWayfinding(getSignpostType(signposts, 0))
-    wayfinding[-1] = { x = 0, y = 0, width = 48, height = 32 }
+    m.signposts.types[0].wayfinding[-1] = { x = 0, y = 0, width = 48, height = 32 }
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local signposts = getSignposts(m)
-    local wayfinding = getWayfinding(getSignpostType(signposts, 0))
-    wayfinding[1] = { x = 0, y = 0, width = 49, height = 32 }
+    m.signposts.types[0].wayfinding[1] = { x = 0, y = 0, width = 49, height = 32 }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
@@ -362,24 +248,19 @@ end
 -- draw, even when the wrong rect still fits inside its atlas.
 function T.ui_row_geometry_must_match_the_hgss_strip_contract()
   reject(function(m)
-    local dialogueFrames = getDialogueFrames(m)
-    dialogueFrames.frameTiles[0].width = 136
+    m.dialogueFrames.frameTiles[0].width = 136
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local dialogueFrames = getDialogueFrames(m)
-    dialogueFrames.frameTiles[1].height = 16
+    m.dialogueFrames.frameTiles[1].height = 16
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local signposts = getSignposts(m)
-    getSignpostType(signposts, 0).frameTiles.width = 136
+    m.signposts.types[0].frameTiles.width = 136
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local signposts = getSignposts(m)
-    getWayfinding(getSignpostType(signposts, 0))[0].width = 47
+    m.signposts.types[0].wayfinding[0].width = 47
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    local signposts = getSignposts(m)
-    getWayfinding(getSignpostType(signposts, 0))[0].height = 31
+    m.signposts.types[0].wayfinding[0].height = 31
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
@@ -389,31 +270,30 @@ function T.continuation_cursor_contract_rejects_incomplete_manifests()
   local complete = validManifest()
   Assert.isTrue(FieldUiAssetCache.validateManifest(complete))
 
-  local mutations = {} ---@type (fun(manifest: FieldUiTest.Manifest))[]
-  mutations = {
+  local mutations = {
     function(m)
       m.assets["hgss.dialogue_continue_cursor"] = nil
     end,
     function(m)
-      getDialogueFrames(m).continueCursor.styles[19] = nil
+      m.dialogueFrames.continueCursor.styles[19] = nil
     end,
     function(m)
-      getDialogueFrames(m).continueCursor.styles[0].phases[2] = nil
+      m.dialogueFrames.continueCursor.styles[0].phases[2] = nil
     end,
     function(m)
-      getDialogueFrames(m).continueCursor.styles[0].phases[0].width = 15
+      m.dialogueFrames.continueCursor.styles[0].phases[0].width = 15
     end,
     function(m)
-      getDialogueFrames(m).continueCursor.styles[0].phases[0].x = 40
+      m.dialogueFrames.continueCursor.styles[0].phases[0].x = 40
     end,
     function(m)
-      getDialogueFrames(m).continueCursor.cycle = { 0, 1, 0, 1 }
+      m.dialogueFrames.continueCursor.cycle = { 0, 1, 0, 1 }
     end,
     function(m)
-      getDialogueFrames(m).continueCursor.placement.x = 239
+      m.dialogueFrames.continueCursor.placement.x = 239
     end,
     function(m)
-      getDialogueFrames(m).continueCursor.framePrinterTicks = 8
+      m.dialogueFrames.continueCursor.framePrinterTicks = 8
     end,
   }
   for index, mutate in ipairs(mutations) do
@@ -428,40 +308,40 @@ end
 -- v4 manifests without these new required fields must be rejected.
 function T.v5_rejects_v4_manifest_missing_text_colors()
   reject(function(m)
-    getSignposts(m).textColors = nil
+    m.signposts.textColors = nil
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_wrong_text_color_foreground()
   reject(function(m)
-    getSignposts(m).textColors.foreground = 1
+    m.signposts.textColors.foreground = 1
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_wrong_text_color_shadow()
   reject(function(m)
-    getSignposts(m).textColors.shadow = 9
+    m.signposts.textColors.shadow = 9
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_wrong_text_color_background()
   reject(function(m)
-    getSignposts(m).textColors.background = 14
+    m.signposts.textColors.background = 14
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_non_integral_text_color_slot()
   reject(function(m)
-    getSignposts(m).textColors.foreground = 2.5
+    m.signposts.textColors.foreground = 2.5
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_text_color_out_of_range()
   reject(function(m)
-    getSignposts(m).textColors.foreground = 16
+    m.signposts.textColors.foreground = 16
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    getSignposts(m).textColors.shadow = -1
+    m.signposts.textColors.shadow = -1
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
@@ -469,44 +349,40 @@ end
 -- with r/g/b components as integers in 0..255.
 function T.v5_rejects_type_missing_palette()
   reject(function(m)
-    rawset(getSignpostType(getSignposts(m), 0), "palette", nil)
+    m.signposts.types[0].palette = nil
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_palette_with_fewer_than_16_entries()
   reject(function(m)
-    rawset(getSignpostType(getSignposts(m), 0).palette, 15, nil)
+    m.signposts.types[0].palette[15] = nil
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_palette_with_more_than_16_entries()
   reject(function(m)
-    local palette = getSignpostType(getSignposts(m), 0).palette
-    local invalidColor = { r = 0, g = 0, b = 0 } ---@cast invalidColor FieldUiTest.Palette
-    rawset(palette, 16, invalidColor)
+    m.signposts.types[0].palette[16] = { r = 0, g = 0, b = 0 }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_palette_color_missing_components()
   reject(function(m)
-    local palette = getSignpostType(getSignposts(m), 0).palette
-    local invalidColor = {} ---@cast invalidColor FieldUiTest.Palette
-    rawset(palette, 0, invalidColor)
+    m.signposts.types[0].palette[0] = { r = 0, g = 0 }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_palette_color_non_integral_component()
   reject(function(m)
-    getSignposts(m).types[0].palette[0] = { r = 0.5, g = 0, b = 0 }
+    m.signposts.types[0].palette[0] = { r = 0.5, g = 0, b = 0 }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_palette_color_out_of_range()
   reject(function(m)
-    getSignposts(m).types[0].palette[0] = { r = 256, g = 0, b = 0 }
+    m.signposts.types[0].palette[0] = { r = 256, g = 0, b = 0 }
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    getSignposts(m).types[0].palette[5].b = -1
+    m.signposts.types[0].palette[5].b = -1
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
@@ -514,22 +390,22 @@ end
 -- the signpost tiles atlas.
 function T.v5_rejects_type_missing_frame_tiles()
   reject(function(m)
-    rawset(getSignpostType(getSignposts(m), 0), "frameTiles", nil)
+    m.signposts.types[0].frameTiles = nil
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_frame_tiles_wrong_dimensions()
   reject(function(m)
-    getSignposts(m).types[0].frameTiles.width = 136
+    m.signposts.types[0].frameTiles.width = 136
   end, "FIELD_UI_MANIFEST_INVALID")
   reject(function(m)
-    getSignposts(m).types[0].frameTiles.height = 16
+    m.signposts.types[0].frameTiles.height = 16
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 
 function T.v5_rejects_frame_tiles_outside_atlas()
   reject(function(m)
-    getSignposts(m).types[0].frameTiles = { x = 200, y = 0, width = 144, height = 8 }
+    m.signposts.types[0].frameTiles = { x = 200, y = 0, width = 144, height = 8 }
   end, "FIELD_UI_MANIFEST_INVALID")
 end
 

@@ -3,12 +3,11 @@
 -- save backend; generated maps and presentation assets remain production data.
 
 local Assert = require("tests.support.Assert")
-local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
-local FakeCache = require("tests.support.FakeCache")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local PlayTime = require("libs.engine.src.PlayTime")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
-local SaveFs = require("libs.storage.src.SaveFs")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 
 local T = {}
@@ -23,14 +22,30 @@ local function readyVersions()
   return versions
 end
 
+-- A hand-built fresh candidate, matching the shape App.lua's New Game flow
+-- finalizes: no saveStore is attached, so this boots without touching any
+-- storage backend and there is nothing to reset between runs.
+local function freshGame(versionId)
+  return {
+    saveId = "save-00000001",
+    versionId = versionId,
+    location = {
+      mapSymbol = "MAP_NEW_BARK",
+      fieldX = 10,
+      fieldZ = 10,
+      facing = "south",
+    },
+    playerData = {
+      profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
+      options = { textSpeed = "fastest", textFrame = 0 },
+    },
+    playTime = PlayTime.new(),
+    worldState = FieldEventState.new(),
+  }
+end
+
 local function boot(versionId)
-  local originalNew = FieldRuntime.new
-  FieldRuntime.new = function(_, mapIdOrSymbol, options)
-    options.saveFs = SaveFs.forVersion(versionId, FakeCache.new())
-    return originalNew(versionId, mapIdOrSymbol, options)
-  end
-  local ok, state = pcall(FieldState.new, versionId, "MAP_NEW_BARK", { resetSave = true })
-  FieldRuntime.new = originalNew
+  local ok, state = pcall(FieldState.new, freshGame(versionId), {})
   if not ok then
     error(state, 0)
   end

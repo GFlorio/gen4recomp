@@ -21,6 +21,7 @@ local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldViewport = require("libs.engine.src.FieldViewport")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 
 local T = {}
 
@@ -275,7 +276,7 @@ function T.request_without_a_frame_index_draws_no_frame_tiles()
   renderer:release()
 end
 
--- A waiting dialogue samples C01's phase and frame index: it draws the
+-- A waiting dialogue samples the generated phase and frame index: it draws the
 -- generated cursor quad at the source placement, never a local blink polygon,
 -- and repeated draws do not advance the controller-owned phase.
 function T.waiting_dialogue_draws_the_generated_cursor_phase_without_blinking()
@@ -301,12 +302,71 @@ function T.waiting_dialogue_draws_the_generated_cursor_phase_without_blinking()
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local first = lg.draws[#lg.draws]
   Assert.equal(first.image, lg.images[5], "the continuation uses the generated cursor atlas")
-  Assert.deepEqual({ first.quad.x, first.quad.y, first.quad.w, first.quad.h }, { 0, 48, 16, 16 })
+  local expected = cursorManifest().dialogueFrames.continueCursor.styles[3].phases[status.cursorPhase]
+  Assert.deepEqual({ first.quad.x, first.quad.y, first.quad.w, first.quad.h }, {
+    expected.x,
+    expected.y,
+    expected.width,
+    expected.height,
+  })
   Assert.deepEqual({ first.x, first.y }, { 240, 168 })
   Assert.isFalse(#lg.primitives > 1 and lg.primitives[#lg.primitives] == "polygon", "cursor is not a triangle")
   local phaseQuad = first.quad
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   Assert.equal(lg.draws[#lg.draws].quad, phaseQuad, "draw does not invent timing")
+  renderer:release()
+  text:release()
+end
+
+-- A compact host presentation owns its cursor placement in the same local
+-- reference surface as its box and text. The transform maps that placement
+-- into an arbitrary host rectangle without changing the generated phase quad.
+function T.compact_presentation_places_the_cursor_inside_its_window()
+  local lg = fakeGraphics({
+    imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 32 }, { 48, 320 } },
+  })
+  local cache = cursorCache()
+  local text = withTextRenderer(cache, lg)
+  local renderer = FieldDialogueRenderer.new({
+    cacheFs = cache,
+    manifest = cursorManifest(),
+    text = text,
+    graphics = lg,
+  })
+  local controller = FieldDialogueFixture.openDialogue("AB", 3)
+  controller:step({ actionPressed = true })
+  for _ = 1, 30 do
+    controller:step({})
+  end
+  local status = controller:status()
+  local presentation = DialoguePresentationLayout.compute({ x = 37, y = 11, width = 900, height = 420 }, {
+    cursorPlacement = cursorManifest().dialogueFrames.continueCursor.placement,
+  })
+
+  renderer:draw(controller, presentation)
+  local cursor = lg.draws[#lg.draws]
+  local expected = cursorManifest().dialogueFrames.continueCursor.styles[3].phases[status.cursorPhase]
+  Assert.equal(cursor.image, lg.images[5], "the compact presentation uses the generated cursor atlas")
+  Assert.deepEqual({ cursor.quad.x, cursor.quad.y, cursor.quad.w, cursor.quad.h }, {
+    expected.x,
+    expected.y,
+    expected.width,
+    expected.height,
+  })
+  Assert.deepEqual({ cursor.x, cursor.y }, { presentation.cursor.x, presentation.cursor.y })
+  local transformedX = presentation.origin.x + cursor.x * presentation.scale
+  local transformedY = presentation.origin.y + cursor.y * presentation.scale
+  Assert.isTrue(transformedX >= presentation.outerRect.x)
+  Assert.isTrue(
+    transformedX + cursor.quad.w * presentation.scale <= presentation.outerRect.x + presentation.outerRect.width,
+    "the transformed cursor stays inside the compact window horizontally"
+  )
+  Assert.isTrue(transformedY >= presentation.outerRect.y)
+  Assert.isTrue(
+    transformedY + cursor.quad.h * presentation.scale <= presentation.outerRect.y + presentation.outerRect.height,
+    "the transformed cursor stays inside the compact window"
+  )
+
   renderer:release()
   text:release()
 end
@@ -329,7 +389,11 @@ function T.dialogue_content_uses_the_source_background_palette_slot()
   local controller = FieldDialogueFixture.openDialogue("AB", 0)
   local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
-  local layout = FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1))
+  local layout = FieldDialogueTheme.layout(
+    viewport.referenceFrame,
+    viewport:logicalPixelScale(1),
+    MANIFEST.dialogueFrames.continueCursor.placement
+  )
   Assert.equal(#lg.rectangles, 1, "the content rectangle is explicitly filled")
   Assert.equal(lg.rectangles[1].mode, "fill")
   Assert.deepEqual(lg.rectangles[1].color, text.fontDef.palette[16])
@@ -351,11 +415,12 @@ local function openedWithTokens(tokens, opts)
       return {
         pages = { { lines = { { tokens = tokens, width = 0 } }, breakKind = "eos" } },
         warnings = {},
-        lineHeight = 16,
+        lineHeight = 8,
         lineSpacing = 0,
-      }
+      } --[[@as DialogueLayout.Result]]
     end,
     policy = TextSpeedPolicy.forSpeed("mid"),
+    continueCursor = { cycle = { 0, 1, 2, 1 }, framePrinterTicks = 9 },
   })
   controller:open({
     id = "focus",
@@ -418,7 +483,11 @@ function T.reached_focus_indicator_draws_at_the_content_window_right_edge()
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local focus = focusDraws(lg)
   Assert.equal(#focus, 1, "exactly one indicator frame is drawn")
-  local layout = FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1))
+  local layout = FieldDialogueTheme.layout(
+    viewport.referenceFrame,
+    viewport:logicalPixelScale(1),
+    MANIFEST.dialogueFrames.continueCursor.placement
+  )
   Assert.equal(focus[1].x, layout.box.x + layout.box.width - 24, "the indicator sits at the content-window right edge")
   Assert.equal(focus[1].y, layout.box.y, "the indicator sits at the content-window top")
   Assert.deepEqual(
@@ -446,7 +515,11 @@ function T.the_last_visible_focus_field_wins()
   controller:step({ actionPressed = true })
   renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
   local focus = focusDraws(lg)
-  local layout = FieldDialogueTheme.layout(viewport.referenceFrame, viewport:logicalPixelScale(1))
+  local layout = FieldDialogueTheme.layout(
+    viewport.referenceFrame,
+    viewport:logicalPixelScale(1),
+    MANIFEST.dialogueFrames.continueCursor.placement
+  )
   Assert.equal(#focus, 1, "multiple visible controls still draw one frame")
   Assert.equal(focus[1].quad.x, 3 * 24, "the last visible field in source order wins")
   Assert.equal(
@@ -456,6 +529,53 @@ function T.the_last_visible_focus_field_wins()
   )
   Assert.equal(focus[1].y, layout.box.y)
   renderer:release()
+end
+
+local function recordingTextRenderer(focusCalls, lineCalls)
+  return {
+    windowBackgroundColor = function()
+      return { 0, 0, 0, 1 }
+    end,
+    drawLine = function()
+      lineCalls[#lineCalls + 1] = true
+    end,
+    drawFocusIndicator = function(_, field, x, y)
+      focusCalls[#focusCalls + 1] = { field = field, x = x, y = y }
+    end,
+  }
+end
+
+-- Focus-indicator visibility is renderer composition policy: the default
+-- remains visible, while Oak's explicitly disabled renderer still draws text
+-- and its dialogue window without publishing a focus-indicator call.
+function T.focus_indicator_visibility_follows_renderer_policy()
+  local function drawWithPolicy(disabled)
+    local lg = fakeGraphics({ imageSizes = { { 96, 32 }, { 144, 16 } } })
+    local cache = uiCache()
+    local focusCalls = {}
+    local lineCalls = {}
+    local renderer = FieldDialogueRenderer.new({
+      cacheFs = cache,
+      manifest = MANIFEST,
+      text = recordingTextRenderer(focusCalls, lineCalls),
+      graphics = lg,
+      drawFocusIndicator = not disabled,
+    })
+    local controller = openedWithTokens({ glyphToken(1), focusToken(0) })
+    controller:step({ actionPressed = true })
+    local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+    renderer:draw(controller, viewport, viewport:logicalPixelScale(1))
+    renderer:release()
+    return focusCalls, lineCalls
+  end
+
+  local defaultFocus, defaultLines = drawWithPolicy(false)
+  Assert.equal(#defaultFocus, 1, "the default renderer preserves focus-indicator drawing")
+  Assert.isTrue(#defaultLines > 0, "the default renderer still draws dialogue content")
+
+  local disabledFocus, disabledLines = drawWithPolicy(true)
+  Assert.equal(#disabledFocus, 0, "the disabled renderer suppresses focus-indicator drawing")
+  Assert.isTrue(#disabledLines > 0, "disabling focus does not suppress dialogue content")
 end
 
 return { tests = T }

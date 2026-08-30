@@ -18,6 +18,9 @@
 ---@field numericId integer|nil
 ---@field movementOwner string|nil
 ---@field movementState table|nil
+---@field _scriptedAction table|nil
+---@field _scriptedStart { fieldX: integer, fieldZ: integer }|nil
+---@field _scriptedDest { fieldX: integer, fieldZ: integer }|nil
 
 ---@class FakeWorld
 ---@field flags table<string, boolean>
@@ -68,8 +71,8 @@ function FakeWorld:subVar(id, amount)
 end
 
 -- Deterministic Lehmer-style RNG : never math.random.
+---@param seed integer?
 ---@return table rng
----@param seed integer
 function FakeWorld:newRng(seed)
   local rng = { _seed = seed or 0x2545F491 }
   function rng:nextRaw()
@@ -183,6 +186,105 @@ function FakeActors:setAnimationPaused(actorId, paused)
   actor.animationPaused = paused == true
 end
 
+function FakeActors:beginScriptedAction(actorId, action)
+  local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
+  if action.action == "face" then
+    if action.direction ~= nil then
+      actor.facing = action.direction
+    end
+    actor._scriptedAction = action
+    return
+  end
+  if action.action == "walk" then
+    local dx, dz = 0, 0
+    if action.direction == "east" then
+      dx = 1
+    elseif action.direction == "west" then
+      dx = -1
+    elseif action.direction == "north" then
+      dz = -1
+    elseif action.direction == "south" then
+      dz = 1
+    end
+    if action.distance == "zero" then
+      dx, dz = 0, 0
+    end
+    actor._scriptedStart = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
+    actor._scriptedDest = { fieldX = actor.fieldX + dx, fieldZ = actor.fieldZ + dz }
+  elseif action.action == "jump" then
+    actor._scriptedStart = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
+    if action.distance == "zero" then
+      actor._scriptedDest = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
+    else
+      local dx, dz = 0, 0
+      if action.direction == "east" then
+        dx = 1
+      elseif action.direction == "west" then
+        dx = -1
+      elseif action.direction == "north" then
+        dz = -1
+      elseif action.direction == "south" then
+        dz = 1
+      end
+      actor._scriptedDest = { fieldX = actor.fieldX + dx, fieldZ = actor.fieldZ + dz }
+    end
+  elseif
+    action.action == "walk_in_place"
+    or action.action == "delay"
+    or action.action == "emote"
+    or action.action == "gesture"
+  then
+    actor._scriptedStart = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
+    actor._scriptedDest = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
+  else
+    actor._scriptedStart = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
+    actor._scriptedDest = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
+  end
+  actor._scriptedAction = action
+end
+
+function FakeActors:advanceScriptedAction(_, _, _) end
+
+function FakeActors:commitScriptedAction(actorId)
+  local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
+  if actor._scriptedAction and actor._scriptedDest then
+    local kind = actor._scriptedAction.action
+    if kind == "walk" or kind == "jump" then
+      actor.fieldX = actor._scriptedDest.fieldX
+      actor.fieldZ = actor._scriptedDest.fieldZ
+    elseif kind == "face" then
+      if actor._scriptedAction.direction ~= nil then
+        actor.facing = actor._scriptedAction.direction
+      end
+    end
+  end
+  actor._scriptedStart = nil
+  actor._scriptedDest = nil
+  actor._scriptedAction = nil
+end
+
+function FakeActors:cancelScriptedMovement(actorId)
+  local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
+  if actor._scriptedStart then
+    actor.fieldX = actor._scriptedStart.fieldX
+    actor.fieldZ = actor._scriptedStart.fieldZ
+  end
+  actor._scriptedStart = nil
+  actor._scriptedDest = nil
+  actor._scriptedAction = nil
+end
+
+-- Fake presentation is untracked (no pose field), so settling is a no-op:
+-- only the production actor stack observes this transition.
+function FakeActors:settleAction(actorId)
+  assert(self.actors[actorId], "fake actor missing: " .. actorId)
+end
+
+function FakeActors:isScriptedMoving(actorId)
+  local actor = self.actors[actorId]
+  return actor ~= nil and actor._scriptedAction ~= nil
+end
+
 function FakeActors:getPosition(actorId)
   local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
   return { fieldX = actor.fieldX, fieldZ = actor.fieldZ, worldY = actor.worldY }
@@ -240,8 +342,8 @@ end
 local FakePlayer = {}
 FakePlayer.__index = FakePlayer
 
+---@param opts table?
 ---@return FakePlayer
----@param opts table
 function FakePlayer.new(opts)
   opts = opts or {}
   return setmetatable({
@@ -270,6 +372,92 @@ end
 
 function FakePlayer:turn(direction)
   self._facing = direction
+end
+
+function FakePlayer:setScriptPosition(position)
+  self.fieldX = position.fieldX
+  self.fieldZ = position.fieldZ
+  if position.worldY ~= nil then
+    self.worldY = position.worldY
+  end
+end
+
+function FakePlayer:beginScriptedAction(action)
+  if action.action == "face" then
+    if action.direction ~= nil then
+      self._facing = action.direction
+    end
+    return
+  end
+  self._scriptedStart = { fieldX = self.fieldX, fieldZ = self.fieldZ, worldY = self.worldY }
+  if action.action == "walk" then
+    local dx, dz = 0, 0
+    if action.direction == "east" then
+      dx = 1
+    elseif action.direction == "west" then
+      dx = -1
+    elseif action.direction == "north" then
+      dz = -1
+    elseif action.direction == "south" then
+      dz = 1
+    end
+    if action.distance == "zero" then
+      dx, dz = 0, 0
+    end
+    self._scriptedDest = { fieldX = self.fieldX + dx, fieldZ = self.fieldZ + dz, worldY = self.worldY }
+  elseif action.action == "jump" then
+    local dx, dz = 0, 0
+    if action.direction == "east" then
+      dx = 1
+    elseif action.direction == "west" then
+      dx = -1
+    elseif action.direction == "north" then
+      dz = -1
+    elseif action.direction == "south" then
+      dz = 1
+    end
+    if action.distance == "zero" then
+      dx, dz = 0, 0
+    end
+    self._scriptedDest = { fieldX = self.fieldX + dx, fieldZ = self.fieldZ + dz, worldY = self.worldY }
+  else
+    self._scriptedDest = { fieldX = self.fieldX, fieldZ = self.fieldZ, worldY = self.worldY }
+  end
+  self._scriptedAction = action
+end
+
+function FakePlayer:advanceScriptedAction(_, _) end
+
+function FakePlayer:commitScriptedAction()
+  if self._scriptedDest then
+    self.fieldX = self._scriptedDest.fieldX
+    self.fieldZ = self._scriptedDest.fieldZ
+    self.worldY = self._scriptedDest.worldY
+    if self._scriptedAction and self._scriptedAction.direction then
+      local kind = self._scriptedAction.action
+      if kind == "walk" or kind == "jump" or kind == "walk_in_place" then
+        self._facing = self._scriptedAction.direction
+      end
+    end
+  end
+  self._scriptedStart = nil
+  self._scriptedDest = nil
+  self._scriptedAction = nil
+end
+
+function FakePlayer:cancelScriptedMovement()
+  if self._scriptedStart then
+    self.fieldX = self._scriptedStart.fieldX
+    self.fieldZ = self._scriptedStart.fieldZ
+    self.worldY = self._scriptedStart.worldY
+  end
+  self._scriptedStart = nil
+  self._scriptedDest = nil
+  self._scriptedAction = nil
+end
+
+function FakePlayer:isScriptedMoving()
+  return self._scriptedAction ~= nil
 end
 
 ---@class FakeEvents
@@ -305,8 +493,8 @@ function FakeEvents:eventFor(name, instanceId)
 end
 
 ---@class FakeServices
----@field world FakeWorld
----@field actors FakeActors
+---@field world FakeWorld|FieldEventState
+---@field actors FakeActors|ScriptActorWorld
 ---@field player FakePlayer
 ---@field events FakeEvents
 ---@field dialogue table|nil

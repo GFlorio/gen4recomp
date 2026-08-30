@@ -1,15 +1,9 @@
--- Game-side field-script platform construction (the script override system):
--- builds the registry from the compiled script cache plus the checked-in
--- `data/scripts/overrides` layer, the generated bindings, the
--- full task registry, the service adapters over the game's field objects, and
--- the scheduler + interaction client the session steps. FieldState wires the
--- result into FieldSession. Every interactable event of the bound maps is
--- audited against the manifest at construction; there is no runtime fallback
--- for unmapped intents.
+-- Game-side field-script platform construction: builds the registry from the
+-- compiled script cache plus explicit overrides, composition, the full task
+-- registry, service adapters, and the scheduler + interaction client the
+-- session steps. FieldState wires the result into FieldSession.
 
 local Bindings = require("libs.engine.src.script.Bindings")
-local BindingAudit = require("libs.engine.src.script.BindingAudit")
-local Composition = require("libs.engine.src.script.Composition")
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
@@ -17,78 +11,12 @@ local ScriptDialogueHost = require("libs.engine.src.script.ScriptDialogueHost")
 local ScriptMenuHost = require("libs.engine.src.script.ScriptMenuHost")
 local ScriptSignpostHost = require("libs.engine.src.script.ScriptSignpostHost")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
-local ScriptLoader = require("libs.engine.src.script.ScriptLoader")
 local ScriptMapsService = require("libs.engine.src.script.ScriptMapsService")
-local RegistrySnapshot = require("libs.engine.src.script.RegistrySnapshot")
-local RegistryWarmup = require("libs.engine.src.script.RegistryWarmup")
 local WorldState = require("libs.engine.src.script.WorldState")
 local Scheduler = require("libs.engine.src.script.Scheduler")
-local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local ScriptCache = require("libs.assets.src.ScriptCache")
-local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
-local WaitInputTask = require("libs.engine.src.script.tasks.WaitInputTask")
-local WaitInputOrTicksTask = require("libs.engine.src.script.tasks.WaitInputOrTicksTask")
-local WaitSignpostActionTask = require("libs.engine.src.script.tasks.WaitSignpostActionTask")
-local TrainerTipsTask = require("libs.engine.src.script.tasks.TrainerTipsTask")
-local WaitSignpostTask = require("libs.engine.src.script.tasks.WaitSignpostTask")
-local SignTask = require("libs.engine.src.script.tasks.SignTask")
-local DialogueTask = require("libs.engine.src.script.tasks.DialogueTask")
-local MovementTask = require("libs.engine.src.script.tasks.MovementTask")
-local MovementBarrierTask = require("libs.engine.src.script.tasks.MovementBarrierTask")
-local MovementPauseTask = require("libs.engine.src.script.tasks.MovementPauseTask")
-local FadeTask = require("libs.engine.src.script.tasks.FadeTask")
-local SoundWaitTask = require("libs.engine.src.script.tasks.SoundWaitTask")
-local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
-local WarpTask = require("libs.engine.src.script.tasks.WarpTask")
-local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
-local AskYesNoTask = require("libs.engine.src.script.tasks.AskYesNoTask")
-local AuxiliaryUiTask = require("libs.engine.src.script.tasks.AuxiliaryUiTask")
-local ContextChoiceTask = require("libs.engine.src.script.tasks.ContextChoiceTask")
-local MenuTask = require("libs.engine.src.script.tasks.MenuTask")
-
--- Every task implementation the runtime can create, registered into the
--- live task registry below.
-local TASK_MODULES = {
-  WaitTicksTask,
-  WaitInputTask,
-  WaitInputOrTicksTask,
-  WaitSignpostActionTask,
-  TrainerTipsTask,
-  WaitSignpostTask,
-  SignTask,
-  DialogueTask,
-  MovementTask,
-  MovementBarrierTask,
-  MovementPauseTask,
-  FadeTask,
-  SoundWaitTask,
-  MusicFadeTask,
-  WarpTask,
-  ChildScriptTask,
-  AskYesNoTask,
-  AuxiliaryUiTask,
-  ContextChoiceTask,
-  MenuTask,
-}
-
--- Build the task registry with every registered task type. `actor_pause`
--- shares the movement pause implementation, scoped to one actor.
----@return TaskRegistry
-local function taskRegistry()
-  local registry = TaskRegistry.new()
-  for _, impl in ipairs(TASK_MODULES) do
-    ---@cast impl TaskImplementation
-    registry:register(impl.type, impl.version, impl)
-  end
-  registry:register(
-    MovementPauseTask.actorType,
-    MovementPauseTask.version,
-    MovementPauseTask --[[@as TaskImplementation]]
-  )
-  return registry
-end
+local MapInitScriptController = require("libs.engine.src.MapInitScriptController")
 
 -- The player facade the script services consume: position/facing/gender/name
 -- plus the mutation hooks the movement tasks use (the player can be a
@@ -153,16 +81,44 @@ end
 
 function ScriptPlayerFacade:turn(direction)
   local player = assert(self._player, "player facade has no live player")
-  player.facing = direction
+  assert(player.turn, "player facade requires turn")
+  player:turn(direction)
 end
 
 function ScriptPlayerFacade:setPosition(position)
   local player = assert(self._player, "player facade has no live player")
-  player.fieldX = position.fieldX
-  player.fieldZ = position.fieldZ
-  if position.worldY ~= nil then
-    player.worldY = position.worldY
-  end
+  assert(player.setScriptPosition, "player facade requires setScriptPosition")
+  player:setScriptPosition(position)
+end
+
+function ScriptPlayerFacade:beginScriptedAction(action)
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.beginScriptedAction, "player missing beginScriptedAction")
+  player:beginScriptedAction(action)
+end
+
+function ScriptPlayerFacade:advanceScriptedAction(progressTicks, durationTicks)
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.advanceScriptedAction, "player missing advanceScriptedAction")
+  player:advanceScriptedAction(progressTicks, durationTicks)
+end
+
+function ScriptPlayerFacade:commitScriptedAction()
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.commitScriptedAction, "player missing commitScriptedAction")
+  player:commitScriptedAction()
+end
+
+function ScriptPlayerFacade:cancelScriptedMovement()
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.cancelScriptedMovement, "player missing cancelScriptedMovement")
+  player:cancelScriptedMovement()
+end
+
+function ScriptPlayerFacade:isScriptedMoving()
+  local player = assert(self._player, "player facade has no live player")
+  assert(player.isScriptedMoving, "player missing isScriptedMoving")
+  return player:isScriptedMoving()
 end
 
 ---@class FieldScriptsOptions
@@ -210,12 +166,14 @@ end
 ---@field registrySnapshotUsed boolean true when a matching snapshot skipped per-use validation
 ---@field warmup RegistryWarmup|nil background warm-up after a snapshot miss
 ---@field taskRegistry TaskRegistry the live registered-task registry
+---@field initController MapInitScriptController
+---@field compatibility FieldScriptCompatibility
+---@field mapSource RuntimeFieldMap the active runtime map map-scoped script state is bound to
 local FieldScripts = {}
 FieldScripts.__index = FieldScripts
 
 -- opts.overrideFs: love.filesystem-shaped read access for the repo
--- `data/scripts/overrides` tree (the game mounts `data` before calling);
--- the loader enumerates overrides through the checked-in manifest.
+-- `data/scripts/overrides` tree (the game mounts `data` before calling).
 ---@param opts FieldScriptsOptions
 ---@return FieldScripts
 function FieldScripts.new(opts)
@@ -241,55 +199,10 @@ function FieldScripts.new(opts)
   -- fingerprint; on a miss the background warm-up decodes, hashes, and
   -- publishes the snapshot while the game plays, and the first save finishes
   -- it. The override layer is always loaded and validated eagerly.
-  local snapshot = RegistrySnapshot.load(opts.cacheFs, opts.overrideFs)
-  local fast = snapshot ~= nil and snapshot.fingerprint ~= nil
-  local registry = ScriptLoader.buildRegistry(opts.cacheFs, opts.overrideFs, nil, {
-    lazy = true,
-    validateGenerated = not fast,
-  })
-  if snapshot ~= nil and snapshot.fingerprint ~= nil then
-    registry:restoreFingerprint(snapshot.fingerprint)
-  end
-  local warmup
-  if not fast then
-    warmup = RegistryWarmup.new({
-      registry = registry,
-      cacheFs = opts.cacheFs,
-      overrideFs = opts.overrideFs,
-      snapshotKey = snapshot and snapshot.key or nil,
-    })
-  end
-  local composition = Composition.new(registry --[[@as Registry]])
-  local loadedBindingManifest, bindingErr = opts.cacheFs:loadLua(ScriptCache.bindingsPath())
-  if loadedBindingManifest == nil then
-    Errors.raise(
-      ScriptErrors.SCRIPT_LOAD_FAILED,
-      "script bindings cache is unavailable",
-      { path = ScriptCache.bindingsPath(), cause = bindingErr and bindingErr.context or nil }
-    )
-  end
-  ---@cast loadedBindingManifest table
-  local bindingManifest = loadedBindingManifest
-  local bindings = Bindings.new(bindingManifest)
-  local knownScriptIds = {}
-  for _, scriptId in ipairs(registry:ids()) do
-    knownScriptIds[scriptId] = true
-  end
-  local requiredMapIds = {}
-  for _, map in ipairs(opts.mapLoader.world.maps) do
-    requiredMapIds[#requiredMapIds + 1] = map.id
-  end
-  local function loadFieldData(mapId)
-    return opts.cacheFs:loadLua(FieldMapDataCache.fieldPath(mapId))
-  end
-  -- Load-time audit: every required world map and interactable event must be
-  -- covered, and every target must be present in the sealed registry. The
-  -- registry ID set proves deferred generated resources without decoding them.
-  BindingAudit.check(bindingManifest, {
-    loadFieldData = loadFieldData,
-    requiredMapIds = requiredMapIds,
-    knownScriptIds = knownScriptIds,
-  })
+  local compatibility = FieldScriptCompatibility.new({ cacheFs = opts.cacheFs, overrideFs = opts.overrideFs })
+  local registry = compatibility.registry
+  local composition = compatibility.composition
+  local bindings = Bindings.new()
 
   local worldState = WorldState.new({
     eventState = opts.eventState,
@@ -320,27 +233,34 @@ function FieldScripts.new(opts)
     transition = opts.transition,
     loader = opts.mapLoader,
     sourceMap = opts.sourceMap,
+    screen = opts.screen,
   })
-  local function resolveMessage(message, messageBindings, textArgs)
-    return dialogueHost:resolveMessage(message, messageBindings or {}, textArgs or {})
+  local function resolveText(message)
+    return dialogueHost:resolveMessage(message, {}, {})
   end
   local menuHost = ScriptMenuHost.new({
     provider = opts.messageProvider,
-    resolveText = resolveMessage,
+    resolveText = resolveText,
   })
   -- The signpost host reuses the dialogue host's public message-resolution
   -- operation through injection; it never reaches an underscored helper or
   -- duplicates substitution semantics.
+  local function resolveMessage(message, messageBindings, textArgs)
+    return dialogueHost:resolveMessage(message, messageBindings, textArgs)
+  end
   local signpostHost = ScriptSignpostHost.new({
     controller = opts.signpost,
     resolveMessage = resolveMessage,
   })
 
+  ---@class FieldScriptsPlatform: FieldScripts
+  ---@field initController MapInitScriptController
   local platform = setmetatable({
+    compatibility = compatibility,
     registry = registry,
-    registrySnapshotKey = snapshot and snapshot.key or nil,
-    registrySnapshotUsed = fast,
-    warmup = warmup,
+    registrySnapshotKey = compatibility.registrySnapshotKey,
+    registrySnapshotUsed = compatibility.registrySnapshotUsed,
+    warmup = compatibility.warmup,
     cacheFs = opts.cacheFs,
     overrideFs = opts.overrideFs,
     composition = composition,
@@ -355,17 +275,17 @@ function FieldScripts.new(opts)
   }, FieldScripts)
 
   -- The live task registry: the scheduler routes through it.
-  local liveTaskRegistry = taskRegistry()
+  local liveTaskRegistry = compatibility.taskRegistry
 
   local scheduler
-  local function boundAdvanceAsync()
+  local function advanceAsync()
     opts.auxiliaryUi:advance()
     dialogueHost:advance(scheduler:currentInput())
     -- The signpost controller is pure and fixed-tick: exactly one step per
     -- scheduler tick, commands and printer together.
     signpostHost:advance(scheduler:currentInput())
   end
-  local function boundResolveComposition(id)
+  local function resolveComposition(id)
     return composition:effective(id)
   end
   scheduler = Scheduler.new({
@@ -390,17 +310,27 @@ function FieldScripts.new(opts)
       signpost = signpostHost,
       windowStyles = opts.windowStyles,
       startMenuReopen = opts.startMenuReopen,
-      advanceAsync = boundAdvanceAsync,
+      advanceAsync = advanceAsync,
     },
     taskRegistry = liveTaskRegistry,
-    resolveComposition = boundResolveComposition,
+    resolveComposition = resolveComposition,
   })
   platform.scheduler = scheduler
   platform.taskRegistry = liveTaskRegistry
+  local function compose(id)
+    return composition:effective(id)
+  end
   platform.client = ScriptInteractionClient.new({
     bindings = bindings,
-    compose = boundResolveComposition,
+    compose = compose,
     scheduler = scheduler,
+    scriptBankId = opts.sourceMap.fieldData.scriptBankId,
+  })
+  platform.initController = MapInitScriptController.new({
+    rules = opts.sourceMap.fieldData.initScripts,
+    mapId = opts.sourceMap.fieldData.mapId,
+    world = worldState,
+    scriptClient = platform.client,
   })
   return platform
 end
@@ -414,17 +344,20 @@ end
 -- warms up again instead of trusting a stale digest.
 ---@return string
 function FieldScripts:registryFingerprint()
-  if self.warmup ~= nil then
-    local failure = self.warmup:finish()
-    if failure ~= nil then
-      Errors.raise(failure.code, failure.message, failure.context)
-    end
-  end
-  local fingerprint = self.registry:fingerprint()
-  if self.registrySnapshotKey ~= nil then
-    RegistrySnapshot.save(self.cacheFs, self.overrideFs, fingerprint, self.registrySnapshotKey)
-  end
-  return fingerprint
+  return self.compatibility:registryFingerprint()
+end
+
+-- Rebind every map-scoped script collaborator (maps service, script-client
+-- bank id, init-controller rules/map id, and mapSource) to sourceMap. Shared
+-- by the discontinuous and seamless active-map entry points below so both
+-- always establish the same complete destination map context.
+---@param self FieldScripts
+---@param sourceMap RuntimeFieldMap
+local function rebindMapContext(self, sourceMap)
+  self.mapsService:setSourceMap(sourceMap)
+  self.client:setScriptBankId(sourceMap.fieldData.scriptBankId)
+  self.initController:setRules(sourceMap.fieldData.initScripts, sourceMap.fieldData.mapId)
+  self.mapSource = sourceMap
 end
 
 -- Rebind the facade and warp source after a map swap (the player and the
@@ -433,13 +366,12 @@ end
 ---@param sourceMap RuntimeFieldMap
 function FieldScripts:onMapSwap(player, sourceMap)
   self.player:setPlayer(player)
-  self.mapsService:setSourceMap(sourceMap)
+  rebindMapContext(self, sourceMap)
 end
 
 ---@param sourceMap RuntimeFieldMap
 function FieldScripts:onZoneChange(sourceMap)
-  self.mapsService:setSourceMap(sourceMap)
-  self.mapSource = sourceMap
+  rebindMapContext(self, sourceMap)
 end
 
 return FieldScripts

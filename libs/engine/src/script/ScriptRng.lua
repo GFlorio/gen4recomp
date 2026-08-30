@@ -8,10 +8,17 @@
 local ScriptRng = {}
 ScriptRng.__index = ScriptRng
 
+local Errors = require("libs.errors.src.Errors")
+local ScriptErrors = require("libs.engine.src.script.errors")
+
 ScriptRng.SCHEMA_NAME = "g4-script-rng-v1"
 
 local MODULUS = 0x7FFFFFFF
 local MULTIPLIER = 48271
+
+local function isFiniteInteger(value)
+  return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge and value % 1 == 0
+end
 
 ---@class ScriptRngState
 ---@field _state integer
@@ -94,6 +101,30 @@ function ScriptRng:serialize()
   return { state = self._state, calls = self._calls }
 end
 
+---@param record any
+---@return table|nil, Errors.Error?
+function ScriptRng.validate(record)
+  if type(record) ~= "table" then
+    return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state must be a table", {})
+  end
+
+  for key in pairs(record) do
+    if key ~= "state" and key ~= "calls" then
+      return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state has an unknown field", {})
+    end
+  end
+
+  if not isFiniteInteger(record.state) or record.state < 1 or record.state >= MODULUS then
+    return nil,
+      Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state is outside the generator domain", {})
+  end
+  if not isFiniteInteger(record.calls) or record.calls < 0 then
+    return nil,
+      Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng calls must be a non-negative integer", {})
+  end
+  return { state = record.state, calls = record.calls }
+end
+
 -- Create an RNG instance. `seed` may be a number or a string (derived).
 ---@param seed integer|string|nil
 ---@return table rng
@@ -120,16 +151,14 @@ end
 ---@param record table
 ---@return table rng
 function ScriptRng.restore(record)
-  assert(
-    type(record) == "table" and type(record.state) == "number" and record.state % 1 == 0 and record.state > 0,
-    "serialized rng state must be a positive integer"
-  )
-  assert(
-    type(record.calls) == "number" and record.calls % 1 == 0 and record.calls >= 0,
-    "serialized rng call count must be a non-negative integer"
-  )
-  local rng = ScriptRng.new(record.state)
-  rng._calls = record.calls
+  local valid, err = ScriptRng.validate(record)
+  if not valid then
+    local validationError = assert(err)
+    Errors.raise(validationError.code, validationError.message, validationError.context)
+  end
+  local validated = assert(valid)
+  local rng = ScriptRng.new(validated.state)
+  rng._calls = validated.calls
   return rng
 end
 

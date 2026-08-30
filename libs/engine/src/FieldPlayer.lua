@@ -133,8 +133,8 @@ local function recoverableMovementError(err)
   if not Errors.is(err) then
     return false
   end
-  local errorObject = err --[[@as Errors.Error]]
-  return errorObject.code == "FIELD_COORDINATES_OUT_OF_COVERAGE" or SurfaceResolver.isStepRejection(errorObject)
+  ---@cast err Errors.Error
+  return err.code == "FIELD_COORDINATES_OUT_OF_COVERAGE" or SurfaceResolver.isStepRejection(err)
 end
 
 ---@param options FieldPlayerOptions
@@ -186,6 +186,24 @@ function FieldPlayer.new(options)
   }, FieldPlayer)
 end
 
+-- A destination needs the physical-cell probe, rather than the map's plain
+-- composite collision/terrain, whenever it falls outside the resident
+-- coverage window or the player's own current surface plate does not reach
+-- the tile it is standing on (a plate boundary inside the same resident
+-- cell). `tryStep`'s traversal classification and `_resolveStep`'s full
+-- resolution must agree on this or one will accept a step the other rejects.
+function FieldPlayer:_crossesToPhysicalProbe(destinationX, destinationZ)
+  if not self.currentMap.coverage then
+    return false
+  end
+  local currentSurfaceCoversSource = self.currentMap.terrain:contains(
+    self.surfaceId,
+    self.localX + FieldCoordinates.TILE_CENTER_OFFSET,
+    self.localZ + FieldCoordinates.TILE_CENTER_OFFSET
+  )
+  return not self.currentMap.coverage:containsGlobal(destinationX, destinationZ) or not currentSurfaceCoversSource
+end
+
 -- Resolve the adjacent tile for a step: permission blocking and dynamic
 -- occupancy gate ordinary steps; `bypassBlocking` skips both for the door
 -- choreography's scripted steps (the player must walk into the door tile
@@ -193,16 +211,7 @@ end
 function FieldPlayer:_resolveStep(direction, bypassBlocking)
   local delta = assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
   local destinationX, destinationZ = self.fieldX + delta.x, self.fieldZ + delta.z
-  local currentSurfaceCoversSource = self.currentMap.terrain:contains(
-    self.surfaceId,
-    self.localX + FieldCoordinates.TILE_CENTER_OFFSET,
-    self.localZ + FieldCoordinates.TILE_CENTER_OFFSET
-  )
-  if
-    not bypassBlocking
-    and self.currentMap.coverage
-    and (not self.currentMap.coverage:containsGlobal(destinationX, destinationZ) or not currentSurfaceCoversSource)
-  then
+  if not bypassBlocking and self:_crossesToPhysicalProbe(destinationX, destinationZ) then
     local currentSourceSurfaceId = self.committedSourceSurfaceId
     assert(currentSourceSurfaceId ~= nil, "player stable source id is missing")
     local probe = self.currentMap:probePhysicalCell(destinationX, destinationZ, {
@@ -348,19 +357,18 @@ function FieldPlayer:_advanceTurn()
   return false
 end
 
-function FieldPlayer:tryStep(direction)
-  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
-  assert(self.motion == "idle", "cannot begin a field step while walking")
-  self.facing = direction
-
-  local delta = DELTAS[direction]
+-- Shared step classification: resolves the destination collision cell (via
+-- the physical probe or the map's own collision grid, matching whichever
+-- `_resolveStep` would consult) and runs it through `FieldTraversal.classify`.
+-- `tryStep` and the non-mutating `resolveStep` query must agree on this, or
+-- one accepts a step the other rejects.
+---@param direction FieldDirection
+---@return table
+function FieldPlayer:_stepDecision(direction)
+  local delta = assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
   local destinationX, destinationZ = self.fieldX + delta.x, self.fieldZ + delta.z
   local ok, destinationCell = pcall(function()
-    if
-      self.currentMap.coverage
-      and not self.currentMap.coverage:containsGlobal(destinationX, destinationZ)
-      and self.currentMap.probePhysicalCell
-    then
+    if self:_crossesToPhysicalProbe(destinationX, destinationZ) then
       local probe = self.currentMap:probePhysicalCell(destinationX, destinationZ, {
         currentCellKey = assert(self.committedSourceCellKey, "player stable source cell identity is missing"),
         currentSourceSurfaceId = assert(self.committedSourceSurfaceId, "player stable source id is missing"),
@@ -382,12 +390,51 @@ function FieldPlayer:tryStep(direction)
   end)
   if not ok then
     if recoverableMovementError(destinationCell) then
-      return false
+      return { kind = "blocked" }
     end
     error(destinationCell)
   end
+  return FieldTraversal.classify(destinationCell, direction)
+end
 
-  local decision = FieldTraversal.classify(destinationCell, direction)
+-- Non-mutating production movement query: the same collision, terrain,
+-- ledge/field-action classification, and live-occupancy resolution `tryStep`
+-- uses, without committing a step. Callers (route planners, precondition
+-- checks) can ask "where would this direction lead" without duplicating
+-- `tryStep`'s domain rule.
+---@param direction FieldDirection
+---@return { fieldX: integer, fieldZ: integer, localX: integer, localZ: integer, worldX: number, worldY: number, worldZ: number, surfaceId: integer }|nil
+function FieldPlayer:resolveStep(direction)
+  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  local decision = self:_stepDecision(direction)
+  if decision.kind == "field_action" or decision.kind == "blocked" then
+    return nil
+  elseif decision.kind == "ledge_jump" then
+    return self:_resolveLedgeLanding(direction)
+  end
+  return self:_resolveStep(direction)
+end
+
+-- Turn in place: the same facing-only mutation the script `turn` service
+-- performs, exposed as a narrow public operation so callers that need
+-- deterministic facing setup do not have to attempt a movement step.
+---@param direction FieldDirection
+function FieldPlayer:turn(direction)
+  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  if self:isScriptedMoving() then
+    self.facing = direction
+    return
+  end
+  assert(self.motion == "idle", "cannot turn while the player is moving")
+  self.facing = direction
+end
+
+function FieldPlayer:tryStep(direction)
+  assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
+  assert(self.motion == "idle", "cannot begin a field step while walking")
+  self.facing = direction
+
+  local decision = self:_stepDecision(direction)
   if decision.kind == "field_action" or decision.kind == "blocked" then
     return false
   elseif decision.kind == "ledge_jump" then
@@ -702,6 +749,202 @@ end
 function FieldPlayer:collapseRenderInterpolation()
   assert(self.motion == "idle", "cannot collapse interpolation while the player is moving")
   self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+end
+
+-- --- Scripted locomotion (invariant-preserving) -----------------------------
+
+function FieldPlayer:setScriptPosition(position)
+  assert(
+    type(position) == "table" and position.fieldX ~= nil and position.fieldZ ~= nil,
+    "script position requires fieldX/Z"
+  )
+  local fieldX, fieldZ = position.fieldX, position.fieldZ
+  local localX, localZ = FieldCoordinates.fieldToLocal(self.currentMap, fieldX, fieldZ)
+  local sampleOpts = {
+    localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+    localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+    currentY = position.worldY or self.worldY,
+  }
+  if position.worldY == nil then
+    sampleOpts.currentSurfaceId = self.surfaceId
+  end
+  local sample = SurfaceResolver.new(self.currentMap.terrain):resolve(sampleOpts)
+  local world = FieldCoordinates.fieldToWorld(self.currentMap, fieldX, fieldZ, sample.worldY)
+  self.fieldX = fieldX
+  self.fieldZ = fieldZ
+  self.localX = localX
+  self.localZ = localZ
+  self.worldX = world.x
+  self.worldY = world.y
+  self.worldZ = world.z
+  self.surfaceId = sample.surfaceId
+  self.motion = "idle"
+  self.progressTicks = 0
+  self.from, self.to = nil, nil
+  self._scriptedMotion = nil
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+end
+
+function FieldPlayer:beginScriptedAction(action)
+  local kind = action.action
+  -- Face is an instantaneous direction change: it must succeed even when a
+  -- scripted walk is mid-presentation (the MovementTask drives facing through
+  -- beginScriptedAction while a walk's presentation may still be live). Treat
+  -- it as the same mutation the script `turn` service performs: immediate,
+  -- no from/to, no motion.
+  if kind == "face" then
+    assert(type(action.direction) == "string", "face direction required")
+    self.facing = action.direction
+    self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+    return
+  end
+  assert(self.motion == "idle", "cannot begin scripted action while moving")
+  assert(type(action) == "table" and type(action.action) == "string", "scripted action required")
+  local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+  local durationTicks
+  if
+    kind == "walk"
+    or kind == "walk_in_place"
+    or kind == "jump"
+    or kind == "face"
+    or kind == "delay"
+    or kind == "emote"
+    or kind == "gesture"
+  then
+    durationTicks = MovementCalibration.actionTicks(action)
+  else
+    error("unsupported scripted action " .. tostring(kind))
+  end
+  local fromState = {
+    fieldX = self.fieldX,
+    fieldZ = self.fieldZ,
+    localX = self.localX,
+    localZ = self.localZ,
+    worldX = self.worldX,
+    worldY = self.worldY,
+    worldZ = self.worldZ,
+    surfaceId = self.surfaceId,
+  }
+  local toState
+  if kind == "walk" or kind == "jump" then
+    local direction = assert(action.direction, "direction required for " .. kind)
+    local bypass = true
+    local dest = self:_resolveStep(direction, bypass)
+    if kind == "jump" and action.distance == "zero" then
+      dest = {
+        fieldX = self.fieldX,
+        fieldZ = self.fieldZ,
+        localX = self.localX,
+        localZ = self.localZ,
+        worldX = self.worldX,
+        worldY = self.worldY,
+        worldZ = self.worldZ,
+        surfaceId = self.surfaceId,
+      }
+    end
+    if not dest then
+      error("scripted destination surface missing for " .. tostring(direction))
+    end
+    toState = dest
+  else
+    toState = {
+      fieldX = self.fieldX,
+      fieldZ = self.fieldZ,
+      localX = self.localX,
+      localZ = self.localZ,
+      worldX = self.worldX,
+      worldY = self.worldY,
+      worldZ = self.worldZ,
+      surfaceId = self.surfaceId,
+    }
+  end
+  self.from = fromState
+  self.to = toState
+  self.motion = "walking"
+  self.progressTicks = 0
+  self.durationTicks = durationTicks
+  self._scriptedMotion = {
+    action = kind,
+    direction = action.direction,
+    distance = action.distance,
+    speed = action.speed,
+    durationTicks = durationTicks,
+    progressTicks = 0,
+  }
+  -- Snapshot previousWorld at begin so first render interpolates from source.
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = fromState.worldX, fromState.worldY, fromState.worldZ
+end
+
+function FieldPlayer:advanceScriptedAction(progressTicks, durationTicks)
+  local m = self._scriptedMotion
+  if not m then
+    return
+  end
+  m.progressTicks = progressTicks
+  m.durationTicks = durationTicks
+  local t = durationTicks > 0 and (progressTicks / durationTicks) or 1
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+  if m.action == "walk" then
+    assert(self.from and self.to, "walking endpoints required")
+    self.worldX = self.from.worldX + (self.to.worldX - self.from.worldX) * t
+    self.worldZ = self.from.worldZ + (self.to.worldZ - self.from.worldZ) * t
+    if self.from.surfaceId == self.to.surfaceId then
+      local localX = self.from.localX + FieldCoordinates.TILE_CENTER_OFFSET + (self.to.localX - self.from.localX) * t
+      local localZ = self.from.localZ + FieldCoordinates.TILE_CENTER_OFFSET + (self.to.localZ - self.from.localZ) * t
+      self.worldY = self.currentMap.terrain:sampleHeight(self.to.surfaceId, localX, localZ)
+    else
+      self.worldY = self.from.worldY + (self.to.worldY - self.from.worldY) * t
+    end
+  elseif m.action == "jump" then
+    assert(self.from and self.to, "jump endpoints required")
+    self.worldX = self.from.worldX + (self.to.worldX - self.from.worldX) * t
+    self.worldZ = self.from.worldZ + (self.to.worldZ - self.from.worldZ) * t
+    local baseY = self.from.worldY + (self.to.worldY - self.from.worldY) * t
+    local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+    local h = MovementCalibration.JUMP_HEIGHTS[m.distance] or 0
+    local arc = 4 * h * t * (1 - t)
+    self.worldY = baseY + arc
+  elseif m.action == "walk_in_place" or m.action == "delay" or m.action == "emote" or m.action == "gesture" then
+    self.worldX = self.from.worldX
+    self.worldY = self.from.worldY
+    self.worldZ = self.from.worldZ
+  end
+  self.progressTicks = progressTicks
+  self.durationTicks = durationTicks
+end
+
+function FieldPlayer:commitScriptedAction()
+  local m = self._scriptedMotion
+  if not m then
+    return
+  end
+  if self.to then
+    self.fieldX, self.fieldZ = self.to.fieldX, self.to.fieldZ
+    self.localX, self.localZ = self.to.localX, self.to.localZ
+    self.worldX, self.worldY, self.worldZ = self.to.worldX, self.to.worldY, self.to.worldZ
+    self.surfaceId = self.to.surfaceId
+  end
+  self.motion = "idle"
+  self.progressTicks = 0
+  self.from, self.to = nil, nil
+  self._scriptedMotion = nil
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+end
+
+function FieldPlayer:cancelScriptedMovement()
+  local m = self._scriptedMotion
+  if m and self.from then
+    self.worldX, self.worldY, self.worldZ = self.from.worldX, self.from.worldY, self.from.worldZ
+  end
+  self.motion = "idle"
+  self.progressTicks = 0
+  self.from, self.to = nil, nil
+  self._scriptedMotion = nil
+  self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+end
+
+function FieldPlayer:isScriptedMoving()
+  return self._scriptedMotion ~= nil and self.motion == "walking"
 end
 
 -- Rebind the player to a newly committed physical coverage window. Global tile

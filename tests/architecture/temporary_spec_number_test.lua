@@ -32,6 +32,7 @@ local SCAN_ROOTS = {
 }
 
 local SPEC_NUMBER_PATTERN = "spec %d+%.%d+"
+local GENERATED_LABEL_PATTERN = "generated [A-Z]%d%d"
 
 local function readFile(path)
   local handle = assert(io.open(path, "r"), "cannot read " .. path)
@@ -72,6 +73,9 @@ function T.tests.no_temporary_spec_number_references_in_source()
       end
       violations[#violations + 1] = path .. ":" .. line
       from = last + 1
+    end
+    if contents:find(GENERATED_LABEL_PATTERN) then
+      violations[#violations + 1] = path .. ": temporary generated label"
     end
   end
   if #violations > 0 then

@@ -203,6 +203,25 @@ function T.serialized_input_is_validated()
   end)
 end
 
+function T.validate_returns_a_copy_for_valid_empty_state()
+  local serialized = { flags = {}, vars = {} }
+  local validated = assert(FieldEventState.validate(serialized))
+  Assert.isFalse(validated == serialized)
+  Assert.deepEqual(validated, serialized)
+end
+
+function T.validate_shares_constructor_guardrails()
+  for value, code in pairs({
+    [{ flags = { ["401"] = true }, vars = {} }] = "EVENT_FLAG_ID_INVALID",
+    [{ flags = { [401] = false }, vars = {} }] = "EVENT_FLAG_VALUE_INVALID",
+    [{ flags = {}, vars = { [3] = 0x10000 } }] = "EVENT_VAR_VALUE_INVALID",
+  }) do
+    local valid, err = FieldEventState.validate(value)
+    Assert.isNil(valid)
+    Assert.equal(assert(err).code, code)
+  end
+end
+
 function T.oversized_stores_are_rejected()
   local flags = {}
   for id = 0, FieldEventState.MAX_ENTRIES do

@@ -2,22 +2,26 @@
 -- isolated save namespace and a temporary graphics trap around each runtime,
 -- while FieldRuntime remains the sole owner of maps, scripts, actors, and saves.
 
-local FieldSave = require("libs.engine.src.FieldSave")
 local SaveFs = require("libs.storage.src.SaveFs")
+local GameSaveStore = require("libs.engine.src.GameSaveStore")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local FieldRuntime = require("game.src.game.FieldRuntime")
-local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local App = require("game.src.game.App")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local LocalClock = require("libs.engine.src.LocalClock")
+local PlayTime = require("libs.engine.src.PlayTime")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
-local AcceptanceScriptFs = require("tests.acceptance.support.AcceptanceScriptFs")
-local RepoFs = require("game.src.game.RepoFs")
+local FieldMovement = require("tests.acceptance.support.FieldMovement")
 
 ---@class AcceptanceHarness
 ---@field versions string[]
----@field runtimeFactory fun(versionId: string, map: string|integer|nil, runtimeOptions: table|nil): table
+---@field runtimeFactory fun(game: table, runtimeOptions: table|nil): table
+---@field gameFactory fun(versionId: string, map: string|integer|nil): table
 ---@field saveNamespace fun(versionId: string, serial: integer): string
 ---@field removeSaveNamespace fun(namespace: string)
+---@field primaryVersion fun(self: AcceptanceHarness): string
+---@field defaultVersion fun(): string
 local AcceptanceHarness = {}
 AcceptanceHarness.__index = AcceptanceHarness
 
@@ -38,10 +42,25 @@ local function defaultNamespace(versionId, index)
   return string.format("acceptance/%s/%d", versionId, index)
 end
 
+-- `love.filesystem.remove` only removes a file or an already-empty directory,
+-- so a shallow call silently leaves every namespace's catalog/games files
+-- behind on disk. Across process runs the numeric save-namespace serial
+-- restarts at 1, so a left-behind namespace directory is silently reused by
+-- the next run and its stale catalog corrupts save-cardinality assertions
+-- (an old run's higher-numbered save records reappear as if freshly
+-- published). Recurse depth-first so every acceptance boot leaves a
+-- genuinely empty namespace behind.
 local function removeNamespace(path)
   local fs = love.filesystem
-  fs.remove(path .. "/" .. FieldSave.PATH .. ".tmp")
-  fs.remove(path .. "/" .. FieldSave.PATH)
+  local info = fs.getInfo(path)
+  if info == nil then
+    return
+  end
+  if info.type == "directory" then
+    for _, item in ipairs(fs.getDirectoryItems(path)) do
+      removeNamespace(path .. "/" .. item)
+    end
+  end
   fs.remove(path)
 end
 
@@ -51,10 +70,16 @@ end
 -- the production SaveFs constructor needs no test-only rooting mode. The
 -- wrapper also injects one scoped write or read failure without changing the
 -- runtime's real save composition.
-local function saveBackend(faults, lifecycle, namespace)
+local function saveBackend(faults, lifecycle, namespace, versionId)
   local fs = love.filesystem
   local function remap(path)
-    local rest = path:gsub("^saves/[^/]+", "")
+    local versionPrefix = "saves/" .. versionId .. "/"
+    local rest
+    if path:sub(1, #versionPrefix) == versionPrefix then
+      rest = "version/" .. path:sub(#versionPrefix + 1)
+    else
+      rest = "global/" .. path:gsub("^saves/", "")
+    end
     local remapped = namespace .. "/" .. rest:gsub("^/", "")
     return (remapped:gsub("/$", ""))
   end
@@ -165,31 +190,38 @@ end
 ---@field harness AcceptanceHarness
 ---@field versionId string
 ---@field map string|integer|nil
+---@field waitForFieldEntry fun(self: AcceptanceGame): table
 ---@field fieldOptions table|nil
 ---@field saveStatus string?
 ---@field ownsNamespace boolean
+---@field hostEvents fun(self: AcceptanceGame): table
 local Game = {}
 Game.__index = Game
 
-function AcceptanceHarness:_newRuntime(versionId, map, namespace, save, faults, lifecycle, fieldOptions)
+function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, fieldOptions, reserveSave)
+  local versionId = assert(game.versionId, "acceptance game version required")
   local runtimeOptions = {}
   for key, value in pairs(fieldOptions or {}) do
     runtimeOptions[key] = value
   end
-  runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace))
-  runtimeOptions.resumeSave = save == "resume"
-  runtimeOptions.resetSave = save == "fresh"
-  -- Recording script hosts are an explicit test composition. `audioHost =
-  -- "production"` still omits only the recording audio adapter so the field-
-  -- audio acceptance scenarios can observe the real GameSound composition.
+  runtimeOptions.localClock = runtimeOptions.localClock
+    or LocalClock.new(function()
+      return { year = 2000, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
+    end)
+  runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace, versionId))
+  if fieldOptions == nil or fieldOptions.saveStore ~= false then
+    ---@type { reserve: fun(self: table): string }
+    local saveStore = GameSaveStore.new(SaveFs.global(saveBackend(faults, lifecycle, namespace, versionId)))
+    runtimeOptions.saveStore = saveStore
+    if reserveSave and game.schema == nil then
+      local reservedSaveId = saveStore:reserve()
+      game.saveId = reservedSaveId
+    end
+  end
   if fieldOptions and fieldOptions.recordingScriptHosts == true then
     runtimeOptions.scriptHosts = RecordingScriptHosts.new({ audio = fieldOptions.audioHost ~= "production" })
   end
-  if fieldOptions and fieldOptions.acceptanceScripts then
-    runtimeOptions.overrideFs =
-      AcceptanceScriptFs.new(RepoFs.new(love.filesystem.getSourceBaseDirectory()), fieldOptions.acceptanceScripts)
-  end
-  return self.runtimeFactory(versionId, map, runtimeOptions)
+  return self.runtimeFactory(game, runtimeOptions)
 end
 
 local function gameFor(
@@ -244,8 +276,7 @@ end
 
 function Game:restart(options)
   options = options or {}
-  local save = options.save or "resume"
-  assert(save == "fresh" or save == "resume", "acceptance restart save must be fresh or resume")
+  local game = assert(self.runtime:captureGameSave(), "acceptance restart requires a stable captured game")
   self:_disposeRuntime()
   if self.disposeErr then
     error(self.disposeErr, 0)
@@ -254,23 +285,21 @@ function Game:restart(options)
   local ok, runtime = pcall(
     self.harness._newRuntime,
     self.harness,
-    self.versionId,
-    options.map or self.map,
+    game,
     self.saveNamespace,
-    save,
     self.faults,
     self.lifecycle,
-    self.fieldOptions
+    self.fieldOptions,
+    false
   )
   if not ok then
     error(runtime, 0)
   end
   assert(
-    runtime and runtime.session,
+    runtime and type(runtime.captureGameSave) == "function",
     "acceptance restart runtime boot failed: " .. tostring(runtime and runtime.errorText)
   )
-  ---@cast runtime FieldRuntime
-  self.runtime = runtime
+  self.runtime = runtime --[[@as FieldRuntime]]
   self.map = options.map or self.map
   self.hosts = runtime.scriptHosts or {}
   self.runtimeDisposed = false
@@ -288,9 +317,7 @@ function Game:snapshot()
   local scheduler = runtime.scripts and runtime.scripts.scheduler
   local actors, occupancy = {}, {}
   if runtime.actors and runtime.runtimeMap then
-    local runtimeActors = runtime.actors
-    ---@cast runtimeActors FieldActorManager
-    for _, actor in ipairs(FieldActorManager.actorsOf(runtimeActors, runtime.runtimeMap.mapId)) do
+    for _, actor in ipairs(runtime.actors:actorsOf(runtime.runtimeMap.mapId)) do
       actors[actor.actorId] = {
         fieldX = actor.fieldX,
         fieldZ = actor.fieldZ,
@@ -334,14 +361,21 @@ function Game:snapshot()
       eye = { x = camera.eye.x, y = camera.eye.y, z = camera.eye.z },
       previousEye = { x = camera.previousEye.x, y = camera.previousEye.y, z = camera.previousEye.z },
     } or nil,
-    playerVisual = runtime.playerVisual and {
-      pose = runtime.playerVisual.pose,
-      poseTick = runtime.playerVisual.poseTick,
-    } or nil,
+    playerVisual = runtime.playerVisual and runtime.playerVisual:status() or nil,
     dialogue = dialogue and dialogue:status() or { modal = false },
     menu = appHostStatus.menu or (runtime.menuHost and runtime.menuHost:snapshot()) or nil,
-    fieldLocked = scheduler and scheduler:playerMovementLocked() or false,
+    -- Combined ownership (explicit lock OR field-interaction claim), not
+    -- explicit lock alone: an interaction root such as the New Bark -> Elm
+    -- Lab route owns the field without ever executing LOCK_PLAYER/LockAll.
+    fieldLocked = scheduler and scheduler:playerInputOwned() or false,
+    mapEntryStage = runtime.session and runtime.session.mapEntryStage,
+    foregroundScript = scheduler and scheduler:foregroundScriptId(),
     transition = { phase = runtime.transition and runtime.transition.phase },
+    -- The production script screen-fade controller (fade_screen/wait_fade),
+    -- distinct from the ordinary FieldTransition fade. Synthetic
+    -- harness-mechanics fakes (game/tests/acceptance_harness_self_test.lua)
+    -- do not model it; a real FieldRuntime always does.
+    screenFade = runtime.screenFade and runtime.screenFade:status() or nil,
     avatarId = runtime.avatar and runtime.avatar.id,
     coverage = runtime.runtimeMap and runtime.runtimeMap.coverage and runtime.runtimeMap.coverage:status() or nil,
     zoneChange = runtime.lastZoneChange and {
@@ -357,7 +391,7 @@ function Game:snapshot()
 end
 
 function Game:save()
-  self.runtime:saveSession("Acceptance corridor checkpoint saved")
+  assert(self.runtime:captureGameSave(), "acceptance save requires a stable captured game")
   return self:snapshot()
 end
 
@@ -542,7 +576,7 @@ end
 
 function Game:_record()
   local snapshot = self:snapshot()
-  if self.lastSnapshot and self.lastSnapshot.mapId ~= snapshot.mapId then
+  if self.lastSnapshot and self.lastSnapshot.mapId ~= snapshot.mapId and not self.lastTransition then
     self.lastTransition = { source = self.lastSnapshot, destination = snapshot }
   end
   self.lastSnapshot = snapshot
@@ -569,201 +603,120 @@ function Game:step(input)
 end
 
 function Game:move(direction)
-  self.runtime:press(direction)
-  self:step()
-  self.runtime:release(direction)
+  self:step({ direction = direction })
 end
 
-function Game:_moveOne(direction)
-  local before = self:snapshot()
+-- Drive one production movement step and wait for the step to resolve.
+-- `expected`, when given, is the production-resolved destination the caller
+-- already asked `FieldMovement.route` for. Returns `snapshot, matched`
+-- rather than asserting: a route is planned once against a point-in-time
+-- read of live actor occupancy (`FieldMovement.route`'s own contract says as
+-- much), so a wandering actor stepping onto a planned tile between planning
+-- and arrival is an expected, real possibility, not a corrupt plan -- the
+-- caller decides whether to replan rather than this treating it as fatal. A
+-- turn-in-place (facing changed, coordinates unchanged) is never `matched`.
+function Game:_moveOne(direction, expected)
   self:move(direction)
-  return self:advanceUntil("movement resolves", function(snapshot)
+  local after = self:advanceUntil("movement resolves", function(snapshot)
     return snapshot.player.motion == "idle"
-      and (
-        snapshot.player.fieldX ~= before.player.fieldX
-        or snapshot.player.fieldZ ~= before.player.fieldZ
-        or snapshot.player.facing == direction
-      )
   end, 120)
+  if not expected then
+    return after, true
+  end
+  local matched = after.player.fieldX == expected.fieldX and after.player.fieldZ == expected.fieldZ
+  if matched and expected.surfaceId ~= nil then
+    matched = after.player.surfaceId == expected.surfaceId
+  end
+  return after, matched
 end
 
+-- Drives one planned edge: a direction the route planner named is only ever
+-- a walkable step, but HGSS input still turns in place before it walks
+-- whenever the pressed direction is not the player's current facing.
+-- `face()` settles that turn instantly (the same domain operation a
+-- script's `turn` performs), so `_moveOne` always observes real production
+-- arrival, never a turn-in-place standing in for it.
+function Game:_driveStep(direction, expected)
+  if self:snapshot().player.facing ~= direction then
+    self:face(direction)
+  end
+  return self:_moveOne(direction, expected)
+end
+
+-- Plans and drives a route to `target` through production movement
+-- resolution only (`FieldMovement.route`, backed by
+-- `FieldPlayer:resolveStep`): map collision, terrain/surface, and live actor
+-- occupancy. `stopMapId`, when given, returns as soon as a seamless
+-- logical-zone change lands the player on that map, without requiring the
+-- literal target coordinate to be reached inside it.
+--
+-- Two situations invalidate a planned route mid-drive, and both are
+-- resolved the same way -- replan from wherever the player actually is now,
+-- up to a bounded number of attempts (a target that stays unreachable after
+-- that many replans is a real routing failure, not a slow one):
+-- - A target beyond the resident physical-coverage region cannot be planned
+--   in one pass (`FieldMovement.route` returns a `boundary` instead): only a
+--   real committed step, followed by the engine's own
+--   `FieldNavigationBoundary:afterCommittedMove` recenter, resolves the next
+--   region, so this drives up to the edge and takes that one crossing step
+--   for real before replanning the remainder.
+-- - A planned edge can land somewhere other than the plan expected if a
+--   live actor the plan assumed stationary has since moved onto it; the
+--   route was correct when it was drawn, so this just re-asks for a fresh
+--   one from the player's real, current position.
 function Game:moveTo(target, stopMapId)
   assert(type(target) == "table", "movement target required")
   assert(type(target.fieldX) == "number" and type(target.fieldZ) == "number", "integer field target required")
-  local player = assert(self.runtime.player, "acceptance runtime player required")
-  local targetKey = target.fieldX .. ":" .. target.fieldZ
-  local function copyPlayer(source)
-    local copy = {}
-    for key, value in pairs(source) do
-      copy[key] = value
-    end
-    -- Route search advances cloned players without publishing runtime state.
-    -- The live callback would preflight arbitrary logical maps using the real
-    -- player's coverage, so scope simulated occupancy to the cloned map's
-    -- resident actor index instead.
-    local actorManager = self.runtime.actors
-    if actorManager then
-      local map = assert(source.currentMap, "acceptance player map required")
-      copy.occupancy = function(candidate)
-        local actor = actorManager:getAt(map.mapId, candidate)
-        return actor and actor.actorId or nil
-      end
-    end
-    return setmetatable(copy, getmetatable(source))
+  if target.surfaceId ~= nil then
+    assert(type(target.surfaceId) == "number" and target.surfaceId % 1 == 0, "target surfaceId must be an integer")
   end
-  local directions = { "north", "south", "west", "east" }
-  local function buildRoute(node)
-    local reversed = {}
-    while node.parent do
-      reversed[#reversed + 1] = {
-        direction = node.direction,
-        fieldX = node.player.fieldX,
-        fieldZ = node.player.fieldZ,
-      }
-      node = node.parent
-    end
-    local route = {}
-    for index = #reversed, 1, -1 do
-      route[#route + 1] = reversed[index]
-    end
-    return route
+  self:waitForFieldEntry()
+  local targetLabel = target.fieldX .. ":" .. target.fieldZ
+  if target.surfaceId ~= nil then
+    targetLabel = targetLabel .. ":" .. target.surfaceId
   end
-
-  local function estimateRemaining(source)
-    return math.abs(source.fieldX - target.fieldX) + math.abs(source.fieldZ - target.fieldZ)
-  end
-
-  local function before(first, second)
-    if first.f < second.f then
-      return true
-    elseif first.f > second.f then
-      return false
-    end
-    if first.h < second.h then
-      return true
-    elseif first.h > second.h then
-      return false
-    end
-    return first.sequence < second.sequence
-  end
-
-  local function push(open, node)
-    open[#open + 1] = node
-    local index = #open
-    while index > 1 do
-      local parent = math.floor(index / 2)
-      if before(open[parent], open[index]) then
-        break
-      end
-      open[parent], open[index] = open[index], open[parent]
-      index = parent
-    end
-  end
-
-  local function pop(open)
-    local result = open[1]
-    local last = table.remove(open)
-    if #open > 0 then
-      open[1] = last
-      local index = 1
-      while true do
-        local left = index * 2
-        local right = left + 1
-        local smallest = index
-        if left <= #open and before(open[left], open[smallest]) then
-          smallest = left
-        end
-        if right <= #open and before(open[right], open[smallest]) then
-          smallest = right
-        end
-        if smallest == index then
+  for _ = 1, 20 do
+    local route, boundary = FieldMovement.route(self, target)
+    if route then
+      local blocked = false
+      for _, step in ipairs(route) do
+        local snapshot, matched = self:_driveStep(step.direction, step)
+        if not matched then
+          blocked = true
           break
         end
-        open[index], open[smallest] = open[smallest], open[index]
-        index = smallest
+        if stopMapId ~= nil and snapshot.mapId == stopMapId then
+          return snapshot
+        end
       end
-    end
-    return result
-  end
-
-  local function findRoute(source)
-    local sequence = 0
-    local open = {}
-    local bestCost = { [source.fieldX .. ":" .. source.fieldZ] = 0 }
-    local first = { player = copyPlayer(source), g = 0, h = estimateRemaining(source) }
-    first.f = first.g + first.h
-    sequence = sequence + 1
-    first.sequence = sequence
-    push(open, first)
-    while #open > 0 do
-      local node = pop(open)
-      if node.player.fieldX .. ":" .. node.player.fieldZ == targetKey then
-        return buildRoute(node)
+      if not blocked then
+        return self:snapshot()
       end
-      for _, direction in ipairs(directions) do
-        local nextPlayer = copyPlayer(node.player)
-        if nextPlayer:tryStep(direction) then
-          local duration = nextPlayer.motion == "jumping" and 16 or 8
-          for _ = 1, duration do
-            nextPlayer:updateFixed({})
-          end
-          local key = nextPlayer.fieldX .. ":" .. nextPlayer.fieldZ
-          local isWarp = false
-          for _, warp in ipairs(node.player.currentMap.fieldData.events.warps) do
-            if warp.x == nextPlayer.fieldX and warp.z == nextPlayer.fieldZ then
-              isWarp = true
-              break
-            end
-          end
-          local cost = node.g + 1
-          if (not isWarp or key == targetKey) and (bestCost[key] == nil or cost < bestCost[key]) then
-            bestCost[key] = cost
-            local h = estimateRemaining(nextPlayer)
-            sequence = sequence + 1
-            push(open, {
-              player = nextPlayer,
-              parent = node,
-              direction = direction,
-              g = cost,
-              h = h,
-              f = cost + h,
-              sequence = sequence,
-            })
-          end
+    else
+      assert(boundary, "no production movement route to " .. targetLabel)
+      local blocked = false
+      for _, step in ipairs(boundary.route) do
+        local snapshot, matched = self:_driveStep(step.direction, step)
+        if not matched then
+          blocked = true
+          break
+        end
+        if stopMapId ~= nil and snapshot.mapId == stopMapId then
+          return snapshot
+        end
+      end
+      if not blocked then
+        -- The crossing step's destination is only resolved by the real
+        -- recenter it triggers, so it cannot be asserted against an
+        -- expected coordinate the way a within-region step can.
+        local snapshot = self:_driveStep(boundary.direction)
+        if stopMapId ~= nil and snapshot.mapId == stopMapId then
+          return snapshot
         end
       end
     end
-    return nil
   end
-
-  local route
-  local routeIndex = 1
-  for _ = 1, 256 do
-    player = assert(self.runtime.player, "acceptance runtime player required")
-    if player.fieldX .. ":" .. player.fieldZ == targetKey then
-      return self:snapshot()
-    end
-    if not route or routeIndex > #route then
-      route = assert(findRoute(player), "no production movement route to " .. targetKey)
-      routeIndex = 1
-    end
-    local step = assert(route[routeIndex], "production movement route made no progress")
-    local sourceMapId = player.currentMap and player.currentMap.mapId
-    local snapshot = self:_moveOne(step.direction)
-    if
-      snapshot.mapId == sourceMapId
-      and snapshot.player.fieldX == step.fieldX
-      and snapshot.player.fieldZ == step.fieldZ
-    then
-      routeIndex = routeIndex + 1
-    else
-      route = nil
-    end
-    if stopMapId ~= nil and snapshot.mapId == stopMapId then
-      return snapshot
-    end
-  end
-  error("production movement route exceeded 256 steps to " .. targetKey)
+  error("moveTo could not resolve a route to " .. targetLabel .. " after repeated replans")
 end
 
 function Game:moveUntilBlocked(direction)
@@ -777,31 +730,70 @@ function Game:moveUntilBlocked(direction)
   return after
 end
 
+-- Turn-only facing setup: uses the public `FieldPlayer:turn` domain
+-- operation (the same facing-only mutation the script `turn` service
+-- performs), so it can never walk into an adjacent tile.
 function Game:face(direction)
   self:advanceUntil("prior movement resolves", function(snapshot)
     return snapshot.player.motion == "idle"
   end, 120)
-  self:_moveOne(direction)
-  return self:snapshot()
+  local before = self:snapshot()
+  self.runtime.player:turn(direction)
+  local after = self:snapshot()
+  assert(after.player.facing == direction, "face() must change facing to " .. direction)
+  assert(
+    after.player.fieldX == before.player.fieldX
+      and after.player.fieldZ == before.player.fieldZ
+      and after.player.surfaceId == before.player.surfaceId,
+    "face() must not change field coordinates or surface"
+  )
+  return after
 end
 
-function Game:waitForTransition()
-  if
-    self.lastTransition
-    and self.lastTransition.destination.transition.phase == "idle"
-    and not self.lastTransition.destination.fieldLocked
-  then
-    local completed = self.lastTransition
-    self.lastTransition = nil
-    return completed
-  end
+-- Map-swap boundary: returns as soon as the destination map identity first
+-- changes. Half-transition state (fade still running, door choreography
+-- still mid-egress) may still be in effect; only a test intentionally
+-- inspecting that in-progress state should use this instead of
+-- `waitForTransition`.
+function Game:waitForMapSwap()
   local source = self.lastTransition and self.lastTransition.source or self:snapshot()
-  self:advanceUntil("transition completes", function(snapshot)
-    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle" and not snapshot.fieldLocked
-  end, 120)
-  local completed = assert(self.lastTransition, "completed transition snapshot missing")
+  local destination = self:advanceUntil("map swap", function(snapshot)
+    return snapshot.mapId ~= source.mapId
+  end, 480)
+  return { source = source, destination = destination }
+end
+
+-- Transition-completion boundary: the destination has swapped and
+-- `FieldTransition` itself is idle (not merely "field not locked" -- the
+-- scheduler's foreground-script lock is a separate concept a destination
+-- on-transition/on-resume lifecycle script may still legitimately hold).
+-- This never drives dialogue: an unrelated destination lifecycle owning the
+-- field is a fact this boundary observes, not one it resolves.
+function Game:waitForTransition()
+  local source = self.lastTransition and self.lastTransition.source or self:snapshot()
+  local destination = self:advanceUntil("transition completes", function(snapshot)
+    return snapshot.mapId ~= source.mapId and snapshot.transition.phase == "idle"
+  end, 480)
+  if self.runtime.camera and self.runtime.camera.collapseRenderInterpolation then
+    self.runtime.camera:collapseRenderInterpolation()
+  end
   self.lastTransition = nil
-  return { source = completed.source, destination = self:snapshot() }
+  return { source = source, destination = destination }
+end
+
+-- Field-readiness boundary: the transition is settled, map-entry staging is
+-- complete, no foreground script/modal owns the field, and ordinary player
+-- input can proceed. This observes only; a caller whose scenario requires
+-- driving destination dialogue or seeding source progression to reach this
+-- boundary does so explicitly before/after calling it. A caller that only
+-- wants that diagnosis without waiting may pass `maxTicks = 0`.
+function Game:waitForFieldReady(maxTicks)
+  return self:advanceUntil("field ready for ordinary input", function(snapshot)
+    return snapshot.transition.phase == "idle"
+      and snapshot.mapEntryStage == nil
+      and not snapshot.fieldLocked
+      and not snapshot.dialogue.modal
+  end, maxTicks or 480)
 end
 
 function Game:ownership()
@@ -844,12 +836,69 @@ function Game:advanceUntil(label, predicate, maxTicks)
   error(
     "timed out waiting for "
       .. label
-      .. "; "
+      .. "; trace="
       .. tostring(#self.timeline)
       .. " snapshots; last tick="
-      .. tostring(self:snapshot().tick),
+      .. tostring(self:snapshot().tick)
+      .. "; state="
+      .. tostring(self:snapshot().mapSymbol)
+      .. ":"
+      .. tostring(self:snapshot().player.fieldX)
+      .. ","
+      .. tostring(self:snapshot().player.fieldZ)
+      .. "/"
+      .. tostring(self:snapshot().player.facing)
+      .. ":"
+      .. tostring(self:snapshot().player.motion)
+      .. ", transition="
+      .. tostring(self:snapshot().transition.phase)
+      .. ", locked="
+      .. tostring(self:snapshot().fieldLocked)
+      .. ", entry="
+      .. tostring(self:snapshot().mapEntryStage)
+      .. ", foreground="
+      .. tostring(self:snapshot().foregroundScript)
+      .. ", dialogueModal="
+      .. tostring(self:snapshot().dialogue.modal),
     2
   )
+end
+
+-- Named host-event records (`hostEvents()` payloads), in emission order.
+-- Requires recording hosts (`fieldOptions.recordingScriptHosts = true`).
+function Game:recordsNamed(name)
+  assert(type(name) == "string", "acceptance record name required")
+  local records = {}
+  for _, record in ipairs(self:hostEvents().records) do
+    if record.name == name then
+      records[#records + 1] = record
+    end
+  end
+  return records
+end
+
+-- Records for one canonical script identity, filtering by exact `scriptId`
+-- rather than total activity, so an unrelated startup/lifecycle script start
+-- cannot be mistaken for the trigger under test.
+function Game:recordsForScript(scriptId, name)
+  assert(type(scriptId) == "string", "acceptance script id required")
+  local records = {}
+  for _, record in ipairs(self:recordsNamed(name or "script.started")) do
+    if record.payload and record.payload.scriptId == scriptId then
+      records[#records + 1] = record
+    end
+  end
+  return records
+end
+
+-- Production input must start only after the map-entry lifecycle reaches its
+-- settled boundary. The runtime intentionally returns before that lifecycle
+-- finishes, so callers that drive a field flow use this semantic wait rather
+-- than assuming a fixed number of setup ticks.
+function Game:waitForFieldEntry()
+  return self:advanceUntil("field entry ready for production input", function()
+    return self.runtime.session.mapEntryStage == nil
+  end, 120)
 end
 
 function Game:renderAttempts()
@@ -899,19 +948,18 @@ function Game:replaceApplicationState()
   local ok, runtime = pcall(
     self.harness._newRuntime,
     self.harness,
-    self.versionId,
-    self.map,
+    assert(self.runtime:captureGameSave(), "application replacement requires a stable captured game"),
     self.saveNamespace,
-    "resume",
     self.faults,
-    activeLifecycle
+    activeLifecycle,
+    self.fieldOptions
   )
   if not ok then
     App.setState(nil)
     error(runtime, 0)
   end
   assert(
-    runtime and runtime.session,
+    runtime and type(runtime.captureGameSave) == "function",
     "acceptance replacement runtime boot failed: " .. tostring(runtime and runtime.errorText)
   )
   local active = gameFor(
@@ -960,12 +1008,39 @@ function AcceptanceHarness.new(options)
   options = options or {}
   return setmetatable({
     versions = options.versions or readyVersions(),
-    runtimeFactory = options.runtimeFactory or function(versionId, map, runtimeOptions)
-      return FieldRuntime.new(versionId, map, runtimeOptions)
+    runtimeFactory = options.runtimeFactory or function(game, runtimeOptions)
+      return FieldRuntime.new(game, runtimeOptions)
+    end,
+    gameFactory = options.gameFactory or function(versionId, map)
+      return {
+        saveId = "save-00000001",
+        versionId = versionId,
+        location = {
+          mapSymbol = map or "MAP_BURNED_TOWER_1F",
+          -- The rebuilt New Bark collision makes the old town fixture (6,6)
+          -- blocked. This is the first passable town cell with an open route
+          -- south/east in the generated map.
+          fieldX = 10,
+          fieldZ = 10,
+          facing = "south",
+        },
+        playerData = {
+          profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
+          options = { textSpeed = "fastest", textFrame = 0 },
+        },
+        playTime = PlayTime.new(),
+        worldState = FieldEventState.new(),
+      }
     end,
     saveNamespace = options.saveNamespace or defaultNamespace,
     removeSaveNamespace = options.removeSaveNamespace or removeNamespace,
   }, AcceptanceHarness)
+end
+
+function AcceptanceHarness:forEachVersion(fn)
+  for _, versionId in ipairs(self.versions) do
+    fn(versionId)
+  end
 end
 
 ---@return string
@@ -981,12 +1056,6 @@ function AcceptanceHarness:primaryVersion()
   return self.versions[1]
 end
 
-function AcceptanceHarness:forEachVersion(fn)
-  for _, versionId in ipairs(self.versions) do
-    fn(versionId)
-  end
-end
-
 ---@param options table
 ---@return AcceptanceGame
 function AcceptanceHarness:boot(options)
@@ -996,22 +1065,13 @@ function AcceptanceHarness:boot(options)
   local trap = installRenderTrap()
   local faults = {}
   local lifecycle = { saveWrites = 0, saveReads = 0, runtimeDisposals = 0 }
-  local ok, runtime = pcall(
-    self._newRuntime,
-    self,
-    options.versionId,
-    options.map,
-    namespace,
-    options.save,
-    faults,
-    lifecycle,
-    options.fieldOptions
-  )
+  local game = self.gameFactory(options.versionId, options.map)
+  local ok, runtime = pcall(self._newRuntime, self, game, namespace, faults, lifecycle, options.fieldOptions, true)
   if not ok then
     abortBoot(nil, trap, self.removeSaveNamespace, namespace)
     error("acceptance runtime boot failed: " .. tostring(runtime), 0)
   end
-  if not runtime or not runtime.session then
+  if not runtime or type(runtime.captureGameSave) ~= "function" then
     local errorText = runtime and runtime.errorText
     abortBoot(runtime, trap, self.removeSaveNamespace, namespace)
     error("acceptance runtime boot failed: " .. tostring(errorText), 0)

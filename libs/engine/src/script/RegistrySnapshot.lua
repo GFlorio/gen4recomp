@@ -42,7 +42,7 @@ function RegistrySnapshot.key(cacheFs, overrideFs)
   if manifest == nil then
     return nil
   end
-  local chunk = loadstring(manifest --[[@as string]], ScriptOverrides.MANIFEST)
+  local chunk, _ = loadstring(manifest --[[@as string]], ScriptOverrides.MANIFEST)
   if not chunk then
     return nil
   end
@@ -120,9 +120,8 @@ end
 -- Persist the snapshot only while the world still matches the key the
 -- fingerprint was computed under: a mid-session override edit would make the
 -- stored digest invalid, so the write is skipped and the next boot rebuilds
--- slowly. The snapshot is optional cache state, so a failed write only costs
--- one slow boot; it never fails the caller and never reports success after a
--- failed write.
+-- slowly. The snapshot is optional cache state; callers receive false when
+-- publication is skipped or the cache write fails.
 ---@param cacheFs table CacheFs-shaped
 ---@param overrideFs table read-shaped filesystem for data/scripts/overrides
 ---@param fingerprint string

@@ -18,7 +18,6 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 ScriptCache.FORMAT = Contract.scripts.cacheFormat
 ScriptCache.INDEX_SCHEMA = Contract.scripts.indexSchema
 ScriptCache.PROVENANCE_SCHEMA = Contract.scripts.provenanceSchema
-ScriptCache.BINDINGS_SCHEMA = Contract.scripts.bindingsSchema
 
 local DATA_DIR = "data/generated/script"
 
@@ -40,9 +39,6 @@ end
 function ScriptCache.coverageMdPath()
   return DATA_DIR .. "/coverage.md"
 end
-function ScriptCache.bindingsPath()
-  return DATA_DIR .. "/bindings.lua"
-end
 
 function ScriptCache.scriptPath(id)
   return string.format("%s/scripts/%s.lua", DATA_DIR, id)
@@ -52,9 +48,9 @@ function ScriptCache.marker(romSha1, depHash)
   return string.format("%s:%s:%s", ScriptCache.FORMAT, romSha1, depHash)
 end
 
--- True only if the marker is exact, the index and generated binding manifest
--- have their current shallow schemas, resources is the required array of
--- entries, and every indexed script file has the expected identity.
+-- True only if the marker is exact, the index loads with the expected schema,
+-- resources is the required array of entries, and every indexed script's file
+-- loads as a field_script resource whose id matches its index entry.
 function ScriptCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(ScriptCache.markerPath()) ~= expectedMarker then
     return false
@@ -65,10 +61,6 @@ function ScriptCache.isReady(cacheFs, expectedMarker)
   end
   ---@cast index ScriptCache.Index
   if not Validate.isArray(index.resources) then
-    return false
-  end
-  local bindings = cacheFs:loadLua(ScriptCache.bindingsPath()) ---@type table?
-  if type(bindings) ~= "table" or bindings.schema ~= ScriptCache.BINDINGS_SCHEMA or type(bindings.maps) ~= "table" then
     return false
   end
   for _, entry in ipairs(index.resources) do

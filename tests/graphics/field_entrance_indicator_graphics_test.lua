@@ -29,12 +29,15 @@ end
 
 function T.canonical_indicator_preserves_bright_background(scope, context)
   local cache = CacheFs.forVersion("heartgold")
-  if not cache:exists(FieldEffectAssetCache.modelPath()) then
+  if not cache:exists(FieldEffectAssetCache.indexPath()) then
     context:skip("canonical field-effect model is unavailable")
     return
   end
 
-  local model = assert(cache:loadLua(FieldEffectAssetCache.modelPath()))
+  local index = assert(cache:loadLua(FieldEffectAssetCache.indexPath()))
+  local entry = assert(index.effects.warp_entrance, "field-effect index is missing warp_entrance")
+  local definition = assert(cache:loadLua(entry.path))
+  local model = assert(definition.model)
   local cameraProfiles = assert(cache:loadLua("data/generated/field/camera/profiles.lua"))
   local fieldCamera = FieldCamera.new(cameraProfiles.profiles[0], { canonicalAspect = 4 / 3 })
   local pool = scope:own(GpuAssetPool.new(cache))

@@ -19,8 +19,8 @@ local T = {
 
 local function withGame(fn)
   local game = AcceptanceHarness.new():boot({
-    versionId = AcceptanceHarness.defaultVersion(),
-    map = "MAP_NEW_BARK",
+    versionId = "heartgold",
+    map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
   local ok, err = xpcall(function()

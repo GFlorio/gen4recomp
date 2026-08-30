@@ -33,6 +33,7 @@
 ---@field _slots table<integer, FieldDialogueTheme.Rect>
 ---@field _pointerId string?
 ---@field _pointerDown { kind: "cancel"|"action"|"none", position: integer? }?
+---@field _effect fun(sequence: string)? source UI sound effect boundary
 local StartMenuController = {}
 StartMenuController.__index = StartMenuController
 
@@ -68,6 +69,9 @@ local function composeDisplay(entries, slotCount)
       position = position,
       slotId = position + StartMenuController.CANCEL_SLOT_ID + 1,
       enabled = entry.enabled ~= false, -- default to enabled if not specified
+      sourcePresent = entry.sourcePresent,
+      sourceEnabled = entry.sourceEnabled,
+      implemented = entry.implemented,
     }
   end
   local ordered = {}
@@ -114,13 +118,25 @@ end
 ---@field position integer display position (0-based)
 ---@field slotId integer manifest slot id
 ---@field enabled boolean whether the action can be activated (source-enabled and implementation-available)
+---@field sourcePresent boolean source action was present in the source menu
+---@field sourceEnabled boolean source policy enabled the action
+---@field implemented boolean runtime has an implementation for the action
+
+---@class StartMenuController.Entry
+---@field id string
+---@field targetApplication string
+---@field actionKind string?
+---@field displayPosition integer
+---@field sourcePresent boolean
+---@field sourceEnabled boolean
+---@field implemented boolean
 
 -- opts.entries: the runtime-composed final interactive action list
 -- (id / targetApplication / displayPosition), never empty. opts.slots: the
 -- generated manifest startMenu.slots. opts.cursorFrames: the generated
 -- manifest startMenu.cursor.frames. opts.rememberedActionId: the selection
 -- remembered across a child-application round trip.
----@param opts { entries: table[], slots: table<integer, FieldDialogueTheme.Rect>, cursorFrames: table[], rememberedActionId?: string? }
+---@param opts { entries: StartMenuController.Entry[], slots: table<integer, FieldDialogueTheme.Rect>, cursorFrames: { duration: integer }[], rememberedActionId?: string?, effect?: fun(sequence: string) }
 ---@return StartMenuController
 function StartMenuController.new(opts)
   assert(type(opts) == "table", "the start menu controller requires options")
@@ -147,6 +163,7 @@ function StartMenuController.new(opts)
     _slots = opts.slots,
     _pointerId = nil,
     _pointerDown = nil,
+    _effect = opts.effect,
   }, StartMenuController)
   return self
 end
@@ -220,6 +237,14 @@ function StartMenuController:_activate(position)
   if not action.enabled then
     return -- disabled entry is a no-op
   end
+  if self._effect then
+    self._effect("SEQ_SE_DP_SELECT")
+  end
+  if action.actionKind == "field_action" then
+    self._result = { kind = "field_action", actionId = action.id }
+    self._closed = true
+    return
+  end
   if action.actionKind ~= "application" then
     error("enabled start menu action has no implemented routing: " .. tostring(action.id), 2)
   end
@@ -232,6 +257,9 @@ function StartMenuController:_activate(position)
 end
 
 function StartMenuController:_close()
+  if self._effect then
+    self._effect("SEQ_SE_GS_GEARCANCEL")
+  end
   self._result = { kind = "close" }
   self._closed = true
 end
@@ -325,6 +353,9 @@ function StartMenuController:status()
         position = action.position,
         slotId = action.slotId,
         enabled = action.enabled,
+        sourcePresent = action.sourcePresent,
+        sourceEnabled = action.sourceEnabled,
+        implemented = action.implemented,
       }
     end
   end
@@ -337,9 +368,9 @@ function StartMenuController:status()
   }
 end
 
--- The result contract: nil until a terminal event, then exactly one
--- { kind = "close" } or { kind = "launch", applicationId }.
----@return { kind: "close"|"launch", applicationId?: string }?
+-- The result contract: nil until a terminal event, then exactly one close,
+-- child launch, or immediate field-action result.
+---@return { kind: "close"|"launch"|"field_action", applicationId?: string, actionId?: string }?
 function StartMenuController:takeResult()
   local result = self._result
   self._result = nil

@@ -256,9 +256,9 @@ function Coverage.markdown(record)
   lines[#lines + 1] = "| Script | Status |"
   lines[#lines + 1] = "|---|---|"
   local sliceIds = {
-    "new_bark.npc.woman_1",
-    "new_bark.lab_sign",
-    "elms_lab.generated.script_000",
+    "vanilla.hgss.scr_seq.0842.script_001",
+    "vanilla.hgss.scr_seq.0843.script_009",
+    "vanilla.hgss.scr_seq.0843.script_000",
   }
   for _, script in ipairs(record.scripts) do
     for _, wanted in ipairs(sliceIds) do

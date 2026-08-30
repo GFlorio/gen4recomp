@@ -5,7 +5,7 @@
 -- OBJ Metatile Cells" layouts; the real ROM gated the same layouts. Strict
 -- structural validation: duplicate logical chunks, screen data sizes that
 -- contradict the dimensions, char tile runs that are not exact tile
--- multiples, animation ranges checked in frame units, and OAM shape/size
+-- multiples, animation byte offsets normalized to frame units, and OAM shape/size
 -- decoded from attr0/attr1 with flips read from attr1 bits 12/13.
 
 local Assert = require("tests.support.Assert")
@@ -182,8 +182,8 @@ end
 -- KNBA: one animation of two frames. Payload: numAnims(2), numFrames(2),
 -- animsOffset(4) = 0x18, framesOffset(4), frameDataOffset(4), 8 zero bytes,
 -- then 16-byte anim blocks, 8-byte frame blocks, and u16 frame data.
--- firstFrame defaults to 0 so the frame range is validated in frame units.
-local function animBlock(frames, firstFrame)
+-- firstFrame defaults to 0; the source field is a byte offset into that table.
+local function animBlock(frames, firstFrame, animationFrameCount)
   local anims = u16(1)
     .. u16(#frames)
     .. u32(0x18)
@@ -192,7 +192,7 @@ local function animBlock(frames, firstFrame)
     .. string.rep("\0", 8)
   -- The 16-byte animation entry: numFrames, two unknowns, then the u32
   -- firstFrame at offset 12 (the decoder's reading position).
-  local anim = u32(#frames) .. u16(0) .. u16(1) .. u32(0) .. u32(firstFrame or 0)
+  local anim = u32(animationFrameCount or #frames) .. u16(0) .. u16(1) .. u32(0) .. u32(firstFrame or 0)
   local frameBlocks = {}
   local frameData = {}
   for i, f in ipairs(frames) do
@@ -209,20 +209,60 @@ function T.animation_chunk_reports_frames_with_durations()
   local anim = assert(G2dDecoder.decodeAnimation(data))
   Assert.equal(#anim.anims, 1)
   Assert.equal(#anim.anims[1].frames, 2)
-  Assert.deepEqual(anim.anims[1].frames[1], { cell = 0, duration = 12 })
-  Assert.deepEqual(anim.anims[1].frames[2], { cell = 1, duration = 3 })
+  Assert.deepEqual(anim.anims[1].frames[1], {
+    cell = 0,
+    duration = 12,
+    element = "none",
+    translateX = 0,
+    translateY = 0,
+    scaleX = 1,
+    scaleY = 1,
+    rotation = 0,
+  })
+  Assert.deepEqual(anim.anims[1].frames[2], {
+    cell = 1,
+    duration = 3,
+    element = "none",
+    translateX = 0,
+    translateY = 0,
+    scaleX = 1,
+    scaleY = 1,
+    rotation = 0,
+  })
 end
 
--- firstFrame is a frame index and numFrames a frame count: their sum must fit
--- the frame table total, not some byte-sized measure of the chunk.
+-- firstFrame is a byte offset and numFrames a frame count: the normalized range
+-- must fit the frame table total, not some byte-sized measure of the chunk.
 function T.animation_frame_range_is_validated_in_frame_units()
   -- frameCount = 2 but the animation claims frames [1, 3): out of range.
   local data = container("RNAN", {
-    animBlock({ { duration = 12, cell = 0 }, { duration = 3, cell = 1 } }, 1),
+    animBlock({ { duration = 12, cell = 0 }, { duration = 3, cell = 1 } }, 8, 2),
   })
   local out, err = G2dDecoder.decodeAnimation(data)
   Assert.isNil(out)
   Assert.equal(assert(err).code, G2dDecoder.ERROR.CHUNK_INVALID)
+end
+
+function T.source_animation_frame_offsets_are_decoded_in_frame_units()
+  local frames = {}
+  for cell = 0, 15 do
+    frames[#frames + 1] = { duration = cell + 1, cell = cell }
+  end
+  local data = container("RNAN", {
+    animBlock(frames, 8, 1),
+  })
+  local anim = assert(G2dDecoder.decodeAnimation(data))
+  Assert.equal(#anim.anims[1].frames, 1)
+  Assert.deepEqual(anim.anims[1].frames[1], {
+    cell = 1,
+    duration = 2,
+    element = "none",
+    translateX = 0,
+    translateY = 0,
+    scaleX = 1,
+    scaleY = 1,
+    rotation = 0,
+  })
 end
 
 -- The frame data offset must point inside the chunk before the cell index is

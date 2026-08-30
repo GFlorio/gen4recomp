@@ -17,7 +17,10 @@ local ScriptCache = require("libs.assets.src.ScriptCache")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
+local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
+local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
 local FieldCellCache = require("libs.assets.src.FieldCellCache")
 
 local T = {}
@@ -30,8 +33,11 @@ local function publishedCache()
     FieldFontCache.markerPath(),
     FieldMessageCache.markerPath(),
     FieldUiAssetCache.markerPath(),
+    IntroAssetCache.markerPath(),
     FieldWeatherCache.markerPath(),
     FieldEffectAssetCache.markerPath(),
+    FieldEmoteAssetCache.markerPath(),
+    NewGameInitCache.markerPath(),
     FieldCellCache.markerPath(),
     ScriptCache.markerPath(),
     AudioCache.markerPath(),

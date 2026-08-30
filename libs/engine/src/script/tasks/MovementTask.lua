@@ -12,11 +12,22 @@
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.engine.src.script.errors")
 local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+local EmoteSoundCatalog = require("libs.engine.src.script.EmoteSoundCatalog")
 
 local MovementTask = {}
 
 MovementTask.type = "movement"
 MovementTask.version = 1
+
+-- The only source-proven automatic movement-emote sound: HGSS spawns the
+-- shared exclamation/question field-effect object with a "play sound" flag
+-- set for both MapObjectMovementCmd075 (exclamation) and
+-- MapObjectMovementCmd103 (question), and the effect's init function
+-- (ov01_0220059C) issues PlaySE(SEQ_SE_DP_DECIDE) when that flag is set.
+-- Only the exclamation mapping is wired here: this task owns the
+-- exclamation movement action and its own flag is confirmed set; a question
+-- mapping stays unproven at this call site until traced independently.
+local EMOTE_SOUND_CATALOG = EmoteSoundCatalog.new({ exclamation = "SEQ_SE_DP_DECIDE" })
 
 -- Field-coordinate step deltas per direction (north decreases fieldZ).
 local DIRECTION_DELTA = {
@@ -86,6 +97,8 @@ local function actionCount(action)
 end
 
 -- Advance one action by one tick. Returns the action's completion flag.
+-- The manager owns occupancy and world interpolation; the task drives it
+-- through begin/advance/commit and keeps the unit destination in sync.
 ---@param state table
 ---@param action table
 ---@param ctx table
@@ -110,15 +123,46 @@ local function advanceAction(state, action, ctx)
     end
     return true
   end
+  local isFace = kind == "face"
+  local isLocomotion = kind == "walk" or kind == "walk_in_place" or kind == "jump"
+  -- Lock facing controls whether the task's internal facing (and the actor
+  -- facing applied at action end) follows the command; it does not gate the
+  -- test-observable fake facing because the production beginScriptedAction
+  -- path covers direction updates for non-locked walks. Move the early
+  -- presentation begin before the facing gate so locked faces never touch the
+  -- actor.
+  local shouldBegin = not isFace or not state.facingLocked
+  if state.progressTicks == 0 then
+    -- A directional locomotion action's facing is established atomically
+    -- before its first presentation is observable: the actor must never show
+    -- a walking frame with the previous facing and correct it only once the
+    -- action ends. `face` applies its own facing through beginScriptedAction
+    -- below (or the fake's commit path); direction lock silences the sprite
+    -- facing but never cancels the action's logical displacement vector.
+    if isLocomotion and not state.facingLocked and action.direction ~= nil then
+      state.facing = action.direction
+      ctx.services.actors:setFacing(state.actor, state.facing)
+    end
+    if shouldBegin then
+      ctx.services.actors:beginScriptedAction(state.actor, action)
+    end
+    if kind == "emote" then
+      local effectId = EMOTE_SOUND_CATALOG:effectFor(action.name)
+      if effectId ~= nil then
+        assert(ctx.services.audio, "an emote with a proven sound mapping requires the audio service"):play(effectId)
+      end
+    end
+  end
   state.progressTicks = state.progressTicks + 1
+  if shouldBegin then
+    ctx.services.actors:advanceScriptedAction(state.actor, state.progressTicks, state.durationTicks)
+  end
   if state.progressTicks < state.durationTicks then
     return false
   end
   state.progressTicks = 0
-  if not state.facingLocked then
-    if kind == "face" or kind == "walk" or kind == "walk_in_place" or kind == "jump" then
-      state.facing = action.direction
-    end
+  if not state.facingLocked and isFace then
+    state.facing = action.direction
   end
   if kind == "walk" or kind == "walk_in_place" then
     if kind == "walk" then
@@ -137,6 +181,9 @@ local function advanceAction(state, action, ctx)
   elseif kind == "delay" then
     -- countdown only
   end
+  if shouldBegin then
+    ctx.services.actors:commitScriptedAction(state.actor)
+  end
   return true
 end
 
@@ -152,6 +199,11 @@ function MovementTask._advancePlan(state, ctx)
   while true do
     local action = state.sequence[state.actionIndex + 1]
     if action == nil then
+      -- The plan is exhausted: there is no further action to begin, which is
+      -- normally where locomotion presentation settles to idle. Settle here
+      -- so a sequence that ends on a locomotion action never leaves the
+      -- actor showing its final walking/bob presentation.
+      ctx.services.actors:settleAction(state.actor)
       state.completed = true
       return true
     end
@@ -172,25 +224,18 @@ function MovementTask._advancePlan(state, ctx)
         state.actionIndex = state.actionIndex + 1
         state.actionRepeat = 0
       end
+
+      -- A completed timed instance is the scheduler's fixed-tick boundary.
+      -- Immediate actions may chain on a later poll, but another repetition
+      -- or successor action must not become observable in this poll.
+      if not IMMEDIATE_ACTIONS[kind] and state.sequence[state.actionIndex + 1] ~= nil then
+        return false
+      end
     else
       break
     end
   end
   return false
-end
-
--- Apply the actor's current position and facing through the actor world.
----@param state table
----@param ctx table
-local function applyPosition(state, ctx)
-  ctx.services.actors:setPosition(state.actor, {
-    fieldX = state.destination.fieldX,
-    fieldZ = state.destination.fieldZ,
-    worldY = nil,
-  })
-  if state.facing ~= nil and not state.facingLocked then
-    ctx.services.actors:setFacing(state.actor, state.facing)
-  end
 end
 
 ---@param state table
@@ -199,7 +244,6 @@ end
 function MovementTask.poll(state, ctx)
   if not state.completed then
     local done = MovementTask._advancePlan(state, ctx)
-    applyPosition(state, ctx)
     if done then
       if state.blocking then
         -- The blocking record completes through the scheduler's poll-result
@@ -214,13 +258,28 @@ function MovementTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
+function MovementTask.cancel(state, _, ctx)
+  if state == nil or ctx == nil or ctx.services == nil or ctx.services.actors == nil then
+    return
+  end
+  local actors = ctx.services.actors
+  local ok, err = pcall(function()
+    actors:cancelScriptedMovement(state.actor)
+  end)
+  if not ok and Errors.is(err) then
+    error(err, 0)
+  end
+end
+
 ---@param state table
 ---@return Errors.Error|nil
 function MovementTask.validate(state)
   if type(state) ~= "table" or type(state.sequence) ~= "table" then
-    local context = { state = state }
-    ---@cast context Errors.Context
-    return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "movement state must hold its sequence", context)
+    return Errors.new(
+      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+      "movement state must hold its sequence",
+      { state = state }
+    )
   end
   return nil
 end

@@ -39,6 +39,10 @@ local function drawableState(development)
           return 0.5
         end,
       },
+      destinationWorldPresentable = function()
+        return true
+      end,
+      acknowledgeDestinationPresentation = function() end,
       viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
       camera = { zoom = 1 },
       transition = { fadeAlpha = 0 },
@@ -83,6 +87,11 @@ local function drawableState(development)
     spriteItems = {},
     renderer = { draw = function() end },
     fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
+    fieldEmoteRenderer = {
       drawItems = function()
         return {}
       end,
@@ -156,8 +165,8 @@ function T.product_mode_ignores_the_f1_and_f2_developer_binds()
   Assert.equal(resets, 0, "product mode must ignore the F2 developer reset bind")
 end
 
--- Dev mode keeps the F1 save / F2 reset binds.
-function T.dev_mode_keeps_the_f1_and_f2_developer_binds()
+-- Dev mode no longer exposes legacy persistence/reset binds.
+function T.dev_mode_ignores_the_legacy_f1_and_f2_persistence_binds()
   local saves, resets = 0, 0
   local state = setmetatable({
     development = true,
@@ -175,8 +184,8 @@ function T.dev_mode_keeps_the_f1_and_f2_developer_binds()
   }, FieldState)
   state:keypressed("f1")
   state:keypressed("f2")
-  Assert.equal(saves, 1, "dev mode keeps the F1 save bind")
-  Assert.equal(resets, 1, "dev mode keeps the F2 reset bind")
+  Assert.equal(saves, 0, "dev mode must not expose the legacy F1 save bind")
+  Assert.equal(resets, 0, "dev mode must not expose the legacy F2 reset bind")
 end
 
 -- The zoom keys are documented product camera controls

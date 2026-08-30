@@ -399,7 +399,7 @@ end
 T["fade and wait fade"] = function()
   local h = harness({ screen = true })
   local resource = script("test.fade", {
-    S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" }),
+    S.fadeScreen({ duration = 6, speed = 1, direction = "out", color = "black" }),
     S.waitFade(),
     S.setVar({ variable = "VAR_AFTER", value = 1 }),
     S.stop(),
@@ -407,7 +407,7 @@ T["fade and wait fade"] = function()
   startForeground(h, resource, 100)
   h.scheduler:step(100, nil)
   Assert.equal(h.screen.calls[1].op, "startFade")
-  Assert.equal(h.screen.calls[1].spec.kind, 6)
+  Assert.equal(h.screen.calls[1].spec.duration, 6)
   Assert.equal(h.services.world:getVar("VAR_AFTER"), 0)
   h.scheduler:step(101, nil)
   h.scheduler:step(102, nil)
@@ -681,8 +681,8 @@ end
 T["music fades block until the backend reports the fade inactive"] = function()
   local h = harness({ audio = true })
   h.services.advanceAsync = nil
-  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask") --[[@as TaskImplementation]]
-  h.taskRegistry:register("music_fade", 1, MusicFadeTask)
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  h.taskRegistry:register("music_fade", 1, MusicFadeTask --[[@as TaskImplementation]])
   local resource = script("test.fadeblock", {
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),
     S.setVar({ variable = "VAR_AFTER", value = 1 }),
@@ -739,8 +739,8 @@ end
 -- completed fade.
 T["music fade without backend faults"] = function()
   local h = harness({ audio = false })
-  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask") --[[@as TaskImplementation]]
-  h.taskRegistry:register("music_fade", 1, MusicFadeTask)
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  h.taskRegistry:register("music_fade", 1, MusicFadeTask --[[@as TaskImplementation]])
   local resource = script("test.fadefault", {
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),
     S.setVar({ variable = "VAR_AFTER", value = 1 }),
@@ -778,21 +778,21 @@ T["music fade task completes exactly when the real fade reaches its target"] = f
   local GameSound = require("libs.engine.src.audio.GameSound")
   local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
   local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
-  local provider = AudioAssetProvider.new(AudioFixture.readyCache(AudioFixture.bundle())) --[[@as AudioAssetProvider]]
+  local provider = AudioAssetProvider.new(AudioFixture.readyCache(AudioFixture.bundle()))
   local mixer = VoiceMixer.new({ sampleRate = 48000 })
   local player = SequencePlayer.new({
     sampleRate = 48000,
     mixer = mixer,
     provider = provider,
-  }) --[[@as SequencePlayer]]
+  })
   local sound = GameSound.new({ provider = provider, player = player })
   local h = harness({ audio = false })
   h.services.audio = sound
   h.services.advanceAsync = function()
     sound:updateSoundFrame()
   end
-  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask") --[[@as TaskImplementation]]
-  h.taskRegistry:register("music_fade", 1, MusicFadeTask)
+  local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
+  h.taskRegistry:register("music_fade", 1, MusicFadeTask --[[@as TaskImplementation]])
   local resource = script("test.fadereal", {
     S.playMusic({ music = "SEQ_TEST_A" }),
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),

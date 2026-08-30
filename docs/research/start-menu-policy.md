@@ -1,5 +1,10 @@
 # HGSS Start Menu action policy
 
+The product intentionally diverges from retail Save confirmation: HGSS asks
+for initial-save confirmation and asks for overwrite confirmation when a save
+already exists. gen4recomp's enabled Save action is a one-press immediate
+checkpoint with optional non-interactive feedback; it has no confirmation UI.
+
 Source audit for the pure `StartMenuPolicy` module (action definitions,
 context inhibit masks, progression gates, availability gates). All decomp
 evidence is pinned to pret/pokeheartgold commit `008257708` (Merge pull

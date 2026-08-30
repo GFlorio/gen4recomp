@@ -104,6 +104,79 @@ function T.actions_carry_id_destination_position_slot_and_enabled()
   end
 end
 
+function T.status_preserves_source_and_implementation_capabilities()
+  local controller = newController({
+    entries = {
+      {
+        id = "vanilla.trainer_card",
+        targetApplication = "trainer_card",
+        actionKind = "application",
+        displayPosition = 0,
+        sourcePresent = true,
+        sourceEnabled = true,
+        implemented = true,
+        enabled = true,
+      },
+      {
+        id = "vanilla.options",
+        targetApplication = "options",
+        actionKind = "application",
+        displayPosition = 1,
+        sourcePresent = true,
+        sourceEnabled = true,
+        implemented = false,
+        enabled = false,
+      },
+    },
+  })
+  Assert.deepEqual(controller:status().actions, {
+    {
+      id = "vanilla.trainer_card",
+      targetApplication = "trainer_card",
+      position = 0,
+      slotId = 2,
+      enabled = true,
+      sourcePresent = true,
+      sourceEnabled = true,
+      implemented = true,
+    },
+    {
+      id = "vanilla.options",
+      targetApplication = "options",
+      position = 1,
+      slotId = 3,
+      enabled = false,
+      sourcePresent = true,
+      sourceEnabled = true,
+      implemented = false,
+    },
+  })
+end
+
+function T.selection_and_close_emit_source_effects()
+  local effects = {}
+  local controller = StartMenuController.new({
+    entries = fullEntries(),
+    slots = SLOTS,
+    cursorFrames = CURSOR_FRAMES,
+    effect = function(sequence)
+      effects[#effects + 1] = sequence
+    end,
+  })
+  controller:updateFixed({ { type = "confirm" } })
+  Assert.deepEqual(effects, { "SEQ_SE_DP_SELECT" })
+  local closing = StartMenuController.new({
+    entries = fullEntries(),
+    slots = SLOTS,
+    cursorFrames = CURSOR_FRAMES,
+    effect = function(sequence)
+      effects[#effects + 1] = sequence
+    end,
+  })
+  closing:updateFixed({ { type = "cancel" } })
+  Assert.equal(effects[#effects], "SEQ_SE_GS_GEARCANCEL")
+end
+
 function T.selection_restores_by_remembered_action_id()
   local controller = newController({ rememberedActionId = "vanilla.bag" })
   Assert.equal(controller:status().cursorSlotId, 4, "the remembered action restores its display slot")
@@ -163,6 +236,16 @@ function T.confirm_launches_the_selected_application()
     actionId = "vanilla.trainer_card",
   })
   Assert.equal(controller:status().open, false, "a taken result ends the menu lifetime")
+end
+
+function T.confirming_a_field_action_emits_a_field_action_result()
+  local controller = newController({
+    entries = {
+      { id = "vanilla.save", actionKind = "field_action", displayPosition = 0, enabled = true },
+    },
+  })
+  controller:updateFixed({ { type = "confirm" } })
+  Assert.deepEqual(controller:takeResult(), { kind = "field_action", actionId = "vanilla.save" })
 end
 
 function T.cancel_and_the_menu_event_close()

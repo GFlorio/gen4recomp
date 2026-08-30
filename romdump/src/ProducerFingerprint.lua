@@ -40,7 +40,7 @@ end
 
 -- love.filesystem-backed enumeration of this app's own romdump/src tree; the
 -- paths it returns are relative to romdump/src.
----@return { list: fun(): string[], read: fun(path: string): string }
+---@return ProducerSourceTree
 function ProducerFingerprint.appBackend()
   assert(love and love.filesystem, "the app backend requires love.filesystem")
   local fs = love.filesystem

@@ -3,6 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local DELTAS = {
   north = { x = 0, z = -1 },
@@ -11,15 +12,51 @@ local DELTAS = {
   east = { x = 1, z = 0 },
 }
 
+-- `FieldMovement.route` plans through a disposable real `FieldPlayer` probe
+-- (`FieldPlayer:resolveStep`), so the map needs real collision/terrain even
+-- though the fake player below drives the actual walk itself.
+local FLAT_PLATE = {
+  id = 0,
+  minX = 0,
+  minZ = 0,
+  maxX = 32,
+  maxZ = 32,
+  normal = { x = 0, y = 1, z = 0 },
+  distance = 0,
+  slopeClass = "flat",
+}
+
+local function flatMap()
+  return {
+    mapId = 1,
+    coordinateOrigin = { x = 0, z = 0 },
+    collision = {
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
+    },
+    terrain = TerrainSurface.new({ plates = { FLAT_PLATE } }),
+    fieldData = { events = { warps = {}, coordinates = {} } },
+  }
+end
+
 local function fakePlayer(metrics)
   local player = {
     fieldX = 0,
     fieldZ = 0,
+    surfaceId = 0,
     motion = "idle",
     facing = "south",
     metrics = metrics,
     currentMap = nil,
   }
+
+  function player:turn(direction)
+    self.facing = direction
+  end
 
   function player:tryStep(direction)
     self.metrics.tryStepCalls = self.metrics.tryStepCalls + 1
@@ -44,7 +81,7 @@ local function fakePlayer(metrics)
 end
 
 local function fakeRuntime(metrics, changeMapAt)
-  local map = { mapId = 1, fieldData = { events = { warps = {} } } }
+  local map = flatMap()
   local player = fakePlayer(metrics)
   player.currentMap = map
   local runtime = {
@@ -52,6 +89,11 @@ local function fakeRuntime(metrics, changeMapAt)
     runtimeMap = map,
     session = { FIXED_DT = 1 / 30 },
     pendingDirection = nil,
+    eventState = {
+      getVar = function()
+        return 0
+      end,
+    },
   }
 
   function runtime:press(direction)
@@ -75,6 +117,12 @@ local function fakeRuntime(metrics, changeMapAt)
   end
 
   function runtime:dispose() end
+
+  -- The harness boot contract requires a capture entry point regardless of
+  -- what a test actually exercises; this fake never persists anything.
+  function runtime:captureGameSave()
+    return { saveId = "fake-save", versionId = "test" }
+  end
 
   return runtime
 end

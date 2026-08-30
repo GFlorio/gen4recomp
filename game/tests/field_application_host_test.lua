@@ -1,15 +1,8 @@
 -- Production-composed application-host ownership contract: the runtime
--- registers the production Trainer Card destination only -- no boot-config
--- descriptor can add destinations, so the vanilla save action can never
--- become interactive -- and the application host owns the one modal
--- transition. The session steps the host; runtime disposal in every
--- application phase releases the modal before the save attempt; the resize
--- contract recomputes the shared placement and cancels an active menu
--- pointer capture so a press held across a layout change cannot activate a
--- different post-resize slot.
+-- registers the production Trainer Card destination and dispatches Save as
+-- an immediate field action while the application host owns the menu.
 
 local Assert = require("tests.support.Assert")
-local FieldSave = require("libs.engine.src.FieldSave")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local ScreenTopology = require("libs.engine.src.ScreenTopology")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -23,7 +16,7 @@ local T = {
 }
 
 local function harness()
-  return AcceptanceHarness.new({ versions = { AcceptanceHarness.defaultVersion() } })
+  return AcceptanceHarness.new({ versions = { "heartgold" } })
 end
 
 -- Every start-menu unlock flag: a fresh boot leaves them all unset, so the
@@ -42,10 +35,11 @@ local UNLOCK_FLAGS = {
 -- the real unlock flag makes the production Trainer Card interactive.
 local function bootGame()
   local game = harness():boot({
-    versionId = AcceptanceHarness.defaultVersion(),
-    map = "MAP_NEW_BARK",
+    versionId = "heartgold",
+    map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
+  game:waitForFieldEntry()
   game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
   return game
 end
@@ -122,11 +116,7 @@ function T.tests.runtime_disposal_in_every_application_phase_releases_once()
       case.walk(game)
       Assert.equal(game.runtime.applicationHost:status().phase, case.phase, "the journey must reach " .. case.phase)
       game:close()
-      Assert.equal(
-        game.saveStatus:find("Field session saved", 1, true) ~= nil,
-        true,
-        case.phase .. " disposal must release the modal before the save attempt: " .. tostring(game.saveStatus)
-      )
+      Assert.equal(game.lifecycle.saveWrites, 1, case.phase .. " disposal must not checkpoint the field")
     end, debug.traceback)
     if not ok then
       error(err, 0)
@@ -144,10 +134,11 @@ end
 -- menu-with-disabled-entries composition path.
 function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_field_continues()
   local game = harness():boot({
-    versionId = AcceptanceHarness.defaultVersion(),
-    map = "MAP_NEW_BARK",
+    versionId = "heartgold",
+    map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
+  game:waitForFieldEntry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
     local world = runtime.scripts.worldState
@@ -203,11 +194,7 @@ function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_fiel
     Assert.equal(trainerCardFound, true, "the menu must include the trainer card action")
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
-    Assert.equal(
-      FieldSave.canCapture(runtime.session --[[@as FieldSave.Session]]),
-      true,
-      "closing the menu must restore the capturable boundary"
-    )
+    Assert.notNil(runtime:captureGameSave(), "closing the menu must restore the capturable boundary")
   end, debug.traceback)
   game:close()
   if not ok then
@@ -215,11 +202,16 @@ function T.tests.zero_interactive_actions_make_the_menu_edge_a_noop_and_the_fiel
   end
 end
 
--- The production destination catalogue is closed: the runtime registers the
--- Trainer Card itself, no boot option can add a destination, and the vanilla
--- save unlock flag can never make the save action interactive.
+-- The production destination catalogue contains child applications only;
+-- Save is dispatched separately as a field action.
 function T.tests.the_runtime_registers_production_destinations_only()
-  local game = bootGame()
+  local game = harness():boot({
+    versionId = "heartgold",
+    map = "MAP_BURNED_TOWER_1F",
+    save = "fresh",
+    fieldOptions = { saveStore = false },
+  })
+  game:waitForFieldEntry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
     Assert.equal(
@@ -227,8 +219,8 @@ function T.tests.the_runtime_registers_production_destinations_only()
       true,
       "the production runtime must register the trainer card itself"
     )
-    Assert.equal(runtime.applications:has("save"), false, "no boot descriptor may register the save destination")
-    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_SAVE_BUTTON })
+    Assert.equal(runtime.applications:has("save"), false, "Save must not be a child application")
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
     pressMenuEdge(game)
     advanceToPhase(game, "menu", 16)
     local actions = game.runtime.applicationHost:status().menu.actions
@@ -238,11 +230,11 @@ function T.tests.the_runtime_registers_production_destinations_only()
         enabledActions[#enabledActions + 1] = action
       end
     end
-    Assert.equal(
-      #enabledActions,
-      1,
-      "the save unlock flag must not add an enabled destination when save is unregistered"
-    )
+    local saveEnabled = false
+    for _, action in ipairs(enabledActions) do
+      saveEnabled = saveEnabled or action.id == "vanilla.save"
+    end
+    Assert.equal(saveEnabled, false, "Save must remain unavailable without its concrete handler")
     Assert.equal(
       enabledActions[1].id,
       "vanilla.trainer_card",
@@ -250,11 +242,56 @@ function T.tests.the_runtime_registers_production_destinations_only()
     )
     pressMenuEdge(game)
     advanceToPhase(game, "closed", 16)
+    Assert.equal(runtime:captureGameSave() ~= nil, true, "closing the menu must restore the capturable field boundary")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
+end
+
+function T.tests.manual_save_publishes_then_updates_through_the_menu_host()
+  local game = bootGame()
+  local ok, err = xpcall(function()
+    local runtime = game.runtime
+    game:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_SAVE_BUTTON })
+    openMenu(game)
+    runtime:press("south")
+    game:step()
+    runtime:release("south")
+    confirmAction(game)
+    Assert.equal(runtime.applicationHost:status().phase, "closed")
+    Assert.equal(runtime.savePublished, true)
+    ---@type { list: fun(self: table): table[] }
+    local saveStore = assert(runtime.saveStore)
+    Assert.equal(#saveStore:list(), 1, "the first manual save must publish exactly one reserved record")
+    local first = assert(saveStore:list()[1])
+    Assert.isTrue(first.saveId:find("^save%-", 1) ~= nil)
+    local firstWrites = game.lifecycle.saveWrites
+
+    openMenu(game)
+    runtime:press("south")
+    game:step()
+    runtime:release("south")
+    confirmAction(game)
+    Assert.equal(#saveStore:list(), 1, "a later save must update the reserved identity, not add a logical record")
+    Assert.equal(saveStore:list()[1].saveId, first.saveId, "the update must retain the same reserved save identity")
+    Assert.isTrue(game.lifecycle.saveWrites > firstWrites, "a real update must issue a backend write")
+
+    game:failNextSave()
+    openMenu(game)
+    runtime:press("south")
+    game:step()
+    runtime:release("south")
+    confirmAction(game)
     Assert.equal(
-      FieldSave.canCapture(runtime.session --[[@as FieldSave.Session]]),
-      true,
-      "closing the menu must restore the capturable field boundary"
+      runtime.applicationHost:status().phase,
+      "failed",
+      "the injected write failure must surface as the production error boundary, not be swallowed"
     )
+    Assert.notNil(runtime.applicationHost:error(), "the surfaced failure must carry the underlying save error")
+    Assert.equal(#saveStore:list(), 1, "a failed write must not leave a duplicate or ghost logical record behind")
+    Assert.equal(saveStore:list()[1].saveId, first.saveId, "a failed write must not change the published identity")
   end, debug.traceback)
   game:close()
   if not ok then

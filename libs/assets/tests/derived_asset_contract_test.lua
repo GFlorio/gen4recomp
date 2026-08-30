@@ -18,6 +18,8 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
+local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
 
@@ -25,11 +27,10 @@ local T = {}
 
 function T.contract_pins_the_current_asset_identities()
   -- The audio contracts moved to explicit class schemas while the global
-  -- revision stayed put: the per-class schemas fully identify the changed
-  -- contracts, so unrelated derived classes must not invalidate. The
+  -- revision identifies the current shared generated-asset contracts. The
   -- sequence initial-volume domain is the current NNS table domain.
   Assert.deepEqual(DerivedAssetContract, {
-    revision = 7,
+    revision = 10,
     map = {
       cacheFormat = "map-cache-v7",
       sceneSchema = "g4-map-scene-v9",
@@ -52,7 +53,7 @@ function T.contract_pins_the_current_asset_identities()
     },
     fieldMapData = {
       cacheFormat = "g4-field-map-cache-v1",
-      fieldSchema = "g4-field-map-v7",
+      fieldSchema = "g4-field-map-v8",
     },
     messages = {
       cacheFormat = "field-message-cache-v3",
@@ -68,19 +69,31 @@ function T.contract_pins_the_current_asset_identities()
       cacheFormat = "script-cache-v2",
       indexSchema = "g4-script-index-v1",
       provenanceSchema = "g4-script-provenance-v1",
-      bindingsSchema = "g4-script-bindings-v1",
     },
     fieldWeather = {
       cacheFormat = "field-weather-cache-v1",
       schema = "g4-field-weather-v1",
     },
+    newGameInit = {
+      cacheFormat = "g4-new-game-init-cache-v1",
+      schema = "g4-new-game-init-v2",
+    },
     fieldEffects = {
       cacheFormat = "field-effect-cache-v6",
       indexSchema = "g4-field-effect-index-v1",
     },
+    fieldEmotes = {
+      cacheFormat = "field-emotes-cache-v2",
+      schema = "g4-field-emote-v1",
+    },
     fieldUi = {
       cacheFormat = "field-ui-cache-v1",
       schema = "g4-field-ui-v7",
+    },
+    intro = {
+      cacheFormat = "intro-cache-v5",
+      schema = "g4-intro-assets-v5",
+      provenanceSchema = "g4-intro-provenance-v1",
     },
     audio = {
       cacheFormat = "g4-audio-cache-v1",
@@ -116,7 +129,6 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(ScriptCache.FORMAT, DerivedAssetContract.scripts.cacheFormat)
   Assert.equal(ScriptCache.INDEX_SCHEMA, DerivedAssetContract.scripts.indexSchema)
   Assert.equal(ScriptCache.PROVENANCE_SCHEMA, DerivedAssetContract.scripts.provenanceSchema)
-  Assert.equal(ScriptCache.BINDINGS_SCHEMA, DerivedAssetContract.scripts.bindingsSchema)
   Assert.equal(FieldUiAssetCache.FORMAT, DerivedAssetContract.fieldUi.cacheFormat)
   Assert.equal(FieldUiAssetCache.SCHEMA, DerivedAssetContract.fieldUi.schema)
   Assert.equal(AudioCache.FORMAT, DerivedAssetContract.audio.cacheFormat)
@@ -130,6 +142,10 @@ function T.cache_modules_consume_the_contract_constants()
   Assert.equal(AudioSample.SCHEMA, DerivedAssetContract.audio.sampleSchema)
   Assert.equal(FieldWeatherCache.FORMAT, DerivedAssetContract.fieldWeather.cacheFormat)
   Assert.equal(FieldWeatherCache.SCHEMA, DerivedAssetContract.fieldWeather.schema)
+  Assert.equal(NewGameInitCache.FORMAT, DerivedAssetContract.newGameInit.cacheFormat)
+  Assert.equal(NewGameInitCache.SCHEMA, DerivedAssetContract.newGameInit.schema)
+  Assert.equal(FieldEmoteAssetCache.FORMAT, DerivedAssetContract.fieldEmotes.cacheFormat)
+  Assert.equal(FieldEmoteAssetCache.SCHEMA, DerivedAssetContract.fieldEmotes.schema)
   Assert.equal(FieldEffectAssetCache.FORMAT, DerivedAssetContract.fieldEffects.cacheFormat)
 end
 

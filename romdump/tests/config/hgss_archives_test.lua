@@ -19,6 +19,13 @@ function T.resolves_by_symbol()
   Assert.isTrue(e.required)
 end
 
+function T.field_script_headers_aliases_the_script_sequence_archive()
+  local e = HgssArchives.resolve("field_script_headers")
+  Assert.equal(e.symbol, "NARC_fielddata_script_scr_seq")
+  Assert.equal(e.narcId, 12)
+  Assert.equal(e.path, "a/0/1/2")
+end
+
 function T.resolves_unaliased_raw_symbol()
   local e = HgssArchives.resolve("NARC_a_0_0_0")
   Assert.isNil(e.alias)
@@ -69,6 +76,7 @@ function T.resolves_map_asset_aliases()
     { alias = "area_build_config", narcId = 43, path = "a/0/4/3" },
     { alias = "field_texture_animations", narcId = 139, path = "a/1/3/9" },
     { alias = "field_area_texture_srt", narcId = 140, path = "a/1/4/0" },
+    { alias = "follower_params", narcId = 141, path = "a/1/4/1" },
   }
   for _, c in ipairs(cases) do
     local e = HgssArchives.resolve(c.alias)
@@ -80,10 +88,16 @@ end
 
 function T.alias_list_is_complete_and_deterministic()
   local list = HgssArchives.aliasList()
-  Assert.equal(#list, 37)
-  -- Sorted ascending by narcId.
+  Assert.equal(#list, 39)
+  -- Sorted ascending by narcId, with deterministic alias ordering for shared roles.
   for i = 2, #list do
-    Assert.isTrue(list[i - 1].narcId < list[i].narcId, "aliasList not sorted by narcId")
+    local previous = list[i - 1]
+    local current = list[i]
+    if previous.narcId == current.narcId then
+      Assert.isTrue(previous.alias < current.alias, "shared NARC aliases not deterministic")
+    else
+      Assert.isTrue(previous.narcId < current.narcId, "aliasList not sorted by narcId")
+    end
   end
   for _, e in ipairs(list) do
     Assert.notNil(e.symbol)

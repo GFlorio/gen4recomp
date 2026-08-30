@@ -14,11 +14,7 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 FieldMapDataCache.FORMAT = Contract.fieldMapData.cacheFormat
 FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
-FieldMapDataCache.TRANSITION_ENVIRONMENTS = {
-  cave = true,
-  outdoors = true,
-  building = true,
-}
+FieldMapDataCache.TRANSITION_ENVIRONMENTS = { cave = true, outdoors = true, building = true }
 
 -- The event collections the current field-map schema always carries.
 local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
@@ -27,6 +23,59 @@ local EVENT_COLLECTIONS = { "background", "objects", "warps", "coordinates" }
 ---@return boolean
 function FieldMapDataCache.isTransitionEnvironment(value)
   return type(value) == "string" and FieldMapDataCache.TRANSITION_ENVIRONMENTS[value] == true
+end
+
+local function hasString(value)
+  return type(value) == "string" and #value > 0
+end
+
+local function hasOnlyKeys(value, allowed)
+  for key in pairs(value) do
+    if not allowed[key] then
+      return false
+    end
+  end
+  return true
+end
+
+local function hasInitScripts(field)
+  if not Validate.isArray(field.initScripts) then
+    return false
+  end
+  for _, descriptor in ipairs(field.initScripts) do
+    if type(descriptor) ~= "table" or type(descriptor.type) ~= "string" then
+      return false
+    end
+    if descriptor.type == "on_frame_eq" then
+      if not hasOnlyKeys(descriptor, { type = true, rules = true }) or not Validate.isArray(descriptor.rules) then
+        return false
+      end
+      for _, rule in ipairs(descriptor.rules) do
+        if
+          type(rule) ~= "table"
+          or not hasOnlyKeys(rule, { variableId = true, equals = true, scriptId = true })
+          or not Validate.isNonNegativeInteger(rule.variableId)
+          or rule.variableId > 0xFFFF
+          or not Validate.isNonNegativeInteger(rule.equals)
+          or rule.equals > 0xFFFF
+          or not hasString(rule.scriptId)
+        then
+          return false
+        end
+      end
+    elseif descriptor.type == "on_transition" or descriptor.type == "on_resume" or descriptor.type == "on_load" then
+      if not hasOnlyKeys(descriptor, { type = true, scriptId = true }) or not hasString(descriptor.scriptId) then
+        return false
+      end
+    else
+      return false
+    end
+  end
+  return true
+end
+
+function FieldMapDataCache.hasRequiredInitScripts(field)
+  return type(field) == "table" and hasInitScripts(field)
 end
 
 -- The audio policy the current field-map schema always carries: the music
@@ -98,12 +147,16 @@ function FieldMapDataCache.isReady(cacheFs, mapId, expectedMarker)
     or field.schema ~= FieldMapDataCache.FIELD_SCHEMA
     or field.mapId ~= mapId
     or type(dependencies) ~= "table"
-    or not FieldMapDataCache.isTransitionEnvironment(field.transitionEnvironment)
   then
     return false
   end
   local events = field.events
-  if not FieldMapDataCache.hasRequiredEvents(events) or not hasAudioPolicy(field) then
+  if
+    not FieldMapDataCache.hasRequiredEvents(events)
+    or not hasAudioPolicy(field)
+    or not hasInitScripts(field)
+    or not FieldMapDataCache.isTransitionEnvironment(field.transitionEnvironment)
+  then
     return false
   end
   return true

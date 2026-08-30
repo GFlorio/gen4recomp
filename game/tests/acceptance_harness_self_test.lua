@@ -6,13 +6,13 @@ local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
-  metadata = { tags = { "acceptance-harness" } },
+  metadata = { tags = { "acceptance-harness" }, capabilities = { "rom_dump" } },
   tests = {},
 }
 
-local function fakeRuntime(versionId)
+local function fakeRuntime(game)
   local runtime = {
-    versionId = versionId,
+    versionId = game.versionId,
     session = { tick = 0 },
     player = { fieldX = 4, fieldZ = 7, facing = "south", motion = "idle" },
     runtimeMap = { mapId = 12, mapSymbol = "MAP_TEST" },
@@ -26,6 +26,10 @@ local function fakeRuntime(versionId)
     self.player.facing = direction
   end
   function runtime:release() end
+  function runtime:captureGameSave()
+    return self.game
+  end
+  runtime.game = game
   function runtime:dispose()
     self.disposeCalls = self.disposeCalls + 1
   end
@@ -39,8 +43,8 @@ function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace(
   local originalShader = graphics.newShader
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId)
-      local runtime = fakeRuntime(versionId)
+    runtimeFactory = function(game)
+      local runtime = fakeRuntime(game)
       runtimes[#runtimes + 1] = runtime
       return runtime
     end,
@@ -54,6 +58,8 @@ function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace(
 
   local first = harness:boot({ versionId = "heartgold", save = "fresh" })
   local second = harness:boot({ versionId = "heartgold", save = "fresh" })
+  Assert.equal(runtimes[1].game.playTime:seconds(), 0)
+  Assert.equal(runtimes[2].game.playTime:seconds(), 0)
   Assert.isTrue(first.saveNamespace ~= second.saveNamespace, "each boot needs an isolated save namespace")
   first:close()
   first:close()
@@ -65,6 +71,20 @@ function T.tests.synthetic_boot_is_closed_once_and_uses_a_unique_save_namespace(
   -- namespace; a second boot captures the trapped functions as its
   -- "originals", so any close order must still restore the real functions.
   Assert.equal(graphics.newShader, originalShader, "closing every game restores the graphics namespace")
+end
+
+function T.tests.synthetic_boot_keeps_the_global_save_catalog_inside_its_namespace()
+  local harness = AcceptanceHarness.new({ versions = { "heartgold" }, runtimeFactory = fakeRuntime })
+  local priorCatalog = love.filesystem.getInfo("saves/catalog.lua")
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+  Assert.notNil(love.filesystem.getInfo(game.saveNamespace .. "/global/catalog.lua"))
+  Assert.isNil(love.filesystem.getInfo(game.saveNamespace .. "/version/catalog.lua"))
+  Assert.deepEqual(
+    love.filesystem.getInfo("saves/catalog.lua"),
+    priorCatalog,
+    "acceptance must not touch the real save root"
+  )
+  game:close()
 end
 
 function T.tests.advance_until_timeout_contains_a_bounded_semantic_trace()
@@ -82,16 +102,25 @@ function T.tests.advance_until_timeout_contains_a_bounded_semantic_trace()
   game:close()
 end
 
-function T.tests.wait_for_transition_waits_for_script_ownership_release()
+function T.tests.wait_for_transition_returns_the_observed_destination_before_follow_up_scripts()
   local lockTicks = 0
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId)
-      local runtime = fakeRuntime(versionId)
+    runtimeFactory = function(game)
+      local runtime = fakeRuntime(game)
       runtime.scripts = {
         scheduler = {
-          playerMovementLocked = function()
+          playerInputLocked = function()
             return lockTicks < 4
+          end,
+          playerInputOwned = function()
+            return lockTicks < 4
+          end,
+          foregroundEnvironmentId = function()
+            return nil
+          end,
+          foregroundScriptId = function()
+            return nil
           end,
         },
       }
@@ -101,6 +130,9 @@ function T.tests.wait_for_transition_waits_for_script_ownership_release()
         if lockTicks == 2 then
           self.runtimeMap.mapId = 13
           self.runtimeMap.mapSymbol = "MAP_DESTINATION"
+        elseif lockTicks == 3 then
+          self.runtimeMap.mapId = 12
+          self.runtimeMap.mapSymbol = "MAP_TEST"
         end
       end
       return runtime
@@ -112,15 +144,15 @@ function T.tests.wait_for_transition_waits_for_script_ownership_release()
   local transition = game:waitForTransition()
 
   Assert.equal(transition.destination.mapSymbol, "MAP_DESTINATION")
-  Assert.isFalse(transition.destination.fieldLocked)
-  Assert.equal(transition.destination.tick, 4)
+  Assert.isTrue(transition.destination.fieldLocked)
+  Assert.equal(transition.destination.tick, 2)
   game:close()
 end
 
 function T.tests.failed_boot_disposes_the_partial_runtime_and_removes_its_namespace()
   local deleted = {}
-  local runtime = fakeRuntime("heartgold")
-  runtime.session = nil
+  local runtime = fakeRuntime({ versionId = "heartgold" })
+  runtime.captureGameSave = nil
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
     runtimeFactory = function()
@@ -183,11 +215,8 @@ function T.tests.primary_version_uses_the_first_selected_version()
   Assert.equal(harness:primaryVersion(), "soulsilver")
 end
 
-function T.tests.default_version_comes_from_the_ready_dump_set(context)
-  if not context:hasCapability("rom_dump") then
-    context:skip("no ready user-owned HGSS dump")
-  end
-  Assert.equal(AcceptanceHarness.defaultVersion(), "soulsilver")
+function T.tests.default_version_comes_from_the_ready_dump_set()
+  Assert.equal(AcceptanceHarness.defaultVersion(), AcceptanceHarness.new():primaryVersion())
 end
 
 function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_runtime_once()
@@ -195,9 +224,9 @@ function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_run
   local optionsSeen = {}
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId, _, options)
+    runtimeFactory = function(game, options)
       optionsSeen[#optionsSeen + 1] = options
-      local runtime = fakeRuntime(versionId)
+      local runtime = fakeRuntime(game)
       runtimes[#runtimes + 1] = runtime
       return runtime
     end,
@@ -210,9 +239,8 @@ function T.tests.restart_reuses_the_save_namespace_and_disposes_the_replaced_run
   local resumed = game:restart({ save = "resume" })
 
   Assert.equal(resumed, game)
+  Assert.equal(runtimes[1].game.playTime:seconds(), runtimes[2].game.playTime:seconds())
   Assert.equal(runtimes[1].disposeCalls, 1)
-  Assert.isTrue(optionsSeen[2].resumeSave)
-  Assert.isFalse(optionsSeen[2].resetSave)
   game:close()
   Assert.equal(runtimes[2].disposeCalls, 1)
 end
@@ -226,9 +254,9 @@ function T.tests.restart_reuses_the_original_field_options()
   }
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId, _, options)
+    runtimeFactory = function(game, options)
       optionsSeen[#optionsSeen + 1] = options
-      return fakeRuntime(versionId)
+      return fakeRuntime(game)
     end,
   })
   local game = harness:boot({
@@ -249,9 +277,9 @@ function T.tests.recording_script_hosts_are_an_explicit_composition_choice()
   local optionsSeen = {}
   local harness = AcceptanceHarness.new({
     versions = { "heartgold" },
-    runtimeFactory = function(versionId, _, options)
+    runtimeFactory = function(game, options)
       optionsSeen[#optionsSeen + 1] = options
-      local runtime = fakeRuntime(versionId)
+      local runtime = fakeRuntime(game)
       runtime.scriptHosts = options.scriptHosts
       return runtime
     end,
@@ -272,6 +300,151 @@ function T.tests.recording_script_hosts_are_an_explicit_composition_choice()
   Assert.notNil(optionsSeen[2].scriptHosts, "explicit recording composition must provide script hosts")
   Assert.notNil(recording:hostEvents().records, "explicit recording composition must expose event records")
   recording:close()
+end
+
+-- The three readiness boundaries are genuinely distinct: map identity,
+-- `FieldTransition` settlement, and ordinary-input availability clear at
+-- different ticks. A deterministic fake proves the harness observes each
+-- boundary independently instead of collapsing them into one wait.
+local function readinessRuntime(game)
+  local runtime = fakeRuntime(game)
+  runtime.session.mapEntryStage = "staging"
+  runtime.transition.phase = "fade_in"
+  runtime.dialogue = {
+    modal = true,
+    status = function(self)
+      return self
+    end,
+  }
+  local locked = true
+  runtime.scripts = {
+    scheduler = {
+      playerInputLocked = function()
+        return locked
+      end,
+      playerInputOwned = function()
+        return locked
+      end,
+      foregroundEnvironmentId = function()
+        return locked and "foreground" or nil
+      end,
+      foregroundScriptId = function()
+        return nil
+      end,
+    },
+  }
+  function runtime:update()
+    self.session.tick = self.session.tick + 1
+    local tick = self.session.tick
+    if tick >= 2 then
+      self.runtimeMap.mapId = 13
+      self.runtimeMap.mapSymbol = "MAP_DESTINATION"
+    end
+    if tick >= 4 then
+      self.transition.phase = "idle"
+    end
+    if tick >= 6 then
+      locked = false
+    end
+    if tick >= 8 then
+      self.dialogue.modal = false
+      self.session.mapEntryStage = nil
+    end
+  end
+  return runtime
+end
+
+function T.tests.map_swap_transition_completion_and_field_readiness_clear_at_distinct_ticks()
+  local harness = AcceptanceHarness.new({ versions = { "heartgold" }, runtimeFactory = readinessRuntime })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+
+  local swapped = game:waitForMapSwap()
+  Assert.equal(swapped.destination.mapSymbol, "MAP_DESTINATION")
+  Assert.equal(swapped.destination.tick, 2, "map swap must return as soon as the destination map identity changes")
+  Assert.isFalse(swapped.destination.transition.phase == "idle", "transition may still be settling at map swap")
+
+  local completed = game:waitForTransition()
+  Assert.equal(completed.destination.tick, 4, "transition completion must wait for the transition's own idle phase")
+  Assert.isTrue(completed.destination.fieldLocked, "a destination lifecycle script may still own the field")
+
+  local ready = game:waitForFieldReady()
+  Assert.equal(ready.tick, 8, "field readiness must wait for lifecycle, entry staging, and dialogue to all clear")
+  Assert.isFalse(ready.fieldLocked)
+  Assert.isFalse(ready.dialogue.modal)
+  Assert.isNil(ready.mapEntryStage)
+
+  game:close()
+end
+
+function T.tests.field_readiness_reports_the_blocking_state_when_it_never_clears()
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(game)
+      local runtime = fakeRuntime(game)
+      runtime.dialogue = {
+        modal = true,
+        status = function(self)
+          return self
+        end,
+      }
+      runtime.scripts = {
+        scheduler = {
+          playerInputLocked = function()
+            return true
+          end,
+          playerInputOwned = function()
+            return true
+          end,
+          foregroundEnvironmentId = function()
+            return "foreground"
+          end,
+          foregroundScriptId = function()
+            return "vanilla.stuck_script"
+          end,
+        },
+      }
+      return runtime
+    end,
+  })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+
+  local err = Assert.throws(function()
+    game:waitForFieldReady(2)
+  end)
+  local message = tostring(err)
+  Assert.isTrue(message:find("dialogueModal=true", 1, true) ~= nil, "timeout must name the blocking dialogue state")
+  Assert.isTrue(
+    message:find("vanilla.stuck_script", 1, true) ~= nil,
+    "timeout must name the foreground script still owning the field"
+  )
+  game:close()
+end
+
+-- A step blocked by production movement resolution (an actor occupying the
+-- destination, in real composition) settles idle without reaching the
+-- expected coordinate. `_moveOne` reports that outcome as unmatched rather
+-- than asserting on it, so a caller planning around live actors can replan
+-- instead of treating it as fatal -- even though facing already matches the
+-- requested direction.
+function T.tests.moveOne_reports_a_blocked_step_even_when_facing_already_matches()
+  local harness = AcceptanceHarness.new({
+    versions = { "heartgold" },
+    runtimeFactory = function(game)
+      local runtime = fakeRuntime(game)
+      runtime.player.facing = "east"
+      function runtime:press(direction)
+        -- Production blocked this step: facing updates, coordinates do not.
+        self.player.facing = direction
+      end
+      return runtime
+    end,
+  })
+  local game = harness:boot({ versionId = "heartgold", save = "fresh" })
+
+  local after, matched = game:_moveOne("east", { fieldX = 5, fieldZ = 7 })
+  Assert.isTrue(not matched, "a blocked step must not report as matched")
+  Assert.equal(after.player.fieldX, 4, "a blocked step must not silently commit the planned coordinate")
+  game:close()
 end
 
 return T

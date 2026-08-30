@@ -36,6 +36,9 @@ function T.compiles_the_public_semantic_menu_example()
   Assert.equal(graph.nodes[graph.entry].op, "choose")
 end
 
+---@param script table
+---@param opts table?
+---@return table
 local function compile(script, opts)
   local graph, err = Compiler.compile(script, opts)
   if not graph then
@@ -45,7 +48,7 @@ local function compile(script, opts)
 end
 
 ---@param code string
----@param script table
+---@param script any
 ---@param opts table|nil
 ---@return Errors.Error
 local function compileError(code, script, opts)
@@ -171,7 +174,7 @@ local function allOpsScript()
     S.fadeMusicOut({ target = 0, durationTicks = 30 }),
     S.fadeMusicIn({ durationTicks = 30 }),
     S.processSoundplate(),
-    S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" }),
+    S.fadeScreen({ duration = 6, speed = 1, direction = "out", color = "black" }),
     S.waitFade(),
     S.warp({ map = "MAP_NEW_BARK", warp = 0, fieldX = 684, fieldZ = 393, facing = "south" }),
     S.setSpawn({ spawn = "SPAWN_NEW_BARK" }),

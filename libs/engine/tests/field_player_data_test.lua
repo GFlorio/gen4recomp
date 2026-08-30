@@ -1,4 +1,4 @@
--- FieldPlayerData contract tests: the strict game-owned player profile and
+-- PlayerData contract tests: the strict game-owned player profile and
 -- gameplay-options model. The checked-in demo manifest shape is the reference
 -- record; validation is pure and receives the generated font
 -- charmap plus the imported dialogue frame-index set, so name encodability
@@ -8,7 +8,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldPlayerData = require("libs.engine.src.FieldPlayerData")
+local PlayerData = require("libs.engine.src.PlayerData")
 
 local T = {}
 
@@ -42,6 +42,7 @@ local function record(overrides)
       name = "GOLD",
       gender = 0,
       trainerId = 0,
+      money = 3000,
     },
     options = {
       textFrame = 0,
@@ -61,7 +62,7 @@ local function throwsCode(code, fn)
 end
 
 function T.spec_demo_record_validates_and_returns_a_copy()
-  local validated = assert(FieldPlayerData.validate(record(), context()))
+  local validated = assert(PlayerData.validate(record(), context()))
   Assert.deepEqual(validated, record())
   -- The returned record is a fresh copy: mutating it must not touch the
   -- caller's table, so a fresh session owns its instance of the manifest.
@@ -80,6 +81,7 @@ function T.unknown_keys_are_discarded_by_canonicalization()
       name = "GOLD",
       gender = 0,
       trainerId = 7,
+      money = 3000,
       transientThing = 123,
     },
     options = {
@@ -89,7 +91,7 @@ function T.unknown_keys_are_discarded_by_canonicalization()
     },
     extraTopLevel = "not part of the model",
   }
-  local validated = assert(FieldPlayerData.validate(input, context()))
+  local validated = assert(PlayerData.validate(input, context()))
   Assert.isFalse(rawequal(validated, input), "validation must not return the caller's table")
   Assert.equal(validated.profile.name, "GOLD", "the canonical record keeps the known fields")
   Assert.equal(validated.profile.gender, 0)
@@ -97,21 +99,24 @@ function T.unknown_keys_are_discarded_by_canonicalization()
   Assert.equal(validated.options.textFrame, 1)
   Assert.equal(validated.options.textSpeed, "fast")
   Assert.keySet(validated, "options,profile", "canonicalization must drop the extra top-level key")
-  Assert.keySet(validated.profile, "gender,name,trainerId", "canonicalization must drop profile.transientThing")
+  Assert.keySet(validated.profile, "gender,money,name,trainerId", "canonicalization must drop profile.transientThing")
   Assert.keySet(validated.options, "textFrame,textSpeed", "canonicalization must drop options.futureThing")
 end
 
 function T.over_seven_glyph_names_are_rejected()
   throwsCode("PLAYER_DATA_NAME_INVALID", function()
-    local _, err =
-      FieldPlayerData.validate(record({ profile = { name = "ABCDEFGH", gender = 0, trainerId = 0 } }), context())
+    local _, err = PlayerData.validate(
+      record({ profile = { name = "ABCDEFGH", gender = 0, trainerId = 0, money = 3000 } }),
+      context()
+    )
     error(err)
   end)
 end
 
 function T.empty_names_are_rejected()
   throwsCode("PLAYER_DATA_NAME_INVALID", function()
-    local _, err = FieldPlayerData.validate(record({ profile = { name = "", gender = 0, trainerId = 0 } }), context())
+    local _, err =
+      PlayerData.validate(record({ profile = { name = "", gender = 0, trainerId = 0, money = 3000 } }), context())
     error(err)
   end)
 end
@@ -119,15 +124,17 @@ end
 function T.unencodable_characters_are_rejected()
   -- U+20AC (UTF-8 E2 82 AC) has no glyph in the generated field font charmap.
   throwsCode("PLAYER_DATA_NAME_INVALID", function()
-    local _, err =
-      FieldPlayerData.validate(record({ profile = { name = "GO\226\130\172D", gender = 0, trainerId = 0 } }), context())
+    local _, err = PlayerData.validate(
+      record({ profile = { name = "GO\226\130\172D", gender = 0, trainerId = 0, money = 3000 } }),
+      context()
+    )
     error(err)
   end)
   -- Lowercase letters are a different glyph set; the fixture charmap does not
   -- resolve them, so the same rule must reject them.
   throwsCode("PLAYER_DATA_NAME_INVALID", function()
     local _, err =
-      FieldPlayerData.validate(record({ profile = { name = "gold", gender = 0, trainerId = 0 } }), context())
+      PlayerData.validate(record({ profile = { name = "gold", gender = 0, trainerId = 0, money = 3000 } }), context())
     error(err)
   end)
 end
@@ -137,8 +144,8 @@ end
 -- failure with the counted glyphs, never the charmap failure.
 function T.over_length_names_report_the_glyph_bound_even_when_unencodable()
   -- G O U+20AC D E F G H: eight glyphs, one unencodable.
-  local _, err = FieldPlayerData.validate(
-    record({ profile = { name = "GO\226\130\172DEFGH", gender = 0, trainerId = 0 } }),
+  local _, err = PlayerData.validate(
+    record({ profile = { name = "GO\226\130\172DEFGH", gender = 0, trainerId = 0, money = 3000 } }),
     context()
   )
   Assert.equal(err and err.code, "PLAYER_DATA_NAME_INVALID")
@@ -148,28 +155,38 @@ end
 function T.gender_is_restricted_to_the_gendered_message_values()
   for _, gender in ipairs({ 0, 1 }) do
     Assert.notNil(
-      FieldPlayerData.validate(record({ profile = { name = "GOLD", gender = gender, trainerId = 0 } }), context())
+      PlayerData.validate(
+        record({ profile = { name = "GOLD", gender = gender, trainerId = 0, money = 3000 } }),
+        context()
+      )
     )
   end
   for _, gender in ipairs({ 2, -1, 0.5, "male" }) do
     throwsCode("PLAYER_DATA_GENDER_INVALID", function()
-      local _, err =
-        FieldPlayerData.validate(record({ profile = { name = "GOLD", gender = gender, trainerId = 0 } }), context())
+      local _, err = PlayerData.validate(
+        record({ profile = { name = "GOLD", gender = gender, trainerId = 0, money = 3000 } }),
+        context()
+      )
       error(err)
     end)
   end
 end
 
 function T.trainer_id_is_an_integer_in_range()
-  for _, trainerId in ipairs({ 0, 65535 }) do
+  for _, trainerId in ipairs({ 0, 65535, 65536, 0xFFFFFFFF }) do
     Assert.notNil(
-      FieldPlayerData.validate(record({ profile = { name = "GOLD", gender = 0, trainerId = trainerId } }), context())
+      PlayerData.validate(
+        record({ profile = { name = "GOLD", gender = 0, trainerId = trainerId, money = 3000 } }),
+        context()
+      )
     )
   end
-  for _, trainerId in ipairs({ -1, 65536, 1.5, "12" }) do
+  for _, trainerId in ipairs({ -1, 0x100000000, 1.5, "12" }) do
     throwsCode("PLAYER_DATA_TRAINER_ID_INVALID", function()
-      local _, err =
-        FieldPlayerData.validate(record({ profile = { name = "GOLD", gender = 0, trainerId = trainerId } }), context())
+      local _, err = PlayerData.validate(
+        record({ profile = { name = "GOLD", gender = 0, trainerId = trainerId, money = 3000 } }),
+        context()
+      )
       error(err)
     end)
   end
@@ -177,23 +194,23 @@ end
 
 function T.text_frame_must_resolve_to_an_imported_frame_style()
   for _, frame in ipairs({ 0, 2 }) do
-    Assert.notNil(FieldPlayerData.validate(record({ options = { textFrame = frame, textSpeed = "mid" } }), context()))
+    Assert.notNil(PlayerData.validate(record({ options = { textFrame = frame, textSpeed = "mid" } }), context()))
   end
   for _, frame in ipairs({ 3, -1, 1.5, "0" }) do
     throwsCode("PLAYER_DATA_TEXT_FRAME_INVALID", function()
-      local _, err = FieldPlayerData.validate(record({ options = { textFrame = frame, textSpeed = "mid" } }), context())
+      local _, err = PlayerData.validate(record({ options = { textFrame = frame, textSpeed = "mid" } }), context())
       error(err)
     end)
   end
 end
 
 function T.text_speed_is_an_explicitly_supported_gameplay_value()
-  for _, speed in ipairs({ "slow", "mid", "fast" }) do
-    Assert.notNil(FieldPlayerData.validate(record({ options = { textFrame = 0, textSpeed = speed } }), context()))
+  for _, speed in ipairs({ "slow", "mid", "fast", "fastest" }) do
+    Assert.notNil(PlayerData.validate(record({ options = { textFrame = 0, textSpeed = speed } }), context()))
   end
   for _, speed in ipairs({ "turbo", "MID", "normal", 2 }) do
     throwsCode("PLAYER_DATA_TEXT_SPEED_INVALID", function()
-      local _, err = FieldPlayerData.validate(record({ options = { textFrame = 0, textSpeed = speed } }), context())
+      local _, err = PlayerData.validate(record({ options = { textFrame = 0, textSpeed = speed } }), context())
       error(err)
     end)
   end
@@ -201,21 +218,30 @@ end
 
 function T.missing_profile_or_options_tables_are_rejected()
   throwsCode("PLAYER_DATA_INVALID", function()
-    local _, err = FieldPlayerData.validate({ profile = nil, options = record().options }, context())
+    local _, err = PlayerData.validate({ profile = nil, options = record().options }, context())
     error(err)
   end)
   throwsCode("PLAYER_DATA_INVALID", function()
-    local _, err = FieldPlayerData.validate({ profile = record().profile, options = nil }, context())
+    local _, err = PlayerData.validate({ profile = record().profile, options = nil }, context())
     error(err)
+  end)
+end
+
+function T.ticks_per_glyph_maps_every_supported_speed_to_a_positive_cadence()
+  Assert.equal(PlayerData.ticksPerGlyph("slow"), 3)
+  Assert.equal(PlayerData.ticksPerGlyph("mid"), 2)
+  Assert.equal(PlayerData.ticksPerGlyph("fast"), 1)
+  Assert.throws(function()
+    PlayerData.ticksPerGlyph("turbo")
   end)
 end
 
 function T.validation_requires_the_font_and_frame_context()
   Assert.throws(function()
-    FieldPlayerData.validate(record(), { charmap = CHARMAP })
+    PlayerData.validate(record(), { charmap = CHARMAP })
   end)
   Assert.throws(function()
-    FieldPlayerData.validate(record(), { frameIndexes = FRAME_INDEXES })
+    PlayerData.validate(record(), { frameIndexes = FRAME_INDEXES })
   end)
 end
 

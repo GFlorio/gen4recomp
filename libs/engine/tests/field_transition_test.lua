@@ -83,7 +83,7 @@ local function recordingLoader()
   }
 end
 
-local function defaultDestination()
+local function destinationResult()
   return { destinationMap = { mapId = 60 }, fieldX = 0, fieldZ = 0, surfaceId = 0, worldY = 0 }
 end
 
@@ -230,7 +230,7 @@ function T.resolve_failure_aborts_and_a_second_transition_succeeds()
         failures = failures - 1
         error("resolve failed", 0)
       end
-      return defaultDestination()
+      return destinationResult()
     end,
     prepare = function() end,
     commit = function() end,
@@ -284,7 +284,7 @@ function T.prepare_failure_aborts_with_source_protection_untouched()
   local loader = recordingLoader()
   local transition = FieldTransition.new({
     loader = loader,
-    resolveDestination = defaultDestination,
+    resolveDestination = destinationResult,
     prepare = function()
       error("prepare failed", 0)
     end,
@@ -360,7 +360,7 @@ function T.commit_fault_propagates_as_fatal()
   local loader = recordingLoader()
   local transition = FieldTransition.new({
     loader = loader,
-    resolveDestination = defaultDestination,
+    resolveDestination = destinationResult,
     prepare = function() end,
     commit = function()
       error("commit failed", 0)
@@ -608,7 +608,7 @@ local DOOR_WARP = { index = 0, x = 4, z = 14, destinationMapId = 60, destination
 
 -- The warp trigger record the session hands to the transition: the classified
 -- kind plus the warp. A plain fade passes kind nil ({ warp = warp }).
-local function trigger(kind, warp)
+local function makeTrigger(kind, warp)
   return { kind = kind, warp = warp }
 end
 
@@ -632,7 +632,7 @@ function T.door_choreography_runs_the_hgss_event_order()
     end,
     player = player,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   runUntil(transition, { sourceDoor, destinationDoor }, function()
     return transition.phase == "idle"
   end, 300)
@@ -651,7 +651,10 @@ end
 function T.source_door_waits_for_the_open_before_the_ingress()
   local sourceDoor = doorStub()
   local player = stubPlayer()
-  local transition, source, _, swaps
+  local transition
+  local source
+  local swaps
+  local _
   transition, source, _, swaps = transitionFixture({
     doorAt = function(runtimeMap, _, _)
       if runtimeMap == source then
@@ -661,7 +664,7 @@ function T.source_door_waits_for_the_open_before_the_ingress()
     end,
     player = player,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   Assert.equal(transition.phase, "fade_out")
   Assert.isTrue(transition.locked)
   Assert.equal(transition.sourceKind, "door")
@@ -735,7 +738,7 @@ function T.door_choreography_requires_a_player_for_ingress()
       return runtimeMap.mapId == 61 and sourceDoor or nil
     end,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "north")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "north")
   for _ = 1, sourceDoor.frames do
     step(transition)
     sourceDoor:advance(1)
@@ -770,7 +773,7 @@ function T.destination_door_waits_for_the_open_then_the_egress_then_closes()
     end,
     player = player,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   runUntil(transition, { sourceDoor, destinationDoor }, function()
     return transition.phase == "swap_map"
   end, 200)
@@ -839,7 +842,7 @@ function T.destination_door_alone_activates_the_choreography()
     end,
     player = player,
   })
-  transition:start(source, trigger("directional", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("directional", DOOR_WARP), "south")
   Assert.equal(transition.sourceKind, "directional", "an entrance source is not a door")
   Assert.equal(#player.steps, 0, "no ingress step without a source door")
   runUntil(transition, { destinationDoor }, function()
@@ -885,7 +888,7 @@ function T.static_destination_door_does_not_block_the_unlock()
     end,
     player = player,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   runUntil(transition, { sourceDoor }, function()
     return transition.phase == "swap_map"
   end, 200)
@@ -909,24 +912,6 @@ function T.static_destination_door_does_not_block_the_unlock()
   Assert.isFalse(transition.locked, "a static destination has nothing to wait for")
 end
 
--- A headless door keeps its source classification and completes through the
--- ordinary source fade without inventing a door resource.
-function T.door_kind_without_a_door_resolver_keeps_the_source_classification()
-  local transition, source, _, swaps = transitionFixture()
-  local ok, err = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "north")
-  Assert.isTrue(ok, "a door-less composition never raises for a door-kind warp")
-  Assert.isNil(err)
-  Assert.equal(transition.sourceKind, "door")
-  Assert.equal(transition.sourceChoreo, "done")
-  Assert.isNil(transition.sourceDoor)
-  runTicks(transition, 2 * FADE + 2)
-  Assert.equal(transition.phase, "idle")
-  Assert.isFalse(transition.locked)
-  Assert.isNil(transition.error, "a door-less composition records no unresolved-door error")
-  Assert.equal(#swaps, 1, "the door-less door warp still swaps the map")
-  Assert.notNil(transition:consumeCompleted())
-end
-
 function T.missing_source_door_is_a_data_contract_failure()
   local transition
   local source
@@ -936,7 +921,7 @@ function T.missing_source_door_is_a_data_contract_failure()
     end,
     player = stubPlayer(),
   })
-  local ok, err = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "south")
+  local ok, err = pcall(transition.start, transition, source, makeTrigger("door", DOOR_WARP), "south")
   Assert.isFalse(ok, "a door-kind warp without a resolvable door raises")
   Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR")
 end
@@ -967,7 +952,7 @@ function T.failed_ingress_step_is_a_data_contract_failure()
       end,
     },
   })
-  local okStart, errStart = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "south")
+  local okStart, errStart = pcall(transition.start, transition, source, makeTrigger("door", DOOR_WARP), "south")
   Assert.isTrue(okStart, "the door opens before the ingress is attempted")
   Assert.isNil(errStart)
   for _ = 1, sourceDoor.frames do
@@ -1019,7 +1004,7 @@ function T.failed_egress_step_is_a_data_contract_failure()
     end,
     player = player,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   runUntil(transition, { sourceDoor, destinationDoor }, function()
     return transition.phase == "swap_map"
   end, 200)
@@ -1065,7 +1050,7 @@ function T.source_door_open_failure_aborts_idle_without_touching_map_protection(
     end,
     player = stubPlayer(),
   })
-  local ok = pcall(transition.start, transition, source, trigger("door", DOOR_WARP), "south")
+  local ok, _ = pcall(transition.start, transition, source, makeTrigger("door", DOOR_WARP), "south")
   Assert.isFalse(ok, "a throwing source door open propagates out of start")
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
@@ -1080,7 +1065,7 @@ function T.source_door_open_failure_aborts_idle_without_touching_map_protection(
   Assert.isNil(transition.sourceMap)
   Assert.deepEqual(loader.protections, {})
 
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   runUntil(transition, { sourceDoor }, function()
     return transition.phase == "idle"
   end, 300)
@@ -1116,7 +1101,7 @@ function T.destination_door_open_failure_propagates_after_commit()
     end,
     player = player,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   runUntil(transition, { sourceDoor }, function()
     return transition.phase == "swap_map"
   end, 200)
@@ -1160,7 +1145,7 @@ function T.destination_door_close_failure_propagates_after_commit()
     end,
     player = player,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   -- The close is attempted on the tick that completes the egress movement.
   runUntil(transition, { sourceDoor, destinationDoor }, function()
     return #player.steps == 2 and player.motion == "walking" and player.remaining == 1
@@ -1189,7 +1174,7 @@ function T.finish_does_not_touch_map_protection()
   }
   local transition = FieldTransition.new({
     loader = loader,
-    resolveDestination = defaultDestination,
+    resolveDestination = destinationResult,
     prepare = function() end,
     commit = function() end,
   })
@@ -1221,7 +1206,7 @@ function T.door_warps_skip_coordinate_suppression()
       return nil
     end,
   })
-  transition:start(source, trigger("door", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("door", DOOR_WARP), "south")
   runUntil(transition, { sourceDoor }, function()
     return transition.phase == "load_destination"
   end, 200)
@@ -1232,7 +1217,7 @@ function T.generic_warps_keep_coordinate_suppression()
   local transition, source = transitionFixture({ kind = "generic", player = stubPlayer() })
   transition:start(
     source,
-    trigger("generic", { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }),
+    makeTrigger("generic", { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }),
     "north"
   )
   runTicks(transition, FADE + 1)
@@ -1244,7 +1229,7 @@ function T.plain_warps_never_drive_the_player()
   local transition, source = transitionFixture({ kind = "generic", player = player })
   transition:start(
     source,
-    trigger("generic", { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }),
+    makeTrigger("generic", { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }),
     "north"
   )
   for _ = 1, 2 * FADE + 2 do
@@ -1267,7 +1252,7 @@ function T.stair_warp_without_a_player_raises_and_aborts()
   local transition
   local source
   transition, source = transitionFixture({ loader = loader, kind = "stairs" })
-  local ok, err = pcall(transition.start, transition, source, trigger("stairs", DOOR_WARP), "west")
+  local ok, err = pcall(transition.start, transition, source, makeTrigger("stairs", DOOR_WARP), "west")
   Assert.isFalse(ok, "a stair warp without a player raises")
   Assert.isTrue(tostring(err):find("stair transition step required", 1, true) ~= nil, tostring(err))
   Assert.equal(transition.phase, "idle")
@@ -1282,7 +1267,7 @@ function T.stair_source_climb_drives_the_player_locked_movement()
   -- duplicate presentation movement.
   local player = stubPlayer()
   local transition, source, _, _, sounds = transitionFixture({ kind = "stairs", player = player })
-  transition:start(source, trigger("stairs", DOOR_WARP), "west")
+  transition:start(source, makeTrigger("stairs", DOOR_WARP), "west")
   Assert.isNil(transition.sourceDoor, "stairs never activate the door choreography")
   Assert.equal(transition.sourceKind, "stairs")
   Assert.equal(player.motion, "walking", "the source stair transition starts the locked step")
@@ -1308,7 +1293,7 @@ function T.stair_source_step_failure_aborts_with_ingress_error()
     end,
   }
   local transition, source = transitionFixture({ kind = "stairs", player = player })
-  local ok, err = pcall(transition.start, transition, source, trigger("stairs", DOOR_WARP), "west")
+  local ok, err = pcall(transition.start, transition, source, makeTrigger("stairs", DOOR_WARP), "west")
   Assert.isFalse(ok)
   Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_INGRESS_FAILED")
   Assert.equal(transition.error.code, "MAP_TRANSITION_INGRESS_FAILED")
@@ -1340,20 +1325,20 @@ end
 function T.on_start_callback_fires_once_per_transition_start_before_ownership_changes()
   local starts = 0
   local transition, source = transitionFixture({})
-  transition.onStart = function(cbSource, triggerValue, facing)
+  transition.onStart = function(cbSource, trigger, facing)
     starts = starts + 1
     Assert.equal(cbSource, source, "the callback receives the source map")
-    Assert.equal(triggerValue.warp.x, 4, "the callback receives the warp trigger")
+    Assert.equal(trigger.warp.x, 4, "the callback receives the warp trigger")
     Assert.equal(facing, "south", "the callback receives the facing")
   end
-  transition:start(source, trigger("generic", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("generic", DOOR_WARP), "south")
   Assert.equal(starts, 1, "the callback fires exactly once for the first start")
   -- Complete the first transition back to idle before starting a second one:
   -- the transition is single-flight, so a second start is legal only after
   -- the first runs its full fade cycle.
   runTicks(transition, 2 * FADE + 2)
   Assert.equal(transition.phase, "idle", "the completed transition returns to idle")
-  transition:start(source, trigger("generic", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("generic", DOOR_WARP), "south")
   Assert.equal(starts, 2, "a second start fires the callback again")
 end
 
@@ -1363,11 +1348,25 @@ function T.a_raising_on_start_callback_aborts_the_start_coherently()
       error("injected onStart failure")
     end,
   })
-  transition:start(source, trigger("generic", DOOR_WARP), "south")
+  transition:start(source, makeTrigger("generic", DOOR_WARP), "south")
   Assert.equal(transition.phase, "idle", "a failed onStart aborts back to idle")
   Assert.isFalse(transition.locked)
   Assert.notNil(transition.error, "the abort records the callback failure")
   Assert.notNil(transition.warpContext, "the abort records the warp context")
+end
+
+-- A door-kind warp with no door resolver at all must fail the same way a
+-- resolver that returns no door fails: it is missing semantic door data, not
+-- a valid "headless, no choreography" composition. It must not degrade to a
+-- plain fade while still emitting the door-open sound and completing the
+-- swap, because that observes audio without proving semantic door ingress.
+function T.absent_door_resolver_is_a_data_contract_failure_not_a_synthetic_success()
+  local transition, source, _, swaps, sounds = transitionFixture({ player = stubPlayer() })
+  local ok, err = pcall(transition.start, transition, source, makeTrigger("door", DOOR_WARP), "north")
+  Assert.isFalse(ok, "a door-kind warp with no door resolver must not silently succeed")
+  Assert.equal(type(err) == "table" and err.code or err, "MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR")
+  Assert.equal(#sounds, 0, "no synthetic door-open sound may be emitted when door data cannot resolve")
+  Assert.equal(#swaps, 0, "no map swap may occur when door data cannot resolve")
 end
 
 return { tests = T }

@@ -34,6 +34,10 @@ local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 ---@field _scrollLines FieldDialogueController.VisibleLine[]?
 ---@field _scrollRemaining integer
 ---@field _scrollOffsetY integer
+---@field _cursorCycle integer[]
+---@field _cursorTicksPerPhase integer
+---@field _cursorCycleIndex integer
+---@field _cursorTicksIntoPhase integer
 local FieldDialogueController = {}
 FieldDialogueController.__index = FieldDialogueController
 
@@ -108,6 +112,7 @@ end
 ---@field policy { interGlyphDelay: integer, glyphBudget: integer, abAcceleration: boolean }?
 ---@field printerDelay integer?
 ---@field audio table? { play: function(self: table, soundRef: string) }
+---@field continueCursor { cycle: integer[], framePrinterTicks: integer }?
 
 ---@param opts FieldDialogueControllerOptions
 ---@return FieldDialogueController
@@ -118,7 +123,16 @@ function FieldDialogueController.new(opts)
   )
   local policy = opts.policy
     or (opts.printerDelay and { interGlyphDelay = opts.printerDelay, glyphBudget = 1, abAcceleration = true })
-    or TextSpeedPolicy.forSpeed("mid")
+    or TextSpeedPolicy.forSpeed("fastest")
+  local cursorSource = opts.continueCursor
+  assert(cursorSource, "FieldDialogueController requires continueCursor from the validated field-UI manifest")
+  local cursorCycle = assert(cursorSource.cycle, "continueCursor must carry the source cycle")
+  local cursorTicks = assert(cursorSource.framePrinterTicks, "continueCursor must carry framePrinterTicks")
+  assert(type(cursorCycle) == "table" and #cursorCycle == 4, "continuation cursor cycle must be the source cycle")
+  assert(
+    type(cursorTicks) == "number" and cursorTicks >= 1 and cursorTicks % 1 == 0,
+    "continuation cursor timing must be a positive integer"
+  )
   return setmetatable({
     _layout = opts.layout,
     _policy = policy,
@@ -148,7 +162,10 @@ function FieldDialogueController.new(opts)
     _delayCounter = 0,
     _pauseRemaining = 0,
     _hasPrintBeenSpedUp = false,
-    _cursorFrame = 1,
+    _cursorCycle = cursorCycle,
+    _cursorTicksPerPhase = cursorTicks,
+    _cursorCycleIndex = 1,
+    _cursorTicksIntoPhase = 0,
   }, FieldDialogueController)
 end
 
@@ -209,7 +226,7 @@ function FieldDialogueController:status()
     pageGlyphCount = page and self._pageGlyphs[self._pageIndex] or 0,
     waiting = waiting,
     continuationKind = continuationKind,
-    cursorPhase = waiting and ({ 0, 1, 2, 1 })[self._cursorFrame] or nil,
+    cursorPhase = waiting and self._cursorCycle[self._cursorCycleIndex] or nil,
     warnings = self._warnings or {},
     visibleLines = lines,
     scrollLines = scrollLines,
@@ -291,7 +308,8 @@ function FieldDialogueController:_dispatch()
   self._delayCounter = 0
   self._pauseRemaining = 0
   self._hasPrintBeenSpedUp = false
-  self._cursorFrame = 1
+  self._cursorCycleIndex = 1
+  self._cursorTicksIntoPhase = 0
   local ok, err = pcall(function()
     if callback then
       callback(terminal.result)
@@ -404,7 +422,8 @@ function FieldDialogueController:open(request)
   self._delayCounter = 0
   self._pauseRemaining = 0
   self._hasPrintBeenSpedUp = false
-  self._cursorFrame = 1
+  self._cursorCycleIndex = 1
+  self._cursorTicksIntoPhase = 0
   self._state = "OPENING"
   if #self._pages == 0 then
     -- An empty or control-only message closes safely on its first step: the
@@ -461,7 +480,8 @@ function FieldDialogueController:_enterWait()
   local page = self._pages[self._pageIndex]
   local state = page.breakKind == "eos" and "WAITING_CLOSE" or "WAITING_BOUNDARY"
   self._state = state
-  self._cursorFrame = 1
+  self._cursorCycleIndex = 1
+  self._cursorTicksIntoPhase = 0
 end
 
 -- Called when the current page has fully revealed: prompt/page/eos pages
@@ -589,7 +609,6 @@ function FieldDialogueController:step(snapshot)
       end
     end
   elseif self._state == "WAITING_BOUNDARY" or self._state == "WAITING_CLOSE" then
-    self._cursorFrame = self._cursorFrame % 4 + 1
     if sourceNew then
       if self._audio then
         assert(type(self._audio.play) == "function", "dialogue audio host must provide play")
@@ -597,7 +616,7 @@ function FieldDialogueController:step(snapshot)
       end
       if self._state == "WAITING_BOUNDARY" then
         local page = assert(self._pages[self._pageIndex])
-        if page.breakKind == "page" or page.breakKind == "scroll" then
+        if page.breakKind == "scroll" then
           self:_beginScroll()
         else
           self._retainedLines = {}
@@ -605,6 +624,12 @@ function FieldDialogueController:step(snapshot)
         end
       else
         self._state = "CLOSING"
+      end
+    else
+      self._cursorTicksIntoPhase = self._cursorTicksIntoPhase + 1
+      if self._cursorTicksIntoPhase >= self._cursorTicksPerPhase then
+        self._cursorTicksIntoPhase = 0
+        self._cursorCycleIndex = self._cursorCycleIndex % #self._cursorCycle + 1
       end
     end
   elseif self._state == "SCROLLING" then

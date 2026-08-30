@@ -244,7 +244,21 @@ local function handleRequestStartMenu(_, run)
   return Runtime.OUTCOME_STOP
 end
 
-local function handleYieldTick(_, _)
+local function handleYieldTick(node, run)
+  if node.source and node.source.opcodes then
+    for _, opcode in ipairs(node.source.opcodes) do
+      if opcode == 609 then
+        local actors = assert(requireService(run, "actors"))
+        if actors:partnerId() ~= nil then
+          Errors.raise(ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE, "opcode 609 follower path is unsupported", {
+            scriptId = run.instance.scriptId,
+            command = 609,
+          })
+        end
+        break
+      end
+    end
+  end
   return Runtime.OUTCOME_YIELD_TICK
 end
 
@@ -515,12 +529,18 @@ end
 local function handleSetFlag(node, run)
   local flagId = RuntimeValues.resolveIdOperand(node.flag, run)
   run.services.world:setFlag(flagId)
+  if run.services.actors and run.services.actors.syncPresence then
+    run.services.actors:syncPresence()
+  end
   return Runtime.OUTCOME_CONTINUE
 end
 
 local function handleClearFlag(node, run)
   local flagId = RuntimeValues.resolveIdOperand(node.flag, run)
   run.services.world:clearFlag(flagId)
+  if run.services.actors and run.services.actors.syncPresence then
+    run.services.actors:syncPresence()
+  end
   return Runtime.OUTCOME_CONTINUE
 end
 
@@ -903,7 +923,12 @@ local function handlePlayFanfare(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 local function handleFadeScreen(node, run)
-  requireService(run, "screen"):startFade(node)
+  requireService(run, "screen"):startFade({
+    duration = node.duration,
+    speed = node.speed,
+    direction = node.direction,
+    color = node.color,
+  })
   return Runtime.OUTCOME_CONTINUE
 end
 local function handleFadeMusicOut(node, run)
@@ -925,6 +950,16 @@ local function handleShakeCamera(node, run)
 end
 local function handleSetSpawn(node, run)
   requireService(run, "maps"):setSpawn(node.spawn)
+  return Runtime.OUTCOME_CONTINUE
+end
+local function handleSetSpecialSpawn(node, run)
+  requireService(run, "maps"):setSpecialSpawn({
+    map = RuntimeValues.evaluateValue(node.map, run),
+    fieldX = RuntimeValues.evaluateValue(node.fieldX, run),
+    fieldZ = RuntimeValues.evaluateValue(node.fieldZ, run),
+    warpId = node.warpId,
+    direction = node.direction,
+  })
   return Runtime.OUTCOME_CONTINUE
 end
 local function handleOpenMessage(node, run)
@@ -1166,6 +1201,7 @@ HANDLERS.fade_music_in = handleFadeMusicIn
 HANDLERS.process_soundplate = handleProcessSoundplate
 HANDLERS.shake_camera = handleShakeCamera
 HANDLERS.set_spawn = handleSetSpawn
+HANDLERS.set_special_spawn = handleSetSpecialSpawn
 HANDLERS.open_message = handleOpenMessage
 HANDLERS.signpost_direction = handleSignpostDirection
 HANDLERS.signpost_set = handleSignpostSet

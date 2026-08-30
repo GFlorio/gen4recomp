@@ -12,6 +12,10 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+---@diagnostic disable-next-line: missing-fields -- focused test double, not a real MapProps
+local EMPTY_MAP_PROPS = {}
+---@cast EMPTY_MAP_PROPS MapProps
+
 local function runtimeMap()
   return {
     mapId = 60,
@@ -43,6 +47,7 @@ local function runtimeMap()
       },
     }),
     terrainDependencyHash = "test-terrain",
+    mapProps = EMPTY_MAP_PROPS,
     fieldRegion = {},
     cameraType = 0,
     release = function() end,

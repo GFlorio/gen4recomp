@@ -69,7 +69,7 @@ return {
   variableVarBase = 0x4020,
 
   -- The player graphics available to a field session. Gender uses the same
-  -- validated player-profile values as FieldPlayerData (0 = male, 1 = female).
+  -- validated player-profile values as PlayerData (0 = male, 1 = female).
   avatars = {
     { id = "hero", spriteId = 0, gender = 0 },
     { id = "heroine", spriteId = 97, gender = 1 },

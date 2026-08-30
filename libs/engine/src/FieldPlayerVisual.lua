@@ -67,9 +67,11 @@ end
 -- original timeline: a standing actor holds the first frame of its facing
 -- range, and a turn starts the new range at its first frame.
 function FieldPlayerVisual:updateFixed(walkPoseAtTickStart)
+  local isScriptedWalking = self.player.isScriptedMoving and self.player:isScriptedMoving()
   local walkPoseActive = self.player.motion == "walking"
     or self.player.motion == "turning"
     or self.player.motion == "jumping"
+    or isScriptedWalking == true
   local walking = not self.player.animationPaused and (walkPoseAtTickStart == true or walkPoseActive)
 
   local facingChanged = self.lastFacing ~= self.player.facing
@@ -93,6 +95,10 @@ function FieldPlayerVisual:settle()
   self.pose = "idle"
   self.poseTick = 0
   self.lastFacing = self.player.facing
+end
+
+function FieldPlayerVisual:status()
+  return { pose = self.pose, poseTick = self.poseTick }
 end
 
 -- `alpha` is the render interpolation factor of the current fixed step.

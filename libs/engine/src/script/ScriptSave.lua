@@ -223,6 +223,9 @@ local function validateInstanceRecord(record, instanceIds)
     if
       type(frame) ~= "table"
       or (frame.nodeId ~= nil and type(frame.nodeId) ~= "string")
+      or type(frame.chainScriptId) ~= "string"
+      or frame.chainScriptId == ""
+      or type(frame.chainRevision) ~= "string"
       or type(frame.graphRevision) ~= "string"
       or type(frame.composition) ~= "table"
       or not nonNegativeInteger(frame.composition.entryIndex)
@@ -377,6 +380,7 @@ end
 ---@param opts table
 ---@return Errors.Error|nil
 function ScriptSave.validate(bucket, opts)
+  opts = opts or {}
   if type(bucket) ~= "table" then
     return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "scripts bucket must be a table", {})
   end
@@ -386,6 +390,15 @@ function ScriptSave.validate(bucket, opts)
       "unknown scripts bucket schema " .. tostring(bucket.schema),
       { schema = bucket.schema }
     )
+  end
+  for _, field in ipairs({ "registryFingerprint", "taskFingerprint" }) do
+    if type(bucket[field]) ~= "string" or bucket[field] == "" then
+      return Errors.new(
+        ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+        "scripts bucket fingerprint is required",
+        { field = field }
+      )
+    end
   end
   if opts.expectedRegistryFingerprint ~= nil and bucket.registryFingerprint ~= opts.expectedRegistryFingerprint then
     return Errors.new(
@@ -405,6 +418,56 @@ function ScriptSave.validate(bucket, opts)
   if err ~= nil then
     return err
   end
+  if opts.resolveTask ~= nil then
+    for _, taskRecord in ipairs(bucket.tasks) do
+      local impl, resolveErr = opts.resolveTask(taskRecord.taskType, taskRecord.taskVersion)
+      if impl == nil then
+        return resolveErr
+          or Errors.new(
+            ScriptErrors.SCRIPT_TASK_VERSION_UNSUPPORTED,
+            "saved task implementation is unavailable",
+            { taskType = taskRecord.taskType, version = taskRecord.taskVersion }
+          )
+      end
+      local stateErr = impl.validate(taskRecord.state)
+      if stateErr ~= nil then
+        return stateErr
+      end
+    end
+  end
+  if opts.resolveComposition ~= nil then
+    for _, instanceRecord in ipairs(bucket.instances) do
+      for _, frameRecord in ipairs(instanceRecord.frames) do
+        local composed = opts.resolveComposition(frameRecord.chainScriptId)
+        if composed == nil or composed.revision ~= frameRecord.chainRevision then
+          return Errors.new(
+            ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
+            "save references an unknown composed script revision",
+            {
+              scriptId = frameRecord.chainScriptId,
+              revision = frameRecord.chainRevision,
+              composedRevision = composed and composed.revision or nil,
+            }
+          )
+        end
+        local entry = composed.entries[frameRecord.composition.entryIndex + 1]
+        if entry == nil then
+          return Errors.new(
+            ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
+            "save references an unknown composition entry",
+            { scriptId = frameRecord.chainScriptId, entryIndex = frameRecord.composition.entryIndex + 1 }
+          )
+        end
+        if entry.graph.revision ~= frameRecord.graphRevision then
+          return Errors.new(
+            ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
+            "save references an unknown graph revision",
+            { scriptId = frameRecord.chainScriptId, revision = frameRecord.graphRevision }
+          )
+        end
+      end
+    end
+  end
   return nil
 end
 
@@ -423,27 +486,20 @@ end
 ---@param opts table
 function ScriptSave.restore(bucket, scheduler, restoreTick, opts)
   opts = opts or {}
+  local function resolveTask(taskType, version)
+    return scheduler:resolveTask(taskType, version)
+  end
+  local function resolveComposition(scriptId)
+    return scheduler:resolveComposition(scriptId)
+  end
   local envelopeErr = ScriptSave.validate(bucket, {
     expectedRegistryFingerprint = opts.expectedRegistryFingerprint,
     expectedTaskFingerprint = scheduler:taskRegistryFingerprint(),
+    resolveTask = resolveTask,
+    resolveComposition = resolveComposition,
   })
   if envelopeErr ~= nil then
     Errors.raise(envelopeErr.code, envelopeErr.message, envelopeErr.context)
-  end
-
-  -- Task types and versions must resolve, and the task implementation must
-  -- accept the serialized state.
-  for _, taskRecord in ipairs(bucket.tasks) do
-    local impl, resolveErr = scheduler:resolveTask(taskRecord.taskType, taskRecord.taskVersion)
-    if not impl then
-      local err = resolveErr --[[@as Errors.Error]]
-      Errors.raise(err.code, err.message, err.context)
-    end
-    local implementation = assert(impl)
-    local stateErr = implementation.validate(taskRecord.state)
-    if stateErr ~= nil then
-      Errors.raise(stateErr.code, stateErr.message, stateErr.context)
-    end
   end
 
   scheduler:restoreScriptState(bucket, restoreTick)

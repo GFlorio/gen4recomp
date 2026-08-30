@@ -17,7 +17,7 @@
 -- touches presentation: it returns an immutable InteractionIntent (fresh
 -- numbers and strings only) or nil. An object is eligible regardless of its
 -- raw scriptId. Raw script id 0 remains eligible for an intent and is
--- canonicalized by the binding authority to the inert runtime script. Hidden-
+-- canonicalized by the runtime bindings to the inert runtime script. Hidden-
 -- item background events are skipped because their pickup scripts depend on
 -- collection flags that are not tracked (see `isHiddenItem`).
 -- Pure domain module: no love dependency.
@@ -83,8 +83,7 @@ FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD = 4
 -- Normalized event marker for the hidden-item family. Hidden items carry
 -- pickup scripts whose collection-flag state is not tracked yet, so the
 -- family is declared noninteractive: the resolver never emits an intent for
--- it, the binding audit rejects bindings for it, and the manifest omits it.
--- `isHiddenItem` is the single owner of this classification.
+-- it. `isHiddenItem` is the single owner of this classification.
 ---@param event table
 ---@return boolean
 function FieldInteractionResolver.isHiddenItem(event)
@@ -130,8 +129,10 @@ function FieldInteractionResolver.backgroundDirectionCompatible(playerFacingRaw,
 end
 
 -- opts.actorAt: function(mapId, candidate) -> actor | nil.
--- The actor manager's occupancy index is the lookup;
--- hidden actors never appear there.
+-- The lookup answers with the active actor map's live occupancy or with an
+-- equivalent read-only source probe for a map that owns no live actors; both
+-- carry the same object identity (`actorId`, `objectEventId`, `sourceEvent`,
+-- `spriteId`). Hidden objects never appear in either.
 ---@param opts FieldInteractionResolverOptions
 ---@return FieldInteractionResolver
 function FieldInteractionResolver.new(opts)
@@ -268,10 +269,10 @@ function FieldInteractionResolver:resolve(snapshot)
   local targetMap = assert(self.targetMapAt(targetX, targetZ, map), "reachable interaction target has no logical map")
   local targetPlate = map.terrain:plate(targetSample.surfaceId)
 
-  -- Object actors first: the occupancy index is keyed by the exact surface,
-  -- and the key is the facing cell's RESOLVED surface, so a cross-surface
-  -- boundary looks up the actor where it actually stands, and a same-x/z
-  -- actor on another surface stays ineligible. Raw script zero remains an
+  -- Object actors first: the lookup is keyed by the exact surface, and the
+  -- key is the facing cell's RESOLVED surface, so a cross-surface boundary
+  -- finds the object where it actually stands, and a same-x/z object on
+  -- another surface stays ineligible. Raw script zero remains an
   -- intent and is canonicalized by the script binding authority.
   local actor = self.actorAt(targetMap.mapId, {
     fieldX = targetX,

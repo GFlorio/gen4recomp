@@ -19,6 +19,8 @@ local function publishedCache()
   local FieldFontCache = require("libs.assets.src.FieldFontCache")
   local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
   local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+  local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
+  local AudioCache = require("libs.assets.src.AudioCache")
   local ScriptCache = require("libs.assets.src.ScriptCache")
   local MapAssetCache = require("libs.assets.src.MapAssetCache")
   local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
@@ -28,6 +30,8 @@ local function publishedCache()
     FieldFontCache.markerPath(),
     FieldMessageCache.markerPath(),
     FieldUiAssetCache.markerPath(),
+    IntroAssetCache.markerPath(),
+    AudioCache.markerPath(),
     ScriptCache.markerPath(),
     MapAssetCache.mapDir(7) .. "/complete",
     FieldMapDataCache.markerPath(7),

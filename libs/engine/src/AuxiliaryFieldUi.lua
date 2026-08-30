@@ -6,6 +6,47 @@
 ---@field private _state "shown"|"showing"|"hidden"|"hiding"
 local AuxiliaryFieldUi = {}
 AuxiliaryFieldUi.__index = AuxiliaryFieldUi
+local Errors = require("libs.errors.src.Errors")
+local FieldErrors = require("libs.engine.src.FieldErrors")
+
+local function validateRecord(record)
+  if type(record) ~= "table" then
+    Errors.raise(FieldErrors.AUXILIARY_UI_INVALID, "auxiliary UI state must be a table", {})
+  end
+  for key in pairs(record) do
+    if key ~= "requested" and key ~= "state" then
+      Errors.raise(FieldErrors.AUXILIARY_UI_INVALID, "auxiliary UI state contains an unknown field", { field = key })
+    end
+  end
+  if record.requested ~= "shown" and record.requested ~= "hidden" then
+    Errors.raise(FieldErrors.AUXILIARY_UI_INVALID, "auxiliary UI request is invalid", {})
+  end
+  if
+    record.state ~= "shown"
+    and record.state ~= "showing"
+    and record.state ~= "hidden"
+    and record.state ~= "hiding"
+  then
+    Errors.raise(FieldErrors.AUXILIARY_UI_INVALID, "auxiliary UI state is invalid", {})
+  end
+  if (record.requested == "shown") ~= (record.state == "shown" or record.state == "showing") then
+    Errors.raise(FieldErrors.AUXILIARY_UI_INVALID, "auxiliary UI request and state disagree", {})
+  end
+  return { requested = record.requested, state = record.state }
+end
+
+---@param record any
+---@return table|nil, Errors.Error?
+function AuxiliaryFieldUi.validate(record)
+  local ok, result = pcall(validateRecord, record)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
+  error(result)
+end
 
 ---@return AuxiliaryFieldUi
 function AuxiliaryFieldUi.new()
@@ -23,17 +64,13 @@ end
 ---@param record table
 ---@return AuxiliaryFieldUi
 function AuxiliaryFieldUi.restore(record)
-  assert(type(record) == "table", "auxiliary UI state must be a table")
-  assert(record.requested == "shown" or record.requested == "hidden", "auxiliary UI request is invalid")
-  assert(
-    record.state == "shown" or record.state == "showing" or record.state == "hidden" or record.state == "hiding",
-    "auxiliary UI state is invalid"
-  )
-  assert(
-    (record.requested == "shown") == (record.state == "shown" or record.state == "showing"),
-    "auxiliary UI request and state disagree"
-  )
-  return setmetatable({ _requested = record.requested, _state = record.state }, AuxiliaryFieldUi)
+  local valid, err = AuxiliaryFieldUi.validate(record)
+  if not valid then
+    local validationError = assert(err)
+    Errors.raise(validationError.code, validationError.message, validationError.context)
+  end
+  local validated = assert(valid)
+  return setmetatable({ _requested = validated.requested, _state = validated.state }, AuxiliaryFieldUi)
 end
 
 ---@return { requested: "shown"|"hidden", state: "shown"|"showing"|"hidden"|"hiding" }

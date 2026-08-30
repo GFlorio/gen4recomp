@@ -55,12 +55,12 @@ end
 -- save -> resume round trip proves the restored player-data bucket drives the
 -- card after a resume.
 function T.tests.production_factory_registers_the_card_and_resume_drives_the_presentation()
-  local versionId = AcceptanceHarness.defaultVersion()
-  local game = AcceptanceHarness.new({ versions = { versionId } }):boot({
-    versionId = versionId,
-    map = "MAP_NEW_BARK",
+  local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
+    versionId = "heartgold",
+    map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })
+  game:waitForFieldEntry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
     ---@diagnostic disable-next-line: undefined-field -- the runtime application-registry surface is the contract under test
@@ -81,7 +81,11 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     Assert.isTrue(type(status) == "table", "the host must present the card application")
     Assert.equal(status.name, runtime.playerData.profile.name)
     Assert.equal(status.trainerId, runtime.playerData.profile.trainerId)
-    Assert.keySet(status, "name,open,trainerId", "the card exposes only the implemented profile fields")
+    Assert.keySet(
+      status,
+      "money,name,open,playTimeSeconds,trainerId,visibleTrainerId",
+      "the card exposes the implemented profile fields"
+    )
 
     -- The saved bucket wins over the initial manifest after a resume: return
     -- to the field (the settled boundary allows the disposal save), mutate
@@ -96,18 +100,21 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
     runtime.playerData.profile.name = "HIKARI"
     runtime.playerData.profile.trainerId = 54321
     local resumed = game:restart({ save = "resume" })
-    Assert.equal(resumed.saveStatus:find("Resumed", 1, true) ~= nil, true, "the resume boot must restore the save")
     Assert.equal(resumed.runtime.playerData.profile.name, "HIKARI")
+    resumed:setWorldState({ flag = FieldScriptSymbols.flagsByName.FLAG_GOT_TRAINER_CARD })
+    resumed:advanceUntil("resumed field reaches ready", function(snapshot)
+      return resumed.runtime.session.mapEntryStage == nil and not snapshot.fieldLocked
+    end, 240)
     openCard(resumed)
     local resumedStatus = cardStatus(resumed)
     Assert.equal(resumedStatus.name, "HIKARI", "the resumed card presents the saved name, not the manifest")
     Assert.equal(resumedStatus.trainerId, 54321)
   end, debug.traceback)
+  game:close()
   if not ok then
     error(err, 0)
   end
   Assert.equal(game:renderAttempts(), 0, "the card composition must not render")
-  game:close()
 end
 
 return T

@@ -3,7 +3,6 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local FieldPlayerManifest = require("data.manifests.field_player")
 
 local T = {
   metadata = {
@@ -40,8 +39,11 @@ function T.tests.fresh_field_world_starts_with_clean_event_state()
       "fresh boot must not seed event flags or variables"
     )
 
-    -- This object is one of the flag-guarded actors in the supported entry
-    -- map. A clear flag means the production actor manager must keep it live.
+    -- Object actors are materialized by the map-entry lifecycle, not by the
+    -- boot itself, so the entry runs to completion first. This object is one
+    -- of the flag-guarded actors in the supported entry map: a clear flag
+    -- means the production actor manager must keep it live.
+    game:waitForFieldReady()
     local actor = assert(game.runtime.actors:getById("map:60:object:0"), "clear event state must retain the actor")
     local eventFlag = assert(actor.sourceEvent.eventFlag, "the actor must carry its source event flag")
     Assert.isFalse(eventState:isFlagSet(eventFlag), "fresh boot must not hide the actor through a seeded flag")
@@ -49,11 +51,16 @@ function T.tests.fresh_field_world_starts_with_clean_event_state()
 end
 
 local function withFreshGender(gender, expectedId, expectedSpriteId)
-  local previousGender = FieldPlayerManifest.profile.gender
-  FieldPlayerManifest.profile.gender = gender
+  local harness = AcceptanceHarness.new({
+    gameFactory = function(versionId, map)
+      local template = AcceptanceHarness.new().gameFactory(versionId, map)
+      template.playerData.profile.gender = gender
+      return template
+    end,
+  })
   local game
   local ok, err = xpcall(function()
-    game = AcceptanceHarness.new():boot({
+    game = harness:boot({
       versionId = AcceptanceHarness.defaultVersion(),
       map = TOWN,
       save = "fresh",
@@ -70,7 +77,6 @@ local function withFreshGender(gender, expectedId, expectedSpriteId)
       ok, err = false, closeErr
     end
   end
-  FieldPlayerManifest.profile.gender = previousGender
   if not ok then
     error(err, 0)
   end

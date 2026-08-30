@@ -2,6 +2,8 @@
 -- continuation stack. This source-format analysis is shared by lowering and
 -- corpus inspection; it never produces runtime sequence instructions.
 
+local unpack = table.unpack or unpack
+
 local Errors = require("libs.errors.src.Errors")
 local Sseq = require("romdump.src.digest.audio.Sseq")
 
@@ -184,9 +186,9 @@ end
 
 local function _analyze(bytes, context)
   local source = context or "SSEQ"
-  local seq, openErr = Sseq.open(bytes, source)
+  local seq, err = Sseq.open(bytes, source)
   if seq == nil then
-    error(openErr)
+    error(err)
   end
   local endPos = #bytes
   local dataOffset = seq.dataOffset
@@ -226,10 +228,9 @@ local function _analyze(bytes, context)
         rememberTrackStack(trackStacks, state.trackSlot, state.stack, queue, reopenTargets)
         local command = commandsByOffset[state.offset]
         if command == nil then
-          local commandErr
-          command, commandErr = Sseq.decodeCommand(bytes, state.offset, endPos, source)
+          command, err = Sseq.decodeCommand(bytes, state.offset, endPos, source)
           if command == nil then
-            error(commandErr)
+            error(err)
           end
           commandsByOffset[state.offset] = command
         end

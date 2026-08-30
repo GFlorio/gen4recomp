@@ -8,30 +8,37 @@
 local WindowConfig = require("game.src.WindowConfig")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
+local GameSaveStore = require("libs.engine.src.GameSaveStore")
+local SaveFs = require("libs.storage.src.SaveFs")
+local FieldEventState = require("libs.engine.src.FieldEventState")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local NewGame = require("game.src.game.NewGame")
+local NewGameInitialization = require("game.src.game.NewGameInitialization")
 local FieldState = require("game.src.game.FieldState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
+local MainMenuState = require("game.src.game.MainMenuState")
+local GameSaveValidation = require("game.src.game.GameSaveValidation")
+local OakIntroState = require("game.src.game.OakIntroState")
+local OakIntroComposition = require("game.src.game.OakIntroComposition")
 local ImportState = require("game.src.launcher.ImportState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
+local RepoFs = require("game.src.game.RepoFs")
 
+---@class SaveStoreLike
+---@field load fun(self: SaveStoreLike, saveId: string): table|nil, any
+---@class App
+---@field opts AppOptions
+---@field saveStore (GameSaveStore|SaveStoreLike)?
+---@field drawableWidth number?
+---@field drawableHeight number?
 local App = {}
 
--- A bare `--field` (option == true) selects the runtime default map; a
--- numeric string is a map id, anything else a semantic map symbol.
-
----@param option boolean|string|nil
----@return string|integer|nil
-local function fieldTarget(option)
-  if option == true then
-    return nil
-  end
-  if type(option) == "string" and option:match("^%d+$") then
-    local n = assert(tonumber(option))
-    return n --[[@as integer]]
-  end
-  return option --[[@as string|integer|nil]]
-end
-
-App.fieldTarget = fieldTarget
+---@class AppOptions : GameOptions
+---@field saveStore (GameSaveStore|SaveStoreLike)?
+---@field newGameCandidateFactory (fun(options: table): table)?
+---@field oakIntroOptionsFactory (fun(options: table): table)?
+---@field oakIntroHost table? true host seams for product-composition tests
+---@field saveValidation GameSaveValidation?
 
 local function readyVersions()
   local out = {}
@@ -43,22 +50,27 @@ local function readyVersions()
   return out
 end
 
--- The CLI session flags are applied here once, then passed as explicit
--- FieldState options: --new-field-session forces a fresh session (wiping the
--- save) instead of a resume, and --dev enables the playtest presentation.
----@param resumeSave boolean
----@return { resumeSave: boolean, resetSave: boolean, development: boolean }
-local function fieldSessionOptions(resumeSave)
-  local opts = App.opts
+---@return FieldStateOptions
+local function fieldStateOptions()
   return {
-    resumeSave = resumeSave and not opts.newFieldSession,
-    resetSave = opts.newFieldSession,
-    development = opts.dev == true,
+    development = App.opts.dev == true,
+    saveStore = App.saveStore,
+    saveValidation = App.saveValidation,
+    audioOutput = App.opts.oakIntroHost and App.opts.oakIntroHost.audioOutput,
   }
 end
 
 function App.load(opts)
   App.opts = opts or {}
+  App.drawableWidth, App.drawableHeight = love.graphics.getDimensions()
+  App.saveValidation = App.opts.saveValidation
+    or GameSaveValidation.new({ overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()) })
+  local function recordValidate(record)
+    return App.saveValidation:validate(record)
+  end
+  App.saveStore = App.opts.saveStore or GameSaveStore.new(SaveFs.global(), {
+    recordValidate = recordValidate,
+  })
   App.importer = nil
   App.setState(nil)
   love.graphics.setBackgroundColor(unpack(WindowConfig.BACKGROUND_COLOR))
@@ -67,10 +79,94 @@ function App.load(opts)
   if App.opts.actors then
     return App._bootActorPreview()
   end
-  if App.opts.field then
-    return App._bootField(App.opts.field)
-  end
   App._bootExisting()
+end
+
+function App._mainMenuResult(result)
+  App.menuResult = result
+  if result.kind == "quit" then
+    love.event.quit(0)
+  elseif result.kind == "new_game" then
+    App._bootOakIntro()
+  elseif result.kind == "continue" then
+    App.setState(FieldState.new(assert(result.game), fieldStateOptions()))
+  end
+end
+
+local function newGameCandidate(versionId)
+  local factory = App.opts.newGameCandidateFactory
+  if factory then
+    local candidate = factory({ saveService = App.saveStore, versionId = versionId })
+    return assert(candidate, "New Game candidate factory returned no candidate")
+  end
+  return NewGame.createCandidate({
+    saveService = App.saveStore,
+    versionId = versionId,
+    eventState = FieldEventState.new(),
+    scriptSymbols = FieldScriptSymbols,
+    mapIdentity = {
+      mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+      fieldX = 6,
+      fieldZ = 6,
+      sourceFacing = 1,
+    },
+  })
+end
+
+-- Build the production Oak state from generated visual/message/audio resources.
+-- An explicit factory remains a test seam; normal New Game uses the production
+-- composer so missing generated resources fail the transition loudly.
+function App._bootOakIntro()
+  local versionId = assert(App.versionId, "New Game needs a selected version")
+  local candidate = newGameCandidate(versionId)
+  local input = {
+    candidate = candidate,
+    versionId = versionId,
+  }
+  for key, value in pairs(App.opts.oakIntroHost or {}) do
+    input[key] = value
+  end
+  local factory = App.opts.oakIntroOptionsFactory
+  if factory then
+    local options = factory(input)
+    assert(type(options) == "table", "Oak intro options factory must return a table")
+    ---@cast options OakIntroStateOptions
+    local function onComplete(result)
+      App._onOakComplete(result)
+    end
+    options.onComplete = onComplete
+    App.setState(OakIntroState.new(options))
+    return
+  end
+  local function onComplete(result)
+    App._onOakComplete(result)
+  end
+  input.onComplete = onComplete
+  App.setState(OakIntroComposition.compose(input))
+end
+
+-- The candidate is finalized in memory, but remains reserved and unpublished
+-- until the receiving field flow explicitly writes it.
+function App._onOakComplete(result)
+  assert(type(result) == "table" and result.playerData ~= nil, "Oak intro completed without a finalized game")
+  result = NewGameInitialization.apply(result)
+  App.setState(FieldState.new(result, fieldStateOptions()))
+end
+
+function App._bootMainMenu(versions)
+  assert(type(versions) == "table" and #versions == 1, "Main Menu needs exactly one selected version")
+  App.versionId = versions[1]
+  local width, height = love.graphics.getDimensions()
+  local function onResult(result)
+    App._mainMenuResult(result)
+  end
+  App.setState(MainMenuState.new({
+    saveStore = App.saveStore or assert(App.opts.saveStore, "App needs a global save store"),
+    readyVersions = versions,
+    width = width,
+    height = height,
+    onResult = onResult,
+  }))
 end
 
 -- The one transition point between top-level states: every state swap goes
@@ -98,17 +194,6 @@ function App._bootActorPreview()
   App.setState(ActorPreviewState.new(ready[1]))
 end
 
--- Boot the fixed-step field runtime. A bare --field selects Elm's Lab;
--- an argument may select another compiled map by semantic symbol or numeric id.
-function App._bootField(mapIdOrSymbol)
-  local ready = readyVersions()
-  if #ready == 0 then
-    App._startImport()
-    return
-  end
-  App.setState(FieldState.new(ready[1], fieldTarget(mapIdOrSymbol), fieldSessionOptions(false)))
-end
-
 function App._startImport()
   local function onComplete(versionId)
     App._onImported(versionId)
@@ -120,20 +205,15 @@ function App._startImport()
 end
 
 -- Fired once on a successful import: the session ends here, so the importer
--- is cleared and the normal field runtime is entered unless an explicit
--- developer field target was requested.
+-- is cleared and the normal product boot flow is entered.
 function App._onImported(versionId)
   App.importer = nil
-  if App.opts.field then
-    App.setState(FieldState.new(versionId, fieldTarget(App.opts.field), fieldSessionOptions(false)))
-  else
-    App.setState(FieldState.new(versionId, nil, fieldSessionOptions(true)))
-  end
+  App._bootMainMenu({ versionId })
 end
 
--- Boot decision when no ROM was supplied: one ready cache resumes its field
--- session, both ready show a selector over exactly the ready array, and none
--- ready offers import. Version selection lives here -- zero/exactly one/
+-- Boot decision when no ROM was supplied: one ready cache opens its Main Menu,
+-- both ready show a selector over exactly the ready array, and none ready
+-- offers import. Version selection lives here -- zero/exactly one/
 -- several -- and nowhere else.
 function App._bootExisting()
   local ready = readyVersions()
@@ -142,15 +222,16 @@ function App._bootExisting()
     return
   end
   if #ready == 1 then
-    App.setState(FieldState.new(ready[1], nil, fieldSessionOptions(true)))
+    App._bootMainMenu(ready)
     return
   end
   App.setState(VersionSelectState.new(ready, function(versionId)
-    App.setState(FieldState.new(versionId, nil, fieldSessionOptions(true)))
+    App._bootMainMenu({ versionId })
   end))
 end
 
 function App.update(dt)
+  App._syncDrawableSize()
   if App.importer and App.importer:isBusy() then
     App.importer:update()
   end
@@ -167,12 +248,27 @@ function App.update(dt)
 end
 
 function App.resize(width, height)
+  App.drawableWidth = width
+  App.drawableHeight = height
+  if App.state and App.state.resize then
+    App.state:resize(width, height)
+  end
+end
+
+function App._syncDrawableSize()
+  local width, height = love.graphics.getDimensions()
+  if width == App.drawableWidth and height == App.drawableHeight then
+    return
+  end
+  App.drawableWidth = width
+  App.drawableHeight = height
   if App.state and App.state.resize then
     App.state:resize(width, height)
   end
 end
 
 function App.draw()
+  App._syncDrawableSize()
   if App.state and App.state.draw then
     App.state:draw()
     return
@@ -231,18 +327,21 @@ function App.gamepadaxis(joystick, axis, value)
 end
 
 function App.mousepressed(x, y, button, istouch, presses)
+  App._syncDrawableSize()
   if App.state and App.state.mousepressed then
     App.state:mousepressed(x, y, button, istouch, presses)
   end
 end
 
 function App.mousemoved(x, y, dx, dy, istouch)
+  App._syncDrawableSize()
   if App.state and App.state.mousemoved then
     App.state:mousemoved(x, y, dx, dy, istouch)
   end
 end
 
 function App.mousereleased(x, y, button, istouch, presses)
+  App._syncDrawableSize()
   if App.state and App.state.mousereleased then
     App.state:mousereleased(x, y, button, istouch, presses)
   end
@@ -255,20 +354,29 @@ function App.wheelmoved(x, y)
 end
 
 function App.touchpressed(id, x, y, dx, dy, pressure)
+  App._syncDrawableSize()
   if App.state and App.state.touchpressed then
     App.state:touchpressed(id, x, y, dx, dy, pressure)
   end
 end
 
 function App.touchmoved(id, x, y, dx, dy, pressure)
+  App._syncDrawableSize()
   if App.state and App.state.touchmoved then
     App.state:touchmoved(id, x, y, dx, dy, pressure)
   end
 end
 
 function App.touchreleased(id, x, y, dx, dy, pressure)
+  App._syncDrawableSize()
   if App.state and App.state.touchreleased then
     App.state:touchreleased(id, x, y, dx, dy, pressure)
+  end
+end
+
+function App.textinput(text)
+  if App.state and App.state.textinput then
+    App.state:textinput(text)
   end
 end
 

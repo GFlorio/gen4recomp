@@ -9,7 +9,6 @@ local MenuProtocol = require("libs.assets.src.MenuProtocol")
 local DIRECTION_BY_CODE = { [0] = "north", [1] = "south", [2] = "west", [3] = "east" }
 local STRING_SPECIALS = { obj_player = "player", obj_partner_poke = "partner" }
 local NUMERIC_SPECIALS = {
-  [0] = "player",
   [255] = "player",
   [253] = "partner",
   [241] = "camera_target",
@@ -283,6 +282,33 @@ local function genderedMessage(ins)
   }
 end
 
+local function yieldFollowerCheck()
+  return { op = "yield_tick" }
+end
+
+local function setSpecialSpawn(ins)
+  return {
+    op = "set_special_spawn",
+    map = Operands.varRef(ins.operands[1]),
+    fieldX = Operands.varRef(ins.operands[2]),
+    fieldZ = Operands.varRef(ins.operands[3]),
+    warpId = -1,
+    direction = "south",
+  }
+end
+
+local function setFollowerInactive(ins)
+  return { op = "set_var", variable = Operands.varRef(ins.operands[1]), value = 0 }
+end
+
+local function setBadgeInactive(ins)
+  return { op = "set_var", variable = Operands.varRef(ins.operands[2]), value = 0 }
+end
+
+local function setFriendSprite(ins)
+  return { op = "set_var", variable = Operands.varRef(ins.operands[1]), value = { value = "friend_sprite_value" } }
+end
+
 local function warp(ins)
   -- Warp map, warp, x, z, dir: coordinates and direction may be variable
   -- operands; numeric directions normalize to the string enum.
@@ -402,9 +428,7 @@ local function setObjectPosition(ins)
 end
 
 local function movePersonFacing(ins)
-  -- MovePersonFacing person, x, z, y, facing: field X from x, field Z from
-  -- z, world Y from y, then face the given direction (two canonical
-  -- operations; the facing side effect is never diagnostic data).
+  -- ScrCmd_MovePersonFacing reads objectId, x, y, z, direction.
   local actor = actorRef(ins.operands[1])
   return {
     steps = {
@@ -412,8 +436,8 @@ local function movePersonFacing(ins)
         op = "set_object_position",
         actor = actor,
         fieldX = Operands.varRef(ins.operands[2]),
-        fieldZ = Operands.varRef(ins.operands[3]),
-        worldY = Operands.varRef(ins.operands[4]),
+        worldY = Operands.varRef(ins.operands[3]),
+        fieldZ = Operands.varRef(ins.operands[4]),
       },
       {
         op = "set_object_facing",
@@ -571,6 +595,7 @@ return {
   [105] = getPlayerCoords,
   [106] = getObjectCoords,
   [132] = genderedMessage,
+  [144] = setFriendSprite,
   [176] = warp,
   [190] = bufferPlayerName,
   [191] = bufferRivalName,
@@ -602,6 +627,10 @@ return {
   [751] = menuAdd,
   [752] = menuExecute,
   [581] = lockLastTalkedActor,
+  [582] = setSpecialSpawn,
+  [609] = yieldFollowerCheck,
+  [729] = setFollowerInactive,
+  [294] = setBadgeInactive,
   [746] = hideAuxiliaryUi,
   [747] = showAuxiliaryUi,
   [748] = contextChoice,

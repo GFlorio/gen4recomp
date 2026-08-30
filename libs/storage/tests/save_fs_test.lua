@@ -32,6 +32,22 @@ function T.prefix_roots_at_the_user_data_namespace()
   Assert.equal(save("soulsilver"):prefix(), "saves/soulsilver/")
 end
 
+function T.global_root_contains_catalog_and_game_namespaces()
+  local backend = FakeCache.new()
+  local global = SaveFs.global(backend)
+  Assert.equal(global:prefix(), "saves/")
+  global:write("catalog.lua", "CATALOG")
+  global:write("games/save-00000001.lua", "GAME")
+  Assert.equal(backend.files["saves/catalog.lua"], "CATALOG")
+  Assert.equal(backend.files["saves/games/save-00000001.lua"], "GAME")
+end
+
+function T.global_root_rejects_escape_paths()
+  throwsCode(StorageErrors.SAVE_PATH_INVALID, function()
+    SaveFs.global(FakeCache.new()):write("games/../catalog.lua", "x")
+  end)
+end
+
 -- Version ids are structural path components, not ROM identities: any safe
 -- component names its own namespace. Which ids exist is romdump's GameVersion
 -- business; generic persistence must not depend on it.
@@ -162,7 +178,7 @@ function T.load_lua_read_failure_is_not_reclassified_as_missing()
   local s = save("heartgold", backend)
   s:write(SAVE_PATH, "SAVE-DATA")
   ---@diagnostic disable: duplicate-set-field
-  backend.read = function(_)
+  backend.read = function(_, _)
     return nil, "injected read failure"
   end
   local data, err = s:loadLua(SAVE_PATH)

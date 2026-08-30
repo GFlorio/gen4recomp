@@ -14,16 +14,17 @@ local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldActorMesh = require("libs.engine.src.FieldActorMesh")
 local BillboardTransform = require("libs.engine.src.BillboardTransform")
 
----@class FieldActorAssetProvider
+---@class FieldActorAssetProvider: FieldActorAssets
 ---@field private _cacheFs CacheFs
 ---@field private _index table
 ---@field private _known table<integer, boolean>
----@field private _graphics love.Graphics
+---@field private _graphics love.graphics
 ---@field private _idleLimit integer
 ---@field private _entries table<integer, table>
 ---@field private _idle integer[]
 ---@field private _stats table
 ---@field new fun(cacheFs: CacheFs, opts?: table): FieldActorAssetProvider
+---@field index fun(self: FieldActorAssetProvider): { spriteIds: integer[] }
 ---@field knows fun(self: FieldActorAssetProvider, spriteId: integer): boolean
 ---@field resident fun(self: FieldActorAssetProvider, spriteId: integer): table?
 ---@field acquire fun(self: FieldActorAssetProvider, spriteId: integer): table
@@ -39,6 +40,9 @@ local DEFAULT_IDLE_LIMIT = 8
 -- opts.idleLimit: how many unreferenced entries stay resident before the least
 -- recently released one is disposed. opts.graphics: injectable LÖVE graphics
 -- namespace for deterministic presentation-resource tests.
+---@param cacheFs CacheFs
+---@param opts table?
+---@return FieldActorAssetProvider
 function FieldActorAssetProvider.new(cacheFs, opts)
   assert(cacheFs, "FieldActorAssetProvider requires a CacheFs")
   opts = opts or {}
@@ -72,9 +76,10 @@ function FieldActorAssetProvider.new(cacheFs, opts)
     _entries = {},
     _idle = {}, -- least-recently-released first
     _stats = { loads = 0, hits = 0, disposals = 0, evictions = 0 },
-  }, FieldActorAssetProvider)
+  }, FieldActorAssetProvider) --[[@as FieldActorAssetProvider]]
 end
 
+---@return { spriteIds: integer[] }
 function FieldActorAssetProvider:index()
   return self._index
 end

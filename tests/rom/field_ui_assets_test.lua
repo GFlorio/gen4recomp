@@ -232,4 +232,43 @@ function T.dialogue_continue_cursor_manifest_has_the_source_contract(romFs, _)
   end
 end
 
+-- Independent local-ink measurement for the continuation cursor: its opaque
+-- pixels (including the right edge, so a crop error cannot pass by left-edge
+-- coincidence) must stay inside its own generated 16x16 surface, and the
+-- placed surface itself must stay inside the 256x192 source reference. This
+-- is separate from the surface-placement fact above: local ink and placement
+-- are independent claims, and only a defect in this local measurement
+-- implicates the cursor producer rather than the shared dialogue layout.
+function T.dialogue_continue_cursor_local_ink_stays_within_its_generated_surface(romFs, _)
+  local bundle = assert(FieldUiCompiler.compile(romFs))
+  local frames = assert(bundle.manifest.dialogueFrames)
+  local cursor = assert(frames.continueCursor)
+  local asset = assert(bundle.manifest.assets[cursor.asset])
+  local image = assert(bundle.assets[asset.image])
+  local imageWidth, _, rgba = PngReader.rgba(image)
+  local rect = assert(assert(cursor.styles[0]).phases[0])
+
+  local minX, maxX
+  for x = 0, rect.width - 1 do
+    for y = 0, rect.height - 1 do
+      local _, _, _, a = PngReader.pixel(rgba, imageWidth, rect.x + x, rect.y + y)
+      if a > 0 then
+        minX = minX and math.min(minX, x) or x
+        maxX = maxX and math.max(maxX, x) or x
+      end
+    end
+  end
+  Assert.notNil(minX, "the continuation cursor phase must carry opaque ink")
+  Assert.isTrue(minX >= 0, "cursor local ink left bound stays inside its own surface")
+  Assert.isTrue(maxX < rect.width, "cursor local ink right bound stays inside its own surface")
+  Assert.isTrue(
+    cursor.placement.x >= 0 and cursor.placement.x + cursor.placement.width <= 256,
+    "the placed cursor surface stays inside the 256-wide source reference"
+  )
+  Assert.isTrue(
+    cursor.placement.y >= 0 and cursor.placement.y + cursor.placement.height <= 192,
+    "the placed cursor surface stays inside the 192-tall source reference"
+  )
+end
+
 return require("tests.rom.support.RomSuite").fromFacts(T)

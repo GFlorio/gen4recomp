@@ -19,6 +19,7 @@
 ---@field rectangles table[]
 ---@field shaders table[]
 ---@field pushDepth fun(): integer
+---@field newImage fun(data?: table): table
 local FakeGraphics = {}
 
 -- opts.canvas/shader/blendMode/... seed the settable state so tests can
@@ -80,9 +81,13 @@ function FakeGraphics.new(opts)
         error("injected newImage failure")
       end
       local size = opts.imageSizes and opts.imageSizes[#images + 1] or { 16, 16 }
-      local image = {
+      local image
+      image = {
         released = false,
-        setFilter = function() end,
+        filters = {},
+        setFilter = function(_, min, mag)
+          image.filters[#image.filters + 1] = { min = min, mag = mag }
+        end,
         getWidth = function()
           return size[1]
         end,
@@ -118,12 +123,23 @@ function FakeGraphics.new(opts)
     setColor = function(r, g, b, a)
       state.color = { r, g, b, a }
     end,
+    clear = function() end,
     getColor = function()
       return state.color[1], state.color[2], state.color[3], state.color[4]
     end,
-    draw = function(image, quad, x, y)
+    draw = function(image, quad, x, y, rotation, sx, sy)
       drawCalls = drawCalls + 1
-      draws[#draws + 1] = { kind = "draw", image = image, quad = quad, x = x, y = y, color = state.color }
+      draws[#draws + 1] = {
+        kind = "draw",
+        image = image,
+        quad = quad,
+        x = x,
+        y = y,
+        rotation = rotation,
+        sx = sx,
+        sy = sy,
+        color = state.color,
+      }
       if opts.failOnDrawCall == drawCalls then
         error("injected draw failure")
       end

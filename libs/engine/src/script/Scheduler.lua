@@ -146,17 +146,19 @@ local function pushEntryFrame(instance, composed, args)
   local entries = composed.entries
   assert(#entries > 0, "composed script has no entries")
   local entry = entries[1]
-  instance:pushFrame(instance:makeFrame(entry.graph, entry.graph.entry, {
-    args = args,
-    chain = entries,
-    chainScriptId = composed.scriptId,
-    chainRevision = composed.revision,
-    composition = {
-      entryIndex = 0,
-      operation = entry.operation,
-      owner = entry.owner,
-    },
-  }))
+  if entry.graph.entry ~= nil then
+    instance:pushFrame(instance:makeFrame(entry.graph, entry.graph.entry, {
+      args = args,
+      chain = entries,
+      chainScriptId = composed.scriptId,
+      chainRevision = composed.revision,
+      composition = {
+        entryIndex = 0,
+        operation = entry.operation,
+        owner = entry.owner,
+      },
+    }))
+  end
 end
 
 ---@param env ScriptEnvironment
@@ -196,17 +198,22 @@ end
 -- composed script. Foreground environments
 -- register as the field owner; background environments join the creation
 -- order. The new context may run in this tick; the caller decides whether
--- the slot loop visits it now.
+-- the slot loop visits it now. `interactionClaim` grants the foreground
+-- root player-input ownership for the environment's whole lifetime,
+-- independent of explicit lock opcodes; it is never inferred from `trigger`
+-- and is ignored (always false) for a background environment.
 ---@param mode string
 ---@param composed table
 ---@param trigger table|nil
 ---@param tick integer
+---@param interactionClaim boolean|nil
 ---@return string instanceId
-function Scheduler:_createEnvironment(mode, composed, trigger, tick)
+function Scheduler:_createEnvironment(mode, composed, trigger, tick, interactionClaim)
   local env = ScriptEnvironment.new({
     environmentId = environmentIdFor(self),
     mode = mode,
     createdAtTick = tick,
+    interactionClaim = mode == "foreground" and interactionClaim == true or false,
   })
   self._environments[env.environmentId] = env
   if mode == "foreground" then
@@ -226,14 +233,18 @@ end
 
 -- Start a foreground interaction: a fresh environment whose root owns the
 -- field. The new context may run in this tick; the
--- caller decides whether the slot loop visits it now.
+-- caller decides whether the slot loop visits it now. `interactionClaim`
+-- (default false/none) is the caller's explicit launch-origin ownership
+-- descriptor; callers that omit it start a non-owning root exactly like
+-- map initialization.
 ---@param composed table
 ---@param trigger table|nil
 ---@param tick integer
+---@param interactionClaim boolean|nil
 ---@return string instanceId
-function Scheduler:createForeground(composed, trigger, tick)
+function Scheduler:createForeground(composed, trigger, tick, interactionClaim)
   assert(self._foregroundEnvironmentId == nil, "a foreground environment already owns the field")
-  return self:_createEnvironment("foreground", composed, trigger, tick)
+  return self:_createEnvironment("foreground", composed, trigger, tick, interactionClaim)
 end
 
 -- Start a project-native background environment.
@@ -349,18 +360,20 @@ function Scheduler:createTask(taskType, spec, instance, tick, input)
   local impl, resolveErr = self._taskRegistry:resolveCurrent(taskType)
   if not impl then
     local err = resolveErr --[[@as Errors.Error]]
-    local context = { scriptId = instance.scriptId, instanceId = instance.instanceId, taskType = taskType, cause = err }
-    ---@cast context Errors.Context
-    Errors.raise(err.code, err.message, context)
+    Errors.raise(
+      err.code,
+      err.message,
+      { scriptId = instance.scriptId, instanceId = instance.instanceId, taskType = taskType, cause = err }
+    )
   end
-  local implementation = assert(impl)
+  ---@cast impl TaskImplementation
   local environment = assert(self._environments[instance.environmentId], "task owner environment missing")
   local ctx = self:_ctxFor(instance, environment, tick, input)
-  local state = implementation.create(spec, ctx)
+  local state = impl.create(spec, ctx)
   local task = ScriptTask.new({
     taskId = taskIdFor(self),
     taskType = taskType,
-    taskVersion = implementation.version,
+    taskVersion = impl.version,
     ownerInstanceId = instance.instanceId,
     environmentId = environment.environmentId,
     createdAtTick = tick,
@@ -672,7 +685,9 @@ function Scheduler:_resolveInteraction(tick, input)
   if composed == nil then
     return
   end
-  self:createForeground(composed, hit.trigger, tick)
+  -- This path resolves the field/world's own new interaction trigger, so the
+  -- root it starts is field-interaction-origin and owns player input.
+  self:createForeground(composed, hit.trigger, tick, true)
   local env = assert(self._environments[self._foregroundEnvironmentId])
   self:_runEnvironmentSlots(env, tick, input)
 end
@@ -810,7 +825,6 @@ end
 -- Fault one context through attributed cleanup : record the error, release ownership, emit events, and tear
 -- down the environment when the faulting context is the root.
 ---@param instance ScriptInstance
----@param _ integer
 ---@param error Errors.Error
 function Scheduler:_faultInstance(instance, _, error)
   if
@@ -1096,31 +1110,71 @@ function Scheduler:setMaxNodes(maxNodes)
   self._maxNodes = maxNodes
 end
 
--- Start a foreground interaction outside the scheduler's own tick
--- resolution (used by the session's interaction client, ):
--- creates the environment and runs its slots so the new context may execute
--- during its trigger tick. Returns nil when a foreground root already owns
--- the field.
+-- Start a foreground root outside the scheduler's own tick resolution (used
+-- by the session's interaction client): creates the environment and runs
+-- its slots so the new context may execute during its trigger tick. Returns
+-- nil when a foreground root already owns the field. `interactionClaim`
+-- (default false/none) is the caller's explicit launch-origin ownership
+-- descriptor -- it is never inferred from `trigger`. `ScriptInteractionClient`
+-- passes true from `consume()` (field/world interaction) and omits it from
+-- `startInitScript()` (map initialization).
 ---@param trigger table
 ---@param composed table
 ---@param tick integer
+---@param interactionClaim boolean|nil
 ---@return string|nil instanceId
-function Scheduler:startInteraction(trigger, composed, tick)
+function Scheduler:startInteraction(trigger, composed, tick, interactionClaim)
   if self._foregroundEnvironmentId ~= nil then
     return nil
   end
-  local instanceId = self:createForeground(composed, trigger, tick)
+  local instanceId = self:createForeground(composed, trigger, tick, interactionClaim)
   local environment = assert(self._environments[self._foregroundEnvironmentId])
   self:_runEnvironmentSlots(environment, tick, self._currentInput)
   return instanceId
 end
 
--- True when player-controlled movement is suppressed: a live foreground
--- root owns the field (the session's documented control model), which holds
--- whether or not the foreground script has issued an explicit lock yet.
+-- Explicit source LOCK_PLAYER/LockAll state only, independent of launch
+-- origin. Callers that need combined ownership should read
+-- `interactionOwnsPlayerInput` or `playerInputOwned` instead.
 ---@return boolean
-function Scheduler:playerMovementLocked()
-  return self._foregroundEnvironmentId ~= nil
+function Scheduler:explicitPlayerLocked()
+  local envId = self._foregroundEnvironmentId
+  if envId == nil then
+    return false
+  end
+  local env = self._environments[envId]
+  return env ~= nil and env:playerLocked() or false
+end
+
+-- True only when the active foreground environment's root was launched by
+-- field interaction/event arbitration (`ScriptInteractionClient:consume`),
+-- independent of explicit lock state. False for a map-init root and for
+-- every background environment.
+---@return boolean
+function Scheduler:interactionOwnsPlayerInput()
+  local envId = self._foregroundEnvironmentId
+  if envId == nil then
+    return false
+  end
+  local env = self._environments[envId]
+  return env ~= nil and env:interactionOwnsPlayerInput() or false
+end
+
+-- Combined player-input ownership: explicit lock OR interaction claim. The
+-- one fact `FieldSession` consumes to suppress manual player input.
+---@return boolean
+function Scheduler:playerInputOwned()
+  return self:explicitPlayerLocked() or self:interactionOwnsPlayerInput()
+end
+
+---@return boolean
+function Scheduler:autonomousActorsLocked()
+  local envId = self._foregroundEnvironmentId
+  if envId == nil then
+    return false
+  end
+  local env = self._environments[envId]
+  return env ~= nil and env:autonomousLocked() or false
 end
 
 -- --- Accessors -----------------------------------------------------------------
@@ -1219,6 +1273,23 @@ function Scheduler:foregroundEnvironmentId()
   return self._foregroundEnvironmentId
 end
 
+-- The script identity of the foreground environment's root instance, or nil
+-- when no foreground environment owns the field. A thin public query over
+-- the same instance/environment bookkeeping `createForeground` and
+-- `cancelEnvironment` already use, so callers needing failure attribution
+-- (diagnostics, acceptance traces) do not read scheduler-private tables.
+---@return string|nil
+function Scheduler:foregroundScriptId()
+  local environmentId = self._foregroundEnvironmentId
+  if environmentId == nil then
+    return nil
+  end
+  local environment = self._environments[environmentId]
+  local root = environment and environment.rootInstanceId
+  local instance = root and self._instances[root]
+  return instance and instance.scriptId or nil
+end
+
 -- The immutable input snapshot of the current step (the game's dialogue host
 -- consumes it from the engine-owned async phase).
 ---@return table|nil
@@ -1264,43 +1335,14 @@ function Scheduler:restoreScriptState(bucket, restoreTick)
   assert(self._foregroundEnvironmentId == nil and next(self._instances) == nil, "restore requires an idle scheduler")
   local graphs = {}
 
-  -- Collect every referenced graph revision through the frame chain
-  -- identities; a revision that no current composition produces is a save
-  -- mismatch (SCRIPT_SAVE_REVISION_MISMATCH).
+  -- Collect graph objects through identities already checked by ScriptSave.
   for _, instanceRecord in ipairs(bucket.instances or {}) do
     for _, frameRecord in ipairs(instanceRecord.frames or {}) do
       local composed = self:resolveComposition(frameRecord.chainScriptId)
-      if composed == nil or composed.revision ~= frameRecord.chainRevision then
-        Errors.raise(
-          ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
-          "save references an unknown composed script revision",
-          {
-            scriptId = frameRecord.chainScriptId,
-            revision = frameRecord.chainRevision,
-            composedRevision = composed and composed.revision or nil,
-          }
-        )
-      end
-      composed = composed --[[@as table]]
-      local entryIndex = frameRecord
-        .composition --[[@as table]]
-        .entryIndex + 1
-      local entry = composed.entries[entryIndex]
-      if entry == nil then
-        Errors.raise(
-          ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
-          "save references an unknown composition entry",
-          { scriptId = frameRecord.chainScriptId, entryIndex = entryIndex }
-        )
-      end
-      entry = entry --[[@as table]]
-      if entry.graph.revision ~= frameRecord.graphRevision then
-        Errors.raise(
-          ScriptErrors.SCRIPT_SAVE_REVISION_MISMATCH,
-          "save references an unknown graph revision",
-          { scriptId = frameRecord.chainScriptId, revision = frameRecord.graphRevision }
-        )
-      end
+      assert(composed and composed.revision == frameRecord.chainRevision, "validated frame chain must resolve")
+      local entry = composed.entries[frameRecord.composition.entryIndex + 1]
+      assert(entry ~= nil, "validated composition entry must resolve")
+      assert(entry.graph.revision == frameRecord.graphRevision, "validated graph revision must resolve")
       graphs[frameRecord.graphRevision] = entry.graph
     end
   end

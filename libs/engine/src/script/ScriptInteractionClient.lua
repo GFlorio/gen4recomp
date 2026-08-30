@@ -14,6 +14,7 @@
 ---@field private _scheduler Scheduler
 local ScriptInteractionClient = {}
 ScriptInteractionClient.__index = ScriptInteractionClient
+local ScriptIdentity = require("libs.assets.src.ScriptIdentity")
 
 -- The consume() outcome protocol shared with FieldSession: a consumed intent
 -- either started a foreground script, found the field already owned, or was
@@ -36,7 +37,38 @@ function ScriptInteractionClient.new(opts)
     _bindings = opts.bindings,
     _compose = opts.compose,
     _scheduler = opts.scheduler,
+    _scriptBankId = opts.scriptBankId,
   }, ScriptInteractionClient)
+end
+
+---@param target string|integer canonical script identity or zero-based index
+---@param tick integer
+---@return boolean started
+function ScriptInteractionClient:startInitScript(target, tick)
+  local scriptId = target
+  if type(target) == "number" then
+    scriptId = ScriptIdentity.formatVanilla(assert(self._scriptBankId), target)
+  end
+  assert(type(scriptId) == "string", "map init target identity required")
+  if self._scheduler:foregroundEnvironmentId() ~= nil then
+    return false
+  end
+  local composed = self._compose(scriptId)
+  if composed == nil then
+    error("missing generated map-init script " .. scriptId)
+  end
+  -- Map initialization never implicitly owns player input; only an explicit
+  -- source lock opcode executed by this script can acquire it.
+  self._scheduler:startInteraction({ type = "map_init", scriptId = scriptId }, composed, tick, false)
+  return true
+end
+
+function ScriptInteractionClient:setScriptBankId(scriptBankId)
+  assert(
+    type(scriptBankId) == "number" and scriptBankId >= 0 and scriptBankId % 1 == 0,
+    "script bank id must be an integer"
+  )
+  self._scriptBankId = scriptBankId
 end
 
 -- Resolve one intent into a trigger + composed descriptor, or nil when the
@@ -71,7 +103,10 @@ function ScriptInteractionClient:consume(intent, tick)
   if hit == nil then
     return ScriptInteractionClient.RESULTS.unmapped
   end
-  self._scheduler:startInteraction(hit.trigger, hit.composed, tick)
+  -- The root was selected by field/player/world event arbitration: it owns
+  -- player input for its whole environment lifetime, with or without an
+  -- explicit LOCK_PLAYER/LockAll opcode.
+  self._scheduler:startInteraction(hit.trigger, hit.composed, tick, true)
   return ScriptInteractionClient.RESULTS.started
 end
 

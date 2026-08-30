@@ -29,11 +29,14 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 ---@field registry FieldApplicationRegistry the immutable per-runtime child-application catalogue
 ---@field menuFactory fun(rememberedActionId: string?): table? the Start Menu composition step (nil = menu currently unavailable)
 ---@field input FieldInput the field input whose modal lifetime the host acquires/releases
+---@field fieldAction fun(actionId: string) immediate field-action dispatcher
+---@field effect fun(sequence: string)? source UI sound effect boundary
 
 ---@class FieldApplicationHost
 ---@field _registry FieldApplicationRegistry
 ---@field _menuFactory fun(rememberedActionId: string?): table?
 ---@field _input FieldInput
+---@field _fieldAction fun(actionId: string)
 ---@field _phase string
 ---@field _fadeTicks integer
 ---@field _fadeAlpha number
@@ -44,6 +47,7 @@ local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 ---@field _uiHeld boolean the modal input lifetime is held (beginUi done, clearUi pending)
 ---@field _reopenPending boolean a script reopen request awaits the session
 ---@field _layout StartMenuLayout.Placement? the StartMenuLayout placement record (setMenuPlacement)
+---@field _effect fun(sequence: string)? source UI sound effect boundary
 local FieldApplicationHost = {}
 FieldApplicationHost.__index = FieldApplicationHost
 
@@ -72,10 +76,12 @@ function FieldApplicationHost.new(options)
     options and options.input and options.input.beginUi and options.input.clearUi,
     "the application host requires the input"
   )
+  assert(options and type(options.fieldAction) == "function", "the application host requires field actions")
   return setmetatable({
     _registry = options.registry,
     _menuFactory = options.menuFactory,
     _input = options.input,
+    _fieldAction = options.fieldAction,
     _phase = FieldApplicationHost.PHASES.closed,
     _fadeTicks = 0,
     _fadeAlpha = 0,
@@ -86,6 +92,7 @@ function FieldApplicationHost.new(options)
     _uiHeld = false,
     _reopenPending = false,
     _layout = nil,
+    _effect = options.effect,
   }, FieldApplicationHost)
 end
 
@@ -182,6 +189,9 @@ end
 ---@param rememberedActionId string?
 ---@return boolean consumed
 function FieldApplicationHost:_openMenu(tick, rememberedActionId)
+  if self._effect then
+    self._effect("SEQ_SE_DP_WIN_OPEN")
+  end
   local ok, controller = pcall(self._menuFactory, rememberedActionId)
   if not ok then
     self:_fail(controller)
@@ -331,7 +341,20 @@ function FieldApplicationHost:_stepMenu(uiInput)
   if result == nil then
     return
   end
-  assert(result.kind == "launch" or result.kind == "close", "unknown menu result kind")
+  assert(result.kind == "launch" or result.kind == "field_action" or result.kind == "close", "unknown menu result kind")
+  if result.kind == "field_action" then
+    assert(type(result.actionId) == "string", "a field action needs an action id")
+    local ok, failure = pcall(self._fieldAction, result.actionId)
+    if not ok then
+      self:_fail(failure)
+      return
+    end
+    self:_disposeController()
+    self:_releaseUi()
+    self._phase = FieldApplicationHost.PHASES.closed
+    self._fadeAlpha = 0
+    return
+  end
   if result.kind == "launch" then
     assert(type(result.applicationId) == "string", "a menu launch needs a destination id")
     -- The remembered selection rides the launch result: the host restores

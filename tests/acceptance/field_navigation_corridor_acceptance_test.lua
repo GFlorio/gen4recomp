@@ -7,6 +7,7 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local RomFs = require("romdump.src.source.RomFs")
 local NavigationFacts = require("tests.rom.support.NavigationFacts")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 
 local T = {
   metadata = { capabilities = { "rom_dump", "derived_cache" }, tags = { "field", "corridor", "navigation" } },
@@ -39,6 +40,8 @@ local function withVersion(fn)
     local facts = NavigationFacts.discover(CacheFs.forVersion(versionId), romFs)
     romFs:close()
     local game = harness:boot({ versionId = versionId, map = "MAP_NEW_BARK", save = "fresh" })
+    OpeningLifecycle.seedNewBarkWestExitScene(game)
+    OpeningLifecycle.settleNewBarkFriendScene(game)
     local ok, failure = xpcall(function()
       fn(game, facts)
       Assert.equal(game:renderAttempts(), 0, "navigation acceptance must stop before GPU rendering")
@@ -66,6 +69,27 @@ local function assertSeam(game, expectedMapId, expectedMapSymbol, label)
   Assert.equal(destination.transition.phase, "idle", label .. " must not start a fade transition")
   Assert.isNil(game.runtime.transition.sourceKind, label .. " must remain outside the warp transition lifecycle")
 
+  -- The seam settles into one coherent active-map identity: the map-scoped
+  -- script context and the live actor world both follow the destination, and
+  -- the source map no longer owns a published actor entry. The destination's
+  -- own entry lifecycle owns actor activation, so the settled boundary is
+  -- reached before those observations.
+  game:waitForFieldReady()
+  Assert.equal(
+    game.runtime.scripts.initController.mapId,
+    expectedMapId,
+    label .. " map-scoped init rules must follow the destination"
+  )
+  Assert.equal(
+    game.runtime.actors.currentMapId,
+    expectedMapId,
+    label .. " the active actor map must follow the destination"
+  )
+  Assert.isNil(
+    game.runtime.actors.maps[source.mapId],
+    label .. " the source actor entry must not remain active/published after the seam settles"
+  )
+
   local origin =
     assert(destination.coverage and destination.coverage.physicalOrigin, label .. " physical origin is required")
   Assert.equal(destination.player.localX, destination.player.fieldX - origin.x, label .. " local X")
@@ -92,6 +116,10 @@ local function assertSeam(game, expectedMapId, expectedMapSymbol, label)
       label .. " camera eye offset " .. axis
     )
   end
+  -- `lastTransition` records only the first commit after it was last
+  -- cleared; consume it so this corridor's later reverse crossing publishes
+  -- its own fresh record instead of being silently ignored behind this one.
+  game.lastTransition = nil
 end
 
 local function findEffect(snapshot, fieldX, fieldZ)
@@ -206,6 +234,7 @@ function T.tests.corridor_traverses_water_zone_streaming_grass_ledge_and_returns
     local building = facts.buildingWarp
     moveTo(game, building)
     game:face(building.direction)
+    game:move(building.direction)
     local started = game:advanceUntil("building transition starts", function(snapshot)
       return snapshot.transition.phase ~= "idle"
     end, 32)

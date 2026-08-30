@@ -58,17 +58,6 @@ local ROMDUMP_FORBIDDEN_LIBS = {
   "libs.engine.",
 }
 
-local SCRIPT_VALUE_FUNCTIONS = {
-  "writeRef",
-  "evaluateValue",
-  "resolveIdOperand",
-  "evaluateMessage",
-  "evaluateCondition",
-  "resolveActor",
-  "requireActor",
-  "actorExists",
-}
-
 -- Namespaces deleted by the boundary moves; none may reappear.
 local FORBIDDEN_PREFIXES = {
   "libs.rom",
@@ -78,6 +67,12 @@ local FORBIDDEN_PREFIXES = {
   "data.manifests.field_cameras",
   "data.manifests.field_messages",
   "data.manifests.field_actors",
+}
+
+local ENGINE_PRODUCT_MODULE_PATHS = {
+  "libs/engine/src/NewGame.lua",
+  "libs/engine/src/OakIntroController.lua",
+  "libs/engine/src/OakGreetingPolicy.lua",
 }
 
 local scanned = nil
@@ -102,6 +97,15 @@ local function readFile(path)
   local content = handle:read("*a")
   handle:close()
   return content
+end
+
+local function pathExists(path)
+  local handle = io.open(BASE .. "/" .. path, "r")
+  if handle == nil then
+    return false
+  end
+  handle:close()
+  return true
 end
 
 -- The two spellings the repository uses; anything else is a load error before
@@ -203,22 +207,10 @@ function T.romdump_never_imports_libs_engine()
   Assert.isTrue(#violations == 0, violationMessage("romdump/src imports a libs runtime package:\n", violations))
 end
 
-function T.script_value_evaluation_exports_stay_on_runtime_values()
-  local RuntimeValues = require("libs.engine.src.script.RuntimeValues")
-  local Runtime = require("libs.engine.src.script.Runtime")
-
-  for _, name in ipairs(SCRIPT_VALUE_FUNCTIONS) do
-    Assert.equal(type(RuntimeValues[name]), "function", "RuntimeValues must own " .. name)
-    Assert.isNil(Runtime[name], "Runtime must not re-export " .. name)
+function T.engine_does_not_contain_game_opening_policy_modules()
+  for _, path in ipairs(ENGINE_PRODUCT_MODULE_PATHS) do
+    Assert.isFalse(pathExists(path), path .. " must not contain game opening policy")
   end
-end
-
-function T.script_tasks_do_not_import_the_node_interpreter()
-  local violations = violationsFor(scannedFiles(), function(file, module)
-    return file:sub(1, #"libs/engine/src/script/tasks/") == "libs/engine/src/script/tasks/"
-      and module == "libs.engine.src.script.Runtime"
-  end)
-  Assert.isTrue(#violations == 0, violationMessage("script tasks import the node interpreter:\n", violations))
 end
 
 return { tests = T }

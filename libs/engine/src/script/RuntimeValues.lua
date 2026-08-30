@@ -6,6 +6,10 @@ local ScriptErrors = require("libs.engine.src.script.errors")
 
 local RuntimeValues = {}
 
+local PLAYER_GENDER_MALE = 0
+local SPRITE_HERO = 0
+local SPRITE_HEROINE = 97
+
 -- Write a value reference: locals and vars are writable; args are read-only
 -- call data (writing one is an invalid reference). Shared by node handlers
 -- and the scheduler's task-result write.
@@ -72,6 +76,12 @@ function RuntimeValues.evaluateValue(v, run)
     return run.services.world:isFlagSet(flagId) and 1 or 0
   elseif kind == "player_gender_value" then
     return run.services.player:gender()
+  elseif kind == "friend_sprite_value" then
+    -- The opening friend uses the sprite for the gender opposite the player.
+    if run.services.player:gender() ~= PLAYER_GENDER_MALE then
+      return SPRITE_HERO
+    end
+    return SPRITE_HEROINE
   elseif kind == "object_id" then
     local actorId = RuntimeValues.resolveActor(v.ref, run)
     local id = run.services.actors:id(actorId)

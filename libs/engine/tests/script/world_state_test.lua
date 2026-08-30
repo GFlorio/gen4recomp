@@ -6,6 +6,7 @@
 -- state.
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -13,10 +14,10 @@ local TaskRegistry = require("libs.engine.src.script.TaskRegistry")
 local Scheduler = require("libs.engine.src.script.Scheduler")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
----@cast WaitTicksTask TaskImplementation
 local ScriptRng = require("libs.engine.src.script.ScriptRng")
 local WorldState = require("libs.engine.src.script.WorldState")
 local FakeServices = require("tests.support.script.FakeServices")
+---@cast WaitTicksTask TaskImplementation
 
 local T = {}
 
@@ -215,6 +216,65 @@ T["world state round trip"] = function()
   Assert.isTrue(restored:isFlagSet("FLAG_MET_ELM"))
   Assert.equal(restored:getVar("VAR_SCENE_ELMS_LAB"), 2)
   Assert.equal(restored.rng:nextInt(50), world.rng:nextInt(50), "the serialized RNG continues from the captured state")
+end
+
+T["world validation is strict and matches capture"] = function()
+  local world = WorldState.new({ catalogs = CATALOGS, seed = 7 })
+  local record = world:capture()
+  Assert.notNil(WorldState.validate(record))
+  local invalid = {
+    { flags = {}, variables = {}, objects = {}, rng = { state = 0, calls = 0 } },
+    { flags = {}, variables = {}, objects = { extra = true }, rng = { state = 1, calls = 0 } },
+    { flags = {}, variables = {}, rng = { state = 1, calls = 0 } },
+    { flags = {}, variables = {}, objects = {}, rng = { state = 1, calls = -1 } },
+  }
+  for _, candidate in ipairs(invalid) do
+    local validated, err = WorldState.validate(candidate)
+    Assert.isNil(validated)
+    Assert.isTrue(Errors.is(err))
+  end
+end
+
+T["script rng validation enforces the generator domain"] = function()
+  local maximumState = 0x7FFFFFFE
+  local modulus = 0x7FFFFFFF
+
+  Assert.notNil(ScriptRng.validate({ state = 1, calls = 0 }))
+  local maximum, maximumErr = ScriptRng.validate({ state = maximumState, calls = 0 })
+  Assert.notNil(maximum, "the largest reachable state must be valid")
+  Assert.isNil(maximumErr)
+  local restoredMaximum = ScriptRng.restore(assert(maximum))
+  local nextMaximum = restoredMaximum:nextRaw()
+  Assert.isTrue(
+    nextMaximum > 0 and nextMaximum < modulus,
+    "the largest reachable state must advance within the generator domain"
+  )
+
+  local _, modulusErr = ScriptRng.validate({ state = modulus, calls = 0 })
+  Assert.isTrue(Errors.is(modulusErr), "the modulus must be rejected")
+  local _, largerErr = ScriptRng.validate({ state = modulus + 1, calls = 0 })
+  Assert.isTrue(Errors.is(largerErr), "states above the modulus must be rejected")
+
+  local invalidStates = { 0, -1, 1.5, 0 / 0, math.huge, -math.huge }
+  for _, state in ipairs(invalidStates) do
+    local _, err = ScriptRng.validate({ state = state, calls = 0 })
+    Assert.isTrue(Errors.is(err), "invalid state must return a typed error")
+  end
+
+  local validCalls, validCallsErr = ScriptRng.validate({ state = 1, calls = 4 })
+  Assert.notNil(validCalls)
+  Assert.isNil(validCallsErr)
+  local invalidCalls = { -1, 1.5, 0 / 0, math.huge, -math.huge }
+  for _, calls in ipairs(invalidCalls) do
+    local _, err = ScriptRng.validate({ state = 1, calls = calls })
+    Assert.isTrue(Errors.is(err), "invalid call count must return a typed error")
+  end
+
+  local _, unknownFieldErr = ScriptRng.validate({ state = 1, calls = 0, extra = true })
+  Assert.isTrue(Errors.is(unknownFieldErr), "unknown fields must be rejected")
+
+  local _, missingFieldErr = ScriptRng.validate({ state = 1 })
+  Assert.isTrue(Errors.is(missingFieldErr), "missing fields must be rejected")
 end
 
 -- 8. The new-bark branching scenario: scene variable drives the branch and

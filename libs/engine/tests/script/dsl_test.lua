@@ -179,6 +179,12 @@ local CASES = {
     end,
     { value = "player_gender_value" },
   },
+  friend_sprite_value = {
+    function()
+      return S.friendSpriteValue()
+    end,
+    { value = "friend_sprite_value" },
+  },
   object_id_value = {
     function()
       return S.objectIdValue(S.actor("elm"))
@@ -916,9 +922,9 @@ local CASES = {
   -- Screen, camera, and map constructors
   fade_screen = {
     function()
-      return S.fadeScreen({ kind = 6, speed = 1, direction = "out", color = "black" })
+      return S.fadeScreen({ duration = 6, speed = 1, direction = "out", color = "black" })
     end,
-    { op = "fade_screen", kind = 6, speed = 1, direction = "out", color = "black" },
+    { op = "fade_screen", duration = 6, speed = 1, direction = "out", color = "black" },
   },
   wait_fade = {
     function()

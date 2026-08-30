@@ -64,13 +64,14 @@ local function sendFogTableGroups(shader, table32)
 end
 
 local function emptyRuntime()
-  return {
+  local result = {
     mapDraws = {},
     buildingDraws = {},
     stats = { triangleCount = 0, meshCount = 0, textureCount = 0 },
     edgeColors = { [0] = 0, 0, 0, 0, 0, 0, 0, 0 },
     fog = zeroFogFixture(),
   }
+  return result
 end
 
 -- A tiny mesh in the project's vertex layout, so the shader can be exercised
@@ -1664,7 +1665,7 @@ local function luaCache(backend)
     assert(ok, result)
     return result
   end
-  return {
+  local result = {
     read = function(_, path)
       return backend:read(path)
     end,
@@ -1672,6 +1673,8 @@ local function luaCache(backend)
       return loadLua(path)
     end,
   }
+  ---@cast result CacheFs
+  return result
 end
 
 -- A terrain scene with two materials: a texture-swap flower quad covering

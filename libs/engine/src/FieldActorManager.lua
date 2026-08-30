@@ -99,11 +99,6 @@ local PARTNER_OBJECT_ID = 253
 ---@field _instantiate fun(self: FieldActorManager, entry: FieldActorManager.Entry, event: FieldActorEvent, eventState: FieldEventState?): FieldActorManager.Actor
 ---@field _destroy fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor)
 ---@field leaveMap fun(self: FieldActorManager, mapId: integer)
----@field prepareMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState): FieldActorManager.PreparedMap
----@field commitPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap)
----@field setActiveMap fun(self: FieldActorManager, mapId: integer)
----@field rebindMap fun(self: FieldActorManager, mapId: integer, runtimeMap: RuntimeFieldMap)
----@field discardPrepared fun(self: FieldActorManager, prepared: FieldActorManager.PreparedMap)
 ---@field enterMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState)
 ---@field dispose fun(self: FieldActorManager)
 ---@field visualRevision fun(self: FieldActorManager): integer
@@ -112,14 +107,31 @@ local PARTNER_OBJECT_ID = 253
 ---@field reconcilePhysicalWorld fun(self: FieldActorManager)
 ---@field isOccupied fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate, exceptActorId: string?): boolean
 ---@field onEventStateChanged fun(self: FieldActorManager, change: FieldActorStateChange)
+---@field syncEventStateChanges fun(self: FieldActorManager)
 ---@field _applyFlag fun(self: FieldActorManager, change: FieldActorFlagChange)
 ---@field getById fun(self: FieldActorManager, actorId: string): FieldActorManager.Actor?
+---@field getActor fun(self: FieldActorManager, actorId: string): FieldActorManager.Actor?
 ---@field getPosition fun(self: FieldActorManager, actorId: string): FieldActorManager.ActorPosition?
----@field setPosition fun(self: FieldActorManager, actorId: string, position: FieldActorManager.Position)
+---@field getFacing fun(self: FieldActorManager, actorId: string): FieldDirection?
+---@field show fun(self: FieldActorManager, actorId: string)
+---@field hide fun(self: FieldActorManager, actorId: string)
+---@field setMovementType fun(self: FieldActorManager, actorId: string, movementType: string)
+---@field setAnimationPaused fun(self: FieldActorManager, actorId: string, paused: boolean)
+---@field numericId fun(self: FieldActorManager, actorId: string): integer?
+---@field cameraTargetId fun(self: FieldActorManager): string?
+---@field partnerId fun(self: FieldActorManager): string?
+---@field _resolveScriptedDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, direction: FieldDirection?, distance: string?): table
+---@field setPosition fun(self: FieldActorManager, actorId: string, position: FieldActorManager.Position, options: { scripted?: boolean }?)
 ---@field getAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
 ---@field probeAt fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, candidate: FieldOccupancyCandidate): FieldActorManager.ProbeResult?
 ---@field actorsOf fun(self: FieldActorManager, mapId: integer): FieldActorManager.Actor[]
 ---@field actorIdForMapIndex fun(self: FieldActorManager, index: integer): string?
+---@field beginScriptedAction fun(self: FieldActorManager, actorId: string, action: table)
+---@field advanceScriptedAction fun(self: FieldActorManager, actorId: string, progressTicks: integer, durationTicks: integer)
+---@field commitScriptedAction fun(self: FieldActorManager, actorId: string)
+---@field cancelScriptedMovement fun(self: FieldActorManager, actorId: string)
+---@field settleScriptedAction fun(self: FieldActorManager, actorId: string)
+---@field isScriptedMoving fun(self: FieldActorManager, actorId: string): boolean
 ---@class FieldActorManager.Actor: FieldObjectActor
 ---@field scriptMovementType string?
 ---@field animationPaused boolean?
@@ -132,11 +144,6 @@ local PARTNER_OBJECT_ID = 253
 ---@field occupancy table<string, FieldActorManager.Actor>
 ---@field byFlag table<integer, FieldActorEvent[]>
 ---@field byIndex table<integer, string>
-
----@class FieldActorManager.PreparedMap
----@field entry FieldActorManager.Entry
----@field eventState FieldEventState
----@field state "prepared"|"committed"|"discarded"
 
 ---@class FieldActorManager.Position
 ---@field fieldX integer
@@ -155,10 +162,8 @@ local PARTNER_OBJECT_ID = 253
 ---@field facing FieldDirection
 ---@field pose string
 ---@field poseTick integer
+---@field activeEmoteKind string?
 ---@field visible boolean
----@class FieldActorManager.ProbeResult
----@field actorId string
----@field objectEventId integer
 local FieldActorManager = {}
 FieldActorManager.__index = FieldActorManager
 
@@ -542,6 +547,14 @@ end
 
 ---@param self FieldActorManager
 ---@param entry FieldActorManager.Entry
+local function destroyEntry(self, entry)
+  while #entry.order > 0 do
+    self:_destroy(entry, entry.order[#entry.order])
+  end
+end
+
+---@param self FieldActorManager
+---@param entry FieldActorManager.Entry
 ---@param eventState FieldEventState
 local function populateEntry(self, entry, eventState)
   local runtimeMap = entry.runtimeMap
@@ -564,106 +577,70 @@ local function populateEntry(self, entry, eventState)
     end
   end)
   if not ok then
-    while #entry.order > 0 do
-      self:_destroy(entry, entry.order[#entry.order])
-    end
+    destroyEntry(self, entry)
     error(err)
   end
 end
 
--- Builds all destination actors in an unattached entry. The live map index,
--- event subscription, and current-map identity remain untouched until commit.
----@param runtimeMap RuntimeFieldMap
----@param eventState FieldEventState
+-- Removes a published entry and releases its actors. An entry that is no
+-- longer the one indexed under its map id has already been replaced, so the
+-- index and the active map identity are left alone.
 ---@param self FieldActorManager
----@return FieldActorManager.PreparedMap
-function FieldActorManager:prepareMap(runtimeMap, eventState)
-  assert(runtimeMap and runtimeMap.fieldData, "prepareMap requires a runtime map")
-  assert(eventState, "prepareMap requires a field event state")
-  assert(not self.maps[runtimeMap.mapId], "cannot prepare an already-live map")
-  local entry = newEntry(runtimeMap)
-  populateEntry(self, entry, eventState)
-  return {
-    entry = entry,
-    eventState = eventState,
-    state = "prepared",
-  } ---@type FieldActorManager.PreparedMap
-end
-
----@param prepared FieldActorManager.PreparedMap
----@param self FieldActorManager
-function FieldActorManager:discardPrepared(prepared)
-  assert(prepared and prepared.state == "prepared", "prepared map is not disposable")
-  while #prepared.entry.order > 0 do
-    self:_destroy(prepared.entry, prepared.entry.order[#prepared.entry.order])
+---@param entry FieldActorManager.Entry
+local function retireEntry(self, entry)
+  local mapId = entry.runtimeMap.mapId
+  if self.maps[mapId] == entry then
+    self.maps[mapId] = nil
+    if self.currentMapId == mapId then
+      self.currentMapId = nil
+    end
   end
-  prepared.state = "discarded"
-end
-
--- Publishes the prepared destination, then removes the source. Failures after
--- this boundary are intentionally surfaced to the caller; the destination is
--- already the live actor world and is not rolled back by this manager.
----@param prepared FieldActorManager.PreparedMap
----@param self FieldActorManager
-function FieldActorManager:commitPrepared(prepared)
-  assert(prepared and prepared.state == "prepared", "prepared map is not committable")
-  local entry = prepared.entry
-  local destinationMapId = entry.runtimeMap.mapId
-  assert(not self.maps[destinationMapId], "prepared destination is already live")
-
-  local bound, bindErr = pcall(bindEventState, self, prepared.eventState)
-  if not bound then
-    self:discardPrepared(prepared)
-    error(bindErr, 0)
-  end
-  entry.published = true
-  self.maps[destinationMapId] = entry
+  entry.published = false
   if #entry.order > 0 then
     self._visualRevision = self._visualRevision + 1
   end
-  prepared.state = "committed"
+  destroyEntry(self, entry)
 end
 
----@param mapId integer
----@param self FieldActorManager
-function FieldActorManager:setActiveMap(mapId)
-  assert(self.maps[mapId], "active actor map is not resident")
-  self.currentMapId = mapId
-end
-
--- Replace a published map's composed physical view without rebuilding its
--- actors. The coordinator uses this when a discontinuous destination changes
--- the coverage backing a logical map that is already resident.
----@param mapId integer
----@param runtimeMap RuntimeFieldMap
----@param self FieldActorManager
-function FieldActorManager:rebindMap(mapId, runtimeMap)
-  assert(type(mapId) == "number" and mapId % 1 == 0, "actor map id must be an integer")
-  assert(runtimeMap and runtimeMap.mapId == mapId, "actor map rebind must preserve map identity")
-  local entry = self.maps[mapId]
-  assert(entry and entry.published, "actor map rebind requires a published map")
-  entry.runtimeMap = runtimeMap
-end
-
--- Idempotent for an already-active runtime map, so a transition's overlapping
--- load and commit phases cannot duplicate a map's actors.
+-- The one production activation seam: the destination entry is built and
+-- bound while the previous active entry is still live, so a construction or
+-- binding failure leaves the live actor world untouched. Entering the exact
+-- same runtime map again is idempotent, so a transition's overlapping load
+-- and commit phases cannot duplicate a map's actors.
 ---@param runtimeMap RuntimeFieldMap
 ---@param eventState FieldEventState
 ---@param self FieldActorManager
 function FieldActorManager:enterMap(runtimeMap, eventState)
   assert(runtimeMap and runtimeMap.fieldData, "enterMap requires a runtime map")
   assert(eventState, "enterMap requires a field event state")
-  local existing = self.maps[runtimeMap.mapId]
-  if existing then
-    if existing.runtimeMap == runtimeMap then
-      bindEventState(self, eventState)
-      return
-    end
-    self:leaveMap(runtimeMap.mapId)
+  local mapId = runtimeMap.mapId
+  local existing = self.maps[mapId]
+  if existing and existing.runtimeMap == runtimeMap then
+    bindEventState(self, eventState)
+    self.currentMapId = mapId
+    return
   end
-  local prepared = self:prepareMap(runtimeMap, eventState)
-  self:commitPrepared(prepared)
-  self.currentMapId = runtimeMap.mapId
+  local entry = newEntry(runtimeMap)
+  populateEntry(self, entry, eventState)
+  local bound, bindErr = pcall(bindEventState, self, eventState)
+  if not bound then
+    destroyEntry(self, entry)
+    error(bindErr, 0)
+  end
+
+  local previous = self.currentMapId and self.maps[self.currentMapId] or nil
+  entry.published = true
+  self.maps[mapId] = entry
+  self.currentMapId = mapId
+  if #entry.order > 0 then
+    self._visualRevision = self._visualRevision + 1
+  end
+  if existing then
+    retireEntry(self, existing)
+  end
+  if previous and previous ~= existing then
+    retireEntry(self, previous)
+  end
 end
 
 ---@param mapId integer
@@ -673,18 +650,7 @@ function FieldActorManager:leaveMap(mapId)
   if not entry then
     return
   end
-  self.maps[mapId] = nil
-  if self.currentMapId == mapId then
-    self.currentMapId = nil
-  end
-  local hadActors = #entry.order > 0
-  entry.published = false
-  if hadActors then
-    self._visualRevision = self._visualRevision + 1
-  end
-  while #entry.order > 0 do
-    self:_destroy(entry, entry.order[#entry.order])
-  end
+  retireEntry(self, entry)
 end
 
 -- Queued rather than applied inline: a flag written mid-tick must not change
@@ -715,24 +681,34 @@ function FieldActorManager:_applyFlag(change)
   end
 end
 
+---@param self FieldActorManager
+function FieldActorManager:syncEventStateChanges()
+  local pending = self.pendingFlags
+  if #pending == 0 then
+    return
+  end
+  self.pendingFlags = {}
+  for _, change in ipairs(pending) do
+    self:_applyFlag(change)
+  end
+end
+
 ---@param tick integer
 ---@param self FieldActorManager
 function FieldActorManager:step(tick)
   if self.eventState then
     self.eventState:setTick(tick)
   end
-  local pending = self.pendingFlags
-  if #pending > 0 then
-    self.pendingFlags = {}
-    for _, change in ipairs(pending) do
-      self:_applyFlag(change)
-    end
-  end
+  self:syncEventStateChanges()
   for _, entry in pairs(self.maps) do
     for _, actor in ipairs(entry.order) do
       -- Scripted pause_animation freezes the actor's pose animation; the
-      -- pose clock only advances while the actor is not paused.
-      if not actor.animationPaused then
+      -- pose clock only advances while the actor is not paused. A scripted
+      -- action drives its own poseTick through advanceScriptedAction, so the
+      -- manager must not double-advance it here.
+      if actor:isScriptedMoving() then
+        -- poseTick is driven by scripted advancement.
+      elseif not actor.animationPaused then
         actor.poseTick = actor.poseTick + 1
       end
     end
@@ -847,14 +823,20 @@ function FieldActorManager:drawRecords()
         }
         self._drawRecordByActorId[actor.actorId] = record
       end
+      -- Render-only presentation offset (e.g. walk-in-place bob) is applied
+      -- here, at the final draw-position boundary; the actor's logical
+      -- worldX/worldY/worldZ (read by terrain, collision, and save) never
+      -- carry it.
+      local offset = actor.presentationOffset
       record.actorId = actor.actorId
       record.spriteId = actor.spriteId
-      record.world.x = actor.worldX
-      record.world.y = actor.worldY
+      record.world.x = actor.worldX + (offset and offset.x or 0)
+      record.world.y = actor.worldY + (offset and offset.y or 0)
       record.world.z = actor.worldZ
       record.facing = actor.facing
       record.pose = actor.pose
       record.poseTick = actor.poseTick
+      record.activeEmoteKind = actor.activeEmoteKind
       record.visible = actor.visible
       records[count] = record
       ::continue::
@@ -891,12 +873,22 @@ function FieldActorManager:getAt(mapId, candidate)
   return entry.occupancy[occupancyKey(entry.runtimeMap, mapId, candidate)]
 end
 
+-- The read-only identity of a source object event on a map that owns no live
+-- actor entry: the same semantic identity activation would give it, without
+-- any actor instance or visual reference.
+---@class FieldActorManager.ProbeResult
+---@field actorId string
+---@field objectEventId integer
+---@field sourceEvent FieldActorEvent
+---@field spriteId integer
+
 -- Inspect destination object events without creating actors. This deliberately
 -- repeats only the event filtering and surface comparison needed for collision;
 -- actor construction remains the ownership-bearing path used after a commit.
 ---@param runtimeMap RuntimeFieldMap
 ---@param eventState FieldEventState
 ---@param candidate FieldOccupancyCandidate
+---@param self FieldActorManager
 ---@return FieldActorManager.ProbeResult?
 function FieldActorManager:probeAt(runtimeMap, eventState, candidate)
   assert(runtimeMap and runtimeMap.fieldData, "probeAt requires a runtime map")
@@ -935,7 +927,12 @@ function FieldActorManager:probeAt(runtimeMap, eventState, candidate)
             }
           )
         end
-        occupant = { actorId = actorId, objectEventId = event.objectEventId }
+        occupant = {
+          actorId = actorId,
+          objectEventId = event.objectEventId,
+          sourceEvent = event,
+          spriteId = self:_resolveSpriteId(event, eventState),
+        }
       end
     end
   end
@@ -1007,13 +1004,21 @@ end
 -- The whole destination is calculated and validated -- coordinates, surface,
 -- and occupancy conflict -- before the actor or the occupancy index is
 -- mutated, so a conversion or surface failure leaves the actor exactly where
--- it was. The destination occupancy slot is never overwritten: moving onto
--- another solid actor's cell is a conflict, the same invariant _instantiate
--- enforces.
+-- it was. The destination occupancy slot is never overwritten by default:
+-- moving onto another solid actor's cell is a conflict, the same invariant
+-- _instantiate enforces -- with one narrowing: pinned HGSS source never
+-- performs an inter-object collision check while a script's `ApplyMovement`
+-- repositions an actor, only autonomous walk-AI and player movement check it.
+-- `options.scripted` is how a script-driven caller (currently only
+-- `ScriptActorWorld`) identifies itself; every other caller keeps the
+-- default strict behavior, including two script-driven actors that briefly
+-- land on the same cell mid-sequence: the later `setPosition` call simply
+-- takes over the occupancy slot instead of raising.
 ---@param actorId string
 ---@param position FieldActorManager.Position
+---@param options { scripted?: boolean }?
 ---@param self FieldActorManager
-function FieldActorManager:setPosition(actorId, position)
+function FieldActorManager:setPosition(actorId, position, options)
   local actor = requireActor(self, actorId)
   local entry = assert(self.maps[actor.mapId], "actor map entry missing")
   local resident = isResident(entry.runtimeMap, position.fieldX, position.fieldZ)
@@ -1052,9 +1057,10 @@ function FieldActorManager:setPosition(actorId, position)
     assert(newCandidate.cellKey ~= nil, "actor destination source surface requires a cell key")
   end
   local newKey = newCandidate and occupancyKey(entry.runtimeMap, actor.mapId, newCandidate) or nil
+  local scripted = options ~= nil and options.scripted == true
   if resident and actor.solid then
     local occupant = newKey and entry.occupancy[newKey]
-    if occupant ~= nil and occupant ~= actor then
+    if occupant ~= nil and occupant ~= actor and not scripted then
       Errors.raise(
         FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
         actorId .. " cannot move onto " .. occupant.actorId .. "'s field cell",
@@ -1121,6 +1127,231 @@ end
 function FieldActorManager:setAnimationPaused(actorId, paused)
   local actor = requireActor(self, actorId)
   actor.animationPaused = paused == true
+end
+
+-- --- Scripted motion presentation (manager owns occupancy/terrain) -------
+
+-- Resolve destination for a scripted action without mutating actor or
+-- occupancy. Returns start/dest world anchors.
+---@param actor FieldActorManager.Actor
+---@param direction FieldDirection?
+---@param distance string?
+---@param self FieldActorManager
+---@return table destination
+function FieldActorManager:_resolveScriptedDestination(actor, direction, distance)
+  local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  local deltaMap = {
+    north = { fieldX = 0, fieldZ = -1 },
+    south = { fieldX = 0, fieldZ = 1 },
+    west = { fieldX = -1, fieldZ = 0 },
+    east = { fieldX = 1, fieldZ = 0 },
+  }
+  local startFieldX, startFieldZ = actor.fieldX, actor.fieldZ
+  local startWorldX, startWorldY, startWorldZ = actor.worldX, actor.worldY, actor.worldZ
+  local destFieldX, destFieldZ = startFieldX, startFieldZ
+  local destWorldX, destWorldY, destWorldZ = startWorldX, startWorldY, startWorldZ
+  local destSurfaceId = actor.surfaceId
+  if direction ~= nil and distance ~= "zero" then
+    local delta = assert(deltaMap[direction], "unknown direction " .. tostring(direction))
+    destFieldX = startFieldX + delta.fieldX
+    destFieldZ = startFieldZ + delta.fieldZ
+    -- Resolve surface at destination center.
+    local localX, localZ = FieldCoordinates.fieldToLocal(entry.runtimeMap, destFieldX, destFieldZ)
+    local sample = SurfaceResolver.new(entry.runtimeMap.terrain):resolve({
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      currentY = actor.worldY,
+      currentSurfaceId = actor.surfaceId,
+    })
+    local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, destFieldX, destFieldZ, sample.worldY)
+    destWorldX, destWorldY, destWorldZ = world.x, world.y, world.z
+    destSurfaceId = sample.surfaceId
+  elseif direction ~= nil and distance == "zero" then
+    -- zero jump stays on same tile; no surface change.
+    destFieldX, destFieldZ = startFieldX, startFieldZ
+    destWorldX, destWorldY, destWorldZ = startWorldX, startWorldY, startWorldZ
+    destSurfaceId = actor.surfaceId
+  end
+  return {
+    start = {
+      fieldX = startFieldX,
+      fieldZ = startFieldZ,
+      worldX = startWorldX,
+      worldY = startWorldY,
+      worldZ = startWorldZ,
+      surfaceId = actor.surfaceId,
+    },
+    dest = {
+      fieldX = destFieldX,
+      fieldZ = destFieldZ,
+      worldX = destWorldX,
+      worldY = destWorldY,
+      worldZ = destWorldZ,
+      surfaceId = destSurfaceId,
+    },
+  }
+end
+
+---@param actorId string
+---@param action table
+---@param self FieldActorManager
+function FieldActorManager:beginScriptedAction(actorId, action)
+  local actor = requireActor(self, actorId)
+  local kind = action.action
+  -- Face is instantaneous: apply the facing directly, then still flow
+  -- through the generic actor transaction below (with a stay-put start/dest).
+  -- A single face settles to idle like any other non-locomotion action; a
+  -- repeated face (source `count > 1`) instead presents walking pose while
+  -- staying put, per `FieldObjectActor:beginScriptedAction`.
+  if kind == "face" and action.direction ~= nil then
+    actor:setFacing(action.direction)
+  end
+  local direction = action.direction
+  local distance = action.distance
+  local speed = action.speed
+  local durationTicks
+  if
+    kind == "walk"
+    or kind == "walk_in_place"
+    or kind == "jump"
+    or kind == "face"
+    or kind == "delay"
+    or kind == "emote"
+    or kind == "gesture"
+  then
+    local MovementCalibration = require("libs.engine.src.script.tasks.MovementCalibration")
+    durationTicks = MovementCalibration.actionTicks(action)
+  else
+    Errors.raise(
+      ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE,
+      "unsupported scripted action " .. tostring(kind),
+      { actor = actorId }
+    )
+  end
+  local destInfo
+  if kind == "walk" then
+    destInfo = self:_resolveScriptedDestination(actor, direction, "near")
+    -- For walk, treat as one-tile displacement.
+    -- distance param not used; use direction delta.
+  elseif kind == "jump" then
+    destInfo = self:_resolveScriptedDestination(actor, direction, distance)
+  elseif kind == "walk_in_place" or kind == "face" or kind == "delay" or kind == "emote" or kind == "gesture" then
+    destInfo = {
+      start = {
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        worldX = actor.worldX,
+        worldY = actor.worldY,
+        worldZ = actor.worldZ,
+        surfaceId = actor.surfaceId,
+      },
+      dest = {
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        worldX = actor.worldX,
+        worldY = actor.worldY,
+        worldZ = actor.worldZ,
+        surfaceId = actor.surfaceId,
+      },
+    }
+  end
+  actor:beginScriptedAction({
+    action = kind,
+    direction = direction,
+    distance = distance,
+    speed = speed,
+    start = destInfo.start,
+    dest = destInfo.dest,
+    durationTicks = durationTicks,
+    -- The decoded semantic emote kind (e.g. "exclamation"); only meaningful
+    -- when kind == "emote".
+    name = action.name,
+    -- Source repetition count; only meaningful for `face`, where it
+    -- distinguishes a repeated stationary action (walking presentation) from
+    -- a single idle-facing one. Not used by any other action kind.
+    count = action.count,
+  })
+end
+
+---@param actorId string
+---@param progressTicks integer
+---@param durationTicks integer
+---@param self FieldActorManager
+function FieldActorManager:advanceScriptedAction(actorId, progressTicks, durationTicks)
+  local actor = requireActor(self, actorId)
+  actor:advanceScriptedAction(progressTicks, durationTicks)
+end
+
+---@param actorId string
+---@param self FieldActorManager
+function FieldActorManager:commitScriptedAction(actorId)
+  local actor = requireActor(self, actorId)
+  local m = actor:scriptedMotionState()
+  if not m then
+    return
+  end
+  -- Only walk/jump change occupancy; walk_in_place/face never.
+  if m.action == "walk" or m.action == "jump" then
+    if m.destFieldX ~= m.startFieldX or m.destFieldZ ~= m.startFieldZ or m.destSurfaceId ~= m.startSurfaceId then
+      local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+      if actor.solid then
+        local newKey = occupancyKey(
+          entry.runtimeMap,
+          actor.mapId,
+          { fieldX = m.destFieldX, fieldZ = m.destFieldZ, surfaceId = m.destSurfaceId }
+        )
+        local oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
+        if entry.occupancy[oldKey] == actor then
+          entry.occupancy[oldKey] = nil
+        end
+        -- Scripted movement bypasses inter-object collision check: takes over slot.
+        entry.occupancy[newKey] = actor
+      end
+    end
+  end
+  actor:commitScriptedAction()
+end
+
+---@param actorId string
+---@param self FieldActorManager
+function FieldActorManager:cancelScriptedMovement(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    return
+  end
+  if actor:isScriptedMoving() then
+    actor:cancelScriptedAction()
+  else
+    -- Also settle any fractional world drift: recompute world from committed tile.
+    local entry = self.maps[actor.mapId]
+    if entry then
+      local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, actor.fieldX, actor.fieldZ, actor.worldY)
+      actor.worldX = world.x
+      actor.worldZ = world.z
+      -- worldY stays as committed surface height; actor.worldY already correct.
+    end
+  end
+end
+
+-- Called once a movement plan is fully exhausted, when there is no further
+-- action to begin (the usual locomotion-to-idle settle point). Guarantees
+-- the actor never keeps its final action's presentation after the task ends.
+---@param actorId string
+---@param self FieldActorManager
+function FieldActorManager:settleScriptedAction(actorId)
+  local actor = requireActor(self, actorId)
+  actor:settlePresentation()
+end
+
+---@param actorId string
+---@return boolean
+---@param self FieldActorManager
+function FieldActorManager:isScriptedMoving(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    return false
+  end
+  return actor:isScriptedMoving()
 end
 
 -- The numeric local map-object index of one actor (the pinned HGSS object

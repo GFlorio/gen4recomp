@@ -90,7 +90,7 @@ local function luaCache(backend)
     assert(ok, result)
     return result
   end
-  return {
+  local result = {
     read = function(_, path)
       return backend:read(path)
     end,
@@ -98,6 +98,8 @@ local function luaCache(backend)
       return loadLua(path)
     end,
   }
+  ---@cast result CacheFs
+  return result
 end
 
 -- The 2x2-tile quad in tile space (MeshWriter vertex shape).
@@ -1182,17 +1184,6 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     end,
   }
   ---@cast input FieldInput
-  local scriptScheduler = {
-    step = function() end,
-    playerMovementLocked = function()
-      return false
-    end,
-  }
-  ---@cast scriptScheduler Scheduler
-  local scriptClient = {
-    consume = function() end,
-  }
-  ---@cast scriptClient ScriptInteractionClient
   local menuHost = {
     isModal = function()
       return false
@@ -1227,8 +1218,21 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     actors = actors,
     input = input,
     dialogue = inactiveDialogue,
-    scriptScheduler = scriptScheduler,
-    scriptClient = scriptClient,
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    scriptScheduler = {
+      step = function() end,
+      playerInputLocked = function()
+        return false
+      end,
+      playerInputOwned = function()
+        return false
+      end,
+      foregroundEnvironmentId = function()
+        return nil
+      end,
+    },
+    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+    scriptClient = { consume = function() end },
     eventResolver = FieldEventResolver,
     eventState = FieldEventState.new(),
     menuHost = menuHost,
@@ -1244,6 +1248,9 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
         return nil
       end,
     },
+    bagUnlocked = function()
+      return true
+    end,
   })
 
   session:updateFixed({})

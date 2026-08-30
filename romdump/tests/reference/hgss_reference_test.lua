@@ -47,6 +47,26 @@ function T.narc_catalog_is_complete_and_unique()
   end
 end
 
+-- Regression: a source NARC ID quoted in decompiled ARM assembly is a hex
+-- literal (e.g. `0x67`), but this catalog's narcId field is decimal. Reading
+-- a hex source ID as though it were already decimal previously misresolved
+-- NARC 0x67 (=103, field_static_models / a/1/0/3) to path a/0/6/7 -- an
+-- unrelated 2D sprite archive -- and cost a full research pass to catch.
+function T.hex_narc_id_from_disassembly_resolves_through_decimal_conversion_not_digit_reuse()
+  Assert.equal(tonumber("0x67"), 103, "0x67 is decimal 103, not a path built from its own hex digits")
+  Assert.equal(narcs.entries.NARC_a_1_0_3.narcId, 103)
+  Assert.equal(narcs.entries.NARC_a_1_0_3.path, "a/1/0/3")
+  -- The decimal-67 archive is a real, different NARC (a/0/6/7). Its path
+  -- happening to spell out 0x67's own digits is exactly what makes it a
+  -- tempting but wrong resolution for the hex literal 0x67.
+  Assert.equal(narcs.entries.NARC_a_0_6_7.narcId, 67)
+  Assert.equal(narcs.entries.NARC_a_0_6_7.path, "a/0/6/7")
+  Assert.isTrue(
+    narcs.entries.NARC_a_1_0_3.path ~= narcs.entries.NARC_a_0_6_7.path,
+    "hex 0x67 (narcId 103) must not resolve to the decimal-67 archive's path"
+  )
+end
+
 function T.map_catalog_is_complete_and_well_typed()
   Assert.equal(maps.schema, 1)
   Assert.equal(maps.count, 540)

@@ -42,7 +42,6 @@ local T = {
 ---@class FieldApplicationHostTest.Input
 ---@field beginUiTicks integer[]
 ---@field clearUiCalls integer
-
 ---@class FieldApplicationHostTest.PartialOptions
 ---@field registry FieldApplicationHostTest.Registry?
 ---@field menuFactory? fun(rememberedActionId: string?): FieldApplicationHostTest.Controller?
@@ -61,37 +60,35 @@ local function fakeController(overrides)
     cancelPointerCaptureCalls = 0,
     result = nil,
     receivedEvents = nil,
-    presentation = nil,
-    updateFixed = function(self, uiInput)
-      self.updateFixedCalls = self.updateFixedCalls + 1
-      self.receivedEvents = uiInput
-    end,
-    status = function(_)
-      return { open = true }
-    end,
-    takeResult = function(self)
-      local result = self.result
-      self.result = nil
-      return result
-    end,
-    dispose = function(self)
-      self.disposeCount = self.disposeCount + 1
-    end,
-    cancelPointerCapture = function(self)
-      self.cancelPointerCaptureCalls = self.cancelPointerCaptureCalls + 1
-    end,
-  } --[[@as FieldApplicationHostTest.Controller]]
-  if overrides ~= nil then
-    controller.presentation = overrides.presentation
+  }
+  function controller:updateFixed(uiInput)
+    self.updateFixedCalls = self.updateFixedCalls + 1
+    self.receivedEvents = uiInput
   end
-  return controller
+  function controller:status()
+    return { open = true }
+  end
+  function controller:takeResult()
+    local result = self.result
+    self.result = nil
+    return result
+  end
+  function controller:dispose()
+    self.disposeCount = self.disposeCount + 1
+  end
+  function controller:cancelPointerCapture()
+    self.cancelPointerCaptureCalls = self.cancelPointerCaptureCalls + 1
+  end
+  for key, value in pairs(overrides or {}) do
+    rawset(controller, key, value)
+  end
+  return controller --[[@as FieldApplicationHostTest.Controller]]
 end
 
 local function fakeRegistry()
   local registry = {
     created = {},
     controllers = {},
-    menuControllers = {},
   }
   -- Stored entries are either factories (functions) or prebuilt controllers
   -- (returned as-is); create() takes only the application id.
@@ -110,14 +107,14 @@ local function fakeInput()
   local input = {
     beginUiTicks = {},
     clearUiCalls = 0,
-  } --[[@as FieldApplicationHostTest.Input]]
+  }
   function input:beginUi(tick)
     self.beginUiTicks[#self.beginUiTicks + 1] = tick
   end
   function input:clearUi()
     self.clearUiCalls = self.clearUiCalls + 1
   end
-  return input
+  return input --[[@as FieldApplicationHostTest.Input]]
 end
 
 ---@param options FieldApplicationHostTest.PartialOptions
@@ -137,6 +134,7 @@ local function fixture()
     fn = function(rememberedActionId)
       local controller = fakeController()
       controller.rememberedActionId = rememberedActionId
+      registry.menuControllers = registry.menuControllers or {}
       registry.menuControllers[#registry.menuControllers + 1] = controller
       return controller
     end,
@@ -147,6 +145,7 @@ local function fixture()
       return factory.fn(rememberedActionId)
     end,
     input = input --[[@as FieldInput]],
+    fieldAction = function() end,
   })
   return host, input, registry, factory
 end
@@ -156,6 +155,38 @@ local function openMenu(host, input, registry)
   Assert.equal(opened, true, "an open with available actions must succeed")
   Assert.equal(input.beginUiTicks[1], 10)
   return registry.menuControllers[1]
+end
+
+function T.tests.successful_field_action_closes_the_menu_without_a_child_application()
+  local calls = 0
+  local host, input, registry = fixture()
+  host._fieldAction = function(actionId)
+    calls = calls + 1
+    Assert.equal(actionId, "vanilla.save")
+  end
+  local menu = openMenu(host, input, registry)
+  menu.result = { kind = "field_action", actionId = "vanilla.save" }
+  host:updateFixed({ { type = "confirm" } })
+  Assert.equal(calls, 1)
+  Assert.equal(host:status().phase, "closed")
+  Assert.equal(input.clearUiCalls, 1)
+  Assert.equal(menu.disposeCount, 1)
+  Assert.deepEqual(registry.created, {})
+end
+
+function T.tests.field_action_failure_releases_menu_ownership_and_surfaces_error()
+  local host, input, registry = fixture()
+  host._fieldAction = function()
+    error("save failed")
+  end
+  local menu = openMenu(host, input, registry)
+  menu.result = { kind = "field_action", actionId = "vanilla.save" }
+  host:updateFixed({ { type = "confirm" } })
+  Assert.equal(host:status().phase, "failed")
+  Assert.isTrue(tostring(host:error()):find("save failed", 1, true) ~= nil)
+  Assert.equal(input.clearUiCalls, 1)
+  Assert.equal(menu.disposeCount, 1)
+  Assert.deepEqual(registry.created, {})
 end
 
 -- The canonical 256x192 placement: the identity record the pointer tests map
@@ -175,22 +206,22 @@ end
 function T.tests.construction_requires_the_registry_menu_factory_and_input()
   local registry = fakeRegistry()
   local input = fakeInput()
-  ---@param _ string?
-  ---@return FieldApplicationHostTest.Controller?
-  local function menuFactory(_)
-    return nil
-  end
+  local menuFactory = function() end
   throws(function()
-    newWithPartialOptions({ registry = registry, input = input })
+    local partial = { registry = registry, input = input } ---@type any
+    newWithPartialOptions(partial)
   end)
   throws(function()
-    newWithPartialOptions({ registry = registry, menuFactory = menuFactory })
+    local partial = { registry = registry, menuFactory = menuFactory } ---@type any
+    newWithPartialOptions(partial)
   end)
   throws(function()
-    newWithPartialOptions({ menuFactory = menuFactory, input = input })
+    local partial = { menuFactory = menuFactory, input = input } ---@type any
+    newWithPartialOptions(partial)
   end)
   throws(function()
-    newWithPartialOptions({})
+    local partial = {} ---@type any
+    newWithPartialOptions(partial)
   end)
 end
 
@@ -225,8 +256,8 @@ function T.tests.menu_input_is_live_on_the_first_step()
 end
 
 function T.tests.launch_freezes_menu_input_then_fades_out_and_dispatches_the_destination()
-  local host, _, registry = fixture()
-  local menu = openMenu(host, _, registry)
+  local host, input, registry = fixture()
+  local menu = openMenu(host, input, registry)
   host:updateFixed({})
   menu.result = { kind = "launch", applicationId = "trainer_card", actionId = "vanilla.trainer_card" }
   local destination = fakeController()

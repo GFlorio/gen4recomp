@@ -1,13 +1,8 @@
--- FieldState/FieldRuntime disposal and reset contract. The single general
--- disposal hook persists the field session when one is live, releases every
--- owned resource exactly once, and is a no-op on repeat calls, so state
--- replacement and application quit can never double-save or double-release.
--- The dev-gated reset (F2) routes through that same teardown: wipe the save
--- store, release every collaborator, clear every owned field, then re-boot.
+-- FieldState/FieldRuntime disposal contract. Disposal releases every owned
+-- resource exactly once and never persists the active game, so state
+-- replacement and application quit cannot create an implicit checkpoint.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
-local StorageErrors = require("libs.storage.src.errors")
 local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldState = require("game.src.game.FieldState")
 
@@ -15,7 +10,7 @@ local T = {}
 
 -- A fake resource whose named methods record how often they are called.
 ---@param ... "dispose"|"release"|"save"|"reset"
----@return table resource
+---@return table
 local function fakeResource(...)
   local resource = {}
   for _, method in ipairs({ ... }) do
@@ -38,7 +33,7 @@ local function fakeAssetProvider()
   return provider
 end
 
--- A session in a state FieldSave can capture: player idle, no transition, no
+-- A session at a stable GameSave boundary can capture: player idle, no transition, no
 -- modal dialogue, and a runtime map with the required terrain identity.
 local function captureReadySession()
   return {
@@ -102,7 +97,7 @@ local function disposableState()
     actorAssets = fakeAssetProvider(),
     renderer = fakeResource("release"),
     mapLoader = fakeResource("release"),
-    saveStore = fakeResource("save", "reset"),
+    saveStore = fakeResource("save"),
   }
   local runtime = setmetatable({
     dialogue = resources.dialogue,
@@ -117,7 +112,7 @@ local function disposableState()
     scripts = fakeScripts(),
     avatar = { id = "hero" },
     playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0 },
+      profile = { name = "GOLD", gender = 0, trainerId = 0, money = 3000 },
       options = { textFrame = 0, textSpeed = "mid" },
     },
     auxiliaryFieldUi = {
@@ -137,7 +132,7 @@ local function disposableState()
   return state, resources
 end
 
-function T.dispose_saves_and_releases_each_resource_exactly_once()
+function T.dispose_releases_each_resource_without_saving()
   local state, resources = disposableState()
   local runtime = state.runtime --[[@as any]]
   state:dispose()
@@ -153,7 +148,7 @@ function T.dispose_saves_and_releases_each_resource_exactly_once()
   Assert.equal(resources.actorAssets.calls, 1)
   Assert.equal(resources.renderer.calls, 1)
   Assert.equal(resources.mapLoader.calls, 1)
-  Assert.equal(resources.saveStore.calls, 1)
+  Assert.equal(resources.saveStore.calls, 0, "disposal never writes a checkpoint")
   Assert.isNil(runtime.session)
 end
 
@@ -164,7 +159,7 @@ function T.dispose_is_a_no_op_on_repeat_calls()
   Assert.equal(resources.dialogue.calls, 1)
   Assert.equal(resources.signpost.calls, 1, "repeat disposal never releases the signpost twice")
   Assert.equal(resources.renderer.calls, 1)
-  Assert.equal(resources.saveStore.calls, 1)
+  Assert.equal(resources.saveStore.calls, 0)
   Assert.equal(resources.signpostRenderer.calls, 1, "repeat disposal never releases the signpost renderer twice")
   Assert.equal(resources.startMenuRenderer.calls, 1, "repeat disposal never releases the start menu renderer twice")
   Assert.equal(resources.trainerCardRenderer.calls, 1, "repeat disposal never releases the trainer card renderer twice")
@@ -185,136 +180,6 @@ function T.dispose_releases_runtime_and_presentation_resources_once()
   state:dispose()
   Assert.equal(runtime.calls, 1)
   Assert.equal(resources.renderer.calls, 1)
-end
-
--- A runtime shaped exactly like a loaded one: every owned collaborator is
--- present so reset's clearing can be asserted field by field. `_load` is
--- stubbed -- reset must release everything and then re-boot, which the test
--- observes through the stub's call count.
-local function resetState()
-  local state, resources = disposableState()
-  local runtime = state.runtime --[[@as any]]
-  runtime.scripts = {}
-  runtime.transition = {}
-  runtime.camera = {}
-  runtime.player = {}
-  runtime.runtimeMap = {}
-  runtime.viewport = {}
-  runtime.input = {}
-  runtime.menuHost = {}
-  runtime.eventState = {}
-  runtime.interactionResolver = {}
-  runtime.contextChoiceProvider = {}
-  runtime.playerVisual = {}
-  local reloads = 0
-  runtime._load = function()
-    reloads = reloads + 1
-  end
-  return state, resources, function()
-    return reloads
-  end
-end
-
--- Reset shares one teardown path with dispose: wipe the save store, release
--- every owned collaborator through the same methods, clear every owned field
--- (never a hand-picked subset), and re-boot. A later dispose then has nothing
--- left to release or save.
-function T.reset_routes_through_the_shared_teardown_path()
-  local state, resources, reloads = resetState()
-  local runtime = state.runtime --[[@as any]]
-  runtime:reset()
-  Assert.equal(resources.saveStore.calls, 1, "reset wipes the save store")
-  Assert.equal(resources.dialogue.calls, 1, "reset releases the dialogue")
-  Assert.equal(resources.signpost.calls, 1, "reset releases the signpost controller")
-  Assert.equal(resources.messageProvider.calls, 1, "reset releases the message provider")
-  Assert.equal(resources.actors.calls, 1, "reset releases the actors")
-  Assert.equal(resources.actorAssets.releaseCalls, 1, "reset releases the avatar acquisition")
-  Assert.equal(resources.actorAssets.calls, 1, "reset disposes the actor assets")
-  Assert.equal(resources.mapLoader.calls, 1, "reset releases the map loader")
-  Assert.equal(reloads(), 1, "reset re-boots the runtime")
-  for _, field in ipairs({
-    "session",
-    "saveStore",
-    "scripts",
-    "transition",
-    "camera",
-    "player",
-    "runtimeMap",
-    "viewport",
-    "input",
-    "menuHost",
-    "eventState",
-    "interactionResolver",
-    "auxiliaryFieldUi",
-    "contextChoiceProvider",
-    "avatar",
-    "playerVisual",
-    "avatarAsset",
-    "dialogue",
-    "signpost",
-    "messageProvider",
-    "actors",
-    "actorAssets",
-    "mapLoader",
-    "playerData",
-    "windowStyles",
-  }) do
-    Assert.isNil(runtime[field], "reset must clear " .. field)
-  end
-  Assert.isFalse(runtime.resumeSave, "reset drops the resume flag")
-  Assert.isNil(runtime.errorText, "reset clears the boot error")
-  state:dispose()
-  Assert.equal(resources.dialogue.calls, 1, "dispose after reset releases nothing twice")
-  Assert.equal(resources.mapLoader.calls, 1, "dispose after reset releases nothing twice")
-  Assert.equal(resources.saveStore.calls, 1, "dispose after reset saves nothing")
-end
-
--- A structured save-store failure is the expected reset failure the UI
--- presents: reset reports it and every owned collaborator stays in place.
-function T.reset_structured_save_failure_is_presented_and_keeps_the_live_runtime_untouched()
-  local state, resources, reloads = resetState()
-  local runtime = state.runtime --[[@as any]]
-  resources.saveStore.reset = function(self)
-    self.calls = self.calls + 1
-    Errors.raise(StorageErrors.SAVE_REMOVE_FAILED, "injected reset failure")
-  end
-  runtime:reset()
-  Assert.isTrue(runtime.saveStatus:find("Reset failed:", 1, true) ~= nil, "reset reports the wipe failure")
-  Assert.notNil(runtime.session, "failed reset keeps the live session")
-  Assert.notNil(runtime.mapLoader, "failed reset keeps the loaded map")
-  Assert.equal(resources.mapLoader.calls, 0, "failed reset releases nothing")
-  Assert.equal(resources.dialogue.calls, 0, "failed reset releases nothing")
-  Assert.equal(resources.saveStore.calls, 1)
-  Assert.equal(reloads(), 0, "failed reset does not re-boot")
-end
-
--- A non-structured failure inside the reset save-store call is a programming
--- fault, not a save failure: it must propagate instead of being flattened
--- into the reset error text, and the live runtime stays untouched.
-function T.reset_programming_failure_is_rethrown_and_keeps_the_live_runtime_untouched()
-  local state, resources, reloads = resetState()
-  local runtime = state.runtime --[[@as any]]
-  resources.saveStore.reset = function(self)
-    self.calls = self.calls + 1
-    error("injected reset programming fault")
-  end
-  local err = Assert.throws(function()
-    runtime:reset()
-  end)
-  Assert.isTrue(
-    tostring(err):find("injected reset programming fault", 1, true) ~= nil,
-    "the raw programming fault must propagate: " .. tostring(err)
-  )
-  Assert.isTrue(
-    tostring(err):find("Reset failed:", 1, true) == nil,
-    "a programming fault must not become the reset error text"
-  )
-  Assert.notNil(runtime.session, "failed reset keeps the live session")
-  Assert.notNil(runtime.mapLoader, "failed reset keeps the loaded map")
-  Assert.equal(resources.mapLoader.calls, 0, "failed reset releases nothing")
-  Assert.equal(resources.dialogue.calls, 0, "failed reset releases nothing")
-  Assert.equal(resources.saveStore.calls, 1)
-  Assert.equal(reloads(), 0, "failed reset does not re-boot")
 end
 
 return { tests = T }

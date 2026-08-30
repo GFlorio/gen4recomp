@@ -7,6 +7,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
+local FieldSession = require("libs.engine.src.FieldSession")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldActorManager = require("libs.engine.src.FieldActorManager")
 local FieldEventState = require("libs.engine.src.FieldEventState")
@@ -103,6 +104,12 @@ local function presentationState(assets, actorIds)
     worldActorItems = {},
     spriteItems = {},
     fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+      dispose = function() end,
+    },
+    fieldEmoteRenderer = {
       drawItems = function()
         return {}
       end,
@@ -236,6 +243,11 @@ local function stateWith(runtime)
         return {}
       end,
     },
+    fieldEmoteRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
   }, FieldState)
 end
 
@@ -309,6 +321,11 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
           return { visible = false }
         end,
       },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
       actors = {
         drawRecords = function()
           return {}
@@ -319,6 +336,10 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
           return 0.5
         end,
       },
+      destinationWorldPresentable = function()
+        return true
+      end,
+      acknowledgeDestinationPresentation = function() end,
       viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
       camera = { zoom = 1 },
       transition = { fadeAlpha = 0 },
@@ -345,11 +366,6 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
       },
       startMenuPlacement = nil,
       resizePresentation = function() end,
-      fieldEntranceIndicator = {
-        status = function()
-          return { visible = false }
-        end,
-      },
     },
     _pollPresentationTopology = true,
     topologyProvider = function()
@@ -373,6 +389,11 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
     worldActorItems = {},
     spriteItems = {},
     fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
+    fieldEmoteRenderer = {
       drawItems = function()
         return {}
       end,
@@ -407,6 +428,11 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
           return { visible = false }
         end,
       },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
       actors = {
         drawRecords = function()
           return {}
@@ -417,6 +443,10 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
           return 0.5
         end,
       },
+      destinationWorldPresentable = function()
+        return true
+      end,
+      acknowledgeDestinationPresentation = function() end,
       viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
       camera = { zoom = 1 },
       transition = { fadeAlpha = 0 },
@@ -441,11 +471,6 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
         end,
       },
       resizePresentation = function() end,
-      fieldEntranceIndicator = {
-        status = function()
-          return { visible = false }
-        end,
-      },
     },
     _pollPresentationTopology = true,
     topologyProvider = function()
@@ -465,6 +490,11 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
     worldActorItems = {},
     spriteItems = {},
     fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
+    fieldEmoteRenderer = {
       drawItems = function()
         return {}
       end,
@@ -516,6 +546,10 @@ function T.draw_without_a_menu_host_is_a_programming_error()
           return 0.5
         end,
       },
+      destinationWorldPresentable = function()
+        return true
+      end,
+      acknowledgeDestinationPresentation = function() end,
       viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
       camera = { zoom = 1 },
       transition = { fadeAlpha = 0 },
@@ -583,22 +617,20 @@ function T.presentation_residency_is_distinct_change_driven_and_balanced()
   Assert.isTrue(assets.disposed)
 end
 
-function T.published_actor_revision_refreshes_presentation_assets()
+function T.activated_actor_revision_refreshes_presentation_assets()
   local assets = presentationAssets({ [99] = presentationEntry(99), [34] = presentationEntry(34) })
   local actors, eventState = realActorManager()
   actors:enterMap(actorMap(61, { actorEvent(0, 99) }), eventState)
   local state = presentationStateWithActors(assets, actors)
-  local prepared = actors:prepareMap(actorMap(60, { actorEvent(1, 34) }), eventState)
-  local revisionBeforePublication = actors:visualRevision()
+  local revisionBeforeActivation = actors:visualRevision()
 
   state:update(0.016)
-  Assert.isNil(assets.acquisitions[34], "staged actors must not acquire presentation assets")
+  Assert.isNil(assets.acquisitions[34], "a map that was never activated has no presentation assets")
 
-  actors:commitPrepared(prepared)
-  Assert.equal(
-    actors:visualRevision(),
-    revisionBeforePublication + 1,
-    "publishing a nonempty actor map must invalidate presentation synchronization"
+  actors:enterMap(actorMap(60, { actorEvent(1, 34) }), eventState)
+  Assert.isTrue(
+    actors:visualRevision() > revisionBeforeActivation,
+    "activating a nonempty actor map must invalidate presentation synchronization"
   )
   state:update(0.016)
   Assert.equal(assets.acquisitions[34], 1, "the published actor sprite is acquired before drawing")
@@ -736,6 +768,301 @@ function T.runtime_fields_are_not_forwarded_onto_the_instance()
   Assert.isNil(state["session"])
   Assert.isNil(state["player"])
   Assert.isNil(state["zoom"])
+end
+
+function T.destination_world_is_not_drawn_before_entry_presentation_is_ready()
+  local draws = 0
+  local state = setmetatable({
+    runtime = {
+      runtimeMap = { sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} } },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
+      playerVisual = {
+        drawRecord = function()
+          return { visible = false }
+        end,
+      },
+      actors = {
+        drawRecords = function()
+          return {}
+        end,
+      },
+      session = {
+        renderAlpha = function()
+          return 0.5
+        end,
+      },
+      destinationWorldPresentable = function()
+        return false
+      end,
+      acknowledgeDestinationPresentation = function()
+        error("hidden destination must not be acknowledged")
+      end,
+      viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
+      camera = { zoom = 1 },
+      transition = { fadeAlpha = 0 },
+      dialogue = {
+        isModal = function()
+          return false
+        end,
+      },
+      signpost = {
+        isModal = function()
+          return false
+        end,
+      },
+      applicationHost = {
+        status = function()
+          return { phase = "closed", fadeAlpha = 0 }
+        end,
+      },
+      menuHost = {
+        presentation = function()
+          return nil
+        end,
+      },
+      resizePresentation = function() end,
+    },
+    _pollPresentationTopology = false,
+    topologyProvider = function()
+      return ScreenTopology.oneDisplay({
+        id = "main",
+        rect = { x = 0, y = 0, width = 640, height = 480 },
+        touch = false,
+        role = "world",
+      })
+    end,
+    renderer = {
+      draw = function()
+        draws = draws + 1
+      end,
+    },
+    worldParts = {},
+    worldActorItems = {},
+    spriteItems = {},
+    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
+    _actorAssetLookup = function()
+      return {}
+    end,
+  }, FieldState)
+
+  state:draw()
+  Assert.equal(draws, 0, "destination world presentation waits for load completion")
+end
+
+function T.destination_frames_draw_and_acknowledge_only_after_successful_presentation()
+  local function makeState(renderer)
+    ---@diagnostic disable: missing-fields
+    local session = FieldSession.new({
+      versionId = "heartgold",
+      currentMap = { fieldData = { events = { warps = {} } }, updateAnimated = function() end },
+      player = {
+        worldX = 0,
+        worldY = 0,
+        worldZ = 0,
+        motion = "idle",
+        updateFixed = function()
+          return false
+        end,
+      },
+      camera = { updateFixed = function() end },
+      transition = {
+        phase = "idle",
+        locked = false,
+        updateFixed = function() end,
+        start = function()
+          error("unexpected transition", 2)
+        end,
+      },
+      actors = { step = function() end },
+      input = {
+        snapshot = function()
+          return {}
+        end,
+        uiSnapshot = function()
+          return {}
+        end,
+        clearEdges = function() end,
+      },
+      dialogue = {
+        isModal = function()
+          return false
+        end,
+      },
+      scriptScheduler = {
+        step = function() end,
+        playerInputLocked = function()
+          return false
+        end,
+        playerInputOwned = function()
+          return false
+        end,
+        foregroundEnvironmentId = function()
+          return nil
+        end,
+      },
+      scriptClient = { consume = function() end },
+      enterMapActors = function() end,
+      menuHost = {
+        isModal = function()
+          return false
+        end,
+        advance = function() end,
+      },
+      contextChoice = {
+        isActive = function()
+          return false
+        end,
+      },
+      signpost = {
+        isModal = function()
+          return false
+        end,
+      },
+      applicationHost = {
+        isActive = function()
+          return false
+        end,
+        updateFixed = function() end,
+        requestOpen = function()
+          return false
+        end,
+        requestReopen = function() end,
+        takeReopen = function()
+          return false
+        end,
+      },
+      interactions = {
+        resolve = function()
+          return nil
+        end,
+      },
+      bagUnlocked = function()
+        return true
+      end,
+      fieldEntranceIndicator = {
+        updateFixed = function() end,
+      },
+      eventResolver = {
+        resolveCoordinate = function() end,
+        resolvePassiveSign = function() end,
+      },
+      eventState = {
+        getVar = function()
+          return 0
+        end,
+      },
+    })
+    ---@diagnostic enable: missing-fields
+    session.mapEntryStage = "transition"
+    local runtime = {
+      runtimeMap = { sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} } },
+      fieldEntranceIndicator = {
+        status = function()
+          return { visible = false }
+        end,
+      },
+      playerVisual = {
+        drawRecord = function()
+          return { visible = false }
+        end,
+      },
+      actors = {
+        drawRecords = function()
+          return {}
+        end,
+      },
+      session = session,
+      destinationWorldPresentable = function(self)
+        return self.session:destinationWorldPresentable()
+      end,
+      acknowledgeDestinationPresentation = function(self)
+        self.session:acknowledgeDestinationPresentation()
+      end,
+      viewport = FieldViewport.new(640, 480, { mode = "expanded" }),
+      camera = { zoom = 1 },
+      transition = { fadeAlpha = 0 },
+      dialogue = {
+        isModal = function()
+          return false
+        end,
+      },
+      signpost = {
+        isModal = function()
+          return false
+        end,
+      },
+      applicationHost = {
+        status = function()
+          return { phase = "closed", fadeAlpha = 0 }
+        end,
+      },
+      menuHost = {
+        presentation = function()
+          return nil
+        end,
+      },
+      resizePresentation = function() end,
+    }
+    local state = setmetatable({
+      runtime = runtime,
+      _pollPresentationTopology = false,
+      renderer = renderer,
+      worldParts = {},
+      worldActorItems = {},
+      spriteItems = {},
+      _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
+      _actorAssetLookup = function()
+        return {}
+      end,
+      fieldEntranceIndicatorRenderer = {
+        drawItems = function()
+          return {}
+        end,
+      },
+      fieldEmoteRenderer = {
+        drawItems = function()
+          return {}
+        end,
+      },
+    }, FieldState)
+    return state, session
+  end
+
+  local draws = 0
+  local state, session = makeState({
+    draw = function()
+      draws = draws + 1
+    end,
+  })
+  state:draw()
+  Assert.equal(draws, 0)
+  session.mapEntryStage = "await_presentation"
+  state:draw()
+  Assert.equal(draws, 1)
+  Assert.equal(session.mapEntryStage, "resume")
+  session.mapEntryStage = "resume_running"
+  state:draw()
+  session.mapEntryStage = nil
+  state:draw()
+  Assert.equal(draws, 3)
+
+  local failedDraws = 0
+  local failedState, failedSession = makeState({
+    draw = function()
+      failedDraws = failedDraws + 1
+      error("destination renderer failed")
+    end,
+  })
+  failedSession.mapEntryStage = "await_presentation"
+  Assert.throws(function()
+    failedState:draw()
+  end)
+  Assert.equal(failedDraws, 1)
+  Assert.equal(failedSession.mapEntryStage, "await_presentation")
 end
 
 return { tests = T }

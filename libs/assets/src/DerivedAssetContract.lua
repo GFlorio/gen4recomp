@@ -21,9 +21,6 @@
 -- classification); the vocabulary a stale v1 cache could have baked in is
 -- no longer trustworthy.
 --
--- fieldUi schema 7: dialogue continuation cursor phases become a precolored
--- source-independent atlas with strict placement and timing metadata.
---
 -- fieldUi schema 6: wayfinding rects become final 48x32 surfaces. Each
 -- (type, map) rect is a 6x4 arrangement (48px wide, 32px tall) composed at
 -- build time from the original 24 8x8 tiles, instead of a raw 192x8 strip.
@@ -54,10 +51,12 @@
 -- font cacheFormat/schema v2: the compiled definition gains seven color bands
 -- and a focus-indicator PNG, and the marker hashes font member 6, so a stale
 -- pre-change font cache must not pass readiness.
+-- intro OBJ geometry: animated widgets retain one OAM-origin pivot across
+-- frames and publish source-reference centers for responsive placement.
 
 local DerivedAssetContract = {}
 
-DerivedAssetContract.revision = 7
+DerivedAssetContract.revision = 10
 
 DerivedAssetContract.map = {
   cacheFormat = "map-cache-v7",
@@ -101,7 +100,10 @@ DerivedAssetContract.fieldMapData = {
   -- comes from the frozen reference rule scoped to the map, and raw
   -- soundplateSoundID never reaches the record. v4 added the flag/traversal
   -- music policy and the semantic soundplates array to the record.
-  fieldSchema = "g4-field-map-v7",
+  -- v7 makes initScripts a strict source-independent descriptor union. v8
+  -- normalizes the retail unbound-script marker (0xFFFF) to zero so runtime
+  -- binding and interaction audits never interpret raw ROM data.
+  fieldSchema = "g4-field-map-v8",
 }
 
 DerivedAssetContract.messages = {
@@ -124,12 +126,16 @@ DerivedAssetContract.scripts = {
   cacheFormat = "script-cache-v2",
   indexSchema = "g4-script-index-v1",
   provenanceSchema = "g4-script-provenance-v1",
-  bindingsSchema = "g4-script-bindings-v1",
 }
 
 DerivedAssetContract.fieldWeather = {
   cacheFormat = "field-weather-cache-v1",
   schema = "g4-field-weather-v1",
+}
+
+DerivedAssetContract.newGameInit = {
+  cacheFormat = "g4-new-game-init-cache-v1",
+  schema = "g4-new-game-init-v2",
 }
 
 DerivedAssetContract.fieldEffects = {
@@ -139,9 +145,20 @@ DerivedAssetContract.fieldEffects = {
   indexSchema = "g4-field-effect-index-v1",
 }
 
+DerivedAssetContract.fieldEmotes = {
+  cacheFormat = "field-emotes-cache-v2",
+  schema = "g4-field-emote-v1",
+}
+
 DerivedAssetContract.fieldUi = {
   cacheFormat = "field-ui-cache-v1",
   schema = "g4-field-ui-v7",
+}
+
+DerivedAssetContract.intro = {
+  cacheFormat = "intro-cache-v5",
+  schema = "g4-intro-assets-v5",
+  provenanceSchema = "g4-intro-provenance-v1",
 }
 
 DerivedAssetContract.audio = {

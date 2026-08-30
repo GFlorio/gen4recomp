@@ -4,6 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 
 local T = {
   metadata = {
@@ -31,6 +32,7 @@ local function withTown(fn)
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
     local game = harness:boot({ versionId = versionId, map = NEW_BARK, save = "fresh" })
+    OpeningLifecycle.seedNewBarkWestExitScene(game)
     local ok, err = xpcall(function()
       fn(game)
       Assert.equal(game:renderAttempts(), 0, "terrain acceptance must stop before GPU rendering")

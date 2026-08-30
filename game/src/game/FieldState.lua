@@ -5,10 +5,12 @@ local FieldRuntime = require("game.src.game.FieldRuntime")
 local FieldActorAssetProvider = require("libs.engine.src.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.engine.src.FieldActorDraw")
 local FieldDialogueRenderer = require("libs.engine.src.FieldDialogueRenderer")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 local FieldMenuRenderer = require("libs.engine.src.FieldMenuRenderer")
 local FieldSignpostRenderer = require("libs.engine.src.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
 local FieldEntranceIndicatorRenderer = require("libs.engine.src.FieldEntranceIndicatorRenderer")
+local FieldActorEmoteRenderer = require("libs.engine.src.FieldActorEmoteRenderer")
 local FieldTerrainEffectRenderer = require("libs.engine.src.FieldTerrainEffectRenderer")
 local GpuAssetPool = require("libs.engine.src.GpuAssetPool")
 local MapRenderer = require("libs.engine.src.MapRenderer")
@@ -21,11 +23,12 @@ local KEY_DIRECTIONS =
 local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", dpright = "east" }
 
 ---@class FieldStateOptions
----@field resumeSave boolean? resume the saved field session (runtime contract)
----@field resetSave boolean? wipe the save and start a fresh session (runtime contract)
 ---@field zoomConfig table? runtime zoom configuration (runtime contract)
----@field development boolean? product mode (the default) hides the playtest HUD and ignores the F1/F2 developer binds
+---@field development boolean? product mode (the default) hides the playtest HUD
 ---@field topologyProvider (fun(width: number, height: number): ScreenTopology)?
+---@field saveStore table? global GameSaveStore
+---@field saveValidation GameSaveValidation? shared version-aware GameSave validator
+---@field audioOutput table? audio-output host namespace for deterministic runtime audio
 
 ---@class FieldState
 ---@field runtime FieldRuntime?
@@ -46,13 +49,16 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _actorRecords table[]
 ---@field _actorDrawStorage FieldActorDrawStorage
 ---@field _actorAssetLookup fun(spriteId: integer): table
----@field worldParts table[][] ordered map, static building, animated building, neighbor, and actor draw arrays
+---@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, movement-emote, and terrain-effect draw arrays
 ---@field worldActorItems table[] persistent actor items kept in the world raster
 ---@field spriteItems table[] persistent presentation-resolution actor sprites
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
 local FieldState = {}
 FieldState.__index = FieldState
+
+---@class FieldState.Font
+---@field getWidth fun(self: FieldState.Font, text: string): number
 
 local NO_DRAWS = {}
 
@@ -66,21 +72,26 @@ local function defaultScreenTopology(width, height)
   })
 end
 
-function FieldState.new(versionId, mapIdOrSymbol, options)
+---@param game table finalized unpublished game or validated loaded GameSave
+---@param options FieldStateOptions?
+---@return FieldState
+function FieldState.new(game, options)
   options = options or {}
-  -- Only the documented runtime contract crosses the boundary: a state-only
-  -- option such as topologyProvider must never become a runtime option.
+  -- Only the documented runtime contract crosses the boundary: the finalized
+  -- or loaded game is the runtime's save authority, while state-only options
+  -- such as topologyProvider must never become runtime options.
   local runtimeOptions = {
-    resumeSave = options.resumeSave == true,
-    resetSave = options.resetSave == true,
     zoomConfig = options.zoomConfig,
     presentation = true,
+    saveStore = options.saveStore,
+    saveValidation = options.saveValidation,
+    audioOutput = options.audioOutput,
   }
   -- Construction is binary: FieldRuntime.new either raised (boot failed) or
   -- returned a fully usable runtime, so presentation resources are acquired
   -- unconditionally. A failure here releases the booted runtime exactly once
   -- through the shared disposal and rethrows.
-  local runtime = FieldRuntime.new(versionId, mapIdOrSymbol, runtimeOptions)
+  local runtime = FieldRuntime.new(game, runtimeOptions)
   local self = setmetatable({
     runtime = runtime,
     development = options.development == true,
@@ -135,6 +146,8 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     self.fieldEntranceIndicatorPool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEntranceIndicatorRenderer =
       FieldEntranceIndicatorRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
+    self.fieldEmotePool = GpuAssetPool.new(runtime.cacheFs)
+    self.fieldEmoteRenderer = FieldActorEmoteRenderer.new(runtime.fieldEmoteModels, self.fieldEmotePool)
     if runtime.fieldEffectAssets and runtime.fieldEffectAssets.effects then
       self.fieldTerrainEffectRenderer =
         FieldTerrainEffectRenderer.new(runtime.fieldEffectAssets, self.fieldEntranceIndicatorPool)
@@ -146,10 +159,7 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
         return {}
       end
       local function dispose() end
-      self.fieldTerrainEffectRenderer = {
-        drawItems = drawItems,
-        dispose = dispose,
-      }
+      self.fieldTerrainEffectRenderer = { drawItems = drawItems, dispose = dispose }
     end
     local width, height = love.graphics.getDimensions()
     -- The initial presentation-geometry sync: pointer input must work
@@ -158,9 +168,10 @@ function FieldState.new(versionId, mapIdOrSymbol, options)
     -- known.
     self:resize(width, height)
     runtime.menuHost:setPresentationMetrics(function(text)
-      return love.graphics.getFont():getWidth(text)
+      local font = love.graphics.getFont() --[[@as FieldState.Font]]
+      return font:getWidth(text)
     end)
-    self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs) --[[@as FieldActorAssetProvider]]
+    self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
     local function actorAssetLookup(spriteId)
       local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
       return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
@@ -293,9 +304,13 @@ function FieldState:_worldParts(alpha)
     end
   end
   worldParts[6] = worldActorItems
+  -- _actorDraws (above) refreshed self._actorRecords with this frame's
+  -- presentation-neutral records, which is the only place activeEmoteKind
+  -- survives; FieldActorDraw's rendered items do not carry it.
+  worldParts[7] = self.fieldEmoteRenderer:drawItems(self._actorRecords)
   local terrain = self.runtime.fieldTerrainEffectController
   local terrainRenderer = self.fieldTerrainEffectRenderer
-  worldParts[7] = terrainRenderer and terrainRenderer:drawItems(terrain:status(), self.runtime.runtimeMap) or NO_DRAWS
+  worldParts[8] = terrainRenderer and terrainRenderer:drawItems(terrain:status(), self.runtime.runtimeMap) or NO_DRAWS
   return worldParts
 end
 
@@ -330,7 +345,8 @@ function FieldState:_recordGeometrySignature(width, height, topology)
 end
 
 function FieldState:resize(width, height)
-  local topology = self.topologyProvider(width, height)
+  local provider = self.topologyProvider or defaultScreenTopology
+  local topology = provider(width, height)
   self.runtime:resizePresentation(width, height, topology)
   if self._pollPresentationTopology then
     self:_recordGeometrySignature(width, height, topology)
@@ -346,27 +362,35 @@ function FieldState:draw()
     return
   end
   local width, height = lg.getDimensions()
-  assert(width == math.floor(width) and height == math.floor(height))
+  assert(width and height, "graphics dimensions are required for field presentation")
+  assert(width % 1 == 0 and height % 1 == 0, "graphics dimensions must be integral")
   width, height =
     width, --[[@as integer]]
     height --[[@as integer]]
-  assert(width and height, "graphics dimensions are required for field presentation")
   local resized = false
   if width ~= self.runtime.viewport.width or height ~= self.runtime.viewport.height then
     self:resize(width, height)
     resized = true
   end
   if self._pollPresentationTopology and not resized then
-    local topology = self.topologyProvider(width, height)
-    ---@cast width integer
-    ---@cast height integer
-    local geometryWidth, geometryHeight = width, height
-    if self:_geometrySignature(geometryWidth, geometryHeight, topology) ~= self._lastGeometrySignature then
+    local provider = self.topologyProvider or defaultScreenTopology
+    local topology = provider(width, height)
+    local integerWidth = width --[[@as integer]]
+    local integerHeight = height --[[@as integer]]
+    if self:_geometrySignature(integerWidth, integerHeight, topology) ~= self._lastGeometrySignature then
       -- Injected providers remain polling-enabled so same-size structural
       -- topology changes still reach the runtime geometry owner.
-      self.runtime:resizePresentation(geometryWidth, geometryHeight, topology)
-      self:_recordGeometrySignature(geometryWidth, geometryHeight, topology)
+      self.runtime:resizePresentation(integerWidth, integerHeight, topology)
+      self:_recordGeometrySignature(width, height, topology)
     end
+  end
+  assert(
+    type(self.runtime.destinationWorldPresentable) == "function",
+    "field runtime destination presentation capability required"
+  )
+  if not self.runtime:destinationWorldPresentable() then
+    self:_drawScriptScreenFadeIfNeeded()
+    return
   end
   local alpha = self.runtime.session:renderAlpha()
   self.renderer:draw(
@@ -377,6 +401,11 @@ function FieldState:draw()
     self.runtime.viewport,
     alpha
   )
+  assert(
+    type(self.runtime.acknowledgeDestinationPresentation) == "function",
+    "field runtime destination presentation acknowledgement required"
+  )
+  self.runtime:acknowledgeDestinationPresentation()
   -- The field/application fade: the host-owned application fade covers
   -- the surface being transitioned (the world viewport plus the Start Menu
   -- placement frame), then the unrelated warp fade over the world viewport.
@@ -409,11 +438,36 @@ function FieldState:draw()
   -- keeps at most one of the two live in a tick. Both field-attached
   -- surfaces share the same field logical pixel scale (the viewport's
   -- logicalPixelScale of the runtime's effective camera zoom), computed once
-  -- per frame and bottom-centered via FieldDialogueTheme.layout.
+  -- per frame and bottom-centered in the viewport reference frame.
   if not hostStatus.menu and not hostStatus.application then
     local fieldScale = self.runtime.viewport:logicalPixelScale(self.runtime.camera.zoom)
-    if self.runtime.dialogue:isModal() then
-      self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale)
+    local bounds = self.runtime.viewport.worldViewport
+    if type(bounds) ~= "table" or type(bounds.width) ~= "number" or type(bounds.height) ~= "number" then
+      bounds = self.runtime.viewport.referenceFrame
+    end
+    if type(bounds) ~= "table" or type(bounds.width) ~= "number" or type(bounds.height) ~= "number" then
+      bounds = {
+        x = 0,
+        y = 0,
+        width = assert(self.runtime.viewport.width),
+        height = assert(self.runtime.viewport.height),
+      }
+    end
+    bounds = {
+      x = bounds.x,
+      y = bounds.y,
+      width = math.max(bounds.width, 256 * fieldScale),
+      height = math.max(bounds.height, 48 * fieldScale),
+    }
+    local dialogueModal = self.runtime.dialogue:isModal()
+    local dialoguePresentation
+    if dialogueModal then
+      local manifestPlacement = assert(self.runtime.uiManifest).dialogueFrames.continueCursor.placement
+      dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
+        scale = fieldScale,
+        cursorPlacement = manifestPlacement,
+      })
+      self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale, dialoguePresentation)
     end
     if self.runtime.signpost:isModal() then
       self.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha, fieldScale)
@@ -434,6 +488,83 @@ function FieldState:draw()
   if self.development then
     self:_drawHud()
   end
+  self:_drawScriptScreenFadeIfNeeded()
+end
+
+local function rectUnion(existing, rect)
+  if #existing == 0 then
+    return { { x = rect.x, y = rect.y, width = rect.width, height = rect.height } }
+  end
+  -- Start with rect, subtract every existing rect using axis-aligned subtraction.
+  local pending = { { x = rect.x, y = rect.y, width = rect.width, height = rect.height } }
+  local result = {}
+  for _, ex in ipairs(existing) do
+    result[#result + 1] = ex
+  end
+  local nextPending = {}
+  for _, piece in ipairs(pending) do
+    -- Subtract existing rects one by one
+    local pieces = { piece }
+    for _, ex in ipairs(existing) do
+      local newPieces = {}
+      for _, p in ipairs(pieces) do
+        local px2, py2 = p.x + p.width, p.y + p.height
+        local ex2x, ex2y = ex.x + ex.width, ex.y + ex.height
+        local ix1, iy1 = math.max(p.x, ex.x), math.max(p.y, ex.y)
+        local ix2, iy2 = math.min(px2, ex2x), math.min(py2, ex2y)
+        if ix2 <= ix1 or iy2 <= iy1 then
+          newPieces[#newPieces + 1] = p
+        else
+          if p.x < ix1 then
+            newPieces[#newPieces + 1] = { x = p.x, y = p.y, width = ix1 - p.x, height = p.height }
+          end
+          if px2 > ix2 then
+            newPieces[#newPieces + 1] = { x = ix2, y = p.y, width = px2 - ix2, height = p.height }
+          end
+          if p.y < iy1 then
+            newPieces[#newPieces + 1] = { x = ix1, y = p.y, width = ix2 - ix1, height = iy1 - p.y }
+          end
+          if py2 > iy2 then
+            newPieces[#newPieces + 1] = { x = ix1, y = iy2, width = ix2 - ix1, height = py2 - iy2 }
+          end
+        end
+      end
+      pieces = newPieces
+    end
+    for _, p in ipairs(pieces) do
+      nextPending[#nextPending + 1] = p
+    end
+  end
+  for _, p in ipairs(nextPending) do
+    result[#result + 1] = p
+  end
+  return result
+end
+
+function FieldState:_drawScriptScreenFadeIfNeeded()
+  local screenFade = self.runtime.screenFade
+  if screenFade == nil then
+    return
+  end
+  local status = screenFade:status()
+  if status.overlay == nil then
+    return
+  end
+  local topology = self.runtime.screenTopology
+  assert(topology ~= nil and type(topology.surfaces) == "table", "script screen fade requires a current topology")
+  local surfaces = topology.surfaces
+  local rects = {}
+  for _, surface in ipairs(surfaces) do
+    rects = rectUnion(rects, surface.rect)
+  end
+  local lg = love.graphics
+  local overlay = status.overlay
+  local prevR, prevG, prevB, prevA = lg.getColor()
+  lg.setColor(overlay.r, overlay.g, overlay.b, overlay.a)
+  for _, rect in ipairs(rects) do
+    lg.rectangle("fill", rect.x, rect.y, rect.width, rect.height)
+  end
+  lg.setColor(prevR, prevG, prevB, prevA)
 end
 
 -- The application fade coverage: the world viewport plus the Start Menu
@@ -481,16 +612,11 @@ end
 function FieldState:_drawApplicationFade(alpha)
   local lg = love.graphics
   local world = self.runtime.viewport.worldViewport
-  local placementFrame =
-    assert(self.runtime.startMenuPlacement, "the application fade requires the placement record").frame
-  local frame = {
-    x = placementFrame.x,
-    y = placementFrame.y,
-    width = placementFrame.width,
-    height = placementFrame.height,
-  } ---@type ScreenTopology.Rectangle
+  local frame = assert(self.runtime.startMenuPlacement, "the application fade requires the placement record").frame
   lg.setColor(0, 0, 0, alpha)
-  for _, rect in ipairs(fadeRects(world, frame)) do
+  for _, rect in
+    ipairs(fadeRects(world, frame --[[@as ScreenTopology.Rectangle]]))
+  do
     lg.rectangle("fill", rect.x, rect.y, rect.width, rect.height)
   end
 end
@@ -512,8 +638,7 @@ function FieldState:_drawHud()
       self.runtime.player.motion
     ),
     self.runtime.saveStatus or "save not written this run",
-    "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   M menu   -/= zoom"
-      .. "   0 reset zoom   F1 save   F2 reset   Esc quit",
+    "WASD/arrows move   Z/Space/Enter action   X/Backspace cancel   M menu   -/= zoom" .. "   0 reset zoom   Esc quit",
   }
   lg.setColor(0, 0, 0, 0.55)
   lg.rectangle("fill", 12, 12, 900, 20 * #lines + 12)
@@ -527,15 +652,6 @@ end
 function FieldState:keypressed(key, _, _)
   if key == "escape" then
     love.event.quit(0)
-  end
-  if self.development then
-    if key == "f1" then
-      self.runtime:saveSession()
-    end
-    if key == "f2" then
-      self.runtime:reset()
-      return
-    end
   end
   if self.runtime.actionKeys[key] then
     self.runtime.input:pressAction("key:" .. key)
@@ -734,7 +850,8 @@ function FieldState:dispose()
   self._actorAssetLookup = nil
   if self.worldParts then
     self.worldParts[5] = nil
-    self.worldParts[6] = nil
+    self.worldParts[7] = nil
+    self.worldParts[8] = nil
   end
   self.worldActorItems = nil
   self.spriteItems = nil
@@ -757,6 +874,14 @@ function FieldState:dispose()
   if self.fieldEntranceIndicatorPool then
     self.fieldEntranceIndicatorPool:release()
     self.fieldEntranceIndicatorPool = nil
+  end
+  if self.fieldEmoteRenderer then
+    self.fieldEmoteRenderer:dispose()
+    self.fieldEmoteRenderer = nil
+  end
+  if self.fieldEmotePool then
+    self.fieldEmotePool:release()
+    self.fieldEmotePool = nil
   end
   if self.renderer then
     self.renderer:release()

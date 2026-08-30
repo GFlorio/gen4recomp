@@ -174,6 +174,12 @@ local function runtimeWithClock(catalog, calls, currentMap)
       updateSourceFrame = function() end,
       updateFixed = function() end,
     },
+    screenFade = {
+      fadeDone = function()
+        return true
+      end,
+      updateSourceFrame = function() end,
+    },
     fieldEntranceIndicator = {
       updateFixed = function() end,
     },

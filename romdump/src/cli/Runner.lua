@@ -82,13 +82,10 @@ function Runner.load(opts)
   if command == "inspect-actors" then
     return Runner._runInspectActors()
   end
-  if command == "gen-script-overrides" then
-    return Runner._runGenScriptOverrides()
-  end
   print(
     "romdump: no command given (expected --import-rom, --check-dump, --check-derived-cache, "
       .. "--inspect, --inspect-sbc, "
-      .. "--inspect-actors, --build-cache, or --gen-script-overrides)"
+      .. "--inspect-actors, or --build-cache)"
   )
   love.event.quit(Cli.EXIT_USAGE)
 end
@@ -136,84 +133,8 @@ function Runner._runCheckDerivedCache()
   love.event.quit(allOk and 0 or 1)
 end
 
--- Regenerate the checked-in script overrides for the New Bark slice
--- (data/scripts/overrides/<id>.lua) from the first ready dump. Files are
--- written into the repo tree (the override system's checked-in content), not
--- the cache; identical dumps produce byte-identical files. Every file is
--- staged at <path>.new and renamed into place only after the whole set
--- staged, so a failed staging run leaves the previous checked-in set
--- untouched.
-function Runner._runGenScriptOverrides()
-  local OverrideGenerator = require("romdump.src.digest.script.OverrideGenerator")
-  local targets = readyVersions()
-  if #targets == 0 then
-    print("gen-script-overrides: no ready version")
-    return love.event.quit(1)
-  end
-  local version = targets[1]
-  local root = love.filesystem.getSourceBaseDirectory()
-  local romFs, err = RomFs.open(version)
-  if not romFs then
-    print("gen-script-overrides: open failed for " .. version .. ": " .. Errors.format(err))
-    return love.event.quit(1)
-  end
-  local ok, files = pcall(OverrideGenerator.generate, romFs)
-  romFs:close()
-  if not ok then
-    print("gen-script-overrides: " .. tostring(files))
-    return love.event.quit(1)
-  end
-  -- Rewrite the override manifest with the exact generated ids so the
-  -- loader never enumerates the directory.
-  local manifest = "return {\n"
-  for _, file in ipairs(files) do
-    manifest = manifest .. "  " .. string.format("%q", file.id) .. ",\n"
-  end
-  manifest = manifest .. "}\n"
-  local ScriptOverrides = require("libs.assets.src.ScriptOverrides")
-  local staged = {}
-  local stageOk, stageErr = pcall(function()
-    local function stage(path, text)
-      local parent = path:match("^(.*)/[^/]+$")
-      if parent then
-        os.execute(("mkdir -p %q"):format(parent))
-      end
-      local handle, openErr = io.open(path .. ".new", "wb")
-      if not handle then
-        error("open failed for " .. path .. ": " .. tostring(openErr), 0)
-      end
-      handle:write(text)
-      handle:close()
-      staged[#staged + 1] = path
-    end
-    for _, file in ipairs(files) do
-      stage(root .. "/" .. file.path, file.text)
-    end
-    stage(root .. "/" .. ScriptOverrides.MANIFEST, manifest)
-  end)
-  if not stageOk then
-    for _, path in ipairs(staged) do
-      os.remove(path .. ".new")
-    end
-    print("gen-script-overrides: " .. tostring(stageErr))
-    return love.event.quit(1)
-  end
-  for _, path in ipairs(staged) do
-    local renamed, renameErr = os.rename(path .. ".new", path)
-    if not renamed then
-      for _, remaining in ipairs(staged) do
-        os.remove(remaining .. ".new")
-      end
-      print("gen-script-overrides: publish failed for " .. path .. ": " .. tostring(renameErr))
-      return love.event.quit(1)
-    end
-  end
-  print(string.format("gen-script-overrides: %s wrote %d override files", version, #files))
-  return love.event.quit(0)
-end
-
--- Audit every ready version and exit 0 only if all pass. Proves the runtime
--- boots from the private cache without the ROM.
+-- Audit every ready version and exit 0 only if all pass. Runtime boot is
+-- verified by the game/application tests, not by this ROM-source command.
 function Runner._runCheckDump()
   local DumpAudit = require("romdump.src.source.DumpAudit")
   local targets = readyVersions()
@@ -381,10 +302,10 @@ function Runner._maybeExit()
 end
 
 -- Complete a finished build-cache import: audit the imported dump, build the
--- derived cache from it, and prove the runtime boots from that cache before
--- the process exits. A failed audit exits nonzero; the importer already
--- published into the version cache, and the only resource acquired here is
--- the verification runtime, disposed on this same path.
+-- derived cache, and use an already-loaded runtime verifier when the host
+-- supplies one. The optional lookup keeps this source-only app independent of
+-- the game runtime while preserving the completion seam used by integration
+-- hosts.
 ---@param status table
 ---@return nil
 function Runner._finishImport(status)
@@ -407,17 +328,24 @@ function Runner._finishImport(status)
     print("build-cache: " .. versionId .. " failed: " .. tostring(err))
     return love.event.quit(1)
   end
-  -- Boot verification is binary: FieldRuntime.new either raises or returns a
-  -- fully usable runtime. A raised boot failure is a build failure, never
-  -- proof that the cache boots.
-  local ok, runtime = pcall(function()
-    return require("game.src.game.FieldRuntime").new(versionId)
-  end)
-  if not ok then
-    print("build-cache: " .. versionId .. " runtime boot failed: " .. tostring(runtime))
-    return love.event.quit(1)
+  local runtime = package.loaded["game.src.game.FieldRuntime"]
+  if runtime then
+    local game = {
+      versionId = versionId,
+      location = {
+        mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+        fieldX = 6,
+        fieldZ = 6,
+      },
+      playerData = {},
+    }
+    local ok, instance = pcall(runtime.new, game)
+    if not ok then
+      print("build-cache: runtime boot failed: " .. tostring(instance))
+      return love.event.quit(1)
+    end
+    assert(instance):dispose()
   end
-  runtime:dispose()
   return love.event.quit(0)
 end
 

@@ -14,6 +14,7 @@ local ImportState = require("game.src.launcher.ImportState")
 local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local RomImporter = require("romdump.src.source.RomImporter")
 local FieldState = require("game.src.game.FieldState")
+local MainMenuState = require("game.src.game.MainMenuState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
 local T = {}
@@ -32,6 +33,8 @@ end
 local function fresh()
   App.state = nil
   App.importer = nil
+  App.drawableWidth = nil
+  App.drawableHeight = nil
 end
 
 local function withInputState(fn)
@@ -81,25 +84,39 @@ local function withAppHarness(opts, ready, fn)
   local originalNew = FieldState.new
   local graphics = love.graphics
   local originalPrint = graphics.print
+  local originalGetDimensions = graphics.getDimensions
   local result = {
     prints = 0,
     captured = nil,
     state = countingState(),
   }
   App.opts = opts or {}
+  App.saveStore = App.opts.saveStore
+    or {
+      load = function()
+        return nil
+      end,
+      list = function()
+        return {}
+      end,
+    }
   RomImporter.isReady = ready
-  FieldState.new = function(versionId, _, options)
-    result.captured = { versionId = versionId, options = options }
+  FieldState.new = function(game, options)
+    result.captured = { game = game, options = options }
     return result.state
   end
   graphics.print = function()
     result.prints = result.prints + 1
+  end
+  graphics.getDimensions = function()
+    return 800, 600
   end
   local ok, err = pcall(fn, result)
   App.opts = originalOpts
   RomImporter.isReady = originalIsReady
   FieldState.new = originalNew
   graphics.print = originalPrint
+  graphics.getDimensions = originalGetDimensions
   if not ok then
     error(err, 0)
   end
@@ -228,6 +245,105 @@ function T.resize_forwards_the_exact_tuple_only_to_resize_capable_states()
   App.setState(nil)
 end
 
+-- The host resize callback can describe an intermediate drawable size. The
+-- dispatcher must reconcile the live graphics dimensions before the next
+-- state update so responsive state layout does not remain at that size.
+function T.settled_drawable_size_supersedes_the_resize_callback_size()
+  fresh()
+  local graphics = love.graphics
+  local originalGetDimensions = graphics.getDimensions
+  local liveWidth, liveHeight = 803, 600
+  local events = {}
+  local state = {
+    resize = function(_, width, height)
+      events[#events + 1] = { "resize", width, height }
+    end,
+    update = function()
+      events[#events + 1] = { "update" }
+    end,
+  }
+  graphics.getDimensions = function()
+    return liveWidth, liveHeight
+  end
+
+  local ok, err = pcall(function()
+    App.setState(state)
+    App.resize(803, 600)
+    liveHeight = 992
+    App.update(0.016)
+  end)
+  graphics.getDimensions = originalGetDimensions
+  App.setState(nil)
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.deepEqual(events, {
+    { "resize", 803, 600 },
+    { "resize", 803, 992 },
+    { "update" },
+  })
+end
+
+-- Reconciliation is change-based and must run before the first geometry
+-- consumer, whether that consumer is pointer hit testing or drawing.
+function T.settled_drawable_size_reconciles_once_before_pointer_and_draw()
+  fresh()
+  local graphics = love.graphics
+  local originalGetDimensions = graphics.getDimensions
+  local liveWidth, liveHeight = 800, 600
+  local events = {}
+  local state = {
+    resize = function(_, width, height)
+      events[#events + 1] = { "resize", width, height }
+    end,
+    update = function()
+      events[#events + 1] = { "update" }
+    end,
+    mousepressed = function(_, ...)
+      events[#events + 1] = { "mousepressed", ... }
+    end,
+    draw = function()
+      events[#events + 1] = { "draw" }
+    end,
+  }
+  graphics.getDimensions = function()
+    return liveWidth, liveHeight
+  end
+
+  local ok, err = pcall(function()
+    App.setState(state)
+    App.resize(800, 600)
+    App.update(0.016)
+
+    liveWidth, liveHeight = 900, 700
+    App.mousepressed(12.5, 34.5, 1, true, 2)
+    App.mousepressed(15.5, 36.5, 1, false, 1)
+
+    App.update(0.016)
+    liveWidth, liveHeight = 1024, 768
+    App.draw()
+    App.draw()
+  end)
+  graphics.getDimensions = originalGetDimensions
+  App.setState(nil)
+  if not ok then
+    error(err, 0)
+  end
+
+  Assert.deepEqual(events, {
+    { "resize", 800, 600 },
+    { "update" },
+    { "resize", 900, 700 },
+    { "mousepressed", 12.5, 34.5, 1, true, 2 },
+    { "mousepressed", 15.5, 36.5, 1, false, 1 },
+    { "update" },
+    { "resize", 1024, 768 },
+    { "draw" },
+    { "draw" },
+  })
+end
+
 function T.actor_preview_dispose_releases_exactly_once_and_is_repeat_safe()
   fresh()
   local released = {}
@@ -326,11 +442,9 @@ function T.failed_import_is_cleared_on_the_next_update()
 end
 
 -- The boot decision when no ROM was supplied: zero ready versions enter the
--- import state, one resumes its field session, and both offer the version
--- selector over exactly the ready array. These tests cover the whole boot
--- selection wiring -- version-selection has one owner, App itself.
--- RomImporter.isReady and FieldState.new are the seams: readiness is a pure
--- check and a real FieldState boot is ROM-gated.
+-- import state, one enters the main menu, and several offer the version
+-- selector. Version selection and the new-game/continue choice each have one
+-- owner, App and MainMenuState respectively.
 
 function T.boot_existing_with_no_ready_version_starts_an_import()
   withAppHarness({}, function()
@@ -342,46 +456,21 @@ function T.boot_existing_with_no_ready_version_starts_an_import()
   end)
 end
 
-function T.boot_existing_with_one_ready_version_resumes_its_field_session()
+function T.boot_existing_with_one_ready_version_enters_the_main_menu()
   local result = withAppHarness({}, function(id)
     return id == "heartgold"
   end, function()
     App._bootExisting()
   end)
-  local captured = result.captured
-  Assert.notNil(captured)
-  ---@cast captured table
-  Assert.equal(captured.versionId, "heartgold")
-  Assert.isTrue(captured.options.resumeSave)
-  Assert.isFalse(captured.options.resetSave)
-  Assert.isFalse(captured.options.development)
-  Assert.equal(App.state, result.state)
-end
-
--- The CLI session flags are applied once at the boot boundary: --dev reaches
--- the state as the presentation flag, and --new-field-session forces a fresh
--- session instead of a resume.
-function T.boot_flags_flow_into_the_field_state_options()
-  local result = withAppHarness({ dev = true, newFieldSession = true }, function(id)
-    return id == "heartgold"
-  end, function()
-    App._bootExisting()
-  end)
-  local captured = result.captured
-  Assert.notNil(captured)
-  ---@cast captured table
-  Assert.isTrue(captured.options.development, "--dev reaches the field state")
-  Assert.isTrue(captured.options.resetSave, "--new-field-session forces a reset")
-  Assert.isFalse(captured.options.resumeSave, "--new-field-session never resumes")
+  Assert.isNil(result.captured, "the main menu owns the new-game/continue choice")
+  Assert.equal(getmetatable(App.state).__index, MainMenuState)
+  Assert.isTrue(App.state.readyVersions.heartgold)
 end
 
 function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_ready_array()
   withAppHarness({}, function(id)
     return id == "heartgold" or id == "soulsilver"
   end, function(result)
-    -- The selector's onPick callback reads App.opts through fieldSessionOptions,
-    -- so boot and probe run inside the one fixture that installs them; every
-    -- stub is restored on every path afterwards.
     App._bootExisting()
     Assert.isNil(result.captured, "the selector must not boot a field state")
     local selector = App.state
@@ -390,11 +479,9 @@ function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_re
     Assert.deepEqual(selector.ready, { "heartgold", "soulsilver" })
     selector.onPick("soulsilver")
     local picked = result.captured
-    Assert.notNil(picked)
-    ---@cast picked table
-    Assert.equal(picked.versionId, "soulsilver")
-    Assert.isTrue(picked.options.resumeSave)
-    Assert.equal(App.state, result.state)
+    Assert.isNil(picked, "version selection opens the main menu before field entry")
+    Assert.equal(getmetatable(App.state).__index, MainMenuState)
+    Assert.isTrue(App.state.readyVersions.soulsilver)
   end)
 end
 

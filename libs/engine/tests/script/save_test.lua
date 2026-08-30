@@ -1,5 +1,5 @@
 -- Save and resume tests: the serializable
--- scripts bucket of g4-field-save-v4. They pin relative-timing capture and
+-- scripts bucket of g4-field-save-v3. They pin relative-timing capture and
 -- rebasing: no tick is duplicated or skipped across a
 -- capture/restore boundary, completed-but-unconsumed tasks restore as
 -- completed and are never polled again, resume_pending owners preserve their
@@ -9,7 +9,6 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local PlayerDataContext = require("tests.support.PlayerDataContext")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -20,14 +19,41 @@ local ScriptTask = require("libs.engine.src.script.ScriptTask")
 local ScriptInstance = require("libs.engine.src.script.ScriptInstance")
 local ScriptEnvironment = require("libs.engine.src.script.ScriptEnvironment")
 local WaitTicksTask = require("libs.engine.src.script.tasks.WaitTicksTask")
-local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 ---@cast WaitTicksTask TaskImplementation
+local ChildScriptTask = require("libs.engine.src.script.tasks.ChildScriptTask")
 ---@cast ChildScriptTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local Diagnostics = require("libs.engine.src.script.Diagnostics")
-local FieldSave = require("libs.engine.src.FieldSave")
 
 local T = {}
+
+T["structural validation requires both fingerprints"] = function()
+  local bucket = {
+    schema = ScriptSave.SCHEMA_NAME,
+    registryFingerprint = "registry",
+    taskFingerprint = "tasks",
+    nextEnvironmentId = 0,
+    nextInstanceId = 0,
+    nextTaskId = 0,
+    environments = {},
+    instances = {},
+    tasks = {},
+  }
+  Assert.isNil(ScriptSave.validate(bucket, {}))
+  for _, field in ipairs({ "registryFingerprint", "taskFingerprint" }) do
+    local candidate = {}
+    for key, value in pairs(bucket) do
+      candidate[key] = value
+    end
+    candidate[field] = nil
+    local err = assert(ScriptSave.validate(candidate, {}))
+    Assert.isTrue(Errors.is(err))
+    candidate[field] = ""
+    Assert.isTrue(Errors.is(assert(ScriptSave.validate(candidate, {}))))
+    candidate[field] = 7
+    Assert.isTrue(Errors.is(assert(ScriptSave.validate(candidate, {}))))
+  end
+end
 
 ---@class SaveHarness
 ---@field services FakeServices
@@ -364,6 +390,64 @@ T["task version rejection"] = function()
   Assert.equal(err.code, "SCRIPT_TASK_VERSION_UNSUPPORTED")
 end
 
+T["complete validation rejects task state before restore"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.validation", {
+      S.waitTicks({ ticks = 5 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.tasks[1].state.remainingTicks = -1
+
+  local err = ScriptSave.validate(bucket, {
+    expectedRegistryFingerprint = h.registry:fingerprint(),
+    expectedTaskFingerprint = h.taskRegistry:fingerprint(),
+    resolveTask = function(taskType, version)
+      return h.taskRegistry:resolve(taskType, version)
+    end,
+    resolveComposition = function(scriptId)
+      return h.composition:effective(scriptId)
+    end,
+  })
+  Assert.isTrue(Errors.is(err))
+  local validationError = assert(err)
+  Assert.equal(validationError.code, "SCRIPT_TASK_UNSERIALIZABLE")
+end
+
+T["complete validation rejects stale frame revision before restore"] = function()
+  local h = harness()
+  startForeground(
+    h,
+    script("test.validation_revision", {
+      S.waitTicks({ ticks = 5 }),
+      S.stop(),
+    }),
+    100
+  )
+  h.scheduler:step(100, nil)
+  local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
+  bucket.instances[1].frames[1].graphRevision = "stale-graph"
+
+  local err = ScriptSave.validate(bucket, {
+    expectedRegistryFingerprint = h.registry:fingerprint(),
+    expectedTaskFingerprint = h.taskRegistry:fingerprint(),
+    resolveTask = function(taskType, version)
+      return h.taskRegistry:resolve(taskType, version)
+    end,
+    resolveComposition = function(scriptId)
+      return h.composition:effective(scriptId)
+    end,
+  })
+  Assert.isTrue(Errors.is(err))
+  local validationError = assert(err)
+  Assert.equal(validationError.code, "SCRIPT_SAVE_REVISION_MISMATCH")
+end
+
 -- 9. Missing graph revision on load : the runtime does not
 -- restart or redirect the active script.
 T["missing graph revision"] = function()
@@ -471,80 +555,6 @@ T["capture requires phase boundary"] = function()
   instance.status = "running"
   local ok = pcall(ScriptSave.capture, h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
   Assert.isFalse(ok)
-end
-
--- 12. g4-field-save-v4: the field bucket stays valid and the scripts bucket
--- rides along.
-T["field save v4 round trip"] = function()
-  local FieldEventState = require("libs.engine.src.FieldEventState")
-  local eventState = FieldEventState.new()
-  eventState:setFlag(0x800)
-  eventState:setVar(0x4000, 3)
-  local session = {
-    versionId = "heartgold",
-    currentMap = {
-      mapId = 58,
-      coordinateOrigin = { x = 680, z = 390 },
-      collision = {
-        containsLocal = function()
-          return true
-        end,
-        isBlockedLocal = function()
-          return false
-        end,
-      },
-      terrainDependencyHash = "terrain-a",
-      fieldData = { events = { warps = {} } },
-      terrain = {
-        contains = function()
-          return false
-        end,
-        candidatesAt = function()
-          return { { id = 0, worldY = 4, surfaceId = 11, distance = 0 } }
-        end,
-        sample = function()
-          return { worldY = 4, surfaceId = 11 }
-        end,
-      },
-    },
-    player = { motion = "idle", fieldX = 4, fieldZ = 6, worldY = 4, surfaceId = 11, facing = "north" },
-    transition = { phase = "idle" },
-  } --[[@as FieldSave.Session]]
-  local record = FieldSave.capture(session, {
-    avatarId = "hero",
-    world = { flags = { [5] = true }, variables = {}, objects = {}, rng = { state = 1, calls = 0 } },
-    scriptsBucket = { schema = ScriptSave.SCHEMA_NAME, placeholder = true },
-    auxiliaryUi = { requested = "shown", state = "shown" },
-    playerData = {
-      profile = { name = "GOLD", gender = 0, trainerId = 0 },
-      options = { textFrame = 0, textSpeed = "mid" },
-    },
-  })
-  Assert.equal(record.schema, FieldSave.SCHEMA)
-  Assert.equal(record.world.flags[5], true)
-  Assert.equal(record.scripts.schema, ScriptSave.SCHEMA_NAME)
-  local restored, err = FieldSave.restore(
-    record,
-    {
-      load = function()
-        return session.currentMap
-      end,
-    },
-    "heartgold",
-    {
-      scriptsValidate = function(bucket)
-        if bucket.placeholder ~= true then
-          return Errors.new("SCRIPT_TASK_UNSERIALIZABLE", "bad bucket", {})
-        end
-        return nil
-      end,
-      playerDataContext = PlayerDataContext.new(),
-    }
-  )
-  Assert.isTrue(restored ~= nil, tostring(err))
-  ---@cast restored table
-  Assert.equal(restored.scripts.placeholder, true)
-  Assert.equal(restored.world.flags[5], true)
 end
 
 -- 14. The resumed trace suffix equals the uninterrupted suffix for a longer
@@ -717,8 +727,6 @@ end
 T["mid-audio-wait saves resume against a fresh audio service"] = function()
   local SoundWaitTask = require("libs.engine.src.script.tasks.SoundWaitTask")
   local MusicFadeTask = require("libs.engine.src.script.tasks.MusicFadeTask")
-  ---@cast SoundWaitTask TaskImplementation
-  ---@cast MusicFadeTask TaskImplementation
   local freshAudio = function()
     return {
       playing = {},
@@ -741,8 +749,8 @@ T["mid-audio-wait saves resume against a fresh audio service"] = function()
     }
   end
   local h = harness()
-  h.taskRegistry:register(SoundWaitTask.type, SoundWaitTask.version, SoundWaitTask)
-  h.taskRegistry:register(MusicFadeTask.type, MusicFadeTask.version, MusicFadeTask)
+  h.taskRegistry:register(SoundWaitTask.type, SoundWaitTask.version, SoundWaitTask --[[@as TaskImplementation]])
+  h.taskRegistry:register(MusicFadeTask.type, MusicFadeTask.version, MusicFadeTask --[[@as TaskImplementation]])
   h.services.audio = freshAudio()
   local resource = script("test.audiowait", {
     S.playSound({ sound = "SEQ_SE_DP_SELECT" }),
@@ -943,7 +951,7 @@ end
 -- validation.
 ---@param mutate fun(bucket: table)
 ---@param context string
-local function expectInstanceCorruptError(mutate, context)
+local function expectCorruptBucketError(mutate, context)
   local h = harness()
   startForeground(
     h,
@@ -1012,10 +1020,10 @@ T["validate rejects malformed instance records"] = function()
   local bucket = ScriptSave.capture(h.scheduler, 100, { registryFingerprint = h.registry:fingerprint() })
   bucket.instances[1].contextSlot = 7
   expectValidationError(ScriptSave.validate(bucket, {}), "an instance record with an out-of-range context slot")
-  expectInstanceCorruptError(function(corrupted)
+  expectCorruptBucketError(function(corrupted)
     corrupted.instances[1].scriptId = nil
   end, "an instance record without a script identity")
-  expectInstanceCorruptError(function(corrupted)
+  expectCorruptBucketError(function(corrupted)
     corrupted.instances[1].frames[1].composition = nil
   end, "an instance record with a malformed frame composition")
 end
@@ -1073,7 +1081,7 @@ end
 -- validation.
 ---@param mutate fun(bucket: table)
 ---@param context string
-local function expectCorruptBucketError(mutate, context)
+local function expectCorruptBucketErrorWhole(mutate, context)
   local h = harness()
   startForeground(
     h,
@@ -1094,16 +1102,16 @@ end
 -- with no one to poll or own it, and a missing environment id or unknown
 -- status would raise inside restore instead of failing validation.
 T["validate rejects task records with malformed shape or dangling references"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks[1].ownerInstanceId = "i-missing"
   end, "a task referencing a missing owner instance")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks[1].environmentId = "e-missing"
   end, "a task referencing a missing environment")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks[1].environmentId = nil
   end, "a task record without an environment")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks[1].status = "banana"
   end, "a task record with an unknown status")
 end
@@ -1112,13 +1120,13 @@ end
 -- owners) must all resolve; a dangling one silently corrupts the slot loop
 -- or the lock release path.
 T["validate rejects environment references to missing instances"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[1].rootInstanceId = "i-missing"
   end, "an environment root referencing a missing instance")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[1].contextSlots[0] = "i-missing"
   end, "an environment context slot referencing a missing instance")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[1].locks = { player = { count = 1, owners = { ["i-missing"] = 1 } } }
   end, "an environment lock referencing a missing owner")
 end
@@ -1126,7 +1134,7 @@ end
 -- The movement generation sets name tasks that must exist: a dangling id
 -- would make the barrier wait on a task that never polls.
 T["validate rejects movement generations referencing missing tasks"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[1].movementTasksByGeneration[0]["t-missing"] = true
   end, "an environment movement generation referencing a missing task")
 end
@@ -1134,7 +1142,7 @@ end
 -- A blocked instance's wait reference must resolve to a serialized task; a
 -- dangling one would never resume after the load.
 T["validate rejects an instance referencing a missing task"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.instances[1].waitingTaskId = "t-missing"
   end, "an instance referencing a missing task")
 end
@@ -1142,13 +1150,13 @@ end
 -- Duplicate ids would silently overwrite live scheduler entries; multiple
 -- foreground environments would silently last-wins on the field.
 T["validate rejects duplicate ids and multiple foreground environments"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[#bucket.environments + 1] = {
       environmentId = bucket.environments[1].environmentId,
       mode = "background",
     }
   end, "a duplicate environment id")
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.environments[#bucket.environments + 1] = {
       environmentId = "e-extra",
       mode = "foreground",
@@ -1160,7 +1168,7 @@ end
 -- The record arrays are required by the schema: a missing array is an
 -- error, never an implicit empty restore.
 T["validate rejects a bucket missing a required record array"] = function()
-  expectCorruptBucketError(function(bucket)
+  expectCorruptBucketErrorWhole(function(bucket)
     bucket.tasks = nil
   end, "a bucket without tasks")
 end

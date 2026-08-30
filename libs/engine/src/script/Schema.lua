@@ -85,6 +85,7 @@ Schema.VALUES = {
   arg = { fields = { name = { type = "string", required = true } } },
   flag_value = { fields = { flag = { type = "id_or_var", required = true } } },
   player_gender_value = { fields = {} },
+  friend_sprite_value = { fields = {} },
   object_id = { fields = { ref = { type = "actor", required = true } } },
   trigger_background_id = { fields = {} },
   trigger_direction = { fields = {} },
@@ -619,7 +620,7 @@ Schema.OPERATIONS = {
   process_soundplate = { fields = {} },
   fade_screen = {
     fields = {
-      kind = { type = "integer", required = true },
+      duration = { type = "integer", required = true },
       speed = { type = "integer", required = true },
       direction = { type = "enum:fade_direction", required = true },
       color = { type = "enum:fade_color", required = true },
@@ -636,6 +637,19 @@ Schema.OPERATIONS = {
     },
   },
   set_spawn = { fields = { spawn = { type = "string", required = true } } },
+  -- The source special-spawn setter (opcode 582): records a pending spawn
+  -- location distinct from `set_spawn`'s named spawn-point concept. warpId
+  -- and direction are source constants (-1, south) at every current call
+  -- site, not scalar_or_value operands.
+  set_special_spawn = {
+    fields = {
+      map = { type = "scalar_or_value", required = true },
+      fieldX = { type = "scalar_or_value", required = true },
+      fieldZ = { type = "scalar_or_value", required = true },
+      warpId = { type = "integer", required = true },
+      direction = { type = "enum:direction", required = true },
+    },
+  },
   shake_camera = {
     fields = {
       amplitudeX = { type = "number", required = true },
@@ -764,6 +778,11 @@ Schema.CONSTRUCTORS = {
         signature = "S.playerGenderValue()",
         canonical = "value=player_gender_value",
         notes = "HGSS-compatible numeric value.",
+      },
+      {
+        signature = "S.friendSpriteValue()",
+        canonical = "value=friend_sprite_value",
+        notes = "Opposite-gender friend NPC sprite constant.",
       },
       {
         signature = "S.objectIdValue(ref)",

@@ -218,6 +218,10 @@ function M.playerGenderValue()
   return value("player_gender_value")
 end
 
+function M.friendSpriteValue()
+  return value("friend_sprite_value")
+end
+
 function M.objectIdValue(ref)
   return value("object_id", { ref = ref })
 end

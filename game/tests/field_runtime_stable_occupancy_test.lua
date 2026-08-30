@@ -141,6 +141,7 @@ function T.off_window_solid_actor_blocks_without_publishing_destination_state()
     assets = assetProvider,
     policy = { variableSprites = { first = 101, last = 117, variableBase = 0x4020 } },
   })
+  ---@cast source RuntimeFieldMap
   actors:enterMap(source, eventState)
 
   local residency = {}
@@ -184,7 +185,16 @@ function T.off_window_solid_actor_blocks_without_publishing_destination_state()
   actors:dispose()
 end
 
-function T.resident_neighbor_occupancy_follows_a_scripted_actor_move()
+-- Being logically resident does not make a neighboring map's objects live
+-- and mutable: the only active actor entry is the source map's, and a
+-- resident-but-inactive destination is represented purely through its
+-- source events (read-only), matching the exact identity a construction-time
+-- actor would have -- including a variable sprite resolved from the
+-- supplied event state.
+function T.resident_but_inactive_neighbor_blocks_and_interacts_through_read_only_probing()
+  local eventState = FieldEventState.new({ vars = { [0x4020] = 34 } })
+  local destinationEvent = object(0, 2, 0, 0, 101)
+  destinationEvent.scriptId = 777
   local destination = {
     mapId = 62,
     mapSection = "test-section",
@@ -196,7 +206,7 @@ function T.resident_neighbor_occupancy_follows_a_scripted_actor_move()
       end,
     },
     terrain = terrain({ plate(0, 0, "1:0", 30) }),
-    fieldData = { events = { objects = { object(0, 1, 0, 0) } } },
+    fieldData = { events = { objects = { destinationEvent }, background = {} } },
     scene = {},
     cameraType = 4,
     coverage = {
@@ -210,6 +220,7 @@ function T.resident_neighbor_occupancy_follows_a_scripted_actor_move()
   local source = {
     mapId = 61,
     coordinateOrigin = { x = 0, z = 0 },
+    fieldData = { events = { objects = {} } },
     coverage = {},
   } ---@as RuntimeFieldMap
   function source.coverage:mapHeaderAt(fieldX, fieldZ)
@@ -218,15 +229,14 @@ function T.resident_neighbor_occupancy_follows_a_scripted_actor_move()
     return destination.mapId
   end
 
-  local eventState = FieldEventState.new()
   local assetProvider = assets()
   local actors = FieldActorManager.new({
     assets = assetProvider,
     policy = { variableSprites = { first = 101, last = 117, variableBase = 0x4020 } },
   })
-  actors:enterMap(destination --[[@as RuntimeFieldMap]], eventState)
-  local actorId = "map:62:object:0"
-  actors:setPosition(actorId, { fieldX = 2, fieldZ = 0 })
+  -- The active actor world is the source map only; the resident destination
+  -- never receives a live entry.
+  actors:enterMap(source --[[@as RuntimeFieldMap]], eventState)
 
   local residency = {}
   function residency:mapForId(mapId)
@@ -240,7 +250,7 @@ function T.resident_neighbor_occupancy_follows_a_scripted_actor_move()
     residency = residency,
     zoneController = {
       mapForPreflight = function()
-        error("resident actor occupancy must not reconstruct source events", 0)
+        error("a logically resident destination must never be preflighted", 0)
       end,
     },
   }, FieldRuntime)
@@ -248,7 +258,29 @@ function T.resident_neighbor_occupancy_follows_a_scripted_actor_move()
   Assert.isNil(runtime:_playerOccupantAt({ fieldX = 1, fieldZ = 0, surfaceId = 0 }))
   Assert.equal(
     runtime:_playerOccupantAt({ fieldX = 2, fieldZ = 0, surfaceId = 0, cellKey = "1:0", sourceSurfaceId = 30 }),
-    actorId
+    "map:62:object:0",
+    "the resident but inactive destination must still block through its source event"
+  )
+  Assert.isNil(actors.maps[destination.mapId], "a resident-but-inactive destination must not own a live actor entry")
+  Assert.equal(assetProvider.acquired, 0, "read-only probing must never acquire a destination visual")
+
+  -- Interaction discovery is wired to the same lookup collision uses, so both
+  -- agree about an object on a map that owns no live actors, and the identity
+  -- it hands the interaction resolver carries script and sprite semantics.
+  local interactionCandidate = { fieldX = 2, fieldZ = 0, surfaceId = 0, cellKey = "1:0", sourceSurfaceId = 30 }
+  local interactionActor = assert(
+    runtime:_actorAt(destination.mapId, interactionCandidate),
+    "a resident-but-inactive neighboring object must still supply interaction identity"
+  )
+  Assert.equal(
+    interactionActor.sourceEvent and interactionActor.sourceEvent.scriptId,
+    777,
+    "interaction identity must carry the source event's script id"
+  )
+  Assert.equal(
+    interactionActor.spriteId,
+    34,
+    "interaction identity must carry the variable sprite resolved from the supplied event state"
   )
   actors:dispose()
 end

@@ -3,9 +3,6 @@
 -- exposes the field warp transition lifecycle.
 
 local CacheFs = require("libs.storage.src.CacheFs")
-local SaveFs = require("libs.storage.src.SaveFs")
-local StorageErrors = require("libs.storage.src.errors")
-local Errors = require("libs.errors.src.Errors")
 local DialogueLayout = require("libs.engine.src.DialogueLayout")
 local FieldActorDefinitionProvider = require("libs.engine.src.FieldActorDefinitionProvider")
 local AuxiliaryFieldUi = require("libs.engine.src.AuxiliaryFieldUi")
@@ -21,7 +18,9 @@ local FieldDialogueController = require("libs.engine.src.FieldDialogueController
 local FieldFontLoader = require("libs.engine.src.FieldFontLoader")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
 local FieldEventState = require("libs.engine.src.FieldEventState")
-local FieldPlayerData = require("libs.engine.src.FieldPlayerData")
+local LocalClock = require("libs.engine.src.LocalClock")
+local PlayerData = require("libs.engine.src.PlayerData")
+local GameSaveValidation = require("game.src.game.GameSaveValidation")
 local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
 local FieldActorCache = require("libs.assets.src.FieldActorCache")
 local FieldInput = require("libs.engine.src.FieldInput")
@@ -31,47 +30,42 @@ local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.engine.src.FieldMapLoader")
 local FieldMessageProvider = require("libs.engine.src.FieldMessageProvider")
-local FieldNavigationBoundary = require("libs.engine.src.FieldNavigationBoundary")
 local FieldPlayer = require("libs.engine.src.FieldPlayer")
 local FieldPlayerVisual = require("libs.engine.src.FieldPlayerVisual")
-local FieldResidencyCoordinator = require("libs.engine.src.FieldResidencyCoordinator")
-local FieldSave = require("libs.engine.src.FieldSave")
-local FieldSaveStore = require("libs.engine.src.FieldSaveStore")
+local GameSave = require("libs.engine.src.GameSave")
+local PlayTime = require("libs.engine.src.PlayTime")
 local FieldScripts = require("game.src.game.FieldScripts")
+local FieldScriptScreenFade = require("libs.engine.src.FieldScriptScreenFade")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldSession = require("libs.engine.src.FieldSession")
 local FieldSignpostController = require("libs.engine.src.FieldSignpostController")
 local FieldTransition = require("libs.engine.src.FieldTransition")
-local FieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController")
-local FieldTerrainEffectModelFactory = require("libs.engine.src.FieldTerrainEffectModelFactory")
+local TextSpeedPolicy = require("libs.engine.src.TextSpeedPolicy")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
-local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldWindowStyles = require("libs.engine.src.FieldWindowStyles")
 local FieldViewport = require("libs.engine.src.FieldViewport")
 local FieldZoom = require("libs.engine.src.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.engine.src.MapSceneLoader")
+local NeighborRing = require("libs.engine.src.NeighborRing")
 local MapProps = require("libs.engine.src.MapProps")
 local MetatileBehavior = require("libs.engine.src.MetatileBehavior")
-local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 local ScriptSave = require("libs.engine.src.script.ScriptSave")
-local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
+local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 local FieldWeatherResolver = require("libs.engine.src.FieldWeatherResolver")
 local StartMenuController = require("libs.engine.src.StartMenuController")
 local StartMenuLayout = require("libs.engine.src.StartMenuLayout")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")
 local TrainerCardController = require("libs.engine.src.TrainerCardController")
 local FieldAudio = require("game.src.game.audio.FieldAudio")
+local FieldEntranceIndicatorRuntime = require("game.src.game.FieldEntranceIndicatorRuntime")
+local FieldActorEmoteRuntime = require("game.src.game.FieldActorEmoteRuntime")
+local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+local FieldAudioSave = require("libs.engine.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.engine.src.TimeOfDayProps")
-local WarpSystem = require("libs.engine.src.WarpSystem")
-local FieldZoneController = require("libs.engine.src.FieldZoneController")
-local TargetSpawns = require("data.manifests.field_spawns")
 local FieldPresentation = require("data.manifests.field_presentation")
-local FieldPlayerManifest = require("data.manifests.field_player")
 local RepoFs = require("game.src.game.RepoFs")
 local WindowConfig = require("game.src.WindowConfig")
-
-local PRESENTATION_FRAME_DT = 1 / 60
 
 local function runtimeProfileEffect(runtime, profile, phase)
   assert(type(profile) == "number", "field transition profile required")
@@ -146,19 +140,18 @@ local function createFieldTransition(runtime, doorAt, escalatorAt, resolveDestin
 end
 
 ---@class FieldRuntimeOptions
----@field resumeSave boolean?
----@field resetSave boolean?
 ---@field zoomConfig table?
 ---@field viewportWidth integer?
 ---@field viewportHeight integer?
 ---@field screenTopology ScreenTopology?
----@field saveFs SaveFs?
----@field overrideFs table? read-shaped repository filesystem override
 ---@field presentation boolean?
 ---@field scriptHosts table? deterministic host boundaries for script effects
 ---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
 ---@field audioOutput table? { audio: table, sound: table } audio-output host namespaces for the LÖVE sink (defaults to love.audio + love.sound)
+---@field localClock LocalClock? injectable host-local civil-time boundary
 ---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
+---@field saveStore FieldRuntimeSaveStore? global publication owner
+---@field saveValidation GameSaveValidation? shared semantic GameSave validator
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -166,19 +159,24 @@ end
 ---@field screen table?
 ---@field events table?
 
+---@class FieldRuntimeSaveStore
+---@field save fun(self: FieldRuntimeSaveStore, record: table)
+---@field publishFirst fun(self: FieldRuntimeSaveStore, record: table)
+
 ---@class FieldRuntime
----@field overrideFs table? read-shaped repository filesystem override
 ---@field versionId string
----@field mapIdOrSymbol string|integer?
----@field resumeSave boolean
----@field resetSave boolean
+---@field saveId string
+---@field game table finalized unpublished game or validated loaded GameSave
 ---@field viewportWidth integer
 ---@field viewportHeight integer
 ---@field screenTopology ScreenTopology?
 ---@field errorText string?
 ---@field zoom FieldZoom
 ---@field saveStatus string?
----@field playerData table the validated profile/options authority (FieldPlayerData shape)
+---@field saveStore FieldRuntimeSaveStore? global publication owner
+---@field saveValidation GameSaveValidation? shared semantic GameSave validator
+---@field savePublished boolean whether the reserved record has been published
+---@field playerData table the validated profile/options authority (PlayerData shape)
 ---@field session FieldSession
 ---@field actors FieldActorManager
 ---@field dialogue FieldDialogueController?
@@ -189,7 +187,6 @@ end
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
 ---@field menuKeys table<string, boolean>?
----@field saveFs SaveFs?
 ---@field presentation boolean
 ---@field windowStyles FieldWindowStyles the immutable per-runtime window style catalogue
 ---@field scriptHosts FieldRuntimeScriptHosts?
@@ -202,8 +199,11 @@ end
 ---@field audio FieldAudioController? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
+---@field screenFade FieldScriptScreenFade the production semantic script screen-fade controller (fade_screen/wait_fade); always composed, advanced only from the 60 Hz presentation-frame branch of update()
+---@field presentationFrameAccumulator number elapsed wall-clock time awaiting transition presentation frames
+---@field audioFrameAccumulator number elapsed wall-clock time awaiting semantic sound frames
+---@field localClock LocalClock the shared host-local civil-time boundary
 ---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
----@field saveStore FieldSaveStore
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field fieldEntranceIndicatorAsset table
 ---@field fieldEffectAssets table
@@ -226,8 +226,11 @@ local AUDIO_SAMPLE_RATE = 32768
 -- advancement independent of the field's 30 Hz simulation tick.
 local AUDIO_FRAME_HZ = 60
 local AUDIO_FRAME_DT = 1 / AUDIO_FRAME_HZ
+-- The 60 Hz transition presentation clock is independent from field
+-- simulation and semantic audio progression.
+local PRESENTATION_FRAME_HZ = 60
+local PRESENTATION_FRAME_DT = 1 / PRESENTATION_FRAME_HZ
 local CAMERA_PROFILES_PATH = FieldCameraCache.profilesPath()
-local DEFAULT_MAP = "MAP_NEW_BARK_ELMS_LAB_1F"
 ---@return table<string, boolean>
 local function actionBindings()
   local keys = {}
@@ -255,19 +258,6 @@ local function menuBindings()
   return keys
 end
 
--- The save validation set of compiled avatar ids, so a corrupt save naming an
--- unbuilt player graphic is rejected before it reaches the runtime. The set
--- comes from the generated actor index's runtime block, not a source manifest.
----@param actorIndex table
----@return table<string, boolean>
-local function avatarIdSet(actorIndex)
-  local set = {}
-  for _, avatar in ipairs(actorIndex.runtime.avatars) do
-    set[avatar.id] = true
-  end
-  return set
-end
-
 ---@param avatars table[]
 local function validateAvatarConfig(avatars)
   assert(type(avatars) == "table" and #avatars > 0, "field actor index must contain avatars")
@@ -279,33 +269,20 @@ local function validateAvatarConfig(avatars)
       type(avatar.spriteId) == "number" and avatar.spriteId >= 0 and avatar.spriteId % 1 == 0,
       "field actor avatar spriteId must be a non-negative integer"
     )
-    assert(FieldPlayerData.GENDERS[avatar.gender] == true, "field actor avatar gender is unsupported")
+    assert(PlayerData.GENDERS[avatar.gender] == true, "field actor avatar gender is unsupported")
     assert(genders[avatar.gender] == nil, "field actor index contains duplicate playable avatar genders")
     genders[avatar.gender] = true
   end
-  for gender in pairs(FieldPlayerData.GENDERS) do
+  for gender in pairs(PlayerData.GENDERS) do
     assert(genders[gender] == true, "field actor index has no avatar for player gender " .. gender)
   end
-end
-
----@param avatars table[]
----@param id string
----@return table
-local function avatarById(avatars, id)
-  assert(type(id) == "string" and id ~= "", "field avatar id must be a non-empty string")
-  for index, avatar in ipairs(avatars) do
-    if avatar.id == id then
-      return { index = index, id = avatar.id, spriteId = avatar.spriteId, gender = avatar.gender }
-    end
-  end
-  error("compiled avatars have no entry for " .. id, 0)
 end
 
 ---@param avatars table[]
 ---@param gender integer
 ---@return table
 local function avatarForGender(avatars, gender)
-  assert(FieldPlayerData.GENDERS[gender] == true, "field player gender is unsupported")
+  assert(PlayerData.GENDERS[gender] == true, "field player gender is unsupported")
   local match
   for _, avatar in ipairs(avatars) do
     if avatar.gender == gender then
@@ -316,31 +293,29 @@ local function avatarForGender(avatars, gender)
   return assert(match, "compiled avatars have no entry for player gender " .. gender)
 end
 
-local function validateScriptSave(bucket)
-  return ScriptSave.validate(bucket, {})
+-- The one actor lookup shared by movement collision and interaction
+-- discovery: live occupancy for the active actor map, and a read-only source
+-- event probe for any other logical map, resident or preflight. The probe
+-- never publishes an actor map or acquires an actor visual.
+---@param mapId integer
+---@param candidate FieldOccupancyCandidate
+---@return FieldActorManager.Actor|FieldActorManager.ProbeResult|nil
+function FieldRuntime:_actorAt(mapId, candidate)
+  if self.actors.currentMapId == mapId then
+    return self.actors:getAt(mapId, candidate)
+  end
+  local residency = assert(self.residency, "inactive actor lookup requires logical residency")
+  local runtimeMap = residency:mapForId(mapId) or residency:mapForPreflight(mapId)
+  return self.actors:probeAt(runtimeMap, self.eventState, candidate)
 end
 
--- The player consults live actors for its current logical map and source events
--- for an unloaded logical destination. The latter is a read-only preflight.
 ---@param candidate FieldOccupancyCandidate
 ---@return string?
 function FieldRuntime:_playerOccupantAt(candidate)
   local currentMap = self.runtimeMap
   local coverage = currentMap.coverage
   local destinationMapId = coverage and coverage:mapHeaderAt(candidate.fieldX, candidate.fieldZ) or nil
-  local occupant
-  if destinationMapId == nil or destinationMapId == currentMap.mapId then
-    occupant = self.actors:getAt(currentMap.mapId, candidate)
-  else
-    local residency = assert(self.residency, "outdoor occupancy requires logical residency")
-    local destination = residency:mapForId(destinationMapId)
-    if destination then
-      occupant = self.actors:getAt(destinationMapId, candidate)
-    else
-      destination = residency:mapForPreflight(destinationMapId)
-      occupant = self.actors:probeAt(destination, self.eventState, candidate)
-    end
-  end
+  local occupant = self:_actorAt(destinationMapId or currentMap.mapId, candidate)
   return occupant and occupant.actorId or nil
 end
 
@@ -370,48 +345,6 @@ local function spawnSurface(runtimeMap, localX, localZ)
   return best
 end
 
----@return nil
-local function releasePhysicalMap(_) end
-
----@param runtimeMap table
----@param fieldX integer
----@param fieldZ integer
----@param context PhysicalProbeContext?
----@return table?
-local function probePhysicalCell(runtimeMap, fieldX, fieldZ, context)
-  return runtimeMap.coverage:probe(fieldX, fieldZ, context)
-end
-
----@param runtimeMap table
----@param fieldX integer
----@param fieldZ integer
----@param cellKey string
----@param sourceSurfaceId integer
----@return table
-local function projectPhysicalPoint(runtimeMap, fieldX, fieldZ, cellKey, sourceSurfaceId)
-  return runtimeMap.coverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
-end
-
----@param runtimeMap table
----@return nil
-local function updateAnimated(runtimeMap)
-  runtimeMap.coverage:updateAnimated()
-end
-
----@param runtimeMap table
----@return nil
-local function syncPhysicalFields(runtimeMap)
-  local coverage = assert(runtimeMap.coverage)
-  runtimeMap.fieldRegion = coverage.region
-  runtimeMap.collision = coverage.region.collision
-  runtimeMap.terrain = coverage.region.terrain
-  runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
-  local originX = coverage.origin.x --[[@as integer]]
-  local originZ = coverage.origin.z --[[@as integer]]
-  runtimeMap.coordinateOrigin = { x = originX, z = originZ }
-  runtimeMap.physicalOrigin = coverage.origin
-end
-
 -- Compose the current logical context with the session-owned physical world.
 -- Cached loader entries remain logical-only; this view is disposable and never
 -- releases either collaborator.
@@ -425,30 +358,144 @@ local function composePhysicalMap(logicalMap, coverage)
   end
   runtimeMap.logicalMap = logicalMap
   runtimeMap.coverage = coverage
-  runtimeMap.release = releasePhysicalMap
-  runtimeMap.probePhysicalCell = probePhysicalCell
-  runtimeMap.projectPhysicalPoint = projectPhysicalPoint
-  runtimeMap.updateAnimated = updateAnimated
-  runtimeMap.syncPhysicalFields = syncPhysicalFields
+  function runtimeMap.release() end
+  function runtimeMap.probePhysicalCell(_, fieldX, fieldZ, context)
+    return coverage:probe(fieldX, fieldZ, context)
+  end
+  function runtimeMap.projectPhysicalPoint(_, fieldX, fieldZ, cellKey, sourceSurfaceId)
+    return coverage:project(fieldX, fieldZ, cellKey, sourceSurfaceId)
+  end
+  function runtimeMap.updateAnimated()
+    coverage:updateAnimated()
+  end
+  function runtimeMap.syncPhysicalFields()
+    runtimeMap.fieldRegion = coverage.region
+    runtimeMap.collision = coverage.region.collision
+    runtimeMap.terrain = coverage.region.terrain
+    runtimeMap.terrainDependencyHash = coverage.terrainDependencyHash
+    runtimeMap.coordinateOrigin = { x = coverage.origin.x, z = coverage.origin.z }
+    runtimeMap.physicalOrigin = coverage.origin
+  end
   runtimeMap:syncPhysicalFields()
   return runtimeMap
 end
 
-local function today()
-  local now = os.date("*t")
-  return { month = now.month, day = now.day }
-end
-
-local function hasPenalty()
-  return false
-end
-
+---@param localClock LocalClock
 ---@return table
-local function defaultWeatherClock()
+local function defaultWeatherClock(localClock)
+  local function today()
+    local now = localClock:nowLocal()
+    return { month = now.month, day = now.day }
+  end
+  local function hasPenalty()
+    return false
+  end
   return {
     today = today,
     hasPenalty = hasPenalty,
   }
+end
+
+local function canCapture(session, allowMenu)
+  return session
+    and session.player
+    and session.player.motion == "idle"
+    and (not session.transition or session.transition.phase == FieldTransition.PHASES.idle)
+    and (not session.dialogue or not session.dialogue:isModal())
+    and (not session.signpost or not session.signpost:isModal())
+    and (
+      not session.applicationHost
+      or not session.applicationHost:isActive()
+      or (allowMenu and session.applicationHost:status().phase == FieldApplicationHost.PHASES.menu)
+    )
+end
+
+local function closestSurface(runtimeMap, localX, localZ, savedY)
+  local best
+  local bestDistance
+  for _, plate in
+    ipairs(
+      runtimeMap.terrain:candidatesAt(
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+    )
+  do
+    local sample = runtimeMap.terrain:sample(
+      plate.id,
+      localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ + FieldCoordinates.TILE_CENTER_OFFSET
+    )
+    local distance = math.abs(sample.worldY - savedY)
+    if best == nil or distance < bestDistance then
+      best, bestDistance = sample, distance
+    end
+  end
+  return assert(best, "saved coordinate has no walkable terrain surface")
+end
+
+-- An outdoor destination map loads with no collision/terrain at all until
+-- physical coverage composes over it (FieldMapLoader splits outdoor scenes
+-- this way so a bare load never pays for a physical window the caller might
+-- discard). `composeMap` is a no-op for non-outdoor scenes, so this runs
+-- unconditionally; every FieldCoordinates/terrain lookup below runs only
+-- after the composed map is in hand.
+---@param game table
+---@param mapLoader FieldMapLoader
+---@param composeMap fun(logicalMap: RuntimeFieldMap, position: { fieldX: integer, fieldZ: integer }): RuntimeFieldMap
+---@return RuntimeFieldMap, { fieldX: integer, fieldZ: integer, surfaceId: integer, facing: FieldDirection, worldY: number }
+local function loadGameLocation(game, mapLoader, composeMap)
+  if game.schema == GameSave.SCHEMA then
+    local runtimeMap = mapLoader:load(game.mapId)
+    runtimeMap = composeMap(runtimeMap, { fieldX = game.fieldX, fieldZ = game.fieldZ })
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, game.fieldX, game.fieldZ)
+    local surface
+    if
+      game.terrainDependencyHash == runtimeMap.terrainDependencyHash
+      and runtimeMap.terrain:contains(
+        game.surfaceId,
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+    then
+      surface = runtimeMap.terrain:sample(
+        game.surfaceId,
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+    else
+      surface = closestSurface(runtimeMap, localX, localZ, game.worldY)
+    end
+    return runtimeMap,
+      {
+        fieldX = game.fieldX,
+        fieldZ = game.fieldZ,
+        surfaceId = surface.surfaceId,
+        facing = game.facing,
+        worldY = surface.worldY,
+      }
+  end
+
+  assert(type(game.location) == "table", "finalized game location is required")
+  local runtimeMap = mapLoader:load(game.location.mapSymbol)
+  -- The global position is plain origin arithmetic (no collision lookup),
+  -- so it is always safe to compute before composing physical coverage.
+  local fieldX = runtimeMap.coordinateOrigin.x + game.location.fieldX
+  local fieldZ = runtimeMap.coordinateOrigin.z + game.location.fieldZ
+  runtimeMap = composeMap(runtimeMap, { fieldX = fieldX, fieldZ = fieldZ })
+  -- Composing may have replaced coordinateOrigin with the physical window's
+  -- own origin; re-derive local coordinates against it rather than reusing
+  -- game.location's pre-compose local coordinates.
+  local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
+  local surface = spawnSurface(runtimeMap, localX, localZ)
+  return runtimeMap,
+    {
+      fieldX = fieldX,
+      fieldZ = fieldZ,
+      surfaceId = surface.surfaceId,
+      facing = game.location.facing,
+      worldY = surface.worldY,
+    }
 end
 
 -- Build the non-GPU door facade used by simulation and acceptance runtimes.
@@ -484,23 +531,27 @@ local function headlessMapProps(runtimeMap, cacheFs)
   })
 end
 
-function FieldRuntime.new(versionId, mapIdOrSymbol, options)
+function FieldRuntime.new(game, options)
+  assert(type(game) == "table", "field runtime requires a finalized or loaded game")
+  assert(type(game.versionId) == "string" and game.versionId ~= "", "field runtime game version is required")
   options = options or {}
   local self = setmetatable({
-    versionId = versionId,
-    mapIdOrSymbol = mapIdOrSymbol or DEFAULT_MAP,
-    resumeSave = options.resumeSave == true,
-    resetSave = options.resetSave == true,
+    game = game,
+    versionId = game.versionId,
+    saveId = game.saveId,
     viewportWidth = options.viewportWidth or WindowConfig.REFERENCE_WIDTH,
     viewportHeight = options.viewportHeight or WindowConfig.REFERENCE_HEIGHT,
     screenTopology = options.screenTopology,
-    saveFs = options.saveFs,
-    overrideFs = options.overrideFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
-    weatherClock = options.weatherClock or defaultWeatherClock(),
+    saveStore = options.saveStore,
+    saveValidation = options.saveValidation
+      or GameSaveValidation.new({ overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()) }),
+    savePublished = false,
+    localClock = options.localClock or LocalClock.system(),
+    weatherClock = options.weatherClock,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
     -- The 60 Hz sound-frame accumulator: wall-clock elapsed time the update
@@ -509,6 +560,7 @@ function FieldRuntime.new(versionId, mapIdOrSymbol, options)
     audioFrameAccumulator = 0,
     presentationFrameAccumulator = 0,
   }, FieldRuntime)
+  self.weatherClock = self.weatherClock or defaultWeatherClock(self.localClock)
   self:_load()
   return self
 end
@@ -518,8 +570,552 @@ function FieldRuntime:_load()
   -- clean on every boot: a reset re-boots through _load, so a stale
   -- pre-reset residue must never carry into the fresh runtime.
   self.audioFrameAccumulator = 0
+  -- Presentation and audio accumulators are transient wall-clock state and
+  -- start clean on every boot.
   self.presentationFrameAccumulator = 0
-  local ok, err = pcall(FieldRuntime._loadUnchecked, self)
+  local ok, err = pcall(function()
+    local cacheFs = CacheFs.forVersion(self.versionId)
+    self.cacheFs = cacheFs
+    -- The compiled actor index carries the runtime-facing actor configuration
+    -- (avatars + variable-sprite policy); a missing runtime block is a stale
+    -- or foreign cache and fails the boot loudly.
+    local actorIndex = assert(
+      cacheFs:loadLua(FieldActorCache.indexPath()),
+      "field actor index missing -- run `scripts/buildcache.sh` first"
+    )
+    assert(
+      actorIndex.runtime and actorIndex.runtime.avatars and actorIndex.runtime.variableSprites,
+      "field actor index has no runtime configuration"
+    )
+    self.actorConfig = actorIndex.runtime
+    validateAvatarConfig(self.actorConfig.avatars)
+    -- The player-data validation context: the generated field font charmap
+    -- and the imported dialogue frame-index set, loaded once and injected
+    -- into fresh-session construction and the save store (the same pattern
+    -- as the compiled avatar set). The field-UI class is a required runtime
+    -- asset: its manifest is the authority for which frame indexes resolve.
+    local fontDef = FieldFontLoader.load(cacheFs)
+    local uiManifest = assert(
+      cacheFs:loadLua(FieldUiAssetCache.manifestPath()),
+      "field UI cache is cold -- run `scripts/buildcache.sh` first"
+    )
+    assert(FieldUiAssetCache.validateManifest(uiManifest), "field UI manifest is invalid")
+    -- The window-style catalogue is composed per runtime from the generated
+    -- manifest: the production-owned built-in styles, immutable from then on.
+    self.windowStyles = FieldWindowStyles.new(uiManifest)
+    self.uiManifest = uiManifest
+    local frameIndexes = {}
+    for frame = 0, uiManifest.dialogueFrames.count - 1 do
+      frameIndexes[frame] = true
+    end
+    local playerDataContext = {
+      charmap = fontDef.charmap,
+      frameIndexes = frameIndexes,
+    }
+    local saveValidation = assert(self.saveValidation)
+    local world =
+      assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
+    local profiles =
+      assert(cacheFs:loadLua(CAMERA_PROFILES_PATH), "field camera cache is cold -- run `scripts/buildcache.sh` first")
+    assert(profiles.schema == FieldCameraCache.SCHEMA, "unsupported field camera cache")
+    self.cameraProfiles = profiles.profiles
+
+    -- The weather catalog: fourteen fog presets and ordered override rules.
+    local weatherCatalog = assert(
+      cacheFs:loadLua(FieldWeatherCache.catalogPath()),
+      "field weather cache is cold -- run `scripts/buildcache.sh` first"
+    ) --[[@as FieldWeatherCache.Catalog]]
+    assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
+    self.weatherCatalog = weatherCatalog
+    self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
+    self.fieldEmoteModels = FieldActorEmoteRuntime.load(cacheFs)
+    self.fieldEffectAssets = self.fieldEntranceIndicatorAsset
+    self.fieldTerrainEffectController = require("libs.engine.src.FieldTerrainEffectController").new({
+      effects = {
+        tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
+        very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
+      },
+      modelFactory = require("libs.engine.src.FieldTerrainEffectModelFactory").new(),
+    })
+
+    self.mapLoader = FieldMapLoader.new(cacheFs, world, {
+      sceneLoader = self.presentation and MapSceneLoader or nil,
+      neighborLoader = self.presentation and NeighborRing or nil,
+    })
+    local function mapMatrixMemberId(logicalMap)
+      local mapIndex = assert(self.mapLoader.world.byId[logicalMap.mapId], "outdoor map catalog record is required")
+      local mapRecord = assert(self.mapLoader.world.maps[mapIndex], "outdoor map catalog record is missing")
+      return assert(mapRecord.matrix.memberId, "outdoor map matrix member is required")
+    end
+
+    -- Initial boot has no live source owner to protect. It is the only path
+    -- allowed to publish a newly created initial coverage.
+    local function composeInitialMap(logicalMap, position)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap
+      end
+      assert(not self.physicalCoverage, "initial physical coverage already exists")
+      self.physicalCoverage = self.mapLoader:createPhysicalCoverage(logicalMap, position)
+      return composePhysicalMap(logicalMap, self.physicalCoverage)
+    end
+
+    -- Logical zone changes reuse the committed owner. A matrix mismatch here
+    -- indicates that a logical seam was routed through the wrong boundary.
+    local function composeCurrentMap(logicalMap, coverage)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap
+      end
+      coverage = coverage or assert(self.physicalCoverage, "current outdoor coverage is required")
+      assert(
+        mapMatrixMemberId(logicalMap) == coverage.matrixMemberId,
+        "logical outdoor map does not belong to the current physical matrix"
+      )
+      return composePhysicalMap(logicalMap, coverage)
+    end
+
+    -- A live warp receives an explicit ownership record. The replacement is
+    -- transition-owned until commit and never mutates physicalCoverage here.
+    local function composePreparedMap(logicalMap, position)
+      if logicalMap.scene.type ~= "outdoor" then
+        return logicalMap, nil
+      end
+      local matrixMemberId = mapMatrixMemberId(logicalMap)
+      local physical = self:_stagePhysicalCoverage(logicalMap, position, matrixMemberId)
+      local ok, runtimeMap = pcall(composePhysicalMap, logicalMap, physical.coverage)
+      if not ok then
+        if physical.replacement then
+          physical.coverage:release()
+          physical.state = "released"
+        end
+        error(runtimeMap, 0)
+      end
+      return runtimeMap, physical
+    end
+
+    local loadedGame
+    if self.game.schema == GameSave.SCHEMA then
+      loadedGame = assert(saveValidation:validate(self.game))
+      assert(loadedGame.versionId == self.versionId, "loaded game belongs to another version")
+    else
+      assert(self.game.playerData, "finalized game player data is required")
+      local validPlayerData, playerDataErr = saveValidation:validatePlayerData(self.game.playerData, playerDataContext)
+      assert(validPlayerData, "finalized game player data is invalid: " .. tostring(playerDataErr))
+      self.game.playerData = validPlayerData
+    end
+    local activeGame = loadedGame or self.game
+    self.savePublished = loadedGame ~= nil
+    self.runtimeMap, self.entryLocation = loadGameLocation(activeGame, self.mapLoader, composeInitialMap)
+    self.mapLoader:protectMap(self.runtimeMap.mapId, true)
+
+    self.playerData = activeGame.playerData
+    local fieldX, fieldZ = self.entryLocation.fieldX, self.entryLocation.fieldZ
+    local surfaceId, facing = self.entryLocation.surfaceId, self.entryLocation.facing
+    self.player = FieldPlayer.new({
+      currentMap = self.runtimeMap,
+      fieldX = fieldX,
+      fieldZ = fieldZ,
+      surfaceId = surfaceId,
+      facing = facing,
+      occupancy = playerOccupancy(self),
+    })
+    self.input = FieldInput.new()
+    local worldPoint = self.player:renderPosition()
+
+    local profile = assert(
+      self.cameraProfiles[self.runtimeMap.cameraType],
+      "field camera cache has no camera type " .. self.runtimeMap.cameraType
+    )
+    self.camera = FieldCamera.new(profile, { initialTarget = worldPoint })
+    local width, height = self.viewportWidth, self.viewportHeight
+    self.viewport = FieldViewport.new(width, height, { mode = "expanded" })
+    self:_updateCameraProjection()
+    local restoredWorld = loadedGame and loadedGame.world
+    local restoredAudio = loadedGame and loadedGame.audio
+    self.restoredAudio = restoredAudio
+    self.eventState = loadedGame
+        and FieldEventState.new({ flags = restoredWorld.flags, vars = restoredWorld.variables })
+      or self.game.worldState
+    assert(self.eventState and self.eventState.serialize, "finalized game event state is required")
+    self.actorAssets = FieldActorDefinitionProvider.new(cacheFs)
+    self.actors = FieldActorManager.new({
+      assets = self.actorAssets,
+      policy = { variableSprites = self.actorConfig.variableSprites },
+    })
+
+    -- The player's graphic is one more compiled actor visual: it is acquired from
+    -- the same reference-counted provider, and FieldPlayer keeps every bit of
+    -- movement authority. The avatar is derived from the validated player
+    -- profile and the generated avatar capabilities.
+    self.avatar = avatarForGender(self.actorConfig.avatars, self.playerData.profile.gender)
+    self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
+    self.playerVisual = FieldPlayerVisual.new({
+      player = self.player,
+      spriteId = self.avatar.spriteId,
+    })
+
+    -- Warp resolution is owned by WarpSystem through FieldTransition's
+    -- default resolver: ordinary records follow the indexed path; scripted
+    -- `direct` records carry global destination coordinates and resolve
+    -- through their own branch. Fallible destination preparation runs before
+    -- the commit, so a failed warp never touches current-map ownership.
+    -- Door choreography is a presentation capability. A simulation-only
+    -- runtime has no resolver and therefore runs door-kind warps through the
+    -- ordinary fade lifecycle.
+    local headlessProps = {}
+    local doorAt
+    local escalatorAt
+    if self.presentation or self.runtimeMap.sceneRuntime or self.runtimeMap.scene then
+      local function resolveDoorAt(runtimeMap, doorFieldX, doorFieldZ)
+        local sceneRuntime = runtimeMap.sceneRuntime
+        if sceneRuntime and sceneRuntime.mapProps then
+          return sceneRuntime.mapProps:doorAt(runtimeMap, doorFieldX, doorFieldZ)
+        end
+        local props = headlessProps[runtimeMap.mapId]
+        if not props then
+          props = headlessMapProps(runtimeMap, cacheFs)
+          headlessProps[runtimeMap.mapId] = props
+        end
+        return props:doorAt(runtimeMap, doorFieldX, doorFieldZ)
+      end
+      local function resolveEscalatorAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
+        local sceneRuntime = runtimeMap.sceneRuntime
+        if sceneRuntime and sceneRuntime.mapProps then
+          return sceneRuntime.mapProps:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
+        end
+        local props = headlessProps[runtimeMap.mapId]
+        if not props then
+          props = headlessMapProps(runtimeMap, cacheFs)
+          headlessProps[runtimeMap.mapId] = props
+        end
+        return props:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
+      end
+      doorAt = resolveDoorAt
+      escalatorAt = resolveEscalatorAt
+    end
+    self.transition = createFieldTransition(self, doorAt, escalatorAt, function(_, sourceMap, warp)
+      local physical
+      local ok, result = pcall(function()
+        local function loadDestination(_, mapId)
+          assert(mapId == warp.destinationMapId, "transition destination map mismatch")
+          local logicalMap = self.mapLoader:load(mapId)
+          local destinationPosition
+          if warp.direct then
+            destinationPosition = { fieldX = warp.x, fieldZ = warp.z }
+          else
+            local destinationWarp = logicalMap.fieldData.events.warps[warp.destinationWarpId + 1]
+            assert(destinationWarp, "transition destination warp is missing")
+            destinationPosition = { fieldX = destinationWarp.x, fieldZ = destinationWarp.z }
+          end
+          local composed, ownership = composePreparedMap(logicalMap, destinationPosition)
+          physical = ownership
+          return composed
+        end
+        return require("libs.engine.src.WarpSystem").resolveDestination({
+          load = loadDestination,
+        }, sourceMap, warp)
+      end)
+      if not ok then
+        if physical and physical.replacement and physical.state == "prepared" then
+          physical.coverage:release()
+          physical.state = "released"
+        end
+        error(result, 0)
+      end
+      result.physical = physical
+      return result
+    end)
+    self.transition.player = self.player
+    self.transition.suppression = nil
+
+    -- The production script screen-fade controller (fade_screen/wait_fade):
+    -- composed unconditionally so every supported field script has it,
+    -- regardless of presentation mode or scriptHosts injection. Advanced only
+    -- from the 60 Hz presentation-frame branch below; rendering only reads
+    -- its status().
+    self.screenFade = FieldScriptScreenFade.new()
+
+    -- Modal dialogue is pure and fixed-tick. Runtime layout needs only the
+    -- compiled font definition; presentation later owns the atlas and drawing.
+    -- The text-speed cadence is captured from the player options at
+    -- construction, so an open request never queries options afterwards.
+    local fontMetrics = FieldDialogueTheme.fontMetrics(fontDef)
+    self.menuHost = FieldMenuHost.new({
+      width = self.viewportWidth,
+      height = self.viewportHeight,
+      input = self.input,
+      screenTopology = self.screenTopology,
+      measureText = FieldDialogueTheme.measureText(fontDef),
+    })
+    local function layoutMessage(formatted)
+      return DialogueLayout.layout(
+        formatted.tokens,
+        fontMetrics,
+        { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines }
+      )
+    end
+    -- The signpost window presents one 27x4-tile window: the single-window
+    -- lines shape the signpost controller captures is the first page of the
+    -- same paginated dialogue layout. Overflow beyond the window is the
+    -- signpost text path's concern, not this adapter's.
+    local function signpostLayout(formatted)
+      local result = layoutMessage(formatted)
+      return { lines = (result.pages[1] or { lines = {} }).lines }
+    end
+    local audioService = self:_composeAudio(cacheFs, restoredAudio)
+    self.dialogue = FieldDialogueController.new({
+      layout = layoutMessage,
+      policy = TextSpeedPolicy.forSpeed(self.playerData.options.textSpeed),
+      audio = audioService,
+      continueCursor = uiManifest.dialogueFrames.continueCursor,
+    })
+    -- The signpost controller is fixed-tick and pure; the script platform
+    -- advances it once per scheduler tick through the signpost host. The
+    -- text-speed cadence is captured from the player options at construction,
+    -- the same single authority as the dialogue controller.
+    self.signpost = FieldSignpostController.new({
+      layout = signpostLayout,
+      policy = TextSpeedPolicy.forSpeed(self.playerData.options.textSpeed),
+    })
+    self.auxiliaryFieldUi = loadedGame and AuxiliaryFieldUi.restore(loadedGame.auxiliaryUi) or AuxiliaryFieldUi.new()
+    self.contextChoiceProvider = ContextChoiceProvider.new()
+    self.actionKeys = actionBindings()
+    self.cancelKeys = cancelBindings()
+    self.menuKeys = menuBindings()
+
+    -- The field application catalogue: the registry holds child destinations
+    -- only, and the runtime registers the production destinations itself --
+    -- the Trainer Card is the concrete one. Its factory copies the immutable
+    -- profile fields from the authoritative player-data record into the
+    -- close-input-only controller, and must return a fully usable controller
+    -- or raise. The catalogue is immutable after construction; canonical
+    -- unimplemented destinations get capability state, never dummy
+    -- factories. The Start Menu is not a registry entry: the application
+    -- host composes it through its own menu factory.
+    local function playSequence(sequence)
+      if self.audio then
+        self.audio:play(sequence)
+      end
+    end
+    local function trainerCardFactory()
+      return TrainerCardController.new({
+        profile = self.playerData.profile,
+        playTimeSeconds = self.playTime:seconds(),
+        effect = playSequence,
+      })
+    end
+    local applicationDescriptors = {
+      {
+        id = FieldApplicationIds.TRAINER_CARD,
+        factory = trainerCardFactory,
+      },
+    }
+    local function menuFactory(rememberedActionId)
+      return self:_composeStartMenu(rememberedActionId)
+    end
+    local function fieldAction(actionId)
+      if actionId == "vanilla.save" then
+        return self:_saveCheckpoint()
+      end
+      error("unknown field action " .. tostring(actionId))
+    end
+    self.applications = FieldApplicationRegistry.new(applicationDescriptors)
+    self.applicationHost = FieldApplicationHost.new({
+      registry = self.applications,
+      menuFactory = menuFactory,
+      input = self.input,
+      fieldAction = fieldAction,
+      effect = playSequence,
+    })
+    -- The one Start Menu placement record: the runtime computes it from the
+    -- boot topology (so pointer input works before any resize) and re-applies
+    -- it on presentation-geometry changes; rendering and the host's pointer
+    -- mapper consume this exact record.
+    self.startMenuPlacement = nil
+    if self.screenTopology ~= nil then
+      self.startMenuPlacement = StartMenuLayout.resolve(self.screenTopology, self.viewport.referenceFrame)
+      self.applicationHost:setMenuPlacement(self.startMenuPlacement)
+    end
+
+    -- Interaction discovery: the resolver is pure and consults the same
+    -- live-or-probe actor lookup movement collision uses, so both agree about
+    -- objects on a logical map that is not the active actor map; bound
+    -- interactions run through the script client and the binding audit
+    -- guarantees every interactable event is bound.
+    self.messageProvider = FieldMessageProvider.new(cacheFs)
+    local function actorAt(mapId, candidate)
+      return self:_actorAt(mapId, candidate)
+    end
+    local function targetMapAt(x, z, currentMap)
+      local coverage = currentMap.coverage
+      if not coverage then
+        return currentMap
+      end
+      local targetMapId = coverage:mapHeaderAt(x, z)
+      if targetMapId == nil or targetMapId == currentMap.mapId then
+        return currentMap
+      end
+      local targetMap = assert(self.residency):mapForId(targetMapId)
+      return assert(targetMap, "reachable interaction target is not resident")
+    end
+    self.interactionResolver = FieldInteractionResolver.new({
+      actorAt = actorAt,
+      targetMapAt = targetMapAt,
+    })
+
+    -- The production audio composition lives in _composeAudio: extracted out
+    -- of this closure (rather than inlined here) so its module-level
+    -- collaborators are not upvalues of this already large boot closure,
+    -- which sits close to LuaJIT's 60-upvalue-per-function limit.
+    -- The field-script platform (the script override system): registry over
+    -- the compiled cache + data/scripts/overrides, composition, mechanical
+    -- bindings, scheduler, and interaction client. A resumed save reattaches
+    -- its script bucket.
+    -- The override files live in the repo tree outside the LÖVE source dir,
+    -- so the loader reads them through the io-backed repo filesystem.
+    local function requestStartMenuReopen()
+      self.applicationHost:requestReopen()
+    end
+    self.scripts = FieldScripts.new({
+      cacheFs = cacheFs,
+      overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),
+      eventState = self.eventState,
+      actors = self.actors,
+      player = self.player,
+      profile = self.playerData.profile,
+      dialogue = self.dialogue,
+      messageProvider = self.messageProvider,
+      layout = layoutMessage,
+      fontDef = fontDef,
+      frameIndex = self.playerData.options.textFrame,
+      signpost = self.signpost,
+      windowStyles = self.windowStyles,
+      transition = self.transition,
+      mapLoader = self.mapLoader,
+      sourceMap = self.runtimeMap,
+      seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
+      audio = audioService,
+      camera = self.scriptHosts and self.scriptHosts.camera,
+      -- Always the production semantic screen-fade controller: a script
+      -- fade/covered-swap capability is never limited to test composition.
+      screen = self.screenFade,
+      events = self.scriptHosts and self.scriptHosts.events,
+      auxiliaryUi = self.auxiliaryFieldUi,
+      contextChoice = self.contextChoiceProvider,
+      menu = self.menuHost,
+      startMenuReopen = { request = requestStartMenuReopen },
+    })
+    -- A loaded game carries strict world and script buckets, so restore is
+    -- unconditional after GameSave validation.
+    if loadedGame then
+      ScriptSave.restore(loadedGame.scripts, self.scripts.scheduler, 0, {
+        expectedRegistryFingerprint = self.scripts:registryFingerprint(),
+      })
+      self.scripts.worldState:restoreRng(loadedGame.world)
+    end
+
+    local FieldZoneController = require("libs.engine.src.FieldZoneController")
+    local function mapForId(mapId)
+      return assert(self.residency):mapForId(mapId)
+    end
+    local function rebindScripts(runtimeMap, player)
+      self.runtimeMap = runtimeMap
+      player.currentMap = runtimeMap
+      self.scripts:onZoneChange(runtimeMap)
+    end
+    local function applyWeather(runtimeMap)
+      self:_applyEffectiveWeather(runtimeMap)
+      self.weatherRuntime = { mapId = runtimeMap.mapId }
+    end
+    local function enterAudio(runtimeMap)
+      if self.audio and self.audio.enterZone then
+        self.audio:enterZone(runtimeMap)
+      end
+    end
+    local function onZoneChange(change)
+      self.lastZoneChange = change
+    end
+    self.zoneController = FieldZoneController.new({
+      currentMap = self.runtimeMap,
+      mapForId = mapForId,
+      rebindScripts = rebindScripts,
+      applyWeather = applyWeather,
+      enterAudio = enterAudio,
+      onChange = onZoneChange,
+    })
+
+    local FieldResidencyCoordinator = require("libs.engine.src.FieldResidencyCoordinator")
+    local function coverageProvider()
+      return self.physicalCoverage
+    end
+    local function resolveInteraction(_, snapshot)
+      return self.interactionResolver:resolve(snapshot)
+    end
+    local function enterMapActors()
+      self.actors:enterMap(self.runtimeMap, self.eventState)
+    end
+    local onPreparedMap
+    if self.audio then
+      local function prewarmMapMusic(runtimeMap)
+        self.audio:prewarmMapMusic(runtimeMap)
+      end
+      onPreparedMap = prewarmMapMusic
+    end
+    self.residency = FieldResidencyCoordinator.new({
+      coverage = self.physicalCoverage,
+      mapLoader = self.mapLoader,
+      actors = self.actors,
+      zoneController = self.zoneController,
+      composeMap = composeCurrentMap,
+      onPreparedMap = onPreparedMap,
+    })
+    self.residency:initialize()
+
+    self.session = FieldSession.new({
+      versionId = self.versionId,
+      currentMap = self.runtimeMap,
+      player = self.player,
+      camera = self.camera,
+      transition = self.transition,
+      actors = self.actors,
+      playerVisual = self.playerVisual,
+      dialogue = self.dialogue,
+      input = self.input,
+      scriptScheduler = self.scripts.scheduler,
+      scriptClient = self.scripts.client,
+      initController = self.scripts.initController,
+      menuHost = self.menuHost,
+      contextChoice = self.contextChoiceProvider,
+      signpost = self.signpost,
+      applicationHost = self.applicationHost,
+      -- The session's fixed-tick audio collaborator is the production
+      -- GameSound only; a recording script adapter is a script service, not
+      -- a session collaborator.
+      audio = self.audio,
+      navigationBoundary = require("libs.engine.src.FieldNavigationBoundary").new({
+        zoneController = self.zoneController,
+        residencyCoordinator = self.residency,
+        coverageProvider = coverageProvider,
+      }),
+      interactions = {
+        resolve = resolveInteraction,
+      },
+      eventResolver = FieldEventResolver,
+      eventState = self.eventState,
+      fieldEntranceIndicator = self.fieldEntranceIndicator,
+      enterMapActors = enterMapActors,
+      autoAcknowledgePresentation = not self.presentation,
+      terrainEffects = self.fieldTerrainEffectController,
+    })
+
+    self.session:beginMapEntry()
+
+    self:_applyEffectiveWeather(self.runtimeMap)
+    self.playTime = loadedGame and PlayTime.new(loadedGame.playTimeSeconds) or self.game.playTime
+    assert(self.playTime and self.playTime.start and self.playTime.advance, "game play time is required")
+    self.playTime:start()
+
+    self.weatherRuntime = { mapId = self.runtimeMap.mapId }
+  end)
   -- Construction is binary: a failed boot releases everything acquired so
   -- far exactly once, then the original failure propagates to the caller.
   -- There is no half-constructed runtime; errorText never records boot
@@ -530,497 +1126,16 @@ function FieldRuntime:_load()
   end
 end
 
-function FieldRuntime:_loadCacheAndConfiguration()
-  local cacheFs = CacheFs.forVersion(self.versionId)
-  self.cacheFs = cacheFs
-  local actorIndex = assert(
-    cacheFs:loadLua(FieldActorCache.indexPath()),
-    "field actor index missing -- run `scripts/buildcache.sh` first"
-  )
-  assert(
-    actorIndex.runtime and actorIndex.runtime.avatars and actorIndex.runtime.variableSprites,
-    "field actor index has no runtime configuration"
-  )
-  self.actorConfig = actorIndex.runtime
-  validateAvatarConfig(self.actorConfig.avatars)
-
-  local fontDef = FieldFontLoader.load(cacheFs)
-  local uiManifest = assert(
-    cacheFs:loadLua(FieldUiAssetCache.manifestPath()),
-    "field UI cache is cold -- run `scripts/buildcache.sh` first"
-  ) --[[@as FieldUiAssetCache.Manifest]]
-  assert(FieldUiAssetCache.validateManifest(uiManifest), "field UI manifest is invalid")
-  self.windowStyles = FieldWindowStyles.new(uiManifest)
-  self.uiManifest = uiManifest
-  local frameIndexes = {}
-  for frame = 0, uiManifest.dialogueFrames.count - 1 do
-    frameIndexes[frame] = true
+function FieldRuntime:update(dt)
+  if self.errorText then
+    return
   end
-  local playerDataContext = {
-    charmap = fontDef.charmap,
-    frameIndexes = frameIndexes,
-  }
-  local saveValidation = {
-    avatars = avatarIdSet(actorIndex),
-    scriptsValidate = validateScriptSave,
-    playerDataContext = playerDataContext,
-  }
-  self.saveStore = FieldSaveStore.new(self.saveFs or SaveFs.forVersion(self.versionId), saveValidation)
-  if self.resetSave then
-    self.saveStore:reset()
-    self.resetSave = false
-    self.saveStatus = "Started a new field session"
+  local maxSemanticDt = FieldSession.FIXED_DT * FieldSession.MAX_CATCH_UP_TICKS
+  local acceptedDt = math.min(dt, maxSemanticDt)
+  if self.playTime then
+    self.playTime:advance(acceptedDt)
   end
 
-  local world =
-    assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
-  local profiles =
-    assert(cacheFs:loadLua(CAMERA_PROFILES_PATH), "field camera cache is cold -- run `scripts/buildcache.sh` first")
-  assert(profiles.schema == FieldCameraCache.SCHEMA, "unsupported field camera cache")
-  self.cameraProfiles = profiles.profiles
-  local weatherCatalog = assert(
-    cacheFs:loadLua(FieldWeatherCache.catalogPath()),
-    "field weather cache is cold -- run `scripts/buildcache.sh` first"
-  ) --[[@as FieldWeatherCache.Catalog]]
-  assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
-  self.weatherCatalog = weatherCatalog
-  self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
-  self.fieldEffectAssets = self.fieldEntranceIndicatorAsset
-  self.fieldTerrainEffectController = FieldTerrainEffectController.new({
-    effects = {
-      tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
-      very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
-    },
-    modelFactory = FieldTerrainEffectModelFactory.new(),
-  })
-  self.mapLoader = FieldMapLoader.new(cacheFs, world, {
-    sceneLoader = self.presentation and MapSceneLoader or nil,
-  })
-  return cacheFs, fontDef, playerDataContext, saveValidation
-end
-
-function FieldRuntime:_mapMatrixMemberId(logicalMap)
-  local mapIndex = assert(self.mapLoader.world.byId[logicalMap.mapId], "outdoor map catalog record is required")
-  local mapRecord = assert(self.mapLoader.world.maps[mapIndex], "outdoor map catalog record is missing")
-  return assert(mapRecord.matrix.memberId, "outdoor map matrix member is required")
-end
-
-function FieldRuntime:_composeInitialMap(logicalMap, position)
-  if logicalMap.scene.type ~= "outdoor" then
-    return logicalMap
-  end
-  assert(not self.physicalCoverage, "initial physical coverage already exists")
-  self.physicalCoverage = self.mapLoader:createPhysicalCoverage(logicalMap, position)
-  return composePhysicalMap(logicalMap, self.physicalCoverage)
-end
-
-function FieldRuntime:_composeCurrentMap(logicalMap, coverage)
-  if logicalMap.scene.type ~= "outdoor" then
-    return logicalMap
-  end
-  coverage = coverage or assert(self.physicalCoverage, "current outdoor coverage is required")
-  assert(
-    self:_mapMatrixMemberId(logicalMap) == coverage.matrixMemberId,
-    "logical outdoor map does not belong to the current physical matrix"
-  )
-  return composePhysicalMap(logicalMap, coverage)
-end
-
-function FieldRuntime:_composePreparedMap(logicalMap, position)
-  if logicalMap.scene.type ~= "outdoor" then
-    return logicalMap, nil
-  end
-  local matrixMemberId = self:_mapMatrixMemberId(logicalMap)
-  local physical = self:_stagePhysicalCoverage(logicalMap, position, matrixMemberId)
-  local ok, runtimeMap = pcall(composePhysicalMap, logicalMap, physical.coverage)
-  if not ok then
-    if physical.replacement then
-      physical.coverage:release()
-      physical.state = "released"
-    end
-    error(runtimeMap, 0)
-  end
-  return runtimeMap, physical
-end
-
-function FieldRuntime:_loadMapAndRestore(playerDataContext, saveValidation)
-  ---@param logicalMap RuntimeFieldMap
-  ---@param position { fieldX: integer, fieldZ: integer }
-  ---@return table
-  local function composeRuntimeMap(logicalMap, position)
-    return self:_composeInitialMap(logicalMap, position)
-  end
-  saveValidation.composeRuntimeMap = composeRuntimeMap
-  local restored
-  if self.resumeSave then
-    local saved, saveErr = self.saveStore:load()
-    if saved then
-      local candidate, restoreErr = FieldSave.restore(saved, self.mapLoader, self.versionId, saveValidation)
-      restored, saveErr = candidate, restoreErr
-    end
-    if saveErr and saveErr.code ~= StorageErrors.SAVE_FILE_MISSING then
-      error(saveErr)
-    elseif restored then
-      self.saveStatus = "Resumed saved field session"
-    end
-  end
-  self.runtimeMap = restored and restored.runtimeMap or self.mapLoader:load(self.mapIdOrSymbol)
-  self.mapLoader:protectMap(self.runtimeMap.mapId, true)
-
-  local initialPlayerData, initialPlayerDataErr = FieldPlayerData.validate(FieldPlayerManifest, playerDataContext)
-  assert(initialPlayerData, "the initial player data manifest is invalid: " .. tostring(initialPlayerDataErr))
-  self.playerData = restored and restored.playerData or initialPlayerData
-  return restored
-end
-
-function FieldRuntime:_loadPlayerAndActors(cacheFs, restored)
-  local spawn = TargetSpawns[self.runtimeMap.mapSymbol]
-  assert(
-    spawn == nil or (type(spawn.x) == "number" and type(spawn.z) == "number"),
-    "spawn manifest must define x and z for " .. self.runtimeMap.mapSymbol
-  )
-  local fieldX, fieldZ, surfaceId, facing
-  if restored then
-    fieldX, fieldZ = restored.fieldX, restored.fieldZ
-    surfaceId, facing = restored.surfaceId, restored.facing
-  else
-    assert(spawn, "spawn manifest must define a spawn for " .. self.runtimeMap.mapSymbol)
-    if self.runtimeMap.scene.type == "outdoor" then
-      fieldX = self.runtimeMap.coordinateOrigin.x + spawn.x
-      fieldZ = self.runtimeMap.coordinateOrigin.z + spawn.z
-      self.runtimeMap = self:_composeInitialMap(self.runtimeMap, { fieldX = fieldX, fieldZ = fieldZ })
-      local spawnLocalX, spawnLocalZ = FieldCoordinates.fieldToLocal(self.runtimeMap, fieldX, fieldZ)
-      surfaceId, facing = spawnSurface(self.runtimeMap, spawnLocalX, spawnLocalZ).surfaceId, spawn.facing
-    else
-      fieldX, fieldZ = FieldCoordinates.localToField(self.runtimeMap, spawn.x, spawn.z)
-      surfaceId, facing = spawnSurface(self.runtimeMap, spawn.x, spawn.z).surfaceId, spawn.facing
-    end
-  end
-  self.player = FieldPlayer.new({
-    currentMap = self.runtimeMap,
-    fieldX = fieldX,
-    fieldZ = fieldZ,
-    surfaceId = surfaceId,
-    facing = facing,
-    occupancy = playerOccupancy(self),
-  })
-  self.input = FieldInput.new()
-  local profile = assert(
-    self.cameraProfiles[self.runtimeMap.cameraType],
-    "field camera cache has no camera type " .. self.runtimeMap.cameraType
-  )
-  self.camera = FieldCamera.new(profile, { initialTarget = self.player:renderPosition() })
-  self.viewport = FieldViewport.new(self.viewportWidth, self.viewportHeight, { mode = "expanded" })
-  self:_updateCameraProjection()
-  local restoredWorld = restored and restored.world
-  self.eventState = FieldEventState.new(restoredWorld and {
-    flags = restoredWorld.flags,
-    vars = restoredWorld.variables,
-  } or nil)
-  self.actorAssets = FieldActorDefinitionProvider.new(cacheFs)
-  self.actors = FieldActorManager.new({
-    assets = self.actorAssets,
-    policy = { variableSprites = self.actorConfig.variableSprites },
-  })
-  self.actors:enterMap(self.runtimeMap, self.eventState)
-  self.avatar = restored and avatarById(self.actorConfig.avatars, restored.avatar)
-    or avatarForGender(self.actorConfig.avatars, self.playerData.profile.gender)
-  self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
-  self.playerVisual = FieldPlayerVisual.new({
-    player = self.player,
-    spriteId = self.avatar.spriteId,
-  })
-  return restoredWorld
-end
-
-local function loadPreparedDestination(loader, mapId)
-  local context = loader.context
-  local runtime = context.runtime
-  local warp = context.warp
-  assert(mapId == warp.destinationMapId, "transition destination map mismatch")
-  local logicalMap = runtime.mapLoader:load(mapId)
-  local destinationPosition
-  if warp.direct then
-    destinationPosition = { fieldX = warp.x, fieldZ = warp.z }
-  else
-    local destinationWarp = logicalMap.fieldData.events.warps[warp.destinationWarpId + 1]
-    assert(destinationWarp, "transition destination warp is missing")
-    destinationPosition = { fieldX = destinationWarp.x, fieldZ = destinationWarp.z }
-  end
-  local composed, ownership = runtime:_composePreparedMap(logicalMap, destinationPosition)
-  context.physical = ownership
-  return composed
-end
-
-function FieldRuntime:_loadTransition(cacheFs, restored)
-  local headlessProps = {}
-  local doorAt
-  local escalatorAt
-  if self.presentation or self.runtimeMap.sceneRuntime or self.runtimeMap.scene then
-    local function resolveDoorAt(runtimeMap, doorFieldX, doorFieldZ)
-      local sceneRuntime = runtimeMap.sceneRuntime
-      if sceneRuntime and sceneRuntime.mapProps then
-        return sceneRuntime.mapProps:doorAt(runtimeMap, doorFieldX, doorFieldZ)
-      end
-      local props = headlessProps[runtimeMap.mapId]
-      if not props then
-        props = headlessMapProps(runtimeMap, cacheFs)
-        headlessProps[runtimeMap.mapId] = props
-      end
-      return props:doorAt(runtimeMap, doorFieldX, doorFieldZ)
-    end
-    local function resolveEscalatorAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
-      local sceneRuntime = runtimeMap.sceneRuntime
-      if sceneRuntime and sceneRuntime.mapProps then
-        return sceneRuntime.mapProps:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
-      end
-      local props = headlessProps[runtimeMap.mapId]
-      if not props then
-        props = headlessMapProps(runtimeMap, cacheFs)
-        headlessProps[runtimeMap.mapId] = props
-      end
-      return props:propAt(runtimeMap, escalatorFieldX, escalatorFieldZ)
-    end
-    doorAt = resolveDoorAt
-    escalatorAt = resolveEscalatorAt
-  end
-  local function resolveDestination(_, sourceMap, warp)
-    local context = { runtime = self, warp = warp }
-    local ok, result =
-      pcall(WarpSystem.resolveDestination, { load = loadPreparedDestination, context = context }, sourceMap, warp)
-    if not ok then
-      if context.physical and context.physical.replacement and context.physical.state == "prepared" then
-        context.physical.coverage:release()
-        context.physical.state = "released"
-      end
-      error(result, 0)
-    end
-    result.physical = context.physical
-    return result
-  end
-  self.transition = createFieldTransition(self, doorAt, escalatorAt, resolveDestination)
-  self.transition.player = self.player
-  self.transition.suppression = restored and restored.suppression or nil
-end
-
-function FieldRuntime:_loadFieldServices(cacheFs, fontDef, restored, restoredWorld)
-  local fontMetrics = FieldDialogueTheme.fontMetrics(fontDef)
-  self.menuHost = FieldMenuHost.new({
-    width = self.viewportWidth,
-    height = self.viewportHeight,
-    input = self.input,
-    screenTopology = self.screenTopology,
-    measureText = FieldDialogueTheme.measureText(fontDef),
-  })
-  local function layoutMessage(formatted)
-    local result = DialogueLayout.layout(
-      formatted.tokens,
-      fontMetrics,
-      { width = FieldDialogueTheme.textWidth, maxLines = FieldDialogueTheme.maxLines, sourcePositioned = true }
-    )
-    result.textOriginX = FieldDialogueTheme.textInsetX
-    result.textOriginY = FieldDialogueTheme.textInsetY
-    result.contentWidth = FieldDialogueTheme.textWidth
-    return result
-  end
-  local function signpostLayout(formatted)
-    local result = layoutMessage(formatted)
-    return { lines = (result.pages[1] or { lines = {} }).lines }
-  end
-  local audioService = self:_composeAudio(cacheFs, restoredWorld)
-  self.dialogue = FieldDialogueController.new({
-    layout = layoutMessage,
-    policy = FieldPlayerData.textSpeedPolicy(self.playerData.options.textSpeed),
-    audio = audioService,
-  })
-  self.signpost = FieldSignpostController.new({
-    layout = signpostLayout,
-    policy = FieldPlayerData.textSpeedPolicy(self.playerData.options.textSpeed),
-  })
-  self.auxiliaryFieldUi = restored and AuxiliaryFieldUi.restore(restored.auxiliaryUi) or AuxiliaryFieldUi.new()
-  self.contextChoiceProvider = ContextChoiceProvider.new()
-  self.actionKeys = actionBindings()
-  self.cancelKeys = cancelBindings()
-  self.menuKeys = menuBindings()
-
-  local function trainerCardFactory()
-    return TrainerCardController.new({
-      profile = self.playerData.profile,
-    })
-  end
-  self.applications = FieldApplicationRegistry.new({
-    {
-      id = FieldApplicationIds.TRAINER_CARD,
-      factory = trainerCardFactory,
-    },
-  })
-  local function menuFactory(rememberedActionId)
-    return self:_composeStartMenu(rememberedActionId)
-  end
-  self.applicationHost = FieldApplicationHost.new({
-    registry = self.applications,
-    menuFactory = menuFactory,
-    input = self.input,
-  })
-  self.startMenuPlacement = nil
-  if self.screenTopology ~= nil then
-    self.startMenuPlacement = StartMenuLayout.resolve(self.screenTopology, self.viewport.referenceFrame)
-    self.applicationHost:setMenuPlacement(self.startMenuPlacement)
-  end
-
-  self.messageProvider = FieldMessageProvider.new(cacheFs)
-  local function actorAt(mapId, candidate)
-    return self.actors and self.actors:getAt(mapId, candidate) or nil
-  end
-  local function targetMapAt(x, z, currentMap)
-    local coverage = currentMap.coverage
-    if not coverage then
-      return currentMap
-    end
-    local targetMapId = coverage:mapHeaderAt(x, z)
-    if targetMapId == nil or targetMapId == currentMap.mapId then
-      return currentMap
-    end
-    local targetMap = assert(self.residency):mapForId(targetMapId)
-    return assert(targetMap, "reachable interaction target is not resident")
-  end
-  self.interactionResolver = FieldInteractionResolver.new({ actorAt = actorAt, targetMapAt = targetMapAt })
-
-  local function requestStartMenuReopen()
-    self.applicationHost:requestReopen()
-  end
-  self.scripts = FieldScripts.new({
-    cacheFs = cacheFs,
-    overrideFs = self.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory()),
-    eventState = self.eventState,
-    actors = self.actors,
-    player = self.player,
-    profile = self.playerData.profile,
-    dialogue = self.dialogue,
-    messageProvider = self.messageProvider,
-    layout = layoutMessage,
-    fontDef = fontDef,
-    frameIndex = self.playerData.options.textFrame,
-    signpost = self.signpost,
-    windowStyles = self.windowStyles,
-    transition = self.transition,
-    mapLoader = self.mapLoader,
-    sourceMap = self.runtimeMap,
-    seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
-    audio = audioService,
-    camera = self.scriptHosts and self.scriptHosts.camera,
-    screen = self.scriptHosts and self.scriptHosts.screen,
-    events = self.scriptHosts and self.scriptHosts.events,
-    auxiliaryUi = self.auxiliaryFieldUi,
-    contextChoice = self.contextChoiceProvider,
-    menu = self.menuHost,
-    startMenuReopen = { request = requestStartMenuReopen },
-  })
-  if restored then
-    ScriptSave.restore(restored.scripts, self.scripts.scheduler, 0, {
-      expectedRegistryFingerprint = self.scripts:registryFingerprint(),
-    })
-    self.scripts.worldState:restoreRng(restored.world)
-  end
-  return audioService
-end
-
-function FieldRuntime:_loadZoneAndSession()
-  local function mapForId(mapId)
-    return assert(self.residency):mapForId(mapId)
-  end
-  local function rebindScripts(runtimeMap, player)
-    self.runtimeMap = runtimeMap
-    player.currentMap = runtimeMap
-    self.scripts:onZoneChange(runtimeMap)
-  end
-  local function applyWeather(runtimeMap)
-    self:_applyEffectiveWeather(runtimeMap)
-    self.weatherRuntime = { mapId = runtimeMap.mapId }
-  end
-  local function enterAudio(runtimeMap)
-    if self.audio and self.audio.enterZone then
-      self.audio:enterZone(runtimeMap)
-    end
-  end
-  local function onZoneChange(change)
-    self.lastZoneChange = change
-  end
-  self.zoneController = FieldZoneController.new({
-    currentMap = self.runtimeMap,
-    mapForId = mapForId,
-    rebindScripts = rebindScripts,
-    applyWeather = applyWeather,
-    enterAudio = enterAudio,
-    onChange = onZoneChange,
-  })
-
-  local function composeCurrentMap(logicalMap, coverage)
-    return self:_composeCurrentMap(logicalMap, coverage)
-  end
-  local onPreparedMap
-  if self.audio then
-    local function prewarmMapMusic(runtimeMap)
-      self.audio:prewarmMapMusic(runtimeMap)
-    end
-    onPreparedMap = prewarmMapMusic
-  end
-  self.residency = FieldResidencyCoordinator.new({
-    coverage = self.physicalCoverage,
-    mapLoader = self.mapLoader,
-    actors = self.actors,
-    zoneController = self.zoneController,
-    eventState = self.eventState,
-    composeMap = composeCurrentMap,
-    onPreparedMap = onPreparedMap,
-  })
-  self.residency:initialize()
-
-  local function coverageProvider()
-    return self.physicalCoverage
-  end
-  self.session = FieldSession.new({
-    versionId = self.versionId,
-    currentMap = self.runtimeMap,
-    player = self.player,
-    camera = self.camera,
-    transition = self.transition,
-    actors = self.actors,
-    playerVisual = self.playerVisual,
-    dialogue = self.dialogue,
-    input = self.input,
-    scriptScheduler = self.scripts.scheduler,
-    scriptClient = self.scripts.client,
-    menuHost = self.menuHost,
-    contextChoice = self.contextChoiceProvider,
-    signpost = self.signpost,
-    applicationHost = self.applicationHost,
-    audio = self.audio,
-    navigationBoundary = FieldNavigationBoundary.new({
-      zoneController = self.zoneController,
-      residencyCoordinator = self.residency,
-      coverageProvider = coverageProvider,
-    }),
-    interactions = self.interactionResolver --[[@as FieldSession.Interactions]],
-    eventResolver = FieldEventResolver,
-    eventState = self.eventState,
-    fieldEntranceIndicator = self.fieldEntranceIndicator,
-    terrainEffects = self.fieldTerrainEffectController,
-  })
-end
-
-function FieldRuntime:_loadUnchecked()
-  local cacheFs, fontDef, playerDataContext, saveValidation = self:_loadCacheAndConfiguration()
-  local restored = self:_loadMapAndRestore(playerDataContext, saveValidation)
-  local restoredWorld = self:_loadPlayerAndActors(cacheFs, restored)
-  self:_loadTransition(cacheFs, restored)
-  self:_loadFieldServices(cacheFs, fontDef, restored, restoredWorld)
-  self:_loadZoneAndSession()
-  self:_applyEffectiveWeather(self.runtimeMap)
-  self.weatherRuntime = { mapId = self.runtimeMap.mapId }
-end
-
-function FieldRuntime:_updateBackgroundTasks()
   if self.residency then
     self.residency:updatePrefetch()
   end
@@ -1030,33 +1145,74 @@ function FieldRuntime:_updateBackgroundTasks()
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
-end
-
-function FieldRuntime:_accumulateUpdateTime(dt)
-  self.presentationFrameAccumulator = self.presentationFrameAccumulator + dt
-  self.session.accumulator = self.session.accumulator + dt
+  self.presentationFrameAccumulator = self.presentationFrameAccumulator + acceptedDt
+  self.session.accumulator = self.session.accumulator + acceptedDt
   if self.audio then
-    self.audioFrameAccumulator = self.audioFrameAccumulator + dt
+    self.audioFrameAccumulator = self.audioFrameAccumulator + acceptedDt
   end
-end
-
-function FieldRuntime:_discardExcessFieldTicks(fixedDt, epsilon)
-  if self.session.accumulator + epsilon >= fixedDt then
-    local discarded = math.floor((self.session.accumulator + epsilon) / fixedDt)
-    self.session.accumulator = self.session.accumulator - discarded * fixedDt
+  local FIXED_DT = FieldSession.FIXED_DT
+  local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
+  local EPSILON = 1e-12
+  local fieldExecuted = 0
+  while true do
+    local canPresentation = self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
+    local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
+    local canAudio = self.audio ~= nil and self.audioFrameAccumulator + EPSILON >= AUDIO_FRAME_DT
+    if not canPresentation and not canField and not canAudio then
+      break
+    end
+    local nextPresentationDelta = PRESENTATION_FRAME_DT - self.presentationFrameAccumulator
+    local nextFieldDelta = FIXED_DT - self.session.accumulator
+    local nextAudioDelta = self.audio and AUDIO_FRAME_DT - self.audioFrameAccumulator or math.huge
+    -- A field tick at the same timestamp starts the transition before its
+    -- source-frame presentation; presentation precedes audio on a tie.
+    if
+      canPresentation
+      and (not canField or nextPresentationDelta < nextFieldDelta)
+      and (not canAudio or nextPresentationDelta <= nextAudioDelta)
+    then
+      self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT
+      self.transition:updateSourceFrame()
+      self.screenFade:updateSourceFrame()
+    elseif canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
+      local transitionWasIdle = self.transition.phase == FieldTransition.PHASES.idle
+      local screenFadeWasDone = self.screenFade:fadeDone()
+      self.session.accumulator = self.session.accumulator - FIXED_DT
+      self.session:updateFixed()
+      fieldExecuted = fieldExecuted + 1
+      if
+        (
+          (transitionWasIdle and self.transition.phase ~= FieldTransition.PHASES.idle)
+          or (screenFadeWasDone and not self.screenFade:fadeDone())
+        ) and self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
+      then
+        -- Presentation time before this boundary belongs to the old field
+        -- state and must not become the first frame of the new transition or
+        -- script screen fade.
+        self.presentationFrameAccumulator = 0
+      end
+      if self.applicationHost:error() and not self.errorText then
+        self.errorText = tostring(self.applicationHost:error())
+      end
+      if self.errorText then
+        break
+      end
+    else
+      self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
+      self.audio:updateSoundFrame()
+    end
   end
-end
+  if self.session.accumulator + EPSILON >= FIXED_DT then
+    local discarded = math.floor((self.session.accumulator + EPSILON) / FIXED_DT)
+    self.session.accumulator = self.session.accumulator - discarded * FIXED_DT
+  end
 
-function FieldRuntime:_updateAudioSink()
   -- The audio output clock: pump PCM from the engine into the host sink once
   -- per runtime update, separate from the field fixed tick (the sink never
   -- advances game-semantic audio state).
   if self.audioSink then
     self.audioSink:update()
   end
-end
-
-function FieldRuntime:_publishTransitionError()
   if self.transition.error and not self.errorText then
     local context = self.transition.warpContext
     if context then
@@ -1072,89 +1228,14 @@ function FieldRuntime:_publishTransitionError()
       self.errorText = tostring(self.transition.error)
     end
   end
-end
-
-function FieldRuntime:_autosaveCompletedTransition()
-  if self.transition:consumeCompleted() then
-    self:saveSession("Autosaved after warp")
+  local completed = self.transition:consumeCompleted()
+  if completed and self.camera then
+    -- The transition may finish on the same fixed tick that applies the
+    -- destination stair/door arrival. Publish a settled camera pair with the
+    -- completion event so the first post-transition presentation frame cannot
+    -- interpolate from the pre-arrival Y history.
+    self.camera:collapseRenderInterpolation()
   end
-end
-
-function FieldRuntime:update(dt)
-  if self.errorText then
-    return
-  end
-
-  local presentationAccumulatorBefore = self.presentationFrameAccumulator
-  local fieldAccumulatorBefore = self.session.accumulator
-  self:_updateBackgroundTasks()
-  self:_accumulateUpdateTime(dt)
-  local FIXED_DT = FieldSession.FIXED_DT
-  local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
-  local EPSILON = 1e-12
-  local fieldExecuted = 0
-  local transitionTiePresentationConsumed = false
-  while true do
-    local canPresentation = self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
-    local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
-    local canAudio = self.audio ~= nil and self.audioFrameAccumulator + EPSILON >= AUDIO_FRAME_DT
-    if not canPresentation and not canField and not canAudio then
-      break
-    end
-    local nextPresentationDelta = PRESENTATION_FRAME_DT - self.presentationFrameAccumulator
-    local nextFieldDelta = FIXED_DT - self.session.accumulator
-    local nextAudioDelta = self.audio and AUDIO_FRAME_DT - self.audioFrameAccumulator or math.huge
-    local transitionActive = self.transition.phase ~= nil and self.transition.phase ~= FieldTransition.PHASES.idle
-    local transitionWinsTie = transitionActive
-      and not transitionTiePresentationConsumed
-      and nextPresentationDelta <= nextFieldDelta
-    -- A field tick at the same timestamp starts the transition before its
-    -- source-frame presentation is consumed. Once active, the presentation
-    -- frame wins ties so a 30 Hz caller cannot starve the 60 Hz fade clock.
-    if
-      canPresentation
-      and (not canField or nextPresentationDelta + EPSILON < nextFieldDelta or transitionWinsTie)
-      and (not canAudio or nextPresentationDelta <= nextAudioDelta)
-    then
-      self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT
-      self.transition:updateSourceFrame()
-      if transitionWinsTie then
-        transitionTiePresentationConsumed = true
-      end
-    elseif canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
-      local transitionWasIdle = self.transition.phase == FieldTransition.PHASES.idle
-      self.session.accumulator = self.session.accumulator - FIXED_DT
-      self.session:updateFixed()
-      fieldExecuted = fieldExecuted + 1
-      if
-        transitionWasIdle
-        and self.transition.phase ~= FieldTransition.PHASES.idle
-        and self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
-        and PRESENTATION_FRAME_DT - presentationAccumulatorBefore + EPSILON < FIXED_DT - fieldAccumulatorBefore
-      then
-        -- A presentation frame before this fixed boundary belongs to the
-        -- previous field state. Do not let a later frame from this same
-        -- update call become the first frame of the new transition.
-        self.presentationFrameAccumulator = 0
-      end
-      if transitionTiePresentationConsumed then
-        self.presentationFrameAccumulator = 0
-      end
-      if self.applicationHost:error() and not self.errorText then
-        self.errorText = tostring(self.applicationHost:error())
-      end
-      if self.errorText then
-        break
-      end
-    else
-      self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
-      self.audio:updateSoundFrame()
-    end
-  end
-  self:_discardExcessFieldTicks(FIXED_DT, EPSILON)
-  self:_updateAudioSink()
-  self:_publishTransitionError()
-  self:_autosaveCompletedTransition()
 end
 
 -- Every semantic-input entry point below needs the same live-input guard;
@@ -1203,11 +1284,12 @@ end
 -- Helper: determine if this port has implemented the destination application
 -- for an action kind.
 local function implementationAvailable(self, entry)
+  if entry.actionKind == "field_action" then
+    return entry.id == "vanilla.save" and self.saveStore ~= nil
+  end
   if entry.actionKind == "application" then
     return entry.targetApplication ~= nil and self.applications:has(entry.targetApplication)
   end
-  -- Non-application actions (toggle, field_action, removed) are not yet
-  -- implemented in this port.
   return false
 end
 
@@ -1240,6 +1322,12 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
     return nil
   end
 
+  local function playMenuSequence(sequence)
+    if self.audio then
+      self.audio:play(sequence)
+    end
+  end
+
   -- Compose source policy with implementation capability: set enabled to
   -- true only when both source-enabled AND implementation-available.
   local entries = {}
@@ -1249,6 +1337,9 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
       displayPosition = source.displayPosition,
       actionKind = source.actionKind,
       targetApplication = source.targetApplication,
+      sourcePresent = true,
+      sourceEnabled = source.sourceEnabled,
+      implemented = implementationAvailable(self, source),
       enabled = source.sourceEnabled and implementationAvailable(self, source),
     }
   end
@@ -1258,11 +1349,8 @@ function FieldRuntime:_composeStartMenu(rememberedActionId)
     slots = self.uiManifest.startMenu.slots,
     cursorFrames = self.uiManifest.startMenu.cursor.frames,
     rememberedActionId = rememberedActionId,
+    effect = playMenuSequence,
   })
-end
-
-local function defaultMapMusicDayNight()
-  return TimeOfDayProps.bandForHour(os.date("*t").hour) == "nite" and "night" or "day"
 end
 
 -- The production audio composition and the script audio service are
@@ -1283,12 +1371,15 @@ end
 -- IsNighttime predicate (hours 0-3 and 20-23, the bandForHour nite band);
 -- tests and hosts inject a deterministic one.
 ---@param cacheFs CacheFs
----@param restoredWorld table? the restored save's world bucket, when resuming
+---@param restoredAudio table? the restored save's audio bucket, when resuming
 ---@return table audioService the GameSound instance, or the injected recording adapter
-function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
+function FieldRuntime:_composeAudio(cacheFs, restoredAudio)
   local audioService = self.scriptHosts and self.scriptHosts.audio
   if audioService == nil or self.audioOutput ~= nil then
-    self.mapMusicDayNight = self.dayNight or defaultMapMusicDayNight
+    local function defaultDayNight()
+      return TimeOfDayProps.bandForHour(self.localClock:nowLocal().hour) == "nite" and "night" or "day"
+    end
+    self.mapMusicDayNight = self.dayNight or defaultDayNight
     local world =
       assert(cacheFs:loadLua(MapAssetCache.worldPath()), "world.lua missing -- run `scripts/buildcache.sh` first")
     local function fieldPosition()
@@ -1333,76 +1424,78 @@ function FieldRuntime:_composeAudio(cacheFs, restoredWorld)
     -- Fresh boot: no override. Resume: restore the persisted override.
     self.audio:enterMap(self.runtimeMap, {
       play = true,
-      restoredMusicOverride = restoredWorld and restoredWorld.fieldMusicOverride or nil,
+      restoredMusicOverride = restoredAudio and restoredAudio.fieldMusicOverride or nil,
     })
   end
   assert(audioService ~= nil, "field runtime audio composition must produce a service")
   return audioService
 end
 
-function FieldRuntime:_saveSessionUnchecked()
-  local world = self.scripts.worldState:capture()
-  if self.audio then
-    world.fieldMusicOverride = self.audio:musicOverride()
+-- Capture the current field session for the explicit-save owner. This boundary
+-- only builds and validates a snapshot; publication belongs to storage.
+---@return table? snapshot
+---@return string|table? reason validation or stability failure
+---@param allowMenu boolean?
+function FieldRuntime:_captureGameSave(allowMenu)
+  if not canCapture(self.session, allowMenu == true) then
+    return nil, "Save deferred: movement, transition, or modal state is active"
   end
-  local session = self.session --[[@as FieldSave.Session]]
-  self.saveStore:save(FieldSave.capture(session, {
-    avatarId = self.avatar.id,
+
+  local session = self.session
+  local player = session.player
+  local runtimeMap = session.currentMap
+  assert(type(runtimeMap.terrainDependencyHash) == "string", "runtime map terrain dependency identity required")
+
+  local world = self.scripts.worldState:capture()
+  local snapshot = {
+    schema = GameSave.SCHEMA,
+    saveId = self.saveId,
+    versionId = self.versionId,
+    mapId = runtimeMap.mapId,
+    fieldX = player.fieldX,
+    fieldZ = player.fieldZ,
+    worldY = player.worldY,
+    surfaceId = player.surfaceId,
+    terrainDependencyHash = runtimeMap.terrainDependencyHash,
+    facing = player.facing,
+    playTimeSeconds = self.playTime:seconds(),
+    playerData = self.playerData,
     world = world,
-    scriptsBucket = ScriptSave.capture(self.scripts.scheduler, self.session.tick, {
+    scripts = ScriptSave.capture(self.scripts.scheduler, session.tick, {
       registryFingerprint = self.scripts:registryFingerprint(),
     }),
     auxiliaryUi = self.auxiliaryFieldUi:capture(),
-    playerData = self.playerData,
-  }))
+    audio = FieldAudioSave.capture(self.audio),
+  }
+
+  local valid, validationErr = self.saveValidation:validate(snapshot)
+  if not valid then
+    return nil, validationErr
+  end
+  return valid
 end
 
--- Save the current field session (developer F1 bind, autosave after warp, and
--- disposal). The save boundary presents only expected save/storage failures
--- (the structured SAVE_*/FIELD_SAVE_* errors the UI shows as save status); any
--- other failure inside the capture/write is a programming fault and rethrows
--- instead of being flattened into friendly text.
----@param successText string?
----@return boolean saved
-function FieldRuntime:saveSession(successText)
-  local session = self.session --[[@as FieldSave.Session?]]
-  if not session or not FieldSave.canCapture(session) then
-    self.saveStatus = "Save deferred: movement or transition is active"
-    return false
-  end
-  local ok, err = pcall(FieldRuntime._saveSessionUnchecked, self)
-  if not ok then
-    if Errors.is(err) then
-      self.saveStatus = "Save failed: " .. tostring(err)
-      return false
-    end
-    error(err, 0)
-  end
-  self.saveStatus = successText or "Field session saved"
-  return true
+function FieldRuntime:captureGameSave()
+  return self:_captureGameSave(false)
 end
 
-function FieldRuntime:_resetSave()
-  self.saveStore:reset()
+function FieldRuntime:_captureManualSaveFromMenu()
+  if not canCapture(self.session, true) then
+    return nil, "Save deferred: the field is not stable"
+  end
+  return self:_captureGameSave(true)
 end
 
--- Reset the field session (developer F2 bind): wipe the save store, release
--- every owned collaborator, and re-boot a fresh session. Expected storage
--- failures present as saveStatus; programming faults rethrow.
-function FieldRuntime:reset()
-  local ok, err = pcall(FieldRuntime._resetSave, self)
-  if not ok then
-    if Errors.is(err) then
-      self.saveStatus = "Reset failed: " .. tostring(err)
-      return
-    end
-    error(err, 0)
+function FieldRuntime:_saveCheckpoint()
+  assert(self.saveStore, "manual Save requires a save store")
+  local record, reason = self:_captureManualSaveFromMenu()
+  assert(record, reason)
+  if self.savePublished then
+    self.saveStore:save(record)
+  else
+    self.saveStore:publishFirst(record)
+    self.savePublished = true
   end
-  self:_releaseAll()
-  self.resumeSave = false
-  self.errorText = nil
-  self.saveStatus = "Field session reset"
-  self:_load()
 end
 
 -- Apply effective weather to a runtime map: resolve the catalog rules
@@ -1412,13 +1505,13 @@ end
 function FieldRuntime:_applyEffectiveWeather(runtimeMap)
   local base = runtimeMap.scene.weatherId
   local date = self.weatherClock:today()
-  local penaltyActive = self.weatherClock:hasPenalty()
+  local hasPenalty = self.weatherClock:hasPenalty()
   local effective = FieldWeatherResolver.resolve(self.weatherCatalog, {
     mapId = runtimeMap.mapId,
     baseWeatherId = base,
     eventState = self.eventState,
     date = date,
-    hasPenalty = penaltyActive,
+    hasPenalty = hasPenalty,
   })
   runtimeMap.effectiveWeatherId = effective
   if runtimeMap.sceneRuntime then
@@ -1473,12 +1566,31 @@ end
 ---@param facing FieldDirection
 ---@return table prepared destination player, camera, and player visual
 function FieldRuntime:_prepareSwap(resolution, facing)
-  assert(self.transition.fadeAlpha == 1, "field map swap must be hidden by fade")
+  -- The hidden-commit invariant accepts either cover: the ordinary
+  -- transition's own fade for a plain warp, or the source-authored script
+  -- screen fade for a covered scripted swap (the transition itself never
+  -- starts a fade there). Neither is weakened by the other's existence.
+  assert(self.transition.fadeAlpha == 1 or self.screenFade:isOpaque(), "field map swap must be hidden by fade")
   local runtimeMap = resolution.destinationMap
   self:_applyEffectiveWeather(runtimeMap)
+  local fieldX, fieldZ = resolution.fieldX, resolution.fieldZ
   local surfaceId, worldY = resolution.surfaceId, resolution.worldY
-  if runtimeMap.terrain then
-    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, resolution.fieldX, resolution.fieldZ)
+  if self.transition.sourceKind == "door" then
+    assert(resolution.destinationWarp, "door destination warp required")
+    fieldX = resolution.destinationWarp.x
+    fieldZ = resolution.destinationWarp.z - 1
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
+    local sample = SurfaceResolver.new(runtimeMap.terrain):resolve({
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      currentY = worldY,
+    })
+    surfaceId, worldY = sample.surfaceId, sample.worldY
+  elseif runtimeMap.terrain then
+    -- Re-resolve against the destination's actual (possibly newly composed
+    -- physical-coverage) terrain: the resolution's own surfaceId/worldY may
+    -- have been computed before physical coverage composed over the map.
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
     local surface = SurfaceResolver.new(runtimeMap.terrain):resolve({
       localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
@@ -1487,8 +1599,8 @@ function FieldRuntime:_prepareSwap(resolution, facing)
   end
   local player = FieldPlayer.new({
     currentMap = runtimeMap,
-    fieldX = resolution.fieldX,
-    fieldZ = resolution.fieldZ,
+    fieldX = fieldX,
+    fieldZ = fieldZ,
     surfaceId = surfaceId,
     initialWorldY = worldY,
     facing = facing,
@@ -1581,9 +1693,18 @@ function FieldRuntime:_commitSwap(resolution, _, prepared)
     self.audio:enterMap(runtimeMap, { clearMusicOverride = true, play = true })
   end
   self.scripts:onMapSwap(prepared.player, runtimeMap)
+  self.session:beginMapEntry()
   if previousCoverage then
     previousCoverage:release()
   end
+end
+
+function FieldRuntime:destinationWorldPresentable()
+  return self.session:destinationWorldPresentable()
+end
+
+function FieldRuntime:acknowledgeDestinationPresentation()
+  self.session:acknowledgeDestinationPresentation()
 end
 
 function FieldRuntime:_updateCameraProjection()
@@ -1607,6 +1728,7 @@ end
 ---@param height integer
 ---@param screenTopology ScreenTopology
 function FieldRuntime:resizePresentation(width, height, screenTopology)
+  self.screenTopology = screenTopology
   self.viewport:resize(width, height)
   self.menuHost:resize(width, height)
   self.menuHost:setScreenTopology(screenTopology)
@@ -1674,6 +1796,7 @@ function FieldRuntime:_releaseAll()
   self.fieldTerrainEffectController = nil
   self.fieldEffectAssets = nil
   self.fieldEntranceIndicator, self.fieldEntranceIndicatorAsset = nil, nil
+  self.fieldEmoteModels = nil
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
@@ -1699,14 +1822,10 @@ function FieldRuntime:dispose()
     self.signpost = nil
   end
   -- The application host owns the other transient modal (the Start Menu, an
-  -- application fade, or a child application): releasing it restores the
-  -- capturable idle boundary before the save attempt, so quitting mid-menu
-  -- persists the world like quitting mid-dialogue does. The release is
-  -- idempotent; the shared teardown below re-runs it as a no-op.
+  -- application fade, or a child application).
   if self.applicationHost then
     self.applicationHost:dispose()
   end
-  self:saveSession("Field session saved")
   self:_releaseAll()
 end
 

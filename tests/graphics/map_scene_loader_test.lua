@@ -40,7 +40,7 @@ local function triangleBatch()
 end
 
 local function material(id, texPath, wrap)
-  return {
+  local result = {
     id = id,
     name = "mat" .. id,
     texture = texPath,
@@ -50,10 +50,11 @@ local function material(id, texPath, wrap)
     texHeight = 16,
     texMtxMode = 0,
   }
+  return result
 end
 
 local function batch(geomPath, materialId)
-  return {
+  local result = {
     geometry = geomPath,
     material = materialId,
     alphaClass = "opaque",
@@ -65,6 +66,7 @@ local function batch(geomPath, materialId)
     translucentDepthWrite = false,
     depthEqual = false,
   }
+  return result
 end
 
 -- A minimal current scene: no building instances, no neighbors, one terrain
@@ -112,23 +114,21 @@ local function cacheFs()
     [texPath] = PngWriter.encode(1, 1, string.char(255, 0, 0, 255)),
     [MapAssetCache.collisionPath(1)] = CollisionGridAsset.encode({ width = 32, height = 32, cells = cells }),
   }
-  return {
+  local result = {
     read = function(_, path)
       return blob[path]
     end,
     loadLua = function(_, path)
       return luaFiles[path]
     end,
-  },
-    geomPath,
-    texPath,
-    luaFiles,
-    blob
+  }
+  ---@cast result CacheFs
+  return result, geomPath, texPath, luaFiles, blob
 end
 
 -- Injected graphics namespace tracking created images and their release calls,
 -- so the image side of a failed load can be observed without a GL context.
----@class SceneFakeGraphics: love.Graphics
+---@class SceneFakeGraphics: love.graphics
 ---@field images table[]
 local function fakeGraphics()
   local images = {}

@@ -76,14 +76,14 @@ function FieldDialogueFixture.fontDef()
   return {
     schema = FieldFontCache.SCHEMA,
     fontId = 0,
-    glyphCount = 3,
-    fallbackCode = 0,
-    atlasPath = ATLAS_PATH,
-    source = {},
     maskAtlasPath = MASK_ATLAS_PATH,
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
+    glyphCount = 2,
+    fallbackCode = 0,
+    atlasPath = "assets/generated/field/font/font-0.png",
+    source = {},
     atlas = {
       width = 16,
       height = baseHeight * FieldMessageText.COLOR_VARIANT_COUNT,
@@ -181,10 +181,15 @@ function FieldDialogueFixture.openDialogue(text, frameIndex)
       return {
         pages = { { lines = { { tokens = tokens, width = 12 } }, breakKind = "eos" } },
         warnings = {},
-        lineHeight = 16,
+        lineHeight = 8,
         lineSpacing = 0,
-      }
+      } --[[@as DialogueLayout.Result]]
     end,
+    continueCursor = {
+      cycle = { 0, 1, 2, 1 },
+      framePrinterTicks = 9,
+      placement = { x = 240, y = 168, width = 16, height = 16 },
+    },
   })
   local request = {
     id = "smoke",
@@ -202,8 +207,8 @@ end
 -- scissor) equals the pre-draw value, never a hard-coded default. The caller
 -- sets exactly this state before drawing.
 ---@param lg table love.graphics-shaped namespace
----@param canvas any
----@param shader any
+---@param canvas table
+---@param shader table|love.Shader|nil
 function FieldDialogueFixture.assertRestoredState(lg, canvas, shader)
   Assert.equal(lg.getCanvas(), canvas)
   Assert.equal(lg.getShader(), shader)

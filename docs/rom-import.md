@@ -56,7 +56,7 @@ mv /path/to/your.nds /somewhere/else.nds
 love romdump/ --check-dump
 
 # Launch interactively; with a ready cache this boots straight into the
-#    field runtime (or a version selector if both games are imported).
+#    Main Menu (or a version selector if both games are imported).
 scripts/run.sh
 ```
 
@@ -134,8 +134,9 @@ Each version gets its own subtree so the two games never interfere:
 │   └── soulsilver/                   #   over the live roots on success; stale
 │                                      #   staging is removed at the next import
 └── saves/                            # persistent user data, NOT part of any
-    └── heartgold/                    #   version cache: re-imports and cache
-        └── field-session.lua         #   clears can never delete it
+    ├── catalog.lua                   #   allocation and published-save index
+    └── games/                        #   published GameSave payloads
+        └── save-00000001.lua
 ```
 
 Persistent saves live in the sibling `saves/<version>/` namespace so every

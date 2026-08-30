@@ -978,6 +978,7 @@ return {
       },
     },
     [144] = {
+      classification = "continue_same_tick",
       name = "ScrCmd_GetFriendSprite",
       widths = {
         [1] = 2,
@@ -1892,6 +1893,7 @@ return {
       widths = {},
     },
     [294] = {
+      classification = "continue_same_tick",
       name = "ScrCmd_CheckBadge",
       widths = {
         [1] = 2,

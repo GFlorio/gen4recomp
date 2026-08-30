@@ -6,7 +6,6 @@ local ModelAsset = require("libs.assets.src.ModelAsset")
 local FieldEffectAssetCache = {}
 FieldEffectAssetCache.FORMAT = Contract.fieldEffects.cacheFormat
 local DIR = "data/generated/field/effects"
-local MODEL = DIR .. "/warp_entrance_model.lua"
 local INDEX = DIR .. "/index.lua"
 local MARKER = DIR .. "/complete"
 local ASSET_DIR = "assets/generated/field/effects"
@@ -48,9 +47,6 @@ local function validGrassDefinition(definition)
     and validPlacement(placementOffset)
 end
 
-function FieldEffectAssetCache.modelPath()
-  return MODEL
-end
 function FieldEffectAssetCache.indexPath()
   return INDEX
 end

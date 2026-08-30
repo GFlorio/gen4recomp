@@ -32,13 +32,20 @@ local FAKE_PATHS = {
   "romdump.src.digest.FieldUiCompiler",
   "romdump.src.digest.FieldUiCacheWriter",
   "libs.assets.src.FieldUiAssetCache",
+  "romdump.src.digest.IntroAssetCompiler",
+  "romdump.src.digest.IntroAssetCacheWriter",
+  "libs.assets.src.IntroAssetCache",
   "romdump.src.digest.FieldWeatherCompiler",
   "romdump.src.digest.FieldWeatherCacheWriter",
+  "romdump.src.digest.NewGameInitCompiler",
+  "romdump.src.digest.NewGameInitCacheWriter",
   "romdump.src.digest.FieldEntranceIndicatorCompiler",
   "romdump.src.digest.FieldEntranceIndicatorCacheWriter",
   "libs.assets.src.FieldEffectAssetCache",
+  "romdump.src.digest.FieldActorEmoteCompiler",
+  "romdump.src.digest.FieldActorEmoteCacheWriter",
+  "libs.assets.src.FieldEmoteAssetCache",
   "romdump.src.digest.script.ScriptCompiler",
-  "romdump.src.digest.script.BindingCompiler",
   "romdump.src.digest.ScriptCacheWriter",
   "libs.assets.src.ScriptCache",
   "romdump.src.digest.audio.AudioCompiler",
@@ -144,8 +151,11 @@ local function newEnv()
     },
     fontBundle = { fontId = 5, marker = "font-v1" },
     uiBundle = { marker = "ui-v1" },
+    introBundle = { marker = "intro-v1" },
     weatherBundle = { marker = "weather-v1" },
+    newGameInitBundle = { marker = "newgameinit-v1" },
     effectBundle = { marker = "effect-v1" },
+    emoteBundle = { marker = "emote-v1" },
     messageBundle = { marker = "msg-v1", index = { bankIds = { 4, 8 } } },
     scriptBundle = { marker = "scr-v1", index = { resourceCount = 2, scriptMemberCount = 9 } },
     audioBundle = { marker = "audio-v1", index = {} },
@@ -276,12 +286,37 @@ local function makeFakes()
     end
     return env.uiBundle
   end
+  fakes.IntroAssetCompiler.compile = function()
+    return env.introBundle
+  end
   fakes.FieldMessageCompiler.compile = function()
     return env.messageBundle
   end
   fakes.FieldWeatherCompiler = {
     compile = function()
       return env.weatherBundle
+    end,
+  }
+  fakes.FieldEntranceIndicatorCompiler = {
+    compile = function()
+      return env.effectBundle
+    end,
+  }
+  fakes.FieldActorEmoteCompiler = {
+    compile = function()
+      return env.emoteBundle
+    end,
+  }
+  fakes.NewGameInitCompiler = {
+    compileFromRom = function(romFs)
+      if env.failCompilers[romFs.version] ~= nil then
+        local failure = env.failCompilers[romFs.version]
+        if Errors.is(failure) then
+          return nil, failure
+        end
+        error(failure, 0)
+      end
+      return env.newGameInitBundle
     end,
   }
   fakes.FieldWeatherCacheWriter = {
@@ -293,25 +328,8 @@ local function makeFakes()
       env.stale.FieldWeatherCacheWriter = nil
     end,
   }
-  fakes.FieldEntranceIndicatorCompiler = {
-    compile = function()
-      return env.effectBundle
-    end,
-  }
-  fakes.FieldEntranceIndicatorCacheWriter = {
-    isReady = function()
-      return not env.stale.FieldEffectAssetCache
-    end,
-    write = function()
-      env.calls[#env.calls + 1] = "FieldEntranceIndicatorCacheWriter.write"
-      env.stale.FieldEffectAssetCache = nil
-    end,
-  }
   fakes.ScriptCompiler.compile = function()
     return env.scriptBundle
-  end
-  fakes.BindingCompiler.compile = function()
-    return { schema = "g4-script-bindings-v1", maps = {} }
   end
   fakes.AudioCompiler.compile = function()
     return env.audioBundle
@@ -389,8 +407,11 @@ function T.current_build_logs_every_class_and_stages_and_publishes_the_world_man
     "build-cache: heartgold map 7 field data current",
     "build-cache: heartgold field font current",
     "build-cache: heartgold field ui current",
+    "build-cache: heartgold intro assets current",
     "build-cache: heartgold warp entrance field effect current",
+    "build-cache: heartgold field emote indicator current",
     "build-cache: heartgold field weather current",
+    "build-cache: heartgold fresh-game startup initializer current",
     "build-cache: heartgold field messages current",
     "build-cache: heartgold scripts current",
     "build-cache: heartgold audio current",
@@ -463,8 +484,8 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     FieldMapDataCache = true,
     FieldFontCacheWriter = true,
     FieldUiCacheWriter = true,
-    FieldEffectAssetCache = true,
     FieldWeatherCacheWriter = true,
+    NewGameInitCacheWriter = true,
     FieldMessageCacheWriter = true,
     ScriptCacheWriter = true,
     AudioCacheWriter = true,
@@ -482,8 +503,11 @@ function T.stale_classes_compile_with_counts_in_pipeline_order()
     "build-cache: heartgold map 7 field data compiled",
     "build-cache: heartgold field font compiled",
     "build-cache: heartgold field ui compiled",
-    "build-cache: heartgold warp entrance field effect compiled",
+    "build-cache: heartgold intro assets current",
+    "build-cache: heartgold warp entrance field effect current",
+    "build-cache: heartgold field emote indicator current",
     "build-cache: heartgold field weather compiled",
+    "build-cache: heartgold fresh-game startup initializer compiled",
     "build-cache: heartgold field messages compiled (2 banks)",
     "build-cache: heartgold scripts compiled (2 resources, 9 members)",
     "build-cache: heartgold audio compiled",
@@ -509,12 +533,12 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
   Assert.isNil(report)
   Assert.equal(err, "cache preparation failed")
-  Assert.equal(capture.lines[10], "build-cache: heartgold scripts current")
-  Assert.equal(capture.lines[11], "build-cache: heartgold audio current")
-  Assert.equal(capture.lines[12], "build-cache: heartgold physical field cells current")
-  Assert.equal(capture.lines[13], "build-cache: heartgold map 2 current")
+  Assert.equal(capture.lines[13], "build-cache: heartgold scripts current")
+  Assert.equal(capture.lines[14], "build-cache: heartgold audio current")
+  Assert.equal(capture.lines[15], "build-cache: heartgold physical field cells current")
+  Assert.equal(capture.lines[16], "build-cache: heartgold map 2 current")
   Assert.equal(
-    capture.lines[14],
+    capture.lines[17],
     "build-cache: heartgold map 5 excluded: MAP_SCHEMA_INVALID: injected compile rejection"
   )
   Assert.deepEqual(env.worldStage.compileExcluded, {
@@ -527,11 +551,11 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
     },
   })
   Assert.equal(
-    capture.lines[15],
+    capture.lines[18],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
   Assert.equal(
-    capture.lines[16],
+    capture.lines[19],
     "build-cache: compile exclusions remain; " .. "rerun with --allow-compile-exclusions to accept them"
   )
   Assert.equal(env.worldPublishes, 0, "an unaccepted-exclusion build must never publish its staged world")
@@ -545,10 +569,10 @@ function T.compile_exclusions_fail_the_build_unless_allowed()
   Assert.isNil(err2)
   Assert.deepEqual(report2, { published = true, complete = false, exclusionCount = 1 })
   Assert.equal(
-    accepted.lines[15],
+    accepted.lines[18],
     "build-cache: heartgold world.lua staged (1 maps, 0 unresolved cells, 1 compile-excluded)"
   )
-  Assert.equal(accepted.lines[16], "build-cache: heartgold world.lua published")
+  Assert.equal(accepted.lines[19], "build-cache: heartgold world.lua published")
   Assert.equal(env.worldPublishes, 1, "an accepted-exclusion build publishes its staged world")
   -- A build that accepted compile exclusions is not a strict success and must
   -- never publish the successful-build attestation.
@@ -717,21 +741,25 @@ function T.producer_mismatch_forces_every_writer_and_publishes_after_strict_succ
       writes[#writes + 1] = call
     end
   end
+  table.sort(writes)
   Assert.deepEqual(writes, {
-    "FieldCameraCacheWriter.write",
-    "FieldActorCacheWriter.write",
-    "FieldMapDataCacheWriter.write",
-    "FieldMapDataCacheWriter.write",
-    "FieldFontCacheWriter.write",
-    "FieldUiCacheWriter.write",
-    "FieldEntranceIndicatorCacheWriter.write",
-    "FieldWeatherCacheWriter.write",
-    "FieldMessageCacheWriter.write",
-    "ScriptCacheWriter.write",
     "AudioCacheWriter.write",
+    "FieldActorCacheWriter.write",
+    "FieldActorEmoteCacheWriter.write",
+    "FieldCameraCacheWriter.write",
     "FieldCellCacheWriter.write",
+    "FieldEntranceIndicatorCacheWriter.write",
+    "FieldFontCacheWriter.write",
+    "FieldMapDataCacheWriter.write",
+    "FieldMapDataCacheWriter.write",
+    "FieldMessageCacheWriter.write",
+    "FieldUiCacheWriter.write",
+    "FieldWeatherCacheWriter.write",
+    "IntroAssetCacheWriter.write",
     "MapCacheWriter.write",
     "MapCacheWriter.write",
+    "NewGameInitCacheWriter.write",
+    "ScriptCacheWriter.write",
     "WorldManifest.stage",
   }, "every class must regenerate despite current-looking markers")
   local invalidateIndex, firstWriteIndex

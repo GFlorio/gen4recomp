@@ -1,12 +1,8 @@
--- Interaction binding tests : the binding
--- manifest, trigger descriptors, interaction resolution order, the
--- interaction client's started/blocked/unmapped outcomes, the actor world
--- adapter contract, and the session-level script phase. The contract:
--- the target script IDs start from actual field interactions.
+-- Interaction binding tests: mechanical script identity derivation, trigger
+-- descriptors, interaction client outcomes, actor-world adaptation, and the
+-- session-level script phase.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
-local ScriptCache = require("libs.assets.src.ScriptCache")
 local S = require("gen4.script")
 local Registry = require("libs.engine.src.script.Registry")
 local Composition = require("libs.engine.src.script.Composition")
@@ -19,63 +15,27 @@ local ScriptActorWorld = require("libs.engine.src.script.ScriptActorWorld")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local FakeServices = require("tests.support.script.FakeServices")
 local FieldSession = require("libs.engine.src.FieldSession")
-local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
-local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}
 
----@type table
-local MANIFEST = {
-  schema = ScriptCache.BINDINGS_SCHEMA,
-  maps = {
-    [57] = {
-      objects = { [3] = "new_bark.npc.woman_1" },
-      backgrounds = {},
-      coordinates = {},
-    },
-    [58] = {
-      objects = { [3] = "elms_lab.elm" },
-      backgrounds = { [9] = "new_bark.lab_sign" },
-      coordinates = {},
-    },
-  },
-}
-
-local function throwsCode(code, fn)
-  local ok, err = pcall(fn)
-  Assert.isFalse(ok, "expected a raised error")
-  Assert.isTrue(Errors.is(err), "expected Errors object, got: " .. tostring(err))
-  ---@cast err Errors.Error
-  Assert.equal(err.code, code)
-  return err
-end
-
----@param mapId integer
----@param actorId string
----@param playerFacing FieldDirection
----@param objectEventId integer?
----@return InteractionIntent
-local function objectIntent(mapId, actorId, playerFacing, objectEventId)
-  return {
+local function objectIntent(mapId, actorId, playerFacing, rawScriptId)
+  local result = {
     kind = "object",
     mapId = mapId,
     sourceFieldX = 4,
     sourceFieldZ = 6,
     targetFieldX = 4,
     targetFieldZ = 5,
-    sourceSurfaceId = 0,
     playerFacing = playerFacing or "north",
-    scriptId = 1,
-    tick = 0,
-    object = { actorId = actorId, objectEventId = objectEventId or 3, spriteId = 1 },
-  } --[[@as InteractionIntent]]
+    scriptBankId = 842,
+    scriptId = rawScriptId == nil and 2 or rawScriptId,
+    object = { actorId = actorId, objectEventId = 3, spriteId = 1 },
+  }
+  ---@cast result InteractionIntent
+  return result
 end
 
----@param mapId integer
----@param eventIndex integer
----@param playerFacing FieldDirection?
----@return InteractionIntent
-local function backgroundIntent(mapId, eventIndex, playerFacing)
+local function backgroundIntent(mapId, eventIndex, playerFacing, rawScriptId)
   return {
     kind = "background",
     mapId = mapId,
@@ -83,15 +43,13 @@ local function backgroundIntent(mapId, eventIndex, playerFacing)
     sourceFieldZ = 6,
     targetFieldX = 6,
     targetFieldZ = 3,
-    sourceSurfaceId = 0,
     playerFacing = playerFacing or "south",
-    scriptId = 1,
-    tick = 0,
+    scriptBankId = 842,
+    scriptId = rawScriptId == nil and 2 or rawScriptId,
     background = { eventIndex = eventIndex, type = 1, direction = 4 },
-  } --[[@as InteractionIntent]]
+  }
 end
 
----@return { services: table, registry: Registry, composition: Composition, scheduler: Scheduler }
 local function platform()
   local services = FakeServices.new()
   local registry = Registry.new()
@@ -108,175 +66,53 @@ local function platform()
   return { services = services, registry = registry, composition = composition, scheduler = scheduler }
 end
 
----@param id string
----@param steps table[]
----@return table
 local function script(id, steps)
   return S.script({ api = 1, id = id, steps = steps })
 end
 
--- 1. Object binding resolves to the stable public script id and builds the
--- trigger descriptor.
+-- Object binding derives the stable public script id from the raw source
+-- identity carried by the intent.
 T["object binding and trigger"] = function()
-  local bindings = Bindings.new(MANIFEST)
-  Assert.equal(bindings:scriptFor(57, "object", 3), "new_bark.npc.woman_1")
+  local bindings = Bindings.new()
   local hit = bindings:resolveIntent(objectIntent(57, "obj_T20_gswoman1", "north"), "north")
   local trigger = assert(hit).trigger
   Assert.equal(trigger.kind, "object")
   Assert.equal(trigger.mapId, 57)
   Assert.equal(trigger.objectId, "obj_T20_gswoman1")
-  Assert.equal(trigger.scriptId, "new_bark.npc.woman_1")
+  Assert.equal(trigger.scriptId, "vanilla.hgss.scr_seq.0842.script_001")
   Assert.equal(trigger.selfActor, "obj_T20_gswoman1")
   Assert.equal(trigger.playerFacing, "north")
 end
 
--- 2. Background binding: the exact background array index lives in the
--- manifest; public code uses the stable id.
+-- Background binding uses the same mechanical identity rule.
 T["background binding and trigger"] = function()
-  local bindings = Bindings.new(MANIFEST)
-  Assert.equal(bindings:scriptFor(58, "background", 9), "new_bark.lab_sign")
+  local bindings = Bindings.new()
   local hit = bindings:resolveIntent(backgroundIntent(58, 9, "south"), "south")
   local trigger = assert(hit).trigger
   Assert.equal(trigger.kind, "background")
   Assert.equal(trigger.backgroundId, 9)
   Assert.equal(trigger.selfActor, nil)
-  Assert.equal(trigger.scriptId, "new_bark.lab_sign")
+  Assert.equal(trigger.scriptId, "vanilla.hgss.scr_seq.0842.script_001")
 end
 
-T["coordinate binding and trigger"] = function()
-  local bindings = Bindings.new({
-    schema = ScriptCache.BINDINGS_SCHEMA,
-    maps = { [60] = { objects = {}, backgrounds = {}, coordinates = { [1] = "landing.script" } } },
-  })
-  local hit = bindings:resolveIntent({
-    kind = "coordinate",
-    mapId = 60,
-    coordinateId = 1,
-    coordinate = { index = 1 },
-    sourceFieldX = 688,
-    sourceFieldZ = 392,
-    playerFacing = "west",
-  }, "west")
-  local trigger = assert(hit).trigger
-  Assert.equal(trigger.kind, "coordinate")
-  Assert.equal(trigger.mapId, 60)
-  Assert.equal(trigger.coordinateId, 1)
-  Assert.equal(trigger.scriptId, "landing.script")
-  Assert.equal(trigger.playerFacing, "west")
-  Assert.isNil(trigger.backgroundId)
-end
-
--- 3. Unbound events resolve to nil (no-script event).
-T["unbound event"] = function()
-  local bindings = Bindings.new(MANIFEST)
-  Assert.isNil(bindings:resolveIntent(objectIntent(58, "obj_unknown", "north", 99), "north"))
-  Assert.isNil(bindings:resolveIntent(backgroundIntent(58, 0, "south"), "south"))
-  Assert.isNil(bindings:scriptFor(57, "background", 0))
-end
-
--- 4. All bound ids are enumerable.
-T["bound script ids"] = function()
-  local bindings = Bindings.new(MANIFEST)
-  Assert.deepEqual(bindings:allScriptIds(), {
-    "elms_lab.elm",
-    "new_bark.lab_sign",
-    "new_bark.npc.woman_1",
-  })
-end
-
--- 5. The manifest loader is strict: a missing maps array is a schema error,
--- never an empty binding set.
-T["manifest without maps is rejected"] = function()
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({})
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = "not a table" })
-  end)
-end
-
--- 6. Every bound map must carry its required objects and backgrounds arrays:
--- a missing array is a schema error, never an implicit empty one.
-T["map without required binding arrays is rejected"] = function()
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { backgrounds = {}, coordinates = {} } } })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({ maps = { [57] = { objects = {}, coordinates = {} } } })
-  end)
-end
-
--- 7. Only dispatched trigger kinds may be bound. The coordinate and
--- map-lifecycle kinds have no dispatcher: carrying one is a schema error at
--- load, not data the loader silently accepts.
-T["undispatched trigger kinds are rejected at load"] = function()
-  for _, section in ipairs({ "map_init", "map_enter", "map_resume" }) do
-    throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-      Bindings.new({ maps = { [57] = { objects = {}, backgrounds = {}, coordinates = {}, [section] = {} } } })
-    end)
-  end
-end
-
--- 8. Binding keys and targets must have the required types: string object
--- keys, non-negative integer background keys, string targets, integer map
--- ids.
-T["invalid binding key and target types are rejected"] = function()
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      schema = ScriptCache.BINDINGS_SCHEMA,
-      maps = { [57] = { objects = { ["zero"] = "a" }, backgrounds = {}, coordinates = {} } },
-    })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      schema = ScriptCache.BINDINGS_SCHEMA,
-      maps = { [57] = { objects = {}, backgrounds = { [-1] = "a" }, coordinates = {} } },
-    })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      schema = ScriptCache.BINDINGS_SCHEMA,
-      maps = { [57] = { objects = {}, backgrounds = { [0.5] = "a" }, coordinates = {} } },
-    })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      schema = ScriptCache.BINDINGS_SCHEMA,
-      maps = { [57] = { objects = { [0] = 7 }, backgrounds = {}, coordinates = {} } },
-    })
-  end)
-  throwsCode("SCRIPT_BINDING_MANIFEST_INVALID", function()
-    Bindings.new({
-      schema = ScriptCache.BINDINGS_SCHEMA,
-      maps = { ["57"] = { objects = {}, backgrounds = {}, coordinates = {} } },
-    })
-  end)
-end
-
--- 9. Object binding keys are numeric event identities local to each map.
-T["object binding keys are map-local"] = function()
-  local bindings = Bindings.new({
-    schema = ScriptCache.BINDINGS_SCHEMA,
-    maps = {
-      [57] = { objects = { [0] = "a" }, backgrounds = {}, coordinates = {} },
-      [60] = { objects = { [0] = "b" }, backgrounds = {}, coordinates = {} },
-    },
-  })
-  Assert.equal(bindings:scriptFor(57, "object", 0), "a")
-  Assert.equal(bindings:scriptFor(60, "object", 0), "b")
+-- Raw script id zero uses the runtime-owned inert script.
+T["zero raw script id resolves to the inert script"] = function()
+  local bindings = Bindings.new()
+  local resolved = assert(bindings:resolveIntent(objectIntent(57, "obj_unknown", "north", 0), "north"))
+  Assert.equal(resolved.scriptId, Bindings.CANONICAL_INERT_SCRIPT)
 end
 
 -- 10. The interaction client starts a bound script in the trigger tick.
 T["client starts script in trigger tick"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.setVar({ variable = "VAR_SCENE", value = 1 }),
     S.waitTicks({ ticks = 1 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
   local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
+    bindings = Bindings.new(),
     compose = function(id)
       return p.composition:effective(id)
     end,
@@ -290,20 +126,20 @@ T["client starts script in trigger tick"] = function()
     "a newly resolved interaction may execute during its trigger tick"
   )
   local instance = assert(p.scheduler:instances()[1])
-  Assert.equal(instance.trigger.scriptId, "new_bark.npc.woman_1")
+  Assert.equal(instance.trigger.scriptId, "vanilla.hgss.scr_seq.0842.script_001")
   Assert.equal(instance.trigger.selfActor, "obj_T20_gswoman1")
 end
 
 -- 11. A second interaction while a foreground root owns the field is blocked.
 T["interaction while locked"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.waitTicks({ ticks = 5 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
   local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
+    bindings = Bindings.new(),
     compose = function(id)
       return p.composition:effective(id)
     end,
@@ -324,7 +160,7 @@ end
 T["unmapped intent falls through"] = function()
   local p = platform()
   local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
+    bindings = Bindings.new(),
     compose = function(id)
       return p.composition:effective(id)
     end,
@@ -381,7 +217,6 @@ T["actor world adapter"] = function()
       return nil
     end,
   }
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local player = {
     position = function()
       return { fieldX = 10, fieldZ = 10, worldY = 0 }
@@ -396,7 +231,7 @@ T["actor world adapter"] = function()
       return "Gold"
     end,
   }
-  local world = ScriptActorWorld.new(manager, player)
+  local world = ScriptActorWorld.new(manager --[[@as ScriptActorManager]], player)
   Assert.isTrue(world:exists("player"))
   Assert.isTrue(world:exists("elm"))
   Assert.isFalse(world:exists("ghost"))
@@ -444,7 +279,7 @@ T["missing actor fault through binding path"] = function()
       return nil
     end,
   }
-  p.services.actors = ScriptActorWorld.new(manager, p.services.player) --[[@as FakeActors]]
+  p.services.actors = ScriptActorWorld.new(manager --[[@as ScriptActorManager]], p.services.player) --[[@as FakeActors]]
   local resource = script("elms_lab.elm", {
     S.facePlayer({ actor = "self" }),
     S.stop(),
@@ -469,7 +304,7 @@ end
 -- releasing locks and tasks.
 T["map transition cancels scripts"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.lockAll(),
     S.waitTicks({ ticks = 5 }),
     S.stop(),
@@ -497,21 +332,20 @@ end
 -- foreground script owns the field (player movement suppressed).
 T["session script phase"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.setVar({ variable = "VAR_SCENE", value = 1 }),
     S.waitTicks({ ticks = 1 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
   local client = ScriptInteractionClient.new({
-    bindings = Bindings.new(MANIFEST),
+    bindings = Bindings.new(),
     compose = function(id)
       return p.composition:effective(id)
     end,
     scheduler = p.scheduler,
   })
   local moved = 0
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
   local player = {
     fieldX = 4,
     fieldZ = 6,
@@ -526,21 +360,17 @@ T["session script phase"] = function()
       self.motion = "idle"
       return false
     end,
-    collapseRenderInterpolation = function() end,
-  } --[[@as FieldPlayer]]
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+  }
   local runtimeMap = {
     mapId = 57,
     -- Mirrors the simulation-only aggregate: no presentation runtimes, so the
     -- map clock entry is a safe no-op.
     updateAnimated = function() end,
-  } --[[@as RuntimeFieldMap]]
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  } --[[@as FieldCamera]]
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+  }
+  ---@cast runtimeMap RuntimeFieldMap
+  ---@cast player FieldPlayer
+  local camera = { updateFixed = function() end }
+  ---@cast camera FieldCamera
   local transition = {
     phase = "idle",
     locked = false,
@@ -548,29 +378,30 @@ T["session script phase"] = function()
     start = function()
       error("binding fixture never starts a warp", 2)
     end,
-  } --[[@as FieldTransition]]
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+  }
+  ---@cast transition FieldTransition
   local input = {
     snapshot = function()
       return {}
     end,
     clearEdges = function() end,
-  } --[[@as FieldInput]]
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
-  local actors = { step = function() end } --[[@as FieldActorManager]]
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+  }
+  ---@cast input FieldInput
+  local actors = { step = function() end }
+  ---@cast actors FieldActorManager
   local dialogue = {
     isModal = function()
       return false
     end,
-  } --[[@as FieldDialogueController]]
-  ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
+  }
+  ---@cast dialogue FieldDialogueController
   local menuHost = {
     isModal = function()
       return false
     end,
     advance = function() end,
-  } --[[@as FieldMenuHost]]
+  }
+  ---@cast menuHost FieldMenuHost
   local contextChoice = {
     isActive = function()
       return false
@@ -578,24 +409,21 @@ T["session script phase"] = function()
   }
   local session = FieldSession.new({
     versionId = "heartgold",
-    currentMap = runtimeMap --[[@as RuntimeFieldMap]],
-    player = player --[[@as FieldPlayer]],
-    fieldEntranceIndicator = { updateFixed = function() end },
-    camera = camera --[[@as FieldCamera]],
-    transition = transition --[[@as FieldTransition]],
-    input = input --[[@as FieldInput]],
-    actors = actors --[[@as FieldActorManager]],
+    currentMap = runtimeMap,
+    player = player,
+    camera = camera,
+    transition = transition,
+    input = input,
+    actors = actors,
     scriptScheduler = p.scheduler,
     scriptClient = client,
     interactions = {
-      resolve = function(_)
+      resolve = function(_, _)
         return objectIntent(57, "obj_T20_gswoman1", "north")
       end,
     },
-    eventResolver = FieldEventResolver,
-    eventState = FieldEventState.new(),
-    dialogue = dialogue --[[@as FieldDialogueController]],
-    menuHost = menuHost --[[@as FieldMenuHost]],
+    dialogue = dialogue,
+    menuHost = menuHost,
     contextChoice = contextChoice,
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     signpost = {
@@ -614,6 +442,19 @@ T["session script phase"] = function()
         return false
       end,
     },
+    bagUnlocked = function()
+      return true
+    end,
+    fieldEntranceIndicator = { updateFixed = function() end },
+    eventResolver = {
+      resolveCoordinate = function()
+        return nil
+      end,
+      resolvePassiveSign = function()
+        return nil
+      end,
+    },
+    eventState = p.services.world,
   })
   -- The script client starts the interaction and the tick is consumed: the
   -- player does not move while the foreground root owns the field.
@@ -627,24 +468,27 @@ T["session script phase"] = function()
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
 end
 
--- 18. A live foreground root locks player movement even before the script
--- has issued any explicit lock: foreground ownership is field ownership.
+-- 18. A live foreground root is execution ownership, not an implicit player lock.
 T["foreground root locks movement without an explicit lock"] = function()
   local p = platform()
-  local resource = script("new_bark.npc.woman_1", {
+  local resource = script("vanilla.hgss.scr_seq.0842.script_001", {
     S.waitTicks({ ticks = 2 }),
     S.stop(),
   })
   p.registry:installBase(resource.id, resource, "generated")
   local composed = assert(p.composition:effective(resource.id))
   p.scheduler:createForeground(composed, nil, 100)
-  Assert.isTrue(p.scheduler:playerMovementLocked(), "a live foreground root suppresses movement without lock_player")
+  Assert.notNil(p.scheduler:foregroundEnvironmentId(), "foreground ownership is active on creation")
+  Assert.isFalse(
+    p.scheduler:explicitPlayerLocked(),
+    "foreground without explicit lock must not report player input locked"
+  )
   p.scheduler:step(100, nil)
   p.scheduler:step(101, nil)
   p.scheduler:step(102, nil)
   p.scheduler:step(103, nil)
   Assert.isNil(p.scheduler:foregroundEnvironmentId())
-  Assert.isFalse(p.scheduler:playerMovementLocked(), "the field unlocks when the foreground root ends")
+  Assert.isFalse(p.scheduler:explicitPlayerLocked(), "the field unlocks when the foreground root ends")
 end
 
 return { tests = T }

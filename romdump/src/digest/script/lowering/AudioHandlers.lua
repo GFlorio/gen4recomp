@@ -62,12 +62,30 @@ local function temporaryMusic(ins)
 end
 
 local function fadeScreen(ins)
+  local rawDirection = Operands.operandValue(ins.operands[3])
+  local direction
+  if rawDirection == 0 then
+    direction = "out"
+  elseif rawDirection == 1 then
+    direction = "in"
+  else
+    error("unknown fade type " .. tostring(rawDirection))
+  end
+  local rawColor = Operands.operandValue(ins.operands[4])
+  local color
+  if rawColor == 0 then
+    color = "black"
+  elseif rawColor == 0x7FFF or rawColor == 32767 then
+    color = "white"
+  else
+    error("unknown fade color " .. tostring(rawColor))
+  end
   return {
     op = "fade_screen",
-    kind = Operands.operandValue(ins.operands[1]),
+    duration = Operands.operandValue(ins.operands[1]),
     speed = Operands.operandValue(ins.operands[2]),
-    direction = Operands.operandValue(ins.operands[3]) == 0 and "out" or "in",
-    color = "black",
+    direction = direction,
+    color = color,
   }
 end
 

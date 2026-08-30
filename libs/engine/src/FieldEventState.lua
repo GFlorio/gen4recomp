@@ -70,14 +70,35 @@ local function validVar(value, id)
   return value
 end
 
+local function validateSerialized(serialized)
+  assert(type(serialized) == "table", "FieldEventState.validate requires a serialized table")
+  return {
+    flags = copyValidated(serialized.flags, FieldErrors.EVENT_FLAG_ID_INVALID, "flag", validFlag),
+    vars = copyValidated(serialized.vars, FieldErrors.EVENT_VAR_ID_INVALID, "variable", validVar),
+  }
+end
+
+---@param serialized table
+---@return table|nil, Errors.Error?
+function FieldEventState.validate(serialized)
+  local ok, result = pcall(validateSerialized, serialized)
+  if ok then
+    return result
+  end
+  if Errors.is(result) then
+    return nil, result --[[@as Errors.Error]]
+  end
+  error(result)
+end
+
 -- serialized: an optional { flags = { [u16] = true }, vars = { [u16] = u16 } }
 -- snapshot, validated on the way in so a bad save fails loudly here.
 function FieldEventState.new(serialized)
   serialized = serialized or {}
-  assert(type(serialized) == "table", "FieldEventState.new requires a serialized table")
+  local validated = validateSerialized(serialized)
   return setmetatable({
-    _flags = copyValidated(serialized.flags, FieldErrors.EVENT_FLAG_ID_INVALID, "flag", validFlag),
-    _vars = copyValidated(serialized.vars, FieldErrors.EVENT_VAR_ID_INVALID, "variable", validVar),
+    _flags = validated.flags,
+    _vars = validated.vars,
     _listeners = {},
     _tick = 0,
   }, FieldEventState)

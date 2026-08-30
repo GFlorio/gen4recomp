@@ -8,6 +8,10 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 
 local T = {}
 
+---@diagnostic disable-next-line: missing-fields -- focused test double, not a real MapProps
+local EMPTY_MAP_PROPS = {}
+---@cast EMPTY_MAP_PROPS MapProps
+
 local ROOT_HALF = math.sqrt(0.5)
 
 local function throwsCode(code, fn)
@@ -75,6 +79,7 @@ local function runtimeMap(blocked, plates)
     },
     terrain = TerrainSurface.new({ plates = plates }),
     terrainDependencyHash = "test-terrain",
+    mapProps = EMPTY_MAP_PROPS,
     fieldRegion = {},
     cameraType = 0,
     release = function() end,

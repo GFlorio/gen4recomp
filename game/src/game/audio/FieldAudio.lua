@@ -6,18 +6,13 @@
 -- and never constructs an audio collaborator itself. This module is wiring,
 -- not a stateful audio runtime: compose carries no instance state.
 
-local AudioAssetProvider = require("libs.engine.src.audio.AudioAssetProvider")
-local CryPlayer = require("libs.engine.src.audio.CryPlayer")
 local FieldAudioController = require("libs.engine.src.audio.FieldAudioController")
-local GameSound = require("libs.engine.src.audio.GameSound")
-local SequencePlayer = require("libs.engine.src.audio.SequencePlayer")
-local VoiceMixer = require("libs.engine.src.audio.VoiceMixer")
-local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
+local GameAudio = require("game.src.game.audio.GameAudio")
 
 local FieldAudio = {}
 
 ---@class FieldAudioComposeOptions
----@field cacheFs CacheFs
+---@field cacheFs table
 ---@field outputRate integer
 ---@field eventState any
 ---@field fieldPosition fun(): integer, integer
@@ -39,50 +34,24 @@ function FieldAudio.compose(opts)
     "FieldAudio.compose requires cacheFs, outputRate, eventState, fieldPosition, dayNight, and fieldDataForMap"
   )
   ---@cast opts +{ outputHost: table|nil }
-  local provider = AudioAssetProvider.new(opts.cacheFs)
-  local mixer = VoiceMixer.new({ sampleRate = opts.outputRate })
-  local player = SequencePlayer.new({
-    sampleRate = opts.outputRate,
-    mixer = mixer,
-    provider = provider,
-  }) --[[@as SequencePlayer]]
-  -- The LÖVE output sink is built over the injected audio-output host
-  -- boundary (acceptance fakes it); production defaults to the
-  -- love.audio + love.sound namespaces, and a host with no audio module
-  -- has no sink to pump. The sink receives the SequencePlayer as its
-  -- renderer.
-  local sink
-  local outputHost = opts.outputHost
-  if outputHost == nil and love.audio ~= nil then
-    outputHost = { audio = love.audio, sound = love.sound }
-  end
-  if outputHost ~= nil then
-    sink = LoveAudioSink.new({
-      audio = outputHost.audio,
-      sound = outputHost.sound,
-      renderer = player,
-      sampleRate = opts.outputRate,
-    })
-  end
-  local sound = GameSound.new({
-    provider = provider,
-    player = player,
-    completionAvailable = sink ~= nil,
-    cry = CryPlayer.new({
-      player = player --[[@as CryPlayer.Player]],
-    }),
-  })
-  return {
-    service = FieldAudioController.new({
-      sound = sound,
-      provider = provider,
+  local core = GameAudio.compose(opts --[[@as GameAudioComposeOptions]])
+  local ok, fieldService = pcall(function()
+    return FieldAudioController.new({
+      sound = core.sound,
+      provider = core.provider,
       eventState = opts.eventState,
       fieldPosition = opts.fieldPosition,
       dayNight = opts.dayNight,
       fieldDataForMap = opts.fieldDataForMap,
-    }),
-    sink = sink,
-  }
+    })
+  end)
+  if not ok then
+    if core.sink ~= nil then
+      pcall(core.sink.release, core.sink)
+    end
+    error(fieldService, 0)
+  end
+  return { service = fieldService, sink = core.sink }
 end
 
 return FieldAudio

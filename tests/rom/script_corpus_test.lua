@@ -97,11 +97,11 @@ T["vertical-slice goldens"] = function(romFs)
   Assert.equal(womanOps[1], "play_sound")
   Assert.equal(womanOps[2], "lock_all")
   Assert.equal(womanOps[3], "face_player")
-  -- The elms-lab generated script 0 resource id (curated).
+  -- Ordinary map script ids use the generated canonical identity.
   local id = ScriptCompiler.publicId(843, 0, stdCatalog)
-  Assert.equal(id, "elms_lab.generated.script_000")
-  Assert.equal(ScriptCompiler.publicId(843, 9, stdCatalog), "new_bark.lab_sign")
-  Assert.equal(ScriptCompiler.publicId(842, 1, stdCatalog), "new_bark.npc.woman_1")
+  Assert.equal(id, "vanilla.hgss.scr_seq.0843.script_000")
+  Assert.equal(ScriptCompiler.publicId(843, 9, stdCatalog), "vanilla.hgss.scr_seq.0843.script_009")
+  Assert.equal(ScriptCompiler.publicId(842, 1, stdCatalog), "vanilla.hgss.scr_seq.0842.script_001")
 end
 
 -- 3. The common scripts in member 3 resolve through the std catalog to

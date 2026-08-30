@@ -14,6 +14,7 @@ local LandData = require("romdump.src.digest.LandData")
 local HgssSoundplate = require("romdump.src.digest.HgssSoundplate")
 local Hashing = require("romdump.src.digest.Hashing")
 local fieldAudio = require("romdump.src.reference.hgss.field_audio")
+local ScriptHeader = require("romdump.src.digest.ScriptHeader")
 
 local FieldMapDataCompiler = {}
 
@@ -151,10 +152,6 @@ local function semanticSoundplate(record, ref, mapSymbol)
   return plate
 end
 
----@generic T
----@param value T?
----@param err any?
----@return T
 local function must(value, err)
   if value == nil then
     error(err)
@@ -172,6 +169,19 @@ local function loadSource(romFs, sha1hex)
   local archive = must(romFs:openNarc("zone_events"))
   return {
     archive = archive,
+    archiveInfo = archiveInfo,
+    archiveSha1 = sha1hex(archiveBytes),
+  }
+end
+
+local function loadHeaderSource(romFs, sha1hex)
+  local archiveInfo = romFs:resolvedNarc("field_script_headers")
+  if not archiveInfo then
+    Errors.raise("ROMFS_NARC_UNRESOLVED", "field_script_headers NARC is unavailable", { name = "field_script_headers" })
+  end
+  local archiveBytes = must(romFs:read(archiveInfo.fileId))
+  return {
+    archive = must(romFs:openNarc("field_script_headers")),
     archiveInfo = archiveInfo,
     archiveSha1 = sha1hex(archiveBytes),
   }
@@ -198,13 +208,13 @@ end
 -- cannot render (the default header filler and the unused headers) carry no
 -- land payload and emit an empty soundplates array, exactly like maps whose
 -- land BGS payload is empty.
----@param romFs RomFs
 ---@param map table
----@param sha1hex fun(bytes: string): string
+---@param sha1hex fun(data: string): string
+---@param romFs RomFs
 ---@return table plates, table audioSource { matrixMemberSha1, landDataMemberId?, landDataMemberSha1? }
 local function compileSoundplates(romFs, map, sha1hex)
   local matrixNarc = must(romFs:openNarc("map_matrices"))
-  local matrixBytes = must(matrixNarc:readMember(map.matrixMemberId))
+  local matrixBytes = must(matrixNarc:readMember(map.matrixMemberId)) --[[@as string]]
   local matrix = must(MapMatrix.decode(matrixBytes, map.id))
   local analysis = MapAnalysis.analyzeRecord(map, matrix)
   if analysis.status ~= "resolved" then
@@ -212,7 +222,7 @@ local function compileSoundplates(romFs, map, sha1hex)
   end
 
   local landNarc = must(romFs:openNarc("land_data"))
-  local landBytes = must(landNarc:readMember(analysis.landDataMemberId))
+  local landBytes = must(landNarc:readMember(analysis.landDataMemberId)) --[[@as string]]
   local land = must(LandData.decode(landBytes, {
     mapId = map.id,
     alias = "land_data",
@@ -223,9 +233,10 @@ local function compileSoundplates(romFs, map, sha1hex)
     local records = must(HgssSoundplate.decode(bgsBlock(land), {
       mapId = map.id,
       memberId = analysis.landDataMemberId,
-    })) --[[@as { soundplateSoundID: integer, x: number, z: number, xBounds: table, zBounds: table, volumeIndex: integer }[] ]]
+    }))
+    ---@cast records table[]
     for index, record in ipairs(records) do
-      local ref = fieldAudio.soundplates[record.soundplateSoundID + 1] ---@type table?
+      local ref = fieldAudio.soundplates[record.soundplateSoundID + 1]
       if not ref then
         Errors.raise(
           "FIELD_MAP_UNKNOWN_SOUNDPLATE_SOUND",
@@ -233,7 +244,8 @@ local function compileSoundplates(romFs, map, sha1hex)
           { mapId = map.id, recordIndex = index - 1, soundplateSoundID = record.soundplateSoundID }
         )
       end
-      plates[index] = semanticSoundplate(record, assert(ref), map.symbol)
+      local soundReference = assert(ref)
+      plates[index] = semanticSoundplate(record, soundReference, map.symbol)
     end
   end
   return plates,
@@ -244,7 +256,7 @@ local function compileSoundplates(romFs, map, sha1hex)
     }
 end
 
-local function compileMap(romFs, map, source, sha1hex, hashLua)
+local function compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
   local memberBytes = must(source.archive:readMember(map.eventMemberId))
   local decoded = must(ZoneEvents.decode(memberBytes, {
     mapId = map.id,
@@ -255,6 +267,12 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
 
   local memberSha1 = sha1hex(memberBytes)
   local soundplates, audioSource = compileSoundplates(romFs, map, sha1hex)
+  local headerBytes = must(headerSource.archive:readMember(map.scriptHeaderMemberId)) --[[@as string]]
+  local initScripts = must(ScriptHeader.parse(headerBytes, {
+    mapId = map.id,
+    memberId = map.scriptHeaderMemberId,
+    scriptBankId = map.scriptsMemberId,
+  }))
   local dependencies = {
     cacheFormat = FieldMapDataCache.FORMAT,
     mapCatalogVersion = MapCatalog.VERSION,
@@ -269,6 +287,16 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     },
     eventMemberId = map.eventMemberId,
     eventMemberSha1 = memberSha1,
+    scriptHeaderMemberId = map.scriptHeaderMemberId,
+    scriptHeaderMemberSha1 = sha1hex(headerBytes),
+    scriptHeaderNarc = {
+      symbol = headerSource.archiveInfo.symbol,
+      alias = headerSource.archiveInfo.alias,
+      narcId = headerSource.archiveInfo.narcId,
+      fileId = headerSource.archiveInfo.fileId,
+      path = headerSource.archiveInfo.path,
+      sha1 = headerSource.archiveSha1,
+    },
     -- The map-matrix and land members the audio policy derives from: the
     -- matrix cell picks the land member, whose BGS payload carries the
     -- soundplates. Source identity lives only in this dependency record.
@@ -280,13 +308,14 @@ local function compileMap(romFs, map, source, sha1hex, hashLua)
     schema = FieldMapDataCache.FIELD_SCHEMA,
     mapId = map.id,
     mapSymbol = map.symbol,
-    transitionEnvironment = transitionEnvironment(map),
     cameraType = map.cameraType,
+    transitionEnvironment = transitionEnvironment(map),
     -- Map-header message/script associations (src/data/map_headers.h via the
     -- frozen catalog). Runtime code must never branch on map IDs to choose a
     -- bank; it reads these fields.
     messageBankId = map.messageMemberId,
     scriptBankId = map.scriptsMemberId,
+    initScripts = initScripts,
     -- The map-header day/night music references (the frozen catalog's
     -- dayMusic/nightMusic, emitted as canonical audio sequence references);
     -- the field-music policy selects the day or night branch at runtime from
@@ -316,7 +345,14 @@ local function _compile(romFs, idOrSymbol, sha1hex, hashLua)
   assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
   sha1hex = sha1hex or Hashing.sha1hex
   hashLua = hashLua or Hashing.hashLua
-  return compileMap(romFs, MapCatalog.require(idOrSymbol), loadSource(romFs, sha1hex), sha1hex, hashLua)
+  return compileMap(
+    romFs,
+    MapCatalog.require(idOrSymbol),
+    loadSource(romFs, sha1hex),
+    loadHeaderSource(romFs, sha1hex),
+    sha1hex,
+    hashLua
+  )
 end
 
 function FieldMapDataCompiler.compile(romFs, idOrSymbol, sha1hex, hashLua)
@@ -336,10 +372,11 @@ function FieldMapDataCompiler.compileAll(romFs, sha1hex, hashLua)
   hashLua = hashLua or Hashing.hashLua
   local ok, result = pcall(function()
     local source = loadSource(romFs, sha1hex)
+    local headerSource = loadHeaderSource(romFs, sha1hex)
     local bundles = {}
     for map in MapCatalog.all() do
       if not NON_FIELD_MAP_SYMBOLS[map.symbol] then
-        bundles[#bundles + 1] = compileMap(romFs, map, source, sha1hex, hashLua)
+        bundles[#bundles + 1] = compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
       end
     end
     return bundles

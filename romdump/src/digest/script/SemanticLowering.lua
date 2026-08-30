@@ -8,6 +8,7 @@
 -- provenance. Pure domain module: no love dependency.
 
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
+local ScriptIdentity = require("libs.assets.src.ScriptIdentity")
 local Operands = require("romdump.src.digest.script.lowering.Operands")
 local ControlHandlers = require("romdump.src.digest.script.lowering.ControlHandlers")
 local FieldHandlers = require("romdump.src.digest.script.lowering.FieldHandlers")
@@ -195,7 +196,7 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
     if opts.publicIdFor ~= nil then
       return opts.publicIdFor(memberIr.member, ownerIndex)
     end
-    return string.format("vanilla.hgss.scr_seq.%04d.script_%03d", memberIr.member, ownerIndex)
+    return ScriptIdentity.formatVanilla(memberIr.member, ownerIndex)
   end
   local CONTROL_TARGET_OPS = {
     ["goto"] = true,

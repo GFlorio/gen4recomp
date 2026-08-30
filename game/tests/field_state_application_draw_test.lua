@@ -96,6 +96,9 @@ local function drawableState(options)
   viewport.worldViewport = worldViewport
   local runtime = {
     errorText = nil,
+    uiManifest = {
+      dialogueFrames = { continueCursor = { placement = { x = 240, y = 168, width = 16, height = 16 } } },
+    },
     runtimeMap = {
       mapId = 61,
       mapSymbol = "MAP_NEW_BARK",
@@ -117,6 +120,10 @@ local function drawableState(options)
         return 0.5
       end,
     },
+    destinationWorldPresentable = function()
+      return true
+    end,
+    acknowledgeDestinationPresentation = function() end,
     viewport = viewport,
     camera = { zoom = 1 },
     transition = { fadeAlpha = 0 },
@@ -164,6 +171,11 @@ local function drawableState(options)
     trainerCardRenderer = recordingRenderer("card", sink),
     menuRenderer = recordingRenderer("script-menu", sink),
     fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
+    fieldEmoteRenderer = {
       drawItems = function()
         return {}
       end,
@@ -333,7 +345,7 @@ function T.the_application_fade_paints_disjoint_surfaces_separately_and_never_th
   -- The gap between the surfaces (256..320) is never covered: every painted
   -- rectangle stays inside one of the two surfaces.
   for _, rect in ipairs(rects) do
-    local x, w = rect[3], rect[5]
+    local x, _, w, _ = rect[3], rect[4], rect[5], rect[6]
     local covered = (x < 256 and x + w <= 256) or (x >= 320)
     Assert.isTrue(covered, "no fade rectangle may span the gap between surfaces")
   end

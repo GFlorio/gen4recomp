@@ -5,6 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 
 local T = {
   metadata = {
@@ -24,6 +25,7 @@ local function withTown(fn)
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
     local game = harness:boot({ versionId = versionId, map = NEW_BARK, save = "fresh" })
+    OpeningLifecycle.seedNewBarkWestExitScene(game)
     local ok, err = xpcall(function()
       fn(game)
       Assert.equal(game:renderAttempts(), 0, "logical-zone acceptance must stop before GPU rendering")
@@ -104,8 +106,14 @@ function T.tests.destination_context_is_authoritative_after_crossing()
     Assert.equal(runtime.runtimeMap.mapId, ROUTE_29_ID)
     Assert.equal(runtime.runtimeMap.mapSymbol, ROUTE_29)
     Assert.equal(runtime.scripts.mapSource.mapId, ROUTE_29_ID)
-    Assert.equal(runtime.actors.maps[ROUTE_29_ID] ~= nil, true)
-    Assert.notNil(runtime.actors.maps[before.mapId], "the source map remains in the logical ready footprint")
+    Assert.notNil(runtime.residency:mapForId(before.mapId), "the source map remains in the logical ready footprint")
+    -- Object actors follow the crossing through the destination's own entry
+    -- lifecycle, so the live actor world settles on the destination once that
+    -- entry completes and the source map keeps no live entry.
+    game:waitForFieldReady()
+    Assert.equal(runtime.actors.currentMapId, ROUTE_29_ID)
+    Assert.notNil(runtime.actors.maps[ROUTE_29_ID], "the destination becomes the one active actor map")
+    Assert.isNil(runtime.actors.maps[before.mapId], "the source map keeps no live actor entry")
     Assert.equal(runtime.weatherRuntime.mapId, ROUTE_29_ID)
     Assert.equal(runtime.audio:currentMapId(), ROUTE_29_ID)
     Assert.equal(game.runtime.lastZoneChange.newMapId, ROUTE_29_ID)
@@ -161,6 +169,11 @@ function T.tests.repeated_new_bark_route_29_round_trip_preserves_physical_identi
       Assert.equal(game.runtime.runtimeMap.coverage, physicalOwner)
       Assert.equal(game.runtime.physicalCoverage, physicalOwner)
       Assert.isNil(game.runtime.mapLoader.physicalCoverage, "logical cache must not own physical coverage")
+      -- `lastTransition` records only the first commit after it was last
+      -- cleared; consume it so the next crossing in this same repeated round
+      -- trip publishes its own fresh record instead of being silently
+      -- ignored behind the earlier one.
+      game.lastTransition = nil
     end
 
     for _ = 1, 2 do

@@ -11,8 +11,6 @@ local FieldSessionModule = require("libs.engine.src.FieldSession")
 local ScriptInteractionClient = require("libs.engine.src.script.ScriptInteractionClient")
 local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
-local FieldEventResolver = require("libs.engine.src.FieldEventResolver")
-local FieldEventState = require("libs.engine.src.FieldEventState")
 
 local T = {}
 
@@ -40,16 +38,6 @@ function FieldPlayer.new(options)
   return FieldPlayerModule.new(options --[[@as FieldPlayerOptions]])
 end
 
----@class FieldSessionTest.Indicator
----@field updates integer
----@field lastRuntime table|nil
----@field updateFixed fun(self: FieldSessionTest.Indicator, runtime: table)
-
----@class FieldSessionTest.Input : FieldInput
----@class FieldSessionTest.ApplicationInput : FieldSessionTest.Input
----@field beginUiTicks integer[]
----@field clearUiCalls integer
-
 -- Complete fakes for the collaborators FieldSession requires at
 -- construction: an idle transition (never completes, never locks, never
 -- starts a warp), an input that snapshots nothing, and a manager that steps
@@ -65,7 +53,6 @@ local function idleTransition()
   }
 end
 
----@return FieldSessionTest.Input
 local function idleInput()
   return {
     snapshot = function()
@@ -136,7 +123,6 @@ local function defaultPlayer()
     updateFixed = function()
       return false
     end,
-    collapseRenderInterpolation = function() end,
   }
 end
 
@@ -146,27 +132,17 @@ end
 -- carries empty warp events so a pressed direction reaches the warp check
 -- safely.
 local function baseOptions(overrides)
-  local indicator = {
-    updates = 0,
-    updateFixed = function(self, runtime)
-      self.updates = self.updates + 1
-      self.lastRuntime = runtime
-    end,
-  } --[[@as FieldSessionTest.Indicator]]
   local options = {
     versionId = "heartgold",
     currentMap = {
       mapId = 61,
-      fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
+      fieldData = { events = { warps = {} } },
       -- Mirrors the simulation-only aggregate: no presentation runtimes, so
       -- the map clock entry is a safe no-op.
       updateAnimated = function() end,
     },
     player = defaultPlayer(),
-    camera = {
-      updateFixed = function() end,
-      collapseRenderInterpolation = function() end,
-    },
+    camera = { updateFixed = function() end },
     transition = idleTransition(),
     actors = idleActors(),
     input = idleInput(),
@@ -177,11 +153,18 @@ local function baseOptions(overrides)
     },
     scriptScheduler = {
       step = function() end,
-      playerMovementLocked = function()
+      playerInputLocked = function()
         return false
+      end,
+      playerInputOwned = function()
+        return false
+      end,
+      foregroundEnvironmentId = function()
+        return nil
       end,
     },
     scriptClient = { consume = function() end },
+    enterMapActors = function() end,
     menuHost = {
       isModal = function()
         return false
@@ -204,37 +187,24 @@ local function baseOptions(overrides)
         return nil
       end,
     },
-    eventResolver = FieldEventResolver,
-    eventState = FieldEventState.new(),
-    fieldEntranceIndicator = indicator,
+    bagUnlocked = function()
+      return true
+    end,
+    fieldEntranceIndicator = { updateFixed = function() end },
+    eventResolver = {
+      resolveCoordinate = function()
+        return nil
+      end,
+      resolvePassiveSign = function()
+        return nil
+      end,
+    },
+    eventState = { getVar = function() end },
   }
   for key, value in pairs(overrides) do
-    options[key] = value
-  end
-  -- Custom fixtures often replace only the operation they observe. Complete
-  -- those test doubles at the composition boundary so every normal fixture
-  -- still models the production interpolation contract; the validation tests
-  -- below remove the methods after this completion step.
-  if type(options.player.collapseRenderInterpolation) ~= "function" then
-    options.player.collapseRenderInterpolation = function() end
-  end
-  if type(options.camera.collapseRenderInterpolation) ~= "function" then
-    options.camera.collapseRenderInterpolation = function() end
+    rawset(options, key, value)
   end
   return options
-end
-
-function T.indicator_is_required_and_advances_once_per_completed_tick()
-  local options = baseOptions({})
-  options.fieldEntranceIndicator = nil
-  local ok = pcall(FieldSession.new, options)
-  Assert.isFalse(ok)
-
-  local indicator = baseOptions({}).fieldEntranceIndicator
-  local session = FieldSession.new(baseOptions({ fieldEntranceIndicator = indicator }))
-  session:update(0.5)
-  Assert.equal(session.tick, 5)
-  Assert.equal(indicator.updates, 5)
 end
 
 local function fixedSession()
@@ -401,10 +371,7 @@ end
 
 function T.actor_only_construction_is_rejected()
   local actor = { worldX = 1.25, worldY = 2.5, worldZ = 3.75 }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   -- Intentional: the obsolete actor-only options shape must be rejected by the
   -- constructor's required-player contract.
   local options = {
@@ -413,6 +380,7 @@ function T.actor_only_construction_is_rejected()
     actor = actor,
     camera = camera,
   }
+  ---@cast options FieldSessionOptions
   local ok, err = pcall(FieldSession.new, options)
   Assert.isFalse(ok, "a session must require the player, not fall back to an actor option: " .. tostring(err))
 end
@@ -423,12 +391,8 @@ function T.player_is_used_as_the_session_player()
     worldY = 2.5,
     worldZ = 3.75,
     updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
   }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local s = FieldSession.new(baseOptions({ player = player, camera = camera }))
   Assert.equal(s.player, player)
   Assert.deepEqual(s:actorTarget(), { x = 1.25, y = 2.5, z = 3.75 })
@@ -479,8 +443,6 @@ function T.required_collaborator_methods_are_validated_at_construction()
     { key = "applicationHost", method = "updateFixed", label = "applicationHost.updateFixed" },
     { key = "applicationHost", method = "requestOpen", label = "applicationHost.requestOpen" },
     { key = "applicationHost", method = "takeReopen", label = "applicationHost.takeReopen" },
-    { key = "player", method = "collapseRenderInterpolation", label = "player.collapseRenderInterpolation" },
-    { key = "camera", method = "collapseRenderInterpolation", label = "camera.collapseRenderInterpolation" },
   }
   for _, case in ipairs(cases) do
     local options = baseOptions({})
@@ -538,6 +500,290 @@ function T.camera_follows_the_player_xyz_each_fixed_tick()
   Assert.deepEqual(targets[1], { x = 1.25, y = 2.5, z = 3.75 })
 end
 
+function T.map_init_claims_the_tick_before_scheduler_and_player_input()
+  local order = {}
+  local controller = {
+    evaluate = function(_, tick)
+      order[#order + 1] = "init:" .. tick
+      return true
+    end,
+  }
+  local scheduler = {
+    step = function()
+      order[#order + 1] = "scheduler"
+    end,
+    playerInputLocked = function()
+      return false
+    end,
+    playerInputOwned = function()
+      return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
+    end,
+  }
+  local input = idleInput()
+  input.snapshot = function()
+    return { pressedDirection = "south" }
+  end
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    order[#order + 1] = "player"
+    return false
+  end
+  local session = FieldSession.new(baseOptions({
+    initController = controller,
+    scriptScheduler = scheduler,
+    input = input,
+    player = player,
+  }))
+
+  session:updateFixed()
+
+  Assert.deepEqual(order, { "init:1" })
+end
+
+function T.map_lifecycle_events_are_queued_and_drained_before_frame_checks()
+  local order = {}
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition" or lifecycle == "on_load" or lifecycle == "on_resume"
+    end,
+    startLifecycle = function(_, lifecycle, tick)
+      order[#order + 1] = lifecycle .. ":" .. tick
+      return true
+    end,
+    evaluateFrame = function(_, tick)
+      order[#order + 1] = "frame:" .. tick
+      return true
+    end,
+  }
+  local scheduler = {
+    busy = false,
+    step = function(self)
+      order[#order + 1] = "scheduler"
+      self.busy = false
+    end,
+    playerInputLocked = function(self)
+      return self.busy
+    end,
+    playerInputOwned = function(self)
+      return self.busy
+    end,
+    foregroundEnvironmentId = function(self)
+      return self.busy and "foreground" or nil
+    end,
+  }
+  local s = FieldSession.new(baseOptions({
+    initController = controller,
+    scriptScheduler = scheduler,
+    autoAcknowledgePresentation = true,
+    enterMapActors = function()
+      order[#order + 1] = "actors"
+    end,
+  }))
+  s:beginMapEntry()
+  for _ = 1, 9 do
+    s:updateFixed()
+  end
+  Assert.deepEqual(order, {
+    "on_transition:1",
+    "actors",
+    "on_load:4",
+    "on_resume:7",
+    "scheduler",
+    "frame:9",
+  })
+end
+
+function T.destination_presentability_is_monotonic_through_map_entry()
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition" or lifecycle == "on_load" or lifecycle == "on_resume"
+    end,
+    startLifecycle = function()
+      return true
+    end,
+  }
+  local s = FieldSession.new(baseOptions({
+    initController = controller,
+    autoAcknowledgePresentation = false,
+  }))
+
+  s:beginMapEntry()
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "transition_running")
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "actors")
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "load")
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "load_running")
+  Assert.isFalse(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "await_presentation")
+  Assert.isTrue(s:destinationWorldPresentable())
+
+  s:acknowledgeDestinationPresentation()
+  Assert.equal(s.mapEntryStage, "resume")
+  Assert.isTrue(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "resume_running")
+  Assert.isTrue(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.equal(s.mapEntryStage, "ready")
+  Assert.isTrue(s:destinationWorldPresentable())
+  s:updateFixed({})
+  Assert.isNil(s.mapEntryStage)
+  Assert.isTrue(s:destinationWorldPresentable())
+end
+
+function T.blocked_lifecycle_stays_at_head_until_foreground_is_free()
+  local starts = {}
+  local scheduler = {
+    busy = true,
+    step = function() end,
+    playerInputLocked = function(self)
+      return self.busy
+    end,
+    playerInputOwned = function(self)
+      return self.busy
+    end,
+    foregroundEnvironmentId = function(self)
+      return self.busy and "busy" or nil
+    end,
+  }
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition"
+    end,
+    startLifecycle = function(_, lifecycle, tick)
+      starts[#starts + 1] = { lifecycle = lifecycle, tick = tick }
+      return not scheduler.busy
+    end,
+    evaluateFrame = function()
+      error("frame lifecycle overtook pending work")
+    end,
+  }
+  local s = FieldSession.new(baseOptions({ initController = controller, scriptScheduler = scheduler }))
+  s:beginMapEntry()
+  s:updateFixed({})
+  Assert.deepEqual(starts, {})
+  scheduler.busy = false
+  s:updateFixed({})
+  s:updateFixed({})
+  Assert.deepEqual(starts, { { lifecycle = "on_transition", tick = 2 } })
+end
+
+function T.lifecycle_start_retry_keeps_the_entry_stage_pending()
+  local starts = 0
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition"
+    end,
+    startLifecycle = function()
+      starts = starts + 1
+      return starts > 1
+    end,
+  }
+  local entered = 0
+  local s = FieldSession.new(baseOptions({
+    initController = controller,
+    enterMapActors = function()
+      entered = entered + 1
+    end,
+  }))
+  s:beginMapEntry()
+  s:updateFixed({})
+  Assert.equal(starts, 1)
+  Assert.equal(entered, 0)
+  Assert.equal(s.mapEntryStage, "transition")
+  s:updateFixed({})
+  Assert.equal(starts, 2)
+  Assert.equal(s.mapEntryStage, "transition_running")
+  Assert.equal(entered, 0)
+end
+
+function T.absent_lifecycle_falls_through_and_each_start_consumes_a_tick()
+  local starts = {}
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle ~= "on_transition"
+    end,
+    startLifecycle = function(_, lifecycle, tick)
+      starts[#starts + 1] = { lifecycle = lifecycle, tick = tick }
+      return true
+    end,
+    evaluateFrame = function(_, tick)
+      starts[#starts + 1] = { lifecycle = "frame", tick = tick }
+      return true
+    end,
+  }
+  local s = FieldSession.new(baseOptions({ initController = controller }))
+  s:beginMapEntry()
+  s:updateFixed({})
+  Assert.deepEqual(starts, {})
+  s:updateFixed({})
+  s:updateFixed({})
+  Assert.deepEqual(starts, { { lifecycle = "on_load", tick = 3 } })
+end
+
+function T.child_resume_appends_without_resetting_map_entry_queue()
+  local s = FieldSession.new(baseOptions({
+    initController = {
+      hasLifecycle = function()
+        return false
+      end,
+      startLifecycle = function()
+        return false
+      end,
+    },
+  }))
+  s:onChildApplicationResume()
+  Assert.isTrue(s.childResumePending)
+end
+
+function T.new_map_entry_discards_previous_generation_requests()
+  local s = FieldSession.new(baseOptions({
+    initController = {
+      hasLifecycle = function()
+        return true
+      end,
+      startLifecycle = function()
+        return true
+      end,
+    },
+  }))
+  s:beginMapEntry()
+  s:beginMapEntry()
+  Assert.equal(s.mapEntryStage, "transition")
+end
+
+function T.distinct_resume_requests_execute_separately()
+  local starts = 0
+  local s = FieldSession.new(baseOptions({
+    initController = {
+      hasLifecycle = function(_, lifecycle)
+        return lifecycle == "on_resume"
+      end,
+      startLifecycle = function(_, lifecycle)
+        Assert.equal(lifecycle, "on_resume")
+        starts = starts + 1
+        return true
+      end,
+    },
+  }))
+  s:onChildApplicationResume()
+  s:onChildApplicationResume()
+  s:updateFixed({})
+  s:updateFixed({})
+  Assert.equal(starts, 1)
+end
+
 function T.completed_transition_holds_the_arrival_tile_for_autosave()
   local updates = 0
   local player = {
@@ -566,10 +812,7 @@ function T.completed_transition_holds_the_arrival_tile_for_autosave()
     end,
   }
   local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local s = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -589,8 +832,14 @@ function T.script_completion_consumes_its_final_action_edge()
     step = function()
       locked = false
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return locked
+    end,
+    playerInputOwned = function()
+      return locked
+    end,
+    foregroundEnvironmentId = function()
+      return locked and "foreground" or nil
     end,
   }
   local player = {
@@ -603,11 +852,8 @@ function T.script_completion_consumes_its_final_action_edge()
     motion = "idle",
     updateFixed = function() end,
   }
-  local map = { mapId = 61, updateAnimated = function() end }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local map = { mapId = 61, updateAnimated = function() end } --[[@as any]]
+  local camera = { updateFixed = function() end } --[[@as any]]
   local interactions = {
     resolve = function()
       resolved = resolved + 1
@@ -640,8 +886,14 @@ function T.scheduler_edges_come_only_from_current_snapshot_properties()
     step = function(_, _, snapshot)
       received = snapshot
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return false
+    end,
+    playerInputOwned = function()
+      return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
     end,
   }
   local s = FieldSession.new(baseOptions({ scriptScheduler = scheduler }))
@@ -670,8 +922,14 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
       Assert.equal(snapshot.menuEvents[1].type, "navigate")
       Assert.equal(snapshot.menuEvents[1].direction, "down")
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return true
+    end,
+    playerInputOwned = function()
+      return true
+    end,
+    foregroundEnvironmentId = function()
+      return "foreground"
     end,
   }
   local player = {
@@ -683,10 +941,7 @@ function T.modal_menu_routes_ui_events_to_the_script_scheduler()
     end,
   }
   local map = { mapId = 61, updateAnimated = function() end }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -730,10 +985,7 @@ function T.the_player_pose_clock_advances_once_per_tick_and_freezes_under_a_tran
     end,
   }
   local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local s = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -787,10 +1039,7 @@ local function warpSession(options)
     end
     return false
   end
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -872,10 +1121,7 @@ function T.actor_on_a_blocked_door_cell_does_not_block_the_facing_warp()
       return nil
     end,
   })
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -939,10 +1185,7 @@ function T.actor_on_an_open_warp_cell_blocks_the_walk_but_not_the_route()
       return nil
     end,
   })
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -1097,7 +1340,7 @@ local function dialogueSession(opts)
 end
 
 function T.modal_dialogue_freezes_every_world_step_and_steps_the_dialogue()
-  local session, worldSteps, dialogueState = dialogueSession()
+  local session, worldSteps, dialogueState, _ = dialogueSession()
   session:updateFixed({ heldDirection = "south", actionDown = true })
   Assert.equal(worldSteps.player, 0, "player does not move")
   Assert.equal(worldSteps.actors, 0, "visibility changes do not apply")
@@ -1157,10 +1400,7 @@ function T.transition_commit_clears_stale_action_edges()
       error("a completing transition never starts a warp", 2)
     end,
   }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local map = { mapId = 61, cameraType = 4, updateAnimated = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
@@ -1208,10 +1448,7 @@ local function interactionSession(opts)
     end,
     collapseRenderInterpolation = function() end,
   }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local actors = { step = function() end }
   local transition = {
     phase = "idle",
@@ -1303,10 +1540,10 @@ function T.interaction_resolve_snapshot_carries_the_player_state()
 end
 
 function T.interaction_never_resolves_while_walking()
-  local session, player, interactions = interactionSession({
+  local session, _, interactions = interactionSession({
     intent = { kind = "object", object = { actorId = "map:61:object:0" } },
   })
-  player.motion = "walking"
+  session.player.motion = "walking"
   session:updateFixed({ actionPressed = true })
   Assert.isNil(interactions.resolveSnapshot, "a moving player is never asked to interact")
 end
@@ -1337,218 +1574,6 @@ function T.interaction_never_resolves_under_a_locked_transition_or_modal()
   Assert.equal(modalSteps(), 0)
 end
 
-local function passiveArbitrationSession(opts)
-  opts = opts or {}
-  local passiveCalls = 0
-  local actionSnapshot
-  local player = {
-    fieldX = 4,
-    fieldZ = 14,
-    worldX = 0,
-    worldY = 0,
-    worldZ = 0,
-    surfaceId = 0,
-    facing = opts.facing or "east",
-    motion = opts.motion or "idle",
-    updateFixed = function()
-      return false
-    end,
-    collapseRenderInterpolation = function()
-      if opts.events then
-        opts.events[#opts.events + 1] = "player collapse"
-      end
-    end,
-  }
-  local camera = {
-    updateFixed = function(_, target)
-      if opts.events then
-        opts.events[#opts.events + 1] = { "camera update", target.x, target.y, target.z }
-      end
-    end,
-    collapseRenderInterpolation = function()
-      if opts.events then
-        opts.events[#opts.events + 1] = "camera collapse"
-      end
-    end,
-  }
-  local eventResolver = {
-    resolveCoordinate = function()
-      return nil
-    end,
-    resolvePassiveSign = function()
-      passiveCalls = passiveCalls + 1
-      return opts.passiveIntent
-    end,
-  }
-  local interactions = {
-    resolve = function(_, snapshot)
-      actionSnapshot = snapshot
-      return opts.actionIntent
-    end,
-  }
-  local scriptClient = {
-    consume = function(_, intent)
-      assert(intent == opts.actionIntent or intent == opts.passiveIntent)
-      if opts.events then
-        opts.events[#opts.events + 1] = "script consume"
-      end
-      return ScriptInteractionClient.RESULTS.started
-    end,
-  }
-  local session = FieldSession.new(baseOptions({
-    player = player,
-    camera = camera,
-    eventResolver = eventResolver,
-    interactions = interactions,
-    scriptClient = scriptClient,
-    playerVisual = opts.playerVisual,
-  }))
-  return session, player, function()
-    return passiveCalls, actionSnapshot
-  end
-end
-
-function T.passive_sign_does_not_redirect_simultaneous_action()
-  local actionIntent = { kind = "object" }
-  local passiveIntent = { kind = "background" }
-  local session, player, observations = passiveArbitrationSession({
-    actionIntent = actionIntent,
-    passiveIntent = passiveIntent,
-  })
-
-  session:updateFixed({ pressedDirection = "north", actionPressed = true })
-
-  local passiveCalls, actionSnapshot = observations()
-  Assert.equal(passiveCalls, 0, "a direction different from facing cannot probe a passive sign")
-  Assert.equal(actionSnapshot.facing, "east", "Action observes the established facing")
-  Assert.equal(player.facing, "east", "passive arbitration does not write facing")
-end
-
-function T.passive_sign_does_not_probe_during_a_step()
-  local session, player, observations = passiveArbitrationSession({
-    motion = "walking",
-    passiveIntent = { kind = "background" },
-  })
-
-  session:updateFixed({ pressedDirection = "north" })
-
-  local passiveCalls = observations()
-  Assert.equal(passiveCalls, 0, "a fresh direction edge during a step cannot probe a sign")
-  Assert.equal(player.facing, "east", "a mid-step probe does not change facing")
-end
-
-function T.passive_sign_requires_matching_facing_while_idle()
-  local session, player, observations = passiveArbitrationSession({
-    facing = "north",
-    passiveIntent = { kind = "background" },
-  })
-
-  session:updateFixed({ heldDirection = "east" })
-
-  local passiveCalls = observations()
-  Assert.equal(passiveCalls, 0, "an idle candidate must match facing before probing")
-  Assert.equal(player.facing, "north")
-end
-
-function T.coordinate_script_handoff_settles_the_player_visual()
-  local intent = { kind = "coordinate" }
-  local events = {}
-  local player = defaultPlayer()
-  player.worldX, player.worldY, player.worldZ = 1, 2, 3
-  player.motion = "walking"
-  player.updateFixed = function(self)
-    self.motion = "idle"
-    self.worldX, self.worldY, self.worldZ = 4, 5, 6
-    return true
-  end
-  player.collapseRenderInterpolation = function()
-    events[#events + 1] = "player collapse"
-  end
-  local visual = {
-    settleCalls = 0,
-    settle = function(self)
-      self.settleCalls = self.settleCalls + 1
-      events[#events + 1] = "visual settle"
-    end,
-    updateFixed = function()
-      error("the handoff owns the completed step before the normal visual tick", 2)
-    end,
-  }
-  local consumed
-  local camera = {
-    updateFixed = function(_, target)
-      events[#events + 1] = { "camera update", target.x, target.y, target.z }
-    end,
-    collapseRenderInterpolation = function()
-      events[#events + 1] = "camera collapse"
-    end,
-  }
-  local session = FieldSession.new(baseOptions({
-    player = player,
-    camera = camera,
-    playerVisual = visual,
-    eventResolver = {
-      resolveCoordinate = function()
-        return intent
-      end,
-      resolvePassiveSign = function()
-        return nil
-      end,
-    },
-    scriptClient = {
-      consume = function(_, received)
-        consumed = received
-        events[#events + 1] = "script consume"
-        return ScriptInteractionClient.RESULTS.started
-      end,
-    },
-  }))
-
-  session:updateFixed()
-
-  Assert.equal(visual.settleCalls, 1)
-  Assert.equal(consumed, intent)
-  Assert.deepEqual(events, {
-    "visual settle",
-    "player collapse",
-    { "camera update", 4, 5, 6 },
-    "camera collapse",
-    "script consume",
-  })
-end
-
-function T.passive_script_handoff_settles_the_player_visual()
-  local intent = { kind = "background" }
-  local events = {}
-  local visual = {
-    settleCalls = 0,
-    settle = function(self)
-      self.settleCalls = self.settleCalls + 1
-      events[#events + 1] = "visual settle"
-    end,
-    updateFixed = function()
-      error("the passive handoff owns the tick before the normal visual tick", 2)
-    end,
-  }
-  local session = passiveArbitrationSession({
-    facing = "north",
-    passiveIntent = intent,
-    playerVisual = visual,
-    events = events,
-  })
-
-  session:updateFixed({ pressedDirection = "north" })
-
-  Assert.equal(visual.settleCalls, 1)
-  Assert.deepEqual(events, {
-    "visual settle",
-    "player collapse",
-    { "camera update", 0, 0, 0 },
-    "camera collapse",
-    "script consume",
-  })
-end
-
 function T.catch_up_ticks_do_not_replay_one_action_edge()
   local input = FieldInput.new()
   input:pressAction("key:space")
@@ -1577,10 +1602,7 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
       return false
     end,
   }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local actors = { step = function() end }
   local transition = {
     phase = "idle",
@@ -1603,8 +1625,10 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
   }))
   -- A render delta spanning several fixed ticks: the one Action edge must be
   -- consumed by the first tick's snapshot and never replayed by catch-up.
-  -- update() takes no snapshot argument -- each fixed step samples the input.
-  session:update(5 * FieldSession.FIXED_DT)
+  -- update() takes no snapshot of its own -- each fixed step samples the input,
+  -- so even a stale snapshot passed along must be ignored.
+  ---@diagnostic disable-next-line: redundant-parameter -- intentional: a stale snapshot must never be replayed
+  session:update(5 * FieldSession.FIXED_DT, { actionPressed = true })
   Assert.equal(session.tick, 5, "the full catch-up ran")
   Assert.equal(resolved, 1, "one Action edge must not be replayed over catch-up ticks")
   Assert.isFalse(input.actionPressed, "the first tick consumed the edge")
@@ -1683,10 +1707,7 @@ function T.a_two_tile_walk_keeps_one_phase_across_the_session_ticks()
     player = player,
     spriteId = 0,
   })
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local session = FieldSession.new(baseOptions({
     currentMap = map,
     player = player,
@@ -2087,10 +2108,7 @@ function T.script_locked_ticks_still_advance_the_scene_clock()
       return false
     end,
   }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local map = {
     mapId = 61,
     cameraType = 4,
@@ -2107,8 +2125,14 @@ function T.script_locked_ticks_still_advance_the_scene_clock()
   }
   local scheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return true
+    end,
+    playerInputOwned = function()
+      return true
+    end,
+    foregroundEnvironmentId = function()
+      return "foreground"
     end,
   }
   local session = FieldSession.new(baseOptions({
@@ -2236,8 +2260,14 @@ function T.application_host_owns_the_tick_and_freezes_world_simulation()
     step = function()
       stepped.scheduler = stepped.scheduler + 1
     end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return false
+    end,
+    playerInputOwned = function()
+      return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
     end,
   }
   local map = {
@@ -2381,8 +2411,14 @@ function T.a_movement_lock_blocks_the_menu_edge()
   local host = applicationHostFake()
   local scheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return true
+    end,
+    playerInputOwned = function()
+      return true
+    end,
+    foregroundEnvironmentId = function()
+      return "foreground"
     end,
   }
   local session = FieldSession.new(baseOptions({
@@ -2436,7 +2472,7 @@ local function applicationCompositionFixture(menuFactory)
       worldSteps.camera = worldSteps.camera + 1
     end,
   }
-  local input = idleInput() --[[@as FieldSessionTest.ApplicationInput]]
+  local input = idleInput()
   input.beginUiTicks = {}
   input.beginUi = function(_, tick)
     input.beginUiTicks[#input.beginUiTicks + 1] = tick
@@ -2445,10 +2481,12 @@ local function applicationCompositionFixture(menuFactory)
   input.clearUi = function()
     input.clearUiCalls = input.clearUiCalls + 1
   end
+  ---@cast input FieldInput
   local host = FieldApplicationHost.new({
     registry = FieldApplicationRegistry.new({}),
     menuFactory = menuFactory,
     input = input,
+    fieldAction = function() end,
   })
   local session = FieldSession.new(baseOptions({
     player = player,
@@ -2510,7 +2548,8 @@ function T.an_unavailable_menu_leaves_the_tick_to_the_field()
   session:updateFixed({ menuPressed = true })
   Assert.equal(host:status().phase, "closed", "an unavailable menu is a no-op open")
   Assert.equal(host:isActive(), false)
-  Assert.equal(input.beginUiTicks[1], nil, "an unavailable menu begins no UI lifetime")
+  local beginUiTicks = assert(rawget(input, "beginUiTicks"))
+  Assert.equal(beginUiTicks[1], nil, "an unavailable menu begins no UI lifetime")
   Assert.equal(world.player, 1, "an unavailable menu leaves the tick to the field")
   Assert.equal(world.actors, 1)
   Assert.equal(world.camera, 1)
@@ -2543,7 +2582,8 @@ function T.a_successful_open_consumes_the_tick_without_stepping_the_world()
   session:updateFixed({ menuPressed = true })
   Assert.equal(host:status().phase, "menu", "the host enters the menu phase")
   Assert.equal(host:isActive(), true)
-  Assert.equal(input.beginUiTicks[1], 1, "beginUi happens once on the opening tick")
+  local beginUiTicks = assert(rawget(input, "beginUiTicks"))
+  Assert.equal(beginUiTicks[1], 1, "beginUi happens once on the opening tick")
   Assert.equal(menu.updateFixedCalls, 0, "the opener tick never steps the menu controller")
   Assert.equal(world.player, 0, "the successful open consumes the tick")
   Assert.equal(world.actors, 0)
@@ -2588,8 +2628,14 @@ function T.audio_update_field_runs_once_per_completed_step_before_early_returns(
   }
   local scheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return state.scriptLocked
+    end,
+    playerInputOwned = function()
+      return state.scriptLocked
+    end,
+    foregroundEnvironmentId = function()
+      return state.scriptLocked and "foreground" or nil
     end,
   }
   local player = {
@@ -2610,10 +2656,7 @@ function T.audio_update_field_runs_once_per_completed_step_before_early_returns(
     end,
     collapseRenderInterpolation = function() end,
   }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local s = FieldSession.new(baseOptions({
     audio = audio,
     currentMap = map,
@@ -2675,8 +2718,14 @@ function T.field_policy_runs_once_per_completed_step_and_never_touches_the_sound
   }
   local scheduler = {
     step = function() end,
-    playerMovementLocked = function()
+    playerInputLocked = function()
       return false
+    end,
+    playerInputOwned = function()
+      return false
+    end,
+    foregroundEnvironmentId = function()
+      return nil
     end,
   }
   local committed = false
@@ -2698,10 +2747,7 @@ function T.field_policy_runs_once_per_completed_step_and_never_touches_the_sound
     end,
     collapseRenderInterpolation = function() end,
   }
-  local camera = {
-    updateFixed = function() end,
-    collapseRenderInterpolation = function() end,
-  }
+  local camera = { updateFixed = function() end }
   local s = FieldSession.new(baseOptions({
     audio = audio,
     currentMap = map,
@@ -2719,6 +2765,243 @@ function T.field_policy_runs_once_per_completed_step_and_never_touches_the_sound
   Assert.equal(fieldCalls, 1, "a completing-step tick runs the field-audio event once")
   s:updateFixed({})
   Assert.equal(fieldCalls, 1, "an idle follow-up tick carries no further event")
+end
+
+function T.map_entry_waits_for_yielding_transition_before_entering_actors()
+  local starts = {}
+  local order = {}
+  local scheduler = {
+    busy = false,
+    step = function(self)
+      order[#order + 1] = "scheduler"
+      self.busy = false
+    end,
+    playerInputLocked = function(self)
+      return self.busy
+    end,
+    playerInputOwned = function(self)
+      return self.busy
+    end,
+    foregroundEnvironmentId = function(self)
+      return self.busy and "transition" or nil
+    end,
+  }
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition" or lifecycle == "on_load" or lifecycle == "on_resume"
+    end,
+    startLifecycle = function(_, lifecycle, tick)
+      starts[#starts + 1] = { lifecycle = lifecycle, tick = tick }
+      order[#order + 1] = lifecycle
+      if lifecycle == "on_transition" then
+        scheduler.busy = true
+      end
+      return true
+    end,
+    evaluateFrame = function(_, tick)
+      order[#order + 1] = "frame:" .. tick
+      return true
+    end,
+  }
+  local entered = 0
+  local session = FieldSession.new(baseOptions({
+    initController = controller,
+    scriptScheduler = scheduler,
+    enterMapActors = function()
+      entered = entered + 1
+      order[#order + 1] = "actors"
+    end,
+  }))
+
+  session:beginMapEntry()
+  session:updateFixed({})
+  Assert.equal(entered, 0, "yielding transition keeps destination actors out")
+  session:updateFixed({})
+  Assert.equal(entered, 0, "actors remain blocked on the scheduler completion tick")
+  session:updateFixed({})
+  Assert.equal(entered, 1, "actor entry follows transition completion")
+  Assert.equal(order[1], "on_transition")
+  Assert.equal(order[#order], "actors")
+end
+
+-- A seamless logical-zone change is a connection entry: it runs only the
+-- destination's transition-init lifecycle, activates destination actors
+-- exactly once, and defers the arrival tile's event until activation
+-- completes. The arrival kind selects which event the destination tile
+-- carries; everything else about the crossing is identical.
+---@param arrivalKind "coordinate"|"passive"
+---@return table
+local function connectionSeamScenario(arrivalKind)
+  local scenario = { order = {}, entered = 0, arrivalResolves = 0, consumedIntents = {} }
+  local order = scenario.order
+  local sourceMap = {
+    mapId = 61,
+    fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
+    updateAnimated = function() end,
+  }
+  local destinationMap = {
+    mapId = 62,
+    fieldData = { events = { warps = {}, background = {}, coordinates = {} } },
+    updateAnimated = function() end,
+  }
+  scenario.destinationMap = destinationMap
+  local scheduler = {
+    busy = false,
+    step = function(self)
+      order[#order + 1] = "scheduler"
+      self.busy = false
+    end,
+    playerInputLocked = function(self)
+      return self.busy
+    end,
+    playerInputOwned = function(self)
+      return self.busy
+    end,
+    foregroundEnvironmentId = function(self)
+      return self.busy and "transition" or nil
+    end,
+  }
+  local controller = {
+    hasLifecycle = function(_, lifecycle)
+      return lifecycle == "on_transition" or lifecycle == "on_load" or lifecycle == "on_resume"
+    end,
+    startLifecycle = function(_, lifecycle)
+      order[#order + 1] = lifecycle
+      if lifecycle == "on_transition" then
+        scheduler.busy = true
+      end
+      return true
+    end,
+  }
+  local stepCompletedOnce = false
+  local player = defaultPlayer()
+  player.updateFixed = function()
+    if stepCompletedOnce then
+      return false
+    end
+    stepCompletedOnce = true
+    return true
+  end
+  player.collapseRenderInterpolation = function() end
+  -- The destination tile carries exactly one arrival event; the other
+  -- resolver answers nothing, as an ordinary tile would.
+  local function resolveArrival(kind)
+    if kind ~= arrivalKind then
+      return nil
+    end
+    scenario.arrivalResolves = scenario.arrivalResolves + 1
+    return { kind = kind }
+  end
+  scenario.session = FieldSession.new(baseOptions({
+    currentMap = sourceMap,
+    player = player,
+    initController = controller,
+    scriptScheduler = scheduler,
+    navigationBoundary = {
+      zoneController = { currentMap = destinationMap },
+      afterCommittedMove = function()
+        return { newMapId = destinationMap.mapId }
+      end,
+    },
+    scriptClient = {
+      consume = function(_, intent)
+        scenario.consumedIntents[#scenario.consumedIntents + 1] = intent
+        order[#order + 1] = "arrival"
+        return ScriptInteractionClient.RESULTS.started
+      end,
+    },
+    eventResolver = {
+      resolveCoordinate = function()
+        return resolveArrival("coordinate")
+      end,
+      resolvePassiveSign = function()
+        return resolveArrival("passive")
+      end,
+    },
+    enterMapActors = function()
+      scenario.entered = scenario.entered + 1
+      order[#order + 1] = "actors"
+    end,
+  }))
+  return scenario
+end
+
+-- Runs destination transition init to completion, then actor entry, then the
+-- deferred arrival event.
+local function advanceUntilArrivalConsumed(scenario)
+  for _ = 1, 8 do
+    if scenario.entered > 0 and #scenario.consumedIntents > 0 then
+      return
+    end
+    scenario.session:updateFixed({})
+  end
+end
+
+-- Asserts the one ordering the connection lifecycle exists to guarantee:
+-- transition init, then actor activation, then the arrival event -- and no
+-- full-entry-only lifecycle in between.
+local function assertDeferredArrivalOrder(scenario)
+  local transitionIndex, actorsIndex, arrivalIndex
+  for index, item in ipairs(scenario.order) do
+    if item == "on_transition" and transitionIndex == nil then
+      transitionIndex = index
+    elseif item == "actors" and actorsIndex == nil then
+      actorsIndex = index
+    elseif item == "arrival" and arrivalIndex == nil then
+      arrivalIndex = index
+    end
+    Assert.isFalse(item == "on_load", "a connection entry must never run on_load")
+    Assert.isFalse(item == "on_resume", "a connection entry must never run on_resume")
+  end
+  Assert.isTrue(transitionIndex ~= nil, "destination on_transition must run")
+  Assert.isTrue(actorsIndex ~= nil and transitionIndex < actorsIndex, "actor entry must follow transition init")
+  Assert.isTrue(
+    arrivalIndex ~= nil and actorsIndex < arrivalIndex,
+    "the arrival event must be consumed only after actor entry"
+  )
+end
+
+function T.seamless_zone_change_defers_the_arrival_coordinate_until_destination_activation_completes()
+  local scenario = connectionSeamScenario("coordinate")
+  local session = scenario.session
+
+  -- The completed movement tick crosses the seam.
+  session:updateFixed({})
+  Assert.equal(session.currentMap, scenario.destinationMap, "the seam crossing must switch the active map")
+  Assert.isTrue(
+    session:destinationWorldPresentable(),
+    "a seamless connection must remain presentable throughout its lifecycle"
+  )
+  Assert.equal(scenario.arrivalResolves, 0, "the destination coordinate must not resolve on the crossing tick itself")
+  Assert.equal(scenario.entered, 0, "destination actors must not enter before destination transition init runs")
+
+  advanceUntilArrivalConsumed(scenario)
+
+  Assert.equal(scenario.entered, 1, "destination actors must enter exactly once")
+  Assert.equal(#scenario.consumedIntents, 1, "the deferred landing coordinate must be consumed exactly once")
+  Assert.equal(scenario.consumedIntents[1].kind, "coordinate")
+  assertDeferredArrivalOrder(scenario)
+end
+
+-- A crossing that lands on a passive-sign tile defers the sign exactly as it
+-- defers a landing coordinate, and the one-shot marker must never replay it.
+function T.seamless_zone_change_defers_the_arrival_passive_sign_until_destination_activation_completes()
+  local scenario = connectionSeamScenario("passive")
+  local session = scenario.session
+
+  session:updateFixed({})
+  Assert.equal(scenario.arrivalResolves, 0, "the arrival passive sign must not resolve on the crossing tick itself")
+  Assert.equal(scenario.entered, 0, "destination actors must not enter before destination transition init runs")
+
+  advanceUntilArrivalConsumed(scenario)
+
+  Assert.equal(scenario.entered, 1, "destination actors must enter exactly once")
+  Assert.equal(#scenario.consumedIntents, 1, "the deferred arrival passive sign must be consumed exactly once")
+  Assert.equal(scenario.consumedIntents[1].kind, "passive")
+  assertDeferredArrivalOrder(scenario)
+
+  session:updateFixed({})
+  Assert.equal(#scenario.consumedIntents, 1, "the arrival passive sign must not replay on a later tick")
 end
 
 function T.zone_change_owns_crossing_audio_selection_while_same_zone_keeps_step_audio()
@@ -2754,6 +3037,16 @@ function T.zone_change_owns_crossing_audio_selection_while_same_zone_keeps_step_
       currentMap = map,
       player = player,
       navigationBoundary = boundary,
+      -- A seamless crossing starts a connection map entry, so the lifecycle
+      -- controller production always supplies is required here too.
+      initController = {
+        hasLifecycle = function()
+          return false
+        end,
+        startLifecycle = function()
+          return true
+        end,
+      },
     }))
     session:updateFixed({})
     return events
@@ -2981,8 +3274,11 @@ local function eventBoundarySession(kind)
         lockTicks = lockTicks - 1
       end
     end,
-    playerMovementLocked = function()
+    playerInputOwned = function()
       return lockTicks > 0
+    end,
+    foregroundEnvironmentId = function()
+      return lockTicks > 0 and "script" or nil
     end,
   }
   local transition = {

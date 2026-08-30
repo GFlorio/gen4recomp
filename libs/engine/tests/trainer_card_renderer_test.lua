@@ -30,8 +30,7 @@ local CANONICAL = FieldViewport.new(256, 192, { mode = "expanded" })
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   if not ok and Errors.is(err) then
-    ---@cast err Errors.Error
-    Assert.equal(err.code, code)
+    Assert.equal((err --[[@as Errors.Error]]).code, code)
     return
   end
   error("expected structured error " .. code .. ", got: " .. tostring(err), 2)
@@ -49,6 +48,9 @@ local function presentation(overrides)
     name = "GOLD",
     gender = 0,
     trainerId = 0,
+    visibleTrainerId = 0,
+    money = 0,
+    playTimeSeconds = 0,
   }
   for key, value in pairs(overrides or {}) do
     status[key] = value
@@ -96,8 +98,8 @@ end
 -- at offset (the number of glyphs already verified). Iteration goes through
 -- the shared UTF-8 glyph iterator, so expectations stay correct for
 -- multibyte names.
-local function drawnGlyphs(graphics, text, originX, originY, offset, fontDefinition)
-  local fontDef = fontDefinition or FieldUiFixture.cardFontDef()
+local function drawnGlyphs(graphics, text, originX, originY, offset, fontDef)
+  fontDef = fontDef or FieldUiFixture.cardFontDef()
   local runs = {}
   local x = originX
   for char in Utf8Glyphs.iter(text) do
@@ -227,14 +229,14 @@ end
 function T.draw_right_aligns_the_name_and_the_five_digit_trainer_id()
   local graphics = renderedGraphics()
   local renderer = cardRenderer(graphics)
-  renderer:draw(presentation({ name = "GOLD", trainerId = 12345 }), CANONICAL)
+  renderer:draw(presentation({ name = "GOLD", visibleTrainerId = 12345 }), CANONICAL)
 
   -- The six audited labels precede the values in draw order; the fixture
   -- glyphs advance 8px each.
   local labelGlyphs = 6 + 4 + 5 + 5 + 4 + 17
   local nameRuns = drawnGlyphs(graphics, "GOLD", 240 - 4 * 8, 24, labelGlyphs)
   Assert.equal(nameRuns[#nameRuns].x + 8, 240, "the name right edge is the audited anchor")
-  local idRuns = drawnGlyphs(graphics, "12345", 112 - 5 * 8, 24, labelGlyphs + 4)
+  local idRuns = drawnGlyphs(graphics, "12345", 112 - 5 * 8, 24, labelGlyphs + 4 + 1 + 4)
   Assert.equal(idRuns[#idRuns].x + 8, 112, "the trainer id right edge is the audited anchor")
 end
 
@@ -246,7 +248,7 @@ function T.draw_right_aligns_a_multibyte_name_through_the_shared_text_path()
   local graphics = renderedGraphics()
   local multibyte = FieldUiFixture.cardFontDefWithMultibyte()
   local renderer = cardRenderer(graphics, FieldUiFixture.trainerCardCache(multibyte))
-  renderer:draw(presentation({ name = "\195\137lise", trainerId = 12345 }), CANONICAL)
+  renderer:draw(presentation({ name = "\195\137lise", visibleTrainerId = 12345 }), CANONICAL)
 
   local labelGlyphs = 6 + 4 + 5 + 5 + 4 + 17
   -- É advances 6px; l/i/s/e advance 8px each, so the name is 38px wide.
@@ -254,21 +256,20 @@ function T.draw_right_aligns_a_multibyte_name_through_the_shared_text_path()
   Assert.equal(#nameRuns, 5, "the multibyte name is five glyphs, not six bytes")
   Assert.equal(nameRuns[1].code, 360, "the first glyph is the encoded É, not the fallback")
   Assert.equal(nameRuns[#nameRuns].x + 8, 240, "the name right edge is the audited anchor")
-  local idRuns = drawnGlyphs(graphics, "12345", 112 - 5 * 8, 24, labelGlyphs + 5)
+  local idRuns = drawnGlyphs(graphics, "12345", 112 - 5 * 8, 24, labelGlyphs + 5 + 1 + 4)
   Assert.equal(idRuns[#idRuns].x + 8, 112, "the trainer id right edge is the audited anchor")
 end
 
 function T.draw_zero_pads_the_trainer_id_to_five_digits()
   local graphics = renderedGraphics()
   local renderer = cardRenderer(graphics)
-  renderer:draw(presentation({ trainerId = 0 }), CANONICAL)
-  drawnGlyphs(graphics, "00000", 112 - 5 * 8, 24, 6 + 4 + 5 + 5 + 4 + 17 + 4)
+  renderer:draw(presentation({ visibleTrainerId = 0 }), CANONICAL)
+  drawnGlyphs(graphics, "00000", 112 - 5 * 8, 24, 6 + 4 + 5 + 5 + 4 + 17 + 4 + 1 + 4)
 end
 
--- The presentation carries only the implemented profile fields, so the card
--- draws exactly the audited labels plus the name and the five-digit id: no
--- money/score/time/adventure value rows are fabricated and the source-gated
--- pokedex row stays blank.
+-- The presentation carries the implemented profile fields, so the card draws
+-- the audited labels plus name, money, time, and the five-digit id. The source-
+-- gated score, adventure, and pokedex value rows stay blank.
 function T.draw_renders_the_authentic_blank_for_unimplemented_value_rows()
   local graphics = renderedGraphics()
   local renderer = cardRenderer(graphics)
@@ -280,8 +281,8 @@ function T.draw_renders_the_authentic_blank_for_unimplemented_value_rows()
       glyphDraws[#glyphDraws + 1] = draw
     end
   end
-  -- The six audited labels plus the name and the five-digit id only.
-  Assert.equal(#glyphDraws, 6 + 4 + 5 + 5 + 4 + 17 + 4 + 5)
+  -- The six audited labels plus name, money, time, and five-digit id.
+  Assert.equal(#glyphDraws, 6 + 4 + 5 + 5 + 4 + 17 + 4 + 1 + 4 + 5)
   -- Nothing below the last audited text row: the bottom band stays art-only.
   for _, draw in ipairs(glyphDraws) do
     Assert.isFalse(draw.y >= 160, "no text may enter the art-only band below the audited rows")

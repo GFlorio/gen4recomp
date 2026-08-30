@@ -27,6 +27,9 @@ local function sourceReferenceBankIds()
     ids[assert(bankId)] = true
   end
   ids[MenuProtocol.STANDARD_MESSAGE_BANK] = true
+  -- Oak's scripted opening introduction reads directly from this bank; see
+  -- FieldMessageCompiler's OAK_INTRO_MESSAGE_BANK.
+  ids[219] = true
   local out = {}
   for bankId in pairs(ids) do
     out[#out + 1] = bankId
@@ -68,9 +71,16 @@ local function fixture()
       { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
     }, 0x4000 + bankId)
   end
+  -- Bank 191 (the standard menu-items bank) and bank 219 (Oak's opening
+  -- introduction) are both required regardless of the map/script reference
+  -- set; serve them the same way, one short message each with its own key.
+  members[191] = FieldMessageBank.encodeForTests({
+    { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
+  }, 0xD191)
+  members[219] = FieldMessageBank.encodeForTests({
+    { 0x012F, 0x0150, 0x0151, 0x01DE, 0xFFFF },
+  }, 0xD219)
   local romFs = {
-    _version = "heartgold",
-    _metadata = { sha1 = "rom-sha" },
     resolvedNarc = function(_, alias)
       Assert.equal(alias, "messages")
       return { symbol = "NARC_msgdata_msg", alias = "messages", narcId = 27, fileId = 77, path = "a/0/2/7" }
@@ -94,7 +104,8 @@ local function fixture()
     version = function()
       return "heartgold"
     end,
-  } --[[@as RomFs]]
+  }
+  ---@cast romFs RomFs
   local function sha1(bytes)
     for bankId, memberBytes in pairs(members) do
       if bytes == memberBytes then
@@ -152,6 +163,9 @@ function T.source_references_form_one_sorted_bank_set()
     expected[assert(bankId)] = true
   end
   expected[MenuProtocol.STANDARD_MESSAGE_BANK] = true
+  -- Oak's scripted opening introduction reads directly from this bank; see
+  -- FieldMessageCompiler's OAK_INTRO_MESSAGE_BANK.
+  expected[219] = true
 
   Assert.deepEqual(required, sourceReferenceBankIds())
 

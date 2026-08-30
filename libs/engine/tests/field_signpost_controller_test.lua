@@ -50,7 +50,6 @@ local function layoutMessage(formatted)
 end
 
 -- Controller whose layout returns the message's precomputed lines verbatim.
----@param _ { tokens: MessageToken[] }[]
 ---@param opts { ticksPerGlyph: integer?, styleId: string? }?
 ---@return FieldSignpostController
 local function controller(_, opts)
@@ -106,7 +105,7 @@ end
 
 -- The high-level sign path routes a script-requested style id into the
 -- controller: setStyleId replaces the presentation style without touching
--- other state.
+-- any other state.
 function T.set_style_id_routes_the_requested_style()
   local c = controller({}, { styleId = "hgss.signpost" })
   c:setStyleId("mod.route_sign")
@@ -139,13 +138,13 @@ end
 -- The style id is routing data: malformed values are programming faults.
 function T.set_style_id_rejects_malformed_ids()
   local c = controller({})
-  local empty = ""
-  local number = 7
+  local empty = "" ---@type any
+  local number = 7 ---@type any
   Assert.throws(function()
     c:setStyleId(empty)
   end)
   Assert.throws(function()
-    c:setStyleId(number --[[@as string]])
+    c:setStyleId(number)
   end)
 end
 
@@ -204,7 +203,7 @@ function T.show_finishes_on_its_own_update_and_invents_no_text()
 end
 
 -- HIDE completes on its own audited source update and clears the active
--- presentation (window and printed text), resetting the stored BG offset
+-- presentation (window and any printed text), resetting the stored BG offset
 -- to 0 like the source case.
 function T.hide_finishes_on_its_own_update_and_clears_presentation()
   local c = controller({ line({ glyph("A", 1) }) })
@@ -301,8 +300,8 @@ end
 function T.rejects_an_unknown_command()
   local c = controller({})
   local err = Assert.throws(function()
-    local unknown = "explode"
-    c:setCommand(unknown --[[@as "nop"]])
+    local unknown = "explode" ---@type any
+    c:setCommand(unknown)
   end)
   Assert.isTrue(
     type(err) == "string" and err:find("unknown signpost command", 1, true) ~= nil,
@@ -380,7 +379,7 @@ function T.typed_print_reveals_at_the_injected_fixed_tick_cadence()
 end
 
 -- The reveal cadence is injected at construction (the runtime wires
--- FieldPlayerData.ticksPerGlyph); the controller has no fixed speed of its
+-- PlayerData.ticksPerGlyph); the controller has no fixed speed of its
 -- own.
 function T.injected_ticks_per_glyph_drives_the_reveal_cadence()
   local lines = { line({ glyph("A", 1), glyph("B", 2), glyph("C", 3) }) }
@@ -454,11 +453,12 @@ function T.layout_failure_rejects_the_print_and_preserves_prior_state()
   local lines = { line({ glyph("A", 1) }) }
   local failLayout = false
   local failing = FieldSignpostController.new({
-    layout = function(_)
+    layout = function(msg)
+      ---@cast msg any
       if failLayout then
         error("layout exploded", 0)
       end
-      return { lines = lines }
+      return { lines = msg._lines }
     end,
     policy = TextSpeedPolicy.forSpeed("mid"),
   })
@@ -475,13 +475,13 @@ end
 
 function T.rejects_a_print_request_without_a_token_stream()
   local c = controller({})
-  local noTokens = { bankId = 1 }
+  local noTokens = { bankId = 1 } ---@type any
   Assert.throws(function()
-    c:printInstant(noTokens --[[@as FieldMessageProvider.FormattedMessage]])
+    c:printInstant(noTokens)
   end, "print requires a token stream")
-  local notAMessage = "hello"
+  local notAMessage = "hello" ---@type any
   Assert.throws(function()
-    c:printTyped(notAMessage --[[@as FieldMessageProvider.FormattedMessage]])
+    c:printTyped(notAMessage)
   end, "print requires a token stream")
 end
 

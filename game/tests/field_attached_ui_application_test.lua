@@ -55,7 +55,13 @@ function T.trainer_card_draw_placement_identical_across_zooms()
   local textB = FieldTextRenderer.new({ cacheFs = cache, graphics = lgB })
   local rA = TrainerCardRenderer.new({ cacheFs = cache, manifest = manifest, text = textA, graphics = lgA })
   local rB = TrainerCardRenderer.new({ cacheFs = cache, manifest = manifest, text = textB, graphics = lgB })
-  local presentation = { name = "RED", trainerId = 12345 }
+  local presentation = {
+    name = "RED",
+    trainerId = 12345,
+    visibleTrainerId = 12345,
+    money = 0,
+    playTimeSeconds = 0,
+  }
   rA:draw(presentation, viewport)
   rB:draw(presentation, viewport)
   Assert.deepEqual(

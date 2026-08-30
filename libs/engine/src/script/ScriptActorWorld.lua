@@ -11,7 +11,7 @@
 ---@field getActor fun(self: ScriptActorManager, actorId: string): table|nil
 ---@field show fun(self: ScriptActorManager, actorId: string)
 ---@field hide fun(self: ScriptActorManager, actorId: string)
----@field setPosition fun(self: ScriptActorManager, actorId: string, position: table)
+---@field setPosition fun(self: ScriptActorManager, actorId: string, position: table, options: { scripted: boolean }?)
 ---@field setFacing fun(self: ScriptActorManager, actorId: string, direction: string)
 ---@field setMovementType fun(self: ScriptActorManager, actorId: string, movementType: string)
 ---@field setAnimationPaused fun(self: ScriptActorManager, actorId: string, paused: boolean)
@@ -21,8 +21,17 @@
 ---@field actorIdForMapIndex fun(self: ScriptActorManager, index: integer): string|nil
 ---@field cameraTargetId fun(self: ScriptActorManager): string|nil
 ---@field partnerId fun(self: ScriptActorManager): string|nil
+---@field beginScriptedAction fun(self: ScriptActorManager, actorId: string, action: table)
+---@field advanceScriptedAction fun(self: ScriptActorManager, actorId: string, progressTicks: integer, durationTicks: integer)
+---@field commitScriptedAction fun(self: ScriptActorManager, actorId: string)
+---@field settleScriptedAction fun(self: ScriptActorManager, actorId: string)
+---@field cancelScriptedMovement fun(self: ScriptActorManager, actorId: string)
+---@field isScriptedMoving fun(self: ScriptActorManager, actorId: string): boolean
+---@field syncEventStateChanges fun(self: ScriptActorManager)?
 
 -- The manager methods the actor world calls; every one must be present.
+-- `syncEventStateChanges` is forwarded only when the manager provides it, so
+-- lightweight fakes (e.g. binding tests) do not need to stub presence sync.
 local REQUIRED_MANAGER_METHODS = {
   "getActor",
   "show",
@@ -145,6 +154,10 @@ function ScriptActorWorld:hide(actorId)
   self._manager:hide(actorId)
 end
 
+-- Every position set reaching the manager through this adapter is
+-- script-driven (`ApplyMovement`/`set_object_position`); pinned source never
+-- checks inter-object collision during scripted movement, so the manager is
+-- told to skip its hard occupancy-conflict check for these calls.
 ---@param actorId string
 ---@param position table { fieldX, fieldZ, worldY? }
 function ScriptActorWorld:setPosition(actorId, position)
@@ -154,7 +167,7 @@ function ScriptActorWorld:setPosition(actorId, position)
     end
     return
   end
-  self._manager:setPosition(actorId, position)
+  self._manager:setPosition(actorId, position, { scripted = true })
 end
 
 ---@param actorId string
@@ -209,6 +222,75 @@ function ScriptActorWorld:getFacing(actorId)
   local facing = self._manager:getFacing(actorId)
   assert(facing ~= nil, "actor world facing missing for " .. actorId)
   return facing
+end
+
+function ScriptActorWorld:beginScriptedAction(actorId, action)
+  if actorId == "player" then
+    assert(self._player.beginScriptedAction, "player facade missing beginScriptedAction")
+    self._player:beginScriptedAction(action)
+    return
+  end
+  assert(self._manager.beginScriptedAction, "actor manager missing beginScriptedAction")
+  self._manager:beginScriptedAction(actorId, action)
+end
+
+function ScriptActorWorld:advanceScriptedAction(actorId, progressTicks, durationTicks)
+  if actorId == "player" then
+    assert(self._player.advanceScriptedAction, "player facade missing advanceScriptedAction")
+    self._player:advanceScriptedAction(progressTicks, durationTicks)
+    return
+  end
+  assert(self._manager.advanceScriptedAction, "actor manager missing advanceScriptedAction")
+  self._manager:advanceScriptedAction(actorId, progressTicks, durationTicks)
+end
+
+function ScriptActorWorld:commitScriptedAction(actorId)
+  if actorId == "player" then
+    assert(self._player.commitScriptedAction, "player facade missing commitScriptedAction")
+    self._player:commitScriptedAction()
+    return
+  end
+  assert(self._manager.commitScriptedAction, "actor manager missing commitScriptedAction")
+  self._manager:commitScriptedAction(actorId)
+end
+
+-- Settle presentation to idle once a movement plan is fully exhausted, when
+-- there is no further action to begin through beginScriptedAction (the usual
+-- locomotion-to-idle settle point). The player owns its own separate
+-- presentation state, so this is a no-op for "player" like the other
+-- actor-only presentation calls.
+---@param actorId string
+function ScriptActorWorld:settleAction(actorId)
+  if actorId == "player" then
+    return
+  end
+  assert(self._manager.settleScriptedAction, "actor manager missing settleScriptedAction")
+  self._manager:settleScriptedAction(actorId)
+end
+
+function ScriptActorWorld:cancelScriptedMovement(actorId)
+  if actorId == "player" then
+    assert(self._player.cancelScriptedMovement, "player facade missing cancelScriptedMovement")
+    self._player:cancelScriptedMovement()
+    return
+  end
+  assert(self._manager.cancelScriptedMovement, "actor manager missing cancelScriptedMovement")
+  self._manager:cancelScriptedMovement(actorId)
+end
+
+function ScriptActorWorld:isScriptedMoving(actorId)
+  if actorId == "player" then
+    assert(self._player.isScriptedMoving, "player facade missing isScriptedMoving")
+    return self._player:isScriptedMoving()
+  end
+  assert(self._manager.isScriptedMoving, "actor manager missing isScriptedMoving")
+  return self._manager:isScriptedMoving(actorId)
+end
+
+function ScriptActorWorld:syncPresence()
+  if self._manager.syncEventStateChanges then
+    self._manager:syncEventStateChanges()
+  end
 end
 
 ---@param actorId string

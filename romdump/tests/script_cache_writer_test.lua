@@ -12,7 +12,7 @@ local T = {}
 
 local function bundle()
   return {
-    marker = "script-cache-v2:rom-sha:dep-sha",
+    marker = "script-cache-v1:rom-sha:dep-sha",
     index = {
       schema = ScriptCache.INDEX_SCHEMA,
       version = "heartgold",
@@ -30,7 +30,6 @@ local function bundle()
       versionRomSha1 = "rom-sha",
       scrSeqNarc = { path = "a/0/1/2", sha1 = "archive-sha" },
     },
-    bindings = { schema = ScriptCache.BINDINGS_SCHEMA, maps = {} },
     coverageRecord = {
       source = { repository = "g4recomp", romSha1 = "rom-sha" },
       totals = {
@@ -88,8 +87,8 @@ T["write publishes marker last"] = function()
   signpost = signpost --[[@as { kind: string, id: string }]]
   Assert.equal(signpost.kind, "field_script")
   Assert.equal(signpost.id, "common.signpost")
-  Assert.equal(cache:read(ScriptCache.markerPath()), "script-cache-v2:rom-sha:dep-sha")
-  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v2:rom-sha:dep-sha"))
+  Assert.equal(cache:read(ScriptCache.markerPath()), "script-cache-v1:rom-sha:dep-sha")
+  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v1:rom-sha:dep-sha"))
 end
 
 -- 2. A missing script file fails readiness.
@@ -97,7 +96,7 @@ T["readiness requires every indexed script"] = function()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   ScriptCacheWriter.write(cache, bundle())
   cache:remove(ScriptCache.scriptPath("new_bark.lab_sign"))
-  Assert.isFalse(ScriptCache.isReady(cache, "script-cache-v2:rom-sha:dep-sha"))
+  Assert.isFalse(ScriptCache.isReady(cache, "script-cache-v1:rom-sha:dep-sha"))
 end
 
 -- 3. A readback failure rolls the whole class back (no partial cache).
@@ -131,16 +130,16 @@ T["failed rebuild preserves the previous script artifact"] = function()
     return original(self, path, data)
   end
   local second = bundle()
-  second.marker = "script-cache-v2:rom-sha:new-dep-sha"
+  second.marker = "script-cache-v1:rom-sha:new-dep-sha"
   Assert.throws(function()
     ScriptCacheWriter.write(cache, second)
   end)
-  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v2:rom-sha:dep-sha"), "the previous artifact remains ready")
-  Assert.equal(cache:read(ScriptCache.markerPath()), "script-cache-v2:rom-sha:dep-sha", "no new marker leaked")
+  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v1:rom-sha:dep-sha"), "the previous artifact remains ready")
+  Assert.equal(cache:read(ScriptCache.markerPath()), "script-cache-v1:rom-sha:dep-sha", "no new marker leaked")
   Assert.isNil(backend:getInfo("staging/heartgold/scripts"), "the stage is cleaned on failure")
   backend.write = original
   ScriptCacheWriter.write(cache, second)
-  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v2:rom-sha:new-dep-sha"), "a retry publishes the new artifact")
+  Assert.isTrue(ScriptCache.isReady(cache, "script-cache-v1:rom-sha:new-dep-sha"), "a retry publishes the new artifact")
   Assert.isNil(backend:getInfo("staging/heartgold/scripts"), "the stage is cleaned on success")
 end
 
@@ -160,7 +159,7 @@ T["publish failure keeps the stage with recovery material"] = function()
     return originalReplace(self, sourcePath, destinationPath)
   end
   local second = bundle()
-  second.marker = "script-cache-v2:rom-sha:new-dep-sha"
+  second.marker = "script-cache-v1:rom-sha:new-dep-sha"
   local err = Assert.throws(function()
     ScriptCacheWriter.write(cache, second)
   end)
@@ -168,7 +167,7 @@ T["publish failure keeps the stage with recovery material"] = function()
   Assert.notNil(backend:getInfo("staging/heartgold/scripts"), "the stage is not removed once publish has begun")
   Assert.equal(
     backend.files["staging/heartgold/scripts/" .. ScriptCache.dir() .. ".old/complete"],
-    "script-cache-v2:rom-sha:dep-sha",
+    "script-cache-v1:rom-sha:dep-sha",
     "the last-known-good script class stays in the stage as recovery material"
   )
 end

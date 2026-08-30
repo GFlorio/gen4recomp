@@ -30,6 +30,23 @@ local CATALOG = {
   maps = {},
 }
 
+local function loweredActorSteps(operands)
+  local instructions = {}
+  for index, operand in ipairs(operands) do
+    instructions[index] = {
+      opcode = 94,
+      operands = { operand, "@0010" },
+      offset = index * 4,
+    }
+  end
+  local lowered = SemanticLowering.lowerScript(
+    { instructions = instructions },
+    { member = 1, scripts = {}, movements = { [0x10] = { actions = {} } } },
+    { stdCatalog = SourceCatalog.catalog() }
+  )
+  return lowered.items
+end
+
 -- The lab-sign shape (member 843 script 9): PlaySE; LockAll; NPCMsg 97;
 -- WaitButton; CloseMsg; ReleaseAll; End.
 local function labSignMember()
@@ -85,12 +102,31 @@ T["lab sign fold shape"] = function()
   Assert.isTrue(report.complete)
 end
 
+T["opcode 609 lowers to the follower gate"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      { offset = 0x20, instructions = { { op = 609, args = {} }, { op = 2, args = {} } } },
+    },
+  })
+  local _, steps, report = translate(bytes, 845, 0)
+  Assert.equal(steps[1].op, "yield_tick")
+  Assert.isTrue(report.complete)
+end
+
+T["generated movement operands preserve local and player identities"] = function()
+  local items = loweredActorSteps({ 0, 1, "obj_player", 255 })
+  Assert.deepEqual(items[1].actor, { ref = "actor", mapIndex = 0 })
+  Assert.deepEqual(items[2].actor, { ref = "actor", mapIndex = 1 })
+  Assert.deepEqual(items[3].actor, { ref = "actor", special = "player" })
+  Assert.deepEqual(items[4].actor, { ref = "actor", special = "player" })
+end
+
 -- 2. Emission is deterministic and byte-stable, and the resource validates.
 T["emitter determinism and validation"] = function()
   local _, steps, report = translate(labSignMember(), 843, 0)
   local resource = {
     api = 1,
-    id = "new_bark.lab_sign",
+    id = "vanilla.hgss.scr_seq.0843.script_009",
     metadata = { coverage = { complete = report.complete, unsupportedCount = report.unsupportedCount } },
     steps = steps,
   }
@@ -297,6 +333,17 @@ T["move person facing emits position and facing"] = function()
   Assert.equal(steps[2].op, "set_object_facing")
   Assert.equal(steps[2].direction, "north")
   Assert.isNil(steps[1].sourceFacing, "no diagnostic facing field survives")
+
+  -- ScrCmd_MovePersonFacing (src/scrcmd_c.c) reads its operands in the order
+  -- objectId, x, y, z, direction -- the ground-plane Z field is the fourth
+  -- operand and the height is the third, even though the assembly macro
+  -- names its own third parameter "z" and fourth "y". The lowering must
+  -- follow the engine's read order, not the macro's cosmetic parameter
+  -- names, or a stationary NPC gets placed one axis off from every other
+  -- source of ground coordinates.
+  Assert.equal(steps[1].fieldX, 684, "field X is the second operand")
+  Assert.equal(steps[1].fieldZ, 0, "field Z is the fourth operand, not the third")
+  Assert.equal(steps[1].worldY, 393, "world Y (height) is the third operand, not the fourth")
 end
 
 -- 9. The verifier runs on the final structured program: a scrub that strips
@@ -876,6 +923,141 @@ T["unclassified sound commands stay attributed unsupported"] = function()
   Assert.equal(lowered.unsupported[1].originalName, "ScrCmd_086")
   local report = Verifier.verifyScript(Structurer.structure(lowered, 0), ir.scripts[0], ir, lowered.omissions)
   Assert.isFalse(report.complete)
+end
+
+-- No-follower opening semantics: opcode 729 (follower-active query) writes
+-- the explicit no-follower result to its destination variable instead of
+-- disappearing as a noop; opcodes 596/600 have no implemented follower
+-- subsystem, so they must stay attributed-unsupported rather than a
+-- fabricated successful no-op.
+T["opcode 729 writes the explicit no-follower result"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 729, args = { { value = 0x8008, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "set_var",
+    variable = { value = "var", id = "VAR_SPECIAL_x8008" },
+    value = 0,
+    provenance = { offsets = { 32 }, opcodes = { 729 } },
+  })
+  Assert.equal(#lowered.unsupported, 0)
+end
+
+-- Opcode 144 (GetFriendSprite) always has real semantics: the opposite-gender
+-- friend NPC sprite constant, independent of any follower subsystem.
+T["opcode 144 lowers to the friend sprite value"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 144, args = { { value = 0x8008, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "set_var",
+    variable = { value = "var", id = "VAR_SPECIAL_x8008" },
+    value = { value = "friend_sprite_value" },
+    provenance = { offsets = { 32 }, opcodes = { 144 } },
+  })
+  Assert.equal(#lowered.unsupported, 0)
+end
+
+-- Opcode 294 (CheckBadge) has no persisted gym-badge subsystem; every badge
+-- check in the fresh-game opening window is source-correctly false, the same
+-- explicit-result pattern as opcode 729's no-follower query.
+T["opcode 294 writes the explicit no-badge result"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 294, args = { { value = 0, width = 2 }, { value = 0x8008, width = 2 } } },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "set_var",
+    variable = { value = "var", id = "VAR_SPECIAL_x8008" },
+    value = 0,
+    provenance = { offsets = { 32 }, opcodes = { 294 } },
+  })
+  Assert.equal(#lowered.unsupported, 0)
+end
+
+T["opcodes 596 and 600 stay explicitly unsupported without a follower subsystem"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 596, args = { { value = 0x8008, width = 2 } } },
+          { op = 600, args = {} },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  Assert.equal(CommandCatalog.classification(596), CommandCatalog.UNSUPPORTED)
+  Assert.equal(CommandCatalog.classification(600), CommandCatalog.UNSUPPORTED)
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.equal(#lowered.unsupported, 2)
+  Assert.equal(lowered.unsupported[1].command, 596)
+  Assert.equal(lowered.unsupported[1].originalName, "ScrCmd_596")
+  Assert.equal(lowered.unsupported[2].command, 600)
+  Assert.equal(lowered.unsupported[2].originalName, "ScrCmd_600")
+end
+
+-- Opcode 582 (the source special-spawn setter) must lower to a named
+-- `set_special_spawn` node carrying map/coordinates/warpId/direction rather
+-- than disappearing as a noop.
+T["opcode 582 lowers to a named special-spawn setter"] = function()
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          {
+            op = 582,
+            args = { { value = 0x8008, width = 2 }, { value = 688, width = 2 }, { value = 393, width = 2 } },
+          },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.deepEqual(lowered.items[1], {
+    op = "set_special_spawn",
+    map = { value = "var", id = "VAR_SPECIAL_x8008" },
+    fieldX = 688,
+    fieldZ = 393,
+    warpId = -1,
+    direction = "south",
+    provenance = { offsets = { 32 }, opcodes = { 582 } },
+  })
+  Assert.equal(#lowered.unsupported, 0)
 end
 
 return { tests = T }

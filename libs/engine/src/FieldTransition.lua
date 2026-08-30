@@ -70,6 +70,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field fade FieldTransitionFade|nil
 ---@field fadeStarted boolean
 ---@field profileId integer|nil
+---@field facing FieldDirection
 ---@field transitionMode "fixed"|"environment"|"panel"|nil
 ---@field destinationFacing FieldDirection
 ---@field locked boolean
@@ -89,6 +90,7 @@ local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
 ---@field prepared table?
 ---@field sourceMap RuntimeFieldMap?
 ---@field sourceWarp table?
+---@field coveredSwap boolean -- true while a covered scripted swap owns the lifecycle: destination resolution/commit run, but no FieldTransitionFade is created or advanced because an external screen cover already owns visibility
 ---@field escalator table?
 ---@field destinationWarpX integer?
 ---@field destinationWarpZ integer?
@@ -141,6 +143,7 @@ function FieldTransition.new(options)
     activeProfileSound = nil,
     ownsPlayerAnimationPause = false,
     escalator = nil,
+    coveredSwap = false,
   }, FieldTransition)
 end
 
@@ -313,6 +316,7 @@ local function resetTransient(self)
   self.destinationStairPresentationStart = nil
   self.escalator = nil
   self.progressTicks = 0
+  self.coveredSwap = false
 end
 
 -- Keep the destination warp resolution as the logical anchor and retain the
@@ -345,6 +349,8 @@ local function adjustHorizontalStairDestination(self, resolution)
   self.destinationWarpZ = resolution.destinationWarp.z
 end
 
+-- Door arrivals stand on the floor immediately before the destination door;
+-- the warp record itself is the door anchor used for destination choreography.
 local function adjustVerticalDestination(self, resolution)
   self.destinationAnchorY = resolution.worldY
   local offset = self.profileId == FieldTransitionProfile.LADDER and -2 or 2
@@ -396,24 +402,24 @@ end
 
 -- Begin the source choreography: resolve the source door at the warp tile and
 -- start its opening animation. The scripted ingress step is NOT started here
--- -- it waits for the opening to finish (advanceSourceChoreo), per HGSS, and
--- a door-kind warp whose door does not resolve is a data-contract failure.
--- The door is a capability contract: a transition without a door resolver is
--- a headless caller stating it has no door choreography, so the door warp
--- degrades to a plain fade; a supplied resolver returning no door for a
--- required door is bad data. Stair warps instead take movement ownership with
--- their locked source step and do not use the door choreography. Stairs
--- require a player (production FieldRuntime always binds one): a missing
--- player is a programming fault.
+-- -- it waits for the opening to finish (advanceSourceChoreo), per HGSS.
+-- Every production composition supplies a real door resolver (headless or
+-- presentation), so a door-kind warp that fails to resolve a door -- whether
+-- because no resolver was supplied at all, or a supplied resolver returns
+-- none -- is a generated-data failure, not a headless capability gap: it
+-- raises rather than degrading to a plain fade or a synthetic open sound.
+-- Stair warps instead take movement ownership with their locked source step
+-- and do not use the door choreography. Stairs require a player (production
+-- FieldRuntime always binds one): a missing player is a programming fault.
 local function beginSourceChoreography(self)
   local kind = self.sourceKind
   if kind == "door" then
-    if not self.doorAt then
-      self.sourceChoreo = "done"
-      startFade(self, "out", 0)
-      return
-    end
-    local door = self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
+    -- A door-kind warp always requires a resolved door: production
+    -- FieldRuntime supplies a real resolver unconditionally (headless or
+    -- presentation), so an absent resolver is the same generated-data
+    -- failure as a resolver that returns no door for the tile -- neither
+    -- degrades to a plain fade or a synthetic open sound.
+    local door = self.doorAt and self.doorAt(self.sourceMap, self.sourceWarp.x, self.sourceWarp.z)
     if not door then
       Errors.raise(
         FieldErrors.MAP_TRANSITION_UNRESOLVED_SOURCE_DOOR,
@@ -672,12 +678,10 @@ local function finish(self)
   self.sourceMap, self.sourceWarp, self.resolution, self.prepared = nil, nil, nil, nil
 end
 
--- Begin a transition from a warp trigger record: the classified trigger
--- ({ kind, warp }) from the session's trigger paths, or a plain-fade record
--- ({ warp = warp }) from scripted warps, which carry no classification. The
--- kind is authoritative -- the transition never re-reads the permission grid
--- to classify the warp tile.
-function FieldTransition:start(sourceMap, trigger, facing)
+-- Shared setup for `start`/`startCoveredSwap`: validate preconditions and
+-- reset per-transition state common to both lifecycles. Each caller then
+-- sets its own remaining fields (profile vs covered-swap marker) and phase.
+local function beginTransition(self, sourceMap, trigger, facing)
   assert(self.phase == FieldTransition.PHASES.idle, "field transition already active")
   assert(sourceMap and trigger and trigger.warp and facing, "transition source, trigger, and facing required")
   resetTransient(self)
@@ -686,7 +690,6 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.sourceKind = trigger.kind
   self.transitionMode = nil
   self.destinationFacing = trigger.destinationFacing or facing
-  self.profileId, self.transitionMode = selectProfile(self, sourceMap, trigger)
   self.facing = facing
   self.resolution = nil
   self.suppression = nil
@@ -694,17 +697,35 @@ function FieldTransition:start(sourceMap, trigger, facing)
   self.error = nil
   self.warpContext = nil
   self.completed = nil
-  -- Invoke onStart callback once per transition start: this callback runs
-  -- before ownership changes and can fail coherently like other pre-commit
-  -- failures.
-  if self.onStart then
-    local ok, err = pcall(function()
-      self.onStart(sourceMap, trigger, facing)
-    end)
-    if not ok then
-      self:_abort(err)
-      return
-    end
+end
+
+-- Invoke the onStart callback once per transition start: this callback runs
+-- before ownership changes and can fail coherently like other pre-commit
+-- failures. Returns false (after aborting) when the callback failed.
+local function runOnStart(self, sourceMap, trigger, facing)
+  if not self.onStart then
+    return true
+  end
+  local ok, err = pcall(function()
+    self.onStart(sourceMap, trigger, facing)
+  end)
+  if not ok then
+    self:_abort(err)
+    return false
+  end
+  return true
+end
+
+-- Begin a transition from a warp trigger record: the classified trigger
+-- ({ kind, warp }) from the session's trigger paths, or a plain-fade record
+-- ({ warp = warp }) from scripted warps, which carry no classification. The
+-- kind is authoritative -- the transition never re-reads the permission grid
+-- to classify the warp tile.
+function FieldTransition:start(sourceMap, trigger, facing)
+  beginTransition(self, sourceMap, trigger, facing)
+  self.profileId, self.transitionMode = selectProfile(self, sourceMap, trigger)
+  if not runOnStart(self, sourceMap, trigger, facing) then
+    return
   end
 
   self.phase = FieldTransition.PHASES.fade_out
@@ -716,6 +737,29 @@ function FieldTransition:start(sourceMap, trigger, facing)
     end
   end
   runChoreo(self, beginSourceChoreography)
+end
+
+-- Begin a covered scripted map swap: the caller (ScriptMapsService) has
+-- already required its screen cover to be fully opaque before calling this,
+-- so no FieldTransitionFade is created or advanced here -- the
+-- source-authored FadeScreen/WaitFade already owns visibility. This still
+-- runs destination resolution/preparation/commit through the same
+-- `prepare`/`commit` callbacks as an ordinary transition, so map loader
+-- protection, player/camera construction, and error handling stay
+-- centralized; it skips straight to `load_destination` and finishes at the
+-- swap tick instead of running a fade-in phase.
+---@param sourceMap RuntimeFieldMap
+---@param trigger table { warp: table } -- scripted warps carry no trigger classification
+---@param facing FieldDirection
+function FieldTransition:startCoveredSwap(sourceMap, trigger, facing)
+  beginTransition(self, sourceMap, trigger, facing)
+  self.profileId = nil
+  self.coveredSwap = true
+  if not runOnStart(self, sourceMap, trigger, facing) then
+    return
+  end
+  self.locked = true
+  self.phase = FieldTransition.PHASES.load_destination
 end
 
 -- Restore a coherent idle state after failed destination preparation. Map
@@ -811,8 +855,16 @@ function FieldTransition:updateFixed()
     return false
   end
   if self.phase == FieldTransition.PHASES.swap_map then
-    assert(self.fadeAlpha == 1, "map swap must occur while fully black")
+    assert(self.coveredSwap or self.fadeAlpha == 1, "map swap must occur while fully black")
     self.commit(self.resolution, self.destinationFacing, self.prepared)
+    if self.coveredSwap then
+      -- The source-authored screen cover owns all visibility for this swap:
+      -- no ordinary fade-in, no door/profile choreography. Source `FadeScreen`
+      -- (the reveal) runs after the script's `Warp` completes, independent of
+      -- this transition.
+      finish(self)
+      return false
+    end
     if self.transitionMode == FieldTransitionProfile.MODE_PANEL then
       if self.onPanel then
         self.onPanel("enter")

@@ -30,7 +30,7 @@ local FieldErrors = require("libs.engine.src.FieldErrors")
 ---@field setWrap fun(self: GpuAssetPool.Image, wrapX: string, wrapY: string)
 ---@field release fun(self: GpuAssetPool.Image)
 ---@class GpuAssetPool.Graphics
----@field newImage fun(data: love.FileData): GpuAssetPool.Image
+---@field newImage fun(data: unknown): GpuAssetPool.Image
 ---@alias GpuAssetPool.MeshBuilder fun(decoded: table): GpuAssetPool.Mesh
 ---@alias GpuAssetPool.ImageBuilder fun(path: string): GpuAssetPool.Image
 ---@class GpuAssetPool
@@ -84,7 +84,7 @@ local function guarded(pool, fn, revert)
 end
 
 ---@class GpuAssetPoolOptions
----@field graphics? GpuAssetPool.Graphics|love.Graphics|love.graphics -- injectable graphics namespace (nil keeps love.graphics)
+---@field graphics? GpuAssetPool.Graphics|love.graphics -- injectable graphics namespace (nil keeps love.graphics)
 ---@field meshBuilder? GpuAssetPool.MeshBuilder -- replaces SceneMesh.build (headless tests)
 ---@field imageBuilder? GpuAssetPool.ImageBuilder -- replaces graphics texture construction (headless tests)
 

@@ -17,6 +17,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.engine.src.FieldErrors")
 local FieldDialogueTheme = require("libs.engine.src.FieldDialogueTheme")
+local DialoguePresentationLayout = require("libs.engine.src.DialoguePresentationLayout")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
 local FieldTextRenderer = require("libs.engine.src.FieldTextRenderer")
@@ -27,12 +28,15 @@ local FieldDrawState = require("libs.engine.src.FieldDrawState")
 ---@field _graphics love.Graphics|love.graphics
 ---@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
 ---@field _manifest table the generated field-UI manifest
+---@field _focusIndicatorEnabled boolean whether the source focus indicator is composed
 ---@field _frameImage love.Image?
 ---@field _cursorImage love.Image?
 ---@field _frameQuadCache table<integer, love.Quad[]>|nil per-frame tile quads, built lazily
 ---@field _cursorQuadCache table<integer, table<integer, love.Quad>>|nil
 local FieldDialogueRenderer = {}
 FieldDialogueRenderer.__index = FieldDialogueRenderer
+
+---@alias FieldDialogueRenderer.Layout FieldDialogueTheme.Layout|DialoguePresentationLayout.Presentation
 
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
 -- class (frame strip PNGs); opts.manifest: the already-validated generated
@@ -43,7 +47,7 @@ FieldDialogueRenderer.__index = FieldDialogueRenderer
 -- PNG bytes still enter through love.filesystem.newFileData); opts.theme:
 -- geometry record.
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics|love.graphics }
+---@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics|love.graphics, drawFocusIndicator?: boolean }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
   assert(
@@ -53,7 +57,7 @@ function FieldDialogueRenderer.new(opts)
   local theme = opts.theme or FieldDialogueTheme
   local graphics = opts.graphics
   if graphics == nil then
-    graphics = love and love.graphics
+    graphics = assert(love.graphics)
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldDialogueRenderer requires love.graphics")
   local text = opts.text
@@ -80,6 +84,7 @@ function FieldDialogueRenderer.new(opts)
     _graphics = graphics,
     _text = text,
     _manifest = manifest,
+    _focusIndicatorEnabled = opts.drawFocusIndicator ~= false,
     _frameImage = nil,
     _cursorImage = nil,
     _frameQuadCache = nil,
@@ -106,19 +111,18 @@ function FieldDialogueRenderer.new(opts)
   end
   local cursor = assert(manifest.dialogueFrames.continueCursor)
   local cursorAsset = assert(manifest.assets[cursor.asset])
-  local cursorPath = assert(cursorAsset.image, "the dialogue continuation cursor must name an image path")
-  local cursorData = cacheFs:read(cursorPath)
+  local cursorData = cacheFs:read(cursorAsset.image)
   if not cursorData then
     self:release()
     Errors.raise(
       FieldErrors.FIELD_UI_CONTINUE_CURSOR_MISSING,
-      "dialogue continuation cursor missing at " .. cursorPath,
-      { path = cursorPath }
+      "dialogue continuation cursor missing at " .. cursorAsset.image,
+      { path = cursorAsset.image }
     )
   end
   cursorData = assert(cursorData)
   local cursorOk, cursorErr = pcall(function()
-    self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, cursorPath))
+    self._cursorImage = graphics.newImage(love.filesystem.newFileData(cursorData, assert(cursorAsset.image)))
     self._cursorImage:setFilter("nearest", "nearest")
     self._cursorQuadCache = {}
     for style, styleEntry in pairs(cursor.styles) do
@@ -165,8 +169,8 @@ end
 -- boundary. Timing and phase selection belong to the controller.
 
 ---@param status FieldDialogueController.Status
----@param _ FieldDialogueTheme.Layout
-function FieldDialogueRenderer:_drawCursor(status, _)
+---@param layout FieldDialogueRenderer.Layout
+function FieldDialogueRenderer:_drawCursor(status, layout)
   if not status.waiting or status.cursorPhase == nil then
     return
   end
@@ -175,10 +179,10 @@ function FieldDialogueRenderer:_drawCursor(status, _)
   if frameIndex == nil then
     return
   end
-  local cursor = assert(self._manifest.dialogueFrames.continueCursor)
+  assert(self._manifest.dialogueFrames.continueCursor)
   local quads = assert(self._cursorQuadCache)[frameIndex]
   local quad = assert(quads)[status.cursorPhase]
-  local placement = cursor.placement
+  local placement = assert(layout.cursor, "dialogue layout must supply a cursor rectangle")
   lg.setColor(1, 1, 1, 1)
   lg.draw(assert(self._cursorImage), quad, placement.x, placement.y)
 end
@@ -191,7 +195,7 @@ end
 -- frame at all rather than inventing one.
 
 ---@param status FieldDialogueController.Status
----@param layout FieldDialogueTheme.Layout
+---@param layout FieldDialogueRenderer.Layout
 function FieldDialogueRenderer:_drawFrame(status, layout)
   local frameIndex = status.frameIndex
   if frameIndex == nil then
@@ -203,8 +207,10 @@ function FieldDialogueRenderer:_drawFrame(status, layout)
   local rect = frames.frameTiles[frameIndex]
   assert(rect ~= nil, "dialogue frame index " .. tostring(frameIndex) .. " is outside the generated frame set")
   local quads = self:_buildFrameQuads(frameIndex, rect)
+  local box = layout.box
+  ---@cast box FieldDialogueTheme.Rect
   lg.setColor(1, 1, 1, 1)
-  for _, placement in ipairs(self._theme.frameTilePlacements(layout.box)) do
+  for _, placement in ipairs(self._theme.frameTilePlacements(box)) do
     local tile = assert(quads[placement.tile])
     for row = 0, (placement.spanY or 1) - 1 do
       for col = 0, (placement.spanX or 1) - 1 do
@@ -222,8 +228,11 @@ end
 -- distinct source concepts and never suppress each other.
 
 ---@param status FieldDialogueController.Status
----@param layout FieldDialogueTheme.Layout
+---@param layout FieldDialogueRenderer.Layout
 function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
+  if not self._focusIndicatorEnabled then
+    return
+  end
   local lines = status.scrollLines or status.visibleLines
   local tokensByLine = {}
   for _, line in ipairs(lines) do
@@ -239,39 +248,66 @@ function FieldDialogueRenderer:_drawFocusIndicator(status, layout)
   end
 end
 
--- Draws the dialogue into viewport.referenceFrame at the field logical pixel
--- scale (viewport:logicalPixelScale(camera.zoom)). No-op (and no state
--- touched) when the controller is closed or this renderer is disposed.
+-- Draws the dialogue from a compact host presentation or into
+-- viewport.referenceFrame at the field logical pixel scale
+-- (viewport:logicalPixelScale(camera.zoom)). No-op (and no state touched)
+-- when the controller is closed or this renderer is disposed.
 -- Restores canvas, shader, scissor, blend, depth, wireframe, cull, and color
 -- afterwards so the HUD and host overlays draw normally. The fieldScale is
 -- presentation state, not controller state; it bottom-centers the 256x192
 -- surface and matches the world logical pixel scale.
 
 ---@param controller FieldDialogueController
----@param viewport { referenceFrame: FieldDialogueTheme.Rect }
----@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
-function FieldDialogueRenderer:draw(controller, viewport, fieldScale)
+---@param viewportOrPresentation { referenceFrame: FieldDialogueTheme.Rect }|FieldDialogueTheme.Layout|DialoguePresentationLayout.Presentation|nil
+---@param fieldScale number|nil field logical pixel scale (viewport:logicalPixelScale(camera.zoom))
+---@param presentation DialoguePresentationLayout.Presentation|nil compact host-owned dialogue placement
+function FieldDialogueRenderer:draw(controller, viewportOrPresentation, fieldScale, presentation)
   -- Inactive (closed) is a pure no-op and checks no scale precondition; an
   -- inactive draw must not touch graphics state or require presentation
   -- parameters. The scale is only required for the active path.
   if not controller or not controller:isModal() or not self._frameImage then
     return
   end
-  assert(
-    type(fieldScale) == "number"
-      and fieldScale > 0
-      and fieldScale == fieldScale
-      and fieldScale ~= math.huge
-      and fieldScale ~= -math.huge,
-    "FieldDialogueRenderer:draw requires a finite positive field scale"
-  )
+  ---@type FieldDialogueRenderer.Layout
+  local layout
+  if presentation ~= nil then
+    DialoguePresentationLayout.validate(presentation)
+    layout = presentation
+  elseif fieldScale == nil and viewportOrPresentation and viewportOrPresentation.bounds ~= nil then
+    ---@cast viewportOrPresentation DialoguePresentationLayout.Presentation
+    DialoguePresentationLayout.validate(viewportOrPresentation)
+    layout = viewportOrPresentation
+  elseif fieldScale == nil then
+    assert(viewportOrPresentation, "FieldDialogueRenderer:draw requires a layout or presentation")
+    -- Compact presentation can arrive as the second arg when fieldScale is
+    -- omitted; detect it by its bounds field. Theme layouts for dialogue must
+    -- already carry the generated cursor placement.
+    if viewportOrPresentation.bounds ~= nil then
+      layout = viewportOrPresentation --[[@as DialoguePresentationLayout.Presentation]]
+      DialoguePresentationLayout.validate(layout)
+    else
+      local themeLayout = viewportOrPresentation --[[@as FieldDialogueTheme.Layout]]
+      layout = themeLayout
+      assert(layout.cursor, "dialogue theme layout must carry generated cursor placement")
+    end
+  else
+    assert(
+      type(fieldScale) == "number"
+        and fieldScale > 0
+        and fieldScale == fieldScale
+        and fieldScale ~= math.huge
+        and fieldScale ~= -math.huge,
+      "FieldDialogueRenderer:draw requires a finite positive field scale"
+    )
+    local cursorPlacement = assert(self._manifest.dialogueFrames.continueCursor).placement
+    layout = self._theme.layout(assert(viewportOrPresentation).referenceFrame, fieldScale, cursorPlacement)
+  end
   local lg = assert(self._graphics)
   local status = controller:status()
   FieldDrawState.protectedDraw(lg, function()
     -- Everything draws in reference-canvas coordinates under one
     -- translate(origin) + scale transform; the theme never returns
     -- screen-mapped rects, so nothing is scaled twice.
-    local layout = self._theme.layout(viewport.referenceFrame, fieldScale)
     lg.translate(layout.origin.x, layout.origin.y)
     lg.scale(layout.scale, layout.scale)
     local background = self._text:windowBackgroundColor()

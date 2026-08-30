@@ -12,7 +12,7 @@ The repository is a small monorepo: top-level directories are applications you
 run; `libs/` holds the capabilities they share. Each app is its own LÖVE root.
 
 ```text
-game/         Interactive app — launcher, boot, and the field runtime (love game/)
+game/         Interactive app — launcher, product states, and field runtime (love game/)
 romdump/      Source ingestion + ROM-specific digestion + asset production (love romdump/)
 libs/assets/  Project-owned asset contracts (generated schemas, cache paths/readiness,
               modder-facing text forms)
@@ -35,6 +35,9 @@ manifests.
 
 ## Layers
 
+For the policy governing adaptation of dual-screen-derived interfaces to host
+displays, see [Dual-screen presentation layout](presentation-layout.md).
+
 Cutting across that layout, the code follows three conceptual layers. The domain
 layer is pure and testable without LÖVE; interface and infrastructure are
 allowed to depend on LÖVE and are kept thin. `romdump/src`, `libs/assets`,
@@ -56,8 +59,8 @@ state — they take a byte string and return a validated structure or a structur
 
 The interactive `game/main.lua` parses its flags with the pure `Options`
 parser, then hands off to `App`. The parser accepts only the documented
-options: unknown options, stray arguments, and the `--actors`/`--field`
-conflict are rejected with a message and exit status 2. Once the exact `--test`
+options: unknown options and stray arguments are rejected with a message and exit
+status 2. Once the exact `--test`
 token appears, the whole argv defers to the test command, which owns its own
 validation:
 
@@ -65,14 +68,12 @@ validation:
 love game/
   └─ love.load(argv)
        ├─ --test [options]        → run the test suite, exit 0/1/2
-       ├─ --field [map]           → boot the field runtime on a target map
        ├─ --actors                → boot the compiled field-actor preview grid
        ├─ --dev                   → enable the playtest HUD and F1/F2 binds
-       ├─ --new-field-session     → clear the selected version's save, then boot
        └─ (no flags)              → App inspects both version caches:
                                       0 ready → import screen
-                                      1 ready → that version's field runtime
-                                      2 ready → version selector → field runtime
+                                      1 ready → Main Menu
+                                      2 ready → version selector → Main Menu
 ```
 
 The headless `romdump/main.lua` parses with `Cli` and dispatches to `Runner`,
@@ -154,14 +155,14 @@ per-map visual, field-data, and terrain artifacts into `RuntimeFieldMap` views.
 
 `FieldResidencyCoordinator` is the logical residency authority after bootstrap
 for both seamless movement and discontinuous warps: it owns the logical ready
-set, published actor-map entries, and `FieldMapLoader` protection. For outdoor
-coverage, the committed/rendered physical set is a matrix-clipped 3x3 around
-the physical anchor, while the background-ready physical footprint is a
-matrix-clipped 5x5. Maps represented by that ready footprint may already have
-published actors without being physically projected; `reconcilePhysicalWorld`
-is the gate for physical occupancy and drawing. Only the active logical map
-drives scripts, weather, and active-map audio policy. Indoor maps can have an
-active logical resident without an outdoor 5x5 footprint.
+set and `FieldMapLoader` protection. For outdoor coverage, the committed/
+rendered physical set is a matrix-clipped 3x3 around the physical anchor, while
+the background-ready physical footprint is a matrix-clipped 5x5. Logical
+residency never constructs object actors: a resident map is loaded, protected,
+and composed data, and `reconcilePhysicalWorld` reprojects the one active actor
+entry when committed coverage recenters. Only the active logical map drives
+scripts, weather, active-map audio policy, and live actors. Indoor maps can
+have an active logical resident without an outdoor 5x5 footprint.
 
 Physical halo presentation is staged and advanced in bounded main-thread work;
 a cell is promoted to the ready set only after its presentation build completes.
@@ -177,7 +178,8 @@ presentation configuration. Interactive `FieldState` composes both; the
 acceptance layer boots `FieldRuntime` through its production harness with
 recording host adapters and an isolated save root, then stops before any GPU
 draw call. This keeps user-flow coverage on the real composition path while
-graphics smoke tests separately own actual shader, canvas, mesh, and image work.
+graphics smoke tests separately own actual shader, canvas, mesh, and image
+work.
 
 ### Field actors
 
@@ -186,7 +188,7 @@ the fixed-step session as two resource layers:
 
 ```text
 FieldEventState  (numeric flags/vars; the visibility authority)
-  └─ FieldActorManager  (object actors + occupancy, one entry per published map)
+  └─ FieldActorManager  (object actors + occupancy, one entry: the active map)
        ├─ FieldActorDefinitionProvider  (compiled non-GPU actor definitions)
        └─ FieldObjectActor              (source event + mutable runtime state)
 
@@ -202,16 +204,44 @@ actors in `FieldRuntime` and `FieldActorManager`. `FieldState` owns the GPU
 sprite. Published actor dependencies, rather than staging internals, determine
 when presentation assets need to change.
 
+`FieldActorManager:enterMap` is the only operation that constructs and
+publishes a map's object actors, and `FieldSession` decides when it runs. It
+builds and binds the destination entry while the previous entry is still live,
+publishes it, and only then retires the previous one, so a failed construction
+leaves the live actor world intact. `FieldSession` owns two map-entry modes: a
+full entry (initial boot or warp) runs transition init, actor activation, load
+init, presentation acknowledgement, and resume init; a seamless connection
+entry (a logical-zone change inside the committed physical world) runs only
+transition init and actor activation, stays presentable without a fade, and
+defers the arrival tile's event — its coordinate event, or the passive sign it
+faces — until activation completes. No map's actors are constructed before that
+map's transition-init lifecycle has run.
+
+A logical map that is not the active actor map owns no actor instances. Player
+collision and facing interaction answer such maps through
+`FieldActorManager:probeAt`, a read-only query over the destination's source
+events and the current event state that returns the same object identity
+(`actorId`, `objectEventId`, `sourceEvent`, `spriteId`) without publishing an
+actor map or acquiring a visual definition.
+
 An object exists only while its event flag is clear, matching the original
 engine. Flag writes are queued and applied at one point in the fixed tick —
 before movement reads occupancy — so the draw list and collision never disagree
 within a tick. An actor's raw ROM movement code is preserved on the actor and
 never executed; actors move only through script movement tasks.
-The developer fresh-field entry path starts event flags and variables clean;
-`data/manifests/field_spawns.lua` selects spawn configuration, not story-state
-seeding. Resuming a save restores its persisted event state. Clean fresh-field
-initialization is a runtime entry contract, not a claim about retail new-game
-story initialization.
+
+A fresh game starts event flags and variables clean: the game-owned
+`NewGame`, `OakIntroController`, and `OakGreetingPolicy` modules own the HGSS
+opening policy. `game/src/game/NewGame.lua`'s `createCandidate` coordinator
+builds the candidate from a fresh `FieldEventState`, a fixed starting
+`mapIdentity` supplied by `game/src/game/App.lua`, and
+`PlayerData.defaultOptions()`; there is no spawn-configuration data manifest.
+The Oak intro flow composes and finalizes that candidate with
+`NewGameInitialization.apply` before handing it to `FieldState`. Reusable
+primitives such as `PlayerData`, `PlayTime`, and `LocalClock` remain in
+`libs/engine`. Resuming a save restores its persisted event state instead.
+Clean fresh-field initialization is a runtime entry contract, not a claim about
+retail new-game story initialization.
 
 The player's movement decision order is collision, then terrain surface
 transition, then actor occupancy (`FieldPlayer` consults the manager's
@@ -234,7 +264,8 @@ FieldInteractionResolver  (pure; object-first, background-second priority)
 ```
 
 The facing physical surface is resolved first. The target logical map then owns
-the actor/background lookup at map seams: the target map's facing actor wins,
+the actor/background lookup at map seams, through the same live-or-probe actor
+lookup movement collision uses: the target map's facing object wins,
 then its source-order background event whose raw direction passes the pinned
 assembly's compatibility table (raw 4 wildcard; 0/1/2/3 accept
 {0,6}/{3,6}/{2,5}/{1,5}), then nothing. Occupancy retains the stable physical
@@ -244,18 +275,13 @@ skipped until collection state exists. Raw script ID zero is not filtered and
 can produce an intent; `Bindings.resolveIntent` canonicalizes it to
 `runtime.inert_interaction`.
 
-A resolved intent goes to `ScriptInteractionClient`, which looks the intent up
-in the generated bindings manifest, composes the bound script, and starts it as
-the foreground root on the scheduler so it runs during the trigger tick. The
-bindings are a generated derived-cache artifact at
-`ScriptCache.bindingsPath()`, covering the compiled field-event corpus under
-the current producer policy rather than a checked-in vanilla map table.
-`FieldScripts.new` builds `requiredMapIds` from every map in
-`mapLoader.world.maps`; its load-time `BindingAudit.check` validates required
-interactable bindings and checks each target against the registered script IDs.
-The generated registry stays lazy, so this audit does not eagerly decode every
-generated script. An unmapped intent at runtime is therefore a composition
-fault, never a silently absorbed Action press.
+A resolved intent goes to `ScriptInteractionClient`, which asks `Bindings` to
+derive the canonical generated script id straight from the intent's script
+bank and raw script id (no manifest, no load-time audit), composes the
+result, and starts it as the foreground root on the scheduler so it runs
+during the trigger tick. There is no fallback client: a missing generated
+composition is a runtime composition fault, never a silently absorbed Action
+press.
 
 ## Raw dump vs. derived data
 

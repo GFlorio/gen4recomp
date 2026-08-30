@@ -49,7 +49,7 @@ local function luaCache(backend)
     assert(ok, result)
     return result
   end
-  return {
+  local result = {
     read = function(_, path)
       return backend:read(path)
     end,
@@ -57,6 +57,8 @@ local function luaCache(backend)
       return loadLua(path)
     end,
   }
+  ---@cast result CacheFs
+  return result
 end
 
 -- The fake mesh builder for the loader's GPU seam: SceneMesh.decode output
@@ -105,7 +107,7 @@ end
 ---@param romFs table
 ---@param symbol string
 ---@param opts { editDescriptor?: fun(desc: table) }?
----@return { map: table, runtime: table }
+---@return { map: RuntimeFieldMap, runtime: table }
 function SceneLoaderFixture.loadScene(romFs, symbol, opts)
   opts = opts or {}
   local assets = assert(MapAssetCompiler.compile(romFs, symbol))
@@ -150,7 +152,7 @@ end
 -- step-finished). The harness also records the phase timeline, the walking
 -- pose-clock ticks, and played sounds, like the acceptance harness.
 ---@param versionId string
----@param opts { scenes: { [integer]: table }, spawn: { map: table, x: integer, z: integer, facing: string }, doorTiles?: { [integer]: { x: integer, z: integer } } }
+---@param opts { scenes: { [integer]: { map: RuntimeFieldMap } }, spawn: { map: RuntimeFieldMap, x: integer, z: integer, facing: string }, doorTiles?: { [integer]: { x: integer, z: integer } } }
 ---@return table harness
 function SceneLoaderFixture.newHarness(versionId, opts)
   local maps = {}
@@ -168,7 +170,6 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     protectMap = function() end,
   }
   local spawn = opts.spawn
-  ---@cast spawn { map: RuntimeFieldMap, x: integer, z: integer, facing: string }
   local player = FieldPlayer.new({
     currentMap = spawn.map,
     fieldX = spawn.x,
@@ -231,7 +232,6 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     updateFixed = function() end,
     collapseRenderInterpolation = function() end,
   }
-  ---@cast camera FieldCamera
   local playerVisual = {
     updateFixed = function(_, walking)
       if walking then
@@ -239,6 +239,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       end
     end,
   }
+  ---@cast camera FieldCamera
   ---@cast playerVisual FieldPlayerVisual
   local actors = { step = function() end }
   ---@cast actors FieldActorManager
@@ -265,8 +266,14 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
       step = function() end,
-      playerMovementLocked = function()
+      playerInputLocked = function()
         return false
+      end,
+      playerInputOwned = function()
+        return false
+      end,
+      foregroundEnvironmentId = function()
+        return nil
       end,
     },
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
@@ -300,6 +307,9 @@ function SceneLoaderFixture.newHarness(versionId, opts)
         return false
       end,
     },
+    bagUnlocked = function()
+      return true
+    end,
   })
   harness.session = session
   harness.transition = transition

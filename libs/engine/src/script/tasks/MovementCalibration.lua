@@ -43,6 +43,13 @@ MovementCalibration.FACE_TICKS = 1
 MovementCalibration.EMOTE_TICKS = 4
 MovementCalibration.GESTURE_TICKS = 4
 
+-- Vertical arc heights for jump presentation (world units / tiles).
+MovementCalibration.JUMP_HEIGHTS = {
+  zero = 0.5,
+  near = 0.9,
+  far = 1.2,
+}
+
 -- Resolve the tick duration of one movement action. The
 -- speed/distance enums are schema-constrained, so an unknown value is a
 -- programming invariant violation, never a silent default.

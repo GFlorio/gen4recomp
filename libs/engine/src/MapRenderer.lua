@@ -57,7 +57,7 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field newCanvas fun(width: integer, height: integer, opts?: table): MapRenderer.Canvas
 ---@field setCanvas fun(...: MapRenderer.RenderTarget?)
 ---@field getCanvas fun(): MapRenderer.RenderTarget?
----@field setShader fun(shader?: MapRenderer.Shader)
+---@field setShader fun(shader?: MapRenderer.Shader|love.Shader)
 ---@field setDepthMode fun(mode?: string, write?: boolean)
 ---@field setBlendMode fun(mode?: string, alpha?: string)
 ---@field setColor fun(red: number, green: number, blue: number, alpha: number)
@@ -66,7 +66,7 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field getDimensions fun(): integer, integer
 ---@field getBlendMode fun(): string?, string?
 ---@field getDepthMode fun(): string?, boolean?
----@field getShader fun(): MapRenderer.Shader?
+---@field getShader fun(): (MapRenderer.Shader|love.Shader)?
 ---@field getColor fun(): number, number, number, number
 ---@field getMeshCullMode fun(): string?
 ---@field setMeshCullMode fun(mode?: string)
@@ -75,11 +75,11 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@class MapRenderer
 ---@field _graphics MapRenderer.Graphics
 ---@field clearColor number[]
----@field shader MapRenderer.Shader
----@field spriteShader MapRenderer.Shader
+---@field shader MapRenderer.Shader|love.Shader
+---@field spriteShader MapRenderer.Shader|love.Shader
 ---@field _spriteShaderSource string
----@field worldShader MapRenderer.Shader
----@field edgeShader MapRenderer.Shader
+---@field worldShader MapRenderer.Shader|love.Shader
+---@field edgeShader MapRenderer.Shader|love.Shader
 ---@field _edgeColorsCache number[][]
 ---@field _edgeColorsProfile table<integer, integer>?
 ---@field _fogColorCache number[]
@@ -237,7 +237,6 @@ function MapRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics, "MapRenderer requires a graphics context")
-  ---@cast graphics MapRenderer.Graphics
   local translucencyMode = opts.translucencyMode or MapRenderer.TRANSLUCENCY_APPROXIMATE
   assert(
     translucencyMode == MapRenderer.TRANSLUCENCY_APPROXIMATE or translucencyMode == MapRenderer.TRANSLUCENCY_EXACT,

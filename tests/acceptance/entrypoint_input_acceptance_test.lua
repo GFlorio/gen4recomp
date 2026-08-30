@@ -15,6 +15,7 @@ local T = {
 }
 
 local CALLBACKS = {
+  "textinput",
   "gamepadaxis",
   "mousepressed",
   "mousemoved",
@@ -83,6 +84,7 @@ end
 function T.tests.love_input_callbacks_reach_app_with_the_complete_argument_tuple()
   local joystick = {}
   local cases = {
+    { "textinput", { "é" } },
     { "gamepadaxis", { joystick, "leftx", 0.75 } },
     { "mousepressed", { 12.5, 34.5, 1, true, 2 } },
     { "mousemoved", { 15.5, 36.5, 3, 2, false } },

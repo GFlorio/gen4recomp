@@ -22,8 +22,7 @@ local T = {}
 local function throwsCode(code, fn)
   local ok, err = pcall(fn)
   Assert.isFalse(ok, "expected a raised error")
-  ---@cast err Errors.Error
-  Assert.equal(err.code, code)
+  Assert.equal((err --[[@as Errors.Error]]).code, code)
 end
 
 -- A cache whose script class is complete: marker, index, and script files.
@@ -210,6 +209,12 @@ T["warmup completes and writes a loadable snapshot"] = function()
   local fs = overrideFs({})
   local key = RegistrySnapshot.key(cache, fs)
   Assert.notNil(key)
+  local publicationCount = 0
+  local originalWriteLua = cache.writeLua
+  cache.writeLua = function(self, path, value)
+    publicationCount = publicationCount + 1
+    return originalWriteLua(self, path, value)
+  end
   local registry = ScriptLoader.buildRegistry(cache, fs, requireShim, { lazy = true })
   local warmup = RegistryWarmup.new({
     registry = registry,
@@ -221,6 +226,7 @@ T["warmup completes and writes a loadable snapshot"] = function()
   local failure = warmup:finish()
   Assert.isNil(failure, tostring(failure and failure.message))
   Assert.isTrue(warmup:isComplete())
+  Assert.equal(publicationCount, 1, "warm-up publishes one snapshot artifact")
   local snapshot = cache:loadLua(RegistrySnapshot.FILE)
   Assert.notNil(snapshot, "warm-up must publish a loadable snapshot")
   ---@cast snapshot table
@@ -300,11 +306,34 @@ T["warmup records a failure on unparsable content"] = function()
     overrideFs = fs,
     snapshotKey = key,
   })
-  local failure = warmup:finish()
-  Assert.notNil(failure)
-  local errorObject = failure --[[@as Errors.Error]]
-  Assert.equal(errorObject.code, "SCRIPT_LOAD_FAILED")
+  local failure = assert(warmup:finish())
+  Assert.equal(failure.code, "SCRIPT_LOAD_FAILED")
   Assert.isNil(cache:read(RegistrySnapshot.FILE), "a failed warm-up must not publish a snapshot")
+end
+
+-- A failed snapshot publication must remain visible and must not mark the
+-- warm-up complete.
+T["warmup raises and remains incomplete when snapshot publication fails"] = function()
+  local cache = scriptCache()
+  local fs = overrideFs({})
+  local key = assert(RegistrySnapshot.key(cache, fs))
+  cache.backend.write = function()
+    return false, "injected write failure"
+  end
+  local registry = ScriptLoader.buildRegistry(cache, fs, requireShim, { lazy = true })
+  local warmup = RegistryWarmup.new({
+    registry = registry,
+    cacheFs = cache,
+    overrideFs = fs,
+    snapshotKey = key,
+  })
+
+  local err = Assert.throws(function()
+    warmup:finish()
+  end)
+
+  Assert.notNil(err)
+  Assert.isFalse(warmup:isComplete())
 end
 
 -- 12. Finish is idempotent: the second call returns nil and the digest is
