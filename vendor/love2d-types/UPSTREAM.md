@@ -1,3 +1,18 @@
+# Upstream provenance
+
+This directory contains a mechanically reduced snapshot of the LuaCATS LÖVE
+type declarations.
+
+Only API/interface metadata needed for static analysis is retained, including
+module and type names, function signatures, parameter and return types,
+overloads, inheritance relationships, aliases, and enum values.
+
+Human-readable documentation prose from the upstream generated files has been
+intentionally removed. In particular, free-form documentation comments and
+the descriptive `# ...` portions of LuaCATS annotations are not redistributed.
+
+The original snapshot provenance follows.
+
 # LuaCATS LÖVE definitions
 
 - Upstream repository: https://github.com/LuaCATS/love2d
