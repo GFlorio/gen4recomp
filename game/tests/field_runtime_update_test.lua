@@ -14,9 +14,9 @@ local T = {
 }
 
 -- The production script screen-fade controller is always composed and
--- always advanced from the same 60 Hz presentation-frame branch as the
--- ordinary transition fade; this fake records its own call marker so tests
--- can prove its timeline is identical regardless of audio composition.
+-- advances from the same post-field source-frame stage as the ordinary
+-- transition fade; this fake records its own call marker so tests can prove
+-- its timeline is identical regardless of audio composition.
 local function screenFadeFake(calls)
   return {
     fadeDone = function()
@@ -43,8 +43,6 @@ local function runtimeWithAudio(calls)
     end,
   }
   local runtime = setmetatable({
-    presentationFrameAccumulator = 0,
-    audioFrameAccumulator = 0,
     audio = audio,
     session = {
       accumulator = FieldSession.FIXED_DT - 1 / 60,
@@ -75,8 +73,6 @@ local function runtimeWithoutAudio(calls)
     consumeCompleted = function() end,
   }
   local runtime = setmetatable({
-    presentationFrameAccumulator = 0,
-    audioFrameAccumulator = 0,
     session = {
       accumulator = FieldSession.FIXED_DT - 1 / 60,
       updateFixed = function()
@@ -100,8 +96,6 @@ local function runtimeForSemanticCatchUp(counters)
   local playTime = PlayTime.new(0.9)
   playTime:start()
   return setmetatable({
-    presentationFrameAccumulator = 0,
-    audioFrameAccumulator = 0,
     audio = {
       updateSoundFrame = function()
         counters.audio = counters.audio + 1
@@ -139,20 +133,18 @@ local function runtimeForSemanticCatchUp(counters)
   }, FieldRuntime)
 end
 
-function T.tests.large_host_delta_is_bounded_across_semantic_clocks()
+function T.tests.large_host_delta_is_bounded_to_fixed_source_frames()
   local counters = { field = 0, presentation = 0, screenFade = 0, audio = 0 }
   local runtime = runtimeForSemanticCatchUp(counters)
 
   runtime:update(10)
 
   Assert.equal(counters.field, FieldSession.MAX_CATCH_UP_TICKS)
-  Assert.equal(counters.presentation, 10)
-  Assert.equal(counters.screenFade, 10)
-  Assert.equal(counters.audio, 10)
+  Assert.equal(counters.presentation, FieldSession.MAX_CATCH_UP_TICKS)
+  Assert.equal(counters.screenFade, FieldSession.MAX_CATCH_UP_TICKS)
+  Assert.equal(counters.audio, FieldSession.MAX_CATCH_UP_TICKS)
   Assert.equal(runtime.playTime:seconds(), 1)
   Assert.isTrue(runtime.session.accumulator < FieldSession.FIXED_DT)
-  Assert.isTrue(runtime.presentationFrameAccumulator < 1 / 60)
-  Assert.isTrue(runtime.audioFrameAccumulator < 1 / 60)
 end
 
 function T.tests.discarded_host_lag_is_not_replayed_on_the_next_update()
@@ -168,42 +160,37 @@ function T.tests.discarded_host_lag_is_not_replayed_on_the_next_update()
   runtime:update(1 / 60)
 
   Assert.equal(counters.field, 0)
-  Assert.equal(counters.presentation, 1)
-  Assert.equal(counters.screenFade, 1)
-  Assert.equal(counters.audio, 1)
-  Assert.isTrue(runtime.presentationFrameAccumulator < 1 / 60)
-  Assert.isTrue(runtime.audioFrameAccumulator < 1 / 60)
+  Assert.equal(counters.presentation, 0)
+  Assert.equal(counters.screenFade, 0)
+  Assert.equal(counters.audio, 0)
+  Assert.isTrue(runtime.session.accumulator < FieldSession.FIXED_DT)
 end
 
-function T.tests.transition_start_discards_stale_presentation_residual()
+function T.tests.transition_start_receives_post_field_source_frame()
   local calls = {}
   local runtime = runtimeWithoutAudio(calls)
 
   runtime:update(1 / 60)
-  Assert.deepEqual(calls, { "field" }, "the field boundary must precede a fresh transition presentation frame")
+  Assert.deepEqual(calls, { "field", "presentation", "screen_fade" })
   Assert.equal(runtime.transition.phase, "fade_out")
 
   runtime:update(1 / 60)
-  Assert.deepEqual(
-    calls,
-    { "field", "presentation", "screen_fade" },
-    "only elapsed time after transition start may produce its first presentation frame"
-  )
+  Assert.deepEqual(calls, { "field", "presentation", "screen_fade" })
 end
 
-function T.tests.audio_does_not_change_presentation_clock_order()
+function T.tests.audio_follows_post_field_presentation_stage()
   local calls = {}
   local runtime = runtimeWithAudio(calls)
 
   runtime:update(1 / 60)
   Assert.deepEqual(
     calls,
-    { "field", "audio" },
-    "field must precede tied audio and stale presentation must be discarded"
+    { "field", "presentation", "screen_fade", "audio" },
+    "post-field source-frame stages must run in source order"
   )
 
   runtime:update(1 / 60)
-  Assert.deepEqual(calls, { "field", "audio", "presentation", "screen_fade", "audio" })
+  Assert.deepEqual(calls, { "field", "presentation", "screen_fade", "audio" })
 end
 
 -- The script screen-fade source-frame cadence must not depend on whether an
@@ -236,8 +223,6 @@ end
 function T.tests.zero_delta_does_not_advance_any_clock()
   local calls = {}
   local runtime = setmetatable({
-    presentationFrameAccumulator = 0,
-    audioFrameAccumulator = 0,
     session = {
       accumulator = 0,
       updateFixed = function()
@@ -263,8 +248,7 @@ function T.tests.zero_delta_does_not_advance_any_clock()
 
   runtime:update(0)
   Assert.deepEqual(calls, {})
-  Assert.equal(runtime.presentationFrameAccumulator, 0)
-  Assert.equal(runtime.audioFrameAccumulator, 0)
+  Assert.equal(runtime.session.accumulator, 0)
 end
 
 return T

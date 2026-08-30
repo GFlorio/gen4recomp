@@ -1,6 +1,6 @@
 -- The pure semantic controller behind source `FadeScreen`/`WaitFade`. It
 -- advances only from an explicit `updateSourceFrame()` call driven by the
--- 60 Hz presentation clock; nothing here reads a renderer or an audio
+-- ordinary source-frame cadence; nothing here reads a renderer or an audio
 -- service, so the same timeline holds headless and in presentation.
 -- Pure domain module: no love dependency.
 

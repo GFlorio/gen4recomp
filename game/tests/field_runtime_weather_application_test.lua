@@ -129,7 +129,6 @@ local function runtimeWithClock(catalog, calls, currentMap)
     end,
   }
   return setmetatable({
-    presentationFrameAccumulator = 0,
     weatherCatalog = catalog,
     weatherClock = clock,
     eventState = FieldEventState.new(),

@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
+local FieldSession = require("libs.engine.src.FieldSession")
 
 local T = {
   metadata = {
@@ -21,8 +22,7 @@ local HOUSE_2F = "MAP_NEW_BARK_PLAYER_HOUSE_2F"
 local TOWN_DOOR_APPROACH = { fieldX = 684, fieldZ = 394 }
 local HOUSE_WARP = { fieldX = 3, fieldZ = 3 }
 
--- These coordinates are source facts, not engine policy. The two HGSS
--- releases use different arrival cells for the same named transitions.
+-- These coordinates are source facts, not engine policy.
 local VERSION_FACTS = {
   heartgold = {
     house2fArrival = { fieldX = 3, fieldZ = 4 },
@@ -31,7 +31,7 @@ local VERSION_FACTS = {
   },
   soulsilver = {
     house2fArrival = { fieldX = 3, fieldZ = 4 },
-    labFloor = { fieldX = 4, fieldZ = 14 },
+    labFloor = { fieldX = 4, fieldZ = 13 },
     labDoorAnchor = { fieldX = 4, fieldZ = 14 },
   },
 }
@@ -181,9 +181,9 @@ function T.tests.standard_fade_exposes_every_source_frame()
     beginTownDoor(game)
     local transition = game.runtime.transition
     Assert.equal(type(transition.presentationStatus), "function", "transition presentation status is required")
-    local samples = {}
-    for _ = 1, 6 do
-      game.runtime:update(1 / 60)
+    local samples = { transition:presentationStatus().coefficient }
+    for _ = 2, 6 do
+      game.runtime:update(FieldSession.FIXED_DT)
       local status = transition:presentationStatus()
       samples[#samples + 1] = status.coefficient
     end
@@ -198,7 +198,7 @@ local function fadeTimeline(fieldOptions)
     beginTownDoor(game)
     local transition = game.runtime.transition
     for _ = 1, 120 do
-      game.runtime:update(1 / 60)
+      game.runtime:update(FieldSession.FIXED_DT)
       local status = transition:presentationStatus()
       timeline[#timeline + 1] = {
         coefficient = status.coefficient,

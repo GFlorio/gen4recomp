@@ -425,7 +425,7 @@ function FieldAudioController:_applyOrDeferFieldMusicTarget(target, durationFram
   end
 end
 
--- Delegates to GameSound:updateSoundFrame() for 60 Hz sound-frame clock
+-- Delegates to GameSound:updateSoundFrame() for one ordinary source frame.
 function FieldAudioController:updateSoundFrame()
   self._sound:updateSoundFrame()
   local pending = self._pendingFieldMusicPolicy

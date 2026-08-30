@@ -11,8 +11,6 @@ local T = {}
 local function runtimeWithTransitionError(transitionError)
   local calls = { warmup = 0, session = 0 }
   local runtime = setmetatable({
-    presentationFrameAccumulator = 0,
-    audioFrameAccumulator = 0,
     scripts = {
       warmup = {
         update = function()

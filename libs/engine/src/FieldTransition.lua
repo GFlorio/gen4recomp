@@ -280,7 +280,7 @@ local function advanceFade(self)
   if not self.fadeStarted or not self.fade then
     return
   end
-  self.fade:update60()
+  self.fade:updateSourceFrame()
   self.fadeAlpha = self.fade:status().coefficient / 16
 end
 
@@ -918,9 +918,9 @@ function FieldTransition:updateFixed()
   assert(false, "unknown field transition phase")
 end
 
--- Advances the presentation clock by exactly one source frame. Field
--- simulation calls updateFixed separately, so fade cadence cannot depend on
--- the 30 Hz simulation clock or on whether an audio service is composed.
+-- Advances the transition fade by exactly one source frame. Field simulation
+-- calls updateFixed separately, and FieldRuntime composes the source-frame
+-- order after each fixed field tick.
 function FieldTransition:updateSourceFrame()
   if self.phase == FieldTransition.PHASES.idle then
     return false

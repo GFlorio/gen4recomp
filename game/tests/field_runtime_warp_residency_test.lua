@@ -173,7 +173,6 @@ local function fixture(options)
         return nil
       end,
     },
-    presentationFrameAccumulator = 0,
   }, FieldRuntime)
   return {
     actors = actors,

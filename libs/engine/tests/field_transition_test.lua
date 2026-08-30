@@ -34,11 +34,11 @@ local function step(transition)
   return transition:updateFixed()
 end
 
-function T.standard_fade_uses_the_source_60_hz_recurrence()
+function T.standard_fade_uses_the_source_frame_recurrence()
   local fade = FieldTransitionFade.new({ direction = "out" })
   local coefficients = {}
   for _ = 1, 6 do
-    coefficients[#coefficients + 1] = fade:update60()
+    coefficients[#coefficients + 1] = fade:updateSourceFrame()
   end
   Assert.deepEqual(coefficients, { 2, 5, 7, 10, 13, 16 })
   Assert.isTrue(fade:status().completed)

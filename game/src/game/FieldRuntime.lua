@@ -201,9 +201,7 @@ end
 ---@field audio FieldAudioController? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
----@field screenFade FieldScriptScreenFade the production semantic script screen-fade controller (fade_screen/wait_fade); always composed, advanced only from the 60 Hz presentation-frame branch of update()
----@field presentationFrameAccumulator number elapsed wall-clock time awaiting transition presentation frames
----@field audioFrameAccumulator number elapsed wall-clock time awaiting semantic sound frames
+---@field screenFade FieldScriptScreenFade the production semantic script screen-fade controller (fade_screen/wait_fade); always composed, advanced once after each field tick
 ---@field localClock LocalClock the shared host-local civil-time boundary
 ---@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 ---@field fieldEntranceIndicator FieldEntranceIndicator
@@ -224,14 +222,6 @@ FieldRuntime.__index = FieldRuntime
 -- the LÖVE sink render at this rate, the DS SPU rate; source waves are
 -- ratio-scaled, so the pitch is preserved at any output rate).
 local AUDIO_SAMPLE_RATE = 32768
--- The 60 Hz sound-frame clock: FieldRuntime owns deterministic sound-frame
--- advancement independent of the field's 30 Hz simulation tick.
-local AUDIO_FRAME_HZ = 60
-local AUDIO_FRAME_DT = 1 / AUDIO_FRAME_HZ
--- The 60 Hz transition presentation clock is independent from field
--- simulation and semantic audio progression.
-local PRESENTATION_FRAME_HZ = 60
-local PRESENTATION_FRAME_DT = 1 / PRESENTATION_FRAME_HZ
 local CAMERA_PROFILES_PATH = FieldCameraCache.profilesPath()
 ---@return table<string, boolean>
 local function actionBindings()
@@ -558,11 +548,6 @@ function FieldRuntime.new(game, options)
     weatherClock = options.weatherClock,
     errorText = nil,
     zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
-    -- The 60 Hz sound-frame accumulator: wall-clock elapsed time the update
-    -- loop converts into due semantic sound frames, one per complete
-    -- 1/60-second interval.
-    audioFrameAccumulator = 0,
-    presentationFrameAccumulator = 0,
   }, FieldRuntime)
   self.weatherClock = self.weatherClock or defaultWeatherClock(self.localClock)
   self:_load()
@@ -570,13 +555,6 @@ function FieldRuntime.new(game, options)
 end
 
 function FieldRuntime:_load()
-  -- The 60 Hz audio accumulator is transient wall-clock state and starts
-  -- clean on every boot: a reset re-boots through _load, so a stale
-  -- pre-reset residue must never carry into the fresh runtime.
-  self.audioFrameAccumulator = 0
-  -- Presentation and audio accumulators are transient wall-clock state and
-  -- start clean on every boot.
-  self.presentationFrameAccumulator = 0
   local ok, err = pcall(function()
     local cacheFs = CacheFs.forVersion(self.versionId)
     self.cacheFs = cacheFs
@@ -833,9 +811,8 @@ function FieldRuntime:_load()
 
     -- The production script screen-fade controller (fade_screen/wait_fade):
     -- composed unconditionally so every supported field script has it,
-    -- regardless of presentation mode or scriptHosts injection. Advanced only
-    -- from the 60 Hz presentation-frame branch below; rendering only reads
-    -- its status().
+    -- regardless of presentation mode or scriptHosts injection. Rendering
+    -- only reads its status().
     self.screenFade = FieldScriptScreenFade.new()
 
     -- Modal dialogue is pure and fixed-tick. Runtime layout needs only the
@@ -1149,60 +1126,24 @@ function FieldRuntime:update(dt)
   if self.scripts.warmup then
     self.scripts.warmup:update()
   end
-  self.presentationFrameAccumulator = self.presentationFrameAccumulator + acceptedDt
   self.session.accumulator = self.session.accumulator + acceptedDt
-  if self.audio then
-    self.audioFrameAccumulator = self.audioFrameAccumulator + acceptedDt
-  end
   local FIXED_DT = FieldSession.FIXED_DT
   local MAX_CATCH_UP = FieldSession.MAX_CATCH_UP_TICKS
   local EPSILON = 1e-12
   local fieldExecuted = 0
-  while true do
-    local canPresentation = self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
-    local canField = self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP
-    local canAudio = self.audio ~= nil and self.audioFrameAccumulator + EPSILON >= AUDIO_FRAME_DT
-    if not canPresentation and not canField and not canAudio then
+  while self.session.accumulator + EPSILON >= FIXED_DT and fieldExecuted < MAX_CATCH_UP do
+    self.session.accumulator = self.session.accumulator - FIXED_DT
+    self.session:updateFixed()
+    fieldExecuted = fieldExecuted + 1
+    if self.applicationHost:error() and not self.errorText then
+      self.errorText = tostring(self.applicationHost:error())
+    end
+    if self.errorText then
       break
     end
-    local nextPresentationDelta = PRESENTATION_FRAME_DT - self.presentationFrameAccumulator
-    local nextFieldDelta = FIXED_DT - self.session.accumulator
-    local nextAudioDelta = self.audio and AUDIO_FRAME_DT - self.audioFrameAccumulator or math.huge
-    -- A field tick at the same timestamp starts the transition before its
-    -- source-frame presentation; presentation precedes audio on a tie.
-    if
-      canPresentation
-      and (not canField or nextPresentationDelta < nextFieldDelta)
-      and (not canAudio or nextPresentationDelta <= nextAudioDelta)
-    then
-      self.presentationFrameAccumulator = self.presentationFrameAccumulator - PRESENTATION_FRAME_DT
-      self.transition:updateSourceFrame()
-      self.screenFade:updateSourceFrame()
-    elseif canField and (not canAudio or nextFieldDelta <= nextAudioDelta) then
-      local transitionWasIdle = self.transition.phase == FieldTransition.PHASES.idle
-      local screenFadeWasDone = self.screenFade:fadeDone()
-      self.session.accumulator = self.session.accumulator - FIXED_DT
-      self.session:updateFixed()
-      fieldExecuted = fieldExecuted + 1
-      if
-        (
-          (transitionWasIdle and self.transition.phase ~= FieldTransition.PHASES.idle)
-          or (screenFadeWasDone and not self.screenFade:fadeDone())
-        ) and self.presentationFrameAccumulator + EPSILON >= PRESENTATION_FRAME_DT
-      then
-        -- Presentation time before this boundary belongs to the old field
-        -- state and must not become the first frame of the new transition or
-        -- script screen fade.
-        self.presentationFrameAccumulator = 0
-      end
-      if self.applicationHost:error() and not self.errorText then
-        self.errorText = tostring(self.applicationHost:error())
-      end
-      if self.errorText then
-        break
-      end
-    else
-      self.audioFrameAccumulator = self.audioFrameAccumulator - AUDIO_FRAME_DT
+    self.transition:updateSourceFrame()
+    self.screenFade:updateSourceFrame()
+    if self.audio then
       self.audio:updateSoundFrame()
     end
   end

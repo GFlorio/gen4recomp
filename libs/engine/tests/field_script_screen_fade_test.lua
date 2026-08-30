@@ -1,6 +1,6 @@
 -- FieldScriptScreenFade: the pure semantic controller behind source
 -- `FadeScreen`/`WaitFade`. It advances only from an explicit
--- `updateSourceFrame()` call (the 60 Hz presentation clock owns cadence);
+-- `updateSourceFrame()` call (the runtime composition owns cadence);
 -- nothing here reads a renderer or an audio service.
 --
 -- The module is required per-test (not at file scope) so a missing module

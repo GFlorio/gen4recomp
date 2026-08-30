@@ -457,7 +457,7 @@ end
 -- save-stability predicate (transient audio is discarded on load and the
 -- restored wait tasks complete against the fresh service), so a collaborator
 -- that only provides field-policy work is complete. A session without audio
--- has no audio collaborator at all. The session must never require the 60 Hz
+-- has no audio collaborator at all. The session must never require a separate
 -- sound-frame method: the wall-clock audio clock is not a session
 -- collaborator.
 function T.audio_collaborator_requires_field_policy_and_effect_playback()
@@ -2686,7 +2686,7 @@ function T.audio_update_field_runs_once_per_completed_step_before_early_returns(
 end
 
 -- The session's audio work is limited to field policy and semantic effects: an
--- audio collaborator that records both calls and exposes no 60 Hz sound-frame
+-- audio collaborator that records both calls and exposes no separate sound-frame
 -- method proves the session never touches the wall-clock audio clock. A
 -- completing-step tick runs the field event once; idle/modal ticks do not.
 function T.field_policy_runs_once_per_completed_step_and_never_touches_the_sound_frame_clock()

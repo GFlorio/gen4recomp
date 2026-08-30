@@ -191,8 +191,6 @@ function T.warp_completion_does_not_request_an_implicit_save()
   local saveRequests = 0
   local completionConsumed = false
   local runtime = setmetatable({
-    presentationFrameAccumulator = 0,
-    audioFrameAccumulator = 0,
     scripts = {},
     session = {
       accumulator = 0,

@@ -20,9 +20,9 @@
 -- The resolve service is invoked with the interactions table as self (colon
 -- style), so implementations must declare a leading self parameter.
 --
--- The session owns no 60 Hz audio timing: its audio collaborator receives
--- field-policy updates at semantic boundaries and semantic effects from field
--- traversal. The 60 Hz sound-frame clock is the runtime's wall-clock accumulator.
+-- The session owns field-policy audio updates at semantic boundaries and
+-- semantic effects from field traversal. FieldRuntime composes global sound
+-- frame work after each fixed field tick.
 
 local TransitionTrigger = require("libs.engine.src.TransitionTrigger")
 local WarpSystem = require("libs.engine.src.WarpSystem")

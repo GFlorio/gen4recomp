@@ -1,5 +1,5 @@
--- Owns the fixed-point standard field fade recurrence at the source's 60 Hz
--- cadence. Rendering consumes the exposed coefficient; it does not advance it.
+-- Owns the fixed-point standard field fade recurrence one source frame at a
+-- time. Rendering consumes the exposed coefficient; it does not advance it.
 
 ---@class FieldTransitionFade
 ---@field coefficient integer
@@ -27,7 +27,7 @@ function FieldTransitionFade.new(options)
   }, FieldTransitionFade)
 end
 
-function FieldTransitionFade:update60()
+function FieldTransitionFade:updateSourceFrame()
   if self.completed then
     return self.coefficient
   end

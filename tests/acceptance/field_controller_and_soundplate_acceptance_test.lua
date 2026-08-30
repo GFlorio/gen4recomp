@@ -6,6 +6,7 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
+local FieldSession = require("libs.engine.src.FieldSession")
 
 local T = {
   metadata = {
@@ -92,10 +93,10 @@ function T.tests.warp_to_different_field_music_starts_a_forty_frame_pre_fade()
       audio:beginWarp("MAP_NEW_BARK")
       Assert.isTrue(audio:isMusicFadeActive(), "a different destination header must start the pre-fade")
       for _ = 1, 39 do
-        game.runtime:update(1 / 60)
+        game.runtime:update(FieldSession.FIXED_DT)
       end
       Assert.isTrue(audio:isMusicFadeActive(), "the forty-frame pre-fade must still be active before its final frame")
-      game.runtime:update(1 / 60)
+      game.runtime:update(FieldSession.FIXED_DT)
       Assert.isFalse(
         audio:isMusicFadeActive(),
         "the forty-frame pre-fade must complete after exactly forty sound frames"

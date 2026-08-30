@@ -85,8 +85,8 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 ---@field level integer
 ---@field ramp GameSoundFaderRamp?
 
--- A single ramp owning one logical player's canonical-handle fader for `durationFrames` 60 Hz sound
--- frames. `start` is the applied level at creation; `target` is the source
+-- A single ramp owning one logical player's canonical-handle fader for
+-- `durationFrames` source frames. `start` is the applied level at creation; `target` is the source
 -- volume-domain goal (may be the full-restore spelling 128); the applied
 -- level interpolates with the source cDiv formula and is normalized to
 -- 0..127 only when it reaches SequencePlayer:setFader.
@@ -106,9 +106,9 @@ local NnsSoundMath = require("libs.engine.src.audio.NnsSoundMath")
 local GameSound = {}
 GameSound.__index = GameSound
 
--- The post-fanfare wait interval in sound frames at 60 Hz: HGSS PlayFanfare
+-- The post-fanfare wait interval in ordinary source frames: HGSS PlayFanfare
 -- sets a u16 timer to 0x0F and the fanfare stays "playing" until it counts
--- down after the fanfare player stops. At 60 Hz, 15 frames = 250 ms.
+-- down after the fanfare player stops. At 30 Hz, 15 frames is about 500 ms.
 local FANFARE_POST_WAIT_FRAMES = 15
 
 -- The strict handle fader domain (SequencePlayer:setHandleFader asserts 0..127)
@@ -518,14 +518,14 @@ function GameSound:temporaryMusic(idOrSymbol)
   self._currentMusic = sequence.id
 end
 
--- Advances the game-semantic audio state once per 60 Hz sound frame: the
+-- Advances the game-semantic audio state once per ordinary source frame: the
 -- fanfare post-play wait (and the resume it ends with) first, then the
 -- per-player fader ramps. The fanfare runs before the ramps so the
 -- fanfare-completion frame decides whether a script music fade stays frozen:
 -- while a fanfare is active the HGSS DoSoundUpdateFrame trace only
 -- decrements the fade timer when no fanfare is playing, so the music fade
 -- ramp is skipped while generic ramps keep advancing (only the script music
--- fade carries the freeze). Called by FieldRuntime at 60 Hz frequency.
+-- fade carries the freeze).
 function GameSound:updateSoundFrame()
   if self._fanfare ~= nil and not self._player:isPlayerPlaying(self._fanfare.playerId) then
     self._fanfare.frames = self._fanfare.frames - 1
@@ -592,7 +592,7 @@ function GameSound:_completeFanfare()
 end
 
 -- Moves a sequence's player fader to the target level over the duration in
--- 60 Hz sound frames using frame-exact linear interpolation. The target is
+-- source frames using frame-exact linear interpolation. The target is
 -- an integer in the source volume domain 0..128: the HGSS full-restore
 -- spelling 128 is accepted (and normalized to player level 127 at the apply
 -- boundary) while any other out-of-domain value is a programming-contract
@@ -612,7 +612,7 @@ function GameSound:moveSequenceVolume(idOrSymbol, target, durationFrames)
 end
 
 -- Stops a sequence's player after fading to silence over the duration in
--- 60 Hz sound frames. The player stops only after the final ramp frame has
+-- source frames. The player stops only after the final ramp frame has
 -- applied level 0. Used by soundplate environmental audio to fade out
 -- before stopping.
 ---@param idOrSymbol integer|string
