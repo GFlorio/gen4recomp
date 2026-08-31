@@ -82,4 +82,24 @@ function T.tests.script_execution_preserves_values_conditions_and_task_order()
   end)
 end
 
+function T.tests.injected_scripts_survive_capture_and_restart()
+  local harness = AcceptanceHarness.new()
+  harness:forEachVersion(function(versionId)
+    withGame(versionId, function(game)
+      game:waitForFieldReady()
+      game:startScript(SCRIPT_ID)
+      game:advanceUntil("injected script completion before restart", function(snapshot)
+        return not snapshot.fieldLocked
+      end, 120)
+      game:waitForFieldReady()
+
+      game:restart()
+      local resumed = game:waitForFieldReady()
+      Assert.equal(resumed.versionId, versionId, "restart must preserve the selected HGSS version")
+      Assert.equal(resumed.mapSymbol, "MAP_NEW_BARK", "restart must restore the captured field map")
+      Assert.isNil(game.runtime.errorText, "restart must leave the field runtime usable")
+    end)
+  end)
+end
+
 return T

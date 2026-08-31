@@ -167,7 +167,7 @@ end
 
 ---@class FieldRuntime
 ---@field versionId string
----@field overrideFs table? read-shaped repository filesystem override
+---@field overrideFs table read-shaped repository filesystem
 ---@field saveId string
 ---@field game table finalized unpublished game or validated loaded GameSave
 ---@field viewportWidth integer
@@ -529,6 +529,7 @@ function FieldRuntime.new(game, options)
   assert(type(game) == "table", "field runtime requires a finalized or loaded game")
   assert(type(game.versionId) == "string" and game.versionId ~= "", "field runtime game version is required")
   options = options or {}
+  local effectiveOverrideFs = options.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory())
   local self = setmetatable({
     game = game,
     versionId = game.versionId,
@@ -536,16 +537,13 @@ function FieldRuntime.new(game, options)
     viewportWidth = options.viewportWidth or WindowConfig.REFERENCE_WIDTH,
     viewportHeight = options.viewportHeight or WindowConfig.REFERENCE_HEIGHT,
     screenTopology = options.screenTopology,
-    overrideFs = options.overrideFs,
+    overrideFs = effectiveOverrideFs,
     presentation = options.presentation == true,
     scriptHosts = options.scriptHosts,
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
     saveStore = options.saveStore,
-    saveValidation = options.saveValidation or GameSaveValidation.new({
-      overrideFs = options.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory()),
-    }),
-    overrideFs = options.overrideFs,
+    saveValidation = options.saveValidation or GameSaveValidation.new({ overrideFs = effectiveOverrideFs }),
     savePublished = false,
     localClock = options.localClock or LocalClock.system(),
     weatherClock = options.weatherClock,
@@ -961,7 +959,7 @@ function FieldRuntime:_load()
     end
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
-      overrideFs = self.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory()),
+      overrideFs = self.overrideFs,
       eventState = self.eventState,
       actors = self.actors,
       player = self.player,

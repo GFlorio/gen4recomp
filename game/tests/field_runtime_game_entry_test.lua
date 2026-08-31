@@ -71,6 +71,12 @@ function T.default_save_validation_uses_repository_overrides()
   Assert.isTrue(ok, tostring(runtime))
   local overrideManifest = runtime.saveValidation.overrideFs:read("data/scripts/manifests/overrides.lua")
   Assert.notNil(overrideManifest, "default save validation needs repository overrides")
+  Assert.notNil(runtime.overrideFs, "the runtime must retain its effective repository filesystem")
+  Assert.equal(
+    runtime.overrideFs,
+    runtime.saveValidation.overrideFs,
+    "default save validation must use the runtime's effective repository filesystem"
+  )
 end
 
 local function captureRuntime(overrides)
