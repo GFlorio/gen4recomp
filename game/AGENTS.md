@@ -5,15 +5,16 @@ user-visible flows.
 
 ## Composition boundary
 
-- Normal runtime consumes generated assets and engine APIs only. Raw ROM/NDS/HGSS decoding,
+- Normal runtime consumes generated assets and HGSS-facing APIs only. Raw ROM/NDS/HGSS decoding,
   decomp-derived tables, NARC/Nitro/overlay parsing, and source packing stay out of `game/src`.
+  `game` must not import `libs.nds` directly; Nintendo implementation details stay behind HGSS.
 - The launcher/import UI is the sole provisioning exception allowed to call into `romdump`.
   Keep that dependency at the import boundary; do not let source concepts leak into normal
   gameplay state after provisioning.
 - Game-specific content policy, scene/flow sequencing, and feature behavior belong here.
-  Reusable engine mechanisms belong in `libs/engine` only when a concrete current reusable
-  responsibility exists.
-- Reuse the engine/assets owner instead of creating game-local decoders, caches, resource
+  Reusable HGSS mechanisms belong in `libs/hgss`; Nintendo implementation details remain
+  behind that boundary.
+- Reuse the HGSS/assets owner instead of creating game-local decoders, caches, resource
   managers, or alternate business-rule implementations.
 
 ## User-visible behavior

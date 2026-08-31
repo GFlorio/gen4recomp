@@ -91,14 +91,14 @@ source-grounded domain concept.
   See `docs/architecture.md` for architectural principles and stable entrypoints.
 - Domain logic should remain independently testable from LÖVE. `libs/assets`, `libs/codec`,
   `libs/storage`, `libs/errors`, and `libs/math` must not `require` love.
-- ROM-source knowledge belongs to `romdump`: NDS/HGSS/decomp-derived formats, NARC/member
-  selection, overlays, raw bitfields, source catalogs, and build-only source manifests stay
-  producer-side even when their parsers are pure.
+- Reusable Nintendo container and Nitro/NNS format mechanics belong in `libs/nds`.
+  HGSS/decomp-derived formats, NARC/member selection, source-specific overlay use, raw
+  bitfields, source catalogs, and build-only source manifests stay in `romdump`.
 - `libs/assets` owns only g4recomp-defined generated/mod-facing formats, paths, schemas,
   validation, and source-independent encoders/decoders. It must never import `romdump`.
-- `libs/nds`, `libs/script`, and `libs/hgss` are the target runtime package owners described
-  by their package guidance. The existing `libs/engine` tree is migration-only until its
-  consumers have moved; it is not a new ownership destination.
+- `libs/nds`, `libs/script`, and `libs/hgss` are the runtime package owners described by
+  their package guidance. game depends on HGSS mechanisms, not Nintendo implementation details;
+  direct game imports of `libs.nds` are forbidden.
 - Normal `game` runtime consumes generated assets and HGSS-facing mechanisms only. It does
   not decode ROM formats or import decomp-derived references. The launcher/import UI is the
   sole provisioning exception from `game` to `romdump`.
@@ -175,9 +175,9 @@ Read `tests/AGENTS.md` for the test contract and runner mechanics.
   external/source reference rather than temporary implementation material.
 - Source offsets and source IDs are zero-based. Use semantic names such as `narcId`, `fileId`,
   and `memberId`, never a generic `id` when the kind matters.
-- Generic binary primitives belong in `libs/codec`; interpreting Nintendo/HGSS source
-  packing belongs in `romdump`; project-owned generated binary formats belong in
-  `libs/assets`.
+- Generic binary primitives belong in `libs/codec`; reusable Nintendo container and
+  Nitro/NNS packing belongs in `libs/nds`; interpreting HGSS/decomp-derived source packing
+  belongs in `romdump`; project-owned generated binary formats belong in `libs/assets`.
 - A `_private` method is not an inter-module API. Expose a semantic public operation or move
   the responsibility instead of reaching across modules to an underscored helper.
 

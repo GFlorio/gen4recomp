@@ -7,12 +7,11 @@ producers, generated assets, and application composition.
 
 ## Context
 
-The runtime has accumulated reusable Nintendo DS behavior, mod-script machinery, and
-recreated HeartGold/SoulSilver mechanisms under one engine namespace. That broad owner
-makes dependency direction and reviewer ownership unclear. The source producer also has
+The runtime has reusable Nintendo DS behavior, mod-script machinery, and recreated
+HeartGold/SoulSilver mechanisms in distinct packages. The source producer also has
 responsibility for supported-ROM identity and HGSS-specific compilation, while the
-application owns launcher and story policy. These responsibilities need explicit seams
-before physical module moves begin.
+application owns launcher and story policy. These responsibilities require explicit seams
+in the current package graph.
 
 The durable ownership question is: does behavior exist because Nintendo DS/Nitro works
 that way, because HGSS works that way, because the mod platform works that way, or because
@@ -42,16 +41,16 @@ alongside the existing foundation and asset packages.
   `romdump` provisioning boundary.
 
 The dependency direction is foundations → NDS, assets/script → HGSS, HGSS beside romdump,
-and game at the application top. The existing `libs/engine` tree remains only as a
-transitional physical location until its consumers are migrated; it is not a target owner
-and receives no compatibility forwarding modules.
+and game at the application top. `game` depends on HGSS mechanisms, not Nintendo
+implementation details; the launcher may use only the documented romdump provisioning
+boundary.
 
 Mixed current seams are split by meaning rather than assigned to a miscellaneous package:
 `NdsRom` separates generic cartridge parsing from supported-ROM identity and cache policy;
 `DsMaterial` separates Nintendo register semantics from HGSS field policy;
 `AudioBank.selectVoice` follows its Nintendo algorithm while asset serialization stays in
 `libs/assets`; `RuntimeValues` separates generic script evaluation from HGSS references;
-and `MapRenderer` separates NDS raster execution from HGSS field presentation.
+and `GxRenderer` separates NDS raster execution from HGSS field presentation.
 
 ## Alternatives considered
 
@@ -66,20 +65,13 @@ and `MapRenderer` separates NDS raster execution from HGSS field presentation.
 
 ## Consequences
 
-Contributors can classify a module by the reason its behavior exists, and later moves have
-an explicit dependency DAG. `libs/nds` stays independent of project-specific schemas,
-`libs/script` stays independent of HGSS meaning, and `game` remains independent of Nintendo
-implementation details. Physical relocation is still required; this decision does not
-change runtime behavior, persistence schemas, generated asset schemas, or resource
-lifecycle contracts.
-
-The transitional engine tree makes the repository temporarily describe both a physical
-legacy location and the target semantic owners. Architecture checks therefore include
-future package roots without enforcing the final engine deletion until all consumers have
-moved.
+Contributors can classify a module by the reason its behavior exists, and the repository
+enforces an explicit dependency DAG. `libs/nds` stays independent of project-specific
+schemas, `libs/script` stays independent of HGSS meaning, and `game` remains independent
+of Nintendo implementation details. This decision does not change runtime behavior,
+persistence schemas, generated asset schemas, or resource lifecycle contracts.
 
 ## Revisit when
 
-Revisit if the completed migration reveals a fourth coherent semantic package that cannot
-fit this dependency graph without an inversion. Resolve that responsibility explicitly
-before the final engine deletion; do not introduce a catch-all package.
+Revisit if a fourth coherent semantic package cannot fit this dependency graph without an
+inversion. Resolve that responsibility explicitly; do not introduce a catch-all package.

@@ -5,14 +5,14 @@ and compilation into g4recomp assets.
 
 ## Source ownership
 
-- `romdump` owns every structure whose meaning comes from the NDS ROM, HGSS behavior, Nitro
-  formats, overlays, NARCs, or decomp/reverse-engineering references. A parser being pure does
-  not make it a shared runtime library.
+- `romdump` owns HGSS/decomp-derived source structures and policy: source catalogs, member
+  selection, physical identities, packed game fields, and compilation semantics. Reusable
+  Nintendo container and Nitro/NNS format mechanics belong in `libs/nds`.
 - Keep source-member selection, physical archive/file/member IDs, overlay addresses, packed
   source flags, and ROM-specific catalogs producer-side unless a generated asset has a
   concrete runtime/mod-facing semantic need for the fact.
-- `libs/codec` supplies generic binary primitives; the interpretation of Nintendo/HGSS bytes
-  stays here.
+- `libs/codec` supplies generic binary primitives and `libs/nds` supplies reusable Nintendo
+  format mechanics; HGSS-specific interpretation stays here.
 - Build-only source manifests and provenance belong here. Generated/mod-facing schemas belong
   in `libs/assets` and must not need HGSS knowledge to interpret.
 
