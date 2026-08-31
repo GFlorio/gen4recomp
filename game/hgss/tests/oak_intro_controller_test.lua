@@ -637,8 +637,22 @@ function T.reveal_stages_are_sequential_and_cry_waits_for_idle_marill()
   state:tick(4)
   Assert.equal(state:view().revealWidget, "marill_appear")
   Assert.equal(count("cry"), 0)
-  advanceToPhase(state, "marill_cry_wait")
+  local appearanceStartSourceFrame = state:view().sourceFrames
+  state:tick(2)
+  local appearanceComplete = state:view()
+  Assert.equal(appearanceComplete.phase, "marill_brightness_fade")
+  Assert.equal(appearanceComplete.sourceFrames - appearanceStartSourceFrame, 2)
+  Assert.equal(appearanceComplete.revealBrightness, 1)
+  Assert.equal(count("cry"), 0)
+
+  state:tick(15)
+  Assert.equal(state:view().phase, "marill_brightness_fade")
+  Assert.equal(state:view().revealBrightness, 1 / 16)
+  Assert.equal(count("cry"), 0)
+  state:tick(1)
+  Assert.equal(state:view().phase, "marill_cry_wait")
   Assert.equal(state:view().revealWidget, "marill")
+  Assert.equal(state:view().revealBrightness, 0)
   Assert.equal(count("cry"), 1)
   state:tick(39)
   Assert.equal(state:view().message, nil)
@@ -694,7 +708,7 @@ function T.dialogue_view_keeps_the_generated_message_key_boundary()
   Assert.equal(view.dialogue.messageKey, view.messageKey)
 end
 
-function T.generated_animation_durations_drive_looping_marill_frames()
+function T.looping_marill_consumes_animation_units_with_carry()
   local state = controller({ assets = animatedAssets() })
   state:start()
   state:tick(40)
@@ -707,12 +721,14 @@ function T.generated_animation_durations_drive_looping_marill_frames()
   Assert.equal(state:view().primaryWidget, "oak")
   Assert.equal(state:view().revealWidget, "marill")
   Assert.equal(state:view().revealFrameIndex, 1)
-  state:tick(1)
-  Assert.equal(state:view().revealFrameIndex, 2)
-  state:tick(4)
-  Assert.equal(state:view().revealFrameIndex, 3)
-  state:tick(2)
-  Assert.equal(state:view().revealFrameIndex, 1)
+  local startSourceFrame = state:view().sourceFrames
+  local expectedFrames = { 2, 2, 3, 2 }
+  for sourceFrame, expectedFrame in ipairs(expectedFrames) do
+    state:tick(1)
+    local view = state:view()
+    Assert.equal(view.revealFrameIndex, expectedFrame)
+    Assert.equal(view.sourceFrames, startSourceFrame + sourceFrame)
+  end
 end
 
 function T.shrink_frames_remain_drawable_until_their_generated_durations_end()

@@ -511,18 +511,11 @@ function T.tests.production_oak_reveal_uses_source_stage_boundaries()
       Assert.equal(view.revealBrightness, 1)
 
       local appearanceFrames = assert(state.manifest.widgets.marill_appear.frames)
-      local firstAppearanceFrame = view.revealFrameIndex
-      local firstDuration = appearanceFrames[firstAppearanceFrame].duration
-      if firstDuration > 1 then
-        state:tick(firstDuration - 1)
-        Assert.equal(state:view().revealFrameIndex, firstAppearanceFrame)
-      end
-
-      local brightnessTrace = {}
+      local appearanceStartSourceFrame = view.sourceFrames
+      local appearanceUnits = durationTotal(appearanceFrames)
       for _ = 1, 2000 do
         state:tick(1)
         view = state:view()
-        brightnessTrace[#brightnessTrace + 1] = view.revealBrightness
         if view.revealWidget == "marill" and view.revealBrightness == 0 then
           break
         end
@@ -530,8 +523,11 @@ function T.tests.production_oak_reveal_uses_source_stage_boundaries()
       Assert.equal(view.revealWidget, "marill")
       Assert.equal(view.revealBrightness, 0)
       Assert.equal(#eventsNamed(state, "marill_appears"), 1)
-      Assert.isTrue(#brightnessTrace >= durationTotal(appearanceFrames) - firstDuration + 1 + 16)
-      Assert.equal(brightnessTrace[#brightnessTrace], 0)
+      Assert.equal(
+        view.sourceFrames - appearanceStartSourceFrame,
+        math.ceil(appearanceUnits / 2) + 16,
+        "appearance animation and brightness fade must use their source clocks"
+      )
     end)
   end)
 end

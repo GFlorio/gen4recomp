@@ -113,6 +113,7 @@ local FINAL_FULL_ART_HOLD = 30
 local FINAL_FADE_FRAMES = 1
 local OAK_BG_SCROLL_END_X = -52
 local GENDER_COMPOSITION_FRAMES = 26
+local REVEAL_ANIMATION_UNITS_PER_SOURCE_FRAME = 2
 local DEFAULT_PROFILE_NAMES = { [0] = "Ethan", [1] = "Lyra" }
 
 local function focusBlinkDelta(timer)
@@ -278,20 +279,27 @@ function OakIntroController:_advanceReveal(loop)
   local visual = assert(self._revealWidget)
   local frames = framesFor(self._assets, visual)
   assert(frames ~= nil and #frames > 0, "generated Oak animation is missing: " .. visual)
-  self._revealFrameTimer = assert(self._revealFrameTimer) - 1
-  if self._revealFrameTimer > 0 then
-    return false
-  end
-  if self._revealFrameIndex == #frames then
-    if loop then
+
+  local units = REVEAL_ANIMATION_UNITS_PER_SOURCE_FRAME
+  while units > 0 do
+    local frameRemaining = assert(self._revealFrameTimer)
+    if units < frameRemaining then
+      self._revealFrameTimer = frameRemaining - units
+      return false
+    end
+
+    units = units - frameRemaining
+    if self._revealFrameIndex == #frames then
+      if not loop then
+        return true
+      end
       self._revealFrameIndex = 1
     else
-      return true
+      self._revealFrameIndex = self._revealFrameIndex + 1
     end
-  else
-    self._revealFrameIndex = self._revealFrameIndex + 1
+    self._revealFrameTimer = assert(frames[self._revealFrameIndex].duration)
   end
-  self._revealFrameTimer = assert(frames[self._revealFrameIndex].duration)
+
   return false
 end
 
