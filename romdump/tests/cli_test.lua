@@ -13,9 +13,6 @@ local COMMANDS = {
   { flag = "--build-cache", argv = { "--build-cache" }, command = "build-cache" },
   { flag = "--check-dump", argv = { "--check-dump" }, command = "check-dump" },
   { flag = "--check-derived-cache", argv = { "--check-derived-cache" }, command = "check-derived-cache" },
-  { flag = "--inspect", argv = { "--inspect" }, command = "inspect" },
-  { flag = "--inspect-sbc", argv = { "--inspect-sbc" }, command = "inspect-sbc" },
-  { flag = "--inspect-actors", argv = { "--inspect-actors" }, command = "inspect-actors" },
 }
 
 function T.defaults_are_all_off()
@@ -96,15 +93,21 @@ function T.dead_import_only_flag_is_rejected()
   end)
 end
 
+function T.removed_inspection_flags_are_rejected_as_unknown_options()
+  for _, flag in ipairs({ "--" .. "inspect", "--" .. "inspect-sbc", "--" .. "inspect-actors" }) do
+    local err = Assert.throws(function()
+      Cli.parse({ flag })
+    end)
+    Assert.isTrue(string.find(err, "unknown option '" .. flag .. "'", 1, true) ~= nil, flag)
+  end
+end
+
 function T.conflicting_commands_are_rejected()
   Assert.throws(function()
     Cli.parse({ "--check-dump", "--import-rom", "/tmp/hg.nds" })
   end)
   Assert.throws(function()
     Cli.parse({ "--check-dump", "--build-cache" })
-  end)
-  Assert.throws(function()
-    Cli.parse({ "--inspect", "--inspect-sbc" })
   end)
   Assert.throws(function()
     Cli.parse({ "--import-rom", "/tmp/hg.nds", "--import-rom", "/tmp/ss.nds" })

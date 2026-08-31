@@ -13,7 +13,7 @@ local Cli = {}
 Cli.EXIT_USAGE = 2
 
 Cli.USAGE = "usage: love romdump/ [--import-rom <path>] [--forcedump <path>] [--build-cache [path]]"
-  .. " [--check-dump] [--check-derived-cache] [--inspect] [--inspect-sbc] [--inspect-actors]"
+  .. " [--check-dump] [--check-derived-cache]"
   .. " [--allow-compile-exclusions]"
 
 -- Every command flag maps to the command it selects; --import-rom,
@@ -25,9 +25,6 @@ local COMMAND_FLAGS = {
   ["--build-cache"] = "build-cache",
   ["--check-dump"] = "check-dump",
   ["--check-derived-cache"] = "check-derived-cache",
-  ["--inspect"] = "inspect",
-  ["--inspect-sbc"] = "inspect-sbc",
-  ["--inspect-actors"] = "inspect-actors",
 }
 
 -- The value-taking flags require the next token to be a path, not another

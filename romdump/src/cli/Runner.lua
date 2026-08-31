@@ -7,7 +7,6 @@
 
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
-local RomFs = require("romdump.src.source.RomFs")
 local Errors = require("libs.errors.src.Errors")
 local Cli = require("romdump.src.cli.Cli")
 
@@ -21,36 +20,6 @@ local function readyVersions()
     end
   end
   return out
-end
-
--- Open one RomFs per ready version, run `work(romFs, version)` under pcall,
--- and close the handle on every path; a per-version failure is printed with
--- the shared message shape and later versions still run. Returns nil when no
--- version is ready, true when every version ran, false on any failure.
----@param prefix string
----@param work fun(romFs: RomFs, version: string)
----@return boolean|nil
-local function forEachReadyVersion(prefix, work)
-  local targets = readyVersions()
-  if #targets == 0 then
-    return nil
-  end
-  local allOk = true
-  for _, version in ipairs(targets) do
-    local romFs, err = RomFs.open(version)
-    if not romFs then
-      allOk = false
-      print(prefix .. ": open failed for " .. version .. ": " .. Errors.format(err))
-    else
-      local ok, result = pcall(work, romFs, version)
-      romFs:close()
-      if not ok then
-        allOk = false
-        print(prefix .. ": " .. version .. " failed: " .. Errors.format(result))
-      end
-    end
-  end
-  return allOk
 end
 
 -- Dispatch the parsed command. Cli.parse rejects conflicting commands, so
@@ -73,20 +42,7 @@ function Runner.load(opts)
   if command == "check-derived-cache" then
     return Runner._runCheckDerivedCache()
   end
-  if command == "inspect" then
-    return Runner._runInspect()
-  end
-  if command == "inspect-sbc" then
-    return Runner._runInspectSbc()
-  end
-  if command == "inspect-actors" then
-    return Runner._runInspectActors()
-  end
-  print(
-    "romdump: no command given (expected --import-rom, --check-dump, --check-derived-cache, "
-      .. "--inspect, --inspect-sbc, "
-      .. "--inspect-actors, or --build-cache)"
-  )
+  print("romdump: no command given (expected --import-rom, --check-dump, --check-derived-cache, or --build-cache)")
   love.event.quit(Cli.EXIT_USAGE)
 end
 
@@ -151,84 +107,6 @@ function Runner._runCheckDump()
     if not report.ok then
       allOk = false
     end
-  end
-  love.event.quit(allOk and 0 or 1)
-end
-
--- Inventory the SBC transform features used by every terrain and building model
--- in the ROM. Read-only: it decodes models and writes no cache artifacts.
-function Runner._runInspectSbc()
-  local SbcInventory = require("romdump.src.digest.SbcInventory")
-  local allOk = forEachReadyVersion("inspect-sbc", function(romFs, version)
-    print("version\t" .. version)
-    local report = SbcInventory.scan(romFs)
-    for _, line in ipairs(SbcInventory.lines(report)) do
-      print(line)
-    end
-  end)
-  if allOk == nil then
-    print("inspect-sbc: no ready version to inspect")
-    return love.event.quit(1)
-  end
-  love.event.quit(allOk and 0 or 1)
-end
-
--- Compile the complete field-actor set for every ready version and print its
--- structural facts. Read-only: it writes no cache artifact and emits no
--- ROM-derived image bytes.
-function Runner._runInspectActors()
-  local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
-  local FieldActorInspector = require("romdump.src.digest.FieldActorInspector")
-  local allOk = forEachReadyVersion("inspect-actors", function(romFs, version)
-    print("version\t" .. version)
-    local bundle = assert(FieldActorCompiler.compile(romFs))
-    for _, line in ipairs(FieldActorInspector.lines(FieldActorInspector.inspect(bundle))) do
-      print(line)
-    end
-  end)
-  if allOk == nil then
-    print("inspect-actors: no ready version to inspect")
-    return love.event.quit(1)
-  end
-  love.event.quit(allOk and 0 or 1)
-end
-
--- Inventory every renderable map for every ready version and print a deterministic,
--- payload-free report. Exits 0 if every version was inspected without an
--- uncaught error, 1 otherwise.
-function Runner._runInspect()
-  local MapAnalysis = require("romdump.src.digest.MapAnalysis")
-  local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
-  local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
-  local FieldCameraInspector = require("romdump.src.digest.FieldCameraInspector")
-  local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
-  local FieldMapDataInspector = require("romdump.src.digest.FieldMapDataInspector")
-  local allOk = forEachReadyVersion("inspect", function(romFs, version)
-    local cameraBundle = assert(FieldCameraCompiler.compile(romFs))
-    local cameraReport = FieldCameraInspector.inspect(cameraBundle.profiles, cameraBundle.provenance)
-    for _, line in ipairs(FieldCameraInspector.lines(cameraReport)) do
-      print(line)
-    end
-    for _, fieldBundle in ipairs(assert(FieldMapDataCompiler.compileAll(romFs))) do
-      local fieldReport = FieldMapDataInspector.inspect(fieldBundle.field, fieldBundle.dependencies)
-      for _, line in ipairs(FieldMapDataInspector.lines(fieldReport)) do
-        print(line)
-      end
-    end
-    for _, result in ipairs(MapAnalysis.analyze(romFs)) do
-      if result.status == "resolved" then
-        local report = MapAssetInspector.inspect(romFs, result.id)
-        for _, line in ipairs(MapAssetInspector.lines(report)) do
-          print(line)
-        end
-      else
-        print(string.format("inspect: %s map %d %s excluded: %s", version, result.id, result.symbol, result.reason))
-      end
-    end
-  end)
-  if allOk == nil then
-    print("inspect: no ready version to inspect")
-    return love.event.quit(1)
   end
   love.event.quit(allOk and 0 or 1)
 end
