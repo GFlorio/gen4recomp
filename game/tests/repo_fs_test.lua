@@ -46,7 +46,7 @@ function T.tests.normal_relative_paths_still_resolve()
   Assert.notNil(content, "normal path must resolve")
   Assert.notNil(string.find(content --[[@as string]], "RepoFs"), "resolved content must be the real file")
 
-  local fsWithTrailingSlash = RepoFs.new("game/")
+  local fsWithTrailingSlash = RepoFs.new("app/")
   Assert.notNil(fsWithTrailingSlash:read("main.lua"), "trailing-slash root must still resolve")
 
   Assert.isNil(fs:read("no/such/file.lua"), "a missing normal path stays a silent nil")

@@ -1,10 +1,6 @@
--- Shared window configuration contract. love.conf (executed by the LÖVE
--- binary before any game module exists) and the field runtime both resolve
--- the reference window size from game/src/WindowConfig.lua, and environment
--- dimensions are parsed by the same pure helper so the strictness lives in a
--- testable function instead of inside the untestable conf.lua. The consumer
--- scan pins that both files use the named reference: a raw 640/480 literal
--- in either would recreate the drift the audit flagged.
+-- Shared window configuration contract. Environment dimensions are parsed by
+-- the same pure helper so the strictness lives in a testable function instead
+-- of inside the untestable LÖVE configuration callback.
 
 local Assert = require("tests.support.Assert")
 local WindowConfig = require("game.src.WindowConfig")

@@ -1,11 +1,11 @@
--- Temporary launcher/process shell for the interactive game root.
+-- Launcher/process shell for the interactive app root.
 
 local WindowConfig = require("game.src.WindowConfig")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local HgssGame = require("game.hgss.src.HgssGame")
-local ImportState = require("game.src.launcher.ImportState")
-local VersionSelectState = require("game.src.launcher.VersionSelectState")
+local ImportState = require("app.src.launcher.ImportState")
+local VersionSelectState = require("app.src.launcher.VersionSelectState")
 
 ---@class App
 ---@field opts AppOptions

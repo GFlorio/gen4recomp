@@ -3,7 +3,7 @@
 -- truly absent on first actor construction rather than repaired afterward.
 
 local Assert = require("tests.support.Assert")
-local App = require("game.src.game.App")
+local App = require("app.src.App")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")

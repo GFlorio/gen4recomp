@@ -24,6 +24,7 @@ local PRODUCTION_ROOTS = {
   "libs/math/src",
   "libs/storage/src",
   "game/src",
+  "app/src",
   "romdump/src",
   "data",
 }
@@ -46,8 +47,8 @@ local RAW_DUMP_LITERALS = {
 local IMPORTER_STATE_CONSUMERS = {
   "romdump/src/source/RomImporter.lua",
   "romdump/src/cli/Runner.lua",
-  "game/src/game/App.lua",
-  "game/src/launcher/ImportState.lua",
+  "app/src/App.lua",
+  "app/src/launcher/ImportState.lua",
 }
 
 -- `state = "x"`, `state == "x"`, and `state ~= "x"` at importer consumer
@@ -66,7 +67,7 @@ local IMPORTER_PLAIN_NEEDLES = { "_setState" }
 -- The ambiguous map-selector parameter name must be a domain name in the
 -- app file this cleanup touches.
 local AMBIGUOUS_NAME_FILES = {
-  "game/src/game/App.lua",
+  "app/src/App.lua",
 }
 local AMBIGUOUS_NAME_NEEDLES = { "idOrSymbol" }
 

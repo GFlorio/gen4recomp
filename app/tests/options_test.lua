@@ -1,4 +1,4 @@
--- Game command-line option parsing (the argv love.load hands to game/main.lua).
+-- App command-line option parsing (the argv love.load hands to app/main.lua).
 -- The parser is deliberately small: exactly the documented project options
 -- parse; any unknown option or stray argument is rejected; and a --test
 -- invocation defers the whole argv to the test command,
@@ -6,7 +6,7 @@
 -- with the usage exit status.
 
 local Assert = require("tests.support.Assert")
-local Options = require("game.src.Options")
+local Options
 
 local T = {}
 
@@ -17,9 +17,19 @@ local function contains(text, needle)
   return text:find(needle, 1, true) ~= nil
 end
 
+local function loadOptions()
+  if Options ~= nil then
+    return Options
+  end
+  local ok, optionsOrError = pcall(require, "app.src.Options")
+  Assert.isTrue(ok, "the app shell must provide app.src.Options: " .. tostring(optionsOrError))
+  Options = optionsOrError
+  return Options
+end
+
 -- parse() must reject and carry a message naming the offending input.
 local function rejects(argv)
-  local opts, message = Options.parse(argv)
+  local opts, message = loadOptions().parse(argv)
   Assert.isNil(opts, "must reject: " .. table.concat(argv, " "))
   Assert.notNil(message, "rejection carries a message")
   return assert(message)
@@ -30,7 +40,7 @@ end
 ---@param argv string[]
 ---@return LaunchOptions
 local function parses(argv)
-  local opts, message = Options.parse(argv)
+  local opts, message = loadOptions().parse(argv)
   Assert.isTrue(opts ~= nil, "expected opts for " .. table.concat(argv, " ") .. ", got error: " .. tostring(message))
   ---@cast opts LaunchOptions
   return opts
@@ -46,6 +56,12 @@ end
 function T.remaining_product_options_parse()
   Assert.isTrue(parses({ "--actors" }).actors)
   Assert.isTrue(parses({ "--dev" }).dev)
+end
+
+function T.usage_advertises_the_app_root()
+  local usage = loadOptions().USAGE
+  Assert.isTrue(usage:find("love app/", 1, true) ~= nil, "usage must name the app root")
+  Assert.isNil(usage:find("love game/", 1, true), "usage must not name the old root")
 end
 
 function T.modifiers_compose_with_the_modes_they_apply_to()
@@ -64,19 +80,19 @@ function T.removed_field_mode_is_rejected_before_app_boot()
 end
 
 function T.unknown_options_are_rejected()
-  contains(rejects({ "--bogus" }), "--bogus")
-  contains(rejects({ "--field=elms_lab" }), "--field=elms_lab")
-  contains(rejects({ "--test=1" }), "--test=1")
-  contains(rejects({ "--bogus", "--dev" }), "--bogus")
+  Assert.isTrue(contains(rejects({ "--bogus" }), "--bogus"))
+  Assert.isTrue(contains(rejects({ "--field=elms_lab" }), "--field=elms_lab"))
+  Assert.isTrue(contains(rejects({ "--test=1" }), "--test=1"))
+  Assert.isTrue(contains(rejects({ "--bogus", "--dev" }), "--bogus"))
 end
 
 function T.stray_arguments_are_rejected()
-  contains(rejects({ "foo" }), "foo")
-  contains(rejects({ "-x" }), "-x")
+  Assert.isTrue(contains(rejects({ "foo" }), "foo"))
+  Assert.isTrue(contains(rejects({ "-x" }), "-x"))
 end
 
 function T.stray_arguments_after_modes_are_rejected()
-  contains(rejects({ "--actors", "foo" }), "foo")
+  Assert.isTrue(contains(rejects({ "--actors", "foo" }), "foo"))
 end
 
 -- The test command owns argument parsing once --test is present: the game

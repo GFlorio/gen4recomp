@@ -5,7 +5,7 @@
 ---@diagnostic disable: duplicate-set-field -- the test restores these intentional App seams
 
 local Assert = require("tests.support.Assert")
-local App = require("game.src.game.App")
+local App
 
 local T = {
   metadata = {
@@ -27,6 +27,9 @@ local CALLBACKS = {
 }
 
 local function withEntrypoint(fn)
+  local appLoaded, appOrError = pcall(require, "app.src.App")
+  Assert.isTrue(appLoaded, "the app entrypoint must provide app.src.App: " .. tostring(appOrError))
+  App = appOrError
   local savedLoveCallbacks = {}
   for _, name in ipairs({ "load", unpack(CALLBACKS) }) do
     savedLoveCallbacks[name] = love[name]
@@ -43,7 +46,7 @@ local function withEntrypoint(fn)
     -- reach it. Suppressing only App.load keeps this probe before booting a
     -- second field session; the App callback boundary remains production code.
     App.load = function() end
-    local entrypoint = assert(loadfile(love.filesystem.getSourceBaseDirectory() .. "/game/main.lua"))
+    local entrypoint = assert(loadfile(love.filesystem.getSourceBaseDirectory() .. "/app/main.lua"))
     entrypoint()
     love.load({})
     App.load = savedAppLoad

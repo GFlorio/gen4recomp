@@ -15,7 +15,7 @@ local function isSuiteFile(name)
   return name:match("_test%.lua$") ~= nil
 end
 
-local COMPONENTS = { game = true, romdump = true }
+local COMPONENTS = { app = true, game = true, romdump = true }
 local TEST_LAYERS = { graphics = true, rom = true, acceptance = true }
 local IGNORED_PROJECT_DIRECTORIES = {
   [".agents"] = true,
@@ -38,7 +38,7 @@ local function layerForTestsDirectory(path)
   if parent == "" then
     return "unit"
   end
-  local topLevel = parent:match("^[^/]+$") and parent or nil
+  local topLevel = parent:match("^([^/]+)")
   if topLevel ~= nil and COMPONENTS[topLevel] then
     return "component"
   end

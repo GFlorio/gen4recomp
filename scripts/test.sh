@@ -40,7 +40,7 @@ NO_DUMP_STATUS=2
 # listing and the three ROM-independent layers, and a supplied source is
 # always imported. A misread plan (protocol drift) must fail loudly rather
 # than silently run against a stale cache.
-plan="$(love game/ --test --plan "$@")"
+plan="$(love app/ --test --plan "$@")"
 prepare=""
 rom_source=""
 while IFS= read -r line; do
@@ -91,5 +91,5 @@ fi
 # which a replaced process would never run.
 status=0
 echo "Running tests..."
-love game/ --test "$@" || status=$?
+love app/ --test "$@" || status=$?
 exit "$status"

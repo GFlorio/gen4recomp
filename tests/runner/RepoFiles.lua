@@ -1,5 +1,5 @@
 -- Real-filesystem adapter for discovery. `love.filesystem` is rooted at the
--- game app directory (`love game/`), so repo-relative paths such as
+-- app directory (`love app/`), so repo-relative paths such as
 -- `libs/codec/tests` are invisible to it — a directory listing through LÖVE
 -- silently returns nothing, which would silently discover zero suites. This
 -- adapter indexes the approved roots once through `find` against the real

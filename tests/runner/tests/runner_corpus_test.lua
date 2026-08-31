@@ -28,7 +28,7 @@ end
 function T.project_tree_discovery_finds_the_main_test_trees()
   local expected = {
     "libs.codec.tests.binary_reader_test",
-    "game.tests.field_state_draw_test",
+    "game.hgss.tests.field_state_draw_test",
     "libs.nds.tests.narc_test",
     "tests.runner.tests.runner_discovery_test",
   }

@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local App = require("game.src.game.App")
+local App = require("app.src.App")
 local FieldState = require("game.hgss.src.field.FieldState")
 local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 

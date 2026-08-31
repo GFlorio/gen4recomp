@@ -1,4 +1,4 @@
--- Aggregate entry point of the test suite, invoked via `love game/ --test`
+-- Aggregate entry point of the test suite, invoked via `love app/ --test`
 -- (`scripts/test.sh`). It owns only the approved discovery roots and their
 -- default layers plus the wiring of argument parsing, capability detection,
 -- execution, and reporting; those live in `tests/runner/`. There is no module

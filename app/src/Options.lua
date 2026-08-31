@@ -1,4 +1,4 @@
--- Pure command-line option parsing for the game app. Turns the LÖVE argv into
+-- Pure command-line option parsing for the app shell. Turns the LÖVE argv into
 -- a normalized options table, rejecting unknown options and stray arguments
 -- with a message. It holds no state and never
 -- touches love, so main.lua can dispatch and the parser can be unit tested
@@ -11,7 +11,7 @@ local Options = {}
 -- Cli.EXIT_USAGE so scripts/test.sh and the game agree on "bad invocation".
 Options.EXIT_USAGE = 2
 
-Options.USAGE = "usage: love game/ [--test ...] [--actors] [--dev]"
+Options.USAGE = "usage: love app/ [--test ...] [--actors] [--dev]"
 
 ---@class LaunchOptions
 ---@field test boolean

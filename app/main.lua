@@ -1,5 +1,5 @@
 ---@diagnostic disable: duplicate-set-field
--- Game entry point. This app is its own LÖVE root (`love game/`); the repo root
+-- App entry point. This app is its own LÖVE root (`love app/`); the repo root
 -- (the source base directory) is added to package.path first so `require`
 -- resolves libs and sibling apps by their full repo-relative path (libs.*,
 -- game.src.*, data.*) independent of the working directory. Flags: --test runs
@@ -14,7 +14,7 @@
 local ROOT = love.filesystem.getSourceBaseDirectory()
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
 
-local Options = require("game.src.Options")
+local Options = require("app.src.Options")
 
 local App
 
@@ -22,9 +22,9 @@ function love.load(argv)
   local opts, message = Options.parse(argv)
   if opts == nil then
     -- A raise from love.load would hang headless on the error screen; reject
-    -- with the usage status instead. "game: " mirrors the test command's
+    -- with the usage status instead. "app: " mirrors the test command's
     -- "test: " prefix.
-    io.stderr:write("game: " .. message .. "\n")
+    io.stderr:write("app: " .. message .. "\n")
     love.event.quit(Options.EXIT_USAGE)
     return
   end
@@ -35,7 +35,7 @@ function love.load(argv)
     return
   end
 
-  App = require("game.src.game.App")
+  App = require("app.src.App")
   App.load(opts)
 end
 

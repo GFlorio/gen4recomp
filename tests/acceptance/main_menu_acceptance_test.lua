@@ -3,7 +3,7 @@
 -- and uses only an injected save catalog and ready-version resolver.
 
 local Assert = require("tests.support.Assert")
-local App = require("game.src.game.App")
+local App = require("app.src.App")
 local Errors = require("libs.errors.src.Errors")
 local FieldState = require("game.hgss.src.field.FieldState")
 local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")

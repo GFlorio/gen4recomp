@@ -16,7 +16,10 @@ local T = {}
 function T.tree_discovery_derives_modules_and_layers_from_tests_directories()
   local corpus = FakeCorpus.new({
     ["tests/graphics/shader_test.lua"] = { tests = { ["draws"] = function() end } },
+    ["app/tests/app_test.lua"] = { tests = { ["boots"] = function() end } },
     ["game/tests/application_test.lua"] = { tests = { ["boots"] = function() end } },
+    ["game/hgss/tests/hgss_test.lua"] = { tests = { ["boots"] = function() end } },
+    ["game/hgss/tests/audio/game_audio_test.lua"] = { tests = { ["plays"] = function() end } },
     ["libs/codec/tests/binary_test.lua"] = { tests = { ["reads"] = function() end } },
     ["libs/codec/tests/nested/helper_test.lua"] = { tests = { ["reads"] = function() end } },
     ["tmp/refs/legacy/tests/example_silly_oak_test.lua"] = { tests = { ["legacy"] = function() end } },
@@ -30,6 +33,9 @@ function T.tree_discovery_derives_modules_and_layers_from_tests_directories()
 
   Assert.equal(layers["tests.graphics.shader_test"], "graphics")
   Assert.equal(layers["game.tests.application_test"], "component")
+  Assert.equal(layers["game.hgss.tests.hgss_test"], "component")
+  Assert.equal(layers["game.hgss.tests.audio.game_audio_test"], "component")
+  Assert.equal(layers["app.tests.app_test"], "component")
   Assert.equal(layers["libs.codec.tests.binary_test"], "unit")
   Assert.equal(layers["libs.codec.tests.nested.helper_test"], "unit")
   Assert.isNil(layers["tmp.refs.legacy.tests.example_silly_oak_test"], "reference trees are not test sources")
