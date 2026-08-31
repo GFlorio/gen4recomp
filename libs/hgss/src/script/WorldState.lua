@@ -26,8 +26,9 @@ WorldState.SCHEMA_NAME = "g4-world-state-v1"
 local WORLD_FIELDS = { flags = true, variables = true, objects = true, rng = true }
 
 ---@param record any
+---@param opts table|nil { objectsValidate?: fun(value: table): table|nil, Errors.Error? }
 ---@return table|nil, Errors.Error?
-function WorldState.validate(record)
+function WorldState.validate(record, opts)
   if type(record) ~= "table" then
     return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "world bucket must be a table", {})
   end
@@ -46,15 +47,27 @@ function WorldState.validate(record)
   if not events then
     return nil, assert(eventErr)
   end
-  for key in pairs(record.objects) do
-    return nil,
-      Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "world object state is unsupported", { field = key })
+  local objects = record.objects
+  if next(objects) ~= nil then
+    local objectsValidate = opts and opts.objectsValidate
+    if objectsValidate == nil then
+      for key in pairs(objects) do
+        return nil,
+          Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "world object state is unsupported", { field = key })
+      end
+    end
+    assert(type(objectsValidate) == "function", "objectsValidate must be a function")
+    local validObjects, objectErr = objectsValidate(objects)
+    if not validObjects then
+      return nil, objectErr
+    end
+    objects = validObjects
   end
   local rng, rngErr = ScriptRng.validate(record.rng)
   if not rng then
     return nil, assert(rngErr)
   end
-  return { flags = events.flags, variables = events.vars, objects = {}, rng = rng }
+  return { flags = events.flags, variables = events.vars, objects = objects, rng = rng }
 end
 
 -- Resolve a flag/var id through the catalog: symbolic names become numeric
@@ -138,13 +151,14 @@ end
 -- Captured world bucket for the save schema (g4-field-save-v4). The flag
 -- and variable maps are numeric (the FieldEventState shape); the RNG state
 -- rides along so determinism survives a save/load cycle.
+---@param objects table?
 ---@return table
-function WorldState:capture()
+function WorldState:capture(objects)
   local events = self._events:serialize()
   return {
     flags = events.flags,
     variables = events.vars,
-    objects = {},
+    objects = objects or {},
     rng = self.rng:serialize(),
   }
 end
@@ -169,7 +183,7 @@ end
 ---@param opts table|nil
 ---@return WorldState
 function WorldState.restore(record, opts)
-  local valid, err = WorldState.validate(record)
+  local valid, err = WorldState.validate(record, opts)
   if not valid then
     local validationError = assert(err)
     Errors.raise(validationError.code, validationError.message, validationError.context)

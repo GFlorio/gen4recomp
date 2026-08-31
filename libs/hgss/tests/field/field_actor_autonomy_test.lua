@@ -2,6 +2,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldActorAutonomy = require("libs.hgss.src.field.FieldActorAutonomy")
+local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 
 local T = {}
 
@@ -173,6 +174,21 @@ function T.special_profiles_suspend_and_type_changes_reset_or_defer_state()
   Assert.throws(function()
     autonomy:state("actor")
   end)
+end
+
+function T.controller_and_rng_state_round_trip_without_rerolling()
+  local autonomy = FieldActorAutonomy.new({ rng = ScriptRng.new(17) })
+  autonomy:attach("actor", "wander_north_south", actorEvent("wander_north_south"))
+  autonomy:step("actor", capability())
+  local controller = autonomy:capture("actor")
+  local rngRecord = autonomy:captureRng()
+
+  local restored = FieldActorAutonomy.new({ rng = ScriptRng.new(99) })
+  restored:attach("actor", "wander_north_south", actorEvent("wander_north_south"))
+  restored:restoreRng(rngRecord)
+  restored:restore("actor", "wander_north_south", controller)
+  Assert.deepEqual(controller, restored:capture("actor"))
+  Assert.deepEqual(rngRecord, restored:captureRng())
 end
 
 return { tests = T }

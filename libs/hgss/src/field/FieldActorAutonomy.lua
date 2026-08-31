@@ -3,6 +3,7 @@
 -- advances source-shaped controller state and asks its capability to act.
 
 local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 
 ---@class FieldActorAutonomy
 ---@field rng table
@@ -165,6 +166,49 @@ end
 ---@return boolean
 function FieldActorAutonomy:isOrdinary(actorId)
   return assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId).profile.kind ~= "special"
+end
+
+---@param actorId string
+---@return table
+function FieldActorAutonomy:capture(actorId)
+  local state = assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId)
+  return {
+    kind = state.profile.kind,
+    timer = state.timer,
+    sequenceIndex = state.sequenceIndex,
+    rotationIndex = state.rotationIndex,
+    shuttleDirection = state.shuttleDirection,
+    blocked = state.blocked,
+    pendingMovementType = state.pendingMovementType,
+  }
+end
+
+---@param actorId string
+---@param movementType string
+---@param controller table
+function FieldActorAutonomy:restore(actorId, movementType, controller)
+  local state = assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId)
+  local profile = self.profiles.require(movementType)
+  assert(controller.kind == profile.kind, "field actor autonomy controller kind does not match movement type")
+  assert(type(controller.timer) == "number" and controller.timer >= 0, "field actor autonomy timer is invalid")
+  state.movementType = movementType
+  state.profile = profile
+  state.timer = controller.timer
+  state.sequenceIndex = controller.sequenceIndex or state.sequenceIndex
+  state.rotationIndex = controller.rotationIndex or state.rotationIndex
+  state.shuttleDirection = controller.shuttleDirection or state.shuttleDirection
+  state.blocked = controller.blocked == true
+  state.pendingMovementType = controller.pendingMovementType
+end
+
+---@return table
+function FieldActorAutonomy:captureRng()
+  return self.rng:serialize()
+end
+
+---@param record table
+function FieldActorAutonomy:restoreRng(record)
+  self.rng = ScriptRng.restore(record)
 end
 
 local function stepLook(self, state, capability)

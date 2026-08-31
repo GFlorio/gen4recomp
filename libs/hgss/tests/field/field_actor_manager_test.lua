@@ -151,7 +151,7 @@ local function manager(objects, opts)
   opts = opts or {}
   local assets = opts.assets or fakeAssets({ [99] = true, [34] = true, [29] = true, [0] = true })
   local eventState = opts.eventState or FieldEventState.new()
-  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY, restoredObjects = opts.restoredObjects })
   local map = opts.map or runtimeMap(objects)
   mgr:enterMap(map, eventState)
   return mgr, eventState, assets, map
@@ -254,7 +254,6 @@ function T.failed_autonomy_attachment_rolls_back_actor_indexes_and_occupancy()
   Assert.equal(assets:total(), 0)
   mgr:dispose()
 end
-
 function T.fixed_facing_movement_type_is_applied_on_the_field_tick()
   local mgr = manager({ object({ movementType = "look_north", facingDirection = "south" }) })
   local actor = assert(mgr:getById("map:61:object:0"))

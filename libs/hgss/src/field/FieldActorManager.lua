@@ -15,6 +15,7 @@ local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local FieldObjectActor = require("libs.hgss.src.field.FieldObjectActor")
 local FieldActorAutonomy = require("libs.hgss.src.field.FieldActorAutonomy")
 local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 
@@ -97,6 +98,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field _drawRecords FieldActorManager.DrawRecord[]
 ---@field _drawRecordByActorId table<string, FieldActorManager.DrawRecord>
 ---@field autonomy FieldActorAutonomy
+---@field pendingRestore table?
 ---@field step fun(self: FieldActorManager, tick: integer, context: table?)
 ---@field _resolveSpriteId fun(self: FieldActorManager, event: FieldActorEvent, eventState: FieldEventState?): integer
 ---@field _acquireVisual fun(self: FieldActorManager, spriteId: integer, actorId: string): FieldActorAsset
@@ -141,6 +143,9 @@ local PARTNER_OBJECT_ID = 253
 ---@field getCollisionAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
 ---@field isPausable fun(self: FieldActorManager, actorId: string): boolean
 ---@field allPausable fun(self: FieldActorManager): boolean
+---@field _restoreEntry fun(self: FieldActorManager, entry: FieldActorManager.Entry)
+---@field captureObjects fun(self: FieldActorManager): table
+---@field restoreObjects fun(self: FieldActorManager, objects: table)
 ---@field new fun(opts: FieldActorManagerOptions): FieldActorManager
 ---@class FieldActorManager.Actor: FieldObjectActor
 ---@field movementType string
@@ -198,6 +203,7 @@ local SURFACE_ERROR_CODES = {
 ---@field policy { variableSprites: FieldActorManager.VariableSprites }
 ---@field autonomyRng table?
 ---@field autonomySeed string?
+---@field restoredObjects table?
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
 -- opts.policy: the generated actor index's runtime block
@@ -227,8 +233,12 @@ function FieldActorManager.new(opts)
       rng = opts.autonomyRng or ScriptRng.new(opts.autonomySeed or "field:autonomy"),
       profiles = FieldObjectMovement,
     }),
+    pendingRestore = opts.restoredObjects,
   }, FieldActorManager)
   ---@cast manager FieldActorManager
+  if manager.pendingRestore and manager.pendingRestore.rng then
+    manager.autonomy:restoreRng(manager.pendingRestore.rng)
+  end
   return manager
 end
 
@@ -635,6 +645,202 @@ local function populateEntry(self, entry, eventState)
   end
 end
 
+local AUTONOMOUS_STEP_TICKS = 8
+
+local function savedProjection(entry, actor, record)
+  actor = assert(actor)
+  actor.sourceEvent = assert(actor.sourceEvent)
+  local runtimeMap = entry.runtimeMap
+  local sample = resolveSurfaceAt(runtimeMap, record.fieldX, record.fieldZ, actor.sourceEvent.y, actor.actorId)
+  local plate = assert(runtimeMap.terrain:plate(sample.surfaceId), "saved actor surface is missing")
+  local cellKey, sourceSurfaceId = sourceIdentityFromPlate(plate)
+  if record.cellKey ~= nil and (record.cellKey ~= cellKey or record.sourceSurfaceId ~= sourceSurfaceId) then
+    Errors.raise(
+      FieldErrors.ACTOR_SURFACE_MISSING,
+      "saved actor " .. actor.actorId .. " source surface no longer resolves",
+      { actorId = actor.actorId, cellKey = record.cellKey, sourceSurfaceId = record.sourceSurfaceId }
+    )
+  end
+  local world = FieldCoordinates.fieldToWorld(runtimeMap, record.fieldX, record.fieldZ, sample.worldY)
+  return {
+    fieldX = record.fieldX,
+    fieldZ = record.fieldZ,
+    surfaceId = sample.surfaceId,
+    cellKey = cellKey,
+    sourceSurfaceId = sourceSurfaceId,
+    worldX = world.x,
+    worldY = world.y,
+    worldZ = world.z,
+    resident = isResident(runtimeMap, record.fieldX, record.fieldZ),
+  }
+end
+
+local function savedDestination(entry, actor, point)
+  local projection = savedProjection(entry, actor, point)
+  if
+    point.cellKey ~= nil
+    and (point.cellKey ~= projection.cellKey or point.sourceSurfaceId ~= projection.sourceSurfaceId)
+  then
+    Errors.raise(
+      FieldErrors.ACTOR_SURFACE_MISSING,
+      "saved actor " .. actor.actorId .. " destination surface no longer resolves",
+      { actorId = actor.actorId }
+    )
+  end
+  return projection
+end
+
+function FieldActorManager:_restoreEntry(entry)
+  local snapshot = self.pendingRestore
+  if snapshot == nil or snapshot.actors == nil or next(snapshot.actors) == nil then
+    return
+  end
+  local plans = {}
+  local records = {}
+  for actorId, record in pairs(snapshot.actors) do
+    if record.mapId == entry.runtimeMap.mapId then
+      local actor = entry.actors[actorId]
+      if actor == nil then
+        Errors.raise(
+          ScriptErrors.SCRIPT_ACTOR_NOT_FOUND,
+          "saved actor " .. actorId .. " is not present in the loaded field",
+          { actorId = actorId }
+        )
+      end
+      actor = assert(actor)
+      actor.sourceEvent = assert(actor.sourceEvent)
+      if actor.objectEventId ~= record.objectEventId or actor.sourceEvent.movementType ~= record.sourceMovementType then
+        Errors.raise(
+          ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+          "saved actor source definition changed",
+          { actorId = actorId }
+        )
+      end
+      local projection = savedProjection(entry, actor, record)
+      plans[actorId] = { actor = actor, record = record, projection = projection }
+      records[#records + 1] = actorId
+    end
+  end
+  table.sort(records)
+
+  local occupancy = {}
+  for _, actor in ipairs(entry.order) do
+    local plan = plans[actor.actorId]
+    local projection = plan and plan.projection or projectionFor(entry.runtimeMap, actor)
+    local candidate = {
+      fieldX = projection.fieldX or actor.fieldX,
+      fieldZ = projection.fieldZ or actor.fieldZ,
+      surfaceId = projection.surfaceId,
+      cellKey = projection.cellKey,
+      sourceSurfaceId = projection.sourceSurfaceId,
+    }
+    if actor.solid and projection.resident ~= false and occupancyKey(entry.runtimeMap, actor.mapId, candidate) then
+      local key = occupancyKey(entry.runtimeMap, actor.mapId, candidate)
+      if occupancy[key] then
+        Errors.raise(FieldErrors.ACTOR_OCCUPANCY_CONFLICT, "saved actors occupy the same field cell", {
+          actorId = actor.actorId,
+          otherActorId = occupancy[key].actorId,
+        })
+      end
+      occupancy[key] = actor
+    end
+  end
+
+  local reservations = {}
+  for _, actorId in ipairs(records) do
+    local plan = plans[actorId]
+    local action = plan.record.action
+    if action then
+      if action.start.fieldX ~= plan.record.fieldX or action.start.fieldZ ~= plan.record.fieldZ then
+        Errors.raise(
+          ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+          "saved autonomous action start is inconsistent",
+          { actorId = actorId }
+        )
+      end
+      local destination = savedDestination(entry, plan.actor, action.destination)
+      local candidate = {
+        fieldX = destination.fieldX,
+        fieldZ = destination.fieldZ,
+        surfaceId = destination.surfaceId,
+        cellKey = destination.cellKey,
+        sourceSurfaceId = destination.sourceSurfaceId,
+      }
+      local key = occupancyKey(entry.runtimeMap, plan.actor.mapId, candidate)
+      if occupancy[key] or reservations[key] then
+        Errors.raise(
+          FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
+          "saved autonomous reservations conflict",
+          { actorId = actorId }
+        )
+      end
+      reservations[key] = { actorId = actorId, candidate = candidate }
+      plan.destination = destination
+      plan.reservationKey = key
+    end
+  end
+
+  local stagedReservations = {}
+  local stagedActions = {}
+  local restoredActors = {}
+  local restored, restoreErr = pcall(function()
+    for _, actorId in ipairs(records) do
+      local plan = plans[actorId]
+      local actor, record = plan.actor, plan.record
+      actor:setPosition(plan.projection)
+      actor:setFacing(record.facing)
+      actor.scriptMovementType = record.movementType
+      actor.movementType = record.movementType
+      self.autonomy:restore(actorId, record.movementType, record.controller)
+      restoredActors[#restoredActors + 1] = actor
+      if record.action then
+        local action = record.action
+        actor:beginAction({
+          action = action.kind,
+          direction = action.direction,
+          distance = "near",
+          speed = "normal",
+          start = {
+            fieldX = plan.projection.fieldX,
+            fieldZ = plan.projection.fieldZ,
+            worldX = plan.projection.worldX,
+            worldY = plan.projection.worldY,
+            worldZ = plan.projection.worldZ,
+            surfaceId = plan.projection.surfaceId,
+          },
+          dest = plan.destination,
+          durationTicks = action.durationTicks,
+        }, action.owner)
+        actor:advanceAction(action.progressTicks, action.durationTicks)
+        stagedReservations[plan.reservationKey] = {
+          actorId = actorId,
+          candidate = {
+            fieldX = plan.destination.fieldX,
+            fieldZ = plan.destination.fieldZ,
+            surfaceId = plan.destination.surfaceId,
+            cellKey = plan.destination.cellKey,
+            sourceSurfaceId = plan.destination.sourceSurfaceId,
+          },
+        }
+        stagedActions[actorId] = {
+          reservationKey = plan.reservationKey,
+          progressTicks = action.progressTicks,
+          destination = plan.destination,
+        }
+      end
+    end
+  end)
+  if not restored then
+    for _, actor in ipairs(restoredActors) do
+      actor:cancelAction()
+    end
+    error(restoreErr, 0)
+  end
+  entry.occupancy = occupancy
+  entry.reservations = stagedReservations
+  entry.autonomousActions = stagedActions
+end
+
 -- Removes a published entry and releases its actors. An entry that is no
 -- longer the one indexed under its map id has already been replaced, so the
 -- index and the active map identity are left alone.
@@ -675,6 +881,11 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
   end
   local entry = newEntry(runtimeMap)
   populateEntry(self, entry, eventState)
+  local restored, restoreErr = pcall(self._restoreEntry, self, entry)
+  if not restored then
+    destroyEntry(self, entry)
+    error(restoreErr, 0)
+  end
   local bound, bindErr = pcall(bindEventState, self, eventState)
   if not bound then
     destroyEntry(self, entry)
@@ -693,6 +904,79 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
   end
   if previous and previous ~= existing then
     retireEntry(self, previous)
+  end
+end
+
+---@return table
+function FieldActorManager:captureObjects()
+  local actors = {}
+  local mapIds = {}
+  for mapId in pairs(self.maps) do
+    mapIds[#mapIds + 1] = mapId
+  end
+  table.sort(mapIds)
+  for _, mapId in ipairs(mapIds) do
+    local entry = assert(self.maps[mapId])
+    for _, actor in ipairs(entry.order) do
+      local sourceEvent = actor.sourceEvent
+      if sourceEvent and actor.objectEventId ~= nil then
+        local controller = self.autonomy:capture(actor.actorId)
+        local record = {
+          actorId = actor.actorId,
+          mapId = actor.mapId,
+          objectEventId = actor.objectEventId,
+          sourceMovementType = assert(sourceEvent.movementType),
+          movementType = actor.movementType,
+          fieldX = actor.fieldX,
+          fieldZ = actor.fieldZ,
+          cellKey = actor.cellKey,
+          sourceSurfaceId = actor.sourceSurfaceId,
+          facing = actor.facing,
+          controller = controller,
+        }
+        local action = entry.autonomousActions[actor.actorId]
+        if action then
+          local motion = assert(actor:scriptedMotionState())
+          record.action = {
+            owner = assert(motion.owner),
+            kind = assert(motion.action),
+            direction = assert(motion.direction),
+            start = {
+              fieldX = motion.startFieldX,
+              fieldZ = motion.startFieldZ,
+              cellKey = actor.cellKey,
+              sourceSurfaceId = actor.sourceSurfaceId,
+            },
+            destination = {
+              fieldX = action.destination.fieldX,
+              fieldZ = action.destination.fieldZ,
+              cellKey = action.destination.cellKey,
+              sourceSurfaceId = action.destination.sourceSurfaceId,
+            },
+            durationTicks = AUTONOMOUS_STEP_TICKS,
+            progressTicks = action.progressTicks,
+          }
+        end
+        actors[actor.actorId] = record
+      end
+    end
+  end
+  return {
+    schema = FieldObjectSave.SCHEMA,
+    rng = self.autonomy:captureRng(),
+    actors = actors,
+  }
+end
+
+---@param objects table
+function FieldActorManager:restoreObjects(objects)
+  assert(next(self.maps) == nil, "restored objects must be supplied before map activation")
+  self.pendingRestore = objects
+  if objects.rng then
+    self.autonomy:restoreRng(objects.rng)
+  end
+  for _, entry in pairs(self.maps) do
+    self:_restoreEntry(entry)
   end
 end
 
@@ -746,7 +1030,6 @@ function FieldActorManager:syncEventStateChanges()
   end
 end
 
-local AUTONOMOUS_STEP_TICKS = 8
 local AUTONOMOUS_DELTAS = {
   north = { x = 0, z = -1 },
   south = { x = 0, z = 1 },

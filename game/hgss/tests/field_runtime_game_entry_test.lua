@@ -105,13 +105,18 @@ local function captureRuntime(overrides)
     },
     scripts = {
       worldState = {
-        capture = function()
-          return { flags = { [960] = true }, variables = {}, objects = {}, rng = { state = 1, calls = 2 } }
+        capture = function(_, objects)
+          return { flags = { [960] = true }, variables = {}, objects = objects, rng = { state = 1, calls = 2 } }
         end,
       },
       scheduler = {},
       registryFingerprint = function()
         return "registry-fingerprint"
+      end,
+    },
+    actors = {
+      captureObjects = function()
+        return { schema = "g4-field-objects-v1", rng = { state = 7, calls = 3 }, actors = {} }
       end,
     },
     auxiliaryFieldUi = {
@@ -180,6 +185,7 @@ function T.captureGameSave_returns_a_strict_snapshot_without_storage_io()
   Assert.equal(valid.worldY, 1.5)
   Assert.equal(valid.playTimeSeconds, 17)
   Assert.equal(valid.audio.fieldMusicOverride, 123)
+  Assert.equal(valid.world.objects.schema, "g4-field-objects-v1")
   Assert.equal(scriptCaptureCalls, 1)
   Assert.equal(validationCalls, 1)
 end

@@ -127,4 +127,20 @@ function T.complete_validation_rejects_stale_task_identity()
   Assert.equal(validationError.code, "GAME_SAVE_BUCKET_INVALID")
 end
 
+function T.complete_validation_composes_field_object_validation()
+  local service = GameSaveValidation.new({
+    contextLoader = function()
+      return context()
+    end,
+  })
+  local candidate = record("save-00000005", "heartgold", validPlayerData)
+  candidate.world.objects = {
+    schema = "g4-field-objects-v1",
+    rng = { state = 7, calls = 3 },
+    actors = {},
+  }
+  local valid = assert(service:validate(candidate))
+  Assert.equal(valid.world.objects.schema, "g4-field-objects-v1")
+end
+
 return { tests = T }

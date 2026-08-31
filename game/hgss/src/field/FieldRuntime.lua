@@ -721,6 +721,7 @@ function FieldRuntime:_load()
     self.actors = FieldActorManager.new({
       assets = self.actorAssets,
       policy = { variableSprites = self.actorConfig.variableSprites },
+      restoredObjects = restoredWorld and restoredWorld.objects or nil,
     })
 
     -- The player's graphic is one more compiled actor visual: it is acquired from
@@ -1388,7 +1389,7 @@ function FieldRuntime:_captureGameSave(allowMenu)
   local runtimeMap = session.currentMap
   assert(type(runtimeMap.terrainDependencyHash) == "string", "runtime map terrain dependency identity required")
 
-  local world = self.scripts.worldState:capture()
+  local world = self.scripts.worldState:capture(self.actors:captureObjects())
   local snapshot = {
     schema = GameSave.SCHEMA,
     saveId = self.saveId,

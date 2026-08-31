@@ -236,6 +236,29 @@ T["world validation is strict and matches capture"] = function()
   end
 end
 
+T["world validation delegates current object state"] = function()
+  local objectRecord = { schema = "objects", accepted = true }
+  local validated, err = WorldState.validate({
+    flags = {},
+    variables = {},
+    objects = objectRecord,
+    rng = { state = 1, calls = 0 },
+  }, {
+    objectsValidate = function(value)
+      Assert.equal(value, objectRecord)
+      return { canonical = true }
+    end,
+  })
+  Assert.isNil(err)
+  Assert.deepEqual({ canonical = true }, assert(validated).objects)
+end
+
+T["world capture accepts a canonical object bucket"] = function()
+  local world = WorldState.new({ catalogs = CATALOGS, seed = 7 })
+  local objects = { schema = "objects", actors = {} }
+  Assert.equal(world:capture(objects).objects, objects)
+end
+
 T["script rng validation enforces the generator domain"] = function()
   local maximumState = 0x7FFFFFFE
   local modulus = 0x7FFFFFFF
