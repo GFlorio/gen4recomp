@@ -141,7 +141,7 @@ local function actorEvent(objectEventId, spriteId)
     index = objectEventId,
     objectEventId = objectEventId,
     spriteId = spriteId,
-    movement = 0,
+    movementType = "stationary",
     type = 0,
     eventFlag = 0,
     scriptId = 1,

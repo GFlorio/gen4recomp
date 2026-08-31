@@ -53,7 +53,7 @@ function T.walk_in_place_must_animate_without_translating()
       {
         objectEventId = 0,
         spriteId = 99,
-        movement = 0,
+        movementType = "stationary",
         type = 0,
         eventFlag = 0,
         scriptId = 1,

@@ -285,6 +285,20 @@ function FakeActors:isScriptedMoving(actorId)
   return actor ~= nil and actor._scriptedAction ~= nil
 end
 
+function FakeActors:isPausable(actorId)
+  local actor = self.actors[actorId]
+  return actor == nil or actor._scriptedAction == nil
+end
+
+function FakeActors:allPausable()
+  for actorId in pairs(self.actors) do
+    if not self:isPausable(actorId) then
+      return false
+    end
+  end
+  return true
+end
+
 function FakeActors:getPosition(actorId)
   local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
   return { fieldX = actor.fieldX, fieldZ = actor.fieldZ, worldY = actor.worldY }

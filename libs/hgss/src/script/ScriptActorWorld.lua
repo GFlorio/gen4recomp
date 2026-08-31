@@ -27,6 +27,8 @@
 ---@field settleScriptedAction fun(self: ScriptActorManager, actorId: string)
 ---@field cancelScriptedMovement fun(self: ScriptActorManager, actorId: string)
 ---@field isScriptedMoving fun(self: ScriptActorManager, actorId: string): boolean
+---@field isPausable fun(self: ScriptActorManager, actorId: string): boolean
+---@field allPausable fun(self: ScriptActorManager): boolean
 ---@field syncEventStateChanges fun(self: ScriptActorManager)?
 
 -- The manager methods the actor world calls; every one must be present.
@@ -285,6 +287,16 @@ function ScriptActorWorld:isScriptedMoving(actorId)
   end
   assert(self._manager.isScriptedMoving, "actor manager missing isScriptedMoving")
   return self._manager:isScriptedMoving(actorId)
+end
+
+function ScriptActorWorld:isPausable(actorId)
+  assert(type(self._manager.isPausable) == "function", "actor manager pausable query required")
+  return self._manager:isPausable(actorId)
+end
+
+function ScriptActorWorld:allPausable()
+  assert(type(self._manager.allPausable) == "function", "actor manager pausable query required")
+  return self._manager:allPausable()
 end
 
 function ScriptActorWorld:syncPresence()

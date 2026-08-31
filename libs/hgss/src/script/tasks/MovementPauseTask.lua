@@ -68,6 +68,19 @@ function MovementPauseTask.poll(state, ctx)
       end
     end
   end
+  assert(ctx.services and ctx.services.actors, "movement pause actor service required")
+  local actors = ctx.services.actors
+  local pausable
+  if state.actor ~= nil then
+    assert(type(actors.isPausable) == "function", "movement pause actor query required")
+    pausable = actors:isPausable(state.actor)
+  else
+    assert(type(actors.allPausable) == "function", "movement pause actor query required")
+    pausable = actors:allPausable()
+  end
+  if not pausable then
+    return { complete = false, state = state }
+  end
   return { complete = true, state = state, result = { paused = true } }
 end
 

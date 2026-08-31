@@ -123,6 +123,9 @@ local function defaultPlayer()
     updateFixed = function()
       return false
     end,
+    collisionCandidates = function(self)
+      return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
+    end,
   }
 end
 
@@ -204,6 +207,18 @@ local function baseOptions(overrides)
   for key, value in pairs(overrides) do
     rawset(options, key, value)
   end
+  local scheduler = options.scriptScheduler
+  scheduler.autonomousActorsLocked = scheduler.autonomousActorsLocked or function()
+    return false
+  end
+  scheduler.autonomousActorLocked = scheduler.autonomousActorLocked or function()
+    return false
+  end
+  local player = options.player
+  player.collisionCandidates = player.collisionCandidates
+    or function(self)
+      return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
+    end
   return options
 end
 

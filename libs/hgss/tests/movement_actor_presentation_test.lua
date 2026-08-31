@@ -61,7 +61,7 @@ local function runtimeMap()
             index = 0,
             objectEventId = 0,
             spriteId = 99,
-            movement = 0,
+            movementType = "stationary",
             type = 0,
             eventFlag = 500,
             scriptId = 1,

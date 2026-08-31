@@ -231,6 +231,9 @@ T["actor world adapter"] = function()
     name = function()
       return "Gold"
     end,
+    collisionCandidates = function()
+      return { { fieldX = 10, fieldZ = 10, surfaceId = 0 } }
+    end,
   }
   local world = ScriptActorWorld.new(manager --[[@as ScriptActorManager]], player)
   Assert.isTrue(world:exists("player"))
@@ -360,6 +363,9 @@ T["session script phase"] = function()
       moved = moved + 1
       self.motion = "idle"
       return false
+    end,
+    collisionCandidates = function(self)
+      return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
     end,
   }
   local runtimeMap = {

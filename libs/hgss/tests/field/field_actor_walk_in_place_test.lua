@@ -72,7 +72,7 @@ function T.walk_in_place_keeps_logical_coordinates_and_visibly_bobs_in_presentat
       {
         objectEventId = 0,
         spriteId = 99,
-        movement = 0,
+        movementType = "stationary",
         type = 0,
         eventFlag = 0,
         scriptId = 1,

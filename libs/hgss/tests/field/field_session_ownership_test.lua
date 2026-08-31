@@ -39,6 +39,9 @@ local function basePlayer(overrides)
     updateFixed = function(_)
       return false
     end,
+    collisionCandidates = function(self)
+      return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
+    end,
     collapseRenderInterpolation = function() end,
   }
   for k, v in pairs(overrides or {}) do
@@ -63,6 +66,12 @@ local function makeSession(opts)
       end,
       foregroundEnvironmentId = function()
         return nil
+      end,
+      autonomousActorsLocked = function()
+        return false
+      end,
+      autonomousActorLocked = function()
+        return false
       end,
     }
   local currentMap = (
@@ -164,6 +173,12 @@ function T.foreground_without_player_lock_permits_movement_but_blocks_menu_and_i
     foregroundEnvironmentId = function(self)
       return self.foreground
     end,
+    autonomousActorsLocked = function()
+      return false
+    end,
+    autonomousActorLocked = function()
+      return false
+    end,
   }
 
   local player = basePlayer({
@@ -237,6 +252,12 @@ function T.actor_world_continues_while_foreground_holds_the_field_and_release_ti
     foregroundEnvironmentId = function(self)
       return self.foreground
     end,
+    autonomousActorsLocked = function()
+      return false
+    end,
+    autonomousActorLocked = function()
+      return false
+    end,
   }
 
   -- The session samples input before stepping the scheduler. Even though the
@@ -303,6 +324,12 @@ function T.interaction_only_ownership_must_suppress_input_including_the_completi
     end,
     playerInputOwned = function()
       return claimed
+    end,
+    autonomousActorsLocked = function()
+      return false
+    end,
+    autonomousActorLocked = function()
+      return false
     end,
   }
 

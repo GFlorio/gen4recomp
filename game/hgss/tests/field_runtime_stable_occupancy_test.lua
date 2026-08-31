@@ -37,7 +37,7 @@ local function object(objectEventId, x, z, y, spriteId)
     index = objectEventId,
     objectEventId = objectEventId,
     spriteId = spriteId or 99,
-    movement = 0,
+    movementType = "stationary",
     type = 0,
     eventFlag = 0,
     scriptId = 1,

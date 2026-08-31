@@ -74,7 +74,7 @@ local function object(overrides)
     index = 0,
     objectEventId = 0,
     spriteId = 99,
-    movement = 0,
+    movementType = "stationary",
     type = 0,
     eventFlag = 0,
     scriptId = 1,
@@ -188,6 +188,83 @@ function T.visible_objects_become_actors_and_flagged_ones_do_not()
   Assert.notNil(mgr:getById("map:61:object:0"))
   Assert.isNil(mgr:getById("map:61:object:1"))
   Assert.equal(#mgr:drawRecords(), 1)
+end
+
+function T.legacy_empty_object_bucket_keeps_source_actor_initialization()
+  local mgr = manager({ object({}) }, { restoredObjects = {} })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  Assert.equal(actor.fieldX, 2)
+  Assert.equal(actor.fieldZ, 3)
+  Assert.equal(actor.movementType, "stationary")
+  mgr:dispose()
+end
+
+function T.restored_effective_movement_type_is_applied_to_the_actor()
+  local actorId = "map:61:object:0"
+  local mgr = manager({ object({ movementType = "stationary" }) }, {
+    restoredObjects = {
+      schema = "g4-field-objects-v1",
+      rng = { state = 7, calls = 0 },
+      actors = {
+        [actorId] = {
+          actorId = actorId,
+          mapId = 61,
+          objectEventId = 0,
+          sourceMovementType = "stationary",
+          movementType = "wander_north_south",
+          fieldX = 2,
+          fieldZ = 3,
+          facing = "south",
+          controller = { kind = "wander", timer = 4, blocked = false },
+        },
+      },
+    },
+  })
+  local actor = assert(mgr:getById(actorId))
+  Assert.equal(actor.movementType, "wander_north_south")
+  Assert.equal(mgr.autonomy:state(actorId).movementType, "wander_north_south")
+  mgr:dispose()
+end
+
+function T.deferred_movement_type_capture_keeps_effective_profile_and_pending_type_distinct()
+  local actorId = "map:61:object:0"
+  local mgr = manager({ object({ movementType = "wander_north_south" }) })
+  local actor = assert(mgr:getById(actorId))
+  mgr:step(1)
+  Assert.isFalse(mgr:isPausable(actorId))
+
+  mgr:setMovementType(actorId, "look_north")
+  local record = mgr:captureObjects().actors[actorId]
+  Assert.equal(record.movementType, "wander_north_south")
+  Assert.equal(record.controller.kind, "wander")
+  Assert.equal(record.controller.pendingMovementType, "look_north")
+  Assert.equal(actor.movementType, "wander_north_south")
+  mgr:dispose()
+end
+
+function T.failed_autonomy_attachment_rolls_back_actor_indexes_and_occupancy()
+  local assets = fakeAssets({ [99] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  local map = runtimeMap({ object({ movementType = "not_a_movement_type" }) })
+  Assert.throws(function()
+    mgr:enterMap(map, FieldEventState.new())
+  end)
+  Assert.equal(#mgr:actorsOf(map.mapId), 0)
+  Assert.equal(mgr:visualRevision(), 0)
+  Assert.equal(assets:total(), 0)
+  mgr:dispose()
+end
+
+function T.fixed_facing_movement_type_is_applied_on_the_field_tick()
+  local mgr = manager({ object({ movementType = "look_north", facingDirection = "south" }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+
+  mgr:step(1)
+
+  Assert.equal(actor.facing, "north")
+  Assert.equal(actor.fieldX, 2)
+  Assert.equal(actor.fieldZ, 3)
+  mgr:dispose()
 end
 
 -- Logical actors survive outside the resident physical window, then reconcile
@@ -378,6 +455,7 @@ function T.stale_occupancy_cannot_be_removed_by_the_wrong_actor()
     worldY = 0,
     worldZ = 0,
   })
+  ---@cast imposter FieldActorManager.Actor
   assets:acquire(99)
   entry.actors[imposter.actorId] = imposter
   entry.order[#entry.order + 1] = imposter

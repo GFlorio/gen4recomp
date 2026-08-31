@@ -1182,6 +1182,20 @@ function Scheduler:autonomousActorsLocked()
   return env ~= nil and env:autonomousLocked() or false
 end
 
+-- Read-only foreground fact for the field actor service. The environment owns
+-- the lock table; callers receive only the queried boolean.
+---@param actorId string
+---@return boolean
+function Scheduler:autonomousActorLocked(actorId)
+  assert(type(actorId) == "string", "actor lock query requires an actor id")
+  local envId = self._foregroundEnvironmentId
+  if envId == nil then
+    return false
+  end
+  local env = self._environments[envId]
+  return env ~= nil and env:lockCount(ScriptEnvironment.LOCK_ACTOR_PREFIX .. actorId) > 0 or false
+end
+
 -- --- Accessors -----------------------------------------------------------------
 
 -- Live instances only: the scheduler's own tick work and save capture

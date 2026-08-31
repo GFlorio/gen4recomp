@@ -2,7 +2,8 @@
 -- data; every value the runtime may change (facing, pose clock, visibility)
 -- lives on the actor, mirroring pret/pokeheartgold's split between the event
 -- record and the `MapObject` it constructs. Actors are static:
--- `rawMovement` is preserved, never executed. Pure domain module.
+-- Semantic movement is resolved by the generated field-data contract. Pure
+-- domain module.
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
@@ -30,11 +31,15 @@ local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 ---@field activeEmoteKind string? the active semantic emote (e.g. "exclamation") while an emote action is live, else nil
 ---@field visible boolean
 ---@field solid boolean
----@field rawMovement integer
+---@field movementType string
 ---@field interactionFacingOverride { owner: string, facing: FieldDirection, restoreFacing: FieldDirection }?
 ---@field pushFacingOverride fun(self: FieldObjectActor, request: { owner: string, facing: FieldDirection }): table
 ---@field releaseFacingOverride fun(self: FieldObjectActor, token: table)
 ---@field clearFacingOverride fun(self: FieldObjectActor)
+---@field beginAction fun(self: FieldObjectActor, descriptor: table, owner: "script"|"autonomous")
+---@field advanceAction fun(self: FieldObjectActor, progressTicks: integer, durationTicks: integer)
+---@field commitAction fun(self: FieldObjectActor): table?
+---@field cancelAction fun(self: FieldObjectActor)
 ---@field beginScriptedAction fun(self: FieldObjectActor, descriptor: table)
 ---@field advanceScriptedAction fun(self: FieldObjectActor, progressTicks: integer, durationTicks: integer)
 ---@field commitScriptedAction fun(self: FieldObjectActor): table?
@@ -131,7 +136,7 @@ function FieldObjectActor.new(opts)
     -- zero interaction-script id is only "no A-button script" and carries no
     -- collision meaning of its own.
     solid = opts.solid ~= false,
-    rawMovement = event.movement,
+    movementType = assert(event.movementType, "field actor movement type is required"),
     interactionFacingOverride = nil,
   }, FieldObjectActor)
 end
@@ -188,7 +193,9 @@ end
 -- Occupancy stays on committed field until commit. Draw uses presentation
 -- world while motion is active.
 
-function FieldObjectActor:beginScriptedAction(descriptor)
+function FieldObjectActor:beginAction(descriptor, owner)
+  assert(owner == "script" or owner == "autonomous", "field actor action owner is invalid")
+  assert(self._motion == nil, "field actor already has an active action")
   -- descriptor: { action, direction, distance, speed, start, dest, durationTicks, name, count }
   -- `name` is the decoded semantic emote kind (e.g. "exclamation"); present
   -- only when action == "emote". `count` is the source repetition count;
@@ -196,7 +203,8 @@ function FieldObjectActor:beginScriptedAction(descriptor)
   local start = descriptor.start
   local dest = descriptor.dest
   local stationaryAnimated = isAnimatedStationaryFace(descriptor)
-  self._scriptedMotion = {
+  self._motion = {
+    owner = owner,
     action = descriptor.action,
     direction = descriptor.direction,
     distance = descriptor.distance,
@@ -253,8 +261,12 @@ function FieldObjectActor:beginScriptedAction(descriptor)
   end
 end
 
-function FieldObjectActor:advanceScriptedAction(progressTicks, durationTicks)
-  local m = self._scriptedMotion
+function FieldObjectActor:beginScriptedAction(descriptor)
+  self:beginAction(descriptor, "script")
+end
+
+function FieldObjectActor:advanceAction(progressTicks, durationTicks)
+  local m = self._motion
   if not m then
     return
   end
@@ -306,8 +318,12 @@ function FieldObjectActor:advanceScriptedAction(progressTicks, durationTicks)
   end
 end
 
-function FieldObjectActor:commitScriptedAction()
-  local m = self._scriptedMotion
+function FieldObjectActor:advanceScriptedAction(progressTicks, durationTicks)
+  self:advanceAction(progressTicks, durationTicks)
+end
+
+function FieldObjectActor:commitAction()
+  local m = self._motion
   if not m then
     return nil
   end
@@ -330,12 +346,16 @@ function FieldObjectActor:commitScriptedAction()
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
   self.activeEmoteKind = nil
-  self._scriptedMotion = nil
+  self._motion = nil
   return result
 end
 
-function FieldObjectActor:cancelScriptedAction()
-  local m = self._scriptedMotion
+function FieldObjectActor:commitScriptedAction()
+  return self:commitAction()
+end
+
+function FieldObjectActor:cancelAction()
+  local m = self._motion
   if not m then
     return
   end
@@ -350,11 +370,15 @@ function FieldObjectActor:cancelScriptedAction()
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
   self.activeEmoteKind = nil
-  self._scriptedMotion = nil
+  self._motion = nil
+end
+
+function FieldObjectActor:cancelScriptedAction()
+  self:cancelAction()
 end
 
 function FieldObjectActor:isScriptedMoving()
-  return self._scriptedMotion ~= nil
+  return self._motion ~= nil and self._motion.owner == "script"
 end
 
 -- Force a stable idle baseline with no residual presentation offset. A
@@ -363,7 +387,7 @@ end
 -- calls this once the whole sequence is exhausted to guarantee the actor
 -- never keeps showing its final locomotion action's walking pose.
 function FieldObjectActor:settlePresentation()
-  assert(self._scriptedMotion == nil, "cannot settle presentation while a scripted action is active")
+  assert(self._motion == nil, "cannot settle presentation while an action is active")
   self.pose = "idle"
   self.poseTick = 0
   self.presentationOffset.x = 0
@@ -377,11 +401,11 @@ end
 -- without reaching into MovementTask's private plan state.
 ---@return string|nil
 function FieldObjectActor:currentAction()
-  return self._scriptedMotion and self._scriptedMotion.action or nil
+  return self._motion and self._motion.action or nil
 end
 
 function FieldObjectActor:scriptedMotionState()
-  return self._scriptedMotion
+  return self._motion
 end
 
 -- --- Scripted mutation  ------------------------------------

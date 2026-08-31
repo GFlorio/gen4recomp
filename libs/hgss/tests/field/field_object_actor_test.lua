@@ -19,7 +19,7 @@ local function sourceEvent(overrides)
     index = 0,
     objectEventId = 0,
     spriteId = 99,
-    movement = 0,
+    movementType = "stationary",
     type = 0,
     eventFlag = 401,
     scriptId = 1,
@@ -71,7 +71,7 @@ function T.runtime_state_starts_from_the_source_record()
   Assert.equal(a.poseTick, 0)
   Assert.isTrue(a.visible)
   Assert.isTrue(a.solid)
-  Assert.equal(a.rawMovement, 0)
+  Assert.equal(a.movementType, "stationary")
   Assert.isNil(a.interactionFacingOverride)
 end
 

@@ -947,6 +947,30 @@ function FieldPlayer:isScriptedMoving()
   return self._scriptedMotion ~= nil and self.motion == "walking"
 end
 
+-- Collision facts expose both sides of the end-of-step movement model without
+-- exposing the player's mutable internals to the actor manager.
+---@return table[]
+function FieldPlayer:collisionCandidates()
+  local current = {
+    fieldX = self.fieldX,
+    fieldZ = self.fieldZ,
+    surfaceId = self.surfaceId,
+    cellKey = self.committedSourceCellKey,
+    sourceSurfaceId = self.committedSourceSurfaceId,
+  }
+  local candidates = { current }
+  if self.to ~= nil and (self.motion == "walking" or self.motion == "jumping") then
+    candidates[#candidates + 1] = {
+      fieldX = self.to.fieldX,
+      fieldZ = self.to.fieldZ,
+      surfaceId = self.to.surfaceId,
+      cellKey = self.to.sourceCellKey,
+      sourceSurfaceId = self.to.sourceSurfaceId,
+    }
+  end
+  return candidates
+end
+
 -- Rebind the player to a newly committed physical coverage window. Global tile
 -- coordinates remain authoritative; only local frame and composite surface id
 -- change. Current and previous render positions receive the same frame delta.

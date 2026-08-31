@@ -1142,6 +1142,9 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
       return false
     end,
     collapseRenderInterpolation = function() end,
+    collisionCandidates = function(self)
+      return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
+    end,
   }
   ---@cast player FieldPlayer
   local map = {
@@ -1229,6 +1232,12 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
       end,
       foregroundEnvironmentId = function()
         return nil
+      end,
+      autonomousActorsLocked = function()
+        return false
+      end,
+      autonomousActorLocked = function()
+        return false
       end,
     },
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double

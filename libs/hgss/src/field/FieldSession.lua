@@ -720,7 +720,21 @@ function FieldSession:updateFixed(inputSnapshot)
   -- World presentation advances even while a foreground script runs, and
   -- exactly once per world-advancing tick (not once per same-run presence
   -- flush). Input suppression does not freeze it.
-  self.actors:step(self.tick + 1)
+  local playerFacts = {
+    fieldX = self.player.fieldX,
+    fieldZ = self.player.fieldZ,
+    surfaceId = self.player.surfaceId,
+    worldY = self.player.worldY,
+  }
+  local function actorLocked(_, actorId)
+    return self.scriptScheduler:autonomousActorLocked(actorId)
+  end
+  self.actors:step(self.tick + 1, {
+    autonomousLocked = self.scriptScheduler:autonomousActorsLocked(),
+    actorLocked = actorLocked,
+    player = playerFacts,
+    playerCandidates = self.player:collisionCandidates(),
+  })
 
   if self.childResumePending then
     self:_advanceTick()

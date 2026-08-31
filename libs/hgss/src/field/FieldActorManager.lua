@@ -13,6 +13,9 @@ local ScriptErrors = require("libs.script.src.errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local FieldObjectActor = require("libs.hgss.src.field.FieldObjectActor")
+local FieldActorAutonomy = require("libs.hgss.src.field.FieldActorAutonomy")
+local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 
 -- Pinned HGSS special object ids: the field camera target and the walking
@@ -42,7 +45,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field index integer
 ---@field objectEventId integer
 ---@field spriteId integer
----@field movement integer
+---@field movementType string
 ---@field type integer
 ---@field eventFlag integer
 ---@field scriptId integer
@@ -93,7 +96,8 @@ local PARTNER_OBJECT_ID = 253
 ---@field _visualRevision integer
 ---@field _drawRecords FieldActorManager.DrawRecord[]
 ---@field _drawRecordByActorId table<string, FieldActorManager.DrawRecord>
----@field step fun(self: FieldActorManager, tick: integer)
+---@field autonomy FieldActorAutonomy
+---@field step fun(self: FieldActorManager, tick: integer, context: table?)
 ---@field _resolveSpriteId fun(self: FieldActorManager, event: FieldActorEvent, eventState: FieldEventState?): integer
 ---@field _acquireVisual fun(self: FieldActorManager, spriteId: integer, actorId: string): FieldActorAsset
 ---@field _instantiate fun(self: FieldActorManager, entry: FieldActorManager.Entry, event: FieldActorEvent, eventState: FieldEventState?): FieldActorManager.Actor
@@ -132,7 +136,14 @@ local PARTNER_OBJECT_ID = 253
 ---@field cancelScriptedMovement fun(self: FieldActorManager, actorId: string)
 ---@field settleScriptedAction fun(self: FieldActorManager, actorId: string)
 ---@field isScriptedMoving fun(self: FieldActorManager, actorId: string): boolean
+---@field _advanceAutonomousAction fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor, action: table)
+---@field _beginAutonomousAction fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor, direction: FieldDirection, context: table): boolean
+---@field getCollisionAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
+---@field isPausable fun(self: FieldActorManager, actorId: string): boolean
+---@field allPausable fun(self: FieldActorManager): boolean
+---@field new fun(opts: FieldActorManagerOptions): FieldActorManager
 ---@class FieldActorManager.Actor: FieldObjectActor
+---@field movementType string
 ---@field scriptMovementType string?
 ---@field animationPaused boolean?
 
@@ -142,6 +153,8 @@ local PARTNER_OBJECT_ID = 253
 ---@field actors table<string, FieldActorManager.Actor>
 ---@field order FieldActorManager.Actor[]
 ---@field occupancy table<string, FieldActorManager.Actor>
+---@field reservations table<string, { actorId: string, candidate: FieldOccupancyCandidate }>
+---@field autonomousActions table<string, table>
 ---@field byFlag table<integer, FieldActorEvent[]>
 ---@field byIndex table<integer, string>
 
@@ -165,6 +178,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field activeEmoteKind string?
 ---@field visible boolean
 local FieldActorManager = {}
+---@cast FieldActorManager FieldActorManager
 FieldActorManager.__index = FieldActorManager
 
 -- Raw event Y is a 1/16-unit fixed-point hint, matching the field event decoder.
@@ -182,6 +196,8 @@ local SURFACE_ERROR_CODES = {
 ---@class FieldActorManagerOptions
 ---@field assets FieldActorAssets
 ---@field policy { variableSprites: FieldActorManager.VariableSprites }
+---@field autonomyRng table?
+---@field autonomySeed string?
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
 -- opts.policy: the generated actor index's runtime block
@@ -207,6 +223,10 @@ function FieldActorManager.new(opts)
     _visualRevision = 0,
     _drawRecords = {},
     _drawRecordByActorId = {},
+    autonomy = FieldActorAutonomy.new({
+      rng = opts.autonomyRng or ScriptRng.new(opts.autonomySeed or "field:autonomy"),
+      profiles = FieldObjectMovement,
+    }),
   }, FieldActorManager)
   ---@cast manager FieldActorManager
   return manager
@@ -421,6 +441,7 @@ function FieldActorManager:_instantiate(entry, event, eventState)
   -- error propagates. Solid actors (the default; an event may opt out) take the
   -- occupancy cell, and two solid actors on one cell are a conflict.
   local actor ---@type FieldActorManager.Actor
+  local autonomyAttached = false
   local ok, err = pcall(function()
     actor = FieldObjectActor.new({
       mapId = runtimeMap.mapId,
@@ -462,11 +483,32 @@ function FieldActorManager:_instantiate(entry, event, eventState)
     entry.actors[actorId] = actor
     entry.byIndex[actor.objectEventId] = actorId
     entry.order[#entry.order + 1] = actor
+    self.autonomy:attach(actorId, actor.movementType, event)
+    autonomyAttached = true
     if entry.published then
       self._visualRevision = self._visualRevision + 1
     end
   end)
   if not ok then
+    if actor then
+      if actor.resident and actor.solid then
+        local key = occupancyKey(runtimeMap, actor.mapId, candidateForActor(actor))
+        if entry.occupancy[key] == actor then
+          entry.occupancy[key] = nil
+        end
+      end
+      entry.actors[actorId] = nil
+      entry.byIndex[actor.objectEventId] = nil
+      for index, candidate in ipairs(entry.order) do
+        if candidate == actor then
+          table.remove(entry.order, index)
+          break
+        end
+      end
+    end
+    if autonomyAttached then
+      self.autonomy:detach(actorId)
+    end
     self.assets:release(spriteId)
     error(err)
   end
@@ -477,6 +519,15 @@ end
 ---@param actor FieldActorManager.Actor
 ---@param self FieldActorManager
 function FieldActorManager:_destroy(entry, actor)
+  local action = entry.autonomousActions[actor.actorId]
+  if action then
+    local reservation = entry.reservations[action.reservationKey]
+    assert(reservation and reservation.actorId == actor.actorId, "actor reservation owner disagrees")
+    entry.reservations[action.reservationKey] = nil
+    entry.autonomousActions[actor.actorId] = nil
+    actor:cancelAction()
+  end
+  self.autonomy:detach(actor.actorId)
   actor:clearFacingOverride()
   entry.actors[actor.actorId] = nil
   entry.byIndex[actor.objectEventId] = nil
@@ -540,6 +591,8 @@ local function newEntry(runtimeMap)
     actors = {},
     order = {},
     occupancy = {},
+    reservations = {},
+    autonomousActions = {},
     byFlag = {},
     byIndex = {},
   } ---@type FieldActorManager.Entry
@@ -693,23 +746,270 @@ function FieldActorManager:syncEventStateChanges()
   end
 end
 
----@param tick integer
+local AUTONOMOUS_STEP_TICKS = 8
+local AUTONOMOUS_DELTAS = {
+  north = { x = 0, z = -1 },
+  south = { x = 0, z = 1 },
+  west = { x = -1, z = 0 },
+  east = { x = 1, z = 0 },
+}
+
+local function movementErrorIsBlocked(err)
+  if not Errors.is(err) then
+    return false
+  end
+  ---@cast err Errors.Error
+  return err.code == FieldErrors.FIELD_COORDINATES_OUT_OF_COVERAGE or SurfaceResolver.isStepRejection(err)
+end
+
+local function samePhysicalCandidate(runtimeMap, left, right)
+  if left.fieldX ~= right.fieldX or left.fieldZ ~= right.fieldZ then
+    return false
+  end
+  local leftKind, leftFirst, leftSecond = stableSurfaceIdentity(runtimeMap, left)
+  local rightKind, rightFirst, rightSecond = stableSurfaceIdentity(runtimeMap, right)
+  return sameSurfaceIdentity(leftKind, leftFirst, leftSecond, rightKind, rightFirst, rightSecond)
+end
+
+local function playerOccupies(runtimeMap, candidate, facts)
+  if facts == nil then
+    return false
+  end
+  for _, playerCandidate in ipairs(facts) do
+    if samePhysicalCandidate(runtimeMap, candidate, playerCandidate) then
+      return true
+    end
+  end
+  return false
+end
+
 ---@param self FieldActorManager
-function FieldActorManager:step(tick)
+---@param entry FieldActorManager.Entry
+---@param actor FieldActorManager.Actor
+---@param direction FieldDirection
+---@param context table
+---@return table|nil
+local function resolveAutonomousDestination(self, entry, actor, direction, context)
+  local delta = assert(AUTONOMOUS_DELTAS[direction], "unknown autonomous direction " .. tostring(direction))
+  local fieldX, fieldZ = actor.fieldX + delta.x, actor.fieldZ + delta.z
+  local event = actor.sourceEvent
+  local xRange, zRange = event.xRange or 0, event.yRange or 0
+  if (xRange ~= 0 and math.abs(fieldX - event.x) > xRange) or (zRange ~= 0 and math.abs(fieldZ - event.z) > zRange) then
+    return nil
+  end
+
+  local runtimeMap = entry.runtimeMap
+  local ok, destination = pcall(function()
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
+    local centerX, centerZ = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET
+    local sample
+    if runtimeMap.probePhysicalCell then
+      local probe = runtimeMap:probePhysicalCell(fieldX, fieldZ, {
+        currentCellKey = actor.cellKey,
+        currentSourceSurfaceId = actor.sourceSurfaceId,
+        currentY = actor.worldY,
+        fromFieldX = actor.fieldX,
+        fromFieldZ = actor.fieldZ,
+      })
+      if not probe or probe.collision.blocked then
+        return nil
+      end
+      sample = {
+        surfaceId = probe.surfaceId,
+        worldY = probe.worldY,
+        cellKey = probe.cellKey,
+        sourceSurfaceId = probe.sourceSurfaceId,
+      }
+    else
+      if runtimeMap.collision.isBlockedLocal and runtimeMap.collision:isBlockedLocal(localX, localZ) then
+        return nil
+      end
+      sample = SurfaceResolver.new(runtimeMap.terrain):resolve({
+        localX = centerX,
+        localZ = centerZ,
+        currentY = actor.worldY,
+        currentSurfaceId = actor.surfaceId,
+        crossing = {
+          fromX = (actor.fieldX - runtimeMap.coordinateOrigin.x) + FieldCoordinates.TILE_CENTER_OFFSET,
+          fromZ = (actor.fieldZ - runtimeMap.coordinateOrigin.z) + FieldCoordinates.TILE_CENTER_OFFSET,
+          toX = centerX,
+          toZ = centerZ,
+        },
+      })
+      local plate = assert(runtimeMap.terrain:plate(sample.surfaceId), "autonomous destination surface is missing")
+      sample.cellKey, sample.sourceSurfaceId = sourceIdentityFromPlate(plate)
+    end
+    local plate = assert(runtimeMap.terrain:plate(sample.surfaceId), "autonomous destination surface is missing")
+    local candidate = {
+      fieldX = fieldX,
+      fieldZ = fieldZ,
+      surfaceId = sample.surfaceId,
+      cellKey = sample.cellKey or plate.cellKey,
+      sourceSurfaceId = sample.sourceSurfaceId or plate.sourceSurfaceId,
+    }
+    if
+      self:getCollisionAt(actor.mapId, candidate) ~= nil
+      or playerOccupies(runtimeMap, candidate, context.playerCandidates)
+    then
+      return nil
+    end
+    local world = FieldCoordinates.fieldToWorld(runtimeMap, fieldX, fieldZ, sample.worldY)
+    return {
+      fieldX = fieldX,
+      fieldZ = fieldZ,
+      surfaceId = sample.surfaceId,
+      cellKey = candidate.cellKey,
+      sourceSurfaceId = candidate.sourceSurfaceId,
+      worldX = world.x,
+      worldY = world.y,
+      worldZ = world.z,
+    }
+  end)
+  if not ok then
+    if movementErrorIsBlocked(destination) then
+      return nil
+    end
+    error(destination)
+  end
+  return destination
+end
+
+function FieldActorManager:_beginAutonomousAction(entry, actor, direction, context)
+  local destination = resolveAutonomousDestination(self, entry, actor, direction, context)
+  if destination == nil then
+    return false
+  end
+  local destinationCandidate = {
+    fieldX = destination.fieldX,
+    fieldZ = destination.fieldZ,
+    surfaceId = destination.surfaceId,
+    cellKey = destination.cellKey,
+    sourceSurfaceId = destination.sourceSurfaceId,
+  }
+  local reservationKey = occupancyKey(entry.runtimeMap, actor.mapId, destinationCandidate)
+  if entry.reservations[reservationKey] ~= nil then
+    return false
+  end
+  entry.reservations[reservationKey] = { actorId = actor.actorId, candidate = destinationCandidate }
+  entry.autonomousActions[actor.actorId] =
+    { reservationKey = reservationKey, progressTicks = 0, destination = destination }
+  local ok, err = pcall(function()
+    actor:beginAction({
+      action = "walk",
+      direction = direction,
+      distance = "near",
+      speed = "normal",
+      start = {
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        worldX = actor.worldX,
+        worldY = actor.worldY,
+        worldZ = actor.worldZ,
+        surfaceId = actor.surfaceId,
+      },
+      dest = destination,
+      durationTicks = AUTONOMOUS_STEP_TICKS,
+    }, "autonomous")
+  end)
+  if not ok then
+    entry.autonomousActions[actor.actorId] = nil
+    entry.reservations[reservationKey] = nil
+    error(err)
+  end
+  return true
+end
+
+function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
+  action.progressTicks = action.progressTicks + 1
+  actor:advanceAction(action.progressTicks, AUTONOMOUS_STEP_TICKS)
+  if action.progressTicks < AUTONOMOUS_STEP_TICKS then
+    return
+  end
+  local destination = action.destination
+  local reservation = entry.reservations[action.reservationKey]
+  assert(reservation and reservation.actorId == actor.actorId, "autonomous reservation is missing at commit")
+  local oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
+  local newKey = occupancyKey(entry.runtimeMap, actor.mapId, reservation.candidate)
+  if actor.solid then
+    assert(entry.occupancy[newKey] == nil, "autonomous destination became occupied")
+    assert(entry.occupancy[oldKey] == actor, "autonomous departure occupancy is missing")
+    entry.occupancy[oldKey] = nil
+    entry.occupancy[newKey] = actor
+  end
+  actor:commitAction()
+  actor.cellKey = destination.cellKey
+  actor.sourceSurfaceId = destination.sourceSurfaceId
+  entry.reservations[action.reservationKey] = nil
+  entry.autonomousActions[actor.actorId] = nil
+  self.autonomy:applyPendingMovementType(actor.actorId)
+  local autonomyState = self.autonomy:state(actor.actorId)
+  actor.scriptMovementType = autonomyState.movementType
+  actor.movementType = autonomyState.movementType
+end
+
+local function sortedMapIds(maps)
+  local ids = {}
+  for mapId in pairs(maps) do
+    ids[#ids + 1] = mapId
+  end
+  table.sort(ids)
+  return ids
+end
+
+---@param tick integer
+---@param context table?
+---@param self FieldActorManager
+function FieldActorManager:step(tick, context)
+  context = context or {}
   if self.eventState then
     self.eventState:setTick(tick)
   end
   self:syncEventStateChanges()
-  for _, entry in pairs(self.maps) do
+  for _, mapId in ipairs(sortedMapIds(self.maps)) do
+    local entry = assert(self.maps[mapId])
     for _, actor in ipairs(entry.order) do
-      -- Scripted pause_animation freezes the actor's pose animation; the
-      -- pose clock only advances while the actor is not paused. A scripted
-      -- action drives its own poseTick through advanceScriptedAction, so the
-      -- manager must not double-advance it here.
-      if actor:isScriptedMoving() then
-        -- poseTick is driven by scripted advancement.
-      elseif not actor.animationPaused then
-        actor.poseTick = actor.poseTick + 1
+      local autonomousAction = entry.autonomousActions[actor.actorId]
+      if autonomousAction then
+        self:_advanceAutonomousAction(entry, actor, autonomousAction)
+      else
+        -- Scripted pause_animation freezes the actor's pose animation; the
+        -- pose clock only advances while the actor is not paused. A scripted
+        -- action drives its own poseTick through advanceScriptedAction, so the
+        -- manager must not double-advance it here.
+        if actor:isScriptedMoving() then
+          -- poseTick is driven by scripted advancement.
+        elseif not actor.animationPaused then
+          actor.poseTick = actor.poseTick + 1
+        end
+        if
+          not actor:isScriptedMoving()
+          and actor.interactionFacingOverride == nil
+          and not context.autonomousLocked
+          and not (context.actorLocked and context.actorLocked(actor.actorId))
+          and self.autonomy:isOrdinary(actor.actorId)
+        then
+          local function setFacing(_, id, direction)
+            local target = assert(self:getById(id))
+            if target.interactionFacingOverride == nil then
+              target:setFacing(direction)
+            end
+          end
+          local function walk(_, id, direction)
+            local target = assert(self:getById(id))
+            return self:_beginAutonomousAction(entry, target, direction, context)
+          end
+          local capability = {
+            fieldX = actor.fieldX,
+            fieldZ = actor.fieldZ,
+            surfaceId = actor.surfaceId,
+            worldY = actor.worldY,
+            facingOverride = actor.interactionFacingOverride ~= nil,
+            player = context.player,
+            setFacing = setFacing,
+            walk = walk,
+          }
+          self.autonomy:step(actor.actorId, capability)
+        end
       end
     end
   end
@@ -873,6 +1173,28 @@ function FieldActorManager:getAt(mapId, candidate)
   return entry.occupancy[occupancyKey(entry.runtimeMap, mapId, candidate)]
 end
 
+-- Motion collision sees committed occupants and autonomous destinations. The
+-- interaction lookup above intentionally remains committed-position based.
+---@param mapId integer
+---@param candidate FieldOccupancyCandidate
+---@return FieldActorManager.Actor?
+function FieldActorManager:getCollisionAt(mapId, candidate)
+  local entry = self.maps[mapId]
+  if not entry then
+    return nil
+  end
+  local key = occupancyKey(entry.runtimeMap, mapId, candidate)
+  local actor = entry.occupancy[key]
+  if actor then
+    return actor
+  end
+  local reservation = entry.reservations[key]
+  if reservation then
+    return assert(entry.actors[reservation.actorId], "autonomous reservation actor is missing")
+  end
+  return nil
+end
+
 -- The read-only identity of a source object event on a map that owns no live
 -- actor entry: the same semantic identity activation would give it, without
 -- any actor instance or visual reference.
@@ -945,7 +1267,7 @@ end
 ---@return boolean
 ---@param self FieldActorManager
 function FieldActorManager:isOccupied(mapId, candidate, exceptActorId)
-  local actor = self:getAt(mapId, candidate)
+  local actor = self:getCollisionAt(mapId, candidate)
   return actor ~= nil and actor.actorId ~= exceptActorId
 end
 
@@ -1116,7 +1438,36 @@ end
 ---@param self FieldActorManager
 function FieldActorManager:setMovementType(actorId, movementType)
   local actor = requireActor(self, actorId)
+  assert(FieldObjectMovement.isType(movementType), "unknown field object movement type " .. tostring(movementType))
+  local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  if entry.autonomousActions[actorId] ~= nil then
+    actor.scriptMovementType = movementType
+    self.autonomy:setMovementType(actorId, movementType, true)
+    return
+  end
   actor.scriptMovementType = movementType
+  actor.movementType = movementType
+  self.autonomy:setMovementType(actorId, movementType)
+end
+
+function FieldActorManager:isPausable(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    return true
+  end
+  local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  return entry.autonomousActions[actorId] == nil
+end
+
+function FieldActorManager:allPausable()
+  for _, entry in pairs(self.maps) do
+    for actorId in pairs(entry.autonomousActions) do
+      if not self:isPausable(actorId) then
+        return false
+      end
+    end
+  end
+  return true
 end
 
 -- Scripted pause_animation/resume_animation: the actor's pose clock stops
@@ -1197,6 +1548,14 @@ end
 ---@param self FieldActorManager
 function FieldActorManager:beginScriptedAction(actorId, action)
   local actor = requireActor(self, actorId)
+  local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  local autonomousAction = entry.autonomousActions[actorId]
+  if autonomousAction then
+    assert(entry.reservations[autonomousAction.reservationKey])
+    entry.reservations[autonomousAction.reservationKey] = nil
+    entry.autonomousActions[actorId] = nil
+    actor:cancelAction()
+  end
   local kind = action.action
   -- Face is instantaneous: apply the facing directly, then still flow
   -- through the generic actor transaction below (with a stay-put start/dest).

@@ -54,7 +54,7 @@ function T.cancelled_movement_must_settle_to_last_committed_anchor()
       {
         objectEventId = 0,
         spriteId = 99,
-        movement = 0,
+        movementType = "stationary",
         type = 0,
         eventFlag = 0,
         scriptId = 1,
