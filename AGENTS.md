@@ -32,7 +32,9 @@ Read the narrowest authoritative source instead of duplicating it:
 - `libs/script/AGENTS.md`: mod scripting platform ownership and injected game meaning.
 - `libs/hgss/AGENTS.md`: recreated HGSS runtime mechanism ownership.
 - `libs/assets/AGENTS.md`: generated/mod-facing asset contract rules.
-- `game/AGENTS.md`: application composition and game-policy rules.
+- `app/AGENTS.md`: process, launcher, and provisioning rules.
+- `game/AGENTS.md`: game-agnostic lifecycle and host-adapter rules.
+- `game/hgss/AGENTS.md`: concrete HGSS application composition and policy rules.
 - `.agents/docs/adr/`: durable rationale for architectural decisions likely to be revisited.
 - `.agents/skills/`: workflows. Skills should consume repository guidance, not restate it.
 
@@ -87,8 +89,18 @@ source-grounded domain concept.
 
 ## Cross-cutting architecture
 
-- The repository has two runnable LÖVE apps, `game/` and `romdump/`, plus shared libraries.
-  See `docs/architecture.md` for architectural principles and stable entrypoints.
+- The repository has two runnable LÖVE apps, `app/` and `romdump/`, plus shared libraries.
+  See `docs/architecture.md` for the current map.
+- `app/` owns the LÖVE process shell, launcher, version selection, ROM provisioning, and
+  process exit policy. It may reach `romdump` only for provisioning and composes a concrete
+  game application; it does not import HGSS mechanisms directly.
+- `game/src/` owns the game-agnostic running-game lifecycle and host adapters (`Game`,
+  `WindowConfig`, `LocalClock`, `RepoFs`, and audio output). It must not import `app`,
+  `game/hgss`, `libs/hgss`, `libs/nds`, or `romdump`.
+- `game/hgss/` owns the concrete HeartGold/SoulSilver application: menu, new-game/Oak,
+  field application, save compatibility, application audio, and developer preview. It
+  consumes the generic `game` host and reusable mechanisms, but does not import `app`,
+  `romdump`, or `libs/nds`.
 - Domain logic should remain independently testable from LÖVE. `libs/assets`, `libs/codec`,
   `libs/storage`, `libs/errors`, and `libs/math` must not `require` love.
 - Reusable Nintendo container and Nitro/NNS format mechanics belong in `libs/nds`.
@@ -97,11 +109,12 @@ source-grounded domain concept.
 - `libs/assets` owns only g4recomp-defined generated/mod-facing formats, paths, schemas,
   validation, and source-independent encoders/decoders. It must never import `romdump`.
 - `libs/nds`, `libs/script`, and `libs/hgss` are the runtime package owners described by
-  their package guidance. game depends on HGSS mechanisms, not Nintendo implementation details;
-  direct game imports of `libs.nds` are forbidden.
-- Normal `game` runtime consumes generated assets and HGSS-facing mechanisms only. It does
-  not decode ROM formats or import decomp-derived references. The launcher/import UI is the
-  sole provisioning exception from `game` to `romdump`.
+  their package guidance. `game/hgss` depends on HGSS mechanisms, not Nintendo implementation
+  details; direct imports of `libs.nds` from either game package are forbidden.
+- Normal `game/hgss` runtime consumes generated assets and HGSS-facing mechanisms; generic
+  `game` owns only lifecycle and host adapters. Neither game package decodes ROM formats or
+  imports decomp-derived references. The `app` launcher/import UI is the sole provisioning
+  exception that reaches `romdump`; runtime packages do not.
 - Producer test: if changing a module can change generated output for an unchanged raw dump
   without changing the shared asset contract, that implementation belongs under `romdump`.
 - Source physical IDs, paths, offsets, and packing belong in producer dependencies or
@@ -167,7 +180,8 @@ Read `tests/AGENTS.md` for the test contract and runner mechanics.
 - Annotate public APIs, non-obvious table/data shapes, and places where an annotation states
   an invariant or materially improves inference. Do not annotate trivial private locals just
   because they were touched.
-- Library code lives under `libs/<lib>/src/`; app code under `game/src/` and `romdump/src/`.
+- Library code lives under `libs/<lib>/src/`; application code lives under `app/src/`,
+  `game/src/`, `game/hgss/src/`, and `romdump/src/`.
   Require by full repo-relative path, for example `require("libs.codec.src.BinaryReader")`.
 - Each Lua module returns one table. Instance types set `M.__index = M` and construct with
   `setmetatable({...}, M)`. Use 2-space indent, LF, and a final newline.

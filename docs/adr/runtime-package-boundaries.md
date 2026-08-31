@@ -17,9 +17,13 @@ The durable ownership question is: does behavior exist because Nintendo DS/Nitro
 that way, because HGSS works that way, because the mod platform works that way, or because
 g4recomp stores or composes it that way? The answer determines its owner.
 
+The application-top refinement is recorded separately in
+[Application and game boundaries](application-game-boundaries.md). This ADR remains the
+accepted decision for the reusable runtime packages and their relationship to producers.
+
 ## Decision
 
-The target top-level runtime packages are `libs/nds`, `libs/script`, and `libs/hgss`,
+The top-level runtime packages are `libs/nds`, `libs/script`, and `libs/hgss`,
 alongside the existing foundation and asset packages.
 
 - `libs/nds` owns reusable Nintendo DS, Nitro, and NNS mechanisms. Its semantic levels are
@@ -35,22 +39,25 @@ alongside the existing foundation and asset packages.
   paths, and schemas.
 - `romdump` owns supported-ROM identity, HGSS source interpretation, lowering, and derived
   asset compilation. It may consume lower reusable packages but never HGSS runtime code.
-- `game` owns launcher/application composition, story and new-game flow, intro policy, and
-  the user-facing product states. It reaches Nintendo mechanisms through HGSS-facing APIs
-  and does not import `libs.nds` directly. The launcher may use the existing narrow
+- `app` owns the process shell, launcher, version selection, provisioning, and process exit
+  policy. `game` owns the generic running-game lifecycle and host adapters. `game/hgss` owns
+  the concrete HGSS application composition, story and new-game flow, intro policy, and
+  user-facing product states. The application packages reach Nintendo mechanisms through
+  HGSS-facing APIs and do not import `libs.nds` directly; `app` may use the existing narrow
   `romdump` provisioning boundary.
 
-The dependency direction is foundations → NDS, assets/script → HGSS, HGSS beside romdump,
-and game at the application top. `game` depends on HGSS mechanisms, not Nintendo
-implementation details; the launcher may use only the documented romdump provisioning
-boundary.
+The dependency edges run from NDS to foundations, from assets and script to their allowed
+lower layers, from HGSS to NDS/script/assets, and from `game/hgss` to the generic game host
+and reusable mechanisms. `romdump` remains beside HGSS as a producer, while `app` sits
+above the game packages and may use only the documented romdump provisioning boundary.
 
 Mixed current seams are split by meaning rather than assigned to a miscellaneous package:
 `NdsRom` separates generic cartridge parsing from supported-ROM identity and cache policy;
 `DsMaterial` separates Nintendo register semantics from HGSS field policy;
-`AudioBank.selectVoice` follows its Nintendo algorithm while asset serialization stays in
-`libs/assets`; `RuntimeValues` separates generic script evaluation from HGSS references;
-and `GxRenderer` separates NDS raster execution from HGSS field presentation.
+`libs/nds/src/nitro/sound/InstrumentSelector.lua` directly owns Nintendo voice selection while
+`AudioBank` retains project-asset record validation and serialization;
+`RuntimeValues` separates generic script evaluation from HGSS references; and `GxRenderer`
+separates NDS raster execution from HGSS field presentation.
 
 ## Alternatives considered
 
@@ -67,8 +74,8 @@ and `GxRenderer` separates NDS raster execution from HGSS field presentation.
 
 Contributors can classify a module by the reason its behavior exists, and the repository
 enforces an explicit dependency DAG. `libs/nds` stays independent of project-specific
-schemas, `libs/script` stays independent of HGSS meaning, and `game` remains independent
-of Nintendo implementation details. This decision does not change runtime behavior,
+schemas, `libs/script` stays independent of HGSS meaning, and the generic `game` host
+remains independent of Nintendo implementation details. This decision does not change runtime behavior,
 persistence schemas, generated asset schemas, or resource lifecycle contracts.
 
 ## Revisit when
