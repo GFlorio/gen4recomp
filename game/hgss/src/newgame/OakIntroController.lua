@@ -3,8 +3,8 @@
 -- and host input map into its public semantic operations without deciding
 -- transitions.
 
-local NewGame = require("game.src.game.NewGame")
-local OakGreetingPolicy = require("game.src.game.OakGreetingPolicy")
+local NewGame = require("game.hgss.src.newgame.NewGame")
+local OakGreetingPolicy = require("game.hgss.src.newgame.OakGreetingPolicy")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class OakIntroControllerOptions

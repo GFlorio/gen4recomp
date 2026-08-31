@@ -2,7 +2,7 @@
 -- coordinator boundary, without constructing a cache-backed field session.
 
 local Assert = require("tests.support.Assert")
-local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 

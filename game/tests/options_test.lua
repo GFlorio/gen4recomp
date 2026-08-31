@@ -28,11 +28,11 @@ end
 -- Raises when parsing unexpectedly failed so a contract test fails on the
 -- parser defect rather than on a nil index further down.
 ---@param argv string[]
----@return GameOptions
+---@return LaunchOptions
 local function parses(argv)
   local opts, message = Options.parse(argv)
   Assert.isTrue(opts ~= nil, "expected opts for " .. table.concat(argv, " ") .. ", got error: " .. tostring(message))
-  ---@cast opts GameOptions
+  ---@cast opts LaunchOptions
   return opts
 end
 

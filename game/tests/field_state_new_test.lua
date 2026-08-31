@@ -13,9 +13,9 @@ local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
-local FieldRuntime = require("game.src.game.FieldRuntime")
-local FieldState = require("game.src.game.FieldState")
-local GameSaveValidation = require("game.src.game.GameSaveValidation")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
+local FieldState = require("game.hgss.src.field.FieldState")
+local GameSaveValidation = require("game.hgss.src.save.GameSaveValidation")
 
 local T = {}
 

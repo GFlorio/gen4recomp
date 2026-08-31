@@ -3,7 +3,7 @@
 -- save backend; generated maps and presentation assets remain production data.
 
 local Assert = require("tests.support.Assert")
-local FieldState = require("game.src.game.FieldState")
+local FieldState = require("game.hgss.src.field.FieldState")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local GameVersion = require("romdump.src.source.GameVersion")

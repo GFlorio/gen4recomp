@@ -8,7 +8,7 @@ local FakeCache = require("tests.support.FakeCache")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local SaveFs = require("libs.storage.src.SaveFs")
-local NewGame = require("game.src.game.NewGame")
+local NewGame = require("game.hgss.src.newgame.NewGame")
 
 local T = {}
 

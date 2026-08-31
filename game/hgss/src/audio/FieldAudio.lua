@@ -1,7 +1,7 @@
 -- FieldAudio: the production field-audio composition. It adds HGSS field
 -- policy around the shared audio runtime and application output sink.
 
-local GameAudio = require("game.src.game.audio.GameAudio")
+local GameAudio = require("game.hgss.src.audio.GameAudio")
 
 local FieldAudio = {}
 

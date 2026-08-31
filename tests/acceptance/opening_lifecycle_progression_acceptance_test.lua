@@ -117,7 +117,7 @@ local function actionById(menu, id)
 end
 
 -- The exact source facts FieldRuntime itself reads to compose the Start
--- Menu (game/src/game/FieldRuntime.lua:_composeStartMenu). Reused here only
+-- Menu (game/hgss/src/field/FieldRuntime.lua:_composeStartMenu). Reused here only
 -- to observe the pure source-enablement gate directly: the application
 -- host's composed `enabled` field also requires the destination
 -- application to be implemented, which conflates unrelated

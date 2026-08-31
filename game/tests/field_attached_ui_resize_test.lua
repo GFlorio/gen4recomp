@@ -5,7 +5,7 @@ local Assert = require("tests.support.Assert")
 local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 local FieldZoom = require("libs.hgss.src.presentation.FieldZoom")
 local FieldPresentation = require("data.manifests.field_presentation")
-local FieldState = require("game.src.game.FieldState")
+local FieldState = require("game.hgss.src.field.FieldState")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 

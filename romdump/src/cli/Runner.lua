@@ -206,7 +206,7 @@ function Runner._finishImport(status)
     print("build-cache: " .. versionId .. " failed: " .. tostring(err))
     return love.event.quit(1)
   end
-  local runtime = package.loaded["game.src.game.FieldRuntime"]
+  local runtime = package.loaded["game.hgss.src.field.FieldRuntime"]
   if runtime then
     local game = {
       versionId = versionId,

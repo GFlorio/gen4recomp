@@ -2,8 +2,8 @@
 -- semantic controller, owns text-input mode and intro images, and hands one
 -- finalized unpublished candidate to its caller.
 
-local OakIntroLayout = require("game.src.game.OakIntroLayout")
-local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
+local OakIntroLayout = require("game.hgss.src.newgame.OakIntroLayout")
+local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentationLayout")
 

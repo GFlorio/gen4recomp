@@ -3,9 +3,9 @@
 -- suite isolates the LÖVE callback adapter.
 
 local Assert = require("tests.support.Assert")
-local OakIntroState = require("game.src.game.OakIntroState")
-local OakIntroController = require("game.src.game.OakIntroController")
-local NewGame = require("game.src.game.NewGame")
+local OakIntroState = require("game.hgss.src.newgame.OakIntroState")
+local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
+local NewGame = require("game.hgss.src.newgame.NewGame")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 

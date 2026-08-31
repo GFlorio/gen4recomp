@@ -5,9 +5,9 @@
 local Assert = require("tests.support.Assert")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local NewGame = require("game.src.game.NewGame")
-local OakGreetingPolicy = require("game.src.game.OakGreetingPolicy")
-local OakIntroController = require("game.src.game.OakIntroController")
+local NewGame = require("game.hgss.src.newgame.NewGame")
+local OakGreetingPolicy = require("game.hgss.src.newgame.OakGreetingPolicy")
+local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 
 local T = {}
 

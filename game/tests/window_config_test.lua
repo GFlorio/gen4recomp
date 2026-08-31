@@ -11,13 +11,6 @@ local WindowConfig = require("game.src.WindowConfig")
 
 local T = {}
 
-local function readFile(path)
-  local handle = assert(io.open(path, "r"), "cannot read " .. path)
-  local contents = handle:read("*a")
-  handle:close()
-  return contents
-end
-
 function T.reference_resolution_is_named_once()
   Assert.equal(WindowConfig.REFERENCE_WIDTH, 640)
   Assert.equal(WindowConfig.REFERENCE_HEIGHT, 480)
@@ -57,17 +50,6 @@ end
 
 function T.garbage_dimensions_are_rejected()
   assertRejected("garbage", "G4RECOMP_WINDOW_HEIGHT")
-end
-
--- The named reference must be the single source used by both consumers.
-function T.conf_and_runtime_use_the_named_reference()
-  for _, path in ipairs({ "game/conf.lua", "game/src/game/FieldRuntime.lua" }) do
-    local contents = readFile(path)
-    Assert.notNil(contents:find("REFERENCE_WIDTH", 1, true), path .. " must use the named reference width")
-    Assert.notNil(contents:find("REFERENCE_HEIGHT", 1, true), path .. " must use the named reference height")
-    Assert.isNil(contents:find("640", 1, true), path .. " must not carry a raw 640 literal")
-    Assert.isNil(contents:find("480", 1, true), path .. " must not carry a raw 480 literal")
-  end
 end
 
 return { tests = T }

@@ -4,9 +4,9 @@
 
 local Assert = require("tests.support.Assert")
 local AudioFixture = require("tests.support.AudioFixture")
-local GameAudio = require("game.src.game.audio.GameAudio")
+local GameAudio = require("game.hgss.src.audio.GameAudio")
 local AudioRuntime = require("libs.hgss.src.audio.AudioRuntime")
-local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
+local LoveAudioSink = require("game.src.audio.LoveAudioSink")
 
 local T = {}
 

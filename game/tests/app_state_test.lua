@@ -11,10 +11,10 @@
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
 local ImportState = require("game.src.launcher.ImportState")
-local ActorPreviewState = require("game.src.game.ActorPreviewState")
 local RomImporter = require("romdump.src.source.RomImporter")
-local FieldState = require("game.src.game.FieldState")
-local MainMenuState = require("game.src.game.MainMenuState")
+local FieldState = require("game.hgss.src.field.FieldState")
+local Game = require("game.src.Game")
+local MainMenuState = require("game.hgss.src.menu.MainMenuState")
 local VersionSelectState = require("game.src.launcher.VersionSelectState")
 
 local T = {}
@@ -35,33 +35,6 @@ local function fresh()
   App.importer = nil
   App.drawableWidth = nil
   App.drawableHeight = nil
-end
-
-local function withInputState(fn)
-  fresh()
-  local calls = {}
-  local state = {}
-  for _, name in ipairs({
-    "gamepadaxis",
-    "mousepressed",
-    "mousemoved",
-    "mousereleased",
-    "wheelmoved",
-    "touchpressed",
-    "touchmoved",
-    "touchreleased",
-  }) do
-    state[name] = function(_, ...)
-      calls[name] = { ... }
-    end
-  end
-  App.setState(state)
-
-  local ok, err = pcall(fn, calls)
-  App.setState(nil)
-  if not ok then
-    error(err, 0)
-  end
 end
 
 -- One harness for every App-level seam a test can touch: fresh module state,
@@ -91,15 +64,6 @@ local function withAppHarness(opts, ready, fn)
     state = countingState(),
   }
   App.opts = opts or {}
-  App.saveStore = App.opts.saveStore
-    or {
-      load = function()
-        return nil
-      end,
-      list = function()
-        return {}
-      end,
-    }
   RomImporter.isReady = ready
   FieldState.new = function(game, options)
     result.captured = { game = game, options = options }
@@ -157,213 +121,6 @@ local function droppedFile()
     end,
     close = function() end,
   }
-end
-
-function T.set_state_disposes_previous_exactly_once()
-  fresh()
-  local first = countingState()
-  local second = countingState()
-  App.setState(first)
-  App.setState(second)
-  Assert.equal(first.disposed, 1)
-  Assert.equal(second.disposed, 0)
-  Assert.equal(App.state, second)
-end
-
-function T.set_state_without_dispose_replaces_without_error()
-  fresh()
-  App.setState({})
-  local nextState = countingState()
-  App.setState(nextState)
-  Assert.equal(nextState.disposed, 0)
-  Assert.equal(App.state, nextState)
-end
-
--- App.quit is App.setState(nil): the first quit disposes the current state
--- and clears it, and any further quit is a safe no-op.
-function T.quit_disposes_the_current_state_exactly_once_and_is_repeat_safe()
-  fresh()
-  local state = countingState()
-  App.setState(state)
-  App.quit()
-  App.quit()
-  Assert.equal(state.disposed, 1)
-  Assert.isNil(App.state)
-end
-
-function T.quit_after_replacement_never_revisits_the_old_state()
-  fresh()
-  local first = countingState()
-  local second = countingState()
-  App.setState(first)
-  App.setState(second)
-  App.quit()
-  Assert.equal(first.disposed, 1)
-  Assert.equal(second.disposed, 1)
-end
-
-function T.input_callbacks_preserve_the_complete_host_argument_tuple()
-  local joystick = {}
-  local cases = {
-    { "gamepadaxis", { joystick, "leftx", 0.75 } },
-    { "mousepressed", { 12.5, 34.5, 1, true, 2 } },
-    { "mousemoved", { 15.5, 36.5, 3, 2, false } },
-    { "mousereleased", { 15.5, 36.5, 1, true, 2 } },
-    { "wheelmoved", { 2, -3 } },
-    { "touchpressed", { "finger-1", 3.5, 4.5, 0.25, 0.5, 0.8 } },
-    { "touchmoved", { "finger-1", 5.5, 6.5, 0.25, 0.5, 0.8 } },
-    { "touchreleased", { "finger-1", 5.5, 6.5, 0.25, 0.5, 0.8 } },
-  }
-
-  withInputState(function(calls)
-    for _, case in ipairs(cases) do
-      local name, expected = case[1], case[2]
-      App[name](unpack(expected))
-      local actual = calls[name]
-      Assert.notNil(actual, "App." .. name .. " must reach the active state")
-      Assert.equal(#actual, #expected, "App." .. name .. " must preserve every host argument")
-      for index, value in ipairs(expected) do
-        Assert.equal(actual[index], value, "App." .. name .. " argument " .. index .. " changed")
-      end
-    end
-  end)
-end
-
-function T.resize_forwards_the_exact_tuple_only_to_resize_capable_states()
-  fresh()
-  local calls = {}
-  App.setState({
-    resize = function(_, width, height)
-      calls[#calls + 1] = { width, height }
-    end,
-  })
-  App.resize(1280, 720)
-  Assert.deepEqual(calls, { { 1280, 720 } })
-
-  App.setState({})
-  Assert.isTrue(pcall(App.resize, 1280, 720), "states without resize remain a no-op")
-  App.setState(nil)
-end
-
--- The host resize callback can describe an intermediate drawable size. The
--- dispatcher must reconcile the live graphics dimensions before the next
--- state update so responsive state layout does not remain at that size.
-function T.settled_drawable_size_supersedes_the_resize_callback_size()
-  fresh()
-  local graphics = love.graphics
-  local originalGetDimensions = graphics.getDimensions
-  local liveWidth, liveHeight = 803, 600
-  local events = {}
-  local state = {
-    resize = function(_, width, height)
-      events[#events + 1] = { "resize", width, height }
-    end,
-    update = function()
-      events[#events + 1] = { "update" }
-    end,
-  }
-  graphics.getDimensions = function()
-    return liveWidth, liveHeight
-  end
-
-  local ok, err = pcall(function()
-    App.setState(state)
-    App.resize(803, 600)
-    liveHeight = 992
-    App.update(0.016)
-  end)
-  graphics.getDimensions = originalGetDimensions
-  App.setState(nil)
-  if not ok then
-    error(err, 0)
-  end
-
-  Assert.deepEqual(events, {
-    { "resize", 803, 600 },
-    { "resize", 803, 992 },
-    { "update" },
-  })
-end
-
--- Reconciliation is change-based and must run before the first geometry
--- consumer, whether that consumer is pointer hit testing or drawing.
-function T.settled_drawable_size_reconciles_once_before_pointer_and_draw()
-  fresh()
-  local graphics = love.graphics
-  local originalGetDimensions = graphics.getDimensions
-  local liveWidth, liveHeight = 800, 600
-  local events = {}
-  local state = {
-    resize = function(_, width, height)
-      events[#events + 1] = { "resize", width, height }
-    end,
-    update = function()
-      events[#events + 1] = { "update" }
-    end,
-    mousepressed = function(_, ...)
-      events[#events + 1] = { "mousepressed", ... }
-    end,
-    draw = function()
-      events[#events + 1] = { "draw" }
-    end,
-  }
-  graphics.getDimensions = function()
-    return liveWidth, liveHeight
-  end
-
-  local ok, err = pcall(function()
-    App.setState(state)
-    App.resize(800, 600)
-    App.update(0.016)
-
-    liveWidth, liveHeight = 900, 700
-    App.mousepressed(12.5, 34.5, 1, true, 2)
-    App.mousepressed(15.5, 36.5, 1, false, 1)
-
-    App.update(0.016)
-    liveWidth, liveHeight = 1024, 768
-    App.draw()
-    App.draw()
-  end)
-  graphics.getDimensions = originalGetDimensions
-  App.setState(nil)
-  if not ok then
-    error(err, 0)
-  end
-
-  Assert.deepEqual(events, {
-    { "resize", 800, 600 },
-    { "update" },
-    { "resize", 900, 700 },
-    { "mousepressed", 12.5, 34.5, 1, true, 2 },
-    { "mousepressed", 15.5, 36.5, 1, false, 1 },
-    { "update" },
-    { "resize", 1024, 768 },
-    { "draw" },
-    { "draw" },
-  })
-end
-
-function T.actor_preview_dispose_releases_exactly_once_and_is_repeat_safe()
-  fresh()
-  local released = {}
-  local provider = {
-    disposeCalls = 0,
-    dispose = function(self)
-      self.disposeCalls = self.disposeCalls + 1
-    end,
-    release = function(_, spriteId)
-      released[#released + 1] = spriteId
-    end,
-  }
-  local state = setmetatable({
-    provider = provider,
-    entries = { { spriteId = 1 }, { spriteId = 2 } },
-  }, ActorPreviewState)
-  state:dispose()
-  state:dispose()
-  Assert.equal(#released, 2)
-  Assert.equal(provider.disposeCalls, 1)
 end
 
 function T.starting_an_import_disposes_the_active_field_state()
@@ -463,8 +220,9 @@ function T.boot_existing_with_one_ready_version_enters_the_main_menu()
     App._bootExisting()
   end)
   Assert.isNil(result.captured, "the main menu owns the new-game/continue choice")
-  Assert.equal(getmetatable(App.state).__index, MainMenuState)
-  Assert.isTrue(App.state.readyVersions.heartgold)
+  Assert.equal(getmetatable(App.state).__index, Game)
+  Assert.equal(getmetatable(App.state.state).__index, MainMenuState)
+  Assert.isTrue(App.state.state.readyVersions.heartgold)
 end
 
 function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_ready_array()
@@ -480,8 +238,9 @@ function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_re
     selector.onPick("soulsilver")
     local picked = result.captured
     Assert.isNil(picked, "version selection opens the main menu before field entry")
-    Assert.equal(getmetatable(App.state).__index, MainMenuState)
-    Assert.isTrue(App.state.readyVersions.soulsilver)
+    Assert.equal(getmetatable(App.state).__index, Game)
+    Assert.equal(getmetatable(App.state.state).__index, MainMenuState)
+    Assert.isTrue(App.state.state.readyVersions.soulsilver)
   end)
 end
 

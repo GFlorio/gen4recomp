@@ -64,13 +64,13 @@ local CENTRALIZED_CODES = {
 }
 
 -- Field engine/game-field production roots: the field runtime, its renderer,
--- and the game app's field composition. The script subsystem keeps its own
+-- and the game's field composition. The script subsystem keeps its own
 -- catalogue (script/errors.lua) and is excluded here rather than tracked by
 -- FieldErrors -- a raw literal inside it is that catalogue's own concern, not
 -- this audit's.
 local FIELD_ENGINE_ROOTS = {
   "libs/hgss/src",
-  "game/src/game",
+  "game/hgss/src",
 }
 
 local FIELD_ENGINE_EXCLUDED_PREFIXES = {
@@ -188,7 +188,7 @@ local BARE_RAISE_SITE_PATTERN = 'Errors%.raise%(%s*"[A-Z][A-Z0-9_]*"'
 local BARE_NEW_SITE_PATTERN = 'Errors%.new%(%s*"[A-Z][A-Z0-9_]*"'
 
 -- The HGSS field runtime (libs/hgss/src, minus the script subsystem's own
--- catalogue) and the game's field composition (game/src/game) must raise
+-- catalogue) and the game's field composition (game/hgss/src) must raise
 -- through named `FieldErrors`/`ScriptErrors` constants, never bare literals.
 -- Unlike `centralized_error_codes_have_no_raw_raise_sites`, this does not
 -- enumerate codes: it rejects the shape of a bare-literal raise/new call, so

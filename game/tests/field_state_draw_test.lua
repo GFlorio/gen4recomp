@@ -6,7 +6,7 @@
 -- depend on them.
 
 local Assert = require("tests.support.Assert")
-local FieldState = require("game.src.game.FieldState")
+local FieldState = require("game.hgss.src.field.FieldState")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")

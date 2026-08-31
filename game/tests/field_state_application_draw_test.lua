@@ -10,7 +10,7 @@
 -- record -- the same record the host maps hit-test points through.
 
 local Assert = require("tests.support.Assert")
-local FieldState = require("game.src.game.FieldState")
+local FieldState = require("game.hgss.src.field.FieldState")
 local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")

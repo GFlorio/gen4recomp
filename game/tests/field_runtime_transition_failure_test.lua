@@ -4,7 +4,7 @@
 -- simulation work until the owning game flow boots a fresh runtime.
 
 local Assert = require("tests.support.Assert")
-local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 
 local T = {}
 

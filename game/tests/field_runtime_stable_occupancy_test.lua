@@ -5,7 +5,7 @@ local Assert = require("tests.support.Assert")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = {}

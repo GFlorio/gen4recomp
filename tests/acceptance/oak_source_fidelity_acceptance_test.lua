@@ -5,14 +5,14 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
-local OakIntroController = require("game.src.game.OakIntroController")
-local OakIntroLayout = require("game.src.game.OakIntroLayout")
-local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
+local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
+local OakIntroLayout = require("game.hgss.src.newgame.OakIntroLayout")
+local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
 local FakeGraphics = require("tests.support.FakeGraphics")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local NewGame = require("game.src.game.NewGame")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local NewGame = require("game.hgss.src.newgame.NewGame")
 
 local T = {
   metadata = {

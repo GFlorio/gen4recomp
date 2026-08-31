@@ -2,7 +2,7 @@
 -- host-owned randomness boundary without embedding generated dialogue.
 
 local Assert = require("tests.support.Assert")
-local OakIntroComposition = require("game.src.game.OakIntroComposition")
+local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
 
 local T = { tests = {} }
 

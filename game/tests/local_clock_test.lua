@@ -2,7 +2,7 @@
 -- independent snapshots, while malformed calendar fields fail at injection.
 
 local Assert = require("tests.support.Assert")
-local LocalClock = require("game.src.game.LocalClock")
+local LocalClock = require("game.src.LocalClock")
 
 local T = {}
 

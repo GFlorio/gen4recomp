@@ -22,6 +22,14 @@ local Errors = require("libs.errors.src.Errors")
 local HgssArchives = require("romdump.src.config.HgssArchives")
 local RawDumpContract = require("romdump.src.source.RawDumpContract")
 
+---@class RomImporter
+---@field state string
+---@field progress number?
+---@field private _onComplete (fun(versionId: string, report: table?): nil)?
+---@field private _versions table?
+---@field private _manifest table?
+---@field private _cacheFactory (fun(versionId: string): table)?
+---@field private _now (fun(): number)?
 local RomImporter = {}
 RomImporter.__index = RomImporter
 
@@ -153,7 +161,7 @@ function RomImporter:_onProgress(p)
   self._stageLabel = p.stageLabel
   self._detail = p.detail
   self.progress = p.overall
-  local now = self._now()
+  local now = (self._now --[[@as fun(): number]])()
   if now - (self._lastYield or 0) >= YIELD_INTERVAL then
     self._lastYield = now
     coroutine.yield()
@@ -168,7 +176,7 @@ function RomImporter:_beginWork()
   local source = self._source
   self._co = coroutine.create(function()
     self.state = RomImporter.STATES.VERIFYING
-    local rom, err = NdsRom.open(source, self._versions)
+    local rom, err = NdsRom.open(source, self._versions --[[@as table]])
     if not rom then
       return self:_fail(err)
     end
@@ -176,15 +184,15 @@ function RomImporter:_beginWork()
     local info = rom:versionInfo()
     self._versionId = info.id
     self._displayName = info.displayName
-    local cache = self._cacheFactory(info.id)
+    local cache = (self._cacheFactory --[[@as fun(versionId: string): table]])(info.id)
 
     self.state = RomImporter.STATES.EXTRACTING
-    self._lastYield = self._now()
+    self._lastYield = (self._now --[[@as fun(): number]])()
     ---@async
     local function onProgress(p)
       self:_onProgress(p)
     end
-    local extractor = RomExtractor.new(rom, info, cache, self._manifest, onProgress)
+    local extractor = RomExtractor.new(rom, info, cache, self._manifest --[[@as table]], onProgress)
     local report, exErr = extractor:run()
     rom:release()
     if not report then

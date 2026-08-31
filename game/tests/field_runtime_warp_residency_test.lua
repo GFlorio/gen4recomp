@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldResidencyCoordinator = require("libs.hgss.src.field.FieldResidencyCoordinator")
-local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 
 local T = {}
 

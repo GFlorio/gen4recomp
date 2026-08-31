@@ -6,8 +6,8 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local GameVersion = require("romdump.src.source.GameVersion")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
-local OakIntroLayout = require("game.src.game.OakIntroLayout")
-local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
+local OakIntroLayout = require("game.hgss.src.newgame.OakIntroLayout")
+local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
 local RomImporter = require("romdump.src.source.RomImporter")
 
 local T = {}

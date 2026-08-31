@@ -5,7 +5,7 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
-local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
 
 local T = {

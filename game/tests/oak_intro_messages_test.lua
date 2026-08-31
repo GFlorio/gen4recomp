@@ -2,7 +2,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
-local OakIntroMessages = require("game.src.game.OakIntroMessages")
+local OakIntroMessages = require("game.hgss.src.newgame.OakIntroMessages")
 
 local T = {}
 

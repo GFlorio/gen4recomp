@@ -12,11 +12,11 @@ local FieldAudioSave = require("libs.hgss.src.audio.FieldAudioSave")
 local AudioCache = require("libs.assets.src.AudioCache")
 local GameSave = require("libs.hgss.src.save.GameSave")
 local Errors = require("libs.errors.src.Errors")
-local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
+local FieldScriptCompatibility = require("game.hgss.src.field.FieldScriptCompatibility")
 
 ---@class GameSaveValidation
 ---@field contexts table<string, table>
----@field contextLoader fun(versionId: string): table
+---@field contextLoader (fun(versionId: string): table)?
 ---@field overrideFs table|nil repository override filesystem for default contexts
 local GameSaveValidation = {}
 GameSaveValidation.__index = GameSaveValidation

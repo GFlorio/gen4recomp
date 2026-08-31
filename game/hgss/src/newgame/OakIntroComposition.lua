@@ -12,11 +12,11 @@ local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueControlle
 local FieldDialogueRenderer = require("libs.hgss.src.ui.FieldDialogueRenderer")
 local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
 local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
-local LocalClock = require("game.src.game.LocalClock")
-local OakIntroController = require("game.src.game.OakIntroController")
-local OakIntroMessages = require("game.src.game.OakIntroMessages")
-local OakIntroState = require("game.src.game.OakIntroState")
-local GameAudio = require("game.src.game.audio.GameAudio")
+local LocalClock = require("game.src.LocalClock")
+local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
+local OakIntroMessages = require("game.hgss.src.newgame.OakIntroMessages")
+local OakIntroState = require("game.hgss.src.newgame.OakIntroState")
+local GameAudio = require("game.hgss.src.audio.GameAudio")
 
 local OakIntroComposition = {}
 

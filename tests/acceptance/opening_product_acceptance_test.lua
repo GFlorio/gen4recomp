@@ -70,7 +70,7 @@ end
 local function withDrawRecorder(trace, fn)
   local originalDraw = love.graphics.draw
   rawset(love.graphics, "draw", function(image, _)
-    local state = App.state
+    local state = App.state and App.state.state
     local view = state and state.view and state:view() or nil
     if view and view.phase then
       trace[#trace + 1] = {
@@ -105,14 +105,14 @@ local function completeOak(onDraw)
     final_dialogue = true,
   }
   for _ = 1, 3600 do
-    Assert.notNil(App.state, "Oak must remain active until the profile is finalized")
-    if App.state.runtime ~= nil then
+    Assert.notNil(App.state and App.state.state, "Oak must remain active until the profile is finalized")
+    if App.state.state.runtime ~= nil then
       return
     end
     if onDraw then
       onDraw()
     end
-    local view = App.state:view()
+    local view = App.state.state:view()
     if view.phase == "name_edit" then
       App.textinput("GOLD")
       -- Navigate keyboard focus onto the virtual Confirm key before
@@ -243,7 +243,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
   local saveStore = GameSaveStore.new(SaveFs.global(isolatedBackend(namespace)))
   clearCheckpoints(saveStore)
   local handoffDraws = {}
-  local original = { opts = App.opts, state = App.state, saveStore = App.saveStore, versionId = App.versionId }
+  local original = { opts = App.opts, state = App.state }
   local ok, err = xpcall(function()
     ---@diagnostic disable-next-line: missing-fields
     App.opts = {
@@ -263,16 +263,15 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
         end,
       },
     }
-    App.saveStore = saveStore
     App.state = nil
-    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
-    Assert.equal(App.state:view().kind, "main_menu")
+    App._bootMainMenu({ "heartgold" })
+    Assert.equal(App.state.state:view().kind, "main_menu")
     ---@diagnostic disable-next-line: undefined-field
     Assert.equal(#saveStore:list(), 0)
     press("a")
     withDrawRecorder(handoffDraws, function()
       completeOak(function()
-        local phase = App.state:view().phase
+        local phase = App.state.state:view().phase
         if
           phase == "final_dialogue"
           or phase == "final_fade_out"
@@ -296,7 +295,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     Assert.isTrue(#fullArtImages > 0, "full player art was never drawn before field entry")
     Assert.isTrue(#shrinkImages >= 2, "fewer than two shrink frames were drawn before field entry")
     Assert.isTrue(shrinkImages[1] ~= shrinkImages[2], "shrink frames reused one image")
-    local runtime = assert(App.state.runtime)
+    local runtime = assert(App.state.state.runtime)
     for _ = 1, 240 do
       tick(1)
       if runtime:destinationWorldPresentable() then
@@ -330,12 +329,12 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     local checkpoint = assert(saveStore:load(entries[1].saveId))
     local savedMap = checkpoint.mapId
     App.setState(nil)
-    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
-    Assert.equal(#App.state:view().items, 2)
+    App._bootMainMenu({ "heartgold" })
+    Assert.equal(#App.state.state:view().items, 2)
     press("dpdown")
     press("a")
     tick(4)
-    local continuedRuntime = assert(App.state.runtime, "Continue must enter the real FieldState")
+    local continuedRuntime = assert(App.state.state.runtime, "Continue must enter the real FieldState")
     Assert.equal(continuedRuntime.runtimeMap.mapId, savedMap)
     App.draw()
     tick(4)
@@ -347,8 +346,6 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
   App.setState(nil)
   App.opts = original.opts
   App.state = original.state
-  App.saveStore = original.saveStore
-  App.versionId = original.versionId
   clearCheckpoints(saveStore)
   if not ok then
     error(err, 0)

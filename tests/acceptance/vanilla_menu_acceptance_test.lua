@@ -5,7 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local FieldState = require("game.src.game.FieldState")
+local FieldState = require("game.hgss.src.field.FieldState")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 
 local T = {

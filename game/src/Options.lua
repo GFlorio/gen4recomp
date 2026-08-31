@@ -13,14 +13,14 @@ Options.EXIT_USAGE = 2
 
 Options.USAGE = "usage: love game/ [--test ...] [--actors] [--dev]"
 
----@class GameOptions
+---@class LaunchOptions
 ---@field test boolean
 ---@field actors boolean
 ---@field dev boolean
 
 -- argv: the array LÖVE passes to love.load.
 ---@param argv string[]|nil
----@return GameOptions|nil opts
+---@return LaunchOptions|nil opts
 ---@return string|nil message
 function Options.parse(argv)
   argv = argv or {}

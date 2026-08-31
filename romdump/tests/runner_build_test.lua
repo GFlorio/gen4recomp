@@ -173,7 +173,7 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
   local saved = {
     dumpAudit = package.loaded["romdump.src.source.DumpAudit"],
     builder = package.loaded["romdump.src.CacheBuilder"],
-    runtime = package.loaded["game.src.game.FieldRuntime"],
+    runtime = package.loaded["game.hgss.src.field.FieldRuntime"],
   }
   local calls, exitCode, buildOptions
   package.loaded["romdump.src.source.DumpAudit"] = {
@@ -192,7 +192,7 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
       return { published = true, complete = true, exclusionCount = 0 }
     end,
   }
-  package.loaded["game.src.game.FieldRuntime"] = {
+  package.loaded["game.hgss.src.field.FieldRuntime"] = {
     new = function(game)
       calls[#calls + 1] = "boot:" .. game.versionId
       Assert.equal(game.location.mapSymbol, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
@@ -229,7 +229,7 @@ function T.completed_import_with_build_cache_runs_audit_build_then_boot_and_disp
   Runner.opts, Runner.importer = realOpts, realImporter
   package.loaded["romdump.src.source.DumpAudit"] = saved.dumpAudit
   package.loaded["romdump.src.CacheBuilder"] = saved.builder
-  package.loaded["game.src.game.FieldRuntime"] = saved.runtime
+  package.loaded["game.hgss.src.field.FieldRuntime"] = saved.runtime
   if not ok then
     error(err, 0)
   end
@@ -303,7 +303,7 @@ function T.completed_import_build_failure_exits_nonzero_without_booting()
   local saved = {
     dumpAudit = package.loaded["romdump.src.source.DumpAudit"],
     builder = package.loaded["romdump.src.CacheBuilder"],
-    runtime = package.loaded["game.src.game.FieldRuntime"],
+    runtime = package.loaded["game.hgss.src.field.FieldRuntime"],
   }
   local calls, exitCode
   package.loaded["romdump.src.source.DumpAudit"] = {
@@ -321,7 +321,7 @@ function T.completed_import_build_failure_exits_nonzero_without_booting()
       return nil, "cache preparation failed"
     end,
   }
-  package.loaded["game.src.game.FieldRuntime"] = {
+  package.loaded["game.hgss.src.field.FieldRuntime"] = {
     new = function()
       calls[#calls + 1] = "boot"
       return { dispose = function() end }
@@ -349,7 +349,7 @@ function T.completed_import_build_failure_exits_nonzero_without_booting()
   Runner.opts, Runner.importer = realOpts, realImporter
   package.loaded["romdump.src.source.DumpAudit"] = saved.dumpAudit
   package.loaded["romdump.src.CacheBuilder"] = saved.builder
-  package.loaded["game.src.game.FieldRuntime"] = saved.runtime
+  package.loaded["game.hgss.src.field.FieldRuntime"] = saved.runtime
   if not ok then
     error(err, 0)
   end
@@ -367,7 +367,7 @@ function T.completed_import_constructor_raise_exits_nonzero()
   local saved = {
     dumpAudit = package.loaded["romdump.src.source.DumpAudit"],
     builder = package.loaded["romdump.src.CacheBuilder"],
-    runtime = package.loaded["game.src.game.FieldRuntime"],
+    runtime = package.loaded["game.hgss.src.field.FieldRuntime"],
   }
   local calls, exitCode
   package.loaded["romdump.src.source.DumpAudit"] = {
@@ -385,7 +385,7 @@ function T.completed_import_constructor_raise_exits_nonzero()
       return { published = true, complete = true, exclusionCount = 0 }
     end,
   }
-  package.loaded["game.src.game.FieldRuntime"] = {
+  package.loaded["game.hgss.src.field.FieldRuntime"] = {
     new = function(game)
       calls[#calls + 1] = "boot:" .. game.versionId
       error("field actor index missing")
@@ -413,7 +413,7 @@ function T.completed_import_constructor_raise_exits_nonzero()
   Runner.opts, Runner.importer = realOpts, realImporter
   package.loaded["romdump.src.source.DumpAudit"] = saved.dumpAudit
   package.loaded["romdump.src.CacheBuilder"] = saved.builder
-  package.loaded["game.src.game.FieldRuntime"] = saved.runtime
+  package.loaded["game.hgss.src.field.FieldRuntime"] = saved.runtime
   if not ok then
     error(err, 0)
   end

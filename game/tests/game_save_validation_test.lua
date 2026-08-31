@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local GameSaveValidation = require("game.src.game.GameSaveValidation")
+local GameSaveValidation = require("game.hgss.src.save.GameSaveValidation")
 
 local T = {}
 

@@ -20,7 +20,7 @@ local T = {
 local contexts
 
 local function loadCore()
-  local ok, core = pcall(require, "game.src.game.audio.GameAudio")
+  local ok, core = pcall(require, "game.hgss.src.audio.GameAudio")
   Assert.isTrue(ok, "ROM-backed cry cannot reach a reusable core audio composition")
   Assert.isTrue(type(core) == "table" and type(core.compose) == "function", "audio core must expose compose")
   return core

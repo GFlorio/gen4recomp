@@ -4,7 +4,7 @@
 -- controls and stay available in both modes.
 
 local Assert = require("tests.support.Assert")
-local FieldState = require("game.src.game.FieldState")
+local FieldState = require("game.hgss.src.field.FieldState")
 local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 

@@ -3,10 +3,10 @@
 -- deterministic host seams so the flow stops before GPU work.
 
 local Assert = require("tests.support.Assert")
-local App = require("game.src.game.App")
-local FieldState = require("game.src.game.FieldState")
-local OakIntroController = require("game.src.game.OakIntroController")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
+local App = require("game.src.game.App")
+local FieldState = require("game.hgss.src.field.FieldState")
+local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 
 local T = {
   metadata = {
@@ -208,17 +208,13 @@ local function startFlow(options, fn)
   local original = {
     opts = App.opts,
     state = App.state,
-    saveStore = App.saveStore,
-    versionId = App.versionId,
-    menuResult = App.menuResult,
     fieldNew = FieldState.new,
   }
-  if App.state then
+  if App.state and App.state.state then
     App.setState(nil)
   end
 
   local store = fakeStore()
-  ---@cast store SaveStoreLike
   local clock = options.clock or mutableClock(12, 0)
   local audio = options.audio or recordingAudio()
   local inputHost = { calls = {} }
@@ -260,9 +256,6 @@ local function startFlow(options, fn)
       }
     end,
   }
-  App.saveStore = store
-  App.versionId = nil
-  App.menuResult = nil
   ---@diagnostic disable-next-line: duplicate-set-field
   FieldState.new = function(game, fieldOptions)
     fieldCalls[#fieldCalls + 1] = { game = game, options = fieldOptions }
@@ -271,10 +264,10 @@ local function startFlow(options, fn)
 
   local ok, err = xpcall(function()
     App._bootMainMenu({ READY_VERSION })
-    Assert.equal(App.state:view().kind, "main_menu")
+    Assert.equal(App.state.state:view().kind, "main_menu")
     App.keypressed("return")
     Assert.notNil(controller, "New Game must enter the real Oak controller boundary")
-    Assert.equal(App.state.controller, controller)
+    Assert.equal(App.state.state.controller, controller)
     fn({
       audio = audio,
       clock = clock,
@@ -289,9 +282,6 @@ local function startFlow(options, fn)
   App.setState(nil)
   App.opts = original.opts
   App.state = original.state
-  App.saveStore = original.saveStore
-  App.versionId = original.versionId
-  App.menuResult = original.menuResult
   FieldState.new = original.fieldNew
   if not ok then
     error(err, 0)
@@ -300,12 +290,12 @@ end
 
 local function advance(frames)
   Assert.isTrue(App.state ~= nil, "Oak flow ended before the requested source frames")
-  App.state:tick(frames)
+  App.state.state:tick(frames)
 end
 
 local function advanceUntilPhase(phase)
   for _ = 1, 2000 do
-    if App.state:view().phase == phase then
+    if App.state.state:view().phase == phase then
       return
     end
     advance(1)
@@ -341,7 +331,7 @@ local function reachGenderSelect(audio)
   confirm()
   confirm()
   advance(26)
-  Assert.equal(App.state:view().phase, "gender_select")
+  Assert.equal(App.state.state:view().phase, "gender_select")
 end
 
 local function reachNameEditor(audio)
@@ -350,7 +340,7 @@ local function reachNameEditor(audio)
   confirm()
   confirm()
   advance(40)
-  Assert.equal(App.state:view().phase, "name_edit")
+  Assert.equal(App.state.state:view().phase, "name_edit")
 end
 
 function T.tests.new_game_routes_through_the_core_oak_sequence()
@@ -395,7 +385,7 @@ function T.tests.new_game_routes_through_the_core_oak_sequence()
     advance(1 + 1 + 30 + 9 * 4)
     Assert.equal(#context.fieldCalls, 1)
     Assert.equal(context.fieldCalls[1].game.playerData.profile.name, "GOLD")
-    Assert.equal(App.state.kind, "field")
+    Assert.equal(App.state.state.kind, "field")
   end)
 end
 
@@ -435,12 +425,12 @@ function T.tests.gender_and_name_rejections_follow_the_source_backtrack()
     reachGenderSelect(context.audio)
     App.gamepadpressed({}, "dpright")
     App.gamepadpressed({}, "a")
-    Assert.equal(App.state:view().phase, "gender_confirm")
+    Assert.equal(App.state.state:view().phase, "gender_confirm")
     App.gamepadpressed({}, "b")
-    Assert.equal(App.state:view().phase, "gender_question")
+    Assert.equal(App.state.state:view().phase, "gender_question")
     confirm()
-    Assert.equal(App.state:view().phase, "gender_select")
-    Assert.equal(App.state:view().genderFocus, 1)
+    Assert.equal(App.state.state:view().phase, "gender_select")
+    Assert.equal(App.state.state:view().genderFocus, 1)
 
     confirm()
     confirm()
@@ -449,17 +439,17 @@ function T.tests.gender_and_name_rejections_follow_the_source_backtrack()
     App.textinput("GOLD")
     submitName()
     advance(26)
-    Assert.equal(App.state:view().phase, "name_confirm")
+    Assert.equal(App.state.state:view().phase, "name_confirm")
     App.keypressed("escape")
-    Assert.equal(App.state:view().phase, "gender_question")
+    Assert.equal(App.state.state:view().phase, "gender_question")
     confirm()
     advance(26)
     confirm()
     confirm()
     confirm()
     advance(40)
-    Assert.equal(App.state:view().phase, "name_edit")
-    Assert.equal(App.state:view().name, "")
+    Assert.equal(App.state.state:view().phase, "name_edit")
+    Assert.equal(App.state.state:view().name, "")
 
     Assert.isNil(context.controller:candidate().playerData)
   end)
@@ -468,32 +458,35 @@ end
 function T.tests.name_submission_exits_composition_before_confirm_and_rejection_reenters_it()
   startFlow({}, function(context)
     reachNameEditor(context.audio)
-    Assert.equal(App.state:view().genderCompositionProgress, 1)
+    Assert.equal(App.state.state:view().genderCompositionProgress, 1)
     App.textinput("GOLD")
     submitName()
-    Assert.isFalse(App.state:view().phase == "name_confirm", "name_confirm must wait for the composition exit")
+    Assert.isFalse(App.state.state:view().phase == "name_confirm", "name_confirm must wait for the composition exit")
 
     for _ = 1, 25 do
       advance(1)
-      Assert.isFalse(App.state:view().phase == "name_confirm", "name_confirm must not open before progress reaches 0")
+      Assert.isFalse(
+        App.state.state:view().phase == "name_confirm",
+        "name_confirm must not open before progress reaches 0"
+      )
     end
     advance(1)
-    Assert.equal(App.state:view().phase, "name_confirm")
-    Assert.equal(App.state:view().genderCompositionProgress, 0)
-    local layout = App.state:view().layout
+    Assert.equal(App.state.state:view().phase, "name_confirm")
+    Assert.equal(App.state.state:view().genderCompositionProgress, 0)
+    local layout = App.state.state:view().layout
     Assert.isNil(layout.oakRegion, "ordinary Oak name-confirm presentation must not retain a split region")
     Assert.isNil(layout.selectorRegion, "ordinary Oak name-confirm presentation must not retain a selector region")
 
     App.keypressed("escape")
-    Assert.equal(App.state:view().phase, "gender_question")
-    Assert.equal(App.state:view().genderCompositionProgress, 0)
+    Assert.equal(App.state.state:view().phase, "gender_question")
+    Assert.equal(App.state.state:view().genderCompositionProgress, 0)
 
     confirm()
-    Assert.equal(App.state:view().phase, "gender_composition_transition")
-    Assert.equal(App.state:view().genderCompositionProgress, 0)
+    Assert.equal(App.state.state:view().phase, "gender_composition_transition")
+    Assert.equal(App.state.state:view().genderCompositionProgress, 0)
     advance(26)
-    Assert.equal(App.state:view().phase, "gender_select")
-    Assert.equal(App.state:view().genderCompositionProgress, 1)
+    Assert.equal(App.state.state:view().phase, "gender_select")
+    Assert.equal(App.state.state:view().genderCompositionProgress, 1)
   end)
 end
 
@@ -544,17 +537,17 @@ function T.tests.final_confirmation_hands_off_a_valid_unpublished_game()
     App.textinput("GOLD")
     submitName()
     advance(26)
-    Assert.equal(App.state:view().phase, "name_confirm")
+    Assert.equal(App.state.state:view().phase, "name_confirm")
     confirm()
-    Assert.equal(App.state:view().phase, "final_dialogue")
+    Assert.equal(App.state.state:view().phase, "final_dialogue")
     confirm()
-    Assert.equal(App.state:view().phase, "final_fade_out")
+    Assert.equal(App.state.state:view().phase, "final_fade_out")
     Assert.isNil(context.controller:candidate().playerData)
     advance(1)
-    Assert.equal(App.state:view().phase, "final_full_art_fade_in")
+    Assert.equal(App.state.state:view().phase, "final_full_art_fade_in")
     advance(1 + 30 + 9 * 4)
 
-    Assert.equal(App.state.kind, "field")
+    Assert.equal(App.state.state.kind, "field")
     Assert.equal(#context.fieldCalls, 1)
     local result = context.fieldCalls[1].game
     Assert.equal(result.saveId, "save-00000027")
@@ -574,23 +567,23 @@ function T.tests.resize_and_all_input_modalities_share_oak_geometry_and_buffer()
     reachGenderSelect(context.audio)
     App.gamepadpressed({}, "dpright")
     App.gamepadpressed({}, "a")
-    Assert.equal(App.state:view().phase, "gender_confirm")
+    Assert.equal(App.state.state:view().phase, "gender_confirm")
     App.keypressed("escape")
     confirm()
-    Assert.equal(App.state:view().genderFocus, 1)
+    Assert.equal(App.state.state:view().genderFocus, 1)
     App.resize(420, 800)
-    Assert.equal(App.state:view().layout.viewport.width, 420)
-    Assert.equal(App.state:view().genderFocus, 1)
-    local card = App.state:view().layout.cards[App.state:view().genderFocus]
-    App.state:touchpressed("finger-1", card.x + 1, card.y + 1)
-    Assert.equal(App.state:view().phase, "gender_confirm")
+    Assert.equal(App.state.state:view().layout.viewport.width, 420)
+    Assert.equal(App.state.state:view().genderFocus, 1)
+    local card = App.state.state:view().layout.cards[App.state.state:view().genderFocus]
+    App.state.state:touchpressed("finger-1", card.x + 1, card.y + 1)
+    Assert.equal(App.state.state:view().phase, "gender_confirm")
 
     confirm()
     confirm()
     advance(40)
-    Assert.equal(App.state:view().phase, "name_edit")
+    Assert.equal(App.state.state:view().phase, "name_edit")
     App.textinput("A")
-    local layout = App.state:view().layout
+    local layout = App.state.state:view().layout
     local key
     for _, entry in pairs(layout.nameGrid) do
       if entry.glyph == "é" then
@@ -599,12 +592,12 @@ function T.tests.resize_and_all_input_modalities_share_oak_geometry_and_buffer()
       end
     end
     Assert.notNil(key)
-    App.state:mousepressed(key.x + 1, key.y + 1, 1)
-    Assert.equal(App.state:view().name, "Aé")
+    App.state.state:mousepressed(key.x + 1, key.y + 1, 1)
+    Assert.equal(App.state.state:view().name, "Aé")
     App.keypressed("backspace")
-    Assert.equal(App.state:view().name, "A")
+    Assert.equal(App.state.state:view().name, "A")
     App.gamepadpressed({}, "a")
-    Assert.equal(App.state:view().name, "AA")
+    Assert.equal(App.state.state:view().name, "AA")
     Assert.deepEqual(context.inputHost.calls, { false, true })
     Assert.equal(context.renderer.disposed, 0)
   end)

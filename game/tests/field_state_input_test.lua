@@ -2,7 +2,7 @@
 -- source-aware cardinal input path.
 
 local Assert = require("tests.support.Assert")
-local FieldState = require("game.src.game.FieldState")
+local FieldState = require("game.hgss.src.field.FieldState")
 local FieldInput = require("libs.hgss.src.field.FieldInput")
 
 local T = {}

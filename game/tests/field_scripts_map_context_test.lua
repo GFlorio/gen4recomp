@@ -5,7 +5,7 @@
 -- so before the map-scoped collaborators are rebound.
 
 local Assert = require("tests.support.Assert")
-local FieldScripts = require("game.src.game.FieldScripts")
+local FieldScripts = require("game.hgss.src.field.FieldScripts")
 
 local T = { tests = {} }
 

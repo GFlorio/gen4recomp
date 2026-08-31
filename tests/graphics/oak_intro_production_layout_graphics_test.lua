@@ -7,7 +7,7 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local GameVersion = require("romdump.src.source.GameVersion")
 local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
-local OakIntroLayout = require("game.src.game.OakIntroLayout")
+local OakIntroLayout = require("game.hgss.src.newgame.OakIntroLayout")
 local RomImporter = require("romdump.src.source.RomImporter")
 
 local T = {

@@ -4,9 +4,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 local GameSave = require("libs.hgss.src.save.GameSave")
-local MainMenuController = require("game.src.game.MainMenuController")
-local MainMenuLayout = require("game.src.game.MainMenuLayout")
-local MainMenuRenderer = require("game.src.game.MainMenuRenderer")
+local MainMenuController = require("game.hgss.src.menu.MainMenuController")
+local MainMenuLayout = require("game.hgss.src.menu.MainMenuLayout")
+local MainMenuRenderer = require("game.hgss.src.menu.MainMenuRenderer")
 
 ---@class MainMenuSaveStore
 ---@field list fun(self: MainMenuSaveStore): table[]

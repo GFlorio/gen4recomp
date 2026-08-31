@@ -2,9 +2,9 @@
 -- weather dates and map-music day/night policy.
 
 local Assert = require("tests.support.Assert")
-local FieldAudio = require("game.src.game.audio.FieldAudio")
-local FieldRuntime = require("game.src.game.FieldRuntime")
-local LocalClock = require("game.src.game.LocalClock")
+local FieldAudio = require("game.hgss.src.audio.FieldAudio")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
+local LocalClock = require("game.src.LocalClock")
 
 local T = { tests = {} }
 

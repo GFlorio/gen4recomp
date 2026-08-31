@@ -17,7 +17,7 @@ local ScriptMembers = require("romdump.src.reference.hgss.script_members")
 local manifest = require("romdump.src.config.FieldMessages")
 
 -- Oak's scripted opening introduction reads its dialogue directly from this
--- bank (game/src/game/OakIntroComposition.lua). The opening script bank is
+-- bank (game/hgss/src/newgame/OakIntroComposition.lua). The opening script bank is
 -- not an ordinary field script bank, so it has no `sScriptBankMapping` entry
 -- and no map header references it either; it must be listed explicitly.
 local OAK_INTRO_MESSAGE_BANK = 219

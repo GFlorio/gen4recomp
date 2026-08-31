@@ -3,9 +3,9 @@ local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FakeGraphics = require("tests.support.FakeGraphics")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local NewGame = require("game.src.game.NewGame")
-local OakIntroController = require("game.src.game.OakIntroController")
-local OakIntroRenderer = require("game.src.game.OakIntroRenderer")
+local NewGame = require("game.hgss.src.newgame.NewGame")
+local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
+local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
 
 local T = {}
 

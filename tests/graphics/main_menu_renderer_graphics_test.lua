@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
-local MainMenuRenderer = require("game.src.game.MainMenuRenderer")
+local MainMenuRenderer = require("game.hgss.src.menu.MainMenuRenderer")
 
 local T = {}
 

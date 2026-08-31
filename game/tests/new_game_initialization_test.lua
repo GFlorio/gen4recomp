@@ -77,7 +77,7 @@ local function deepCopy(value)
 end
 
 function T.applying_startup_flags_preserves_finalized_player_and_fast_options()
-  local NewGameInitialization = require("game.src.game.NewGameInitialization")
+  local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
   local candidate = finalizedCandidate()
   local playerDataBefore = deepCopy(candidate.playerData)
   local optionsBefore = deepCopy(candidate.options)
@@ -102,7 +102,7 @@ function T.applying_startup_flags_preserves_finalized_player_and_fast_options()
 end
 
 function T.applying_an_already_set_flag_is_idempotent()
-  local NewGameInitialization = require("game.src.game.NewGameInitialization")
+  local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
   local candidate = finalizedCandidate()
   candidate.worldState:setFlag(flags.FLAG_HIDE_PLAYERS_ROOM_BRONZE_TROPHY)
 
@@ -120,7 +120,7 @@ function T.applying_an_already_set_flag_is_idempotent()
 end
 
 function T.lottery_draws_twice_writes_low_twice_and_leaves_high_untouched()
-  local NewGameInitialization = require("game.src.game.NewGameInitialization")
+  local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
   local candidate = finalizedCandidate()
   candidate.worldState:setVar(vars.VAR_LOTO_NUMBER_HI, 0xABCD)
   local draws = { 0x1234, 0x5678 }
@@ -150,7 +150,7 @@ function T.lottery_draws_twice_writes_low_twice_and_leaves_high_untouched()
 end
 
 function T.invalid_random_returns_fail_before_state_write()
-  local NewGameInitialization = require("game.src.game.NewGameInitialization")
+  local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
   local function checkInvalid(value)
     local candidate = finalizedCandidate()
     local ok = pcall(NewGameInitialization.apply, candidate, {
@@ -168,7 +168,7 @@ function T.invalid_random_returns_fail_before_state_write()
 end
 
 function T.operations_execute_in_order()
-  local NewGameInitialization = require("game.src.game.NewGameInitialization")
+  local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
   local candidate = finalizedCandidate()
   local beforeFlag = flags.FLAG_HIDE_PLAYERS_ROOM_BRONZE_TROPHY
   local afterFlag = flags.FLAG_HIDE_PLAYERS_ROOM_SILVER_TROPHY
@@ -205,7 +205,7 @@ function T.operations_execute_in_order()
 end
 
 function T.candidate_non_world_data_unchanged()
-  local NewGameInitialization = require("game.src.game.NewGameInitialization")
+  local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
   local candidate = finalizedCandidate()
   local saveIdBefore = candidate.saveId
   local locationBefore = deepCopy(candidate.location)
@@ -223,7 +223,7 @@ function T.candidate_non_world_data_unchanged()
 end
 
 function T.lottery_persists_through_world_capture_and_game_save()
-  local NewGameInitialization = require("game.src.game.NewGameInitialization")
+  local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
   local candidate = finalizedCandidate()
   local seq = { 0x1234, 0x5678 }
   local i = 0

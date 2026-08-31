@@ -3,9 +3,9 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local MainMenuController = require("game.src.game.MainMenuController")
-local MainMenuLayout = require("game.src.game.MainMenuLayout")
-local MainMenuState = require("game.src.game.MainMenuState")
+local MainMenuController = require("game.hgss.src.menu.MainMenuController")
+local MainMenuLayout = require("game.hgss.src.menu.MainMenuLayout")
+local MainMenuState = require("game.hgss.src.menu.MainMenuState")
 
 local T = {}
 

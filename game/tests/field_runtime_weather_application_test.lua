@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 
 local T = {}

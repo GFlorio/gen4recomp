@@ -23,7 +23,7 @@
 -- permits.
 
 local Assert = require("tests.support.Assert")
-local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
+local LoveAudioSink = require("game.src.audio.LoveAudioSink")
 
 local T = {}
 

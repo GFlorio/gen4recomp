@@ -1,7 +1,8 @@
 -- Interactive presentation over the non-rendering field runtime.
 
 local WindowConfig = require("game.src.WindowConfig")
-local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldPresentationConfig = require("game.hgss.src.field.FieldPresentationConfig")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 local FieldActorAssetProvider = require("libs.hgss.src.presentation.FieldActorAssetProvider")
 local FieldActorDraw = require("libs.hgss.src.presentation.FieldActorDraw")
 local FieldDialogueRenderer = require("libs.hgss.src.ui.FieldDialogueRenderer")
@@ -110,7 +111,7 @@ function FieldState.new(game, options)
   local ok, err = pcall(function()
     self.renderer = FieldRenderer.new({
       clearColor = WindowConfig.BACKGROUND_COLOR,
-      worldRasterScale = WindowConfig.WORLD_3D_RASTER_SCALE,
+      worldRasterScale = FieldPresentationConfig.WORLD_3D_RASTER_SCALE,
     })
     -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
     -- text all draw through it; the state owns and releases it exactly once.

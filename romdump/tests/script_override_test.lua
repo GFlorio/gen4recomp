@@ -15,7 +15,7 @@ local Bindings = require("libs.hgss.src.script.Bindings")
 local TaskRegistry = require("libs.script.src.TaskRegistry")
 local Scheduler = require("libs.script.src.Scheduler")
 local FakeServices = require("tests.support.script.FakeServices")
-local RepoFs = require("game.src.game.RepoFs")
+local RepoFs = require("game.src.RepoFs")
 local ScriptCompiler = require("romdump.src.digest.script.ScriptCompiler")
 local S = require("gen4.script")
 

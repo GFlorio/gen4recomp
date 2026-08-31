@@ -8,7 +8,7 @@
 
 local Assert = require("tests.support.Assert")
 
-local RepoFs = require("game.src.game.RepoFs")
+local RepoFs = require("game.src.RepoFs")
 
 local T = {
   metadata = {
@@ -42,7 +42,7 @@ end
 
 function T.tests.normal_relative_paths_still_resolve()
   local fs = RepoFs.new("game")
-  local content = fs:read("src/game/RepoFs.lua")
+  local content = fs:read("src/RepoFs.lua")
   Assert.notNil(content, "normal path must resolve")
   Assert.notNil(string.find(content --[[@as string]], "RepoFs"), "resolved content must be the real file")
 

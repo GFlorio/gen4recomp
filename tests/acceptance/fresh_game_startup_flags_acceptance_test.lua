@@ -82,11 +82,11 @@ local function completeOak()
     final_dialogue = true,
   }
   for _ = 1, 3600 do
-    Assert.notNil(App.state, "Oak must remain active until the profile is finalized")
-    if App.state.runtime ~= nil then
+    Assert.notNil(App.state and App.state.state, "Oak must remain active until the profile is finalized")
+    if App.state.state.runtime ~= nil then
       return
     end
-    local view = App.state:view()
+    local view = App.state.state:view()
     if view.phase == "name_edit" then
       App.textinput("GOLD")
       -- Navigate keyboard focus onto the virtual Confirm key before
@@ -106,7 +106,7 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
   local namespace = "acceptance/fresh-game-startup-flags"
   local audio = FakeAudioOutput.new()
   local saveStore = GameSaveStore.new(SaveFs.global(isolatedBackend(namespace)))
-  local original = { opts = App.opts, state = App.state, saveStore = App.saveStore, versionId = App.versionId }
+  local original = { opts = App.opts, state = App.state }
   local ok, err = xpcall(function()
     ---@diagnostic disable-next-line: missing-fields
     App.opts = {
@@ -126,14 +126,13 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
         end,
       },
     }
-    App.saveStore = saveStore
     App.state = nil
-    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
-    Assert.equal(App.state:view().kind, "main_menu")
+    App._bootMainMenu({ "heartgold" })
+    Assert.equal(App.state.state:view().kind, "main_menu")
     press("a")
     completeOak()
 
-    local runtime = assert(App.state.runtime)
+    local runtime = assert(App.state.state.runtime)
     for _ = 1, 240 do
       tick(1)
       if runtime:destinationWorldPresentable() then
@@ -207,8 +206,6 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
   App.setState(nil)
   App.opts = original.opts
   App.state = original.state
-  App.saveStore = original.saveStore
-  App.versionId = original.versionId
   if not ok then
     error(err, 0)
   end

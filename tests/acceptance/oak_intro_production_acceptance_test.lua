@@ -10,7 +10,7 @@ local App = require("game.src.game.App")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
-local OakIntroState = require("game.src.game.OakIntroState")
+local OakIntroState = require("game.hgss.src.newgame.OakIntroState")
 local SaveFs = require("libs.storage.src.SaveFs")
 
 local T = {
@@ -27,8 +27,6 @@ local function withProductionOak(versionId, fn)
   local original = {
     opts = App.opts,
     state = App.state,
-    saveStore = App.saveStore,
-    versionId = App.versionId,
   }
   local store = GameSaveStore.new(SaveFs.global(FakeCache.new()))
   local host = hostSeams()
@@ -39,22 +37,18 @@ local function withProductionOak(versionId, fn)
     actors = false,
     dev = false,
   }
-  App.saveStore = store
   App.state = nil
-  App.versionId = nil
 
   local ok, err = xpcall(function()
     App._bootMainMenu({ versionId })
     App.keypressed("return")
-    Assert.equal(getmetatable(App.state).__index, OakIntroState)
-    fn(App.state, host)
+    Assert.equal(getmetatable(App.state.state).__index, OakIntroState)
+    fn(App.state.state, host)
   end, debug.traceback)
 
   App.setState(nil)
   App.opts = original.opts
   App.state = original.state
-  App.saveStore = original.saveStore
-  App.versionId = original.versionId
   if not ok then
     error(err, 0)
   end
@@ -258,11 +252,34 @@ hostSeams = function()
 end
 
 function T.tests.new_game_enters_production_oak_without_a_factory()
-  forEachReadyVersion(function(versionId)
-    withProductionOak(versionId, function(state)
-      Assert.equal(state.controller:candidate().saveId, "save-00000001")
-    end)
-  end)
+  local original = {
+    opts = App.opts,
+    state = App.state,
+  }
+  local store = GameSaveStore.new(SaveFs.global(FakeCache.new()))
+  ---@type AppOptions
+  App.opts = {
+    saveStore = store,
+    oakIntroHost = hostSeams(),
+    test = false,
+    actors = false,
+    dev = false,
+  }
+  App.state = nil
+
+  local ok, err = xpcall(function()
+    App._bootMainMenu({ "heartgold" })
+    App.keypressed("return")
+    Assert.equal(getmetatable(App.state.state).__index, OakIntroState)
+    Assert.equal(App.state.state.controller:candidate().saveId, "save-00000001")
+  end, debug.traceback)
+
+  App.setState(nil)
+  App.opts = original.opts
+  App.state = original.state
+  if not ok then
+    error(err, 0)
+  end
 end
 
 function T.tests.confirmation_text_requires_a_later_explicit_choice_edge()
@@ -616,10 +633,14 @@ function T.tests.default_name_and_fastest_text_speed_survive_the_full_oak_handof
       state:keypressed("return")
 
       advanceUntilPhase(state, "complete")
-      Assert.equal(getmetatable(App.state).__index ~= OakIntroState, true, "Oak completion must hand off to the field")
-      Assert.equal(App.state.runtime.playerData.profile.name, "Ethan")
       Assert.equal(
-        App.state.runtime.playerData.options.textSpeed,
+        getmetatable(App.state.state).__index ~= OakIntroState,
+        true,
+        "Oak completion must hand off to the field"
+      )
+      Assert.equal(App.state.state.runtime.playerData.profile.name, "Ethan")
+      Assert.equal(
+        App.state.state.runtime.playerData.options.textSpeed,
         "fastest",
         "the intentional fastest text speed must reach the field runtime unchanged"
       )

@@ -15,7 +15,7 @@ local ScriptMapsService = require("libs.hgss.src.script.ScriptMapsService")
 local WorldState = require("libs.hgss.src.script.WorldState")
 local Scheduler = require("libs.script.src.Scheduler")
 local HgssScript = require("libs.hgss.src.script.Composition")
-local FieldScriptCompatibility = require("game.src.game.FieldScriptCompatibility")
+local FieldScriptCompatibility = require("game.hgss.src.field.FieldScriptCompatibility")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local MapInitScriptController = require("libs.hgss.src.field.MapInitScriptController")
 

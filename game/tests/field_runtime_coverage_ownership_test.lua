@@ -5,7 +5,7 @@
 local Assert = require("tests.support.Assert")
 local FieldNavigationBoundary = require("libs.hgss.src.field.FieldNavigationBoundary")
 local FieldTransition = require("libs.hgss.src.field.FieldTransition")
-local FieldRuntime = require("game.src.game.FieldRuntime")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 local WarpSystem = require("libs.hgss.src.field.WarpSystem")
 

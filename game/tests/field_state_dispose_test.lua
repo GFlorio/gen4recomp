@@ -3,8 +3,8 @@
 -- replacement and application quit cannot create an implicit checkpoint.
 
 local Assert = require("tests.support.Assert")
-local FieldRuntime = require("game.src.game.FieldRuntime")
-local FieldState = require("game.src.game.FieldState")
+local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
+local FieldState = require("game.hgss.src.field.FieldState")
 
 local T = {}
 

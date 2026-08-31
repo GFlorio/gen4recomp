@@ -3,7 +3,7 @@
 -- completed 512-frame buffers rather than a scripted sequence.
 
 local Assert = require("tests.support.Assert")
-local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
+local LoveAudioSink = require("game.src.audio.LoveAudioSink")
 
 local SAMPLE_RATE = 32768
 local CHANNELS = 2

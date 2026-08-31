@@ -2,7 +2,7 @@
 -- the optional LÖVE output sink.
 
 local AudioRuntime = require("libs.hgss.src.audio.AudioRuntime")
-local LoveAudioSink = require("game.src.game.audio.LoveAudioSink")
+local LoveAudioSink = require("game.src.audio.LoveAudioSink")
 
 local GameAudio = {}
 

@@ -14,7 +14,7 @@ local T = {
 }
 
 local function loadCore()
-  local ok, core = pcall(require, "game.src.game.audio.GameAudio")
+  local ok, core = pcall(require, "game.hgss.src.audio.GameAudio")
   Assert.isTrue(ok, "shared audio core composition is unavailable; non-field game states cannot own GameSound")
   Assert.isTrue(type(core) == "table" and type(core.compose) == "function", "audio core must expose compose")
   return core

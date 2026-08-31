@@ -6,8 +6,8 @@ local FakeCache = require("tests.support.FakeCache")
 local SaveFs = require("libs.storage.src.SaveFs")
 local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local GameSave = require("libs.hgss.src.save.GameSave")
-local GameSaveValidation = require("game.src.game.GameSaveValidation")
-local MainMenuState = require("game.src.game.MainMenuState")
+local GameSaveValidation = require("game.hgss.src.save.GameSaveValidation")
+local MainMenuState = require("game.hgss.src.menu.MainMenuState")
 local Errors = require("libs.errors.src.Errors")
 
 local T = {

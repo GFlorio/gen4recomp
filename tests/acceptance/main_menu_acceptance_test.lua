@@ -5,8 +5,8 @@
 local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
 local Errors = require("libs.errors.src.Errors")
-local FieldState = require("game.src.game.FieldState")
-local NewGameInitialization = require("game.src.game.NewGameInitialization")
+local FieldState = require("game.hgss.src.field.FieldState")
+local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
 local RomImporter = require("romdump.src.source.RomImporter")
 
 local T = {
@@ -16,7 +16,7 @@ local T = {
   tests = {},
 }
 
-local MAIN_MENU_MODULE = "game.src.game.MainMenuState"
+local MAIN_MENU_MODULE = "game.hgss.src.menu.MainMenuState"
 local READY_VERSION = "heartgold"
 
 local function requireMainMenuState()
@@ -139,7 +139,6 @@ local function withAppBoot(fn)
   local fieldCalls = {}
 
   local store = fakeStore({})
-  ---@cast store SaveStoreLike
   ---@type AppOptions
   App.opts = {
     test = false,
@@ -231,7 +230,6 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
   function store:publishFirst()
     publishCalls = publishCalls + 1
   end
-  ---@cast store SaveStoreLike
   ---@type AppOptions
   App.opts = {
     test = false,
@@ -276,7 +274,7 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
     App._bootMainMenu({ READY_VERSION })
     App.keypressed("return")
     Assert.equal(controller.started, 1)
-    Assert.equal(getmetatable(App.state).__index, require("game.src.game.OakIntroState"))
+    Assert.equal(getmetatable(App.state.state).__index, require("game.hgss.src.newgame.OakIntroState"))
     Assert.deepEqual(handoffs, {})
 
     controller.phase = "complete"
@@ -284,7 +282,7 @@ function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing
     Assert.deepEqual(handoffs, {})
     Assert.equal(#fieldCalls, 1)
     Assert.equal(fieldCalls[1].game, candidate)
-    Assert.equal(App.state.kind, "field")
+    Assert.equal(App.state.state.kind, "field")
     Assert.equal(publishCalls, 0)
     Assert.equal(controller.disposed, 1)
     Assert.equal(renderer.disposed, 1)
@@ -308,11 +306,11 @@ function T.tests.ready_and_imported_product_boot_stops_at_the_main_menu()
   withAppBoot(function(fieldCalls)
     App._bootExisting()
     Assert.equal(#fieldCalls, 0, "ready product boot must not construct FieldState before a menu decision")
-    Assert.equal(view(App.state).kind, "main_menu")
+    Assert.equal(view(App.state.state).kind, "main_menu")
 
     App._onImported(READY_VERSION)
     Assert.equal(#fieldCalls, 0, "completed import must enter Main Menu before constructing FieldState")
-    Assert.equal(view(App.state).kind, "main_menu")
+    Assert.equal(view(App.state.state).kind, "main_menu")
   end)
 end
 
