@@ -28,7 +28,8 @@ local function screenFadeFake(calls)
   }
 end
 
-local function runtimeWithAudio(calls)
+local function runtimeWithAudio(calls, options)
+  options = options or {}
   local transition = {
     phase = "idle",
     error = nil,
@@ -44,8 +45,9 @@ local function runtimeWithAudio(calls)
   }
   local runtime = setmetatable({
     audio = audio,
+    audioSink = options.audioSink,
     session = {
-      accumulator = FieldSession.FIXED_DT - 1 / 60,
+      accumulator = options.accumulator == nil and FieldSession.FIXED_DT - 1 / 60 or options.accumulator,
       updateFixed = function()
         calls[#calls + 1] = "field"
         transition.phase = "fade_out"
@@ -191,6 +193,47 @@ function T.tests.audio_follows_post_field_presentation_stage()
 
   runtime:update(1 / 60)
   Assert.deepEqual(calls, { "field", "presentation", "screen_fade", "audio" })
+end
+
+function T.tests.semantic_audio_tracks_field_ticks_while_sink_tracks_host_updates()
+  local combinedCalls = {}
+  local combinedSinkUpdates = 0
+  local combined = runtimeWithAudio(combinedCalls, {
+    accumulator = 0,
+    audioSink = {
+      update = function()
+        combinedSinkUpdates = combinedSinkUpdates + 1
+      end,
+    },
+  })
+  local splitCalls = {}
+  local splitSinkUpdates = 0
+  local split = runtimeWithAudio(splitCalls, {
+    accumulator = 0,
+    audioSink = {
+      update = function()
+        splitSinkUpdates = splitSinkUpdates + 1
+      end,
+    },
+  })
+
+  combined:update(2 * FieldSession.FIXED_DT)
+  split:update(FieldSession.FIXED_DT)
+  split:update(FieldSession.FIXED_DT)
+
+  Assert.deepEqual(combinedCalls, splitCalls, "dt chunking must not change semantic audio state")
+  Assert.deepEqual(combinedCalls, {
+    "field",
+    "presentation",
+    "screen_fade",
+    "audio",
+    "field",
+    "presentation",
+    "screen_fade",
+    "audio",
+  })
+  Assert.equal(combinedSinkUpdates, 1, "the output sink pumps once for the combined host update")
+  Assert.equal(splitSinkUpdates, 2, "the output sink still follows host update calls")
 end
 
 -- The script screen-fade source-frame cadence must not depend on whether an

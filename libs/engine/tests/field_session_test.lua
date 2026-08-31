@@ -458,8 +458,8 @@ end
 -- restored wait tasks complete against the fresh service), so a collaborator
 -- that only provides field-policy work is complete. A session without audio
 -- has no audio collaborator at all. The session must never require a separate
--- sound-frame method: the wall-clock audio clock is not a session
--- collaborator.
+-- sound-frame method: FieldRuntime composes the post-field semantic audio
+-- source-frame stage after each fixed field tick.
 function T.audio_collaborator_requires_field_policy_and_effect_playback()
   local complete = { updateField = function() end, play = function() end }
   Assert.notNil(FieldSession.new(baseOptions({ audio = complete })))
@@ -2687,9 +2687,10 @@ end
 
 -- The session's audio work is limited to field policy and semantic effects: an
 -- audio collaborator that records both calls and exposes no separate sound-frame
--- method proves the session never touches the wall-clock audio clock. A
--- completing-step tick runs the field event once; idle/modal ticks do not.
-function T.field_policy_runs_once_per_completed_step_and_never_touches_the_sound_frame_clock()
+-- method proves the session does not step semantic audio. FieldRuntime
+-- composes that stage after each fixed field tick. A completing-step tick runs
+-- the field event once; idle/modal ticks do not.
+function T.field_policy_runs_once_per_completed_step_without_stepping_semantic_audio()
   local fieldCalls = 0
   local audio = {
     updateField = function()
