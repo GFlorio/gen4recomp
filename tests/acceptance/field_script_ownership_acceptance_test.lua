@@ -21,7 +21,7 @@ local FLAG_HIDE_NEW_BARK_MARILL = FieldScriptSymbols.flagsByName.FLAG_HIDE_NEW_B
 
 local function withGame(map, fn, fieldOptions)
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = map,
     save = "fresh",
     fieldOptions = fieldOptions,

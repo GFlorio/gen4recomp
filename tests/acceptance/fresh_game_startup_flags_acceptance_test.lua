@@ -10,6 +10,7 @@ local SaveFs = require("libs.storage.src.SaveFs")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldCoordinates = require("libs.engine.src.FieldCoordinates")
 local SurfaceResolver = require("libs.engine.src.SurfaceResolver")
+local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
   metadata = {
@@ -127,7 +128,7 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
     }
     App.saveStore = saveStore
     App.state = nil
-    App._bootMainMenu({ "heartgold" })
+    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
     Assert.equal(App.state:view().kind, "main_menu")
     press("a")
     completeOak()

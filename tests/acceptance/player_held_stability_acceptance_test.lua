@@ -15,7 +15,7 @@ local TOWN_HOUSE_DOOR_APPROACH = { fieldX = 695, fieldZ = 397 }
 
 local function withGame(map, fn)
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = map,
     save = "fresh",
     fieldOptions = { recordingScriptHosts = true },

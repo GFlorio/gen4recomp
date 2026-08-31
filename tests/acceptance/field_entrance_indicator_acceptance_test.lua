@@ -21,7 +21,7 @@ local LAB_2F = "MAP_NEW_BARK_ELMS_LAB_2F"
 
 local function withGame(map, fn)
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = map,
     save = "fresh",
     fieldOptions = { recordingScriptHosts = true },

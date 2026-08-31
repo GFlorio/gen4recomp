@@ -12,6 +12,7 @@ local FakeGraphics = require("tests.support.FakeGraphics")
 local FieldEventState = require("libs.engine.src.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local NewGame = require("game.src.game.NewGame")
+local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
   metadata = {
@@ -24,7 +25,7 @@ local T = {
 local REFERENCE = { width = 256, height = 192 }
 
 local function loadManifest(versionId)
-  versionId = versionId or "heartgold"
+  versionId = versionId or AcceptanceHarness.defaultVersion()
   local cache = CacheFs.forVersion(versionId)
   local manifest = assert(cache:loadLua("data/generated/intro/intro.lua"), "missing intro manifest for " .. versionId)
   local ok, err = IntroAssetCache.validateManifest(manifest)
@@ -39,7 +40,7 @@ local function candidate()
         return "save-acceptance-oak"
       end,
     },
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     eventState = FieldEventState.new(),
     scriptSymbols = FieldScriptSymbols,
     mapIdentity = { mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F", fieldX = 6, fieldZ = 6, sourceFacing = 1 },
@@ -155,7 +156,7 @@ end
 -- The producer's transformed pixels move inside one stable generated union
 -- surface; layout addresses that surface by its source center only.
 function T.tests.transformed_reveal_frames_keep_one_source_anchor()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local widget = assert(manifest.widgets.marill_appear, "marill_appear missing")
   Assert.isTrue(#widget.frames > 1, "marill_appear must have multiple frames for trajectory")
   local firstIndex, secondIndex
@@ -174,7 +175,7 @@ function T.tests.transformed_reveal_frames_keep_one_source_anchor()
 
   local ctrl = driveToBallOpen(manifest)
   advanceUntilPhase(ctrl, "marill_appear")
-  local cache = CacheFs.forVersion("heartgold")
+  local cache = CacheFs.forVersion(AcceptanceHarness.defaultVersion())
   local frameBytes = {}
   local anchors = {}
   for _, index in ipairs({ firstIndex, secondIndex }) do
@@ -211,7 +212,7 @@ function T.tests.transformed_reveal_frames_keep_one_source_anchor()
 end
 
 function T.tests.ball_and_marill_geometry_stable_across_viewport_shapes()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local view = {
     phase = "marill_appear",
     visual = "oak",
@@ -276,7 +277,7 @@ function T.tests.ball_and_marill_geometry_stable_across_viewport_shapes()
 end
 
 function T.tests.gender_select_preserves_source_centers_and_female_palette()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local view = { phase = "gender_select", genderFocus = 0, genderCompositionProgress = 1, oakBgScrollX = 0 }
   for _, sz in ipairs({ { 800, 600 }, { 390, 844 } }) do
     local w, h = sz[1], sz[2]
@@ -340,7 +341,7 @@ function T.tests.gender_select_preserves_source_centers_and_female_palette()
 end
 
 function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local ctrl = makeController(manifest)
   ctrl:start()
   -- Drive to gender_select
@@ -419,7 +420,7 @@ function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
 end
 
 function T.tests.shrink_sequence_uses_composed_frames_and_source_delay()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local ctrl = makeController(manifest)
   ctrl:start()
   -- Full drive to shrink_animation via semantic progression
@@ -512,7 +513,7 @@ end
 -- Gender selection activates only after the host composition has completed;
 -- the completed layout places Oak in the disjoint gender-selection region.
 function T.tests.gender_selection_waits_for_host_composition()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local ctrl = driveToBallOpen(manifest)
   advanceUntilPhase(ctrl, "oak_live_alongside")
   ctrl:press("confirm")
@@ -541,7 +542,7 @@ end
 -- Once fully slid, Oak sits exactly 52 source pixels left of his base
 -- position under the same canvas used for the ordinary (non-selector) phase.
 function T.tests.full_slide_position_matches_base_position_by_exactly_fifty_two_source_pixels()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local w, h = 800, 600
   local baseView = { phase = "oak_welcome", visual = "oak", primaryWidget = "oak", oakBgScrollX = 0 }
   local baseLayout = OakIntroLayout.compute(w, h, baseView, {}, manifest)
@@ -561,7 +562,7 @@ end
 -- Marill must present at its fixed source center and remain above the dialogue
 -- box while its message is active.
 function T.tests.marill_preserves_source_center_and_stays_above_dialogue_while_visible()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local ctrl = driveToBallOpen(manifest)
   advanceUntilPhase(ctrl, "oak_live_alongside")
   local view = ctrl:view()
@@ -610,7 +611,7 @@ end
 -- long as it remains the active reveal widget, even while dialogue holds
 -- for player input (oak_live_alongside waits on a confirm press).
 function T.tests.marill_idle_animation_continues_advancing_while_dialogue_is_held()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local widget = assert(manifest.widgets.marill)
   Assert.isTrue(#widget.frames > 1, "marill idle widget must have multiple frames to prove looping")
 
@@ -639,7 +640,7 @@ end
 -- must already be the active image the moment shrink begins (no extra
 -- fabricated hold frame before frame 1).
 function T.tests.full_art_hold_lasts_thirty_ticks_and_shrink_sfx_fires_once()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local trace = {}
   local audio = fakeAudio()
   local originalPlay = audio.play
@@ -707,7 +708,7 @@ end
 -- editor, and must remain visible through name confirmation and the final
 -- Oak dialogue until the explicit player-art transition.
 function T.tests.oak_is_restored_immediately_after_name_editing_and_stays_through_final_dialogue()
-  local manifest = loadManifest("heartgold")
+  local manifest = loadManifest()
   local ctrl = makeController(manifest)
   ctrl:start()
   ctrl:tick(40)

@@ -7,6 +7,7 @@ local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local GameSaveStore = require("libs.engine.src.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
   metadata = {
@@ -264,7 +265,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     }
     App.saveStore = saveStore
     App.state = nil
-    App._bootMainMenu({ "heartgold" })
+    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
     Assert.equal(App.state:view().kind, "main_menu")
     ---@diagnostic disable-next-line: undefined-field
     Assert.equal(#saveStore:list(), 0)
@@ -329,7 +330,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     local checkpoint = assert(saveStore:load(entries[1].saveId))
     local savedMap = checkpoint.mapId
     App.setState(nil)
-    App._bootMainMenu({ "heartgold" })
+    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
     Assert.equal(#App.state:view().items, 2)
     press("dpdown")
     press("a")

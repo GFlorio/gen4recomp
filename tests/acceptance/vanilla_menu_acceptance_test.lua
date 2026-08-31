@@ -33,7 +33,7 @@ local DUAL_SURFACE_OPTIONS = {
 
 local function withGame(fieldOptions, fn)
   local game = AcceptanceHarness.new():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
     fieldOptions = fieldOptions,

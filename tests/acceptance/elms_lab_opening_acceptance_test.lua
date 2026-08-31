@@ -49,7 +49,7 @@ end
 
 local function withGame(fn)
   local game = harness():boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = MAP,
     save = "fresh",
     fieldOptions = { recordingScriptHosts = true },

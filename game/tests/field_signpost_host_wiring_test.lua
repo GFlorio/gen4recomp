@@ -28,7 +28,7 @@ local T = {
 -- host-chosen constant.
 function T.tests.runtime_composes_the_signpost_host_and_owns_its_lifecycle()
   local game = AcceptanceHarness.new({ versions = { "heartgold" } }):boot({
-    versionId = "heartgold",
+    versionId = AcceptanceHarness.defaultVersion(),
     map = "MAP_BURNED_TOWER_1F",
     save = "fresh",
   })

@@ -6,6 +6,7 @@ local Assert = require("tests.support.Assert")
 local App = require("game.src.game.App")
 local FieldState = require("game.src.game.FieldState")
 local OakIntroController = require("game.src.game.OakIntroController")
+local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
   metadata = {
@@ -15,7 +16,7 @@ local T = {
   tests = {},
 }
 
-local READY_VERSION = "heartgold"
+local READY_VERSION = AcceptanceHarness.defaultVersion()
 local VIRTUAL_GLYPHS = { "A", "B", "C", "D", "E", "F", "G", "O", "L", "é" }
 local CHARMAP = { A = 1, B = 2, C = 3, D = 4, E = 5, F = 6, G = 7, O = 8, L = 9, ["é"] = 10 }
 local PLAYER_DATA_CONTEXT = { charmap = CHARMAP, frameIndexes = { [0] = true } }

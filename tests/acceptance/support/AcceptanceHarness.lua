@@ -13,6 +13,8 @@ local LocalClock = require("libs.engine.src.LocalClock")
 local PlayTime = require("libs.engine.src.PlayTime")
 local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHosts")
 local FieldMovement = require("tests.acceptance.support.FieldMovement")
+local AcceptanceScriptFs = require("tests.acceptance.support.AcceptanceScriptFs")
+local RepoFs = require("game.src.game.RepoFs")
 
 ---@class AcceptanceHarness
 ---@field versions string[]
@@ -209,6 +211,10 @@ function AcceptanceHarness:_newRuntime(game, namespace, faults, lifecycle, field
       return { year = 2000, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
     end)
   runtimeOptions.saveFs = SaveFs.forVersion(versionId, saveBackend(faults, lifecycle, namespace, versionId))
+  if fieldOptions and fieldOptions.acceptanceScripts ~= nil then
+    runtimeOptions.overrideFs =
+      AcceptanceScriptFs.new(RepoFs.new(love.filesystem.getSourceBaseDirectory()), fieldOptions.acceptanceScripts)
+  end
   if fieldOptions == nil or fieldOptions.saveStore ~= false then
     ---@type { reserve: fun(self: table): string }
     local saveStore = GameSaveStore.new(SaveFs.global(saveBackend(faults, lifecycle, namespace, versionId)))
@@ -538,7 +544,8 @@ function Game:startScript(scriptId)
   local instanceId = scripts.scheduler:startInteraction(
     { kind = "acceptance", scriptId = scriptId },
     composed,
-    assert(self.runtime.session, "field session unavailable").tick
+    assert(self.runtime.session, "field session unavailable").tick,
+    true
   )
   assert(instanceId, "foreground script already owns the field")
   self:_record()

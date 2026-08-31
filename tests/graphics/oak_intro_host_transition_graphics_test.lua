@@ -8,6 +8,7 @@ local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local NewGame = require("game.src.game.NewGame")
 local OakIntroComposition = require("game.src.game.OakIntroComposition")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
+local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {}
 
@@ -120,7 +121,7 @@ local function assertOakGeometry(view, oak)
 end
 
 T.wide_host_moves_oak_into_the_profile_region_before_selection = function(scope)
-  local state = compose(scope, "heartgold", 1920, 1080)
+  local state = compose(scope, AcceptanceHarness.defaultVersion(), 1920, 1080)
   local first = beginGenderComposition(state)
   Assert.equal(first.genderCompositionProgress, 0)
   Assert.isNil(first.layout.genderHitRegions)
@@ -168,7 +169,7 @@ T.wide_host_moves_oak_into_the_profile_region_before_selection = function(scope)
 end
 
 T.resized_tall_host_keeps_the_completed_profile_composition = function(scope)
-  local state = compose(scope, "heartgold", 390, 844)
+  local state = compose(scope, AcceptanceHarness.defaultVersion(), 390, 844)
   local first = beginGenderComposition(state)
   Assert.equal(first.genderCompositionProgress, 0)
   state:tick(13)

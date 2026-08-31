@@ -152,6 +152,7 @@ end
 ---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 ---@field saveStore FieldRuntimeSaveStore? global publication owner
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
+---@field overrideFs table? repository override filesystem for scripts and save validation
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -175,6 +176,7 @@ end
 ---@field saveStatus string?
 ---@field saveStore FieldRuntimeSaveStore? global publication owner
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
+---@field overrideFs table? repository override filesystem for scripts and save validation
 ---@field savePublished boolean whether the reserved record has been published
 ---@field playerData table the validated profile/options authority (PlayerData shape)
 ---@field session FieldSession
@@ -547,8 +549,10 @@ function FieldRuntime.new(game, options)
     dayNight = options.dayNight,
     audioOutput = options.audioOutput,
     saveStore = options.saveStore,
-    saveValidation = options.saveValidation
-      or GameSaveValidation.new({ overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()) }),
+    saveValidation = options.saveValidation or GameSaveValidation.new({
+      overrideFs = options.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory()),
+    }),
+    overrideFs = options.overrideFs,
     savePublished = false,
     localClock = options.localClock or LocalClock.system(),
     weatherClock = options.weatherClock,
@@ -977,7 +981,7 @@ function FieldRuntime:_load()
     end
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
-      overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),
+      overrideFs = self.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory()),
       eventState = self.eventState,
       actors = self.actors,
       player = self.player,
