@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
-# One-time developer setup. Git never installs hooks on clone (running repo code
-# implicitly would be a security hole), so every contributor runs this once.
+# Configure the repository's local Git hook path.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-git config core.hooksPath scripts/hooks
-echo "core.hooksPath -> scripts/hooks (pre-commit runs scripts/lint.sh)"
+hooks_path=""
+if hooks_path="$(git config --local --get core.hooksPath 2>/dev/null)"; then
+  if [ "$hooks_path" = "scripts/hooks" ]; then
+    exit 0
+  fi
+else
+  config_status="$?"
+  if [ "$config_status" -ne 1 ]; then
+    exit "$config_status"
+  fi
+fi
+
+git config --local core.hooksPath scripts/hooks
+echo "core.hooksPath -> scripts/hooks (pre-commit runs scripts/lint.sh --check)"

@@ -47,7 +47,7 @@ jobs:
           sudo chmod +x /usr/local/bin/lua-language-server
 
       - name: Run static checks
-        run: scripts/lint.sh
+        run: scripts/lint.sh --check
 
       - name: Download LÖVE 11.5
         env:

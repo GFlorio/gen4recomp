@@ -4,6 +4,21 @@
 # save-directory override, G4RECOMP_SAVE_DIR, onto the variable LÖVE/PhysFS reads
 # for its save-dir base. This is the one seam a future portable mode will reuse;
 # when G4RECOMP_SAVE_DIR is unset, LÖVE uses the OS default per-user location.
+if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
+  hooks_path=""
+  if hooks_path="$(git config --local --get core.hooksPath 2>/dev/null)"; then
+    :
+  else
+    config_status="$?"
+    if [ "$config_status" -ne 1 ]; then
+      exit "$config_status"
+    fi
+  fi
+  if [ "$hooks_path" != "scripts/hooks" ]; then
+    scripts/lib/repo-setup.sh
+  fi
+fi
+
 [ -f .envrc ] && source .envrc
 
 if [ -n "${G4RECOMP_SAVE_DIR:-}" ]; then

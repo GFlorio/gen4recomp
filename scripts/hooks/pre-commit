@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# Installed by scripts/repo-setup.sh via core.hooksPath. Bypass with --no-verify;
+# Installed by scripts/lib/repo-setup.sh via core.hooksPath. Bypass with --no-verify;
 # CI runs the same checks, so a bypass only defers the failure.
 set -euo pipefail
-exec "$(git rev-parse --show-toplevel)/scripts/lint.sh"
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+staged_lua_paths="$(git diff --cached --name-only --diff-filter=ACDMR -- '*.lua')"
+if [ -z "$staged_lua_paths" ]; then
+  exit 0
+fi
+
+exec "$repo_root/scripts/lint.sh" --check
