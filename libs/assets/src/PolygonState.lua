@@ -11,7 +11,6 @@
 -- hierarchy. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
-local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 
 local PolygonState = {}
 
@@ -21,7 +20,7 @@ PolygonState.ERROR_DEPTH_EQUAL_UNSUPPORTED = "POLYGON_STATE_DEPTH_EQUAL_UNSUPPOR
 PolygonState.ERROR_TRANSLUCENT_DEPTH_WRITE_UNSUPPORTED = "POLYGON_STATE_TRANSLUCENT_DEPTH_WRITE_UNSUPPORTED"
 
 -- The polygon draw-state fields every serialized batch record carries (the
--- shape DsPolygonAttr.decode normalizes the DS POLYGON_ATTR word into).
+-- normalized shape emitted by the asset compilers).
 PolygonState.FIELDS = {
   "cullMode",
   "polygonMode",
@@ -33,16 +32,11 @@ PolygonState.FIELDS = {
   "fogEnabled",
 }
 
--- The emitted cull-mode vocabulary: a polygon rendering neither surface is
--- skipped by the compiler, so "all" never reaches a serialized record.
-local CULL_MODES = DsPolygonAttr.CULL_MODES
-
--- The four DS polygon modes (DsPolygonAttr.POLYGON_MODES); the dynamic path
--- emits only modulation/decal, the static path can carry toon/shadow.
-local POLYGON_MODES = {}
-for _, mode in pairs(DsPolygonAttr.POLYGON_MODES) do
-  POLYGON_MODES[mode] = true
-end
+local CULL_MODES = { back = true, front = true, none = true }
+local POLYGON_MODES = { modulation = true, decal = true, toon = true, shadow = true }
+local POLYGON_ID_MAX = 63
+local POLYGON_ALPHA_MAX = 31
+local LIGHT_MASK_MAX = 15
 
 ---@param value unknown
 ---@return boolean
@@ -79,23 +73,13 @@ function PolygonState.validate(record, context)
   if not POLYGON_MODES[record.polygonMode] then
     invalid("polygonMode must be modulation, decal, toon, or shadow")
   end
-  if
-    not (isInteger(record.polygonId) and record.polygonId >= 0 and record.polygonId <= DsPolygonAttr.POLYGON_ID_MAX)
-  then
+  if not (isInteger(record.polygonId) and record.polygonId >= 0 and record.polygonId <= POLYGON_ID_MAX) then
     invalid("polygonId must be an integer in 0..63")
   end
-  if
-    not (
-      isInteger(record.polygonAlpha)
-      and record.polygonAlpha >= 0
-      and record.polygonAlpha <= DsPolygonAttr.POLYGON_ALPHA_MAX
-    )
-  then
+  if not (isInteger(record.polygonAlpha) and record.polygonAlpha >= 0 and record.polygonAlpha <= POLYGON_ALPHA_MAX) then
     invalid("polygonAlpha must be an integer in 0..31")
   end
-  if
-    not (isInteger(record.lightMask) and record.lightMask >= 0 and record.lightMask <= DsPolygonAttr.LIGHT_MASK_MAX)
-  then
+  if not (isInteger(record.lightMask) and record.lightMask >= 0 and record.lightMask <= LIGHT_MASK_MAX) then
     invalid("lightMask must be an integer in 0..15")
   end
   if type(record.translucentDepthWrite) ~= "boolean" then
