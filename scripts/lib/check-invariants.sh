@@ -6,7 +6,7 @@
 # arguments run both rule sets over the given files (self-test hook, so a
 # planted violation is demonstrable without touching tracked files).
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 fail=0
 violation() {

@@ -8,7 +8,7 @@
 #        scripts/buildcache.sh --forcedump <path-to.nds-or.zip>
 set -euo pipefail
 cd "$(dirname "$0")/.."
-source scripts/lib.sh
+source scripts/lib/dev.sh
 
 flags=()
 args=()

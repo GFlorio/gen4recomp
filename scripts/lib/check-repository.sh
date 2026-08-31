@@ -2,7 +2,7 @@
 # Repository-wide policy that needs tracked-file metadata rather than Lua test
 # fixtures. Commercial ROMs and derived artifacts must never enter the index.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 0

@@ -588,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--site-root", required=True, type=Path)
     args = parser.parse_args(argv)
     site_root = args.site_root.resolve()
-    repository_root = Path(__file__).resolve().parents[1]
+    repository_root = Path(__file__).resolve().parents[2]
     try:
         model = _build_model(site_root, repository_root)
         quality_report = site_root / "codehealth" / "quality-report.json"

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(unset CDPATH; cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(unset CDPATH; cd -- "$SCRIPT_DIR/.." && pwd)
+REPO_ROOT=$(unset CDPATH; cd -- "$SCRIPT_DIR/../.." && pwd)
 cd "$REPO_ROOT"
 
 WORK_ROOT="$REPO_ROOT/tmp/codehealth-work"
@@ -81,7 +81,7 @@ lizard -l lua -t 4 -i -1 -f "$FILE_LIST" -V --csv > "$REPORT_ROOT/lizard/functio
 
 GRAPHIFY_REPORT_ROOT="$REPORT_ROOT/graphify"
 GRAPH_JSON="$GRAPHIFY_REPORT_ROOT/graph.json"
-python3 scripts/codehealth_graphify.py \
+python3 scripts/ci/codehealth_graphify.py \
   --source-root "$STRUCT_ROOT" \
   --output "$GRAPH_JSON" \
   --cache-root "$WORK_ROOT/graphify-cache" \
@@ -93,7 +93,7 @@ graphify export callflow-html \
   --graph "$GRAPH_JSON" \
   --output "$GRAPHIFY_REPORT_ROOT/callflow.html"
 
-python3 scripts/codehealth_report.py --site-root tmp/codehealth-site
+python3 scripts/ci/codehealth_report.py --site-root tmp/codehealth-site
 
 for required_file in \
   index.html \

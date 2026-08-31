@@ -18,7 +18,7 @@
 # Exit status: 0 green, 1 failures or a missing required capability, 2 usage.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-source scripts/lib.sh
+source scripts/lib/dev.sh
 
 # Match the development container's supported graphics host. Callers may still
 # override either variable for driver diagnosis, but the default test command
