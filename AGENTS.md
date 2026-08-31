@@ -2,7 +2,7 @@
 
 Repository-wide standing orders for coding agents. Keep this file compact. Rules that only
 matter inside one subsystem belong in that subtree's `AGENTS.md`; detailed current-state
-facts belong in `docs/`; reusable procedures belong in `.agents/skills/`.
+facts belong in code/tests; reusable procedures belong in `.agents/skills/`.
 
 ## Project intent
 
@@ -24,15 +24,14 @@ facts belong in `docs/`; reusable procedures belong in `.agents/skills/`.
 
 Read the narrowest authoritative source instead of duplicating it:
 
-- `docs/architecture.md`: current repository composition and dependency structure.
-- `docs/defensive-patterns.md`: hard-won ownership, publication, cache, and failure rules.
-- `docs/testing.md`: test runner, layers, capabilities, and ROM policy.
-- `tests/AGENTS.md`: standing orders for test design.
+- `docs/architecture.md`: public architectural principles and stable code entrypoints.
+- `.agents/docs/defensive-patterns.md`: hard-won ownership, publication, cache, and failure rules.
+- `tests/AGENTS.md`: test design, runner, layers, capabilities, and ROM policy.
 - `romdump/AGENTS.md`: ROM/HGSS/decomp-source rules.
 - `libs/assets/AGENTS.md`: generated/mod-facing asset contract rules.
 - `libs/engine/AGENTS.md`: runtime/engine ownership and public-surface rules.
 - `game/AGENTS.md`: application composition and game-policy rules.
-- `docs/adr/`: durable rationale for architectural decisions likely to be revisited.
+- `.agents/docs/adr/`: durable rationale for architectural decisions likely to be revisited.
 - `.agents/skills/`: workflows. Skills should consume repository guidance, not restate it.
 
 When guidance conflicts, prefer the more specific applicable subtree rule unless it violates
@@ -50,7 +49,7 @@ Before editing:
 3. Inspect sibling callers/entry paths that share that owner. Fix the bug class once rather
    than special-casing the reported manifestation.
 4. If an omission, restriction, or odd boundary may be deliberate, inspect nearby tests,
-   documentation, `docs/adr/`, and relevant git history before "restoring" the obvious thing.
+   documentation, `.agents/docs/adr/`, and relevant git history before "restoring" the obvious thing.
 5. Separate verified current-state facts from desired-state requirements and inference.
 
 Ask the human only when a material behavior/contract decision remains after research. Do not
@@ -87,7 +86,7 @@ source-grounded domain concept.
 ## Cross-cutting architecture
 
 - The repository has two runnable LÖVE apps, `game/` and `romdump/`, plus shared libraries.
-  See `docs/architecture.md` for the current map.
+  See `docs/architecture.md` for architectural principles and stable entrypoints.
 - Domain logic should remain independently testable from LÖVE. `libs/assets`, `libs/codec`,
   `libs/storage`, `libs/errors`, and `libs/math` must not `require` love.
 - ROM-source knowledge belongs to `romdump`: NDS/HGSS/decomp-derived formats, NARC/member
@@ -121,7 +120,7 @@ source-grounded domain concept.
 - Stateful subsystems own their own reentrancy/busy protection. Do not rely on every caller
   remembering the invariant.
 - Preserve the last known-good state until its replacement is complete. Follow the detailed
-  acquisition, publication, persistence, and cache contracts in `docs/defensive-patterns.md`.
+  acquisition, publication, persistence, and cache contracts in `.agents/docs/defensive-patterns.md`.
 - Catch only failures the caller can intentionally recover from. Broad fallbacks that turn
   programmer errors or corruption into plausible runtime state are bugs.
 - Prefer pure functions and local state. Do not attach temporary bookkeeping to caller-owned
@@ -129,7 +128,7 @@ source-grounded domain concept.
 
 ## Testing and verification
 
-Read `docs/testing.md` and `tests/AGENTS.md` for the full contract.
+Read `tests/AGENTS.md` for the test contract and runner mechanics.
 
 - Use TDD for behavior changes. Use the `acceptance-testing` skill before work that changes a
   user-visible flow, production composition, persistence, transitions, scripts, or
@@ -184,9 +183,17 @@ Read `docs/testing.md` and `tests/AGENTS.md` for the full contract.
   production code, tests, comments, docs, changelogs, or commit messages.
 - Comments and normal docs state current contracts and facts, not reasoning transcripts or
   implementation history. Delete comments that merely justify accidental complexity.
-- Put durable architectural rationale in `docs/adr/` only when the decision is likely to be
-  revisited or constrains future work. ADRs are not mandatory for every non-trivial change;
-  follow `docs/adr/README.md`.
+- Public documentation is intentionally minimal: `README.md` provides orientation and
+  routine commands, while `docs/` contains only principle-oriented public architecture.
+- Put durable rationale or policy requiring engineering judgment in `.agents/docs/`. Exact
+  implementation facts, schemas, catalogs, and current state belong in code, tests, or
+  comments next to their owner.
+- Temporary research and implementation notes belong under `.agents/tmp/` and are not
+  committed as permanent documentation. Do not create a generated API or current-state
+  document merely because it can be generated.
+- An ADR exists only when its why/tradeoff is likely to be revisited and cannot be replaced
+  by a mechanical invariant or test. ADRs are not mandatory for ordinary changes; follow
+  `.agents/docs/adr/README.md`.
 
 ## Commands and commits
 

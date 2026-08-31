@@ -1,5 +1,5 @@
 -- Draws a loaded runtime scene through a bounded world-raster pass and a
--- native-resolution presentation billboard stage (see docs/rendering.md).
+-- native-resolution presentation billboard stage.
 -- The world color/state/depth targets share bounded dimensions; ordinary
 -- opaque/cutout actor billboards resolve the world first and draw directly to
 -- the host window without writing world renderState or receiving world edges.

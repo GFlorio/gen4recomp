@@ -22,7 +22,8 @@ user-visible flows.
   or other user-visible flows use the `acceptance-testing` skill before implementation.
 - Keep semantic input/actions at the game boundary; do not bind domain behavior to incidental
   device events when the input layer already owns normalization.
-- Preserve user saves across generated-cache rebuild/removal. See `docs/defensive-patterns.md`.
+- Preserve user saves across generated-cache rebuild/removal. See
+  `.agents/docs/defensive-patterns.md`.
 
 ## Public/mod-facing APIs
 

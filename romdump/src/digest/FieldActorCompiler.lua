@@ -5,7 +5,11 @@
 -- Ordinary actors use a shared camera-facing billboard and timeline. Static
 -- map-object models keep their source geometry and polygon parts. Both paths
 -- normalize source textures into a private RGBA atlas.
--- See docs/adr/field-actor-visual-representation.md.
+-- Source layout follows pret/pokeheartgold@b23531f6c82fc6a785058825a447d8439b38e47f:
+-- asm/overlay_01_sprite_data.s, asm/overlay_01_021F8D80.s, and
+-- asm/overlay_01_021F944C.s.
+-- See .agents/docs/adr/field-actor-visual-representation.md for the durable
+-- producer/runtime representation decision.
 --
 -- Every sprite-to-resource mapping is read from the ROM: the six-byte graphics
 -- record gives the actor texture member, its packed word selects a visual

@@ -1,7 +1,7 @@
 -- Pure fixed-tick signpost controller: the HGSS signpost command state
 -- machine, wipe motion, and window printer. No love, no script runtime, no
--- I/O. Command timing follows Signpost_DoCurrentCommand (asm/signpost.s at
--- the pinned decomp commit, documented in docs/research/signpost-commands.md):
+-- I/O. Command timing follows pret/pokeheartgold@dfdbbdf3273545ca35456d69bcb0ee3403f76450,
+-- asm/signpost.s (Signpost_DoCurrentCommand):
 -- SHOW and HIDE finish on their own update; WIPE_IN/WIPE_OUT make exactly
 -- three 16px motion updates and complete on the following endpoint-check
 -- update. The controller stores the source appearance/type/map and the style

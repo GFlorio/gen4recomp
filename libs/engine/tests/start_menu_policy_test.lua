@@ -8,7 +8,7 @@
 -- source-enablement state and routing metadata, independent of
 -- implementation capability -- the runtime is the sole place that composes
 -- this with the registered destination applications. Source evidence:
--- docs/research/start-menu-policy.md (pret/pokeheartgold 008257708).
+-- pret/pokeheartgold@008257708: src/start_menu.c and src/sys_flags.c.
 
 local Assert = require("tests.support.Assert")
 local StartMenuPolicy = require("libs.engine.src.StartMenuPolicy")

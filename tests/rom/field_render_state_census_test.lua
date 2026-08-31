@@ -115,8 +115,8 @@ local function foldPolygon(tally, rawMaterial, policy, trackColorSource)
 end
 
 -- Map/building materials: full state including texture format/wrap/flip/
--- alpha class, resolved against the confirmed HGSS field-model color policy
--- (docs/rendering.md "Normalized material state"; DsMaterial.applyFieldPolicy).
+-- alpha class, resolved against DsMaterial.applyFieldPolicy's confirmed
+-- HGSS field-model color policy.
 local function foldFieldMaterials(tally, materials, texPack)
   local compiled = MaterialCompiler.compile(materials, texPack, {})
   for i, rawMaterial in ipairs(materials) do

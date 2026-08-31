@@ -13,8 +13,8 @@
 -- source-enablement state, independent of implementation capability. The
 -- runtime composes this with implementation capability to set the final
 -- enabled state. Pure domain module: no love, no I/O. Source evidence:
--- src/start_menu.c at the pinned decomp commit 008257708; full audit in
--- docs/research/start-menu-policy.md.
+-- pret/pokeheartgold@008257708: src/start_menu.c (StartMenu_BuildActionLists,
+-- FieldSystem_StartMenuActionIsAvailable) and src/sys_flags.c.
 
 local FieldApplicationIds = require("libs.engine.src.FieldApplicationIds")
 

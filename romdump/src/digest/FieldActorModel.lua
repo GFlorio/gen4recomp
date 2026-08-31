@@ -11,7 +11,7 @@
 -- manifest's placement invariants; a member that stops matching them fails loudly.
 --
 -- References: GBATEK "GX POLYGON_ATTR"; NitroSystem g3d res_struct.h for
--- `NNS_G3D_SBC_BB`; docs/adr/field-actor-visual-representation.md.
+-- `NNS_G3D_SBC_BB`; .agents/docs/adr/field-actor-visual-representation.md.
 -- Pure domain module; no love dependency.
 
 local Errors = require("libs.errors.src.Errors")

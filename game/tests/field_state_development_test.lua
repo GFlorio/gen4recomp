@@ -1,7 +1,7 @@
 -- Dev-mode behavior over the playtest presentation. Product mode (the
 -- default) renders no playtest HUD and ignores the F1 save / F2 reset
--- developer binds; dev mode keeps both. The zoom keys are documented product
--- camera controls (docs/field-camera.md) and stay available in both modes.
+-- developer binds; dev mode keeps both. The zoom keys are product camera
+-- controls and stay available in both modes.
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.src.game.FieldState")
@@ -188,8 +188,7 @@ function T.dev_mode_ignores_the_legacy_f1_and_f2_persistence_binds()
   Assert.equal(resets, 0, "dev mode must not expose the legacy F2 reset bind")
 end
 
--- The zoom keys are documented product camera controls
--- (docs/field-camera.md "Configurable zoom") and stay available in both modes.
+-- The zoom keys are product camera controls and stay available in both modes.
 function T.product_mode_keeps_the_documented_zoom_controls()
   local zooms = {}
   local changes = 0

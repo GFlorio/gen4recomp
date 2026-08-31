@@ -43,8 +43,9 @@ If there is no uncommitted change, say so and stop.
 ## Load applicable guidance
 
 Before editing, read root `AGENTS.md`, every nested `AGENTS.md` that applies to changed files,
-and `.agents/skills/review-checklist.md`. Read `tests/AGENTS.md`/`docs/testing.md` for test or
-behavior changes and `docs/defensive-patterns.md` for relevant ownership/failure work.
+and `.agents/skills/review-checklist.md`. Read `tests/AGENTS.md` and the owning test runner/code
+for test or behavior changes and `.agents/docs/defensive-patterns.md` for relevant
+ownership/failure work.
 
 If a finalized spec is provided, it is desired-state authority; repository guidance still
 owns repository-wide/subsystem conventions not overridden by the spec.

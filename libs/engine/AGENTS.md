@@ -15,7 +15,7 @@ normalized g4recomp assets; it does not own ROM ingestion or game-specific polic
 ## Ownership and lifecycle
 
 - Engine objects that acquire Images, Meshes, Canvases, mounts, subscriptions, or other host
-  resources own explicit exactly-once disposal. Read `docs/defensive-patterns.md` for
+  resources own explicit exactly-once disposal. Read `.agents/docs/defensive-patterns.md` for
   multi-step acquisition/replacement rules.
 - Constructors produce usable objects or fail. Do not make required render/audio/runtime
   collaborators optional to satisfy tests or partial setup.

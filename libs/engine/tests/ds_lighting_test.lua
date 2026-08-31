@@ -45,12 +45,13 @@
 -- still nominally at scale 512. Fixtures below quantize both operands to
 -- that scale-512 domain by hand (round to nearest, matching how the
 -- geometry engine loads a normalized vector into a fixed register) before
--- applying melonDS's literal per-component-shift dot product. See
--- docs/rendering.md and this suite's header for the separate, larger finding
+-- applying melonDS's literal per-component-shift dot product. This suite's
+-- header also records the separate, larger finding
 -- that FieldLightProfile's own vectorFx12 is authored at a different
 -- (fx16/scale-4096) precision than this hardware argument, and is not
 -- rotated by any vector matrix in the current pipeline at all -- a
--- reference-frame gap independent of the arithmetic bugs fixed here.
+-- reference-frame gap independent of the arithmetic bugs fixed here. The
+-- production FieldLightProfile contract and its consumers own that distinction.
 --
 -- Each fixture calls DsLighting.vertexColorRgb5 (the module's only public
 -- entry point) with plain float normal/light-direction inputs (the module's

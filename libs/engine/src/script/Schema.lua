@@ -1,8 +1,6 @@
--- Authoritative public schema for the gen4 field-script DSL, API 1. This is
--- the single source of truth the constructors, validator, and doc generator
--- share: operation names, field names, types, defaults, enums, and the
--- normative constructor index. API 1 is the current version, still under
--- development, so shapes may change with the version; field shapes, enums,
+-- Authoritative executable schema for the gen4 field-script DSL, API 1. This
+-- is the single source of truth for operation names, field names, types,
+-- defaults, enums, and the normative constructor index. Field shapes, enums,
 -- and the constructor index live here and nowhere else.
 local Schema = {}
 
@@ -698,8 +696,7 @@ for _, op in pairs(Schema.OPERATIONS) do
   end
 end
 
--- Normative constructor index. Grouped exactly like the
--- spec tables; the doc generator renders this into docs/script-api-v1.md.
+-- Normative constructor index. Grouped exactly like the schema tables.
 Schema.CONSTRUCTORS = {
   {
     section = "Resource and reference constructors",

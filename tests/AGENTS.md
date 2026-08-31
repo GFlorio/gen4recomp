@@ -1,7 +1,7 @@
 # Test Agent Guidance
 
-Read root `AGENTS.md` and `docs/testing.md`. This file contains standing test-design orders;
-`docs/testing.md` remains the source of truth for runner/layer/capability mechanics.
+Read root `AGENTS.md`. This file owns the standing test-design, runner, layer, and capability
+rules for the repository; exact behavior remains in the test runner and its suites.
 
 ## What tests should protect
 

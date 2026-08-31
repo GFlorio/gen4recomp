@@ -49,8 +49,8 @@
 // pinned melonDS formula (windowZ -> ndcZ = 2*windowZ - 1, ndcZ scaled by
 // 0x4000 with truncation toward zero, +0x3FFF, *0x200, clamped to
 // 0..0xFFFFFF). Projection, rasterization, and interpolation remain
-// host-side -- only the depth-domain conversion is exact DS (see
-// docs/rendering.md). Fog's depth input is this same DS Z depth, used
+// host-side -- only the depth-domain conversion is exact DS. Fog's depth input
+// is this same DS Z depth, used
 // directly without any camera-far rescaling; the density/blend
 // arithmetic below is the exact melonDS sequencing, applied to that depth.
 //

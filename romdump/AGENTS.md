@@ -18,9 +18,10 @@ and compilation into g4recomp assets.
 
 ## Source evidence and vocabulary
 
-- Source-format modules name the authoritative external/source reference in their header
-  comment: GBATEK, a pinned `pret/pokeheartgold` symbol/file, or a focused repository research
-  doc. Do not cite a temporary implementation spec.
+- Source-format modules and source-derived tests name the authoritative external/source
+  reference in their header comment: GBATEK, a pinned `pret/pokeheartgold` symbol/file and
+  commit, or another authoritative primary source. Do not use a checked-in focused research
+  document or temporary implementation spec as the authority.
 - Distinguish verified ROM facts from inferred semantics. Use neutral names when gameplay
   meaning has not been traced yet; do not promote a guess into a durable asset field.
 - Source offsets, `narcId`, `fileId`, `memberId`, overlay table indices, and similar source

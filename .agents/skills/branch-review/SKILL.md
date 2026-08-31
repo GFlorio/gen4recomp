@@ -70,11 +70,11 @@ Before judging design, read:
 - every nested `AGENTS.md` applicable to changed files;
 - `.agents/skills/review-checklist.md`;
 - `docs/architecture.md` when boundaries/composition are touched;
-- `docs/defensive-patterns.md` when ownership, partial failure, publication, persistence,
+- `.agents/docs/defensive-patterns.md` when ownership, partial failure, publication, persistence,
   caches, or shared state are touched;
-- `tests/AGENTS.md` and `docs/testing.md` for test changes or behavioral coverage.
+- `tests/AGENTS.md` and the owning test runner/code for test changes or behavioral coverage.
 
-Read relevant `docs/adr/` entries and git history only when the branch changes an architectural
+Read relevant `.agents/docs/adr/` entries and git history only when the branch changes an architectural
 choice, restores an apparent omission, or otherwise depends on historical intent. Do not read
 history as ritual; use it to resolve a real intent question.
 
@@ -92,7 +92,7 @@ Before accepting the branch's framing:
 - Establish the current/master behavior that motivated the change when feasible.
 - Identify the exact execution/data path where the problem or missing behavior occurs.
 - Identify the owner/invariant the change should affect and inspect sibling callers/paths.
-- Ask whether an apparent gap/omission/restriction was intentional. Check tests, docs/ADRs,
+- Ask whether an apparent gap/omission/restriction was intentional. Check tests, `.agents/docs/adr/`,
   and targeted history when that question is material.
 - Compare the branch's design assumptions with the real repository behavior. A branch built
   on a false premise is a finding even if its code is internally clean.
@@ -160,7 +160,7 @@ an acceptance criterion.
 Re-read the surviving design looking specifically for subtle bugs: ownership transfer,
 partial acquisition, replacement/disposal, stale or shared state, ordering, reentrancy,
 publication failure, error mapping, boundary/index mistakes, and accidental contract changes.
-Use `docs/defensive-patterns.md` where applicable.
+Use `.agents/docs/defensive-patterns.md` where applicable.
 
 ## Applying fixes and verification
 

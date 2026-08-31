@@ -1,7 +1,7 @@
 # Review Checklist
 
 Shared review-only lenses for `change-review` and `branch-review`. Repository architecture,
-subsystem rules, and test mechanics live in the applicable `AGENTS.md` and `docs/`; read
+subsystem rules and test mechanics live in the applicable `AGENTS.md` and owning code/tests; read
 those first. This file should not become a second source of repository facts.
 
 ## Premise and intent
@@ -9,7 +9,7 @@ those first. This file should not become a second source of repository facts.
 - **Prove the premise.** Establish the behavior the change claims to fix or add. Trace the
   actual execution/data path and identify the owner where behavior changes.
 - **Check intentional absence.** Before restoring an apparently missing branch, field,
-  fallback, or dependency, inspect tests, docs/ADRs, and relevant history when omission may
+  fallback, or dependency, inspect tests, `.agents/docs/adr/`, and relevant history when omission may
   be load-bearing.
 - **Fix the bug class.** Inspect sibling callers/entry paths. A local symptom patch is a
   finding when the invariant belongs to a shared owner.
@@ -62,7 +62,7 @@ Also look for:
 
 ## Correctness and lifecycle
 
-Read `docs/defensive-patterns.md` when the diff owns resources, publishes replacement state,
+Read `.agents/docs/defensive-patterns.md` when the diff owns resources, publishes replacement state,
 uses caches/shared state, or handles partial failure. Look for:
 
 - off-by-one, zero/one-based, sign, endianness, uniqueness, ordering, and aliasing errors;
@@ -82,7 +82,7 @@ when the branch cannot be justified by a current contract.
 
 ## Tests
 
-Read `tests/AGENTS.md` and `docs/testing.md`.
+Read `tests/AGENTS.md` and the owning test runner/code.
 
 - New/changed behavior needs the smallest credible behavioral test at the owning layer.
 - Stateful/resource-owning/asynchronous behavior needs material failure/sequence coverage.
