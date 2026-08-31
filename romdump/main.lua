@@ -18,8 +18,8 @@ function love.load(argv)
   local ok, parsed = pcall(Cli.parse, argv)
   if not ok then
     -- A raise from love.load would hang headless on the error screen; reject
-    -- with the usage status instead. "romdump: " mirrors the game CLI's
-    -- "game: " prefix.
+    -- with the usage status instead. "romdump: " mirrors the test command's
+    -- "test: " prefix.
     io.stderr:write("romdump: " .. tostring(parsed) .. "\n")
     love.event.quit(Cli.EXIT_USAGE)
     return

@@ -21,7 +21,7 @@ local PACKAGE_ROOTS = {
   "libs/hgss",
   "app",
   "game",
-  "romdump/src",
+  "romdump",
 }
 
 local scanned = nil
@@ -189,7 +189,7 @@ local PACKAGE_RULES = {
   },
   romdump = {
     sourcePrefix = "romdump/src/",
-    scanRoot = "romdump/src",
+    scanRoot = "romdump",
     allowed = {
       romdump = true,
       nds = true,
@@ -231,7 +231,18 @@ local APP_ROMDUMP_IMPORTS = {
   ["romdump.src.source.RomImporter"] = true,
 }
 
+local ROOT_FILE_PACKAGES = {
+  ["app/main.lua"] = "app",
+  ["app/conf.lua"] = "app",
+  ["romdump/main.lua"] = "romdump",
+  ["romdump/conf.lua"] = "romdump",
+}
+
 local function sourcePackageFor(file)
+  local rootPackage = ROOT_FILE_PACKAGES[file]
+  if rootPackage ~= nil then
+    return rootPackage
+  end
   for _, packageName in ipairs(GOVERNED_PACKAGES) do
     local rule = PACKAGE_RULES[packageName]
     if file:sub(1, #rule.sourcePrefix) == rule.sourcePrefix then
@@ -387,6 +398,36 @@ function T.app_cross_package_imports_match_exact_semantic_seams()
     end
   end
   Assert.isTrue(#mismatches == 0, violationMessage("app seam policy mismatches:\n", mismatches))
+end
+
+function T.runnable_roots_are_classified_and_reject_forbidden_dependencies()
+  local fixtures = {
+    { file = "app/main.lua", packageName = "app", dependency = "libs.hgss.src.field.FieldSession" },
+    { file = "app/conf.lua", packageName = "app", dependency = "libs.hgss.src.field.FieldSession" },
+    { file = "romdump/main.lua", packageName = "romdump", dependency = "game.hgss.src.HgssGame" },
+    { file = "romdump/conf.lua", packageName = "romdump", dependency = "game.hgss.src.HgssGame" },
+  }
+  local failures = {}
+  for _, fixture in ipairs(fixtures) do
+    if sourcePackageFor(fixture.file) ~= fixture.packageName then
+      failures[#failures + 1] = fixture.file .. " was not classified as " .. fixture.packageName
+    end
+    local violations = packageViolationsFor({ [fixture.file] = { fixture.dependency } }, fixture.packageName)
+    if #violations == 0 then
+      failures[#failures + 1] = fixture.file .. " accepted forbidden dependency " .. fixture.dependency
+    end
+  end
+  Assert.isTrue(#failures == 0, violationMessage("runnable-root policy failures:\n", failures))
+end
+
+function T.test_paths_remain_unclassified_when_scanner_roots_are_broadened()
+  local testPaths = {
+    "app/tests/example.lua",
+    "romdump/tests/example.lua",
+  }
+  for _, file in ipairs(testPaths) do
+    Assert.equal(nil, sourcePackageFor(file), file .. " must remain outside production package classification")
+  end
 end
 
 function T.package_policy_matches_actual_production_graph()
