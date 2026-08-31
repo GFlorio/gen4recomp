@@ -69,18 +69,8 @@ function T.modifiers_compose_with_the_modes_they_apply_to()
   Assert.isTrue(preview.dev)
 end
 
-function T.removed_field_mode_is_rejected_before_app_boot()
-  for _, argv in ipairs({ { "--field" }, { "--field", "MAP_NEW_BARK" } }) do
-    local message = assert(rejects(argv))
-    Assert.isTrue(message:find("unknown option", 1, true) ~= nil, "removed mode uses the option error path")
-    local usage = assert(message:match("\n(usage:.*)$"))
-    Assert.isTrue(usage:find("--field", 1, true) == nil, "usage does not advertise the removed mode")
-  end
-end
-
 function T.unknown_options_are_rejected()
   Assert.isTrue(contains(rejects({ "--bogus" }), "--bogus"))
-  Assert.isTrue(contains(rejects({ "--field=elms_lab" }), "--field=elms_lab"))
   Assert.isTrue(contains(rejects({ "--test=1" }), "--test=1"))
   Assert.isTrue(contains(rejects({ "--bogus", "--dev" }), "--bogus"))
 end
@@ -94,7 +84,7 @@ function T.stray_arguments_after_modes_are_rejected()
   Assert.isTrue(contains(rejects({ "--actors", "foo" }), "foo"))
 end
 
--- The test command owns argument parsing once --test is present: the game
+-- The test command owns argument parsing once --test is present: the app
 -- parser defers the whole argv (the runner accepts --test itself and rejects
 -- every unknown option with the usage status).
 function T.test_mode_defers_every_remaining_argument_to_the_test_command()

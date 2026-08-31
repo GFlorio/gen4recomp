@@ -4,8 +4,11 @@
 
 local Assert = require("tests.support.Assert")
 local App = require("app.src.App")
+local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local FieldState = require("game.hgss.src.field.FieldState")
 local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
+local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
+local OakIntroState = require("game.hgss.src.newgame.OakIntroState")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
@@ -209,6 +212,8 @@ local function startFlow(options, fn)
     opts = App.opts,
     state = App.state,
     fieldNew = FieldState.new,
+    storeNew = GameSaveStore.new,
+    oakCompose = OakIntroComposition.compose,
   }
   if App.state and App.state.state then
     App.setState(nil)
@@ -225,36 +230,40 @@ local function startFlow(options, fn)
   local controller
   local fieldCalls = {}
 
-  ---@type AppOptions
+  rawset(GameSaveStore, "new", function()
+    return store
+  end)
+  rawset(OakIntroComposition, "compose", function(composeOptions)
+    local input = {}
+    for key, value in pairs(composeOptions) do
+      input[key] = value
+    end
+    controller = OakIntroController.new({
+      candidate = composeOptions.candidate,
+      clock = clock,
+      audio = audio --[[@as GameSound]],
+      messages = MESSAGES,
+      assets = INTRO_ASSETS,
+      virtualGlyphs = VIRTUAL_GLYPHS,
+      playerDataContext = PLAYER_DATA_CONTEXT,
+      randomU32 = function()
+        return 0x12345678
+      end,
+    })
+    input.controller = controller
+    input.manifest = INTRO_MANIFEST
+    input.renderer = renderer
+    input.textInputHost = inputHost
+    input.glyphs = VIRTUAL_GLYPHS
+    input.width = options.width or 960
+    input.height = options.height or 540
+    ---@cast input OakIntroStateOptions
+    return OakIntroState.new(input)
+  end)
   App.opts = {
     test = false,
     actors = false,
     dev = false,
-    saveStore = store,
-    oakIntroOptionsFactory = function(factoryOptions)
-      Assert.equal(factoryOptions.versionId, readyVersion)
-      controller = OakIntroController.new({
-        candidate = factoryOptions.candidate,
-        clock = clock,
-        audio = audio --[[@as GameSound]],
-        messages = MESSAGES,
-        assets = INTRO_ASSETS,
-        virtualGlyphs = VIRTUAL_GLYPHS,
-        playerDataContext = PLAYER_DATA_CONTEXT,
-        randomU32 = function()
-          return 0x12345678
-        end,
-      })
-      return {
-        controller = controller,
-        manifest = INTRO_MANIFEST,
-        renderer = renderer,
-        textInputHost = inputHost,
-        glyphs = VIRTUAL_GLYPHS,
-        width = options.width or 960,
-        height = options.height or 540,
-      }
-    end,
   }
   ---@diagnostic disable-next-line: duplicate-set-field
   FieldState.new = function(game, fieldOptions)
@@ -283,6 +292,8 @@ local function startFlow(options, fn)
   App.opts = original.opts
   App.state = original.state
   FieldState.new = original.fieldNew
+  GameSaveStore.new = original.storeNew
+  OakIntroComposition.compose = original.oakCompose
   if not ok then
     error(err, 0)
   end

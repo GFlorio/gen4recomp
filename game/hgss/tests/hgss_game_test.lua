@@ -1,6 +1,5 @@
 -- Component coverage for the concrete HGSS application entry. It exercises
--- production Main Menu/Oak routing while observing the existing FieldState
--- and startup-initializer seams.
+-- production Main Menu routing while observing existing composition seams.
 
 local Assert = require("tests.support.Assert")
 
@@ -10,22 +9,41 @@ local READY_VERSION = "heartgold"
 
 local function loadApplicationModules()
   local ok, hgssGameOrError = pcall(require, "game.hgss.src.HgssGame")
-  Assert.isTrue(ok, "the concrete HGSS application must provide game.hgss.src.HgssGame: " .. tostring(hgssGameOrError))
+  Assert.isTrue(ok, "the concrete HGSS application must provide its entry: " .. tostring(hgssGameOrError))
   local okGame, gameOrError = pcall(require, "game.src.Game")
   Assert.isTrue(okGame, "the HGSS application must compose the generic game host: " .. tostring(gameOrError))
   local okField, fieldOrError = pcall(require, "game.hgss.src.field.FieldState")
-  Assert.isTrue(okField, "the HGSS application must own the relocated FieldState: " .. tostring(fieldOrError))
+  Assert.isTrue(okField, "the HGSS application must own FieldState: " .. tostring(fieldOrError))
   local okInit, initOrError = pcall(require, "game.hgss.src.newgame.NewGameInitialization")
-  Assert.isTrue(okInit, "the HGSS application must own the relocated new-game initializer: " .. tostring(initOrError))
+  Assert.isTrue(okInit, "the HGSS application must own new-game initialization: " .. tostring(initOrError))
   local okMenu, menuOrError = pcall(require, "game.hgss.src.menu.MainMenuState")
-  Assert.isTrue(okMenu, "the HGSS application must own the relocated Main Menu: " .. tostring(menuOrError))
+  Assert.isTrue(okMenu, "the HGSS application must own Main Menu: " .. tostring(menuOrError))
   local okPreview, previewOrError = pcall(require, "game.hgss.src.dev.ActorPreviewState")
-  Assert.isTrue(okPreview, "the HGSS application must own the actor preview state: " .. tostring(previewOrError))
-  return hgssGameOrError, fieldOrError, initOrError, menuOrError, previewOrError
+  Assert.isTrue(okPreview, "the HGSS application must own actor preview: " .. tostring(previewOrError))
+  local okValidation, validationOrError = pcall(require, "game.hgss.src.save.GameSaveValidation")
+  Assert.isTrue(okValidation, "the HGSS application must own save validation: " .. tostring(validationOrError))
+  local okStore, storeOrError = pcall(require, "libs.hgss.src.save.GameSaveStore")
+  Assert.isTrue(okStore, "the HGSS application must compose the save store: " .. tostring(storeOrError))
+  local okNewGame, newGameOrError = pcall(require, "game.hgss.src.newgame.NewGame")
+  Assert.isTrue(okNewGame, "the HGSS application must compose New Game: " .. tostring(newGameOrError))
+  local okOak, oakOrError = pcall(require, "game.hgss.src.newgame.OakIntroComposition")
+  Assert.isTrue(okOak, "the HGSS application must compose Oak: " .. tostring(oakOrError))
+  return {
+    hgssGame = hgssGameOrError,
+    game = gameOrError,
+    fieldState = fieldOrError,
+    initialization = initOrError,
+    menu = menuOrError,
+    preview = previewOrError,
+    validation = validationOrError,
+    store = storeOrError,
+    newGame = newGameOrError,
+    oak = oakOrError,
+  }
 end
 
 local function fakeStore(entries)
-  local store = { entries = entries, loads = {} }
+  local store = { entries = entries, loads = {}, deletes = {} }
   function store:list()
     return self.entries
   end
@@ -37,6 +55,10 @@ local function fakeStore(entries)
       end
     end
     error("missing fake save " .. saveId)
+  end
+  function store:delete(saveId)
+    self.deletes[#self.deletes + 1] = saveId
+    return true
   end
   return store
 end
@@ -50,180 +72,215 @@ local function saveRecord(saveId)
   }
 end
 
-local function saveValidation()
-  return {
-    contexts = {},
-    contextLoader = function()
-      return {}
-    end,
-    validate = function(_, record)
-      return record
-    end,
-    validatePlayerData = function(_, playerData)
-      return playerData
-    end,
-  }
+local function disposableState(kind)
+  local state = { kind = kind, disposed = 0 }
+  function state:dispose()
+    self.disposed = self.disposed + 1
+  end
+  return state
 end
 
+-- All monkey patches are restored after the callback, including when a
+-- constructor or assertion fails.
 local function withCompositionSpies(fn)
-  local HgssGame, FieldState, NewGameInitialization, MainMenuState, ActorPreviewState = loadApplicationModules()
-  local originalFieldNew = FieldState.new
-  local originalApply = NewGameInitialization.apply
-  local fieldCalls = {}
-  local applyCalls = {}
-  FieldState.new = function(game, options)
-    fieldCalls[#fieldCalls + 1] = { game = game, options = options }
-    return { dispose = function() end }
+  local modules = loadApplicationModules()
+  local original = {
+    fieldNew = modules.fieldState.new,
+    apply = modules.initialization.apply,
+    validationNew = modules.validation.new,
+    storeNew = modules.store.new,
+    candidate = modules.newGame.createCandidate,
+    oakCompose = modules.oak.compose,
+    previewNew = modules.preview.new,
+  }
+  local context
+  context = {
+    fieldCalls = {},
+    applyCalls = {},
+    validationCalls = {},
+    storeCalls = {},
+    candidateCalls = {},
+    oakCalls = {},
+    previewCalls = {},
+    stores = {},
+    validationFactory = function(_)
+      return {
+        validate = function(_, record)
+          return record
+        end,
+      }
+    end,
+    storeFactory = function(_, index)
+      return assert(context.stores[index], "test store not configured")
+    end,
+    candidateFactory = function(_)
+      return assert(context.candidate, "test candidate not configured")
+    end,
+    oakFactory = function(_)
+      return assert(context.oakState, "test Oak state not configured")
+    end,
+    previewFactory = function(_)
+      return assert(context.previewState, "test preview state not configured")
+    end,
+  }
+
+  modules.fieldState.new = function(game, options)
+    context.fieldCalls[#context.fieldCalls + 1] = { game = game, options = options }
+    return disposableState("field")
   end
-  rawset(NewGameInitialization, "apply", function(game)
-    applyCalls[#applyCalls + 1] = game
+  rawset(modules.initialization, "apply", function(game)
+    context.applyCalls[#context.applyCalls + 1] = game
     return game
+  end)
+  modules.validation.new = function(options)
+    context.validationCalls[#context.validationCalls + 1] = options
+    return context.validationFactory(options)
+  end
+  rawset(modules.store, "new", function(fs, options)
+    context.storeCalls[#context.storeCalls + 1] = { fs = fs, options = options }
+    return context.storeFactory(fs, #context.storeCalls)
+  end)
+  rawset(modules.newGame, "createCandidate", function(options)
+    context.candidateCalls[#context.candidateCalls + 1] = options
+    return context.candidateFactory(options)
+  end)
+  rawset(modules.oak, "compose", function(options)
+    context.oakCalls[#context.oakCalls + 1] = options
+    return context.oakFactory(options)
+  end)
+  rawset(modules.preview, "new", function(versionId)
+    context.previewCalls[#context.previewCalls + 1] = versionId
+    return context.previewFactory(versionId)
   end)
 
   local ok, err = pcall(function()
-    fn(HgssGame, MainMenuState, fieldCalls, applyCalls, ActorPreviewState)
+    fn(modules, context)
   end)
-  FieldState.new = originalFieldNew
-  rawset(NewGameInitialization, "apply", originalApply)
+
+  modules.fieldState.new = original.fieldNew
+  rawset(modules.initialization, "apply", original.apply)
+  modules.validation.new = original.validationNew
+  rawset(modules.store, "new", original.storeNew)
+  rawset(modules.newGame, "createCandidate", original.candidate)
+  rawset(modules.oak, "compose", original.oakCompose)
+  rawset(modules.preview, "new", original.previewNew)
   if not ok then
     error(err, 0)
   end
 end
 
-local function menuView(state)
-  Assert.isTrue(type(state.view) == "function", "the concrete HGSS entry must start a semantic Main Menu state")
-  return state:view()
+local function menuView(menu)
+  return assert(menu:view())
 end
 
-function T.hgss_entry_preserves_menu_continue_new_game_and_quit_routing()
-  withCompositionSpies(function(HgssGame, MainMenuState, fieldCalls, applyCalls, ActorPreviewState)
+function T.hgss_entry_owns_menu_continue_new_game_oak_and_quit_routing()
+  withCompositionSpies(function(modules, context)
     local exits = {}
-    local store = fakeStore({ saveRecord("save-00000002") })
-    local candidate = { saveId = "save-00000003", versionId = READY_VERSION, playerData = {} }
-    local controller = { phase = "opening_wait", started = 0, disposed = 0 }
-    function controller:start()
-      self.started = self.started + 1
-    end
-    function controller:tick() end
-    function controller:press() end
-    function controller:inputText() end
-    function controller:deleteGlyph() end
-    function controller:dispose()
-      self.disposed = self.disposed + 1
-    end
-    function controller:view()
-      return {
-        phase = self.phase,
-        name = "GOLD",
-        message = "generated",
-        visual = "background",
-        genderFocus = 0,
-        nameInputEnabled = false,
-      }
-    end
-    function controller:result()
+    local continueRecord = saveRecord("save-00000002")
+    context.stores[1] = fakeStore({ continueRecord })
+    context.stores[2] = fakeStore({})
+    context.stores[3] = fakeStore({})
+    local candidate = { saveId = "save-00000003", versionId = READY_VERSION, playerData = nil }
+    local finalized = { saveId = candidate.saveId, versionId = READY_VERSION, playerData = {} }
+    context.candidate = candidate
+    context.candidateFactory = function(options)
+      Assert.equal(options.saveService, context.stores[2])
+      Assert.equal(options.versionId, READY_VERSION)
+      Assert.notNil(options.eventState)
+      Assert.notNil(options.scriptSymbols)
+      Assert.deepEqual(options.mapIdentity, {
+        mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+        fieldX = 6,
+        fieldZ = 6,
+        sourceFacing = 1,
+      })
       return candidate
     end
-
-    local renderer = { disposed = 0 }
-    function renderer:draw() end
-    function renderer:dispose()
-      self.disposed = self.disposed + 1
+    context.oakState = disposableState("oak")
+    context.oakFactory = function(options)
+      Assert.equal(options.candidate, candidate)
+      Assert.equal(options.versionId, READY_VERSION)
+      Assert.isTrue(type(options.onComplete) == "function")
+      return context.oakState
     end
-    local oakHost = { setTextInput = function() end }
 
-    local app = HgssGame.new({
+    local game = modules.hgssGame.new({
       versionId = READY_VERSION,
       onExit = function(result)
         exits[#exits + 1] = result
       end,
-      saveStore = store,
-      saveValidation = saveValidation(),
-      newGameCandidateFactory = function()
-        return candidate
-      end,
-      oakIntroOptionsFactory = function(options)
-        Assert.equal(options.candidate, candidate)
-        Assert.equal(options.versionId, READY_VERSION)
-        return {
-          controller = controller,
-          manifest = {},
-          renderer = renderer,
-          textInputHost = oakHost,
-          glyphs = { "A" },
-          width = 960,
-          height = 540,
-        }
-      end,
+      development = false,
+      actorPreview = false,
     })
+    Assert.equal(getmetatable(game).__index, modules.game)
+    Assert.equal(getmetatable(game.state).__index, modules.menu)
+    Assert.equal(menuView(game.state).kind, "main_menu")
+    Assert.equal(#context.validationCalls, 1)
+    Assert.equal(#context.storeCalls, 1)
 
-    Assert.equal(getmetatable(app).__index, require("game.src.Game"))
-    Assert.equal(getmetatable(app.state).__index, MainMenuState)
-    Assert.equal(menuView(app.state).kind, "main_menu")
+    game.state:keypressed("down")
+    game.state:keypressed("return")
+    Assert.equal(#context.fieldCalls, 1)
+    Assert.equal(context.fieldCalls[1].game, continueRecord)
+    Assert.equal(type(context.storeCalls[1].options.recordValidate), "function")
+    local firstField = game.state
+    game:setState(nil)
+    Assert.equal(firstField.disposed, 1)
 
-    app.state:keypressed("down")
-    app.state:keypressed("return")
-    Assert.equal(fieldCalls[1].game, store.entries[1])
-    Assert.equal(#store.loads, 1)
-    Assert.equal(app.state.dispose ~= nil, true)
-
-    app:setState(nil)
-    local newGame = HgssGame.new({
+    local newGame = modules.hgssGame.new({
       versionId = READY_VERSION,
       onExit = function(result)
         exits[#exits + 1] = result
       end,
-      saveStore = fakeStore({}),
-      saveValidation = saveValidation(),
-      newGameCandidateFactory = function()
-        return candidate
-      end,
-      oakIntroOptionsFactory = function()
-        return {
-          controller = controller,
-          manifest = {},
-          renderer = renderer,
-          textInputHost = oakHost,
-          glyphs = { "A" },
-          width = 960,
-          height = 540,
-        }
-      end,
+      development = true,
     })
-    Assert.equal(getmetatable(newGame.state).__index, MainMenuState)
     newGame.state:keypressed("return")
-    Assert.equal(controller.started, 1)
-    controller.phase = "complete"
-    newGame:update(0)
-    Assert.equal(#fieldCalls, 2)
-    Assert.equal(fieldCalls[2].game, candidate)
-    Assert.equal(applyCalls[1], candidate)
+    Assert.equal(#context.candidateCalls, 1)
+    Assert.equal(#context.oakCalls, 1)
+    context.oakCalls[1].onComplete(finalized)
+    Assert.equal(#context.applyCalls, 1)
+    Assert.equal(context.applyCalls[1], finalized)
+    Assert.equal(#context.fieldCalls, 2)
+    Assert.equal(context.fieldCalls[2].game, finalized)
+    Assert.isTrue(context.fieldCalls[2].options.development)
+    Assert.equal(context.oakState.disposed, 1)
+    newGame:setState(nil)
 
-    newGame:exit({ kind = "quit" })
-    Assert.deepEqual(exits, { { kind = "quit" } })
-    newGame:dispose()
-
-    local quitGame = HgssGame.new({
+    local quitGame = modules.hgssGame.new({
       versionId = READY_VERSION,
       onExit = function(result)
         exits[#exits + 1] = result
       end,
-      saveStore = fakeStore({}),
-      saveValidation = saveValidation(),
     })
     quitGame.state:keypressed("escape")
-    Assert.deepEqual(exits, { { kind = "quit" }, { kind = "quit" } })
+    Assert.deepEqual(exits, { { kind = "quit" } })
     quitGame:dispose()
+  end)
+end
 
-    local previewGame = HgssGame.new({
+function T.actor_preview_does_not_construct_save_services()
+  withCompositionSpies(function(modules, context)
+    local preview = disposableState("actor_preview")
+    context.previewState = preview
+    context.validationFactory = function()
+      error("actor preview must not construct save validation")
+    end
+    context.storeFactory = function()
+      error("actor preview must not construct save store")
+    end
+
+    local game = modules.hgssGame.new({
       versionId = READY_VERSION,
-      actorPreview = true,
       onExit = function() end,
-      saveStore = fakeStore({}),
-      saveValidation = saveValidation(),
+      actorPreview = true,
     })
-    Assert.equal(getmetatable(previewGame.state).__index, ActorPreviewState)
-    previewGame:dispose()
+    Assert.equal(#context.validationCalls, 0)
+    Assert.equal(#context.storeCalls, 0)
+    Assert.equal(#context.previewCalls, 1)
+    Assert.equal(context.previewCalls[1], READY_VERSION)
+    Assert.equal(game.state, preview)
+    game:dispose()
+    Assert.equal(preview.disposed, 1)
   end)
 end
 

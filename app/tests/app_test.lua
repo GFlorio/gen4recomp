@@ -10,9 +10,7 @@
 
 local Assert = require("tests.support.Assert")
 local RomImporter = require("romdump.src.source.RomImporter")
-local Game = require("game.src.Game")
 local HgssGame = require("game.hgss.src.HgssGame")
-local MainMenuState = require("game.hgss.src.menu.MainMenuState")
 
 local App
 local ImportState
@@ -53,12 +51,13 @@ end
 
 -- One harness for every App-level seam a test can touch: fresh module state,
 -- the App opts the boot/draw paths read, the RomImporter.isReady seam, a
--- FieldState.new capture (so boot tests never construct a real runtime), and
--- a graphics.print spy. Every stub is restored on every path, so no test
--- leaks options or stubs into the next.
+-- captured HgssGame.new launch, and a graphics.print/quit spy. Every stub is
+-- restored on every path, so no test leaks options or stubs into the next.
 ---@class AppStateHarness
 ---@field prints integer
 ---@field state table
+---@field launches table[]
+---@field quitCodes integer[]
 ---@param opts table|nil
 ---@param ready fun(id: string): boolean
 ---@param fn fun(result: AppStateHarness)
@@ -67,26 +66,47 @@ local function withAppHarness(opts, ready, fn)
   fresh()
   local originalOpts = App.opts
   local originalIsReady = RomImporter.isReady
+  local originalNew = HgssGame.new
   local graphics = love.graphics
   local originalPrint = graphics.print
   local originalGetDimensions = graphics.getDimensions
+  local originalQuit = love.event.quit
   local result = {
     prints = 0,
     state = countingState(),
+    launches = {},
+    quitCodes = {},
   }
-  App.opts = opts or {}
+  local unownedOption = {}
+  App.opts = setmetatable(opts or { dev = false }, {
+    __index = function(_, key)
+      if key == "dev" then
+        return false
+      end
+      return unownedOption
+    end,
+  })
   RomImporter.isReady = ready
+  HgssGame.new = function(options)
+    result.launches[#result.launches + 1] = options
+    return result.state
+  end
   graphics.print = function()
     result.prints = result.prints + 1
   end
   graphics.getDimensions = function()
     return 800, 600
   end
+  love.event.quit = function(code)
+    result.quitCodes[#result.quitCodes + 1] = code
+  end
   local ok, err = pcall(fn, result)
   App.opts = originalOpts
   RomImporter.isReady = originalIsReady
+  HgssGame.new = originalNew
   graphics.print = originalPrint
   graphics.getDimensions = originalGetDimensions
+  love.event.quit = originalQuit
   if not ok then
     error(err, 0)
   end
@@ -205,9 +225,7 @@ function T.failed_import_is_cleared_on_the_next_update()
 end
 
 -- The boot decision when no ROM was supplied: zero ready versions enter the
--- import state, one enters the main menu, and several offer the version
--- selector. Version selection and the new-game/continue choice each have one
--- owner, App and MainMenuState respectively.
+-- import state, one launches HGSS, and several offer the version selector.
 
 function T.boot_existing_with_no_ready_version_starts_an_import()
   withAppHarness({}, function()
@@ -220,18 +238,21 @@ function T.boot_existing_with_no_ready_version_starts_an_import()
 end
 
 function T.boot_existing_with_one_ready_version_enters_the_main_menu()
-  withAppHarness({}, function(id)
+  withAppHarness({ dev = false }, function(id)
     return id == "heartgold"
-  end, function()
+  end, function(result)
     App._bootExisting()
+    local launch = assert(result.launches[1])
+    Assert.keySet(launch, "actorPreview,development,onExit,versionId")
+    Assert.equal(launch.versionId, "heartgold")
+    Assert.isFalse(launch.actorPreview)
+    Assert.isFalse(launch.development)
+    Assert.equal(App.state, result.state)
   end)
-  Assert.equal(getmetatable(App.state).__index, Game)
-  Assert.equal(getmetatable(App.state.state).__index, MainMenuState)
-  Assert.isTrue(App.state.state.readyVersions.heartgold)
 end
 
 function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_ready_array()
-  withAppHarness({}, function(id)
+  withAppHarness({ dev = true }, function(id)
     return id == "heartgold" or id == "soulsilver"
   end, function(result)
     App._bootExisting()
@@ -240,48 +261,54 @@ function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_re
     Assert.equal(getmetatable(selector).__index, VersionSelectState)
     Assert.deepEqual(selector.ready, { "heartgold", "soulsilver" })
     selector.onPick("soulsilver")
-    local picked = (result --[[@as { captured: nil }]]).captured
-    Assert.isNil(picked, "version selection opens the main menu before field entry")
-    Assert.equal(getmetatable(App.state).__index, Game)
-    Assert.equal(getmetatable(App.state.state).__index, MainMenuState)
-    Assert.isTrue(App.state.state.readyVersions.soulsilver)
+    local launch = assert(result.launches[1])
+    Assert.keySet(launch, "actorPreview,development,onExit,versionId")
+    Assert.equal(launch.versionId, "soulsilver")
+    Assert.isFalse(launch.actorPreview)
+    Assert.isTrue(launch.development)
+    Assert.equal(App.state, result.state)
+  end)
+end
+
+function T.completed_import_launches_the_imported_version_through_the_hgss_entry()
+  withAppHarness({ dev = false }, function(id)
+    return id == "heartgold"
+  end, function(result)
+    App._onImported("heartgold")
+    local launch = assert(result.launches[1])
+    Assert.keySet(launch, "actorPreview,development,onExit,versionId")
+    Assert.equal(launch.versionId, "heartgold")
+    Assert.isFalse(launch.actorPreview)
+    Assert.equal(App.state, result.state)
+  end)
+end
+
+function T.shell_exit_mapping_quits_only_for_a_hgss_quit_result()
+  withAppHarness({ dev = false }, function(id)
+    return id == "heartgold"
+  end, function(result)
+    App._bootMainMenu({ "heartgold" })
+    local launch = assert(result.launches[1])
+    launch.onExit({ kind = "continue" })
+    launch.onExit(nil)
+    Assert.deepEqual(result.quitCodes, {})
+    launch.onExit({ kind = "quit" })
+    Assert.deepEqual(result.quitCodes, { 0 })
   end)
 end
 
 function T.actor_preview_launches_the_first_ready_version_through_the_hgss_entry()
-  fresh()
-  local originalOpts = App.opts
-  local originalIsReady = RomImporter.isReady
-  local originalNew = HgssGame.new
-  local captured
-  local preview = countingState()
-  App.opts = { dev = true }
-  RomImporter.isReady = function(id)
+  withAppHarness({ dev = true }, function(id)
     return id == "soulsilver"
-  end
-  HgssGame.new = function(options)
-    captured = options
-    return preview
-  end
-
-  local ok, err = pcall(function()
+  end, function(result)
     App._bootActorPreview()
-    Assert.equal(captured.versionId, "soulsilver")
-    Assert.isTrue(captured.actorPreview)
-    Assert.isTrue(captured.development)
-    Assert.equal(App.state, preview)
+    local launch = assert(result.launches[1])
+    Assert.keySet(launch, "actorPreview,development,onExit,versionId")
+    Assert.equal(launch.versionId, "soulsilver")
+    Assert.isTrue(launch.actorPreview)
+    Assert.isTrue(launch.development)
+    Assert.equal(App.state, result.state)
   end)
-
-  if App.state == preview then
-    App.setState(nil)
-  end
-  App.opts = originalOpts
-  RomImporter.isReady = originalIsReady
-  HgssGame.new = originalNew
-  if not ok then
-    error(err, 0)
-  end
-  Assert.equal(preview.disposed, 1)
 end
 
 function T.actor_preview_without_a_ready_version_enters_import()

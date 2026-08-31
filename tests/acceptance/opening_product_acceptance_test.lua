@@ -3,9 +3,11 @@
 
 local Assert = require("tests.support.Assert")
 local App = require("app.src.App")
+local FieldState = require("game.hgss.src.field.FieldState")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")
+local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
@@ -243,25 +245,50 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
   local saveStore = GameSaveStore.new(SaveFs.global(isolatedBackend(namespace)))
   clearCheckpoints(saveStore)
   local handoffDraws = {}
-  local original = { opts = App.opts, state = App.state }
+  local original = {
+    opts = App.opts,
+    state = App.state,
+    fieldNew = FieldState.new,
+    storeNew = GameSaveStore.new,
+    oakCompose = OakIntroComposition.compose,
+  }
   local ok, err = xpcall(function()
-    ---@diagnostic disable-next-line: missing-fields
+    local oakHost = {
+      audioOutput = { audio = audio.audio, sound = audio.sound },
+      clock = {
+        nowLocal = function()
+          return { year = 2026, month = 8, day = 22, hour = 12, minute = 0, second = 0 }
+        end,
+      },
+      randomU32 = function()
+        return 0x12345678
+      end,
+    }
+    rawset(GameSaveStore, "new", function()
+      return saveStore
+    end)
+    rawset(OakIntroComposition, "compose", function(options)
+      local input = {}
+      for key, value in pairs(options) do
+        input[key] = value
+      end
+      for key, value in pairs(oakHost) do
+        input[key] = value
+      end
+      return original.oakCompose(input)
+    end)
+    FieldState.new = function(game, fieldOptions)
+      local input = {}
+      for key, value in pairs(fieldOptions or {}) do
+        input[key] = value
+      end
+      input.audioOutput = { audio = audio.audio, sound = audio.sound }
+      return original.fieldNew(game, input)
+    end
     App.opts = {
       test = false,
       actors = false,
       dev = false,
-      saveStore = saveStore,
-      oakIntroHost = {
-        audioOutput = { audio = audio.audio, sound = audio.sound },
-        clock = {
-          nowLocal = function()
-            return { year = 2026, month = 8, day = 22, hour = 12, minute = 0, second = 0 }
-          end,
-        },
-        randomU32 = function()
-          return 0x12345678
-        end,
-      },
     }
     App.state = nil
     App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
@@ -346,6 +373,9 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
   App.setState(nil)
   App.opts = original.opts
   App.state = original.state
+  FieldState.new = original.fieldNew
+  GameSaveStore.new = original.storeNew
+  OakIntroComposition.compose = original.oakCompose
   clearCheckpoints(saveStore)
   if not ok then
     error(err, 0)

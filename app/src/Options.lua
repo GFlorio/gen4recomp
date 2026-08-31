@@ -30,7 +30,7 @@ function Options.parse(argv)
   -- with the usage exit status. Nothing here is validated once --test appears.
   for _, token in ipairs(argv) do
     if token == "--test" then
-      return { test = true, field = nil, actors = false, dev = false, newFieldSession = false }
+      return { test = true, actors = false, dev = false }
     end
   end
 

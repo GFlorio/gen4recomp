@@ -1,17 +1,16 @@
--- Product New Game acceptance: the real Main Menu and App compose Oak from
--- the selected generated cache without a test Oak factory.
+-- Product Oak acceptance: the concrete composition owner builds Oak from the
+-- selected generated cache without an application-shell test factory.
 
 local Assert = require("tests.support.Assert")
 local FakeGraphics = require("tests.support.FakeGraphics")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
-local FakeCache = require("tests.support.FakeCache")
-local App = require("app.src.App")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
+local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
-local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
-local OakIntroState = require("game.hgss.src.newgame.OakIntroState")
-local SaveFs = require("libs.storage.src.SaveFs")
+local NewGame = require("game.hgss.src.newgame.NewGame")
+local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
 
 local T = {
   metadata = {
@@ -23,32 +22,50 @@ local T = {
 
 local hostSeams
 
-local function withProductionOak(versionId, fn)
-  local original = {
-    opts = App.opts,
-    state = App.state,
-  }
-  local store = GameSaveStore.new(SaveFs.global(FakeCache.new()))
-  local host = hostSeams()
-  App.opts = {
-    saveStore = store,
-    oakIntroHost = host,
-    test = false,
-    actors = false,
-    dev = false,
-  }
-  App.state = nil
+local function newCandidate(versionId)
+  return NewGame.createCandidate({
+    saveService = {
+      reserve = function()
+        return "save-00000001"
+      end,
+    },
+    versionId = versionId,
+    eventState = FieldEventState.new(),
+    scriptSymbols = FieldScriptSymbols,
+    mapIdentity = {
+      mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+      fieldX = 6,
+      fieldZ = 6,
+      sourceFacing = 1,
+    },
+  })
+end
 
+local function withProductionOak(versionId, fn)
+  local candidate = newCandidate(versionId)
+  local host = hostSeams()
+  local completion = {}
+  local options = {
+    candidate = candidate,
+    versionId = versionId,
+    onComplete = function(result)
+      completion[#completion + 1] = result
+    end,
+  }
+  for key, value in pairs(host) do
+    options[key] = value
+  end
+
+  local state
   local ok, err = xpcall(function()
-    App._bootMainMenu({ versionId })
-    App.keypressed("return")
-    Assert.equal(getmetatable(App.state.state).__index, OakIntroState)
-    fn(App.state.state, host)
+    state = OakIntroComposition.compose(options)
+    fn(state, host, completion)
   end, debug.traceback)
 
-  App.setState(nil)
-  App.opts = original.opts
-  App.state = original.state
+  if state then
+    state:dispose()
+    Assert.isTrue(state.disposed, "the direct Oak composition must be disposed after each scenario")
+  end
   if not ok then
     error(err, 0)
   end
@@ -252,34 +269,9 @@ hostSeams = function()
 end
 
 function T.tests.new_game_enters_production_oak_without_a_factory()
-  local original = {
-    opts = App.opts,
-    state = App.state,
-  }
-  local store = GameSaveStore.new(SaveFs.global(FakeCache.new()))
-  ---@type AppOptions
-  App.opts = {
-    saveStore = store,
-    oakIntroHost = hostSeams(),
-    test = false,
-    actors = false,
-    dev = false,
-  }
-  App.state = nil
-
-  local ok, err = xpcall(function()
-    App._bootMainMenu({ "heartgold" })
-    App.keypressed("return")
-    Assert.equal(getmetatable(App.state.state).__index, OakIntroState)
-    Assert.equal(App.state.state.controller:candidate().saveId, "save-00000001")
-  end, debug.traceback)
-
-  App.setState(nil)
-  App.opts = original.opts
-  App.state = original.state
-  if not ok then
-    error(err, 0)
-  end
+  withProductionOak("heartgold", function(state)
+    Assert.equal(state.controller:candidate().saveId, "save-00000001")
+  end)
 end
 
 function T.tests.confirmation_text_requires_a_later_explicit_choice_edge()
@@ -609,7 +601,7 @@ end
 -- off to.
 function T.tests.default_name_and_fastest_text_speed_survive_the_full_oak_handoff()
   forEachReadyVersion(function(versionId)
-    withProductionOak(versionId, function(state)
+    withProductionOak(versionId, function(state, _, completion)
       advanceUntilMessage(state, "profile.gender_question")
       enterGenderSelection(state)
       state:keypressed("return")
@@ -633,14 +625,10 @@ function T.tests.default_name_and_fastest_text_speed_survive_the_full_oak_handof
       state:keypressed("return")
 
       advanceUntilPhase(state, "complete")
+      Assert.equal(#completion, 1, "Oak completion must notify its owning application boundary")
+      Assert.equal(completion[1].playerData.profile.name, "Ethan")
       Assert.equal(
-        getmetatable(App.state.state).__index ~= OakIntroState,
-        true,
-        "Oak completion must hand off to the field"
-      )
-      Assert.equal(App.state.state.runtime.playerData.profile.name, "Ethan")
-      Assert.equal(
-        App.state.state.runtime.playerData.options.textSpeed,
+        completion[1].options.textSpeed,
         "fastest",
         "the intentional fastest text speed must reach the field runtime unchanged"
       )

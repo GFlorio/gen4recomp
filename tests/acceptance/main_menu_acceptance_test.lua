@@ -3,11 +3,7 @@
 -- and uses only an injected save catalog and ready-version resolver.
 
 local Assert = require("tests.support.Assert")
-local App = require("app.src.App")
 local Errors = require("libs.errors.src.Errors")
-local FieldState = require("game.hgss.src.field.FieldState")
-local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
-local RomImporter = require("romdump.src.source.RomImporter")
 
 local T = {
   metadata = {
@@ -128,190 +124,6 @@ local function assertValidCard(card, saveId, playerName, playTimeLabel)
   Assert.equal(card.playTimeLabel, playTimeLabel)
   Assert.isTrue(card.canContinue)
   Assert.isTrue(card.canDelete)
-end
-
-local function withAppBoot(fn)
-  local originalOpts = App.opts
-  local originalState = App.state
-  local originalImporter = App.importer
-  local originalIsReady = RomImporter.isReady
-  local originalFieldNew = FieldState.new
-  local fieldCalls = {}
-
-  local store = fakeStore({})
-  ---@type AppOptions
-  App.opts = {
-    test = false,
-    actors = false,
-    dev = false,
-    newGameCandidateFactory = function()
-      return {}
-    end,
-    oakIntroOptionsFactory = function()
-      return {}
-    end,
-    saveStore = store,
-  }
-  App.state = nil
-  App.importer = nil
-  ---@diagnostic disable-next-line: duplicate-set-field
-  RomImporter.isReady = function(versionId)
-    return versionId == READY_VERSION
-  end
-  FieldState.new = function(...)
-    fieldCalls[#fieldCalls + 1] = { ... }
-    return { kind = "field" }
-  end
-
-  local ok, err = xpcall(function()
-    fn(fieldCalls)
-  end, debug.traceback)
-
-  App.setState(nil)
-  App.opts = originalOpts
-  App.state = originalState
-  App.importer = originalImporter
-  RomImporter.isReady = originalIsReady
-  FieldState.new = originalFieldNew
-  if not ok then
-    error(err, 0)
-  end
-end
-
--- The New Game card enters the real Oak state boundary. The semantic Oak
--- resources are injected at the cache/audio host seam; MainMenuState, App,
--- and OakIntroState remain the production composition under test.
-function T.tests.new_game_enters_oak_and_completion_hands_off_without_publishing()
-  local originalOpts = App.opts
-  local originalState = App.state
-  local originalImporter = App.importer
-  local originalFieldNew = FieldState.new
-  local originalApply = NewGameInitialization.apply
-  local candidate = { saveId = "save-00000007", playerData = { profile = { name = "GOLD" } } }
-  local handoffs = {}
-  local fieldCalls = {}
-  local publishCalls = 0
-  local controller = { phase = "opening_wait", started = 0, disposed = 0 }
-  function controller:start()
-    self.started = self.started + 1
-  end
-  function controller:tick() end
-  function controller:press() end
-  function controller:inputText() end
-  function controller:deleteGlyph() end
-  function controller:dispose()
-    self.disposed = self.disposed + 1
-  end
-  function controller:view()
-    return {
-      phase = self.phase,
-      name = "",
-      message = "generated",
-      visual = "background",
-      genderFocus = 0,
-      nameInputEnabled = false,
-    }
-  end
-  function controller:result()
-    return candidate
-  end
-
-  local renderer = { disposed = 0 }
-  function renderer:draw() end
-  function renderer:dispose()
-    self.disposed = self.disposed + 1
-  end
-  local inputHost = { calls = {} }
-  function inputHost:setTextInput(enabled)
-    self.calls[#self.calls + 1] = enabled
-  end
-
-  local store = fakeStore({})
-  function store:publishFirst()
-    publishCalls = publishCalls + 1
-  end
-  ---@type AppOptions
-  App.opts = {
-    test = false,
-    actors = false,
-    dev = false,
-    saveStore = store,
-    oakIntroOptionsFactory = function(options)
-      Assert.equal(options.candidate, candidate)
-      Assert.equal(options.versionId, READY_VERSION)
-      return {
-        controller = controller,
-        manifest = {},
-        renderer = renderer,
-        textInputHost = inputHost,
-        glyphs = { "A" },
-        width = 960,
-        height = 540,
-      }
-    end,
-    newGameCandidateFactory = function(options)
-      Assert.equal(options.versionId, READY_VERSION)
-      return candidate
-    end,
-  }
-  ---@diagnostic disable-next-line: duplicate-set-field
-  FieldState.new = function(game, options)
-    fieldCalls[#fieldCalls + 1] = { game = game, options = options }
-    return { kind = "field" }
-  end
-  -- This suite's contract is the Main Menu -> Oak -> FieldState routing, not
-  -- the fresh-game startup initializer (owned by fresh_game_startup_flags_
-  -- acceptance_test); the initializer is stubbed through unchanged so the
-  -- fixture candidate needs no worldState/cache.
-  ---@diagnostic disable-next-line: duplicate-set-field
-  NewGameInitialization.apply = function(result)
-    return result
-  end
-  App.state = nil
-  App.importer = nil
-
-  local ok, err = xpcall(function()
-    App._bootMainMenu({ READY_VERSION })
-    App.keypressed("return")
-    Assert.equal(controller.started, 1)
-    Assert.equal(getmetatable(App.state.state).__index, require("game.hgss.src.newgame.OakIntroState"))
-    Assert.deepEqual(handoffs, {})
-
-    controller.phase = "complete"
-    App.update(0)
-    Assert.deepEqual(handoffs, {})
-    Assert.equal(#fieldCalls, 1)
-    Assert.equal(fieldCalls[1].game, candidate)
-    Assert.equal(App.state.state.kind, "field")
-    Assert.equal(publishCalls, 0)
-    Assert.equal(controller.disposed, 1)
-    Assert.equal(renderer.disposed, 1)
-  end, debug.traceback)
-
-  App.setState(nil)
-  App.opts = originalOpts
-  App.state = originalState
-  App.importer = originalImporter
-  FieldState.new = originalFieldNew
-  NewGameInitialization.apply = originalApply
-  if not ok then
-    error(err, 0)
-  end
-end
-
--- The normal ready and completed-import routes must stop at the menu. The
--- FieldState seam is only an observer: constructing it is the forbidden
--- behavior being caught, not a replacement runtime used by the scenario.
-function T.tests.ready_and_imported_product_boot_stops_at_the_main_menu()
-  withAppBoot(function(fieldCalls)
-    App._bootExisting()
-    Assert.equal(#fieldCalls, 0, "ready product boot must not construct FieldState before a menu decision")
-    Assert.equal(view(App.state.state).kind, "main_menu")
-
-    App._onImported(READY_VERSION)
-    Assert.equal(#fieldCalls, 0, "completed import must enter Main Menu before constructing FieldState")
-    Assert.equal(view(App.state.state).kind, "main_menu")
-  end)
 end
 
 -- The menu exposes only the New Game sentinel and catalog-visible records,
@@ -548,19 +360,17 @@ function T.tests.responsive_root_and_delete_hit_semantics_are_deliberate()
   Assert.equal(wide.layout.viewport.height, 900)
   Assert.equal(wide.focusedId, "new-game")
 
-  App.state = menu
-  App.keypressed("escape")
+  menu:keypressed("escape")
   Assert.deepEqual(results[1], { kind = "quit" })
-  App.gamepadpressed(nil, "b")
+  menu:gamepadpressed(nil, "b")
   Assert.equal(#results, 1, "root gamepad B must not quit")
 
   activateKey(menu, "down")
   activateKey(menu, "delete")
-  App.keypressed("escape")
+  menu:keypressed("escape")
   Assert.equal(view(menu).dialog, nil, "Escape must cancel the delete dialog")
-  App.gamepadpressed(nil, "b")
+  menu:gamepadpressed(nil, "b")
   Assert.equal(view(menu).dialog, nil, "dialog gamepad B must remain a cancel without deleting")
-  App.state = nil
 end
 
 -- The product menu owns one shared content rectangle for cards and pointer

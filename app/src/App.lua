@@ -19,11 +19,6 @@ local App = {}
 ---@field test boolean?
 ---@field dev boolean?
 ---@field actors boolean?
----@field saveStore table?
----@field saveValidation GameSaveValidation?
----@field newGameCandidateFactory (fun(options: table): table?)?
----@field oakIntroOptionsFactory (fun(options: table): table?)?
----@field oakIntroHost table?
 
 local function readyVersions()
   local out = {}
@@ -46,11 +41,6 @@ local function launchHgss(versionId, actorPreview)
     onExit = onExit,
     development = App.opts.dev,
     actorPreview = actorPreview,
-    saveStore = App.opts.saveStore,
-    saveValidation = App.opts.saveValidation,
-    newGameCandidateFactory = App.opts.newGameCandidateFactory,
-    oakIntroOptionsFactory = App.opts.oakIntroOptionsFactory,
-    oakIntroHost = App.opts.oakIntroHost,
   }))
 end
 

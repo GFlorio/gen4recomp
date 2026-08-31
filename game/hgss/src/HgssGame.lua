@@ -12,7 +12,6 @@ local ActorPreviewState = require("game.hgss.src.dev.ActorPreviewState")
 local MainMenuState = require("game.hgss.src.menu.MainMenuState")
 local GameSaveValidation = require("game.hgss.src.save.GameSaveValidation")
 local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
-local OakIntroState = require("game.hgss.src.newgame.OakIntroState")
 local RepoFs = require("game.src.RepoFs")
 
 ---@class HgssGameOptions
@@ -20,11 +19,6 @@ local RepoFs = require("game.src.RepoFs")
 ---@field onExit fun(result: table|nil)
 ---@field development boolean?
 ---@field actorPreview boolean?
----@field saveStore table?
----@field saveValidation GameSaveValidation?
----@field newGameCandidateFactory (fun(options: table): table?)?
----@field oakIntroOptionsFactory (fun(options: table): table?)?
----@field oakIntroHost table?
 
 local HgssGame = {}
 
@@ -33,16 +27,10 @@ local function fieldStateOptions(options, saveStore, saveValidation)
     development = options.development == true,
     saveStore = saveStore,
     saveValidation = saveValidation,
-    audioOutput = options.oakIntroHost and options.oakIntroHost.audioOutput,
   }
 end
 
-local function newGameCandidate(options, saveStore, versionId)
-  local factory = options.newGameCandidateFactory
-  if factory then
-    local candidate = factory({ saveService = saveStore, versionId = versionId })
-    return assert(candidate, "New Game candidate factory returned no candidate")
-  end
+local function newGameCandidate(saveStore, versionId)
   return NewGame.createCandidate({
     saveService = saveStore,
     versionId = versionId,
@@ -73,25 +61,12 @@ local function installRoutes(options, game, saveStore, saveValidation, versionId
   end
 
   local function bootOakIntro()
-    local candidate = newGameCandidate(options, saveStore, versionId)
-    local input = {
+    local candidate = newGameCandidate(saveStore, versionId)
+    game:setState(OakIntroComposition.compose({
       candidate = candidate,
       versionId = versionId,
-    }
-    for key, value in pairs(options.oakIntroHost or {}) do
-      input[key] = value
-    end
-    local factory = options.oakIntroOptionsFactory
-    if factory then
-      local oakOptions = factory(input)
-      assert(type(oakOptions) == "table", "Oak intro options factory must return a table")
-      ---@cast oakOptions OakIntroStateOptions
-      oakOptions.onComplete = onOakComplete
-      game:setState(OakIntroState.new(oakOptions))
-      return
-    end
-    input.onComplete = onOakComplete
-    game:setState(OakIntroComposition.compose(input))
+      onComplete = onOakComplete,
+    }))
   end
 
   local function onMenuResult(result)
@@ -122,21 +97,22 @@ function HgssGame.new(options)
   assert(type(versionId) == "string" and versionId ~= "", "HgssGame versionId is invalid")
   assert(type(options.onExit) == "function", "HgssGame requires an onExit callback")
 
-  local saveValidation = options.saveValidation
-    or GameSaveValidation.new({ overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()) })
-  local saveStore = options.saveStore
-    or GameSaveStore.new(SaveFs.global(), {
-      recordValidate = function(record)
-        return saveValidation:validate(record)
-      end,
-    })
   local game = Game.new({ onExit = options.onExit })
 
   if options.actorPreview then
     game:setState(ActorPreviewState.new(versionId))
-  else
-    installRoutes(options, game, saveStore, saveValidation, versionId)
+    return game
   end
+
+  local saveValidation = GameSaveValidation.new({
+    overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),
+  })
+  local saveStore = GameSaveStore.new(SaveFs.global(), {
+    recordValidate = function(record)
+      return saveValidation:validate(record)
+    end,
+  })
+  installRoutes(options, game, saveStore, saveValidation, versionId)
   return game
 end
 

@@ -6,23 +6,12 @@ local Assert = require("tests.support.Assert")
 local HgssGame = require("game.hgss.src.HgssGame")
 local FieldState = require("game.hgss.src.field.FieldState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
+local GameSaveValidation = require("game.hgss.src.save.GameSaveValidation")
+local NewGame = require("game.hgss.src.newgame.NewGame")
+local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
 
 local T = {}
-
-local function saveValidation()
-  return {
-    contexts = {},
-    contextLoader = function()
-      return {}
-    end,
-    validate = function(_, record)
-      return record
-    end,
-    validatePlayerData = function(_, playerData)
-      return playerData
-    end,
-  }
-end
 
 local function controllerFor(candidate)
   local controller = { phase = "opening_wait", started = 0, disposed = 0 }
@@ -56,8 +45,13 @@ local function withSpies(fn)
   local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
   local originalApply = NewGameInitialization.apply
   local originalFieldStateNew = FieldState.new
+  local originalValidationNew = GameSaveValidation.new
+  local originalStoreNew = GameSaveStore.new
+  local originalCandidate = NewGame.createCandidate
+  local originalOakCompose = OakIntroComposition.compose
   local applyCalls = {}
   local fieldStateCalls = {}
+  local context = { stores = {}, candidates = {}, oakStates = {} }
   rawset(NewGameInitialization, "apply", function(candidate, _)
     applyCalls[#applyCalls + 1] = candidate
     return candidate
@@ -66,57 +60,67 @@ local function withSpies(fn)
     fieldStateCalls[#fieldStateCalls + 1] = game
     return { dispose = function() end }
   end
+  rawset(GameSaveValidation, "new", function()
+    return {
+      validate = function(_, record)
+        return record
+      end,
+    }
+  end)
+  rawset(GameSaveStore, "new", function()
+    return assert(context.store, "test save store not configured")
+  end)
+  rawset(NewGame, "createCandidate", function()
+    return assert(context.candidate, "test candidate not configured")
+  end)
+  rawset(OakIntroComposition, "compose", function(options)
+    local state = assert(context.oakState, "test Oak state not configured")
+    state.onComplete = options.onComplete
+    return state
+  end)
 
   local ok, err = pcall(function()
-    fn(applyCalls, fieldStateCalls)
+    fn(applyCalls, fieldStateCalls, context)
   end)
   rawset(NewGameInitialization, "apply", originalApply)
   FieldState.new = originalFieldStateNew
+  rawset(GameSaveValidation, "new", originalValidationNew)
+  rawset(GameSaveStore, "new", originalStoreNew)
+  rawset(NewGame, "createCandidate", originalCandidate)
+  rawset(OakIntroComposition, "compose", originalOakCompose)
   if not ok then
     error(err, 0)
   end
 end
 
-local function newGame(options)
-  local candidate = options.candidate
+local function newGame(context, candidate)
   local controller = controllerFor(candidate)
+  context.candidate = candidate
+  context.oakState = { controller = controller, completed = false }
+  function context.oakState:keypressed() end
+  function context.oakState:update()
+    if controller.phase == "complete" and not self.completed then
+      self.completed = true
+      self.onComplete(candidate)
+    end
+  end
+  function context.oakState:dispose() end
   local game = HgssGame.new({
     versionId = "heartgold",
     onExit = function() end,
-    saveStore = options.saveStore,
-    saveValidation = saveValidation(),
-    newGameCandidateFactory = function()
-      return candidate
-    end,
-    oakIntroOptionsFactory = function()
-      return {
-        controller = controller,
-        manifest = {},
-        renderer = { draw = function() end, dispose = function() end },
-        textInputHost = { setTextInput = function() end },
-        glyphs = { "A" },
-        width = 960,
-        height = 540,
-      }
-    end,
   })
   return game, controller
 end
 
 function T.fresh_oak_completion_applies_startup_initialization_before_field_state()
-  withSpies(function(applyCalls, fieldStateCalls)
+  withSpies(function(applyCalls, fieldStateCalls, context)
     local candidate = { saveId = "save-00000001", versionId = "heartgold", playerData = {} }
-    local game, controller = newGame({
-      candidate = candidate,
-      saveStore = {
-        reserve = function()
-          return candidate.saveId
-        end,
-        list = function()
-          return {}
-        end,
-      },
-    })
+    context.store = {
+      list = function()
+        return {}
+      end,
+    }
+    local game, controller = newGame(context, candidate)
     game.state:keypressed("return")
     controller.phase = "complete"
     game:update(0)
@@ -128,7 +132,7 @@ function T.fresh_oak_completion_applies_startup_initialization_before_field_stat
 end
 
 function T.continue_never_reapplies_fresh_startup_initialization()
-  withSpies(function(applyCalls, fieldStateCalls)
+  withSpies(function(applyCalls, fieldStateCalls, context)
     local clearedFlagGame = {
       saveId = "save-00000002",
       versionId = "heartgold",
@@ -144,11 +148,10 @@ function T.continue_never_reapplies_fresh_startup_initialization()
         return clearedFlagGame
       end,
     }
+    context.store = store
     local game = HgssGame.new({
       versionId = "heartgold",
       onExit = function() end,
-      saveStore = store,
-      saveValidation = saveValidation(),
     })
     game.state:keypressed("down")
     game.state:keypressed("return")

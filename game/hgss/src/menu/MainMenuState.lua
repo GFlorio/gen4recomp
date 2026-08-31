@@ -1,6 +1,6 @@
 -- Product Main Menu state. It owns the save catalog refresh, the pure input
 -- controller, the responsive layout, and the renderer, then emits only
--- semantic New Game, Continue, or quit results to App.
+-- semantic New Game, Continue, or quit results to HGSS application routing.
 
 local Errors = require("libs.errors.src.Errors")
 local GameSave = require("libs.hgss.src.save.GameSave")
@@ -16,7 +16,7 @@ local MainMenuRenderer = require("game.hgss.src.menu.MainMenuRenderer")
 ---@class MainMenuState
 ---@field saveStore MainMenuSaveStore application-owned global save catalog and payload store
 ---@field readyVersions table<string, boolean> versions available for Continue
----@field onResult fun(result: table)|nil semantic result sink owned by App
+---@field onResult fun(result: table)|nil semantic result sink owned by HGSS application routing
 ---@field width number current viewport width
 ---@field height number current viewport height
 ---@field renderer MainMenuRenderer menu renderer owned by this state

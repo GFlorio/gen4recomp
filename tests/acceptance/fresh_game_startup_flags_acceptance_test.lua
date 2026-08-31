@@ -7,6 +7,7 @@ local App = require("app.src.App")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")
+local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
@@ -106,25 +107,37 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
   local namespace = "acceptance/fresh-game-startup-flags"
   local audio = FakeAudioOutput.new()
   local saveStore = GameSaveStore.new(SaveFs.global(isolatedBackend(namespace)))
-  local original = { opts = App.opts, state = App.state }
+  local original =
+    { opts = App.opts, state = App.state, storeNew = GameSaveStore.new, oakCompose = OakIntroComposition.compose }
   local ok, err = xpcall(function()
-    ---@diagnostic disable-next-line: missing-fields
+    local oakHost = {
+      audioOutput = { audio = audio.audio, sound = audio.sound },
+      clock = {
+        nowLocal = function()
+          return { year = 2026, month = 8, day = 22, hour = 12, minute = 0, second = 0 }
+        end,
+      },
+      randomU32 = function()
+        return 0x12345678
+      end,
+    }
+    rawset(GameSaveStore, "new", function()
+      return saveStore
+    end)
+    rawset(OakIntroComposition, "compose", function(options)
+      local input = {}
+      for key, value in pairs(options) do
+        input[key] = value
+      end
+      for key, value in pairs(oakHost) do
+        input[key] = value
+      end
+      return original.oakCompose(input)
+    end)
     App.opts = {
       test = false,
       actors = false,
       dev = false,
-      saveStore = saveStore,
-      oakIntroHost = {
-        audioOutput = { audio = audio.audio, sound = audio.sound },
-        clock = {
-          nowLocal = function()
-            return { year = 2026, month = 8, day = 22, hour = 12, minute = 0, second = 0 }
-          end,
-        },
-        randomU32 = function()
-          return 0x12345678
-        end,
-      },
     }
     App.state = nil
     App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
@@ -206,6 +219,8 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
   App.setState(nil)
   App.opts = original.opts
   App.state = original.state
+  GameSaveStore.new = original.storeNew
+  OakIntroComposition.compose = original.oakCompose
   if not ok then
     error(err, 0)
   end
