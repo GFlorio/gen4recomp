@@ -32,7 +32,9 @@ local function assertPresentation(presentation)
       and layout.itemCount % 1 == 0
       and layout.itemCount >= 0
       and type(layout.itemRects) == "table"
-      and type(layout.itemTexts) == "table",
+      and type(layout.itemTexts) == "table"
+      and type(layout.firstVisibleRow) == "number"
+      and type(layout.lastVisibleRow) == "number",
     "resolved layout requires item geometry and text"
   )
   assert(
@@ -76,7 +78,7 @@ function FieldMenuRenderer:_drawItems(status, layout)
   local graphics = self._graphics
   local viewport = layout.scrollViewport
   graphics.setScissor(viewport.x, viewport.y, viewport.width, viewport.height)
-  for itemIndex = 0, layout.itemCount - 1 do
+  for itemIndex = layout.firstVisibleRow, layout.lastVisibleRow do
     local itemRect = assert(layout.itemRects[itemIndex], "resolved layout item geometry is missing")
     if intersects(itemRect, viewport) then
       if itemIndex == status.selectedIndex then

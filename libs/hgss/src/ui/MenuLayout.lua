@@ -5,6 +5,7 @@
 ---@class MenuLayout
 ---@type { BOTTOM_SCREEN_TILE_PLACEMENT: string }
 local MenuProtocol = require("libs.assets.src.MenuProtocol")
+local ListViewport = require("libs.hgss.src.ui.ListViewport")
 local MenuLayout = {}
 
 MenuLayout.minimumTouchTarget = 44
@@ -263,7 +264,7 @@ end
 ---@param rowHeight number
 ---@param padding number
 ---@param cancelHeight number
----@return ScreenTopology.Rectangle, ScreenTopology.Rectangle[], number, number
+---@return ScreenTopology.Rectangle, ScreenTopology.Rectangle[], number, number, ListViewport
 local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
   local content = {
     x = frame.x + padding,
@@ -273,8 +274,14 @@ local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
   }
   local totalHeight = #menu.items * rowHeight
   local maxOffset = math.max(0, totalHeight - content.height)
+  local viewport = ListViewport.new({
+    itemCount = #menu.items,
+    selectedIndex = menu.selectedIndex,
+    visibleRows = math.max(1, math.ceil(content.height / rowHeight)),
+  })
   local selectedTop = (menu.selectedIndex or 0) * rowHeight
   local offset = clamp(selectedTop - (content.height - rowHeight), 0, maxOffset)
+  offset = math.max(offset, assert(viewport:firstVisibleRow()) * rowHeight)
   local itemRects = {}
   for luaIndex = 1, #menu.items do
     itemRects[luaIndex - 1] = {
@@ -284,7 +291,7 @@ local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
       height = rowHeight,
     }
   end
-  return content, itemRects, offset, maxOffset
+  return content, itemRects, offset, maxOffset, viewport
 end
 
 local DIRECTIONS = { up = true, down = true, left = true, right = true }
@@ -412,8 +419,9 @@ function MenuLayout.resolve(spec)
     selectedIndex = selectedIndex,
     cancellable = spec.menu.cancellable == true,
   }
-  local contentRect, itemRects, scrollOffset, maxScrollOffset =
+  local contentRect, itemRects, scrollOffset, maxScrollOffset, viewport =
     layoutItems(resolvedFrame, resolvedMenu, rowHeight, padding, cancelHeight)
+  local visibleRange = viewport:visibleRange()
   local itemTexts = {}
   for luaIndex = 1, #spec.menu.items do
     itemTexts[luaIndex - 1] = itemText(spec.menu.items[luaIndex])
@@ -440,6 +448,8 @@ function MenuLayout.resolve(spec)
     selectedIndex = selectedIndex,
     scrollOffset = scrollOffset,
     maxScrollOffset = maxScrollOffset,
+    firstVisibleRow = visibleRange.first,
+    lastVisibleRow = visibleRange.last,
   }
 end
 

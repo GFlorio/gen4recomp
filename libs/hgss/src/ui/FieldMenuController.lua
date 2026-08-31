@@ -2,16 +2,26 @@
 -- pointer capture while leaving message resolution, layout, rendering, and
 -- physical input mapping to its callers.
 
+local Selection = require("libs.hgss.src.ui.Selection")
+
 ---@class FieldMenuController
 ---@field _items table<integer, FieldMenuController.Item>
----@field _itemCount integer
----@field _selectedIndex integer
+---@field _selection Selection
 ---@field _cancellable boolean
 ---@field _cancelValue any
 ---@field _state "active"|"complete"
 ---@field _result any
 ---@field _cancelled boolean
 ---@field _pressedPointerItem integer?
+---@field isActive fun(self: FieldMenuController): boolean
+---@field focus fun(self: FieldMenuController, itemIndex: integer)
+---@field confirm fun(self: FieldMenuController): any
+---@field cancel fun(self: FieldMenuController): any
+---@field hover fun(self: FieldMenuController, itemIndex: integer?)
+---@field press fun(self: FieldMenuController, itemIndex: integer?)
+---@field release fun(self: FieldMenuController, itemIndex: integer?): any
+---@field status fun(self: FieldMenuController): FieldMenuController.Status
+
 local FieldMenuController = {}
 FieldMenuController.__index = FieldMenuController
 
@@ -50,14 +60,14 @@ local function copyItems(items)
   return copied, count
 end
 
----@param self FieldMenuController
+---@param self { _selection: Selection }
 ---@param itemIndex integer?
 local function assertItemIndex(self, itemIndex)
   if itemIndex == nil then
     return
   end
   assertInteger(itemIndex, "field menu item index")
-  assert(itemIndex >= 0 and itemIndex < self._itemCount, "field menu item index is out of range")
+  assert(itemIndex >= 0 and itemIndex < self._selection:itemCount(), "field menu item index is out of range")
 end
 
 ---@class FieldMenuController.Spec
@@ -86,17 +96,18 @@ function FieldMenuController.new(spec)
   assert(spec.cancellable == nil or type(spec.cancellable) == "boolean", "field menu cancellable must be a boolean")
   assert(spec.cancellable ~= true or spec.cancelValue ~= nil, "cancellable field menu requires a cancellation result")
 
-  return setmetatable({
+  local controller = {
     _items = items,
-    _itemCount = itemCount,
-    _selectedIndex = initialCursor,
+    _selection = Selection.new(itemCount, initialCursor),
     _cancellable = spec.cancellable == true,
     _cancelValue = spec.cancelValue,
     _state = "active",
     _result = nil,
     _cancelled = false,
     _pressedPointerItem = nil,
-  }, FieldMenuController)
+  }
+  ---@cast controller FieldMenuController
+  return setmetatable(controller, FieldMenuController)
 end
 
 ---@return boolean
@@ -123,7 +134,7 @@ end
 function FieldMenuController:focus(itemIndex)
   assertItemIndex(self, itemIndex)
   if self:isActive() then
-    self._selectedIndex = assert(itemIndex)
+    self._selection:setSelectedIndex(assert(itemIndex))
   end
 end
 
@@ -132,7 +143,7 @@ function FieldMenuController:confirm()
   if not self:isActive() then
     return nil
   end
-  return self:_complete(self._items[self._selectedIndex].value, false)
+  return self:_complete(self._items[assert(self._selection:selectedIndex())].value, false)
 end
 
 ---@return any
@@ -176,7 +187,7 @@ function FieldMenuController:release(itemIndex)
   if pressed == nil or pressed ~= itemIndex then
     return nil
   end
-  self._selectedIndex = pressed
+  self._selection:setSelectedIndex(pressed)
   return self:confirm()
 end
 
@@ -190,7 +201,7 @@ end
 function FieldMenuController:status()
   return {
     state = self._state,
-    selectedIndex = self._selectedIndex,
+    selectedIndex = assert(self._selection:selectedIndex()),
     result = self._result,
     cancelled = self._cancelled,
   }
