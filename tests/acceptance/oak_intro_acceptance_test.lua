@@ -7,6 +7,7 @@ local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local App = require("app.src.App")
 local FieldState = require("game.hgss.src.field.FieldState")
 local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
+local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
   metadata = {
@@ -205,6 +206,7 @@ end
 
 local function startFlow(options, fn)
   options = options or {}
+  local readyVersion = AcceptanceHarness.defaultVersion()
   local original = {
     opts = App.opts,
     state = App.state,
@@ -232,7 +234,7 @@ local function startFlow(options, fn)
     dev = false,
     saveStore = store,
     oakIntroOptionsFactory = function(factoryOptions)
-      Assert.equal(factoryOptions.versionId, READY_VERSION)
+      Assert.equal(factoryOptions.versionId, readyVersion)
       controller = OakIntroController.new({
         candidate = factoryOptions.candidate,
         clock = clock,
@@ -263,7 +265,7 @@ local function startFlow(options, fn)
   end
 
   local ok, err = xpcall(function()
-    App._bootMainMenu({ READY_VERSION })
+    App._bootMainMenu({ readyVersion })
     Assert.equal(App.state.state:view().kind, "main_menu")
     App.keypressed("return")
     Assert.notNil(controller, "New Game must enter the real Oak controller boundary")

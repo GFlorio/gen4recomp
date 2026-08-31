@@ -127,7 +127,7 @@ function T.tests.fresh_new_game_hides_source_initial_actors_before_field_constru
       },
     }
     App.state = nil
-    App._bootMainMenu({ "heartgold" })
+    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
     Assert.equal(App.state.state:view().kind, "main_menu")
     press("a")
     completeOak()

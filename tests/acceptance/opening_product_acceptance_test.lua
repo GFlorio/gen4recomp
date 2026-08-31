@@ -264,7 +264,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
       },
     }
     App.state = nil
-    App._bootMainMenu({ "heartgold" })
+    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
     Assert.equal(App.state.state:view().kind, "main_menu")
     ---@diagnostic disable-next-line: undefined-field
     Assert.equal(#saveStore:list(), 0)
@@ -329,7 +329,7 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     local checkpoint = assert(saveStore:load(entries[1].saveId))
     local savedMap = checkpoint.mapId
     App.setState(nil)
-    App._bootMainMenu({ "heartgold" })
+    App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
     Assert.equal(#App.state.state:view().items, 2)
     press("dpdown")
     press("a")

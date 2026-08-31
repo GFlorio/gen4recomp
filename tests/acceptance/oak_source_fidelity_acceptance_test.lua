@@ -13,6 +13,7 @@ local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local NewGame = require("game.hgss.src.newgame.NewGame")
+local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {
   metadata = {
