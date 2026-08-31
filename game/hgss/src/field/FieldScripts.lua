@@ -141,6 +141,7 @@ end
 ---@field sourceMap RuntimeFieldMap
 ---@field seedText string|nil
 ---@field audio table|nil optional audio backend (absent -> SCRIPT_SERVICE_MISSING on use)
+---@field weather table|nil optional live-weather backend
 ---@field camera table|nil optional camera backend
 ---@field screen table|nil optional screen backend
 ---@field events table|nil optional event sink
@@ -301,6 +302,7 @@ function FieldScripts.new(opts)
       -- The production game wires real audio/camera/screen/events here when
       -- those subsystems land; tests inject deterministic fakes.
       audio = opts.audio,
+      weather = opts.weather,
       camera = opts.camera,
       screen = opts.screen,
       events = opts.events,

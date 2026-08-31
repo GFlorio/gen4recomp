@@ -212,6 +212,11 @@ Schema.OPERATIONS = {
   noop = { fields = {} },
   stop = { fields = {} },
   yield_tick = { fields = {} },
+  change_weather = {
+    fields = {
+      weatherId = { type = "integer", required = true },
+    },
+  },
   set_auxiliary_ui_visible = {
     fields = {
       visible = { type = "boolean", required = true },

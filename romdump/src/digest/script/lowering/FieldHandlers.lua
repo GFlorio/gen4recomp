@@ -429,6 +429,45 @@ local function setObjectPosition(ins)
   }
 end
 
+local function flagAction(ins, flag)
+  local mode = Operands.operandValue(ins.operands[1])
+  if mode == 0 then
+    return { op = "clear_flag", flag = flag }
+  end
+  if mode == 1 then
+    return { op = "set_flag", flag = flag }
+  end
+  if mode == 2 then
+    return {
+      op = "set_var",
+      variable = Operands.varRef(ins.operands[2]),
+      value = { value = "flag_value", flag = flag },
+    }
+  end
+  Errors.raise("SCRIPT_UNKNOWN_FLAG_ACTION", "unknown flag action mode", {
+    sourceOffset = ins.offset,
+    opcode = ins.opcode,
+    mode = mode,
+  })
+end
+
+local function flashEffect()
+  return {
+    steps = {
+      { op = "change_weather", weatherId = 12 },
+      { op = "yield_tick" },
+    },
+  }
+end
+
+local function flashAction(ins)
+  return flagAction(ins, "FLAG_SYS_FLASH")
+end
+
+local function defogAction(ins)
+  return flagAction(ins, "FLAG_SYS_DEFOG")
+end
+
 local function movePersonFacing(ins)
   -- ScrCmd_MovePersonFacing reads objectId, x, y, z, direction.
   local actor = actorRef(ins.operands[1])
@@ -646,4 +685,7 @@ return {
   [747] = showAuxiliaryUi,
   [748] = contextChoice,
   [726] = processSoundplate,
+  [181] = flashEffect,
+  [401] = flashAction,
+  [402] = defogAction,
 }

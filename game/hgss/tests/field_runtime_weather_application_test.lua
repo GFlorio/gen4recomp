@@ -7,7 +7,6 @@ local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
 
 local T = {}
-
 local WEATHER_MAP = 999
 local BASE_MAP = 1000
 
@@ -23,14 +22,8 @@ local function validCatalog()
   local presets = {}
   for id = 0, 13 do
     local enabled = id ~= 0 and id ~= 7
-    presets[id] = {
-      enabled = enabled,
-      color = 0,
-      offset = 0,
-      slope = 0,
-      alpha = enabled and 31 or 0,
-      table = rampTable(),
-    }
+    presets[id] =
+      { enabled = enabled, color = 0, offset = 0, slope = 0, alpha = enabled and 31 or 0, table = rampTable() }
   end
   return {
     schema = FieldWeatherCache.SCHEMA,
@@ -43,25 +36,9 @@ local function validCatalog()
         requireNoPenalty = true,
         dates = { { month = 1, day = 1 } },
       },
-      {
-        kind = "map_var_equals",
-        mapId = BASE_MAP,
-        varId = 0x4037,
-        value = 0xF229,
-        weatherId = 0,
-      },
-      {
-        kind = "weather_flag_override",
-        fromWeatherId = 9,
-        flagId = 2420,
-        weatherId = 0,
-      },
-      {
-        kind = "weather_flag_override",
-        fromWeatherId = 11,
-        flagId = 2419,
-        weatherId = 12,
-      },
+      { kind = "map_var_equals", mapId = BASE_MAP, varId = 0x4037, value = 0xF229, weatherId = 0 },
+      { kind = "weather_flag_override", fromWeatherId = 9, flagId = 2420, weatherId = 0 },
+      { kind = "weather_flag_override", fromWeatherId = 11, flagId = 2419, weatherId = 12 },
     },
   }
 end
@@ -179,9 +156,7 @@ local function runtimeWithClock(catalog, calls, currentMap)
       end,
       updateSourceFrame = function() end,
     },
-    fieldEntranceIndicator = {
-      updateFixed = function() end,
-    },
+    fieldEntranceIndicator = { updateFixed = function() end },
   }, FieldRuntime)
 end
 
@@ -189,45 +164,57 @@ function T.runtime_samples_weather_on_activation_and_selects_the_matching_fog()
   local catalog = validCatalog()
   local valid, err = FieldWeatherCache.validateCatalog(catalog)
   Assert.isTrue(valid, tostring(err))
-
   local calls = { today = 0, penalty = 0, prepareTransition = 0 }
-  local currentMap = destinationMap(1, 5, {})
-  local runtime = runtimeWithClock(catalog, calls, currentMap)
+  local runtime = runtimeWithClock(catalog, calls, destinationMap(1, 5, {}))
   local overrideMap = destinationMap(WEATHER_MAP, 5, {})
   local baseFog = { name = "compiled base fog" }
   local baseMap = destinationMap(BASE_MAP, 5, baseFog)
-
-  local prepared = runtime:_prepareSwap({
-    destinationMap = overrideMap,
-    fieldX = 0,
-    fieldZ = 0,
-    surfaceId = 0,
-  }, "south")
+  local prepared =
+    runtime:_prepareSwap({ destinationMap = overrideMap, fieldX = 0, fieldZ = 0, surfaceId = 0 }, "south")
   Assert.notNil(prepared)
   Assert.equal(calls.today, 1)
   Assert.equal(calls.penalty, 1)
   Assert.equal(overrideMap.effectiveWeatherId, 8)
   Assert.equal(overrideMap.sceneRuntime.fog, catalog.presets[8])
   Assert.equal(calls.prepareTransition, 1)
-
   runtime:update(1 / 30)
   runtime:update(1 / 30)
   runtime:update(1 / 30)
   Assert.equal(calls.today, 1, "ordinary updates must not resample the weather date")
   Assert.equal(calls.penalty, 1, "ordinary updates must not resample the penalty state")
-
-  local preparedAgain = runtime:_prepareSwap({
-    destinationMap = baseMap,
-    fieldX = 0,
-    fieldZ = 0,
-    surfaceId = 0,
-  }, "south")
+  local preparedAgain =
+    runtime:_prepareSwap({ destinationMap = baseMap, fieldX = 0, fieldZ = 0, surfaceId = 0 }, "south")
   Assert.notNil(preparedAgain)
   Assert.equal(calls.today, 2)
   Assert.equal(calls.penalty, 2)
   Assert.equal(baseMap.effectiveWeatherId, 5)
   Assert.equal(baseMap.sceneRuntime.fog, baseFog, "unchanged weather must preserve compiled base fog")
   Assert.equal(calls.prepareTransition, 2)
+end
+
+function T.live_assignment_updates_id_and_fog_without_activation_resolution()
+  local catalog = validCatalog()
+  local calls = { today = 0, penalty = 0, prepareTransition = 0 }
+  local field = runtimeWithClock(catalog, calls, destinationMap(1, 11, {}))
+  field:_setLiveWeather(field.runtimeMap, 12)
+  Assert.equal(field.runtimeMap.effectiveWeatherId, 12)
+  Assert.equal(field.runtimeMap.sceneRuntime.fog, catalog.presets[12])
+  Assert.equal(calls.today, 0)
+  Assert.equal(calls.penalty, 0)
+end
+
+function T.live_assignment_rejects_missing_catalog_entries_before_mutation()
+  local catalog = validCatalog()
+  local calls = { today = 0, penalty = 0, prepareTransition = 0 }
+  local field = runtimeWithClock(catalog, calls, destinationMap(1, 11, {}))
+  local previousFog = field.runtimeMap.sceneRuntime.fog
+  field.runtimeMap.effectiveWeatherId = 11
+  local ok = pcall(function()
+    field:_setLiveWeather(field.runtimeMap, 14)
+  end)
+  Assert.isFalse(ok)
+  Assert.equal(field.runtimeMap.effectiveWeatherId, 11)
+  Assert.equal(field.runtimeMap.sceneRuntime.fog, previousFog)
 end
 
 return { tests = T, metadata = { tags = { "field", "weather" } } }

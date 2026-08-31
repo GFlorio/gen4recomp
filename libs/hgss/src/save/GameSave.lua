@@ -30,6 +30,7 @@ local TOP_LEVEL_FIELDS = {
   versionId = true,
   world = true,
   worldY = true,
+  weatherId = true,
 }
 
 local function finite(value)
@@ -113,6 +114,13 @@ local function validateFieldState(record, opts)
       GameSaveErrors.GAME_SAVE_FIELD_INVALID,
       "game save surface id is invalid",
       { surfaceId = record.surfaceId }
+    )
+  end
+  if record.weatherId ~= nil and (not integer(record.weatherId) or record.weatherId < 0 or record.weatherId > 13) then
+    Errors.raise(
+      GameSaveErrors.GAME_SAVE_FIELD_INVALID,
+      "game save weather id is invalid",
+      { weatherId = record.weatherId }
     )
   end
   if type(record.terrainDependencyHash) ~= "string" or record.terrainDependencyHash == "" then

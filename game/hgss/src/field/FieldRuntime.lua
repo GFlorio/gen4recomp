@@ -975,6 +975,11 @@ function FieldRuntime:_load()
       sourceMap = self.runtimeMap,
       seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
       audio = audioService,
+      weather = {
+        change = function(_, weatherId)
+          self:_setLiveWeather(assert(self.runtimeMap), weatherId)
+        end,
+      },
       camera = self.scriptHosts and self.scriptHosts.camera,
       -- Always the production semantic screen-fade controller: a script
       -- fade/covered-swap capability is never limited to test composition.
@@ -1088,9 +1093,12 @@ function FieldRuntime:_load()
       terrainEffects = self.fieldTerrainEffectController,
     })
 
+    if loadedGame and loadedGame.weatherId ~= nil then
+      self:_setLiveWeather(self.runtimeMap, loadedGame.weatherId)
+    else
+      self:_applyEffectiveWeather(self.runtimeMap)
+    end
     self.session:beginMapEntry()
-
-    self:_applyEffectiveWeather(self.runtimeMap)
     self.playTime = loadedGame and PlayTime.new(loadedGame.playTimeSeconds) or self.game.playTime
     assert(self.playTime and self.playTime.start and self.playTime.advance, "game play time is required")
     self.playTime:start()
@@ -1390,6 +1398,7 @@ function FieldRuntime:_captureGameSave(allowMenu)
   assert(type(runtimeMap.terrainDependencyHash) == "string", "runtime map terrain dependency identity required")
 
   local world = self.scripts.worldState:capture(self.actors:captureObjects())
+  local weatherState = runtimeMap --[[@as table]]
   local snapshot = {
     schema = GameSave.SCHEMA,
     saveId = self.saveId,
@@ -1401,6 +1410,7 @@ function FieldRuntime:_captureGameSave(allowMenu)
     surfaceId = player.surfaceId,
     terrainDependencyHash = runtimeMap.terrainDependencyHash,
     facing = player.facing,
+    weatherId = assert(weatherState.effectiveWeatherId, "active runtime weather is required"),
     playTimeSeconds = self.playTime:seconds(),
     playerData = self.playerData,
     world = world,
@@ -1456,13 +1466,17 @@ function FieldRuntime:_applyEffectiveWeather(runtimeMap)
     date = date,
     hasPenalty = hasPenalty,
   })
-  runtimeMap.effectiveWeatherId = effective
+  self:_setLiveWeather(runtimeMap, effective)
+end
+
+function FieldRuntime:_setLiveWeather(runtimeMap, weatherId)
+  assert(type(runtimeMap) == "table", "live weather requires a runtime map")
+  assert(type(weatherId) == "number" and weatherId % 1 == 0, "live weather id must be an integer")
+  local catalogPreset = assert(self.weatherCatalog.presets[weatherId], "live weather id has no catalog preset")
+  local preset = weatherId == runtimeMap.scene.weatherId and runtimeMap.scene.fog or catalogPreset
+  runtimeMap.effectiveWeatherId = weatherId
   if runtimeMap.sceneRuntime then
-    if effective == base then
-      runtimeMap.sceneRuntime.fog = runtimeMap.scene.fog
-    else
-      runtimeMap.sceneRuntime.fog = assert(self.weatherCatalog.presets[effective])
-    end
+    runtimeMap.sceneRuntime.fog = preset
   end
 end
 

@@ -404,7 +404,11 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
           -- instruction's provenance.
           pushLabel(ins)
           for _, subStep in ipairs(step.steps) do
-            items[#items + 1] = withProvenance(subStep, { ins.offset }, { ins.opcode })
+            if subStep.op == "yield_tick" then
+              items[#items + 1] = subStep
+            else
+              items[#items + 1] = withProvenance(subStep, { ins.offset }, { ins.opcode })
+            end
           end
           handled = true
         elseif step.op == "release_all" then

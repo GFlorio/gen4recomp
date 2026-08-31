@@ -557,6 +557,11 @@ local function handleClearFlag(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 
+local function handleChangeWeather(node, run)
+  requireService(run, "weather"):change(node.weatherId)
+  return Runtime.OUTCOME_CONTINUE
+end
+
 local function handleSetVar(node, run)
   local variableId = semanticsFor(run).resolveIdOperand(node.variable, run)
   local value = semanticsFor(run).evaluateValue(node.value, run)
@@ -1156,6 +1161,7 @@ HANDLERS.signal_caller = handleSignalCaller
 HANDLERS.call_common = handleCallCommon
 HANDLERS.set_flag = handleSetFlag
 HANDLERS.clear_flag = handleClearFlag
+HANDLERS.change_weather = handleChangeWeather
 HANDLERS.set_var = handleSetVar
 HANDLERS.copy_var = handleCopyVar
 HANDLERS.add_var = handleAddVar

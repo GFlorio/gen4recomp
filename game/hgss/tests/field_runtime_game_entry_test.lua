@@ -101,7 +101,7 @@ local function captureRuntime(overrides)
         surfaceId = 2,
         facing = "south",
       },
-      currentMap = { mapId = 60, terrainDependencyHash = "terrain-heartgold" },
+      currentMap = { mapId = 60, terrainDependencyHash = "terrain-heartgold", effectiveWeatherId = 11 },
     },
     scripts = {
       worldState = {
@@ -185,6 +185,7 @@ function T.captureGameSave_returns_a_strict_snapshot_without_storage_io()
   Assert.equal(valid.worldY, 1.5)
   Assert.equal(valid.playTimeSeconds, 17)
   Assert.equal(valid.audio.fieldMusicOverride, 123)
+  Assert.equal(valid.weatherId, 11)
   Assert.equal(valid.world.objects.schema, "g4-field-objects-v1")
   Assert.equal(scriptCaptureCalls, 1)
   Assert.equal(validationCalls, 1)

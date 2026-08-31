@@ -27,7 +27,7 @@ local function record(overrides)
     audio = {},
   }
   for key, replacement in pairs(overrides or {}) do
-    value[key] = replacement
+    rawset(value, key, replacement)
   end
   return value
 end
@@ -60,6 +60,15 @@ function T.validates_required_buckets_and_numeric_ranges()
     value.scripts = nil
     return GameSave.validate(value)
   end)
+end
+
+function T.live_weather_is_optional_for_legacy_records_and_strict_when_present()
+  Assert.isTrue(GameSave.validate(record({ weatherId = 0 })) ~= nil)
+  Assert.isTrue(GameSave.validate(record({ weatherId = 13 })) ~= nil)
+  Assert.isTrue(GameSave.validate(record({ weatherId = -1 })) == nil)
+  Assert.isTrue(GameSave.validate(record({ weatherId = 14 })) == nil)
+  Assert.isTrue(GameSave.validate(record({ weatherId = 1.5 })) == nil)
+  Assert.isTrue(GameSave.validate(record()) ~= nil)
 end
 
 function T.uses_injected_authoritative_bucket_validators()

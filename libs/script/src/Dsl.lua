@@ -379,6 +379,9 @@ end
 function M.clearFlag(spec)
   return op("clear_flag", spec)
 end
+function M.changeWeather(spec)
+  return op("change_weather", spec)
+end
 function M.setVar(spec)
   return op("set_var", spec)
 end
