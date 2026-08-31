@@ -53,6 +53,8 @@
 -- pre-change font cache must not pass readiness.
 -- intro OBJ geometry: animated widgets retain one OAM-origin pivot across
 -- frames and publish source-reference centers for responsive placement.
+-- field map schema 9: generated object events publish semantic movement types
+-- instead of raw HGSS movement selectors.
 
 local DerivedAssetContract = {}
 
@@ -102,8 +104,9 @@ DerivedAssetContract.fieldMapData = {
   -- music policy and the semantic soundplates array to the record.
   -- v7 makes initScripts a strict source-independent descriptor union. v8
   -- normalizes the retail unbound-script marker (0xFFFF) to zero so runtime
-  -- binding and interaction audits never interpret raw ROM data.
-  fieldSchema = "g4-field-map-v8",
+  -- binding and interaction audits never interpret raw ROM data. v9
+  -- publishes semantic object movement types instead of raw HGSS selectors.
+  fieldSchema = "g4-field-map-v9",
 }
 
 DerivedAssetContract.messages = {

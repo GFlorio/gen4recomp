@@ -121,6 +121,49 @@ T["generated movement operands preserve local and player identities"] = function
   Assert.deepEqual(items[4].actor, { ref = "actor", special = "player" })
 end
 
+T["set object movement type lowers the semantic source type"] = function()
+  local ir = {
+    instructions = {
+      {
+        opcode = 340,
+        operands = { { raw = 7 }, { raw = 3 } },
+        offset = 0x20,
+      },
+    },
+    scripts = {},
+    movements = {},
+  }
+  ir.scripts[0] = { label = 0x20, instructions = ir.instructions }
+  local lowered = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  local step = lowered.items[1]
+  Assert.equal(step.op, "set_object_movement_type")
+  Assert.deepEqual(step.actor, { ref = "actor", mapIndex = 7 })
+  Assert.equal(step.movementType, "wander_around")
+  Assert.isFalse(step.movementType == "3")
+end
+
+T["set object movement type rejects an invalid source selector"] = function()
+  local ir = {
+    instructions = {
+      {
+        opcode = 340,
+        operands = { { raw = 7 }, { raw = 57 } },
+        offset = 0x24,
+      },
+    },
+    scripts = {},
+    movements = {},
+  }
+  ir.scripts[0] = { label = 0x24, instructions = ir.instructions }
+  local err = Assert.throws(function()
+    SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  end)
+  Assert.equal(err.code, "SCRIPT_UNKNOWN_OBJECT_MOVEMENT")
+  Assert.equal(err.context.sourceOffset, 0x24)
+  Assert.equal(err.context.opcode, 340)
+  Assert.equal(err.context.movement, 57)
+end
+
 -- 2. Emission is deterministic and byte-stable, and the resource validates.
 T["emitter determinism and validation"] = function()
   local _, steps, report = translate(labSignMember(), 843, 0)

@@ -15,6 +15,7 @@ local HgssSoundplate = require("romdump.src.digest.HgssSoundplate")
 local Hashing = require("romdump.src.digest.Hashing")
 local fieldAudio = require("romdump.src.reference.hgss.field_audio")
 local ScriptHeader = require("romdump.src.digest.ScriptHeader")
+local HgssObjectMovement = require("romdump.src.digest.HgssObjectMovement")
 
 local FieldMapDataCompiler = {}
 
@@ -32,6 +33,42 @@ local function normalizeUnboundScripts(decoded)
       end
     end
   end
+end
+
+---@param event table
+---@param map table
+---@param index integer
+---@return table
+local function semanticObjectEvent(event, map, index)
+  local ok, movementType = pcall(HgssObjectMovement.semanticType, event.movement)
+  if not ok then
+    Errors.raise("FIELD_MAP_UNKNOWN_OBJECT_MOVEMENT", "object event has an invalid movement selector", {
+      mapId = map.id,
+      mapSymbol = map.symbol,
+      objectEventIndex = index - 1,
+      objectEventId = event.objectEventId,
+      movement = event.movement,
+    })
+  end
+  local object = {}
+  for key, value in pairs(event) do
+    if key ~= "movement" then
+      object[key] = value
+    end
+  end
+  object.movementType = movementType
+  return object
+end
+
+---@param objectEvents table[]
+---@param map table
+---@return table[]
+local function semanticObjectEvents(objectEvents, map)
+  local objects = {}
+  for index, event in ipairs(objectEvents) do
+    objects[index] = semanticObjectEvent(event, map, index)
+  end
+  return objects
 end
 
 -- These catalog entries are source-header placeholders without field-data
@@ -331,7 +368,7 @@ local function compileMap(romFs, map, source, headerSource, sha1hex, hashLua)
     },
     events = {
       background = decoded.backgroundEvents,
-      objects = decoded.objectEvents,
+      objects = semanticObjectEvents(decoded.objectEvents, map),
       warps = decoded.warps,
       coordinates = decoded.coordinateEvents,
     },

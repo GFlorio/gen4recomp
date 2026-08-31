@@ -11,6 +11,7 @@ local FieldMapDataCache = {}
 
 local Validate = require("libs.assets.src.Validate")
 local Contract = require("libs.assets.src.DerivedAssetContract")
+local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
 
 FieldMapDataCache.FORMAT = Contract.fieldMapData.cacheFormat
 FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema
@@ -106,6 +107,11 @@ function FieldMapDataCache.hasRequiredEvents(events)
   end
   for _, event in ipairs(events.background) do
     if type(event) ~= "table" or type(event.hiddenItem) ~= "boolean" then
+      return false
+    end
+  end
+  for _, object in ipairs(events.objects) do
+    if type(object) ~= "table" or object.movement ~= nil or not FieldObjectMovement.isType(object.movementType) then
       return false
     end
   end

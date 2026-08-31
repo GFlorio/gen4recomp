@@ -3,6 +3,8 @@ local Operands = require("romdump.src.digest.script.lowering.Operands")
 local MovementDecoder = require("romdump.src.digest.script.MovementDecoder")
 local SignpostCommands = require("romdump.src.reference.hgss.signpost_commands")
 local MenuProtocol = require("libs.assets.src.MenuProtocol")
+local Errors = require("libs.errors.src.Errors")
+local HgssObjectMovement = require("romdump.src.digest.HgssObjectMovement")
 
 -- Field-only operand normalization follows the pinned field direction table,
 -- message-symbol format, and scrcmd.h actor specials.
@@ -449,10 +451,19 @@ local function movePersonFacing(ins)
 end
 
 local function setObjectMovementType(ins)
+  local rawMovement = Operands.operandValue(ins.operands[2])
+  local ok, movementType = pcall(HgssObjectMovement.semanticType, rawMovement)
+  if not ok then
+    Errors.raise(
+      "SCRIPT_UNKNOWN_OBJECT_MOVEMENT",
+      "SetObjectMovementType has an invalid movement selector",
+      { sourceOffset = ins.offset, opcode = ins.opcode, movement = rawMovement }
+    )
+  end
   return {
     op = "set_object_movement_type",
     actor = actorRef(ins.operands[1]),
-    movementType = tostring(Operands.operandValue(ins.operands[2])),
+    movementType = movementType,
   }
 end
 

@@ -358,6 +358,32 @@ function T.field_data_with_non_array_event_collection_is_not_ready()
   Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"), "each event collection must be an array")
 end
 
+function T.field_data_rejects_objects_without_semantic_movement_types()
+  local cases = {
+    { movement = nil },
+    { movement = 3 },
+    { movement = 3, movementType = "wander_around" },
+    { movementType = "3" },
+    { movementType = "unknown" },
+  }
+  for _, object in ipairs(cases) do
+    local c = cache()
+    writeFieldRecord(c, 60, { background = {}, objects = { object }, warps = {}, coordinates = {} })
+    Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"), "object movement type must be a known semantic string")
+  end
+end
+
+function T.field_data_with_semantic_object_movement_type_is_ready()
+  local c = cache()
+  writeFieldRecord(c, 60, {
+    background = {},
+    objects = { { movementType = "stationary" } },
+    warps = {},
+    coordinates = {},
+  })
+  Assert.isTrue(FieldMapDataCache.isReady(c, 60, "m"))
+end
+
 function T.field_data_valid_artifact_is_ready()
   local c = cache()
   writeFieldRecord(c, 60, { background = {}, objects = {}, warps = {}, coordinates = {} })
@@ -388,8 +414,8 @@ end
 -- the only migration; no compatibility reader exists).
 function T.field_data_with_the_superseded_schema_is_not_ready()
   local c = cache()
-  writeFieldRecord(c, 60, { background = {}, objects = {}, warps = {}, coordinates = {} }, nil, "g4-field-map-v4")
-  Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"), "a stale v4 field record is not current data")
+  writeFieldRecord(c, 60, { background = {}, objects = {}, warps = {}, coordinates = {} }, nil, "g4-field-map-v8")
+  Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"), "a stale v8 field record is not current data")
 end
 
 function T.field_data_missing_audio_policy_is_not_ready()

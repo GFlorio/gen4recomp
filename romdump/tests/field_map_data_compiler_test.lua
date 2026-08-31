@@ -69,7 +69,7 @@ function T.compiles_catalog_identity_source_and_events()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
   Assert.equal(bundle.mapId, 60)
-  Assert.equal(bundle.field.schema, "g4-field-map-v8")
+  Assert.equal(bundle.field.schema, "g4-field-map-v9")
   Assert.equal(bundle.field.mapSymbol, "MAP_NEW_BARK")
   Assert.equal(bundle.field.cameraType, 0)
   -- Source identity lives only in the dependency record; the runtime asset
@@ -92,7 +92,7 @@ end
 function T.emits_strict_init_script_array_for_every_map()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, sha1, hashLua))
-  Assert.equal(bundle.field.schema, "g4-field-map-v8")
+  Assert.equal(bundle.field.schema, "g4-field-map-v9")
   Assert.deepEqual(bundle.field.initScripts, {})
 end
 
@@ -147,6 +147,96 @@ function T.normalizes_retail_unbound_script_markers()
     return "dependency"
   end))
   Assert.equal(bundle.field.events.objects[1].scriptId, 0)
+end
+
+function T.publishes_semantic_object_movement_without_raw_source_movement()
+  local member = Builder.build({
+    objectEvents = {
+      {
+        objectEventId = 21,
+        spriteId = 22,
+        movement = 3,
+        type = 24,
+        eventFlag = 25,
+        scriptId = 26,
+        facingDirection = 0,
+        param0 = 27,
+        param1 = 28,
+        param2 = 29,
+        xRange = 30,
+        yRange = 31,
+        x = 32,
+        z = 33,
+        y = 34,
+      },
+    },
+  })
+  local romFs = FieldMapDataFixture.build({ zoneEventsMember = member })
+  local bundle = assert(FieldMapDataCompiler.compile(romFs, 60, function()
+    return "hash"
+  end, function()
+    return "dependency"
+  end))
+  local object = bundle.field.events.objects[1]
+  Assert.equal(object.movementType, "wander_around")
+  Assert.isNil(object.movement)
+  Assert.deepEqual(object, {
+    index = 0,
+    objectEventId = 21,
+    spriteId = 22,
+    movementType = "wander_around",
+    type = 24,
+    eventFlag = 25,
+    scriptId = 26,
+    facingDirectionRaw = 0,
+    facingDirection = "north",
+    param0 = 27,
+    param1 = 28,
+    param2 = 29,
+    xRange = 30,
+    yRange = 31,
+    x = 32,
+    z = 33,
+    y = 34,
+  })
+end
+
+function T.rejects_unknown_object_movement_with_map_and_object_context()
+  local member = Builder.build({
+    objectEvents = {
+      {
+        objectEventId = 91,
+        spriteId = 1,
+        movement = 57,
+        type = 0,
+        eventFlag = 0,
+        scriptId = 0,
+        facingDirection = 0,
+        param0 = 0,
+        param1 = 0,
+        param2 = 0,
+        xRange = 0,
+        yRange = 0,
+        x = 0,
+        z = 0,
+        y = 0,
+      },
+    },
+  })
+  local romFs = FieldMapDataFixture.build({ zoneEventsMember = member })
+  local bundle, err = FieldMapDataCompiler.compile(romFs, 60, function()
+    return "hash"
+  end, function()
+    return "dependency"
+  end)
+  Assert.isNil(bundle)
+  err = assert(err)
+  Assert.equal(err.code, "FIELD_MAP_UNKNOWN_OBJECT_MOVEMENT")
+  Assert.equal(err.context.mapId, 60)
+  Assert.equal(err.context.mapSymbol, "MAP_NEW_BARK")
+  Assert.equal(err.context.objectEventIndex, 0)
+  Assert.equal(err.context.objectEventId, 91)
+  Assert.equal(err.context.movement, 57)
 end
 
 function T.compiles_map_header_types_to_transition_environments_and_rejects_unknown_types()
