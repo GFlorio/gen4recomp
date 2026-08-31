@@ -122,7 +122,7 @@ end
 
 -- Map/building materials: full state including texture format/wrap/flip/
 -- alpha class, resolved against the confirmed HGSS field-model color policy
--- (docs/rendering.md "Normalized material state"; HgssFieldMaterial.applyFieldPolicy).
+-- (`HgssFieldMaterial.applyFieldPolicy`).
 local function foldFieldMaterials(tally, materials, texPack)
   local compiled = MaterialCompiler.compile(materials, texPack, {})
   for i, rawMaterial in ipairs(materials) do

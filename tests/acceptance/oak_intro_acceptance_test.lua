@@ -3,7 +3,6 @@
 -- deterministic host seams so the flow stops before GPU work.
 
 local Assert = require("tests.support.Assert")
-local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local App = require("app.src.App")
 local FieldState = require("game.hgss.src.field.FieldState")
 local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
@@ -17,7 +16,6 @@ local T = {
   tests = {},
 }
 
-local READY_VERSION = AcceptanceHarness.defaultVersion()
 local VIRTUAL_GLYPHS = { "A", "B", "C", "D", "E", "F", "G", "O", "L", "é" }
 local CHARMAP = { A = 1, B = 2, C = 3, D = 4, E = 5, F = 6, G = 7, O = 8, L = 9, ["é"] = 10 }
 local PLAYER_DATA_CONTEXT = { charmap = CHARMAP, frameIndexes = { [0] = true } }

@@ -5,7 +5,9 @@ contracts, not the Nintendo/HGSS source formats that produce them.
 
 ## Boundary
 
-- Modules here must be source-independent and must not import `romdump` or `love`.
+- Production modules under `libs/assets/src` may depend only on `libs.assets` itself and
+  the source-independent foundations `libs.codec`, `libs.errors`, and `libs.math`.
+- They must not import `libs.nds`, `libs.script`, `libs.hgss`, `game`, `app`, `romdump`, or `love`.
 - A structure belongs here only when a custom asset producer/consumer can understand it
   without knowing NDS/HGSS/decomp details.
 - Source NARC/member IDs, offsets, overlay addresses, packed flags, and equivalent provenance

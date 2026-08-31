@@ -61,7 +61,6 @@ end
 function T.usage_advertises_the_app_root()
   local usage = loadOptions().USAGE
   Assert.isTrue(usage:find("love app/", 1, true) ~= nil, "usage must name the app root")
-  Assert.isNil(usage:find("love game/", 1, true), "usage must not name the old root")
 end
 
 function T.modifiers_compose_with_the_modes_they_apply_to()

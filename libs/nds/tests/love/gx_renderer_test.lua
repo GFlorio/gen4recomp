@@ -942,7 +942,7 @@ end
 
 -- Without an injected reader, the default resolves the engine shader paths in
 -- the actual runtime environments: through love.filesystem from the packaged
--- archive, or -- in the repo checkout where the app runs as `love game/` and
+-- archive, or -- in the repo checkout where the app runs as `love app/` and
 -- the library tree sits outside the source mount -- from the host file under
 -- the LÖVE source base directory. Both real sources must reach newShader.
 function T.new_reads_real_shader_sources_by_default()

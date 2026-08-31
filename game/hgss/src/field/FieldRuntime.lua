@@ -153,7 +153,6 @@ end
 ---@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 ---@field saveStore FieldRuntimeSaveStore? global publication owner
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
----@field overrideFs table? repository override filesystem for scripts and save validation
 
 ---@class FieldRuntimeScriptHosts
 ---@field audio table?
@@ -178,7 +177,6 @@ end
 ---@field saveStatus string?
 ---@field saveStore FieldRuntimeSaveStore? global publication owner
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
----@field overrideFs table? repository override filesystem for scripts and save validation
 ---@field savePublished boolean whether the reserved record has been published
 ---@field playerData table the validated profile/options authority (PlayerData shape)
 ---@field session FieldSession

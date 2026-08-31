@@ -15,8 +15,6 @@ local RecordingScriptHosts = require("tests.acceptance.support.RecordingScriptHo
 local AcceptanceScriptFs = require("tests.acceptance.support.AcceptanceScriptFs")
 local RepoFs = require("game.src.RepoFs")
 local FieldMovement = require("tests.acceptance.support.FieldMovement")
-local AcceptanceScriptFs = require("tests.acceptance.support.AcceptanceScriptFs")
-local RepoFs = require("game.src.game.RepoFs")
 
 ---@class AcceptanceHarness
 ---@field versions string[]

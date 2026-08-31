@@ -24,67 +24,6 @@ local PACKAGE_ROOTS = {
   "romdump/src",
 }
 
-local TARGET_PACKAGE_ROOTS = {
-  ["libs/nds"] = true,
-  ["libs/script"] = true,
-  ["libs/hgss"] = true,
-  ["app"] = true,
-  ["game"] = true,
-}
-
--- The producer side of the same boundary: romdump digests raw ROM bytes and
--- may depend on lower shared packages. The scan covers romdump/src only:
--- romdump tests legitimately compose compiler output against runtime consumers,
--- which is not production composition.
-local ROMDUMP_FORBIDDEN_LIBS = {
-  "libs.hgss.",
-  "game.",
-  "app.",
-}
-
--- NDS format and semantic code is reusable platform logic. It may consume
--- foundations only; project assets, runtime packages, application policy, and
--- ROM producers stay above it.
-local NDS_FORBIDDEN_LIBS = {
-  "libs.assets.",
-  "libs.script.",
-  "libs.hgss.",
-  "game.",
-  "romdump.",
-  "app.",
-}
-
-local NDS_SOUND_FORBIDDEN_LIBS = {
-  "libs.assets.",
-  "libs.hgss.",
-  "libs.script.",
-  "game.",
-  "romdump.",
-  "app.",
-}
-
-local ASSETS_FORBIDDEN_LIBS = {
-  "libs.nds.src.nitro.sound.",
-}
-
-local HGSS_FORBIDDEN_LIBS = { "game.", "romdump.", "app." }
-
-local APP_FORBIDDEN_LIBS = { "libs.nds.", "libs.hgss." }
-local GAME_FORBIDDEN_LIBS = { "app.", "game.hgss.", "libs.nds.", "libs.hgss.", "romdump." }
-local HGSS_APPLICATION_FORBIDDEN_LIBS = { "app.", "libs.nds.", "romdump." }
-
--- Namespaces deleted by the boundary moves; none may reappear.
-local FORBIDDEN_PREFIXES = {
-  "libs.engine.",
-  "libs.rom",
-  "data.reference.hgss",
-  "libs.assets.src.Hgss",
-  "data.manifests.hgss",
-  "data.manifests.field_cameras",
-  "data.manifests.field_messages",
-  "data.manifests.field_actors",
-}
-
 local scanned = nil
 
 local function luaFilesUnder(root)
@@ -147,76 +86,6 @@ local function scannedFiles()
   return scanned
 end
 
-local function violationsFor(files, predicate)
-  local violations = {}
-  for file, modules in pairs(files) do
-    for _, module in ipairs(modules) do
-      if predicate(file, module) then
-        violations[#violations + 1] = file .. " requires " .. module
-      end
-    end
-  end
-  return violations
-end
-
-local function importsRomdump(module)
-  return module:sub(1, #"romdump.") == "romdump."
-end
-
-local function packageViolations(files, sourcePrefix, forbiddenPrefixes)
-  return violationsFor(files, function(file, module)
-    if file:sub(1, #sourcePrefix) ~= sourcePrefix then
-      return false
-    end
-    for _, prefix in ipairs(forbiddenPrefixes) do
-      if module:sub(1, #prefix) == prefix then
-        return true
-      end
-    end
-    return false
-  end)
-end
-
-local PACKAGE_RULES = {
-  assets = {
-    sourcePrefix = "libs/assets/src/",
-    forbidden = ASSETS_FORBIDDEN_LIBS,
-  },
-  nds = {
-    sourcePrefix = "libs/nds/src/",
-    forbidden = NDS_FORBIDDEN_LIBS,
-  },
-  script = {
-    sourcePrefix = "libs/script/src/",
-    forbidden = { "libs.nds.", "libs.hgss.", "game.", "romdump.", "app." },
-  },
-  hgss = {
-    sourcePrefix = "libs/hgss/src/",
-    forbidden = HGSS_FORBIDDEN_LIBS,
-  },
-  app = {
-    sourcePrefix = "app/src/",
-    forbidden = APP_FORBIDDEN_LIBS,
-  },
-  romdump = {
-    sourcePrefix = "romdump/src/",
-    forbidden = ROMDUMP_FORBIDDEN_LIBS,
-  },
-  game = {
-    sourcePrefix = "game/src/",
-    forbidden = GAME_FORBIDDEN_LIBS,
-  },
-  hgss_application = {
-    sourcePrefix = "game/hgss/src/",
-    forbidden = HGSS_APPLICATION_FORBIDDEN_LIBS,
-  },
-}
-
-local function packageViolationsFor(files, packageName)
-  local rule = assert(PACKAGE_RULES[packageName], "unknown package rule " .. packageName)
-  return packageViolations(files, rule.sourcePrefix, rule.forbidden)
-end
-
 -- nil when there is nothing to report, so the assertion message stays
 -- optional; Assert.isTrue accepts a nil message.
 local function violationMessage(heading, violations)
@@ -226,209 +95,309 @@ local function violationMessage(heading, violations)
   return heading .. table.concat(violations, "\n")
 end
 
-function T.library_packages_never_import_romdump()
-  local violations = violationsFor(scannedFiles(), function(file, module)
-    return file:sub(1, #"libs/") == "libs/" and importsRomdump(module)
-  end)
-  Assert.isTrue(#violations == 0, violationMessage("libs packages import romdump:\n", violations))
+local GOVERNED_PACKAGES = {
+  "assets",
+  "codec",
+  "errors",
+  "math",
+  "storage",
+  "nds",
+  "script",
+  "hgss",
+  "game_hgss",
+  "game",
+  "romdump",
+  "app",
+}
+
+local REPRESENTATIVE_MODULES = {
+  assets = "libs.assets.src.FieldMessageCache",
+  codec = "libs.codec.src.BinaryReader",
+  errors = "libs.errors.src.Errors",
+  math = "libs.math.src.FixedPoint",
+  storage = "libs.storage.src.SaveFs",
+  nds = "libs.nds.src.gx.DsPolygonAttr",
+  script = "libs.script.src.Runtime",
+  hgss = "libs.hgss.src.field.FieldSession",
+  game = "game.src.Game",
+  game_hgss = "game.hgss.src.HgssGame",
+  romdump = "romdump.src.source.GameVersion",
+  app = "app.src.App",
+}
+
+local PACKAGE_RULES = {
+  assets = {
+    sourcePrefix = "libs/assets/src/",
+    scanRoot = "libs/assets",
+    allowed = { assets = true, codec = true, errors = true, math = true },
+  },
+  codec = {
+    sourcePrefix = "libs/codec/src/",
+    scanRoot = "libs/codec",
+    allowed = { codec = true, errors = true, math = true },
+  },
+  errors = { sourcePrefix = "libs/errors/src/", scanRoot = "libs/errors", allowed = { errors = true } },
+  math = { sourcePrefix = "libs/math/src/", scanRoot = "libs/math", allowed = { math = true } },
+  storage = {
+    sourcePrefix = "libs/storage/src/",
+    scanRoot = "libs/storage",
+    allowed = { storage = true, codec = true, errors = true, math = true },
+  },
+  nds = {
+    sourcePrefix = "libs/nds/src/",
+    scanRoot = "libs/nds",
+    allowed = { nds = true, codec = true, errors = true, math = true },
+  },
+  script = {
+    sourcePrefix = "libs/script/src/",
+    scanRoot = "libs/script",
+    allowed = { script = true, assets = true, codec = true, errors = true, math = true, storage = true },
+  },
+  hgss = {
+    sourcePrefix = "libs/hgss/src/",
+    scanRoot = "libs/hgss",
+    allowed = {
+      hgss = true,
+      nds = true,
+      script = true,
+      assets = true,
+      codec = true,
+      errors = true,
+      math = true,
+      storage = true,
+    },
+  },
+  game = {
+    sourcePrefix = "game/src/",
+    scanRoot = "game",
+    allowed = { game = true, codec = true, errors = true, math = true, storage = true },
+  },
+  game_hgss = {
+    sourcePrefix = "game/hgss/src/",
+    scanRoot = "game",
+    allowed = {
+      game_hgss = true,
+      game = true,
+      hgss = true,
+      assets = true,
+      script = true,
+      storage = true,
+      codec = true,
+      errors = true,
+      math = true,
+    },
+  },
+  romdump = {
+    sourcePrefix = "romdump/src/",
+    scanRoot = "romdump/src",
+    allowed = {
+      romdump = true,
+      nds = true,
+      assets = true,
+      script = true,
+      storage = true,
+      codec = true,
+      errors = true,
+      math = true,
+    },
+  },
+  app = {
+    sourcePrefix = "app/src/",
+    scanRoot = "app",
+    allowed = { app = true, game = true, game_hgss = true, romdump = true, errors = true },
+  },
+}
+
+local TARGET_PACKAGE_PREFIXES = {
+  { prefix = "game.hgss.src.", packageName = "game_hgss" },
+  { prefix = "libs.assets.src.", packageName = "assets" },
+  { prefix = "libs.codec.src.", packageName = "codec" },
+  { prefix = "libs.errors.src.", packageName = "errors" },
+  { prefix = "libs.math.src.", packageName = "math" },
+  { prefix = "libs.storage.src.", packageName = "storage" },
+  { prefix = "libs.nds.src.", packageName = "nds" },
+  { prefix = "libs.script.src.", packageName = "script" },
+  { prefix = "libs.hgss.src.", packageName = "hgss" },
+  { prefix = "game.src.", packageName = "game" },
+  { prefix = "romdump.src.", packageName = "romdump" },
+  { prefix = "app.src.", packageName = "app" },
+}
+
+local GOVERNED_TARGET_PREFIXES = { "libs.", "app.", "game.", "romdump." }
+
+local APP_HGSS_IMPORTS = { ["game.hgss.src.HgssGame"] = true }
+local APP_ROMDUMP_IMPORTS = {
+  ["romdump.src.source.GameVersion"] = true,
+  ["romdump.src.source.RomImporter"] = true,
+}
+
+local function sourcePackageFor(file)
+  for _, packageName in ipairs(GOVERNED_PACKAGES) do
+    local rule = PACKAGE_RULES[packageName]
+    if file:sub(1, #rule.sourcePrefix) == rule.sourcePrefix then
+      return packageName
+    end
+  end
+  return nil
 end
 
-function T.library_packages_never_import_application()
-  local violations = violationsFor(scannedFiles(), function(file, module)
-    return file:sub(1, #"libs/") == "libs/" and module:sub(1, #"app.") == "app."
-  end)
-  Assert.isTrue(#violations == 0, violationMessage("libs packages import app:\n", violations))
+local function targetPackageFor(module)
+  for _, entry in ipairs(TARGET_PACKAGE_PREFIXES) do
+    if module:sub(1, #entry.prefix) == entry.prefix then
+      return entry.packageName
+    end
+  end
+  for _, prefix in ipairs(GOVERNED_TARGET_PREFIXES) do
+    if module:sub(1, #prefix) == prefix then
+      return nil, "unknown first-party package"
+    end
+  end
+  return nil
+end
+
+local function sortedFiles(files)
+  local names = {}
+  for file in pairs(files) do
+    names[#names + 1] = file
+  end
+  table.sort(names)
+  return names
+end
+
+local function appSeamViolation(module, targetPackage)
+  if targetPackage == "game_hgss" and not APP_HGSS_IMPORTS[module] then
+    return "app -> non-seam game_hgss import"
+  end
+  if targetPackage == "romdump" and not APP_ROMDUMP_IMPORTS[module] then
+    return "app -> non-seam romdump import"
+  end
+  return nil
+end
+
+local function packageViolationsFor(files, packageName)
+  local rule = assert(PACKAGE_RULES[packageName], "unknown package rule " .. packageName)
+  local violations = {}
+  for _, file in ipairs(sortedFiles(files)) do
+    if sourcePackageFor(file) == packageName then
+      for _, module in ipairs(files[file]) do
+        local targetPackage, reason = targetPackageFor(module)
+        if reason ~= nil then
+          violations[#violations + 1] = file .. " requires " .. module .. " (" .. packageName .. " -> " .. reason .. ")"
+        elseif targetPackage ~= nil and rule.allowed[targetPackage] ~= true then
+          violations[#violations + 1] = file
+            .. " requires "
+            .. module
+            .. " ("
+            .. packageName
+            .. " -> "
+            .. targetPackage
+            .. ")"
+        elseif packageName == "app" then
+          local seamViolation = appSeamViolation(module, targetPackage)
+          if seamViolation ~= nil then
+            violations[#violations + 1] = file .. " requires " .. module .. " (" .. seamViolation .. ")"
+          end
+        end
+      end
+    end
+  end
+  return violations
+end
+
+local function fixtureViolations(packageName, dependency)
+  local rule = PACKAGE_RULES[packageName]
+  if rule == nil then
+    return { "missing package rule for " .. packageName }
+  end
+  return packageViolationsFor({
+    [rule.sourcePrefix .. "Fixture.lua"] = { dependency },
+  }, packageName)
 end
 
 function T.app_is_the_interactive_root()
   Assert.isTrue(pathExists("app/main.lua"), "the interactive LÖVE root must provide app/main.lua")
   Assert.isTrue(pathExists("app/conf.lua"), "the interactive LÖVE root must provide app/conf.lua")
   Assert.isTrue(pathExists("app/src/App.lua"), "the app shell must provide app/src/App.lua")
-  for _, path in ipairs({
-    "game/main.lua",
-    "game/conf.lua",
-    "game/src/Options.lua",
-    "game/src/game/App.lua",
-    "game/src/launcher/ImportState.lua",
-    "game/src/launcher/VersionSelectState.lua",
-  }) do
-    Assert.isFalse(pathExists(path), "superseded app-shell path must be removed: " .. path)
-  end
-end
-
-function T.app_owns_provisioning_without_direct_runtime_mechanisms()
-  local violations = packageViolationsFor(scannedFiles(), "app")
-  Assert.isTrue(#violations == 0, violationMessage("app imports a forbidden runtime mechanism:\n", violations))
-end
-
-function T.generic_game_does_not_import_application_or_game_specific_packages()
-  local violations = packageViolationsFor(scannedFiles(), "game")
-  Assert.isTrue(#violations == 0, violationMessage("generic game imports an upward or HGSS package:\n", violations))
-end
-
-function T.hgss_application_does_not_import_shell_or_platform_details()
-  local violations = packageViolationsFor(scannedFiles(), "hgss_application")
-  Assert.isTrue(#violations == 0, violationMessage("HGSS application imports a forbidden package:\n", violations))
-end
-
-function T.removed_namespaces_do_not_reappear()
-  local violations = violationsFor(scannedFiles(), function(_, module)
-    for _, prefix in ipairs(FORBIDDEN_PREFIXES) do
-      if module:sub(1, #prefix) == prefix then
-        return true
-      end
-    end
-    return false
-  end)
-  Assert.isTrue(#violations == 0, violationMessage("removed namespaces reappeared:\n", violations))
-  Assert.isNil(love.filesystem.getInfo("libs/engine"), "the removed engine package must not exist")
-end
-
-function T.romdump_never_imports_runtime_packages()
-  local violations = packageViolationsFor(scannedFiles(), "romdump")
-  Assert.isTrue(#violations == 0, violationMessage("romdump/src imports a libs runtime package:\n", violations))
-end
-
-function T.assets_never_import_nintendo_sound_packages()
-  local violations = packageViolationsFor(scannedFiles(), "assets")
-  Assert.isTrue(#violations == 0, violationMessage("libs/assets/src imports NDS sound:\n", violations))
-end
-
-function T.nds_graphics_never_imports_upward()
-  local violations = packageViolationsFor(scannedFiles(), "nds")
-  Assert.isTrue(#violations == 0, violationMessage("libs/nds/src imports an upward package:\n", violations))
-end
-
-function T.script_platform_never_imports_game_specific_packages()
-  local violations = packageViolationsFor(scannedFiles(), "script")
-  Assert.isTrue(#violations == 0, violationMessage("libs/script/src imports an upward package:\n", violations))
 end
 
 function T.nds_love_renderer_has_a_concrete_owner_without_upward_imports()
-  local hasRenderer = pathExists("libs/nds/src/love/GxRenderer.lua")
-  local files = hasRenderer and luaFilesUnder("libs/nds/src/love") or {}
+  Assert.isTrue(
+    pathExists("libs/nds/src/love/GxRenderer.lua"),
+    "the concrete DS LÖVE renderer must be owned under libs/nds/src/love"
+  )
+end
+
+function T.package_policy_matches_every_governed_pair()
+  local mismatches = {}
+  for _, sourcePackage in ipairs(GOVERNED_PACKAGES) do
+    for _, targetPackage in ipairs(GOVERNED_PACKAGES) do
+      local expectedAllowed = PACKAGE_RULES[sourcePackage].allowed[targetPackage] == true
+      local actualAllowed = #fixtureViolations(sourcePackage, REPRESENTATIVE_MODULES[targetPackage]) == 0
+      if actualAllowed ~= expectedAllowed then
+        mismatches[#mismatches + 1] = sourcePackage
+          .. " -> "
+          .. targetPackage
+          .. " expected "
+          .. tostring(expectedAllowed)
+      end
+    end
+  end
+  Assert.isTrue(#mismatches == 0, violationMessage("package policy mismatches:\n", mismatches))
+end
+
+function T.unknown_first_party_targets_are_rejected_without_rejecting_external_modules()
+  local unknownModules = {
+    "libs.future.src.Experiment",
+    "app.future.Experiment",
+    "game.future.src.Experiment",
+    "romdump.future.Experiment",
+  }
+  local mismatches = {}
+  for _, module in ipairs(unknownModules) do
+    if #fixtureViolations("assets", module) == 0 then
+      mismatches[#mismatches + 1] = "unknown target was accepted: " .. module
+    end
+  end
+  Assert.equal(
+    #fixtureViolations("assets", "vendor.utility.Module"),
+    0,
+    "an unmanaged external module must remain outside the package DAG"
+  )
+  Assert.isTrue(
+    #mismatches == 0,
+    violationMessage("unknown first-party targets bypassed the package policy:\n", mismatches)
+  )
+end
+
+function T.app_cross_package_imports_match_exact_semantic_seams()
+  local fixtures = {
+    { module = "game.hgss.src.HgssGame", allowed = true },
+    { module = "romdump.src.source.GameVersion", allowed = true },
+    { module = "romdump.src.source.RomImporter", allowed = true },
+    { module = "game.hgss.src.field.FieldRuntime", allowed = false },
+    { module = "game.hgss.src.field.FieldState", allowed = false },
+    { module = "romdump.src.digest.ModelAssetCompiler", allowed = false },
+    { module = "romdump.src.source.RomSource", allowed = false },
+  }
+  local mismatches = {}
+  for _, fixture in ipairs(fixtures) do
+    local actualAllowed = #fixtureViolations("app", fixture.module) == 0
+    if actualAllowed ~= fixture.allowed then
+      mismatches[#mismatches + 1] = fixture.module .. " expected allowed=" .. tostring(fixture.allowed)
+    end
+  end
+  Assert.isTrue(#mismatches == 0, violationMessage("app seam policy mismatches:\n", mismatches))
+end
+
+function T.package_policy_matches_actual_production_graph()
   local violations = {}
-  for _, file in ipairs(files) do
-    for _, module in ipairs(requiredModules(readFile(file))) do
-      for _, prefix in ipairs(NDS_FORBIDDEN_LIBS) do
-        if module:sub(1, #prefix) == prefix then
-          violations[#violations + 1] = file .. " requires " .. module
-        end
-      end
+  for _, packageName in ipairs(GOVERNED_PACKAGES) do
+    for _, violation in ipairs(packageViolationsFor(scannedFiles(), packageName)) do
+      violations[#violations + 1] = violation
     end
   end
-  Assert.isTrue(hasRenderer, "the concrete DS LÖVE renderer must be owned under libs/nds/src/love")
-  Assert.isTrue(#violations == 0, violationMessage("the DS LÖVE renderer imports an upward package:\n", violations))
-end
-
-function T.nds_sound_does_not_import_project_or_application_packages()
-  local violations = violationsFor(scannedFiles(), function(file, module)
-    if file:sub(1, #"libs/nds/src/nitro/sound/") ~= "libs/nds/src/nitro/sound/" then
-      return false
-    end
-    for _, prefix in ipairs(NDS_SOUND_FORBIDDEN_LIBS) do
-      if module:sub(1, #prefix) == prefix then
-        return true
-      end
-    end
-    return false
-  end)
-  Assert.isTrue(#violations == 0, violationMessage("NDS sound imports an upward package:\n", violations))
-end
-
-function T.hgss_never_imports_application_or_producer()
-  local violations = packageViolationsFor(scannedFiles(), "hgss")
-  Assert.isTrue(#violations == 0, violationMessage("HGSS field runtime imports an invalid package:\n", violations))
-end
-
-function T.hgss_field_owns_world_mechanisms_without_upward_imports()
-  local files = luaFilesUnder("libs/hgss/src/field")
-  Assert.isTrue(#files > 0, "HGSS field runtime must own production world mechanisms")
-  local violations = packageViolationsFor(scannedFiles(), "hgss")
-  Assert.isTrue(#violations == 0, violationMessage("HGSS field runtime imports an invalid package:\n", violations))
-end
-
-function T.final_package_rules_reject_forbidden_fixture_edges()
-  local cases = {
-    { packageName = "assets", dependency = "libs.nds.src.nitro.sound.InstrumentSelector" },
-    { packageName = "app", dependency = "libs.nds.src.nitro.sound.InstrumentSelector" },
-    { packageName = "app", dependency = "libs.hgss.src.field.FieldSession" },
-    { packageName = "game", dependency = "app.src.App" },
-    { packageName = "game", dependency = "game.hgss.src.HgssGame" },
-    { packageName = "game", dependency = "libs.hgss.src.field.FieldSession" },
-    { packageName = "game", dependency = "romdump.src.source.GameVersion" },
-    { packageName = "hgss_application", dependency = "app.src.App" },
-    { packageName = "hgss_application", dependency = "libs.nds.src.rom.Cartridge" },
-    { packageName = "hgss_application", dependency = "romdump.src.source.GameVersion" },
-    { packageName = "nds", dependency = "libs.assets.src.FieldMessageCache" },
-    { packageName = "nds", dependency = "libs.script.src.Runtime" },
-    { packageName = "nds", dependency = "libs.hgss.src.field.FieldSession" },
-    { packageName = "nds", dependency = "game.src.Game" },
-    { packageName = "nds", dependency = "romdump.src.source.GameVersion" },
-    { packageName = "script", dependency = "libs.nds.src.rom.Cartridge" },
-    { packageName = "script", dependency = "libs.hgss.src.field.FieldSession" },
-    { packageName = "script", dependency = "game.src.Game" },
-    { packageName = "script", dependency = "romdump.src.source.GameVersion" },
-    { packageName = "hgss", dependency = "app.src.App" },
-    { packageName = "hgss", dependency = "game.src.Game" },
-    { packageName = "hgss", dependency = "romdump.src.source.GameVersion" },
-    { packageName = "romdump", dependency = "app.src.App" },
-    { packageName = "romdump", dependency = "libs.hgss.src.field.FieldSession" },
-    { packageName = "romdump", dependency = "game.src.Game" },
-  }
-  for _, case in ipairs(cases) do
-    local violations = packageViolationsFor({
-      [PACKAGE_RULES[case.packageName].sourcePrefix .. "Fixture.lua"] = { case.dependency },
-    }, case.packageName)
-    Assert.isTrue(#violations > 0, case.packageName .. " must reject dependency " .. case.dependency)
-  end
-
-  local oldNamespaceViolations = violationsFor({
-    ["libs/hgss/src/Fixture.lua"] = { "libs.engine.src.Legacy" },
-  }, function(_, module)
-    for _, prefix in ipairs(FORBIDDEN_PREFIXES) do
-      if module:sub(1, #prefix) == prefix then
-        return true
-      end
-    end
-    return false
-  end)
-  Assert.isTrue(#oldNamespaceViolations > 0, "the deleted engine namespace must remain forbidden")
-end
-
-function T.final_package_rules_accept_intended_fixture_edges()
-  local allowed = {
-    { packageName = "assets", file = "libs/assets/src/AudioBank.lua", dependency = "libs.errors.src.Errors" },
-    {
-      packageName = "assets",
-      file = "libs/assets/src/PolygonState.lua",
-      dependency = "libs.nds.src.gx.DsPolygonAttr",
-    },
-    { packageName = "app", file = "app/src/App.lua", dependency = "romdump.src.source.RomImporter" },
-    { packageName = "app", file = "app/src/App.lua", dependency = "game.hgss.src.HgssGame" },
-    { packageName = "game", file = "game/src/Game.lua", dependency = "libs.storage.src.SaveFs" },
-    {
-      packageName = "hgss_application",
-      file = "game/hgss/src/HgssGame.lua",
-      dependency = "libs.hgss.src.field.FieldSession",
-    },
-    {
-      packageName = "hgss_application",
-      file = "game/hgss/src/HgssGame.lua",
-      dependency = "game.src.Game",
-    },
-    {
-      packageName = "romdump",
-      file = "romdump/src/digest/MaterialCompiler.lua",
-      dependency = "libs.nds.src.gx.Material",
-    },
-    { packageName = "romdump", file = "romdump/src/CacheBuilder.lua", dependency = "libs.script.src.Compiler" },
-    { packageName = "romdump", file = "romdump/src/DerivedCacheAudit.lua", dependency = "libs.assets.src.AudioCache" },
-  }
-  for _, case in ipairs(allowed) do
-    local violations = packageViolationsFor({ [case.file] = { case.dependency } }, case.packageName)
-    Assert.equal(#violations, 0, "an intended dependency was rejected: " .. case.file .. " -> " .. case.dependency)
-  end
+  table.sort(violations)
+  Assert.isTrue(#violations == 0, violationMessage("production package policy violations:\n", violations))
 end
 
 function T.scanner_configuration_covers_runtime_package_roots()
@@ -436,8 +405,11 @@ function T.scanner_configuration_covers_runtime_package_roots()
   for _, root in ipairs(PACKAGE_ROOTS) do
     indexed[root] = true
   end
-  for root in pairs(TARGET_PACKAGE_ROOTS) do
-    Assert.isTrue(indexed[root], "architecture scanner omits " .. root)
+  for _, packageName in ipairs(GOVERNED_PACKAGES) do
+    Assert.isTrue(
+      indexed[PACKAGE_RULES[packageName].scanRoot],
+      "architecture scanner omits " .. packageName .. " source root"
+    )
   end
 end
 

@@ -119,7 +119,7 @@ GxRenderer.TRANSLUCENCY_EXACT = "exact"
 -- repo-relative path -- the same namespace as every `require`. They are read
 -- through the LÖVE resource boundary: love.filesystem resolves the paths from
 -- the archive root when the game ships as a .love or fused executable, and
--- in the repo checkout, where the app runs as `love game/` and the library
+-- in the repo checkout, where the app runs as `love app/` and the library
 -- tree sits outside that source mount, from the host file under the source
 -- base directory. `opts.readSource` injects the reader so construction is
 -- testable headless without any filesystem.
