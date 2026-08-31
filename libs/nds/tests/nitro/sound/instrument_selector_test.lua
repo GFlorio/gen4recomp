@@ -19,6 +19,11 @@ function T.selects_direct_split_drum_and_dummy_voices()
 
   bank.instruments[0].voice = { kind = "dummy" }
   Assert.isNil(InstrumentSelector.selectVoice(bank.instruments[0], 60))
+
+  split.ranges[1].voice = { kind = "dummy" }
+  Assert.isNil(InstrumentSelector.selectVoice(split, 59))
+  drums.voices[1] = { kind = "dummy" }
+  Assert.isNil(InstrumentSelector.selectVoice(drums, 35))
 end
 
 return { tests = T }

@@ -208,11 +208,10 @@ function T.every_voice_carries_envelope_and_pan()
   end)
 end
 
-function T.accepts_a_dummy_leaf_and_selects_no_voice()
+function T.accepts_dummy_leaves_and_rejects_malformed_payloads()
   local bank = AudioFixture.bank(12, "BANK_TEST")
   bank.instruments[0].voice = { kind = "dummy" }
   Assert.isTrue(AudioBank.validate(bank))
-  Assert.isNil(AudioBank.selectVoice(bank.instruments[0], 60))
 
   bank.instruments[0].voice = { kind = "dummy", generator = { kind = "noise" } }
   throwsCode("AUDIO_BANK_INVALID", function()
@@ -226,7 +225,6 @@ function T.accepts_a_dummy_leaf_and_selects_no_voice()
     voices = { { kind = "dummy" } },
   }
   Assert.isTrue(AudioBank.validate(bank))
-  Assert.isNil(AudioBank.selectVoice(bank.instruments[0], 35))
 end
 
 function T.preserves_the_release_sentinel_in_every_leaf_shape()
@@ -277,30 +275,6 @@ function T.square_duty_is_an_integer_index_0_to_7()
       AudioBank.validate(invalidBank)
     end)
   end
-end
-
--- The semantic leaf selection an instrument plays for a MIDI key: the
--- caller resolves the clamped transposed key first (NNS TrackPlayNote clamps
--- midiKey and SND_ReadInstData selects by it), and selection then runs on
--- that key -- a transposition crossing a key-split boundary selects the
--- range the transposed key lands in, and a transposition out of a drum
--- set's range is a miss, never the source key's voice.
-function T.select_voice_uses_the_midi_key()
-  local bank = AudioFixture.bank(12, "BANK_TEST")
-  local split = bank.instruments[1]
-  Assert.equal(AudioBank.selectVoice(split, 55), split.ranges[1].voice, "source key 55 stays low")
-  Assert.equal(AudioBank.selectVoice(split, 59), split.ranges[1].voice)
-  Assert.equal(AudioBank.selectVoice(split, 60), split.ranges[2].voice, "transposed key 60 crosses the split")
-  Assert.equal(AudioBank.selectVoice(split, 127), split.ranges[2].voice)
-  Assert.isNil(AudioBank.selectVoice(split, -1), "a key below the lowest range is a miss")
-
-  local drums = bank.instruments[2]
-  Assert.equal(AudioBank.selectVoice(drums, 35), drums.voices[1])
-  Assert.equal(AudioBank.selectVoice(drums, 36), drums.voices[2], "transposed key 36 selects the drum voice at 36")
-  Assert.isNil(AudioBank.selectVoice(drums, 37), "a transposition out of the drum range is silent")
-
-  local direct = bank.instruments[0]
-  Assert.equal(AudioBank.selectVoice(direct, 60), direct.voice, "a direct instrument ignores the key")
 end
 
 -- The shared reference walk must distinguish "no sample references" (valid

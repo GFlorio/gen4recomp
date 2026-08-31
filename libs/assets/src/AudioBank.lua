@@ -12,15 +12,11 @@
 -- every voice references through a walk that trusts voice fields. It returns
 -- nil when the instrument shape is malformed, so a malformed shape can never
 -- be mistaken for "no sample references" (AudioCacheValidator relies on it).
--- Nintendo voice selection is delegated to the platform sound package after it
--- resolves the clamped transposed key.
-
 local AudioBank = {}
 
 ---@class AudioBank
 ---@field SCHEMA string
 ---@field sampleKeys fun(bank: table): string[]?
----@field selectVoice fun(instrument: table, midiKey: integer): table?
 ---@field validate fun(bank: table): true
 ---@class AudioBank.Instrument
 ---@field kind string
@@ -46,7 +42,6 @@ local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.assets.src.AudioErrors")
 local Contract = require("libs.assets.src.DerivedAssetContract")
-local InstrumentSelector = require("libs.nds.src.nitro.sound.InstrumentSelector")
 
 AudioBank.SCHEMA = Contract.audio.bankSchema
 
@@ -167,20 +162,6 @@ function AudioBank.sampleKeys(bank)
     return nil
   end
   return keys
-end
-
--- The leaf voice an instrument plays for a MIDI key: direct is the single
--- voice, key_split matches the key's range, drum_set indexes voices by key
--- within its low/high bounds. Returns nil for a key with no voice (the note
--- is silent but still gates the track). The caller resolves the clamped
--- transposed MIDI key before calling -- the NNS TrackPlayNote path clamps
--- midiKey and SND_ReadInstData selects the leaf by it, so instrument
--- selection always runs on the transposed key, never the source note key.
----@param instrument AudioBank.Instrument
----@param midiKey integer
----@return table?
-function AudioBank.selectVoice(instrument, midiKey)
-  return InstrumentSelector.selectVoice(instrument, midiKey)
 end
 
 ---@param voice table

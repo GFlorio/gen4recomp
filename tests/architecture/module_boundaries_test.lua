@@ -80,6 +80,10 @@ local NDS_SOUND_FORBIDDEN_LIBS = {
   "romdump.",
 }
 
+local ASSETS_FORBIDDEN_LIBS = {
+  "libs.nds.src.nitro.sound.",
+}
+
 local HGSS_FORBIDDEN_LIBS = { "game.", "romdump." }
 
 -- Namespaces deleted by the boundary moves; none may reappear.
@@ -187,6 +191,10 @@ local function packageViolations(files, sourcePrefix, forbiddenPrefixes)
 end
 
 local PACKAGE_RULES = {
+  assets = {
+    sourcePrefix = "libs/assets/src/",
+    forbidden = ASSETS_FORBIDDEN_LIBS,
+  },
   nds = {
     sourcePrefix = "libs/nds/src/",
     forbidden = NDS_FORBIDDEN_LIBS,
@@ -258,6 +266,11 @@ function T.romdump_never_imports_runtime_packages()
   Assert.isTrue(#violations == 0, violationMessage("romdump/src imports a libs runtime package:\n", violations))
 end
 
+function T.assets_never_import_nintendo_sound_packages()
+  local violations = packageViolationsFor(scannedFiles(), "assets")
+  Assert.isTrue(#violations == 0, violationMessage("libs/assets/src imports NDS sound:\n", violations))
+end
+
 function T.nds_graphics_never_imports_upward()
   local violations = packageViolationsFor(scannedFiles(), "nds")
   Assert.isTrue(#violations == 0, violationMessage("libs/nds/src imports an upward package:\n", violations))
@@ -319,6 +332,7 @@ end
 
 function T.final_package_rules_reject_forbidden_fixture_edges()
   local cases = {
+    { packageName = "assets", dependency = "libs.nds.src.nitro.sound.InstrumentSelector" },
     { packageName = "nds", dependency = "libs.assets.src.FieldMessageCache" },
     { packageName = "nds", dependency = "libs.script.src.Runtime" },
     { packageName = "nds", dependency = "libs.hgss.src.field.FieldSession" },
@@ -355,6 +369,12 @@ end
 
 function T.final_package_rules_accept_intended_fixture_edges()
   local allowed = {
+    { packageName = "assets", file = "libs/assets/src/AudioBank.lua", dependency = "libs.errors.src.Errors" },
+    {
+      packageName = "assets",
+      file = "libs/assets/src/PolygonState.lua",
+      dependency = "libs.nds.src.gx.DsPolygonAttr",
+    },
     { packageName = "game", file = "game/src/game/FieldRuntime.lua", dependency = "libs.hgss.src.field.FieldSession" },
     { packageName = "game", file = "game/src/game/FieldRuntime.lua", dependency = "libs.script.src.Scheduler" },
     {

@@ -267,11 +267,6 @@ function T.keeps_dummy_leaves_silent_and_sample_free()
   Assert.equal(bank.instruments[2].voices[2].kind, "dummy")
   Assert.equal(bank.instruments[3].ranges[1].voice.kind, "dummy")
   Assert.equal(bank.instruments[3].ranges[2].voice.generator.kind, "sample")
-  Assert.isNil(AudioBank.selectVoice(bank.instruments[1], 60))
-  Assert.isNil(AudioBank.selectVoice(bank.instruments[2], 35))
-  Assert.isNil(AudioBank.selectVoice(bank.instruments[2], 36))
-  Assert.isNil(AudioBank.selectVoice(bank.instruments[3], 35))
-  Assert.notNil(AudioBank.selectVoice(bank.instruments[3], 60))
   local sampleCount = 0
   for _ in pairs(bundle.samples) do
     sampleCount = sampleCount + 1
