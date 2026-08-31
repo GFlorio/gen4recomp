@@ -8,9 +8,9 @@ local FieldTransitionProfile = require("libs.engine.src.FieldTransitionProfile")
 local T = { tests = {} }
 
 local function step(transition)
+  local moved = transition:updateFixed()
   transition:updateSourceFrame()
-  transition:updateSourceFrame()
-  return transition:updateFixed()
+  return moved
 end
 
 local function advanceTo(transition, phase, maxTicks)
@@ -97,12 +97,7 @@ function T.tests.vertical_profiles_return_from_staging_before_the_final_step()
       warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
       transition = { mode = "fixed", profile = profile },
     }, "south")
-    for _ = 1, 20 do
-      step(transition)
-      if transition.phase == "idle" then
-        break
-      end
-    end
+    advanceTo(transition, FieldTransition.PHASES.idle, 128)
     local expectedDirection = profile == 7 and "north" or "south"
     Assert.equal(stagedY, profile == 7 and 8 or 12)
     Assert.deepEqual(events, { { "return", 10 }, { "step", expectedDirection } })
@@ -237,12 +232,7 @@ function T.tests.escalator_source_lifecycle_orders_effects_and_pause_ownership()
   transition:updateFixed()
   Assert.equal(transition.phase, FieldTransition.PHASES.fade_in)
 
-  for _ = 1, 20 do
-    if transition.phase == FieldTransition.PHASES.idle then
-      break
-    end
-    step(transition)
-  end
+  advanceTo(transition, FieldTransition.PHASES.idle, 128)
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(player.animationPaused)
   Assert.isTrue(sourceFrameStoppedBeforeMotion, "source frames must not advance before source motion")
@@ -459,12 +449,7 @@ function T.tests.ordinary_profile_exit_audio_is_played_once()
     warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
     transition = { mode = "fixed", profile = FieldTransitionProfile.ORDINARY },
   }, "north")
-  for _ = 1, 20 do
-    if transition.phase == "idle" then
-      break
-    end
-    step(transition)
-  end
+  advanceTo(transition, "idle", 128)
   Assert.equal(transition.phase, "idle")
   Assert.deepEqual(sounds, { "SEQ_SE_DP_KAIDAN2" })
 end
@@ -628,12 +613,7 @@ local function runTransition(options)
     warp = { index = 0, x = 684, z = 393, destinationMapId = 60, destinationWarpId = 0 },
     destinationFacing = options.destinationFacing,
   }, "north")
-  for _ = 1, 40 do
-    if transition.phase == "idle" then
-      break
-    end
-    step(transition)
-  end
+  advanceTo(transition, "idle", 128)
   Assert.equal(transition.phase, "idle", "the pure transition fixture must complete")
 end
 
@@ -810,12 +790,7 @@ function T.tests.nonordinary_profiles_dispatch_exit_enter_and_camera_families()
       warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
       transition = { mode = "fixed", profile = profile },
     }, "south")
-    for _ = 1, 20 do
-      if transition.phase == "idle" then
-        break
-      end
-      step(transition)
-    end
+    advanceTo(transition, "idle", 128)
     Assert.equal(transition.phase, "idle", "profile " .. profile .. " completes")
     Assert.equal(events[1].profile, profile)
     Assert.equal(events[1].phase, "exit")
@@ -926,7 +901,7 @@ function T.tests.profile_hook_failure_aborts_before_commit_but_after_commit_prop
     warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 },
     transition = { mode = "fixed", profile = 4 },
   }, "south")
-  advanceTo(after, "swap_map", 4)
+  advanceTo(after, "swap_map", 128)
   local enterOk, enterErr = pcall(after.updateFixed, after)
   Assert.isFalse(enterOk)
   Assert.equal(tostring(enterErr), "enter failed")

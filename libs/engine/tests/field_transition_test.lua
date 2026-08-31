@@ -29,9 +29,9 @@ local TerrainSurface = require("libs.engine.src.TerrainSurface")
 local T = {}
 
 local function step(transition)
+  local moved = transition:updateFixed()
   transition:updateSourceFrame()
-  transition:updateSourceFrame()
-  return transition:updateFixed()
+  return moved
 end
 
 function T.standard_fade_uses_the_source_frame_recurrence()
@@ -69,10 +69,6 @@ function T.fixed_updates_do_not_mutate_the_source_fade()
   Assert.equal(transition:presentationStatus().coefficient, 5)
 end
 
--- A loader whose protection record must stay empty: the transition is not a
--- protection owner, so no lifecycle path may call protectMap.
-local FADE = 3
-
 local function recordingLoader()
   local protections = {}
   return {
@@ -92,6 +88,16 @@ end
 -- identity.
 local function sourceMap()
   return { mapId = 61 }
+end
+
+local function advanceTo(transition, phase, maxTicks)
+  for _ = 1, maxTicks do
+    if transition.phase == phase then
+      return
+    end
+    step(transition)
+  end
+  Assert.equal(transition.phase, phase)
 end
 
 function T.fades_loads_swaps_while_black_and_completes()
@@ -125,29 +131,45 @@ function T.fades_loads_swaps_while_black_and_completes()
     end,
   })
 
-  transition:start(source, { warp = warp }, "south")
+  transition:start(source, { warp = warp, transition = { mode = "fixed", profile = 0 } }, "south")
   Assert.equal(transition.phase, "fade_out")
   Assert.isTrue(transition.locked)
-  for _ = 1, FADE - 1 do
+  local coefficients = {}
+  for _ = 1, 6 do
     step(transition)
+    coefficients[#coefficients + 1] = transition:presentationStatus().coefficient
   end
-  Assert.isTrue(transition.fadeAlpha < 1, "the fade is not black before the last tick")
-  step(transition)
+
+  Assert.deepEqual(coefficients, { 2, 5, 7, 10, 13, 16 })
+  Assert.equal(transition.phase, "fade_out", "the fixed stage consumes completion on the following tick")
+  Assert.equal(transition.fadeAlpha, 1)
+  Assert.equal(#prepares, 0)
+  Assert.equal(#commits, 0)
+
+  transition:updateFixed()
   Assert.equal(transition.phase, "load_destination")
   Assert.equal(transition.fadeAlpha, 1)
+  transition:updateSourceFrame()
+  Assert.equal(transition:presentationStatus().coefficient, 16)
+
   step(transition)
   Assert.equal(transition.phase, "swap_map")
   Assert.equal(#prepares, 1)
   Assert.equal(prepares[1].facing, "south")
   Assert.equal(#commits, 0)
+
   step(transition)
   Assert.equal(transition.phase, "fade_in")
-  Assert.equal(transition.fadeAlpha, 1)
+  Assert.equal(transition.fadeAlpha, 14 / 16)
+  Assert.equal(transition:presentationStatus().coefficient, 14)
   Assert.equal(#commits, 1)
   Assert.equal(commits[1].facing, "south")
   Assert.equal(commits[1].prepared.payload.mapId, 60)
-  for _ = 1, FADE do
+
+  local ticks = 0
+  while transition.phase ~= "idle" and ticks < 16 do
     step(transition)
+    ticks = ticks + 1
   end
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
@@ -205,9 +227,7 @@ function T.default_resolver_handles_direct_warp_records()
     { warp = { index = 0, destinationMapId = 60, destinationWarpId = 0, x = 688, z = 392, direct = true } },
     "south"
   )
-  for _ = 1, 4 do
-    step(transition)
-  end
+  advanceTo(transition, "swap_map", 32)
   Assert.equal(transition.phase, "swap_map")
   Assert.equal(transition.resolution.fieldX, 688)
   Assert.equal(transition.resolution.fieldZ, 392)
@@ -241,9 +261,7 @@ function T.resolve_failure_aborts_and_a_second_transition_succeeds()
     { warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0 } },
     "south"
   )
-  for _ = 1, 4 do
-    step(transition)
-  end
+  advanceTo(transition, "idle", 32)
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
   Assert.equal(transition.fadeAlpha, 0)
@@ -259,12 +277,7 @@ function T.resolve_failure_aborts_and_a_second_transition_succeeds()
     { warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0 } },
     "south"
   )
-  for _ = 1, 20 do
-    if transition.phase == "idle" then
-      break
-    end
-    step(transition)
-  end
+  advanceTo(transition, "idle", 32)
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
   Assert.isNil(transition.error)
@@ -295,9 +308,7 @@ function T.prepare_failure_aborts_with_source_protection_untouched()
     { warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0 } },
     "south"
   )
-  for _ = 1, 4 do
-    step(transition)
-  end
+  advanceTo(transition, "idle", 32)
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
   Assert.equal(tostring(transition.error), "prepare failed")
@@ -341,9 +352,7 @@ function T.preparation_failure_disposes_transition_owned_resources()
   })
 
   transition:start(sourceMap(), { warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 } }, "south")
-  for _ = 1, 4 do
-    step(transition)
-  end
+  advanceTo(transition, "idle", 32)
 
   Assert.equal(releases, 1)
   Assert.notNil(disposedResolution)
@@ -371,9 +380,7 @@ function T.commit_fault_propagates_as_fatal()
     { warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0 } },
     "south"
   )
-  for _ = 1, 4 do
-    step(transition)
-  end
+  advanceTo(transition, "swap_map", 32)
   Assert.equal(transition.phase, "swap_map")
   local ok, err = pcall(transition.updateFixed, transition)
   Assert.isFalse(ok)
@@ -400,9 +407,7 @@ function T.abort_records_the_failed_warp_context()
     { warp = { index = 4, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 2 } },
     "south"
   )
-  for _ = 1, 4 do
-    step(transition)
-  end
+  advanceTo(transition, "idle", 32)
   Assert.equal(transition.phase, "idle")
   Assert.deepEqual(transition.warpContext, {
     sourceMapId = 61,
@@ -574,13 +579,6 @@ local function transitionFixture(opts)
     transition.player = opts.player
   end
   return transition, source, destination, swaps, sounds
-end
-
--- Run `n` fixed ticks.
-local function runTicks(transition, n)
-  for _ = 1, n do
-    step(transition)
-  end
 end
 
 -- One choreography tick: the transition advances first, then the door
@@ -1183,9 +1181,7 @@ function T.finish_does_not_touch_map_protection()
     { warp = { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0 } },
     "south"
   )
-  for _ = 1, 6 do
-    step(transition)
-  end
+  advanceTo(transition, "idle", 32)
   Assert.equal(transition.phase, "idle")
   Assert.isFalse(transition.locked)
   Assert.isNil(transition.error)
@@ -1220,7 +1216,7 @@ function T.generic_warps_keep_coordinate_suppression()
     makeTrigger("generic", { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }),
     "north"
   )
-  runTicks(transition, FADE + 1)
+  advanceTo(transition, "swap_map", 32)
   Assert.deepEqual(transition.suppression, { mapId = 60, fieldX = 684, fieldZ = 393 })
 end
 
@@ -1232,8 +1228,10 @@ function T.plain_warps_never_drive_the_player()
     makeTrigger("generic", { index = 0, x = 4, z = 14, destinationMapId = 60, destinationWarpId = 0, y = 0 }),
     "north"
   )
-  for _ = 1, 2 * FADE + 2 do
+  local ticks = 0
+  while transition.phase ~= "idle" and ticks < 32 do
     Assert.isFalse(step(transition), "a plain fade never reports locomotion")
+    ticks = ticks + 1
   end
   Assert.equal(#player.steps, 0)
   Assert.equal(player.updates, 0)
@@ -1311,7 +1309,7 @@ function T.plain_warps_never_play_the_stair_choreography()
     warp = DOOR_WARP,
     transition = { mode = "panel" },
   }, "north")
-  runTicks(transition, 2 * FADE + 2)
+  advanceTo(transition, "idle", 32)
   Assert.equal(transition.phase, "idle")
   Assert.equal(transition.sourceKind, "generic")
   Assert.deepEqual(sounds, {}, "plain warps play no stair sound")
@@ -1336,7 +1334,7 @@ function T.on_start_callback_fires_once_per_transition_start_before_ownership_ch
   -- Complete the first transition back to idle before starting a second one:
   -- the transition is single-flight, so a second start is legal only after
   -- the first runs its full fade cycle.
-  runTicks(transition, 2 * FADE + 2)
+  advanceTo(transition, "idle", 32)
   Assert.equal(transition.phase, "idle", "the completed transition returns to idle")
   transition:start(source, makeTrigger("generic", DOOR_WARP), "south")
   Assert.equal(starts, 2, "a second start fires the callback again")

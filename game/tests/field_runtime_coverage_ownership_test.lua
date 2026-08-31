@@ -283,10 +283,11 @@ function T.destination_preparation_failure_discards_only_the_staged_owner()
   })
 
   transition:start(source, { warp = { index = 0, destinationMapId = 60, destinationWarpId = 0 } }, "south")
-  for _ = 1, 4 do
-    transition:updateSourceFrame()
-    transition:updateSourceFrame()
+  local ticks = 0
+  while transition.phase ~= "idle" and ticks < 32 do
     transition:updateFixed()
+    transition:updateSourceFrame()
+    ticks = ticks + 1
   end
 
   Assert.equal(transition.phase, "idle")
