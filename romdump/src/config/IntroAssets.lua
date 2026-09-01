@@ -30,48 +30,6 @@ local IntroAssets = {
     screen = 3,
     palettes = { heartgold = 1, soulsilver = 2 },
   },
-  genderBackground = {
-    char = 32,
-    screen = 51,
-    palettes = { heartgold = 30, soulsilver = 31 },
-  },
-  genderChoiceBounds = {
-    male = { x = 18, y = 25, width = 93, height = 148 },
-    female = { x = 144, y = 25, width = 95, height = 148 },
-  },
-  profileConfirmation = {
-    palette = 33,
-    base = { char = 37, screen = 48 },
-    focus = { char = 42, screen = 50 },
-    genders = {
-      male = {
-        scrollX = 0x88,
-        yes = {
-          scrollY = 0,
-          bounds = { x = 138, y = 26, width = 115, height = 57 },
-          textBounds = { x = 136, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          scrollY = 0x1AF,
-          bounds = { x = 138, y = 108, width = 115, height = 56 },
-          textBounds = { x = 136, y = 128, width = 104, height = 24 },
-        },
-      },
-      female = {
-        scrollX = 0,
-        yes = {
-          scrollY = 0,
-          bounds = { x = 10, y = 26, width = 115, height = 57 },
-          textBounds = { x = 16, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          scrollY = 0x1AF,
-          bounds = { x = 10, y = 108, width = 115, height = 56 },
-          textBounds = { x = 16, y = 128, width = 104, height = 24 },
-        },
-      },
-    },
-  },
   oak = { char = 10, palette = 11, screen = 9 },
   gender = {
     male = { char = 12, palette = 16, screen = 9 },
@@ -83,7 +41,6 @@ local IntroAssets = {
       archive = "intro",
       animationIndex = 0,
       paletteOverride = 0,
-      sourceCenter = { x = 64, y = 104 },
       resourceResolution = resourceResolution,
     },
     female = {
@@ -91,7 +48,6 @@ local IntroAssets = {
       archive = "intro",
       animationIndex = 0,
       paletteOverride = 1,
-      sourceCenter = { x = 192, y = 104 },
       resourceResolution = resourceResolution,
     },
   },

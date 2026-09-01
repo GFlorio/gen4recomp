@@ -57,44 +57,16 @@ T.tests.every_critical_intro_widget_frame_is_visible_and_chromatic = function(co
   context = context -- capability is asserted by the runner
 end
 
-T.tests.gender_portrait_frames_have_source_pixels_and_centers = function()
+T.tests.gender_portrait_frames_have_source_pixels = function()
   local ready = 0
   for _, versionId in ipairs(GameVersion.ORDER) do
     if RomImporter.isReady(versionId) then
       ready = ready + 1
       local cache = CacheFs.forVersion(versionId)
       local manifest = assert(cache:loadLua("data/generated/intro/intro.lua"))
-      local centers = {
-        gender_male = { x = 64, y = 104 },
-        gender_female = { x = 192, y = 104 },
-      }
-      for widgetId, center in pairs(centers) do
+      for _, widgetId in ipairs({ "gender_male", "gender_female" }) do
         local widget = assert(manifest.widgets[widgetId], versionId .. " missing widget " .. widgetId)
-        Assert.deepEqual(widget.sourceCenter, center, versionId .. " " .. widgetId .. " source center")
         assertVisibleChromatic(cache, versionId, widgetId, widget)
-      end
-    end
-  end
-  Assert.isTrue(ready > 0, "derived-cache capability promised a ready game version")
-end
-
-T.tests.gender_card_backings_are_opaque = function()
-  local ready = 0
-  for _, versionId in ipairs(GameVersion.ORDER) do
-    if RomImporter.isReady(versionId) then
-      ready = ready + 1
-      local cache = CacheFs.forVersion(versionId)
-      local manifest = assert(cache:loadLua("data/generated/intro/intro.lua"))
-      local selector = assert(manifest.genderSelector)
-      for _, gender in ipairs({ "male", "female" }) do
-        local backing = assert(selector.buttons[gender].backing)
-        local bytes = assert(cache:read(backing.image), versionId .. " " .. gender .. " backing is missing")
-        local data = love.image.newImageData(love.filesystem.newFileData(bytes, backing.image))
-        for _, point in ipairs({ { 0, 0 }, { backing.width - 1, backing.height - 1 } }) do
-          local _, _, _, alpha = data:getPixel(point[1], point[2])
-          Assert.equal(alpha, 1, versionId .. " " .. gender .. " backing corner is opaque")
-        end
-        data:release()
       end
     end
   end

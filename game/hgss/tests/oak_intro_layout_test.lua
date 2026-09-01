@@ -21,7 +21,7 @@ end
 
 local function manifestWithWidth(sourceWidth)
   local data = {
-    schemaVersion = 6,
+    schemaVersion = 7,
     sourceReference = { width = sourceWidth, height = 192 },
     background = { width = sourceWidth, height = 192, sampling = "linear" },
     widgets = {
@@ -36,45 +36,6 @@ local function manifestWithWidth(sourceWidth)
   }
   data.widgets.ball_open.sourceCenter = { x = 160, y = 80 }
   data.widgets.marill.sourceCenter = { x = 160, y = 80 }
-  data.widgets.gender_male.sourceCenter = { x = 64, y = 104 }
-  data.widgets.gender_female.sourceCenter = { x = 192, y = 104 }
-  data.genderSelector = {
-    defaultTone = { r = 200, g = 200, b = 200 },
-    buttons = {
-      male = {
-        bounds = { x = 18, y = 25, width = 93, height = 148 },
-        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
-      },
-      female = {
-        bounds = { x = 144, y = 25, width = 95, height = 148 },
-        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
-      },
-    },
-  }
-  data.profileConfirmation = {
-    buttons = {
-      male = {
-        yes = {
-          bounds = { x = 138, y = 26, width = 115, height = 57 },
-          textBounds = { x = 136, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 138, y = 108, width = 115, height = 56 },
-          textBounds = { x = 136, y = 128, width = 104, height = 24 },
-        },
-      },
-      female = {
-        yes = {
-          bounds = { x = 10, y = 26, width = 115, height = 57 },
-          textBounds = { x = 16, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 10, y = 108, width = 115, height = 56 },
-          textBounds = { x = 16, y = 128, width = 104, height = 24 },
-        },
-      },
-    },
-  }
   return data
 end
 
@@ -264,22 +225,6 @@ function T.tests.gender_confirmation_keeps_only_the_static_selected_card()
   Assert.equal(layout.selectedProfileButton.key, "male")
   Assert.notNil(layout.confirmationButtons)
   Assert.isTrue(disjoint(layout.selectedProfileButton.button.rect, layout.confirmationButtons[0].button.rect))
-end
-
-function T.tests.gender_layout_does_not_depend_on_source_control_bounds()
-  local data = manifest()
-  local view = {
-    phase = "gender_select",
-    visual = "oak",
-    primaryWidget = "oak",
-    genderFocus = 0,
-    genderCompositionProgress = 1,
-  }
-  local first = OakIntroLayout.compute(800, 600, view, {}, data)
-  data.genderSelector.buttons.male.bounds = { x = 24, y = 30, width = 80, height = 140 }
-  data.genderSelector.buttons.female.hitBounds = { x = 144, y = 25, width = 1, height = 1 }
-  local second = OakIntroLayout.compute(800, 600, view, {}, data)
-  Assert.deepEqual(first.genderButtons, second.genderButtons)
 end
 
 function T.tests.name_confirmation_resolves_source_aspect_choice_without_selector_regions()

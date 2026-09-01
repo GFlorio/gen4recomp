@@ -301,8 +301,7 @@ function T.tests.gender_select_preserves_source_portraits_and_female_palette()
     Assert.isTrue(male.portraitRect.x > male.button.contentRect.x)
     Assert.isTrue(female.portraitRect.x > female.button.contentRect.x)
   end
-  -- Female palette comes from derived cache palette override, not host tint
-  -- gender selector widgets are gender_male / gender_female
+  -- Female palette comes from the derived source-backed portrait, not host tint.
   local selMale = manifest.widgets.gender_male
   local selFemale = manifest.widgets.gender_female
   Assert.notNil(selMale, "manifest gender_male missing")
@@ -316,7 +315,7 @@ function T.tests.gender_select_preserves_source_portraits_and_female_palette()
   Assert.isTrue(selFemale.height > 0 and selMale.height > 0, "selector dimensions present")
 end
 
-function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
+function T.tests.gender_focus_uses_host_rendered_blink_without_outline()
   local manifest = loadManifest()
   local ctrl = makeController(manifest)
   ctrl:start()
@@ -336,9 +335,8 @@ function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
   Assert.equal(ctrl:view().phase, "gender_select", "must reach gender_select")
   -- Focus blink contract: view should expose deterministic blink delta/timer
   local view0 = ctrl:view()
-  -- The focused selection uses sin(timer*10deg)*8 additive RGB555 delta
-  -- Unfocused uses default + gray. Timer resets on focus change.
-  -- Check view exposes blink state (implementation may expose delta or timer)
+  -- The selected control uses a deterministic blink delta. Timer resets on
+  -- focus change, while the portrait remains untinted.
   local hasBlink = view0.focusBlinkDelta ~= nil or view0.focusTimer ~= nil
   Assert.isTrue(hasBlink, "gender focus view must expose source blink timer or derived delta")
   -- Timer reset semantics: moving focus right must reset phase to zero

@@ -1,6 +1,6 @@
 -- Production Oak composition proofs against the real generated intro
 -- manifest: one responsive host scene at representative wide/tall drawable
--- sizes, gender selectors anchored from real cell-animation provenance, and
+-- sizes, host-rendered controls with source-backed portraits, and
 -- every generated ball/Marill animation frame free of corrupt/empty pixels.
 
 local Assert = require("tests.support.Assert")
@@ -82,8 +82,8 @@ T.tests.reveal_scene_is_one_surface_at_wide_and_tall_sizes = function()
 end
 
 -- gender selection uses the real generated manifest at wide and
--- tall sizes: regions are contained/disjoint and choices resolve through
--- generated cell-animation source centers, never a synthetic center anchor.
+-- tall sizes: regions are contained/disjoint and portraits remain sourced
+-- from generated cell-animation assets while their controls are host-native.
 T.tests.gender_selection_uses_the_production_manifest_at_representative_sizes = function()
   for _, entry in ipairs(readyManifests()) do
     for _, size in ipairs({ WIDE, TALL }) do

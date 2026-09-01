@@ -63,7 +63,7 @@ local function assertBallSource(bundle)
 end
 
 local function assertVariant(bundle, versionId, paletteMember)
-  Assert.equal(bundle.manifest.schemaVersion, 6)
+  Assert.equal(bundle.manifest.schemaVersion, 7)
   Assert.equal(bundle.manifest.variant, versionId)
   Assert.equal(sourceMember(bundle, "background:char"), 0)
   Assert.equal(sourceMember(bundle, "background:screen"), 3)
@@ -98,32 +98,14 @@ local function assertVariant(bundle, versionId, paletteMember)
   end
 end
 
-local function assertGenderSource(bundle, paletteMember)
+local function assertGenderSource(bundle)
   for _, id in ipairs({ "gender_male", "gender_female" }) do
     Assert.notNil(bundle.manifest.widgets[id], id .. " semantic selector is present")
     Assert.isTrue(#bundle.manifest.widgets[id].frames > 0, id .. " has visible frames")
     Assert.notNil(bundle.assets[bundle.manifest.widgets[id].frames[1].image], id .. " has image output")
   end
-  local selector = assert(bundle.manifest.genderSelector)
-  Assert.isNil(selector.neutral, "broad selector neutral surface is removed")
-  Assert.equal(sourceMember(bundle, "gender-selector:char"), 32)
-  Assert.equal(sourceMember(bundle, "gender-selector:screen"), 51)
-  Assert.equal(sourceMember(bundle, "gender-selector:palette"), paletteMember)
-  local choiceBounds = require("romdump.src.config.IntroAssets").genderChoiceBounds
-  for _, gender in ipairs({ "male", "female" }) do
-    local button = selector.buttons[gender]
-    local expected = choiceBounds[gender]
-    Assert.deepEqual(button.bounds, expected)
-    Assert.deepEqual(button.hitBounds, expected)
-    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
-      local surface = assert(button[kind])
-      Assert.equal(surface.width, expected.width)
-      Assert.equal(surface.height, expected.height)
-      local width, height = PngReader.rgba(assert(bundle.assets[surface.image]))
-      Assert.equal(width, expected.width)
-      Assert.equal(height, expected.height)
-    end
-  end
+  Assert.isNil(bundle.manifest.genderSelector)
+  Assert.isNil(bundle.manifest.profileConfirmation)
   for _, id in ipairs({ "gender_male", "gender_female" }) do
     for role, memberId in pairs({
       ["resdat-header"] = 78,
@@ -144,7 +126,7 @@ function T.both_variants_compile_the_correct_gradient(romFs, versionId)
   local first = assert(compiler().compile(romFs))
   local second = assert(compiler().compile(romFs))
   assertVariant(first, versionId, versionId == "heartgold" and 1 or 2)
-  assertGenderSource(first, versionId == "heartgold" and 30 or 31)
+  assertGenderSource(first)
   assertBallSource(first)
   Assert.equal(first.manifest.widgets.ball_open.sourceCenter.x, 160)
   Assert.equal(first.manifest.widgets.ball_open.sourceCenter.y, 80)
@@ -152,18 +134,6 @@ function T.both_variants_compile_the_correct_gradient(romFs, versionId)
   Assert.deepEqual(first.manifest, second.manifest, "same source produces deterministic manifest")
   Assert.deepEqual(first.dependencies, second.dependencies, "same source produces deterministic provenance")
   Assert.equal(payloadBytes(first), payloadBytes(second), "same source produces deterministic image bytes")
-end
-
-function T.gender_selector_backing_is_opaque_and_masks_are_bounded(romFs)
-  local bundle = assert(compiler().compile(romFs))
-  for _, gender in ipairs({ "male", "female" }) do
-    local backing = bundle.manifest.genderSelector.buttons[gender].backing
-    local width, height, rgba = PngReader.rgba(assert(bundle.assets[backing.image]))
-    for _, point in ipairs({ { 0, 0 }, { width - 1, 0 }, { 0, height - 1 }, { width - 1, height - 1 } }) do
-      local _, _, _, alpha = PngReader.pixel(rgba, width, point[1], point[2])
-      Assert.equal(alpha, 255, gender .. " backing corner is opaque")
-    end
-  end
 end
 
 function T.compiled_visuals_are_stable_semantic_widgets(romFs)

@@ -51,7 +51,7 @@ local function profileWidget(width, height, x, y)
 end
 
 local INTRO_MANIFEST = {
-  schemaVersion = 6,
+  schemaVersion = 7,
   sourceReference = { width = 256, height = 192 },
   background = { width = 1, height = 192, sampling = "linear" },
   widgets = {
@@ -66,14 +66,12 @@ local INTRO_MANIFEST = {
       height = 96,
       anchor = { x = 32, y = 48 },
       sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
-      sourceCenter = { x = 64, y = 104 },
     },
     gender_female = {
       width = 64,
       height = 96,
       anchor = { x = 32, y = 48 },
       sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
-      sourceCenter = { x = 192, y = 104 },
     },
     ball_open = {
       width = 40,
@@ -100,43 +98,6 @@ local INTRO_MANIFEST = {
     female = profileWidget(88, 116, 48, 28),
     shrink_male = profileWidget(44, 68, 142, 70),
     shrink_female = profileWidget(40, 64, 150, 72),
-  },
-  genderSelector = {
-    defaultTone = { r = 200, g = 200, b = 200 },
-    buttons = {
-      male = {
-        bounds = { x = 18, y = 25, width = 93, height = 148 },
-        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
-      },
-      female = {
-        bounds = { x = 144, y = 25, width = 95, height = 148 },
-        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
-      },
-    },
-  },
-  profileConfirmation = {
-    buttons = {
-      male = {
-        yes = {
-          bounds = { x = 138, y = 26, width = 115, height = 57 },
-          textBounds = { x = 136, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 138, y = 108, width = 115, height = 56 },
-          textBounds = { x = 136, y = 128, width = 104, height = 24 },
-        },
-      },
-      female = {
-        yes = {
-          bounds = { x = 10, y = 26, width = 115, height = 57 },
-          textBounds = { x = 16, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 10, y = 108, width = 115, height = 56 },
-          textBounds = { x = 16, y = 128, width = 104, height = 24 },
-        },
-      },
-    },
   },
 }
 

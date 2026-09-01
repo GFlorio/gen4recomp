@@ -249,6 +249,7 @@ end
 function T.tests.profile_choice_activation_uses_one_selection_effect_on_composed_paths()
   forEachReadyVersion(function(versionId)
     withProductionOak(versionId, { recordAudio = true }, function(state, _, _, trace)
+      advanceUntilMessage(state, "profile.gender_question")
       enterGenderSelection(state)
       local before = #trace
       state:keypressed("return")
@@ -273,6 +274,7 @@ function T.tests.profile_choice_activation_uses_one_selection_effect_on_composed
     end)
 
     withProductionOak(versionId, { recordAudio = true }, function(state, _, _, trace)
+      advanceUntilMessage(state, "profile.gender_question")
       enterGenderSelection(state)
       local before = #trace
       state:gamepadpressed({}, "a")
@@ -287,6 +289,7 @@ function T.tests.profile_choice_activation_uses_one_selection_effect_on_composed
     end)
 
     withProductionOak(versionId, { recordAudio = true }, function(state, _, _, trace)
+      advanceUntilMessage(state, "profile.gender_question")
       enterGenderSelection(state)
       local buttons = assert(state:view().layout.genderButtons)
       local female = assert(buttons[1])
